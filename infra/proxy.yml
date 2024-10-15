@@ -23,7 +23,7 @@ services:
       # Dashboard
       - traefik.http.routers.traefik.rule=Host(`traefik.lilnas.io`)
       - traefik.http.routers.traefik.service=api@internal
-      - traefik.http.routers.traefik.middlewares=admin
+      # - traefik.http.routers.traefik.middlewares=admin
       - traefik.http.routers.traefik.tls.certresolver=le
       - traefik.http.routers.traefik.entrypoints=websecure
       # - traefik.http.middlewares.admin.basicauth.users=${DASHBOARD_USER}:${DASHBOARD_PASS}
