@@ -16,7 +16,7 @@ services:
     restart: always
     labels:
       - traefik.enable=true
-      - traefik.http.services.immich.loadbalancer.server.port=3001
+      - traefik.http.services.immich.loadbalancer.server.port=2283
       - traefik.http.routers.immich.rule=Host(`immich.lilnas.io`)
       - traefik.http.routers.immich.entrypoints=websecure
       - traefik.http.routers.immich.tls.certresolver=le
