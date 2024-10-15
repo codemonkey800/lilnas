@@ -1,0 +1,70 @@
+services:
+  sonarr:
+    image: lscr.io/linuxserver/sonarr
+    restart: unless-stopped
+    environment:
+      PUID: 1000
+      PGUID: 1000
+      TZ: America/Los_Angeles
+    volumes:
+      - ../media/sonarr:/config
+      - ../media/tv:/tv
+      - ../media/downloads:/downloads
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.sonarr.loadbalancer.server.port=8989
+      - traefik.http.routers.sonarr.rule=Host(`sonarr.lilnas.io`)
+      - traefik.http.routers.sonarr.entrypoints=websecure
+      - traefik.http.routers.sonarr.tls.certresolver=le
+
+  radarr:
+    image: lscr.io/linuxserver/radarr
+    restart: unless-stopped
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: America/Los_Angeles
+    volumes:
+      - ../media/radarr:/config
+      - ../media/movies:/movies
+      - ../media/downloads:/downloads
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.radarr.loadbalancer.server.port=7878
+      - traefik.http.routers.radarr.rule=Host(`radarr.lilnas.io`)
+      - traefik.http.routers.radarr.entrypoints=websecure
+      - traefik.http.routers.radarr.tls.certresolver=le
+
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd
+    restart: unless-stopped
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: America/Los_Angeles
+    volumes:
+      - ../media/sabnzbd:/config
+      - ../media/downloads:/downloads
+      - ../media/incomplete-downloads:/incomplete-downloads
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.sabnzbd.loadbalancer.server.port=8080
+      - traefik.http.routers.sabnzbd.rule=Host(`sabnzbd.lilnas.io`)
+      - traefik.http.routers.sabnzbd.entrypoints=websecure
+      - traefik.http.routers.sabnzbd.tls.certresolver=le
+
+  emby:
+    image: emby/embyserver
+    volumes:
+      - ../media/emby:/config # Configuration directory
+      - ../media/tv:/tv # Media directory
+      - ../media/movies:/movies # Media directory
+    devices:
+      - /dev/dri:/dev/dri # VAAPI/NVDEC/NVENC render nodes
+    restart: on-failure
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.emby.loadbalancer.server.port=8096
+      - traefik.http.routers.emby.rule=Host(`emby.lilnas.io`)
+      - traefik.http.routers.emby.entrypoints=websecure
+      - traefik.http.routers.emby.tls.certresolver=le

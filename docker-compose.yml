@@ -1,0 +1,6 @@
+include:
+  - ./infra/dev.yml
+  - ./infra/immich.yml
+  - ./infra/media.yml
+  # - ./infra/minecraft.yml
+  - ./infra/proxy.yml

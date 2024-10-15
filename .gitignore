@@ -1,0 +1,8 @@
+.cache/
+.env
+code-server/
+immich/
+letsencrypt/
+media/
+minecraft/
+node_modules/
