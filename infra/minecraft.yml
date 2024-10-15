@@ -1,0 +1,19 @@
+services:
+  minecraft:
+    image: itzg/minecraft-server:java8
+    tty: true
+    stdin_open: true
+    restart: unless-stopped
+
+    ports:
+      - 25565:25565
+
+    environment:
+      VERSION: 1.12.2
+      TYPE: AUTO_CURSEFORGE
+      EULA: TRUE
+      CF_SLUG: sevtech-ages
+      CF_API_KEY: '$$2a$$10$$KsGznF2XwmjdbLQsyiJEPuTs5mMpYSsJtmKK0yuNTeMYh9eOb6sqG'
+
+    volumes:
+      - ../minecraft/data:/data
