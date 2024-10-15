@@ -14,6 +14,7 @@ services:
 
   files:
     image: svenstaro/miniserve
+    command: /tmp
     volumes:
       - ../miniserve:/tmp
     restart: on-failure
