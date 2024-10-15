@@ -11,3 +11,15 @@ services:
       - traefik.http.routers.code-server.rule=Host(`code.lilnas.io`)
       - traefik.http.routers.code-server.entrypoints=websecure
       - traefik.http.routers.code-server.tls.certresolver=le
+
+  files:
+    image: svenstaro/miniserve
+    volumes:
+      - ../miniserve:/tmp
+    restart: on-failure
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.code-server.loadbalancer.server.port=8080
+      - traefik.http.routers.code-server.rule=Host(`files.lilnas.io`)
+      - traefik.http.routers.code-server.entrypoints=websecure
+      - traefik.http.routers.code-server.tls.certresolver=le
