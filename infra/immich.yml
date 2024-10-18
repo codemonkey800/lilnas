@@ -1,4 +1,12 @@
 services:
+  icloud-backup:
+    image: icloudpd/icloudpd
+    command: icloudpd --directory /icloud --username jeremyasuncion808@gmail.com --watch-with-interval 86400 --mfa-provider webui --password-provider webui
+    environment:
+      TZ: America/Los_Angeles
+    volumes:
+      - /mnt/ssd1/icloud:/icloud
+
   immich:
     image: ghcr.io/immich-app/immich-server:release
     # extends:
