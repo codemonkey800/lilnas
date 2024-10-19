@@ -3,7 +3,6 @@ services:
     image: traefik
     command:
       - --api
-      - --api.insecure=true
       - --api.dashboard=true
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
@@ -23,15 +22,28 @@ services:
       # Dashboard
       - traefik.http.routers.traefik.rule=Host(`traefik.lilnas.io`)
       - traefik.http.routers.traefik.service=api@internal
-      # - traefik.http.routers.traefik.middlewares=admin
       - traefik.http.routers.traefik.tls.certresolver=le
       - traefik.http.routers.traefik.entrypoints=websecure
-      # - traefik.http.middlewares.admin.basicauth.users=${DASHBOARD_USER}:${DASHBOARD_PASS}
-      # - traefik.http.routers.traefik.middlewares=authtraefik
-      # - traefik.http.middlewares.authtraefik.basicauth.users=devAdmin:$$2y$$05$$h9OxLeY20/5uiXjfPgdRxuFlrfqBf2QifYDgrwsR6rAEgX3/dpOGq # user:devAdmin, password:devto
+      - traefik.http.routers.traefik.middlewares=forward-auth
       # global redirect to https
       - traefik.http.routers.http-catchall.rule=hostregexp(`{host:.+}`)
       - traefik.http.routers.http-catchall.entrypoints=web
       - traefik.http.routers.http-catchall.middlewares=redirect-to-https
       # middleware redirect
       - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+
+  traefik-forward-auth:
+    image: thomseddon/traefik-forward-auth:2.1.0
+    env_file:
+      - .env
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.auth.rule=Host(`auth.lilnas.io`)
+      - traefik.http.routers.auth.entrypoints=websecure
+      - traefik.http.routers.auth.tls.certresolver=le
+      - traefik.http.routers.auth.service=auth@docker
+      - traefik.http.services.auth.loadbalancer.server.port=4181
+      - traefik.http.middlewares.forward-auth.forwardauth.address=http://traefik-forward-auth:4181
+      - traefik.http.middlewares.forward-auth.forwardauth.trustForwardHeader=true
+      - traefik.http.middlewares.forward-auth.forwardauth.authResponseHeaders=X-Forwarded-User
+      - traefik.http.routers.auth.middlewares=forward-auth
