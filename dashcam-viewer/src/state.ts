@@ -35,6 +35,8 @@ export const videoUrlsAtom = loadable(
         return ''
       }
 
+      console.log('breh', file.name)
+
       return URL.createObjectURL(await file.getFile())
     }
 
@@ -43,8 +45,6 @@ export const videoUrlsAtom = loadable(
       getVideoUrlByType(VideoType.Front),
       getVideoUrlByType(VideoType.Rear),
     ])
-
-    console.log('breh', { cabin, front, rear })
 
     return { cabin, front, rear }
   }),
