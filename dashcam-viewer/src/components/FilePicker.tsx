@@ -14,12 +14,28 @@ export function FilePicker() {
 
       <Button
         onClick={async () => {
-          const dir = await window.showDirectoryPicker()
+          const dirs = [await window.showDirectoryPicker()]
           const files: FileSystemFileHandle[] = []
 
-          for await (const [, file] of dir.entries()) {
-            if (file.kind === 'file') {
-              files.push(file)
+          while (dirs.length > 0) {
+            const dir = dirs.pop()
+
+            if (!dir) {
+              continue
+            }
+
+            for await (const [, file] of dir.entries()) {
+              if (file.name.startsWith('.')) {
+                continue
+              }
+
+              if (file.kind === 'file') {
+                if (file.name.includes('.MP4')) {
+                  files.push(file)
+                }
+              } else {
+                dirs.push(file)
+              }
             }
           }
 
