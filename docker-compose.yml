@@ -1,4 +1,5 @@
 include:
+  - ./infra/apps.yml
   - ./infra/dev.yml
   - ./infra/immich.yml
   - ./infra/media.yml

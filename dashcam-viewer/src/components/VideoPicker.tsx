@@ -59,8 +59,8 @@ export function VideoPicker() {
             {filesByDay
               .get(groupKey)
               ?.filter(file => {
-                const files = filesByDay.get(groupKey)
-                const date = getVideoDate(file.name)
+                // const files = filesByDay.get(groupKey)
+                // const date = getVideoDate(file.name)
 
                 return file.name.endsWith('_A.MP4')
               })

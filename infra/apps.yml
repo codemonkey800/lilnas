@@ -1,0 +1,8 @@
+services:
+  dashcam:
+    build: ../dashcam-viewer
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.dashcam.rule=Host(`dashcam.lilnas.io`)
+      - traefik.http.routers.dashcam.entrypoints=websecure
+      - traefik.http.routers.dashcam.tls.certresolver=le
