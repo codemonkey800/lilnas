@@ -2,10 +2,8 @@ services:
   traefik:
     image: traefik
     command:
-      - --api
-      - --api.dashboard=true
+      - --api=true
       - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --certificatesresolvers.le.acme.tlschallenge=true
@@ -18,26 +16,38 @@ services:
       - ../letsencrypt:/letsencrypt
       - /var/run/docker.sock:/var/run/docker.sock:ro
     labels:
-      - traefik.enable=true
       # Dashboard
       - traefik.http.routers.traefik.rule=Host(`traefik.lilnas.io`)
       - traefik.http.routers.traefik.service=api@internal
       - traefik.http.routers.traefik.tls.certresolver=le
       - traefik.http.routers.traefik.entrypoints=websecure
       - traefik.http.routers.traefik.middlewares=forward-auth
+
       # global redirect to https
       - traefik.http.routers.http-catchall.rule=hostregexp(`{host:.+}`)
       - traefik.http.routers.http-catchall.entrypoints=web
       - traefik.http.routers.http-catchall.middlewares=redirect-to-https
-      # middleware redirect
+
+      # middleware redirect http -> https
       - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true
+
+      # sts middleware
+      - traefik.http.middlewares.servicestls.headers.stsincludesubdomains=false
+      - traefik.http.middlewares.servicestls.headers.stspreload=true
+      - traefik.http.middlewares.servicestls.headers.stsseconds=15552001
+      - traefik.http.middlewares.servicestls.headers.isdevelopment=false
+
+      # https proto
+      - 'traefik.http.middlewares.testHeader.headers.customrequestheaders.X-Forwarded-Proto=https'
+      - 'traefik.http.middlewares.testHeader.headers.framedeny=true'
+      - 'traefik.http.middlewares.testHeader.headers.sslredirect=true'
 
   traefik-forward-auth:
     image: thomseddon/traefik-forward-auth:2.1.0
     env_file:
       - .env
     labels:
-      - traefik.enable=true
       - traefik.http.routers.auth.rule=Host(`auth.lilnas.io`)
       - traefik.http.routers.auth.entrypoints=websecure
       - traefik.http.routers.auth.tls.certresolver=le
