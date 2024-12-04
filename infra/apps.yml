@@ -2,7 +2,6 @@ services:
   dashcam:
     build: ../dashcam-viewer
     labels:
-      - traefik.enable=true
       - traefik.http.routers.dashcam.rule=Host(`dashcam.lilnas.io`)
       - traefik.http.routers.dashcam.entrypoints=websecure
       - traefik.http.routers.dashcam.tls.certresolver=le
@@ -16,7 +15,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     labels:
       # Frontend
-      - traefik.enable=true
       - traefik.http.services.frontend.loadbalancer.server.port=9000
       - traefik.http.routers.frontend.service=frontend
       - traefik.http.routers.frontend.rule=Host(`portainer.lilnas.io`)
@@ -30,3 +28,14 @@ services:
       - traefik.http.routers.edge.rule=Host(`edge.lilnas.io`)
       - traefik.http.routers.edge.entrypoints=websecure
       - traefik.http.routers.edge.tls.certresolver=le
+
+  owncast:
+    image: owncast/owncast
+    restart: unless-stopped
+    ports:
+      - 1935:1935
+    labels:
+      - traefik.http.routers.owncast.rule=Host(`stream.lilnas.io`)
+      - traefik.http.routers.owncast.entrypoints=websecure
+      - traefik.http.routers.owncast.tls.certresolver=le
+      - traefik.http.services.owncast.loadbalancer.server.port=8080

@@ -11,7 +11,6 @@ services:
       - ../media/tv:/tv
       - ../media/downloads:/downloads
     labels:
-      - traefik.enable=true
       - traefik.http.services.sonarr.loadbalancer.server.port=8989
       - traefik.http.routers.sonarr.rule=Host(`sonarr.lilnas.io`)
       - traefik.http.routers.sonarr.entrypoints=websecure
@@ -29,7 +28,6 @@ services:
       - ../media/movies:/movies
       - ../media/downloads:/downloads
     labels:
-      - traefik.enable=true
       - traefik.http.services.radarr.loadbalancer.server.port=7878
       - traefik.http.routers.radarr.rule=Host(`radarr.lilnas.io`)
       - traefik.http.routers.radarr.entrypoints=websecure
@@ -47,7 +45,6 @@ services:
       - ../media/downloads:/downloads
       - ../media/incomplete-downloads:/incomplete-downloads
     labels:
-      - traefik.enable=true
       - traefik.http.services.sabnzbd.loadbalancer.server.port=8080
       - traefik.http.routers.sabnzbd.rule=Host(`sabnzbd.lilnas.io`)
       - traefik.http.routers.sabnzbd.entrypoints=websecure
@@ -63,7 +60,6 @@ services:
       - /dev/dri:/dev/dri # VAAPI/NVDEC/NVENC render nodes
     restart: on-failure
     labels:
-      - traefik.enable=true
       - traefik.http.services.emby.loadbalancer.server.port=8096
       - traefik.http.routers.emby.rule=Host(`emby.lilnas.io`)
       - traefik.http.routers.emby.entrypoints=websecure
