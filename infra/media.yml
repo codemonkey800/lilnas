@@ -52,6 +52,7 @@ services:
 
   emby:
     image: emby/embyserver
+    restart: unless-stopped
     volumes:
       - ../media/emby:/config # Configuration directory
       - ../media/tv:/tv # Media directory
