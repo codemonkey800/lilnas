@@ -27,8 +27,8 @@ export async function getAppHosts() {
     .map(container => container.data as ContainerData)
 
   const hosts = runningContainers
-    .map(container =>
-      Object.values(container.Labels).find(label => HOST_REGEX.test(label)),
+    .flatMap(container =>
+      Object.values(container.Labels).filter(label => HOST_REGEX.test(label)),
     )
     .filter(isDefined)
     .map(host => HOST_REGEX.exec(host)?.at(1))
