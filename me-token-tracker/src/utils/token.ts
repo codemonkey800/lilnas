@@ -16,7 +16,7 @@ export async function getMagicEdenTokenPrice() {
 }
 
 export async function setTokenPriceActivity(client: Client, price: number) {
-  client.user?.setActivity(`ME $${price}`, {
+  client.user?.setActivity(`$${price}`, {
     type: ActivityType.Custom,
   })
 }
