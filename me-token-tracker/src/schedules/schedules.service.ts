@@ -16,6 +16,8 @@ export class SchedulesService {
       this.logger.log({
         info: 'No guilds found, skipping setting price activity',
       })
+
+      return
     }
 
     const price = await getMagicEdenTokenPrice()
