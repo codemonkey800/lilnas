@@ -5,6 +5,7 @@ import { IntentsBitField } from 'discord.js'
 import { NecordModule } from 'necord'
 import { LoggerModule } from 'nestjs-pino'
 
+import { AppUpdate } from './app.update'
 import { CommandsModule } from './commands/commands.module'
 import { SchedulesModule } from './schedules/schedules.module'
 import { env } from './utils/env'
@@ -28,5 +29,7 @@ import { env } from './utils/env'
     // Sets up scheduled functions
     SchedulesModule,
   ],
+
+  providers: [AppUpdate],
 })
 export class AppModule {}
