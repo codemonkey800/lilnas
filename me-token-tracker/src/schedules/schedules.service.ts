@@ -12,6 +12,12 @@ export class SchedulesService {
 
   @Cron('* * * * *')
   async updatePriceStatus() {
+    if (this.client.guilds.cache.size === 0) {
+      this.logger.log({
+        info: 'No guilds found, skipping setting price activity',
+      })
+    }
+
     const price = await getMagicEdenTokenPrice()
 
     this.logger.log({ info: 'Updating price status', price })
