@@ -12,18 +12,36 @@ export class AppUpdate {
 
   @Once('ready')
   async onReady(@Context() [client]: ContextOf<'ready'>) {
-    const price = await getMagicEdenTokenPrice()
-
     this.logger.log({
-      info: 'ME token tracker bot initialized, setting price activity',
-      price,
+      info: 'ME token tracker bot initialized',
     })
 
     if (client.guilds.cache.size === 0) {
       this.logger.log({
         info: 'No guilds found, skipping setting price activity',
       })
+
+      return
     }
+
+    const price = await getMagicEdenTokenPrice()
+
+    this.logger.log({
+      info: 'Setting initial price activity',
+      price,
+    })
+
+    setTokenPriceActivity(client, price)
+  }
+
+  @Once('guildCreate')
+  async onJoinGuild(@Context() [client]: ContextOf<'ready'>) {
+    const price = await getMagicEdenTokenPrice()
+
+    this.logger.log({
+      info: 'Joined a new guild, setting initial price activity',
+      price,
+    })
 
     setTokenPriceActivity(client, price)
   }
