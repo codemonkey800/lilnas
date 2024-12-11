@@ -59,7 +59,6 @@ services:
       - ../media/movies:/movies # Media directory
     devices:
       - /dev/dri:/dev/dri # VAAPI/NVDEC/NVENC render nodes
-    restart: on-failure
     labels:
       - traefik.http.services.emby.loadbalancer.server.port=8096
       - traefik.http.routers.emby.rule=Host(`emby.lilnas.io`)

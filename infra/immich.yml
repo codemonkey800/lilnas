@@ -13,7 +13,7 @@ services:
     depends_on:
       - immich-redis
       - immich-database
-    restart: always
+    restart: unless-stopped
     labels:
       - traefik.http.services.immich.loadbalancer.server.port=2283
       - traefik.http.routers.immich.rule=Host(`immich.lilnas.io`)
@@ -30,13 +30,13 @@ services:
       - ../immich/model-cache:/cache
     env_file:
       - .env
-    restart: always
+    restart: unless-stopped
 
   immich-redis:
     image: docker.io/redis:6.2-alpine@sha256:2d1463258f2764328496376f5d965f20c6a67f66ea2b06dc42af351f75248792
     healthcheck:
       test: redis-cli ping || exit 1
-    restart: always
+    restart: unless-stopped
 
   immich-database:
     image: docker.io/tensorchord/pgvecto-rs:pg14-v0.2.0@sha256:90724186f0a3517cf6914295b5ab410db9ce23190a2d9d0b9dd6463e3fa298f0
@@ -68,4 +68,4 @@ services:
         '-c',
         'wal_compression=on',
       ]
-    restart: always
+    restart: unless-stopped
