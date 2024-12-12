@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { Client } from 'discord.js'
 
-import { StatusService } from 'src/status.service'
+import { StatusService } from 'src/services/status.service'
 
 @Injectable()
 export class SchedulesService {
