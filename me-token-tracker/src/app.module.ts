@@ -5,14 +5,13 @@ import { IntentsBitField } from 'discord.js'
 import { NecordModule } from 'necord'
 import { LoggerModule } from 'nestjs-pino'
 
-import { AppUpdate } from './app.update'
-import { CommandsModule } from './commands/commands.module'
+import { AppEventsService } from './app-events.service'
 import { SchedulesModule } from './schedules/schedules.module'
+import { StatusService } from './status.service'
 import { env } from './utils/env'
 
 @Module({
   imports: [
-    CommandsModule,
     EventEmitterModule.forRoot(),
     LoggerModule.forRoot(),
     NecordModule.forRoot({
@@ -30,6 +29,6 @@ import { env } from './utils/env'
     SchedulesModule,
   ],
 
-  providers: [AppUpdate],
+  providers: [AppEventsService, StatusService],
 })
 export class AppModule {}
