@@ -5,9 +5,9 @@ import { IntentsBitField } from 'discord.js'
 import { NecordModule } from 'necord'
 import { LoggerModule } from 'nestjs-pino'
 
-import { AppEventsService } from './app-events.service'
-import { SchedulesModule } from './schedules/schedules.module'
-import { StatusService } from './status.service'
+import { AppEventsService } from './services/app-events.service'
+import { SchedulesService } from './services/schedules.service'
+import { StatusService } from './services/status.service'
 import { env } from './utils/env'
 
 @Module({
@@ -25,10 +25,8 @@ import { env } from './utils/env'
     // Sets up scheduling logic:
     // https://docs.nestjs.com/techniques/task-scheduling
     ScheduleModule.forRoot(),
-    // Sets up scheduled functions
-    SchedulesModule,
   ],
 
-  providers: [AppEventsService, StatusService],
+  providers: [AppEventsService, StatusService, SchedulesService],
 })
 export class AppModule {}

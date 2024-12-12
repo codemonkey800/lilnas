@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ActivityType, Client } from 'discord.js'
 
-import { getMagicEdenTokenPrice } from './utils/token'
+import { getMagicEdenTokenPrice } from 'src/utils/token'
 
 @Injectable()
 export class StatusService {
