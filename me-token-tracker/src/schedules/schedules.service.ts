@@ -2,13 +2,16 @@ import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { Client } from 'discord.js'
 
-import { getMagicEdenTokenPrice, setTokenPriceActivity } from 'src/utils/token'
+import { StatusService } from 'src/status.service'
 
 @Injectable()
 export class SchedulesService {
   private readonly logger = new Logger(SchedulesService.name)
 
-  constructor(private readonly client: Client) {}
+  constructor(
+    private readonly client: Client,
+    private readonly status: StatusService,
+  ) {}
 
   @Cron('* * * * *')
   async updatePriceStatus() {
@@ -20,10 +23,6 @@ export class SchedulesService {
       return
     }
 
-    const price = await getMagicEdenTokenPrice()
-
-    this.logger.log({ info: 'Updating price status', price })
-
-    await setTokenPriceActivity(this.client, price)
+    this.status.update()
   }
 }
