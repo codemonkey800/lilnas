@@ -32,8 +32,9 @@ export const INPUT_FORMAT = dedent`
 `
 
 export const OUTPUT_FORMAT = dedent`
-  Every response should be in JSON format. Do not embed in code blocks. It
-  should be raw JSON. The structure of the JSON object should be as follows:
+  Every response should be in JSON format. Do not embed in code blocks. The JSON
+  should be minified and not include new lines. It should be raw JSON. The
+  structure of the JSON object should be as follows:
 
   {
     content: string,
