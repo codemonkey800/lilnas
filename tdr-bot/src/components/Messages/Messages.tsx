@@ -1,26 +1,18 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 
 import { ApiClient } from 'src/api/api.client'
-import { MessageState } from 'src/api/api.types'
 
 import { MessageCard } from './MessageCard'
 
+const apiClient = ApiClient.getInstance()
+
 export async function Messages() {
-  const [messages, setMessages] = useState<MessageState[]>([])
-
-  useEffect(() => {
-    async function fetchMessages() {
-      const apiClient = ApiClient.getInstance()
-      const nextMessages = await apiClient.getMessages()
-      setMessages(nextMessages)
-    }
-
-    fetchMessages()
-
-    const intervalId = window.setInterval(fetchMessages, 2000)
-    return () => window.clearInterval(intervalId)
+  const { data: messages = [] } = useQuery({
+    queryKey: ['messages'],
+    queryFn: () => apiClient.getMessages(),
+    refetchInterval: 2000,
   })
 
   return (
