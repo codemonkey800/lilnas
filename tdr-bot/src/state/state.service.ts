@@ -1,7 +1,6 @@
 import { BaseMessage, SystemMessage } from '@langchain/core/messages'
 import { Injectable } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
-import dedent from 'dedent'
 import { ChatModel } from 'openai/resources/index'
 
 import {
@@ -58,22 +57,11 @@ export class StateService {
 
   getPrompt(): BaseMessage[] {
     return [
-      new SystemMessage(dedent`
-        # Prompt Intro
-        ${PROMPT_INTRO}
-
-        # Input Format
-        ${INPUT_FORMAT}
-
-        # Output Format
-        ${OUTPUT_FORMAT}
-
-        # Prompt
-        ${this.state.prompt}
-
-        # Emoji Dictionary
-        ${EMOJI_DICTIONARY}
-      `),
+      new SystemMessage(PROMPT_INTRO),
+      new SystemMessage(INPUT_FORMAT),
+      new SystemMessage(OUTPUT_FORMAT),
+      new SystemMessage(this.state.prompt),
+      new SystemMessage(EMOJI_DICTIONARY),
     ]
   }
 }
