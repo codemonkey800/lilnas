@@ -65,8 +65,8 @@ services:
     env_file:
       - .env.tdr-bot
     labels:
-      - traefik.http.routers.apps.rule=Host(`tdr.lilnas.io`)
-      - traefik.http.routers.apps.entrypoints=websecure
-      - traefik.http.routers.apps.tls.certresolver=le
-      - traefik.http.routers.apps.middlewares=forward-auth
-      - traefik.http.services.apps.loadbalancer.server.port=8080
+      - traefik.http.routers.tdr.rule=Host(`tdr.lilnas.io`)
+      - traefik.http.routers.tdr.entrypoints=websecure
+      - traefik.http.routers.tdr.tls.certresolver=le
+      - traefik.http.routers.tdr.middlewares=forward-auth
+      - traefik.http.services.tdr.loadbalancer.server.port=8080
