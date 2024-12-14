@@ -17,6 +17,8 @@ export async function Messages() {
       setMessages(nextMessages)
     }
 
+    fetchMessages()
+
     const intervalId = window.setInterval(fetchMessages, 2000)
     return () => window.clearInterval(intervalId)
   })
@@ -24,7 +26,10 @@ export async function Messages() {
   return (
     <div className="flex flex-col gap-4">
       {messages.map((message) => (
-        <MessageCard key={JSON.stringify(message.content)} message={message} />
+        <MessageCard
+          key={message.id ?? JSON.stringify(message.content)}
+          message={message}
+        />
       ))}
     </div>
   )
