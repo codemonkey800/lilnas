@@ -8,6 +8,7 @@ dotenv.config({ path: path.resolve(__dirname, '.env') })
 interface Emoji {
   id: string
   name: string
+  animated: boolean
 }
 
 async function main() {
@@ -27,6 +28,7 @@ async function main() {
         emojis.push({
           id: emoji.id,
           name: emoji.name ?? 'no',
+          animated: emoji.animated ?? false,
         })
       } else {
         console.log(`emoji ${emoji.id} has no name`)
