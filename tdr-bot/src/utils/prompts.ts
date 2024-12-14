@@ -53,9 +53,9 @@ export const OUTPUT_FORMAT = dedent`
 `
 
 export const EMOJI_DICTIONARY = dedent`
-  Try to use TDR emojis as much as possible. The dictionary is defined below.
-  The keys for the JSON below is the ID of the emoji, and the value is the
-  description. Using the description, send the correct emoji using the ID.
+  Use only TDR emojis in the dictionary below.  The keys is the ID of the emoji,
+  and the value is the description. Using the description, send the correct
+  emoji.
 
   ${JSON.stringify(emojis, null, 2)}
 `
