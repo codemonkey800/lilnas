@@ -68,11 +68,11 @@ export class StateService {
         # Output Format
         ${OUTPUT_FORMAT}
 
-        # Emoji Dictionary
-        ${EMOJI_DICTIONARY}
-
         # Prompt
         ${this.state.prompt}
+
+        # Emoji Dictionary
+        ${EMOJI_DICTIONARY}
       `),
     ]
   }
