@@ -53,27 +53,11 @@ export const OUTPUT_FORMAT = dedent`
 `
 
 export const EMOJI_DICTIONARY = dedent`
-  When using an emoji, reference the emoji dictionary below. The dictionary has the following format:
+  Try to use TDR emojis as much as possible. The dictionary is defined below.
+  The keys for the JSON below is the ID of the emoji, and the value is the
+  description. Using the description, send the correct emoji using the ID.
 
-  [
-    {
-      id: string,
-      name: string,
-      description: string
-    }
-  ]
-
-  When using an emoji, the format should be as follows:
-
-  <:$id:$name>
-
-  Where $id and $name correspond to the object properties for an emoji. For
-  example, if you want to use the HYPERS emoji, it should look like this:
-
-  <:HYPERS:564310072822333480>
-
-  The full list of emojis are defined here:
-  ${JSON.stringify(emojis)}
+  ${JSON.stringify(emojis, null, 2)}
 `
 
 export const KAWAII_PROMPT = dedent`
