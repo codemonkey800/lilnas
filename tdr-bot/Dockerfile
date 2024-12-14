@@ -44,9 +44,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder /app/dist /app/dist
 
+
+RUN corepack enable pnpm && pnpm install npm-run-all
+
 # server.js is created by next build from the standalone output
 # https://nextjs.org/docs/pages/api-reference/next-config-js/output
 ENV HOSTNAME="0.0.0.0"
 ENV PORT=8080
 EXPOSE 8080
-CMD ["node", "server.js"]
+CMD ["pnpm", "start"]

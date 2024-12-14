@@ -15,7 +15,7 @@
     "lint": "eslint src",
     "start": "run-p start:*",
     "start:backend": "NODE_ENV=production node dist/main",
-    "start:frontend": "next start -p 8080",
+    "start:frontend": "NODE_ENV=production node server",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
