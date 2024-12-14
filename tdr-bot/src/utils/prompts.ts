@@ -54,11 +54,11 @@ export const OUTPUT_FORMAT = dedent`
 `
 
 export const EMOJI_DICTIONARY = dedent`
-  Use only TDR emojis in the dictionary below.  The keys is the ID of the emoji,
-  and the value is the description. Using the description, send the correct
-  emoji.
+  The emoji dictionary is defined in the below JSON with the following format
+  where the key is the ID of the emoji and the value is a description of what
+  the emoji means. Using the description, send the correct emoji using the ID.
 
-  ${JSON.stringify(emojis, null, 2)}
+  ${JSON.stringify(emojis)}
 `
 
 export const KAWAII_PROMPT = dedent`
