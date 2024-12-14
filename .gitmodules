@@ -1,4 +1,0 @@
-[submodule "tdr-bot"]
-	path = tdr-bot
-	url = https://github.com/codemonkey800/tdr-bot.git
-	branch = v3
