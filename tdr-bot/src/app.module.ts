@@ -6,6 +6,7 @@ import { NecordModule } from 'necord'
 import { LoggerModule } from 'nestjs-pino'
 
 import { ApiModule } from './api/api.module'
+import { AppEventsService } from './app-events.service'
 import { CommandsModule } from './commands/commands.module'
 import { MessageHandlerModule } from './message-handler/message-handler.module'
 import { SchedulesModule } from './schedules/schedules.module'
@@ -25,6 +26,8 @@ import { env } from './utils/env'
         IntentsBitField.Flags.GuildMessages,
         IntentsBitField.Flags.Guilds,
         IntentsBitField.Flags.MessageContent,
+        IntentsBitField.Flags.GuildMembers,
+        IntentsBitField.Flags.DirectMessages,
       ],
     }),
     // Sets up scheduling logic:
@@ -33,5 +36,7 @@ import { env } from './utils/env'
     // Sets up scheduled functions
     SchedulesModule,
   ],
+
+  providers: [AppEventsService],
 })
 export class AppModule {}
