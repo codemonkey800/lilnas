@@ -52,6 +52,8 @@ export const OUTPUT_FORMAT = dedent`
   \`url\`, \`title\`, and \`description\` field. If there are no images to
   display, the \`images\` field should be an empty array. The images field
   will only have images if the user asks to generate an image.
+
+  When adding links, do not use EMOJIs for the description.
 `
 
 export const EMOJI_DICTIONARY = dedent`
