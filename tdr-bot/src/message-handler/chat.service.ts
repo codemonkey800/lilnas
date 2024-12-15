@@ -34,7 +34,7 @@ export class ChatService extends BaseMessageHandlerService {
 
   private startBotTyping(message: Message) {
     const sendTyping = async () => {
-      if (++this.sendTypingCount > MAX_SEND_TYPING_COUNT) {
+      if (this.sendTypingCount > MAX_SEND_TYPING_COUNT) {
         this.logger.log({ log: 'sending long typing message' })
         await message.reply(
           "sorry i'm taking me longer than usual to respond, i'm a little nervous <:Sadge:781403152258826281>",
@@ -44,6 +44,7 @@ export class ChatService extends BaseMessageHandlerService {
         return
       }
 
+      this.sendTypingCount++
       message.channel.sendTyping()
     }
 
