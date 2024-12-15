@@ -42,7 +42,7 @@ export class LLMService {
   private toolNode = new ToolNode(this.tools)
 
   model = new ChatOpenAI({
-    model: 'gpt-4',
+    model: 'gpt-4-turbo',
     temperature: 0,
   }).bindTools(this.tools)
 
@@ -113,7 +113,7 @@ export class LLMService {
       const trimmedMessages = await trimMessages(nextMessages, {
         maxTokens: 50_000,
         strategy: 'last',
-        tokenCounter: new ChatOpenAI({ model: 'gpt-4' }),
+        tokenCounter: new ChatOpenAI({ model: 'gpt-4-turbo' }),
         includeSystem: true,
       })
       this.state.setState({ messages: trimmedMessages })
