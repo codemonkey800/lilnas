@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Client, EmbedBuilder } from 'discord.js'
+import { remark } from 'remark'
+
+import { remarkFixLinkPlugin } from 'src/utils/fix-link'
 
 import { BaseMessageHandlerService } from './base-message-handler.service'
 import { LLMService } from './llm.service'
@@ -60,6 +63,11 @@ export class ChatService extends BaseMessageHandlerService {
     this.sendTypingCount = INITIAL_SEND_TYPING_COUNT
   }
 
+  private async sanitizeContent(content: string) {
+    const result = await remark().use(remarkFixLinkPlugin).process(content)
+    return result.toString()
+  }
+
   private async handleChatMessage(message: Message): Promise<boolean> {
     // Don't respond to messages that don't mention the bot
     if (
@@ -87,7 +95,7 @@ export class ChatService extends BaseMessageHandlerService {
 
     if (response) {
       await message.reply({
-        content: response.content,
+        content: await this.sanitizeContent(response.content),
         embeds:
           response.images instanceof Array && response.images.length > 0
             ? response.images.map((image) =>
