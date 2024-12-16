@@ -3,7 +3,6 @@ import { random } from 'lodash'
 import {
   BooleanOption,
   Context,
-  IntegerOption,
   NumberOption,
   Options,
   SlashCommand,
