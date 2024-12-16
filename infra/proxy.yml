@@ -5,6 +5,7 @@ services:
     command:
       - --api=true
       - --providers.docker=true
+      - --providers.docker.exposedByDefault=false
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --certificatesresolvers.le.acme.tlschallenge=true
@@ -17,6 +18,7 @@ services:
       - ../letsencrypt:/letsencrypt
       - /var/run/docker.sock:/var/run/docker.sock:ro
     labels:
+      - traefik.enable=true
       # Dashboard
       - traefik.http.routers.traefik.rule=Host(`traefik.lilnas.io`)
       - traefik.http.routers.traefik.service=api@internal
@@ -50,6 +52,7 @@ services:
     env_file:
       - .env
     labels:
+      - traefik.enable=true
       - traefik.http.routers.auth.rule=Host(`auth.lilnas.io`)
       - traefik.http.routers.auth.entrypoints=websecure
       - traefik.http.routers.auth.tls.certresolver=le
