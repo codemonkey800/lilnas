@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { random } from 'lodash'
 import {
   BooleanOption,
   Context,
+  IntegerOption,
+  NumberOption,
   Options,
   SlashCommand,
   SlashCommandContext,
@@ -15,6 +18,14 @@ class ShowDetailsDto {
     description: 'Show image + details for each cookie',
   })
   showDetails!: boolean | null
+}
+
+class SidesDto {
+  @NumberOption({
+    name: 'sides',
+    description: 'Select how many sides you want to roll with',
+  })
+  sides!: number | null
 }
 
 @Injectable()
@@ -53,5 +64,26 @@ export class CommandsService {
     })
 
     await interaction.reply(`${result}`)
+  }
+
+  @SlashCommand({
+    name: 'roll-dice',
+    description: 'Rolls a dice',
+  })
+  async onRollDice(
+    @Context() [interaction]: SlashCommandContext,
+    @Options() { sides }: SidesDto,
+  ) {
+    const roundedSides = Math.round(sides ?? 6)
+    const randomNum = random(1, roundedSides)
+
+    this.logger.log({
+      command: 'roll-dice',
+      user: interaction.user.username,
+      sides: roundedSides,
+      randomNum,
+    })
+
+    await interaction.reply(`Rolled a ${randomNum} from a d${roundedSides}`)
   }
 }
