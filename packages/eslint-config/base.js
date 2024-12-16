@@ -1,19 +1,17 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
+import pluginJs from '@eslint/js'
+import eslintConfigPrettier from 'eslint-config-prettier'
+import importPlugin from 'eslint-plugin-import'
+import noRelativeImports from 'eslint-plugin-no-relative-import-paths'
+import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended'
+import simpleImportSort from 'eslint-plugin-simple-import-sort'
+import unusedImports from 'eslint-plugin-unused-imports'
+import globals from 'globals'
+import tseslint from 'typescript-eslint'
 
-const pluginJs = require('@eslint/js')
-const eslintConfigPrettier = require('eslint-config-prettier')
-const importPlugin = require('eslint-plugin-import')
-const eslintPluginPrettierRecommended = require('eslint-plugin-prettier/recommended')
-const pluginReact = require('eslint-plugin-react')
-const reactHooks = require('eslint-plugin-react-hooks')
-const reactRefresh = require('eslint-plugin-react-refresh')
-const simpleImportSort = require('eslint-plugin-simple-import-sort')
-const unusedImports = require('eslint-plugin-unused-imports')
-const globals = require('globals')
-const tseslint = require('typescript-eslint')
-const noRelativeImports = require('eslint-plugin-no-relative-import-paths')
+export default [
+  { ignores: ['**/.next/**'] },
+  { files: ['**/*.{js,mjs,cjs,ts,jsx,tsx}'] },
 
-module.exports = [
   {
     languageOptions: {
       ecmaVersion: 2020,
@@ -26,6 +24,7 @@ module.exports = [
   },
 
   pluginJs.configs.recommended,
+  // eslint-disable-next-line import/no-named-as-default-member
   ...tseslint.configs.recommended,
   {
     settings: {
@@ -42,11 +41,6 @@ module.exports = [
     },
   },
 
-  // React
-  pluginReact.configs.flat.recommended,
-  pluginReact.configs.flat['jsx-runtime'],
-  { settings: { react: { version: 'detect' } } },
-
   eslintConfigPrettier,
   eslintPluginPrettierRecommended,
   importPlugin.flatConfigs.recommended,
@@ -55,8 +49,6 @@ module.exports = [
   {
     plugins: {
       'no-relative-import-paths': noRelativeImports,
-      'react-hooks': reactHooks,
-      'react-refresh': reactRefresh,
       'simple-import-sort': simpleImportSort,
       'unused-imports': unusedImports,
     },
@@ -97,12 +89,6 @@ module.exports = [
           args: 'after-used',
           argsIgnorePattern: '^_',
         },
-      ],
-
-      ...reactHooks.configs.recommended.rules,
-      'react-refresh/only-export-components': [
-        'warn',
-        { allowConstantExport: true },
       ],
 
       'no-relative-import-paths/no-relative-import-paths': [

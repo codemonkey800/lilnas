@@ -1,4 +1,19 @@
 services:
+  apps:
+    build:
+      context: '..'
+      dockerfile: packages/apps/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.apps.rule=Host(`apps.lilnas.io`)
+      - traefik.http.routers.apps.entrypoints=websecure
+      - traefik.http.routers.apps.tls.certresolver=le
+      - traefik.http.routers.apps.middlewares=forward-auth
+      - traefik.http.services.apps.loadbalancer.server.port=8080
+
   dashcam:
     build: ../packages/dashcam-viewer
     restart: unless-stopped
@@ -7,30 +22,20 @@ services:
       - traefik.http.routers.dashcam.rule=Host(`dashcam.lilnas.io`)
       - traefik.http.routers.dashcam.entrypoints=websecure
       - traefik.http.routers.dashcam.tls.certresolver=le
-  apps:
-    build: ../packages/apps
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    labels:
-      - traefik.http.routers.apps.rule=Host(`apps.lilnas.io`)
-      - traefik.http.routers.apps.entrypoints=websecure
-      - traefik.http.routers.apps.tls.certresolver=le
-      - traefik.http.routers.apps.middlewares=forward-auth
-      - traefik.http.services.apps.loadbalancer.server.port=8080
 
   me-token-tracker:
-    build: ../packages/me-token-tracker
+    build: ../me-token-tracker
     restart: unless-stopped
     env_file:
       - .env.me-token-tracker
 
   tdr-bot:
-    build: ../packages/tdr-bot
+    build: ../tdr-bot
     restart: unless-stopped
     env_file:
       - .env.tdr-bot
     labels:
+      - traefik.enable=true
       - traefik.http.routers.tdr.rule=Host(`tdr.lilnas.io`)
       - traefik.http.routers.tdr.entrypoints=websecure
       - traefik.http.routers.tdr.tls.certresolver=le
@@ -73,35 +78,3 @@ services:
       - traefik.http.routers.owncast.entrypoints=websecure
       - traefik.http.routers.owncast.tls.certresolver=le
       - traefik.http.services.owncast.loadbalancer.server.port=8080
-
-  apps:
-    build: ../apps
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.apps.rule=Host(`apps.lilnas.io`)
-      - traefik.http.routers.apps.entrypoints=websecure
-      - traefik.http.routers.apps.tls.certresolver=le
-      - traefik.http.routers.apps.middlewares=forward-auth
-      - traefik.http.services.apps.loadbalancer.server.port=8080
-
-  me-token-tracker:
-    build: ../me-token-tracker
-    restart: unless-stopped
-    env_file:
-      - .env.me-token-tracker
-
-  tdr-bot:
-    build: ../tdr-bot
-    restart: unless-stopped
-    env_file:
-      - .env.tdr-bot
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.tdr.rule=Host(`tdr.lilnas.io`)
-      - traefik.http.routers.tdr.entrypoints=websecure
-      - traefik.http.routers.tdr.tls.certresolver=le
-      - traefik.http.routers.tdr.middlewares=forward-auth
-      - traefik.http.services.tdr.loadbalancer.server.port=8080
