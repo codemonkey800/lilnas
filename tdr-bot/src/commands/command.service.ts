@@ -8,6 +8,7 @@ import {
   SlashCommand,
   SlashCommandContext,
 } from 'necord'
+import { Docker } from 'node-docker-api'
 
 import { getWeeklyCookiesMessage } from 'src/utils/crumbl'
 
@@ -25,6 +26,10 @@ class SidesDto {
     description: 'Select how many sides you want to roll with',
   })
   sides!: number | null
+}
+
+interface ContainerData {
+  Names: string[]
 }
 
 @Injectable()
@@ -84,5 +89,28 @@ export class CommandsService {
     })
 
     await interaction.reply(`Rolled a ${randomNum} from a d${roundedSides}`)
+  }
+
+  @SlashCommand({
+    name: 'restart',
+    description: 'Restarts TDR bot',
+  })
+  async restart(@Context() [interaction]: SlashCommandContext) {
+    this.logger.log({
+      command: 'restart',
+      user: interaction.user.username,
+    })
+
+    const docker = new Docker({ socketPath: '/var/run/docker.sock' })
+    const containers = await docker.container.list()
+    const tdrBotContainer = containers.find((container) => {
+      const data = container.data as ContainerData
+      return data.Names.some((name) => name.includes('tdr-bot'))
+    })
+
+    if (tdrBotContainer) {
+      await interaction.reply('Restarting TDR bot <:Sadge:781403152258826281>')
+      await tdrBotContainer.restart()
+    }
   }
 }
