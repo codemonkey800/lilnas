@@ -4,6 +4,7 @@ import { Context, ContextOf, Once } from 'necord'
 import { getErrorMessage } from './utils/error'
 
 const PAUL_BEENIS_ID = '218579527041941507'
+const TDR_BOT_DEV_ID = '1068081514451058698'
 
 @Injectable()
 export class AppEventsService {
@@ -11,6 +12,11 @@ export class AppEventsService {
 
   @Once('ready')
   async onReady(@Context() [client]: ContextOf<'ready'>) {
+    // Skip notification if running in dev mode
+    if (client.user?.id === TDR_BOT_DEV_ID) {
+      return
+    }
+
     const readyMessage = 'TDR bot initialized'
     this.logger.log({ info: readyMessage })
 
