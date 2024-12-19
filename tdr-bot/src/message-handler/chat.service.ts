@@ -69,10 +69,20 @@ export class ChatService extends BaseMessageHandlerService {
   }
 
   private async handleChatMessage(message: Message): Promise<boolean> {
-    // Don't respond to messages that don't mention the bot
-    if (
-      message.mentions.users.every((user) => user.id !== this.client.user?.id)
-    ) {
+    const isBotMention = message.mentions.users.some(
+      (user) => user.id === this.client.user?.id,
+    )
+
+    const isTdrBotChannel =
+      'name' in message.channel && message.channel.name === 'tdr-bot-chat'
+
+    const isQuestion = message.content.endsWith('?')
+
+    const isTdrQuestion = isTdrBotChannel && isQuestion
+
+    // Don't respond to messages that don't mention the bot or is not a question
+    // in TDR channel
+    if (!isBotMention && !isTdrQuestion) {
       return false
     }
 
