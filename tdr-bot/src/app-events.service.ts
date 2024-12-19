@@ -3,7 +3,6 @@ import { Context, ContextOf, Once } from 'necord'
 
 import { getErrorMessage } from './utils/error'
 
-const PAUL_BEENIS_ID = '218579527041941507'
 const TDR_BOT_DEV_ID = '1068081514451058698'
 
 @Injectable()
@@ -21,13 +20,23 @@ export class AppEventsService {
     this.logger.log({ info: readyMessage })
 
     try {
-      const user = await client.users.fetch(PAUL_BEENIS_ID)
+      const channels = client.guilds.cache.flatMap((guild) =>
+        guild.channels.cache.filter(
+          (channel) => channel.name === 'tdr-bot-chat',
+        ),
+      )
 
-      if (!user) {
-        throw new Error('Unable to fetch paulbeenis')
-      }
+      await Promise.allSettled(
+        channels.map(async (channel) => {
+          if (!channel.isTextBased()) {
+            return
+          }
 
-      await user.send(readyMessage)
+          await channel.send(
+            `${readyMessage} <a:peepoArrive:758419118957002765>`,
+          )
+        }),
+      )
     } catch (err) {
       this.logger.error({
         error: getErrorMessage(err),
