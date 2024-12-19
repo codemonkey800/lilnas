@@ -8,7 +8,7 @@ services:
       TZ: America/Los_Angeles
     volumes:
       - ../media/sonarr:/config
-      - ../media/tv:/tv
+      - /mnt/hdd1/tv:/tv
       - ../media/downloads:/downloads
     labels:
       - traefik.enable=true
@@ -26,7 +26,7 @@ services:
       TZ: America/Los_Angeles
     volumes:
       - ../media/radarr:/config
-      - ../media/movies:/movies
+      - /mnt/hdd1/movies:/movies
       - ../media/downloads:/downloads
     labels:
       - traefik.enable=true
@@ -58,8 +58,8 @@ services:
     restart: unless-stopped
     volumes:
       - ../media/emby:/config # Configuration directory
-      - ../media/tv:/tv # Media directory
-      - ../media/movies:/movies # Media directory
+      - /mnt/hdd1/tv:/tv # Media directory
+      - /mnt/hdd1/movies:/movies # Media directory
     devices:
       - /dev/dri:/dev/dri # VAAPI/NVDEC/NVENC render nodes
     labels:
