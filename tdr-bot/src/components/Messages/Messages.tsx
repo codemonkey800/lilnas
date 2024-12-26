@@ -1,12 +1,11 @@
-import { MessageCard } from './MessageCard'
-import { MOCK_MESSAGES } from './messages'
+import { ApiClient } from 'src/api/api.client'
 
-// const apiClient = ApiClient.getInstance()
+import { MessageCard } from './MessageCard'
+
+const apiClient = ApiClient.getInstance()
 
 export async function Messages() {
-  // const messages = await apiClient.getMessages()
-  // const messages = await apiClient.getMessages()
-  const messages = MOCK_MESSAGES
+  const messages = await apiClient.getMessages()
 
   return (
     <div className="flex flex-col gap-4">
