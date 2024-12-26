@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { random } from 'lodash'
+import _ from 'lodash'
 import {
   BooleanOption,
   Context,
@@ -79,7 +79,7 @@ export class CommandsService {
     @Options() { sides }: SidesDto,
   ) {
     const roundedSides = Math.round(sides ?? 6)
-    const randomNum = random(1, roundedSides)
+    const randomNum = _.random(1, roundedSides)
 
     this.logger.log({
       command: 'roll-dice',

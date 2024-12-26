@@ -6,7 +6,7 @@ let instance: ApiClient | null = null
 
 export class ApiClient {
   private client = new Axios({
-    baseURL: '/api',
+    baseURL: 'http://localhost:8081',
   })
 
   async getMessages(): Promise<MessageState[]> {
