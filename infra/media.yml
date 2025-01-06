@@ -35,6 +35,24 @@ services:
       - traefik.http.routers.radarr.entrypoints=websecure
       - traefik.http.routers.radarr.tls.certresolver=le
 
+  readarr:
+    image: lscr.io/linuxserver/readarr:develop
+    restart: unless-stopped
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: America/Los_Angeles
+    volumes:
+      - ../media/readarr:/config
+      - /mnt/hdd1/books:/books
+      - ../media/downloads:/downloads
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.readarr.loadbalancer.server.port=8787
+      - traefik.http.routers.readarr.rule=Host(`readarr.lilnas.io`)
+      - traefik.http.routers.readarr.entrypoints=websecure
+      - traefik.http.routers.readarr.tls.certresolver=le
+
   sabnzbd:
     image: lscr.io/linuxserver/sabnzbd
     restart: unless-stopped
