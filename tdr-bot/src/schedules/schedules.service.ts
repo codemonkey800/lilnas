@@ -10,7 +10,7 @@ export class SchedulesService {
 
   constructor(private readonly client: Client) {}
 
-  @Cron('0 10 * * 0')
+  @Cron('0 10 * * 1')
   async sendCookies() {
     this.logger.log({ log: 'Executing crumbl cookies command' })
 
