@@ -53,7 +53,8 @@ export const OUTPUT_FORMAT = dedent`
   display, the \`images\` field should be an empty array. The images field
   will only have images if the user asks to generate an image.
 
-  When adding links, do not use EMOJIs for the description.
+  When adding links, do not use EMOJIs for the description. For math equations,
+  use plain text and do not use LaTeX.
 `
 
 export const EMOJI_DICTIONARY = dedent`
