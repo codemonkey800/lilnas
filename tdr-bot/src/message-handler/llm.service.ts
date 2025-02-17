@@ -11,6 +11,8 @@ import { MessageResponse, MessageResponseSchema } from 'src/schemas/messages'
 import { StateService } from 'src/state/state.service'
 import { getErrorMessage, UnhandledMessageResponseError } from 'src/utils/error'
 
+import { dateTool } from './tools'
+
 /**
  * Service interacting with OpenAI's LLM.
  */
@@ -20,7 +22,7 @@ export class LLMService {
 
   private readonly logger = new Logger(LLMService.name)
 
-  private tools = [new TavilySearchResults(), new DallEAPIWrapper()]
+  private tools = [new TavilySearchResults(), new DallEAPIWrapper(), dateTool]
 
   private toolNode = new ToolNode(this.tools)
 
