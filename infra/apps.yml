@@ -78,3 +78,15 @@ services:
       - traefik.http.routers.tdr.tls.certresolver=le
       - traefik.http.routers.tdr.middlewares=forward-auth
       - traefik.http.services.tdr.loadbalancer.server.port=8080
+
+  equations:
+    build: ../equations
+    restart: unless-stopped
+    env_file:
+      - .env.equations
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.equations.rule=Host(`equations.lilnas.io`)
+      - traefik.http.routers.equations.entrypoints=websecure
+      - traefik.http.routers.equations.tls.certresolver=le
+      - traefik.http.services.equations.loadbalancer.server.port=8080
