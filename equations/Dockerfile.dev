@@ -1,0 +1,21 @@
+FROM node
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+
+WORKDIR /app
+
+COPY ./image-magick-policy.xml /etc/ImageMagick-6/policy.xml
+
+# Latex packages
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ghostscript \
+        imagemagick \
+        texlive-fonts-extra \
+        texlive-fonts-recommended \
+        texlive-lang-all \
+        texlive-latex-extra \
+        texlive-latex-recommended \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm -g i pnpm
