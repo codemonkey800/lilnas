@@ -125,7 +125,7 @@ export class ChatService extends BaseMessageHandlerService {
       }
 
       await message.reply({
-        content: await this.sanitizeContent(response.content),
+        content: response.content,
         files: equationImage ? [equationImage] : [],
         embeds:
           response.images instanceof Array && response.images.length > 0
