@@ -71,7 +71,9 @@ export const INPUT_FORMAT = dedent`
 export const EMOJI_DICTIONARY = dedent`
   The emoji dictionary is defined in the below JSON with the following format
   where the key is the ID of the emoji and the value is a description of what
-  the emoji means. Using the description, send the correct emoji using the ID.
+  the emoji means. Using the description, send the correct emoji using the key.
+  For example, "<:EZ:758414734805696553>" for a static emoji and
+  "<a:peepoPooPoo:758415960448434217>" for an animated emoji.
 
   ${JSON.stringify(emojis)}
 
