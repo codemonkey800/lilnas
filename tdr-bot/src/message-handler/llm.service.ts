@@ -19,6 +19,7 @@ import { z } from 'zod'
 import { MessageResponse } from 'src/schemas/messages'
 import { StateService } from 'src/state/state.service'
 import { getErrorMessage, UnhandledMessageResponseError } from 'src/utils/error'
+import { stringifyJson } from 'src/utils/json'
 import {
   EXTRACT_IMAGE_QUERIES_PROMPT,
   GET_CHAT_MATH_RESPONSE,
@@ -280,11 +281,14 @@ export class LLMService {
 
     const latex = latexResponse.content.toString()
 
-    const chatResponse = await this.chatModel.invoke([
+    const chatResponse = await this.smartModel.invoke([
+      this.state.getPrompt(),
       ...nextMessages,
       message,
       GET_CHAT_MATH_RESPONSE,
     ])
+
+    console.log('breh chatResponse', stringifyJson(chatResponse))
 
     return { latex, messages: messages.concat([message, chatResponse]) }
   }

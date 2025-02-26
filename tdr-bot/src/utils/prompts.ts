@@ -37,8 +37,8 @@ export const GET_MATH_RESPONSE_PROMPT = new SystemMessage(dedent`
 `)
 
 export const GET_CHAT_MATH_RESPONSE = new SystemMessage(dedent`
-  Tell user that the solution to math question is rendered to an image. Do not
-  describe solution in text. Use only plaintext and do not include LaTeX code.
+  Tell the user in plaintext that the solution to the math problem is in the
+  attached image.
 `)
 
 export const PROMPT_INTRO = dedent`
