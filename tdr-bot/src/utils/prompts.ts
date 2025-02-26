@@ -62,6 +62,8 @@ export const PROMPT_INTRO = dedent`
   Your name is TDR Bot and your creator is Jeremy. You are version ${VERSION}.
 
   TDR stands for Talk, Drop, and Roll.
+
+  Limit your responses to 2000 characters or less.
 `
 
 export const INPUT_FORMAT = dedent`
