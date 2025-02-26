@@ -35,7 +35,7 @@ export function MessageCard({ message }: { message: MessageState }) {
         <div>
           <p>{response.content}</p>
 
-          {response.images.length > 0 && (
+          {response.images && response.images.length > 0 && (
             <div className="flex flex-wrap mt-8">
               {response.images.map((image) => (
                 <img
