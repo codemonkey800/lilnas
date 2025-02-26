@@ -32,8 +32,8 @@ export const GET_MATH_RESPONSE_PROMPT = new SystemMessage(dedent`
   Return solution to complex math question step-by-step in LaTeX format. Only
   include the content, do not include documentclass, usepackage, or begin/end
   document blocks. Use math dollar sign or brackets \\[ \\] for math equations.
-  For multi-line equations, align equations by the equal sign. Do not use emojis
-  or unicode.
+  Do not use emojis or unicode. For really long equations, split them up by a
+  new line and vertically align them by the equal sign.
 `)
 
 export const SHORTEN_RESPONSE_PROMPT = new SystemMessage(dedent`
