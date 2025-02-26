@@ -32,40 +32,60 @@ export class EquationsController {
     latex,
     latexFile,
     pngFile,
+    pngTmpFile,
   }: {
     dir: string
     latex: string
     latexFile: string
     pngFile: string
+    pngTmpFile: string
   }) {
-    this.logger.log({ info: 'Starting latex job' })
+    this.logger.log('Starting latex job')
 
     if ((await fs.pathExists(dir)) && !(await fs.pathExists(pngFile))) {
+      this.logger.error({ dir }, 'Latex job in progress')
+
       throw new HttpException(
         { info: 'Latex job in progress' },
         HttpStatus.CONFLICT,
       )
     }
 
-    this.logger.log({ info: 'Ensuring latex directory', dir })
+    this.logger.log({ dir }, 'Ensuring latex directory')
     await fs.mkdirp(dir)
 
     const latexContent = getLatexTemplate(latex)
 
     try {
-      this.logger.log({ info: 'Creating latex file' })
+      this.logger.log('Creating latex file')
       await fs.writeFile(latexFile, latexContent)
 
-      this.logger.log({ info: 'Compiling latex file', file: latexFile })
-      const { stderr } = await exec(`pdflatex --shell-escape ${latexFile}`, {
-        cwd: dir,
-      })
+      this.logger.log({ file: latexFile }, 'Compiling latex file')
+      const { stderr: pdflatexStderr } = await exec(
+        `pdflatex --shell-escape ${latexFile}`,
+        {
+          cwd: dir,
+        },
+      )
 
       if (
-        (stderr && !stderr.includes('RGB color space not permitted')) ||
+        (pdflatexStderr &&
+          !pdflatexStderr.includes('RGB color space not permitted')) ||
         !(await fs.pathExists(pngFile))
       ) {
-        throw new Error(`Failed to compile latex ${stderr}`)
+        throw new Error(`Failed to compile latex ${pdflatexStderr}`)
+      }
+
+      this.logger.log('Renaming png file to tmp file')
+      await fs.rename(pngFile, pngTmpFile)
+
+      this.logger.log('Adding white background to image')
+      const { stderr: flattenImageStderr } = await exec(
+        `convert ${pngTmpFile} -background white -alpha remove -alpha off ${pngFile}`,
+      )
+
+      if (flattenImageStderr) {
+        throw new Error(`Failed to flatten png`)
       }
     } catch (err) {
       const error = getErrorMessage(err)
@@ -83,7 +103,7 @@ export class EquationsController {
   }
 
   private async cleanupLatex(dir: string) {
-    this.logger.log({ info: 'Cleaning up latex directory', dir })
+    this.logger.log({ dir }, 'Cleaning up latex directory')
     await fs.remove(dir)
   }
 
@@ -98,6 +118,7 @@ export class EquationsController {
     const dir = `/math/${now}`
     const latexFile = `${dir}/equation.tex`
     const pngFile = `${dir}/equation.png`
+    const pngTmpFile = `${dir}/equation-tmp.png`
 
     try {
       await this.compileLatex({
@@ -105,6 +126,7 @@ export class EquationsController {
         latex,
         latexFile,
         pngFile,
+        pngTmpFile,
       })
       const latexPngBase64 = await this.getLatexPngBase64(pngFile)
 
