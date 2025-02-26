@@ -11,9 +11,9 @@ export const GET_RESPONSE_TYPE_PROMPT = new SystemMessage(dedent`
 
   If the message is asking to generate an image, return "${ResponseType.Image}".
 
-  If the message is asking for the solution to a complex math problem, respond
-  with "${ResponseType.Math}". Simple arithmetic like 1 + 2 is not considered as
-  complex math.
+  If the message is asking for the solution to a complex math problem or asking
+  a math question, respond with "${ResponseType.Math}". Simple arithmetic like 1
+  + 2 is not considered as complex math.
 
   Otherwise, respond with "${ResponseType.Default}".
 `)
@@ -41,8 +41,8 @@ export const SHORTEN_RESPONSE_PROMPT = new SystemMessage(dedent`
 `)
 
 export const GET_CHAT_MATH_RESPONSE = new SystemMessage(dedent`
-  Tell the user in plaintext that the solution to the math problem is in the
-  attached image.
+  Tell the user the solution is listed below. Do not include the solution in the
+  response.
 `)
 
 export const PROMPT_INTRO = dedent`
