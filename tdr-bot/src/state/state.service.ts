@@ -8,8 +8,8 @@ import {
   EMOJI_DICTIONARY,
   INPUT_FORMAT,
   KAWAII_PROMPT,
-  OUTPUT_FORMAT,
   PROMPT_INTRO,
+  TDR_SYSTEM_PROMPT_ID,
 } from 'src/utils/prompts'
 
 export interface AppState {
@@ -56,19 +56,18 @@ export class StateService {
     return this.state
   }
 
-  getPrompt(): BaseMessage[] {
-    return [
-      new SystemMessage(dedent`
+  getPrompt(): BaseMessage {
+    return new SystemMessage({
+      id: TDR_SYSTEM_PROMPT_ID,
+      content: dedent`
         ${PROMPT_INTRO}
 
         ${INPUT_FORMAT}
 
-        ${OUTPUT_FORMAT}
-
         ${this.state.prompt}
 
         ${EMOJI_DICTIONARY}
-      `),
-    ]
+      `,
+    })
   }
 }
