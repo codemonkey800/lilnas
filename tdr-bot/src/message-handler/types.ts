@@ -11,3 +11,20 @@ export type Message = ContextOf<'messageCreate'>[0]
  * attempt to respond.
  */
 export type MessageHandler = (message: Message) => boolean | Promise<boolean>
+
+export enum ResponseType {
+  Default = 'default',
+  Image = 'image',
+  Math = 'math',
+}
+
+export enum GraphNode {
+  AddTdrSystemPrompt = 'addTdrSystemPrompt',
+  CheckResponseType = 'checkResponseType',
+  End = '__end__',
+  GetModelDefaultResponse = 'getModelDefaultResponse',
+  GetModelImageResponse = 'getModelImageResponse',
+  GetModelMathResponse = 'getModelMathResponse',
+  Start = '__start__',
+  Tools = 'tools',
+}

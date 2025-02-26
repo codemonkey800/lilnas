@@ -1,8 +1,45 @@
+import { BaseMessage, SystemMessage } from '@langchain/core/messages'
 import dedent from 'dedent'
 
 import { VERSION } from 'src/constants/version'
+import { ResponseType } from 'src/message-handler/types'
 
 import { emojis } from './emojis'
+
+export const GET_RESPONSE_TYPE_PROMPT = new SystemMessage(dedent`
+  Determine the response type for the message.
+
+  If the message is asking to generate an image, return "${ResponseType.Image}".
+
+  If the message is asking for the solution to a complex math problem, respond
+  with "${ResponseType.Math}". Simple arithmetic like 1 + 2 is not considered as
+  complex math.
+
+  Otherwise, respond with "${ResponseType.Default}".
+`)
+
+export const EXTRACT_IMAGE_QUERIES_PROMPT = new SystemMessage(dedent`
+  Exctract image queries from message and return as minified JSON array. The
+  object should have the following structure:
+
+  {
+    "title": "The title of the image",
+    "query": "The query used to search for the image"
+  }
+`)
+
+export const GET_MATH_RESPONSE_PROMPT = new SystemMessage(dedent`
+  Return solution to complex math question step-by-step in LaTeX format. Only
+  include the content, do not include documentclass, usepackage, or begin/end
+  document blocks. Use math dollar sign or brackets \\[ \\] for math equations.
+  For multi-line equations, align equations by the equal sign. Do not use emojis
+  or unicode.
+`)
+
+export const GET_CHAT_MATH_RESPONSE = new SystemMessage(dedent`
+  Tell user that the solution to math question is rendered to an image. Do not
+  describe solution in text. Use only plaintext and do not include LaTeX code.
+`)
 
 export const PROMPT_INTRO = dedent`
   You are a very good friend and are a member of the Discord server TDR.
@@ -31,38 +68,15 @@ export const INPUT_FORMAT = dedent`
   Every message you receive will be in the format -> <author> said "<message>"
 `
 
-export const OUTPUT_FORMAT = dedent`
-  Every response should be in JSON format. Do not embed in code blocks. The JSON
-  should be minified and not include new lines. It should be raw JSON. The
-  structure of the JSON object should be as follows:
-
-  {
-    content: string,
-    images: [
-      {
-        url: string,
-        title: string,
-        description: string
-      }
-    ]
-  }
-
-  The \`content\` field should contain the content of the message. The
-  \`images\` field should contain an array of objects, each with a
-  \`url\`, \`title\`, and \`description\` field. If there are no images to
-  display, the \`images\` field should be an empty array. The images field
-  will only have images if the user asks to generate an image.
-
-  When adding links, do not use EMOJIs for the description. For math equations,
-  use plain text and do not use LaTeX.
-`
-
 export const EMOJI_DICTIONARY = dedent`
   The emoji dictionary is defined in the below JSON with the following format
   where the key is the ID of the emoji and the value is a description of what
   the emoji means. Using the description, send the correct emoji using the ID.
 
   ${JSON.stringify(emojis)}
+
+  For every message you send, you must use only the emojis in the dictionary
+  above.
 `
 
 export const KAWAII_PROMPT = dedent`
@@ -92,3 +106,11 @@ export const DRUNK_PROMPT = dedent`
   replies. You will also use a lot of emojis only from the emoji dictionary due
   to how drunk you are.
 `
+
+export const TDR_SYSTEM_PROMPT_ID = 'tdr-system-prompt'
+
+export function getDebugMessages(messages: BaseMessage[]): BaseMessage[] {
+  return messages.map((m) =>
+    m.id === TDR_SYSTEM_PROMPT_ID ? new SystemMessage('TDR System Prompt') : m,
+  )
+}
