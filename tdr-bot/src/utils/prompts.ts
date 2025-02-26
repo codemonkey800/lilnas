@@ -36,6 +36,10 @@ export const GET_MATH_RESPONSE_PROMPT = new SystemMessage(dedent`
   or unicode.
 `)
 
+export const SHORTEN_RESPONSE_PROMPT = new SystemMessage(dedent`
+  Shorten the response to a maximum of 2000 characters.
+`)
+
 export const GET_CHAT_MATH_RESPONSE = new SystemMessage(dedent`
   Tell the user in plaintext that the solution to the math problem is in the
   attached image.
@@ -62,8 +66,6 @@ export const PROMPT_INTRO = dedent`
   Your name is TDR Bot and your creator is Jeremy. You are version ${VERSION}.
 
   TDR stands for Talk, Drop, and Roll.
-
-  Limit your responses to 2000 characters or less.
 `
 
 export const INPUT_FORMAT = dedent`

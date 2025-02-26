@@ -19,7 +19,6 @@ import { z } from 'zod'
 import { MessageResponse } from 'src/schemas/messages'
 import { StateService } from 'src/state/state.service'
 import { getErrorMessage, UnhandledMessageResponseError } from 'src/utils/error'
-import { stringifyJson } from 'src/utils/json'
 import {
   EXTRACT_IMAGE_QUERIES_PROMPT,
   GET_CHAT_MATH_RESPONSE,
@@ -45,25 +44,21 @@ const ImageResponseSchema = z.object({
 
 type ImageResponse = z.infer<typeof ImageResponseSchema>
 
-const INPUT_STATE_ANNOTATION = {
+const InputStateAnnotation = Annotation.Root({
   messages: Annotation<BaseMessage[]>,
   userInput: Annotation<string>,
-}
+})
 
-const InputStateAnnotation = Annotation.Root(INPUT_STATE_ANNOTATION)
-
-const OUTPUT_STATE_ANNOTATION = {
+const OutputStateAnnotation = Annotation.Root({
   images: Annotation<ImageResponse[]>,
   latex: Annotation<string>,
   messages: Annotation<BaseMessage[]>,
-}
-
-const OutputStateAnnotation = Annotation.Root(OUTPUT_STATE_ANNOTATION)
+})
 
 const OverallStateAnnotation = Annotation.Root({
-  ...INPUT_STATE_ANNOTATION,
-  ...OUTPUT_STATE_ANNOTATION,
-  message: Annotation<HumanMessage>,
+  ...InputStateAnnotation.spec,
+  ...OutputStateAnnotation.spec,
+  message: Annotation<HumanMessage>(),
   prevMessages: Annotation<BaseMessage[]>,
   responseType: Annotation<ResponseType>,
   userInput: Annotation<string>,
@@ -74,6 +69,8 @@ const RESPONSE_TYPE_GRAPH_NODE_MAP: Record<ResponseType, GraphNode> = {
   [ResponseType.Math]: GraphNode.GetModelMathResponse,
   [ResponseType.Image]: GraphNode.GetModelImageResponse,
 }
+
+const TOKEN_LIMIT = 50_000
 
 /**
  * Service interacting with OpenAI's LLM.
@@ -112,6 +109,7 @@ export class LLMService {
     // Nodes
     .addNode(GraphNode.CheckResponseType, this.checkResponseType.bind(this))
     .addNode(GraphNode.AddTdrSystemPrompt, this.addTdrSystemPrompt.bind(this))
+    .addNode(GraphNode.TrimMessages, this.trimMessages.bind(this))
     .addNode(
       GraphNode.GetModelDefaultResponse,
       this.getModelDefaultResponse.bind(this),
@@ -124,13 +122,16 @@ export class LLMService {
       GraphNode.GetModelMathResponse,
       this.getModelMathResponse.bind(this),
     )
+    .addNode(GraphNode.ShortenResponse, this.shortenResponse.bind(this))
     .addNode(GraphNode.Tools, this.toolNode)
     // Edges
     .addEdge(GraphNode.Start, GraphNode.CheckResponseType)
-    .addEdge(GraphNode.CheckResponseType, GraphNode.AddTdrSystemPrompt)
+    .addEdge(GraphNode.CheckResponseType, GraphNode.TrimMessages)
+    .addEdge(GraphNode.TrimMessages, GraphNode.AddTdrSystemPrompt)
     .addEdge(GraphNode.Tools, GraphNode.GetModelDefaultResponse)
     .addEdge(GraphNode.GetModelImageResponse, GraphNode.End)
     .addEdge(GraphNode.GetModelMathResponse, GraphNode.End)
+    .addEdge(GraphNode.ShortenResponse, GraphNode.End)
     // Conditional edges
     .addConditionalEdges(
       GraphNode.AddTdrSystemPrompt,
@@ -192,6 +193,10 @@ export class LLMService {
       return GraphNode.Tools
     }
 
+    if (lastMessage.content.length >= 2000) {
+      return GraphNode.ShortenResponse
+    }
+
     return GraphNode.End
   }
 
@@ -210,7 +215,7 @@ export class LLMService {
     const response = await this.chatModel.invoke(nextMessages)
     this.logger.log('Got response from model')
 
-    const messagesWithResponse = allMessages.concat(response)
+    const messagesWithResponse = nextMessages.concat(response)
 
     // Store previous messages in state because tools node loses that info somehow
     // TODO fix issue with messages being erased from state.
@@ -288,9 +293,38 @@ export class LLMService {
       GET_CHAT_MATH_RESPONSE,
     ])
 
-    console.log('breh chatResponse', stringifyJson(chatResponse))
-
     return { latex, messages: messages.concat([message, chatResponse]) }
+  }
+
+  private async shortenResponse({
+    messages,
+  }: typeof OverallStateAnnotation.State) {
+    this.logger.log('Shortening response')
+    const lastMessage = messages[messages.length - 1]
+    const response = await this.chatModel.invoke(messages.concat(lastMessage))
+    this.logger.log({ length: response.content.length }, 'Shortened response')
+
+    return {
+      messages: messages.slice(0, -1).concat(response),
+    }
+  }
+
+  private trimMessages({ messages }: typeof OverallStateAnnotation.State) {
+    const lastMessage = messages.at(-1)
+
+    if (
+      lastMessage &&
+      isAIMessage(lastMessage) &&
+      lastMessage.response_metadata.tokenUsage.totalTokens >= TOKEN_LIMIT
+    ) {
+      this.logger.log('Trimming messages')
+
+      return {
+        messages: messages.slice(messages.length - 3, messages.length),
+      }
+    }
+
+    return {}
   }
 
   async sendMessage({
