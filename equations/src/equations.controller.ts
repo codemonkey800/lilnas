@@ -65,6 +65,7 @@ export class EquationsController {
         `pdflatex --shell-escape ${latexFile}`,
         {
           cwd: dir,
+          timeout: 10_000,
         },
       )
 
