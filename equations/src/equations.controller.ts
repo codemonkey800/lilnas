@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common'
 import { exec as execBase } from 'child_process'
 import * as fs from 'fs-extra'
+import path from 'path'
 import { promisify } from 'util'
 
 import { env } from './utils/env'
@@ -26,6 +27,17 @@ class CreateEquationDto {
 @Controller('equations')
 export class EquationsController {
   private readonly logger = new Logger(EquationsController.name)
+
+  private async logBadFile(file: string) {
+    this.logger.error({ file }, 'Latex failed to compile')
+
+    const badFilesDir = '/bad-files'
+    await fs.ensureDir(badFilesDir)
+
+    const badFile = path.join(badFilesDir, path.basename(file))
+    await fs.copyFile(file, badFile)
+    this.logger.log({ badFile }, 'Stored bad file')
+  }
 
   private async compileLatex({
     dir,
@@ -61,20 +73,14 @@ export class EquationsController {
       await fs.writeFile(latexFile, latexContent)
 
       this.logger.log({ file: latexFile }, 'Compiling latex file')
-      const { stderr: pdflatexStderr } = await exec(
-        `pdflatex --shell-escape ${latexFile}`,
-        {
+      try {
+        await exec(`pdflatex --shell-escape ${latexFile}`, {
           cwd: dir,
           timeout: 10_000,
-        },
-      )
-
-      if (
-        (pdflatexStderr &&
-          !pdflatexStderr.includes('RGB color space not permitted')) ||
-        !(await fs.pathExists(pngFile))
-      ) {
-        throw new Error(`Failed to compile latex ${pdflatexStderr}`)
+        })
+      } catch (err) {
+        this.logBadFile(latexFile)
+        throw err
       }
 
       this.logger.log('Renaming png file to tmp file')
