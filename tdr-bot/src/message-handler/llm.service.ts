@@ -18,6 +18,7 @@ import { z } from 'zod'
 
 import { MessageResponse } from 'src/schemas/messages'
 import { StateService } from 'src/state/state.service'
+import { getEquationImage } from 'src/utils/equations'
 import { getErrorMessage, UnhandledMessageResponseError } from 'src/utils/error'
 import {
   EXTRACT_IMAGE_QUERIES_PROMPT,
@@ -360,9 +361,23 @@ export class LLMService {
         throw new Error('Did not receive a message')
       }
 
+      let equationImage: string | undefined
+
+      if (latex) {
+        this.logger.log({ latex }, 'Getting equation image')
+
+        const equationResponse = await getEquationImage(latex)
+
+        if ('image' in equationResponse) {
+          equationImage = equationResponse.image.split(',')[1]
+
+          this.logger.log('Got equation image')
+        }
+      }
+
       return {
         images,
-        latex,
+        equationImage,
         content: lastMessage.content as string,
       }
     } catch (err) {

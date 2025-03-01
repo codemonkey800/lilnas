@@ -1,8 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { BufferResolvable, Client, EmbedBuilder } from 'discord.js'
+import { Client, EmbedBuilder } from 'discord.js'
 import { remark } from 'remark'
 
-import { getEquationImage } from 'src/utils/equations'
 import { remarkFixLinkPlugin } from 'src/utils/fix-link'
 
 import { BaseMessageHandlerService } from './base-message-handler.service'
@@ -105,24 +104,9 @@ export class ChatService extends BaseMessageHandlerService {
     })
 
     if (response) {
-      let equationImage: BufferResolvable | undefined
-
-      if (response.latex) {
-        this.logger.log({ latex: response.latex }, 'Getting equation image')
-
-        const equationResponse = await getEquationImage(response.latex)
-
-        if ('image' in equationResponse) {
-          const data = Buffer.from(
-            equationResponse.image.split(',')[1],
-            'base64',
-          )
-
-          this.logger.log('Got equation image')
-
-          equationImage = data
-        }
-      }
+      const equationImage = response.equationImage
+        ? Buffer.from(response.equationImage, 'base64')
+        : undefined
 
       await message.reply({
         content: response.content,

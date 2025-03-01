@@ -7,10 +7,10 @@ export const MessageResponseSchema = z.object({
       'The content of the message. It should not contain any LaTeX code or the step-by-step solution.',
     ),
 
-  latex: z
+  equationImage: z
     .string()
     .optional()
-    .describe('The LaTeX code for rendering the solution step-by-step'),
+    .describe('The base64 data for the image to the rendered LaTeX image.'),
 
   images: z
     .array(

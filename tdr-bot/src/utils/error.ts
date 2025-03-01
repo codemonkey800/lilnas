@@ -10,7 +10,7 @@ export function getErrorMessage(error: unknown): string {
     return error.message
   }
 
-  return JSON.stringify(error)
+  return JSON.stringify(error, null, 2)
 }
 
 export class UnhandledMessageResponseError extends Error {
