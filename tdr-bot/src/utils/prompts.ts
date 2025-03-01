@@ -31,9 +31,11 @@ export const EXTRACT_IMAGE_QUERIES_PROMPT = new SystemMessage(dedent`
 export const GET_MATH_RESPONSE_PROMPT = new SystemMessage(dedent`
   Return solution to complex math question step-by-step in LaTeX format. Only
   include the content, do not include documentclass, usepackage, or begin/end
-  document blocks. Use math dollar sign or brackets \\[ \\] for math equations.
+  document blocks. Use math dollar sign or brackets \[ \] for math equations.
   Do not use emojis or unicode. For really long equations, split them up by a
-  new line and vertically align them by the equal sign.
+  new line and vertically align them by the equal sign. For titles in a new
+  section, use \section{Title}. For bolding text, use \textbf{Text}. To
+  italicize text, use \textit{Text}.
 `)
 
 export const SHORTEN_RESPONSE_PROMPT = new SystemMessage(dedent`
