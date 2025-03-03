@@ -10,6 +10,8 @@ import { AppEventsService } from './app-events.service'
 import { CommandsModule } from './commands/commands.module'
 import { MessageHandlerModule } from './message-handler/message-handler.module'
 import { SchedulesModule } from './schedules/schedules.module'
+import { ServicesModule } from './services/services.module'
+import { StateModule } from './state/state.module'
 import { env } from './utils/env'
 
 @Module({
@@ -33,6 +35,8 @@ import { env } from './utils/env'
     // Sets up scheduling logic:
     // https://docs.nestjs.com/techniques/task-scheduling
     ScheduleModule.forRoot(),
+    ServicesModule,
+    StateModule,
     // Sets up scheduled functions
     SchedulesModule,
   ],

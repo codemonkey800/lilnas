@@ -1,12 +1,8 @@
 import { MessageState } from 'src/api/api.types'
-import { MessageResponseSchema } from 'src/schemas/messages'
-import { formatJsonString, isJson } from 'src/utils/json'
+import { formatJsonString } from 'src/utils/json'
 
 export function MessageCard({ message }: { message: MessageState }) {
   const toolsCalls = message.kwargs.tool_calls ?? []
-  const response = isJson(message.content)
-    ? MessageResponseSchema.safeParse(JSON.parse(message.content)).data
-    : undefined
 
   return (
     <div className="bg-gray-800 rounded-lg p-6 flex flex-col gap-3 text-white">
@@ -31,29 +27,25 @@ export function MessageCard({ message }: { message: MessageState }) {
         </div>
       )}
 
-      {response ? (
-        <div>
-          <p>{response.content}</p>
+      <div>
+        <pre className="max-w-full overflow-scroll">{message.content}</pre>
 
-          {response.images && response.images.length > 0 && (
-            <div className="flex flex-wrap mt-8">
-              {response.images.map((image) => (
-                <img
-                  className="max-w-[400px]"
-                  key={image.title}
-                  src={image.url}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
-        <pre className="w-full overflow-auto">
-          {isJson(message.content)
-            ? formatJsonString(message.content)
-            : message.content}
-        </pre>
-      )}
+        {message.images && message.images.length > 0 && (
+          <div className="flex flex-wrap mt-8">
+            {message.images.map((image) => (
+              <img
+                className="max-w-[400px]"
+                key={image.title}
+                src={image.url}
+              />
+            ))}
+          </div>
+        )}
+
+        {message.equationImage && (
+          <img className="max-w-[700px] mt-8" src={message.equationImage} />
+        )}
+      </div>
     </div>
   )
 }
