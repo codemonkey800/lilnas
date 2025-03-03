@@ -34,7 +34,8 @@ export class EquationsController {
     const badFilesDir = '/bad-files'
     await fs.ensureDir(badFilesDir)
 
-    const badFile = path.join(badFilesDir, path.basename(file))
+    const name = path.basename(path.dirname(file))
+    const badFile = path.join(badFilesDir, `${name}.tex`)
     await fs.copyFile(file, badFile)
     this.logger.log({ badFile }, 'Stored bad file')
   }
