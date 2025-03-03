@@ -4,66 +4,36 @@ import {
   HumanMessage,
   isAIMessage,
 } from '@langchain/core/messages'
-import {
-  Annotation,
-  StateGraph,
-  StateType,
-  UpdateType,
-} from '@langchain/langgraph'
+import { StateGraph, StateType, UpdateType } from '@langchain/langgraph'
 import { ToolNode } from '@langchain/langgraph/prebuilt'
 import { ChatOpenAI, DallEAPIWrapper } from '@langchain/openai'
 import { Injectable, Logger } from '@nestjs/common'
 import dedent from 'dedent'
-import { z } from 'zod'
+import { nanoid } from 'nanoid'
 
+import {
+  GraphNode,
+  ImageQuerySchema,
+  ImageResponseSchema,
+  InputStateAnnotation,
+  OutputStateAnnotation,
+  OverallStateAnnotation,
+  ResponseType,
+} from 'src/schemas/graph'
 import { MessageResponse } from 'src/schemas/messages'
+import { EquationImageService } from 'src/services/equation-image.service'
 import { StateService } from 'src/state/state.service'
-import { getEquationImage } from 'src/utils/equations'
 import { getErrorMessage, UnhandledMessageResponseError } from 'src/utils/error'
 import {
   EXTRACT_IMAGE_QUERIES_PROMPT,
   GET_CHAT_MATH_RESPONSE,
   GET_MATH_RESPONSE_PROMPT,
   GET_RESPONSE_TYPE_PROMPT,
+  IMAGE_RESPONSE,
   TDR_SYSTEM_PROMPT_ID,
 } from 'src/utils/prompts'
 
 import { dateTool } from './tools'
-import { GraphNode, ResponseType } from './types'
-
-const ImageQuerySchema = z.array(
-  z.object({
-    query: z.string(),
-    title: z.string(),
-  }),
-)
-
-const ImageResponseSchema = z.object({
-  title: z.string(),
-  url: z.string(),
-})
-
-type ImageResponse = z.infer<typeof ImageResponseSchema>
-
-const InputStateAnnotation = Annotation.Root({
-  messages: Annotation<BaseMessage[]>,
-  userInput: Annotation<string>,
-})
-
-const OutputStateAnnotation = Annotation.Root({
-  images: Annotation<ImageResponse[]>,
-  latex: Annotation<string>,
-  messages: Annotation<BaseMessage[]>,
-})
-
-const OverallStateAnnotation = Annotation.Root({
-  ...InputStateAnnotation.spec,
-  ...OutputStateAnnotation.spec,
-  message: Annotation<HumanMessage>(),
-  prevMessages: Annotation<BaseMessage[]>,
-  responseType: Annotation<ResponseType>,
-  userInput: Annotation<string>,
-})
 
 const RESPONSE_TYPE_GRAPH_NODE_MAP: Record<ResponseType, GraphNode> = {
   [ResponseType.Default]: GraphNode.GetModelDefaultResponse,
@@ -78,7 +48,10 @@ const TOKEN_LIMIT = 50_000
  */
 @Injectable()
 export class LLMService {
-  constructor(private readonly state: StateService) {}
+  constructor(
+    private readonly state: StateService,
+    private readonly equationImage: EquationImageService,
+  ) {}
 
   private readonly logger = new Logger(LLMService.name)
 
@@ -150,7 +123,10 @@ export class LLMService {
   }: typeof OverallStateAnnotation.State) {
     this.logger.log('Checking response type')
 
-    const message = new HumanMessage(userInput)
+    const message = new HumanMessage({
+      id: nanoid(),
+      content: userInput,
+    })
     const response = await this.smartModel.invoke([
       GET_RESPONSE_TYPE_PROMPT,
       message,
@@ -164,17 +140,18 @@ export class LLMService {
   }
 
   private addTdrSystemPrompt({
+    message,
     messages,
   }: typeof OverallStateAnnotation.State) {
     this.logger.log('Checking for TDR system prompt')
 
     if (messages?.some((message) => message.id === TDR_SYSTEM_PROMPT_ID)) {
       this.logger.log('TDR system prompt found')
-      return {}
+      return { messages: messages.concat(message) }
     }
 
     this.logger.log('Adding TDR system prompt')
-    return { messages: [this.state.getPrompt()] }
+    return { messages: [this.state.getPrompt(), message] }
   }
 
   private isToolsMessage(message: BaseMessage) {
@@ -202,21 +179,16 @@ export class LLMService {
   }
 
   private async getModelDefaultResponse({
-    message,
     messages,
     prevMessages,
   }: typeof OverallStateAnnotation.State) {
     const allMessages = (prevMessages ?? []).concat(messages)
-    const lastMessage = allMessages[messages.length - 1]
-    const nextMessages = this.isToolsMessage(lastMessage)
-      ? allMessages
-      : allMessages.concat(message)
 
     this.logger.log('Getting response from model')
-    const response = await this.chatModel.invoke(nextMessages)
+    const response = await this.chatModel.invoke(allMessages)
     this.logger.log('Got response from model')
 
-    const messagesWithResponse = nextMessages.concat(response)
+    const messagesWithResponse = allMessages.concat(response)
 
     // Store previous messages in state because tools node loses that info somehow
     // TODO fix issue with messages being erased from state.
@@ -258,7 +230,18 @@ export class LLMService {
 
       this.logger.log({ images }, 'Got image URLs')
 
-      return { images, messages: messages.concat(message) }
+      const chatResponse = await this.smartModel.invoke([
+        ...messages,
+        IMAGE_RESPONSE,
+      ])
+
+      return {
+        images: images.map((image) => ({
+          ...image,
+          parentId: chatResponse.id,
+        })),
+        messages: messages.concat(chatResponse),
+      }
     } catch (err) {
       this.logger.error(
         { err: getErrorMessage(err) },
@@ -275,26 +258,26 @@ export class LLMService {
   }: typeof OverallStateAnnotation.State) {
     this.logger.log({ message: message.content }, 'Get complex math solution')
 
-    // Include last message for context if user asks math question in succession
-    const nextMessages = messages
-      .slice(messages.length - 2, messages.length - 1)
-      .concat(message)
-
     const latexResponse = await this.smartModel.invoke([
       GET_MATH_RESPONSE_PROMPT,
-      ...nextMessages,
+      // Include last message for context if user asks math question in succession
+      ...messages
+        .slice(messages.length - 2, messages.length)
+        .filter((message) => message.id !== TDR_SYSTEM_PROMPT_ID),
     ])
 
     const latex = latexResponse.content.toString()
 
     const chatResponse = await this.smartModel.invoke([
-      this.state.getPrompt(),
-      ...nextMessages,
-      message,
+      ...messages,
       GET_CHAT_MATH_RESPONSE,
     ])
 
-    return { latex, messages: messages.concat([message, chatResponse]) }
+    return {
+      latex,
+      latexParentId: chatResponse.id,
+      messages: messages.concat(chatResponse),
+    }
   }
 
   private async shortenResponse({
@@ -348,12 +331,19 @@ export class LLMService {
 
     try {
       const state = this.state.getState()
-      const { latex, images, messages } = await this.app.invoke({
+      const { latex, latexParentId, images, messages } = await this.app.invoke({
         userInput,
-        messages: state.messages,
+        messages: state.graphHistory.at(-1)?.messages ?? [],
       })
 
-      this.state.setState(() => ({ messages }))
+      this.state.setState(() => ({
+        graphHistory: state.graphHistory.concat({
+          images,
+          latex,
+          latexParentId,
+          messages,
+        }),
+      }))
 
       const lastMessage = messages.at(-1)
 
@@ -361,23 +351,14 @@ export class LLMService {
         throw new Error('Did not receive a message')
       }
 
-      let equationImage: string | undefined
-
-      if (latex) {
-        this.logger.log({ latex }, 'Getting equation image')
-
-        const equationResponse = await getEquationImage(latex)
-
-        if ('image' in equationResponse) {
-          equationImage = equationResponse.image.split(',')[1]
-
-          this.logger.log('Got equation image')
-        }
+      let equationImage = await this.equationImage.getImage(latex)
+      if (equationImage) {
+        equationImage = equationImage.split(',')[1]
       }
 
       return {
-        images,
         equationImage,
+        images,
         content: lastMessage.content as string,
       }
     } catch (err) {

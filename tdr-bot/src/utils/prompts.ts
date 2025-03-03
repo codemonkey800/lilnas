@@ -2,7 +2,7 @@ import { BaseMessage, SystemMessage } from '@langchain/core/messages'
 import dedent from 'dedent'
 
 import { VERSION } from 'src/constants/version'
-import { ResponseType } from 'src/message-handler/types'
+import { ResponseType } from 'src/schemas/graph'
 
 import { emojis } from './emojis'
 
@@ -31,11 +31,11 @@ export const EXTRACT_IMAGE_QUERIES_PROMPT = new SystemMessage(dedent`
 export const GET_MATH_RESPONSE_PROMPT = new SystemMessage(dedent`
   Return solution to complex math question step-by-step in LaTeX format. Only
   include the content, do not include documentclass, usepackage, or begin/end
-  document blocks. Use math dollar sign or brackets \[ \] for math equations.
-  Do not use emojis or unicode. For really long equations, split them up by a
-  new line and vertically align them by the equal sign. For titles in a new
-  section, use \section{Title}. For bolding text, use \textbf{Text}. To
-  italicize text, use \textit{Text}.
+  document blocks. Use $ $ for inline math and $$ $$ for math equations on their
+  own line. Do not use emojis or unicode. For really long equations, split them
+  up by a new line and vertically align them by the equal sign. For titles in a
+  new section, use \section{Title}. For bolding text, use \textbf{Text}. To
+  italicize text, use \textit{Text}. Do not use # for headers.
 `)
 
 export const SHORTEN_RESPONSE_PROMPT = new SystemMessage(dedent`
@@ -43,8 +43,13 @@ export const SHORTEN_RESPONSE_PROMPT = new SystemMessage(dedent`
 `)
 
 export const GET_CHAT_MATH_RESPONSE = new SystemMessage(dedent`
-  Tell the user the solution is listed below. Do not include the solution in the
-  response.
+  Tell the user the solution is displayed below. Do not include the solution in
+  the response.
+`)
+
+export const IMAGE_RESPONSE = new SystemMessage(dedent`
+  Tell the user the image generated is displayed below. Don't tell the user you
+  can't draw images because you can.
 `)
 
 export const PROMPT_INTRO = dedent`

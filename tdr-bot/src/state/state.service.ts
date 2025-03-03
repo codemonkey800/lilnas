@@ -4,6 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter'
 import dedent from 'dedent'
 import { ChatModel } from 'openai/resources/index'
 
+import { OutputStateAnnotation } from 'src/schemas/graph'
 import {
   EMOJI_DICTIONARY,
   INPUT_FORMAT,
@@ -17,7 +18,7 @@ export interface AppState {
   model: ChatModel
   prompt: string
   temperature: number
-  messages: BaseMessage[]
+  graphHistory: Array<typeof OutputStateAnnotation.State>
 }
 
 export class StateChangeEvent {
@@ -36,7 +37,7 @@ export class StateService {
     model: 'gpt-4o-mini',
     prompt: KAWAII_PROMPT,
     temperature: 0,
-    messages: [],
+    graphHistory: [],
   }
 
   setState(
