@@ -366,6 +366,13 @@ export class LLMService {
         throw new Error('Did not receive a message')
       }
 
+      if (isAIMessage(lastMessage)) {
+        this.logger.log(
+          lastMessage.response_metadata.tokenUsage,
+          'Token count for last message',
+        )
+      }
+
       let equationImage = await this.equationImage.getImage(latex)
       if (equationImage) {
         equationImage = equationImage.split(',')[1]
