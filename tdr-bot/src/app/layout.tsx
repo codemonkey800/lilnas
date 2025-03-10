@@ -1,7 +1,17 @@
 import 'src/tailwind.css'
 
+import { Roboto } from 'next/font/google'
+
 import { Layout } from 'src/components/Layout'
 import Providers from 'src/components/Provider'
+import { cns } from 'src/utils/cns'
+
+const roboto = Roboto({
+  weight: ['300', '400', '500', '700'],
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-roboto',
+})
 
 export default function RootLayout({
   children,
@@ -9,7 +19,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html className="w-full h-full" lang="en">
+    <html className={cns('w-full h-full', roboto.variable)} lang="en">
       <body className="w-full h-full flex flex-auto flex-col">
         <Providers>
           <Layout>{children}</Layout>
