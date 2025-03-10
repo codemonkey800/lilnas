@@ -1,10 +1,19 @@
-import { Controller, Get } from '@nestjs/common'
+import { Body, Controller, Get, Post } from '@nestjs/common'
+import { ChatModel } from 'openai/resources'
 
 import { ImageResponse } from 'src/schemas/graph'
 import { EquationImageService } from 'src/services/equation-image.service'
-import { StateService } from 'src/state/state.service'
+import { AppState, StateService } from 'src/state/state.service'
 
-import { MessageState } from './api.types'
+import { EditableAppState, MessageState } from './api.types'
+
+class UpdateStateDto {
+  chatModel?: ChatModel
+  maxTokens?: number
+  prompt?: string
+  reasoningModel?: ChatModel
+  temperature?: number
+}
 
 @Controller()
 export class ApiController {
@@ -12,6 +21,40 @@ export class ApiController {
     private readonly state: StateService,
     private readonly equationImage: EquationImageService,
   ) {}
+
+  @Get('state')
+  async getState(): Promise<EditableAppState> {
+    const state = this.state.getState()
+
+    return {
+      chatModel: state.chatModel,
+      maxTokens: state.maxTokens,
+      prompt: state.prompt,
+      reasoningModel: state.reasoningModel,
+      temperature: state.temperature,
+    }
+  }
+
+  @Post('state')
+  async updateState(@Body() state: UpdateStateDto) {
+    const nextState: Partial<AppState> = { ...state }
+
+    // Clear history if prompt is changed
+    const prev = this.state.getState()
+    if (state.prompt && state.prompt !== prev.prompt) {
+      console.log('clearing history', {
+        prevPrompt: prev.prompt,
+        nextPrompt: nextState.prompt,
+      })
+      nextState.graphHistory = []
+    }
+
+    console.log('updating state', nextState)
+
+    this.state.setState(nextState)
+
+    return this.state.getState()
+  }
 
   @Get('messages')
   async getMessages(): Promise<MessageState[]> {
