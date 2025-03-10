@@ -1,5 +1,5 @@
 import { BaseMessage, SystemMessage } from '@langchain/core/messages'
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import dedent from 'dedent'
 import { ChatModel } from 'openai/resources/index'
@@ -14,11 +14,12 @@ import {
 } from 'src/utils/prompts'
 
 export interface AppState {
-  maxTokens: number
-  model: ChatModel
-  prompt: string
-  temperature: number
+  chatModel: ChatModel
   graphHistory: Array<typeof OutputStateAnnotation.State>
+  maxTokens: number
+  prompt: string
+  reasoningModel: ChatModel
+  temperature: number
 }
 
 export class StateChangeEvent {
@@ -30,14 +31,17 @@ export class StateChangeEvent {
 
 @Injectable()
 export class StateService {
+  private logger = new Logger(StateService.name)
+
   constructor(private readonly eventEmitter: EventEmitter2) {}
 
   private state: AppState = {
-    maxTokens: 100_000,
-    model: 'gpt-4o-mini',
+    graphHistory: [],
+    maxTokens: 50_000,
+    chatModel: 'gpt-4-turbo',
+    reasoningModel: 'gpt-4o-mini',
     prompt: KAWAII_PROMPT,
     temperature: 0,
-    graphHistory: [],
   }
 
   setState(
@@ -49,6 +53,8 @@ export class StateService {
       'state.change',
       new StateChangeEvent(this.state, newState),
     )
+
+    this.logger.log({ newState }, 'State updated')
 
     this.state = { ...this.state, ...newState }
   }
