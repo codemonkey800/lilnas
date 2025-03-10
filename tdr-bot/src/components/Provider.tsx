@@ -1,13 +1,17 @@
 // In Next.js, this file would be called: app/providers.tsx
 'use client'
 
+import { ThemeProvider } from '@mui/material'
 // Since QueryClientProvider relies on useContext under the hood, we have to put 'use client' on top
+import { AppRouterCacheProvider } from '@mui/material-nextjs/v15-appRouter'
 import {
   isServer,
   QueryClient,
   QueryClientProvider as BaseQueryClientProvider,
 } from '@tanstack/react-query'
 import { ReactNode } from 'react'
+
+import { theme } from 'src/theme'
 
 function makeQueryClient() {
   return new QueryClient({
@@ -52,5 +56,11 @@ function QueryClientProvider({ children }: { children: ReactNode }) {
 }
 
 export default function Providers({ children }: { children: ReactNode }) {
-  return <QueryClientProvider>{children}</QueryClientProvider>
+  return (
+    <ThemeProvider theme={theme}>
+      <AppRouterCacheProvider>
+        <QueryClientProvider>{children}</QueryClientProvider>
+      </AppRouterCacheProvider>
+    </ThemeProvider>
+  )
 }
