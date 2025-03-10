@@ -139,10 +139,13 @@ export class LLMService {
       id: nanoid(),
       content: userInput,
     })
+
     const response = await this.getReasoningModel().invoke([
-      GET_RESPONSE_TYPE_PROMPT,
-      ...messages,
+      ...messages
+        .slice(messages.length - 2, messages.length)
+        .filter((message) => message.id !== TDR_SYSTEM_PROMPT_ID),
       message,
+      GET_RESPONSE_TYPE_PROMPT,
     ])
 
     const responseType = response.content as ResponseType
