@@ -41,8 +41,6 @@ const RESPONSE_TYPE_GRAPH_NODE_MAP: Record<ResponseType, GraphNode> = {
   [ResponseType.Image]: GraphNode.GetModelImageResponse,
 }
 
-const TOKEN_LIMIT = 50_000
-
 /**
  * Service interacting with OpenAI's LLM.
  */
@@ -58,15 +56,6 @@ export class LLMService {
   private tools = [new TavilySearchResults(), dateTool]
 
   private toolNode = new ToolNode(this.tools)
-
-  private smartModel = new ChatOpenAI({
-    model: 'gpt-4o-mini',
-    temperature: 0,
-  })
-
-  private chatModel = new ChatOpenAI({
-    model: 'gpt-4-turbo',
-  }).bindTools(this.tools)
 
   private app = new StateGraph<
     (typeof OverallStateAnnotation)['spec'],
@@ -118,6 +107,28 @@ export class LLMService {
     // Compile graph into langchain runnable
     .compile()
 
+  private getReasoningModel() {
+    const state = this.state.getState()
+
+    this.logger.log({ model: state.reasoningModel }, 'Getting reasoning model')
+
+    return new ChatOpenAI({
+      model: state.reasoningModel,
+      temperature: 0,
+    }).bindTools(this.tools)
+  }
+
+  private getChatModel() {
+    const state = this.state.getState()
+
+    this.logger.log({ model: state.chatModel }, 'Getting chat model')
+
+    return new ChatOpenAI({
+      model: state.chatModel,
+      temperature: state.temperature,
+    }).bindTools(this.tools)
+  }
+
   private async checkResponseType({
     userInput,
   }: typeof OverallStateAnnotation.State) {
@@ -127,7 +138,7 @@ export class LLMService {
       id: nanoid(),
       content: userInput,
     })
-    const response = await this.smartModel.invoke([
+    const response = await this.getReasoningModel().invoke([
       GET_RESPONSE_TYPE_PROMPT,
       message,
     ])
@@ -185,7 +196,7 @@ export class LLMService {
     const allMessages = (prevMessages ?? []).concat(messages)
 
     this.logger.log('Getting response from model')
-    const response = await this.chatModel.invoke(allMessages)
+    const response = await this.getChatModel().invoke(allMessages)
     this.logger.log('Got response from model')
 
     const messagesWithResponse = allMessages.concat(response)
@@ -205,10 +216,9 @@ export class LLMService {
     this.logger.log({ message: message.content }, 'Extracting image queries')
 
     try {
-      const extractImageQueriesResponse = await this.smartModel.invoke([
-        EXTRACT_IMAGE_QUERIES_PROMPT,
-        message,
-      ])
+      const extractImageQueriesResponse = await this.getReasoningModel().invoke(
+        [EXTRACT_IMAGE_QUERIES_PROMPT, message],
+      )
 
       const imageQueries = ImageQuerySchema.parse(
         JSON.parse(extractImageQueriesResponse.content as string),
@@ -230,7 +240,7 @@ export class LLMService {
 
       this.logger.log({ images }, 'Got image URLs')
 
-      const chatResponse = await this.smartModel.invoke([
+      const chatResponse = await this.getReasoningModel().invoke([
         ...messages,
         IMAGE_RESPONSE,
       ])
@@ -258,7 +268,7 @@ export class LLMService {
   }: typeof OverallStateAnnotation.State) {
     this.logger.log({ message: message.content }, 'Get complex math solution')
 
-    const latexResponse = await this.smartModel.invoke([
+    const latexResponse = await this.getReasoningModel().invoke([
       GET_MATH_RESPONSE_PROMPT,
       // Include last message for context if user asks math question in succession
       ...messages
@@ -268,7 +278,7 @@ export class LLMService {
 
     const latex = latexResponse.content.toString()
 
-    const chatResponse = await this.smartModel.invoke([
+    const chatResponse = await this.getReasoningModel().invoke([
       ...messages,
       GET_CHAT_MATH_RESPONSE,
     ])
@@ -285,7 +295,9 @@ export class LLMService {
   }: typeof OverallStateAnnotation.State) {
     this.logger.log('Shortening response')
     const lastMessage = messages[messages.length - 1]
-    const response = await this.chatModel.invoke(messages.concat(lastMessage))
+    const response = await this.getChatModel().invoke(
+      messages.concat(lastMessage),
+    )
     this.logger.log({ length: response.content.length }, 'Shortened response')
 
     return {
@@ -295,11 +307,12 @@ export class LLMService {
 
   private trimMessages({ messages }: typeof OverallStateAnnotation.State) {
     const lastMessage = messages.at(-1)
+    const state = this.state.getState()
 
     if (
       lastMessage &&
       isAIMessage(lastMessage) &&
-      lastMessage.response_metadata.tokenUsage.totalTokens >= TOKEN_LIMIT
+      lastMessage.response_metadata.tokenUsage.totalTokens >= state.maxTokens
     ) {
       this.logger.log('Trimming messages')
 
