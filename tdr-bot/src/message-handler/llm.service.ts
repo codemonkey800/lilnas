@@ -141,9 +141,7 @@ export class LLMService {
     })
 
     const response = await this.getReasoningModel().invoke([
-      ...messages
-        .slice(messages.length - 2, messages.length)
-        .filter((message) => message.id !== TDR_SYSTEM_PROMPT_ID),
+      ...messages.filter((message) => message.id !== TDR_SYSTEM_PROMPT_ID),
       message,
       GET_RESPONSE_TYPE_PROMPT,
     ])
@@ -273,13 +271,11 @@ export class LLMService {
   }: typeof OverallStateAnnotation.State) {
     this.logger.log({ message: message.content }, 'Get complex math solution')
 
-    const latexResponse = await this.getReasoningModel().invoke([
-      GET_MATH_RESPONSE_PROMPT,
-      // Include last message for context if user asks math question in succession
-      ...messages
-        .slice(messages.length - 2, messages.length)
-        .filter((message) => message.id !== TDR_SYSTEM_PROMPT_ID),
-    ])
+    const latexResponse = await this.getReasoningModel().invoke(
+      messages
+        .filter((message) => message.id !== TDR_SYSTEM_PROMPT_ID)
+        .concat(GET_MATH_RESPONSE_PROMPT),
+    )
 
     const latex = latexResponse.content.toString()
 
