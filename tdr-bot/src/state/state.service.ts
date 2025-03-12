@@ -2,6 +2,7 @@ import { BaseMessage, SystemMessage } from '@langchain/core/messages'
 import { Injectable, Logger } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import dedent from 'dedent'
+import _ from 'lodash'
 import { ChatModel } from 'openai/resources/index'
 
 import { OutputStateAnnotation } from 'src/schemas/graph'
@@ -47,16 +48,15 @@ export class StateService {
   setState(
     state: Partial<AppState> | ((state: AppState) => Partial<AppState>),
   ) {
-    const newState = typeof state === 'function' ? state(this.state) : state
+    const prevState = this.state
+    const newState = typeof state === 'function' ? state(prevState) : state
+    const nextState = _.merge({}, prevState, newState)
+    this.state = nextState
 
     this.eventEmitter.emit(
       'state.change',
-      new StateChangeEvent(this.state, newState),
+      new StateChangeEvent(prevState, nextState),
     )
-
-    this.logger.log({ newState }, 'State updated')
-
-    this.state = { ...this.state, ...newState }
   }
 
   getState() {
