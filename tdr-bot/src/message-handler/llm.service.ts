@@ -129,7 +129,6 @@ export class LLMService {
   }
 
   private async checkResponseType({
-    messages,
     userInput,
   }: typeof OverallStateAnnotation.State) {
     this.logger.log('Checking response type')
@@ -140,7 +139,6 @@ export class LLMService {
     })
 
     const response = await this.getReasoningModel().invoke([
-      ...messages.filter((message) => message.id !== TDR_SYSTEM_PROMPT_ID),
       GET_RESPONSE_TYPE_PROMPT,
       message,
     ])
