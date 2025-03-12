@@ -7,7 +7,7 @@ import { ResponseType } from 'src/schemas/graph'
 import { emojis } from './emojis'
 
 export const GET_RESPONSE_TYPE_PROMPT = new SystemMessage(dedent`
-  Determine the response type for the previous message.
+  Determine the response type for the next message.
 
   If the message is asking to generate an image, return "${ResponseType.Image}".
 

@@ -23,6 +23,7 @@ import {
 import { MessageResponse } from 'src/schemas/messages'
 import { EquationImageService } from 'src/services/equation-image.service'
 import { StateService } from 'src/state/state.service'
+import { isEnumValue } from 'src/utils/enum'
 import { getErrorMessage, UnhandledMessageResponseError } from 'src/utils/error'
 import {
   EXTRACT_IMAGE_QUERIES_PROMPT,
@@ -85,7 +86,6 @@ export class LLMService {
       GraphNode.GetModelMathResponse,
       this.getModelMathResponse.bind(this),
     )
-    .addNode(GraphNode.ShortenResponse, this.shortenResponse.bind(this))
     .addNode(GraphNode.Tools, this.toolNode)
     // Edges
     .addEdge(GraphNode.Start, GraphNode.CheckResponseType)
@@ -94,7 +94,6 @@ export class LLMService {
     .addEdge(GraphNode.Tools, GraphNode.GetModelDefaultResponse)
     .addEdge(GraphNode.GetModelImageResponse, GraphNode.End)
     .addEdge(GraphNode.GetModelMathResponse, GraphNode.End)
-    .addEdge(GraphNode.ShortenResponse, GraphNode.End)
     // Conditional edges
     .addConditionalEdges(
       GraphNode.AddTdrSystemPrompt,
@@ -115,7 +114,7 @@ export class LLMService {
     return new ChatOpenAI({
       model: state.reasoningModel,
       temperature: 0,
-    }).bindTools(this.tools)
+    })
   }
 
   private getChatModel() {
@@ -142,9 +141,13 @@ export class LLMService {
 
     const response = await this.getReasoningModel().invoke([
       ...messages.filter((message) => message.id !== TDR_SYSTEM_PROMPT_ID),
-      message,
       GET_RESPONSE_TYPE_PROMPT,
+      message,
     ])
+
+    if (!isEnumValue(response.content, ResponseType)) {
+      throw new Error(`Invalid response type: "${response.content}"`)
+    }
 
     const responseType = response.content as ResponseType
 
@@ -183,10 +186,6 @@ export class LLMService {
 
     if (this.isToolsMessage(lastMessage)) {
       return GraphNode.Tools
-    }
-
-    if (lastMessage.content.length >= 2000) {
-      return GraphNode.ShortenResponse
     }
 
     return GraphNode.End
@@ -243,7 +242,7 @@ export class LLMService {
 
       this.logger.log({ images }, 'Got image URLs')
 
-      const chatResponse = await this.getReasoningModel().invoke([
+      const chatResponse = await this.getChatModel().invoke([
         ...messages,
         IMAGE_RESPONSE,
       ])
@@ -279,7 +278,7 @@ export class LLMService {
 
     const latex = latexResponse.content.toString()
 
-    const chatResponse = await this.getReasoningModel().invoke([
+    const chatResponse = await this.getChatModel().invoke([
       ...messages,
       GET_CHAT_MATH_RESPONSE,
     ])
@@ -288,21 +287,6 @@ export class LLMService {
       latex,
       latexParentId: chatResponse.id,
       messages: messages.concat(chatResponse),
-    }
-  }
-
-  private async shortenResponse({
-    messages,
-  }: typeof OverallStateAnnotation.State) {
-    this.logger.log('Shortening response')
-    const lastMessage = messages[messages.length - 1]
-    const response = await this.getChatModel().invoke(
-      messages.concat(lastMessage),
-    )
-    this.logger.log({ length: response.content.length }, 'Shortened response')
-
-    return {
-      messages: messages.slice(0, -1).concat(response),
     }
   }
 
@@ -318,7 +302,7 @@ export class LLMService {
       this.logger.log('Trimming messages')
 
       return {
-        messages: messages.slice(messages.length - 3, messages.length),
+        messages: [],
       }
     }
 
@@ -392,6 +376,8 @@ export class LLMService {
 
         ...(err instanceof Error ? { stack: err.stack } : {}),
       })
+
+      console.error('breh', err)
 
       return {
         images: [],

@@ -9,7 +9,6 @@ export enum GraphNode {
   GetModelDefaultResponse = 'getModelDefaultResponse',
   GetModelImageResponse = 'getModelImageResponse',
   GetModelMathResponse = 'getModelMathResponse',
-  ShortenResponse = 'shortenResponse',
   Start = '__start__',
   Tools = 'tools',
   TrimMessages = 'trimMessages',
