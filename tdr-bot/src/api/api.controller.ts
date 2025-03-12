@@ -42,14 +42,8 @@ export class ApiController {
     // Clear history if prompt is changed
     const prev = this.state.getState()
     if (state.prompt && state.prompt !== prev.prompt) {
-      console.log('clearing history', {
-        prevPrompt: prev.prompt,
-        nextPrompt: nextState.prompt,
-      })
       nextState.graphHistory = []
     }
-
-    console.log('updating state', nextState)
 
     this.state.setState(nextState)
 
