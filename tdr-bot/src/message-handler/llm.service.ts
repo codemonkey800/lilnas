@@ -332,8 +332,8 @@ export class LLMService {
         messages: state.graphHistory.at(-1)?.messages ?? [],
       })
 
-      this.state.setState(() => ({
-        graphHistory: state.graphHistory.concat({
+      this.state.setState((prev) => ({
+        graphHistory: prev.graphHistory.concat({
           images,
           latex,
           latexParentId,
