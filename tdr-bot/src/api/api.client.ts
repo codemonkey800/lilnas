@@ -1,6 +1,6 @@
 import { EditableAppState, MessageState } from './api.types'
 
-const API_URL = 'https://tdr.lilnas.io/api'
+const API_URL = 'http://localhost:8081'
 
 let instance: ApiClient | null = null
 
