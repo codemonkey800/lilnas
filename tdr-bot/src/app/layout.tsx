@@ -2,7 +2,7 @@ import 'src/tailwind.css'
 
 import { Roboto } from 'next/font/google'
 
-import { Layout } from 'src/components/Layout'
+import { Layout } from 'src/components/Layout/Layout'
 import Providers from 'src/components/Provider'
 import { cns } from 'src/utils/cns'
 

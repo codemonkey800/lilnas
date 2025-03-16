@@ -1,6 +1,6 @@
 export function Home() {
   return (
-    <div className="flex flex-auto items-center justify-center">
+    <div className="flex flex-auto items-center justify-center h-full w-full">
       <div className="flex flex-col gap-2 text-center items-center">
         <img
           className="rounded-full bg-purple-800 overflow-hidden border-[10px] border-purple-500"
