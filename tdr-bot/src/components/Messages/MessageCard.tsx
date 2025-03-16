@@ -1,3 +1,5 @@
+import { Paper } from '@mui/material'
+
 import { MessageState } from 'src/api/api.types'
 import { formatJsonString } from 'src/utils/json'
 
@@ -5,7 +7,10 @@ export function MessageCard({ message }: { message: MessageState }) {
   const toolsCalls = message.kwargs.tool_calls ?? []
 
   return (
-    <div className="bg-gray-800 rounded-lg p-6 flex flex-col gap-3 text-white">
+    <Paper
+      className="rounded-lg p-6 flex flex-col gap-3 text-white"
+      elevation={2}
+    >
       {message.id && <p className="text-lg font-bold">ID: {message.id}</p>}
       <p className="text-lg font-medium">Type: {message.type}</p>
 
@@ -46,6 +51,6 @@ export function MessageCard({ message }: { message: MessageState }) {
           <img className="max-w-[700px] mt-8" src={message.equationImage} />
         )}
       </div>
-    </div>
+    </Paper>
   )
 }

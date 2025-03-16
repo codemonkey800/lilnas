@@ -25,54 +25,53 @@ export function BotSettingsForm({
   return (
     <form onSubmit={() => updateState(state)}>
       <div className="flex flex-col items-center">
-        <div className="flex flex-col gap-4 w-full md:max-w-[600px]">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <ModelSelect
-              id="chat-model-select"
-              label="Chat Model"
-              onChange={(nextModel) => update({ chatModel: nextModel })}
-              value={state.chatModel}
-            />
-
-            <ModelSelect
-              id="reasoning-model-select"
-              label="Reasoning Model"
-              onChange={(reasoningModel) => update({ reasoningModel })}
-              value={state.reasoningModel}
-            />
-
-            <NumberInput
-              id="max-tokens-input"
-              label="Max Tokens"
-              onChange={(value) => update({ maxTokens: +value })}
-              value={`${state.maxTokens}`}
-            />
-
-            <NumberInput
-              id="temperature-input"
-              label="Temperature"
-              onChange={(value) => update({ temperature: +value })}
-              value={`${state.temperature}`}
-            />
-          </div>
-
-          <TextField
-            id="prompt-input"
-            label="Prompt"
-            multiline
-            onChange={(event) => update({ prompt: event.target.value })}
-            value={state.prompt}
+        <div className="flex flex-col gap-4 w-full">
+          <ModelSelect
+            id="chat-model-select"
+            label="Chat Model"
+            onChange={(nextModel) => update({ chatModel: nextModel })}
+            value={state.chatModel}
           />
 
-          <Button
-            className="!mt-4"
-            type="submit"
-            variant="contained"
-            disabled={_.isEqual(state, initialState)}
-          >
-            Submit
-          </Button>
+          <ModelSelect
+            id="reasoning-model-select"
+            label="Reasoning Model"
+            onChange={(reasoningModel) => update({ reasoningModel })}
+            value={state.reasoningModel}
+          />
+
+          <NumberInput
+            id="max-tokens-input"
+            label="Max Tokens"
+            onChange={(value) => update({ maxTokens: +value })}
+            value={`${state.maxTokens}`}
+          />
+
+          <NumberInput
+            id="temperature-input"
+            label="Temperature"
+            onChange={(value) => update({ temperature: +value })}
+            value={`${state.temperature}`}
+          />
         </div>
+
+        <TextField
+          className="!mt-6 w-full"
+          id="prompt-input"
+          label="Prompt"
+          multiline
+          onChange={(event) => update({ prompt: event.target.value })}
+          value={state.prompt}
+        />
+
+        <Button
+          className="!mt-4"
+          type="submit"
+          variant="contained"
+          disabled={_.isEqual(state, initialState)}
+        >
+          Submit
+        </Button>
       </div>
     </form>
   )
