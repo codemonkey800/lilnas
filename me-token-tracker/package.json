@@ -8,7 +8,7 @@
     "build": "nest build",
     "clean": "rm -rf dist",
     "dev": "nest start -w | pino-pretty",
-    "lint": "eslint src",
+    "lint": "eslint .",
     "start": "NODE_ENV=production node dist/main",
     "type-check": "tsc --noEmit"
   },
@@ -33,7 +33,6 @@
     "ts-pattern": "^5.5.0"
   },
   "devDependencies": {
-    "@eslint/js": "9.12.0",
     "@nestjs/cli": "10.4.5",
     "@swc/cli": "0.4.1-nightly.20240914",
     "@swc/core": "1.7.26",
@@ -44,22 +43,12 @@
     "@types/node-schedule": "2.1.7",
     "@types/source-map-support": "0.5.10",
     "@types/uuid": "^10.0.0",
-    "@typescript-eslint/eslint-plugin": "8.8.0",
-    "@typescript-eslint/parser": "8.8.0",
     "autoprefixer": "^10.4.20",
-    "eslint": "8.55.0",
-    "eslint-config-prettier": "9.1.0",
-    "eslint-import-resolver-typescript": "3.6.3",
-    "eslint-plugin-import": "2.31.0",
-    "eslint-plugin-no-relative-import-paths": "^1.5.5",
-    "eslint-plugin-prettier": "5.2.1",
-    "eslint-plugin-simple-import-sort": "12.1.1",
-    "eslint-plugin-unused-imports": "4.1.4",
-    "globals": "15.10.0",
+    "eslint": "9.22.0",
+    "eslint-config-lilnas": "file:../eslint-config-lilnas",
     "pino-pretty": "^11.2.2",
     "prettier": "3.3.3",
     "tsx": "4.19.1",
-    "typescript": "5.5.4",
-    "typescript-eslint": "8.8.0"
+    "typescript": "5.5.4"
   }
 }

@@ -21,25 +21,14 @@
     "@types/node": "22.10.1",
     "@types/react": "18.3.13",
     "@types/react-dom": "18.3.1",
-    "@typescript-eslint/eslint-plugin": "^8.17.0",
-    "@typescript-eslint/parser": "^8.17.0",
     "autoprefixer": "^10.4.20",
-    "eslint": "8.57.1",
-    "eslint-config-prettier": "9.1.0",
-    "eslint-import-resolver-typescript": "3.6.3",
-    "eslint-plugin-import": "2.31.0",
-    "eslint-plugin-no-relative-import-paths": "1.5.5",
-    "eslint-plugin-prettier": "5.2.1",
-    "eslint-plugin-react": "7.37.1",
-    "eslint-plugin-react-hooks": "4.6.2",
-    "eslint-plugin-simple-import-sort": "12.1.1",
-    "eslint-plugin-unused-imports": "4.1.4",
+    "eslint": "9.22.0",
+    "eslint-config-lilnas": "file:../eslint-config-lilnas",
     "npm-run-all": "^4.1.5",
     "postcss": "8.4.49",
     "prettier": "^3.4.2",
     "tailwind": "^4.0.0",
     "tailwindcss": "3.4.16",
-    "typescript": "5.7.2",
-    "typescript-eslint": "^8.17.0"
+    "typescript": "5.7.2"
   }
 }

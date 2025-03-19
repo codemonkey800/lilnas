@@ -1,23 +1,23 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
-
-const pluginJs = require('@eslint/js')
+const tseslint = require('typescript-eslint')
 const eslintConfigPrettier = require('eslint-config-prettier')
-const importPlugin = require('eslint-plugin-import')
 const eslintPluginPrettierRecommended = require('eslint-plugin-prettier/recommended')
+const importPlugin = require('eslint-plugin-import')
+const noRelativeImports = require('eslint-plugin-no-relative-import-paths')
+const pluginJs = require('@eslint/js')
 const simpleImportSort = require('eslint-plugin-simple-import-sort')
 const unusedImports = require('eslint-plugin-unused-imports')
 const globals = require('globals')
-const tseslint = require('typescript-eslint')
-const noRelativeImports = require('eslint-plugin-no-relative-import-paths')
 
 module.exports = [
   {
-    files: ['**/*.{js,mjs,cjs,ts}'],
+    files: ['**/*.{js,mjs,cjs,ts,jsx,tsx}'],
 
     languageOptions: {
       ecmaVersion: 2020,
-
-      globals:  globals.node
+      globals: {
+        ...globals.node,
+        ...globals.browser,
+      },
     },
   },
 
