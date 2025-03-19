@@ -1,9 +1,9 @@
 import { useAtomValue } from 'jotai'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { videoUrlsAtom } from 'src/state'
 
 import { Video } from './Video'
-import { useEffect, useRef } from 'react'
 
 export function VideoGrid() {
   const videoUrls = useAtomValue(videoUrlsAtom)
@@ -11,7 +11,7 @@ export function VideoGrid() {
   const cabinVideoRef = useRef<HTMLVideoElement>(null)
   const rearVideoRef = useRef<HTMLVideoElement>(null)
   const frontVideoRef = useRef<HTMLVideoElement>(null)
-  const videoRefs = [rearVideoRef, cabinVideoRef]
+  const videoRefs = useMemo(() => [rearVideoRef, cabinVideoRef], [])
 
   useEffect(() => {
     function onPause() {
@@ -43,7 +43,7 @@ export function VideoGrid() {
       mainVideo?.removeEventListener('play', onPlay)
       mainVideo?.removeEventListener('seeking', onUpdateTimeStamp)
     }
-  }, [videoUrls.state])
+  }, [videoRefs, videoUrls.state])
 
   return (
     <div className="flex flex-col flex-auto relative">

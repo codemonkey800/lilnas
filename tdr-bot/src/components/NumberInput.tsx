@@ -35,7 +35,7 @@ export function NumberInput({
       label={label}
       variant="standard"
       value={input}
-      onChange={(event) => {
+      onChange={event => {
         const value = event.target.value.replaceAll(',', '')
 
         if (value === '' || !Number.isNaN(+value)) {

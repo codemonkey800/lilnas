@@ -46,7 +46,7 @@ export async function getWeeklyCookiesMessage({
   const cookies = await getWeeklyCookies()
 
   const embeds = showEmbeds
-    ? cookies.map((cookie) => {
+    ? cookies.map(cookie => {
         let embed = new EmbedBuilder()
           .setTitle(cookie.name)
           .setImage(cookie.aerialImage)

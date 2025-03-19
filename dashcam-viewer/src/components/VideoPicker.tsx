@@ -1,6 +1,7 @@
 import dayjs from 'dayjs'
 import { useAtom, useAtomValue } from 'jotai'
 import { useMemo } from 'react'
+
 import { activeVideoAtom, filesAtom } from 'src/state'
 import { cns } from 'src/utils/cns'
 import { getVideoDate } from 'src/utils/date'
@@ -34,7 +35,7 @@ export function VideoPicker() {
         }),
       ]),
     )
-  }, [])
+  }, [files])
 
   const groupKeys = Array.from(filesByDay.keys()).sort((a, b) => {
     const dateA = dayjs(a, FILE_BY_MONTH_KEY)

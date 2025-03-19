@@ -123,7 +123,7 @@ export const DRUNK_PROMPT = dedent`
 export const TDR_SYSTEM_PROMPT_ID = 'tdr-system-prompt'
 
 export function getDebugMessages(messages: BaseMessage[]): BaseMessage[] {
-  return messages.map((m) =>
+  return messages.map(m =>
     m.id === TDR_SYSTEM_PROMPT_ID ? new SystemMessage('TDR System Prompt') : m,
   )
 }

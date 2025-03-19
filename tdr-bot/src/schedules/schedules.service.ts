@@ -15,15 +15,15 @@ export class SchedulesService {
     this.logger.log({ log: 'Executing crumbl cookies command' })
 
     // Find all channels named 'food'
-    const channels = this.client.guilds.cache.flatMap((guild) =>
-      guild.channels.cache.filter((channel) => channel.name === 'food'),
+    const channels = this.client.guilds.cache.flatMap(guild =>
+      guild.channels.cache.filter(channel => channel.name === 'food'),
     )
-    const totalChannels = channels.reduce((total) => total + 1, 0)
+    const totalChannels = channels.reduce(total => total + 1, 0)
     this.logger.log({ log: `Sending to ${totalChannels} channels ` })
 
     // Send weekly Crumbl cookies message to each channel and wait for all to finish
     await Promise.allSettled(
-      channels.map(async (channel) => {
+      channels.map(async channel => {
         if (!channel.isTextBased()) {
           return
         }

@@ -19,7 +19,7 @@ export function MessageCard({ message }: { message: MessageState }) {
           <p className="mb-2">Tools called:</p>
 
           <ul className="pl-3 flex flex-col gap-y-8">
-            {toolsCalls.map((toolsCall) => (
+            {toolsCalls.map(toolsCall => (
               <li key={toolsCall.id}>
                 <p>ID: {toolsCall.id}</p>
                 <p>Function: {toolsCall.function.name}</p>
@@ -37,7 +37,7 @@ export function MessageCard({ message }: { message: MessageState }) {
 
         {message.images && message.images.length > 0 && (
           <div className="flex flex-wrap mt-8">
-            {message.images.map((image) => (
+            {message.images.map(image => (
               <img
                 className="max-w-[400px]"
                 key={image.title}

@@ -17,7 +17,7 @@ export class GraphTestModule {
   test() {
     this.logger.log('Starting graph test')
 
-    process.stdin.on('data', async (data) => {
+    process.stdin.on('data', async data => {
       const message = data.toString().trim()
 
       const response = await this.llmService.sendMessage({

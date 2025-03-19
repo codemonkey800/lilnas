@@ -203,7 +203,7 @@ importers:
         version: 9.22.0(jiti@1.21.6)
       eslint-config-lilnas:
         specifier: file:../eslint-config-lilnas
-        version: file:../eslint-config-lilnas(@types/eslint@9.6.1)(is-bun-module@1.2.1)(jiti@1.21.6)(postcss@8.4.49)(prettier@3.4.2)
+        version: file:../eslint-config-lilnas(@types/eslint@9.6.1)(is-bun-module@1.2.1)(jiti@1.21.6)(postcss@8.4.49)(prettier@3.5.3)
       pino-pretty:
         specifier: 13.0.0
         version: 13.0.0
@@ -211,8 +211,11 @@ importers:
         specifier: 8.4.49
         version: 8.4.49
       prettier:
-        specifier: 3.4.2
-        version: 3.4.2
+        specifier: 3.5.3
+        version: 3.5.3
+      prettier-lilnas:
+        specifier: file:../prettier-lilnas
+        version: file:../prettier-lilnas
       tailwindcss:
         specifier: 3.4.17
         version: 3.4.17
@@ -4595,12 +4598,15 @@ packages:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
 
+  prettier-lilnas@file:../prettier-lilnas:
+    resolution: {directory: ../prettier-lilnas, type: directory}
+
   prettier-linter-helpers@1.0.0:
     resolution: {integrity: sha512-GbK2cP9nraSSUF9N2XwUwqfzlAFlMNYYl+ShE/V+H8a9uNl/oUqB1w2EL54Jh0OlyRSd8RfWYJ3coVS4TROP2w==}
     engines: {node: '>=6.0.0'}
 
-  prettier@3.4.2:
-    resolution: {integrity: sha512-e9MewbtFo+Fevyuxn/4rrcDAaq0IYxPGLvObpQjiZBMAzB9IGmzlnG9RZy3FFas+eBMu2vA0CszMeduow5dIuQ==}
+  prettier@3.5.3:
+    resolution: {integrity: sha512-QQtaxnoDJeAkDvDKWCLiwIXkTgRhwYDEQCghU9Z6q03iyek/rxRh/2lC3HB7P8sWT2xC/y5JDctPLBIGzHKbhw==}
     engines: {node: '>=14'}
     hasBin: true
 
@@ -7419,9 +7425,9 @@ snapshots:
     dependencies:
       possible-typed-array-names: 1.0.0
 
-  axios@1.7.4(debug@4.3.7):
+  axios@1.7.4(debug@4.4.0):
     dependencies:
-      follow-redirects: 1.15.9(debug@4.3.7)
+      follow-redirects: 1.15.9(debug@4.4.0)
       form-data: 4.0.0
       proxy-from-env: 1.1.0
     transitivePeerDependencies:
@@ -7429,7 +7435,7 @@ snapshots:
 
   axios@1.7.9:
     dependencies:
-      follow-redirects: 1.15.9(debug@4.3.7)
+      follow-redirects: 1.15.9(debug@4.4.0)
       form-data: 4.0.0
       proxy-from-env: 1.1.0
     transitivePeerDependencies:
@@ -8248,7 +8254,7 @@ snapshots:
 
   escape-string-regexp@4.0.0: {}
 
-  eslint-config-lilnas@file:../eslint-config-lilnas(@types/eslint@9.6.1)(is-bun-module@1.2.1)(jiti@1.21.6)(postcss@8.4.49)(prettier@3.4.2):
+  eslint-config-lilnas@file:../eslint-config-lilnas(@types/eslint@9.6.1)(is-bun-module@1.2.1)(jiti@1.21.6)(postcss@8.4.49)(prettier@3.5.3):
     dependencies:
       '@typescript-eslint/eslint-plugin': 8.26.1(@typescript-eslint/parser@8.26.1(eslint@9.22.0(jiti@1.21.6))(typescript@5.8.2))(eslint@9.22.0(jiti@1.21.6))(typescript@5.7.2)
       '@typescript-eslint/parser': 8.26.1(eslint@9.22.0(jiti@1.21.6))(typescript@5.7.2)
@@ -8258,7 +8264,7 @@ snapshots:
       eslint-import-resolver-typescript: 4.2.2(eslint-plugin-import@2.31.0)(eslint@9.22.0(jiti@1.21.6))(is-bun-module@1.2.1)
       eslint-plugin-import: 2.31.0(@typescript-eslint/parser@8.26.1(eslint@9.22.0(jiti@1.21.6))(typescript@5.8.2))(eslint-import-resolver-typescript@4.2.2)(eslint@9.22.0(jiti@1.21.6))
       eslint-plugin-no-relative-import-paths: 1.6.1
-      eslint-plugin-prettier: 5.2.3(@types/eslint@9.6.1)(eslint-config-prettier@10.1.1(eslint@9.22.0(jiti@1.21.6)))(eslint@9.22.0(jiti@1.21.6))(prettier@3.4.2)
+      eslint-plugin-prettier: 5.2.3(@types/eslint@9.6.1)(eslint-config-prettier@10.1.1(eslint@9.22.0(jiti@1.21.6)))(eslint@9.22.0(jiti@1.21.6))(prettier@3.5.3)
       eslint-plugin-react: 7.37.4(eslint@9.22.0(jiti@1.21.6))
       eslint-plugin-react-hooks: 5.2.0(eslint@9.22.0(jiti@1.21.6))
       eslint-plugin-simple-import-sort: 12.1.1(eslint@9.22.0(jiti@1.21.6))
@@ -8344,10 +8350,10 @@ snapshots:
 
   eslint-plugin-no-relative-import-paths@1.6.1: {}
 
-  eslint-plugin-prettier@5.2.3(@types/eslint@9.6.1)(eslint-config-prettier@10.1.1(eslint@9.22.0(jiti@1.21.6)))(eslint@9.22.0(jiti@1.21.6))(prettier@3.4.2):
+  eslint-plugin-prettier@5.2.3(@types/eslint@9.6.1)(eslint-config-prettier@10.1.1(eslint@9.22.0(jiti@1.21.6)))(eslint@9.22.0(jiti@1.21.6))(prettier@3.5.3):
     dependencies:
       eslint: 9.22.0(jiti@1.21.6)
-      prettier: 3.4.2
+      prettier: 3.5.3
       prettier-linter-helpers: 1.0.0
       synckit: 0.9.1
     optionalDependencies:
@@ -8645,9 +8651,9 @@ snapshots:
 
   flatted@3.3.1: {}
 
-  follow-redirects@1.15.9(debug@4.3.7):
+  follow-redirects@1.15.9(debug@4.4.0):
     optionalDependencies:
-      debug: 4.3.7
+      debug: 4.4.0
 
   for-each@0.3.3:
     dependencies:
@@ -8902,7 +8908,7 @@ snapshots:
   http-proxy@1.18.1:
     dependencies:
       eventemitter3: 4.0.7
-      follow-redirects: 1.15.9(debug@4.3.7)
+      follow-redirects: 1.15.9(debug@4.4.0)
       requires-port: 1.0.0
     transitivePeerDependencies:
       - debug
@@ -8942,9 +8948,9 @@ snapshots:
       '@types/debug': 4.1.12
       '@types/node': 10.14.22
       '@types/tough-cookie': 4.0.5
-      axios: 1.7.4(debug@4.3.7)
+      axios: 1.7.4(debug@4.4.0)
       camelcase: 6.3.0
-      debug: 4.3.7
+      debug: 4.4.0
       dotenv: 16.4.7
       extend: 3.0.2
       file-type: 16.5.4
@@ -8952,7 +8958,7 @@ snapshots:
       isstream: 0.1.2
       jsonwebtoken: 9.0.2
       mime-types: 2.1.35
-      retry-axios: 2.6.0(axios@1.7.4(debug@4.3.7))
+      retry-axios: 2.6.0(axios@1.7.4(debug@4.4.0))
       tough-cookie: 4.1.4
     transitivePeerDependencies:
       - supports-color
@@ -10159,11 +10165,13 @@ snapshots:
 
   prelude-ls@1.2.1: {}
 
+  prettier-lilnas@file:../prettier-lilnas: {}
+
   prettier-linter-helpers@1.0.0:
     dependencies:
       fast-diff: 1.3.0
 
-  prettier@3.4.2: {}
+  prettier@3.5.3: {}
 
   process-nextick-args@2.0.1: {}
 
@@ -10376,9 +10384,9 @@ snapshots:
       onetime: 5.1.2
       signal-exit: 3.0.7
 
-  retry-axios@2.6.0(axios@1.7.4(debug@4.3.7)):
+  retry-axios@2.6.0(axios@1.7.4(debug@4.4.0)):
     dependencies:
-      axios: 1.7.4(debug@4.3.7)
+      axios: 1.7.4(debug@4.4.0)
 
   retry@0.13.1: {}
 

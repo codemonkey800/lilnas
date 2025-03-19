@@ -103,9 +103,9 @@ export class CommandsService {
 
     const docker = new Docker({ socketPath: '/var/run/docker.sock' })
     const containers = await docker.container.list()
-    const tdrBotContainer = containers.find((container) => {
+    const tdrBotContainer = containers.find(container => {
       const data = container.data as ContainerData
-      return data.Names.some((name) => name.includes('tdr-bot'))
+      return data.Names.some(name => name.includes('tdr-bot'))
     })
 
     if (tdrBotContainer) {

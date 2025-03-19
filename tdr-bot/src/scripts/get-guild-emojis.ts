@@ -18,12 +18,12 @@ async function main() {
 
   client.login(process.env.API_TOKEN)
 
-  await new Promise((resolve) => client.once('ready', resolve))
+  await new Promise(resolve => client.once('ready', resolve))
 
   const emojis: Emoji[] = []
 
-  client.guilds.cache.forEach((guild) => {
-    guild.emojis.cache.forEach((emoji) => {
+  client.guilds.cache.forEach(guild => {
+    guild.emojis.cache.forEach(emoji => {
       if (emoji.name) {
         emojis.push({
           id: emoji.id,

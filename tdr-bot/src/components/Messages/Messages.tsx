@@ -17,7 +17,7 @@ export async function Messages() {
         </div>
       )}
 
-      {messages.map((message) => (
+      {messages.map(message => (
         <MessageCard
           key={message.id ?? JSON.stringify(message.content)}
           message={message}

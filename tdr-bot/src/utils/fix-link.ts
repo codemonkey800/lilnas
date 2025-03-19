@@ -6,7 +6,7 @@ import { visit } from 'unist-util-visit'
  */
 export function remarkFixLinkPlugin() {
   return (tree: Root) =>
-    visit(tree, 'link', (node) => {
+    visit(tree, 'link', node => {
       node.url = `<${node.url}>`
     })
 }

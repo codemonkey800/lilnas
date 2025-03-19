@@ -20,7 +20,7 @@ export abstract class BaseMessageHandlerService {
    * local data in the service class.
    */
   getHandlers(): MessageHandler[] {
-    return this.handlers.map((handler) => this.skipIfBot(handler.bind(this)))
+    return this.handlers.map(handler => this.skipIfBot(handler.bind(this)))
   }
 
   /**

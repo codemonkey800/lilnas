@@ -19,7 +19,7 @@ export function BotSettingsForm({
   const [state, setState] = useState<EditableAppState>(initialState)
 
   function update(state: Partial<EditableAppState>) {
-    setState((prev) => ({ ...prev, ...state }))
+    setState(prev => ({ ...prev, ...state }))
   }
 
   return (
@@ -29,28 +29,28 @@ export function BotSettingsForm({
           <ModelSelect
             id="chat-model-select"
             label="Chat Model"
-            onChange={(nextModel) => update({ chatModel: nextModel })}
+            onChange={nextModel => update({ chatModel: nextModel })}
             value={state.chatModel}
           />
 
           <ModelSelect
             id="reasoning-model-select"
             label="Reasoning Model"
-            onChange={(reasoningModel) => update({ reasoningModel })}
+            onChange={reasoningModel => update({ reasoningModel })}
             value={state.reasoningModel}
           />
 
           <NumberInput
             id="max-tokens-input"
             label="Max Tokens"
-            onChange={(value) => update({ maxTokens: +value })}
+            onChange={value => update({ maxTokens: +value })}
             value={`${state.maxTokens}`}
           />
 
           <NumberInput
             id="temperature-input"
             label="Temperature"
-            onChange={(value) => update({ temperature: +value })}
+            onChange={value => update({ temperature: +value })}
             value={`${state.temperature}`}
           />
         </div>
@@ -60,7 +60,7 @@ export function BotSettingsForm({
           id="prompt-input"
           label="Prompt"
           multiline
-          onChange={(event) => update({ prompt: event.target.value })}
+          onChange={event => update({ prompt: event.target.value })}
           value={state.prompt}
         />
 

@@ -20,14 +20,12 @@ export class AppEventsService {
     this.logger.log({ info: readyMessage })
 
     try {
-      const channels = client.guilds.cache.flatMap((guild) =>
-        guild.channels.cache.filter(
-          (channel) => channel.name === 'tdr-bot-chat',
-        ),
+      const channels = client.guilds.cache.flatMap(guild =>
+        guild.channels.cache.filter(channel => channel.name === 'tdr-bot-chat'),
       )
 
       await Promise.allSettled(
-        channels.map(async (channel) => {
+        channels.map(async channel => {
           if (!channel.isTextBased()) {
             return
           }

@@ -70,7 +70,7 @@ export class ChatService extends BaseMessageHandlerService {
 
   private async handleChatMessage(message: Message): Promise<boolean> {
     const isBotMention = message.mentions.users.some(
-      (user) => user.id === this.client.user?.id,
+      user => user.id === this.client.user?.id,
     )
 
     const isTdrBotChannel =
@@ -113,7 +113,7 @@ export class ChatService extends BaseMessageHandlerService {
         files: equationImage ? [equationImage] : [],
         embeds:
           response.images instanceof Array && response.images.length > 0
-            ? response.images.map((image) =>
+            ? response.images.map(image =>
                 new EmbedBuilder().setTitle(image.title).setImage(image.url),
               )
             : undefined,

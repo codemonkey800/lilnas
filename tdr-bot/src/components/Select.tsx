@@ -32,11 +32,11 @@ export function Select<T extends string>({
         id={id}
         label={label}
         labelId={labelId}
-        onChange={(event) => onChange(event.target.value as T)}
+        onChange={event => onChange(event.target.value as T)}
         value={value}
         {...props}
       >
-        {items.map((item) => (
+        {items.map(item => (
           <MenuItem key={item.value} value={item.value}>
             {item.label}
           </MenuItem>

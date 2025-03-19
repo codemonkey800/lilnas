@@ -71,7 +71,7 @@ export class ApiController {
     }
 
     return Promise.all(
-      state.graphHistory.at(-1)?.messages.map(async (message) => {
+      state.graphHistory.at(-1)?.messages.map(async message => {
         const id = message.id ?? ''
 
         const equationImageLatex = equationImagesMap.get(id)

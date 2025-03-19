@@ -4,11 +4,17 @@
   "private": true,
   "sideEffects": false,
   "packageManager": "pnpm@10.5.2",
+  "prettier": "prettier-lilnas",
   "scripts": {
     "build": "nest build",
     "clean": "rm -rf dist",
     "dev": "nest start -w | pino-pretty",
-    "lint": "eslint .",
+    "lint": "run-p -l 'lint:!(fix)'",
+    "lint:eslint": "eslint src",
+    "lint:prettier": "prettier -c src",
+    "lint:fix": "run-p -l lint:*:fix",
+    "lint:eslint:fix": "eslint --fix src",
+    "lint:prettier:fix": "prettier -w src",
     "start": "NODE_ENV=production node dist/main",
     "type-check": "tsc --noEmit"
   },
@@ -47,7 +53,8 @@
     "eslint": "9.22.0",
     "eslint-config-lilnas": "file:../eslint-config-lilnas",
     "pino-pretty": "^11.2.2",
-    "prettier": "3.3.3",
+    "prettier": "3.5.3",
+    "prettier-lilnas": "file:../prettier-lilnas",
     "tsx": "4.19.1",
     "typescript": "5.5.4"
   }

@@ -97,7 +97,7 @@ export class LLMService {
     // Conditional edges
     .addConditionalEdges(
       GraphNode.AddTdrSystemPrompt,
-      (state) => RESPONSE_TYPE_GRAPH_NODE_MAP[state.responseType],
+      state => RESPONSE_TYPE_GRAPH_NODE_MAP[state.responseType],
     )
     .addConditionalEdges(
       GraphNode.GetModelDefaultResponse,
@@ -160,7 +160,7 @@ export class LLMService {
   }: typeof OverallStateAnnotation.State) {
     this.logger.log('Checking for TDR system prompt')
 
-    if (messages?.some((message) => message.id === TDR_SYSTEM_PROMPT_ID)) {
+    if (messages?.some(message => message.id === TDR_SYSTEM_PROMPT_ID)) {
       this.logger.log('TDR system prompt found')
       return { messages: messages.concat(message) }
     }
@@ -246,7 +246,7 @@ export class LLMService {
       ])
 
       return {
-        images: images.map((image) => ({
+        images: images.map(image => ({
           ...image,
           parentId: chatResponse.id,
         })),
@@ -270,7 +270,7 @@ export class LLMService {
 
     const latexResponse = await this.getReasoningModel().invoke(
       messages
-        .filter((message) => message.id !== TDR_SYSTEM_PROMPT_ID)
+        .filter(message => message.id !== TDR_SYSTEM_PROMPT_ID)
         .concat(GET_MATH_RESPONSE_PROMPT),
     )
 
@@ -332,7 +332,7 @@ export class LLMService {
         messages: state.graphHistory.at(-1)?.messages ?? [],
       })
 
-      this.state.setState((prev) => ({
+      this.state.setState(prev => ({
         graphHistory: prev.graphHistory.concat({
           images,
           latex,

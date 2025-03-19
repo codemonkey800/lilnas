@@ -12,7 +12,7 @@ export function AppBarDrawerButton() {
 
   return (
     <div className="md:hidden">
-      <IconButton onClick={() => setOpen((prev) => !prev)}>
+      <IconButton onClick={() => setOpen(prev => !prev)}>
         <Icon />
       </IconButton>
     </div>

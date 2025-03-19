@@ -16,7 +16,7 @@ const MODELS: ChatModel[] = [
   'gpt-3.5-turbo',
 ]
 
-const MODEL_OPTIONS = MODELS.map((model) => ({ label: model, value: model }))
+const MODEL_OPTIONS = MODELS.map(model => ({ label: model, value: model }))
 
 export function ModelSelect({
   id,
@@ -34,7 +34,7 @@ export function ModelSelect({
       id={id}
       items={MODEL_OPTIONS}
       label={label}
-      onChange={(nextModel) => onChange(nextModel)}
+      onChange={nextModel => onChange(nextModel)}
       value={value}
     />
   )
