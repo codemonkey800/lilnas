@@ -1,5 +1,6 @@
 {
   "name": "lilnas",
+  "version": "0.2.0",
   "packageManager": "pnpm@10.6.5",
   "scripts": {
     "build": "pnpm run -r build",
