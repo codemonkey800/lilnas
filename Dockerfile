@@ -21,11 +21,11 @@ RUN cp -r /app/.next/standalone/* /app
 CMD ["node", "server.js"]
 
 FROM base AS dashcam-builder
-RUN pnpm --filter=dashcam-viewer build
+RUN pnpm --filter=dashcam build
 
 FROM nginx:alpine AS dashcam
-COPY --from=dashcam-builder /source/packages/dashcam-viewer/dist /usr/share/nginx/html
-COPY packages/dashcam-viewer/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=dashcam-builder /source/packages/dashcam/dist /usr/share/nginx/html
+COPY packages/dashcam/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
 
 FROM base AS equations
