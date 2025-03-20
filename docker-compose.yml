@@ -6,3 +6,4 @@ include:
   - ./infra/monitoring.yml
   - ./infra/palworld.yml
   - ./infra/proxy.yml
+  - ./infra/shared.yml
