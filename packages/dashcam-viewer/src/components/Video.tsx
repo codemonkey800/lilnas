@@ -10,7 +10,7 @@ export function Video({
 }: {
   placeholder: string
   url: string
-  videoRef: RefObject<HTMLVideoElement>
+  videoRef: RefObject<HTMLVideoElement | null>
   main?: boolean
 }) {
   return (

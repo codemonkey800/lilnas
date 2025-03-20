@@ -1,6 +1,7 @@
 import 'src/tailwind.css'
 
 import { Roboto } from 'next/font/google'
+import { ReactNode } from 'react'
 
 import { Layout } from 'src/components/Layout/Layout'
 import Providers from 'src/components/Provider'
@@ -13,11 +14,7 @@ const roboto = Roboto({
   variable: '--font-roboto',
 })
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <html className={cns('w-full h-full', roboto.variable)} lang="en">
       <body className="w-full h-full flex flex-auto flex-col">

@@ -5,11 +5,15 @@
   "sideEffects": false,
   "packageManager": "pnpm@10.5.2",
   "prettier": "prettier-lilnas",
+  "files": [
+    "./.next",
+    "./dist"
+  ],
   "scripts": {
     "build": "run-p build:*",
     "build:backend": "nest build",
     "build:frontend": "next build",
-    "clean": "rm -rf .next dist",
+    "clean": "rm -rf .next/ dist/",
     "deploy": "fly deploy",
     "dev": "run-p 'dev:!(graph-test)'",
     "dev:backend": "nest start -w | pino-pretty",
@@ -79,27 +83,19 @@
   },
   "devDependencies": {
     "@nestjs/cli": "10.4.9",
-    "@swc/cli": "0.5.2",
-    "@swc/core": "1.10.2",
     "@types/express": "5.0.0",
     "@types/json-schema": "7.0.15",
     "@types/lodash": "4.17.13",
     "@types/mdast": "^4.0.4",
-    "@types/node": "22.10.2",
     "@types/node-schedule": "2.1.7",
-    "@types/react": "19.0.2",
-    "@types/react-dom": "19.0.2",
     "@types/source-map-support": "0.5.10",
     "@types/uuid": "10.0.0",
     "autoprefixer": "10.4.20",
-    "eslint": "9.22.0",
-    "eslint-config-lilnas": "file:../eslint-config-lilnas",
+    "eslint-config-lilnas": "workspace:*",
     "pino-pretty": "13.0.0",
     "postcss": "8.4.49",
-    "prettier": "3.5.3",
-    "prettier-lilnas": "file:../prettier-lilnas",
+    "prettier-lilnas": "workspace:*",
     "tailwindcss": "3.4.17",
-    "tsx": "4.19.2",
-    "typescript": "5.7.2"
+    "tsx": "4.19.2"
   }
 }

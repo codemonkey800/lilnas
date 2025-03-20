@@ -5,8 +5,12 @@
   "type": "module",
   "packageManager": "pnpm@10.5.2",
   "prettier": "prettier-lilnas",
+  "files": [
+    "./dist"
+  ],
   "scripts": {
     "build": "tsc && vite build",
+    "clean": "rm -rf dist/",
     "dev": "vite --port 8080",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
@@ -14,7 +18,8 @@
     "lint:fix": "run-p -l lint:*:fix",
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
-    "preview": "vite preview --port 8080"
+    "preview": "vite preview --port 8080",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "clsx": "^2.1.0",
@@ -26,19 +31,13 @@
     "ts-pattern": "^5.0.8"
   },
   "devDependencies": {
-    "@types/react": "^18.2.64",
-    "@types/react-dom": "^18.2.21",
     "@types/wicg-file-system-access": "^2023.10.5",
     "@vitejs/plugin-react-swc": "^3.5.0",
     "autoprefixer": "^10.4.18",
-    "eslint": "9.22.0",
-    "eslint-config-lilnas": "file:../eslint-config-lilnas",
-    "npm-run-all": "^4.1.5",
+    "eslint-config-lilnas": "workspace:*",
     "postcss": "^8.4.35",
-    "prettier": "3.5.3",
-    "prettier-lilnas": "file:../prettier-lilnas",
+    "prettier-lilnas": "workspace:*",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5.2.2",
     "vite": "^5.1.6",
     "vite-tsconfig-paths": "^4.3.1"
   }

@@ -1,6 +1,8 @@
 services:
   dashcam:
-    build: ../dashcam-viewer
+    build:
+      context: ../
+      target: dashcam
     restart: unless-stopped
     labels:
       - traefik.enable=true
@@ -46,7 +48,9 @@ services:
       - traefik.http.services.owncast.loadbalancer.server.port=8080
 
   apps:
-    build: ../apps
+    build:
+      context: ../
+      target: apps
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -59,13 +63,17 @@ services:
       - traefik.http.services.apps.loadbalancer.server.port=8080
 
   me-token-tracker:
-    build: ../me-token-tracker
+    build:
+      context: ../
+      target: me-token-tracker
     restart: unless-stopped
     env_file:
       - .env.me-token-tracker
 
   tdr-bot:
-    build: ../tdr-bot
+    build:
+      context: ../
+      target: tdr-bot
     restart: unless-stopped
     env_file:
       - .env.tdr-bot
@@ -80,7 +88,9 @@ services:
       - traefik.http.services.tdr.loadbalancer.server.port=8080
 
   equations:
-    build: ../equations
+    build:
+      context: ../
+      target: equations
     restart: unless-stopped
     env_file:
       - .env.equations

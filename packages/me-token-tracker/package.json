@@ -1,13 +1,17 @@
 {
-  "name": "tdr-bot",
+  "name": "me-token-tracker",
+  "version": "0.1.0",
   "license": "MIT",
   "private": true,
   "sideEffects": false,
   "packageManager": "pnpm@10.5.2",
   "prettier": "prettier-lilnas",
+  "files": [
+    "./dist"
+  ],
   "scripts": {
     "build": "nest build",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist/",
     "dev": "nest start -w | pino-pretty",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
@@ -40,22 +44,16 @@
   },
   "devDependencies": {
     "@nestjs/cli": "10.4.5",
-    "@swc/cli": "0.4.1-nightly.20240914",
-    "@swc/core": "1.7.26",
     "@types/express": "5.0.0",
     "@types/json-schema": "^7.0.15",
     "@types/lodash": "4.17.10",
-    "@types/node": "22.7.4",
     "@types/node-schedule": "2.1.7",
     "@types/source-map-support": "0.5.10",
     "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.4.20",
-    "eslint": "9.22.0",
-    "eslint-config-lilnas": "file:../eslint-config-lilnas",
+    "eslint-config-lilnas": "workspace:*",
     "pino-pretty": "^11.2.2",
-    "prettier": "3.5.3",
-    "prettier-lilnas": "file:../prettier-lilnas",
-    "tsx": "4.19.1",
-    "typescript": "5.5.4"
+    "prettier-lilnas": "workspace:*",
+    "tsx": "4.19.1"
   }
 }

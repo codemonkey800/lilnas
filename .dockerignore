@@ -1,0 +1,11 @@
+**/.next
+**/build
+**/dist
+**/node_modules
+images/
+immich/
+letsencrypt/
+media/
+minecraft/
+palworld/
+portainer/

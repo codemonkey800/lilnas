@@ -6,6 +6,7 @@
   "prettier": "prettier-lilnas",
   "scripts": {
     "build": "next build",
+    "clean": "rm -rf .next/ *.tsbuildinfo",
     "dev": "next dev --turbopack -p 8080",
     "dev:prod": "run-s -l build start",
     "lint": "run-p -l 'lint:!(fix)'",
@@ -14,7 +15,8 @@
     "lint:fix": "run-p -l lint:*:fix",
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
-    "start": "next start -p 8080"
+    "start": "next start -p 8080",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "next": "15.0.3",
@@ -23,18 +25,11 @@
     "react-dom": "18.3.1"
   },
   "devDependencies": {
-    "@types/node": "22.10.1",
-    "@types/react": "18.3.13",
-    "@types/react-dom": "18.3.1",
     "autoprefixer": "^10.4.20",
-    "eslint": "9.22.0",
-    "eslint-config-lilnas": "file:../eslint-config-lilnas",
-    "npm-run-all": "^4.1.5",
+    "eslint-config-lilnas": "workspace:*",
     "postcss": "8.4.49",
-    "prettier": "3.5.3",
-    "prettier-lilnas": "file:../prettier-lilnas",
+    "prettier-lilnas": "workspace:*",
     "tailwind": "^4.0.0",
-    "tailwindcss": "3.4.16",
-    "typescript": "5.7.2"
+    "tailwindcss": "3.4.16"
   }
 }
