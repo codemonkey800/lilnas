@@ -19,8 +19,7 @@ ENV PORT=8080
 EXPOSE 8080
 
 WORKDIR /app
-RUN cp -r /app/.next/standalone/* /app
-CMD ["node", "server.js"]
+ENTRYPOINT ["pnpm", "start"]
 
 FROM base AS dashcam-builder
 RUN pnpm --filter=dashcam build
@@ -73,4 +72,4 @@ ENV PORT=8080
 EXPOSE 8080
 
 WORKDIR /app
-CMD ["pnpm", "start"]
+ENTRYPOINT ["pnpm", "start"]

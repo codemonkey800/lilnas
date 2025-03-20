@@ -27,7 +27,7 @@
     "lint:prettier:fix": "prettier -w src",
     "start": "run-p start:*",
     "start:backend": "NODE_ENV=production node dist/main",
-    "start:frontend": "NODE_ENV=production node server",
+    "start:frontend": "NODE_ENV=production node .next/standalone/server",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

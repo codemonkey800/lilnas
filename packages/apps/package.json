@@ -15,7 +15,7 @@
     "lint:fix": "run-p -l lint:*:fix",
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
-    "start": "next start -p 8080",
+    "start": "NODE_ENV=production node .next/standalone/server",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
