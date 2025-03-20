@@ -4,7 +4,7 @@ ENV PATH="$PNPM_HOME:$PATH"
 
 WORKDIR /app
 
-COPY ./image-magick-policy.xml /etc/ImageMagick-6/policy.xml
+COPY packages/equations/image-magick-policy.xml /etc/ImageMagick-6/policy.xml
 
 # Latex packages
 RUN apt-get update && \
@@ -19,3 +19,4 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm -g i pnpm
+ENTRYPOINT [ "bash" ]
