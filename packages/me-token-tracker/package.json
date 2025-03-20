@@ -1,11 +1,11 @@
 {
-  "name": "me-token-tracker",
+  "name": "@lilnas/me-token-tracker",
   "version": "0.1.0",
   "license": "MIT",
   "private": true,
   "sideEffects": false,
   "packageManager": "pnpm@10.6.5",
-  "prettier": "prettier-config-lilnas",
+  "prettier": "@lilnas/prettier",
   "files": [
     "./dist"
   ],

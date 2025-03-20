@@ -1,3 +1,3 @@
-# prettier-config-lilnas
+# Shared Prettier Config
 
 Shared prettier configuration for monorepo.

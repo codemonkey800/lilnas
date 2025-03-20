@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 
-const { base } = require('eslint-config-lilnas')
+const { base } = require('@lilnas/eslint')
 
 module.exports = base
