@@ -1,0 +1,8 @@
+services:
+  storage:
+    image: minio/minio
+    restart: unless-stopped
+    env_file:
+      - .env.storage
+    volumes:
+      - ../data/storage:/data
