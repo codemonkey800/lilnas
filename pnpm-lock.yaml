@@ -71,7 +71,7 @@ importers:
         specifier: 3.4.16
         version: 3.4.16
 
-  packages/dashcam-viewer:
+  packages/dashcam:
     dependencies:
       clsx:
         specifier: ^2.1.0
@@ -13680,7 +13680,7 @@ snapshots:
 
   send@1.1.0:
     dependencies:
-      debug: 4.3.6
+      debug: 4.4.0(supports-color@5.5.0)
       destroy: 1.2.0
       encodeurl: 2.0.0
       escape-html: 1.0.3
