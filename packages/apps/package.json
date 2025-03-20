@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.6.5",
-  "prettier": "prettier-lilnas",
+  "prettier": "prettier-config-lilnas",
   "scripts": {
     "build": "next build",
     "clean": "rm -rf .next/ *.tsbuildinfo",
