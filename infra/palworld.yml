@@ -10,4 +10,4 @@ services:
     env_file:
       - .env.palworld
     volumes:
-      - ../palworld/:/palworld/
+      - ../data/palworld/:/palworld/
