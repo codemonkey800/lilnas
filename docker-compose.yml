@@ -3,5 +3,6 @@ include:
   - ./infra/immich.yml
   - ./infra/media.yml
   # - ./infra/minecraft.yml
+  - ./infra/monitoring.yml
   - ./infra/palworld.yml
   - ./infra/proxy.yml

@@ -10,31 +10,6 @@ services:
       - traefik.http.routers.dashcam.entrypoints=websecure
       - traefik.http.routers.dashcam.tls.certresolver=le
 
-  portainer:
-    restart: unless-stopped
-    image: portainer/portainer-ce
-    command: -H unix:///var/run/docker.sock
-    volumes:
-      - ../portainer:/data
-      - /var/run/docker.sock:/var/run/docker.sock
-    labels:
-      - traefik.enable=true
-
-      # Frontend
-      - traefik.http.services.frontend.loadbalancer.server.port=9000
-      - traefik.http.routers.frontend.service=frontend
-      - traefik.http.routers.frontend.rule=Host(`portainer.lilnas.io`)
-      - traefik.http.routers.frontend.entrypoints=websecure
-      - traefik.http.routers.frontend.tls.certresolver=le
-      - traefik.http.routers.frontend.middlewares=forward-auth
-
-      # Edge
-      - traefik.http.services.edge.loadbalancer.server.port=8000
-      - traefik.http.routers.edge.service=edge
-      - traefik.http.routers.edge.rule=Host(`edge.lilnas.io`)
-      - traefik.http.routers.edge.entrypoints=websecure
-      - traefik.http.routers.edge.tls.certresolver=le
-
   owncast:
     image: owncast/owncast
     restart: unless-stopped
