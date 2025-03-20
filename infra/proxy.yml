@@ -50,7 +50,7 @@ services:
     image: thomseddon/traefik-forward-auth:2.1.0
     restart: unless-stopped
     env_file:
-      - .env
+      - .env.forward-auth
     labels:
       - traefik.enable=true
       - traefik.http.routers.auth.rule=Host(`auth.lilnas.io`)
