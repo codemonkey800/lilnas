@@ -16,4 +16,4 @@ services:
       CF_API_KEY: '$$2a$$10$$KsGznF2XwmjdbLQsyiJEPuTs5mMpYSsJtmKK0yuNTeMYh9eOb6sqG'
 
     volumes:
-      - ../minecraft/data:/data
+      - ../data/minecraft:/data

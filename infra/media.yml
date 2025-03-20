@@ -7,9 +7,9 @@ services:
       PGID: 1000
       TZ: America/Los_Angeles
     volumes:
-      - ../media/sonarr:/config
+      - ../data/media/sonarr:/config
       - /mnt/hdd1/tv:/tv
-      - ../media/downloads:/downloads
+      - ../data/media/downloads:/downloads
     labels:
       - traefik.enable=true
       - traefik.http.services.sonarr.loadbalancer.server.port=8989
@@ -25,9 +25,9 @@ services:
       PGID: 1000
       TZ: America/Los_Angeles
     volumes:
-      - ../media/radarr:/config
+      - ../data/media/radarr:/config
       - /mnt/hdd1/movies:/movies
-      - ../media/downloads:/downloads
+      - ../data/media/downloads:/downloads
     labels:
       - traefik.enable=true
       - traefik.http.services.radarr.loadbalancer.server.port=7878
@@ -43,9 +43,9 @@ services:
       PGID: 1000
       TZ: America/Los_Angeles
     volumes:
-      - ../media/sabnzbd:/config
-      - ../media/downloads:/downloads
-      - ../media/incomplete-downloads:/incomplete-downloads
+      - ../data/media/sabnzbd:/config
+      - ../data/media/downloads:/downloads
+      - ../data/media/incomplete-downloads:/incomplete-downloads
     labels:
       - traefik.enable=true
       - traefik.http.services.sabnzbd.loadbalancer.server.port=8080
@@ -61,7 +61,7 @@ services:
       PGID: 1000
       TZ: America/Los_Angeles
     volumes:
-      - ../media/emby:/config # Configuration directory
+      - ../data/media/emby:/config # Configuration directory
       - /mnt/hdd1/tv:/tv # Media directory
       - /mnt/hdd1/movies:/movies # Media directory
     devices:
@@ -81,7 +81,7 @@ services:
       PGID: 1000
       TZ: America/Los_Angeles
     volumes:
-      - ../media/ombi:/config
+      - ../data/media/ombi:/config
     labels:
       - traefik.enable=true
       - traefik.http.services.ombi.loadbalancer.server.port=3579

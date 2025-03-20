@@ -4,13 +4,7 @@
 .env
 .env.*
 .next/
-dist/
-immich/
-letsencrypt/
-media/
-minecraft/
-miniserve/
-node_modules/
-palworld/
-portainer/
 *.tsbuildinfo
+data/
+dist/
+node_modules/
