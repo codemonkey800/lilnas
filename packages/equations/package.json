@@ -13,7 +13,6 @@
     "build": "nest build",
     "clean": "rm -rf dist/",
     "dev": "nest start -w | pino-pretty",
-    "dev:watch": "nodemon --watch src --exec 'pnpm dev'",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
     "lint:prettier": "prettier -c src",
@@ -38,19 +37,6 @@
     "ts-pattern": "^5.6.2"
   },
   "devDependencies": {
-    "@nestjs/cli": "11.0.4",
-    "@types/express": "5.0.0",
-    "@types/fs-extra": "^11.0.4",
-    "@types/json-schema": "^7.0.15",
-    "@types/lodash": "4.17.15",
-    "@types/node-schedule": "2.1.7",
-    "@types/source-map-support": "0.5.10",
-    "@types/uuid": "^10.0.0",
-    "autoprefixer": "^10.4.20",
-    "eslint-config-lilnas": "workspace:*",
-    "nodemon": "^3.1.9",
-    "pino-pretty": "^13.0.0",
-    "prettier-lilnas": "workspace:*",
-    "tsx": "4.19.3"
+    "@types/fs-extra": "^11.0.4"
   }
 }
