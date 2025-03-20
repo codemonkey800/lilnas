@@ -1,10 +1,10 @@
 nvm use
 
-function get_root_dir
+function __get_root_dir
   dirname (status --current-filename)
 end
 
-function get_app_name
+function __get_app_name
   set root_dir (get_root_dir)
   set app_name (string match -r "$root_dir/(.*)(/.*)?" (pwd))[2]
 
@@ -12,8 +12,8 @@ function get_app_name
 end
 
 function sync-dev-files
-  set root_dir (get_root_dir)
-  set app_name (get_app_name)
+  set root_dir (__get_root_dir)
+  set app_name (__get_app_name)
   set watch false
 
   for arg in $argv
