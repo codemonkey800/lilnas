@@ -1,0 +1,44 @@
+{
+  "name": "dashcam-viewer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "packageManager": "pnpm@10.5.2",
+  "prettier": "prettier-lilnas",
+  "files": [
+    "./dist"
+  ],
+  "scripts": {
+    "build": "tsc && vite build",
+    "clean": "rm -rf dist/",
+    "dev": "vite --port 8080",
+    "lint": "run-p -l 'lint:!(fix)'",
+    "lint:eslint": "eslint src",
+    "lint:prettier": "prettier -c src",
+    "lint:fix": "run-p -l lint:*:fix",
+    "lint:eslint:fix": "eslint --fix src",
+    "lint:prettier:fix": "prettier -w src",
+    "preview": "vite preview --port 8080",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "clsx": "^2.1.0",
+    "dayjs": "^1.11.13",
+    "jotai": "^2.7.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwind-merge": "^2.2.1",
+    "ts-pattern": "^5.0.8"
+  },
+  "devDependencies": {
+    "@types/wicg-file-system-access": "^2023.10.5",
+    "@vitejs/plugin-react-swc": "^3.5.0",
+    "autoprefixer": "^10.4.18",
+    "eslint-config-lilnas": "workspace:*",
+    "postcss": "^8.4.35",
+    "prettier-lilnas": "workspace:*",
+    "tailwindcss": "^3.4.1",
+    "vite": "^5.1.6",
+    "vite-tsconfig-paths": "^4.3.1"
+  }
+}

@@ -1,8 +1,10 @@
+!.env.example
+!.env.fish
 .cache/
 .env
 .env.*
-!.env.fish
-!.env.example
+.next/
+dist/
 immich/
 letsencrypt/
 media/
@@ -11,3 +13,4 @@ miniserve/
 node_modules/
 palworld/
 portainer/
+*.tsbuildinfo

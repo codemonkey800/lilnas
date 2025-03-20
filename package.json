@@ -1,0 +1,22 @@
+{
+  "name": "lilnas",
+  "packageManager": "pnpm@10.5.2",
+  "scripts": {
+    "build": "pnpm run -r build",
+    "clean": "pnpm run -r clean",
+    "clean:modules": "rm -rf node_modules packages/*/node_modules",
+    "lint": "pnpm run -r lint",
+    "type-check": "pnpm run -r type-check"
+  },
+  "devDependencies": {
+    "@swc/cli": "0.6.0",
+    "@swc/core": "1.11.11",
+    "@types/node": "22.13.10",
+    "@types/react-dom": "19.0.4",
+    "@types/react": "19.0.12",
+    "eslint": "9.22.0",
+    "npm-run-all": "4.1.5",
+    "prettier": "3.5.3",
+    "typescript": "5.8.2"
+  }
+}
