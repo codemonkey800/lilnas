@@ -1,4 +1,4 @@
-# eslint-config-lilnas
+# Shared ESLint Config
 
 Shared ESLint configuration file for the monorepo. Exports the following configurations:
 
