@@ -1,8 +1,5 @@
 #!/usr/bin/env fish
 
-function sync_photos -a email
-end
-
 function print_help
   set script (status -f)
 
