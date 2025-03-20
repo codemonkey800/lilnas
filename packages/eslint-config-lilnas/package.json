@@ -1,0 +1,23 @@
+{
+  "name": "eslint-config-lilnas",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.6.5",
+  "dependencies": {
+    "@typescript-eslint/eslint-plugin": "8.26.1",
+    "@typescript-eslint/parser": "8.26.1",
+    "autoprefixer": "10.4.21",
+    "eslint": "9.22.0",
+    "eslint-config-prettier": "10.1.1",
+    "eslint-import-resolver-typescript": "4.2.2",
+    "eslint-plugin-import": "2.31.0",
+    "eslint-plugin-no-relative-import-paths": "1.6.1",
+    "eslint-plugin-prettier": "5.2.3",
+    "eslint-plugin-react": "7.37.4",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "eslint-plugin-simple-import-sort": "12.1.1",
+    "eslint-plugin-unused-imports": "4.1.4",
+    "globals": "16.0.0",
+    "typescript-eslint": "8.26.1"
+  }
+}
