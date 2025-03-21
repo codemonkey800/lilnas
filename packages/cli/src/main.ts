@@ -17,7 +17,6 @@ async function main() {
     .command('up [services...]', 'Deploys a service', args =>
       args.positional('services', { type: 'string', choices: services }),
     )
-
     .command('down [services...]', 'Brings down a service', args =>
       args.positional('services', { type: 'string', choices: services }),
     )
@@ -39,6 +38,7 @@ async function main() {
     )
     .help()
     .alias('h', 'help')
+    .scriptName('lilnas')
     .showHelpOnFail(true)
 
   const args = await argParser.parse()
