@@ -8,4 +8,5 @@
 *.tsbuildinfo
 data/
 dist/
+infra/dev.yml
 node_modules/
