@@ -1,13 +1,20 @@
-export type EnvKey =
+type EnvKey =
   | 'BACKEND_PORT'
   | 'DISCORD_API_TOKEN'
   | 'DISCORD_CLIENT_ID'
   | 'DISCORD_DEV_GUILD_ID'
   | 'EQUATIONS_API_KEY'
+  | 'EQUATIONS_URL'
   | 'FRONTEND_PORT'
-  | 'GRAPH_TEST'
+  | 'HUGGING_FACE_TOKEN'
+  | 'MINIO_ACCESS_KEY'
+  | 'MINIO_HOST'
+  | 'MINIO_PORT'
+  | 'MINIO_PUBLIC_URL'
+  | 'MINIO_SECRET_KEY'
   | 'NODE_ENV'
   | 'OPENAI_API_KEY'
+  | 'SERP_API_KEY'
   | 'TAVILY_API_KEY'
 
 export function env(key: EnvKey, defaultValue?: string): string {

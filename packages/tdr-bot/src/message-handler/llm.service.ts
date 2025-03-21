@@ -275,6 +275,7 @@ export class LLMService {
     )
 
     const latex = latexResponse.content.toString()
+    const equationImageResponse = await this.equationImage.getImage(latex)
 
     const chatResponse = await this.getChatModel().invoke([
       ...messages,
@@ -282,8 +283,15 @@ export class LLMService {
     ])
 
     return {
-      latex,
-      latexParentId: chatResponse.id,
+      images: equationImageResponse
+        ? [
+            {
+              title: 'the solution',
+              url: equationImageResponse.url,
+              parentId: chatResponse.id,
+            },
+          ]
+        : [],
       messages: messages.concat(chatResponse),
     }
   }
@@ -327,7 +335,7 @@ export class LLMService {
 
     try {
       const state = this.state.getState()
-      const { latex, latexParentId, images, messages } = await this.app.invoke({
+      const { images, messages } = await this.app.invoke({
         userInput,
         messages: state.graphHistory.at(-1)?.messages ?? [],
       })
@@ -335,8 +343,6 @@ export class LLMService {
       this.state.setState(prev => ({
         graphHistory: prev.graphHistory.concat({
           images,
-          latex,
-          latexParentId,
           messages,
         }),
       }))
@@ -354,13 +360,7 @@ export class LLMService {
         )
       }
 
-      let equationImage = await this.equationImage.getImage(latex)
-      if (equationImage) {
-        equationImage = equationImage.split(',')[1]
-      }
-
       return {
-        equationImage,
         images,
         content: lastMessage.content as string,
       }
@@ -374,8 +374,6 @@ export class LLMService {
 
         ...(err instanceof Error ? { stack: err.stack } : {}),
       })
-
-      console.error('breh', err)
 
       return {
         images: [],

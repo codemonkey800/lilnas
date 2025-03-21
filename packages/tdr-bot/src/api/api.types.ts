@@ -8,7 +8,6 @@ export interface MessageState {
   content: string
   type: MessageType
   kwargs: BaseMessage['additional_kwargs']
-  equationImage?: string
   images?: ImageResponse[]
 }
 
