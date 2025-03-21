@@ -17,4 +17,4 @@ services:
       - traefik.http.routers.storage.rule=Host(`storage.lilnas.io`)
       - traefik.http.routers.storage.entrypoints=websecure
       - traefik.http.routers.storage.tls.certresolver=le
-      - traefik.http.services.storage.loadbalancer.server.port=9001
+      - traefik.http.services.storage.loadbalancer.server.port=9000
