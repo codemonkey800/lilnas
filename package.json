@@ -17,6 +17,7 @@
     "@tailwindcss/postcss": "4.0.15",
     "@types/express": "5.0.1",
     "@types/json-schema": "7.0.15",
+    "@types/fs-extra": "11.0.4",
     "@types/lodash": "4.17.16",
     "@types/node": "22.13.10",
     "@types/react": "19.0.12",

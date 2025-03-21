@@ -1,9 +1,7 @@
 include:
   - ./infra/apps.yml
-  # - ./infra/dev.yml
   - ./infra/immich.yml
   - ./infra/media.yml
-  # - ./infra/minecraft.yml
   - ./infra/monitoring.yml
   - ./infra/palworld.yml
   - ./infra/proxy.yml
