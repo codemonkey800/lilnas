@@ -2,7 +2,19 @@ services:
   storage:
     image: minio/minio
     restart: unless-stopped
+    command: server --console-address ":9001" /data
     env_file:
       - .env.storage
     volumes:
       - ../data/storage:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.storage.rule=Host(`storage.lilnas.io`)
+      - traefik.http.routers.storage.entrypoints=websecure
+      - traefik.http.routers.storage.tls.certresolver=le
+      - traefik.http.services.storage.loadbalancer.server.port=9001
