@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Client, EmbedBuilder } from 'discord.js'
+import { nanoid } from 'nanoid'
 import { remark } from 'remark'
 
 import { remarkFixLinkPlugin } from 'src/utils/fix-link'
@@ -90,11 +91,16 @@ export class ChatService extends BaseMessageHandlerService {
       .replace(`<@${this.client.user?.id}>`, '')
       .trim()
 
-    this.logger.log({
-      info: 'Responding to message',
-      user: message.author.displayName,
-      message: content,
-    })
+    const id = nanoid()
+
+    this.logger.log(
+      {
+        id,
+        message: content,
+        user: message.author.displayName,
+      },
+      'Responding to message',
+    )
 
     this.startBotTyping(message)
 
@@ -104,13 +110,18 @@ export class ChatService extends BaseMessageHandlerService {
     })
 
     if (response) {
-      const equationImage = response.equationImage
-        ? Buffer.from(response.equationImage, 'base64')
-        : undefined
+      this.logger.log(
+        {
+          id,
+          images: response.images,
+          response: response.content,
+          user: message.author.displayName,
+        },
+        'Sending response to user',
+      )
 
       await message.reply({
         content: response.content,
-        files: equationImage ? [equationImage] : [],
         embeds:
           response.images instanceof Array && response.images.length > 0
             ? response.images.map(image =>

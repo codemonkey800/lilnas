@@ -4,7 +4,9 @@
 .env
 .env.*
 .next/
+.pnpm-store/
 *.tsbuildinfo
 data/
 dist/
+infra/dev.yml
 node_modules/

@@ -52,7 +52,6 @@ export class ApiController {
 
   @Get('messages')
   async getMessages(): Promise<MessageState[]> {
-    const equationImagesMap = new Map<string, string>()
     const imagesMap = new Map<string, ImageResponse[]>()
     const state = this.state.getState()
 
@@ -64,31 +63,21 @@ export class ApiController {
           imagesMap.set(parentId, item.images)
         }
       }
-
-      if (item.latex) {
-        equationImagesMap.set(item.latexParentId, item.latex)
-      }
     }
 
     return Promise.all(
       state.graphHistory.at(-1)?.messages.map(async message => {
         const id = message.id ?? ''
-
-        const equationImageLatex = equationImagesMap.get(id)
-        const equationImage =
-          await this.equationImage.getImage(equationImageLatex)
-
-        const images = imagesMap.get(id)
+        const images = imagesMap.get(id) ?? []
 
         return {
           id: message?.id,
           content: message?.content.toString() ?? '--',
           kwargs: message?.additional_kwargs ?? {},
           type: message?.getType() ?? 'human',
+          images,
 
           ...(images && images.length > 0 ? { images } : {}),
-
-          ...(equationImage ? { equationImage } : {}),
         }
       }) ?? [],
     )

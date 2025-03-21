@@ -7,33 +7,44 @@ import { z } from 'zod'
 
 import { env } from 'src/utils/env'
 
-const EquationAPIResponseSchema = z.object({
-  image: z.string(),
+const EquationAPISuccessSchema = z.object({
+  bucket: z.string(),
+  file: z.string(),
+  url: z.string(),
 })
 
-const EquationAPIErrorSchema = z.object({
+type EquationAPISuccess = z.infer<typeof EquationAPISuccessSchema>
+
+const EquationAPIFailureSchema = z.object({
   message: z.string(),
   status: z.number(),
 })
 
-const EquationAPIResponse = z.union([
-  EquationAPIResponseSchema,
-  EquationAPIErrorSchema,
+const EquationAPIResponseSchema = z.union([
+  EquationAPISuccessSchema,
+  EquationAPIFailureSchema,
 ])
+
+export interface EquationImageData extends EquationAPISuccess {
+  url: string
+}
 
 @Injectable()
 export class EquationImageService {
   private logger = new Logger(EquationImageService.name)
 
-  private cache = new LRUCache<string, string>({ max: 100 })
+  private cache = new LRUCache<string, EquationImageData>({ max: 100 })
 
-  private async fetchImage(latex: string): Promise<string | undefined> {
+  private async fetchImage(
+    latex: string,
+  ): Promise<EquationAPISuccess | undefined> {
     const id = nanoid()
 
     this.logger.log({ id }, 'Fetching latex image')
     const start = performance.now()
 
-    const response = await axios.post('https://equations.lilnas.io/equations', {
+    const url = `${env('EQUATIONS_URL')}/equations`
+    const response = await axios.post(url, {
       latex,
       token: env('EQUATIONS_API_KEY'),
     })
@@ -41,11 +52,11 @@ export class EquationImageService {
     const end = performance.now()
     const duration = end - start
 
-    const data = EquationAPIResponse.parse(response.data)
+    const data = EquationAPIResponseSchema.parse(response.data)
 
-    if ('image' in data) {
-      this.logger.log({ id, duration }, 'Fetched latex image')
-      return data.image
+    if ('bucket' in data) {
+      this.logger.log({ id, duration, ...data }, 'Fetched latex image')
+      return data
     }
 
     this.logger.error({ id, duration, ...data }, 'Failed to fetch latex image')
@@ -55,7 +66,7 @@ export class EquationImageService {
 
   async getImage(
     latex?: string | null | undefined,
-  ): Promise<string | undefined> {
+  ): Promise<EquationImageData | undefined> {
     if (!latex) {
       return undefined
     }
@@ -64,14 +75,14 @@ export class EquationImageService {
 
     const cachedValue = this.cache.get(latex)
     if (cachedValue) {
-      this.logger.log({ id }, 'Returning cached latex image')
+      this.logger.log({ id, ...cachedValue }, 'Returning cached latex image')
       return cachedValue
     }
 
     const image = await this.fetchImage(latex)
 
     if (image) {
-      this.logger.log({ id }, 'Caching latex image')
+      this.logger.log({ id, ...image }, 'Caching latex image')
       this.cache.set(latex, image)
     }
 
