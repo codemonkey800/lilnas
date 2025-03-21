@@ -14,7 +14,17 @@ services:
       retries: 5
     labels:
       - traefik.enable=true
+
+      # API Access
       - traefik.http.routers.storage.rule=Host(`storage.lilnas.io`)
       - traefik.http.routers.storage.entrypoints=websecure
       - traefik.http.routers.storage.tls.certresolver=le
+      - traefik.http.routers.storage.service=storage
       - traefik.http.services.storage.loadbalancer.server.port=9000
+
+      # Dashboard
+      - traefik.http.routers.storage-admin.rule=Host(`storage-admin.lilnas.io`)
+      - traefik.http.routers.storage-admin.entrypoints=websecure
+      - traefik.http.routers.storage-admin.tls.certresolver=le
+      - traefik.http.routers.storage-admin.service=storage-admin
+      - traefik.http.services.storage-admin.loadbalancer.server.port=9001
