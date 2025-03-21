@@ -4,12 +4,15 @@ import {
   Header,
   HttpException,
   HttpStatus,
+  Inject,
   Logger,
   Post,
   UnauthorizedException,
 } from '@nestjs/common'
 import { exec as execBase } from 'child_process'
 import * as fs from 'fs-extra'
+import { Client } from 'minio'
+import { MINIO_CONNECTION } from 'nestjs-minio'
 import path from 'path'
 import { promisify } from 'util'
 
@@ -27,6 +30,8 @@ class CreateEquationDto {
 @Controller('equations')
 export class EquationsController {
   private readonly logger = new Logger(EquationsController.name)
+
+  constructor(@Inject(MINIO_CONNECTION) private readonly minioClient: Client) {}
 
   private async logBadFile(file: string) {
     this.logger.error({ file }, 'Latex failed to compile')
@@ -105,11 +110,6 @@ export class EquationsController {
     }
   }
 
-  private async getLatexPngBase64(file: string) {
-    const base64 = await fs.readFile(file, 'base64')
-    return `data:image/png;base64,${base64}`
-  }
-
   private async cleanupLatex(dir: string) {
     this.logger.log({ dir }, 'Cleaning up latex directory')
     await fs.remove(dir)
@@ -136,10 +136,19 @@ export class EquationsController {
         pngFile,
         pngTmpFile,
       })
-      const latexPngBase64 = await this.getLatexPngBase64(pngFile)
+
+      const bucket = 'equations'
+      const file = `${now}.png`
+      await this.minioClient.fPutObject(bucket, file, pngFile, {
+        'Content-Type': 'image/png',
+      })
+
+      this.logger.log({ bucket, file, pngFile }, 'Storing image')
 
       return {
-        image: latexPngBase64,
+        bucket,
+        file,
+        url: `${env('MINIO_PUBLIC_URL')}/${bucket}/${file}`,
       }
     } finally {
       await this.cleanupLatex(dir)
