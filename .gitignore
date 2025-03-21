@@ -4,6 +4,7 @@
 .env
 .env.*
 .next/
+.pnpm-store/
 *.tsbuildinfo
 data/
 dist/
