@@ -1,9 +1,12 @@
+import { match } from 'ts-pattern'
 import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 
-import { deploy } from './commands/deploy'
+import { down } from './commands/down'
 import { list } from './commands/list'
+import { redeploy } from './commands/redeploy'
 import { syncPhotos } from './commands/sync-photos'
+import { up } from './commands/up'
 import { getServices } from './utils'
 
 async function main() {
@@ -11,17 +14,15 @@ async function main() {
 
   const argParser = yargs(hideBin(process.argv))
     .command('list', 'Lists all services')
-    .command('deploy [command]', 'Manage deployments', args =>
-      args
-        .command('up [services...]', 'Deploys a service', args =>
-          args.positional('services', { type: 'string', choices: services }),
-        )
-        .command('down [services...]', 'Brings down a service', args =>
-          args.positional('services', { type: 'string', choices: services }),
-        )
-        .command('redeploy [services...]', 'Redeploys a service', args =>
-          args.positional('services', { type: 'string', choices: services }),
-        ),
+    .command('up [services...]', 'Deploys a service', args =>
+      args.positional('services', { type: 'string', choices: services }),
+    )
+
+    .command('down [services...]', 'Brings down a service', args =>
+      args.positional('services', { type: 'string', choices: services }),
+    )
+    .command('redeploy [services...]', 'Redeploys a service', args =>
+      args.positional('services', { type: 'string', choices: services }),
     )
     .command('sync-photos', 'Syncs iCloud photos to a local directory', args =>
       args
@@ -44,25 +45,15 @@ async function main() {
 
   const [command] = args._
 
-  switch (command) {
-    case 'list':
-      return list()
-
-    case 'deploy':
-      return deploy({
-        command: args._[1],
-        services: args.services,
-      })
-
-    case 'sync-photos':
-      return syncPhotos({
-        dest: args.dest,
-        email: args.email,
-      })
-
-    case '*':
-      argParser.showHelp()
-  }
+  return match(command)
+    .with('list', () => list())
+    .with('up', () => up(args.services))
+    .with('down', () => down(args.services))
+    .with('redeploy', () => redeploy(args.services))
+    .with('sync-photos', () =>
+      syncPhotos({ dest: args.dest, email: args.email }),
+    )
+    .otherwise(() => argParser.showHelp())
 }
 
 main()

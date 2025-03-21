@@ -1,5 +1,6 @@
 import { execSync } from 'child_process'
 import * as yaml from 'yaml'
+import { z } from 'zod'
 import { $ } from 'zx'
 
 export async function getCurrentAppName() {
@@ -40,3 +41,5 @@ export async function getServices() {
 export function runInteractive(command: string) {
   execSync(command, { stdio: 'inherit' })
 }
+
+export const StringArraySchema = z.array(z.string())
