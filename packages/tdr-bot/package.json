@@ -26,8 +26,8 @@
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
     "start": "run-p start:*",
-    "start:backend": "NODE_ENV=production node dist/main",
-    "start:frontend": "NODE_ENV=production node .next/standalone/server",
+    "start:backend": "node dist/main",
+    "start:frontend": "node .next/standalone/server",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

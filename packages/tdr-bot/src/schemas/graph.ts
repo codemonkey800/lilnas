@@ -42,8 +42,6 @@ export const InputStateAnnotation = Annotation.Root({
 
 export const OutputStateAnnotation = Annotation.Root({
   images: Annotation<ImageResponse[]>,
-  latex: Annotation<string>,
-  latexParentId: Annotation<string>,
   messages: Annotation<BaseMessage[]>,
 })
 

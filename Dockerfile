@@ -1,8 +1,5 @@
 FROM node AS base
 ENV PNPM_VERSION="10.6.5"
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
-
 COPY . /source
 WORKDIR /source
 RUN npm install -g pnpm@${PNPM_VERSION}

@@ -1,12 +1,25 @@
-import { execSync } from 'child_process'
+import { execSync, ExecSyncOptionsWithBufferEncoding } from 'child_process'
+import fs from 'fs-extra'
 import * as yaml from 'yaml'
 import { z } from 'zod'
 import { $ } from 'zx'
 
-export async function getCurrentAppName() {
-  const pwd = await $`pwd`
-  console.log(pwd)
-  return 'breh'
+export async function getServicesWithDevMode() {
+  const repoDir = await getRepoDir()
+  const packages = await fs.readdir(`${repoDir}/packages`)
+  const packagesWithDevMode: string[] = []
+
+  for (const pkg of packages) {
+    const packageJson = JSON.parse(
+      await fs.readFile(`${repoDir}/packages/${pkg}/package.json`, 'utf-8'),
+    )
+
+    if (packageJson?.scripts?.dev) {
+      packagesWithDevMode.push(pkg)
+    }
+  }
+
+  return packagesWithDevMode
 }
 
 export async function getRepoDir() {
@@ -38,8 +51,16 @@ export async function getServices() {
   return Array.from(services).sort((a, b) => a.localeCompare(b))
 }
 
-export function runInteractive(command: string) {
-  execSync(command, { stdio: 'inherit' })
+export function runInteractive(
+  command: string,
+  options?: ExecSyncOptionsWithBufferEncoding,
+) {
+  execSync(command, { stdio: 'inherit', ...options })
 }
 
 export const StringArraySchema = z.array(z.string())
+
+export async function getDockerImages() {
+  const imageNames = await $`docker images --format '{{.Repository}}:{{.Tag}}'`
+  return imageNames.stdout.split('\n').filter(Boolean)
+}

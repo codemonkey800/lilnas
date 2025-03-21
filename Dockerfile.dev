@@ -1,14 +1,14 @@
 FROM node
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
 
-WORKDIR /app
+ENV PNPM_VERSION="10.6.5"
+RUN npm install -g pnpm@${PNPM_VERSION}
 
 COPY packages/equations/image-magick-policy.xml /etc/ImageMagick-6/policy.xml
 
 # Latex packages
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+        fish \
         ghostscript \
         imagemagick \
         texlive-fonts-extra \
@@ -18,5 +18,6 @@ RUN apt-get update && \
         texlive-latex-recommended \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm -g i pnpm
-ENTRYPOINT [ "bash" ]
+EXPOSE 8080
+WORKDIR /source
+ENTRYPOINT ["fish"]

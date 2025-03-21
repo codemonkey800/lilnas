@@ -46,10 +46,6 @@ export function MessageCard({ message }: { message: MessageState }) {
             ))}
           </div>
         )}
-
-        {message.equationImage && (
-          <img className="max-w-[700px] mt-8" src={message.equationImage} />
-        )}
       </div>
     </Paper>
   )

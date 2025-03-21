@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+lilnas() {
+  tsx \
+    --tsconfig packages/cli/tsconfig.json \
+    packages/cli/src/main \
+    $@
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  lilnas $@
+fi
