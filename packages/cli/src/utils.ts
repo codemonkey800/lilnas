@@ -1,5 +1,5 @@
 import { execSync, ExecSyncOptionsWithBufferEncoding } from 'child_process'
-import fs from 'fs-extra'
+import * as fs from 'fs-extra'
 import * as yaml from 'yaml'
 import { z } from 'zod'
 import { $ } from 'zx'
