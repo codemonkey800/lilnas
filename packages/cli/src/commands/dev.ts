@@ -5,13 +5,14 @@ import { z } from 'zod'
 import { getDockerImages, getRepoDir, runInteractive } from 'src/utils'
 
 const DevOptionsSchema = z.object({
-  command: z.enum(['build', 'clean', 'ls', 'start', 'sync-deps']),
+  command: z.enum(['build', 'clean', 'ls', 'logs', 'start', 'sync-deps']),
   port: z.number().optional(),
   service: z.string().optional(),
+  follow: z.boolean().optional(),
 })
 
 type DevOptions = z.infer<typeof DevOptionsSchema>
-type Handler = () => Promise<void>
+type Handler = (options: DevOptions) => Promise<void>
 
 async function build() {
   runInteractive('docker-compose build dev')
@@ -38,6 +39,16 @@ async function list() {
   console.log(packagesWithDevMode)
 }
 
+async function logs(options: DevOptions) {
+  const command = [
+    'docker-compose logs',
+    ...(options.follow ? ['-f'] : []),
+    'dev',
+  ].join(' ')
+
+  runInteractive(command)
+}
+
 async function start() {
   runInteractive('docker-compose up dev')
 }
@@ -59,6 +70,7 @@ async function syncDeps() {
 const HANDLER_MAP: Record<DevOptions['command'], Handler> = {
   build,
   clean,
+  logs,
   start,
   ls: list,
   'sync-deps': syncDeps,
@@ -91,7 +103,9 @@ async function toggleDevInfra(
   }
 
   await fs.writeFile(dockerComposeFile, yaml.stringify(nextComposeData))
-  console.log('Updated docker-compose.yaml')
+  console.log(
+    `${enable ? 'Added' : 'Removed'} dev infra ${enable ? 'to' : 'from'} docker-compose.yaml`,
+  )
 
   const devInfraFile = `${repoDir}/${DEV_INFRA_FILE}`
   const envFile = `${repoDir}/infra/.env.${service}`
@@ -113,6 +127,7 @@ async function toggleDevInfra(
           volumes: [
             '../:/source',
             '/var/run/docker.sock:/var/run/docker.sock:ro',
+            `${process.env.HOME}/Library/pnpm/store:/source/.pnpm-store`,
           ],
         },
       },
@@ -131,6 +146,6 @@ export async function dev(rawOptions: unknown) {
   const handler = HANDLER_MAP[options.command]
 
   await toggleDevInfra(true, options.service, options.port)
-  await handler()
+  await handler(options)
   await toggleDevInfra(false)
 }
