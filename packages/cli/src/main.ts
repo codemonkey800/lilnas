@@ -24,6 +24,13 @@ async function main() {
           'Cleans up all resources used for the dev environment',
         )
         .command('ls', 'Lists all apps with dev mode')
+        .command('logs', 'Shows logs from container', args =>
+          args.option('follow', {
+            alias: 'f',
+            description: 'Follows the log output',
+            type: 'boolean',
+          }),
+        )
         .command(
           'start <service> [options]',
           'Starts up the dev environment',
@@ -84,6 +91,7 @@ async function main() {
     .with('dev', () =>
       dev({
         command: args._[1],
+        follow: args.follow,
         port: args.port,
         service: args.service,
       }),
