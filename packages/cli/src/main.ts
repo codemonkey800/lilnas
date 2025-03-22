@@ -19,10 +19,7 @@ async function main() {
     .command('dev [command]', 'Manage dev environment', args =>
       args
         .command('build', 'Builds the dev environment')
-        .command(
-          'clean',
-          'Cleans up all resources used for the dev environment',
-        )
+        .command('down', 'Brings down resources used for the dev environment')
         .command('ls', 'Lists all apps with dev mode')
         .command('logs', 'Shows logs from container', args =>
           args.option('follow', {
@@ -32,7 +29,7 @@ async function main() {
           }),
         )
         .command(
-          'start <service> [options]',
+          'up <service> [options]',
           'Starts up the dev environment',
           args =>
             args
@@ -45,6 +42,11 @@ async function main() {
               .option('port', {
                 type: 'number',
                 description: 'Port to expose on the container',
+              })
+              .option('detach', {
+                alias: 'd',
+                description: 'Detaches after starting the container',
+                type: 'boolean',
               }),
         )
         .command(
@@ -94,6 +96,7 @@ async function main() {
         follow: args.follow,
         port: args.port,
         service: args.service,
+        detach: args.detach,
       }),
     )
     .with('up', () => up(args.services))
