@@ -53,7 +53,7 @@ async function logs(options: DevOptions) {
 async function up(options: DevOptions) {
   const command = [
     'docker-compose up',
-    ...(options.follow ? ['-f'] : []),
+    ...(options.detach ? ['-d'] : []),
     'dev',
   ].join(' ')
 
