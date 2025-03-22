@@ -1,6 +1,7 @@
 FROM node
 
 ENV PNPM_VERSION="10.6.5"
+ENV PNPM_HOME="/pnpm"
 RUN npm install -g pnpm@${PNPM_VERSION}
 
 COPY packages/equations/image-magick-policy.xml /etc/ImageMagick-6/policy.xml
