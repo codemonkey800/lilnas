@@ -5,10 +5,11 @@ import { z } from 'zod'
 import { getDockerImages, getRepoDir, runInteractive } from 'src/utils'
 
 const DevOptionsSchema = z.object({
-  command: z.enum(['build', 'clean', 'ls', 'logs', 'start', 'sync-deps']),
+  command: z.enum(['build', 'down', 'ls', 'logs', 'up', 'sync-deps']),
+  detach: z.boolean().optional(),
+  follow: z.boolean().optional(),
   port: z.number().optional(),
   service: z.string().optional(),
-  follow: z.boolean().optional(),
 })
 
 type DevOptions = z.infer<typeof DevOptionsSchema>
@@ -18,7 +19,7 @@ async function build() {
   runInteractive('docker-compose build dev')
 }
 
-async function clean() {
+async function down() {
   runInteractive('docker-compose down --rmi all -v dev')
 }
 
@@ -49,8 +50,14 @@ async function logs(options: DevOptions) {
   runInteractive(command)
 }
 
-async function start() {
-  runInteractive('docker-compose up dev')
+async function up(options: DevOptions) {
+  const command = [
+    'docker-compose up',
+    ...(options.follow ? ['-f'] : []),
+    'dev',
+  ].join(' ')
+
+  runInteractive(command)
 }
 
 async function syncDeps() {
@@ -69,9 +76,9 @@ async function syncDeps() {
 
 const HANDLER_MAP: Record<DevOptions['command'], Handler> = {
   build,
-  clean,
+  down,
   logs,
-  start,
+  up,
   ls: list,
   'sync-deps': syncDeps,
 }
