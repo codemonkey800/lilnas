@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 
 lilnas() {
+  repo_dir=$(git rev-parse --show-toplevel)
+
   tsx \
-    --tsconfig packages/cli/tsconfig.json \
-    packages/cli/src/main \
+    --tsconfig $repo_dirpackages/cli/tsconfig.json \
+    $repo_dir/packages/cli/src/main \
     $@
 }
 

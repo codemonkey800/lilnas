@@ -1,8 +1,10 @@
 nvm use
 
 function lilnas
+  set repo_dir (git rev-parse --show-toplevel)
+
   tsx \
-    --tsconfig packages/cli/tsconfig.json \
-    packages/cli/src/main \
+    --tsconfig $repo_dir/packages/cli/tsconfig.json \
+    $repo_dir/packages/cli/src/main \
     $argv
 end
