@@ -127,7 +127,7 @@ async function toggleDevInfra(
           volumes: [
             '../:/source',
             '/var/run/docker.sock:/var/run/docker.sock:ro',
-            `${process.env.HOME}/Library/pnpm/store:/source/.pnpm-store`,
+            `${process.env.HOME}/Library/pnpm:/pnpm`,
           ],
         },
       },
