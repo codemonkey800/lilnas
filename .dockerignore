@@ -1,6 +1,9 @@
+.turbo/cache
+.turbo/cookies
 **/.next
 **/build
 **/dist
 **/node_modules
-images/
 data/
+images/
+packages/*/.turbo/turbo-build.log
