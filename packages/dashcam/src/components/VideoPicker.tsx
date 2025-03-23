@@ -1,9 +1,9 @@
+import { cns } from '@lilnas/utils/cns'
 import dayjs from 'dayjs'
 import { useAtom, useAtomValue } from 'jotai'
 import { useMemo } from 'react'
 
 import { activeVideoAtom, filesAtom } from 'src/state'
-import { cns } from 'src/utils/cns'
 import { getVideoDate } from 'src/utils/date'
 
 const FILE_BY_MONTH_KEY = 'MMMM DD YYYY'

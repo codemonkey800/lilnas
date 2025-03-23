@@ -1,0 +1,25 @@
+{
+  "name": "@lilnas/utils",
+  "version": "0.2.0",
+  "private": true,
+  "packageManager": "pnpm@10.6.5",
+  "prettier": "@lilnas/prettier",
+  "exports": {
+    "./*": "./dist/*.js"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "clean": "rm -rf dist/",
+    "lint": "run-p -l 'lint:!(fix)'",
+    "lint:eslint": "eslint src",
+    "lint:prettier": "prettier -c src",
+    "lint:fix": "run-p -l lint:*:fix",
+    "lint:eslint:fix": "eslint --fix src",
+    "lint:prettier:fix": "prettier -w src",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "clsx": "2.1.1",
+    "tailwind-merge": "3.0.2"
+  }
+}

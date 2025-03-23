@@ -1,6 +1,5 @@
+import { cns } from '@lilnas/utils/cns'
 import { RefObject } from 'react'
-
-import { cns } from 'src/utils/cns'
 
 export function Video({
   placeholder,

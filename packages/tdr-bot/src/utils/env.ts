@@ -1,4 +1,4 @@
-type EnvKey =
+export type EnvKey =
   | 'BACKEND_PORT'
   | 'DISCORD_API_TOKEN'
   | 'DISCORD_CLIENT_ID'
@@ -17,15 +17,3 @@ type EnvKey =
   | 'OPENAI_API_KEY'
   | 'SERP_API_KEY'
   | 'TAVILY_API_KEY'
-
-export function env(key: EnvKey, defaultValue?: string): string {
-  const value = process.env[key] ?? defaultValue
-
-  if (value == null) {
-    const message = `${key} not defined`
-    console.error(message)
-    throw new Error(message)
-  }
-
-  return value
-}

@@ -1,3 +1,4 @@
+import { env } from '@lilnas/utils/env'
 import { Injectable, Logger } from '@nestjs/common'
 import axios from 'axios'
 import { LRUCache } from 'lru-cache'
@@ -5,7 +6,7 @@ import { nanoid } from 'nanoid'
 import { performance } from 'perf_hooks'
 import { z } from 'zod'
 
-import { env } from 'src/utils/env'
+import { EnvKey } from 'src/utils/env'
 
 const EquationAPISuccessSchema = z.object({
   bucket: z.string(),
@@ -43,10 +44,10 @@ export class EquationImageService {
     this.logger.log({ id }, 'Fetching latex image')
     const start = performance.now()
 
-    const url = `${env('EQUATIONS_URL')}/equations`
+    const url = `${env<EnvKey>('EQUATIONS_URL')}/equations`
     const response = await axios.post(url, {
       latex,
-      token: env('EQUATIONS_API_KEY'),
+      token: env<EnvKey>('EQUATIONS_API_KEY'),
     })
 
     const end = performance.now()

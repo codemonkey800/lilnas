@@ -1,4 +1,9 @@
 {
   "name": "@lilnas/prettier",
-  "version": "0.2.0"
+  "version": "0.2.0",
+  "prettier": "@lilnas/prettier",
+  "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint --fix ."
+  }
 }

@@ -10,9 +10,9 @@
     "./dist"
   ],
   "scripts": {
-    "build": "nest build",
+    "build": "nest build -b swc --type-check",
     "clean": "rm -rf dist/",
-    "dev": "nest start -w | pino-pretty",
+    "dev": "nest start -w -b swc | pino-pretty",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
     "lint:prettier": "prettier -c src",
@@ -23,6 +23,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@lilnas/utils": "workspace:*",
     "@nestjs/common": "11.0.12",
     "@nestjs/core": "11.0.12",
     "@nestjs/event-emitter": "3.0.1",

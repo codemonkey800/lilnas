@@ -10,7 +10,8 @@
     "lint:prettier": "prettier -c src",
     "lint:fix": "run-p -l lint:*:fix",
     "lint:eslint:fix": "eslint --fix src",
-    "lint:prettier:fix": "prettier -w src"
+    "lint:prettier:fix": "prettier -w src",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "fs-extra": "11.3.0",

@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc && vite build",
     "clean": "rm -rf dist/",
-    "dev": "vite --port 8080",
+    "dev": "vite --port 8080 --host",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
     "lint:prettier": "prettier -c src",
@@ -22,12 +22,11 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "clsx": "2.1.1",
+    "@lilnas/utils": "workspace:*",
     "dayjs": "1.11.13",
     "jotai": "2.12.2",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "tailwind-merge": "3.0.2",
     "ts-pattern": "5.6.2"
   },
   "devDependencies": {
