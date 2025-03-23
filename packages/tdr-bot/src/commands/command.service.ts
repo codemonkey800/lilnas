@@ -6,7 +6,7 @@ import {
   NumberOption,
   Options,
   SlashCommand,
-  SlashCommandContext,
+  type SlashCommandContext,
 } from 'necord'
 import { Docker } from 'node-docker-api'
 

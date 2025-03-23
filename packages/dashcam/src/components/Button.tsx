@@ -1,6 +1,5 @@
+import { cns } from '@lilnas/utils/cns'
 import { ReactNode } from 'react'
-
-import { cns } from 'src/utils/cns'
 
 export function Button({
   children,

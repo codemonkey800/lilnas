@@ -1,7 +1,7 @@
+import { formatJsonString } from '@lilnas/utils/json'
 import { Paper } from '@mui/material'
 
 import { MessageState } from 'src/api/api.types'
-import { formatJsonString } from 'src/utils/json'
 
 export function MessageCard({ message }: { message: MessageState }) {
   const toolsCalls = message.kwargs.tool_calls ?? []

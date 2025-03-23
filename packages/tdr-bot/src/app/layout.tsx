@@ -1,11 +1,11 @@
 import 'src/tailwind.css'
 
+import { cns } from '@lilnas/utils/cns'
 import { Roboto } from 'next/font/google'
 import { ReactNode } from 'react'
 
 import { Layout } from 'src/components/Layout/Layout'
 import Providers from 'src/components/Provider'
-import { cns } from 'src/utils/cns'
 
 const roboto = Roboto({
   weight: ['300', '400', '500', '700'],

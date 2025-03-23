@@ -1,3 +1,4 @@
+import { env } from '@lilnas/utils/env'
 import { Module } from '@nestjs/common'
 import { EventEmitterModule } from '@nestjs/event-emitter'
 import { ScheduleModule } from '@nestjs/schedule'
@@ -12,7 +13,7 @@ import { MessageHandlerModule } from './message-handler/message-handler.module'
 import { SchedulesModule } from './schedules/schedules.module'
 import { ServicesModule } from './services/services.module'
 import { StateModule } from './state/state.module'
-import { env } from './utils/env'
+import { EnvKey } from './utils/env'
 
 @Module({
   imports: [
@@ -22,8 +23,8 @@ import { env } from './utils/env'
     LoggerModule.forRoot(),
     MessageHandlerModule,
     NecordModule.forRoot({
-      development: [env('DISCORD_DEV_GUILD_ID', '')],
-      token: env('DISCORD_API_TOKEN'),
+      development: [env<EnvKey>('DISCORD_DEV_GUILD_ID', '')],
+      token: env<EnvKey>('DISCORD_API_TOKEN'),
       intents: [
         IntentsBitField.Flags.GuildMessages,
         IntentsBitField.Flags.Guilds,

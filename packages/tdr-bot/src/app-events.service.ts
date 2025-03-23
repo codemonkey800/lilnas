@@ -1,7 +1,6 @@
+import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
-import { Context, ContextOf, Once } from 'necord'
-
-import { getErrorMessage } from './utils/error'
+import { Context, type ContextOf, Once } from 'necord'
 
 const TDR_BOT_DEV_ID = '1068081514451058698'
 

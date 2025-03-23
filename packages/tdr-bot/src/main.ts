@@ -1,7 +1,8 @@
+import { env } from '@lilnas/utils/env'
 import * as dotenv from 'dotenv'
 import * as sourceMapSupport from 'source-map-support'
 
-import { env } from './utils/env'
+import { EnvKey } from './utils/env'
 
 async function runApp() {
   dotenv.config()
@@ -27,7 +28,7 @@ async function main() {
   dotenv.config()
   sourceMapSupport.install()
 
-  if (env('GRAPH_TEST', 'false') === 'true') {
+  if (env<EnvKey>('GRAPH_TEST', 'false') === 'true') {
     await runGraphTest()
   } else {
     await runApp()
