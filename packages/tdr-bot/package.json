@@ -13,7 +13,7 @@
     "build": "run-p build:*",
     "build:backend": "nest build -b swc --type-check",
     "build:frontend": "next build",
-    "clean": "rm -rf .next/ dist/",
+    "clean": "rm -rf .next/ dist/ .turbo/",
     "deploy": "fly deploy",
     "dev": "run-p 'dev:!(graph-test)'",
     "dev:backend": "nest start -w -b swc | pino-pretty",

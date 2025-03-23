@@ -6,7 +6,7 @@
   "prettier": "@lilnas/prettier",
   "scripts": {
     "build": "next build",
-    "clean": "rm -rf .next/ *.tsbuildinfo",
+    "clean": "rm -rf .next/ *.tsbuildinfo .turbo/",
     "dev": "next dev --turbopack -p 8080",
     "dev:prod": "run-s -l build start",
     "lint": "run-p -l 'lint:!(fix)'",
