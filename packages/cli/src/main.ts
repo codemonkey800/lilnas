@@ -49,6 +49,7 @@ async function main() {
                 type: 'boolean',
               }),
         )
+        .command('shell', 'Start a shell within the container')
         .command(
           'sync-deps',
           'Syncronizes npm dependencies from within the dev environment',
@@ -93,10 +94,11 @@ async function main() {
     .with('dev', () =>
       dev({
         command: args._[1],
+        detach: args.detach,
         follow: args.follow,
         port: args.port,
         service: args.service,
-        detach: args.detach,
+        shell: args.shell,
       }),
     )
     .with('up', () => up(args.services))

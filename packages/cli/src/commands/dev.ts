@@ -5,11 +5,12 @@ import { z } from 'zod'
 import { getDockerImages, getRepoDir, runInteractive } from 'src/utils'
 
 const DevOptionsSchema = z.object({
-  command: z.enum(['build', 'down', 'ls', 'logs', 'up', 'sync-deps']),
+  command: z.enum(['build', 'down', 'ls', 'logs', 'up', 'shell', 'sync-deps']),
   detach: z.boolean().optional(),
   follow: z.boolean().optional(),
   port: z.number().optional(),
   service: z.string().optional(),
+  shell: z.boolean().optional(),
 })
 
 type DevOptions = z.infer<typeof DevOptionsSchema>
@@ -60,6 +61,11 @@ async function up(options: DevOptions) {
   runInteractive(command)
 }
 
+async function shell() {
+  const repoDir = await getRepoDir()
+  runInteractive(`docker run --rm -it -v ${repoDir}:/source lilnas-dev`)
+}
+
 async function syncDeps() {
   const images = await getDockerImages()
   const imageName = 'lilnas-dev'
@@ -78,6 +84,7 @@ const HANDLER_MAP: Record<DevOptions['command'], Handler> = {
   build,
   down,
   logs,
+  shell,
   up,
   ls: list,
   'sync-deps': syncDeps,
