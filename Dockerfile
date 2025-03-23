@@ -4,7 +4,6 @@ COPY . /source
 WORKDIR /source
 RUN npm install -g pnpm@${PNPM_VERSION}
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
-RUN pnpm --filter=utils build
 
 FROM base AS apps
 RUN pnpm --filter=apps build
