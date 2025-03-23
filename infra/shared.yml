@@ -28,3 +28,15 @@ services:
       - traefik.http.routers.storage-admin.tls.certresolver=le
       - traefik.http.routers.storage-admin.service=storage-admin
       - traefik.http.services.storage-admin.loadbalancer.server.port=9001
+
+  turbo:
+    image: ducktors/turborepo-remote-cache
+    restart: unless-stopped
+    env_file:
+      - .env.turbo
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.turbo.rule=Host(`turbo.lilnas.io`)
+      - traefik.http.routers.turbo.entrypoints=websecure
+      - traefik.http.routers.turbo.tls.certresolver=le
+      - traefik.http.services.turbo.loadbalancer.server.port=3000
