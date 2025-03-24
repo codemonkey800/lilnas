@@ -1,3 +1,4 @@
+import { env } from '@lilnas/utils/env'
 import {
   Body,
   Controller,
@@ -16,7 +17,7 @@ import { MINIO_CONNECTION } from 'nestjs-minio'
 import path from 'path'
 import { promisify } from 'util'
 
-import { env } from './utils/env'
+import { EnvKey } from './utils/env'
 import { getErrorMessage } from './utils/error'
 import { getLatexTemplate } from './utils/latex'
 
@@ -118,7 +119,7 @@ export class EquationsController {
   @Post()
   @Header('Content-Type', 'application/json')
   async createEquation(@Body() { token, latex }: CreateEquationDto) {
-    if (token !== env('API_TOKEN')) {
+    if (token !== env<EnvKey>('API_TOKEN')) {
       throw new UnauthorizedException()
     }
 
