@@ -40,7 +40,7 @@ async function main() {
                 description: 'Service to start',
               })
               .option('port', {
-                type: 'number',
+                type: 'array',
                 description: 'Port to expose on the container',
               })
               .option('detach', {
@@ -96,7 +96,7 @@ async function main() {
         command: args._[1],
         detach: args.detach,
         follow: args.follow,
-        port: args.port,
+        ports: args.port,
         service: args.service,
         shell: args.shell,
       }),

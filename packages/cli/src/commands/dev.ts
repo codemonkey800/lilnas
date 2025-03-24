@@ -8,7 +8,7 @@ const DevOptionsSchema = z.object({
   command: z.enum(['build', 'down', 'ls', 'logs', 'up', 'shell', 'sync-deps']),
   detach: z.boolean().optional(),
   follow: z.boolean().optional(),
-  port: z.number().optional(),
+  ports: z.number().array().optional(),
   service: z.string().optional(),
   shell: z.boolean().optional(),
 })
@@ -100,7 +100,7 @@ const DEV_INFRA_LINE = `./${DEV_INFRA_FILE}`
 async function toggleDevInfra(
   enable: boolean,
   service = 'tdr-bot',
-  port = 8080,
+  ports = [8080],
 ) {
   const repoDir = await getRepoDir()
   const dockerComposeFile = `${repoDir}/docker-compose.yml`
@@ -131,7 +131,7 @@ async function toggleDevInfra(
         dev: {
           command: `-c "cd /source/packages/${service} && pnpm dev"`,
           env_file: envFileExists ? [envFile] : [],
-          ports: [`${port}:${port}`],
+          ports: ports.map(port => `${port}:${port}`),
 
           build: {
             context: '../',
@@ -159,7 +159,7 @@ export async function dev(rawOptions: unknown) {
   const options = DevOptionsSchema.parse(rawOptions)
   const handler = HANDLER_MAP[options.command]
 
-  await toggleDevInfra(true, options.service, options.port)
+  await toggleDevInfra(true, options.service, options.ports)
   await handler(options)
   await toggleDevInfra(false)
 }
