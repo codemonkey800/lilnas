@@ -88,5 +88,4 @@ services:
       - traefik.http.routers.download.rule=Host(`download.lilnas.io`)
       - traefik.http.routers.download.entrypoints=websecure
       - traefik.http.routers.download.tls.certresolver=le
-      - traefik.http.routers.apps.middlewares=forward-auth
       - traefik.http.services.download.loadbalancer.server.port=8080
