@@ -60,8 +60,9 @@ ENTRYPOINT ["pnpm", "start"]
 FROM base AS tdr-bot
 RUN pnpm build --filter=@lilnas/tdr-bot
 RUN pnpm --filter=tdr-bot --prod deploy /app
-RUN cp -r /source/packages/tdr-bot/public /app/public
-RUN rm -rf /source
+RUN cp -r /source/packages/tdr-bot/public/ /app/.next/standalone/ && \
+    rm -rf /source && \
+    cp -r /app/.next/static/ /app/.next/standalone/.next/
 
 ENV NODE_ENV=production
 ENV HOSTNAME="0.0.0.0"
@@ -74,7 +75,8 @@ ENTRYPOINT ["pnpm", "start"]
 FROM base AS download
 RUN pnpm build --filter=@lilnas/download
 RUN pnpm --filter=download --prod deploy /app
-RUN rm -rf /source
+RUN rm -rf /source && \
+    cp -r /app/.next/static/ /app/.next/standalone/.next/
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ffmpeg && \
