@@ -11,11 +11,7 @@ import { endTimeAtom, showTimeRangeAtom, startTimeAtom } from 'src/store/form'
 
 import { TimeRangeInput } from './TimeRangeInput'
 
-export function DownloadForm({
-  createDownload,
-}: {
-  createDownload(data: FormData): Promise<void>
-}) {
+export function DownloadForm() {
   const startTime = useAtomValue(startTimeAtom)
   const endTime = useAtomValue(endTimeAtom)
   const showTimeRange = useAtomValue(showTimeRangeAtom)
@@ -28,7 +24,7 @@ export function DownloadForm({
       isBefore(startTime, endTime))
 
   return (
-    <form action={createDownload} className="flex flex-col gap-3">
+    <>
       <div className="flex items-center gap-3">
         <TextField
           name="url"
@@ -57,6 +53,6 @@ export function DownloadForm({
       </div>
 
       <TimeRangeInput />
-    </form>
+    </>
   )
 }

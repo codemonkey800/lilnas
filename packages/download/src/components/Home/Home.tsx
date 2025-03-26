@@ -35,7 +35,9 @@ export function Home() {
           Download
         </p>
 
-        <DownloadForm createDownload={createDownload} />
+        <form action={createDownload} className="flex flex-col gap-3">
+          <DownloadForm />
+        </form>
       </div>
     </div>
   )
