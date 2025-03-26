@@ -3,9 +3,11 @@ import { TIME_REGEX } from '@lilnas/utils/download/schema'
 import { DownloadJobStatus } from '@lilnas/utils/download/types'
 import { isBefore } from '@lilnas/utils/download/utils'
 import { isValidURL } from '@lilnas/utils/url'
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
+import { MessageFlags } from 'discord.js'
 import * as fs from 'fs-extra'
 import _ from 'lodash'
+import { Client } from 'minio'
 import { nanoid } from 'nanoid'
 import {
   BooleanOption,
@@ -16,6 +18,7 @@ import {
   type SlashCommandContext,
   StringOption,
 } from 'necord'
+import { MINIO_CONNECTION } from 'nestjs-minio'
 import { Docker } from 'node-docker-api'
 
 import { getWeeklyCookiesMessage } from 'src/utils/crumbl'
@@ -64,6 +67,8 @@ interface ContainerData {
 @Injectable()
 export class CommandsService {
   private readonly logger = new Logger(CommandsService.name)
+
+  constructor(@Inject(MINIO_CONNECTION) private readonly minioClient: Client) {}
 
   @SlashCommand({
     name: 'cookies',
@@ -176,7 +181,7 @@ export class CommandsService {
     if ((!start && end) || (start && !end)) {
       this.logger.log({ id, start, end }, 'Start or End time is missing')
 
-      interaction.reply(
+      await interaction.reply(
         'you need to provide both a start and end time, or remove one',
       )
       return
@@ -188,7 +193,7 @@ export class CommandsService {
         'Start time needs to be formatted correctly',
       )
 
-      interaction.reply('start time needs to be in the format 00:00:00')
+      await interaction.reply('start time needs to be in the format 00:00:00')
       return
     }
 
@@ -198,23 +203,28 @@ export class CommandsService {
         'End time needs to be formatted correctly',
       )
 
-      interaction.reply('end time needs to be in the format 00:00:00')
+      await interaction.reply('end time needs to be in the format 00:00:00')
       return
     }
 
     if (start && end && !isBefore(start, end)) {
       this.logger.log({ id, start, end }, 'End time')
 
-      interaction.reply('end time must be after start time')
+      await interaction.reply('end time must be after start time')
       return
     }
 
     if (!isValidURL(url)) {
       this.logger.log({ id, url }, 'url is invalid')
 
-      interaction.reply('url is invalid')
+      await interaction.reply('url is invalid')
       return
     }
+
+    interaction.reply({
+      content: `${interaction.user.username} started a download for ${url}`,
+      flags: [MessageFlags.Ephemeral],
+    })
 
     const client = DownloadClient.dockerInstance
 
@@ -227,6 +237,7 @@ export class CommandsService {
     this.logger.log({ id, job }, 'created job')
 
     const jobId = job.id
+    const userId = `<@${interaction.user.id}>`
 
     const checkJob = async () => {
       job = await client.getVideoJob(jobId)
@@ -245,33 +256,58 @@ export class CommandsService {
             const fullFile = `${dir}/${file}`
             files.push(fullFile)
 
-            const fileStream = fs.createWriteStream(fullFile)
-            const stream = new WritableStream({
-              write(chunk) {
-                fileStream.write(chunk)
-              },
-            })
-
-            const response = await fetch(url)
-            response.body?.pipeTo(stream)
+            const bucket = 'videos'
+            const key = `${jobId}/${file}`
+            this.logger.log(
+              { id, job, bucket, key, output: fullFile },
+              'downloading file',
+            )
+            await this.minioClient.fGetObject(bucket, key, fullFile)
           }),
         )
 
         this.logger.log({ id, job, files }, 'downloaded files')
 
-        await interaction.reply({ files })
+        if (interaction.channel?.isSendable()) {
+          interaction.channel.send({
+            files,
+            content: [
+              '## URL',
+              `<${job.url}>`,
+              '',
+              '## Downloader',
+              userId,
+              '',
+              ...(job.title ? ['## Title', job.title, ''] : []),
+              ...(job.description
+                ? ['## Description', job.description, '']
+                : []),
+            ].join('\n'),
+          })
+        }
+
         return
       }
 
       if (job.status === DownloadJobStatus.Failed) {
         this.logger.log({ id, job }, 'download job failed')
-        await interaction.reply('downloading video failed')
+
+        if (interaction.channel?.isSendable()) {
+          interaction.channel.send(`${userId} downloaded job failed ${job.url}`)
+        }
+
         return
       }
 
       if (job.status === DownloadJobStatus.Cancelled) {
         this.logger.log({ id, job }, 'job still pending, scheduling next check')
-        await interaction.reply('downloading video failed')
+
+        if (interaction.channel?.isSendable()) {
+          interaction.channel.send(
+            `${userId} downloaded job cancelled ${job.url}`,
+          )
+        }
+
         return
       }
 
