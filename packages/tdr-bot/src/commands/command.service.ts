@@ -1,14 +1,6 @@
-import { DownloadClient } from '@lilnas/utils/download/client'
-import { TIME_REGEX } from '@lilnas/utils/download/schema'
-import { DownloadJobStatus } from '@lilnas/utils/download/types'
-import { isBefore } from '@lilnas/utils/download/utils'
-import { isValidURL } from '@lilnas/utils/url'
 import { Inject, Injectable, Logger } from '@nestjs/common'
-import { MessageFlags } from 'discord.js'
-import * as fs from 'fs-extra'
 import _ from 'lodash'
 import { Client } from 'minio'
-import { nanoid } from 'nanoid'
 import {
   BooleanOption,
   Context,
@@ -16,7 +8,6 @@ import {
   Options,
   SlashCommand,
   type SlashCommandContext,
-  StringOption,
 } from 'necord'
 import { MINIO_CONNECTION } from 'nestjs-minio'
 import { Docker } from 'node-docker-api'
@@ -29,27 +20,6 @@ class ShowDetailsDto {
     description: 'Show image + details for each cookie',
   })
   showDetails!: boolean | null
-}
-
-class DownloadDto {
-  @StringOption({
-    name: 'url',
-    description: 'URL to download from',
-    required: true,
-  })
-  url!: string
-
-  @StringOption({
-    name: 'start',
-    description: 'Start time for download',
-  })
-  start!: string | null
-
-  @StringOption({
-    name: 'end',
-    description: 'End time for download',
-  })
-  end!: string | null
 }
 
 class SidesDto {
@@ -155,166 +125,5 @@ export class CommandsService {
       await interaction.reply('Restarting TDR bot <:Sadge:781403152258826281>')
       await tdrBotContainer.restart()
     }
-  }
-
-  @SlashCommand({
-    name: 'download',
-    description: 'Downloads from a URL and sends it in Discord',
-  })
-  async download(
-    @Context() [interaction]: SlashCommandContext,
-    @Options() { end, start, url }: DownloadDto,
-  ) {
-    const id = nanoid()
-    this.logger.log(
-      {
-        id,
-        command: '/download',
-        url,
-        start,
-        end,
-        user: interaction.user.username,
-      },
-      'User used command',
-    )
-
-    if ((!start && end) || (start && !end)) {
-      this.logger.log({ id, start, end }, 'Start or End time is missing')
-
-      await interaction.reply(
-        'you need to provide both a start and end time, or remove one',
-      )
-      return
-    }
-
-    if (start && !TIME_REGEX.test(start)) {
-      this.logger.log(
-        { id, start, end },
-        'Start time needs to be formatted correctly',
-      )
-
-      await interaction.reply('start time needs to be in the format 00:00:00')
-      return
-    }
-
-    if (end && !TIME_REGEX.test(end)) {
-      this.logger.log(
-        { id, start, end },
-        'End time needs to be formatted correctly',
-      )
-
-      await interaction.reply('end time needs to be in the format 00:00:00')
-      return
-    }
-
-    if (start && end && !isBefore(start, end)) {
-      this.logger.log({ id, start, end }, 'End time')
-
-      await interaction.reply('end time must be after start time')
-      return
-    }
-
-    if (!isValidURL(url)) {
-      this.logger.log({ id, url }, 'url is invalid')
-
-      await interaction.reply('url is invalid')
-      return
-    }
-
-    interaction.reply({
-      content: `${interaction.user.username} started a download for ${url}`,
-      flags: [MessageFlags.Ephemeral],
-    })
-
-    const client = DownloadClient.dockerInstance
-
-    this.logger.log({ id }, 'creating job')
-    let job = await client.createVideoJob({
-      url,
-      ...(start && end ? { start, end } : {}),
-    })
-
-    this.logger.log({ id, job }, 'created job')
-
-    const jobId = job.id
-    const userId = `<@${interaction.user.id}>`
-
-    const checkJob = async () => {
-      job = await client.getVideoJob(jobId)
-      const urls = job.downloadUrls ?? []
-
-      if (job.status === DownloadJobStatus.Completed && urls.length > 0) {
-        const files: string[] = []
-        const dir = `/tdr-videos/${jobId}`
-        await fs.ensureDir(dir)
-        this.logger.log({ id, job, dir }, 'download job completed')
-
-        this.logger.log({ id, job, urls }, 'downloading files')
-        await Promise.all(
-          urls.map(async url => {
-            const file = url.split('/').at(-1) ?? ''
-            const fullFile = `${dir}/${file}`
-            files.push(fullFile)
-
-            const bucket = 'videos'
-            const key = `${jobId}/${file}`
-            this.logger.log(
-              { id, job, bucket, key, output: fullFile },
-              'downloading file',
-            )
-            await this.minioClient.fGetObject(bucket, key, fullFile)
-          }),
-        )
-
-        this.logger.log({ id, job, files }, 'downloaded files')
-
-        if (interaction.channel?.isSendable()) {
-          interaction.channel.send({
-            files,
-            content: [
-              '## URL',
-              `<${job.url}>`,
-              '',
-              '## Downloader',
-              userId,
-              '',
-              ...(job.title ? ['## Title', job.title, ''] : []),
-              ...(job.description
-                ? ['## Description', job.description, '']
-                : []),
-            ].join('\n'),
-          })
-        }
-
-        return
-      }
-
-      if (job.status === DownloadJobStatus.Failed) {
-        this.logger.log({ id, job }, 'download job failed')
-
-        if (interaction.channel?.isSendable()) {
-          interaction.channel.send(`${userId} downloaded job failed ${job.url}`)
-        }
-
-        return
-      }
-
-      if (job.status === DownloadJobStatus.Cancelled) {
-        this.logger.log({ id, job }, 'job still pending, scheduling next check')
-
-        if (interaction.channel?.isSendable()) {
-          interaction.channel.send(
-            `${userId} downloaded job cancelled ${job.url}`,
-          )
-        }
-
-        return
-      }
-
-      this.logger.log({ id, job }, 'job still pending, scheduling next check')
-      setTimeout(checkJob, 2000)
-    }
-
-    checkJob()
   }
 }

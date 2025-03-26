@@ -11,6 +11,7 @@ const client = DownloadClient.localInstance
 const PENDING_STATUSES = [
   DownloadJobStatus.Cancelling,
   DownloadJobStatus.Downloading,
+  DownloadJobStatus.Converting,
   DownloadJobStatus.Pending,
 ]
 

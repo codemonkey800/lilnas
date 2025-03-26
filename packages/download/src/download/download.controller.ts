@@ -16,12 +16,18 @@ import {
 import { createZodDto } from 'nestjs-zod'
 
 import { DownloadService } from './download.service'
+import { DownloadSchedulerService } from './download-scheduler.service'
+import { DownloadStateService } from './download-state.service'
 
 class CreateJobInputDto extends createZodDto(CreateDownloadJobInputSchema) {}
 
 @Controller('/download')
 export class DownloadController {
-  constructor(private downloadService: DownloadService) {}
+  constructor(
+    private downloadService: DownloadService,
+    private downloadSchedulerService: DownloadSchedulerService,
+    private downloadStateService: DownloadStateService,
+  ) {}
 
   private getJobResponse(job: DownloadJob): GetDownloadJobResponse {
     return {
@@ -38,19 +44,19 @@ export class DownloadController {
 
   @Get('/videos/:id')
   getVideoJob(@Param('id') id: string): GetDownloadJobResponse {
-    try {
-      const job = this.downloadService.getVideoDownloadJob(id)
-      return this.getJobResponse(job)
-    } catch (err) {
+    const job = this.downloadStateService.jobs.get(id)
+
+    if (!job) {
       throw new HttpException(
         {
           status: HttpStatus.NOT_FOUND,
           error: 'Job not found',
         },
         HttpStatus.NOT_FOUND,
-        { cause: err },
       )
     }
+
+    return this.getJobResponse(job)
   }
 
   @Post('/videos')

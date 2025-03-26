@@ -10,10 +10,13 @@ export enum DownloadType {
 export enum DownloadJobStatus {
   Cancelled = 'cancelled',
   Cancelling = 'cancelling',
+  Cleaning = 'cleaning',
   Completed = 'completed',
+  Converting = 'converting',
   Downloading = 'downloading',
   Failed = 'failed',
   Pending = 'pending',
+  Uploading = 'uploading',
 }
 
 export type CreateDownloadJobInput = z.infer<
