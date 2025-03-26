@@ -44,8 +44,6 @@ export class DownloadVideoService {
     })
 
     const args = [
-      ...(job.url.includes('tiktok.com') ? [] : ['-f', 'bestvideo+bestaudio']),
-
       ...(job.timeRange
         ? [
             '--download-sections',
