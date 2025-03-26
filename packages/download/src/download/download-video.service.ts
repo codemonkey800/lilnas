@@ -37,14 +37,14 @@ export class DownloadVideoService {
 
   async download(options: DownloadStepOptions) {
     const { job } = options
+    const log = this.getJobLogger(job.id)
 
     this.downloadStateService.updateJob(job.id, {
       status: DownloadJobStatus.Downloading,
     })
 
     const args = [
-      '-f',
-      'bestvideo+bestaudio',
+      ...(job.url.includes('tiktok.com') ? [] : ['-f', 'bestvideo+bestaudio']),
 
       ...(job.timeRange
         ? [
@@ -56,7 +56,7 @@ export class DownloadVideoService {
       job.url,
     ]
 
-    this.logger.log(options, 'Started download')
+    log('log', options, 'Started download')
     const downloadProcess = await this.runProcess({
       args,
       bin: '/usr/bin/yt-dlp',
@@ -72,9 +72,15 @@ export class DownloadVideoService {
       await downloadProcess.promise
 
       const files = await getVideoFiles(job.id)
-      this.logger.log({ ...options, files }, 'Download complete')
+
+      if (files.length === 0) {
+        throw new Error('No video files found')
+      }
+
+      log('log', { ...options, files }, 'Download complete')
     } catch (err) {
-      this.logger.error(
+      log(
+        'error',
         { ...options, error: getErrorMessage(err) },
         'Download failed',
       )
@@ -85,6 +91,7 @@ export class DownloadVideoService {
 
   async convert(options: DownloadStepOptions) {
     const { job } = options
+    const log = this.getJobLogger(job.id)
 
     this.downloadStateService.updateJob(job.id, {
       status: DownloadJobStatus.Converting,
@@ -96,10 +103,7 @@ export class DownloadVideoService {
 
     await fs.ensureDir(renderDir)
 
-    this.logger.log(
-      { ...options, files, jobDir, renderDir },
-      'Starting conversion',
-    )
+    log('log', { ...options, files, jobDir, renderDir }, 'Starting conversion')
 
     for (let index = 0; index < files.length; index++) {
       const file = files[index]
@@ -134,9 +138,10 @@ export class DownloadVideoService {
         await convertProcess.promise
 
         const files = await getVideoFiles(`${job.id}/render`)
-        this.logger.log({ ...options, files }, 'Conversion complete')
+        log('log', { ...options, files }, 'Conversion complete')
       } catch (err) {
-        this.logger.error(
+        log(
+          'error',
           { ...options, error: getErrorMessage(err) },
           'Conversion failed',
         )
@@ -148,6 +153,7 @@ export class DownloadVideoService {
 
   async upload(options: DownloadStepOptions) {
     const { job } = options
+    const log = this.getJobLogger(job.id)
 
     this.downloadStateService.updateJob(job.id, {
       status: DownloadJobStatus.Uploading,
@@ -155,16 +161,16 @@ export class DownloadVideoService {
 
     const files = await getVideoFiles(`${job.id}/render`)
 
-    this.logger.log(options, 'Starting upload')
+    log('log', options, 'Starting upload')
 
     if (files.length === 0) {
-      this.logger.warn(options, 'No video files found')
+      log('warn', options, 'No video files found')
       return
     }
 
     const getFileKey = (file: string) => `${job.id}/${path.basename(file)}`
 
-    this.logger.log({ ...options, files }, 'Uploading video file')
+    log('log', { ...options, files }, 'Uploading video file')
     await Promise.all(
       files.map(async file => {
         await this.minioClient.fPutObject('videos', getFileKey(file), file, {
@@ -172,16 +178,13 @@ export class DownloadVideoService {
         })
       }),
     )
-    this.logger.log({ ...options, files: files }, 'Video file uploaded')
+    log('log', { ...options, files: files }, 'Video file uploaded')
 
     const downloadUrls = files.map(
       file => `${env<EnvKey>('MINIO_PUBLIC_URL')}/videos/${getFileKey(file)}`,
     )
 
-    this.logger.log(
-      { ...options, downloadUrls },
-      'Updating job with download URLs',
-    )
+    log('log', { ...options, downloadUrls }, 'Updating job with download URLs')
 
     this.downloadStateService.updateJob(job.id, {
       ...job,
@@ -194,6 +197,7 @@ export class DownloadVideoService {
 
   async clean(options: DownloadStepOptions) {
     const { job } = options
+    const log = this.getJobLogger(job.id)
 
     this.downloadStateService.updateJob(job.id, {
       status: DownloadJobStatus.Cleaning,
@@ -204,9 +208,18 @@ export class DownloadVideoService {
     const allFiles = [...files, ...renderFiles]
     const logArgs = { ...options, files: allFiles }
 
-    this.logger.log(logArgs, 'Cleaning up video files')
+    log('log', logArgs, 'Cleaning up video files')
     await Promise.all(allFiles.map(file => fs.remove(file)))
-    this.logger.log(logArgs, 'Files cleaned')
+    log('log', logArgs, 'Files cleaned')
+  }
+
+  private getJobLogger(jobId: string) {
+    return (level: 'log' | 'error' | 'warn', data: object, message: string) => {
+      const job = { ...this.downloadStateService.jobs.get(jobId) }
+      delete job.proc
+
+      this.logger[level]({ ...data, job }, message)
+    }
   }
 
   private async runProcess({
@@ -220,14 +233,16 @@ export class DownloadVideoService {
     args: string[]
     bin: string
   }) {
+    const logFileStream = fs.createWriteStream(
+      `${VIDEO_DIR}/${logFile}`,
+      'utf-8',
+    )
+
+    logFileStream.write(`$ ${bin} ${args.join(' ')}\n`)
+
     const proc = spawn(bin, args, { cwd })
 
     const promise = new Promise((resolve, reject) => {
-      const logFileStream = fs.createWriteStream(
-        `${VIDEO_DIR}/${logFile}`,
-        'utf-8',
-      )
-
       proc.stdout.pipe(logFileStream)
       proc.stderr.pipe(logFileStream)
 
