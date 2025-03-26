@@ -4,6 +4,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter'
 import { ScheduleModule } from '@nestjs/schedule'
 import { IntentsBitField } from 'discord.js'
 import { NecordModule } from 'necord'
+import { NestMinioModule } from 'nestjs-minio'
 import { LoggerModule } from 'nestjs-pino'
 
 import { ApiModule } from './api/api.module'
@@ -22,6 +23,14 @@ import { EnvKey } from './utils/env'
     EventEmitterModule.forRoot(),
     LoggerModule.forRoot(),
     MessageHandlerModule,
+    NestMinioModule.register({
+      accessKey: env<EnvKey>('MINIO_ACCESS_KEY'),
+      endPoint: env<EnvKey>('MINIO_HOST'),
+      isGlobal: true,
+      port: +env<EnvKey>('MINIO_PORT'),
+      secretKey: env<EnvKey>('MINIO_SECRET_KEY'),
+      useSSL: false,
+    }),
     NecordModule.forRoot({
       development: [env<EnvKey>('DISCORD_DEV_GUILD_ID', '')],
       token: env<EnvKey>('DISCORD_API_TOKEN'),
