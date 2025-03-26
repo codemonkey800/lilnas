@@ -50,6 +50,8 @@ services:
       context: ../
       target: tdr-bot
     restart: unless-stopped
+    ports:
+      - 8080:8080
     env_file:
       - .env.tdr-bot
     volumes:
@@ -75,3 +77,17 @@ services:
       - traefik.http.routers.equations.entrypoints=websecure
       - traefik.http.routers.equations.tls.certresolver=le
       - traefik.http.services.equations.loadbalancer.server.port=8080
+
+  download:
+    build:
+      context: ../
+      target: download
+    restart: unless-stopped
+    env_file:
+      - .env.download
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.download.rule=Host(`download.lilnas.io`)
+      - traefik.http.routers.download.entrypoints=websecure
+      - traefik.http.routers.download.tls.certresolver=le
+      - traefik.http.services.download.loadbalancer.server.port=8080

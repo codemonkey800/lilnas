@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import _ from 'lodash'
+import { Client } from 'minio'
 import {
   BooleanOption,
   Context,
@@ -8,6 +9,7 @@ import {
   SlashCommand,
   type SlashCommandContext,
 } from 'necord'
+import { MINIO_CONNECTION } from 'nestjs-minio'
 import { Docker } from 'node-docker-api'
 
 import { getWeeklyCookiesMessage } from 'src/utils/crumbl'
@@ -36,6 +38,8 @@ interface ContainerData {
 export class CommandsService {
   private readonly logger = new Logger(CommandsService.name)
 
+  constructor(@Inject(MINIO_CONNECTION) private readonly minioClient: Client) {}
+
   @SlashCommand({
     name: 'cookies',
     description: 'Show list of weekly crumbl cookies',
@@ -44,10 +48,10 @@ export class CommandsService {
     @Context() [interaction]: SlashCommandContext,
     @Options() { showDetails }: ShowDetailsDto,
   ) {
-    this.logger.log({
-      command: 'cookies',
-      user: interaction.user.username,
-    })
+    this.logger.log(
+      { command: '/cookies', user: interaction.user.username },
+      'User used command',
+    )
 
     await interaction.reply(
       await getWeeklyCookiesMessage({ showEmbeds: showDetails ?? true }),
@@ -61,11 +65,14 @@ export class CommandsService {
   async onFlipCoin(@Context() [interaction]: SlashCommandContext) {
     const result = Math.random() <= 0.5 ? 'Heads' : 'Tails'
 
-    this.logger.log({
-      command: 'flip-coin',
-      user: interaction.user.username,
-      result,
-    })
+    this.logger.log(
+      {
+        command: '/flip-coin',
+        user: interaction.user.username,
+        result,
+      },
+      'User used command',
+    )
 
     await interaction.reply(`${result}`)
   }
@@ -81,12 +88,15 @@ export class CommandsService {
     const roundedSides = Math.round(sides ?? 6)
     const randomNum = _.random(1, roundedSides)
 
-    this.logger.log({
-      command: 'roll-dice',
-      user: interaction.user.username,
-      sides: roundedSides,
-      randomNum,
-    })
+    this.logger.log(
+      {
+        command: '/roll-dice',
+        user: interaction.user.username,
+        sides: roundedSides,
+        randomNum,
+      },
+      'User used command',
+    )
 
     await interaction.reply(`Rolled a ${randomNum} from a d${roundedSides}`)
   }
@@ -96,10 +106,13 @@ export class CommandsService {
     description: 'Restarts TDR bot',
   })
   async restart(@Context() [interaction]: SlashCommandContext) {
-    this.logger.log({
-      command: 'restart',
-      user: interaction.user.username,
-    })
+    this.logger.log(
+      {
+        command: '/restart',
+        user: interaction.user.username,
+      },
+      'User used command',
+    )
 
     const docker = new Docker({ socketPath: '/var/run/docker.sock' })
     const containers = await docker.container.list()
