@@ -5,6 +5,7 @@ import {
   GetDownloadJobResponse,
 } from '@lilnas/utils/download/types'
 import { isBefore } from '@lilnas/utils/download/utils'
+import { env } from '@lilnas/utils/env'
 import { isValidURL } from '@lilnas/utils/url'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { MessageFlags } from 'discord.js'
@@ -19,6 +20,8 @@ import {
   StringOption,
 } from 'necord'
 import { MINIO_CONNECTION } from 'nestjs-minio'
+
+import { EnvKey } from 'src/utils/env'
 
 class DownloadDto {
   @StringOption({
@@ -45,6 +48,7 @@ class DownloadDto {
 export class DownloadCommandService {
   private readonly logger = new Logger(DownloadCommandService.name)
   private client = DownloadClient.dockerInstance
+  private checkJobIterationMap = new Map<string, number>()
 
   constructor(@Inject(MINIO_CONNECTION) private readonly minioClient: Client) {}
 
@@ -73,20 +77,19 @@ export class DownloadCommandService {
       return
     }
 
-    interaction.reply({
-      content: `${interaction.user.username} started a download for <${url}>`,
-      flags: [MessageFlags.Ephemeral],
-    })
-
-    const client = DownloadClient.dockerInstance
-
     this.logger.log({ id }, 'creating job')
-    const job = await client.createVideoJob({
+    const job = await this.client.createVideoJob({
       url,
       ...(start && end ? { start, end } : {}),
     })
     this.logger.log({ id, job }, 'created job')
 
+    interaction.reply({
+      content: `download @ <https://download.lilnas.io/downloads/${job.id}>`,
+      flags: [MessageFlags.Ephemeral],
+    })
+
+    this.checkJobIterationMap.set(job.id, 0)
     this.checkJob({ id, interaction, jobId: job.id })
   }
 
@@ -179,15 +182,35 @@ export class DownloadCommandService {
     const job = await this.client.getVideoJob(jobId)
     const urls = job.downloadUrls ?? []
     const userId = `<@${interaction.user.id}>`
+    const iteration = this.checkJobIterationMap.get(jobId) ?? 0
 
     if (job.status === DownloadJobStatus.Completed && urls.length > 0) {
       this.logger.log({ id, job }, 'download job completed')
+      this.checkJobIterationMap.delete(jobId)
       this.sendFiles({ id, job, interaction })
+      return
+    }
+
+    if (iteration == +env<EnvKey>('DOWNLOAD_POLL_RETRIES')) {
+      this.logger.log(
+        { id, job, iteration },
+        'download job iteration maxed out',
+      )
+
+      this.checkJobIterationMap.delete(jobId)
+      this.client.cancelVideoJob(jobId)
+
+      if (interaction.channel?.isSendable()) {
+        interaction.channel.send(`${userId} downloaded job iteration maxed out`)
+      }
+
       return
     }
 
     if (job.status === DownloadJobStatus.Failed) {
       this.logger.log({ id, job }, 'download job failed')
+
+      this.checkJobIterationMap.delete(jobId)
 
       if (interaction.channel?.isSendable()) {
         interaction.channel.send(`${userId} downloaded job failed ${job.url}`)
@@ -199,6 +222,8 @@ export class DownloadCommandService {
     if (job.status === DownloadJobStatus.Cancelled) {
       this.logger.log({ id, job }, 'job still pending, scheduling next check')
 
+      this.checkJobIterationMap.delete(jobId)
+
       if (interaction.channel?.isSendable()) {
         interaction.channel.send(
           `${userId} downloaded job cancelled ${job.url}`,
@@ -208,7 +233,13 @@ export class DownloadCommandService {
       return
     }
 
-    this.logger.log({ id, job }, 'job still pending, scheduling next check')
+    this.logger.log(
+      { id, job, iteration },
+      'job still pending, scheduling next check',
+    )
+
+    this.checkJobIterationMap.set(jobId, iteration + 1)
+
     setTimeout(
       () =>
         this.checkJob({
@@ -216,7 +247,7 @@ export class DownloadCommandService {
           interaction,
           jobId,
         }),
-      2000,
+      +env<EnvKey>('DOWNLOAD_POLL_DURATION_MS'),
     )
   }
 
@@ -247,7 +278,7 @@ export class DownloadCommandService {
       interaction.channel.send({
         files,
         content: [
-          job.title ? `**${job.title}**\n\n` : '',
+          job.title ? `[**${job.title}**](<${job.url}>)\n\n` : '',
           job.description ? `${job.description}` : '',
         ]
           .filter(Boolean)
@@ -277,10 +308,10 @@ export class DownloadCommandService {
 
     const bucket = 'videos'
     const key = `${job.id}/${file}`
-    this.logger.log(
-      { id, job, bucket, key, output: fullFile },
-      'downloading file',
-    )
+    const logArgs = { id, job, bucket, key, output: fullFile }
+
+    this.logger.log(logArgs, 'downloading file')
     await this.minioClient.fGetObject(bucket, key, fullFile)
+    this.logger.log(logArgs, 'file downloaded')
   }
 }
