@@ -36,7 +36,7 @@ export function TimeRangeInput() {
 
       <div
         className={cns(
-          'flex items-center gap-3',
+          'flex gap-3 max-md:flex-col',
           !showTimeRange && 'invisible',
         )}
       >

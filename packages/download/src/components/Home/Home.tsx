@@ -30,8 +30,10 @@ export function Home() {
 
   return (
     <div className="flex flex-auto items-center justify-center">
-      <div className="flex flex-col gap-10">
-        <p className="font-bold text-6xl">Download</p>
+      <div className="flex flex-auto items-center flex-col gap-10">
+        <p className="font-bold text-3xl md:text-6xl w-full max-md:pl-5 md:text-center">
+          Download
+        </p>
 
         <DownloadForm createDownload={createDownload} />
       </div>

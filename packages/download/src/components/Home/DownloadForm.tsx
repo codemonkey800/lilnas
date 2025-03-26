@@ -2,7 +2,8 @@
 
 import { isBefore } from '@lilnas/utils/download/utils'
 import { isValidURL } from '@lilnas/utils/url'
-import { Button, TextField } from '@mui/material'
+import { Download } from '@mui/icons-material'
+import { IconButton, TextField } from '@mui/material'
 import { useAtomValue } from 'jotai'
 import { useState } from 'react'
 
@@ -35,7 +36,16 @@ export function DownloadForm({
           onChange={event => setUrl(event.target.value)}
           slotProps={{
             input: {
-              className: '!text-3xl min-w-[50vw]',
+              className: 'md:!text-3xl min-w-[90vw] md:min-w-[50vw]',
+              endAdornment: (
+                <IconButton
+                  className="!text-xl max-md:!hidden !mb-2"
+                  disabled={!isValid}
+                  type="submit"
+                >
+                  <Download fontSize="large" />
+                </IconButton>
+              ),
             },
           }}
           variant="standard"
@@ -44,15 +54,6 @@ export function DownloadForm({
             url !== '' && !isValidURL(url) ? 'Invalid URL' : undefined
           }
         />
-
-        <Button
-          className="!h-13"
-          disabled={!isValid}
-          type="submit"
-          variant="contained"
-        >
-          Download
-        </Button>
       </div>
 
       <TimeRangeInput />

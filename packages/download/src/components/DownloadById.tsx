@@ -44,36 +44,11 @@ export function DownloadById({
   }, [getVideoJob, isPending])
 
   return (
-    <div className="flex flex-auto items-center justify-center">
-      <Paper className="min-w-[600px] max-w-[600px]">
+    <div className="flex flex-auto items-center justify-center p-4">
+      <Paper className="w-full max-w-[800px]">
         {isPending && <LinearProgress variant="indeterminate" />}
 
         <div className="p-4 flex flex-col gap-3">
-          <a
-            className="text-2xl underline"
-            href={job?.url}
-            target="_blank"
-            rel="noreferrer noorigin"
-          >
-            {job?.title || job?.url || '--'}
-          </a>
-
-          {job?.downloadUrls &&
-            job.downloadUrls.map((url, idx) => (
-              <a
-                className="text text-purple-500"
-                href={url}
-                key={url}
-                rel="noreferrer noorigin"
-                target="_blank"
-              >
-                Download
-                {(job.downloadUrls?.length ?? 0) > 1 ? ` ${idx + 1}` : ''}
-              </a>
-            ))}
-
-          {job?.description && <p>{job.description}</p>}
-
           <div className="flex items-center gap-2">
             <Chip
               className={match(job?.status)
@@ -94,6 +69,31 @@ export function DownloadById({
               label={job && _.upperFirst(job.type)}
             />
           </div>
+
+          <a
+            className="text-xl md:text-2xl underline"
+            href={job?.url}
+            target="_blank"
+            rel="noreferrer noorigin"
+          >
+            {job?.title || job?.url || '--'}
+          </a>
+
+          {job?.downloadUrls &&
+            job.downloadUrls.map((url, idx) => (
+              <a
+                className="text-purple-500"
+                href={url}
+                key={url}
+                rel="noreferrer noorigin"
+                target="_blank"
+              >
+                Download
+                {(job.downloadUrls?.length ?? 0) > 1 ? ` ${idx + 1}` : ''}
+              </a>
+            ))}
+
+          {job?.description && <p>{job.description}</p>}
         </div>
       </Paper>
     </div>
