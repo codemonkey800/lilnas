@@ -3,9 +3,10 @@
 import { isBefore } from '@lilnas/utils/download/utils'
 import { isValidURL } from '@lilnas/utils/url'
 import { Download } from '@mui/icons-material'
-import { IconButton, TextField } from '@mui/material'
+import { CircularProgress, IconButton, TextField } from '@mui/material'
 import { useAtomValue } from 'jotai'
 import { useState } from 'react'
+import { useFormStatus } from 'react-dom'
 
 import { endTimeAtom, showTimeRangeAtom, startTimeAtom } from 'src/store/form'
 
@@ -23,8 +24,18 @@ export function DownloadForm() {
       (startTime === '' && endTime === '') ||
       isBefore(startTime, endTime))
 
+  const { pending } = useFormStatus()
+
+  if (pending) {
+    return <CircularProgress variant="indeterminate" />
+  }
+
   return (
     <>
+      <p className="font-bold text-3xl md:text-6xl w-full md:text-center">
+        Download
+      </p>
+
       <div className="flex items-center gap-3">
         <TextField
           name="url"
