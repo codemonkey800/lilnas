@@ -1,8 +1,22 @@
 import { CreateDownloadJobInput, GetDownloadJobResponse } from './types'
 
 export class DownloadClient {
+  constructor(private baseUrl = 'http://localhost:8081') {}
+
+  static get localInstance() {
+    return new DownloadClient()
+  }
+
+  static get dockerInstance() {
+    return new DownloadClient('http://download:8081')
+  }
+
+  static get remoteInstance() {
+    return new DownloadClient('https://download.lilnas.io')
+  }
+
   private request(url: string, options: RequestInit = {}): Promise<Response> {
-    return fetch(`http://localhost:8081${url}`, {
+    return fetch(`${this.baseUrl}${url}`, {
       ...options,
 
       headers: {

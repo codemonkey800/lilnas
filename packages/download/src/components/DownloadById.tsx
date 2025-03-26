@@ -1,13 +1,12 @@
+import { DownloadClient } from '@lilnas/utils/download/client'
+import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 import { Chip, LinearProgress, Paper } from '@mui/material'
 import _ from 'lodash'
 import { match } from 'ts-pattern'
 
-import { DownloadClient } from 'src/download/download.client'
-import { DownloadJobStatus, DownloadType } from 'src/download/types'
-
 import { RefreshOnInterval } from './RefreshOnInterval'
 
-const client = new DownloadClient()
+const client = DownloadClient.localInstance
 
 const PENDING_STATUSES = [
   DownloadJobStatus.Cancelling,

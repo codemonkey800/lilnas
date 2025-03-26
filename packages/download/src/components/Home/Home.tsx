@@ -1,6 +1,5 @@
+import { DownloadClient } from '@lilnas/utils/download/client'
 import { redirect } from 'next/navigation'
-
-import { DownloadClient } from 'src/download/download.client'
 
 import { DownloadForm } from './DownloadForm'
 
@@ -12,7 +11,7 @@ export function Home() {
     const start = data.get('start') as string
     const end = data.get('end') as string
 
-    const client = new DownloadClient()
+    const client = DownloadClient.localInstance
     const job = await client.createVideoJob({
       url,
 

@@ -1,3 +1,8 @@
+import { CreateDownloadJobInputSchema } from '@lilnas/utils/download/schema'
+import type {
+  DownloadJob,
+  GetDownloadJobResponse,
+} from '@lilnas/utils/download/types'
 import {
   Body,
   Controller,
@@ -11,8 +16,6 @@ import {
 import { createZodDto } from 'nestjs-zod'
 
 import { DownloadService } from './download.service'
-import { CreateDownloadJobInputSchema } from './schema'
-import type { DownloadJob, GetDownloadJobResponse } from './types'
 
 class CreateJobInputDto extends createZodDto(CreateDownloadJobInputSchema) {}
 

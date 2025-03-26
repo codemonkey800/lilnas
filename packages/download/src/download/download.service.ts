@@ -1,11 +1,18 @@
+import { VideoInfoSchema } from '@lilnas/utils/download/schema'
+import {
+  CreateDownloadJobInput,
+  DownloadJob,
+  DownloadJobStatus,
+  DownloadType,
+  VideoInfo,
+} from '@lilnas/utils/download/types'
 import { env } from '@lilnas/utils/env'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { isJson } from '@lilnas/utils/json'
 import { Queue } from '@lilnas/utils/queue'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { execSync, spawn } from 'child_process'
-import * as fs from 'fs-extra'
-import { omit } from 'lodash'
+import fs from 'fs-extra'
 import * as mime from 'mime-types'
 import { Client } from 'minio'
 import { nanoid } from 'nanoid'
@@ -13,15 +20,6 @@ import { MINIO_CONNECTION } from 'nestjs-minio'
 import { match } from 'ts-pattern'
 
 import { EnvKey } from 'src/utils/env'
-
-import { VideoInfoSchema } from './schema'
-import {
-  CreateDownloadJobInput,
-  DownloadJob,
-  DownloadJobStatus,
-  DownloadType,
-  VideoInfo,
-} from './types'
 
 const VIDEO_DIR = '/download/videos'
 
@@ -110,8 +108,9 @@ export class DownloadService {
       this.downloadJobs.delete(job.id)
 
       this.jobs.set(job.id, {
-        ...omit(job, 'proc'),
+        ...job,
         status: DownloadJobStatus.Cancelled,
+        proc: undefined,
       })
 
       this.logger.log(logArgs, 'Job closed')
@@ -210,7 +209,8 @@ export class DownloadService {
 
       this.downloadJobs.delete(id)
       this.jobs.set(id, {
-        ...omit(updatedJob, 'proc'),
+        ...job,
+        proc: undefined,
 
         status: hasVideos
           ? DownloadJobStatus.Completed
@@ -248,7 +248,7 @@ export class DownloadService {
 
       this.logger.log({ ...logArgs, files: videoFiles }, 'Video file uploaded')
 
-      // await fs.remove(`${VIDEO_DIR}/${id}`)
+      await fs.remove(`${VIDEO_DIR}/${id}`)
     })
   }
 

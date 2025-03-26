@@ -535,12 +535,18 @@ importers:
       lru-cache:
         specifier: 11.0.2
         version: 11.0.2
+      minio:
+        specifier: 8.0.5
+        version: 8.0.5
       nanoid:
         specifier: 5.1.5
         version: 5.1.5
       necord:
         specifier: 6.8.8
         version: 6.8.8(@nestjs/common@11.0.12(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.0.12)(discord-api-types@0.37.119)(discord.js@14.18.0)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      nestjs-minio:
+        specifier: 2.6.2
+        version: 2.6.2(@nestjs/common@11.0.12(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.0.12)
       nestjs-pino:
         specifier: 4.4.0
         version: 4.4.0(@nestjs/common@11.0.12(reflect-metadata@0.2.2)(rxjs@7.8.2))(pino-http@10.4.0)(pino@9.6.0)(rxjs@7.8.2)
@@ -605,6 +611,9 @@ importers:
       tailwind-merge:
         specifier: 3.0.2
         version: 3.0.2
+      zod:
+        specifier: 3.24.2
+        version: 3.24.2
 
 packages:
 
