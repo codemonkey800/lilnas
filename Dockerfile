@@ -70,3 +70,21 @@ EXPOSE 8080
 
 WORKDIR /app
 ENTRYPOINT ["pnpm", "start"]
+
+FROM base AS download
+RUN pnpm --filter=download build
+RUN pnpm --filter=download --prod deploy /app
+RUN rm -rf /source
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN curl \
+        -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+        -o /usr/bin/yt-dlp && \
+    chmod a+rx /usr/bin/yt-dlp
+
+EXPOSE 8080
+WORKDIR /app
+ENTRYPOINT ["pnpm", "start"]

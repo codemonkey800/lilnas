@@ -21,6 +21,7 @@
     "@types/fs-extra": "11.0.4",
     "@types/json-schema": "7.0.15",
     "@types/lodash": "4.17.16",
+    "@types/mime-types": "^2.1.4",
     "@types/node": "22.13.11",
     "@types/react": "19.0.12",
     "@types/react-dom": "19.0.4",
