@@ -17,11 +17,6 @@ import { DownloadStateService } from './download-state.service'
 
 const VIDEO_DIR = '/download/videos'
 
-function cleanURL(url: string) {
-  const urlObj = new URL(url)
-  return urlObj.origin + urlObj.pathname
-}
-
 async function getVideoInfo(url: string): Promise<VideoInfo> {
   const result = execSync(`/usr/bin/yt-dlp --dump-json '${url}'`).toString()
 
@@ -56,7 +51,7 @@ export class DownloadService {
     const info = await getVideoInfo(url)
     const job: DownloadJob = {
       timeRange,
-      url: cleanURL(url),
+      url,
       id: nanoid(),
       status: DownloadJobStatus.Pending,
       type: DownloadType.Video,
