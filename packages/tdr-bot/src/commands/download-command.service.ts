@@ -182,7 +182,7 @@ export class DownloadCommandService {
 
     if (job.status === DownloadJobStatus.Completed && urls.length > 0) {
       this.logger.log({ id, job }, 'download job completed')
-      this.sendFiles({ id, job, interaction, userId })
+      this.sendFiles({ id, job, interaction })
       return
     }
 
@@ -224,12 +224,10 @@ export class DownloadCommandService {
     id,
     interaction,
     job,
-    userId,
   }: {
     id: string
     interaction: SlashCommandContext[0]
     job: GetDownloadJobResponse
-    userId: string
   }) {
     const urls = job.downloadUrls ?? []
     const files: string[] = []
@@ -249,15 +247,11 @@ export class DownloadCommandService {
       interaction.channel.send({
         files,
         content: [
-          '## URL',
-          `<${job.url}>`,
-          '',
-          '## Downloader',
-          userId,
-          '',
-          ...(job.title ? ['## Title', job.title, ''] : []),
-          ...(job.description ? ['## Description', job.description, ''] : []),
-        ].join('\n'),
+          job.title ? `**${job.title}**\n\n` : '',
+          job.description ? `${job.description}` : '',
+        ]
+          .filter(Boolean)
+          .join(''),
       })
     }
 
