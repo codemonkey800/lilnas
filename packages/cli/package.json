@@ -5,6 +5,7 @@
   "packageManager": "pnpm@10.6.5",
   "prettier": "@lilnas/prettier",
   "scripts": {
+    "clean": "rm -rf tsconfig.tsbuildinfo",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
     "lint:prettier": "prettier -c src",
