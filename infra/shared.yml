@@ -3,9 +3,6 @@ services:
     image: minio/minio
     restart: unless-stopped
     command: server --console-address ":9001" /data
-    ports:
-      - 9000:9000
-      - 9001:9001
     env_file:
       - .env.storage
     volumes:
