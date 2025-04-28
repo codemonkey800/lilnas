@@ -13,6 +13,7 @@ import * as fs from 'fs-extra'
 import { Client } from 'minio'
 import { nanoid } from 'nanoid'
 import {
+  BooleanOption,
   Context,
   Options,
   SlashCommand,
@@ -22,6 +23,11 @@ import {
 import { MINIO_CONNECTION } from 'nestjs-minio'
 
 import { EnvKey } from 'src/utils/env'
+
+const DOWNLOAD_URL =
+  process.env.NODE_ENV === 'production'
+    ? 'https://download.lilnas.io'
+    : 'http://download.localhost'
 
 class DownloadDto {
   @StringOption({
@@ -42,6 +48,18 @@ class DownloadDto {
     description: 'End time for download',
   })
   end!: string | null
+
+  @BooleanOption({
+    name: 'description',
+    description: 'Show video description',
+  })
+  description!: boolean | null
+
+  @BooleanOption({
+    name: 'author',
+    description: 'Inclue user who requested the download',
+  })
+  author!: boolean | null
 }
 
 @Injectable()
@@ -58,7 +76,7 @@ export class DownloadCommandService {
   })
   async download(
     @Context() [interaction]: SlashCommandContext,
-    @Options() { end, start, url }: DownloadDto,
+    @Options() { end, start, url, author, description }: DownloadDto,
   ) {
     const id = nanoid()
     this.logger.log(
@@ -68,6 +86,8 @@ export class DownloadCommandService {
         url,
         start,
         end,
+        author,
+        description,
         user: interaction.user.username,
       },
       'User used command',
@@ -82,16 +102,22 @@ export class DownloadCommandService {
     this.logger.log({ id }, 'creating job')
     const job = await this.client.createVideoJob({
       url,
-      ...(start && end ? { start, end } : {}),
+      ...(start && end ? { timeRange: { start, end } } : {}),
     })
     this.logger.log({ id, job }, 'created job')
 
     await interaction.editReply(
-      `download @ <https://download.lilnas.io/downloads/${job.id}>`,
+      `download @ <${DOWNLOAD_URL}/downloads/${job.id}>`,
     )
 
     this.checkJobIterationMap.set(job.id, 0)
-    this.checkJob({ id, interaction, jobId: job.id })
+    this.checkJob({
+      id,
+      interaction,
+      author: author || author == null ? interaction.user.id : undefined,
+      description: description ? job.description : undefined,
+      jobId: job.id,
+    })
   }
 
   private async hasInvalidInput({
@@ -175,10 +201,14 @@ export class DownloadCommandService {
     jobId,
     id,
     interaction,
+    description,
+    author,
   }: {
     id: string
     jobId: string
     interaction: SlashCommandContext[0]
+    description?: string
+    author?: string
   }) {
     const job = await this.client.getVideoJob(jobId)
     const urls = job.downloadUrls ?? []
@@ -188,7 +218,13 @@ export class DownloadCommandService {
     if (job.status === DownloadJobStatus.Completed && urls.length > 0) {
       this.logger.log({ id, job }, 'download job completed')
       this.checkJobIterationMap.delete(jobId)
-      this.sendFiles({ id, job, interaction })
+      this.sendFiles({
+        author,
+        description,
+        id,
+        interaction,
+        job,
+      })
       return
     }
 
@@ -244,6 +280,8 @@ export class DownloadCommandService {
     setTimeout(
       () =>
         this.checkJob({
+          author,
+          description,
           id,
           interaction,
           jobId,
@@ -253,10 +291,14 @@ export class DownloadCommandService {
   }
 
   private async sendFiles({
+    author,
+    description = '',
     id,
     interaction,
     job,
   }: {
+    author?: string
+    description?: string
     id: string
     interaction: SlashCommandContext[0]
     job: GetDownloadJobResponse
@@ -280,7 +322,8 @@ export class DownloadCommandService {
         files,
         content: [
           job.title ? `[**${job.title}**](<${job.url}>)\n\n` : '',
-          job.description ? `${job.description}` : '',
+          author ? `sent by <@${author}>\n` : '',
+          description,
         ]
           .filter(Boolean)
           .join(''),
