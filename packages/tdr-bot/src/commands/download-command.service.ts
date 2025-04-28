@@ -321,7 +321,7 @@ export class DownloadCommandService {
       interaction.channel.send({
         files,
         content: [
-          job.title ? `[**${job.title}**](<${job.url}>)\n\n` : '',
+          job.title ? `[**${job.title}**](<${job.url}>)\n` : '',
           author ? `sent by <@${author}>\n` : '',
           description,
         ]
