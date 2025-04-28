@@ -1,4 +1,27 @@
 services:
+  apps:
+    image: lilnas-dev
+    command: -c "pnpm --filter=apps dev"
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../:/source
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.apps.rule=Host(`apps.localhost`)
+      - traefik.http.services.apps.loadbalancer.server.port=8080
+
+  dashcam:
+    image: lilnas-dev
+    command: -c "pnpm --filter=dashcam dev"
+    restart: unless-stopped
+    volumes:
+      - ../:/source
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.dashcam.rule=Host(`dashcam.localhost`)
+      - traefik.http.services.dashcam.loadbalancer.server.port=8080
+
   download:
     image: lilnas-dev
     command: -c "pnpm --filter=download dev"
@@ -11,6 +34,28 @@ services:
       - traefik.enable=true
       - traefik.http.routers.download.rule=Host(`download.localhost`)
       - traefik.http.services.download.loadbalancer.server.port=8080
+
+  equations:
+    image: lilnas-dev
+    command: -c "pnpm --filter=equations dev"
+    restart: unless-stopped
+    env_file:
+      - .env.equations
+    volumes:
+      - ../:/source
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.equations.rule=Host(`equations.localhost`)
+      - traefik.http.services.equations.loadbalancer.server.port=8080
+
+  me-token-tracker:
+    image: lilnas-dev
+    command: -c "pnpm --filter=me-token-tracker dev"
+    restart: unless-stopped
+    env_file:
+      - .env.me-token-tracker
+    volumes:
+      - ../:/source
 
   tdr-bot:
     image: lilnas-dev

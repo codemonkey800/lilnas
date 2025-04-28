@@ -1,40 +1,24 @@
 import { execSync, ExecSyncOptionsWithBufferEncoding } from 'child_process'
-import * as fs from 'fs-extra'
 import * as yaml from 'yaml'
 import { z } from 'zod'
 import { $ } from 'zx'
-
-export async function getServicesWithDevMode() {
-  const repoDir = await getRepoDir()
-  const packages = await fs.readdir(`${repoDir}/packages`)
-  const packagesWithDevMode: string[] = []
-
-  for (const pkg of packages) {
-    const packageJson = JSON.parse(
-      await fs.readFile(`${repoDir}/packages/${pkg}/package.json`, 'utf-8'),
-    )
-
-    if (packageJson?.scripts?.dev) {
-      packagesWithDevMode.push(pkg)
-    }
-  }
-
-  return packagesWithDevMode
-}
 
 export async function getRepoDir() {
   const output = await $`git rev-parse --show-toplevel`
   return output.stdout.trim()
 }
 
-async function getServiceFiles() {
+async function getServiceFiles(dev: boolean) {
   const repoDir = await getRepoDir()
   const serviceFiles = await $`fd .yml ${repoDir}/infra`
-  return serviceFiles.stdout.split('\n').filter(Boolean)
+  return serviceFiles.stdout
+    .split('\n')
+    .filter(Boolean)
+    .filter(file => file.includes('.dev.yml') === dev)
 }
 
-export async function getServices() {
-  const serviceFiles = await getServiceFiles()
+export async function getServices({ dev = false }: { dev?: boolean } = {}) {
+  const serviceFiles = await getServiceFiles(dev)
   const services = new Set<string>()
 
   await Promise.all(
