@@ -79,6 +79,12 @@ export function DownloadById({
             {job?.title || job?.url || '--'}
           </a>
 
+          {job.timeRange && (
+            <p className="text-gray-400">
+              From {job.timeRange.start} to {job.timeRange.end}
+            </p>
+          )}
+
           {job?.downloadUrls &&
             job.downloadUrls.map((url, idx) => (
               <a
