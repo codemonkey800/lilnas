@@ -1,0 +1,4 @@
+include:
+  - ./infra/apps.dev.yml
+  - ./infra/proxy.dev.yml
+  - ./infra/shared.dev.yml

@@ -1,0 +1,26 @@
+services:
+  storage:
+    image: minio/minio
+    restart: unless-stopped
+    command: server --console-address ":9001" /data
+    env_file:
+      - .env.storage
+    volumes:
+      - ../data/storage:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    labels:
+      - traefik.enable=true
+
+      # API Access
+      - traefik.http.routers.storage.rule=Host(`storage.localhost`)
+      - traefik.http.routers.storage.service=storage
+      - traefik.http.services.storage.loadbalancer.server.port=9000
+
+      # Dashboard
+      - traefik.http.routers.storage-admin.rule=Host(`storage-admin.localhost`)
+      - traefik.http.routers.storage-admin.service=storage-admin
+      - traefik.http.services.storage-admin.loadbalancer.server.port=9001
