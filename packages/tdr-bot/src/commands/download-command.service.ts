@@ -77,6 +77,8 @@ export class DownloadCommandService {
       return
     }
 
+    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] })
+
     this.logger.log({ id }, 'creating job')
     const job = await this.client.createVideoJob({
       url,
@@ -84,10 +86,9 @@ export class DownloadCommandService {
     })
     this.logger.log({ id, job }, 'created job')
 
-    interaction.reply({
-      content: `download @ <https://download.lilnas.io/downloads/${job.id}>`,
-      flags: [MessageFlags.Ephemeral],
-    })
+    await interaction.editReply(
+      `download @ <https://download.lilnas.io/downloads/${job.id}>`,
+    )
 
     this.checkJobIterationMap.set(job.id, 0)
     this.checkJob({ id, interaction, jobId: job.id })
