@@ -8,40 +8,50 @@ import { list } from './commands/list'
 import { redeploy } from './commands/redeploy'
 import { syncPhotos } from './commands/sync-photos'
 import { up } from './commands/up'
-import { getServices, getServicesWithDevMode } from './utils'
+import { getServices } from './utils'
 
 async function main() {
   const services = await getServices()
-  const servicesWithDevMode = await getServicesWithDevMode()
+  const devServices = await getServices({ dev: true })
 
   const argParser = yargs(hideBin(process.argv))
     .command('ls', 'Lists all services')
     .command('dev [command]', 'Manage dev environment', args =>
       args
         .command('build', 'Builds the dev environment')
-        .command('down', 'Brings down resources used for the dev environment')
+        .command(
+          'down [services]',
+          'Brings down resources used for the dev environment',
+          args =>
+            args
+              .positional('services', {
+                type: 'string',
+                choices: devServices,
+              })
+              .option('all', {
+                type: 'boolean',
+                default: false,
+              }),
+        )
         .command('ls', 'Lists all apps with dev mode')
-        .command('logs', 'Shows logs from container', args =>
-          args.option('follow', {
-            alias: 'f',
-            description: 'Follows the log output',
-            type: 'boolean',
-          }),
+        .command('logs [services...]', 'Shows logs from container', args =>
+          args
+            .positional('services', { type: 'string', choices: devServices })
+            .option('follow', {
+              alias: 'f',
+              description: 'Follows the log output',
+              type: 'boolean',
+            }),
         )
         .command(
-          'up <service> [options]',
+          'up [options] [services...]',
           'Starts up the dev environment',
           args =>
             args
-              .positional('service', {
+              .positional('services', {
                 type: 'string',
-                choices: servicesWithDevMode,
-                requiresArg: true,
-                description: 'Service to start',
-              })
-              .option('port', {
-                type: 'array',
-                description: 'Port to expose on the container',
+                choices: devServices,
+                description: 'Services to start',
               })
               .option('detach', {
                 alias: 'd',
@@ -49,7 +59,15 @@ async function main() {
                 type: 'boolean',
               }),
         )
-        .command('shell', 'Start a shell within the container')
+        .command(
+          'shell [command]',
+          'Start a shell within the container',
+          args =>
+            args.positional('shellCommand', {
+              type: 'string',
+              description: 'Command to run in shell',
+            }),
+        )
         .command(
           'sync-deps',
           'Syncronizes npm dependencies from within the dev environment',
@@ -93,12 +111,13 @@ async function main() {
     .with('ls', () => list())
     .with('dev', () =>
       dev({
+        all: args.all,
         command: args._[1],
         detach: args.detach,
         follow: args.follow,
-        ports: args.port,
-        service: args.service,
+        services: args.services,
         shell: args.shell,
+        shellCommand: args.command,
       }),
     )
     .with('up', () => up(args.services))
