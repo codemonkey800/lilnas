@@ -43,21 +43,18 @@ async function main() {
               type: 'boolean',
             }),
         )
-        .command(
-          'up [options] [services...]',
-          'Starts up the dev environment',
-          args =>
-            args
-              .positional('services', {
-                type: 'string',
-                choices: devServices,
-                description: 'Services to start',
-              })
-              .option('detach', {
-                alias: 'd',
-                description: 'Detaches after starting the container',
-                type: 'boolean',
-              }),
+        .command('up [services...]', 'Starts up the dev environment', args =>
+          args
+            .positional('services', {
+              type: 'string',
+              choices: devServices,
+              description: 'Services to start',
+            })
+            .option('detach', {
+              alias: 'd',
+              description: 'Detaches after starting the container',
+              type: 'boolean',
+            }),
         )
         .command(
           'shell [command]',
