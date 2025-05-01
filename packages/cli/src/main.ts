@@ -74,7 +74,13 @@ async function main() {
       args.positional('services', { type: 'string', choices: services }),
     )
     .command('down [services...]', 'Brings down a service', args =>
-      args.positional('services', { type: 'string', choices: services }),
+      args
+        .positional('services', { type: 'string', choices: services })
+        .option('all', {
+          default: false,
+          description: 'Deletes all images instead of just local ones.',
+          type: 'boolean',
+        }),
     )
     .command('redeploy [services...]', 'Redeploys a service', args =>
       args.positional('services', { type: 'string', choices: services }),
@@ -108,21 +114,15 @@ async function main() {
     .with('ls', () => list())
     .with('dev', () =>
       dev({
-        all: args.all,
+        ...args,
         command: args._[1],
-        detach: args.detach,
-        follow: args.follow,
-        services: args.services,
-        shell: args.shell,
         shellCommand: args.command,
       }),
     )
-    .with('up', () => up(args.services))
-    .with('down', () => down(args.services))
-    .with('redeploy', () => redeploy(args.services))
-    .with('sync-photos', () =>
-      syncPhotos({ dest: args.dest, email: args.email }),
-    )
+    .with('up', () => up(args))
+    .with('down', () => down(args))
+    .with('redeploy', () => redeploy(args))
+    .with('sync-photos', () => syncPhotos(args))
     .otherwise(() => argParser.showHelp())
 }
 
