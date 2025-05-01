@@ -1,6 +1,16 @@
-import { runInteractive, StringArraySchema } from 'src/utils'
+import { z } from 'zod'
 
-export async function down(services: unknown) {
-  const parsedServices = StringArraySchema.parse(services)
-  runInteractive(`docker-compose down --rmi all -v ${parsedServices.join(' ')}`)
+import { runInteractive, ServicesOptionSchema } from 'src/utils'
+
+const DownOptionsSchema = z
+  .object({ all: z.boolean().optional() })
+  .merge(ServicesOptionSchema)
+
+export async function down(options: unknown) {
+  const { all, services } = DownOptionsSchema.parse(options)
+  const imageType = all ? 'all' : 'local'
+
+  runInteractive(
+    `docker-compose down --rmi ${imageType} -v ${services.join(' ')}`,
+  )
 }

@@ -42,9 +42,11 @@ export function runInteractive(
   execSync(command, { stdio: 'inherit', ...options })
 }
 
-export const StringArraySchema = z.array(z.string())
-
 export async function getDockerImages() {
   const imageNames = await $`docker images --format '{{.Repository}}:{{.Tag}}'`
   return imageNames.stdout.split('\n').filter(Boolean)
 }
+
+export const ServicesOptionSchema = z.object({
+  services: z.array(z.string()),
+})
