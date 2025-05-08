@@ -89,3 +89,25 @@ services:
       - traefik.http.routers.download.entrypoints=websecure
       - traefik.http.routers.download.tls.certresolver=le
       - traefik.http.services.download.loadbalancer.server.port=8080
+
+  truereflection-dev:
+    build:
+      context: ../truereflection-dev
+    env_file:
+      - ../truereflection-dev/.env
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.truereflection.rule=Host(`dev.truereflection.art`)
+      - traefik.http.routers.truereflection.entrypoints=websecure
+      - traefik.http.routers.truereflection.tls.certresolver=le
+      - traefik.http.routers.truereflection.middlewares=truereflection-forward-auth
+      - traefik.http.services.truereflection.loadbalancer.server.port=8080
+
+  truereflection-dev-db:
+    image: postgres
+    restart: unless-stopped
+    env_file:
+      - .env.truereflection-dev-db
+    volumes:
+      - ../data/truereflection/dev-db:/var/lib/postgresql/data

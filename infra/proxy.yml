@@ -62,3 +62,20 @@ services:
       - traefik.http.middlewares.forward-auth.forwardauth.trustForwardHeader=true
       - traefik.http.middlewares.forward-auth.forwardauth.authResponseHeaders=X-Forwarded-User
       - traefik.http.routers.auth.middlewares=forward-auth
+
+  truereflection-forward-auth:
+    image: thomseddon/traefik-forward-auth:2.1.0
+    restart: unless-stopped
+    env_file:
+      - .env.forward-auth-truereflection
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.truereflection-auth.rule=Host(`auth.truereflection.art`)
+      - traefik.http.routers.truereflection-auth.entrypoints=websecure
+      - traefik.http.routers.truereflection-auth.tls.certresolver=le
+      - traefik.http.routers.truereflection-auth.service=auth@docker
+      - traefik.http.services.truereflection-auth.loadbalancer.server.port=4181
+      - traefik.http.middlewares.truereflection-forward-auth.forwardauth.address=http://truereflection-forward-auth:4181
+      - traefik.http.middlewares.truereflection-forward-auth.forwardauth.trustForwardHeader=true
+      - traefik.http.middlewares.truereflection-forward-auth.forwardauth.authResponseHeaders=X-Forwarded-User
+      - traefik.http.routers.truereflection-auth.middlewares=truereflection-forward-auth
