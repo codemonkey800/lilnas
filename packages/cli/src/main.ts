@@ -20,13 +20,14 @@ async function main() {
       args
         .command('build', 'Builds the dev environment')
         .command(
-          'down [services]',
+          'down [services...]',
           'Brings down resources used for the dev environment',
           args =>
             args
               .positional('services', {
-                type: 'string',
+                array: true,
                 choices: devServices,
+                type: 'string',
               })
               .option('all', {
                 type: 'boolean',
@@ -36,7 +37,11 @@ async function main() {
         .command('ls', 'Lists all apps with dev mode')
         .command('logs [services...]', 'Shows logs from container', args =>
           args
-            .positional('services', { type: 'string', choices: devServices })
+            .positional('services', {
+              array: true,
+              choices: devServices,
+              type: 'string',
+            })
             .option('follow', {
               alias: 'f',
               description: 'Follows the log output',
@@ -46,9 +51,10 @@ async function main() {
         .command('up [services...]', 'Starts up the dev environment', args =>
           args
             .positional('services', {
-              type: 'string',
+              array: true,
               choices: devServices,
               description: 'Services to start',
+              type: 'string',
             })
             .option('detach', {
               alias: 'd',
@@ -71,11 +77,19 @@ async function main() {
         ),
     )
     .command('up [services...]', 'Deploys a service', args =>
-      args.positional('services', { type: 'string', choices: services }),
+      args.positional('services', {
+        array: true,
+        choices: services,
+        type: 'string',
+      }),
     )
     .command('down [services...]', 'Brings down a service', args =>
       args
-        .positional('services', { type: 'string', choices: services })
+        .positional('services', {
+          array: true,
+          choices: services,
+          type: 'string',
+        })
         .option('all', {
           default: false,
           description: 'Deletes all images instead of just local ones.',
