@@ -81,9 +81,8 @@ export class EquationsController {
 
       this.logger.log({ file: latexFile }, 'Compiling latex file')
       try {
-        await exec(`pdflatex --shell-escape ${latexFile}`, {
+        await exec(`pdflatex --shell-escape -halt-on-error ${latexFile}`, {
           cwd: dir,
-          timeout: 10_000,
         })
       } catch (err) {
         this.logBadFile(latexFile)
