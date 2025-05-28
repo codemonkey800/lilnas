@@ -97,7 +97,13 @@ async function main() {
         }),
     )
     .command('redeploy [services...]', 'Redeploys a service', args =>
-      args.positional('services', { type: 'string', choices: services }),
+      args
+        .positional('services', { type: 'string', choices: services })
+        .option('all', {
+          default: false,
+          description: 'Deletes all images instead of just local ones.',
+          type: 'boolean',
+        }),
     )
     .command(
       'sync-photos [options]',
