@@ -7,6 +7,7 @@ services:
     volumes:
       - /mnt/ssd1/immich:/usr/src/app/upload
       - /mnt/ssd1/icloud:/icloud:ro
+      - /mnt/ssd1/home-movies:/home-movies:ro
       - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env
