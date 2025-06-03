@@ -111,3 +111,19 @@ services:
       - .env.truereflection-dev-db
     volumes:
       - ../data/truereflection/dev-db:/var/lib/postgresql/data
+
+  files:
+    image: filebrowser/filebrowser
+    restart: unless-stopped
+    volumes:
+      - ../config/filebrowser.json:/.filebrowser.json
+      - ../data/files/database.db:/database.db
+      - /:/files
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.files.rule=Host(`files.lilnas.io`)
+      - traefik.http.routers.files.entrypoints=websecure
+      - traefik.http.routers.files.tls.certresolver=le
+      - traefik.http.services.files.loadbalancer.server.port=80
+      - traefik.http.routers.files.middlewares=forward-auth
+      - /:/srv
