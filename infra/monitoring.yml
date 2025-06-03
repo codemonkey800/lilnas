@@ -27,6 +27,8 @@ services:
   yacht:
     image: selfhostedpro/yacht
     restart: unless-stopped
+    environment:
+      DISABLE_AUTH: true
     volumes:
       - ../data/yacht:/config
       - /var/run/docker.sock:/var/run/docker.sock
