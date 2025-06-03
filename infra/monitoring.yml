@@ -10,16 +10,30 @@ services:
       - traefik.enable=true
 
       # Frontend
-      - traefik.http.services.frontend.loadbalancer.server.port=9000
-      - traefik.http.routers.frontend.service=frontend
-      - traefik.http.routers.frontend.rule=Host(`portainer.lilnas.io`)
-      - traefik.http.routers.frontend.entrypoints=websecure
-      - traefik.http.routers.frontend.tls.certresolver=le
-      - traefik.http.routers.frontend.middlewares=forward-auth
+      - traefik.http.services.portainer-frontend.loadbalancer.server.port=9000
+      - traefik.http.routers.portainer-frontend.service=portainer-frontend
+      - traefik.http.routers.portainer-frontend.rule=Host(`portainer.lilnas.io`)
+      - traefik.http.routers.portainer-frontend.entrypoints=websecure
+      - traefik.http.routers.portainer-frontend.tls.certresolver=le
+      - traefik.http.routers.portainer-frontend.middlewares=forward-auth
 
       # Edge
-      - traefik.http.services.edge.loadbalancer.server.port=8000
-      - traefik.http.routers.edge.service=edge
-      - traefik.http.routers.edge.rule=Host(`edge.lilnas.io`)
-      - traefik.http.routers.edge.entrypoints=websecure
-      - traefik.http.routers.edge.tls.certresolver=le
+      - traefik.http.services.portainer-edge.loadbalancer.server.port=8000
+      - traefik.http.routers.portainer-edge.service=portainer-edge
+      - traefik.http.routers.portainer-edge.rule=Host(`edge.lilnas.io`)
+      - traefik.http.routers.portainer-edge.entrypoints=websecure
+      - traefik.http.routers.portainer-edge.tls.certresolver=le
+
+  yacht:
+    image: selfhostedpro/yacht
+    restart: unless-stopped
+    volumes:
+      - ../data/yacht:/config
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.yacht.loadbalancer.server.port=8000
+      - traefik.http.routers.yacht.rule=Host(`yacht.lilnas.io`)
+      - traefik.http.routers.yacht.entrypoints=websecure
+      - traefik.http.routers.yacht.tls.certresolver=le
+      - traefik.http.routers.yacht.middlewares=forward-auth
