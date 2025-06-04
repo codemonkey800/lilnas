@@ -115,6 +115,8 @@ services:
   files:
     image: filebrowser/filebrowser
     restart: unless-stopped
+    environment:
+      - FB_NOAUTH=true
     volumes:
       - ../config/filebrowser.json:/.filebrowser.json
       - ../data/files/database.db:/database.db
