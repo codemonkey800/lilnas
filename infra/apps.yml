@@ -126,4 +126,3 @@ services:
       - traefik.http.routers.files.tls.certresolver=le
       - traefik.http.services.files.loadbalancer.server.port=80
       - traefik.http.routers.files.middlewares=forward-auth
-      - /:/srv
