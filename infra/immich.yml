@@ -6,8 +6,9 @@ services:
     #   service: cpu # set to one of [nvenc, quicksync, rkmpp, vaapi, vaapi-wsl] for accelerated transcoding
     volumes:
       - /mnt/ssd1/immich:/usr/src/app/upload
-      - /mnt/ssd1/icloud:/icloud:ro
+      - /mnt/ssd1/google-photos:/google-photos:ro
       - /mnt/ssd1/home-movies:/home-movies:ro
+      - /mnt/ssd1/icloud:/icloud:ro
       - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env
