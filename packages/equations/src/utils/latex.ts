@@ -1,14 +1,12 @@
 export function getLatexTemplate(body: string) {
-  return `
-    \\documentclass[convert={density=500}, border=0.25in, varwidth=6in]{standalone}
+  return `\\documentclass[border=0.25in, varwidth=6in]{standalone}
 
-    \\usepackage{amsmath}
-    \\usepackage{amssymb}
+% Only allow safe packages
+\\usepackage{amsmath}
+\\usepackage{amssymb}
+\\usepackage{amsfonts}
 
-    \\begin{document}
-
-    ${body}
-
-    \\end{document}
-  `
+\\begin{document}
+${body}
+\\end{document}`
 }
