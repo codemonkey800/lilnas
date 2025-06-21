@@ -7,6 +7,7 @@ services:
       - .env.storage
     volumes:
       - ../data/storage:/data
+      - ./init-minio.sh:/opt/init-minio.sh
     healthcheck:
       test: ['CMD', 'mc', 'ready', 'local']
       interval: 5s
@@ -24,3 +25,15 @@ services:
       - traefik.http.routers.storage-admin.rule=Host(`storage-admin.localhost`)
       - traefik.http.routers.storage-admin.service=storage-admin
       - traefik.http.services.storage-admin.loadbalancer.server.port=9001
+
+  storage-init:
+    image: minio/mc:latest
+    depends_on:
+      storage:
+        condition: service_healthy
+    env_file:
+      - .env.storage
+    volumes:
+      - ./init-minio.sh:/init-minio.sh
+    entrypoint: ["/bin/sh", "/init-minio.sh"]
+    restart: "no"
