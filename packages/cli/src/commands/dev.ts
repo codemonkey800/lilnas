@@ -149,6 +149,50 @@ async function syncDeps(options: DevOptions) {
   shell({ ...options, shellCommand: 'pnpm i' })
 }
 
+async function showCustomHelp() {
+  try {
+    // Get docker-compose help output
+    const dockerComposeHelp = execSync('docker-compose -h', {
+      encoding: 'utf8',
+    })
+
+    // Replace docker-compose references with lilnas dev
+    const modifiedHelp = dockerComposeHelp
+      .replace(/Usage:\s+docker compose/g, 'Usage:  lilnas dev')
+      .replace(/docker compose/g, 'lilnas dev')
+      .replace(
+        /Run 'docker compose COMMAND --help'/g,
+        "Run 'lilnas dev COMMAND --help'",
+      )
+
+    // Add custom lilnas dev commands section
+    const customCommands = `
+LilNAS Custom Commands:
+  ls          List all apps with dev mode
+  ps          Show status of services
+  shell       Start a shell within the container
+  sync-deps   Synchronize npm dependencies from within the dev environment
+
+`
+
+    // Insert custom commands before the general docker-compose commands
+    let helpWithCustomCommands = modifiedHelp.replace(
+      /(Management Commands:[\s\S]*?\n\n)(Commands:)/,
+      `$1${customCommands}Docker Compose $2`,
+    )
+
+    // Remove ps command from Docker Compose commands since we have a custom implementation
+    helpWithCustomCommands = helpWithCustomCommands.replace(
+      /^\s*ps\s+List containers\s*$/m,
+      '',
+    )
+
+    console.log(helpWithCustomCommands)
+  } catch (error) {
+    console.error('Error displaying help:', error)
+  }
+}
+
 const HANDLER_MAP: Record<string, Handler> = {
   ps,
   shell,
@@ -158,6 +202,18 @@ const HANDLER_MAP: Record<string, Handler> = {
 
 export async function dev(rawOptions: unknown) {
   const options = DevOptionsSchema.parse(rawOptions)
+
+  // Handle help flags when no command is provided
+  if ((options.help || options.h) && !options.command) {
+    await showCustomHelp()
+    return
+  }
+
+  // Handle explicit help command
+  if (options.command === 'help' || !options.command) {
+    await showCustomHelp()
+    return
+  }
 
   // Handle custom lilnas dev commands
   const handler = HANDLER_MAP[options.command]
@@ -176,8 +232,9 @@ export async function dev(rawOptions: unknown) {
 
   // Add any flags that were passed through
   const passThroughArgs = []
+  const isHelpRequest = options.help || options.h
 
-  if (options.help || options.h) {
+  if (isHelpRequest) {
     passThroughArgs.push('--help')
   }
   if (options.all && typeof options.all === 'boolean') {
@@ -200,5 +257,26 @@ export async function dev(rawOptions: unknown) {
   const allArgs = [...commandArgs, ...passThroughArgs]
   const command = allArgs.join(' ')
 
-  runCompose(command)
+  // If this is a help request, capture output and modify it
+  if (isHelpRequest) {
+    try {
+      const helpOutput = execSync(
+        `docker-compose -f ${DEV_COMPOSE} ${command}`,
+        {
+          encoding: 'utf8',
+        },
+      )
+
+      // Replace docker compose references with lilnas dev
+      const modifiedHelp = helpOutput
+        .replace(/Usage:\s+docker compose/g, 'Usage:  lilnas dev')
+        .replace(/docker compose/g, 'lilnas dev')
+
+      console.log(modifiedHelp)
+    } catch (error) {
+      console.error('Error displaying command help:', error)
+    }
+  } else {
+    runCompose(command)
+  }
 }
