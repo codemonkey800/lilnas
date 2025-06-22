@@ -189,7 +189,6 @@ export class SecureExecutor {
     return arg
   }
 
-
   /**
    * Execute pdflatex with security restrictions using local pdflatex
    */
@@ -223,36 +222,60 @@ export class SecureExecutor {
 
     // If PDF compilation succeeded, convert to PNG
     if (pdfResult.exitCode === 0) {
-      const pdfFile = path.join(workingDir, path.basename(texFile, '.tex') + '.pdf')
-      const pngFile = path.join(workingDir, path.basename(texFile, '.tex') + '.png')
-      
+      const pdfFile = path.join(
+        workingDir,
+        path.basename(texFile, '.tex') + '.pdf',
+      )
+      const pngFile = path.join(
+        workingDir,
+        path.basename(texFile, '.tex') + '.png',
+      )
+
       try {
         await this.safeExec(
           'convert',
           [
-            '-density', '1500',
-            '-background', 'white',
+            '-density',
+            '1500',
+            '-background',
+            'white',
             path.basename(pdfFile),
-            '-alpha', 'remove',
-            '-alpha', 'off',
-            '-background', 'white',
+            '-alpha',
+            'remove',
+            '-alpha',
+            'off',
+            '-background',
+            'white',
             '-flatten',
-            '-colorspace', 'RGB',
-            '-fuzz', '1%',
+            '-colorspace',
+            'RGB',
+            '-fuzz',
+            '1%',
             '-trim',
             '+repage',
-            '-background', 'white',
-            '-bordercolor', 'white',
-            '-border', '80x80',
-            '-background', 'white',
-            '-alpha', 'remove',
-            '-alpha', 'off',
-            '-quality', '100',
-            '-define', 'png:compression-level=6',
-            '-define', 'png:format=png32',
+            '-background',
+            'white',
+            '-bordercolor',
+            'white',
+            '-border',
+            '80x80',
+            '-background',
+            'white',
+            '-alpha',
+            'remove',
+            '-alpha',
+            'off',
+            '-quality',
+            '100',
+            '-define',
+            'png:compression-level=6',
+            '-define',
+            'png:format=png32',
             '-antialias',
-            '-interpolate', 'bicubic',
-            '-filter', 'Lanczos',
+            '-interpolate',
+            'bicubic',
+            '-filter',
+            'Lanczos',
             path.basename(pngFile),
           ],
           {
@@ -349,5 +372,4 @@ export class SecureExecutor {
       },
     )
   }
-
 }
