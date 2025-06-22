@@ -216,9 +216,12 @@ The `lilnas` CLI is implemented as a bash script:
 - Follow coding conventions based on the prettier and eslint config
 - Try to avoid using `any` types
 - Always write optimal code that follows best practices
+- **Whenever writing to a file, ensure that it passes prettier and lint checks for the package you're editing the file in.**
 
 ## Domain Configuration
 
 ### Local Development Domains
 
 - Local services will be located under the \*.localhost subdomain. For example, traefik.localhost or storage.localhost.
+
+```
