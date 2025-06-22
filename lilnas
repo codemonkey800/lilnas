@@ -1,14 +1,8 @@
 #!/usr/bin/env bash
 
-lilnas() {
-  repo_dir=$(git rev-parse --show-toplevel)
+repo_dir=$(git rev-parse --show-toplevel)
 
-  tsx \
-    --tsconfig $repo_dir/packages/cli/tsconfig.json \
-    $repo_dir/packages/cli/src/main \
-    $@
-}
-
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  lilnas $@
-fi
+tsx \
+  --tsconfig $repo_dir/packages/cli/tsconfig.json \
+  $repo_dir/packages/cli/src/main \
+  "$@"
