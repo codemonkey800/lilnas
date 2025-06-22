@@ -2,8 +2,6 @@ import { Logger } from '@nestjs/common'
 import { spawn } from 'child_process'
 import path from 'path'
 
-import { DockerLatexExecutor } from './docker-executor'
-
 interface ExecResult {
   stdout: string
   stderr: string
@@ -19,8 +17,6 @@ interface ExecOptions {
 
 export class SecureExecutor {
   private readonly logger = new Logger(SecureExecutor.name)
-  private readonly dockerExecutor = new DockerLatexExecutor()
-  private dockerAvailable: boolean | null = null
 
   /**
    * Safely execute a command without using shell
@@ -39,7 +35,7 @@ export class SecureExecutor {
     } = options
 
     // Validate command is in allowed list
-    const allowedCommands = ['pdflatex', 'convert', 'docker']
+    const allowedCommands = ['pdflatex', 'convert']
     if (!allowedCommands.includes(command)) {
       throw new Error(`Command '${command}' is not allowed`)
     }
@@ -157,8 +153,27 @@ export class SecureExecutor {
    * Sanitize command line arguments to prevent injection
    */
   private sanitizeArgument(arg: string): string {
-    // Remove or escape dangerous characters
-    const dangerous = /[;&|`$(){}[\]<>'"\\]/g
+    // Check for known safe ImageMagick patterns first
+    const safeImageMagickPatterns = [
+      /^\d+x\d+>?$/, // resize patterns like 8000x8000 or 8000x8000>
+      /^-?\d+(\.\d+)?x-?\d+(\.\d+)?[+-]\d+(\.\d+)?[+-]\d+(\.\d+)?$/, // unsharp mask patterns
+      /^[a-zA-Z0-9._-]+$/, // basic alphanumeric with safe chars
+      /^-[a-zA-Z0-9._-]+$/, // ImageMagick flags
+      /^\+[a-zA-Z0-9._-]+$/, // ImageMagick plus flags
+      /^\d+%?$/, // percentages and numbers
+      /^#[0-9a-fA-F]{6}$/, // hex colors
+      /^rgb\(\d+,\d+,\d+\)$/, // rgb colors
+    ]
+
+    // Allow known safe patterns
+    for (const pattern of safeImageMagickPatterns) {
+      if (pattern.test(arg)) {
+        return arg
+      }
+    }
+
+    // Remove or escape dangerous characters for other args
+    const dangerous = /[;&|`$(){}[\]'"\\]/g
     if (dangerous.test(arg)) {
       this.logger.warn(
         { arg },
@@ -168,62 +183,20 @@ export class SecureExecutor {
       if (arg.includes('/') || arg.includes('\\')) {
         return path.basename(arg)
       }
-      // For other args, remove dangerous chars
+      // For other args, remove dangerous chars (but preserve < and > for ImageMagick)
       return arg.replace(dangerous, '')
     }
     return arg
   }
 
-  /**
-   * Check if Docker is available for sandboxed execution
-   */
-  private async checkDockerAvailability(): Promise<boolean> {
-    if (this.dockerAvailable !== null) {
-      return this.dockerAvailable
-    }
-
-    this.dockerAvailable = await this.dockerExecutor.checkDockerAvailability()
-    if (this.dockerAvailable) {
-      this.logger.log('Docker sandbox available for LaTeX compilation')
-    } else {
-      this.logger.warn(
-        'Docker sandbox not available, falling back to native execution',
-      )
-    }
-
-    return this.dockerAvailable
-  }
 
   /**
-   * Execute pdflatex with security restrictions
-   * Uses Docker sandbox if available, otherwise falls back to native execution
+   * Execute pdflatex with security restrictions using local pdflatex
    */
   async compilePdfLatex(
     texFile: string,
     workingDir: string,
   ): Promise<ExecResult> {
-    // Try Docker sandbox first for maximum security
-    if (await this.checkDockerAvailability()) {
-      try {
-        const dockerResult = await this.dockerExecutor.compileLatexInDocker(
-          texFile,
-          workingDir,
-        )
-        return {
-          stdout: dockerResult.stdout,
-          stderr: dockerResult.stderr,
-          exitCode: dockerResult.exitCode,
-        }
-      } catch (error) {
-        this.logger.warn(
-          { error: (error as Error).message },
-          'Docker execution failed, falling back to native',
-        )
-        // Fall through to native execution
-      }
-    }
-
-    // Native execution as fallback
     const filename = path.basename(texFile)
 
     // First, compile LaTeX to PDF
@@ -307,37 +280,13 @@ export class SecureExecutor {
   }
 
   /**
-   * Execute ImageMagick convert with security restrictions
-   * Uses Docker sandbox if available, otherwise falls back to native execution
+   * Execute ImageMagick convert with security restrictions using local convert
    */
   async convertImage(
     inputFile: string,
     outputFile: string,
     workingDir: string,
   ): Promise<ExecResult> {
-    // Try Docker sandbox first for maximum security
-    if (await this.checkDockerAvailability()) {
-      try {
-        const dockerResult = await this.dockerExecutor.processImageInDocker(
-          inputFile,
-          outputFile,
-          workingDir,
-        )
-        return {
-          stdout: dockerResult.stdout,
-          stderr: dockerResult.stderr,
-          exitCode: dockerResult.exitCode,
-        }
-      } catch (error) {
-        this.logger.warn(
-          { error: (error as Error).message },
-          'Docker image processing failed, falling back to native',
-        )
-        // Fall through to native execution
-      }
-    }
-
-    // Native execution as fallback
     const inputBasename = path.basename(inputFile)
     const outputBasename = path.basename(outputFile)
 
@@ -401,13 +350,4 @@ export class SecureExecutor {
     )
   }
 
-  /**
-   * Build Docker sandbox image if needed
-   */
-  async ensureDockerSandbox(): Promise<boolean> {
-    if (!(await this.checkDockerAvailability())) {
-      return await this.dockerExecutor.buildSandboxImage()
-    }
-    return true
-  }
 }
