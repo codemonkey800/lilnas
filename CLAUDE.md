@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Development Commands
 
 ### Core Build & Development
+
 ```bash
 # Install all dependencies
 pnpm install
@@ -24,6 +25,7 @@ pnpm run clean
 ```
 
 ### Service Management (lilnas CLI)
+
 ```bash
 # Execute lilnas CLI directly
 ./lilnas
@@ -51,6 +53,7 @@ pnpm run clean
 ```
 
 ### Individual Package Development
+
 ```bash
 # Work in specific package
 cd packages/<package-name>
@@ -75,29 +78,35 @@ pnpm run dev:graph-test   # Special mode for tdr-bot AI testing
 ## Architecture Overview
 
 ### Monorepo Structure
+
 LilNAS is a TypeScript monorepo using pnpm workspaces with Turbo build orchestration. It's a self-hosted NAS system with multiple integrated services.
 
 ### Package Categories
 
 **Frontend Applications:**
+
 - `@lilnas/apps` - Next.js application portal/dashboard
 - `@lilnas/dashcam` - Vite+React dashcam video viewer
 
 **Full-Stack Applications (NestJS + Next.js):**
+
 - `@lilnas/tdr-bot` - Discord bot with AI (LangChain, OpenAI) + admin interface
 - `@lilnas/download` - Video download service with web UI (yt-dlp, ffmpeg)
 
 **Backend Services (NestJS):**
+
 - `@lilnas/equations` - LaTeX equation rendering with Docker sandbox security
 - `@lilnas/me-token-tracker` - Cryptocurrency tracking Discord bot
 
 **Development Tools:**
+
 - `@lilnas/cli` - Docker Compose management CLI (yargs-based)
 - `@lilnas/utils` - Shared utilities and types
 - `@lilnas/eslint` - Shared ESLint config
 - `@lilnas/prettier` - Shared Prettier config
 
 ### Infrastructure Stack
+
 - **Reverse Proxy:** Traefik with Let's Encrypt SSL
 - **Storage:** MinIO (S3-compatible object storage)
 - **Authentication:** Forward Auth with OAuth
@@ -105,7 +114,9 @@ LilNAS is a TypeScript monorepo using pnpm workspaces with Turbo build orchestra
 - **Production:** Multi-stage Docker builds
 
 ### Key Docker Compose Files
+
 Located in `infra/`:
+
 - `apps.yml` / `apps.dev.yml` - Application services
 - `proxy.yml` / `proxy.dev.yml` - Traefik and authentication
 - `shared.yml` / `shared.dev.yml` - Storage and shared services
@@ -116,7 +127,9 @@ Located in `infra/`:
 ## Security Considerations
 
 ### LaTeX Equations Service Security
+
 The equations service implements comprehensive security measures:
+
 - **Input Validation:** Zod schemas block dangerous LaTeX commands
 - **Command Injection Prevention:** Uses secure spawn without shell
 - **Docker Sandbox:** Isolated LaTeX compilation with resource limits
@@ -124,25 +137,30 @@ The equations service implements comprehensive security measures:
 - **Resource Monitoring:** Memory, CPU, and file size limits
 
 Critical security files:
+
 - `packages/equations/src/validation/equation.schema.ts` - Input validation
 - `packages/equations/src/utils/secure-exec.ts` - Safe command execution
 - `packages/equations/latex-sandbox.dockerfile` - Docker sandbox
 - `packages/equations/SECURITY.md` - Complete security documentation
 
 ### Development vs Production
+
 - **Development:** Single container, volume mounts, localhost domains
 - **Production:** Multi-stage builds, SSL certificates, lilnas.io domains
 
 ## AI/LLM Integration
 
 ### TDR-Bot Architecture
+
 The `@lilnas/tdr-bot` package includes sophisticated AI capabilities:
+
 - **LangChain Integration:** `@langchain/core`, `@langchain/openai`, `@langchain/langgraph`
 - **AI Workflows:** LangGraph for complex conversation flows
 - **Tool Integration:** Tavily search, Discord.js, Docker management
 - **Graph Testing Mode:** `pnpm run dev:graph-test` for AI workflow development
 
 ### Message Handling
+
 - Message processing pipeline in `src/message-handler/`
 - LLM service integration with OpenAI
 - Tools and function calling capabilities
@@ -151,29 +169,35 @@ The `@lilnas/tdr-bot` package includes sophisticated AI capabilities:
 ## Important Development Notes
 
 ### Dependency Management
+
 - Uses pnpm workspaces with workspace protocol (`workspace:*`)
 - Shared configs ensure consistency across packages
 - Turbo handles build caching and dependency order
 
 ### CLI Development
+
 The `lilnas` CLI is implemented as a bash script:
+
 - Bash shell: `./lilnas` (main executable)
 - Implementation: `packages/cli/src/main.ts` (TypeScript)
 - Uses tsx for direct TypeScript execution
 
 ### Docker Development Workflow
+
 1. Run `./lilnas dev sync-deps` to sync container dependencies
 2. Use `./lilnas dev start <service>` for development
 3. Logs available via `./lilnas dev logs <service> -f`
 4. Services auto-reload with volume mounts
 
 ### Build Process
+
 - Turbo orchestrates builds with dependency awareness
 - Multi-stage Docker builds separate build and runtime
 - TypeScript compilation uses SWC for performance
 - Next.js apps use standalone output for Docker optimization
 
 ### Environment Configuration
+
 - Development: `docker-compose.dev.yml` with localhost
 - Production: `docker-compose.yml` with SSL and domains
 - Service discovery via Traefik labels
@@ -182,11 +206,13 @@ The `lilnas` CLI is implemented as a bash script:
 ## Best Practices
 
 ### Container and File Management
+
 - Always cleanup docker containers that are created for commands. Always clean up any temporary files too. This happen only after completion in case the temporary files or containers are needed for later.
 
 ## Code Quality and Development Guidelines
 
 ### Coding Standards
+
 - Follow coding conventions based on the prettier and eslint config
 - Try to avoid using `any` types
 - Always write optimal code that follows best practices
@@ -194,11 +220,5 @@ The `lilnas` CLI is implemented as a bash script:
 ## Domain Configuration
 
 ### Local Development Domains
-- Local services will be located under the *.localhost subdomain. For example, traefik.localhost or storage.localhost.
 
-## Git Workflow
-
-### Commit Command
-- When committing code, we should use the command `fish -c 'g <args>'` to access the `g` git alias in fish shell.
-```
-```
+- Local services will be located under the \*.localhost subdomain. For example, traefik.localhost or storage.localhost.
