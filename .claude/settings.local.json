@@ -8,7 +8,9 @@
       "Bash(curl:*)",
       "Bash(ls:*)",
       "Bash(git commit:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(rm:*)",
+      "Bash(docker logs:*)"
     ],
     "deny": []
   }
