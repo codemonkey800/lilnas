@@ -52,6 +52,26 @@ export class EquationsController {
     this.logger.log({ badFile }, 'Stored bad file')
   }
 
+  private async storeLatexFile(jobId: string, latexContent: string) {
+    try {
+      const latexFilesDir = '/latex-files'
+      await fs.ensureDir(latexFilesDir)
+
+      const latexStorageFile = path.join(latexFilesDir, `${jobId}.tex`)
+      await fs.writeFile(latexStorageFile, latexContent, { mode: 0o640 })
+
+      this.logger.log(
+        { jobId, file: latexStorageFile },
+        'Stored LaTeX file for debugging',
+      )
+    } catch (err) {
+      this.logger.warn(
+        { jobId, error: getErrorMessage(err) },
+        'Failed to store LaTeX file for debugging',
+      )
+    }
+  }
+
   private async checkResourceLimits(jobId: string): Promise<void> {
     // Check concurrent job limit
     if (this.activJobs.size >= EquationsController.MAX_CONCURRENT_JOBS) {
@@ -127,6 +147,9 @@ export class EquationsController {
 
       this.logger.log({ jobId }, 'Writing secure LaTeX file')
       await fs.writeFile(latexFile, latexContent, { mode: 0o640 })
+
+      // Store LaTeX file for debugging purposes
+      await this.storeLatexFile(jobId, latexContent)
 
       // Compile PDF with secure execution
       this.logger.log({ jobId, file: latexFile }, 'Compiling LaTeX to PDF')
@@ -285,16 +308,31 @@ export class EquationsController {
         generatedAt: new Date().toISOString(),
       }
     } catch (err) {
-      // Structured error logging
-      this.logger.error(
-        {
-          jobId,
-          error: getErrorMessage(err),
-          latexPreview: validatedBody.latex.substring(0, 100),
-          timestamp: new Date().toISOString(),
-        },
-        'Equation creation failed',
-      )
+      // Improved error logging for HttpException and other errors
+      if (err instanceof HttpException) {
+        const response = err.getResponse?.()
+        this.logger.error(
+          {
+            jobId,
+            status: err.getStatus?.(),
+            error:
+              typeof response === 'object' ? response : { message: response },
+            latexPreview: validatedBody.latex.substring(0, 100),
+            timestamp: new Date().toISOString(),
+          },
+          'Equation creation failed (HttpException)',
+        )
+      } else {
+        this.logger.error(
+          {
+            jobId,
+            error: getErrorMessage(err),
+            latexPreview: validatedBody.latex.substring(0, 100),
+            timestamp: new Date().toISOString(),
+          },
+          'Equation creation failed (Unhandled Error)',
+        )
+      }
 
       // Don't expose internal errors to client
       if (err instanceof HttpException) {

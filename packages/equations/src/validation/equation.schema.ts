@@ -93,15 +93,6 @@ export const validateLatexSafety = (
     errors.push('Line too long (max 200 characters per line)')
   }
 
-  // Check for too many mathematical expressions
-  const mathEnvironments = (
-    latex.match(/\$|\\\[|\\\(|\\begin\{(equation|align|gather|multline)\}/g) ||
-    []
-  ).length
-  if (mathEnvironments > 20) {
-    errors.push('Too many mathematical expressions (max 20)')
-  }
-
   return {
     isValid: errors.length === 0,
     errors,
