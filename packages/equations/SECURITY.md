@@ -20,16 +20,16 @@ This document outlines the comprehensive security measures implemented to protec
 
 ### 2. Secure Command Execution
 
-**Files**: `src/utils/secure-exec.ts`, `src/utils/docker-executor.ts`
+**File**: `src/utils/secure-exec.ts`
 
 - **No Shell Execution**: Uses `spawn()` with `shell: false` to prevent command injection
 - **Argument Sanitization**: Removes dangerous shell metacharacters
-- **Command Whitelist**: Only allows `pdflatex`, `convert`, and `docker` commands
+- **Command Whitelist**: Only allows `pdflatex` and `convert` commands
 - **Resource Limits**: 
   - 15-second timeout for LaTeX compilation
-  - 10-second timeout for image processing
+  - 30-second timeout for image processing
   - 1MB output buffer limits
-  - Memory and CPU restrictions
+  - Restricted environment variables
 
 ### 3. LaTeX Security Restrictions
 
@@ -40,16 +40,15 @@ This document outlines the comprehensive security measures implemented to protec
 - **Restricted Mode**: Uses `openout_any=p` and `openin_any=p` for paranoid file access
 - **Package Restrictions**: Only allows essential math packages
 
-### 4. Docker Sandbox (Recommended)
+### 4. Local Execution Security
 
-**Files**: `latex-sandbox.dockerfile`, `src/utils/docker-executor.ts`
+**Current Implementation**: Native system execution (Docker sandbox removed)
 
-- **Isolated Environment**: Complete isolation from host system
-- **Non-root User**: Runs as user ID 1001 with restricted permissions
-- **No Network Access**: `--network=none` prevents external connections
-- **Resource Limits**: Memory (256MB), CPU (0.5 cores), disk space limits
-- **Read-only Filesystem**: Prevents unauthorized file modifications
-- **Security Options**: Drops all capabilities, prevents privilege escalation
+- **Input Validation**: Primary security relies on comprehensive input validation
+- **Command Sanitization**: Strict argument sanitization and whitelisting
+- **LaTeX Restrictions**: Uses `-no-shell-escape` and restricted TeX environment
+- **Resource Limits**: Process timeouts and memory limits via ImageMagick policies
+- **File System Restrictions**: Uses basename-only file paths and temporary directories
 
 ### 5. Rate Limiting & Throttling
 
@@ -80,15 +79,20 @@ cd packages/equations
 pnpm install
 ```
 
-### 2. Docker Sandbox Setup (Recommended)
+### 2. Local LaTeX Setup (Required)
+
+Install LaTeX and ImageMagick on your system:
 
 ```bash
-# Build the secure LaTeX sandbox
-chmod +x docker-build.sh
-./docker-build.sh
+# macOS
+brew install --cask mactex
+brew install imagemagick
 
-# Verify the image was built
-docker images | grep lilnas/latex-sandbox
+# Ubuntu/Debian
+sudo apt-get install texlive-latex-base texlive-latex-extra texlive-fonts-recommended imagemagick
+
+# CentOS/RHEL/Fedora
+sudo yum install texlive-latex texlive-amsmath texlive-amssymb ImageMagick
 ```
 
 ### 3. Environment Variables
@@ -104,17 +108,16 @@ MINIO_PORT=9000
 MINIO_PUBLIC_URL=https://your-public-minio-url
 ```
 
-### 4. Native LaTeX Setup (Fallback)
+### 4. Verify Installation
 
-If Docker is not available, ensure these packages are installed:
+Test that required commands are available:
 
 ```bash
-# Ubuntu/Debian
-sudo apt-get install texlive-latex-base texlive-math-extra imagemagick
+# Test pdflatex
+pdflatex --version
 
-# macOS
-brew install --cask mactex
-brew install imagemagick
+# Test ImageMagick convert
+convert --version
 ```
 
 ## 🔒 Security Features
@@ -123,7 +126,7 @@ brew install imagemagick
 |---------|---------------|---------|
 | Input Validation | Zod schema with regex patterns | Prevent malicious LaTeX injection |
 | Command Sanitization | `spawn()` without shell | Prevent command injection |
-| Docker Sandbox | Isolated container execution | Complete environment isolation |
+| Local Execution | Native system commands with restrictions | Reduced attack surface via input validation |
 | Rate Limiting | Multi-tier throttling | Prevent DoS attacks |
 | Resource Limits | Memory, CPU, timeout restrictions | Prevent resource exhaustion |
 | File Access Control | Path restrictions, temporary directories | Prevent unauthorized file access |
@@ -181,18 +184,18 @@ Monitor these log events for security incidents:
 - `Invalid input received` - Malicious LaTeX attempts  
 - `LaTeX content failed safety checks` - Dangerous content patterns
 - `Too many concurrent LaTeX jobs` - Potential DoS attempts
-- `Docker execution failed` - Sandbox issues
+- `Command execution failed` - System execution issues
 
 ## 📋 Security Checklist
 
 - [x] Input validation with dangerous command detection
 - [x] Shell execution prevention via secure spawn
 - [x] LaTeX command restrictions and disabled shell escape
-- [x] Docker sandbox with resource limits
+- [x] Local execution with process restrictions
 - [x] Rate limiting and concurrent job limits
 - [x] Structured error handling and logging
 - [x] File access restrictions
-- [x] ImageMagick security policies
+- [x] ImageMagick resource limits
 - [x] Non-root user execution
 - [x] Resource monitoring and limits
 
@@ -203,7 +206,7 @@ Monitor these log events for security incidents:
 1. **Update Dependencies**: Keep LaTeX, ImageMagick, and Node.js packages updated
 2. **Review Logs**: Monitor for security events and attack patterns
 3. **Test Validation**: Regularly test with new malicious LaTeX patterns
-4. **Docker Updates**: Rebuild sandbox image with security updates
+4. **System Updates**: Keep LaTeX and ImageMagick system packages updated
 5. **Rate Limit Tuning**: Adjust limits based on legitimate usage patterns
 
 ### Emergency Response
@@ -212,6 +215,6 @@ If a security breach is detected:
 
 1. **Immediate**: Stop the service and isolate the container
 2. **Investigate**: Review logs for attack vectors and affected data
-3. **Patch**: Apply security fixes and rebuild Docker images  
+3. **Patch**: Apply security fixes and update system packages  
 4. **Restart**: Deploy with enhanced monitoring
 5. **Report**: Document the incident and lessons learned
