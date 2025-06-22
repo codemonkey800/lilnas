@@ -6,12 +6,15 @@ import {
   getServices,
   runInteractive,
 } from 'src/utils'
+import { execSync } from 'child_process'
 
 const DevOptionsSchema = z.object({
   all: z.boolean().optional(),
-  command: z.enum(['build', 'down', 'ls', 'logs', 'up', 'shell', 'sync-deps']),
+  command: z.enum(['build', 'down', 'ls', 'logs', 'ps', 'up', 'shell', 'sync-deps']),
   detach: z.boolean().optional(),
+  filter: z.string().optional(),
   follow: z.boolean().optional(),
+  quiet: z.boolean().optional(),
   services: z.string().array().optional(),
   shell: z.boolean().optional(),
   shellCommand: z.string().optional(),
@@ -57,6 +60,85 @@ async function logs(options: DevOptions) {
   runCompose(command)
 }
 
+interface ContainerInfo {
+  ID: string
+  Name: string
+  Image: string
+  Service: string
+  State: string
+  Status: string
+  Publishers?: Array<{
+    URL: string
+    TargetPort: number
+    PublishedPort: number
+    Protocol: string
+  }>
+}
+
+async function ps(options: DevOptions) {
+  // If user wants quiet mode, use original behavior
+  if (options.quiet) {
+    const command = [
+      'ps',
+      '-q',
+      ...(options.all ? ['-a'] : []),
+      ...(options.filter ? [`--filter=${options.filter}`] : []),
+      ...(options.services ?? []),
+    ].join(' ')
+    runCompose(command)
+    return
+  }
+
+  // Get container info as JSON
+  const command = [
+    'ps',
+    '--format=json',
+    ...(options.all ? ['-a'] : []),
+    ...(options.filter ? [`--filter=${options.filter}`] : []),
+    ...(options.services ?? []),
+  ].join(' ')
+
+  try {
+    const output = execSync(`docker-compose -f ${DEV_COMPOSE} ${command}`, {
+      encoding: 'utf8',
+    })
+
+    if (!output.trim()) {
+      console.log('No containers found')
+      return
+    }
+
+    // Parse multiple JSON objects (one per line)
+    const containers: ContainerInfo[] = output
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map(line => JSON.parse(line))
+    
+    if (containers.length === 0) {
+      console.log('No containers found')
+      return
+    }
+
+    // Format output
+    console.log('SERVICE'.padEnd(18) + 'IMAGE'.padEnd(28) + 'STATUS')
+    console.log('-------'.padEnd(18) + '-----'.padEnd(28) + '------')
+    
+    containers.forEach(container => {
+      const service = container.Service.padEnd(18)
+      // Truncate image name if longer than 25 characters
+      const imageName = container.Image.length > 25 
+        ? container.Image.substring(0, 22) + '...'
+        : container.Image
+      const image = imageName.padEnd(28)
+      const status = container.Status
+      console.log(`${service}${image}${status}`)
+    })
+  } catch (error) {
+    console.error('Error getting container status:', error instanceof Error ? error.message : error)
+  }
+}
+
 async function maybeBuildDevImage() {
   const images = await getDockerImages()
 
@@ -99,6 +181,7 @@ const HANDLER_MAP: Record<DevOptions['command'], Handler> = {
   build,
   down,
   logs,
+  ps,
   shell,
   up,
   ls: list,

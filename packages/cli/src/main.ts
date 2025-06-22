@@ -48,6 +48,28 @@ async function main() {
               type: 'boolean',
             }),
         )
+        .command('ps [services...]', 'Shows status of services', args =>
+          args
+            .positional('services', {
+              array: true,
+              choices: devServices,
+              type: 'string',
+            })
+            .option('all', {
+              alias: 'a',
+              description: 'Show all containers (default shows just running)',
+              type: 'boolean',
+            })
+            .option('quiet', {
+              alias: 'q',
+              description: 'Only show container IDs',
+              type: 'boolean',
+            })
+            .option('filter', {
+              description: 'Filter services by a property (e.g. status=running)',
+              type: 'string',
+            }),
+        )
         .command('up [services...]', 'Starts up the dev environment', args =>
           args
             .positional('services', {
