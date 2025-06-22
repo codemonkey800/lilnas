@@ -50,3 +50,10 @@ export async function getDockerImages() {
 export const ServicesOptionSchema = z.object({
   services: z.array(z.string()),
 })
+
+export function runDockerCompose(
+  command: string,
+  file: string = 'docker-compose.yml',
+) {
+  runInteractive(`docker-compose -f ${file} ${command}`)
+}

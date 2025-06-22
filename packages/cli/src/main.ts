@@ -16,13 +16,13 @@ async function main() {
 
   const argParser = yargs(hideBin(process.argv))
     .command('ls', 'Lists all services')
-    .command('dev [command]', 'Manage dev environment', args =>
-      args
-        .command('build', 'Builds the dev environment')
-        .command(
-          'down [services...]',
-          'Brings down resources used for the dev environment',
-          args =>
+    .command(
+      'dev [command]',
+      'Manage dev environment',
+      args =>
+        args
+          .command('ls', 'Lists all apps with dev mode')
+          .command('ps [services...]', 'Shows status of services', args =>
             args
               .positional('services', {
                 array: true,
@@ -30,73 +30,38 @@ async function main() {
                 type: 'string',
               })
               .option('all', {
+                alias: 'a',
+                description: 'Show all containers (default shows just running)',
                 type: 'boolean',
-                default: false,
+              })
+              .option('quiet', {
+                alias: 'q',
+                description: 'Only show container IDs',
+                type: 'boolean',
+              })
+              .option('filter', {
+                description:
+                  'Filter services by a property (e.g. status=running)',
+                type: 'string',
               }),
-        )
-        .command('ls', 'Lists all apps with dev mode')
-        .command('logs [services...]', 'Shows logs from container', args =>
-          args
-            .positional('services', {
-              array: true,
-              choices: devServices,
-              type: 'string',
-            })
-            .option('follow', {
-              alias: 'f',
-              description: 'Follows the log output',
-              type: 'boolean',
-            }),
-        )
-        .command('ps [services...]', 'Shows status of services', args =>
-          args
-            .positional('services', {
-              array: true,
-              choices: devServices,
-              type: 'string',
-            })
-            .option('all', {
-              alias: 'a',
-              description: 'Show all containers (default shows just running)',
-              type: 'boolean',
-            })
-            .option('quiet', {
-              alias: 'q',
-              description: 'Only show container IDs',
-              type: 'boolean',
-            })
-            .option('filter', {
-              description: 'Filter services by a property (e.g. status=running)',
-              type: 'string',
-            }),
-        )
-        .command('up [services...]', 'Starts up the dev environment', args =>
-          args
-            .positional('services', {
-              array: true,
-              choices: devServices,
-              description: 'Services to start',
-              type: 'string',
-            })
-            .option('detach', {
-              alias: 'd',
-              description: 'Detaches after starting the container',
-              type: 'boolean',
-            }),
-        )
-        .command(
-          'shell [command]',
-          'Start a shell within the container',
-          args =>
-            args.positional('shellCommand', {
-              type: 'string',
-              description: 'Command to run in shell',
-            }),
-        )
-        .command(
-          'sync-deps',
-          'Syncronizes npm dependencies from within the dev environment',
-        ),
+          )
+          .command(
+            'shell [command]',
+            'Start a shell within the container',
+            args =>
+              args.positional('shellCommand', {
+                type: 'string',
+                description: 'Command to run in shell',
+              }),
+          )
+          .command(
+            'sync-deps',
+            'Syncronizes npm dependencies from within the dev environment',
+          )
+          .command('*', 'Pass-through to docker-compose', args =>
+            args.strict(false),
+          )
+          .help(false), // Disable yargs built-in help for dev command
     )
     .command('up [services...]', 'Deploys a service', args =>
       args.positional('services', {
