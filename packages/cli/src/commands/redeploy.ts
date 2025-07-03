@@ -11,6 +11,6 @@ const RedeployOptionsSchema = z.object({
 export async function redeploy(options: unknown) {
   const { all, services } = RedeployOptionsSchema.parse(options)
 
-  down({ all, services })
-  up({ services })
+  await down({ all, services })
+  await up({ services })
 }
