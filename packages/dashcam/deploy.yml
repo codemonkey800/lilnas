@@ -1,0 +1,11 @@
+services:
+  dashcam:
+    build:
+      context: ../..
+      dockerfile: packages/dashcam/Dockerfile
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.dashcam.rule=Host(`dashcam.lilnas.io`)
+      - traefik.http.routers.dashcam.entrypoints=websecure
+      - traefik.http.routers.dashcam.tls.certresolver=le

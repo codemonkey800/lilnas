@@ -1,0 +1,13 @@
+services:
+  equations:
+    image: lilnas-dev
+    command: -c "pnpm --filter=equations dev"
+    restart: unless-stopped
+    env_file:
+      - ../../infra/.env.equations
+    volumes:
+      - ../../:/source
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.equations.rule=Host(`equations.localhost`)
+      - traefik.http.services.equations.loadbalancer.server.port=8080

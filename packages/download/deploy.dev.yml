@@ -1,0 +1,13 @@
+services:
+  download:
+    image: lilnas-dev
+    command: -c "pnpm --filter=download dev"
+    restart: unless-stopped
+    env_file:
+      - ../../infra/.env.download
+    volumes:
+      - ../..:/source
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.download.rule=Host(`download.localhost`)
+      - traefik.http.services.download.loadbalancer.server.port=8080

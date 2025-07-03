@@ -1,0 +1,14 @@
+services:
+  equations:
+    build:
+      context: ../../
+      dockerfile: packages/equations/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../../infra/.env.equations
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.equations.rule=Host(`equations.lilnas.io`)
+      - traefik.http.routers.equations.entrypoints=websecure
+      - traefik.http.routers.equations.tls.certresolver=le
+      - traefik.http.services.equations.loadbalancer.server.port=8080

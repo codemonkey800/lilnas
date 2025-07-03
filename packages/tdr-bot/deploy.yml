@@ -1,0 +1,17 @@
+services:
+  tdr-bot:
+    build:
+      context: ../../
+      dockerfile: packages/tdr-bot/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../../infra/.env.tdr-bot
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.tdr.rule=Host(`tdr.lilnas.io`)
+      - traefik.http.routers.tdr.entrypoints=websecure
+      - traefik.http.routers.tdr.tls.certresolver=le
+      - traefik.http.routers.tdr.middlewares=forward-auth
+      - traefik.http.services.tdr.loadbalancer.server.port=8080
