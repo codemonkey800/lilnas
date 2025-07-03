@@ -2,9 +2,9 @@ name: Run Tests
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   detect-changes:
@@ -28,13 +28,13 @@ jobs:
             # For pushes to main, compare against previous commit
             CHANGED_FILES=$(git diff --name-only HEAD~1..HEAD)
           fi
-          
+
           echo "Changed files:"
           echo "$CHANGED_FILES"
-          
+
           # Extract package names from changed files
           PACKAGES=()
-          
+
           # Check each package directory for changes
           for pkg in packages/*/; do
             if [ -d "$pkg" ]; then
@@ -48,7 +48,7 @@ jobs:
               fi
             fi
           done
-          
+
           # Convert array to JSON
           if [ ${#PACKAGES[@]} -eq 0 ]; then
             echo "packages=[]" >> $GITHUB_OUTPUT
@@ -65,7 +65,7 @@ jobs:
             JSON_ARRAY+="]"
             echo "packages=$JSON_ARRAY" >> $GITHUB_OUTPUT
           fi
-          
+
           echo "Packages with changes that have tests: ${PACKAGES[@]}"
 
   test:
@@ -85,7 +85,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'pnpm'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -150,7 +149,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'pnpm'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
