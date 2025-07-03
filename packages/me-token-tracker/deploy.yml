@@ -1,0 +1,8 @@
+services:
+  me-token-tracker:
+    build:
+      context: ../..
+      dockerfile: packages/me-token-tracker/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../../infra/.env.me-token-tracker

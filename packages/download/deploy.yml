@@ -1,0 +1,14 @@
+services:
+  download:
+    build:
+      context: ../..
+      dockerfile: packages/download/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../../infra/.env.download
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.download.rule=Host(`download.lilnas.io`)
+      - traefik.http.routers.download.entrypoints=websecure
+      - traefik.http.routers.download.tls.certresolver=le
+      - traefik.http.services.download.loadbalancer.server.port=8080

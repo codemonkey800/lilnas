@@ -1,4 +1,13 @@
 include:
+  # Infrastructure services
   - ./infra/apps.dev.yml
   - ./infra/proxy.dev.yml
   - ./infra/shared.dev.yml
+  
+  # Package services
+  - ./packages/apps/deploy.dev.yml
+  - ./packages/dashcam/deploy.dev.yml
+  - ./packages/download/deploy.dev.yml
+  - ./packages/equations/deploy.dev.yml
+  - ./packages/me-token-tracker/deploy.dev.yml
+  - ./packages/tdr-bot/deploy.dev.yml

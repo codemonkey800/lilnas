@@ -1,0 +1,11 @@
+services:
+  dashcam:
+    image: lilnas-dev
+    command: -c "pnpm --filter=dashcam dev"
+    restart: unless-stopped
+    volumes:
+      - ../../:/source
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.dashcam.rule=Host(`dashcam.localhost`)
+      - traefik.http.services.dashcam.loadbalancer.server.port=8080
