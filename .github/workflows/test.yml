@@ -91,6 +91,12 @@ jobs:
         with:
           version: '10.6.5'
 
+      - name: Setup pnpm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -154,6 +160,12 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: '10.6.5'
+
+      - name: Setup pnpm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
