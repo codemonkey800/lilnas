@@ -14,7 +14,7 @@ global.console = {
 
 // Mock process.exit to prevent tests from exiting
 const originalExit = process.exit
-process.exit = jest.fn() as typeof process.exit
+process.exit = jest.fn() as unknown as typeof process.exit
 
 // Restore original process.exit after each test
 afterEach(() => {

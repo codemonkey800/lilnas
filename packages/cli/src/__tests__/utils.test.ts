@@ -19,7 +19,11 @@ jest.mock('zx', () => ({
 jest.mock('yaml')
 
 const mockExecSync = execSync as jest.MockedFunction<typeof execSync>
-const mockZx = $ as jest.MockedFunction<typeof $>
+const mockZx = $ as unknown as jest.MockedFunction<
+  (
+    ...args: unknown[]
+  ) => Promise<{ stdout: string; stderr: string; exitCode: number }>
+>
 const mockYamlParse = yaml.parse as jest.MockedFunction<typeof yaml.parse>
 
 describe('utils', () => {
