@@ -62,7 +62,7 @@ async function ps(options: DevOptions) {
       '-q',
       ...(options.all ? ['-a'] : []),
       ...(options.filter ? [`--filter=${options.filter}`] : []),
-      ...(options.services ?? []),
+      ...(Array.isArray(options.services) ? options.services : []),
     ].join(' ')
     runCompose(command)
     return
@@ -74,7 +74,7 @@ async function ps(options: DevOptions) {
     '--format=json',
     ...(options.all ? ['-a'] : []),
     ...(options.filter ? [`--filter=${options.filter}`] : []),
-    ...(options.services ?? []),
+    ...(Array.isArray(options.services) ? options.services : []),
   ].join(' ')
 
   try {

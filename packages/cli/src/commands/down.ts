@@ -3,7 +3,11 @@ import { z } from 'zod'
 import { runInteractive, ServicesOptionSchema } from 'src/utils'
 
 const DownOptionsSchema = z
-  .object({ all: z.boolean().optional() })
+  .object({ 
+    all: z.union([z.boolean(), z.literal('true'), z.literal('false')])
+      .transform(val => val === 'true' || val === true)
+      .optional() 
+  })
   .merge(ServicesOptionSchema)
 
 export async function down(options: unknown) {
