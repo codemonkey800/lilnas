@@ -1,16 +1,20 @@
-import { up } from '../../commands/up'
-import { runInteractive, ServicesOptionSchema } from '../../utils'
+import { up } from 'src/commands/up'
+import { runInteractive, ServicesOptionSchema } from 'src/utils'
 
 // Mock dependencies
 jest.mock('../../utils', () => ({
   runInteractive: jest.fn(),
   ServicesOptionSchema: {
-    parse: jest.fn()
-  }
+    parse: jest.fn(),
+  },
 }))
 
-const mockRunInteractive = runInteractive as jest.MockedFunction<typeof runInteractive>
-const mockServicesOptionSchema = ServicesOptionSchema as any
+const mockRunInteractive = runInteractive as jest.MockedFunction<
+  typeof runInteractive
+>
+const mockServicesOptionSchema = ServicesOptionSchema as jest.Mocked<
+  typeof ServicesOptionSchema
+>
 
 describe('up command', () => {
   beforeEach(() => {
@@ -21,28 +25,34 @@ describe('up command', () => {
   describe('successful execution', () => {
     it('should run docker-compose up with single service', async () => {
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: ['app1']
+        services: ['app1'],
       })
 
       await up({ services: ['app1'] })
 
-      expect(mockServicesOptionSchema.parse).toHaveBeenCalledWith({ services: ['app1'] })
-      expect(mockRunInteractive).toHaveBeenCalledWith('docker-compose up -d app1')
+      expect(mockServicesOptionSchema.parse).toHaveBeenCalledWith({
+        services: ['app1'],
+      })
+      expect(mockRunInteractive).toHaveBeenCalledWith(
+        'docker-compose up -d app1',
+      )
     })
 
     it('should run docker-compose up with multiple services', async () => {
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: ['app1', 'app2', 'app3']
+        services: ['app1', 'app2', 'app3'],
       })
 
       await up({ services: ['app1', 'app2', 'app3'] })
 
-      expect(mockRunInteractive).toHaveBeenCalledWith('docker-compose up -d app1 app2 app3')
+      expect(mockRunInteractive).toHaveBeenCalledWith(
+        'docker-compose up -d app1 app2 app3',
+      )
     })
 
     it('should run docker-compose up with empty services array', async () => {
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: []
+        services: [],
       })
 
       await up({ services: [] })
@@ -52,22 +62,28 @@ describe('up command', () => {
 
     it('should handle services with special characters', async () => {
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: ['app-with-dashes', 'app_with_underscores', 'app123']
+        services: ['app-with-dashes', 'app_with_underscores', 'app123'],
       })
 
-      await up({ services: ['app-with-dashes', 'app_with_underscores', 'app123'] })
+      await up({
+        services: ['app-with-dashes', 'app_with_underscores', 'app123'],
+      })
 
-      expect(mockRunInteractive).toHaveBeenCalledWith('docker-compose up -d app-with-dashes app_with_underscores app123')
+      expect(mockRunInteractive).toHaveBeenCalledWith(
+        'docker-compose up -d app-with-dashes app_with_underscores app123',
+      )
     })
 
     it('should handle services with spaces (edge case)', async () => {
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: ['app with spaces']
+        services: ['app with spaces'],
       })
 
       await up({ services: ['app with spaces'] })
 
-      expect(mockRunInteractive).toHaveBeenCalledWith('docker-compose up -d app with spaces')
+      expect(mockRunInteractive).toHaveBeenCalledWith(
+        'docker-compose up -d app with spaces',
+      )
     })
   })
 
@@ -75,7 +91,7 @@ describe('up command', () => {
     it('should validate options using ServicesOptionSchema', async () => {
       const inputOptions = { services: ['app1', 'app2'] }
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: ['app1', 'app2']
+        services: ['app1', 'app2'],
       })
 
       await up(inputOptions)
@@ -88,7 +104,9 @@ describe('up command', () => {
         throw new Error('Invalid services format')
       })
 
-      await expect(up({ services: 'invalid' })).rejects.toThrow('Invalid services format')
+      await expect(up({ services: 'invalid' })).rejects.toThrow(
+        'Invalid services format',
+      )
       expect(mockRunInteractive).not.toHaveBeenCalled()
     })
 
@@ -115,7 +133,9 @@ describe('up command', () => {
         throw new Error('Expected object, received undefined')
       })
 
-      await expect(up(undefined)).rejects.toThrow('Expected object, received undefined')
+      await expect(up(undefined)).rejects.toThrow(
+        'Expected object, received undefined',
+      )
       expect(mockRunInteractive).not.toHaveBeenCalled()
     })
   })
@@ -123,47 +143,57 @@ describe('up command', () => {
   describe('docker-compose execution', () => {
     it('should pass through docker-compose execution errors', async () => {
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: ['app1']
+        services: ['app1'],
       })
       mockRunInteractive.mockImplementation(() => {
         throw new Error('Docker daemon not running')
       })
 
-      await expect(up({ services: ['app1'] })).rejects.toThrow('Docker daemon not running')
-      expect(mockRunInteractive).toHaveBeenCalledWith('docker-compose up -d app1')
+      await expect(up({ services: ['app1'] })).rejects.toThrow(
+        'Docker daemon not running',
+      )
+      expect(mockRunInteractive).toHaveBeenCalledWith(
+        'docker-compose up -d app1',
+      )
     })
 
     it('should handle docker-compose command failures', async () => {
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: ['nonexistent-service']
+        services: ['nonexistent-service'],
       })
       mockRunInteractive.mockImplementation(() => {
         throw new Error('No such service: nonexistent-service')
       })
 
-      await expect(up({ services: ['nonexistent-service'] })).rejects.toThrow('No such service: nonexistent-service')
+      await expect(up({ services: ['nonexistent-service'] })).rejects.toThrow(
+        'No such service: nonexistent-service',
+      )
     })
 
     it('should handle network errors', async () => {
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: ['app1']
+        services: ['app1'],
       })
       mockRunInteractive.mockImplementation(() => {
         throw new Error('Network timeout')
       })
 
-      await expect(up({ services: ['app1'] })).rejects.toThrow('Network timeout')
+      await expect(up({ services: ['app1'] })).rejects.toThrow(
+        'Network timeout',
+      )
     })
 
     it('should handle insufficient permissions', async () => {
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: ['app1']
+        services: ['app1'],
       })
       mockRunInteractive.mockImplementation(() => {
         throw new Error('Permission denied')
       })
 
-      await expect(up({ services: ['app1'] })).rejects.toThrow('Permission denied')
+      await expect(up({ services: ['app1'] })).rejects.toThrow(
+        'Permission denied',
+      )
     })
   })
 
@@ -171,53 +201,63 @@ describe('up command', () => {
     it('should handle very long service names', async () => {
       const longServiceName = 'a'.repeat(100)
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: [longServiceName]
+        services: [longServiceName],
       })
 
       await up({ services: [longServiceName] })
 
-      expect(mockRunInteractive).toHaveBeenCalledWith(`docker-compose up -d ${longServiceName}`)
+      expect(mockRunInteractive).toHaveBeenCalledWith(
+        `docker-compose up -d ${longServiceName}`,
+      )
     })
 
     it('should handle many services at once', async () => {
       const manyServices = Array.from({ length: 50 }, (_, i) => `service${i}`)
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: manyServices
+        services: manyServices,
       })
 
       await up({ services: manyServices })
 
-      expect(mockRunInteractive).toHaveBeenCalledWith(`docker-compose up -d ${manyServices.join(' ')}`)
+      expect(mockRunInteractive).toHaveBeenCalledWith(
+        `docker-compose up -d ${manyServices.join(' ')}`,
+      )
     })
 
     it('should handle duplicate service names', async () => {
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: ['app1', 'app1', 'app2']
+        services: ['app1', 'app1', 'app2'],
       })
 
       await up({ services: ['app1', 'app1', 'app2'] })
 
-      expect(mockRunInteractive).toHaveBeenCalledWith('docker-compose up -d app1 app1 app2')
+      expect(mockRunInteractive).toHaveBeenCalledWith(
+        'docker-compose up -d app1 app1 app2',
+      )
     })
 
     it('should handle services with numeric names', async () => {
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: ['123', '456']
+        services: ['123', '456'],
       })
 
       await up({ services: ['123', '456'] })
 
-      expect(mockRunInteractive).toHaveBeenCalledWith('docker-compose up -d 123 456')
+      expect(mockRunInteractive).toHaveBeenCalledWith(
+        'docker-compose up -d 123 456',
+      )
     })
 
     it('should handle mixed case service names', async () => {
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: ['MyApp', 'REDIS', 'postgreSQL']
+        services: ['MyApp', 'REDIS', 'postgreSQL'],
       })
 
       await up({ services: ['MyApp', 'REDIS', 'postgreSQL'] })
 
-      expect(mockRunInteractive).toHaveBeenCalledWith('docker-compose up -d MyApp REDIS postgreSQL')
+      expect(mockRunInteractive).toHaveBeenCalledWith(
+        'docker-compose up -d MyApp REDIS postgreSQL',
+      )
     })
   })
 
@@ -228,35 +268,41 @@ describe('up command', () => {
         'backend',
         'database',
         'redis',
-        'nginx-proxy'
+        'nginx-proxy',
       ]
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: realisticServices
+        services: realisticServices,
       })
 
       await up({ services: realisticServices })
 
-      expect(mockRunInteractive).toHaveBeenCalledWith('docker-compose up -d frontend backend database redis nginx-proxy')
+      expect(mockRunInteractive).toHaveBeenCalledWith(
+        'docker-compose up -d frontend backend database redis nginx-proxy',
+      )
     })
 
     it('should handle single critical service', async () => {
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: ['database']
+        services: ['database'],
       })
 
       await up({ services: ['database'] })
 
-      expect(mockRunInteractive).toHaveBeenCalledWith('docker-compose up -d database')
+      expect(mockRunInteractive).toHaveBeenCalledWith(
+        'docker-compose up -d database',
+      )
     })
 
     it('should handle service names with version suffixes', async () => {
       mockServicesOptionSchema.parse.mockReturnValue({
-        services: ['postgres-14', 'redis-7', 'nginx-1.21']
+        services: ['postgres-14', 'redis-7', 'nginx-1.21'],
       })
 
       await up({ services: ['postgres-14', 'redis-7', 'nginx-1.21'] })
 
-      expect(mockRunInteractive).toHaveBeenCalledWith('docker-compose up -d postgres-14 redis-7 nginx-1.21')
+      expect(mockRunInteractive).toHaveBeenCalledWith(
+        'docker-compose up -d postgres-14 redis-7 nginx-1.21',
+      )
     })
   })
 })

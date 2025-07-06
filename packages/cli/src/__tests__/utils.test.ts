@@ -19,7 +19,7 @@ jest.mock('zx', () => ({
 jest.mock('yaml')
 
 const mockExecSync = execSync as jest.MockedFunction<typeof execSync>
-const mockZx = $ as jest.MockedFunction<any>
+const mockZx = $ as jest.MockedFunction<typeof $>
 const mockYamlParse = yaml.parse as jest.MockedFunction<typeof yaml.parse>
 
 describe('utils', () => {
@@ -35,7 +35,7 @@ describe('utils', () => {
         stdout: `${expectedDir}\n`,
         stderr: '',
         exitCode: 0,
-      } as any)
+      })
 
       const result = await getRepoDir()
 
@@ -54,7 +54,7 @@ describe('utils', () => {
         stdout: '  /home/user/lilnas  \n\n',
         stderr: '',
         exitCode: 0,
-      } as any)
+      })
 
       const result = await getRepoDir()
 
@@ -65,7 +65,7 @@ describe('utils', () => {
   describe('getServices', () => {
     beforeEach(() => {
       // Mock getRepoDir
-      mockZx.mockImplementation((cmd: any) => {
+      mockZx.mockImplementation((cmd: unknown) => {
         const cmdStr = Array.isArray(cmd)
           ? cmd.join(' ')
           : cmd?.toString() || ''
@@ -74,7 +74,7 @@ describe('utils', () => {
             stdout: '/home/user/lilnas\n',
             stderr: '',
             exitCode: 0,
-          } as any)
+          })
         }
         if (cmdStr.includes('fd .yml')) {
           return Promise.resolve({
@@ -82,7 +82,7 @@ describe('utils', () => {
               '/home/user/lilnas/infra/apps.yml\n/home/user/lilnas/infra/proxy.yml\n',
             stderr: '',
             exitCode: 0,
-          } as any)
+          })
         }
         if (cmdStr.includes('cat')) {
           return Promise.resolve({
@@ -90,9 +90,9 @@ describe('utils', () => {
               'services:\n  app1:\n    image: nginx\n  app2:\n    image: redis\n',
             stderr: '',
             exitCode: 0,
-          } as any)
+          })
         }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 } as any)
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 })
       })
 
       mockYamlParse.mockReturnValue({
@@ -112,7 +112,7 @@ describe('utils', () => {
 
     it('should return dev services when dev=true', async () => {
       // Mock dev service files
-      mockZx.mockImplementation((cmd: any) => {
+      mockZx.mockImplementation((cmd: unknown) => {
         const cmdStr = Array.isArray(cmd)
           ? cmd.join(' ')
           : cmd?.toString() || ''
@@ -121,7 +121,7 @@ describe('utils', () => {
             stdout: '/home/user/lilnas\n',
             stderr: '',
             exitCode: 0,
-          } as any)
+          })
         }
         if (cmdStr.includes('fd .yml')) {
           return Promise.resolve({
@@ -129,7 +129,7 @@ describe('utils', () => {
               '/home/user/lilnas/infra/apps.dev.yml\n/home/user/lilnas/infra/proxy.dev.yml\n',
             stderr: '',
             exitCode: 0,
-          } as any)
+          })
         }
         if (cmdStr.includes('cat')) {
           return Promise.resolve({
@@ -137,9 +137,9 @@ describe('utils', () => {
               'services:\n  dev-app1:\n    image: nginx\n  dev-app2:\n    image: redis\n',
             stderr: '',
             exitCode: 0,
-          } as any)
+          })
         }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 } as any)
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 })
       })
 
       mockYamlParse.mockReturnValue({
@@ -155,7 +155,7 @@ describe('utils', () => {
     })
 
     it('should handle empty service files', async () => {
-      mockZx.mockImplementation((cmd: any) => {
+      mockZx.mockImplementation((cmd: unknown) => {
         const cmdStr = Array.isArray(cmd)
           ? cmd.join(' ')
           : cmd?.toString() || ''
@@ -164,16 +164,16 @@ describe('utils', () => {
             stdout: '/home/user/lilnas\n',
             stderr: '',
             exitCode: 0,
-          } as any)
+          })
         }
         if (cmdStr.includes('fd .yml')) {
           return Promise.resolve({
             stdout: '',
             stderr: '',
             exitCode: 0,
-          } as any)
+          })
         }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 } as any)
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 })
       })
 
       const services = await getServices()
@@ -201,7 +201,7 @@ describe('utils', () => {
     })
 
     it('should deduplicate services across files', async () => {
-      mockZx.mockImplementation((cmd: any) => {
+      mockZx.mockImplementation((cmd: unknown) => {
         const cmdStr = Array.isArray(cmd)
           ? cmd.join(' ')
           : cmd?.toString() || ''
@@ -210,7 +210,7 @@ describe('utils', () => {
             stdout: '/home/user/lilnas\n',
             stderr: '',
             exitCode: 0,
-          } as any)
+          })
         }
         if (cmdStr.includes('fd .yml')) {
           return Promise.resolve({
@@ -218,7 +218,7 @@ describe('utils', () => {
               '/home/user/lilnas/infra/file1.yml\n/home/user/lilnas/infra/file2.yml\n',
             stderr: '',
             exitCode: 0,
-          } as any)
+          })
         }
         if (cmdStr.includes('cat')) {
           return Promise.resolve({
@@ -226,9 +226,9 @@ describe('utils', () => {
               'services:\n  app1:\n    image: nginx\n  app2:\n    image: redis\n',
             stderr: '',
             exitCode: 0,
-          } as any)
+          })
         }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 } as any)
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 })
       })
 
       mockYamlParse.mockReturnValue({
@@ -305,7 +305,7 @@ describe('utils', () => {
         stdout: 'nginx:latest\nredis:alpine\nnode:18\n',
         stderr: '',
         exitCode: 0,
-      } as any)
+      })
 
       const images = await getDockerImages()
 
@@ -318,7 +318,7 @@ describe('utils', () => {
         stdout: '',
         stderr: '',
         exitCode: 0,
-      } as any)
+      })
 
       const images = await getDockerImages()
 
@@ -338,7 +338,7 @@ describe('utils', () => {
         stdout: 'nginx:latest\n\nredis:alpine\n\n',
         stderr: '',
         exitCode: 0,
-      } as any)
+      })
 
       const images = await getDockerImages()
 

@@ -1,6 +1,6 @@
-import { redeploy } from '../../commands/redeploy'
-import { down } from '../../commands/down'
-import { up } from '../../commands/up'
+import { down } from 'src/commands/down'
+import { redeploy } from 'src/commands/redeploy'
+import { up } from 'src/commands/up'
 
 // Mock the command dependencies
 jest.mock('../../commands/down')
@@ -12,7 +12,7 @@ const mockUp = up as jest.MockedFunction<typeof up>
 describe('redeploy command', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    
+
     // Set up default successful mocks
     mockDown.mockResolvedValue(undefined)
     mockUp.mockResolvedValue(undefined)
@@ -80,7 +80,10 @@ describe('redeploy command', () => {
 
       await redeploy(validOptions)
 
-      expect(mockDown).toHaveBeenCalledWith({ all: true, services: ['app1', 'app2'] })
+      expect(mockDown).toHaveBeenCalledWith({
+        all: true,
+        services: ['app1', 'app2'],
+      })
       expect(mockUp).toHaveBeenCalledWith({ services: ['app1', 'app2'] })
     })
 
@@ -125,11 +128,11 @@ describe('redeploy command', () => {
   describe('command execution order', () => {
     it('should call down before up', async () => {
       const callOrder: string[] = []
-      
+
       mockDown.mockImplementation(async () => {
         callOrder.push('down')
       })
-      
+
       mockUp.mockImplementation(async () => {
         callOrder.push('up')
       })
@@ -142,7 +145,9 @@ describe('redeploy command', () => {
     it('should not call up if down fails', async () => {
       mockDown.mockRejectedValue(new Error('Down command failed'))
 
-      await expect(redeploy({ services: ['app1'] })).rejects.toThrow('Down command failed')
+      await expect(redeploy({ services: ['app1'] })).rejects.toThrow(
+        'Down command failed',
+      )
       expect(mockDown).toHaveBeenCalled()
       expect(mockUp).not.toHaveBeenCalled()
     })
@@ -150,12 +155,12 @@ describe('redeploy command', () => {
     // Note: This test identifies a bug in the current implementation
     it('should wait for down to complete before calling up (current implementation bug)', async () => {
       let downCompleted = false
-      
+
       mockDown.mockImplementation(async () => {
         await new Promise(resolve => setTimeout(resolve, 100))
         downCompleted = true
       })
-      
+
       mockUp.mockImplementation(async () => {
         // In the current implementation, this might be called before down completes
         // because the redeploy function is missing await keywords
@@ -171,13 +176,17 @@ describe('redeploy command', () => {
     it('should propagate down command errors', async () => {
       mockDown.mockRejectedValue(new Error('Down command failed'))
 
-      await expect(redeploy({ services: ['app1'] })).rejects.toThrow('Down command failed')
+      await expect(redeploy({ services: ['app1'] })).rejects.toThrow(
+        'Down command failed',
+      )
     })
 
     it('should propagate up command errors', async () => {
       mockUp.mockRejectedValue(new Error('Up command failed'))
 
-      await expect(redeploy({ services: ['app1'] })).rejects.toThrow('Up command failed')
+      await expect(redeploy({ services: ['app1'] })).rejects.toThrow(
+        'Up command failed',
+      )
     })
 
     it('should handle down command timeout', async () => {
@@ -196,13 +205,17 @@ describe('redeploy command', () => {
     it('should handle Docker daemon not running', async () => {
       mockDown.mockRejectedValue(new Error('Docker daemon not running'))
 
-      await expect(redeploy({ services: ['app1'] })).rejects.toThrow('Docker daemon not running')
+      await expect(redeploy({ services: ['app1'] })).rejects.toThrow(
+        'Docker daemon not running',
+      )
     })
 
     it('should handle permission errors', async () => {
       mockUp.mockRejectedValue(new Error('Permission denied'))
 
-      await expect(redeploy({ services: ['app1'] })).rejects.toThrow('Permission denied')
+      await expect(redeploy({ services: ['app1'] })).rejects.toThrow(
+        'Permission denied',
+      )
     })
   })
 
@@ -231,7 +244,10 @@ describe('redeploy command', () => {
 
       await redeploy({ services: manyServices })
 
-      expect(mockDown).toHaveBeenCalledWith({ all: undefined, services: manyServices })
+      expect(mockDown).toHaveBeenCalledWith({
+        all: undefined,
+        services: manyServices,
+      })
       expect(mockUp).toHaveBeenCalledWith({ services: manyServices })
     })
 
@@ -261,12 +277,15 @@ describe('redeploy command', () => {
         'backend',
         'database',
         'redis',
-        'nginx-proxy'
+        'nginx-proxy',
       ]
 
       await redeploy({ services: realisticServices })
 
-      expect(mockDown).toHaveBeenCalledWith({ all: undefined, services: realisticServices })
+      expect(mockDown).toHaveBeenCalledWith({
+        all: undefined,
+        services: realisticServices,
+      })
       expect(mockUp).toHaveBeenCalledWith({ services: realisticServices })
     })
 
@@ -275,7 +294,10 @@ describe('redeploy command', () => {
 
       await redeploy({ all: true, services: criticalServices })
 
-      expect(mockDown).toHaveBeenCalledWith({ all: true, services: criticalServices })
+      expect(mockDown).toHaveBeenCalledWith({
+        all: true,
+        services: criticalServices,
+      })
       expect(mockUp).toHaveBeenCalledWith({ services: criticalServices })
     })
 
@@ -293,7 +315,10 @@ describe('redeploy command', () => {
 
       await redeploy({ all: true, services: devServices })
 
-      expect(mockDown).toHaveBeenCalledWith({ all: true, services: devServices })
+      expect(mockDown).toHaveBeenCalledWith({
+        all: true,
+        services: devServices,
+      })
       expect(mockUp).toHaveBeenCalledWith({ services: devServices })
     })
   })
@@ -304,7 +329,7 @@ describe('redeploy command', () => {
 
       expect(mockDown).toHaveBeenCalledWith({ all: true, services: ['app1'] })
       expect(mockUp).toHaveBeenCalledWith({ services: ['app1'] })
-      
+
       // Verify up was not called with all flag
       expect(mockUp).not.toHaveBeenCalledWith({ all: true, services: ['app1'] })
     })
@@ -314,14 +339,19 @@ describe('redeploy command', () => {
 
       await redeploy({ services })
 
-      expect(mockDown).toHaveBeenCalledWith(expect.objectContaining({ services }))
+      expect(mockDown).toHaveBeenCalledWith(
+        expect.objectContaining({ services }),
+      )
       expect(mockUp).toHaveBeenCalledWith(expect.objectContaining({ services }))
     })
 
     it('should handle undefined services correctly', async () => {
       await redeploy({})
 
-      expect(mockDown).toHaveBeenCalledWith({ all: undefined, services: undefined })
+      expect(mockDown).toHaveBeenCalledWith({
+        all: undefined,
+        services: undefined,
+      })
       expect(mockUp).toHaveBeenCalledWith({ services: undefined })
     })
   })
@@ -343,7 +373,7 @@ describe('redeploy command', () => {
 
     it('should not call up multiple times even if down succeeds multiple times', async () => {
       await redeploy({ services: ['app1'] })
-      
+
       // Reset and redeploy again
       jest.clearAllMocks()
       await redeploy({ services: ['app2'] })

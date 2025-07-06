@@ -3,10 +3,11 @@ import { z } from 'zod'
 import { runInteractive, ServicesOptionSchema } from 'src/utils'
 
 const DownOptionsSchema = z
-  .object({ 
-    all: z.union([z.boolean(), z.literal('true'), z.literal('false')])
+  .object({
+    all: z
+      .union([z.boolean(), z.literal('true'), z.literal('false')])
       .transform(val => val === 'true' || val === true)
-      .optional() 
+      .optional(),
   })
   .merge(ServicesOptionSchema)
 

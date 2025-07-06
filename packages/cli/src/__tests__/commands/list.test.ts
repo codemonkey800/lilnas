@@ -1,5 +1,5 @@
-import { list } from '../../commands/list'
-import { getServices } from '../../utils'
+import { list } from 'src/commands/list'
+import { getServices } from 'src/utils'
 
 // Mock dependencies
 jest.mock('../../utils')
@@ -49,7 +49,9 @@ describe('list command', () => {
 
       await list()
 
-      expect(mockConsoleLog).toHaveBeenCalledWith('app-with-dashes\napp_with_underscores\napp123')
+      expect(mockConsoleLog).toHaveBeenCalledWith(
+        'app-with-dashes\napp_with_underscores\napp123',
+      )
     })
 
     it('should handle services with mixed case', async () => {
@@ -87,7 +89,9 @@ describe('list command', () => {
     })
 
     it('should handle file system errors', async () => {
-      mockGetServices.mockRejectedValue(new Error('ENOENT: no such file or directory'))
+      mockGetServices.mockRejectedValue(
+        new Error('ENOENT: no such file or directory'),
+      )
 
       await expect(list()).rejects.toThrow('ENOENT: no such file or directory')
       expect(mockConsoleLog).not.toHaveBeenCalled()
@@ -108,7 +112,9 @@ describe('list command', () => {
 
       await list()
 
-      expect(mockConsoleLog).toHaveBeenCalledWith('service1\nservice2\nservice3')
+      expect(mockConsoleLog).toHaveBeenCalledWith(
+        'service1\nservice2\nservice3',
+      )
     })
 
     it('should handle services with long names', async () => {
@@ -144,31 +150,36 @@ describe('list command', () => {
 
       await list()
 
-      expect(mockConsoleLog).toHaveBeenCalledWith('postgres-14\nredis-7\nnginx-1.21')
+      expect(mockConsoleLog).toHaveBeenCalledWith(
+        'postgres-14\nredis-7\nnginx-1.21',
+      )
     })
   })
 
   describe('edge cases', () => {
     it('should handle undefined services result', async () => {
-      mockGetServices.mockResolvedValue(undefined as any)
+      mockGetServices.mockResolvedValue(undefined as unknown as string[])
 
       await expect(list()).rejects.toThrow()
     })
 
     it('should handle null services result', async () => {
-      mockGetServices.mockResolvedValue(null as any)
+      mockGetServices.mockResolvedValue(null as unknown as string[])
 
       await expect(list()).rejects.toThrow()
     })
 
     it('should handle non-array services result', async () => {
-      mockGetServices.mockResolvedValue('not-an-array' as any)
+      mockGetServices.mockResolvedValue('not-an-array' as unknown as string[])
 
       await expect(list()).rejects.toThrow()
     })
 
     it('should handle services with null values', async () => {
-      mockGetServices.mockResolvedValue([null, 'valid-service'] as any)
+      mockGetServices.mockResolvedValue([
+        null,
+        'valid-service',
+      ] as unknown as string[])
 
       await list()
 
@@ -176,7 +187,10 @@ describe('list command', () => {
     })
 
     it('should handle services with undefined values', async () => {
-      mockGetServices.mockResolvedValue([undefined, 'valid-service'] as any)
+      mockGetServices.mockResolvedValue([
+        undefined,
+        'valid-service',
+      ] as unknown as string[])
 
       await list()
 
@@ -193,7 +207,7 @@ describe('list command', () => {
         'redis',
         'nginx-proxy',
         'monitoring',
-        'logging'
+        'logging',
       ]
       mockGetServices.mockResolvedValue(realisticServices)
 
@@ -222,7 +236,7 @@ describe('list command', () => {
         'queue-rabbitmq',
         'proxy-nginx',
         'monitoring-prometheus',
-        'logging-elasticsearch'
+        'logging-elasticsearch',
       ]
       mockGetServices.mockResolvedValue(complexServices)
 
@@ -232,12 +246,21 @@ describe('list command', () => {
     })
 
     it('should handle alphabetically sorted services', async () => {
-      const sortedServices = ['app', 'backend', 'database', 'frontend', 'nginx', 'redis']
+      const sortedServices = [
+        'app',
+        'backend',
+        'database',
+        'frontend',
+        'nginx',
+        'redis',
+      ]
       mockGetServices.mockResolvedValue(sortedServices)
 
       await list()
 
-      expect(mockConsoleLog).toHaveBeenCalledWith('app\nbackend\ndatabase\nfrontend\nnginx\nredis')
+      expect(mockConsoleLog).toHaveBeenCalledWith(
+        'app\nbackend\ndatabase\nfrontend\nnginx\nredis',
+      )
     })
   })
 
@@ -267,7 +290,10 @@ describe('list command', () => {
 
   describe('performance considerations', () => {
     it('should handle large service lists efficiently', async () => {
-      const largeServiceList = Array.from({ length: 1000 }, (_, i) => `service${i}`)
+      const largeServiceList = Array.from(
+        { length: 1000 },
+        (_, i) => `service${i}`,
+      )
       mockGetServices.mockResolvedValue(largeServiceList)
 
       await list()

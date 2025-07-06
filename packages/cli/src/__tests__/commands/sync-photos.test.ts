@@ -1,10 +1,12 @@
-import { syncPhotos } from '../../commands/sync-photos'
-import { runInteractive } from '../../utils'
+import { syncPhotos } from 'src/commands/sync-photos'
+import { runInteractive } from 'src/utils'
 
 // Mock dependencies
 jest.mock('../../utils')
 
-const mockRunInteractive = runInteractive as jest.MockedFunction<typeof runInteractive>
+const mockRunInteractive = runInteractive as jest.MockedFunction<
+  typeof runInteractive
+>
 
 describe('sync-photos command', () => {
   beforeEach(() => {
@@ -16,7 +18,7 @@ describe('sync-photos command', () => {
     it('should run icloudpd docker container with required options', async () => {
       const options = {
         email: 'user@example.com',
-        dest: '/home/user/photos'
+        dest: '/home/user/photos',
       }
 
       await syncPhotos(options)
@@ -28,46 +30,46 @@ describe('sync-photos command', () => {
       -v /home/user/photos:/icloud \\
       -e TZ=America/Los_Angeles \\
       icloudpd/icloudpd \\
-      icloudpd --directory /icloud --username user@example.com`
+      icloudpd --directory /icloud --username user@example.com`,
       )
     })
 
     it('should handle absolute destination paths', async () => {
       const options = {
         email: 'test@icloud.com',
-        dest: '/mnt/storage/icloud-photos'
+        dest: '/mnt/storage/icloud-photos',
       }
 
       await syncPhotos(options)
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('-v /mnt/storage/icloud-photos:/icloud')
+        expect.stringContaining('-v /mnt/storage/icloud-photos:/icloud'),
       )
     })
 
     it('should handle relative destination paths', async () => {
       const options = {
         email: 'user@me.com',
-        dest: './photos'
+        dest: './photos',
       }
 
       await syncPhotos(options)
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('-v ./photos:/icloud')
+        expect.stringContaining('-v ./photos:/icloud'),
       )
     })
 
     it('should handle destination paths with spaces', async () => {
       const options = {
         email: 'user@icloud.com',
-        dest: '/home/user/My Photos'
+        dest: '/home/user/My Photos',
       }
 
       await syncPhotos(options)
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('-v /home/user/My Photos:/icloud')
+        expect.stringContaining('-v /home/user/My Photos:/icloud'),
       )
     })
 
@@ -76,7 +78,7 @@ describe('sync-photos command', () => {
         'user@icloud.com',
         'test.user@me.com',
         'user+tag@mac.com',
-        'user123@icloud.com'
+        'user123@icloud.com',
       ]
 
       for (const email of testCases) {
@@ -84,7 +86,7 @@ describe('sync-photos command', () => {
         await syncPhotos({ email, dest: '/photos' })
 
         expect(mockRunInteractive).toHaveBeenCalledWith(
-          expect.stringContaining(`--username ${email}`)
+          expect.stringContaining(`--username ${email}`),
         )
       }
     })
@@ -156,7 +158,7 @@ describe('sync-photos command', () => {
       await syncPhotos({ email: 'user@example.com', dest: '/photos' })
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('icloudpd/icloudpd')
+        expect.stringContaining('icloudpd/icloudpd'),
       )
     })
 
@@ -164,7 +166,7 @@ describe('sync-photos command', () => {
       await syncPhotos({ email: 'user@example.com', dest: '/photos' })
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('-it --rm')
+        expect.stringContaining('-it --rm'),
       )
     })
 
@@ -172,7 +174,7 @@ describe('sync-photos command', () => {
       await syncPhotos({ email: 'user@example.com', dest: '/photos' })
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('--name icloudpd')
+        expect.stringContaining('--name icloudpd'),
       )
     })
 
@@ -180,7 +182,7 @@ describe('sync-photos command', () => {
       await syncPhotos({ email: 'user@example.com', dest: '/photos' })
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('-v /photos:/icloud')
+        expect.stringContaining('-v /photos:/icloud'),
       )
     })
 
@@ -188,7 +190,7 @@ describe('sync-photos command', () => {
       await syncPhotos({ email: 'user@example.com', dest: '/photos' })
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('-e TZ=America/Los_Angeles')
+        expect.stringContaining('-e TZ=America/Los_Angeles'),
       )
     })
 
@@ -196,7 +198,9 @@ describe('sync-photos command', () => {
       await syncPhotos({ email: 'user@example.com', dest: '/photos' })
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('icloudpd --directory /icloud --username user@example.com')
+        expect.stringContaining(
+          'icloudpd --directory /icloud --username user@example.com',
+        ),
       )
     })
   })
@@ -207,7 +211,9 @@ describe('sync-photos command', () => {
         throw new Error('Docker daemon not running')
       })
 
-      await expect(syncPhotos({ email: 'user@example.com', dest: '/photos' })).rejects.toThrow('Docker daemon not running')
+      await expect(
+        syncPhotos({ email: 'user@example.com', dest: '/photos' }),
+      ).rejects.toThrow('Docker daemon not running')
     })
 
     it('should handle docker image not found', async () => {
@@ -215,7 +221,9 @@ describe('sync-photos command', () => {
         throw new Error('Unable to find image: icloudpd/icloudpd')
       })
 
-      await expect(syncPhotos({ email: 'user@example.com', dest: '/photos' })).rejects.toThrow('Unable to find image: icloudpd/icloudpd')
+      await expect(
+        syncPhotos({ email: 'user@example.com', dest: '/photos' }),
+      ).rejects.toThrow('Unable to find image: icloudpd/icloudpd')
     })
 
     it('should handle volume mount errors', async () => {
@@ -223,7 +231,9 @@ describe('sync-photos command', () => {
         throw new Error('No such file or directory')
       })
 
-      await expect(syncPhotos({ email: 'user@example.com', dest: '/nonexistent' })).rejects.toThrow('No such file or directory')
+      await expect(
+        syncPhotos({ email: 'user@example.com', dest: '/nonexistent' }),
+      ).rejects.toThrow('No such file or directory')
     })
 
     it('should handle permission errors', async () => {
@@ -231,7 +241,9 @@ describe('sync-photos command', () => {
         throw new Error('Permission denied')
       })
 
-      await expect(syncPhotos({ email: 'user@example.com', dest: '/restricted' })).rejects.toThrow('Permission denied')
+      await expect(
+        syncPhotos({ email: 'user@example.com', dest: '/restricted' }),
+      ).rejects.toThrow('Permission denied')
     })
 
     it('should handle authentication failures', async () => {
@@ -239,7 +251,9 @@ describe('sync-photos command', () => {
         throw new Error('Authentication failed')
       })
 
-      await expect(syncPhotos({ email: 'invalid@example.com', dest: '/photos' })).rejects.toThrow('Authentication failed')
+      await expect(
+        syncPhotos({ email: 'invalid@example.com', dest: '/photos' }),
+      ).rejects.toThrow('Authentication failed')
     })
   })
 
@@ -247,66 +261,69 @@ describe('sync-photos command', () => {
     it('should handle email with special characters', async () => {
       const options = {
         email: 'user+tag@sub-domain.example-site.com',
-        dest: '/photos'
+        dest: '/photos',
       }
 
       await syncPhotos(options)
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('--username user+tag@sub-domain.example-site.com')
+        expect.stringContaining(
+          '--username user+tag@sub-domain.example-site.com',
+        ),
       )
     })
 
     it('should handle destination paths with special characters', async () => {
       const options = {
         email: 'user@example.com',
-        dest: '/home/user/Photos & Videos/iCloud'
+        dest: '/home/user/Photos & Videos/iCloud',
       }
 
       await syncPhotos(options)
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('-v /home/user/Photos & Videos/iCloud:/icloud')
+        expect.stringContaining('-v /home/user/Photos & Videos/iCloud:/icloud'),
       )
     })
 
     it('should handle very long paths', async () => {
-      const longPath = '/very/long/path/that/goes/deep/into/filesystem/structure/with/many/nested/directories/photos'
+      const longPath =
+        '/very/long/path/that/goes/deep/into/filesystem/structure/with/many/nested/directories/photos'
       const options = {
         email: 'user@example.com',
-        dest: longPath
+        dest: longPath,
       }
 
       await syncPhotos(options)
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining(`-v ${longPath}:/icloud`)
+        expect.stringContaining(`-v ${longPath}:/icloud`),
       )
     })
 
     it('should handle paths with unicode characters', async () => {
       const options = {
         email: 'user@example.com',
-        dest: '/home/user/фотографии'
+        dest: '/home/user/фотографии',
       }
 
       await syncPhotos(options)
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('-v /home/user/фотографии:/icloud')
+        expect.stringContaining('-v /home/user/фотографии:/icloud'),
       )
     })
 
     it('should handle emails with unicode domains', async () => {
       const options = {
         email: 'user@éxample.com',
-        dest: '/photos'
+        dest: '/photos',
       }
 
       await syncPhotos(options)
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('--username user@éxample.com')
+        expect.stringContaining('--username user@éxample.com'),
       )
     })
   })
@@ -315,42 +332,42 @@ describe('sync-photos command', () => {
     it('should handle typical home directory sync', async () => {
       const options = {
         email: 'john.doe@icloud.com',
-        dest: '/home/john/Pictures/iCloud'
+        dest: '/home/john/Pictures/iCloud',
       }
 
       await syncPhotos(options)
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('-v /home/john/Pictures/iCloud:/icloud')
+        expect.stringContaining('-v /home/john/Pictures/iCloud:/icloud'),
       )
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('--username john.doe@icloud.com')
+        expect.stringContaining('--username john.doe@icloud.com'),
       )
     })
 
     it('should handle network attached storage sync', async () => {
       const options = {
         email: 'admin@company.com',
-        dest: '/mnt/nas/shared/photos'
+        dest: '/mnt/nas/shared/photos',
       }
 
       await syncPhotos(options)
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('-v /mnt/nas/shared/photos:/icloud')
+        expect.stringContaining('-v /mnt/nas/shared/photos:/icloud'),
       )
     })
 
     it('should handle backup location sync', async () => {
       const options = {
         email: 'backup@family.com',
-        dest: '/backup/family-photos/icloud-sync'
+        dest: '/backup/family-photos/icloud-sync',
       }
 
       await syncPhotos(options)
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('-v /backup/family-photos/icloud-sync:/icloud')
+        expect.stringContaining('-v /backup/family-photos/icloud-sync:/icloud'),
       )
     })
   })
@@ -374,10 +391,10 @@ describe('sync-photos command', () => {
       await syncPhotos({ email: 'test@test.com', dest: '/test' })
 
       const calledCommand = mockRunInteractive.mock.calls[0][0]
-      
+
       // Check for consistent line breaks
       expect(calledCommand).toMatch(/\\\n\s+/g)
-      
+
       // Check for proper structure
       expect(calledCommand).toContain('docker run \\')
       expect(calledCommand).toContain('-it --rm \\')
@@ -390,16 +407,16 @@ describe('sync-photos command', () => {
       const options = {
         email: 'user@example.com',
         dest: '/photos',
-        unknownParam: 'should-be-ignored'
+        unknownParam: 'should-be-ignored',
       }
 
       await syncPhotos(options)
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.stringContaining('--username user@example.com')
+        expect.stringContaining('--username user@example.com'),
       )
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        expect.not.stringContaining('unknownParam')
+        expect.not.stringContaining('unknownParam'),
       )
     })
 
@@ -408,7 +425,7 @@ describe('sync-photos command', () => {
         email: 'user@example.com',
         dest: '/photos',
         extra: 'parameter',
-        another: 'value'
+        another: 'value',
       }
 
       await syncPhotos(options)
