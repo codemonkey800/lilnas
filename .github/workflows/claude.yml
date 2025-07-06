@@ -84,6 +84,7 @@ jobs:
           use_sticky_comment: true
 
           allowed_tools: |
+            Bash
             Bash(./lilnas:*)
             Bash(curl:*)
             Bash(docker:*)
