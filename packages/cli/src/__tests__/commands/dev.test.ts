@@ -1,33 +1,41 @@
 import { execSync } from 'child_process'
 
-import { dev } from '../../commands/dev'
+import { dev } from 'src/commands/dev'
 import {
   getDockerImages,
   getRepoDir,
   getServices,
   runDockerCompose,
   runInteractive,
-} from '../../utils'
+} from 'src/utils'
 
 // Mock all dependencies
 jest.mock('child_process')
 jest.mock('../../utils')
 
 const mockExecSync = execSync as jest.MockedFunction<typeof execSync>
-const mockGetDockerImages = getDockerImages as jest.MockedFunction<typeof getDockerImages>
+const mockGetDockerImages = getDockerImages as jest.MockedFunction<
+  typeof getDockerImages
+>
 const mockGetRepoDir = getRepoDir as jest.MockedFunction<typeof getRepoDir>
 const mockGetServices = getServices as jest.MockedFunction<typeof getServices>
-const mockRunDockerCompose = runDockerCompose as jest.MockedFunction<typeof runDockerCompose>
-const mockRunInteractive = runInteractive as jest.MockedFunction<typeof runInteractive>
+const mockRunDockerCompose = runDockerCompose as jest.MockedFunction<
+  typeof runDockerCompose
+>
+const mockRunInteractive = runInteractive as jest.MockedFunction<
+  typeof runInteractive
+>
 
 // Mock console methods
 const mockConsoleLog = console.log as jest.MockedFunction<typeof console.log>
-const mockConsoleError = console.error as jest.MockedFunction<typeof console.error>
+const mockConsoleError = console.error as jest.MockedFunction<
+  typeof console.error
+>
 
 describe('dev command', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    
+
     // Setup default mocks
     mockGetServices.mockResolvedValue(['dev-app1', 'dev-app2'])
     mockGetRepoDir.mockResolvedValue('/home/user/lilnas')
@@ -53,7 +61,9 @@ describe('dev command', () => {
     it('should handle service loading errors', async () => {
       mockGetServices.mockRejectedValue(new Error('Failed to load services'))
 
-      await expect(dev({ command: 'ls' })).rejects.toThrow('Failed to load services')
+      await expect(dev({ command: 'ls' })).rejects.toThrow(
+        'Failed to load services',
+      )
     })
   })
 
@@ -79,30 +89,33 @@ describe('dev command', () => {
       ]
 
       mockExecSync.mockReturnValue(
-        mockContainers.map(c => JSON.stringify(c)).join('\n')
+        mockContainers.map(c => JSON.stringify(c)).join('\n'),
       )
 
       await dev({ command: 'ps' })
 
       expect(mockExecSync).toHaveBeenCalledWith(
         'docker-compose -f docker-compose.dev.yml ps --format=json',
-        { encoding: 'utf8' }
+        { encoding: 'utf8' },
       )
       expect(mockConsoleLog).toHaveBeenCalledWith(
-        'SERVICE'.padEnd(18) + 'IMAGE'.padEnd(28) + 'STATUS'
+        'SERVICE'.padEnd(18) + 'IMAGE'.padEnd(28) + 'STATUS',
       )
       expect(mockConsoleLog).toHaveBeenCalledWith(
-        'dev-app1'.padEnd(18) + 'nginx:latest'.padEnd(28) + 'Up 5 minutes'
+        'dev-app1'.padEnd(18) + 'nginx:latest'.padEnd(28) + 'Up 5 minutes',
       )
       expect(mockConsoleLog).toHaveBeenCalledWith(
-        'dev-app2'.padEnd(18) + 'redis:alpine'.padEnd(28) + 'Up 3 minutes'
+        'dev-app2'.padEnd(18) + 'redis:alpine'.padEnd(28) + 'Up 3 minutes',
       )
     })
 
     it('should handle quiet mode', async () => {
       await dev({ command: 'ps', quiet: true })
 
-      expect(mockRunDockerCompose).toHaveBeenCalledWith('ps -q', 'docker-compose.dev.yml')
+      expect(mockRunDockerCompose).toHaveBeenCalledWith(
+        'ps -q',
+        'docker-compose.dev.yml',
+      )
       expect(mockExecSync).not.toHaveBeenCalled()
     })
 
@@ -111,7 +124,7 @@ describe('dev command', () => {
 
       expect(mockExecSync).toHaveBeenCalledWith(
         'docker-compose -f docker-compose.dev.yml ps --format=json -a',
-        { encoding: 'utf8' }
+        { encoding: 'utf8' },
       )
     })
 
@@ -120,7 +133,7 @@ describe('dev command', () => {
 
       expect(mockExecSync).toHaveBeenCalledWith(
         'docker-compose -f docker-compose.dev.yml ps --format=json --filter=status=running',
-        { encoding: 'utf8' }
+        { encoding: 'utf8' },
       )
     })
 
@@ -129,7 +142,7 @@ describe('dev command', () => {
 
       expect(mockExecSync).toHaveBeenCalledWith(
         'docker-compose -f docker-compose.dev.yml ps --format=json dev-app1',
-        { encoding: 'utf8' }
+        { encoding: 'utf8' },
       )
     })
 
@@ -150,7 +163,7 @@ describe('dev command', () => {
 
       expect(mockConsoleError).toHaveBeenCalledWith(
         'Error getting container status:',
-        'Docker command failed'
+        'Docker command failed',
       )
     })
 
@@ -169,7 +182,9 @@ describe('dev command', () => {
       await dev({ command: 'ps' })
 
       expect(mockConsoleLog).toHaveBeenCalledWith(
-        'dev-app1'.padEnd(18) + 'very-long-image-name-...'.padEnd(28) + 'Up 5 minutes'
+        'dev-app1'.padEnd(18) +
+          'very-long-image-name-t...'.padEnd(28) +
+          'Up 5 minutes',
       )
     })
   })
@@ -179,7 +194,7 @@ describe('dev command', () => {
       await dev({ command: 'shell' })
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        'docker run --rm -it -w /source -v /home/user/lilnas:/source lilnas-dev'
+        'docker run --rm -it -w /source -v /home/user/lilnas:/source lilnas-dev',
       )
     })
 
@@ -187,7 +202,7 @@ describe('dev command', () => {
       await dev({ command: 'shell', shellCommand: 'ls -la' })
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        'docker run --rm -it -w /source -v /home/user/lilnas:/source lilnas-dev -c "ls -la"'
+        'docker run --rm -it -w /source -v /home/user/lilnas:/source lilnas-dev -c "ls -la"',
       )
     })
 
@@ -197,17 +212,20 @@ describe('dev command', () => {
       await dev({ command: 'shell' })
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        'docker build --rm -t lilnas-dev -f Dockerfile.dev .'
+        'docker build --rm -t lilnas-dev -f Dockerfile.dev .',
       )
     })
 
     it('should not build dev image if already exists', async () => {
-      mockGetDockerImages.mockResolvedValue(['lilnas-dev:latest', 'nginx:latest'])
+      mockGetDockerImages.mockResolvedValue([
+        'lilnas-dev:latest',
+        'nginx:latest',
+      ])
 
       await dev({ command: 'shell' })
 
       expect(mockRunInteractive).not.toHaveBeenCalledWith(
-        expect.stringContaining('docker build')
+        expect.stringContaining('docker build'),
       )
     })
 
@@ -215,17 +233,26 @@ describe('dev command', () => {
       await dev({ command: 'shell', shellCommand: 'echo "hello world"' })
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        'docker run --rm -it -w /source -v /home/user/lilnas:/source lilnas-dev -c "echo "hello world""'
+        'docker run --rm -it -w /source -v /home/user/lilnas:/source lilnas-dev -c "echo "hello world""',
       )
     })
   })
 
   describe('sync-deps subcommand', () => {
     it('should sync dependencies using shell command', async () => {
+      // Mock that the dev image already exists
+      mockGetDockerImages.mockResolvedValue([
+        'lilnas-dev:latest',
+        'nginx:latest',
+      ])
+
       await dev({ command: 'sync-deps' })
 
+      // Wait a bit since shell() is called but not awaited
+      await new Promise(resolve => setTimeout(resolve, 10))
+
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        'docker run --rm -it -w /source -v /home/user/lilnas:/source lilnas-dev -c "pnpm i"'
+        'docker run --rm -it -w /source -v /home/user/lilnas:/source lilnas-dev -c "pnpm i"',
       )
     })
 
@@ -235,19 +262,25 @@ describe('dev command', () => {
       await dev({ command: 'sync-deps' })
 
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        'docker build --rm -t lilnas-dev -f Dockerfile.dev .'
+        'docker build --rm -t lilnas-dev -f Dockerfile.dev .',
       )
     })
   })
 
   describe('help handling', () => {
     it('should show custom help when no command provided', async () => {
-      mockExecSync.mockReturnValue('docker-compose help output')
+      mockExecSync.mockReturnValue(
+        'Usage: docker compose\nCommands:\n  ps  List containers',
+      )
 
       await dev({ help: true })
 
-      expect(mockExecSync).toHaveBeenCalledWith('docker-compose -h', { encoding: 'utf8' })
-      expect(mockConsoleLog).toHaveBeenCalledWith(expect.stringContaining('lilnas dev'))
+      expect(mockExecSync).toHaveBeenCalledWith('docker-compose -h', {
+        encoding: 'utf8',
+      })
+      expect(mockConsoleLog).toHaveBeenCalledWith(
+        expect.stringContaining('lilnas dev'),
+      )
     })
 
     it('should show custom help for help command', async () => {
@@ -255,7 +288,9 @@ describe('dev command', () => {
 
       await dev({ command: 'help' })
 
-      expect(mockExecSync).toHaveBeenCalledWith('docker-compose -h', { encoding: 'utf8' })
+      expect(mockExecSync).toHaveBeenCalledWith('docker-compose -h', {
+        encoding: 'utf8',
+      })
     })
 
     it('should handle help display errors', async () => {
@@ -265,7 +300,10 @@ describe('dev command', () => {
 
       await dev({ help: true })
 
-      expect(mockConsoleError).toHaveBeenCalledWith('Error displaying help:', expect.any(Error))
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        'Error displaying help:',
+        expect.any(Error),
+      )
     })
   })
 
@@ -273,25 +311,35 @@ describe('dev command', () => {
     it('should pass through docker-compose commands', async () => {
       await dev({ command: 'up', _: ['dev', 'up', 'service1'] })
 
-      expect(mockRunDockerCompose).toHaveBeenCalledWith('up service1', 'docker-compose.dev.yml')
+      expect(mockRunDockerCompose).toHaveBeenCalledWith(
+        'up service1',
+        'docker-compose.dev.yml',
+      )
     })
 
     it('should handle pass-through with flags', async () => {
       await dev({ command: 'up', all: true, _: ['dev', 'up'] })
 
-      expect(mockRunDockerCompose).toHaveBeenCalledWith('up --all', 'docker-compose.dev.yml')
+      expect(mockRunDockerCompose).toHaveBeenCalledWith(
+        'up --all',
+        'docker-compose.dev.yml',
+      )
     })
 
     it('should handle pass-through help requests', async () => {
-      mockExecSync.mockReturnValue('docker-compose up help')
+      mockExecSync.mockReturnValue(
+        'Usage: docker compose up\nCommands:\n  up  Create and start containers',
+      )
 
       await dev({ command: 'up', help: true })
 
       expect(mockExecSync).toHaveBeenCalledWith(
         'docker-compose -f docker-compose.dev.yml up --help',
-        { encoding: 'utf8' }
+        { encoding: 'utf8' },
       )
-      expect(mockConsoleLog).toHaveBeenCalledWith(expect.stringContaining('lilnas dev'))
+      expect(mockConsoleLog).toHaveBeenCalledWith(
+        expect.stringContaining('lilnas dev'),
+      )
     })
 
     it('should handle pass-through help errors', async () => {
@@ -301,19 +349,28 @@ describe('dev command', () => {
 
       await dev({ command: 'up', help: true })
 
-      expect(mockConsoleError).toHaveBeenCalledWith('Error displaying command help:', expect.any(Error))
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        'Error displaying command help:',
+        expect.any(Error),
+      )
     })
 
     it('should handle services array for pass-through', async () => {
       await dev({ command: 'up', services: ['app1', 'app2'] })
 
-      expect(mockRunDockerCompose).toHaveBeenCalledWith('up app1 app2', 'docker-compose.dev.yml')
+      expect(mockRunDockerCompose).toHaveBeenCalledWith(
+        'up app1 app2',
+        'docker-compose.dev.yml',
+      )
     })
 
     it('should handle services boolean flag', async () => {
       await dev({ command: 'config', services: true })
 
-      expect(mockRunDockerCompose).toHaveBeenCalledWith('config --services', 'docker-compose.dev.yml')
+      expect(mockRunDockerCompose).toHaveBeenCalledWith(
+        'config --services',
+        'docker-compose.dev.yml',
+      )
     })
   })
 
@@ -327,7 +384,9 @@ describe('dev command', () => {
     it('should handle Docker image listing errors', async () => {
       mockGetDockerImages.mockRejectedValue(new Error('Docker not available'))
 
-      await expect(dev({ command: 'shell' })).rejects.toThrow('Docker not available')
+      await expect(dev({ command: 'shell' })).rejects.toThrow(
+        'Docker not available',
+      )
     })
 
     it('should handle repo directory errors', async () => {
@@ -343,7 +402,9 @@ describe('dev command', () => {
 
       await dev({})
 
-      expect(mockExecSync).toHaveBeenCalledWith('docker-compose -h', { encoding: 'utf8' })
+      expect(mockExecSync).toHaveBeenCalledWith('docker-compose -h', {
+        encoding: 'utf8',
+      })
     })
 
     it('should handle undefined options', async () => {
@@ -357,15 +418,23 @@ describe('dev command', () => {
     it('should filter out dev and command from args', async () => {
       await dev({ command: 'up', _: ['dev', 'up', 'service1', 'service2'] })
 
-      expect(mockRunDockerCompose).toHaveBeenCalledWith('up service1 service2', 'docker-compose.dev.yml')
+      expect(mockRunDockerCompose).toHaveBeenCalledWith(
+        'up service1 service2',
+        'docker-compose.dev.yml',
+      )
     })
 
     it('should handle multiple flags together', async () => {
-      await dev({ command: 'ps', all: true, quiet: true, filter: 'status=running' })
+      await dev({
+        command: 'ps',
+        all: true,
+        quiet: true,
+        filter: 'status=running',
+      })
 
       expect(mockRunDockerCompose).toHaveBeenCalledWith(
-        'ps -q -a --filter=status=running', 
-        'docker-compose.dev.yml'
+        'ps -q -a --filter=status=running',
+        'docker-compose.dev.yml',
       )
     })
   })

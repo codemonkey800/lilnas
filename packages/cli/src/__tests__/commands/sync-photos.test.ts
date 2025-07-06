@@ -9,6 +9,7 @@ const mockRunInteractive = runInteractive as jest.MockedFunction<typeof runInter
 describe('sync-photos command', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockRunInteractive.mockReset()
   })
 
   describe('successful execution', () => {

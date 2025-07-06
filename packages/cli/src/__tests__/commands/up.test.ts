@@ -2,7 +2,12 @@ import { up } from '../../commands/up'
 import { runInteractive, ServicesOptionSchema } from '../../utils'
 
 // Mock dependencies
-jest.mock('../../utils')
+jest.mock('../../utils', () => ({
+  runInteractive: jest.fn(),
+  ServicesOptionSchema: {
+    parse: jest.fn()
+  }
+}))
 
 const mockRunInteractive = runInteractive as jest.MockedFunction<typeof runInteractive>
 const mockServicesOptionSchema = ServicesOptionSchema as any
@@ -10,9 +15,7 @@ const mockServicesOptionSchema = ServicesOptionSchema as any
 describe('up command', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    
-    // Mock the schema parse method
-    mockServicesOptionSchema.parse = jest.fn()
+    jest.resetAllMocks()
   })
 
   describe('successful execution', () => {
@@ -113,7 +116,7 @@ describe('up command', () => {
       })
 
       await expect(up(undefined)).rejects.toThrow('Expected object, received undefined')
-      expect(mockRunInteractive).not.to HaveBeenCalled()
+      expect(mockRunInteractive).not.toHaveBeenCalled()
     })
   })
 

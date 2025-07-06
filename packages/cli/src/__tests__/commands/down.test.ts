@@ -2,13 +2,19 @@ import { down } from '../../commands/down'
 import { runInteractive } from '../../utils'
 
 // Mock dependencies
-jest.mock('../../utils')
+jest.mock('../../utils', () => ({
+  runInteractive: jest.fn(),
+  ServicesOptionSchema: require('zod').z.object({
+    services: require('zod').z.array(require('zod').z.string()),
+  })
+}))
 
 const mockRunInteractive = runInteractive as jest.MockedFunction<typeof runInteractive>
 
 describe('down command', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    jest.resetAllMocks()
   })
 
   describe('successful execution', () => {
