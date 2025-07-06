@@ -117,7 +117,7 @@ async function main() {
 
   const [command] = args._
 
-  return match(command)
+  return await match(command)
     .with('ls', () => list())
     .with('dev', () =>
       dev({
@@ -133,4 +133,8 @@ async function main() {
     .otherwise(() => argParser.showHelp())
 }
 
-main()
+if (require.main === module) {
+  main()
+}
+
+export { main }

@@ -9,6 +9,17 @@ on:
     types: [opened, assigned]
   pull_request_review:
     types: [submitted]
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Claude model to use'
+        required: false
+        default: 'claude-sonnet-4-20250514'
+        type: choice
+        options:
+          - claude-sonnet-4-20250514
+          - claude-opus-4-20250514
+          - claude-haiku-4-20250514
 
 jobs:
   claude:
@@ -29,31 +40,94 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Parse model from comment
+        id: parse_model
+        run: |
+          # Default model
+          MODEL="claude-sonnet-4-20250514"
+
+          # Check workflow dispatch input first
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.model }}" ]; then
+            MODEL="${{ inputs.model }}"
+          else
+            # Parse comment body for model selection
+            COMMENT_BODY=""
+            if [ "${{ github.event_name }}" == "issue_comment" ]; then
+              COMMENT_BODY="${{ github.event.comment.body }}"
+            elif [ "${{ github.event_name }}" == "pull_request_review_comment" ]; then
+              COMMENT_BODY="${{ github.event.comment.body }}"
+            elif [ "${{ github.event_name }}" == "pull_request_review" ]; then
+              COMMENT_BODY="${{ github.event.review.body }}"
+            elif [ "${{ github.event_name }}" == "issues" ]; then
+              COMMENT_BODY="${{ github.event.issue.body }}"
+            fi
+
+            # Parse model from comment (case insensitive)
+            if echo "$COMMENT_BODY" | grep -iE "@claude.*(opus|--model=opus|use opus)" > /dev/null; then
+              MODEL="claude-opus-4-20250514"
+            elif echo "$COMMENT_BODY" | grep -iE "@claude.*(haiku|--model=haiku|use haiku)" > /dev/null; then
+              MODEL="claude-haiku-4-20250514"
+            elif echo "$COMMENT_BODY" | grep -iE "@claude.*(sonnet|--model=sonnet|use sonnet)" > /dev/null; then
+              MODEL="claude-sonnet-4-20250514"
+            fi
+          fi
+
+          echo "model=$MODEL" >> $GITHUB_OUTPUT
+          echo "Using Claude model: $MODEL"
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
-          # model: "claude-opus-4-20250514"
-          
+          model: ${{ steps.parse_model.outputs.model }}
+          use_sticky_comment: true
+
+          allowed_tools: |
+            Bash(./lilnas:*)
+            Bash(curl:*)
+            Bash(docker:*)
+            Bash(gh:*)
+            Bash(git:*)
+            Bash(ls:*)
+            Bash(npm:*)
+            Bash(pnpm:*)
+            Bash(rm:*)
+            mcp__sequential-thinking__sequentialthinking
+
+          custom_instructions: |
+            Follow our coding standards
+            Ensure all new code has tests
+            Use TypeScript for new files
+
+          mcp_config: |
+            {
+              "mcpServers": {
+                "sequential-thinking": {
+                  "command": "npx",
+                  "args": [
+                    "-y",
+                    "@modelcontextprotocol/server-sequential-thinking"
+                  ]
+                }
+              }
+            }
+
           # Optional: Customize the trigger phrase (default: @claude)
           # trigger_phrase: "/claude"
-          
+
           # Optional: Trigger when specific user is assigned to an issue
           # assignee_trigger: "claude-bot"
-          
+
           # Optional: Allow Claude to run specific commands
           # allowed_tools: "Bash(npm install),Bash(npm run build),Bash(npm run test:*),Bash(npm run lint:*)"
-          
+
           # Optional: Add custom instructions for Claude to customize its behavior for your project
           # custom_instructions: |
           #   Follow our coding standards
           #   Ensure all new code has tests
           #   Use TypeScript for new files
-          
+
           # Optional: Custom environment variables for Claude
           # claude_env: |
           #   NODE_ENV: test
-

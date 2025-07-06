@@ -1,0 +1,203 @@
+name: Run Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.changes.outputs.packages }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect package changes
+        id: changes
+        run: |
+          # Get list of changed files
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # For PRs, compare against base branch
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.sha }})
+          else
+            # For pushes to main, compare against previous commit
+            CHANGED_FILES=$(git diff --name-only HEAD~1..HEAD)
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # Extract package names from changed files
+          PACKAGES=()
+
+          # Check each package directory for changes
+          for pkg in packages/*/; do
+            if [ -d "$pkg" ]; then
+              pkg_name=$(basename "$pkg")
+              # Check if any files in this package changed
+              if echo "$CHANGED_FILES" | grep -q "^packages/$pkg_name/"; then
+                # Check if package has test script
+                if [ -f "packages/$pkg_name/package.json" ] && grep -q '"test"' "packages/$pkg_name/package.json"; then
+                  PACKAGES+=("$pkg_name")
+                fi
+              fi
+            fi
+          done
+
+          # Convert array to JSON
+          if [ ${#PACKAGES[@]} -eq 0 ]; then
+            echo "packages=[]" >> $GITHUB_OUTPUT
+          else
+            # Create JSON array
+            JSON_ARRAY="["
+            for i in "${!PACKAGES[@]}"; do
+              if [ $i -eq 0 ]; then
+                JSON_ARRAY+="\"${PACKAGES[$i]}\""
+              else
+                JSON_ARRAY+=",\"${PACKAGES[$i]}\""
+              fi
+            done
+            JSON_ARRAY+="]"
+            echo "packages=$JSON_ARRAY" >> $GITHUB_OUTPUT
+          fi
+
+          echo "Packages with changes that have tests: ${PACKAGES[@]}"
+
+  test:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.packages != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.detect-changes.outputs.packages) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.6.5'
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests for ${{ matrix.package }}
+        run: |
+          cd packages/${{ matrix.package }}
+          pnpm test
+        env:
+          CI: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.package }}
+          path: |
+            packages/${{ matrix.package }}/coverage/
+            packages/${{ matrix.package }}/test-results.xml
+          retention-days: 7
+
+  test-summary:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, test]
+    if: always()
+    steps:
+      - name: Test Summary
+        run: |
+          if [ "${{ needs.detect-changes.outputs.packages }}" = "[]" ]; then
+            echo "✅ No packages with changes detected that have tests"
+          elif [ "${{ needs.test.result }}" = "success" ]; then
+            echo "✅ All tests passed"
+          elif [ "${{ needs.test.result }}" = "failure" ]; then
+            echo "❌ Some tests failed"
+            exit 1
+          elif [ "${{ needs.test.result }}" = "cancelled" ]; then
+            echo "⚠️ Tests were cancelled"
+            exit 1
+          else
+            echo "⚠️ Tests completed with status: ${{ needs.test.result }}"
+          fi
+
+  lint-and-typecheck:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.packages != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.detect-changes.outputs.packages) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.6.5'
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run lint for ${{ matrix.package }}
+        run: |
+          cd packages/${{ matrix.package }}
+          if grep -q '"lint"' package.json; then
+            pnpm lint
+          else
+            echo "No lint script found for ${{ matrix.package }}"
+          fi
+
+      - name: Run type-check for ${{ matrix.package }}
+        run: |
+          cd packages/${{ matrix.package }}
+          if grep -q '"type-check"' package.json; then
+            pnpm type-check
+          else
+            echo "No type-check script found for ${{ matrix.package }}"
+          fi

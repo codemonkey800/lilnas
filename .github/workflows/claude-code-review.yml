@@ -9,6 +9,21 @@ on:
     #   - "src/**/*.tsx"
     #   - "src/**/*.js"
     #   - "src/**/*.jsx"
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Claude model to use for review'
+        required: false
+        default: 'claude-sonnet-4-20250514'
+        type: choice
+        options:
+          - claude-sonnet-4-20250514
+          - claude-opus-4-20250514
+          - claude-haiku-4-20250514
+      pr_number:
+        description: 'PR number to review (for manual dispatch)'
+        required: false
+        type: string
 
 jobs:
   claude-review:
@@ -31,14 +46,42 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Determine model for review
+        id: determine_model
+        run: |
+          # Default model
+          MODEL="claude-sonnet-4-20250514"
+          
+          # Check workflow dispatch input first
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.model }}" ]; then
+            MODEL="${{ inputs.model }}"
+          else
+            # Use different models based on PR characteristics
+            PR_SIZE=$(git diff --name-only origin/main...HEAD | wc -l)
+            PR_TITLE="${{ github.event.pull_request.title }}"
+            
+            # Use Opus for large PRs or complex changes
+            if [ "$PR_SIZE" -gt 10 ] || echo "$PR_TITLE" | grep -iE "(refactor|architecture|breaking)" > /dev/null; then
+              MODEL="claude-opus-4-20250514"
+              echo "Using Opus model for large/complex PR (${PR_SIZE} files changed)"
+            # Use Haiku for documentation or simple changes
+            elif echo "$PR_TITLE" | grep -iE "(docs|documentation|readme|typo|fix typo)" > /dev/null; then
+              MODEL="claude-haiku-4-20250514"
+              echo "Using Haiku model for documentation changes"
+            else
+              echo "Using default Sonnet model"
+            fi
+          fi
+          
+          echo "model=$MODEL" >> $GITHUB_OUTPUT
+          echo "Selected model: $MODEL"
+
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
-          # model: "claude-opus-4-20250514"
+          model: ${{ steps.determine_model.outputs.model }}
           
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
