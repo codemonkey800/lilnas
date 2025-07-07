@@ -10,11 +10,22 @@ export async function getRepoDir() {
 
 async function getServiceFiles(dev: boolean) {
   const repoDir = await getRepoDir()
-  const serviceFiles = await $`fd .yml ${repoDir}/infra`
-  return serviceFiles.stdout
+  
+  // Get infrastructure service files
+  const infraFiles = await $`fd .yml ${repoDir}/infra`
+  const infraFileList = infraFiles.stdout
     .split('\n')
     .filter(Boolean)
     .filter(file => file.includes('.dev.yml') === dev)
+  
+  // Get package service files
+  const packagePattern = dev ? 'deploy.dev.yml' : 'deploy.yml'
+  const packageFiles = await $`fd ${packagePattern} ${repoDir}/packages`
+  const packageFileList = packageFiles.stdout
+    .split('\n')
+    .filter(Boolean)
+  
+  return [...infraFileList, ...packageFileList]
 }
 
 export async function getServices({ dev = false }: { dev?: boolean } = {}) {
