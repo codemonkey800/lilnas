@@ -46,6 +46,75 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Detect changed packages
+        id: detect_packages
+        run: |
+          # Get changed files
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.pr_number }}" ]; then
+            PR_NUMBER="${{ inputs.pr_number }}"
+            CHANGED_FILES=$(gh pr view $PR_NUMBER --json files --jq '.files[].path' | tr '\n' ' ')
+          else
+            CHANGED_FILES=$(git diff --name-only origin/main...HEAD | tr '\n' ' ')
+          fi
+          
+          # Detect package types
+          FRONTEND_NEXTJS=false
+          FRONTEND_VITE=false
+          BACKEND_NESTJS=false
+          FULLSTACK=false
+          CLI_TOOLS=false
+          CONFIG_UTILS=false
+          INFRA=false
+          SECURITY_SENSITIVE=false
+          
+          # Check each changed file
+          for file in $CHANGED_FILES; do
+            # Frontend packages
+            if [[ "$file" =~ packages/apps/ ]]; then
+              FRONTEND_NEXTJS=true
+            elif [[ "$file" =~ packages/dashcam/ ]]; then
+              FRONTEND_VITE=true
+            # Backend packages
+            elif [[ "$file" =~ packages/(equations|me-token-tracker)/ ]]; then
+              BACKEND_NESTJS=true
+              if [[ "$file" =~ packages/equations/ ]]; then
+                SECURITY_SENSITIVE=true
+              fi
+            # Full-stack packages
+            elif [[ "$file" =~ packages/(tdr-bot|download)/ ]]; then
+              FULLSTACK=true
+            # CLI/Tools
+            elif [[ "$file" =~ packages/cli/ ]]; then
+              CLI_TOOLS=true
+            # Config/Utils
+            elif [[ "$file" =~ packages/(utils|eslint-config-lilnas|prettier-config-lilnas)/ ]]; then
+              CONFIG_UTILS=true
+            # Infrastructure
+            elif [[ "$file" =~ (infra/|docker-compose|\.dockerfile|deploy\.yml) ]]; then
+              INFRA=true
+            fi
+          done
+          
+          # Output detected types
+          echo "frontend_nextjs=$FRONTEND_NEXTJS" >> $GITHUB_OUTPUT
+          echo "frontend_vite=$FRONTEND_VITE" >> $GITHUB_OUTPUT
+          echo "backend_nestjs=$BACKEND_NESTJS" >> $GITHUB_OUTPUT
+          echo "fullstack=$FULLSTACK" >> $GITHUB_OUTPUT
+          echo "cli_tools=$CLI_TOOLS" >> $GITHUB_OUTPUT
+          echo "config_utils=$CONFIG_UTILS" >> $GITHUB_OUTPUT
+          echo "infra=$INFRA" >> $GITHUB_OUTPUT
+          echo "security_sensitive=$SECURITY_SENSITIVE" >> $GITHUB_OUTPUT
+          
+          echo "Detected package types:"
+          echo "- Frontend (Next.js): $FRONTEND_NEXTJS"
+          echo "- Frontend (Vite): $FRONTEND_VITE"
+          echo "- Backend (NestJS): $BACKEND_NESTJS"
+          echo "- Full-stack: $FULLSTACK"
+          echo "- CLI/Tools: $CLI_TOOLS"
+          echo "- Config/Utils: $CONFIG_UTILS"
+          echo "- Infrastructure: $INFRA"
+          echo "- Security Sensitive: $SECURITY_SENSITIVE"
+
       - name: Determine model for review
         id: determine_model
         run: |
@@ -76,190 +145,180 @@ jobs:
           echo "model=$MODEL" >> $GITHUB_OUTPUT
           echo "Selected model: $MODEL"
 
-      - name: Detect changed packages and types
-        id: detect_packages
-        run: |
-          # Get list of changed files
-          CHANGED_FILES=$(git diff --name-only origin/main...HEAD || git diff --name-only HEAD~1...HEAD)
-          
-          # Initialize package type flags
-          HAS_FRONTEND_NEXTJS=false
-          HAS_FRONTEND_VITE=false
-          HAS_BACKEND_NESTJS=false
-          HAS_FULLSTACK=false
-          HAS_CLI=false
-          HAS_CONFIG=false
-          HAS_SECURITY_SENSITIVE=false
-          
-          # Detect package types based on changed files
-          if echo "$CHANGED_FILES" | grep -q "packages/apps/"; then
-            HAS_FRONTEND_NEXTJS=true
-          fi
-          
-          if echo "$CHANGED_FILES" | grep -q "packages/dashcam/"; then
-            HAS_FRONTEND_VITE=true
-          fi
-          
-          if echo "$CHANGED_FILES" | grep -E "packages/(equations|me-token-tracker)/"; then
-            HAS_BACKEND_NESTJS=true
-          fi
-          
-          if echo "$CHANGED_FILES" | grep -E "packages/(tdr-bot|download)/"; then
-            HAS_FULLSTACK=true
-          fi
-          
-          if echo "$CHANGED_FILES" | grep -q "packages/cli/"; then
-            HAS_CLI=true
-          fi
-          
-          if echo "$CHANGED_FILES" | grep -E "packages/(utils|eslint|prettier)/"; then
-            HAS_CONFIG=true
-          fi
-          
-          if echo "$CHANGED_FILES" | grep -q "packages/equations/"; then
-            HAS_SECURITY_SENSITIVE=true
-          fi
-          
-          # Export flags
-          echo "has_frontend_nextjs=$HAS_FRONTEND_NEXTJS" >> $GITHUB_OUTPUT
-          echo "has_frontend_vite=$HAS_FRONTEND_VITE" >> $GITHUB_OUTPUT
-          echo "has_backend_nestjs=$HAS_BACKEND_NESTJS" >> $GITHUB_OUTPUT
-          echo "has_fullstack=$HAS_FULLSTACK" >> $GITHUB_OUTPUT
-          echo "has_cli=$HAS_CLI" >> $GITHUB_OUTPUT
-          echo "has_config=$HAS_CONFIG" >> $GITHUB_OUTPUT
-          echo "has_security_sensitive=$HAS_SECURITY_SENSITIVE" >> $GITHUB_OUTPUT
-          
-          # Log detected packages
-          echo "Changed packages detected:"
-          echo "- Frontend (Next.js): $HAS_FRONTEND_NEXTJS"
-          echo "- Frontend (Vite): $HAS_FRONTEND_VITE"
-          echo "- Backend (NestJS): $HAS_BACKEND_NESTJS"
-          echo "- Full-Stack: $HAS_FULLSTACK"
-          echo "- CLI: $HAS_CLI"
-          echo "- Config/Utils: $HAS_CONFIG"
-          echo "- Security Sensitive: $HAS_SECURITY_SENSITIVE"
-
       - name: Generate package-specific review prompt
         id: generate_prompt
         run: |
           # Start with base review criteria
-          PROMPT="Please review this pull request with focus on:
+          PROMPT="Please review this pull request for the LilNAS monorepo with focus on:
 
           ## General Code Quality
-          - Code quality and best practices
-          - Potential bugs or issues
-          - Performance considerations
-          - Security concerns
-          - Test coverage
-          - Error handling and edge cases"
+          - Code quality adhering to the project's prettier and eslint configurations
+          - Potential bugs, runtime errors, or logic issues
+          - Performance considerations and optimization opportunities
+          - Security vulnerabilities or unsafe practices
+          - Test coverage and test quality
+          - Error handling and edge case coverage
+          - TypeScript type safety (avoid 'any' types)
+          - Memory leaks and resource management
+
+          ## Monorepo Best Practices
+          - Proper use of workspace dependencies (workspace:*)
+          - Cross-package compatibility
+          - Build process integrity with Turbo
+          - Consistent patterns across similar packages"
           
-          # Add frontend-specific criteria
-          if [ "${{ steps.detect_packages.outputs.has_frontend_nextjs }}" == "true" ]; then
+          # Add frontend Next.js specific criteria
+          if [ "${{ steps.detect_packages.outputs.frontend_nextjs }}" == "true" ]; then
             PROMPT="$PROMPT
 
-          ## Frontend (Next.js) Specific
-          - React best practices and hooks usage
-          - Next.js App Router patterns and conventions
-          - Client/Server component boundaries
+          ## Frontend (Next.js) Specific Review Points
+          - React best practices and proper hooks usage
+          - Next.js 14 App Router patterns and conventions
+          - Correct client/server component boundaries ('use client' directives)
           - Tailwind CSS consistency and utility class usage
-          - Component composition and reusability
-          - State management with Jotai (if applicable)
-          - Proper use of 'use client' directive
-          - Image optimization and loading strategies"
+          - Component composition, reusability, and prop drilling avoidance
+          - State management with Jotai atoms and patterns
+          - Image optimization using next/image
+          - API route security and data validation
+          - SEO considerations (metadata, dynamic OG images)
+          - Loading and error boundary implementations
+          - Bundle size optimization"
           fi
           
-          if [ "${{ steps.detect_packages.outputs.has_frontend_vite }}" == "true" ]; then
+          # Add frontend Vite specific criteria
+          if [ "${{ steps.detect_packages.outputs.frontend_vite }}" == "true" ]; then
             PROMPT="$PROMPT
 
-          ## Frontend (Vite+React) Specific
-          - React component patterns and hooks
+          ## Frontend (Vite+React) Specific Review Points
+          - React best practices and hooks patterns
           - Vite configuration and build optimization
+          - Component architecture and composition
           - State management patterns
-          - TypeScript usage and type safety
-          - Component modularity"
+          - Asset handling and lazy loading
+          - Development vs production build considerations"
           fi
           
-          # Add backend-specific criteria
-          if [ "${{ steps.detect_packages.outputs.has_backend_nestjs }}" == "true" ]; then
+          # Add backend NestJS specific criteria
+          if [ "${{ steps.detect_packages.outputs.backend_nestjs }}" == "true" ]; then
             PROMPT="$PROMPT
 
-          ## Backend (NestJS) Specific
-          - NestJS module structure and dependency injection
-          - Controller/Service separation of concerns
-          - DTO validation with Zod schemas
-          - Error handling and HTTP status codes
-          - Logging with Pino
-          - Async/await patterns and error propagation
-          - Resource cleanup and memory management"
+          ## Backend (NestJS) Specific Review Points
+          - NestJS module structure and dependency injection patterns
+          - Controller input validation using Zod schemas
+          - Service layer separation and business logic organization
+          - Error handling with proper HTTP status codes
+          - Database query optimization and N+1 query prevention
+          - API documentation and OpenAPI/Swagger compliance
+          - Authentication and authorization middleware
+          - Logging patterns and monitoring considerations
+          - Rate limiting and throttling implementation
+          - Environment variable usage and configuration"
           fi
           
           # Add full-stack specific criteria
-          if [ "${{ steps.detect_packages.outputs.has_fullstack }}" == "true" ]; then
+          if [ "${{ steps.detect_packages.outputs.fullstack }}" == "true" ]; then
             PROMPT="$PROMPT
 
-          ## Full-Stack Application Specific
-          - API and frontend integration consistency
-          - Shared types between backend and frontend
-          - Build process for both backend and frontend
-          - Environment variable handling
-          - CORS and security headers
-          - API error handling on the frontend"
+          ## Full-Stack Application Review Points
+          - API and frontend type consistency
+          - Shared validation schemas between frontend and backend
+          - Build process for both frontend and backend
+          - Environment variable management across stack
+          - CORS and security headers configuration
+          - End-to-end type safety
+          - API error handling on the frontend
+          - Loading states and optimistic updates"
           fi
           
-          # Add CLI-specific criteria
-          if [ "${{ steps.detect_packages.outputs.has_cli }}" == "true" ]; then
+          # Add CLI specific criteria
+          if [ "${{ steps.detect_packages.outputs.cli_tools }}" == "true" ]; then
             PROMPT="$PROMPT
 
-          ## CLI Tool Specific
-          - Command structure and yargs patterns
-          - User-friendly error messages
-          - File system operations safety
-          - Test coverage (particularly important for CLI tools)
-          - Command validation and help text
-          - Shell command execution safety (if using zx)"
+          ## CLI Tool Review Points
+          - Command structure and yargs configuration
+          - Error messages and user feedback clarity
+          - File system operations safety and error handling
+          - Shell command execution security
+          - Cross-platform compatibility (Windows/Mac/Linux)
+          - Help text completeness and examples
+          - Exit codes and error propagation
+          - Test coverage (especially important for CLI tools)"
           fi
           
           # Add config/utils specific criteria
-          if [ "${{ steps.detect_packages.outputs.has_config }}" == "true" ]; then
+          if [ "${{ steps.detect_packages.outputs.config_utils }}" == "true" ]; then
             PROMPT="$PROMPT
 
-          ## Configuration/Utilities Specific
-          - Cross-package compatibility
-          - TypeScript types and exports
-          - Documentation completeness
-          - Breaking changes impact
-          - Utility function reusability"
+          ## Configuration and Utilities Review Points
+          - Cross-package compatibility and breaking changes
+          - Type definitions and exports completeness
+          - Documentation and JSDoc comments
+          - Backward compatibility considerations
+          - Tree-shaking and bundle size impact
+          - Peer dependency management"
           fi
           
-          # Add security-specific criteria for sensitive packages
-          if [ "${{ steps.detect_packages.outputs.has_security_sensitive }}" == "true" ]; then
+          # Add infrastructure specific criteria
+          if [ "${{ steps.detect_packages.outputs.infra }}" == "true" ]; then
             PROMPT="$PROMPT
 
-          ## Security-Critical Review (Equations Service)
-          - Input validation completeness with Zod schemas
-          - Command injection prevention in LaTeX processing
-          - Resource limits and DoS prevention
-          - Docker sandbox security
+          ## Infrastructure and Docker Review Points
+          - Multi-stage Docker build optimization
+          - Base image selection and security updates
+          - Volume mounts and file permissions
+          - Environment variable exposure and secrets management
+          - Container resource limits and health checks
+          - Docker Compose service dependencies
+          - Development vs production configuration separation
+          - Traefik routing and SSL configuration
+          - Container restart policies and logging"
+          fi
+          
+          # Add security-sensitive criteria for equations service
+          if [ "${{ steps.detect_packages.outputs.security_sensitive }}" == "true" ]; then
+            PROMPT="$PROMPT
+
+          ## CRITICAL SECURITY REVIEW (Equations Service)
+          - LaTeX command injection prevention
+          - Input validation completeness against dangerous commands
+          - Docker sandbox escape prevention
+          - Resource consumption limits (CPU, memory, disk)
           - File system access restrictions
+          - Command execution using secure spawn patterns
           - Rate limiting effectiveness
-          - Error messages don't leak sensitive information"
+          - Error messages not leaking system information
+          - Temporary file cleanup
+          - Process timeout enforcement"
           fi
           
-          # Add monorepo-specific considerations
+          # Add footer with context
           PROMPT="$PROMPT
 
-          ## Monorepo Considerations
-          - Package dependencies and workspace protocol usage
-          - Build order and turbo.json configuration
-          - Shared configuration consistency
-          - Cross-package type imports
-
-          Be constructive and helpful in your feedback. Focus on the specific concerns relevant to the changed packages."
+          ## Additional Context
+          - This is a self-hosted NAS system monorepo
+          - Follow existing patterns in the codebase
+          - Consider security implications for all changes
+          - Ensure changes maintain backward compatibility
+          - Verify changes work in both development and production environments
           
-          # Save prompt to environment variable
-          echo "REVIEW_PROMPT<<EOF" >> $GITHUB_ENV
-          echo "$PROMPT" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          Please provide constructive feedback focusing on the most important issues first. Suggest specific improvements and include code examples where helpful."
+          
+          # Save the prompt to a file to handle special characters
+          echo "$PROMPT" > /tmp/review_prompt.txt
+          
+          # Output the prompt location
+          echo "prompt_file=/tmp/review_prompt.txt" >> $GITHUB_OUTPUT
+
+      - name: Load review prompt
+        id: load_prompt
+        run: |
+          # Read the prompt from file and set it as an output
+          PROMPT_CONTENT=$(cat ${{ steps.generate_prompt.outputs.prompt_file }})
+          
+          # Use a delimiter for multi-line content
+          echo "prompt<<PROMPT_EOF" >> $GITHUB_OUTPUT
+          echo "$PROMPT_CONTENT" >> $GITHUB_OUTPUT
+          echo "PROMPT_EOF" >> $GITHUB_OUTPUT
 
       - name: Run Claude Code Review
         id: claude-review
@@ -270,4 +329,4 @@ jobs:
           use_sticky_comment: true
 
           # Direct prompt for automated review (no @claude mention needed)
-          direct_prompt: ${{ env.REVIEW_PROMPT }}
+          direct_prompt: ${{ steps.load_prompt.outputs.prompt }}
