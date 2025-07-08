@@ -22,6 +22,29 @@ pnpm run type-check
 
 # Clean all build artifacts
 pnpm run clean
+
+# Run tests for a package
+pnpm test
+
+# Run tests in watch mode
+pnpm test:watch
+
+# Clean all node_modules (useful for troubleshooting)
+pnpm run clean:modules
+```
+
+### Testing
+
+```bash
+# Run tests in packages that have test suites
+pnpm test
+
+# Run tests in watch mode for development
+pnpm test:watch
+
+# Test files are located in __tests__ directories
+# Currently, the CLI package has the most comprehensive test coverage
+# Tests are automatically run in CI for changed packages
 ```
 
 ### Service Management (lilnas CLI)
@@ -72,14 +95,63 @@ pnpm run start    # Production server
 pnpm run dev              # Both backend + frontend
 pnpm run dev:backend      # Backend only
 pnpm run dev:frontend     # Frontend only
-pnpm run dev:graph-test   # Special mode for tdr-bot AI testing
+pnpm run dev:graph-test   # Special mode for tdr-bot AI testing (GRAPH_TEST=true)
+
+# Testing (where available)
+pnpm test                 # Run tests for the package
+pnpm test:watch          # Run tests in watch mode
+```
+
+## CI/CD and GitHub Actions
+
+The project uses GitHub Actions for continuous integration and AI-powered development assistance.
+
+### Automated Testing Workflow
+
+The `test.yml` workflow automatically:
+
+- Detects changed packages in PRs
+- Runs tests only for affected packages
+- Executes lint and type-check for changed code
+- Uploads test results and coverage reports
+- Uses pnpm caching for fast builds
+
+### Claude AI Integration
+
+Two Claude-specific workflows enhance development:
+
+**Issue/PR Assistance (`claude.yml`)**:
+
+- Trigger Claude Code by mentioning @claude in issues or PRs
+- Supports model selection based on complexity:
+  - claude-3-5-sonnet (default, fast)
+  - claude-3-5-opus (complex tasks)
+  - claude-3-5-haiku (simple tasks)
+- Includes MCP sequential thinking for problem solving
+
+**Automated Code Review (`claude-code-review.yml`)**:
+
+- Automatic PR reviews using Claude AI
+- Analyzes code changes and provides feedback
+- Suggests improvements and catches potential issues
+- Model selection based on PR size and complexity
+
+### Workflow Commands
+
+```bash
+# Trigger Claude in issues/PRs
+@claude <your request>
+
+# Select specific model
+@claude --model opus <complex request>
+@claude --model haiku <simple request>
 ```
 
 ## Architecture Overview
 
 ### Monorepo Structure
 
-LilNAS is a TypeScript monorepo using pnpm workspaces with Turbo build orchestration. It's a self-hosted NAS system with multiple integrated services.
+lilnas is a TypeScript monorepo using pnpm workspaces with Turbo build orchestration. It's a self-hosted NAS system with multiple integrated services.
 
 ### Package Categories
 
@@ -189,6 +261,27 @@ The `lilnas` CLI is implemented as a bash script:
 3. Logs available via `./lilnas dev logs <service> -f`
 4. Services auto-reload with volume mounts
 
+### Docker Base Images
+
+The project uses a layered Docker base image system for consistent environments:
+
+**Image Hierarchy:**
+
+- `lilnas-node-base` - Base Node.js environment with common dependencies
+- `lilnas-monorepo-builder` - Build environment with pnpm and turbo
+- `lilnas-node-runtime` - Lightweight runtime for Node.js services
+- `lilnas-nextjs-runtime` - Specialized runtime for Next.js applications
+
+**Building Base Images:**
+
+```bash
+# Build all base images (run from project root)
+./infra/base-images/build-base-images.sh
+
+# Images are used automatically by service Dockerfiles
+# Rebuild when updating Node.js version or base dependencies
+```
+
 ### Build Process
 
 - Turbo orchestrates builds with dependency awareness
@@ -196,12 +289,71 @@ The `lilnas` CLI is implemented as a bash script:
 - TypeScript compilation uses SWC for performance
 - Next.js apps use standalone output for Docker optimization
 
+### Turbo Build System
+
+Turbo provides intelligent build orchestration with caching:
+
+**Configuration (`turbo.json`):**
+
+- Build outputs: `.next/**` and `dist/**` directories
+- Dependency-aware builds: `dependsOn: ["^build"]` ensures dependencies build first
+- Automatic caching prevents unnecessary rebuilds
+
+**Cache Management:**
+
+```bash
+# Clear turbo cache (included in pnpm run clean)
+rm -rf .turbo
+
+# Force rebuild without cache
+pnpm run build --force
+
+# See what would be built
+pnpm run build --dry-run
+```
+
 ### Environment Configuration
 
 - Development: `docker-compose.dev.yml` with localhost
 - Production: `docker-compose.yml` with SSL and domains
 - Service discovery via Traefik labels
 - Environment variables defined in Docker Compose files
+
+### Production Deployment
+
+Each package includes production-ready deployment configuration:
+
+**Deployment Files:**
+
+- `packages/*/deploy.yml` - Production Docker Compose for each service
+- Uses `*.lilnas.io` domains with automatic SSL via Let's Encrypt
+- Traefik authentication middleware (`forward-auth@file`)
+- Restart policies: `unless-stopped` for reliability
+
+**Production Commands:**
+
+```bash
+# Deploy a specific service
+cd packages/<service-name>
+docker-compose -f deploy.yml up -d
+
+# View production logs
+docker-compose -f deploy.yml logs -f
+
+# Update and redeploy
+docker-compose -f deploy.yml pull
+docker-compose -f deploy.yml up -d
+```
+
+### Environment Variables
+
+Environment configuration follows a secure pattern:
+
+- **Example files:** `deploy/.env.example` shows required variables
+- **Service-specific:** Each docker-compose file defines its own variables
+- **No centralized .env:** Intentional design for security isolation
+- **Development defaults:** Most services work with default values in dev
+- **Production secrets:** Must be explicitly set, never committed
 
 ## Best Practices
 
@@ -223,5 +375,7 @@ The `lilnas` CLI is implemented as a bash script:
 ### Local Development Domains
 
 - Local services will be located under the \*.localhost subdomain. For example, traefik.localhost or storage.localhost.
+
+```
 
 ```
