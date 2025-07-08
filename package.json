@@ -8,6 +8,8 @@
     "clean:modules": "rm -rf node_modules packages/*/node_modules",
     "lint": "pnpm run -r lint",
     "lint:fix": "pnpm run -r lint:fix",
+    "test": "pnpm run --recursive --if-present test",
+    "test:watch": "pnpm run --recursive --if-present test:watch",
     "type-check": "pnpm run -r type-check"
   },
   "devDependencies": {
