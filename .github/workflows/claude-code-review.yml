@@ -32,14 +32,14 @@ jobs:
     #   github.event.pull_request.user.login == 'external-contributor' ||
     #   github.event.pull_request.user.login == 'new-developer' ||
     #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-    
+
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
       issues: read
       id-token: write
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -51,7 +51,7 @@ jobs:
         run: |
           # Default model
           MODEL="claude-sonnet-4-20250514"
-          
+
           # Check workflow dispatch input first
           if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.model }}" ]; then
             MODEL="${{ inputs.model }}"
@@ -59,7 +59,7 @@ jobs:
             # Use different models based on PR characteristics
             PR_SIZE=$(git diff --name-only origin/main...HEAD | wc -l)
             PR_TITLE="${{ github.event.pull_request.title }}"
-            
+
             # Use Opus for large PRs or complex changes
             if [ "$PR_SIZE" -gt 10 ] || echo "$PR_TITLE" | grep -iE "(refactor|architecture|breaking)" > /dev/null; then
               MODEL="claude-opus-4-20250514"
@@ -72,9 +72,194 @@ jobs:
               echo "Using default Sonnet model"
             fi
           fi
-          
+
           echo "model=$MODEL" >> $GITHUB_OUTPUT
           echo "Selected model: $MODEL"
+
+      - name: Detect changed packages and types
+        id: detect_packages
+        run: |
+          # Get list of changed files
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD || git diff --name-only HEAD~1...HEAD)
+          
+          # Initialize package type flags
+          HAS_FRONTEND_NEXTJS=false
+          HAS_FRONTEND_VITE=false
+          HAS_BACKEND_NESTJS=false
+          HAS_FULLSTACK=false
+          HAS_CLI=false
+          HAS_CONFIG=false
+          HAS_SECURITY_SENSITIVE=false
+          
+          # Detect package types based on changed files
+          if echo "$CHANGED_FILES" | grep -q "packages/apps/"; then
+            HAS_FRONTEND_NEXTJS=true
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -q "packages/dashcam/"; then
+            HAS_FRONTEND_VITE=true
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -E "packages/(equations|me-token-tracker)/"; then
+            HAS_BACKEND_NESTJS=true
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -E "packages/(tdr-bot|download)/"; then
+            HAS_FULLSTACK=true
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -q "packages/cli/"; then
+            HAS_CLI=true
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -E "packages/(utils|eslint|prettier)/"; then
+            HAS_CONFIG=true
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -q "packages/equations/"; then
+            HAS_SECURITY_SENSITIVE=true
+          fi
+          
+          # Export flags
+          echo "has_frontend_nextjs=$HAS_FRONTEND_NEXTJS" >> $GITHUB_OUTPUT
+          echo "has_frontend_vite=$HAS_FRONTEND_VITE" >> $GITHUB_OUTPUT
+          echo "has_backend_nestjs=$HAS_BACKEND_NESTJS" >> $GITHUB_OUTPUT
+          echo "has_fullstack=$HAS_FULLSTACK" >> $GITHUB_OUTPUT
+          echo "has_cli=$HAS_CLI" >> $GITHUB_OUTPUT
+          echo "has_config=$HAS_CONFIG" >> $GITHUB_OUTPUT
+          echo "has_security_sensitive=$HAS_SECURITY_SENSITIVE" >> $GITHUB_OUTPUT
+          
+          # Log detected packages
+          echo "Changed packages detected:"
+          echo "- Frontend (Next.js): $HAS_FRONTEND_NEXTJS"
+          echo "- Frontend (Vite): $HAS_FRONTEND_VITE"
+          echo "- Backend (NestJS): $HAS_BACKEND_NESTJS"
+          echo "- Full-Stack: $HAS_FULLSTACK"
+          echo "- CLI: $HAS_CLI"
+          echo "- Config/Utils: $HAS_CONFIG"
+          echo "- Security Sensitive: $HAS_SECURITY_SENSITIVE"
+
+      - name: Generate package-specific review prompt
+        id: generate_prompt
+        run: |
+          # Start with base review criteria
+          PROMPT="Please review this pull request with focus on:
+
+          ## General Code Quality
+          - Code quality and best practices
+          - Potential bugs or issues
+          - Performance considerations
+          - Security concerns
+          - Test coverage
+          - Error handling and edge cases"
+          
+          # Add frontend-specific criteria
+          if [ "${{ steps.detect_packages.outputs.has_frontend_nextjs }}" == "true" ]; then
+            PROMPT="$PROMPT
+
+          ## Frontend (Next.js) Specific
+          - React best practices and hooks usage
+          - Next.js App Router patterns and conventions
+          - Client/Server component boundaries
+          - Tailwind CSS consistency and utility class usage
+          - Component composition and reusability
+          - State management with Jotai (if applicable)
+          - Proper use of 'use client' directive
+          - Image optimization and loading strategies"
+          fi
+          
+          if [ "${{ steps.detect_packages.outputs.has_frontend_vite }}" == "true" ]; then
+            PROMPT="$PROMPT
+
+          ## Frontend (Vite+React) Specific
+          - React component patterns and hooks
+          - Vite configuration and build optimization
+          - State management patterns
+          - TypeScript usage and type safety
+          - Component modularity"
+          fi
+          
+          # Add backend-specific criteria
+          if [ "${{ steps.detect_packages.outputs.has_backend_nestjs }}" == "true" ]; then
+            PROMPT="$PROMPT
+
+          ## Backend (NestJS) Specific
+          - NestJS module structure and dependency injection
+          - Controller/Service separation of concerns
+          - DTO validation with Zod schemas
+          - Error handling and HTTP status codes
+          - Logging with Pino
+          - Async/await patterns and error propagation
+          - Resource cleanup and memory management"
+          fi
+          
+          # Add full-stack specific criteria
+          if [ "${{ steps.detect_packages.outputs.has_fullstack }}" == "true" ]; then
+            PROMPT="$PROMPT
+
+          ## Full-Stack Application Specific
+          - API and frontend integration consistency
+          - Shared types between backend and frontend
+          - Build process for both backend and frontend
+          - Environment variable handling
+          - CORS and security headers
+          - API error handling on the frontend"
+          fi
+          
+          # Add CLI-specific criteria
+          if [ "${{ steps.detect_packages.outputs.has_cli }}" == "true" ]; then
+            PROMPT="$PROMPT
+
+          ## CLI Tool Specific
+          - Command structure and yargs patterns
+          - User-friendly error messages
+          - File system operations safety
+          - Test coverage (particularly important for CLI tools)
+          - Command validation and help text
+          - Shell command execution safety (if using zx)"
+          fi
+          
+          # Add config/utils specific criteria
+          if [ "${{ steps.detect_packages.outputs.has_config }}" == "true" ]; then
+            PROMPT="$PROMPT
+
+          ## Configuration/Utilities Specific
+          - Cross-package compatibility
+          - TypeScript types and exports
+          - Documentation completeness
+          - Breaking changes impact
+          - Utility function reusability"
+          fi
+          
+          # Add security-specific criteria for sensitive packages
+          if [ "${{ steps.detect_packages.outputs.has_security_sensitive }}" == "true" ]; then
+            PROMPT="$PROMPT
+
+          ## Security-Critical Review (Equations Service)
+          - Input validation completeness with Zod schemas
+          - Command injection prevention in LaTeX processing
+          - Resource limits and DoS prevention
+          - Docker sandbox security
+          - File system access restrictions
+          - Rate limiting effectiveness
+          - Error messages don't leak sensitive information"
+          fi
+          
+          # Add monorepo-specific considerations
+          PROMPT="$PROMPT
+
+          ## Monorepo Considerations
+          - Package dependencies and workspace protocol usage
+          - Build order and turbo.json configuration
+          - Shared configuration consistency
+          - Cross-package type imports
+
+          Be constructive and helpful in your feedback. Focus on the specific concerns relevant to the changed packages."
+          
+          # Save prompt to environment variable
+          echo "REVIEW_PROMPT<<EOF" >> $GITHUB_ENV
+          echo "$PROMPT" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
       - name: Run Claude Code Review
         id: claude-review
@@ -82,37 +267,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           model: ${{ steps.determine_model.outputs.model }}
-          
-          # Direct prompt for automated review (no @claude mention needed)
-          direct_prompt: |
-            Please review this pull request and provide feedback on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Performance considerations
-            - Security concerns
-            - Test coverage
-            
-            Be constructive and helpful in your feedback.
-          
-          # Optional: Customize review based on file types
-          # direct_prompt: |
-          #   Review this PR focusing on:
-          #   - For TypeScript files: Type safety and proper interface usage
-          #   - For API endpoints: Security, input validation, and error handling
-          #   - For React components: Performance, accessibility, and best practices
-          #   - For tests: Coverage, edge cases, and test quality
-          
-          # Optional: Different prompts for different authors
-          # direct_prompt: |
-          #   ${{ github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' && 
-          #   'Welcome! Please review this PR from a first-time contributor. Be encouraging and provide detailed explanations for any suggestions.' ||
-          #   'Please provide a thorough code review focusing on our coding standards and best practices.' }}
-          
-          # Optional: Add specific tools for running tests or linting
-          # allowed_tools: "Bash(npm run test),Bash(npm run lint),Bash(npm run typecheck)"
-          
-          # Optional: Skip review for certain conditions
-          # if: |
-          #   !contains(github.event.pull_request.title, '[skip-review]') &&
-          #   !contains(github.event.pull_request.title, '[WIP]')
+          use_sticky_comment: true
 
+          # Direct prompt for automated review (no @claude mention needed)
+          direct_prompt: ${{ env.REVIEW_PROMPT }}
