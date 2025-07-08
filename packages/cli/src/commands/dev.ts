@@ -167,7 +167,7 @@ async function showCustomHelp() {
 
     // Add custom lilnas dev commands section
     const customCommands = `
-LilNAS Custom Commands:
+lilnas Custom Commands:
   ls          List all apps with dev mode
   ps          Show status of services
   shell       Start a shell within the container

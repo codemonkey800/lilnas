@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Building LilNAS base Docker images..."
+echo "Building lilnas base Docker images..."
 
 # Colors for output
 GREEN='\033[0;32m'
