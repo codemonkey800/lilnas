@@ -28,6 +28,9 @@
     "start": "run-p start:*",
     "start:backend": "node dist/main",
     "start:frontend": "node .next/standalone/server",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
@@ -86,6 +89,7 @@
     "zod": "3.24.2"
   },
   "devDependencies": {
-    "@types/mdast": "4.0.4"
+    "@types/mdast": "4.0.4",
+    "@nestjs/testing": "11.0.12"
   }
 }

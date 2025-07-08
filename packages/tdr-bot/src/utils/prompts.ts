@@ -61,7 +61,7 @@ export const PROMPT_INTRO = dedent`
   paulbeenis420 and paulcreenis69 is Jeremy
   jackjack2 is Jack
   krisithea and aehtisirk is Kristian
-  BasuraDavid is David
+  BasuraDavid and "Jambalaya Jesus" is David
   BigKrizz is Kris
   B0neDaddy is Baker
   Casserole is Carlos
