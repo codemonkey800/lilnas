@@ -1,14 +1,36 @@
 import { Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import {
+  ErrorCategory,
+  ErrorClassificationService,
+  ErrorSeverity,
+  ErrorType,
+} from 'src/utils/error-classifier'
 import { RetryService } from 'src/utils/retry.service'
 
 describe('RetryService', () => {
   let service: RetryService
 
   beforeEach(async () => {
+    const mockErrorClassificationService = {
+      classifyError: jest.fn().mockReturnValue({
+        isRetryable: true,
+        errorType: ErrorType.NETWORK_ERROR,
+        category: ErrorCategory.SYSTEM,
+        severity: ErrorSeverity.MEDIUM,
+        retryAfterMs: undefined,
+      }),
+    }
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [RetryService],
+      providers: [
+        RetryService,
+        {
+          provide: ErrorClassificationService,
+          useValue: mockErrorClassificationService,
+        },
+      ],
     }).compile()
 
     service = module.get<RetryService>(RetryService)
@@ -37,6 +59,7 @@ describe('RetryService', () => {
           jitter: false,
         },
         'test-operation',
+        ErrorCategory.SYSTEM,
       )
 
       expect(result).toBe('success')
@@ -60,6 +83,7 @@ describe('RetryService', () => {
           jitter: false,
         },
         'test-operation',
+        ErrorCategory.SYSTEM,
       )
 
       expect(result).toBe('success')
@@ -82,6 +106,7 @@ describe('RetryService', () => {
             jitter: false,
           },
           'test-operation',
+          ErrorCategory.SYSTEM,
         ),
       ).rejects.toThrow('Persistent failure')
 
@@ -108,6 +133,7 @@ describe('RetryService', () => {
             jitter: false,
           },
           'test-operation',
+          ErrorCategory.SYSTEM,
         ),
       ).rejects.toThrow('Failure')
 
@@ -137,6 +163,7 @@ describe('RetryService', () => {
             jitter: true,
           },
           'test-operation',
+          ErrorCategory.SYSTEM,
         ),
       ).rejects.toThrow('Failure')
 
@@ -167,6 +194,7 @@ describe('RetryService', () => {
             jitter: false,
           },
           'test-operation',
+          ErrorCategory.SYSTEM,
         ),
       ).rejects.toThrow('Failure')
 
@@ -195,6 +223,7 @@ describe('RetryService', () => {
             timeout: 100,
           },
           'test-operation',
+          ErrorCategory.SYSTEM,
         ),
       ).rejects.toThrow('Operation timed out after 100ms')
     })

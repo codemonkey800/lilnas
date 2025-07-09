@@ -1,5 +1,21 @@
+# Dependency caching stage
+FROM lilnas-monorepo-builder AS deps
+
+# Copy package files for dependency caching
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/download/package.json packages/download/
+COPY packages/utils/package.json packages/utils/
+COPY packages/eslint-config-lilnas/package.json packages/eslint-config-lilnas/
+COPY packages/prettier-config-lilnas/package.json packages/prettier-config-lilnas/
+
+# Install dependencies (this layer gets cached)
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install
+
 # Build stage
-FROM lilnas-monorepo-builder AS build
+FROM deps AS builder
+
+# Copy source code (this layer changes frequently)
+COPY . .
 
 # Build the download package
 RUN pnpm build --filter=@lilnas/download
@@ -23,8 +39,8 @@ RUN curl \
         -o /usr/bin/yt-dlp && \
     chmod a+rx /usr/bin/yt-dlp
 
-# Copy built application from build stage
-COPY --from=build /app /app
+# Copy built application from builder stage
+COPY --from=builder /app /app
 
 WORKDIR /app
 ENTRYPOINT ["pnpm", "start"]

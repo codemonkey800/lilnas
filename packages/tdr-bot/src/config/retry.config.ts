@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 
+import { ErrorSeverity } from 'src/utils/error-classifier'
 import { RetryConfig } from 'src/utils/retry.service'
 
 export interface ServiceRetryConfig {
@@ -26,6 +27,12 @@ export class RetryConfigService {
       backoffFactor: 2,
       jitter: true,
       timeout: 30000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
     },
     discord: {
       maxAttempts: 3,
@@ -34,6 +41,12 @@ export class RetryConfigService {
       backoffFactor: 2,
       jitter: true,
       timeout: 10000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
     },
     equationService: {
       maxAttempts: 3,
@@ -42,6 +55,12 @@ export class RetryConfigService {
       backoffFactor: 2,
       jitter: true,
       timeout: 10000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
     },
     default: {
       maxAttempts: 3,
@@ -50,6 +69,12 @@ export class RetryConfigService {
       backoffFactor: 2,
       jitter: true,
       timeout: 30000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
     },
   }
 
@@ -121,6 +146,12 @@ export class RetryConfigService {
       backoffFactor: 2,
       jitter: true,
       timeout: 30000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
     }
 
     this.configs.discord = {
@@ -130,6 +161,12 @@ export class RetryConfigService {
       backoffFactor: 2,
       jitter: true,
       timeout: 10000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
     }
 
     this.configs.equationService = {
@@ -139,6 +176,12 @@ export class RetryConfigService {
       backoffFactor: 2,
       jitter: true,
       timeout: 10000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
     }
 
     this.configs.default = {
@@ -148,6 +191,12 @@ export class RetryConfigService {
       backoffFactor: 2,
       jitter: true,
       timeout: 30000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
     }
   }
 }
@@ -175,6 +224,29 @@ export const getRetryConfigFromEnv = (): PartialServiceRetryConfig => {
   if (process.env.OPENAI_RETRY_TIMEOUT) {
     openaiConfig.timeout = parseInt(process.env.OPENAI_RETRY_TIMEOUT, 10)
   }
+  if (process.env.OPENAI_RETRY_LOG_ATTEMPTS) {
+    openaiConfig.logRetryAttempts =
+      process.env.OPENAI_RETRY_LOG_ATTEMPTS === 'true'
+  }
+  if (process.env.OPENAI_RETRY_LOG_SUCCESS) {
+    openaiConfig.logSuccessfulRetries =
+      process.env.OPENAI_RETRY_LOG_SUCCESS === 'true'
+  }
+  if (process.env.OPENAI_RETRY_LOG_FAILED) {
+    openaiConfig.logFailedRetries =
+      process.env.OPENAI_RETRY_LOG_FAILED === 'true'
+  }
+  if (process.env.OPENAI_RETRY_LOG_DELAYS) {
+    openaiConfig.logRetryDelays = process.env.OPENAI_RETRY_LOG_DELAYS === 'true'
+  }
+  if (process.env.OPENAI_RETRY_LOG_ERROR_DETAILS) {
+    openaiConfig.logErrorDetails =
+      process.env.OPENAI_RETRY_LOG_ERROR_DETAILS === 'true'
+  }
+  if (process.env.OPENAI_RETRY_LOG_SEVERITY_THRESHOLD) {
+    openaiConfig.logSeverityThreshold = process.env
+      .OPENAI_RETRY_LOG_SEVERITY_THRESHOLD as ErrorSeverity
+  }
   if (Object.keys(openaiConfig).length > 0) {
     envConfig.openai = openaiConfig
   }
@@ -195,6 +267,30 @@ export const getRetryConfigFromEnv = (): PartialServiceRetryConfig => {
   }
   if (process.env.DISCORD_RETRY_TIMEOUT) {
     discordConfig.timeout = parseInt(process.env.DISCORD_RETRY_TIMEOUT, 10)
+  }
+  if (process.env.DISCORD_RETRY_LOG_ATTEMPTS) {
+    discordConfig.logRetryAttempts =
+      process.env.DISCORD_RETRY_LOG_ATTEMPTS === 'true'
+  }
+  if (process.env.DISCORD_RETRY_LOG_SUCCESS) {
+    discordConfig.logSuccessfulRetries =
+      process.env.DISCORD_RETRY_LOG_SUCCESS === 'true'
+  }
+  if (process.env.DISCORD_RETRY_LOG_FAILED) {
+    discordConfig.logFailedRetries =
+      process.env.DISCORD_RETRY_LOG_FAILED === 'true'
+  }
+  if (process.env.DISCORD_RETRY_LOG_DELAYS) {
+    discordConfig.logRetryDelays =
+      process.env.DISCORD_RETRY_LOG_DELAYS === 'true'
+  }
+  if (process.env.DISCORD_RETRY_LOG_ERROR_DETAILS) {
+    discordConfig.logErrorDetails =
+      process.env.DISCORD_RETRY_LOG_ERROR_DETAILS === 'true'
+  }
+  if (process.env.DISCORD_RETRY_LOG_SEVERITY_THRESHOLD) {
+    discordConfig.logSeverityThreshold = process.env
+      .DISCORD_RETRY_LOG_SEVERITY_THRESHOLD as ErrorSeverity
   }
   if (Object.keys(discordConfig).length > 0) {
     envConfig.discord = discordConfig
@@ -225,6 +321,30 @@ export const getRetryConfigFromEnv = (): PartialServiceRetryConfig => {
       process.env.EQUATION_RETRY_TIMEOUT,
       10,
     )
+  }
+  if (process.env.EQUATION_RETRY_LOG_ATTEMPTS) {
+    equationServiceConfig.logRetryAttempts =
+      process.env.EQUATION_RETRY_LOG_ATTEMPTS === 'true'
+  }
+  if (process.env.EQUATION_RETRY_LOG_SUCCESS) {
+    equationServiceConfig.logSuccessfulRetries =
+      process.env.EQUATION_RETRY_LOG_SUCCESS === 'true'
+  }
+  if (process.env.EQUATION_RETRY_LOG_FAILED) {
+    equationServiceConfig.logFailedRetries =
+      process.env.EQUATION_RETRY_LOG_FAILED === 'true'
+  }
+  if (process.env.EQUATION_RETRY_LOG_DELAYS) {
+    equationServiceConfig.logRetryDelays =
+      process.env.EQUATION_RETRY_LOG_DELAYS === 'true'
+  }
+  if (process.env.EQUATION_RETRY_LOG_ERROR_DETAILS) {
+    equationServiceConfig.logErrorDetails =
+      process.env.EQUATION_RETRY_LOG_ERROR_DETAILS === 'true'
+  }
+  if (process.env.EQUATION_RETRY_LOG_SEVERITY_THRESHOLD) {
+    equationServiceConfig.logSeverityThreshold = process.env
+      .EQUATION_RETRY_LOG_SEVERITY_THRESHOLD as ErrorSeverity
   }
   if (Object.keys(equationServiceConfig).length > 0) {
     envConfig.equationService = equationServiceConfig

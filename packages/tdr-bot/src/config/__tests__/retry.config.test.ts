@@ -27,6 +27,12 @@ describe('RetryConfigService', () => {
         backoffFactor: 2,
         jitter: true,
         timeout: 30000,
+        logRetryAttempts: true,
+        logSuccessfulRetries: true,
+        logFailedRetries: true,
+        logRetryDelays: false,
+        logErrorDetails: true,
+        logSeverityThreshold: 'low',
       })
     })
 
@@ -50,6 +56,12 @@ describe('RetryConfigService', () => {
         backoffFactor: 2,
         jitter: true,
         timeout: 10000,
+        logRetryAttempts: true,
+        logSuccessfulRetries: true,
+        logFailedRetries: true,
+        logRetryDelays: false,
+        logErrorDetails: true,
+        logSeverityThreshold: 'low',
       })
     })
   })
@@ -65,6 +77,12 @@ describe('RetryConfigService', () => {
         backoffFactor: 2,
         jitter: true,
         timeout: 10000,
+        logRetryAttempts: true,
+        logSuccessfulRetries: true,
+        logFailedRetries: true,
+        logRetryDelays: false,
+        logErrorDetails: true,
+        logSeverityThreshold: 'low',
       })
     })
   })
@@ -80,6 +98,12 @@ describe('RetryConfigService', () => {
         backoffFactor: 2,
         jitter: true,
         timeout: 30000,
+        logRetryAttempts: true,
+        logSuccessfulRetries: true,
+        logFailedRetries: true,
+        logRetryDelays: false,
+        logErrorDetails: true,
+        logSeverityThreshold: 'low',
       })
     })
   })
@@ -104,6 +128,7 @@ describe('RetryConfigService', () => {
       const updatedConfig = service.getOpenAIConfig()
       expect(updatedConfig.maxAttempts).toBe(5)
       expect(updatedConfig.baseDelay).toBe(1000) // Should preserve other values
+      expect(updatedConfig.logRetryAttempts).toBe(true) // Should preserve other values
     })
 
     it('should only update specified fields', () => {

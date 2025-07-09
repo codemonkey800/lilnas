@@ -1,5 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common'
 
+import {
+  ErrorCategory,
+  ErrorClassificationService,
+  ErrorSeverity,
+} from './error-classifier'
+
 export interface RetryConfig {
   maxAttempts: number
   baseDelay: number
@@ -7,6 +13,12 @@ export interface RetryConfig {
   backoffFactor: number
   jitter: boolean
   timeout?: number
+  logRetryAttempts?: boolean
+  logSuccessfulRetries?: boolean
+  logFailedRetries?: boolean
+  logRetryDelays?: boolean
+  logErrorDetails?: boolean
+  logSeverityThreshold?: ErrorSeverity
 }
 
 export interface RetryResult<T> {
@@ -28,6 +40,8 @@ export class RetryService {
   private readonly logger = new Logger(RetryService.name)
   private circuitBreakers = new Map<string, CircuitBreakerState>()
 
+  constructor(private readonly errorClassifier: ErrorClassificationService) {}
+
   private readonly defaultConfig: RetryConfig = {
     maxAttempts: 3,
     baseDelay: 1000,
@@ -35,6 +49,12 @@ export class RetryService {
     backoffFactor: 2,
     jitter: true,
     timeout: 30000,
+    logRetryAttempts: true,
+    logSuccessfulRetries: true,
+    logFailedRetries: true,
+    logRetryDelays: true,
+    logErrorDetails: true,
+    logSeverityThreshold: ErrorSeverity.LOW,
   }
 
   /**
@@ -44,6 +64,7 @@ export class RetryService {
     operation: () => Promise<T>,
     config: Partial<RetryConfig> = {},
     operationName = 'unknown',
+    errorCategory: ErrorCategory = ErrorCategory.SYSTEM,
   ): Promise<T> {
     const finalConfig = { ...this.defaultConfig, ...config }
     const startTime = Date.now()
@@ -51,18 +72,33 @@ export class RetryService {
 
     for (let attempt = 1; attempt <= finalConfig.maxAttempts; attempt++) {
       try {
-        this.logger.debug(
-          `Executing ${operationName} - attempt ${attempt}/${finalConfig.maxAttempts}`,
-        )
+        if (finalConfig.logRetryAttempts) {
+          this.logger.debug(
+            `Executing ${operationName} - attempt ${attempt}/${finalConfig.maxAttempts}`,
+            {
+              operationName,
+              attempt,
+              maxAttempts: finalConfig.maxAttempts,
+              category: errorCategory,
+            },
+          )
+        }
 
         const result = await this.executeWithTimeout(
           operation,
           finalConfig.timeout,
         )
 
-        if (attempt > 1) {
+        if (attempt > 1 && finalConfig.logSuccessfulRetries) {
+          const totalTime = Date.now() - startTime
           this.logger.log(
-            `${operationName} succeeded after ${attempt} attempts`,
+            `${operationName} succeeded after ${attempt} attempts in ${totalTime}ms`,
+            {
+              operationName,
+              attempt,
+              totalTime,
+              category: errorCategory,
+            },
           )
         }
 
@@ -70,33 +106,93 @@ export class RetryService {
       } catch (error) {
         lastError = error as Error
 
-        this.logger.warn(
-          `${operationName} failed on attempt ${attempt}/${finalConfig.maxAttempts}`,
-          {
-            error: lastError.message,
-            attempt,
-            operationName,
-          },
+        const classification = this.errorClassifier.classifyError(
+          lastError,
+          errorCategory,
         )
+
+        const shouldLogError =
+          finalConfig.logRetryAttempts &&
+          this.shouldLogBasedOnSeverity(
+            classification.severity,
+            finalConfig.logSeverityThreshold,
+          )
+
+        if (shouldLogError) {
+          const logData = {
+            operationName,
+            attempt,
+            maxAttempts: finalConfig.maxAttempts,
+            category: errorCategory,
+            errorType: classification.errorType,
+            errorCategory: classification.category,
+            severity: classification.severity,
+            isRetryable: classification.isRetryable,
+            retryAfterMs: classification.retryAfterMs,
+            ...(finalConfig.logErrorDetails && {
+              errorMessage: lastError.message,
+              errorStack: lastError.stack,
+              errorName: lastError.name,
+            }),
+          }
+
+          this.logger.warn(
+            `${operationName} failed on attempt ${attempt}/${finalConfig.maxAttempts}`,
+            logData,
+          )
+        }
 
         // Don't wait after the last attempt
         if (attempt < finalConfig.maxAttempts) {
           const delay = this.calculateDelay(attempt - 1, finalConfig)
+
+          if (finalConfig.logRetryDelays) {
+            this.logger.debug(
+              `Waiting ${delay}ms before retry attempt ${attempt + 1}`,
+              {
+                operationName,
+                nextAttempt: attempt + 1,
+                delay,
+                category: errorCategory,
+              },
+            )
+          }
+
           await this.sleep(delay)
         }
       }
     }
 
     const totalTime = Date.now() - startTime
-    this.logger.error(
-      `${operationName} failed after ${finalConfig.maxAttempts} attempts in ${totalTime}ms`,
-      {
-        error: lastError.message,
+
+    if (finalConfig.logFailedRetries) {
+      const classification = this.errorClassifier.classifyError(
+        lastError,
+        errorCategory,
+      )
+
+      const logData = {
+        operationName,
         attempts: finalConfig.maxAttempts,
         totalTime,
-        operationName,
-      },
-    )
+        category: errorCategory,
+        errorType: classification.errorType,
+        errorCategory: classification.category,
+        severity: classification.severity,
+        isRetryable: classification.isRetryable,
+        retryAfterMs: classification.retryAfterMs,
+        ...(finalConfig.logErrorDetails && {
+          errorMessage: lastError.message,
+          errorStack: lastError.stack,
+          errorName: lastError.name,
+        }),
+      }
+
+      this.logger.error(
+        `${operationName} failed after ${finalConfig.maxAttempts} attempts in ${totalTime}ms`,
+        logData,
+      )
+    }
 
     throw lastError
   }
@@ -109,6 +205,7 @@ export class RetryService {
     circuitBreakerKey: string,
     config: Partial<RetryConfig> = {},
     operationName = 'unknown',
+    errorCategory: ErrorCategory = ErrorCategory.SYSTEM,
   ): Promise<T> {
     const circuitState = this.getCircuitBreakerState(circuitBreakerKey)
 
@@ -135,6 +232,7 @@ export class RetryService {
         operation,
         config,
         operationName,
+        errorCategory,
       )
 
       // Success - reset circuit breaker
@@ -162,6 +260,27 @@ export class RetryService {
 
       throw error
     }
+  }
+
+  /**
+   * Check if error should be logged based on severity threshold
+   */
+  private shouldLogBasedOnSeverity(
+    errorSeverity: ErrorSeverity,
+    threshold?: ErrorSeverity,
+  ): boolean {
+    if (!threshold) {
+      return true
+    }
+
+    const severityOrder = {
+      [ErrorSeverity.LOW]: 0,
+      [ErrorSeverity.MEDIUM]: 1,
+      [ErrorSeverity.HIGH]: 2,
+      [ErrorSeverity.CRITICAL]: 3,
+    }
+
+    return severityOrder[errorSeverity] >= severityOrder[threshold]
   }
 
   /**
