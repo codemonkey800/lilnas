@@ -8,6 +8,7 @@
 .pnpm-store/
 .turbo/
 *.tsbuildinfo
+coverage/
 data/
 dist/
 infra/dev.yml
