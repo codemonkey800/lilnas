@@ -1,13 +1,21 @@
 import { down } from 'src/commands/down'
 import { redeploy } from 'src/commands/redeploy'
 import { up } from 'src/commands/up'
+import { runInteractive } from 'src/utils'
 
 // Mock the command dependencies
 jest.mock('../../commands/down')
 jest.mock('../../commands/up')
+jest.mock('../../utils', () => ({
+  ...jest.requireActual('../../utils'),
+  runInteractive: jest.fn(),
+}))
 
 const mockDown = down as jest.MockedFunction<typeof down>
 const mockUp = up as jest.MockedFunction<typeof up>
+const mockRunInteractive = runInteractive as jest.MockedFunction<
+  typeof runInteractive
+>
 
 describe('redeploy command', () => {
   beforeEach(() => {
@@ -71,6 +79,48 @@ describe('redeploy command', () => {
 
       expect(mockDown).toHaveBeenCalledWith({ all: undefined, services })
       expect(mockUp).toHaveBeenCalledWith({ services })
+    })
+
+    it('should rebuild base images when rebuild-base flag is set', async () => {
+      const services = ['app1']
+
+      await redeploy({ services, 'rebuild-base': true })
+
+      expect(mockRunInteractive).toHaveBeenCalledWith(
+        expect.stringContaining('build-base-images.sh'),
+      )
+      expect(mockDown).toHaveBeenCalledWith({ all: undefined, services })
+      expect(mockUp).toHaveBeenCalledWith({ services })
+    })
+
+    it('should not rebuild base images when rebuild-base flag is false', async () => {
+      const services = ['app1']
+
+      await redeploy({ services, 'rebuild-base': false })
+
+      expect(mockRunInteractive).not.toHaveBeenCalled()
+      expect(mockDown).toHaveBeenCalledWith({ all: undefined, services })
+      expect(mockUp).toHaveBeenCalledWith({ services })
+    })
+
+    it('should rebuild base images before down command', async () => {
+      const callOrder: string[] = []
+
+      mockRunInteractive.mockImplementation(() => {
+        callOrder.push('rebuild-base')
+      })
+
+      mockDown.mockImplementation(async () => {
+        callOrder.push('down')
+      })
+
+      mockUp.mockImplementation(async () => {
+        callOrder.push('up')
+      })
+
+      await redeploy({ services: ['app1'], 'rebuild-base': true })
+
+      expect(callOrder).toEqual(['rebuild-base', 'down', 'up'])
     })
   })
 

@@ -73,6 +73,7 @@ pnpm test:watch
 # - Bring up services: lilnas dev up -d
 # - Bring down services: lilnas dev down
 # - Clean all images: lilnas dev down --all
+# - Redeploy with fresh source code: lilnas redeploy <service> --rebuild-base
 ```
 
 ### Individual Package Development
@@ -281,6 +282,25 @@ The project uses a layered Docker base image system for consistent environments:
 # Images are used automatically by service Dockerfiles
 # Rebuild when updating Node.js version or base dependencies
 ```
+
+**Important: Docker Cache and Source Code Updates**
+
+The `lilnas-monorepo-builder` base image contains a snapshot of the source code. When you make changes to your code and run `lilnas redeploy`, the changes might not be reflected because the base image is cached. To ensure fresh source code is deployed:
+
+```bash
+# Option 1: Use the --rebuild-base flag (recommended)
+./lilnas redeploy tdr-bot --rebuild-base
+
+# Option 2: Manually rebuild base images first
+./infra/base-images/build-base-images.sh
+./lilnas redeploy tdr-bot
+
+# Option 3: Remove all images to force complete rebuild
+./lilnas down --all
+./lilnas up tdr-bot
+```
+
+The `--rebuild-base` flag automatically rebuilds the base images before redeploying, ensuring your latest source code changes are included.
 
 ### Build Process
 
