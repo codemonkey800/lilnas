@@ -35,7 +35,7 @@ export class SecureExecutor {
     } = options
 
     // Validate command is in allowed list
-    const allowedCommands = ['pdflatex', 'convert']
+    const allowedCommands = ['pdflatex', 'convert', 'magick']
     if (!allowedCommands.includes(command)) {
       throw new Error(`Command '${command}' is not allowed`)
     }
@@ -236,46 +236,29 @@ export class SecureExecutor {
           'convert',
           [
             '-density',
-            '1500',
+            '600', // Higher density for better text quality
+            path.basename(pdfFile),
+            '-quality',
+            '100',
             '-background',
             'white',
-            path.basename(pdfFile),
             '-alpha',
             'remove',
             '-alpha',
-            'off',
-            '-background',
-            'white',
+            'off', // Ensure alpha is completely off
             '-flatten',
             '-colorspace',
-            'RGB',
-            '-fuzz',
-            '1%',
+            'sRGB', // Use sRGB for better color consistency
+            '-depth',
+            '8', // Ensure 8-bit depth
             '-trim',
-            '+repage',
-            '-background',
-            'white',
+            '+repage', // Reset page geometry after trim
             '-bordercolor',
             'white',
             '-border',
-            '80x80',
-            '-background',
-            'white',
-            '-alpha',
-            'remove',
-            '-alpha',
-            'off',
-            '-quality',
-            '100',
-            '-define',
-            'png:compression-level=6',
-            '-define',
-            'png:format=png32',
-            '-antialias',
-            '-interpolate',
-            'bicubic',
-            '-filter',
-            'Lanczos',
+            '40x40',
+            '-format',
+            'png32', // Force PNG32 format
             path.basename(pngFile),
           ],
           {
@@ -316,48 +299,19 @@ export class SecureExecutor {
     return this.safeExec(
       'convert',
       [
-        '-background',
-        'white',
         inputBasename,
-        '-alpha',
-        'remove',
-        '-alpha',
-        'off',
-        '-background',
-        'white',
-        '-fuzz',
-        '1%',
-        '-trim',
-        '+repage',
-        '-background',
-        'white',
-        '-bordercolor',
-        'white',
-        '-border',
-        '80x80',
-        '-background',
-        'white',
-        '-alpha',
-        'remove',
-        '-alpha',
-        'off',
         '-resize',
-        '8000x8000>', // Ultra high resolution
+        '4000x4000>', // High resolution but more reasonable
         '-quality',
-        '100',
+        '95',
+        '-colorspace',
+        'sRGB', // Maintain color space consistency
+        '-depth',
+        '8', // Maintain bit depth
         '-define',
         'png:compression-level=6',
         '-define',
-        'png:format=png32',
-        '-colorspace',
-        'RGB',
-        '-antialias',
-        '-interpolate',
-        'bicubic',
-        '-filter',
-        'Lanczos',
-        '-unsharp',
-        '0x0.8+1.2+0.05', // Enhanced sharpening
+        'png:color-type=2', // Force RGB without alpha
         outputBasename,
       ],
       {
