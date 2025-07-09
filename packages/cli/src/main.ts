@@ -90,6 +90,11 @@ async function main() {
           default: false,
           description: 'Deletes all images instead of just local ones.',
           type: 'boolean',
+        })
+        .option('rebuild-base', {
+          default: false,
+          description: 'Rebuild base images before redeploying.',
+          type: 'boolean',
         }),
     )
     .command(
