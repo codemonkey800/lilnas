@@ -1,6 +1,5 @@
 include:
   # Infrastructure services
-  - ./infra/apps.dev.yml
   - ./infra/proxy.dev.yml
   - ./infra/shared.dev.yml
   
