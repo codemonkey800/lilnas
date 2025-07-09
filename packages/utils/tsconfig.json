@@ -3,7 +3,8 @@
     "**/__tests__/**",
     "**/*.test.ts",
     "**/*.spec.ts",
-    "jest.config.js"
+    "jest.config.js",
+    "dist"
   ],
   "compilerOptions": {
     /* Visit https://aka.ms/tsconfig to read more about this file */
