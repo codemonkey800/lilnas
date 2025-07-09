@@ -1,5 +1,23 @@
 # Multi-stage Dockerfile for @lilnas/apps
-FROM lilnas-monorepo-builder AS builder
+
+# Dependency caching stage
+FROM lilnas-monorepo-builder AS deps
+
+# Copy package files for dependency caching
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/apps/package.json packages/apps/
+COPY packages/utils/package.json packages/utils/
+COPY packages/eslint-config-lilnas/package.json packages/eslint-config-lilnas/
+COPY packages/prettier-config-lilnas/package.json packages/prettier-config-lilnas/
+
+# Install dependencies (this layer gets cached)
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install
+
+# Build stage
+FROM deps AS builder
+
+# Copy source code (this layer changes frequently)
+COPY . .
 
 # Build the apps package
 RUN pnpm build --filter=@lilnas/apps

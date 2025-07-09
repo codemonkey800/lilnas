@@ -60,6 +60,7 @@ export class ChatService extends BaseMessageHandlerService {
               maxDelay: 5000,
             },
             'Discord-longTypingMessage',
+            ErrorCategory.DISCORD_API,
           )
         } catch (error) {
           this.logger.error('Failed to send long typing message', {
@@ -82,6 +83,7 @@ export class ChatService extends BaseMessageHandlerService {
             maxDelay: 2000,
           },
           'Discord-sendTyping',
+          ErrorCategory.DISCORD_API,
         )
       } catch (error) {
         this.logger.warn('Failed to send typing indicator', {
@@ -119,6 +121,7 @@ export class ChatService extends BaseMessageHandlerService {
           maxDelay: 5000,
         },
         'Discord-sendErrorMessage',
+        ErrorCategory.DISCORD_API,
       )
     } catch (error) {
       this.logger.error('Failed to send error message to user', {
@@ -177,6 +180,7 @@ export class ChatService extends BaseMessageHandlerService {
           timeout: 120000, // 2 minutes for LLM response
         },
         'LLM-sendMessage',
+        ErrorCategory.OPENAI_API,
       )
 
       if (response) {
@@ -209,6 +213,7 @@ export class ChatService extends BaseMessageHandlerService {
             maxDelay: 5000,
           },
           'Discord-sendResponse',
+          ErrorCategory.DISCORD_API,
         )
 
         this.stopBotTyping()
