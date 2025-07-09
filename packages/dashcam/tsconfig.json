@@ -14,7 +14,7 @@
     "noUnusedParameters": true,
     "paths": {
       "src/*": ["./src/*"],
-      "@lilnas/utils/*": ["./node_modules/@lilnas/utils/src/*"]
+      "@lilnas/utils/*": ["../utils/dist/*"]
     },
     "resolveJsonModule": true,
     "skipLibCheck": true,
@@ -22,5 +22,5 @@
     "target": "ESNext",
     "useDefineForClassFields": true
   },
-  "include": ["src", "node_modules/@lilnas/utils/src"]
+  "include": ["src"]
 }
