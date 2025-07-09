@@ -2,6 +2,12 @@ import { DynamicModule, ForwardReference, Provider, Type } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Test, TestingModule } from '@nestjs/testing'
 import {
+  AxiosError,
+  AxiosHeaders,
+  AxiosResponse,
+  InternalAxiosRequestConfig,
+} from 'axios'
+import {
   Collection,
   DMChannel,
   Guild,
@@ -13,6 +19,8 @@ import {
 import { Message } from 'src/message-handler/types'
 import { OverallStateAnnotation, ResponseType } from 'src/schemas/graph'
 import { StateService } from 'src/state/state.service'
+import { ErrorClassificationService } from 'src/utils/error-classifier'
+import { RetryService } from 'src/utils/retry.service'
 
 // Mock factories for Discord.js objects
 export function createMockUser(overrides: Partial<User> = {}): User {
@@ -213,6 +221,32 @@ export function createMockStateService(): jest.Mocked<StateService> {
   } as unknown as jest.Mocked<StateService>
 }
 
+// Mock RetryService factory
+export function createMockRetryService(): jest.Mocked<RetryService> {
+  return {
+    executeWithRetry: jest.fn().mockImplementation(operation => operation()),
+    executeWithCircuitBreaker: jest
+      .fn()
+      .mockImplementation(operation => operation()),
+    getCircuitBreakerStatus: jest.fn().mockReturnValue(undefined),
+    resetCircuitBreaker: jest.fn(),
+  } as unknown as jest.Mocked<RetryService>
+}
+
+// Mock ErrorClassificationService factory
+export function createMockErrorClassificationService(): jest.Mocked<ErrorClassificationService> {
+  return {
+    classifyError: jest.fn().mockReturnValue({
+      isRetryable: false,
+      errorType: 'UNKNOWN_ERROR',
+      category: 'SYSTEM',
+      severity: 'HIGH',
+    }),
+    shouldRetry: jest.fn().mockReturnValue(false),
+    getRetryDelay: jest.fn().mockReturnValue(undefined),
+  } as unknown as jest.Mocked<ErrorClassificationService>
+}
+
 // LangChain mock utilities
 export function createMockChatOpenAI() {
   const mock = {
@@ -275,6 +309,80 @@ export function createMockAxiosResponse<T = unknown>(data: T, status = 200) {
     headers: {},
     config: {},
   }
+}
+
+// Status text mapping for HTTP status codes
+export function getStatusText(status: number): string {
+  const statusTexts: Record<number, string> = {
+    200: 'OK',
+    201: 'Created',
+    204: 'No Content',
+    400: 'Bad Request',
+    401: 'Unauthorized',
+    403: 'Forbidden',
+    404: 'Not Found',
+    429: 'Too Many Requests',
+    500: 'Internal Server Error',
+    502: 'Bad Gateway',
+    503: 'Service Unavailable',
+    504: 'Gateway Timeout',
+  }
+  return statusTexts[status] || 'Unknown'
+}
+
+// Axios error factory
+export function createMockAxiosError<T = unknown>(
+  message: string,
+  code: string,
+  status?: number,
+  responseData?: T,
+  config?: Record<string, unknown>,
+): AxiosError<T> {
+  const axiosConfig: InternalAxiosRequestConfig = {
+    method: 'get',
+    url: 'https://example.com/api',
+    headers: new AxiosHeaders(),
+    timeout: 5000,
+    ...config,
+  }
+
+  const response = status
+    ? ({
+        data: responseData,
+        status,
+        statusText: getStatusText(status),
+        headers: {
+          'content-type': 'application/json',
+          ...(config?.headers as Record<string, string>),
+        },
+        config: axiosConfig,
+      } as AxiosResponse<T>)
+    : undefined
+
+  const error = new AxiosError<T>(
+    message,
+    code,
+    axiosConfig,
+    null, // request
+    response,
+  )
+
+  // Ensure the error has all required properties
+  error.name = 'AxiosError'
+  error.code = code
+  error.config = axiosConfig as never
+  error.response = response
+  error.isAxiosError = true
+  error.toJSON = () => ({
+    message: error.message,
+    name: error.name,
+    code: error.code,
+    config: error.config,
+    response: error.response,
+    isAxiosError: error.isAxiosError,
+  })
+
+  return error
 }
 
 // Test data builders

@@ -26,6 +26,7 @@ import { MessageResponse } from 'src/schemas/messages'
 import { EquationImageService } from 'src/services/equation-image.service'
 import { StateService } from 'src/state/state.service'
 import { UnhandledMessageResponseError } from 'src/utils/error'
+import { ErrorClassificationService } from 'src/utils/error-classifier'
 import {
   EXTRACT_IMAGE_QUERIES_PROMPT,
   GET_CHAT_MATH_RESPONSE,
@@ -34,6 +35,7 @@ import {
   IMAGE_RESPONSE,
   TDR_SYSTEM_PROMPT_ID,
 } from 'src/utils/prompts'
+import { RetryService } from 'src/utils/retry.service'
 
 import { dateTool } from './tools'
 
@@ -51,6 +53,8 @@ export class LLMService {
   constructor(
     private readonly state: StateService,
     private readonly equationImage: EquationImageService,
+    private readonly retryService: RetryService,
+    private readonly errorClassifier: ErrorClassificationService,
   ) {}
 
   private readonly logger = new Logger(LLMService.name)
@@ -139,10 +143,17 @@ export class LLMService {
       content: userInput,
     })
 
-    const response = await this.getReasoningModel().invoke([
-      GET_RESPONSE_TYPE_PROMPT,
-      message,
-    ])
+    const response = await this.retryService.executeWithRetry(
+      () =>
+        this.getReasoningModel().invoke([GET_RESPONSE_TYPE_PROMPT, message]),
+      {
+        maxAttempts: 3,
+        baseDelay: 1000,
+        maxDelay: 30000,
+        timeout: 30000,
+      },
+      'OpenAI-checkResponseType',
+    )
 
     if (!isEnumValue(response.content, ResponseType)) {
       throw new Error(`Invalid response type: "${response.content}"`)
@@ -197,7 +208,16 @@ export class LLMService {
     const allMessages = (prevMessages ?? []).concat(messages)
 
     this.logger.log('Getting response from model')
-    const response = await this.getChatModel().invoke(allMessages)
+    const response = await this.retryService.executeWithRetry(
+      () => this.getChatModel().invoke(allMessages),
+      {
+        maxAttempts: 3,
+        baseDelay: 1000,
+        maxDelay: 30000,
+        timeout: 45000,
+      },
+      'OpenAI-getModelDefaultResponse',
+    )
     this.logger.log('Got response from model')
 
     const messagesWithResponse = allMessages.concat(response)
@@ -217,9 +237,21 @@ export class LLMService {
     this.logger.log({ message: message.content }, 'Extracting image queries')
 
     try {
-      const extractImageQueriesResponse = await this.getReasoningModel().invoke(
-        [EXTRACT_IMAGE_QUERIES_PROMPT, message],
-      )
+      const extractImageQueriesResponse =
+        await this.retryService.executeWithRetry(
+          () =>
+            this.getReasoningModel().invoke([
+              EXTRACT_IMAGE_QUERIES_PROMPT,
+              message,
+            ]),
+          {
+            maxAttempts: 3,
+            baseDelay: 1000,
+            maxDelay: 30000,
+            timeout: 30000,
+          },
+          'OpenAI-getModelImageResponse-extract',
+        )
 
       const imageQueries = ImageQuerySchema.parse(
         JSON.parse(extractImageQueriesResponse.content as string),
@@ -230,7 +262,16 @@ export class LLMService {
       const dalle = new DallEAPIWrapper()
       const images = await Promise.all(
         imageQueries.map(async ({ title, query }) => {
-          const url = await dalle.invoke(query)
+          const url = await this.retryService.executeWithRetry(
+            () => dalle.invoke(query),
+            {
+              maxAttempts: 3,
+              baseDelay: 2000,
+              maxDelay: 60000,
+              timeout: 60000,
+            },
+            `DallE-generate-${title}`,
+          )
 
           return ImageResponseSchema.parse({
             title,
@@ -241,10 +282,16 @@ export class LLMService {
 
       this.logger.log({ images }, 'Got image URLs')
 
-      const chatResponse = await this.getChatModel().invoke([
-        ...messages,
-        IMAGE_RESPONSE,
-      ])
+      const chatResponse = await this.retryService.executeWithRetry(
+        () => this.getChatModel().invoke([...messages, IMAGE_RESPONSE]),
+        {
+          maxAttempts: 3,
+          baseDelay: 1000,
+          maxDelay: 30000,
+          timeout: 30000,
+        },
+        'OpenAI-getModelImageResponse-chat',
+      )
 
       return {
         images: images.map(image => ({
@@ -269,19 +316,35 @@ export class LLMService {
   }: typeof OverallStateAnnotation.State) {
     this.logger.log({ message: message.content }, 'Get complex math solution')
 
-    const latexResponse = await this.getReasoningModel().invoke(
-      messages
-        .filter(message => message.id !== TDR_SYSTEM_PROMPT_ID)
-        .concat(GET_MATH_RESPONSE_PROMPT),
+    const latexResponse = await this.retryService.executeWithRetry(
+      () =>
+        this.getReasoningModel().invoke(
+          messages
+            .filter(message => message.id !== TDR_SYSTEM_PROMPT_ID)
+            .concat(GET_MATH_RESPONSE_PROMPT),
+        ),
+      {
+        maxAttempts: 3,
+        baseDelay: 1000,
+        maxDelay: 30000,
+        timeout: 30000,
+      },
+      'OpenAI-getModelMathResponse-latex',
     )
 
     const latex = latexResponse.content.toString()
     const equationImageResponse = await this.equationImage.getImage(latex)
 
-    const chatResponse = await this.getChatModel().invoke([
-      ...messages,
-      GET_CHAT_MATH_RESPONSE,
-    ])
+    const chatResponse = await this.retryService.executeWithRetry(
+      () => this.getChatModel().invoke([...messages, GET_CHAT_MATH_RESPONSE]),
+      {
+        maxAttempts: 3,
+        baseDelay: 1000,
+        maxDelay: 30000,
+        timeout: 30000,
+      },
+      'OpenAI-getModelMathResponse-chat',
+    )
 
     return {
       images: equationImageResponse

@@ -11,6 +11,8 @@ import { Client, Collection, User } from 'discord.js'
 import {
   createMockAxiosResponse,
   createMockChatOpenAI,
+  createMockErrorClassificationService,
+  createMockRetryService,
   createMockStateGraph,
   MessageBuilder,
 } from 'src/__tests__/test-utils'
@@ -21,6 +23,8 @@ import { MessageHandlerService } from 'src/message-handler/message-handler.servi
 import { ResponseType } from 'src/schemas/graph'
 import { EquationImageService } from 'src/services/equation-image.service'
 import { StateService } from 'src/state/state.service'
+import { ErrorClassificationService } from 'src/utils/error-classifier'
+import { RetryService } from 'src/utils/retry.service'
 
 // Mock all external dependencies
 jest.mock('@langchain/openai')
@@ -106,6 +110,14 @@ describe('Message Handler Integration Tests', () => {
         {
           provide: Client,
           useValue: mockClient,
+        },
+        {
+          provide: RetryService,
+          useValue: createMockRetryService(),
+        },
+        {
+          provide: ErrorClassificationService,
+          useValue: createMockErrorClassificationService(),
         },
       ],
     }).compile()

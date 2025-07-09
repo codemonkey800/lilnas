@@ -3,9 +3,13 @@ import { LRUCache } from 'lru-cache'
 
 import {
   createMockAxiosResponse,
+  createMockErrorClassificationService,
+  createMockRetryService,
   createTestingModule,
 } from 'src/__tests__/test-utils'
 import { EquationImageService } from 'src/services/equation-image.service'
+import { ErrorClassificationService } from 'src/utils/error-classifier'
+import { RetryService } from 'src/utils/retry.service'
 
 interface EquationResponse {
   imageUrl: string
@@ -39,7 +43,17 @@ describe('EquationImageService', () => {
       () => mockCache as unknown as LRUCache<object, object>,
     )
 
-    const module = await createTestingModule([EquationImageService])
+    const module = await createTestingModule([
+      EquationImageService,
+      {
+        provide: RetryService,
+        useValue: createMockRetryService(),
+      },
+      {
+        provide: ErrorClassificationService,
+        useValue: createMockErrorClassificationService(),
+      },
+    ])
     service = module.get<EquationImageService>(EquationImageService)
   })
 
@@ -77,6 +91,7 @@ describe('EquationImageService', () => {
           latex,
           token: process.env.EQUATIONS_API_KEY,
         },
+        { timeout: 10000 },
       )
     })
 
@@ -121,7 +136,7 @@ describe('EquationImageService', () => {
       mockCache.get.mockReturnValue(undefined)
       mockAxios.post.mockRejectedValue(new Error('Network error'))
 
-      await expect(service.getImage(latex)).rejects.toThrow('Network error')
+      expect(await service.getImage(latex)).toBeUndefined()
       expect(mockCache.set).not.toHaveBeenCalled()
     })
 
@@ -133,7 +148,7 @@ describe('EquationImageService', () => {
         createMockAxiosResponse({ invalid: 'response' }),
       )
 
-      await expect(service.getImage(latex)).rejects.toThrow()
+      expect(await service.getImage(latex)).toBeUndefined()
       expect(mockCache.set).not.toHaveBeenCalled()
     })
   })
@@ -243,7 +258,7 @@ describe('EquationImageService', () => {
       const result = await service.getImage(longLatex)
 
       expect(result).toEqual(apiResponse)
-      expect(mockCache.set).toHaveBeenCalledWith(longLatex, apiResponse)
+      expect(mockCache.set).toHaveBeenCalledWith(longLatex.trim(), apiResponse)
     })
 
     it('should handle LaTeX with special characters', async () => {
@@ -294,8 +309,8 @@ describe('EquationImageService', () => {
       expect(result1).toEqual(apiResponse)
       expect(result2).toEqual(apiResponse)
 
-      // But only one API call should be made
-      expect(mockAxios.post).toHaveBeenCalledTimes(2) // Without request deduplication, both will call
+      // But only one API call should be made due to request deduplication
+      expect(mockAxios.post).toHaveBeenCalledTimes(1) // Request deduplication prevents duplicate calls
     })
   })
 })

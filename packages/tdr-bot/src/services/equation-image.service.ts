@@ -7,6 +7,11 @@ import { performance } from 'perf_hooks'
 import { z } from 'zod'
 
 import { EnvKey } from 'src/utils/env'
+import {
+  ErrorCategory,
+  ErrorClassificationService,
+} from 'src/utils/error-classifier'
+import { RetryService } from 'src/utils/retry.service'
 
 const EquationAPISuccessSchema = z.object({
   bucket: z.string(),
@@ -36,6 +41,17 @@ export class EquationImageService {
 
   private cache = new LRUCache<string, EquationImageData>({ max: 100 })
 
+  // In-flight request cache to prevent duplicate requests
+  private inFlightRequests = new Map<
+    string,
+    Promise<EquationAPISuccess | undefined>
+  >()
+
+  constructor(
+    private readonly retryService: RetryService,
+    private readonly errorClassifier: ErrorClassificationService,
+  ) {}
+
   private async fetchImage(
     latex: string,
   ): Promise<EquationAPISuccess | undefined> {
@@ -44,25 +60,70 @@ export class EquationImageService {
     this.logger.log({ id }, 'Fetching latex image')
     const start = performance.now()
 
-    const url = `${env<EnvKey>('EQUATIONS_URL')}/equations`
-    const response = await axios.post(url, {
-      latex,
-      token: env<EnvKey>('EQUATIONS_API_KEY'),
-    })
+    try {
+      const url = `${env<EnvKey>('EQUATIONS_URL')}/equations`
 
-    const end = performance.now()
-    const duration = end - start
+      const response = await this.retryService.executeWithCircuitBreaker(
+        () =>
+          axios.post(
+            url,
+            {
+              latex,
+              token: env<EnvKey>('EQUATIONS_API_KEY'),
+            },
+            {
+              timeout: 10000, // 10 second timeout
+            },
+          ),
+        'equation-service',
+        {
+          maxAttempts: 3,
+          baseDelay: 1000,
+          maxDelay: 30000,
+          timeout: 10000,
+        },
+        `equation-service-${id}`,
+      )
 
-    const data = EquationAPIResponseSchema.parse(response.data)
+      const end = performance.now()
+      const duration = end - start
 
-    if ('bucket' in data) {
-      this.logger.log({ id, duration, ...data }, 'Fetched latex image')
-      return data
+      const data = EquationAPIResponseSchema.parse(response.data)
+
+      if ('bucket' in data) {
+        this.logger.log({ id, duration, ...data }, 'Fetched latex image')
+        return data
+      }
+
+      this.logger.error(
+        { id, duration, ...data },
+        'Failed to fetch latex image',
+      )
+      return undefined
+    } catch (error) {
+      const end = performance.now()
+      const duration = end - start
+
+      const classification = this.errorClassifier.classifyError(
+        error as Error,
+        ErrorCategory.EQUATION_SERVICE,
+      )
+
+      this.logger.error(
+        {
+          id,
+          duration,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          errorType: classification.errorType,
+          isRetryable: classification.isRetryable,
+          category: classification.category,
+          severity: classification.severity,
+        },
+        'Error fetching latex image',
+      )
+
+      return undefined
     }
-
-    this.logger.error({ id, duration, ...data }, 'Failed to fetch latex image')
-
-    return undefined
   }
 
   async getImage(
@@ -73,20 +134,42 @@ export class EquationImageService {
     }
 
     const id = nanoid()
+    const normalizedLatex = latex.trim()
 
-    const cachedValue = this.cache.get(latex)
+    // Check cache first
+    const cachedValue = this.cache.get(normalizedLatex)
     if (cachedValue) {
       this.logger.log({ id, ...cachedValue }, 'Returning cached latex image')
       return cachedValue
     }
 
-    const image = await this.fetchImage(latex)
-
-    if (image) {
-      this.logger.log({ id, ...image }, 'Caching latex image')
-      this.cache.set(latex, image)
+    // Check if request is already in flight to prevent duplicate requests
+    const inFlightRequest = this.inFlightRequests.get(normalizedLatex)
+    if (inFlightRequest) {
+      this.logger.log(
+        { id, latex: normalizedLatex },
+        'Request already in flight, waiting for result',
+      )
+      const result = await inFlightRequest
+      return result
     }
 
-    return image
+    // Create new request and add to in-flight cache
+    const requestPromise = this.fetchImage(normalizedLatex)
+    this.inFlightRequests.set(normalizedLatex, requestPromise)
+
+    try {
+      const image = await requestPromise
+
+      if (image) {
+        this.logger.log({ id, ...image }, 'Caching latex image')
+        this.cache.set(normalizedLatex, image)
+      }
+
+      return image
+    } finally {
+      // Always remove from in-flight cache when done
+      this.inFlightRequests.delete(normalizedLatex)
+    }
   }
 }

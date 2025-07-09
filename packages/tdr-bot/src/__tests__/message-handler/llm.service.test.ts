@@ -6,6 +6,8 @@ import { ChatOpenAI, DallEAPIWrapper } from '@langchain/openai'
 
 import {
   createMockChatOpenAI,
+  createMockErrorClassificationService,
+  createMockRetryService,
   createMockStateGraph,
   createMockStateService,
   createMockToolNode,
@@ -15,7 +17,9 @@ import { LLMService } from 'src/message-handler/llm.service'
 import { ResponseType } from 'src/schemas/graph'
 import { EquationImageService } from 'src/services/equation-image.service'
 import { AppState, StateService } from 'src/state/state.service'
+import { ErrorClassificationService } from 'src/utils/error-classifier'
 import { TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
+import { RetryService } from 'src/utils/retry.service'
 
 jest.mock('@langchain/openai')
 jest.mock('@langchain/langgraph')
@@ -88,6 +92,14 @@ describe('LLMService', () => {
       {
         provide: EquationImageService,
         useValue: equationImageService,
+      },
+      {
+        provide: RetryService,
+        useValue: createMockRetryService(),
+      },
+      {
+        provide: ErrorClassificationService,
+        useValue: createMockErrorClassificationService(),
       },
     ])
 

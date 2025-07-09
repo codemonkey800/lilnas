@@ -3,7 +3,12 @@ import { Client, EmbedBuilder } from 'discord.js'
 import { nanoid } from 'nanoid'
 import { remark } from 'remark'
 
+import {
+  ErrorCategory,
+  ErrorClassificationService,
+} from 'src/utils/error-classifier'
 import { remarkFixLinkPlugin } from 'src/utils/fix-link'
+import { RetryService } from 'src/utils/retry.service'
 
 import { BaseMessageHandlerService } from './base-message-handler.service'
 import { LLMService } from './llm.service'
@@ -25,6 +30,8 @@ export class ChatService extends BaseMessageHandlerService {
   constructor(
     protected readonly client: Client,
     private readonly llm: LLMService,
+    private readonly retryService: RetryService,
+    private readonly errorClassifier: ErrorClassificationService,
   ) {
     super(client)
   }
@@ -40,16 +47,47 @@ export class ChatService extends BaseMessageHandlerService {
     const sendTyping = async () => {
       if (this.sendTypingCount > MAX_SEND_TYPING_COUNT) {
         this.logger.log({ log: 'sending long typing message' })
-        await message.reply(
-          "sorry i'm taking me longer than usual to respond, i'm a little nervous <:Sadge:781403152258826281>",
-        )
+
+        try {
+          await this.retryService.executeWithRetry(
+            () =>
+              message.reply(
+                "sorry i'm taking me longer than usual to respond, i'm a little nervous <:Sadge:781403152258826281>",
+              ),
+            {
+              maxAttempts: 3,
+              baseDelay: 1000,
+              maxDelay: 5000,
+            },
+            'Discord-longTypingMessage',
+          )
+        } catch (error) {
+          this.logger.error('Failed to send long typing message', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+          })
+        }
 
         this.stopBotTyping()
         return
       }
 
       this.sendTypingCount++
-      message.channel.sendTyping()
+
+      try {
+        await this.retryService.executeWithRetry(
+          () => message.channel.sendTyping(),
+          {
+            maxAttempts: 2,
+            baseDelay: 500,
+            maxDelay: 2000,
+          },
+          'Discord-sendTyping',
+        )
+      } catch (error) {
+        this.logger.warn('Failed to send typing indicator', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+        })
+      }
     }
 
     sendTyping()
@@ -67,6 +105,27 @@ export class ChatService extends BaseMessageHandlerService {
   private async sanitizeContent(content: string) {
     const result = await remark().use(remarkFixLinkPlugin).process(content)
     return result.toString()
+  }
+
+  private async sendErrorMessage(message: Message, errorMessage: string) {
+    this.stopBotTyping()
+
+    try {
+      await this.retryService.executeWithRetry(
+        () => message.reply(errorMessage),
+        {
+          maxAttempts: 3,
+          baseDelay: 1000,
+          maxDelay: 5000,
+        },
+        'Discord-sendErrorMessage',
+      )
+    } catch (error) {
+      this.logger.error('Failed to send error message to user', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage,
+      })
+    }
   }
 
   private async handleChatMessage(message: Message): Promise<boolean> {
@@ -104,37 +163,83 @@ export class ChatService extends BaseMessageHandlerService {
 
     this.startBotTyping(message)
 
-    const response = await this.llm.sendMessage({
-      message: content,
-      user: message.author.displayName,
-    })
-
-    if (response) {
-      this.logger.log(
+    try {
+      const response = await this.retryService.executeWithRetry(
+        () =>
+          this.llm.sendMessage({
+            message: content,
+            user: message.author.displayName,
+          }),
         {
-          id,
-          images: response.images,
-          response: response.content,
-          user: message.author.displayName,
+          maxAttempts: 2,
+          baseDelay: 2000,
+          maxDelay: 10000,
+          timeout: 120000, // 2 minutes for LLM response
         },
-        'Sending response to user',
+        'LLM-sendMessage',
       )
 
-      await message.reply({
-        content: response.content,
-        embeds:
-          response.images instanceof Array && response.images.length > 0
-            ? response.images.map(image =>
-                new EmbedBuilder().setTitle(image.title).setImage(image.url),
-              )
-            : undefined,
+      if (response) {
+        this.logger.log(
+          {
+            id,
+            images: response.images,
+            response: response.content,
+            user: message.author.displayName,
+          },
+          'Sending response to user',
+        )
+
+        await this.retryService.executeWithRetry(
+          () =>
+            message.reply({
+              content: response.content,
+              embeds:
+                response.images instanceof Array && response.images.length > 0
+                  ? response.images.map(image =>
+                      new EmbedBuilder()
+                        .setTitle(image.title)
+                        .setImage(image.url),
+                    )
+                  : undefined,
+            }),
+          {
+            maxAttempts: 3,
+            baseDelay: 1000,
+            maxDelay: 5000,
+          },
+          'Discord-sendResponse',
+        )
+
+        this.stopBotTyping()
+      } else {
+        await this.sendErrorMessage(
+          message,
+          "sorry open AI is being dumb so I can't respond <:Sadge:781403152258826281>",
+        )
+      }
+    } catch (error) {
+      this.logger.error('Failed to process chat message', {
+        id,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        user: message.author.displayName,
+        message: content,
       })
 
-      this.stopBotTyping()
-    } else {
-      message.reply(
-        "sorry open AI is being dumb so I can't respond <:Sadge:781403152258826281>",
+      const classification = this.errorClassifier.classifyError(
+        error as Error,
+        ErrorCategory.SYSTEM,
       )
+
+      let errorMessage =
+        "sorry something went wrong and I can't respond right now <:Sadge:781403152258826281>"
+
+      if (classification.errorType === 'timeout') {
+        errorMessage =
+          "sorry I'm taking too long to respond, please try again later <:Sadge:781403152258826281>"
+      }
+
+      await this.sendErrorMessage(message, errorMessage)
     }
 
     return true
