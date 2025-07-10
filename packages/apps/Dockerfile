@@ -25,9 +25,18 @@ RUN pnpm build --filter=@lilnas/apps
 # Deploy production dependencies
 RUN pnpm --filter=apps --prod deploy /app
 
-# Copy Next.js standalone output and static files
-RUN cp -r /source/packages/apps/public/ /app/.next/standalone/ && \
-    cp -r /app/.next/static/ /app/.next/standalone/.next/
+# Copy the built Next.js application
+RUN cp -r /source/packages/apps/.next /app/.next
+
+# Copy public directory if it exists
+RUN if [ -d /source/packages/apps/public ]; then \
+      cp -r /source/packages/apps/public /app/.next/standalone/; \
+    fi
+
+# Copy static files to standalone directory
+RUN if [ -d /app/.next/static ]; then \
+      cp -r /app/.next/static /app/.next/standalone/.next/; \
+    fi
 
 # Runtime stage
 FROM lilnas-nextjs-runtime AS runtime
