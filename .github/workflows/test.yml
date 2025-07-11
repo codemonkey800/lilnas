@@ -32,22 +32,42 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
+          # Check if workflow files changed
+          WORKFLOW_CHANGED=false
+          if echo "$CHANGED_FILES" | grep -q "^\.github/workflows/"; then
+            WORKFLOW_CHANGED=true
+            echo "Workflow files changed - will test all packages"
+          fi
+
           # Extract package names from changed files
           PACKAGES=()
 
-          # Check each package directory for changes
-          for pkg in packages/*/; do
-            if [ -d "$pkg" ]; then
-              pkg_name=$(basename "$pkg")
-              # Check if any files in this package changed
-              if echo "$CHANGED_FILES" | grep -q "^packages/$pkg_name/"; then
+          if [ "$WORKFLOW_CHANGED" = "true" ]; then
+            # If workflow changed, test all packages that have test scripts
+            for pkg in packages/*/; do
+              if [ -d "$pkg" ]; then
+                pkg_name=$(basename "$pkg")
                 # Check if package has test script
                 if [ -f "packages/$pkg_name/package.json" ] && grep -q '"test"' "packages/$pkg_name/package.json"; then
                   PACKAGES+=("$pkg_name")
                 fi
               fi
-            fi
-          done
+            done
+          else
+            # Check each package directory for changes
+            for pkg in packages/*/; do
+              if [ -d "$pkg" ]; then
+                pkg_name=$(basename "$pkg")
+                # Check if any files in this package changed
+                if echo "$CHANGED_FILES" | grep -q "^packages/$pkg_name/"; then
+                  # Check if package has test script
+                  if [ -f "packages/$pkg_name/package.json" ] && grep -q '"test"' "packages/$pkg_name/package.json"; then
+                    PACKAGES+=("$pkg_name")
+                  fi
+                fi
+              fi
+            done
+          fi
 
           # Convert array to JSON
           if [ ${#PACKAGES[@]} -eq 0 ]; then
