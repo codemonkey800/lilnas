@@ -107,6 +107,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build dependencies
+        run: pnpm run build
+
       - name: Run tests for ${{ matrix.package }}
         run: |
           cd packages/${{ matrix.package }}
@@ -183,6 +186,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build dependencies
+        run: pnpm run build
 
       - name: Run lint for ${{ matrix.package }}
         run: |
