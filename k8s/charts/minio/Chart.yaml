@@ -1,0 +1,19 @@
+apiVersion: v2
+name: minio
+description: MinIO S3-compatible object storage for lilnas
+type: application
+version: 0.1.0
+appVersion: "RELEASE.2025-04-22T22-12-26Z-cpuv1"
+maintainers:
+  - name: lilnas
+    email: admin@lilnas.io
+home: https://github.com/codemonkey800/lilnas
+sources:
+  - https://github.com/codemonkey800/lilnas
+keywords:
+  - storage
+  - s3
+  - object-storage
+  - minio
+annotations:
+  category: Storage
