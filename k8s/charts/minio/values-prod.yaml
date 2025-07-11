@@ -1,0 +1,44 @@
+# Production environment values for minio
+# These values override the default values.yaml for production
+
+# Authentication (use secure production credentials)
+auth:
+  rootUser: jeremy
+  rootPassword: herpderp
+
+# Ingress configuration for production
+ingress:
+  api:
+    host: storage.lilnas.io
+  console:
+    host: storage-admin.lilnas.io
+  tls:
+    enabled: true
+    issuer: letsencrypt-prod
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+
+# Storage configuration for production
+storage:
+  className: hdd-storage
+  size: 1Ti
+
+# Resource limits for production
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "200m"
+  limits:
+    memory: "2Gi"
+    cpu: "1000m"
+
+# Health check configuration optimized for production
+livenessProbe:
+  initialDelaySeconds: 60
+  periodSeconds: 30
+
+readinessProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 15

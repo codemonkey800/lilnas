@@ -1,0 +1,82 @@
+# Default values for minio
+# This is a YAML-formatted file.
+# Declare variables to be substituted into your templates.
+
+# Deployment configuration
+replicaCount: 1
+namespace: lilnas-core
+
+# Image configuration
+image:
+  repository: minio/minio
+  tag: ""  # Uses Chart.AppVersion if not specified
+  pullPolicy: IfNotPresent
+
+# Service configuration
+service:
+  apiPort: 9000
+  consolePort: 9001
+
+# Storage configuration
+storage:
+  className: hdd-storage
+  size: 1Ti
+
+# Authentication configuration
+auth:
+  rootUser: admin
+  rootPassword: password
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+  api:
+    host: storage.lilnas.io
+  console:
+    host: storage-admin.lilnas.io
+  tls:
+    enabled: true
+    issuer: letsencrypt-prod
+
+# Health check configuration
+livenessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 20
+
+readinessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# Resource limits
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "100m"
+  limits:
+    memory: "1Gi"
+    cpu: "500m"
+
+# Initialization job configuration
+initJob:
+  enabled: true
+  backoffLimit: 3
+  image:
+    repository: minio/mc
+    tag: latest
+    pullPolicy: IfNotPresent
+  buckets:
+    - name: equations
+      public: true
+    - name: videos
+      public: true
+
+# Existing secret name (if you want to use an existing secret)
+existingSecret: ""
+
+# Name overrides
+nameOverride: ""
+fullnameOverride: ""

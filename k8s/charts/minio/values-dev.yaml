@@ -1,0 +1,32 @@
+# Development environment values for minio
+# These values override the default values.yaml for development
+
+# Authentication (use existing dev credentials)
+auth:
+  rootUser: jeremy
+  rootPassword: herpderp
+
+# Ingress configuration for development
+ingress:
+  api:
+    host: storage.localhost
+  console:
+    host: storage-admin.localhost
+  tls:
+    enabled: false  # No SSL for localhost development
+  annotations:
+    # Remove SSL-related annotations for development
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+
+# Storage configuration for development
+storage:
+  size: 100Gi  # Smaller storage for development
+
+# Resource limits for development
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "50m"
+  limits:
+    memory: "512Mi"
+    cpu: "250m"
