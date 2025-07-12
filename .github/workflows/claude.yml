@@ -82,8 +82,17 @@ jobs:
           sudo mv kubectl /usr/local/bin/
           kubectl version --client
 
+      - name: Check kubectl secrets
+        id: check_kubectl
+        run: |
+          if [ -n "${{ secrets.KUBE_TOKEN }}" ]; then
+            echo "has_kubectl_secrets=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_kubectl_secrets=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Setup kubectl
-        if: ${{ secrets.KUBE_TOKEN != '' }}
+        if: steps.check_kubectl.outputs.has_kubectl_secrets == 'true'
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets.KUBE_CA_CERT }}" | base64 -d > ~/.kube/ca.crt
@@ -93,7 +102,7 @@ jobs:
           kubectl config use-context github-actions
 
       - name: Verify kubectl connection
-        if: ${{ secrets.KUBE_TOKEN != '' }}
+        if: steps.check_kubectl.outputs.has_kubectl_secrets == 'true'
         run: |
           echo "Testing kubectl connection..."
           kubectl cluster-info
@@ -140,37 +149,37 @@ jobs:
 
           custom_instructions: |
             You are working on the LilNAS monorepo - a self-hosted NAS system with multiple integrated services.
-            
+
             ## Repository Structure
             - Monorepo using pnpm workspaces with Turbo build orchestration
             - TypeScript throughout (avoid 'any' types)
             - IMPORTANT: Check CLAUDE.md for detailed development instructions
-            
+
             ## Package Types & Key Patterns
-            
+
             ### Frontend Apps
             - @lilnas/apps (Next.js 14): Portal/dashboard using App Router, Tailwind CSS, Jotai for state
             - @lilnas/dashcam (Vite+React): Video viewer application
-            
+
             ### Backend Services (NestJS)
             - @lilnas/equations: LaTeX rendering (SECURITY CRITICAL - see SECURITY.md)
             - @lilnas/me-token-tracker: Crypto tracking Discord bot
-            
+
             ### Full-Stack Apps (NestJS + Next.js)
             - @lilnas/tdr-bot: AI Discord bot with LangChain/OpenAI integration
             - @lilnas/download: Video download service with yt-dlp/ffmpeg
-            
+
             ### Development Tools
             - @lilnas/cli: Docker Compose management (./lilnas command)
             - @lilnas/utils, eslint-config, prettier-config: Shared configs
-            
+
             ## Key Commands
             - Build: pnpm run build (uses Turbo caching)
             - Test: pnpm test (Jest)
             - Lint/Format: pnpm run lint:fix
             - Service management: ./lilnas dev [start|stop|logs]
             - Kubernetes: kubectl (available if KUBE_TOKEN secret is configured)
-            
+
             ## Critical Guidelines
             1. Follow existing patterns in the codebase
             2. Security: Never expose secrets, validate inputs, use secure spawn
@@ -178,7 +187,7 @@ jobs:
             4. Multi-stage Docker builds for production
             5. Test coverage expected for new features
             6. Run lint and type-check before completing tasks
-            
+
             ## Infrastructure
             - Traefik reverse proxy with Let's Encrypt SSL
             - MinIO for S3-compatible storage
@@ -186,7 +195,7 @@ jobs:
             - Kubernetes cluster with RBAC-enabled access
             - Development: *.localhost domains
             - Production: *.lilnas.io domains
-            
+
             When in doubt, refer to CLAUDE.md for detailed instructions and patterns.
 
           mcp_config: |
