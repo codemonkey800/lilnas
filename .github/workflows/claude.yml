@@ -96,7 +96,7 @@ jobs:
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets.KUBE_CA_CERT }}" | base64 -d > ~/.kube/ca.crt
-          kubectl config set-cluster github-actions --server=${{ secrets.KUBE_SERVER }} --certificate-authority=~/.kube/ca.crt
+          kubectl config set-cluster github-actions --server=${{ secrets.KUBE_SERVER }} --certificate-authority=$HOME/.kube/ca.crt
           kubectl config set-credentials github-actions --token=${{ secrets.KUBE_TOKEN }}
           kubectl config set-context github-actions --cluster=github-actions --user=github-actions --namespace=${{ secrets.KUBE_NAMESPACE || 'default' }}
           kubectl config use-context github-actions
@@ -114,6 +114,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           model: ${{ steps.parse_model.outputs.model }}
+          max_turns: 100
 
           allowed_tools: |
             Bash
