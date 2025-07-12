@@ -13,14 +13,14 @@ ingress:
   console:
     host: storage-admin.localhost
   tls:
-    enabled: false  # No SSL for localhost development
+    enabled: false # No SSL for localhost development
   annotations:
     # Remove SSL-related annotations for development
     traefik.ingress.kubernetes.io/router.entrypoints: web
 
 # Storage configuration for development
 storage:
-  size: 100Gi  # Smaller storage for development
+  size: 100Gi # Smaller storage for development
 
 # Resource limits for development
 resources:

@@ -1,10 +1,13 @@
 # Production environment values for minio
 # These values override the default values.yaml for production
 
-# Authentication (use secure production credentials)
+# Authentication (using external secret)
 auth:
   rootUser: jeremy
-  rootPassword: herpderp
+  # rootPassword removed - using external secret
+
+# Use external secret
+existingSecret: minio-credentials
 
 # Ingress configuration for production
 ingress:

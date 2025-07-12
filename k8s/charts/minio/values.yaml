@@ -9,7 +9,7 @@ namespace: lilnas-core
 # Image configuration
 image:
   repository: minio/minio
-  tag: ""  # Uses Chart.AppVersion if not specified
+  tag: "" # Uses Chart.AppVersion if not specified
   pullPolicy: IfNotPresent
 
 # Service configuration

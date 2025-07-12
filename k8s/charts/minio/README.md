@@ -50,6 +50,7 @@ helm install storage . --values values-prod.yaml --namespace lilnas-core
 | ---------------------- | ---------------------- | ------------------------- |
 | `auth.rootUser`        | MinIO root username    | `admin`                   |
 | `auth.rootPassword`    | MinIO root password    | `password`                |
+| `existingSecret`       | Use external secret    | `""`                      |
 | `ingress.api.host`     | S3 API hostname        | `storage.lilnas.io`       |
 | `ingress.console.host` | Admin console hostname | `storage-admin.lilnas.io` |
 | `storage.size`         | Storage size           | `1Ti`                     |
@@ -83,6 +84,33 @@ helm install minio .
 
 ```bash
 helm install minio . --set auth.rootUser=myuser --set auth.rootPassword=mypassword
+```
+
+### Using External Secrets (Recommended for Production)
+
+For production deployments, it's recommended to use an external secret instead of storing passwords in values files:
+
+1. Create the secret:
+
+```bash
+kubectl create secret generic minio-credentials \
+  --from-literal=MINIO_ROOT_USER=<username> \
+  --from-literal=MINIO_ROOT_PASSWORD=<password> \
+  --from-literal=MINIO_BROWSER_REDIRECT_URL=https://storage-admin.lilnas.io \
+  --from-literal=MINIO_SERVER_URL=https://storage.lilnas.io \
+  -n lilnas-core
+```
+
+2. Install MinIO referencing the external secret:
+
+```bash
+helm install minio . --values values-prod.yaml --set existingSecret=minio-credentials
+```
+
+Or add to your values file:
+
+```yaml
+existingSecret: minio-credentials
 ```
 
 ### Upgrade

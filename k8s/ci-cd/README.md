@@ -21,7 +21,7 @@ Apply the service account and RBAC permissions:
 
 ```bash
 # Apply the basic read-only permissions (recommended to start)
-kubectl apply -f infra/kubernetes/github-actions-rbac.yml
+kubectl apply -f k8s/ci-cd/github-actions-rbac.yml
 
 # Verify the service account was created
 kubectl get serviceaccount github-actions -n default
@@ -106,7 +106,7 @@ If you need write access, apply the extended RBAC:
 
 ```bash
 # CAUTION: This provides write access to many resources
-kubectl apply -f infra/kubernetes/github-actions-rbac-extended.yml
+kubectl apply -f k8s/ci-cd/github-actions-rbac-extended.yml
 ```
 
 Extended permissions include:

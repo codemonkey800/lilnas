@@ -24,10 +24,19 @@ k8s/
 ├── apps/                 # Application deployments (TODO)
 ├── cert-manager/         # SSL certificate management
 │   └── letsencrypt-issuers.yaml
+├── charts/               # Helm charts
+│   └── minio/           # MinIO object storage
+├── ci-cd/               # CI/CD integration (GitHub Actions)
+│   ├── github-actions-rbac.yaml
+│   ├── github-actions-rbac-extended.yaml
+│   ├── setup-service-account.sh
+│   └── README.md
 ├── core/                 # Core infrastructure documentation
 │   └── README.md
 ├── namespaces/           # Namespace definitions
 │   └── lilnas-namespaces.yaml
+├── scripts/              # Utility scripts
+│   └── verify-infrastructure.sh
 ├── secrets/              # Secret templates and deployment scripts
 │   ├── ghcr-secret-template.yaml
 │   └── deploy-ghcr-secret.sh
@@ -106,6 +115,7 @@ kubectl get secrets --all-namespaces | grep ghcr-secret
 
 - **[Storage Architecture](storage/README.md)** - Detailed storage configuration
 - **[Core Infrastructure](core/README.md)** - cert-manager and Traefik setup
+- **[CI/CD Integration](ci-cd/README.md)** - GitHub Actions Kubernetes access
 - **[Secrets Management](secrets/)** - Container registry authentication
 
 ## Monitoring
