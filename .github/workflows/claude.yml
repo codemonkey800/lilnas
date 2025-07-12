@@ -224,10 +224,8 @@ jobs:
                   ]
                 },
                 "context7": {
-                  "transport": {
-                    "type": "http",
-                    "url": "https://mcp.context7.com/mcp"
-                  }
+                  "type": "http",
+                  "url": "https://mcp.context7.com/mcp"
                 }
               }
             }
