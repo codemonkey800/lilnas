@@ -75,6 +75,30 @@ jobs:
           echo "model=$MODEL" >> $GITHUB_OUTPUT
           echo "Using Claude model: $MODEL"
 
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          kubectl version --client
+
+      - name: Setup kubectl
+        if: ${{ secrets.KUBE_TOKEN != '' }}
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CA_CERT }}" | base64 -d > ~/.kube/ca.crt
+          kubectl config set-cluster github-actions --server=${{ secrets.KUBE_SERVER }} --certificate-authority=~/.kube/ca.crt
+          kubectl config set-credentials github-actions --token=${{ secrets.KUBE_TOKEN }}
+          kubectl config set-context github-actions --cluster=github-actions --user=github-actions --namespace=${{ secrets.KUBE_NAMESPACE || 'default' }}
+          kubectl config use-context github-actions
+
+      - name: Verify kubectl connection
+        if: ${{ secrets.KUBE_TOKEN != '' }}
+        run: |
+          echo "Testing kubectl connection..."
+          kubectl cluster-info
+          kubectl get nodes --no-headers | wc -l | xargs -I {} echo "Found {} nodes in cluster"
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@beta
@@ -85,6 +109,34 @@ jobs:
           allowed_tools: |
             Bash
             mcp__sequential-thinking__sequentialthinking
+            mcp__playwright__browser_close
+            mcp__playwright__browser_resize
+            mcp__playwright__browser_console_messages
+            mcp__playwright__browser_handle_dialog
+            mcp__playwright__browser_file_upload
+            mcp__playwright__browser_install
+            mcp__playwright__browser_press_key
+            mcp__playwright__browser_navigate
+            mcp__playwright__browser_navigate_back
+            mcp__playwright__browser_navigate_forward
+            mcp__playwright__browser_network_requests
+            mcp__playwright__browser_pdf_save
+            mcp__playwright__browser_take_screenshot
+            mcp__playwright__browser_snapshot
+            mcp__playwright__browser_click
+            mcp__playwright__browser_drag
+            mcp__playwright__browser_hover
+            mcp__playwright__browser_type
+            mcp__playwright__browser_select_option
+            mcp__playwright__browser_tab_list
+            mcp__playwright__browser_tab_new
+            mcp__playwright__browser_tab_select
+            mcp__playwright__browser_tab_close
+            mcp__playwright__browser_generate_playwright_test
+            mcp__playwright__browser_wait_for
+            mcp__fetch__imageFetch
+            mcp__context7__resolve-library-id
+            mcp__context7__get-library-docs
 
           custom_instructions: |
             You are working on the LilNAS monorepo - a self-hosted NAS system with multiple integrated services.
@@ -117,6 +169,7 @@ jobs:
             - Test: pnpm test (Jest)
             - Lint/Format: pnpm run lint:fix
             - Service management: ./lilnas dev [start|stop|logs]
+            - Kubernetes: kubectl (available if KUBE_TOKEN secret is configured)
             
             ## Critical Guidelines
             1. Follow existing patterns in the codebase
@@ -130,6 +183,7 @@ jobs:
             - Traefik reverse proxy with Let's Encrypt SSL
             - MinIO for S3-compatible storage
             - Docker Compose for orchestration
+            - Kubernetes cluster with RBAC-enabled access
             - Development: *.localhost domains
             - Production: *.lilnas.io domains
             
@@ -144,6 +198,26 @@ jobs:
                     "-y",
                     "@modelcontextprotocol/server-sequential-thinking"
                   ]
+                },
+                "playwright": {
+                  "command": "npx",
+                  "args": [
+                    "-y",
+                    "@playwright/mcp@latest"
+                  ]
+                },
+                "fetch": {
+                  "command": "npx",
+                  "args": [
+                    "-y",
+                    "@modelcontextprotocol/server-fetch"
+                  ]
+                },
+                "context7": {
+                  "transport": {
+                    "type": "http",
+                    "url": "https://mcp.context7.com/mcp"
+                  }
                 }
               }
             }
