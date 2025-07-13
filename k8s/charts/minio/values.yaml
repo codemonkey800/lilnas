@@ -73,6 +73,8 @@ initJob:
       public: true
     - name: videos
       public: true
+    - name: build
+      public: false
 
 # Existing secret name (if you want to use an existing secret)
 existingSecret: ""
