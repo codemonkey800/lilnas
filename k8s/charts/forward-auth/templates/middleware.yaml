@@ -1,0 +1,20 @@
+{{- if .Values.middleware.enabled -}}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ .Values.middleware.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "forward-auth.labels" . | nindent 4 }}
+    app.kubernetes.io/component: middleware
+  annotations:
+    kubernetes.io/description: "Traefik middleware for forward authentication"
+spec:
+  forwardAuth:
+    address: http://{{ include "forward-auth.fullname" . }}.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.service.port }}
+    trustForwardHeader: {{ .Values.middleware.trustForwardHeader }}
+    {{- if .Values.middleware.authResponseHeaders }}
+    authResponseHeaders:
+      {{- toYaml .Values.middleware.authResponseHeaders | nindent 6 }}
+    {{- end }}
+{{- end }}

@@ -1,0 +1,167 @@
+{{- if .Values.networkPolicies.enabled }}
+
+{{/*
+Network policy for core namespace
+*/}}
+{{- if .Values.namespaces.core.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.namespaces.core.name }}-default-policy
+  namespace: {{ .Values.namespaces.core.name }}
+  labels:
+    {{- include "namespaces.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- if eq .Values.networkPolicies.defaultPolicy "allow-all" }}
+  ingress:
+    - {}
+  egress:
+    - {}
+  {{- else if eq .Values.networkPolicies.defaultPolicy "deny-all" }}
+  # No ingress or egress rules means all traffic is denied
+  {{- end }}
+{{- end }}
+
+{{/*
+Network policy for apps namespace
+*/}}
+{{- if .Values.namespaces.apps.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.namespaces.apps.name }}-default-policy
+  namespace: {{ .Values.namespaces.apps.name }}
+  labels:
+    {{- include "namespaces.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- if eq .Values.networkPolicies.defaultPolicy "allow-all" }}
+  ingress:
+    - {}
+  egress:
+    - {}
+  {{- else if eq .Values.networkPolicies.defaultPolicy "deny-all" }}
+  # No ingress or egress rules means all traffic is denied
+  {{- end }}
+{{- end }}
+
+{{/*
+Network policy for media namespace
+*/}}
+{{- if .Values.namespaces.media.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.namespaces.media.name }}-default-policy
+  namespace: {{ .Values.namespaces.media.name }}
+  labels:
+    {{- include "namespaces.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- if eq .Values.networkPolicies.defaultPolicy "allow-all" }}
+  ingress:
+    - {}
+  egress:
+    - {}
+  {{- else if eq .Values.networkPolicies.defaultPolicy "deny-all" }}
+  # No ingress or egress rules means all traffic is denied
+  {{- end }}
+{{- end }}
+
+{{/*
+Network policy for monitoring namespace
+*/}}
+{{- if .Values.namespaces.monitoring.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.namespaces.monitoring.name }}-default-policy
+  namespace: {{ .Values.namespaces.monitoring.name }}
+  labels:
+    {{- include "namespaces.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- if eq .Values.networkPolicies.defaultPolicy "allow-all" }}
+  ingress:
+    - {}
+  egress:
+    - {}
+  {{- else if eq .Values.networkPolicies.defaultPolicy "deny-all" }}
+  # No ingress or egress rules means all traffic is denied
+  {{- end }}
+{{- end }}
+
+{{/*
+Network policy for dev namespace
+*/}}
+{{- if .Values.namespaces.dev.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.namespaces.dev.name }}-default-policy
+  namespace: {{ .Values.namespaces.dev.name }}
+  labels:
+    {{- include "namespaces.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- if eq .Values.networkPolicies.defaultPolicy "allow-all" }}
+  ingress:
+    - {}
+  egress:
+    - {}
+  {{- else if eq .Values.networkPolicies.defaultPolicy "deny-all" }}
+  # No ingress or egress rules means all traffic is denied
+  {{- end }}
+{{- end }}
+
+{{/*
+Network policies for custom namespaces
+*/}}
+{{- range .Values.customNamespaces }}
+{{- if .enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .name }}-default-policy
+  namespace: {{ .name }}
+  labels:
+    {{- include "namespaces.labels" $ | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- if eq $.Values.networkPolicies.defaultPolicy "allow-all" }}
+  ingress:
+    - {}
+  egress:
+    - {}
+  {{- else if eq $.Values.networkPolicies.defaultPolicy "deny-all" }}
+  # No ingress or egress rules means all traffic is denied
+  {{- end }}
+{{- end }}
+{{- end }}
+
+{{- end }}

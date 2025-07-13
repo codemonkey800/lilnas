@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "turbo-cache.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "turbo-cache.labels" . | nindent 4 }}
+  annotations:
+    kubernetes.io/description: "Service for Turborepo remote cache"
+    {{- with .Values.service.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - name: http
+    port: {{ .Values.service.port }}
+    targetPort: http
+    protocol: TCP
+  selector:
+    {{- include "turbo-cache.selectorLabels" . | nindent 4 }}

@@ -1,0 +1,102 @@
+{{- if .Values.resourceQuotas.enabled }}
+{{- $quotaSpec := .Values.resourceQuotas.spec }}
+
+{{/*
+Resource quota for core namespace
+*/}}
+{{- if .Values.namespaces.core.enabled }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ .Values.namespaces.core.name }}-quota
+  namespace: {{ .Values.namespaces.core.name }}
+  labels:
+    {{- include "namespaces.labels" . | nindent 4 }}
+spec:
+  {{- toYaml $quotaSpec | nindent 2 }}
+{{- end }}
+
+{{/*
+Resource quota for apps namespace
+*/}}
+{{- if .Values.namespaces.apps.enabled }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ .Values.namespaces.apps.name }}-quota
+  namespace: {{ .Values.namespaces.apps.name }}
+  labels:
+    {{- include "namespaces.labels" . | nindent 4 }}
+spec:
+  {{- toYaml $quotaSpec | nindent 2 }}
+{{- end }}
+
+{{/*
+Resource quota for media namespace
+*/}}
+{{- if .Values.namespaces.media.enabled }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ .Values.namespaces.media.name }}-quota
+  namespace: {{ .Values.namespaces.media.name }}
+  labels:
+    {{- include "namespaces.labels" . | nindent 4 }}
+spec:
+  {{- toYaml $quotaSpec | nindent 2 }}
+{{- end }}
+
+{{/*
+Resource quota for monitoring namespace
+*/}}
+{{- if .Values.namespaces.monitoring.enabled }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ .Values.namespaces.monitoring.name }}-quota
+  namespace: {{ .Values.namespaces.monitoring.name }}
+  labels:
+    {{- include "namespaces.labels" . | nindent 4 }}
+spec:
+  {{- toYaml $quotaSpec | nindent 2 }}
+{{- end }}
+
+{{/*
+Resource quota for dev namespace
+*/}}
+{{- if .Values.namespaces.dev.enabled }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ .Values.namespaces.dev.name }}-quota
+  namespace: {{ .Values.namespaces.dev.name }}
+  labels:
+    {{- include "namespaces.labels" . | nindent 4 }}
+spec:
+  {{- toYaml $quotaSpec | nindent 2 }}
+{{- end }}
+
+{{/*
+Resource quotas for custom namespaces
+*/}}
+{{- range .Values.customNamespaces }}
+{{- if .enabled }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ .name }}-quota
+  namespace: {{ .name }}
+  labels:
+    {{- include "namespaces.labels" $ | nindent 4 }}
+spec:
+  {{- toYaml $quotaSpec | nindent 2 }}
+{{- end }}
+{{- end }}
+
+{{- end }}

@@ -1,0 +1,49 @@
+# Development values for storage-setup
+# This configuration is optimized for development environments
+
+# Use smaller storage sizes for development
+persistentVolumes:
+  appConfigs:
+    capacity: 10Gi
+  
+  buildCache:
+    capacity: 50Gi
+  
+  gameServers:
+    capacity: 50Gi
+  
+  googlePhotos:
+    capacity: 100Gi
+  
+  immichDb:
+    capacity: 20Gi
+  
+  immichLibrary:
+    capacity: 500Gi
+  
+  mediaServices:
+    capacity: 20Gi
+  
+  minioData:
+    capacity: 100Gi
+  
+  movies:
+    capacity: 1Ti
+  
+  postgresMain:
+    capacity: 50Gi
+  
+  redisCache:
+    capacity: 5Gi
+  
+  tv:
+    capacity: 1Ti
+
+# Optionally disable some PVs in dev
+# persistentVolumes:
+#   googlePhotos:
+#     enabled: false
+#   movies:
+#     enabled: false
+#   tv:
+#     enabled: false

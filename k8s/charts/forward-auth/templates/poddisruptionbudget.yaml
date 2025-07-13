@@ -1,0 +1,17 @@
+{{- if .Values.podDisruptionBudget.enabled -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "forward-auth.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "forward-auth.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pdb
+  annotations:
+    kubernetes.io/description: "Pod disruption budget for forward authentication"
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "forward-auth.selectorLabels" . | nindent 6 }}
+{{- end }}

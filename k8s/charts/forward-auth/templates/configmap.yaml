@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "forward-auth.configMapName" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "forward-auth.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+  annotations:
+    kubernetes.io/description: "Configuration for forward authentication service"
+data:
+  default-provider: {{ .Values.oauth.provider | quote }}
+  auth-host: {{ .Values.config.authHost | quote }}
+  cookie-domain: {{ .Values.config.cookieDomain | quote }}
+  insecure-cookie: {{ .Values.config.insecureCookie | quote }}
+  url-path: {{ .Values.config.urlPath | quote }}
+  whitelist: {{ .Values.config.whitelist | quote }}
+  log-level: {{ .Values.config.logLevel | quote }}

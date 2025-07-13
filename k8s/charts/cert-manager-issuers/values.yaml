@@ -1,0 +1,32 @@
+# Default values for cert-manager-issuers
+# This is a YAML-formatted file.
+# Declare variables to be substituted into your templates.
+
+# Email address for Let's Encrypt account registration
+email: admin@lilnas.io
+
+# Staging issuer configuration
+staging:
+  enabled: true
+  name: letsencrypt-staging
+  server: https://acme-staging-v02.api.letsencrypt.org/directory
+  privateKeySecretRef:
+    name: letsencrypt-staging
+
+# Production issuer configuration
+production:
+  enabled: true
+  name: letsencrypt-prod
+  server: https://acme-v02.api.letsencrypt.org/directory
+  privateKeySecretRef:
+    name: letsencrypt-prod
+
+# Solver configuration
+solver:
+  type: http01
+  ingress:
+    class: traefik
+
+# Additional solver configuration options
+# You can add more advanced solver configurations here if needed
+# For example, DNS01 challenge configuration

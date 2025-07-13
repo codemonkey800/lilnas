@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "forward-auth.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "forward-auth.labels" . | nindent 4 }}
+  {{- with .Values.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "forward-auth.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "forward-auth.selectorLabels" . | nindent 8 }}
+        {{- with .Values.labels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.annotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "forward-auth.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: {{ .Chart.Name }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.service.port }}
+          protocol: TCP
+        env:
+        # OAuth Provider Configuration from Secret
+        - name: PROVIDERS_{{ .Values.oauth.provider | upper }}_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "forward-auth.secretName" . }}
+              key: {{ .Values.oauth.secret.clientIdKey }}
+        - name: PROVIDERS_{{ .Values.oauth.provider | upper }}_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "forward-auth.secretName" . }}
+              key: {{ .Values.oauth.secret.clientSecretKey }}
+        - name: SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "forward-auth.secretName" . }}
+              key: {{ .Values.oauth.secret.secretKey }}
+        # Configuration from ConfigMap
+        - name: DEFAULT_PROVIDER
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "forward-auth.configMapName" . }}
+              key: default-provider
+        - name: AUTH_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "forward-auth.configMapName" . }}
+              key: auth-host
+        - name: COOKIE_DOMAIN
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "forward-auth.configMapName" . }}
+              key: cookie-domain
+        - name: INSECURE_COOKIE
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "forward-auth.configMapName" . }}
+              key: insecure-cookie
+        - name: URL_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "forward-auth.configMapName" . }}
+              key: url-path
+        - name: WHITELIST
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "forward-auth.configMapName" . }}
+              key: whitelist
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "forward-auth.configMapName" . }}
+              key: log-level
+        livenessProbe:
+          {{- toYaml .Values.livenessProbe | nindent 10 }}
+        readinessProbe:
+          {{- toYaml .Values.readinessProbe | nindent 10 }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        {{- with .Values.volumeMounts }}
+        volumeMounts:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

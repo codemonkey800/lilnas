@@ -1,0 +1,150 @@
+# Default values for forward-auth
+# This is a YAML-formatted file.
+# Declare variables to be substituted into your templates.
+
+# Deployment configuration
+replicaCount: 1
+revisionHistoryLimit: 3
+namespace: lilnas-core
+
+# Image configuration
+image:
+  repository: thomseddon/traefik-forward-auth
+  tag: "2.1.0" # Uses Chart.AppVersion if not specified
+  pullPolicy: IfNotPresent
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 4181
+  targetPort: http
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: ""
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Security context for pods
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+# Security context for containers
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# OAuth configuration
+oauth:
+  provider: google
+  secret:
+    name: forward-auth-secrets
+    create: false # Use existing secret
+    clientIdKey: google-client-id
+    clientSecretKey: google-client-secret
+    secretKey: secret
+
+# Configuration values
+config:
+  authHost: auth.lilnas.io
+  cookieDomain: lilnas.io
+  insecureCookie: false
+  urlPath: /_oauth
+  whitelist: "jeremyasuncion808@gmail.com,monicamagana366@gmail.com"
+  logLevel: info
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: lilnas-core-forward-auth@kubernetescrd
+  host: auth.lilnas.io
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: true
+    secretName: auth-lilnas-io-tls
+    issuer: letsencrypt-prod
+
+# Middleware configuration
+middleware:
+  enabled: true
+  name: forward-auth
+  trustForwardHeader: true
+  authResponseHeaders:
+    - X-Forwarded-User
+
+# Health check configuration
+livenessProbe:
+  httpGet:
+    path: /_oauth/health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /_oauth/health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Resource limits
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "50m"
+  limits:
+    memory: "128Mi"
+    cpu: "100m"
+
+# Volume mounts
+volumeMounts:
+  - name: tmp
+    mountPath: /tmp
+
+# Volumes
+volumes:
+  - name: tmp
+    emptyDir: {}
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Labels
+labels:
+  app.kubernetes.io/component: authentication
+  app.kubernetes.io/part-of: lilnas
+
+# Annotations
+annotations:
+  kubernetes.io/description: "OAuth2 forward authentication service for Traefik"
+
+# Name overrides
+nameOverride: ""
+fullnameOverride: ""

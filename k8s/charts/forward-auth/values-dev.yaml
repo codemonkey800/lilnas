@@ -1,0 +1,35 @@
+# Development-specific values for forward-auth
+
+namespace: lilnas-dev
+
+# Single replica for development
+replicaCount: 1
+
+# Development configuration
+config:
+  authHost: auth.dev.lilnas.io
+  cookieDomain: dev.lilnas.io
+  insecureCookie: true
+  logLevel: debug
+
+# Development ingress configuration
+ingress:
+  host: auth.dev.lilnas.io
+  tls:
+    issuer: letsencrypt-staging
+    secretName: auth-dev-lilnas-io-tls
+
+# Reduced resources for development
+resources:
+  requests:
+    memory: "32Mi"
+    cpu: "25m"
+  limits:
+    memory: "64Mi"
+    cpu: "50m"
+
+# Development labels
+labels:
+  app.kubernetes.io/component: authentication
+  app.kubernetes.io/part-of: lilnas
+  environment: dev

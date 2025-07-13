@@ -126,15 +126,12 @@ verify_yaml_syntax() {
 verify_namespaces() {
     log_section "Namespace Validation"
     
-    local namespace_file="$K8S_DIR/namespaces/lilnas-namespaces.yaml"
-    
-    if [ ! -f "$namespace_file" ]; then
-        log_error "Namespace file not found: $namespace_file"
-        return 1
+    # Check if namespaces are deployed via Helm
+    if helm list | grep -q "namespaces"; then
+        log_success "Namespaces Helm chart is deployed"
+    else
+        log_error "Namespaces Helm chart not found - deploy with: helm install namespaces charts/namespaces"
     fi
-    
-    # Test namespace creation (dry-run)
-    run_test "Namespace manifest validation" "kubectl apply --dry-run=client -f \"$namespace_file\""
     
     # Check each namespace individually
     local namespaces=("lilnas-core" "lilnas-apps" "lilnas-media" "lilnas-monitoring" "lilnas-dev")
@@ -150,21 +147,11 @@ verify_namespaces() {
 verify_storage() {
     log_section "Storage Validation"
     
-    local storage_classes_file="$K8S_DIR/storage/storage-classes.yaml"
-    local persistent_volumes_file="$K8S_DIR/storage/persistent-volumes.yaml"
-    
-    # Test storage class manifest
-    if [ -f "$storage_classes_file" ]; then
-        run_test "Storage classes manifest validation" "kubectl apply --dry-run=client -f \"$storage_classes_file\""
+    # Check if storage-setup is deployed via Helm
+    if helm list | grep -q "storage-setup"; then
+        log_success "Storage setup Helm chart is deployed"
     else
-        log_error "Storage classes file not found: $storage_classes_file"
-    fi
-    
-    # Test persistent volumes manifest
-    if [ -f "$persistent_volumes_file" ]; then
-        run_test "Persistent volumes manifest validation" "kubectl apply --dry-run=client -f \"$persistent_volumes_file\""
-    else
-        log_error "Persistent volumes file not found: $persistent_volumes_file"
+        log_error "Storage setup Helm chart not found - deploy with: helm install storage-setup charts/storage-setup"
     fi
     
     # Check existing storage classes
@@ -220,13 +207,11 @@ verify_secrets() {
 verify_cert_manager() {
     log_section "cert-manager Validation"
     
-    local clusterissuer_file="$K8S_DIR/cert-manager/letsencrypt-issuers.yaml"
-    
-    # Check ClusterIssuer manifest
-    if [ -f "$clusterissuer_file" ]; then
-        run_test "ClusterIssuer manifest validation" "kubectl apply --dry-run=client -f \"$clusterissuer_file\""
+    # Check if cert-manager-issuers is deployed via Helm
+    if helm list | grep -q "cert-manager-issuers"; then
+        log_success "cert-manager-issuers Helm chart is deployed"
     else
-        log_error "ClusterIssuer file not found: $clusterissuer_file"
+        log_error "cert-manager-issuers Helm chart not found - deploy with: helm install cert-manager-issuers charts/cert-manager-issuers"
     fi
     
     # Check cert-manager installation
@@ -312,36 +297,36 @@ EOF
 compare_with_cluster() {
     log_section "Cluster State Comparison"
     
-    log_info "Comparing manifests with cluster state..."
+    log_info "Comparing Helm deployments with cluster state..."
     
-    # Compare namespace count
-    local manifest_ns_count=$(grep -c "kind: Namespace" "$K8S_DIR/namespaces/lilnas-namespaces.yaml" 2>/dev/null || echo "0")
+    # Check namespace count (expected: 5)
     local cluster_ns_count=$(kubectl get namespaces | grep -c "lilnas-" || echo "0")
+    local expected_ns_count=5
     
-    if [ "$manifest_ns_count" -eq "$cluster_ns_count" ]; then
-        log_success "Namespace count matches: $manifest_ns_count"
+    if [ "$cluster_ns_count" -eq "$expected_ns_count" ]; then
+        log_success "Namespace count matches expected: $cluster_ns_count"
     else
-        log_warning "Namespace count mismatch - Manifest: $manifest_ns_count, Cluster: $cluster_ns_count"
+        log_warning "Namespace count mismatch - Expected: $expected_ns_count, Cluster: $cluster_ns_count"
     fi
     
-    # Compare storage class count  
-    local manifest_sc_count=$(grep -c "kind: StorageClass" "$K8S_DIR/storage/storage-classes.yaml" 2>/dev/null || echo "0")
+    # Check storage class count (expected: 4)
     local cluster_sc_count=$(kubectl get storageclass | grep -c -E "(hdd|ssd)" || echo "0")
+    local expected_sc_count=4
     
-    if [ "$manifest_sc_count" -eq "$cluster_sc_count" ]; then
-        log_success "Storage class count matches: $manifest_sc_count"
+    if [ "$cluster_sc_count" -eq "$expected_sc_count" ]; then
+        log_success "Storage class count matches expected: $cluster_sc_count"
     else
-        log_warning "Storage class count mismatch - Manifest: $manifest_sc_count, Cluster: $cluster_sc_count"
+        log_warning "Storage class count mismatch - Expected: $expected_sc_count, Cluster: $cluster_sc_count"
     fi
     
-    # Compare PV count
-    local manifest_pv_count=$(grep -c "kind: PersistentVolume" "$K8S_DIR/storage/persistent-volumes.yaml" 2>/dev/null || echo "0")
+    # Check PV count (expected: 12)
     local cluster_pv_count=$(kubectl get pv --no-headers | wc -l)
+    local expected_pv_count=12
     
-    if [ "$manifest_pv_count" -eq "$cluster_pv_count" ]; then
-        log_success "Persistent volume count matches: $manifest_pv_count"
+    if [ "$cluster_pv_count" -eq "$expected_pv_count" ]; then
+        log_success "Persistent volume count matches expected: $cluster_pv_count"
     else
-        log_warning "Persistent volume count mismatch - Manifest: $manifest_pv_count, Cluster: $cluster_pv_count"
+        log_warning "Persistent volume count mismatch - Expected: $expected_pv_count, Cluster: $cluster_pv_count"
     fi
 }
 
