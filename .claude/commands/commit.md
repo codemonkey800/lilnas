@@ -11,20 +11,30 @@ Create a git commit from the current changes in the lilnas monorepo.
 
 When creating a commit:
 
-1. **Run pre-commit checks** (unless --no-verify is specified):
+1. **Analyze staged files** (smart detection):
 
-   - `pnpm run lint:fix` - Fix any auto-fixable linting issues
-   - `pnpm run type-check` - Ensure TypeScript types are correct
-   - `pnpm test` - Run tests for packages that have test suites (cli, tdr-bot)
-   - `pnpm run build` - Build all packages using Turbo
+   - Identify which files were modified
+   - Determine file types (code vs. configuration)
+   - Identify affected packages
+   - Decide which checks are needed
 
-2. **Prepare the commit**:
+2. **Run pre-commit checks** (unless --no-verify is specified):
+
+   - Only run checks for files that need them:
+     - **TypeScript/JavaScript files**: lint, type-check, test, build
+     - **Infrastructure files** (k8s/, *.yaml, *.yml): No checks
+     - **Documentation** (*.md): No checks
+     - **Shell scripts** (*.sh): No checks
+     - **Config files**: Minimal or no checks
+   - Only test packages that have changes
+
+3. **Prepare the commit**:
 
    - If no files are staged, automatically stage all changes
    - Analyze the code changes to understand what was modified
    - Determine the appropriate commit type and scope
 
-3. **Create the commit message**:
+4. **Create the commit message**:
    - Follow conventional commit format with appropriate emoji
    - Include scope when changes are package-specific
    - Add Claude attribution as specified in CLAUDE.md
@@ -37,9 +47,6 @@ When creating a commit:
 <emoji> <type>(<scope>): <subject>
 
 <body>
-
-🤖 Generated with Claude Code
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 ### Commit Types & Emojis
@@ -111,6 +118,7 @@ Common scopes in the lilnas monorepo:
 - `eslint` - ESLint configuration
 - `prettier` - Prettier configuration
 - `infra` - Infrastructure/Docker changes
+- `k8s` - Kubernetes manifests and configuration
 - `*` - Changes affecting multiple packages
 
 ### Commit Message Guidelines
@@ -187,30 +195,67 @@ Split into:
 
 ## Pre-commit Checks
 
-The following checks run automatically (unless --no-verify):
+Pre-commit checks are run intelligently based on the files being committed:
 
-1. **Lint** (`pnpm run lint:fix`):
+### Smart Detection
 
-   - Automatically fixes ESLint issues
-   - Ensures code follows project standards
-   - Checks all packages in the monorepo
+1. **File Analysis**:
+   - Detects which files are staged for commit
+   - Identifies file types and locations
+   - Determines which checks are necessary
+   - Skips checks for non-code files
 
-2. **Type Check** (`pnpm run type-check`):
+2. **Check Requirements by File Type**:
 
-   - Validates TypeScript types
-   - Catches type errors before commit
-   - Uses Turbo for efficient checking
+   | File Type | Lint | Type Check | Test | Build |
+   |-----------|------|------------|------|-------|
+   | TypeScript/JavaScript | ✅ | ✅ | ✅* | ✅ |
+   | YAML/YML files | ❌ | ❌ | ❌ | ❌ |
+   | Markdown (*.md) | ❌ | ❌ | ❌ | ❌ |
+   | Shell scripts (*.sh) | ❌ | ❌ | ❌ | ❌ |
+   | Kubernetes (k8s/) | ❌ | ❌ | ❌ | ❌ |
+   | Docker files | ❌ | ❌ | ❌ | ❌ |
+   | JSON (non-package.json) | ❌ | ❌ | ❌ | ❌ |
+   | package.json | ❌ | ❌ | ❌ | ✅ |
+   
+   *Tests only run for packages with changes
 
-3. **Tests** (`pnpm test`):
+3. **Package-Specific Testing**:
+   - Tests only run for packages that have modified files
+   - Example: Changes to `k8s/` won't trigger any tests
+   - Example: Changes to `packages/cli/` only run CLI tests
+   - Currently testable packages: cli, tdr-bot
 
-   - Runs Jest tests for packages with test suites
-   - Currently active for: cli, tdr-bot
-   - Ensures changes don't break existing functionality
+### Examples
 
-4. **Build** (`pnpm run build`):
-   - Builds all packages in dependency order
-   - Uses Turbo cache for speed
-   - Validates that everything compiles correctly
+**Infrastructure commit (k8s files only)**:
+```bash
+# No checks run - direct commit
+git add k8s/
+/commit  # Creates commit immediately
+```
+
+**Single package TypeScript changes**:
+```bash
+# Only runs checks for the cli package
+git add packages/cli/src/
+/commit  # Runs: lint (cli), type-check (cli), test (cli), build
+```
+
+**Mixed commit (k8s + TypeScript)**:
+```bash
+git add k8s/ packages/apps/
+/commit  # Only checks TypeScript files in apps package
+```
+
+### Manual Check Commands
+
+If you want to run checks manually:
+
+1. **Lint** (`pnpm run lint:fix`): Fix ESLint issues
+2. **Type Check** (`pnpm run type-check`): Validate TypeScript
+3. **Tests** (`pnpm test`): Run all tests
+4. **Build** (`pnpm run build`): Build all packages
 
 ## Special Considerations
 
@@ -249,8 +294,10 @@ If pre-commit checks fail:
 
 ## Tips
 
+- Pre-commit checks are smart - k8s/infra files skip all checks automatically
 - Run `pnpm run lint:fix` before committing to auto-fix issues
 - Use `pnpm test:watch` during development for instant feedback
 - Check `turbo.json` for build dependencies
 - Review CLAUDE.md for project-specific guidelines
 - Keep commits focused and atomic for easier review
+- Use `--no-verify` flag to skip all checks when needed
