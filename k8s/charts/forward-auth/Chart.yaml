@@ -1,0 +1,20 @@
+apiVersion: v2
+name: forward-auth
+description: OAuth2 forward authentication service for Traefik in lilnas
+type: application
+version: 0.1.0
+appVersion: "2.1.0"
+maintainers:
+  - name: lilnas
+    email: admin@lilnas.io
+home: https://github.com/codemonkey800/lilnas
+sources:
+  - https://github.com/codemonkey800/lilnas
+  - https://github.com/thomseddon/traefik-forward-auth
+keywords:
+  - authentication
+  - oauth2
+  - traefik
+  - forward-auth
+annotations:
+  category: Security

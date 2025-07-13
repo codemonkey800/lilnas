@@ -1,0 +1,24 @@
+1. Get the application URL by running these commands:
+{{- if .Values.ingress.enabled }}
+  https://{{ .Values.ingress.host }}/
+{{- else }}
+  export POD_NAME=$(kubectl get pods --namespace {{ .Values.namespace }} -l "app.kubernetes.io/name={{ include "turbo-cache.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+  export CONTAINER_PORT=$(kubectl get pod --namespace {{ .Values.namespace }} $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
+  echo "Visit http://127.0.0.1:8080 to use your application"
+  kubectl --namespace {{ .Values.namespace }} port-forward $POD_NAME 8080:$CONTAINER_PORT
+{{- end }}
+
+2. To use the Turbo cache with your project:
+   - Set the TURBO_API environment variable to: {{ if .Values.ingress.enabled }}https://{{ .Values.ingress.host }}{{ else }}http://turbo-cache.{{ .Values.namespace }}{{ end }}
+   - Set the TURBO_TOKEN environment variable to your configured token
+
+3. Verify the cache is working:
+   curl {{ if .Values.ingress.enabled }}https://{{ .Values.ingress.host }}{{ else }}http://turbo-cache.{{ .Values.namespace }}{{ end }}/v8/artifacts/status
+
+{{- if not .Values.existingSecret }}
+{{- if not .Values.auth.turboToken }}
+
+WARNING: You have not set a TURBO_TOKEN. The cache will work but is not secured.
+         Set auth.turboToken in your values file or use an existing secret.
+{{- end }}
+{{- end }}

@@ -1,0 +1,19 @@
+# Production values for cert-manager-issuers
+
+# Production email - update this to your actual email
+email: jeremyasuncion808@gmail.com
+
+# Enable both issuers in production
+staging:
+  enabled: true
+  name: letsencrypt-staging
+  server: https://acme-staging-v02.api.letsencrypt.org/directory
+  privateKeySecretRef:
+    name: letsencrypt-staging
+
+production:
+  enabled: true
+  name: letsencrypt-prod
+  server: https://acme-v02.api.letsencrypt.org/directory
+  privateKeySecretRef:
+    name: letsencrypt-prod

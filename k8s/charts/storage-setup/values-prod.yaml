@@ -1,0 +1,19 @@
+# Production values for storage-setup
+# This configuration uses the default values which are optimized for production
+
+# All default values are production-ready
+# Only add overrides here if needed for your specific production environment
+
+# Example: Different node name in production
+# nodeSelector:
+#   hostname: prod-nas-node
+
+# Example: Additional production-specific volumes
+# additionalPVs:
+#   - enabled: true
+#     name: backup-pv
+#     storageClass: hdd-storage
+#     capacity: 5Ti
+#     accessModes:
+#       - ReadWriteOnce
+#     path: /mnt/hdd2/backups

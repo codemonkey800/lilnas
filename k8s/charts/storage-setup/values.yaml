@@ -1,0 +1,159 @@
+# Default values for storage-setup
+# This is a YAML-formatted file.
+# Declare variables to be substituted into your templates.
+
+# Node configuration
+nodeSelector:
+  hostname: lilnas
+
+# Storage provisioner configuration
+provisioner: rancher.io/local-path
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+
+# Storage Classes configuration
+storageClasses:
+  hdd:
+    enabled: true
+    name: hdd-storage
+    isDefault: true
+    nodePath: /mnt/hdd1/data/k8s-volumes
+  
+  hddMedia:
+    enabled: true
+    name: hdd-media-storage
+    isDefault: false
+    nodePath: /mnt/hdd1
+  
+  ssd:
+    enabled: true
+    name: ssd-storage
+    isDefault: false
+    nodePath: /mnt/ssd1/k8s-volumes
+  
+  ssdPhotos:
+    enabled: true
+    name: ssd-photos-storage
+    isDefault: false
+    nodePath: /mnt/ssd1
+
+# Persistent Volumes configuration
+persistentVolumes:
+  appConfigs:
+    enabled: true
+    name: app-configs-pv
+    storageClass: hdd-storage
+    capacity: 20Gi
+    accessModes:
+      - ReadWriteOnce
+    path: /mnt/hdd1/data/k8s-volumes/app-configs
+  
+  buildCache:
+    enabled: true
+    name: build-cache-pv
+    storageClass: ssd-storage
+    capacity: 100Gi
+    accessModes:
+      - ReadWriteOnce
+    path: /mnt/ssd1/k8s-volumes/build-cache
+  
+  gameServers:
+    enabled: true
+    name: game-servers-pv
+    storageClass: hdd-storage
+    capacity: 100Gi
+    accessModes:
+      - ReadWriteOnce
+    path: /mnt/hdd1/data/k8s-volumes/game-servers
+  
+  googlePhotos:
+    enabled: true
+    name: google-photos-pv
+    storageClass: ssd-photos-storage
+    capacity: 500Gi
+    accessModes:
+      - ReadWriteOnce
+    path: /mnt/ssd1/google-photos
+  
+  immichDb:
+    enabled: true
+    name: immich-db-pv
+    storageClass: ssd-storage
+    capacity: 50Gi
+    accessModes:
+      - ReadWriteOnce
+    path: /mnt/ssd1/k8s-volumes/immich-db
+  
+  immichLibrary:
+    enabled: true
+    name: immich-library-pv
+    storageClass: ssd-photos-storage
+    capacity: 2Ti
+    accessModes:
+      - ReadWriteOnce
+    path: /mnt/ssd1/immich-library
+  
+  mediaServices:
+    enabled: true
+    name: media-services-pv
+    storageClass: hdd-storage
+    capacity: 50Gi
+    accessModes:
+      - ReadWriteOnce
+    path: /mnt/hdd1/data/k8s-volumes/media-services
+  
+  minioData:
+    enabled: true
+    name: minio-data-pv
+    storageClass: hdd-storage
+    capacity: 1Ti
+    accessModes:
+      - ReadWriteOnce
+    path: /mnt/hdd1/data/k8s-volumes/minio-data
+  
+  movies:
+    enabled: true
+    name: movies-pv
+    storageClass: hdd-media-storage
+    capacity: 10Ti
+    accessModes:
+      - ReadWriteOnce
+    path: /mnt/hdd1/movies
+  
+  postgresMain:
+    enabled: true
+    name: postgres-main-pv
+    storageClass: hdd-storage
+    capacity: 100Gi
+    accessModes:
+      - ReadWriteOnce
+    path: /mnt/hdd1/data/k8s-volumes/postgres-main
+  
+  redisCache:
+    enabled: true
+    name: redis-cache-pv
+    storageClass: ssd-storage
+    capacity: 10Gi
+    accessModes:
+      - ReadWriteOnce
+    path: /mnt/ssd1/k8s-volumes/redis-cache
+  
+  tv:
+    enabled: true
+    name: tv-pv
+    storageClass: hdd-media-storage
+    capacity: 5Ti
+    accessModes:
+      - ReadWriteOnce
+    path: /mnt/hdd1/tv
+
+# Additional PV configurations can be added here dynamically
+additionalPVs: []
+# Example:
+# - enabled: true
+#   name: custom-pv
+#   storageClass: hdd-storage
+#   capacity: 50Gi
+#   accessModes:
+#     - ReadWriteOnce
+#   path: /mnt/hdd1/data/k8s-volumes/custom

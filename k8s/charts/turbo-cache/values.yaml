@@ -1,0 +1,155 @@
+# Default values for turbo-cache
+# This is a YAML-formatted file.
+# Declare variables to be substituted into your templates.
+
+# Deployment configuration
+replicaCount: 1
+namespace: lilnas-core
+
+# Image configuration
+image:
+  repository: ducktors/turborepo-remote-cache
+  tag: "" # Uses Chart.AppVersion if not specified
+  pullPolicy: IfNotPresent
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+  annotations: {}
+
+# Service account configuration
+serviceAccount:
+  create: true
+  annotations:
+    kubernetes.io/description: "Service account for Turborepo remote cache service"
+  name: ""
+
+# Configuration
+config:
+  logLevel: "info"
+  storageProvider: "minio"
+  storagePath: "build"
+  s3Endpoint: "http://minio.lilnas-core:9000"
+  awsRegion: "us-west-2"
+  port: "3000"
+
+# Secrets configuration
+# These values are used to create a secret if existingSecret is not specified
+auth:
+  turboToken: ""
+  s3AccessKey: ""
+  s3SecretKey: ""
+
+# Use an existing secret for authentication
+existingSecret: ""
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    kubernetes.io/description: "Ingress for Turborepo remote cache service"
+  host: turbo.lilnas.io
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: true
+    secretName: turbo-lilnas-io-tls
+    issuer: letsencrypt-prod
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+    - ALL
+
+# Volume mounts for temporary and cache directories
+volumeMounts:
+  - name: tmp
+    mountPath: /tmp
+  - name: cache
+    mountPath: /app/cache
+
+volumes:
+  - name: tmp
+    emptyDir: {}
+  - name: cache
+    emptyDir: {}
+
+# Health check configuration
+livenessProbe:
+  httpGet:
+    path: /v8/artifacts/status
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /v8/artifacts/status
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Resource limits
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Common labels to apply to all resources
+commonLabels: {}
+
+# Common annotations to apply to all resources
+commonAnnotations: {}
+
+# Name overrides
+nameOverride: ""
+fullnameOverride: ""
+
+# Additional environment variables
+extraEnv: []
+# - name: EXTRA_VAR
+#   value: "extra-value"
+
+# Additional environment variables from ConfigMaps or Secrets
+extraEnvFrom: []
+# - configMapRef:
+#     name: extra-config
+# - secretRef:
+#     name: extra-secret

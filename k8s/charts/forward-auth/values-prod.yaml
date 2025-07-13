@@ -1,0 +1,25 @@
+# Production-specific values for forward-auth
+
+namespace: lilnas-core
+
+# High availability setup
+replicaCount: 2
+
+# Production configuration
+config:
+  logLevel: warn
+
+# Production resources
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "256Mi"
+    cpu: "200m"
+
+# Production labels
+labels:
+  app.kubernetes.io/component: authentication
+  app.kubernetes.io/part-of: lilnas
+  environment: prod

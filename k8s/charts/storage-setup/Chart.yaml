@@ -1,0 +1,19 @@
+apiVersion: v2
+name: storage-setup
+description: Storage classes and persistent volumes for lilnas kubernetes cluster
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+maintainers:
+  - name: lilnas
+    email: admin@lilnas.io
+home: https://github.com/codemonkey800/lilnas
+sources:
+  - https://github.com/codemonkey800/lilnas
+keywords:
+  - storage
+  - persistent-volumes
+  - storage-classes
+  - local-path
+annotations:
+  category: Storage

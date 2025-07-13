@@ -1,0 +1,77 @@
+Storage setup has been installed!
+
+Storage Classes created:
+{{- if .Values.storageClasses.hdd.enabled }}
+  - {{ .Values.storageClasses.hdd.name }}{{ if .Values.storageClasses.hdd.isDefault }} (default){{ end }}
+{{- end }}
+{{- if .Values.storageClasses.hddMedia.enabled }}
+  - {{ .Values.storageClasses.hddMedia.name }}{{ if .Values.storageClasses.hddMedia.isDefault }} (default){{ end }}
+{{- end }}
+{{- if .Values.storageClasses.ssd.enabled }}
+  - {{ .Values.storageClasses.ssd.name }}{{ if .Values.storageClasses.ssd.isDefault }} (default){{ end }}
+{{- end }}
+{{- if .Values.storageClasses.ssdPhotos.enabled }}
+  - {{ .Values.storageClasses.ssdPhotos.name }}{{ if .Values.storageClasses.ssdPhotos.isDefault }} (default){{ end }}
+{{- end }}
+
+Persistent Volumes created:
+{{- if .Values.persistentVolumes.appConfigs.enabled }}
+  - {{ .Values.persistentVolumes.appConfigs.name }} ({{ .Values.persistentVolumes.appConfigs.capacity }})
+{{- end }}
+{{- if .Values.persistentVolumes.buildCache.enabled }}
+  - {{ .Values.persistentVolumes.buildCache.name }} ({{ .Values.persistentVolumes.buildCache.capacity }})
+{{- end }}
+{{- if .Values.persistentVolumes.gameServers.enabled }}
+  - {{ .Values.persistentVolumes.gameServers.name }} ({{ .Values.persistentVolumes.gameServers.capacity }})
+{{- end }}
+{{- if .Values.persistentVolumes.googlePhotos.enabled }}
+  - {{ .Values.persistentVolumes.googlePhotos.name }} ({{ .Values.persistentVolumes.googlePhotos.capacity }})
+{{- end }}
+{{- if .Values.persistentVolumes.immichDb.enabled }}
+  - {{ .Values.persistentVolumes.immichDb.name }} ({{ .Values.persistentVolumes.immichDb.capacity }})
+{{- end }}
+{{- if .Values.persistentVolumes.immichLibrary.enabled }}
+  - {{ .Values.persistentVolumes.immichLibrary.name }} ({{ .Values.persistentVolumes.immichLibrary.capacity }})
+{{- end }}
+{{- if .Values.persistentVolumes.mediaServices.enabled }}
+  - {{ .Values.persistentVolumes.mediaServices.name }} ({{ .Values.persistentVolumes.mediaServices.capacity }})
+{{- end }}
+{{- if .Values.persistentVolumes.minioData.enabled }}
+  - {{ .Values.persistentVolumes.minioData.name }} ({{ .Values.persistentVolumes.minioData.capacity }})
+{{- end }}
+{{- if .Values.persistentVolumes.movies.enabled }}
+  - {{ .Values.persistentVolumes.movies.name }} ({{ .Values.persistentVolumes.movies.capacity }})
+{{- end }}
+{{- if .Values.persistentVolumes.postgresMain.enabled }}
+  - {{ .Values.persistentVolumes.postgresMain.name }} ({{ .Values.persistentVolumes.postgresMain.capacity }})
+{{- end }}
+{{- if .Values.persistentVolumes.redisCache.enabled }}
+  - {{ .Values.persistentVolumes.redisCache.name }} ({{ .Values.persistentVolumes.redisCache.capacity }})
+{{- end }}
+{{- if .Values.persistentVolumes.tv.enabled }}
+  - {{ .Values.persistentVolumes.tv.name }} ({{ .Values.persistentVolumes.tv.capacity }})
+{{- end }}
+{{- range .Values.additionalPVs }}
+{{- if .enabled }}
+  - {{ .name }} ({{ .capacity }})
+{{- end }}
+{{- end }}
+
+To check the status of storage resources:
+  kubectl get storageclass
+  kubectl get pv
+
+To create a PVC using these storage classes:
+  kubectl apply -f - <<EOF
+  apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: my-pvc
+  spec:
+    accessModes:
+      - ReadWriteOnce
+    storageClassName: {{ .Values.storageClasses.hdd.name }}
+    resources:
+      requests:
+        storage: 10Gi
+  EOF

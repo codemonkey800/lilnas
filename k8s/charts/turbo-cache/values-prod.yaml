@@ -1,0 +1,30 @@
+# Production environment overrides for turbo-cache
+
+namespace: lilnas-core
+
+# Production scaling
+replicaCount: 2
+
+# Production configuration
+config:
+  logLevel: "warn"
+  s3Endpoint: "http://minio-api.lilnas-core:9000"
+
+# Production resource requirements
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "200m"
+  limits:
+    memory: "1Gi"
+    cpu: "1000m"
+
+# Production ingress configuration
+ingress:
+  host: turbo.lilnas.io
+  tls:
+    issuer: letsencrypt-prod
+
+# Common labels for prod environment
+commonLabels:
+  environment: prod
