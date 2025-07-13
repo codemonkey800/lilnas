@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: forward-auth-config
+  namespace: lilnas-core
+data:
+  default-provider: "google"
+  auth-host: "auth.lilnas.io"
+  cookie-domain: "lilnas.io"
+  insecure-cookie: "false"
+  url-path: "/_oauth"
+  whitelist: "jeremyasuncion808@gmail.com,monicamagana366@gmail.com"
+  log-level: "info"

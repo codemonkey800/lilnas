@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik-forward-auth
+  namespace: lilnas-core
+  labels:
+    app: traefik-forward-auth
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traefik-forward-auth
+  template:
+    metadata:
+      labels:
+        app: traefik-forward-auth
+    spec:
+      containers:
+      - name: traefik-forward-auth
+        image: thomseddon/traefik-forward-auth:2.1.0
+        ports:
+        - containerPort: 4181
+          name: http
+        env:
+        # OAuth Provider Configuration from Secret
+        - name: PROVIDERS_GOOGLE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: forward-auth-secrets
+              key: google-client-id
+        - name: PROVIDERS_GOOGLE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: forward-auth-secrets
+              key: google-client-secret
+        - name: SECRET
+          valueFrom:
+            secretKeyRef:
+              name: forward-auth-secrets
+              key: secret
+        # Configuration from ConfigMap
+        - name: DEFAULT_PROVIDER
+          valueFrom:
+            configMapKeyRef:
+              name: forward-auth-config
+              key: default-provider
+        - name: AUTH_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: forward-auth-config
+              key: auth-host
+        - name: COOKIE_DOMAIN
+          valueFrom:
+            configMapKeyRef:
+              name: forward-auth-config
+              key: cookie-domain
+        - name: INSECURE_COOKIE
+          valueFrom:
+            configMapKeyRef:
+              name: forward-auth-config
+              key: insecure-cookie
+        - name: URL_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: forward-auth-config
+              key: url-path
+        - name: WHITELIST
+          valueFrom:
+            configMapKeyRef:
+              name: forward-auth-config
+              key: whitelist
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: forward-auth-config
+              key: log-level
+        livenessProbe:
+          httpGet:
+            path: /_oauth/health
+            port: 4181
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /_oauth/health
+            port: 4181
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
