@@ -3,6 +3,14 @@ kind: ConfigMap
 metadata:
   name: forward-auth-config
   namespace: lilnas-core
+  labels:
+    app.kubernetes.io/name: forward-auth
+    app.kubernetes.io/instance: forward-auth
+    app.kubernetes.io/component: config
+    app.kubernetes.io/part-of: lilnas
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    kubernetes.io/description: "Configuration for forward authentication service"
 data:
   default-provider: "google"
   auth-host: "auth.lilnas.io"

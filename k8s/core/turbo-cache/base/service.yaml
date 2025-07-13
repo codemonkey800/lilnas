@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: turbo-cache
+  namespace: lilnas-core
+  labels:
+    app.kubernetes.io/name: turbo-cache
+    app.kubernetes.io/instance: turbo-cache
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: lilnas
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    kubernetes.io/description: "Service for Turborepo remote cache"
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: turbo-cache
+    app.kubernetes.io/instance: turbo-cache

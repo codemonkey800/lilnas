@@ -3,7 +3,14 @@ kind: Ingress
 metadata:
   name: turbo-cache
   namespace: lilnas-core
+  labels:
+    app.kubernetes.io/name: turbo-cache
+    app.kubernetes.io/instance: turbo-cache
+    app.kubernetes.io/component: ingress
+    app.kubernetes.io/part-of: lilnas
+    app.kubernetes.io/managed-by: kustomize
   annotations:
+    kubernetes.io/description: "Ingress for Turborepo remote cache service"
     traefik.ingress.kubernetes.io/router.tls: "true"
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
@@ -12,7 +19,7 @@ spec:
   tls:
     - hosts:
         - turbo.lilnas.io
-      secretName: turbo-cache-tls
+      secretName: turbo-lilnas-io-tls
   rules:
     - host: turbo.lilnas.io
       http:
@@ -23,4 +30,4 @@ spec:
               service:
                 name: turbo-cache
                 port:
-                  number: 3000
+                  number: 80
