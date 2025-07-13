@@ -1,0 +1,19 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: turbo-cache
+  namespace: lilnas-core
+  labels:
+    app.kubernetes.io/name: turbo-cache
+    app.kubernetes.io/instance: turbo-cache
+    app.kubernetes.io/component: pdb
+    app.kubernetes.io/part-of: lilnas
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    kubernetes.io/description: "Pod disruption budget for Turborepo cache service"
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: turbo-cache
+      app.kubernetes.io/instance: turbo-cache

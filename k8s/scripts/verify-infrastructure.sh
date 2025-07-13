@@ -1,20 +1,24 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
 # Comprehensive infrastructure verification script
 # Validates all k8s manifests and infrastructure components
+#
+# Usage: verify-infrastructure.sh [options]
+#
+# Options:
+#   -h, --help        Show this help message
+#   -v, --verbose     Enable verbose output
+#   -d, --dry-run     Show what would be done without executing
+#
 
-set -e
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-NC='\033[0m' # No Color
+set -euo pipefail
 
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 K8S_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Source common functions
+source "${SCRIPT_DIR}/lib/common.sh"
 
 # Test counters
 TOTAL_TESTS=0
@@ -23,16 +27,6 @@ FAILED_TESTS=0
 
 # Test results
 declare -a FAILED_TEST_NAMES=()
-
-# Command availability checks
-check_command() {
-    local cmd="$1"
-    if ! command -v "$cmd" &> /dev/null; then
-        log_error "Required command not found: $cmd"
-        return 1
-    fi
-    return 0
-}
 
 # Portable timeout function
 portable_timeout() {
@@ -49,28 +43,20 @@ portable_timeout() {
     fi
 }
 
-# Helper functions
-log_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
-}
-
+# Override log functions from common.sh to include test counters
 log_success() {
-    echo -e "${GREEN}✅ $1${NC}"
+    echo -e "${COLOR_GREEN}✅ $1${COLOR_RESET}"
     PASSED_TESTS=$((PASSED_TESTS + 1))
 }
 
-log_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
-}
-
 log_error() {
-    echo -e "${RED}❌ $1${NC}"
+    echo -e "${COLOR_RED}❌ $1${COLOR_RESET}"
     FAILED_TESTS=$((FAILED_TESTS + 1))
     FAILED_TEST_NAMES+=("$1")
 }
 
 log_section() {
-    echo -e "\n${PURPLE}🔍 $1${NC}"
+    echo -e "\n${COLOR_CYAN}🔍 $1${COLOR_RESET}"
     echo "================================="
 }
 
@@ -79,7 +65,7 @@ run_test() {
     local test_command="$2"
     
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
-    log_info "Testing: $test_name"
+    info "Testing: $test_name"
     
     # Add timeout to prevent hanging
     if portable_timeout 10 "$test_command" &> /dev/null; then
@@ -98,25 +84,13 @@ verify_prerequisites() {
     # Check required commands
     local required_commands=("kubectl" "grep" "wc" "find")
     for cmd in "${required_commands[@]}"; do
-        if ! check_command "$cmd"; then
-            log_error "Missing required command: $cmd"
-            return 1
-        fi
+        check_command "$cmd" || return 1
     done
     
     run_test "kubectl is installed" "command -v kubectl"
     
-    # Enhanced kubectl connectivity check
-    if ! kubectl cluster-info &> /dev/null; then
-        log_error "kubectl cannot connect to cluster"
-        log_info "Please ensure:"
-        log_info "- Kubernetes cluster is running"
-        log_info "- kubectl is properly configured (~/.kube/config)"
-        log_info "- Current context is correct: $(kubectl config current-context 2>/dev/null || echo 'none')"
-        return 1
-    else
-        log_success "kubectl can connect to cluster"
-    fi
+    # Use common function for kubectl check
+    check_kubectl || return 1
     
     run_test "kubectl can list nodes" "kubectl get nodes"
     
@@ -374,10 +348,10 @@ compare_with_cluster() {
 generate_report() {
     log_section "Verification Report"
     
-    echo -e "${BLUE}📊 Test Summary${NC}"
+    echo -e "${COLOR_BLUE}📊 Test Summary${COLOR_RESET}"
     echo "Total Tests: $TOTAL_TESTS"
-    echo -e "${GREEN}Passed: $PASSED_TESTS${NC}"
-    echo -e "${RED}Failed: $FAILED_TESTS${NC}"
+    echo -e "${COLOR_GREEN}Passed: $PASSED_TESTS${COLOR_RESET}"
+    echo -e "${COLOR_RED}Failed: $FAILED_TESTS${COLOR_RESET}"
     
     if [ $TOTAL_TESTS -gt 0 ]; then
         local success_rate=$(( PASSED_TESTS * 100 / TOTAL_TESTS ))
@@ -387,13 +361,13 @@ generate_report() {
     fi
     
     if [ $FAILED_TESTS -gt 0 ]; then
-        echo -e "\n${RED}Failed Tests:${NC}"
+        echo -e "\n${COLOR_RED}Failed Tests:${COLOR_RESET}"
         for test_name in "${FAILED_TEST_NAMES[@]}"; do
             echo "  - $test_name"
         done
     fi
     
-    echo -e "\n${BLUE}Next Steps:${NC}"
+    echo -e "\n${COLOR_BLUE}Next Steps:${COLOR_RESET}"
     if [ $FAILED_TESTS -eq 0 ]; then
         echo "🎉 All tests passed! Infrastructure is properly configured."
         echo "You can proceed with application deployments."
@@ -411,9 +385,46 @@ generate_report() {
     fi
 }
 
+# Show usage
+show_usage() {
+    cat << EOF
+Usage: $(basename "$0") [options]
+
+Comprehensive infrastructure verification script that validates all k8s manifests
+and infrastructure components.
+
+Options:
+  -h, --help        Show this help message
+  -v, --verbose     Enable verbose output
+  -d, --dry-run     Show what would be done without executing
+
+Examples:
+  # Run standard verification
+  $(basename "$0")
+  
+  # Run with verbose output
+  $(basename "$0") -v
+
+EOF
+    show_common_flags_help
+}
+
+# Parse arguments
+parse_args() {
+    local remaining_args
+    remaining_args=$(parse_common_flags "$@") || { show_usage; exit 0; }
+    set -- $remaining_args
+    
+    if [[ $# -gt 0 ]]; then
+        error "Unknown arguments: $*"
+        show_usage
+        exit 1
+    fi
+}
+
 # Main execution
 main() {
-    echo -e "${PURPLE}🔍 lilnas Infrastructure Verification${NC}"
+    echo -e "${COLOR_CYAN}🔍 lilnas Infrastructure Verification${COLOR_RESET}"
     echo "========================================"
     echo "Verifying all infrastructure components..."
     echo
@@ -439,5 +450,6 @@ main() {
     fi
 }
 
-# Run main function
-main "$@"
+# Parse arguments and run main function
+parse_args "$@"
+main
