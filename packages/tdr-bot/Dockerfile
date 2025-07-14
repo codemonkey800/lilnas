@@ -42,4 +42,8 @@ ENV PORT=8080
 EXPOSE 8080
 
 WORKDIR /app
+
+# Add OCI image source label
+LABEL org.opencontainers.image.source https://github.com/codemonkey800/lilnas
+
 ENTRYPOINT ["pnpm", "start"]

@@ -27,3 +27,6 @@ COPY packages/dashcam/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Expose port 80
 EXPOSE 80
+
+# Add OCI image source label
+LABEL org.opencontainers.image.source https://github.com/codemonkey800/lilnas
