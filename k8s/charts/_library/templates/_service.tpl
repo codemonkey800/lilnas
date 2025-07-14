@@ -105,3 +105,50 @@ spec:
   selector:
     {{- include "lilnas.selectorLabels" . | nindent 4 }}
 {{- end -}}
+
+{{/*
+Enhanced service template with headless service support.
+Creates a headless service when .Values.service.headless is true.
+
+Usage in your chart:
+  {{- include "lilnas.service.headless" . }}
+*/}}
+{{- define "lilnas.service.headless" -}}
+{{- if .Values.service.headless }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lilnas.fullname" . }}-headless
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "lilnas.labels" . | nindent 4 }}
+    app.kubernetes.io/component: headless
+    {{- with .Values.service.labels }}
+    {{ toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- include "lilnas.annotations" . | nindent 4 }}
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+    {{- with .Values.service.annotations }}
+    {{ toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+  - name: http
+    port: {{ .Values.service.port | default 80 }}
+    targetPort: {{ .Values.service.targetPort | default "http" }}
+    protocol: TCP
+  {{- range .Values.service.extraPorts }}
+  - name: {{ .name }}
+    port: {{ .port }}
+    targetPort: {{ .targetPort | default .port }}
+    protocol: {{ .protocol | default "TCP" }}
+  {{- end }}
+  selector:
+    {{- include "lilnas.selectorLabels" . | nindent 4 }}
+{{- end }}
+{{- end -}}

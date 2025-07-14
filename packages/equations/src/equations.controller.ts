@@ -43,7 +43,11 @@ export class EquationsController {
   constructor(@Inject(MINIO_CONNECTION) private readonly minioClient: Client) {}
 
   private async logBadFile(file: string) {
-    const badFilesDir = '/bad-files'
+    const baseDir =
+      process.env.NODE_ENV === 'production'
+        ? '/tmp/equations'
+        : '/tmp/equations-dev'
+    const badFilesDir = path.join(baseDir, 'bad-files')
     await fs.ensureDir(badFilesDir)
 
     const name = path.basename(path.dirname(file))
@@ -54,7 +58,11 @@ export class EquationsController {
 
   private async storeLatexFile(jobId: string, latexContent: string) {
     try {
-      const latexFilesDir = '/latex-files'
+      const baseDir =
+        process.env.NODE_ENV === 'production'
+          ? '/tmp/equations'
+          : '/tmp/equations-dev'
+      const latexFilesDir = path.join(baseDir, 'latex-files')
       await fs.ensureDir(latexFilesDir)
 
       const latexStorageFile = path.join(latexFilesDir, `${jobId}.tex`)

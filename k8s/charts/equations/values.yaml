@@ -1,0 +1,157 @@
+# Default values for equations
+# This is a YAML-formatted file.
+# Declare variables to be substituted into your templates.
+
+# Deployment configuration
+replicaCount: 1
+namespace: lilnas-core
+
+# Image configuration
+image:
+  repository: ghcr.io/codemonkey800/lilnas-equations
+  tag: "latest"
+  pullPolicy: Always
+
+# Image pull secrets for private registries
+imagePullSecrets:
+  - name: ghcr-secret
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+  annotations: {}
+
+# Service account configuration
+serviceAccount:
+  create: true
+  annotations:
+    kubernetes.io/description: "Service account for LaTeX equations rendering service"
+  name: ""
+
+# Configuration
+config:
+  port: "8080"
+  minioHost: "minio-api.lilnas-core"
+  minioPort: "9000"
+  nodeEnv: "production"
+
+# Secrets configuration
+# These values are used to create a secret if existingSecret is not specified
+auth:
+  apiToken: ""
+  minioAccessKey: ""
+  minioSecretKey: ""
+
+# Use an existing secret for authentication
+existingSecret: ""
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    kubernetes.io/description: "Ingress for LaTeX equations rendering service"
+  host: equations.lilnas.io
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: true
+    secretName: equations-lilnas-io-tls
+    issuer: letsencrypt-prod
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+    - ALL
+
+# Volume mounts for temporary and cache directories
+volumeMounts:
+  - name: tmp
+    mountPath: /tmp
+  - name: cache
+    mountPath: /app/cache
+
+volumes:
+  - name: tmp
+    emptyDir: {}
+  - name: cache
+    emptyDir: {}
+
+# Health check configuration with longer timeouts for LaTeX processing
+livenessProbe: {}
+#  httpGet:
+#    path: /health
+#    port: http
+#  initialDelaySeconds: 60
+#  periodSeconds: 30
+#  timeoutSeconds: 10
+#  failureThreshold: 3
+
+readinessProbe: {}
+#  httpGet:
+#    path: /health
+#    port: http
+#  initialDelaySeconds: 30
+#  periodSeconds: 15
+#  timeoutSeconds: 5
+#  failureThreshold: 3
+
+# Resource limits - LaTeX needs more resources than typical services
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "200m"
+  limits:
+    memory: "1Gi"
+    cpu: "1000m"
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Common labels to apply to all resources
+commonLabels: {}
+
+# Common annotations to apply to all resources
+commonAnnotations: {}
+
+# Name overrides
+nameOverride: ""
+fullnameOverride: ""
+
+# Additional environment variables
+extraEnv: []
+# - name: EXTRA_VAR
+#   value: "extra-value"
+
+# Additional environment variables from ConfigMaps or Secrets
+extraEnvFrom: []
+# - configMapRef:
+#     name: extra-config
+# - secretRef:
+#     name: extra-secret

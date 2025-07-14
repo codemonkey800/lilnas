@@ -19,3 +19,7 @@ keywords:
   - optimization
 annotations:
   category: Development Tools
+dependencies:
+  - name: lilnas-common
+    version: '0.1.0'
+    repository: 'file://../_library'
