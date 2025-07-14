@@ -1,6 +1,6 @@
 apiVersion: v2
-name: turbo-cache
-description: Turborepo remote cache service for build optimization
+name: equations
+description: LaTeX equation rendering service with Docker sandbox security
 type: application
 version: 0.1.0
 appVersion: "latest"
@@ -10,15 +10,15 @@ maintainers:
 home: https://github.com/codemonkey800/lilnas
 sources:
   - https://github.com/codemonkey800/lilnas
-  - https://github.com/ducktors/turborepo-remote-cache
 keywords:
-  - cache
-  - build
-  - turborepo
-  - turbo
-  - optimization
+  - latex
+  - equations
+  - rendering
+  - math
+  - security
+  - sandbox
 annotations:
-  category: Development Tools
+  category: Web Services
 dependencies:
   - name: lilnas-common
     version: '0.1.0'

@@ -1,0 +1,61 @@
+# Production environment overrides for equations
+
+namespace: lilnas-core
+
+# Production scaling
+replicaCount: 2
+
+# Production configuration
+config:
+  nodeEnv: "production"
+  minioHost: "minio-api.lilnas-core"
+  minioPort: "9000"
+
+# Production authentication configuration
+auth:
+  apiToken: "vhT9fwQv_HR.GLMnQtntXuyPcw7f@ifA"
+  s3AccessKey: "JPbk1hhiDa2W8GMUKN77"
+  s3SecretKey: "VxG97f5OPsTQlwiUFvXIsIdHW3eemvqJXe8R0WF2"
+
+# Production resource requirements - LaTeX needs more resources
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "500m"
+  limits:
+    memory: "2Gi"
+    cpu: "2000m"
+
+# Production ingress configuration
+ingress:
+  host: equations.lilnas.io
+  tls:
+    issuer: letsencrypt-prod
+
+# Pod disruption budget for high availability
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Health check configuration with appropriate timeouts for LaTeX processing
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 15
+  failureThreshold: 5
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 45
+  periodSeconds: 20
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+# Common labels for prod environment
+commonLabels:
+  environment: prod

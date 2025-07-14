@@ -5,6 +5,7 @@ import { NestMinioModule } from 'nestjs-minio'
 import { LoggerModule } from 'nestjs-pino'
 
 import { EquationsController } from './equations.controller'
+import { HealthController } from './health.controller'
 import { EnvKey } from './utils/env'
 
 @Module({
@@ -36,6 +37,6 @@ import { EnvKey } from './utils/env'
       useSSL: false,
     }),
   ],
-  controllers: [EquationsController],
+  controllers: [EquationsController, HealthController],
 })
 export class AppModule {}

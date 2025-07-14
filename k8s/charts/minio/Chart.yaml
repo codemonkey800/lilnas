@@ -17,3 +17,7 @@ keywords:
   - minio
 annotations:
   category: Storage
+dependencies:
+  - name: lilnas-common
+    version: '0.1.0'
+    repository: 'file://../_library'

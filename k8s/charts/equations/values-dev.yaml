@@ -1,0 +1,37 @@
+# Development environment overrides for equations
+
+namespace: lilnas-dev
+
+# Development configuration
+config:
+  nodeEnv: "development"
+
+# Reduced resource requirements for dev
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+# Development ingress configuration
+ingress:
+  host: equations.dev.lilnas.io
+  tls:
+    issuer: letsencrypt-staging
+
+# Faster health checks for development
+livenessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 15
+  timeoutSeconds: 5
+
+readinessProbe:
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 3
+
+# Common labels for dev environment
+commonLabels:
+  environment: dev
