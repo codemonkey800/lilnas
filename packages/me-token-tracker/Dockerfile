@@ -24,4 +24,8 @@ RUN pnpm --filter=me-token-tracker --prod deploy /app
 # Runtime stage
 FROM lilnas-node-runtime AS runtime
 COPY --from=builder /app /app
+
+# Add OCI image source label
+LABEL org.opencontainers.image.source https://github.com/codemonkey800/lilnas
+
 ENTRYPOINT ["pnpm", "start"]

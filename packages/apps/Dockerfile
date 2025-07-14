@@ -45,4 +45,8 @@ FROM lilnas-nextjs-runtime AS runtime
 COPY --from=builder /app /app
 
 WORKDIR /app
+
+# Add OCI image source label
+LABEL org.opencontainers.image.source https://github.com/codemonkey800/lilnas
+
 ENTRYPOINT ["pnpm", "start"]
