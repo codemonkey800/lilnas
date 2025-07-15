@@ -13,8 +13,7 @@ image:
   pullPolicy: Always
 
 # Image pull secrets for private registries
-imagePullSecrets:
-  - name: ghcr-secret
+imagePullSecrets: []
 
 # Service configuration
 service:
@@ -55,13 +54,17 @@ ingress:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
     kubernetes.io/description: "Ingress for LaTeX equations rendering service"
-  host: equations.lilnas.io
-  path: /
-  pathType: Prefix
+  hosts:
+    - host: equations.lilnas.io
+      paths:
+        - path: /
+          pathType: Prefix
   tls:
-    enabled: true
-    secretName: equations-lilnas-io-tls
-    issuer: letsencrypt-prod
+    - hosts:
+        - equations.lilnas.io
+      secretName: equations-lilnas-io-tls
+  certManager:
+    clusterIssuer: letsencrypt-prod
 
 # Pod disruption budget
 podDisruptionBudget:
@@ -78,6 +81,15 @@ podSecurityContext:
     type: RuntimeDefault
 
 securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+    - ALL
+
+# Container security context configuration
+containerSecurityContext:
+  enabled: true
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
   capabilities:
@@ -134,6 +146,14 @@ tolerations: []
 # Affinity
 affinity: {}
 
+# Autoscaling configuration
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
 # Common labels to apply to all resources
 commonLabels: {}
 
@@ -155,3 +175,21 @@ extraEnvFrom: []
 #     name: extra-config
 # - secretRef:
 #     name: extra-secret
+
+# Persistence configuration
+persistence:
+  enabled: false
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  mountPath: /data
+
+# Temporary volume configuration
+tmpVolume:
+  enabled: true
+  sizeLimit: 256Mi
+
+# Cache volume configuration
+cacheVolume:
+  enabled: true
+  sizeLimit: 512Mi

@@ -17,9 +17,17 @@ resources:
 
 # Development ingress configuration
 ingress:
-  host: equations.dev.lilnas.io
+  hosts:
+    - host: equations.dev.lilnas.io
+      paths:
+        - path: /
+          pathType: Prefix
   tls:
-    issuer: letsencrypt-staging
+    - hosts:
+        - equations.dev.lilnas.io
+      secretName: equations-dev-lilnas-io-tls
+  certManager:
+    clusterIssuer: letsencrypt-staging
 
 # Faster health checks for development
 livenessProbe:

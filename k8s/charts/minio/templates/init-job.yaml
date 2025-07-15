@@ -20,6 +20,8 @@ spec:
       - name: minio-init
         image: "{{ .Values.initJob.image.repository }}:{{ .Values.initJob.image.tag }}"
         imagePullPolicy: {{ .Values.initJob.image.pullPolicy }}
+        resources:
+          {{- toYaml .Values.initJob.resources | nindent 10 }}
         envFrom:
         - secretRef:
             name: {{ include "minio.secretName" . }}
