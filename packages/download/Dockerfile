@@ -23,15 +23,25 @@ RUN pnpm build --filter=@lilnas/download
 # Deploy production dependencies
 RUN pnpm --filter=download --prod deploy /app
 
-# Copy Next.js static files to standalone output
-RUN cp -r /app/.next/static/ /app/.next/standalone/.next/
+# Copy the built Next.js application
+RUN cp -r /source/packages/download/.next /app/.next
+
+# Copy public directory if it exists
+RUN if [ -d /source/packages/download/public ]; then \
+      cp -r /source/packages/download/public /app/.next/standalone/; \
+    fi
+
+# Copy static files to standalone directory
+RUN if [ -d /app/.next/static ]; then \
+      cp -r /app/.next/static /app/.next/standalone/.next/; \
+    fi
 
 # Production stage
 FROM lilnas-nextjs-runtime AS production
 
 # Install ffmpeg and dependencies for yt-dlp
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg curl ca-certificates && \
+    apt-get install -y --no-install-recommends ffmpeg curl ca-certificates python3 && \
     rm -rf /var/lib/apt/lists/*
 
 RUN curl \

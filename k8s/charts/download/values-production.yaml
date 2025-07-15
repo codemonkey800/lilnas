@@ -1,0 +1,64 @@
+# Production values for download service deployment
+# This file contains the MinIO secrets and production configuration
+
+# MinIO authentication
+secrets:
+  MINIO_ACCESS_KEY: "PDgwzgNScyYBtCsM62d8"
+  MINIO_SECRET_KEY: "Ylx3wACrLnvC0ZFdlxrxYfXibbBThXlfuNstPpYp"
+
+# Ensure we use the latest image
+image:
+  repository: ghcr.io/codemonkey800/lilnas-download
+  tag: "latest"
+  pullPolicy: Always
+
+# Production resource limits for video processing
+resources:
+  requests:
+    memory: "1Gi"
+    cpu: "1000m"
+  limits:
+    memory: "4Gi"
+    cpu: "3000m"
+
+# Enable persistence for video processing
+persistence:
+  enabled: true
+  storageClass: "local-path"
+  size: 100Gi
+
+# Production ingress configuration
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    kubernetes.io/description: "Ingress for video download service"
+  hosts:
+    - host: download.lilnas.io
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - download.lilnas.io
+      secretName: download-lilnas-io-tls
+
+# Security configuration
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  enabled: true
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+    - ALL
