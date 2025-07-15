@@ -21,14 +21,27 @@ usage() {
     echo "  -d, --dry-run           Perform a dry run"
     echo "  -h, --help              Show this help message"
     echo ""
+    echo "Secret Options (required for production):"
+    echo "  --api-token TOKEN       API authentication token"
+    echo "  --s3-access-key KEY     S3/MinIO access key"
+    echo "  --s3-secret-key KEY     S3/MinIO secret key"
+    echo ""
     echo "Examples:"
     echo "  $0                      # Deploy with dev values to lilnas-core namespace"
-    echo "  $0 -e prod              # Deploy with prod values"
     echo "  $0 -e dev --dry-run     # Dry run with dev values"
     echo "  $0 -n lilnas-dev        # Deploy to specific namespace"
+    echo ""
+    echo "  # Production deployment with secrets:"
+    echo "  $0 -e prod \\"
+    echo "    --api-token 'your-api-token' \\"
+    echo "    --s3-access-key 'your-access-key' \\"
+    echo "    --s3-secret-key 'your-secret-key'"
 }
 
 DRY_RUN=""
+API_TOKEN=""
+S3_ACCESS_KEY=""
+S3_SECRET_KEY=""
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -53,6 +66,18 @@ while [[ $# -gt 0 ]]; do
             usage
             exit 0
             ;;
+        --api-token)
+            API_TOKEN="$2"
+            shift 2
+            ;;
+        --s3-access-key)
+            S3_ACCESS_KEY="$2"
+            shift 2
+            ;;
+        --s3-secret-key)
+            S3_SECRET_KEY="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             usage
@@ -66,6 +91,58 @@ if [[ "$ENVIRONMENT" != "dev" && "$ENVIRONMENT" != "prod" ]]; then
     echo "Error: Invalid environment '$ENVIRONMENT'. Must be 'dev' or 'prod'."
     exit 1
 fi
+
+# Check if 1password CLI is available
+if command -v op &> /dev/null && [[ -z "$API_TOKEN" || -z "$S3_ACCESS_KEY" || -z "$S3_SECRET_KEY" ]]; then
+    echo "Fetching secrets from 1password..."
+    
+    # Check if user is signed in to 1password
+    if ! op account list &> /dev/null; then
+        echo "Please sign in to 1password first: eval \$(op signin)"
+        exit 1
+    fi
+    
+    # Set OP_ACCOUNT if multiple accounts exist
+    export OP_ACCOUNT=${OP_ACCOUNT:-AYHWYYW3CBB3ZEJVIFODSATT7Y}
+    
+    # Fetch secrets from 1password Equations item
+    if [[ -z "$API_TOKEN" ]]; then
+        API_TOKEN=$(op item get "Equations" --fields "token" 2>/dev/null || echo "")
+    fi
+    if [[ -z "$S3_ACCESS_KEY" ]]; then
+        S3_ACCESS_KEY=$(op item get "Equations" --fields "minio access key" 2>/dev/null || echo "")
+    fi
+    if [[ -z "$S3_SECRET_KEY" ]]; then
+        S3_SECRET_KEY=$(op item get "Equations" --fields "minio secret key" 2>/dev/null || echo "")
+    fi
+    
+    if [[ -n "$API_TOKEN" && -n "$S3_ACCESS_KEY" && -n "$S3_SECRET_KEY" ]]; then
+        echo "Successfully fetched secrets from 1password"
+    else
+        echo "Warning: Failed to fetch some secrets from 1password"
+    fi
+fi
+
+# Validate secrets for production
+if [[ "$ENVIRONMENT" == "prod" && -z "$DRY_RUN" ]]; then
+    if [[ -z "$API_TOKEN" || -z "$S3_ACCESS_KEY" || -z "$S3_SECRET_KEY" ]]; then
+        echo "Error: Production deployment requires all secrets to be provided."
+        echo "Please provide --api-token, --s3-access-key, and --s3-secret-key"
+        echo ""
+        echo "You can also set these via environment variables:"
+        echo "  export EQUATIONS_API_TOKEN='your-token'"
+        echo "  export EQUATIONS_S3_ACCESS_KEY='your-access-key'"
+        echo "  export EQUATIONS_S3_SECRET_KEY='your-secret-key'"
+        echo ""
+        echo "Or store them in 1password under the 'Equations' item"
+        exit 1
+    fi
+fi
+
+# Allow environment variables as fallback for secrets
+API_TOKEN="${API_TOKEN:-${EQUATIONS_API_TOKEN:-}}"
+S3_ACCESS_KEY="${S3_ACCESS_KEY:-${EQUATIONS_S3_ACCESS_KEY:-}}"
+S3_SECRET_KEY="${S3_SECRET_KEY:-${EQUATIONS_S3_SECRET_KEY:-}}"
 
 # Set values file based on environment
 VALUES_FILE="values-${ENVIRONMENT}.yaml"
@@ -94,19 +171,33 @@ if [[ -z "$DRY_RUN" ]] && ! kubectl get namespace "$NAMESPACE" &> /dev/null; the
     exit 1
 fi
 
+# Build helm values args
+HELM_VALUES_ARGS="-f $VALUES_FILE"
+
+# Add secret values if provided
+if [[ -n "$API_TOKEN" ]]; then
+    HELM_VALUES_ARGS="$HELM_VALUES_ARGS --set auth.apiToken='$API_TOKEN'"
+fi
+if [[ -n "$S3_ACCESS_KEY" ]]; then
+    HELM_VALUES_ARGS="$HELM_VALUES_ARGS --set auth.minioAccessKey='$S3_ACCESS_KEY'"
+fi
+if [[ -n "$S3_SECRET_KEY" ]]; then
+    HELM_VALUES_ARGS="$HELM_VALUES_ARGS --set auth.minioSecretKey='$S3_SECRET_KEY'"
+fi
+
 # Deploy the chart
 if [[ -z "$DRY_RUN" ]] && helm list -n "$NAMESPACE" | grep -q "^${RELEASE_NAME}\s"; then
     echo "Upgrading existing release..."
-    helm upgrade "$RELEASE_NAME" . \
+    eval helm upgrade "$RELEASE_NAME" . \
         -n "$NAMESPACE" \
-        -f "$VALUES_FILE" \
+        $HELM_VALUES_ARGS \
         --wait \
         $DRY_RUN
 else
     echo "Installing new release..."
-    helm install "$RELEASE_NAME" . \
+    eval helm install "$RELEASE_NAME" . \
         -n "$NAMESPACE" \
-        -f "$VALUES_FILE" \
+        $HELM_VALUES_ARGS \
         --wait \
         $DRY_RUN
 fi

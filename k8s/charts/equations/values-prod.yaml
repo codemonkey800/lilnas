@@ -12,10 +12,12 @@ config:
   minioPort: "9000"
 
 # Production authentication configuration
+# NOTE: Secrets must be provided via CLI flags or environment variables for security
+# Do not hardcode secrets in this file
 auth:
-  apiToken: "vhT9fwQv_HR.GLMnQtntXuyPcw7f@ifA"
-  s3AccessKey: "JPbk1hhiDa2W8GMUKN77"
-  s3SecretKey: "VxG97f5OPsTQlwiUFvXIsIdHW3eemvqJXe8R0WF2"
+  apiToken: ""  # Set via --api-token or EQUATIONS_API_TOKEN
+  s3AccessKey: ""  # Set via --s3-access-key or EQUATIONS_S3_ACCESS_KEY
+  s3SecretKey: ""  # Set via --s3-secret-key or EQUATIONS_S3_SECRET_KEY
 
 # Production resource requirements - LaTeX needs more resources
 resources:
@@ -28,9 +30,17 @@ resources:
 
 # Production ingress configuration
 ingress:
-  host: equations.lilnas.io
+  hosts:
+    - host: equations.lilnas.io
+      paths:
+        - path: /
+          pathType: Prefix
   tls:
-    issuer: letsencrypt-prod
+    - hosts:
+        - equations.lilnas.io
+      secretName: equations-lilnas-io-tls
+  certManager:
+    clusterIssuer: letsencrypt-prod
 
 # Pod disruption budget for high availability
 podDisruptionBudget:

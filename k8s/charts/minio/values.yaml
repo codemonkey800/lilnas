@@ -68,6 +68,13 @@ initJob:
     repository: minio/mc
     tag: latest
     pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "100m"
+      memory: "128Mi"
   buckets:
     - name: equations
       public: true
@@ -78,6 +85,52 @@ initJob:
 
 # Existing secret name (if you want to use an existing secret)
 existingSecret: ""
+
+# StatefulSet configuration
+statefulset:
+  serviceName: minio
+
+# Persistence configuration
+persistence:
+  enabled: true
+  size: 1Ti
+  storageClass: hdd-storage
+
+# Autoscaling configuration
+autoscaling:
+  enabled: false
+
+# Service account configuration
+serviceAccount:
+  create: false
+
+# Pod Security Context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container Security Context
+containerSecurityContext:
+  enabled: true
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+# Volume configuration
+tmpVolume:
+  enabled: false
+
+cacheVolume:
+  enabled: false
+
+volumeMounts: []
+volumes: []
 
 # Name overrides
 nameOverride: ""

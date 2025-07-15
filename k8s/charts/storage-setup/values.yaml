@@ -109,7 +109,7 @@ persistentVolumes:
     capacity: 1Ti
     accessModes:
       - ReadWriteOnce
-    path: /mnt/hdd1/data/k8s-volumes/minio-data
+    path: /mnt/hdd1/data/k8s-volumes/minio
   
   movies:
     enabled: true

@@ -20,9 +20,18 @@ echo "=== Testing with dev values ==="
 helm template equations . -f values-dev.yaml --debug
 echo
 
-# Test with prod values
-echo "=== Testing with prod values ==="
+# Test with prod values (without secrets)
+echo "=== Testing with prod values (without secrets) ==="
 helm template equations . -f values-prod.yaml --debug
+echo
+
+# Test with prod values and secrets
+echo "=== Testing with prod values and secrets ==="
+helm template equations . -f values-prod.yaml \
+  --set auth.apiToken=test-api-token \
+  --set auth.s3AccessKey=test-access-key \
+  --set auth.s3SecretKey=test-secret-key \
+  --debug
 echo
 
 # Test with custom auth tokens

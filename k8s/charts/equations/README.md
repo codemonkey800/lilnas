@@ -5,12 +5,14 @@ LaTeX equation rendering service for the lilnas ecosystem.
 ## TL;DR
 
 ```bash
-helm install equations ./k8s/charts/equations \
-  --namespace lilnas-core \
-  --create-namespace \
-  --set auth.apiToken=your-api-token \
-  --set auth.minioAccessKey=your-access-key \
-  --set auth.minioSecretKey=your-secret-key
+# Development deployment
+./deploy.sh -e dev
+
+# Production deployment with secrets
+./deploy.sh -e prod \
+  --api-token 'your-api-token' \
+  --s3-access-key 'your-access-key' \
+  --s3-secret-key 'your-secret-key'
 ```
 
 ## Introduction
@@ -26,11 +28,60 @@ This chart deploys a LaTeX equation rendering service on a Kubernetes cluster us
 
 ## Installing the Chart
 
+### Using the deployment script (recommended)
+
+The easiest way to deploy is using the provided deployment script:
+
+```bash
+# Development deployment (uses default test credentials)
+./deploy.sh -e dev
+
+# Production deployment with secrets via CLI flags
+./deploy.sh -e prod \
+  --api-token 'your-api-token' \
+  --s3-access-key 'your-access-key' \
+  --s3-secret-key 'your-secret-key'
+
+# Production deployment with secrets via environment variables
+export EQUATIONS_API_TOKEN='your-api-token'
+export EQUATIONS_S3_ACCESS_KEY='your-access-key'
+export EQUATIONS_S3_SECRET_KEY='your-secret-key'
+./deploy.sh -e prod
+
+# Dry run to preview changes
+./deploy.sh -e prod --dry-run \
+  --api-token 'your-api-token' \
+  --s3-access-key 'your-access-key' \
+  --s3-secret-key 'your-secret-key'
+```
+
+### Using Helm directly
+
 To install the chart with the release name `equations`:
 
 ```bash
-helm install equations ./k8s/charts/equations -f values.yaml
+# Basic installation
+helm install equations ./k8s/charts/equations
+
+# With custom values file
+helm install equations ./k8s/charts/equations -f values-prod.yaml
+
+# With secrets provided via command line
+helm install equations ./k8s/charts/equations \
+  -f values-prod.yaml \
+  --set auth.apiToken='your-api-token' \
+  --set auth.s3AccessKey='your-access-key' \
+  --set auth.s3SecretKey='your-secret-key'
 ```
+
+### Security Note
+
+**Never commit secrets to version control!** The production values file no longer contains hardcoded secrets. You must provide them via:
+
+- CLI flags (`--api-token`, `--s3-access-key`, `--s3-secret-key`)
+- Environment variables (`EQUATIONS_API_TOKEN`, `EQUATIONS_S3_ACCESS_KEY`, `EQUATIONS_S3_SECRET_KEY`)
+- Helm `--set` flags
+- External secret management solutions
 
 ## Uninstalling the Chart
 
@@ -44,47 +95,84 @@ helm delete equations
 
 The following table lists the configurable parameters of the equations chart and their default values.
 
-| Parameter                   | Description                            | Default                 |
-| --------------------------- | -------------------------------------- | ----------------------- |
-| `replicaCount`              | Number of replicas                     | `1`                     |
-| `namespace`                 | Kubernetes namespace                   | `lilnas-core`           |
-| `image.repository`          | Image repository                       | `lilnas/equations`      |
-| `image.tag`                 | Image tag (uses appVersion if not set) | `""`                    |
-| `image.pullPolicy`          | Image pull policy                      | `IfNotPresent`          |
-| `service.type`              | Kubernetes service type                | `ClusterIP`             |
-| `service.port`              | Service port                           | `80`                    |
-| `service.targetPort`        | Container port                         | `8080`                  |
-| `serviceAccount.create`     | Create service account                 | `true`                  |
-| `serviceAccount.name`       | Service account name                   | `""`                    |
-| `config.port`               | Application port                       | `8080`                  |
-| `config.minioHost`          | MinIO host                             | `minio-api.lilnas-core` |
-| `config.minioPort`          | MinIO port                             | `9000`                  |
-| `config.nodeEnv`            | Node environment                       | `production`            |
-| `auth.apiToken`             | API authentication token               | `""`                    |
-| `auth.minioAccessKey`       | MinIO access key                       | `""`                    |
-| `auth.minioSecretKey`       | MinIO secret key                       | `""`                    |
-| `existingSecret`            | Use existing secret                    | `""`                    |
-| `ingress.enabled`           | Enable ingress                         | `true`                  |
-| `ingress.className`         | Ingress class                          | `traefik`               |
-| `ingress.host`              | Ingress hostname                       | `equations.lilnas.io`   |
-| `ingress.tls.enabled`       | Enable TLS                             | `true`                  |
-| `ingress.tls.issuer`        | Certificate issuer                     | `letsencrypt-prod`      |
-| `resources.requests.memory` | Memory request                         | `256Mi`                 |
-| `resources.requests.cpu`    | CPU request                            | `200m`                  |
-| `resources.limits.memory`   | Memory limit                           | `1Gi`                   |
-| `resources.limits.cpu`      | CPU limit                              | `1000m`                 |
+| Parameter                   | Description                                    | Default                 |
+| --------------------------- | ---------------------------------------------- | ----------------------- |
+| `replicaCount`              | Number of replicas                             | `1`                     |
+| `namespace`                 | Kubernetes namespace                           | `lilnas-core`           |
+| `image.repository`          | Image repository                               | `lilnas/equations`      |
+| `image.tag`                 | Image tag (uses appVersion if not set)         | `""`                    |
+| `image.pullPolicy`          | Image pull policy                              | `IfNotPresent`          |
+| `service.type`              | Kubernetes service type                        | `ClusterIP`             |
+| `service.port`              | Service port                                   | `80`                    |
+| `service.targetPort`        | Container port                                 | `8080`                  |
+| `serviceAccount.create`     | Create service account                         | `true`                  |
+| `serviceAccount.name`       | Service account name                           | `""`                    |
+| `config.port`               | Application port                               | `8080`                  |
+| `config.minioHost`          | MinIO host                                     | `minio-api.lilnas-core` |
+| `config.minioPort`          | MinIO port                                     | `9000`                  |
+| `config.nodeEnv`            | Node environment                               | `production`            |
+| `auth.apiToken`             | API authentication token (⚠️ Use CLI/env vars) | `""`                    |
+| `auth.s3AccessKey`          | S3/MinIO access key (⚠️ Use CLI/env vars)      | `""`                    |
+| `auth.s3SecretKey`          | S3/MinIO secret key (⚠️ Use CLI/env vars)      | `""`                    |
+| `existingSecret`            | Use existing secret                            | `""`                    |
+| `ingress.enabled`           | Enable ingress                                 | `true`                  |
+| `ingress.className`         | Ingress class                                  | `traefik`               |
+| `ingress.host`              | Ingress hostname                               | `equations.lilnas.io`   |
+| `ingress.tls.enabled`       | Enable TLS                                     | `true`                  |
+| `ingress.tls.issuer`        | Certificate issuer                             | `letsencrypt-prod`      |
+| `resources.requests.memory` | Memory request                                 | `256Mi`                 |
+| `resources.requests.cpu`    | CPU request                                    | `200m`                  |
+| `resources.limits.memory`   | Memory limit                                   | `1Gi`                   |
+| `resources.limits.cpu`      | CPU limit                                      | `1000m`                 |
 
 ### Environment-Specific Values
 
 The chart includes environment-specific value files:
 
-- `values-dev.yaml`: Development environment settings
-- `values-prod.yaml`: Production environment settings
+- `values-dev.yaml`: Development environment settings (includes test credentials)
+- `values-prod.yaml`: Production environment settings (secrets must be provided separately)
+
+### Authentication and Secrets
+
+For security reasons, production secrets are no longer stored in `values-prod.yaml`. You must provide them through one of these methods:
+
+1. **CLI Flags (recommended for scripts)**:
+
+   ```bash
+   ./deploy.sh -e prod \
+     --api-token 'your-token' \
+     --s3-access-key 'your-key' \
+     --s3-secret-key 'your-secret'
+   ```
+
+2. **Environment Variables (recommended for CI/CD)**:
+
+   ```bash
+   export EQUATIONS_API_TOKEN='your-token'
+   export EQUATIONS_S3_ACCESS_KEY='your-key'
+   export EQUATIONS_S3_SECRET_KEY='your-secret'
+   ./deploy.sh -e prod
+   ```
+
+3. **Helm --set flags**:
+
+   ```bash
+   helm install equations ./k8s/charts/equations \
+     -f values-prod.yaml \
+     --set auth.apiToken='your-token' \
+     --set auth.s3AccessKey='your-key' \
+     --set auth.s3SecretKey='your-secret'
+   ```
+
+4. **External Secret Management** (recommended for production):
+   - Use Kubernetes Secrets
+   - Use external secret managers (Vault, AWS Secrets Manager, etc.)
+   - Set `existingSecret` to use an existing Kubernetes secret
 
 To deploy with environment-specific values:
 
 ```bash
-# Development
+# Development (uses test credentials from values-dev.yaml)
 helm install equations ./k8s/charts/equations -f ./k8s/charts/equations/values-dev.yaml
 
 # Production
