@@ -28,6 +28,7 @@ async function main() {
   dotenv.config()
   sourceMapSupport.install()
 
+  // Test application-only change for Docker build workflow
   if (env<EnvKey>('GRAPH_TEST', 'false') === 'true') {
     await runGraphTest()
   } else {
