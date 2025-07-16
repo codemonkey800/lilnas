@@ -24,7 +24,7 @@ error() {
 get_changed_files() {
     if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
         # For PRs, compare against base branch
-        git diff --name-only "$GITHUB_BASE_REF"..HEAD
+        git diff --name-only "origin/$GITHUB_BASE_REF"..HEAD
     else
         # For pushes to main, compare against previous commit
         git diff --name-only HEAD~1..HEAD
