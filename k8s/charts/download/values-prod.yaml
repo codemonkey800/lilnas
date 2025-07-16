@@ -73,9 +73,9 @@ readinessProbe:
 # Production persistence configuration
 persistence:
   enabled: true
-  storageClass: "hdd-storage"
+  storageClass: "local-path"  # Keep existing storage class to avoid PVC recreation
   accessMode: ReadWriteOnce
-  size: 500Gi  # Increased for production
+  size: 100Gi  # Keep existing size to avoid PVC recreation
   mountPath: /download/videos
   annotations:
     kubernetes.io/description: "Persistent storage for downloaded videos"

@@ -20,6 +20,11 @@ service:
   type: ClusterIP
   port: 80
   targetPort: 8080
+  extraPorts:
+    - name: api
+      port: 8081
+      targetPort: 8081
+      protocol: TCP
   annotations: {}
 
 # Service account configuration
@@ -53,7 +58,7 @@ auth:
   minioSecretKey: ""
 
 # Use an existing secret for authentication
-existingSecret: ""
+existingSecret: "download-secrets"
 
 # Ingress configuration
 ingress:
@@ -62,7 +67,7 @@ ingress:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
-    traefik.ingress.kubernetes.io/router.middlewares: lilnas-core-forward-auth@kubernetescrd
+    # PUBLIC ACCESS (no forward-auth middleware required)
     kubernetes.io/description: "Ingress for video download service"
   hosts:
     - host: download.lilnas.io

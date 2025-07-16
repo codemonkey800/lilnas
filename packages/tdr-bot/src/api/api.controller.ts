@@ -1,11 +1,12 @@
 import { Body, Controller, Get, Post } from '@nestjs/common'
 import { ChatModel } from 'openai/resources'
 
+import { VERSION } from 'src/constants/version'
 import { ImageResponse } from 'src/schemas/graph'
 import { EquationImageService } from 'src/services/equation-image.service'
 import { AppState, StateService } from 'src/state/state.service'
 
-import { EditableAppState, MessageState } from './api.types'
+import { EditableAppState, HealthResponse, MessageState } from './api.types'
 
 class UpdateStateDto {
   chatModel?: ChatModel
@@ -81,5 +82,15 @@ export class ApiController {
         }
       }) ?? [],
     )
+  }
+
+  @Get('health')
+  async getHealth(): Promise<HealthResponse> {
+    return {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: Math.floor(process.uptime()),
+      version: VERSION,
+    }
   }
 }
