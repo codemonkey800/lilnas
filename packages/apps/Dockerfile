@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile for @lilnas/apps
 
 # Dependency caching stage
-FROM lilnas-monorepo-builder AS deps
+FROM ghcr.io/codemonkey800/lilnas-monorepo-builder:latest AS deps
 
 # Copy package files for dependency caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -39,7 +39,7 @@ RUN if [ -d /app/.next/static ]; then \
     fi
 
 # Runtime stage
-FROM lilnas-nextjs-runtime AS runtime
+FROM ghcr.io/codemonkey800/lilnas-nextjs-runtime:latest AS runtime
 
 # Copy the built application
 COPY --from=builder /app /app
@@ -47,6 +47,6 @@ COPY --from=builder /app /app
 WORKDIR /app
 
 # Add OCI image source label
-LABEL org.opencontainers.image.source https://github.com/codemonkey800/lilnas
+LABEL org.opencontainers.image.source=https://github.com/codemonkey800/lilnas
 
 ENTRYPOINT ["pnpm", "start"]

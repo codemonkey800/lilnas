@@ -1,0 +1,286 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/codemonkey800
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      base_images: ${{ steps.changes.outputs.base_images }}
+      app_images: ${{ steps.changes.outputs.app_images }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect Docker changes
+        id: changes
+        run: |
+          chmod +x scripts/detect-docker-changes.sh
+          ./scripts/detect-docker-changes.sh
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+
+  build-base-wave-1:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: ${{ contains(fromJson(needs.detect-changes.outputs.base_images), 'lilnas-node-base') }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/lilnas-node-base
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest
+
+      - name: Build and push lilnas-node-base
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./infra/base-images/lilnas-node-base.Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=lilnas-node-base
+          cache-to: type=gha,mode=max,scope=lilnas-node-base
+          platforms: linux/amd64
+
+  build-base-wave-2:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, build-base-wave-1]
+    if: ${{ always() && !failure() && !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: lilnas-monorepo-builder
+            dockerfile: ./infra/base-images/lilnas-monorepo-builder.Dockerfile
+          - name: lilnas-node-runtime
+            dockerfile: ./infra/base-images/lilnas-node-runtime.Dockerfile
+        include:
+          - image:
+              name: lilnas-monorepo-builder
+            condition: ${{ contains(fromJson(needs.detect-changes.outputs.base_images), 'lilnas-monorepo-builder') }}
+          - image:
+              name: lilnas-node-runtime
+            condition: ${{ contains(fromJson(needs.detect-changes.outputs.base_images), 'lilnas-node-runtime') }}
+    steps:
+      - name: Check if should build
+        id: should_build
+        run: |
+          if [ "${{ matrix.image.name }}" = "lilnas-monorepo-builder" ]; then
+            echo "should_build=${{ contains(fromJson(needs.detect-changes.outputs.base_images), 'lilnas-monorepo-builder') }}" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.image.name }}" = "lilnas-node-runtime" ]; then
+            echo "should_build=${{ contains(fromJson(needs.detect-changes.outputs.base_images), 'lilnas-node-runtime') }}" >> $GITHUB_OUTPUT
+          else
+            echo "should_build=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout repository
+        if: ${{ steps.should_build.outputs.should_build == 'true' }}
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        if: ${{ steps.should_build.outputs.should_build == 'true' }}
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: ${{ steps.should_build.outputs.should_build == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        if: ${{ steps.should_build.outputs.should_build == 'true' }}
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.image.name }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest
+
+      - name: Build and push ${{ matrix.image.name }}
+        if: ${{ steps.should_build.outputs.should_build == 'true' }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.image.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
+          platforms: linux/amd64
+
+  build-base-wave-3:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, build-base-wave-2]
+    if: ${{ always() && !failure() && !cancelled() && contains(fromJson(needs.detect-changes.outputs.base_images), 'lilnas-nextjs-runtime') }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/lilnas-nextjs-runtime
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest
+
+      - name: Build and push lilnas-nextjs-runtime
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./infra/base-images/lilnas-nextjs-runtime.Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=lilnas-nextjs-runtime
+          cache-to: type=gha,mode=max,scope=lilnas-nextjs-runtime
+          platforms: linux/amd64
+
+  build-applications:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, build-base-wave-3]
+    if: ${{ always() && !failure() && !cancelled() && needs.detect-changes.outputs.app_images != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.app_images) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/lilnas-${{ matrix.app }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest
+
+      - name: Build and push ${{ matrix.app }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./packages/${{ matrix.app }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+          platforms: linux/amd64
+
+  build-summary:
+    runs-on: ubuntu-latest
+    needs:
+      [
+        detect-changes,
+        build-base-wave-1,
+        build-base-wave-2,
+        build-base-wave-3,
+        build-applications,
+      ]
+    if: always()
+    steps:
+      - name: Build Summary
+        run: |
+          echo "## Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.detect-changes.outputs.base_images }}" = "[]" ] && [ "${{ needs.detect-changes.outputs.app_images }}" = "[]" ]; then
+            echo "✅ No Docker images detected for building" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### Base Images" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ needs.detect-changes.outputs.base_images }}" = "[]" ]; then
+              echo "- No base images built" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "Built base images: ${{ needs.detect-changes.outputs.base_images }}" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Application Images" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ needs.detect-changes.outputs.app_images }}" = "[]" ]; then
+              echo "- No application images built" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "Built application images: ${{ needs.detect-changes.outputs.app_images }}" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Job Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Change detection: ${{ needs.detect-changes.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Base Wave 1: ${{ needs.build-base-wave-1.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Base Wave 2: ${{ needs.build-base-wave-2.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Base Wave 3: ${{ needs.build-base-wave-3.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Applications: ${{ needs.build-applications.result }}" >> $GITHUB_STEP_SUMMARY
+
+          # Check for failures
+          if [ "${{ contains(needs.*.result, 'failure') }}" = "true" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Some builds failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          elif [ "${{ contains(needs.*.result, 'cancelled') }}" = "true" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ Some builds were cancelled" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All builds completed successfully" >> $GITHUB_STEP_SUMMARY
+          fi

@@ -29,4 +29,4 @@ COPY packages/dashcam/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
 
 # Add OCI image source label
-LABEL org.opencontainers.image.source https://github.com/codemonkey800/lilnas
+LABEL org.opencontainers.image.source=https://github.com/codemonkey800/lilnas

@@ -68,7 +68,7 @@ USER app
 WORKDIR /app
 
 # Add OCI image source label
-LABEL org.opencontainers.image.source https://github.com/codemonkey800/lilnas
+LABEL org.opencontainers.image.source=https://github.com/codemonkey800/lilnas
 
 # Start the application
 ENTRYPOINT ["pnpm", "start"]
