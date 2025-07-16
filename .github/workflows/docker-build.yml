@@ -61,7 +61,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
+            type=sha,prefix={{date 'YYYYMMDD'}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push lilnas-node-base
@@ -132,7 +132,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
+            type=sha,prefix={{date 'YYYYMMDD'}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push ${{ matrix.image.name }}
@@ -174,7 +174,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
+            type=sha,prefix={{date 'YYYYMMDD'}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push lilnas-nextjs-runtime
@@ -219,7 +219,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
+            type=sha,prefix={{date 'YYYYMMDD'}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push ${{ matrix.app }}
