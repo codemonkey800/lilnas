@@ -1,0 +1,20 @@
+{{- if .Values.podDisruptionBudget.enabled -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "tdr-bot.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "tdr-bot.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pdb
+  annotations:
+    kubernetes.io/description: "Pod disruption budget for TDR Discord bot service"
+    {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "tdr-bot.selectorLabels" . | nindent 6 }}
+{{- end }}
