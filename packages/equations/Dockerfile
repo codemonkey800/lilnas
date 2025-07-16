@@ -1,11 +1,5 @@
 # Optimized Dockerfile using pre-built LaTeX image
-FROM node:20-bullseye AS base
-
-# Install pnpm
-RUN npm install -g pnpm@10.6.5
-
-# Build stage  
-FROM base AS deps
+FROM ghcr.io/codemonkey800/lilnas-node-base:latest AS deps
 
 WORKDIR /source
 
@@ -32,7 +26,7 @@ RUN pnpm build --filter=@lilnas/equations
 RUN pnpm --filter=equations --prod deploy /app
 
 # Production stage - use Node base and install LaTeX
-FROM node:20-bullseye-slim AS production
+FROM ghcr.io/codemonkey800/lilnas-node-runtime:latest AS production
 
 # Install LaTeX packages
 RUN apt-get update && \
@@ -47,9 +41,6 @@ RUN apt-get update && \
         imagemagick \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-
-# Install pnpm
-RUN npm install -g pnpm@10.6.5
 
 # Create app user
 RUN groupadd -r app && useradd -r -g app app

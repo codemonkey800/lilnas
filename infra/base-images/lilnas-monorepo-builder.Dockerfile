@@ -1,4 +1,4 @@
-FROM lilnas-node-base AS builder
+FROM ghcr.io/codemonkey800/lilnas-node-base:latest AS builder
 
 # Install global build tools
 RUN npm install -g turbo@^2.4.4
