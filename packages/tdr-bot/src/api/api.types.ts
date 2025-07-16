@@ -15,3 +15,10 @@ export type EditableAppState = Pick<
   AppState,
   'maxTokens' | 'chatModel' | 'reasoningModel' | 'prompt' | 'temperature'
 >
+
+export interface HealthResponse {
+  status: string
+  timestamp: string
+  uptime: number
+  version: string
+}

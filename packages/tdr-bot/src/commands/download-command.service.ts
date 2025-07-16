@@ -306,7 +306,7 @@ export class DownloadCommandService {
     const urls = job.downloadUrls ?? []
     const files: string[] = []
 
-    const dir = `/tdr-videos/${job.id}`
+    const dir = `/tmp/tdr-videos/${job.id}`
     await fs.ensureDir(dir)
 
     this.logger.log({ id, job, dir, urls }, 'downloading files')
@@ -318,7 +318,7 @@ export class DownloadCommandService {
     this.logger.log({ id, job, files }, 'downloaded files')
 
     if (interaction.channel?.isSendable()) {
-      interaction.channel.send({
+      await interaction.channel.send({
         files,
         content: [
           job.title ? `[**${job.title}**](<${job.url}>)\n` : '',
@@ -328,6 +328,17 @@ export class DownloadCommandService {
           .filter(Boolean)
           .join(''),
       })
+    }
+
+    // Clean up temporary files after successful Discord upload
+    try {
+      await fs.remove(dir)
+      this.logger.log({ id, job, dir }, 'Cleaned up temporary files')
+    } catch (error) {
+      this.logger.warn(
+        { id, job, dir, error },
+        'Failed to clean up temporary files',
+      )
     }
 
     return

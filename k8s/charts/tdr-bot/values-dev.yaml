@@ -61,3 +61,22 @@ podDisruptionBudget:
 # Disable autoscaling for development
 autoscaling:
   enabled: false
+
+# Health check configuration for development
+livenessProbe:
+  enabled: true
+  path: /health
+  port: http
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  path: /health
+  port: http
+  initialDelaySeconds: 30
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 3
