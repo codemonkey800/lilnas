@@ -11,7 +11,7 @@ config:
   # Production MinIO URL
   MINIO_PUBLIC_URL: "https://storage.lilnas.io"
   # Production service URLs
-  EQUATIONS_URL: "http://equations.lilnas-apps.svc.cluster.local:8080"
+  EQUATIONS_URL: "http://equations.lilnas-apps.svc.cluster.local:80"
 
 # Production ingress configuration
 ingress:
@@ -87,7 +87,7 @@ securityContext:
 livenessProbe:
   enabled: true
   path: /health
-  port: http
+  port: 8081
   initialDelaySeconds: 60
   periodSeconds: 30
   timeoutSeconds: 10
@@ -96,11 +96,17 @@ livenessProbe:
 readinessProbe:
   enabled: true
   path: /health
-  port: http
+  port: 8081
   initialDelaySeconds: 30
   periodSeconds: 15
   timeoutSeconds: 5
   failureThreshold: 3
+
+# Extra ports for backend health endpoint
+extraPorts:
+  - name: backend
+    containerPort: 8081
+    protocol: TCP
 
 # Network policy for production
 networkPolicy:
