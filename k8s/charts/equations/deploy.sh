@@ -176,13 +176,13 @@ HELM_VALUES_ARGS="-f $VALUES_FILE"
 
 # Add secret values if provided
 if [[ -n "$API_TOKEN" ]]; then
-    HELM_VALUES_ARGS="$HELM_VALUES_ARGS --set auth.apiToken='$API_TOKEN'"
+    HELM_VALUES_ARGS="$HELM_VALUES_ARGS --set secrets.API_TOKEN='$API_TOKEN'"
 fi
 if [[ -n "$S3_ACCESS_KEY" ]]; then
-    HELM_VALUES_ARGS="$HELM_VALUES_ARGS --set auth.minioAccessKey='$S3_ACCESS_KEY'"
+    HELM_VALUES_ARGS="$HELM_VALUES_ARGS --set secrets.MINIO_ACCESS_KEY='$S3_ACCESS_KEY'"
 fi
 if [[ -n "$S3_SECRET_KEY" ]]; then
-    HELM_VALUES_ARGS="$HELM_VALUES_ARGS --set auth.minioSecretKey='$S3_SECRET_KEY'"
+    HELM_VALUES_ARGS="$HELM_VALUES_ARGS --set secrets.MINIO_SECRET_KEY='$S3_SECRET_KEY'"
 fi
 
 # Deploy the chart
