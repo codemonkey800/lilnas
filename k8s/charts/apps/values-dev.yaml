@@ -1,0 +1,117 @@
+# Development values for apps
+# This overrides the default values.yaml for development environment
+
+# Development namespace
+namespace: lilnas-dev
+
+# Development image configuration
+image:
+  repository: ghcr.io/codemonkey800/lilnas-apps
+  tag: "latest"
+  pullPolicy: Always
+
+# Development-specific configuration
+config:
+  PORT: "8080"
+  NODE_ENV: "development"
+
+# Environment variables for development
+env:
+  - name: PORT
+    value: "8080"
+
+# Development ingress configuration
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: lilnas-core-traefik-forward-auth@kubernetescrd
+    kubernetes.io/description: "Development ingress for lilnas apps dashboard"
+  hosts:
+    - host: apps.dev.lilnas.io
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - apps.dev.lilnas.io
+      secretName: apps-dev-lilnas-io-tls
+  certManager:
+    clusterIssuer: letsencrypt-staging
+
+# Development resource limits - Lower than production
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "256Mi"
+    cpu: "500m"
+
+# Development-specific labels
+commonLabels:
+  environment: dev
+
+# Development-specific annotations
+commonAnnotations:
+  environment: development
+  deployed-by: "development-team"
+
+# Single replica for development
+replicaCount: 1
+
+# Disable pod disruption budget for development
+podDisruptionBudget:
+  enabled: false
+
+# Disable autoscaling for development
+autoscaling:
+  enabled: false
+
+# Development security context (same as production for consistency)
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+    - ALL
+
+# Development health check configuration - More lenient timings
+livenessProbe:
+  enabled: true
+  path: /api/health
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 5
+
+readinessProbe:
+  enabled: true
+  path: /api/health
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 5
+
+# Volume mounts for Next.js cache
+volumeMounts:
+  - name: nextjs-cache
+    mountPath: /.next/cache
+
+volumes:
+  - name: nextjs-cache
+    emptyDir: {}
+
+# Network policy for development (disabled by default)
+networkPolicy:
+  enabled: false
