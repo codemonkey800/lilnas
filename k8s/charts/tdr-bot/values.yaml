@@ -6,6 +6,10 @@
 replicaCount: 1
 namespace: lilnas-apps
 
+# Update strategy for single replica - use Recreate to avoid overlapping pods
+updateStrategy:
+  type: Recreate
+
 # Image configuration
 image:
   repository: ghcr.io/codemonkey800/lilnas-tdr-bot
@@ -44,6 +48,7 @@ config:
   NODE_ENV: "production"
   # Service URLs for Kubernetes
   EQUATIONS_URL: "http://equations.lilnas-apps.svc.cluster.local:8080"
+  DOWNLOAD_URL: "http://download.lilnas-apps.svc.cluster.local:8081"
   MINIO_HOST: "minio-api.lilnas-core.svc.cluster.local"
   MINIO_PORT: "9000"
   MINIO_PUBLIC_URL: "https://storage.lilnas.io"
