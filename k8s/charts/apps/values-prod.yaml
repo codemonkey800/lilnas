@@ -1,0 +1,122 @@
+# Production values for apps
+# This overrides the default values.yaml for production environment
+
+# Production namespace
+namespace: lilnas-apps
+
+# Production image configuration
+image:
+  repository: ghcr.io/codemonkey800/lilnas-apps
+  tag: "latest"
+  pullPolicy: Always
+
+# Production-specific configuration
+config:
+  PORT: "8080"
+  NODE_ENV: "production"
+
+# Production ingress configuration
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: lilnas-core-traefik-forward-auth@kubernetescrd
+    kubernetes.io/description: "Production ingress for lilnas apps dashboard"
+  hosts:
+    - host: apps.lilnas.io
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - apps.lilnas.io
+      secretName: apps-lilnas-io-tls
+  certManager:
+    clusterIssuer: letsencrypt-prod
+
+# Production resource limits - Next.js apps need decent resources
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "200m"
+  limits:
+    memory: "512Mi"
+    cpu: "1000m"
+
+# Production-specific labels
+commonLabels:
+  environment: prod
+
+# Production-specific annotations
+commonAnnotations:
+  environment: production
+  deployed-by: "production-team"
+
+# Single replica for production (can be scaled up)
+replicaCount: 1
+
+# Enable pod disruption budget for production
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Autoscaling configuration for production
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Production security hardening
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+    - ALL
+
+# Production health check configuration
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 45
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 20
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Volume mounts for Next.js cache
+volumeMounts:
+  - name: nextjs-cache
+    mountPath: /.next/cache
+
+volumes:
+  - name: nextjs-cache
+    emptyDir: {}
+
+# Network policy for production
+networkPolicy:
+  enabled: false
+  # Allow egress for external API calls if needed
+  egress:
+    - {}  # Allow all egress by default
