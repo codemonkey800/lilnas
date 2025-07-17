@@ -15,6 +15,11 @@ config:
   PORT: "8080"
   NODE_ENV: "production"
 
+# Environment variables for production
+env:
+  - name: PORT
+    value: "8080"
+
 # Production ingress configuration
 ingress:
   enabled: true
@@ -88,18 +93,16 @@ securityContext:
 
 # Production health check configuration
 livenessProbe:
-  httpGet:
-    path: /api/health
-    port: http
+  enabled: true
+  path: /api/health
   initialDelaySeconds: 45
   periodSeconds: 30
   timeoutSeconds: 10
   failureThreshold: 3
 
 readinessProbe:
-  httpGet:
-    path: /api/health
-    port: http
+  enabled: true
+  path: /api/health
   initialDelaySeconds: 20
   periodSeconds: 15
   timeoutSeconds: 5
