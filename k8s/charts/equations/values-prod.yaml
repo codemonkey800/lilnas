@@ -1,23 +1,24 @@
 # Production environment overrides for equations
 
-namespace: lilnas-core
+namespace: lilnas-apps
 
 # Production scaling
 replicaCount: 2
 
 # Production configuration
 config:
-  nodeEnv: "production"
-  minioHost: "minio-api.lilnas-core"
-  minioPort: "9000"
+  NODE_ENV: "production"
+  MINIO_HOST: "minio-api.lilnas-core"
+  MINIO_PORT: "9000"
+  MINIO_PUBLIC_URL: "https://storage.lilnas.io"
 
 # Production authentication configuration
 # NOTE: Secrets must be provided via CLI flags or environment variables for security
 # Do not hardcode secrets in this file
-auth:
-  apiToken: ""  # Set via --api-token or EQUATIONS_API_TOKEN
-  s3AccessKey: ""  # Set via --s3-access-key or EQUATIONS_S3_ACCESS_KEY
-  s3SecretKey: ""  # Set via --s3-secret-key or EQUATIONS_S3_SECRET_KEY
+secrets:
+  API_TOKEN: ""  # Set via --api-token or EQUATIONS_API_TOKEN
+  MINIO_ACCESS_KEY: ""  # Set via --s3-access-key or EQUATIONS_S3_ACCESS_KEY
+  MINIO_SECRET_KEY: ""  # Set via --s3-secret-key or EQUATIONS_S3_SECRET_KEY
 
 # Production resource requirements - LaTeX needs more resources
 resources:

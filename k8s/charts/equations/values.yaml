@@ -4,7 +4,7 @@
 
 # Deployment configuration
 replicaCount: 1
-namespace: lilnas-core
+namespace: lilnas-apps
 
 # Image configuration
 image:
@@ -31,17 +31,18 @@ serviceAccount:
 
 # Configuration
 config:
-  port: "8080"
-  minioHost: "minio-api.lilnas-core"
-  minioPort: "9000"
-  nodeEnv: "production"
+  PORT: "8080"
+  MINIO_HOST: "minio-api.lilnas-core"
+  MINIO_PORT: "9000"
+  MINIO_PUBLIC_URL: "https://storage.lilnas.io"
+  NODE_ENV: "production"
 
 # Secrets configuration
 # These values are used to create a secret if existingSecret is not specified
-auth:
-  apiToken: ""
-  minioAccessKey: ""
-  minioSecretKey: ""
+secrets:
+  API_TOKEN: ""
+  MINIO_ACCESS_KEY: ""
+  MINIO_SECRET_KEY: ""
 
 # Use an existing secret for authentication
 existingSecret: ""
