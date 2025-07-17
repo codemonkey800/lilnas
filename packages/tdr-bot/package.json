@@ -27,7 +27,7 @@
     "lint:prettier:fix": "prettier -w src",
     "start": "run-p start:*",
     "start:backend": "node dist/main",
-    "start:frontend": "node .next/standalone/server",
+    "start:frontend": "node server.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",

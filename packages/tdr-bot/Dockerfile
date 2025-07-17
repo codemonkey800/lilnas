@@ -23,10 +23,13 @@ COPY . .
 RUN pnpm build --filter=@lilnas/tdr-bot
 
 # Deploy production dependencies
-RUN pnpm --filter=tdr-bot --prod deploy /app
+RUN pnpm --filter=@lilnas/tdr-bot --prod deploy /app
 
 # Copy the built Next.js application
 RUN cp -r /source/packages/tdr-bot/.next /app/.next
+
+# Copy the standalone server to the correct location
+RUN cp /source/packages/tdr-bot/.next/standalone/packages/tdr-bot/server.js /app/server.js
 
 # Copy public directory if it exists
 RUN if [ -d /source/packages/tdr-bot/public ]; then \
@@ -37,6 +40,9 @@ RUN if [ -d /source/packages/tdr-bot/public ]; then \
 RUN if [ -d /app/.next/static ]; then \
       cp -r /app/.next/static /app/.next/standalone/.next/; \
     fi
+
+# Verify the standalone server was copied correctly
+RUN test -f /app/server.js || (echo "ERROR: Standalone server not found" && exit 1)
 
 # Runtime stage using shared Next.js runtime
 FROM ghcr.io/codemonkey800/lilnas-nextjs-runtime:latest AS runtime
