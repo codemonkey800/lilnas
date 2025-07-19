@@ -27,7 +27,7 @@ ingress:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
-    traefik.ingress.kubernetes.io/router.middlewares: lilnas-core-traefik-forward-auth@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: lilnas-core-forward-auth@kubernetescrd
     kubernetes.io/description: "Production ingress for lilnas apps dashboard"
   hosts:
     - host: apps.lilnas.io
@@ -116,6 +116,12 @@ volumeMounts:
 volumes:
   - name: nextjs-cache
     emptyDir: {}
+
+# RBAC configuration for production
+rbac:
+  create: true
+  ingressReader:
+    enabled: true
 
 # Network policy for production
 networkPolicy:
