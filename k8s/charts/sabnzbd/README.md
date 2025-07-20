@@ -35,7 +35,7 @@ This SABnzbd deployment is designed to integrate with the lilnas media ecosystem
 - Storage class `hdd-media-storage` (for accessing /mnt/hdd1)
 - Traefik ingress controller
 - Cert-manager for automatic SSL certificates
-- Namespace `lilnas-apps` (or custom namespace)
+- Namespace `lilnas-media` (or custom namespace)
 
 ## Installing the Chart
 
@@ -67,7 +67,7 @@ helm install sabnzbd ./k8s/charts/sabnzbd
 
 # With custom namespace
 helm install sabnzbd ./k8s/charts/sabnzbd \
-  --namespace lilnas-apps \
+  --namespace lilnas-media \
   --create-namespace
 
 # With environment-specific values
@@ -95,10 +95,10 @@ helm install sabnzbd ./k8s/charts/sabnzbd \
 To uninstall/delete the `sabnzbd` deployment:
 
 ```bash
-helm delete sabnzbd -n lilnas-apps
+helm delete sabnzbd -n lilnas-media
 
 # Also delete persistent volume claim if needed
-kubectl delete pvc -n lilnas-apps -l app.kubernetes.io/name=sabnzbd
+kubectl delete pvc -n lilnas-media -l app.kubernetes.io/name=sabnzbd
 ```
 
 **Important**: The uninstall process preserves your SABnzbd data on the host filesystem at `/mnt/hdd1/data/media/sabnzbd/`. This includes your configuration, download history, and incomplete downloads.
@@ -112,7 +112,7 @@ The following table lists the configurable parameters of the sabnzbd chart and t
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `replicaCount` | Number of replicas | `1` |
-| `namespace` | Kubernetes namespace | `lilnas-apps` |
+| `namespace` | Kubernetes namespace | `lilnas-media` |
 | `nameOverride` | Override chart name | `""` |
 | `fullnameOverride` | Override full name | `""` |
 
@@ -225,7 +225,7 @@ After deployment, SABnzbd will be accessible via the configured ingress:
 https://sabnzbd.lilnas.io
 
 # Check the actual URL
-kubectl get ingress -n lilnas-apps sabnzbd
+kubectl get ingress -n lilnas-media sabnzbd
 ```
 
 ### Initial Configuration
@@ -239,7 +239,7 @@ kubectl get ingress -n lilnas-apps sabnzbd
 
 Configure Sonarr and Radarr to use SABnzbd as their download client:
 
-1. **Host**: Use the Kubernetes service name: `sabnzbd.lilnas-apps.svc.cluster.local`
+1. **Host**: Use the Kubernetes service name: `sabnzbd.lilnas-media.svc.cluster.local`
 2. **Port**: `8080`
 3. **API Key**: Found in SABnzbd Settings > General > API Key
 4. **Category**: Set up appropriate categories (tv-sonarr, radarr, etc.)
@@ -282,15 +282,15 @@ Your SABnzbd configuration and data includes:
 
 ```bash
 # Backup configuration
-kubectl exec -n lilnas-apps deployment/sabnzbd -- \
+kubectl exec -n lilnas-media deployment/sabnzbd -- \
   tar -czf /tmp/sabnzbd-backup.tar.gz -C /config .
 
-kubectl cp lilnas-apps/sabnzbd-pod:/tmp/sabnzbd-backup.tar.gz ./sabnzbd-backup.tar.gz
+kubectl cp lilnas-media/sabnzbd-pod:/tmp/sabnzbd-backup.tar.gz ./sabnzbd-backup.tar.gz
 
 # Restore configuration (to new deployment)
-kubectl cp ./sabnzbd-backup.tar.gz lilnas-apps/sabnzbd-pod:/tmp/sabnzbd-backup.tar.gz
+kubectl cp ./sabnzbd-backup.tar.gz lilnas-media/sabnzbd-pod:/tmp/sabnzbd-backup.tar.gz
 
-kubectl exec -n lilnas-apps deployment/sabnzbd -- \
+kubectl exec -n lilnas-media deployment/sabnzbd -- \
   tar -xzf /tmp/sabnzbd-backup.tar.gz -C /config
 ```
 
@@ -326,82 +326,82 @@ SABnzbd runs with the following security measures:
 1. **Pod not starting**:
    ```bash
    # Check pod status
-   kubectl get pods -n lilnas-apps -l app.kubernetes.io/name=sabnzbd
+   kubectl get pods -n lilnas-media -l app.kubernetes.io/name=sabnzbd
    
    # View pod events
-   kubectl describe pod -n lilnas-apps -l app.kubernetes.io/name=sabnzbd
+   kubectl describe pod -n lilnas-media -l app.kubernetes.io/name=sabnzbd
    
    # Check logs
-   kubectl logs -n lilnas-apps -l app.kubernetes.io/name=sabnzbd -f
+   kubectl logs -n lilnas-media -l app.kubernetes.io/name=sabnzbd -f
    ```
 
 2. **Storage issues**:
    ```bash
    # Check PVC status
-   kubectl get pvc -n lilnas-apps -l app.kubernetes.io/name=sabnzbd
+   kubectl get pvc -n lilnas-media -l app.kubernetes.io/name=sabnzbd
    
    # Check storage class
    kubectl get storageclass hdd-media-storage
    
    # Check disk usage
-   kubectl exec -n lilnas-apps deployment/sabnzbd -- df -h /config
+   kubectl exec -n lilnas-media deployment/sabnzbd -- df -h /config
    ```
 
 3. **Configuration problems**:
    ```bash
    # Access configuration files
-   kubectl exec -n lilnas-apps deployment/sabnzbd -- ls -la /config
+   kubectl exec -n lilnas-media deployment/sabnzbd -- ls -la /config
    
    # View configuration file
-   kubectl exec -n lilnas-apps deployment/sabnzbd -- cat /config/sabnzbd.ini
+   kubectl exec -n lilnas-media deployment/sabnzbd -- cat /config/sabnzbd.ini
    
    # Check download directories
-   kubectl exec -n lilnas-apps deployment/sabnzbd -- ls -la /config/Downloads/
+   kubectl exec -n lilnas-media deployment/sabnzbd -- ls -la /config/Downloads/
    ```
 
 4. **Network connectivity**:
    ```bash
    # Test Usenet server connectivity
-   kubectl exec -n lilnas-apps deployment/sabnzbd -- \
+   kubectl exec -n lilnas-media deployment/sabnzbd -- \
      nslookup your-usenet-provider.com
    
    # Check ingress status
-   kubectl get ingress -n lilnas-apps sabnzbd
+   kubectl get ingress -n lilnas-media sabnzbd
    
    # Test internal connectivity
-   kubectl exec -n lilnas-apps deployment/sabnzbd -- \
+   kubectl exec -n lilnas-media deployment/sabnzbd -- \
      curl -I http://localhost:8080
    ```
 
 5. **Resource limitations**:
    ```bash
    # Check resource usage
-   kubectl top pod -n lilnas-apps -l app.kubernetes.io/name=sabnzbd
+   kubectl top pod -n lilnas-media -l app.kubernetes.io/name=sabnzbd
    
    # View resource limits
-   kubectl describe pod -n lilnas-apps -l app.kubernetes.io/name=sabnzbd | grep -A 10 -i limits
+   kubectl describe pod -n lilnas-media -l app.kubernetes.io/name=sabnzbd | grep -A 10 -i limits
    
    # Check for throttling
-   kubectl describe pod -n lilnas-apps -l app.kubernetes.io/name=sabnzbd | grep -i throttling
+   kubectl describe pod -n lilnas-media -l app.kubernetes.io/name=sabnzbd | grep -i throttling
    ```
 
 ### Debug Commands
 
 ```bash
 # Port-forward for local access
-kubectl port-forward -n lilnas-apps svc/sabnzbd 8080:80
+kubectl port-forward -n lilnas-media svc/sabnzbd 8080:80
 
 # Access locally
 curl http://localhost:8080
 
 # Execute commands in container
-kubectl exec -it -n lilnas-apps deployment/sabnzbd -- /bin/bash
+kubectl exec -it -n lilnas-media deployment/sabnzbd -- /bin/bash
 
 # Check SABnzbd process
-kubectl exec -n lilnas-apps deployment/sabnzbd -- ps aux | grep sabnzbd
+kubectl exec -n lilnas-media deployment/sabnzbd -- ps aux | grep sabnzbd
 
 # Check environment variables
-kubectl exec -n lilnas-apps deployment/sabnzbd -- env | grep -E '(TZ|PUID|PGID)'
+kubectl exec -n lilnas-media deployment/sabnzbd -- env | grep -E '(TZ|PUID|PGID)'
 ```
 
 ### Performance Tuning
@@ -434,7 +434,7 @@ kubectl exec -n lilnas-apps deployment/sabnzbd -- env | grep -E '(TZ|PUID|PGID)'
 # In Sonarr Settings > Download Clients
 Name: SABnzbd
 Enable: Yes
-Host: sabnzbd.lilnas-apps.svc.cluster.local
+Host: sabnzbd.lilnas-media.svc.cluster.local
 Port: 8080
 API Key: [from SABnzbd Settings]
 Username: [if authentication enabled]
@@ -448,7 +448,7 @@ Category: tv-sonarr
 # In Radarr Settings > Download Clients
 Name: SABnzbd
 Enable: Yes
-Host: sabnzbd.lilnas-apps.svc.cluster.local
+Host: sabnzbd.lilnas-media.svc.cluster.local
 Port: 8080
 API Key: [from SABnzbd Settings]
 Category: radarr

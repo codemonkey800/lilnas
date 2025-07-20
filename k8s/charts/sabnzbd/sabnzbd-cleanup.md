@@ -94,16 +94,16 @@ After deployment, verify:
 
 ```bash
 # Check that no init containers exist
-kubectl get pods -n lilnas-apps -l app.kubernetes.io/name=sabnzbd -o jsonpath='{.items[*].spec.initContainers}' && echo "Init containers found!" || echo "No init containers (good!)"
+kubectl get pods -n lilnas-media -l app.kubernetes.io/name=sabnzbd -o jsonpath='{.items[*].spec.initContainers}' && echo "Init containers found!" || echo "No init containers (good!)"
 
 # Verify hostname whitelist is still intact
-kubectl exec -n lilnas-apps deployment/sabnzbd -- grep "host_whitelist" /config/sabnzbd.ini
+kubectl exec -n lilnas-media deployment/sabnzbd -- grep "host_whitelist" /config/sabnzbd.ini
 
 # Test hostname access still works
-kubectl exec -n lilnas-apps deployment/sabnzbd -- wget -q --timeout=10 --spider --header="Host: sabnzbd.lilnas.io" http://localhost:8080/ && echo "Hostname check still works!"
+kubectl exec -n lilnas-media deployment/sabnzbd -- wget -q --timeout=10 --spider --header="Host: sabnzbd.lilnas.io" http://localhost:8080/ && echo "Hostname check still works!"
 
 # Check for hostname refusal errors (should be none)
-kubectl logs -n lilnas-apps deployment/sabnzbd --since=5m | grep -i "refused.*hostname" || echo "No hostname refusal errors"
+kubectl logs -n lilnas-media deployment/sabnzbd --since=5m | grep -i "refused.*hostname" || echo "No hostname refusal errors"
 ```
 
 ## Expected Results

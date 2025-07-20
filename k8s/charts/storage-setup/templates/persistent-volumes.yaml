@@ -351,6 +351,35 @@ spec:
                 - {{ $nodeSelector.hostname }}
 {{- end }}
 
+{{- if .Values.persistentVolumes.downloads.enabled }}
+---
+# Downloads storage
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ .Values.persistentVolumes.downloads.name }}
+  labels:
+    {{- include "storage-setup.labels" . | nindent 4 }}
+    storage.lilnas.io/volume-type: "downloads"
+spec:
+  capacity:
+    storage: {{ .Values.persistentVolumes.downloads.capacity }}
+  accessModes:
+    {{- toYaml .Values.persistentVolumes.downloads.accessModes | nindent 4 }}
+  persistentVolumeReclaimPolicy: {{ .Values.reclaimPolicy }}
+  storageClassName: {{ .Values.persistentVolumes.downloads.storageClass }}
+  local:
+    path: {{ .Values.persistentVolumes.downloads.path }}
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - {{ $nodeSelector.hostname }}
+{{- end }}
+
 {{- range .Values.additionalPVs }}
 {{- if .enabled }}
 ---

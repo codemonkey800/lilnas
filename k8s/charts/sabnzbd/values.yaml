@@ -4,7 +4,7 @@
 
 # Deployment configuration
 replicaCount: 1
-namespace: lilnas-apps
+namespace: lilnas-media
 
 # Image configuration
 image:

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy the sabnzbd Helm chart
+# Deploy the sonarr Helm chart
 
 set -euo pipefail
 
@@ -7,24 +7,24 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-RELEASE_NAME="${RELEASE_NAME:-sabnzbd}"
+RELEASE_NAME="${RELEASE_NAME:-sonarr}"
 ENVIRONMENT="${ENVIRONMENT:-dev}"
-NAMESPACE="${NAMESPACE:-lilnas-media}"
+NAMESPACE="${NAMESPACE:-lilnas-apps}"
 
 usage() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
     echo "  -e, --environment ENV    Environment to deploy (dev|prod) [default: dev]"
-    echo "  -n, --namespace NS       Namespace to install chart in [default: lilnas-media]"
-    echo "  -r, --release NAME       Release name [default: sabnzbd]"
+    echo "  -n, --namespace NS       Namespace to install chart in [default: lilnas-apps]"
+    echo "  -r, --release NAME       Release name [default: sonarr]"
     echo "  -d, --dry-run           Perform a dry run"
     echo "  -h, --help              Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0                      # Deploy with dev values to lilnas-media namespace"
+    echo "  $0                      # Deploy with dev values to lilnas-apps namespace"
     echo "  $0 -e dev --dry-run     # Dry run with dev values"
-    echo "  $0 -e prod -n lilnas-media # Production deployment"
+    echo "  $0 -e prod -n lilnas-apps # Production deployment"
 }
 
 DRY_RUN=""
@@ -72,7 +72,7 @@ if [[ -f "values-${ENVIRONMENT}.yaml" ]]; then
     VALUES_FILE="values-${ENVIRONMENT}.yaml"
 fi
 
-echo "Deploying sabnzbd Helm chart..."
+echo "Deploying sonarr Helm chart..."
 echo "  Release: $RELEASE_NAME"
 echo "  Namespace: $NAMESPACE"
 echo "  Environment: $ENVIRONMENT"
@@ -118,56 +118,56 @@ fi
 
 if [[ -z "$DRY_RUN" ]]; then
     echo ""
-    echo "Deployment complete! Verifying sabnzbd service components..."
+    echo "Deployment complete! Verifying sonarr service components..."
     echo ""
     
     echo "=== Deployment Status ==="
-    kubectl get deployment -n "$NAMESPACE" -l app.kubernetes.io/name=sabnzbd
+    kubectl get deployment -n "$NAMESPACE" -l app.kubernetes.io/name=sonarr
     echo ""
     
     echo "=== Service Status ==="
-    kubectl get service -n "$NAMESPACE" -l app.kubernetes.io/name=sabnzbd
+    kubectl get service -n "$NAMESPACE" -l app.kubernetes.io/name=sonarr
     echo ""
     
     echo "=== Ingress Status ==="
-    kubectl get ingress -n "$NAMESPACE" -l app.kubernetes.io/name=sabnzbd
+    kubectl get ingress -n "$NAMESPACE" -l app.kubernetes.io/name=sonarr
     echo ""
     
     echo "=== Pod Status ==="
-    kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=sabnzbd
+    kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=sonarr
     echo ""
     
     echo "=== Persistent Volume Claims ==="
-    kubectl get pvc -n "$NAMESPACE" -l app.kubernetes.io/name=sabnzbd
+    kubectl get pvc -n "$NAMESPACE" -l app.kubernetes.io/name=sonarr
     echo ""
     
     # Get the ingress host for helpful information
-    INGRESS_HOST=$(kubectl get ingress -n "$NAMESPACE" -l app.kubernetes.io/name=sabnzbd -o jsonpath='{.items[0].spec.rules[0].host}' 2>/dev/null || echo "N/A")
+    INGRESS_HOST=$(kubectl get ingress -n "$NAMESPACE" -l app.kubernetes.io/name=sonarr -o jsonpath='{.items[0].spec.rules[0].host}' 2>/dev/null || echo "N/A")
     
-    echo "=== SABnzbd Service Information ==="
+    echo "=== Sonarr Service Information ==="
     echo "Web Interface: https://${INGRESS_HOST}"
     echo ""
     echo "Features:"
-    echo "• Usenet binary newsreader"
-    echo "• NZB file processing"
-    echo "• Download queue management"
-    echo "• Integration with Sonarr/Radarr"
-    echo "• Web-based configuration interface"
+    echo "• PVR for Usenet and BitTorrent"
+    echo "• TV show monitoring and download automation"
+    echo "• Quality profile management"
+    echo "• Integration with SABnzbd and other downloaders"
+    echo "• Series library management"
     echo ""
     echo "Configuration:"
     echo "• Data stored on HDD storage: /mnt/hdd1"
     echo "• Web interface accessible without forward-auth"
-    echo "• Uses LinuxServer.io SABnzbd image"
+    echo "• Uses LinuxServer.io Sonarr image"
     echo ""
     echo "To view service logs:"
-    echo "  kubectl logs -n $NAMESPACE -l app.kubernetes.io/name=sabnzbd -f"
+    echo "  kubectl logs -n $NAMESPACE -l app.kubernetes.io/name=sonarr -f"
     echo ""
     echo "To access the configuration:"
     echo "  kubectl exec -n $NAMESPACE deployment/$RELEASE_NAME -- ls -la /config"
     echo ""
-    echo "To check download status:"
-    echo "  kubectl exec -n $NAMESPACE deployment/$RELEASE_NAME -- ls -la /config/Downloads/"
+    echo "To check series database:"
+    echo "  kubectl exec -n $NAMESPACE deployment/$RELEASE_NAME -- ls -la /config/*.db"
     echo ""
-    echo "Note: Existing SABnzbd data at /mnt/hdd1/data/media/sabnzbd/"
+    echo "Note: Existing Sonarr data at /mnt/hdd1/data/media/sonarr/"
     echo "may need to be moved to the new PVC mount point after first deployment."
 fi
