@@ -9,22 +9,22 @@ cd "$SCRIPT_DIR"
 
 RELEASE_NAME="${RELEASE_NAME:-sabnzbd}"
 ENVIRONMENT="${ENVIRONMENT:-dev}"
-NAMESPACE="${NAMESPACE:-lilnas-apps}"
+NAMESPACE="${NAMESPACE:-lilnas-media}"
 
 usage() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
     echo "  -e, --environment ENV    Environment to deploy (dev|prod) [default: dev]"
-    echo "  -n, --namespace NS       Namespace to install chart in [default: lilnas-apps]"
+    echo "  -n, --namespace NS       Namespace to install chart in [default: lilnas-media]"
     echo "  -r, --release NAME       Release name [default: sabnzbd]"
     echo "  -d, --dry-run           Perform a dry run"
     echo "  -h, --help              Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0                      # Deploy with dev values to lilnas-apps namespace"
+    echo "  $0                      # Deploy with dev values to lilnas-media namespace"
     echo "  $0 -e dev --dry-run     # Dry run with dev values"
-    echo "  $0 -e prod -n lilnas-apps # Production deployment"
+    echo "  $0 -e prod -n lilnas-media # Production deployment"
 }
 
 DRY_RUN=""

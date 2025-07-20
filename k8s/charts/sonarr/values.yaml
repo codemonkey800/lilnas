@@ -1,0 +1,230 @@
+# Default values for sonarr
+# This is a YAML-formatted file.
+# Declare variables to be substituted into your templates.
+
+# Deployment configuration
+replicaCount: 1
+namespace: lilnas-media
+
+# Image configuration
+image:
+  repository: lscr.io/linuxserver/sonarr
+  tag: "latest"
+  pullPolicy: Always
+
+# Image pull secrets for private registries
+imagePullSecrets: []
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8989
+  annotations: {}
+
+# Service account configuration
+serviceAccount:
+  create: true
+  annotations:
+    kubernetes.io/description: "Service account for Sonarr service"
+  name: ""
+
+# Configuration
+config:
+  # Timezone
+  TZ: "America/Los_Angeles"
+  # PUID and PGID for file permissions (set via securityContext)
+  PUID: "1000"
+  PGID: "1000"
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    # NO forward-auth middleware - Sonarr handles its own authentication
+    kubernetes.io/description: "Ingress for Sonarr service"
+  hosts:
+    - host: sonarr.lilnas.io
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              port:
+                number: 80
+  tls:
+    - hosts:
+        - sonarr.lilnas.io
+      secretName: sonarr-lilnas-io-tls
+  certManager:
+    clusterIssuer: letsencrypt-prod
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+    - ALL
+
+# Container security context configuration - disabled for LinuxServer.io compatibility
+containerSecurityContext:
+  enabled: false
+
+# Volume mounts
+volumeMounts:
+  - name: tmp
+    mountPath: /tmp
+  - name: config
+    mountPath: /config
+
+volumes:
+  - name: tmp
+    emptyDir: {}
+
+# Health check configuration
+livenessProbe:
+  enabled: true
+  path: /
+  port: http
+  initialDelaySeconds: 120
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  path: /
+  port: http
+  initialDelaySeconds: 60
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Resource limits - Sonarr needs moderate resources for media processing
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "200m"
+  limits:
+    memory: "1Gi"
+    cpu: "1000m"
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Autoscaling configuration
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 2
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Common labels to apply to all resources
+commonLabels: {}
+
+# Common annotations to apply to all resources
+commonAnnotations: {}
+
+# Name overrides
+nameOverride: ""
+fullnameOverride: ""
+
+# Additional environment variables
+extraEnv: []
+
+# Additional environment variables from ConfigMaps or Secrets
+extraEnvFrom: []
+
+# Persistence configuration for Sonarr data
+persistence:
+  # Configuration data persistence
+  config:
+    enabled: true
+    storageClass: "hdd-storage"
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+    annotations: {}
+    # Selector to bind to specific PV - media-services-pv
+    selector:
+      matchLabels:
+        storage.lilnas.io/volume-type: media-services
+  
+  # TV shows storage
+  tv:
+    enabled: true
+    storageClass: "hdd-storage"
+    accessModes:
+      - ReadWriteOnce
+    size: 5Ti
+    annotations: {}
+    # Use existing TV storage
+    existingClaim: ""
+  
+  # Downloads storage
+  downloads:
+    enabled: true
+    storageClass: "hdd-storage"
+    accessModes:
+      - ReadWriteOnce
+    size: 1Ti
+    annotations: {}
+    # Use existing downloads storage
+    existingClaim: ""
+
+# Temporary volume configuration
+tmpVolume:
+  enabled: true
+  sizeLimit: 1Gi
+
+# Cache volume configuration
+cacheVolume:
+  enabled: false
+
+# Network policy configuration
+networkPolicy:
+  enabled: false
+  # Allow egress for indexer connections and download clients
+  egress:
+    - {}  # Allow all egress by default
+
+# Init containers configuration
+initContainers: []
+
+# TV media volume - for storing TV shows
+mediaVolume:
+  enabled: true
+  storageClass: "hdd-media-storage"
+  accessModes:
+    - ReadWriteOnce
+  size: 100Gi
+  mountPath: /tv
+  annotations: {}
+  # Selector to bind to specific PV for media storage
+  selector:
+    matchLabels:
+      storage.lilnas.io/volume-type: tv-media

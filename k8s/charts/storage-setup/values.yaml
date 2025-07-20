@@ -146,6 +146,15 @@ persistentVolumes:
     accessModes:
       - ReadWriteOnce
     path: /mnt/hdd1/tv
+  
+  downloads:
+    enabled: true
+    name: downloads-pv
+    storageClass: hdd-media-storage
+    capacity: 1Ti
+    accessModes:
+      - ReadWriteOnce
+    path: /mnt/hdd1/downloads
 
 # Additional PV configurations can be added here dynamically
 additionalPVs: []

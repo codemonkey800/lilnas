@@ -8,13 +8,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 RELEASE_NAME="${RELEASE_NAME:-sabnzbd}"
-NAMESPACE="${NAMESPACE:-lilnas-apps}"
+NAMESPACE="${NAMESPACE:-lilnas-media}"
 
 usage() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  -n, --namespace NS       Namespace where chart is installed [default: lilnas-apps]"
+    echo "  -n, --namespace NS       Namespace where chart is installed [default: lilnas-media]"
     echo "  -r, --release NAME       Release name [default: sabnzbd]"
     echo "  -f, --force             Skip confirmation prompt"
     echo "  -h, --help              Show this help message"

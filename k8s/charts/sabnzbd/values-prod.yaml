@@ -2,7 +2,7 @@
 # This overrides the default values.yaml for production environment
 
 # Production namespace
-namespace: lilnas-apps
+namespace: lilnas-media
 
 # Production configuration
 config:

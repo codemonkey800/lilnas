@@ -1,0 +1,28 @@
+apiVersion: v2
+name: sonarr
+description: A Helm chart for Sonarr - PVR for Usenet and BitTorrent users
+type: application
+version: 0.1.0
+appVersion: "latest"
+home: https://github.com/codemonkey800/lilnas
+icon: https://raw.githubusercontent.com/codemonkey800/lilnas/main/docs/logo.png
+keywords:
+  - sonarr
+  - pvr
+  - usenet
+  - bittorrent
+  - tv
+  - series
+  - downloads
+  - media
+sources:
+  - https://github.com/codemonkey800/lilnas/tree/main/k8s/charts/sonarr
+  - https://sonarr.tv/
+maintainers:
+  - name: lilnas
+    email: support@lilnas.io
+
+dependencies:
+  - name: lilnas-common
+    version: '0.1.0'
+    repository: 'file://../_library'
