@@ -1,0 +1,106 @@
+{{- if and .Values.persistence.config.enabled (not .Values.persistence.config.existingClaim) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "radarr.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "radarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+  annotations:
+    {{- include "radarr.annotations" . | nindent 4 }}
+    {{- with .Values.persistence.config.annotations }}
+    {{ toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- range .Values.persistence.config.accessModes }}
+    - {{ . }}
+    {{- end }}
+  {{- if .Values.persistence.config.storageClass }}
+  {{- if (eq "-" .Values.persistence.config.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.persistence.config.storageClass | quote }}
+  {{- end }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.config.size | quote }}
+  {{- if .Values.persistence.config.selector }}
+  selector:
+    {{- toYaml .Values.persistence.config.selector | nindent 4 }}
+  {{- end }}
+{{- end -}}
+
+{{- if and .Values.persistence.movies.enabled (not .Values.persistence.movies.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "radarr.fullname" . }}-movies
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "radarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: movies
+  annotations:
+    {{- include "radarr.annotations" . | nindent 4 }}
+    {{- with .Values.persistence.movies.annotations }}
+    {{ toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- range .Values.persistence.movies.accessModes }}
+    - {{ . }}
+    {{- end }}
+  {{- if .Values.persistence.movies.storageClass }}
+  {{- if (eq "-" .Values.persistence.movies.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.persistence.movies.storageClass | quote }}
+  {{- end }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.movies.size | quote }}
+  {{- if .Values.persistence.movies.selector }}
+  selector:
+    {{- toYaml .Values.persistence.movies.selector | nindent 4 }}
+  {{- end }}
+{{- end -}}
+
+{{- if and .Values.persistence.downloads.enabled (not .Values.persistence.downloads.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "radarr.fullname" . }}-downloads
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "radarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: downloads
+  annotations:
+    {{- include "radarr.annotations" . | nindent 4 }}
+    {{- with .Values.persistence.downloads.annotations }}
+    {{ toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- range .Values.persistence.downloads.accessModes }}
+    - {{ . }}
+    {{- end }}
+  {{- if .Values.persistence.downloads.storageClass }}
+  {{- if (eq "-" .Values.persistence.downloads.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.persistence.downloads.storageClass | quote }}
+  {{- end }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.downloads.size | quote }}
+  {{- if .Values.persistence.downloads.selector }}
+  selector:
+    {{- toYaml .Values.persistence.downloads.selector | nindent 4 }}
+  {{- end }}
+{{- end }}

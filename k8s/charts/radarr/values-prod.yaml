@@ -1,0 +1,107 @@
+# Production values for radarr
+# This overrides values.yaml for production deployments
+
+# Deployment configuration
+replicaCount: 1
+
+# Image configuration - use specific tag for production
+image:
+  tag: "latest"
+  pullPolicy: IfNotPresent  # More stable for production
+
+# Resource limits - higher for production workload
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "300m"
+  limits:
+    memory: "2Gi"
+    cpu: "1500m"
+
+# Health check configuration - more conservative for production
+livenessProbe:
+  enabled: true
+  path: /ping  # Use unauthenticated endpoint
+  port: http
+  initialDelaySeconds: 180  # Longer startup time
+  periodSeconds: 60        # Check less frequently
+  timeoutSeconds: 15
+  failureThreshold: 5      # More tolerance
+
+readinessProbe:
+  enabled: true
+  path: /ping  # Use unauthenticated endpoint
+  port: http
+  initialDelaySeconds: 90
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+# Pod disruption budget - ensure availability
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Ingress - use production Let's Encrypt issuer
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: lilnas-core-forward-auth@kubernetescrd
+    kubernetes.io/description: "Production Ingress for Radarr service"
+  hosts:
+    - host: radarr.lilnas.io
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              port:
+                number: 80
+  tls:
+    - hosts:
+        - radarr.lilnas.io
+      secretName: radarr-lilnas-io-tls
+  certManager:
+    clusterIssuer: letsencrypt-prod
+
+# Persistence - production storage configuration
+persistence:
+  config:
+    enabled: true
+    storageClass: "local-path"  # Use dynamic provisioning for config
+    size: 10Gi  # Smaller size for better compatibility
+    accessModes:
+      - ReadWriteOnce
+
+  movies:
+    enabled: true
+    storageClass: "hdd-media-storage"
+    size: 1Ti  # Match existing PV size
+    accessModes:
+      - ReadWriteOnce
+    # Note: Using dynamic provisioning since selectors don't work with local-path
+
+  downloads:
+    enabled: true
+    storageClass: "local-path"  # Use dynamic provisioning temporarily
+    size: 10Gi
+    accessModes:
+      - ReadWriteOnce
+
+# Network policy - enable for production security
+networkPolicy:
+  enabled: true
+  egress:
+    - {}  # Allow all egress for indexers and download clients
+
+# Monitoring and observability
+commonLabels:
+  environment: production
+  component: media-management
+
+commonAnnotations:
+  deployment.kubernetes.io/revision: "1"
+  kubernetes.io/managed-by: "helm"
