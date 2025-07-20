@@ -1,0 +1,27 @@
+apiVersion: v2
+name: radarr
+description: A Helm chart for Radarr - PVR for Usenet and BitTorrent users
+type: application
+version: 0.1.0
+appVersion: "latest"
+home: https://github.com/codemonkey800/lilnas
+icon: https://raw.githubusercontent.com/codemonkey800/lilnas/main/docs/logo.png
+keywords:
+  - radarr
+  - pvr
+  - usenet
+  - bittorrent
+  - movies
+  - downloads
+  - media
+sources:
+  - https://github.com/codemonkey800/lilnas/tree/main/k8s/charts/radarr
+  - https://radarr.video/
+maintainers:
+  - name: lilnas
+    email: support@lilnas.io
+
+dependencies:
+  - name: lilnas-common
+    version: '0.1.0'
+    repository: 'file://../_library'
