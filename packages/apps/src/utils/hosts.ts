@@ -1,11 +1,7 @@
 'use server'
 
+import type { Container } from 'node-docker-api'
 import { Docker } from 'node-docker-api'
-
-interface ContainerData {
-  State: 'running' | 'stopped'
-  Labels: Record<string, string>
-}
 
 const HOST_REGEX = /Host\(`([\S]+\.lilnas\.io)`\)/
 
@@ -20,21 +16,22 @@ export async function getAppHosts() {
 
   const containers = await docker.container.list()
   const runningContainers = containers
-    .filter(
-      container =>
-        (container.data as Record<string, unknown>).State === 'running',
-    )
-    .map(container => container.data as ContainerData)
+    .filter((container: Container) => container.data.State === 'running')
+    .map((container: Container) => container.data)
 
   const hosts = runningContainers
     .flatMap(container =>
-      Object.values(container.Labels).filter(label => HOST_REGEX.test(label)),
+      Object.values(container.Labels).filter((label: string) =>
+        HOST_REGEX.test(label),
+      ),
     )
     .filter(isDefined)
-    .map(host => HOST_REGEX.exec(host)?.at(1))
+    .map((host: string) => HOST_REGEX.exec(host)?.at(1))
     .filter(isDefined)
-    .filter(host => !HOST_BLOCKLIST.has(host.replace('.lilnas.io', '')))
-    .sort((a, b) => a.localeCompare(b))
+    .filter(
+      (host: string) => !HOST_BLOCKLIST.has(host.replace('.lilnas.io', '')),
+    )
+    .sort((a: string, b: string) => a.localeCompare(b))
 
   return hosts
 }
