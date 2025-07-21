@@ -15,12 +15,12 @@
     "lint:fix": "run-p -l lint:*:fix",
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
-    "start": "node server.js",
+    "start": "NODE_ENV=production node .next/standalone/server",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@kubernetes/client-node": "^0.21.0",
     "next": "15.2.3",
+    "node-docker-api": "1.1.22",
     "react": "19.0.0",
     "react-dom": "19.0.0"
   }
