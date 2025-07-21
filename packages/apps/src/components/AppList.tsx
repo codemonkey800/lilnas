@@ -8,7 +8,7 @@ export async function AppList() {
       <p className="text-6xl mb-12 font-bold">lilnas apps</p>
 
       <div className="flex flex-col gap-2">
-        {hosts.map(host => (
+        {hosts.map((host: string) => (
           <a
             className="text-4xl text-center underline text-purple-500"
             target="_blank"
