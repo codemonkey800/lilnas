@@ -1,6 +1,0 @@
-dependencies:
-- name: lilnas-common
-  repository: file://../_library
-  version: 0.1.0
-digest: sha256:dfceaee9d1a3e388ffa9c3920d855e158d3c5692f17cbb20510b8c9afd1d1041
-generated: "2025-07-13T18:48:33.265415-07:00"
