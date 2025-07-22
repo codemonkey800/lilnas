@@ -1,4 +1,4 @@
-FROM ghcr.io/codemonkey800/lilnas-node-runtime:latest AS nextjs
+FROM lilnas-node-runtime AS nextjs
 # Next.js specific runtime configuration
 ENV NEXT_TELEMETRY_DISABLED=1
 

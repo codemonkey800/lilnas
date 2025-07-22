@@ -1,5 +1,5 @@
 # Dependency caching stage
-FROM ghcr.io/codemonkey800/lilnas-monorepo-builder:latest AS deps
+FROM lilnas-monorepo-builder AS deps
 
 # Copy package files for dependency caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -37,7 +37,7 @@ RUN if [ -d /app/.next/static ]; then \
     fi
 
 # Production stage
-FROM ghcr.io/codemonkey800/lilnas-nextjs-runtime:latest AS production
+FROM lilnas-nextjs-runtime AS production
 
 # Install ffmpeg and dependencies for yt-dlp
 RUN apt-get update && \
