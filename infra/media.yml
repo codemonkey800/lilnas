@@ -7,7 +7,7 @@ services:
       PGID: 1000
       TZ: America/Los_Angeles
     volumes:
-      - /storage/app-data/media/sonarr:/config
+      - /storage/app-data/sonarr:/config
       - /storage/media-library/tv:/tv
       - /storage/downloads/completed:/downloads
     labels:
@@ -25,7 +25,7 @@ services:
       PGID: 1000
       TZ: America/Los_Angeles
     volumes:
-      - /storage/app-data/media/radarr:/config
+      - /storage/app-data/radarr:/config
       - /storage/media-library/movies:/movies
       - /storage/downloads/completed:/downloads
     labels:
@@ -43,7 +43,7 @@ services:
       PGID: 1000
       TZ: America/Los_Angeles
     volumes:
-      - /storage/app-data/media/sabnzbd:/config
+      - /storage/app-data/sabnzbd:/config
       - /storage/downloads/completed:/downloads
       - /storage/downloads/active:/incomplete-downloads
     labels:
@@ -61,7 +61,7 @@ services:
       PGID: 1000
       TZ: America/Los_Angeles
     volumes:
-      - /storage/app-data/media/emby:/config # Configuration directory
+      - /storage/app-data/emby:/config # Configuration directory
       - /storage/media-library/tv:/tv # Media directory
       - /storage/media-library/movies:/movies # Media directory
     devices:

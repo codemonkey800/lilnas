@@ -193,7 +193,7 @@ volumes:
 
 ```yaml
 volumes:
-  - /storage/app-data/jellyfin:/config
+  - /storage/app-data/emby:/config
   - /storage/media-library:/media
 ```
 
