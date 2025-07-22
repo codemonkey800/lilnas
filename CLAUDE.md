@@ -208,6 +208,15 @@ lilnas is a TypeScript monorepo using pnpm workspaces with Turbo build orchestra
 - **Development:** Docker Compose with volume mounts
 - **Production:** Multi-stage Docker builds
 
+### Storage Architecture
+
+The server uses a semantic directory structure for organizing different types of data. See `docs/semantic-storage.md` for comprehensive documentation about:
+
+- Storage directory purposes and usage patterns
+- Volume mapping configurations
+- Backup tier strategy
+- Best practices for storage planning
+
 ### Key Docker Compose Files
 
 **Root-level orchestration:**
