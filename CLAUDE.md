@@ -227,7 +227,7 @@ The server uses a semantic directory structure for organizing different types of
 
 - `proxy.yml` / `proxy.dev.yml` - Traefik and authentication
 - `shared.yml` / `shared.dev.yml` - Storage and shared services
-- `media.yml` - Media stack (Sonarr, Radarr, Emby, etc.)
+- `media.yml` - Media stack (Sonarr, Radarr, Emby)
 - `immich.yml` - Photo management
 - `monitoring.yml` - System monitoring
 - `minecraft.yml` - Minecraft server deployment
