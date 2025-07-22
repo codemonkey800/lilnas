@@ -7,9 +7,9 @@ services:
       PGID: 1000
       TZ: America/Los_Angeles
     volumes:
-      - ../data/media/sonarr:/config
-      - /mnt/hdd1/tv:/tv
-      - ../data/media/downloads:/downloads
+      - /storage/app-data/media/sonarr:/config
+      - /storage/media-library/tv:/tv
+      - /storage/downloads/completed:/downloads
     labels:
       - traefik.enable=true
       - traefik.http.services.sonarr.loadbalancer.server.port=8989
@@ -25,9 +25,9 @@ services:
       PGID: 1000
       TZ: America/Los_Angeles
     volumes:
-      - ../data/media/radarr:/config
-      - /mnt/hdd1/movies:/movies
-      - ../data/media/downloads:/downloads
+      - /storage/app-data/media/radarr:/config
+      - /storage/media-library/movies:/movies
+      - /storage/downloads/completed:/downloads
     labels:
       - traefik.enable=true
       - traefik.http.services.radarr.loadbalancer.server.port=7878
@@ -43,9 +43,9 @@ services:
       PGID: 1000
       TZ: America/Los_Angeles
     volumes:
-      - ../data/media/sabnzbd:/config
-      - ../data/media/downloads:/downloads
-      - ../data/media/incomplete-downloads:/incomplete-downloads
+      - /storage/app-data/media/sabnzbd:/config
+      - /storage/downloads/completed:/downloads
+      - /storage/downloads/active:/incomplete-downloads
     labels:
       - traefik.enable=true
       - traefik.http.services.sabnzbd.loadbalancer.server.port=8080
@@ -61,9 +61,9 @@ services:
       PGID: 1000
       TZ: America/Los_Angeles
     volumes:
-      - ../data/media/emby:/config # Configuration directory
-      - /mnt/hdd1/tv:/tv # Media directory
-      - /mnt/hdd1/movies:/movies # Media directory
+      - /storage/app-data/media/emby:/config # Configuration directory
+      - /storage/media-library/tv:/tv # Media directory
+      - /storage/media-library/movies:/movies # Media directory
     devices:
       - /dev/dri:/dev/dri # VAAPI/NVDEC/NVENC render nodes
     labels:
@@ -81,7 +81,7 @@ services:
       PGID: 1000
       TZ: America/Los_Angeles
     volumes:
-      - ../data/media/ombi:/config
+      - /storage/app-data/media/ombi:/config
     labels:
       - traefik.enable=true
       - traefik.http.services.ombi.loadbalancer.server.port=3579

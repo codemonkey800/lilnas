@@ -5,10 +5,10 @@ services:
     #   file: hwaccel.transcoding.yml
     #   service: cpu # set to one of [nvenc, quicksync, rkmpp, vaapi, vaapi-wsl] for accelerated transcoding
     volumes:
-      - /mnt/ssd1/immich:/usr/src/app/upload
-      - /mnt/ssd1/google-photos:/google-photos:ro
-      - /mnt/ssd1/home-movies:/home-movies:ro
-      - /mnt/ssd1/icloud:/icloud:ro
+      - /storage/photos/immich/upload:/usr/src/app/upload
+      - /storage/photos/google-photos:/google-photos:ro
+      - /storage/photos/home-movies:/home-movies:ro
+      - /storage/photos/icloud:/icloud:ro
       - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env
@@ -30,7 +30,7 @@ services:
     #   file: hwaccel.ml.yml
     #   service: cpu # set to one of [armnn, cuda, openvino, openvino-wsl] for accelerated inference - use the `-wsl` version for WSL2 where applicable
     volumes:
-      - ../data/immich/model-cache:/cache
+      - /storage/photos/immich/model-cache:/cache
     env_file:
       - .env
     restart: unless-stopped
@@ -49,7 +49,7 @@ services:
       POSTGRES_DB: ${DB_DATABASE_NAME}
       POSTGRES_INITDB_ARGS: '--data-checksums'
     volumes:
-      - ../data/immich/db:/var/lib/postgresql/data
+      - /storage/photos/immich/db:/var/lib/postgresql/data
     healthcheck:
       test: pg_isready --dbname='${DB_DATABASE_NAME}' --username='${DB_USERNAME}' || exit 1; Chksum="$$(psql --dbname='${DB_DATABASE_NAME}' --username='${DB_USERNAME}' --tuples-only --no-align --command='SELECT COALESCE(SUM(checksum_failures), 0) FROM pg_stat_database')"; echo "checksum failure count is $$Chksum"; [ "$$Chksum" = '0' ] || exit 1
       interval: 5m
