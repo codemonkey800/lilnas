@@ -5,7 +5,7 @@ services:
     environment:
       DISABLE_AUTH: true
     volumes:
-      - ../data/yacht:/config
+      - /storage/app-data/yacht:/config
       - /var/run/docker.sock:/var/run/docker.sock
     labels:
       - traefik.enable=true

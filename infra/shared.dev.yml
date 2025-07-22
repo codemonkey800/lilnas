@@ -6,7 +6,7 @@ services:
     env_file:
       - .env.storage
     volumes:
-      - ../data/storage:/data
+      - /storage/fast-staging/minio:/data
       - ./init-minio.sh:/opt/init-minio.sh
     healthcheck:
       test: ['CMD', 'mc', 'ready', 'local']
