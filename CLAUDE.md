@@ -43,8 +43,12 @@ pnpm test
 pnpm test:watch
 
 # Test files are located in __tests__ directories
-# Currently, the CLI package has the most comprehensive test coverage
+# Packages with test coverage:
+# - @lilnas/cli - Most comprehensive test coverage
+# - @lilnas/utils - Utility functions testing with Jest
+# - @lilnas/tdr-bot - Message handler and service tests
 # Tests are automatically run in CI for changed packages
+# Coverage reports are generated in coverage/ directories
 ```
 
 ### Service Management (lilnas CLI)
@@ -65,8 +69,21 @@ pnpm test:watch
 # View service logs
 ./lilnas dev logs <service-name> -f
 
+# Show status of services
+./lilnas dev ps
+
+# Start a shell within the container
+./lilnas dev shell <service-name>
+
 # Stop services
 ./lilnas dev down
+
+# Production deployment commands
+./lilnas up [services...]      # Deploy a service
+./lilnas down [services...]    # Bring down a service
+
+# Sync iCloud photos to local directory
+./lilnas sync-photos
 
 # IMPORTANT: Service Management Commands
 # When using the lilnas CLI, you can bring up development services:
@@ -91,6 +108,11 @@ pnpm run start    # Run production build
 pnpm run dev      # Development server
 pnpm run build    # Production build
 pnpm run start    # Production server
+
+# For Vite-based frontends (dashcam)
+pnpm run dev      # Development server (port 8080)
+pnpm run build    # Production build
+pnpm run preview  # Preview production build
 
 # For hybrid apps (tdr-bot, download)
 pnpm run dev              # Both backend + frontend
@@ -159,7 +181,7 @@ lilnas is a TypeScript monorepo using pnpm workspaces with Turbo build orchestra
 **Frontend Applications:**
 
 - `@lilnas/apps` - Next.js application portal/dashboard
-- `@lilnas/dashcam` - Vite+React dashcam video viewer
+- `@lilnas/dashcam` - Vite+React dashcam video viewer (port 8080)
 
 **Full-Stack Applications (NestJS + Next.js):**
 
@@ -188,14 +210,24 @@ lilnas is a TypeScript monorepo using pnpm workspaces with Turbo build orchestra
 
 ### Key Docker Compose Files
 
-Located in `infra/`:
+**Root-level orchestration:**
 
-- `apps.yml` / `apps.dev.yml` - Application services
+- `docker-compose.yml` / `docker-compose.dev.yml` - Main orchestration files
+
+**Infrastructure services in `infra/`:**
+
 - `proxy.yml` / `proxy.dev.yml` - Traefik and authentication
 - `shared.yml` / `shared.dev.yml` - Storage and shared services
 - `media.yml` - Media stack (Sonarr, Radarr, Emby, etc.)
 - `immich.yml` - Photo management
 - `monitoring.yml` - System monitoring
+- `minecraft.yml` - Minecraft server deployment
+- `palworld.yml` - Palworld game server deployment
+
+**Package-specific deployment:**
+
+- `packages/*/deploy.yml` - Production deployment for each service
+- `packages/*/deploy.dev.yml` - Development deployment for each service
 
 ## Security Considerations
 
@@ -280,7 +312,11 @@ The project uses a layered Docker base image system for consistent environments:
 ./infra/base-images/build-base-images.sh
 
 # Images are used automatically by service Dockerfiles
-# Rebuild when updating Node.js version or base dependencies
+# Rebuild base images when:
+# - Updating Node.js version
+# - Changing base dependencies
+# - Updating pnpm version
+# - Making significant changes to the build process
 ```
 
 **Important: Docker Cache and Source Code Updates**
@@ -311,7 +347,7 @@ The `--rebuild-base` flag automatically rebuilds the base images before redeploy
 
 ### Turbo Build System
 
-Turbo provides intelligent build orchestration with caching:
+Turbo (v2.5.4) provides intelligent build orchestration with caching:
 
 **Configuration (`turbo.json`):**
 
@@ -386,6 +422,8 @@ Environment configuration follows a secure pattern:
 ### Coding Standards
 
 - Follow coding conventions based on the prettier and eslint config
+- ESLint configurations use the new flat config format (`eslint.config.cjs`)
+- Each package has its own ESLint configuration
 - Try to avoid using `any` types
 - Always write optimal code that follows best practices
 - **Whenever writing to a file, ensure that it passes prettier and lint checks for the package you're editing the file in.**
