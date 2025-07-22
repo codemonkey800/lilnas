@@ -1,5 +1,5 @@
 # Dependency caching stage
-FROM ghcr.io/codemonkey800/lilnas-monorepo-builder:latest AS deps
+FROM lilnas-monorepo-builder AS deps
 
 # Copy package files for dependency caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -22,7 +22,7 @@ RUN pnpm build --filter=@lilnas/me-token-tracker
 RUN pnpm --filter=me-token-tracker --prod deploy /app
 
 # Runtime stage
-FROM ghcr.io/codemonkey800/lilnas-node-runtime:latest AS runtime
+FROM lilnas-node-runtime AS runtime
 COPY --from=builder /app /app
 
 # Add OCI image source label
