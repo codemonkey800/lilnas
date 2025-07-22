@@ -73,18 +73,3 @@ services:
       - traefik.http.routers.emby.entrypoints=websecure
       - traefik.http.routers.emby.tls.certresolver=le
 
-  ombi:
-    image: lscr.io/linuxserver/ombi:latest
-    restart: unless-stopped
-    environment:
-      PUID: 1000
-      PGID: 1000
-      TZ: America/Los_Angeles
-    volumes:
-      - /storage/app-data/media/ombi:/config
-    labels:
-      - traefik.enable=true
-      - traefik.http.services.ombi.loadbalancer.server.port=3579
-      - traefik.http.routers.ombi.rule=Host(`ombi.lilnas.io`)
-      - traefik.http.routers.ombi.entrypoints=websecure
-      - traefik.http.routers.ombi.tls.certresolver=le
