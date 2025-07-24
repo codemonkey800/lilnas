@@ -26,6 +26,9 @@ RUN pnpm --filter=download --prod deploy /app
 # Copy the built Next.js application
 RUN cp -r /source/packages/download/.next /app/.next
 
+# Copy the standalone server to the correct location
+RUN cp /source/packages/download/.next/standalone/packages/download/server.js /app/server.js
+
 # Copy public directory if it exists
 RUN if [ -d /source/packages/download/public ]; then \
       cp -r /source/packages/download/public /app/.next/standalone/; \
@@ -35,6 +38,9 @@ RUN if [ -d /source/packages/download/public ]; then \
 RUN if [ -d /app/.next/static ]; then \
       cp -r /app/.next/static /app/.next/standalone/.next/; \
     fi
+
+# Verify the standalone server was copied correctly
+RUN test -f /app/server.js || (echo "ERROR: Standalone server not found" && exit 1)
 
 # Production stage
 FROM lilnas-nextjs-runtime AS production
