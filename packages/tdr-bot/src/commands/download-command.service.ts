@@ -8,7 +8,7 @@ import { isBefore } from '@lilnas/utils/download/utils'
 import { env } from '@lilnas/utils/env'
 import { isValidURL } from '@lilnas/utils/url'
 import { Inject, Injectable, Logger } from '@nestjs/common'
-import { MessageFlags } from 'discord.js'
+import { DiscordAPIError, MessageFlags } from 'discord.js'
 import * as fs from 'fs-extra'
 import { Client } from 'minio'
 import { nanoid } from 'nanoid'
@@ -318,19 +318,48 @@ export class DownloadCommandService {
     this.logger.log({ id, job, files }, 'downloaded files')
 
     if (interaction.channel?.isSendable()) {
-      await interaction.channel.send({
-        files,
-        content: [
-          job.title ? `[**${job.title}**](<${job.url}>)\n` : '',
-          author ? `sent by <@${author}>\n` : '',
-          description,
-        ]
-          .filter(Boolean)
-          .join(''),
-      })
+      try {
+        await interaction.channel.send({
+          files,
+          content: [
+            job.title ? `[**${job.title}**](<${job.url}>)\n` : '',
+            author ? `sent by <@${author}>\n` : '',
+            description,
+          ]
+            .filter(Boolean)
+            .join(''),
+        })
+      } catch (error) {
+        if (error instanceof DiscordAPIError && error.code === 40005) {
+          // File too large for Discord, send direct download links instead
+          this.logger.log(
+            { id, job, urls, fileCount: files.length },
+            'Files too large for Discord, sending direct download links',
+          )
+
+          const downloadLinks = urls
+            .map((url, index) => `[Download File ${index + 1}](${url})`)
+            .join(' • ')
+
+          await interaction.channel.send({
+            content: [
+              job.title ? `[**${job.title}**](<${job.url}>)\n` : '',
+              author ? `sent by <@${author}>\n` : '',
+              description ? `${description}\n\n` : '',
+              '⚠️ Files too large for Discord upload\n',
+              downloadLinks,
+            ]
+              .filter(Boolean)
+              .join(''),
+          })
+        } else {
+          // Re-throw other errors to maintain existing error handling
+          throw error
+        }
+      }
     }
 
-    // Clean up temporary files after successful Discord upload
+    // Clean up temporary files after Discord upload attempt
     try {
       await fs.remove(dir)
       this.logger.log({ id, job, dir }, 'Cleaned up temporary files')
