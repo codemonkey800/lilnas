@@ -8,7 +8,7 @@ import {
 } from '@lilnas/utils/download/types'
 import { isJson } from '@lilnas/utils/json'
 import { Injectable, Logger } from '@nestjs/common'
-import { execSync } from 'child_process'
+import { spawn } from 'child_process'
 import fs from 'fs-extra'
 import { nanoid } from 'nanoid'
 
@@ -18,21 +18,57 @@ import { DownloadStateService } from './download-state.service'
 const VIDEO_DIR = '/download/videos'
 
 async function getVideoInfo(url: string): Promise<VideoInfo> {
-  const result = execSync(`/usr/bin/yt-dlp --dump-json '${url}'`).toString()
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    const proc = spawn('/usr/bin/yt-dlp', ['--dump-json', url])
 
-  if (isJson(result)) {
-    return VideoInfoSchema.parse(JSON.parse(result))
-  }
+    const timeout = setTimeout(() => {
+      proc.kill()
+      reject(new Error('yt-dlp timed out'))
+    }, 30000)
 
-  // sometimes yt-dlp will output JSON on multiple lines for Instagram posts
-  // with multiple videos.  this only happens if the user didn't set a title or
-  // description, so we can just default whatever is set for the first video.
-  const info = VideoInfoSchema.parse(JSON.parse(result.split('\n')[0]))
+    proc.stdout.on('data', chunk => {
+      chunks.push(chunk)
+    })
 
-  return {
-    title: info.playlist || info.title,
-    description: info.description,
-  }
+    proc.stderr.on('data', data => {
+      console.error(`yt-dlp stderr: ${data}`)
+    })
+
+    proc.on('error', err => {
+      clearTimeout(timeout)
+      reject(err)
+    })
+
+    proc.on('close', code => {
+      clearTimeout(timeout)
+
+      if (code !== 0) {
+        reject(new Error(`yt-dlp exited with code ${code}`))
+        return
+      }
+
+      const result = Buffer.concat(chunks).toString()
+
+      try {
+        if (isJson(result)) {
+          resolve(VideoInfoSchema.parse(JSON.parse(result)))
+        } else {
+          // sometimes yt-dlp will output JSON on multiple lines for Instagram posts
+          // with multiple videos.  this only happens if the user didn't set a title or
+          // description, so we can just default whatever is set for the first video.
+          const info = VideoInfoSchema.parse(JSON.parse(result.split('\n')[0]))
+
+          resolve({
+            title: info.playlist || info.title,
+            description: info.description,
+          })
+        }
+      } catch (err) {
+        reject(new Error(`Failed to parse yt-dlp output: ${err}`))
+      }
+    })
+  })
 }
 
 @Injectable()
