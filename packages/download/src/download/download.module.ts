@@ -14,5 +14,6 @@ import { DownloadVideoService } from './download-video.service'
     DownloadVideoService,
   ],
   controllers: [DownloadController],
+  exports: [DownloadStateService],
 })
 export class DownloadModule {}
