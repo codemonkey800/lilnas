@@ -307,73 +307,6 @@ describe('dev command', () => {
     })
   })
 
-  describe('pass-through commands', () => {
-    it('should pass through docker-compose commands', async () => {
-      await dev({ command: 'up', _: ['dev', 'up', 'service1'] })
-
-      expect(mockRunDockerCompose).toHaveBeenCalledWith(
-        'up service1',
-        'docker-compose.dev.yml',
-      )
-    })
-
-    it('should handle pass-through with flags', async () => {
-      await dev({ command: 'up', all: true, _: ['dev', 'up'] })
-
-      expect(mockRunDockerCompose).toHaveBeenCalledWith(
-        'up --all',
-        'docker-compose.dev.yml',
-      )
-    })
-
-    it('should handle pass-through help requests', async () => {
-      mockExecSync.mockReturnValue(
-        'Usage: docker compose up\nCommands:\n  up  Create and start containers',
-      )
-
-      await dev({ command: 'up', help: true })
-
-      expect(mockExecSync).toHaveBeenCalledWith(
-        'docker-compose -f docker-compose.dev.yml up --help',
-        { encoding: 'utf8' },
-      )
-      expect(mockConsoleLog).toHaveBeenCalledWith(
-        expect.stringContaining('lilnas dev'),
-      )
-    })
-
-    it('should handle pass-through help errors', async () => {
-      mockExecSync.mockImplementation(() => {
-        throw new Error('Help command failed')
-      })
-
-      await dev({ command: 'up', help: true })
-
-      expect(mockConsoleError).toHaveBeenCalledWith(
-        'Error displaying command help:',
-        expect.any(Error),
-      )
-    })
-
-    it('should handle services array for pass-through', async () => {
-      await dev({ command: 'up', services: ['app1', 'app2'] })
-
-      expect(mockRunDockerCompose).toHaveBeenCalledWith(
-        'up app1 app2',
-        'docker-compose.dev.yml',
-      )
-    })
-
-    it('should handle services boolean flag', async () => {
-      await dev({ command: 'config', services: true })
-
-      expect(mockRunDockerCompose).toHaveBeenCalledWith(
-        'config --services',
-        'docker-compose.dev.yml',
-      )
-    })
-  })
-
   describe('error handling', () => {
     it('should handle invalid options schema', async () => {
       const invalidOptions = { command: 123 }
@@ -394,6 +327,24 @@ describe('dev command', () => {
 
       await expect(dev({ command: 'shell' })).rejects.toThrow('Not a git repo')
     })
+
+    it('should handle unknown commands', async () => {
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+      const exitSpy = jest.spyOn(process, 'exit').mockImplementation()
+
+      await dev({ command: 'unknown-command' })
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Error: Unknown dev command 'unknown-command'",
+      )
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Run "lilnas dev --help" to see available commands',
+      )
+      expect(exitSpy).toHaveBeenCalledWith(1)
+
+      consoleSpy.mockRestore()
+      exitSpy.mockRestore()
+    })
   })
 
   describe('edge cases', () => {
@@ -413,15 +364,6 @@ describe('dev command', () => {
 
     it('should handle null options', async () => {
       await expect(dev(null)).rejects.toThrow()
-    })
-
-    it('should filter out dev and command from args', async () => {
-      await dev({ command: 'up', _: ['dev', 'up', 'service1', 'service2'] })
-
-      expect(mockRunDockerCompose).toHaveBeenCalledWith(
-        'up service1 service2',
-        'docker-compose.dev.yml',
-      )
     })
 
     it('should handle multiple flags together', async () => {

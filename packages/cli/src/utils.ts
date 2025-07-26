@@ -66,3 +66,37 @@ export function runDockerCompose(
 ) {
   runInteractive(`docker-compose -f ${file} ${command}`)
 }
+
+// Extract flags from arguments array
+export function extractFlags(args: string[]): Record<string, string | boolean> {
+  const flags: Record<string, string | boolean> = {}
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+
+    if (arg.startsWith('--')) {
+      if (arg.includes('=')) {
+        // Handle --flag=value format
+        const [key, value] = arg.substring(2).split('=', 2)
+        flags[key] = value
+      } else {
+        // Handle --flag value format or boolean flags
+        const key = arg.substring(2)
+        const nextArg = args[i + 1]
+
+        if (nextArg && !nextArg.startsWith('-')) {
+          flags[key] = nextArg
+          i++ // Skip next arg since we used it as value
+        } else {
+          flags[key] = true // Boolean flag
+        }
+      }
+    } else if (arg.startsWith('-') && arg.length === 2) {
+      // Handle short flags like -h, -a
+      const key = arg.substring(1)
+      flags[key] = true
+    }
+  }
+
+  return flags
+}

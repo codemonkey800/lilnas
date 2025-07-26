@@ -3,9 +3,6 @@ import { z } from 'zod'
 
 import { runInteractive } from 'src/utils'
 
-import { down } from './down'
-import { up } from './up'
-
 const RedeployOptionsSchema = z.object({
   all: z.boolean().optional(),
   services: z.string().array().optional(),
@@ -34,6 +31,13 @@ export async function redeploy(options: unknown) {
     runInteractive(scriptPath)
   }
 
-  await down({ all, services })
-  await up({ services })
+  // Docker down with image removal
+  const imageType = all ? 'all' : 'local'
+  const servicesList = services ? services.join(' ') : ''
+  runInteractive(
+    `docker-compose -f docker-compose.yml down --rmi ${imageType} -v ${servicesList}`,
+  )
+
+  // Docker up
+  runInteractive(`docker-compose -f docker-compose.yml up -d ${servicesList}`)
 }
