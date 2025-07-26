@@ -5,10 +5,12 @@ import { LoggerModule } from 'nestjs-pino'
 
 import { DownloadModule } from './download/download.module'
 import { EnvKey } from './utils/env'
+import { YtdlpUpdateModule } from './ytdlp-update/ytdlp-update.module'
 
 @Module({
   imports: [
     DownloadModule,
+    YtdlpUpdateModule,
     LoggerModule.forRoot(),
     NestMinioModule.register({
       accessKey: env<EnvKey>('MINIO_ACCESS_KEY'),
