@@ -1,6 +1,6 @@
-FROM node
+FROM node:24.4.1
 
-ENV PNPM_VERSION="10.6.5"
+ENV PNPM_VERSION="10.13.1"
 ENV PNPM_HOME="/pnpm"
 RUN npm install -g pnpm@${PNPM_VERSION}
 
