@@ -2,7 +2,7 @@
   "name": "@lilnas/cli",
   "version": "0.2.0",
   "private": true,
-  "packageManager": "pnpm@10.6.5",
+  "packageManager": "pnpm@10.13.1",
   "prettier": "@lilnas/prettier",
   "scripts": {
     "clean": "rm -rf tsconfig.tsbuildinfo",
@@ -20,11 +20,7 @@
     "fs-extra": "11.3.0",
     "ts-pattern": "5.6.2",
     "yaml": "2.7.0",
-    "yargs": "17.7.2",
     "zod": "3.24.2",
     "zx": "8.3.0"
-  },
-  "devDependencies": {
-    "@types/yargs": "17.0.33"
   }
 }
