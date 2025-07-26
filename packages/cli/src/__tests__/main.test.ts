@@ -757,7 +757,7 @@ Use docker-compose for legacy support.`
 
       expect(mockExtractFlags).toHaveBeenCalledWith(['dev', 'up', '-d'])
       expect(mockRunInteractive).toHaveBeenCalledWith(
-        'docker-compose -f docker-compose.dev.yml up --d',
+        'docker-compose -f docker-compose.dev.yml up -d',
       )
     })
 

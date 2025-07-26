@@ -129,9 +129,15 @@ export async function forwardToDockerCompose(
 
   // Need to reconstruct flags for docker-compose
   const flagArgs = Object.entries(parsed.flags).flatMap(([key, value]) => {
-    if (value === true) return [`--${key}`]
+    if (value === true) {
+      // Use single dash for single character flags, double dash for longer flags
+      const prefix = key.length === 1 ? '-' : '--'
+      return [`${prefix}${key}`]
+    }
     if (value === false || value === undefined) return []
-    return [`--${key}`, String(value)]
+    // Use single dash for single character flags, double dash for longer flags
+    const prefix = key.length === 1 ? '-' : '--'
+    return [`${prefix}${key}`, String(value)]
   })
 
   const cmd = [
@@ -179,9 +185,15 @@ export async function handleDevCommand(parsed: ParsedCommand): Promise<void> {
   // Forward all other commands directly to docker-compose with dev file
   // Need to reconstruct flags for docker-compose
   const flagArgs = Object.entries(parsed.flags).flatMap(([key, value]) => {
-    if (value === true) return [`--${key}`]
+    if (value === true) {
+      // Use single dash for single character flags, double dash for longer flags
+      const prefix = key.length === 1 ? '-' : '--'
+      return [`${prefix}${key}`]
+    }
     if (value === false || value === undefined) return []
-    return [`--${key}`, String(value)]
+    // Use single dash for single character flags, double dash for longer flags
+    const prefix = key.length === 1 ? '-' : '--'
+    return [`${prefix}${key}`, String(value)]
   })
 
   const cmd = [
