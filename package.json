@@ -1,7 +1,7 @@
 {
   "name": "lilnas",
   "version": "0.2.0",
-  "packageManager": "pnpm@10.6.5",
+  "packageManager": "pnpm@10.13.1",
   "scripts": {
     "build": "turbo run build",
     "clean": "rm -rf .turbo/{cache,cookies} && pnpm run -r clean",
@@ -16,6 +16,7 @@
     "@lilnas/eslint": "workspace:*",
     "@lilnas/prettier": "workspace:*",
     "@nestjs/cli": "11.0.5",
+    "@nestjs/testing": "11.0.12",
     "@swc/cli": "0.6.0",
     "@swc/core": "1.11.12",
     "@tailwindcss/postcss": "4.0.15",
@@ -28,6 +29,7 @@
     "@types/node": "22.13.11",
     "@types/react": "19.0.12",
     "@types/react-dom": "19.0.4",
+    "@types/semver": "7.5.8",
     "@types/source-map-support": "0.5.10",
     "@types/uuid": "10.0.0",
     "autoprefixer": "10.4.21",

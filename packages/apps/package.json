@@ -2,7 +2,7 @@
   "name": "@lilnas/apps",
   "version": "0.2.0",
   "private": true,
-  "packageManager": "pnpm@10.6.5",
+  "packageManager": "pnpm@10.13.1",
   "prettier": "@lilnas/prettier",
   "scripts": {
     "build": "next build",
