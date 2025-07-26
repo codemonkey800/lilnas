@@ -5,7 +5,8 @@ import { getErrorMessage } from '@lilnas/utils/error'
 import { isJson } from '@lilnas/utils/json'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { spawn } from 'child_process'
-import fs from 'fs-extra'
+import { createWriteStream } from 'fs'
+import { ensureDir, readdir, remove } from 'fs-extra'
 import * as mime from 'mime-types'
 import { Client } from 'minio'
 import { MINIO_CONNECTION } from 'nestjs-minio'
@@ -21,7 +22,7 @@ const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.webm']
 
 async function getVideoFiles(path: string) {
   const dir = `${VIDEO_DIR}/${path}`
-  const files = await fs.readdir(dir)
+  const files = await readdir(dir)
 
   return files
     .filter(f => VIDEO_EXTENSIONS.some(ext => f.endsWith(ext)))
@@ -302,7 +303,7 @@ export class DownloadVideoService {
     const jobDir = `${VIDEO_DIR}/${job.id}`
     const renderDir = `${jobDir}/render`
 
-    await fs.ensureDir(renderDir)
+    await ensureDir(renderDir)
 
     log('log', { ...options, files, jobDir, renderDir }, 'Starting conversion')
 
@@ -388,8 +389,6 @@ export class DownloadVideoService {
     log('log', { ...options, downloadUrls }, 'Updating job with download URLs')
 
     this.downloadStateService.updateJob(job.id, {
-      ...job,
-
       downloadUrls: files.map(
         file => `${env<EnvKey>('MINIO_PUBLIC_URL')}/videos/${getFileKey(file)}`,
       ),
@@ -410,7 +409,7 @@ export class DownloadVideoService {
     const logArgs = { ...options, files: allFiles }
 
     log('log', logArgs, 'Cleaning up video files')
-    await Promise.all(allFiles.map(file => fs.remove(file)))
+    await Promise.all(allFiles.map(file => remove(file)))
     log('log', logArgs, 'Files cleaned')
   }
 
@@ -434,10 +433,7 @@ export class DownloadVideoService {
     args: string[]
     bin: string
   }) {
-    const logFileStream = fs.createWriteStream(
-      `${VIDEO_DIR}/${logFile}`,
-      'utf-8',
-    )
+    const logFileStream = createWriteStream(`${VIDEO_DIR}/${logFile}`, 'utf-8')
 
     logFileStream.write(`$ ${bin} ${args.join(' ')}\n`)
 

@@ -9,7 +9,7 @@ import {
 import { isJson } from '@lilnas/utils/json'
 import { Injectable, Logger } from '@nestjs/common'
 import { spawn } from 'child_process'
-import fs from 'fs-extra'
+import { ensureDir } from 'fs-extra'
 import { nanoid } from 'nanoid'
 
 import { DownloadSchedulerService } from './download-scheduler.service'
@@ -48,21 +48,24 @@ export class DownloadService {
       )
       const proc = spawn('/usr/bin/yt-dlp', args)
 
-      const timeout = setTimeout(() => {
-        const duration = Date.now() - startTime
-        this.logger.warn(
-          {
-            action,
-            url: sanitizedUrl,
-            duration,
-            timeoutMs: 60000,
-          },
-          'yt-dlp timed out, killing process',
-        )
+      const timeout = setTimeout(
+        () => {
+          const duration = Date.now() - startTime
+          this.logger.warn(
+            {
+              action,
+              url: sanitizedUrl,
+              duration,
+              timeoutMs: 60000,
+            },
+            'yt-dlp timed out, killing process',
+          )
 
-        proc.kill()
-        reject(new Error('yt-dlp timed out'))
-      }, 60 * 1000)
+          proc.kill()
+          reject(new Error('yt-dlp timed out'))
+        },
+        2 * 60 * 1000,
+      )
 
       proc.stdout.on('data', chunk => {
         chunks.push(chunk)
@@ -225,7 +228,7 @@ export class DownloadService {
       description: undefined, // Will be populated during download phase
     }
 
-    await fs.ensureDir(`${VIDEO_DIR}/${job.id}`)
+    await ensureDir(`${VIDEO_DIR}/${job.id}`)
 
     this.logger.log(
       {
