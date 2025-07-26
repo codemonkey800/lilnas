@@ -1,7 +1,9 @@
 import { execSync } from 'child_process'
+import * as path from 'path'
 import { z } from 'zod'
 
 import {
+  extractFlags,
   getDockerImages,
   getRepoDir,
   getServices,
@@ -222,61 +224,61 @@ export async function dev(rawOptions: unknown) {
     return
   }
 
-  // Pass through to docker-compose for all other commands
-  const args = options._ || []
-  // Remove 'dev' and the command itself from args (to avoid duplication)
-  const filteredArgs = args.filter(
-    arg => arg !== 'dev' && arg !== options.command,
+  // All other commands are now handled by direct forwarding in main.ts
+  // This should not be reached in the new architecture
+  console.error(`Error: Unknown dev command '${options.command}'`)
+  console.error('Run "lilnas dev --help" to see available commands')
+  process.exit(1)
+}
+
+export async function devRedeploy(args: string[]): Promise<void> {
+  // Parse flags: --all, --rebuild-base and extract service names
+  const flags = extractFlags(args)
+  const services = args.filter(arg => !arg.startsWith('-'))
+
+  const all = flags.all as boolean
+  const rebuildBase = flags['rebuild-base'] as boolean
+
+  // Handle help request
+  if (flags.help || flags.h) {
+    console.log(`Usage: lilnas dev redeploy [services...] [options]
+
+Redeploy services in development environment with optional base image rebuild
+
+Arguments:
+  services             Service names to redeploy (optional)
+
+Options:
+  --all                Remove all images vs local images
+  --rebuild-base       Rebuild base images before redeploying
+  --help, -h           Show this help message`)
+    return
+  }
+
+  // Rebuild base images if requested (reuse logic from redeploy.ts)
+  if (rebuildBase) {
+    console.log('Rebuilding base images...')
+    const scriptPath = path.join(
+      __dirname,
+      '..',
+      '..',
+      '..',
+      '..',
+      'infra',
+      'base-images',
+      'build-base-images.sh',
+    )
+    runInteractive(scriptPath)
+  }
+
+  // Docker down with dev compose file
+  const imageType = all ? 'all' : 'local'
+  runInteractive(
+    `docker-compose -f docker-compose.dev.yml down --rmi ${imageType} -v ${services.join(' ')}`,
   )
-  const commandArgs = [options.command, ...filteredArgs].filter(Boolean)
 
-  // Add any flags that were passed through
-  const passThroughArgs = []
-  const isHelpRequest = options.help || options.h
-
-  if (isHelpRequest) {
-    passThroughArgs.push('--help')
-  }
-  if (options.all && typeof options.all === 'boolean') {
-    passThroughArgs.push('--all')
-  }
-  if (options.filter) {
-    passThroughArgs.push(`--filter=${options.filter}`)
-  }
-  if (options.quiet) {
-    passThroughArgs.push('--quiet')
-  }
-  // Handle --services flag for docker-compose config
-  if (options.services === true) {
-    passThroughArgs.push('--services')
-  } else if (Array.isArray(options.services)) {
-    // For array services, pass them as positional args
-    commandArgs.push(...options.services)
-  }
-
-  const allArgs = [...commandArgs, ...passThroughArgs]
-  const command = allArgs.join(' ')
-
-  // If this is a help request, capture output and modify it
-  if (isHelpRequest) {
-    try {
-      const helpOutput = execSync(
-        `docker-compose -f ${DEV_COMPOSE} ${command}`,
-        {
-          encoding: 'utf8',
-        },
-      )
-
-      // Replace docker compose references with lilnas dev
-      const modifiedHelp = helpOutput
-        .replace(/Usage:\s+docker compose/g, 'Usage:  lilnas dev')
-        .replace(/docker compose/g, 'lilnas dev')
-
-      console.log(modifiedHelp)
-    } catch (error) {
-      console.error('Error displaying command help:', error)
-    }
-  } else {
-    runCompose(command)
-  }
+  // Docker up with dev compose file
+  runInteractive(
+    `docker-compose -f docker-compose.dev.yml up -d ${services.join(' ')}`,
+  )
 }
