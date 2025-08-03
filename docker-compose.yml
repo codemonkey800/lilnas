@@ -1,6 +1,7 @@
 include:
   # Infrastructure services
   - ./infra/immich.yml
+  - ./infra/l4d2.yml
   - ./infra/media.yml
   - ./infra/monitoring.yml
   - ./infra/palworld.yml

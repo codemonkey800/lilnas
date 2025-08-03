@@ -1,0 +1,16 @@
+services:
+  l4d2:
+    build:
+      context: ../
+      dockerfile: infra/l4d2/Dockerfile
+    restart: unless-stopped
+
+    ports:
+      - 27015:27015/tcp
+      - 27015:27015/udp
+
+    env_file:
+      - .env.l4d2
+
+    volumes:
+      - /storage/app-data/l4d2/:/l4d2/server/
