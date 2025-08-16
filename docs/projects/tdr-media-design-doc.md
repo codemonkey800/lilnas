@@ -481,71 +481,34 @@ This approach reduces development complexity by ~60% compared to building custom
 
 **The StorageService complements API progress data by tracking actual disk usage and providing storage impact analysis for deletion operations.**
 
-```typescript
-interface StorageService {
-  calculateMediaSize(
-    mediaId: string,
-    mediaType: MediaType,
-  ): Promise<ActualSize>;
-  getAvailableSpace(): Promise<StorageInfo>;
-  calculateDeletionImpact(mediaId: string): Promise<DeletionImpact>;
-}
+**Core Responsibilities:**
+- Calculate actual media file sizes on disk
+- Monitor available storage space
+- Analyze deletion impact before operations
+- Track file counts and locations
 
-interface ActualSize {
-  totalBytes: number;
-  formattedSize: string;
-  fileCount: number;
-  lastUpdated: Date;
-}
-
-interface StorageInfo {
-  totalSpace: number;
-  usedSpace: number;
-  availableSpace: number;
-  usagePercentage: number;
-}
-
-interface DeletionImpact {
-  spaceToBeFreed: number;
-  formattedFreeSpace: string;
-  newAvailablePercentage: number;
-  affectedFiles: string[];
-}
-```
+**Key Data Points Tracked:**
+- Total bytes consumed per media item
+- Formatted size for user display
+- File count per media entry
+- Available space percentages
+- Deletion impact projections
 
 #### DownloadMonitor Service
 
 **Simplified progress tracking service that consumes Sonarr/Radarr queue APIs directly, eliminating complex custom progress calculations.**
 
-```typescript
-interface DownloadMonitor {
-  getQueueStatus(mediaId: string): Promise<QueueProgress>;
-  formatProgressDisplay(queueData: QueueProgress): string;
-}
+**Service Strategy:**
+The DownloadMonitor directly consumes queue status from Sonarr/Radarr APIs without custom calculations. It polls the `/api/v3/queue` endpoints every 30 seconds and formats the raw API data for Discord display.
 
-interface QueueProgress {
-  // Direct mapping from Sonarr/Radarr queue API responses
-  percentage: number; // 0-100 (from API)
-  timeleft: string; // "01:47:32" (from API)
-  status: string; // "downloading", "queued", etc. (from API)
-  size: number; // Total bytes (from API)
-  sizeleft: number; // Remaining bytes (from API)
-  eta: string; // ISO timestamp (from API)
-  priority: string; // "high", "normal", "low" (from API)
-  downloadId: string; // Download client ID (from API)
-  indexer: string; // Source indexer (from API)
-}
-
-// Simplified status mapping from API responses
-enum DownloadStatus {
-  QUEUED = "queued",
-  DOWNLOADING = "downloading",
-  IMPORTING = "importing",
-  COMPLETED = "completed",
-  FAILED = "failed",
-  PAUSED = "paused",
-}
-```
+**Queue Data Points (Direct from API):**
+- Percentage: 0-100% completion
+- Time Left: Formatted time remaining ("01:47:32")
+- Status: Current download state (queued, downloading, importing, completed, failed, paused)
+- Size Information: Total and remaining bytes
+- ETA: Estimated completion timestamp
+- Priority: Queue priority level
+- Download Context: Client ID and indexer source
 
 **Implementation Strategy:**
 
@@ -558,35 +521,21 @@ enum DownloadStatus {
 
 **Simplified TV episode specification parsing that leverages Sonarr's built-in series metadata validation.**
 
-```typescript
-interface EpisodeSpecificationService {
-  parseEpisodeRange(input: string): EpisodeRange;
-  validateWithSonarr(
-    range: EpisodeRange,
-    seriesId: number,
-  ): Promise<ValidationResult>;
-}
+**Core Functionality:**
+- Parse episode range specifications (S1, S2E5, S3E1-10)
+- Validate ranges against Sonarr's series metadata
+- Support complex patterns (S1,S2 or S2E1-5,S3E1)
+- Defer validation to Sonarr's `/api/v3/series/{id}` endpoint
 
-interface EpisodeRange {
-  type: "single_episode" | "episode_range" | "full_season" | "multiple_seasons";
-  specifications: EpisodeSpecification[];
-  totalEpisodes: number;
-}
+**Supported Patterns:**
+- `S1` → Full season 1
+- `S2E5` → Season 2, Episode 5
+- `S3E1-10` → Season 3, Episodes 1-10
+- `S1,S2` → Multiple full seasons
+- `S2E1-5,S3E1` → Mixed episode ranges
 
-interface EpisodeSpecification {
-  season: number;
-  episodes: number[]; // [1] for S2E1, [1,2,3,4,5] for S2E1-5, [] for full season
-  displayText: string; // "S2E1", "S2E1-5", "S2"
-}
-
-// Simplified validation using Sonarr API data
-interface ValidationResult {
-  isValid: boolean;
-  errors: string[];
-  availableSeasons: number[]; // From Sonarr /api/v3/series/{id}
-  totalEpisodes: number; // From Sonarr series metadata
-}
-```
+**Validation Strategy:**
+Instead of custom validation logic, the service queries Sonarr's series endpoint to verify episode availability, reducing custom code by ~60%.
 
 **Validation Strategy Simplification:**
 
@@ -614,23 +563,12 @@ interface ValidationResult {
 
 **Optimized handling of multiple simultaneous requests to reduce API load and improve performance.**
 
-```typescript
-interface RequestBatchingService {
-  queueRequest(request: APIRequest, context: CorrelationContext): Promise<APIResponse>;
-  processBatch(): Promise<void>;
-  getBatchStatus(): BatchStatus;
-}
-
-interface BatchConfig {
-  maxBatchSize: 10;
-  batchWindowMs: 100;
-  priorityLevels: {
-    critical: 0;  // User interactions
-    normal: 1;    // Regular API calls
-    background: 2; // Cache updates
-  };
-}
-```
+**Batching Configuration:**
+| Parameter | Value | Purpose |
+|-----------|-------|---------|
+| Max Batch Size | 10 requests | Maximum requests per batch |
+| Batch Window | 100ms | Time window for collecting requests |
+| Priority Levels | 3 (critical, normal, background) | Request prioritization |
 
 **Batching Strategy:**
 
@@ -638,6 +576,11 @@ interface BatchConfig {
 - **Priority Ordering**: Critical user interactions processed first
 - **Bulk Operations**: Combines similar requests (e.g., multiple status checks) into single API calls
 - **Error Isolation**: Single request failures don't affect entire batch
+
+**Priority Levels:**
+1. **Critical (0)**: User interactions requiring immediate response
+2. **Normal (1)**: Regular API calls and data fetching
+3. **Background (2)**: Cache updates and non-urgent operations
 
 ### Architectural Benefits of API-First Approach
 
@@ -1250,145 +1193,67 @@ The system categorizes errors into distinct types to determine appropriate retry
 
 The system implements a practical rate limiting strategy appropriate for homelab scale:
 
-```typescript
-interface DiscordRateLimitManager {
-  // Basic rate limiting configuration
-  rateLimits: {
-    global: {
-      maxRequests: 50;              // Global rate limit per second
-      windowMs: 1000;               // 1 second window
-    };
+**Rate Limit Configuration:**
+| Limit Type | Value | Description |
+|------------|-------|-------------|
+| Global Requests | 50/second | Maximum API requests per second |
+| Per-User Interactions | 10/minute | Maximum interactions per user per minute |
+| Base Retry Delay | 1 second | Initial delay for retries |
+| Maximum Retry Delay | 30 seconds | Maximum backoff delay |
+| Maximum Retries | 3 | Retry attempts before failure |
 
-    perUser: {
-      maxInteractions: 10;          // 10 interactions per minute per user
-      windowMs: 60 * 1000;
-    };
-  };
-
-  // Simple retry strategy with exponential backoff
-  retryStrategy: {
-    baseDelay: 1000;                // 1 second base delay
-    maxDelay: 30000;                // 30 second maximum delay
-    maxRetries: 3;                  // Maximum retry attempts
-    backoffMultiplier: 2.0;         // Exponential backoff factor
-
-    retryableErrors: [
-      429,  // Too Many Requests
-      500,  // Internal Server Error
-      502,  // Bad Gateway
-      503,  // Service Unavailable
-      504,  // Gateway Timeout
-    ];
-  };
-}
-```
+**Exponential Backoff Strategy:**
+- First retry: 1 second delay
+- Second retry: 2 second delay
+- Third retry: 4 second delay (capped at maximum)
+- Backoff multiplier: 2.0x per attempt
 
 **Rate Limit Detection and Response:**
+When Discord returns a 429 (Too Many Requests) status:
+1. Extract retry-after header value
+2. Log rate limit event with correlation ID
+3. Wait for specified delay period
+4. Retry the request automatically
+5. Fall back to channel messages if interaction expires
 
-```typescript
-class DiscordRateLimitHandler {
-  async handleRateLimit(
-    response: DiscordApiResponse,
-    correlationId: string
-  ): Promise<RateLimitAction> {
-    if (response.status === 429) {
-      const retryAfter = parseInt(response.headers["retry-after"]) * 1000;
-      
-      this.logger.warn(`Rate limit hit for ${correlationId}, retry after ${retryAfter}ms`);
-      
-      await this.delay(retryAfter);
-      return {
-        action: "retry",
-        delay: retryAfter,
-        message: "Rate limit exceeded - retrying after delay",
-      };
-    }
-
-    return {
-      action: "continue",
-      delay: 0,
-      message: "No rate limiting required",
-    };
-  }
-
-  private calculateBackoffDelay(attempt: number, baseDelay: number): number {
-    // Simple exponential backoff
-    const exponentialDelay = baseDelay * Math.pow(2, attempt - 1);
-    return Math.min(exponentialDelay, 30000); // Cap at 30 seconds
-  }
-}
-```
+**Retryable Error Codes:**
+- 429: Too Many Requests (rate limited)
+- 500: Internal Server Error
+- 502: Bad Gateway
+- 503: Service Unavailable
+- 504: Gateway Timeout
 
 **Discord Interaction Error Recovery:**
 
 The system implements comprehensive error handling specifically designed for Discord component interactions, ensuring users receive clear feedback and system stability is maintained.
 
-```typescript
-// Component interaction error types
-enum ComponentErrorType {
-  INTERACTION_TIMEOUT = "interaction_timeout",
-  INVALID_COMPONENT_STATE = "invalid_component_state",
-  PERMISSION_DENIED = "permission_denied",
-  RATE_LIMITED = "rate_limited",
-  MODAL_SUBMISSION_ERROR = "modal_submission_error",
-  COLLECTOR_ERROR = "collector_error",
-  STATE_CORRUPTION = "state_corruption",
-}
+**Error Types Handled:**
+- **Interaction Timeout**: When user interactions exceed the 15-minute window
+- **Invalid Component State**: Component state corruption or mismatch
+- **Permission Denied**: Insufficient permissions for requested action
+- **Rate Limited**: Discord API rate limit exceeded
+- **Modal Submission Error**: Invalid modal form submission
+- **Collector Error**: Component collector failures
+- **State Corruption**: Internal state inconsistency
 
-interface ComponentErrorHandler {
-  handleInteractionTimeout(interaction: ComponentInteraction): Promise<void>;
-  handleCollectorError(collectorId: string, error: Error): Promise<void>;
-  handleModalError(
-    modalInteraction: ModalSubmitInteraction,
-    error: Error,
-  ): Promise<void>;
-  handleStateCorruption(
-    interactionId: string,
-    expectedState: any,
-    actualState: any,
-  ): Promise<void>;
-}
-```
+**Recovery Strategy:**
+Each error type has specific recovery mechanisms including fallback messages, state restoration, and graceful degradation to maintain user experience.
 
 **Simplified Discord Error Code Handling:**
 
-```typescript
-interface DiscordErrorHandler {
-  handleDiscordError(error: DiscordAPIError, context: InteractionContext): Promise<ErrorResponse> {
-    switch (error.code) {
-      case 10062: // Unknown interaction
-        return this.handleExpiredInteraction(context);
-      case 40060: // Interaction has already been acknowledged
-        return this.handleDuplicateAcknowledgment(context);
-      case 50013: // Missing permissions
-        return this.handleMissingPermissions(error, context);
-      default:
-        return this.handleGenericError(error, context);
-    }
-  }
+**Discord API Error Codes:**
+| Error Code | Description | Recovery Action |
+|------------|-------------|----------------|
+| 10062 | Unknown interaction | Send fallback message to channel |
+| 40060 | Already acknowledged | Skip duplicate acknowledgment |
+| 50013 | Missing permissions | Notify user of permission requirements |
+| Default | Generic errors | Log and provide user guidance |
 
-  private async handleExpiredInteraction(context: InteractionContext): Promise<ErrorResponse> {
-    // Simple fallback for expired interactions
-    try {
-      if (context.channelId) {
-        await context.channel.send({
-          content: `⚠️ <@${context.userId}> Your interaction expired. Please run the command again.`,
-          allowedMentions: { users: [context.userId] }
-        });
-        return { success: true, method: 'channel_message' };
-      }
-    } catch (error) {
-      this.logger.error('Interaction recovery failed', {
-        correlationId: context.correlationId,
-        interactionId: context.interactionId,
-        userId: context.userId,
-        error
-      });
-      return { success: false, method: 'none' };
-    }
-  }
-}
-```
+**Recovery Approach:**
+- Expired interactions trigger channel messages with re-run instructions
+- Permission errors provide clear guidance on required permissions
+- All errors include correlation IDs for debugging
+- Fallback mechanisms ensure users always receive feedback
 
 ### Circuit Breaker & Resilience (Simplified for Homelab)
 
@@ -1509,26 +1374,21 @@ Last successful connection: 5 minutes ago
 | **Library Content** | 1 hour     | Support fast library browsing         | 500         |
 | **Link Metadata**   | 30 minutes | Cache Emby link data                  | 100         |
 
-**Simple Cache Management:**
+**Cache Management Configuration:**
 
-```typescript
-interface SimpleCacheConfig {
-  // Memory limits
-  maxEntries: 1000;                    // Total cache entries across all types
-  cleanupInterval: 2 * 60 * 1000;      // Cleanup every 2 minutes
-  
-  // LRU eviction
-  evictionStrategy: 'LRU';             // Least Recently Used
-  evictionBatchSize: 50;               // Evict 50 entries when full
-}
-```
+| Setting | Value | Description |
+|---------|-------|-------------|
+| Max Total Entries | 1000 | Maximum cache entries across all types |
+| Cleanup Interval | 2 minutes | Frequency of expired entry removal |
+| Eviction Strategy | LRU | Least Recently Used eviction policy |
+| Eviction Batch Size | 50 | Entries removed when cache full |
 
-**Cache Implementation:**
+**Cache Implementation Strategy:**
 
-- **Storage**: Simple Map-based in-memory storage
-- **Eviction**: Basic LRU when cache exceeds 1000 entries
-- **Cleanup**: Automatic removal of expired entries every 2 minutes
-- **Key Generation**: Simple hash of query parameters
+- **Storage**: Simple Map-based in-memory storage for fast access
+- **Eviction**: Basic LRU (Least Recently Used) when cache exceeds limits
+- **Cleanup**: Automatic removal of expired entries at regular intervals
+- **Key Generation**: Simple hash of query parameters for cache lookups
 
 ## 7. Data Models
 
@@ -2276,105 +2136,51 @@ interface CorrelationContext {
 
 **Simple Configuration for Homelab:**
 
-```typescript
-interface LogConfig {
-  // Console output
-  console: {
-    level: process.env.NODE_ENV === 'production' ? 'info' : 'debug';
-  };
-  
-  // File output (optional)
-  file: {
-    enabled: false;  // Can enable if needed
-    path: './logs/media.log';
-    maxSize: '100MB';
-    maxFiles: 5;
-  };
-  
-  // Performance thresholds
-  slowOperation: {
-    api: 2000;      // Log slow API calls > 2s
-    search: 3000;   // Log slow searches > 3s
-    cache: 100;     // Log slow cache ops > 100ms
-  };
-}
-```
+**Logging Levels:**
+| Environment | Log Level | Purpose |
+|-------------|-----------|---------|  
+| Development | DEBUG | Detailed debugging information |
+| Production | INFO | Operational information only |
+
+**Performance Thresholds:**
+| Operation Type | Threshold | Action |
+|----------------|-----------|--------|
+| API Calls | > 2 seconds | Log as slow operation |
+| Search Operations | > 3 seconds | Log with performance warning |
+| Cache Operations | > 100ms | Log cache performance issue |
+
+**Optional File Logging:**
+- Path: `./logs/media.log`
+- Max Size: 100MB per file
+- Max Files: 5 (rotation)
+- Default: Disabled (console only)
 
 ### Operational Logging Patterns
 
-**Search Operations:**
+**Key Event Types to Log:**
 
-```typescript
-logger.info('Media search initiated', {
-  correlationId,
-  userId,
-  query,
-  timestamp
-});
+| Event Category | Log Level | Key Data Points |
+|----------------|-----------|------------------|
+| **Search Operations** | INFO | correlationId, userId, query, resultCount, responseTime, cacheHit |
+| **Media Requests** | INFO | correlationId, userId, mediaId, mediaType, quality |
+| **Request Failures** | ERROR | correlationId, error details, retry count |
+| **Component Interactions** | DEBUG | correlationId, componentType, interactionId |
+| **Component Timeouts** | WARN | correlationId, componentType, timeRemaining |
+| **Batch Operations** | INFO | correlationId, operation, totalItems, success/failure counts, duration |
 
-logger.info('Media search completed', {
-  correlationId,
-  userId,
-  query,
-  resultCount,
-  responseTime,
-  cacheHit
-});
-```
+**Logging Strategy:**
 
-**Request Processing:**
+- **Search Events**: Log initiation and completion with performance metrics
+- **Request Events**: Track submission and outcomes with user context
+- **Error Events**: Capture failures with full context for debugging
+- **Component Events**: Monitor Discord UI interactions and timeouts
+- **Batch Events**: Summarize multi-item operations with statistics
 
-```typescript
-logger.info('Media request submitted', {
-  correlationId,
-  userId,
-  mediaId,
-  mediaType,
-  quality
-});
-
-logger.error('Media request failed', {
-  correlationId,
-  userId,
-  mediaId,
-  error,
-  retryCount
-});
-```
-
-**Component Interactions:**
-
-```typescript
-logger.debug('Component interaction started', {
-  correlationId,
-  userId,
-  componentType,
-  interactionId
-});
-
-logger.warn('Component timeout warning', {
-  correlationId,
-  userId,
-  componentType,
-  timeRemaining
-});
-```
-
-### Batch Operation Logging
-
-**Multi-Item Operations:**
-
-```typescript
-logger.info('Batch operation completed', {
-  correlationId,
-  operation: 'library.refresh',
-  totalItems: 150,
-  successCount: 148,
-  failureCount: 2,
-  duration: 3456,
-  itemsPerSecond: 43.4
-});
-```
+**Performance Metrics Included:**
+- Response times for all operations
+- Cache hit rates for search operations
+- Items per second for batch operations
+- Queue times for batched requests
 
 ### Security and Privacy
 
