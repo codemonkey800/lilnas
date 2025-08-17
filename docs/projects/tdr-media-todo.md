@@ -24,13 +24,13 @@ This document provides a production-ready TODO list for implementing the Discord
 
 ### 1.1 Project Structure & Architecture Setup (Day 1)
 
-- [ ] **1.1.1** Create media module directory structure (all subdirectories under `packages/tdr-bot/src/media/`)
-  - [ ] Create services/, clients/, commands/, validation/, interfaces/, components/ directories
+- [x] **1.1.1** Create media module directory structure (all subdirectories under `packages/tdr-bot/src/media/`)
+  - [x] Create services/, clients/, commands/, validation/, interfaces/, components/ directories
 
-- [ ] **1.1.2** Define core interfaces and types
-  - [ ] Create media domain interfaces (MediaItem, MovieItem, SeriesItem, MediaRequest, QualityProfile)
-  - [ ] Create Discord interaction interfaces (ComponentState, DiscordComponents, CorrelationContext)
-  - [ ] Create enums (MediaType, MediaStatusType, DiscordErrorCodes)
+- [x] **1.1.2** Define core interfaces and types
+  - [x] Create media domain interfaces (MediaItem, MovieItem, SeriesItem, MediaRequest, QualityProfile)
+  - [x] Create Discord interaction interfaces (ComponentState, DiscordComponents, CorrelationContext)
+  - [x] Create enums (MediaType, MediaStatusType, DiscordErrorCodes)
 
 ### 1.2 Discord Integration & Error Handling (Day 2)
 
