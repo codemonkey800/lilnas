@@ -4,7 +4,7 @@ import {
   QueueStatusType,
   TrackedDownloadStateType,
   TrackedDownloadStatusType,
-} from './enums'
+} from 'src/types/enums'
 
 export interface MediaItem {
   readonly id: number | string
