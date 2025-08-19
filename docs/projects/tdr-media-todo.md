@@ -4,7 +4,7 @@ This document provides a production-ready TODO list for implementing the Discord
 
 **Timeline**: 25 days total (production-ready homelab solution with focused reliability and practical observability)  
 **Architecture**: NestJS + Discord.js v14 + API-First Approach (Sonarr/Radarr/Emby APIs)  
-**Approach**: Leverages existing APIs with practical logging, simplified circuit breaker patterns, and basic state management
+**Approach**: Leverages existing APIs with practical logging, retry patterns, and basic state management
 
 ## Progress Overview
 
@@ -46,28 +46,26 @@ This document provides a production-ready TODO list for implementing the Discord
   - [x] Implement rate limiting with exponential backoff (1s, 2s, 4s, max 30s)
   - [x] Add structured logging with correlation IDs throughout
   - [x] Create fallback mechanisms for expired interactions
-  - [x] Implement circuit breaker pattern (5 failures trigger, 30s recovery)
 
 ### 1.3 API Clients Implementation (Days 3-4)
 
-- [ ] **1.3.1** Create BaseMediaApiClient with comprehensive error handling
-  - [ ] Implement abstract base class with retry logic (3 attempts, exponential backoff) 
-  - [ ] Add circuit breaker pattern (5 failures trigger, 30s recovery)
-  - [ ] Implement timeout management (Sonarr: 5s, Radarr: 5s, Emby: 8s)
-  - [ ] Add authentication header management (X-Api-Key, X-Emby-Token, api_key)
-  - [ ] Implement correlation ID propagation for all API calls
-  - [ ] Add request/response logging with correlation context
-  - [ ] Handle error responses (401 Unauthorized, 429 Rate Limited, 503 Unavailable)
+- [x] **1.3.1** Create BaseMediaApiClient with comprehensive error handling
+  - [x] Implement abstract base class with retry logic (3 attempts, exponential backoff) 
+  - [x] Implement timeout management (Sonarr: 30s, Radarr: 30s, Emby: 30s)
+  - [x] Add authentication header management (X-Api-Key, X-Emby-Token, api_key)
+  - [x] Implement correlation ID propagation for all API calls
+  - [x] Add request/response logging with correlation context
+  - [x] Handle error responses (401 Unauthorized, 429 Rate Limited, 503 Unavailable)
 
-- [ ] **1.3.2** Implement API clients (SonarrClient, RadarrClient, EmbyClient)
-  - [ ] Create all three clients extending BaseMediaApiClient
-  - [ ] Implement search methods (searchSeries, searchMovies, searchLibrary)
-  - [ ] Implement add methods (addSeries, addMovie) with exact API endpoints
-  - [ ] Implement queue status consumption with rich field mapping:
-    - [ ] Map percentage, timeleft, eta, size, sizeleft from queue responses
-    - [ ] Map downloadId, indexer, priority, outputPath fields
-  - [ ] Add quality profile retrieval for Sonarr/Radarr
-  - [ ] Implement Emby playback link generation
+- [x] **1.3.2** Implement API clients (SonarrClient, RadarrClient, EmbyClient)
+  - [x] Create all three clients extending BaseMediaApiClient
+  - [x] Implement search methods (searchSeries, searchMovies, searchLibrary)
+  - [x] Implement add methods (addSeries, addMovie) with exact API endpoints
+  - [x] Implement queue status consumption with rich field mapping:
+    - [x] Map percentage, timeleft, eta, size, sizeleft from queue responses
+    - [x] Map downloadId, indexer, priority, outputPath fields
+  - [x] Add quality profile retrieval for Sonarr/Radarr
+  - [x] Implement Emby playback link generation
 
 - [ ] **1.3.3** Implement exact API request patterns from design document
   - [ ] Build request methods with proper headers and authentication
