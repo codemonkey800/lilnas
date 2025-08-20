@@ -3,44 +3,48 @@ import { TestingModule } from '@nestjs/testing'
 import { ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from 'discord.js'
 
 import { createTestingModule } from 'src/__tests__/test-utils'
+import {
+  createMockActionRowBuilder,
+  createMockButtonBuilder,
+  createMockStringSelectMenuBuilder,
+  MockActionRowBuilderWithTracking,
+  MockButtonBuilder,
+  MockStringSelectMenuBuilder,
+} from 'src/media/__tests__/types/test-mocks.types'
 import { ActionRowBuilderService } from 'src/media/components/action-row.builder'
 
-// Create factory functions for mock Discord.js components
-const createMockButton = (data: Record<string, any> = {}) => ({
-  data: { ...data },
-  setCustomId: jest.fn().mockReturnThis(),
-  setLabel: jest.fn().mockReturnThis(),
-  setStyle: jest.fn().mockReturnThis(),
-  setEmoji: jest.fn().mockReturnThis(),
-  setURL: jest.fn().mockReturnThis(),
-  setDisabled: jest.fn().mockReturnThis(),
-})
+// Type-safe factory functions for Discord.js mock components
+const createMockButton = (
+  data: Partial<MockButtonBuilder['data']> = {},
+): MockButtonBuilder => {
+  return createMockButtonBuilder(data)
+}
 
-const createMockSelectMenu = (data: Record<string, any> = {}) => ({
-  data: { options: [], ...data },
-  setCustomId: jest.fn().mockReturnThis(),
-  setPlaceholder: jest.fn().mockReturnThis(),
-  addOptions: jest.fn().mockReturnThis(),
-})
+const createMockSelectMenu = (
+  data: Partial<MockStringSelectMenuBuilder['data']> = {},
+): MockStringSelectMenuBuilder => {
+  return createMockStringSelectMenuBuilder(data)
+}
 
-const createMockActionRow = () => ({
-  components: [] as any[],
-  addComponents: jest.fn().mockImplementation(function (
-    this: any,
-    ...components
-  ) {
-    this.components.push(...components)
-    return this
-  }),
-})
+const createMockActionRow = (): MockActionRowBuilderWithTracking => {
+  return createMockActionRowBuilder()
+}
 
-// Mock Discord.js classes
+// Mock Discord.js classes with type-safe implementations
 jest.mock('discord.js', () => ({
   ActionRowBuilder: jest.fn().mockImplementation(() => createMockActionRow()),
-  ButtonBuilder: jest.fn().mockImplementation(() => createMockButton()),
+  ButtonBuilder: jest
+    .fn()
+    .mockImplementation((data?: unknown) =>
+      createMockButton(data as Partial<MockButtonBuilder['data']>),
+    ),
   StringSelectMenuBuilder: jest
     .fn()
-    .mockImplementation(() => createMockSelectMenu()),
+    .mockImplementation((data?: unknown) =>
+      createMockSelectMenu(
+        data as Partial<MockStringSelectMenuBuilder['data']>,
+      ),
+    ),
   ButtonStyle: {
     Primary: 1,
     Secondary: 2,
@@ -81,7 +85,9 @@ describe('ActionRowBuilderService', () => {
         style: ButtonStyle.Primary,
       })
 
-      const result = service.createButtonRow([button as any])
+      const result = service.createButtonRow([
+        button as unknown as ButtonBuilder,
+      ])
 
       expect(result).toBeDefined()
       expect(result.components).toHaveLength(1)
@@ -97,7 +103,9 @@ describe('ActionRowBuilderService', () => {
         }),
       )
 
-      const result = service.createButtonRow(buttons as any[])
+      const result = service.createButtonRow(
+        buttons as unknown as ButtonBuilder[],
+      )
 
       expect(result).toBeDefined()
       expect(result.components).toHaveLength(3)
@@ -113,7 +121,9 @@ describe('ActionRowBuilderService', () => {
         }),
       )
 
-      const result = service.createButtonRow(buttons as any[])
+      const result = service.createButtonRow(
+        buttons as unknown as ButtonBuilder[],
+      )
 
       expect(result).toBeDefined()
       expect(result.components).toHaveLength(5)
@@ -127,7 +137,10 @@ describe('ActionRowBuilderService', () => {
       })
       const correlationId = 'test-correlation-id'
 
-      service.createButtonRow([button as any], correlationId)
+      service.createButtonRow(
+        [button as unknown as ButtonBuilder],
+        correlationId,
+      )
 
       expect(loggerSpy).toHaveBeenCalledWith('Created button action row', {
         correlationId,
@@ -151,7 +164,9 @@ describe('ActionRowBuilderService', () => {
         }),
       )
 
-      expect(() => service.createButtonRow(buttons as any[])).toThrow(
+      expect(() =>
+        service.createButtonRow(buttons as unknown as ButtonBuilder[]),
+      ).toThrow(
         'Button row validation failed: Too many buttons in row: 6 (max: 5)',
       )
     })
@@ -162,7 +177,9 @@ describe('ActionRowBuilderService', () => {
         style: ButtonStyle.Primary,
       })
 
-      expect(() => service.createButtonRow([button as any])).toThrow(
+      expect(() =>
+        service.createButtonRow([button as unknown as ButtonBuilder]),
+      ).toThrow(
         'Button row validation failed: Button must have either custom_id or url',
       )
     })
@@ -173,7 +190,9 @@ describe('ActionRowBuilderService', () => {
         style: ButtonStyle.Primary,
       })
 
-      expect(() => service.createButtonRow([button as any])).toThrow(
+      expect(() =>
+        service.createButtonRow([button as unknown as ButtonBuilder]),
+      ).toThrow(
         'Button row validation failed: Button must have either label or emoji',
       )
     })
@@ -185,7 +204,9 @@ describe('ActionRowBuilderService', () => {
         emoji: { name: '🎉' },
       })
 
-      const result = service.createButtonRow([button as any])
+      const result = service.createButtonRow([
+        button as unknown as ButtonBuilder,
+      ])
 
       expect(result).toBeDefined()
       expect(result.components).toHaveLength(1)
@@ -198,7 +219,9 @@ describe('ActionRowBuilderService', () => {
         style: ButtonStyle.Link,
       })
 
-      const result = service.createButtonRow([button as any])
+      const result = service.createButtonRow([
+        button as unknown as ButtonBuilder,
+      ])
 
       expect(result).toBeDefined()
       expect(result.components).toHaveLength(1)
@@ -212,7 +235,9 @@ describe('ActionRowBuilderService', () => {
         style: ButtonStyle.Primary,
       })
 
-      expect(() => service.createButtonRow([button as any])).toThrow(
+      expect(() =>
+        service.createButtonRow([button as unknown as ButtonBuilder]),
+      ).toThrow(
         'Button row validation failed: Custom ID too long: 101 (max: 100)',
       )
     })
@@ -225,9 +250,9 @@ describe('ActionRowBuilderService', () => {
         style: ButtonStyle.Primary,
       })
 
-      expect(() => service.createButtonRow([button as any])).toThrow(
-        'Button row validation failed: Label too long: 46 (max: 45)',
-      )
+      expect(() =>
+        service.createButtonRow([button as unknown as ButtonBuilder]),
+      ).toThrow('Button row validation failed: Label too long: 46 (max: 45)')
     })
 
     it('should handle multiple validation errors', () => {
@@ -235,9 +260,9 @@ describe('ActionRowBuilderService', () => {
         createMockButton({ style: ButtonStyle.Primary }),
       )
 
-      expect(() => service.createButtonRow(buttons as any[])).toThrow(
-        'Button row validation failed',
-      )
+      expect(() =>
+        service.createButtonRow(buttons as unknown as ButtonBuilder[]),
+      ).toThrow('Button row validation failed')
     })
   })
 
@@ -252,7 +277,9 @@ describe('ActionRowBuilderService', () => {
         ],
       })
 
-      const result = service.createSelectMenuRow(selectMenu as any)
+      const result = service.createSelectMenuRow(
+        selectMenu as unknown as StringSelectMenuBuilder,
+      )
 
       expect(result).toBeDefined()
       expect(result.components).toHaveLength(1)
@@ -267,7 +294,10 @@ describe('ActionRowBuilderService', () => {
       })
       const correlationId = 'test-correlation-id'
 
-      service.createSelectMenuRow(selectMenu as any, correlationId)
+      service.createSelectMenuRow(
+        selectMenu as unknown as StringSelectMenuBuilder,
+        correlationId,
+      )
 
       expect(loggerSpy).toHaveBeenCalledWith('Created select menu action row', {
         correlationId,
@@ -282,7 +312,11 @@ describe('ActionRowBuilderService', () => {
         options: [{ label: 'Option 1', value: 'opt1' }],
       })
 
-      expect(() => service.createSelectMenuRow(selectMenu as any)).toThrow(
+      expect(() =>
+        service.createSelectMenuRow(
+          selectMenu as unknown as StringSelectMenuBuilder,
+        ),
+      ).toThrow(
         'Select menu validation failed: Select menu must have a custom_id',
       )
     })
@@ -294,7 +328,11 @@ describe('ActionRowBuilderService', () => {
         options: [{ label: 'Option 1', value: 'opt1' }],
       })
 
-      expect(() => service.createSelectMenuRow(selectMenu as any)).toThrow(
+      expect(() =>
+        service.createSelectMenuRow(
+          selectMenu as unknown as StringSelectMenuBuilder,
+        ),
+      ).toThrow(
         'Select menu validation failed: Custom ID too long: 101 (max: 100)',
       )
     })
@@ -307,7 +345,11 @@ describe('ActionRowBuilderService', () => {
         options: [{ label: 'Option 1', value: 'opt1' }],
       })
 
-      expect(() => service.createSelectMenuRow(selectMenu as any)).toThrow(
+      expect(() =>
+        service.createSelectMenuRow(
+          selectMenu as unknown as StringSelectMenuBuilder,
+        ),
+      ).toThrow(
         'Select menu validation failed: Placeholder too long: 101 (max: 100)',
       )
     })
@@ -318,7 +360,11 @@ describe('ActionRowBuilderService', () => {
         options: undefined,
       })
 
-      expect(() => service.createSelectMenuRow(selectMenu as any)).toThrow(
+      expect(() =>
+        service.createSelectMenuRow(
+          selectMenu as unknown as StringSelectMenuBuilder,
+        ),
+      ).toThrow(
         'Select menu validation failed: Select menu must have at least one option',
       )
     })
@@ -333,9 +379,11 @@ describe('ActionRowBuilderService', () => {
         options,
       })
 
-      expect(() => service.createSelectMenuRow(selectMenu as any)).toThrow(
-        'Select menu validation failed: Too many options: 26 (max: 25)',
-      )
+      expect(() =>
+        service.createSelectMenuRow(
+          selectMenu as unknown as StringSelectMenuBuilder,
+        ),
+      ).toThrow('Select menu validation failed: Too many options: 26 (max: 25)')
     })
 
     it('should handle select menu with maximum allowed options', () => {
@@ -348,7 +396,9 @@ describe('ActionRowBuilderService', () => {
         options,
       })
 
-      const result = service.createSelectMenuRow(selectMenu as any)
+      const result = service.createSelectMenuRow(
+        selectMenu as unknown as StringSelectMenuBuilder,
+      )
 
       expect(result).toBeDefined()
       expect(result.components).toHaveLength(1)
@@ -384,7 +434,9 @@ describe('ActionRowBuilderService', () => {
         Object.setPrototypeOf(button, ButtonBuilder.prototype)
       })
 
-      const result = service.createActionRows(buttons as any[])
+      const result = service.createActionRows(
+        buttons as unknown as ButtonBuilder[],
+      )
 
       expect(result).toHaveLength(2) // 5 buttons in first row, 3 in second
       expect(result[0].components).toHaveLength(5)
@@ -404,7 +456,9 @@ describe('ActionRowBuilderService', () => {
         Object.setPrototypeOf(selectMenu, StringSelectMenuBuilder.prototype)
       })
 
-      const result = service.createActionRows(selectMenus as any[])
+      const result = service.createActionRows(
+        selectMenus as unknown as StringSelectMenuBuilder[],
+      )
 
       expect(result).toHaveLength(3) // One select menu per row
       expect(result[0].components).toHaveLength(1)
@@ -437,7 +491,9 @@ describe('ActionRowBuilderService', () => {
       })
 
       const components = [...selectMenus, ...buttons]
-      const result = service.createActionRows(components as any[])
+      const result = service.createActionRows(
+        components as unknown as (ButtonBuilder | StringSelectMenuBuilder)[],
+      )
 
       expect(result).toHaveLength(3) // 2 select menu rows + 1 button row
       expect(result[0].components).toHaveLength(1) // First select menu
@@ -459,9 +515,11 @@ describe('ActionRowBuilderService', () => {
         Object.setPrototypeOf(selectMenu, StringSelectMenuBuilder.prototype)
       })
 
-      expect(() => service.createActionRows(selectMenus as any[])).toThrow(
-        'Too many action rows: 6 (max: 5)',
-      )
+      expect(() =>
+        service.createActionRows(
+          selectMenus as unknown as StringSelectMenuBuilder[],
+        ),
+      ).toThrow('Too many action rows: 6 (max: 5)')
     })
 
     it('should log debug information when creating action rows', () => {
@@ -480,7 +538,10 @@ describe('ActionRowBuilderService', () => {
 
       const correlationId = 'test-correlation-id'
 
-      service.createActionRows(buttons as any[], correlationId)
+      service.createActionRows(
+        buttons as unknown as ButtonBuilder[],
+        correlationId,
+      )
 
       expect(loggerSpy).toHaveBeenCalledWith('Created action rows', {
         correlationId,
@@ -503,7 +564,9 @@ describe('ActionRowBuilderService', () => {
         Object.setPrototypeOf(selectMenu, StringSelectMenuBuilder.prototype)
       })
 
-      const result = service.createActionRows(selectMenus as any[])
+      const result = service.createActionRows(
+        selectMenus as unknown as StringSelectMenuBuilder[],
+      )
 
       expect(result).toHaveLength(5)
       result.forEach((row, i) => {
@@ -604,7 +667,9 @@ describe('ActionRowBuilderService', () => {
         style: ButtonStyle.Primary,
       })
 
-      const result = service.createButtonRow([validButton as any])
+      const result = service.createButtonRow([
+        validButton as unknown as ButtonBuilder,
+      ])
 
       expect(result).toBeDefined()
       expect(loggerSpy).toHaveBeenCalledWith(
@@ -625,7 +690,9 @@ describe('ActionRowBuilderService', () => {
         style: ButtonStyle.Primary,
       })
 
-      const result = service.createButtonRow([button as any])
+      const result = service.createButtonRow([
+        button as unknown as ButtonBuilder,
+      ])
 
       expect(result).toBeDefined()
     })
@@ -639,7 +706,9 @@ describe('ActionRowBuilderService', () => {
         options: [{ label: 'Option 1', value: 'opt1' }],
       })
 
-      const result = service.createSelectMenuRow(selectMenu as any)
+      const result = service.createSelectMenuRow(
+        selectMenu as unknown as StringSelectMenuBuilder,
+      )
 
       expect(result).toBeDefined()
     })
@@ -653,7 +722,9 @@ describe('ActionRowBuilderService', () => {
         style: ButtonStyle.Primary,
       })
 
-      const result = service.createButtonRow([button as any])
+      const result = service.createButtonRow([
+        button as unknown as ButtonBuilder,
+      ])
 
       expect(result).toBeDefined()
     })
@@ -664,7 +735,11 @@ describe('ActionRowBuilderService', () => {
         options: [],
       })
 
-      expect(() => service.createSelectMenuRow(selectMenu as any)).toThrow(
+      expect(() =>
+        service.createSelectMenuRow(
+          selectMenu as unknown as StringSelectMenuBuilder,
+        ),
+      ).toThrow(
         'Select menu validation failed: Select menu must have at least one option',
       )
     })

@@ -1,3 +1,4 @@
+import { TestingModule } from '@nestjs/testing'
 import axios, { AxiosResponse } from 'axios'
 import { LRUCache } from 'lru-cache'
 
@@ -21,6 +22,7 @@ jest.mock('lru-cache')
 
 describe('EquationImageService', () => {
   let service: EquationImageService
+  let module: TestingModule
   let mockAxios: jest.Mocked<typeof axios>
   let mockCache: jest.Mocked<LRUCache<string, { url: string; latex: string }>>
 
@@ -43,7 +45,7 @@ describe('EquationImageService', () => {
       () => mockCache as unknown as LRUCache<object, object>,
     )
 
-    const module = await createTestingModule([
+    module = await createTestingModule([
       EquationImageService,
       {
         provide: RetryService,
@@ -55,6 +57,12 @@ describe('EquationImageService', () => {
       },
     ])
     service = module.get<EquationImageService>(EquationImageService)
+  })
+
+  afterEach(async () => {
+    if (module) {
+      await module.close()
+    }
   })
 
   describe('getImage', () => {

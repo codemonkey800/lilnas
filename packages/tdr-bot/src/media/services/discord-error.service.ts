@@ -30,8 +30,6 @@ export interface DiscordRateLimitConfig {
   maxDelay: number
   exponentialBase: number
   maxAttempts: number
-  circuitBreakerThreshold: number
-  circuitBreakerResetTime: number
 }
 
 /**
@@ -73,7 +71,7 @@ export interface DiscordErrorResult {
  *
  * Provides specialized error handling for Discord API interactions with:
  * - Rate limiting with exponential backoff
- * - Circuit breaker pattern for API failures
+ * - Retry logic for transient failures
  * - Fallback mechanisms for expired interactions
  * - Correlation ID support for tracing
  * - Integration with existing error infrastructure
@@ -87,8 +85,6 @@ export class DiscordErrorService {
     maxDelay: 30000, // 30 seconds
     exponentialBase: 2, // 2x multiplier
     maxAttempts: 5,
-    circuitBreakerThreshold: 5,
-    circuitBreakerResetTime: 30000, // 30 seconds
   }
 
   private readonly defaultFallbackConfig: FallbackConfig = {
@@ -150,7 +146,7 @@ export class DiscordErrorService {
   }
 
   /**
-   * Execute Discord API operation with retry logic and circuit breaker
+   * Execute Discord API operation with retry logic
    */
   async executeWithRetry<T>(
     operation: () => Promise<T>,
@@ -176,10 +172,8 @@ export class DiscordErrorService {
       logSeverityThreshold: ErrorSeverity.LOW,
     }
 
-    const circuitBreakerKey = this.getCircuitBreakerKey(context)
-
     try {
-      return await this.retryService.executeWithCircuitBreaker(
+      return await this.retryService.executeWithRetry(
         async () => {
           // Check if interaction is still valid before attempting operation
           if (this.isInteractionExpired(context)) {
@@ -190,7 +184,6 @@ export class DiscordErrorService {
 
           return await operation()
         },
-        circuitBreakerKey,
         retryConfig,
         operationName,
         ErrorCategory.DISCORD_API,
@@ -203,7 +196,6 @@ export class DiscordErrorService {
           userId: context.correlationContext.userId,
           operationName,
           error: error instanceof Error ? error.message : String(error),
-          circuitBreakerKey,
         },
       )
 
@@ -511,7 +503,8 @@ export class DiscordErrorService {
   private async handleRateLimit(
     error: DiscordAPIError,
     context: DiscordInteractionContext,
-    rateLimitConfig: DiscordRateLimitConfig,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _rateLimitConfig: DiscordRateLimitConfig,
   ): Promise<DiscordErrorResult> {
     const correlationId = context.correlationContext.correlationId
     const retryAfter = this.getRateLimitDelay(error)
@@ -545,7 +538,8 @@ export class DiscordErrorService {
   private async handleGenericDiscordError(
     error: DiscordAPIError,
     context: DiscordInteractionContext,
-    fallbackConfig: FallbackConfig,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _fallbackConfig: FallbackConfig,
   ): Promise<DiscordErrorResult> {
     const correlationId = context.correlationContext.correlationId
 
@@ -573,7 +567,8 @@ export class DiscordErrorService {
   private async handleGenericError(
     error: Error,
     context: DiscordInteractionContext,
-    fallbackConfig: FallbackConfig,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _fallbackConfig: FallbackConfig,
   ): Promise<DiscordErrorResult> {
     const correlationId = context.correlationContext.correlationId
 
@@ -614,13 +609,6 @@ export class DiscordErrorService {
     const interactionAge = Date.now() - context.interaction.createdTimestamp
 
     return context.isExpired || interactionAge > INTERACTION_LIFETIME
-  }
-
-  /**
-   * Generate circuit breaker key for context
-   */
-  private getCircuitBreakerKey(context: DiscordInteractionContext): string {
-    return `discord:${context.correlationContext.guildId}:${context.correlationContext.channelId}`
   }
 
   /**

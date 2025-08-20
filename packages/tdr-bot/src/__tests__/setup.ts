@@ -290,3 +290,11 @@ if (!process.env.DEBUG) {
 afterEach(() => {
   jest.clearAllMocks()
 })
+
+// Global cleanup after all tests to ensure proper exit
+afterAll(() => {
+  // Clear any remaining timers
+  jest.clearAllTimers()
+  // Use real timers to ensure cleanup
+  jest.useRealTimers()
+})

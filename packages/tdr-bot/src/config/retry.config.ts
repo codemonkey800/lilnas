@@ -7,6 +7,9 @@ export interface ServiceRetryConfig {
   openai: RetryConfig
   discord: RetryConfig
   equationService: RetryConfig
+  sonarr: RetryConfig
+  radarr: RetryConfig
+  emby: RetryConfig
   default: RetryConfig
 }
 
@@ -14,6 +17,9 @@ export interface PartialServiceRetryConfig {
   openai?: Partial<RetryConfig>
   discord?: Partial<RetryConfig>
   equationService?: Partial<RetryConfig>
+  sonarr?: Partial<RetryConfig>
+  radarr?: Partial<RetryConfig>
+  emby?: Partial<RetryConfig>
   default?: Partial<RetryConfig>
 }
 
@@ -62,6 +68,48 @@ export class RetryConfigService {
       logErrorDetails: true,
       logSeverityThreshold: ErrorSeverity.LOW,
     },
+    sonarr: {
+      maxAttempts: 3,
+      baseDelay: 1000,
+      maxDelay: 15000,
+      backoffFactor: 2,
+      jitter: true,
+      timeout: 15000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
+    },
+    radarr: {
+      maxAttempts: 3,
+      baseDelay: 1000,
+      maxDelay: 15000,
+      backoffFactor: 2,
+      jitter: true,
+      timeout: 15000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
+    },
+    emby: {
+      maxAttempts: 2,
+      baseDelay: 500,
+      maxDelay: 5000,
+      backoffFactor: 2,
+      jitter: true,
+      timeout: 10000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
+    },
     default: {
       maxAttempts: 3,
       baseDelay: 1000,
@@ -100,6 +148,27 @@ export class RetryConfigService {
   }
 
   /**
+   * Get retry configuration for Sonarr API calls
+   */
+  getSonarrConfig(): RetryConfig {
+    return { ...this.configs.sonarr }
+  }
+
+  /**
+   * Get retry configuration for Radarr API calls
+   */
+  getRadarrConfig(): RetryConfig {
+    return { ...this.configs.radarr }
+  }
+
+  /**
+   * Get retry configuration for Emby API calls
+   */
+  getEmbyConfig(): RetryConfig {
+    return { ...this.configs.emby }
+  }
+
+  /**
    * Get default retry configuration
    */
   getDefaultConfig(): RetryConfig {
@@ -131,6 +200,9 @@ export class RetryConfigService {
       openai: { ...this.configs.openai },
       discord: { ...this.configs.discord },
       equationService: { ...this.configs.equationService },
+      sonarr: { ...this.configs.sonarr },
+      radarr: { ...this.configs.radarr },
+      emby: { ...this.configs.emby },
       default: { ...this.configs.default },
     }
   }
@@ -173,6 +245,51 @@ export class RetryConfigService {
       maxAttempts: 3,
       baseDelay: 1000,
       maxDelay: 30000,
+      backoffFactor: 2,
+      jitter: true,
+      timeout: 10000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
+    }
+
+    this.configs.sonarr = {
+      maxAttempts: 3,
+      baseDelay: 1000,
+      maxDelay: 15000,
+      backoffFactor: 2,
+      jitter: true,
+      timeout: 15000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
+    }
+
+    this.configs.radarr = {
+      maxAttempts: 3,
+      baseDelay: 1000,
+      maxDelay: 15000,
+      backoffFactor: 2,
+      jitter: true,
+      timeout: 15000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
+    }
+
+    this.configs.emby = {
+      maxAttempts: 2,
+      baseDelay: 500,
+      maxDelay: 5000,
       backoffFactor: 2,
       jitter: true,
       timeout: 10000,
@@ -348,6 +465,57 @@ export const getRetryConfigFromEnv = (): PartialServiceRetryConfig => {
   }
   if (Object.keys(equationServiceConfig).length > 0) {
     envConfig.equationService = equationServiceConfig
+  }
+
+  // Sonarr configuration
+  const sonarrConfig: Partial<RetryConfig> = {}
+  if (process.env.SONARR_RETRY_MAX_ATTEMPTS) {
+    sonarrConfig.maxAttempts = parseInt(
+      process.env.SONARR_RETRY_MAX_ATTEMPTS,
+      10,
+    )
+  }
+  if (process.env.SONARR_RETRY_BASE_DELAY) {
+    sonarrConfig.baseDelay = parseInt(process.env.SONARR_RETRY_BASE_DELAY, 10)
+  }
+  if (process.env.SONARR_RETRY_TIMEOUT) {
+    sonarrConfig.timeout = parseInt(process.env.SONARR_RETRY_TIMEOUT, 10)
+  }
+  if (Object.keys(sonarrConfig).length > 0) {
+    envConfig.sonarr = sonarrConfig
+  }
+
+  // Radarr configuration
+  const radarrConfig: Partial<RetryConfig> = {}
+  if (process.env.RADARR_RETRY_MAX_ATTEMPTS) {
+    radarrConfig.maxAttempts = parseInt(
+      process.env.RADARR_RETRY_MAX_ATTEMPTS,
+      10,
+    )
+  }
+  if (process.env.RADARR_RETRY_BASE_DELAY) {
+    radarrConfig.baseDelay = parseInt(process.env.RADARR_RETRY_BASE_DELAY, 10)
+  }
+  if (process.env.RADARR_RETRY_TIMEOUT) {
+    radarrConfig.timeout = parseInt(process.env.RADARR_RETRY_TIMEOUT, 10)
+  }
+  if (Object.keys(radarrConfig).length > 0) {
+    envConfig.radarr = radarrConfig
+  }
+
+  // Emby configuration
+  const embyConfig: Partial<RetryConfig> = {}
+  if (process.env.EMBY_RETRY_MAX_ATTEMPTS) {
+    embyConfig.maxAttempts = parseInt(process.env.EMBY_RETRY_MAX_ATTEMPTS, 10)
+  }
+  if (process.env.EMBY_RETRY_BASE_DELAY) {
+    embyConfig.baseDelay = parseInt(process.env.EMBY_RETRY_BASE_DELAY, 10)
+  }
+  if (process.env.EMBY_RETRY_TIMEOUT) {
+    embyConfig.timeout = parseInt(process.env.EMBY_RETRY_TIMEOUT, 10)
+  }
+  if (Object.keys(embyConfig).length > 0) {
+    envConfig.emby = embyConfig
   }
 
   return envConfig

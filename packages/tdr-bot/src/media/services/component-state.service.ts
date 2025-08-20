@@ -1,24 +1,23 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
+import { Mutex } from 'async-mutex'
 import { ComponentType, InteractionCollector, Message } from 'discord.js'
 import { nanoid } from 'nanoid'
-import { Mutex } from 'async-mutex'
 
 import {
   CleanupReason,
   COMPONENT_CONFIG,
   ComponentLifecycleState,
 } from 'src/media/component-config'
+import { ErrorContext, MediaErrorHandler } from 'src/media/errors/error-utils'
 import {
-  ComponentStateError,
-  ComponentStateNotFoundError,
-  ComponentStateInactiveError,
-  ComponentLimitExceededError,
-  ComponentTransitionError,
   CleanupError,
-  MediaErrorFactory,
+  ComponentLimitExceededError,
+  ComponentStateError,
+  ComponentStateInactiveError,
+  ComponentStateNotFoundError,
+  ComponentTransitionError,
 } from 'src/media/errors/media-errors'
-import { MediaErrorHandler, ErrorContext } from 'src/media/errors/error-utils'
 import {
   CollectorManager,
   ComponentCleanupResult,
@@ -98,19 +97,19 @@ export class ComponentStateService implements OnModuleDestroy {
       }
 
       const previousState = state.state
-      
+
       // Check if already in target state
       if (previousState === targetState) {
         return { previousState, state }
       }
-      
+
       // Validate state transition is allowed
       if (!this.isValidStateTransition(previousState, targetState)) {
         throw new ComponentTransitionError(
           stateId,
           previousState,
           targetState,
-          correlationId
+          correlationId,
         )
       }
 
@@ -137,7 +136,10 @@ export class ComponentStateService implements OnModuleDestroy {
     to: ComponentLifecycleState,
   ): boolean {
     // Define allowed state transitions
-    const transitions: Record<ComponentLifecycleState, ComponentLifecycleState[]> = {
+    const transitions: Record<
+      ComponentLifecycleState,
+      ComponentLifecycleState[]
+    > = {
       [ComponentLifecycleState.ACTIVE]: [
         ComponentLifecycleState.WARNING,
         ComponentLifecycleState.EXPIRED,
@@ -171,7 +173,7 @@ export class ComponentStateService implements OnModuleDestroy {
       clearTimeout(timeout)
     }
     this.collectorManager.timeouts.clear()
-    
+
     // Clear all mutex references
     this.stateMutexes.clear()
   }
@@ -190,7 +192,10 @@ export class ComponentStateService implements OnModuleDestroy {
     const stateId = `${correlationContext.correlationId}:${sessionId}`
 
     // Check limits and enforce them atomically
-    await this.enforceComponentLimits(correlationContext.userId, correlationContext.correlationId)
+    await this.enforceComponentLimits(
+      correlationContext.userId,
+      correlationContext.correlationId,
+    )
 
     const timeout = config.time || COMPONENT_CONFIG.LIFETIME_MS
     const expiresAt = new Date(Date.now() + timeout)
@@ -265,11 +270,7 @@ export class ComponentStateService implements OnModuleDestroy {
     }
 
     if (!this.isStateActive(state)) {
-      throw new ComponentStateInactiveError(
-        stateId,
-        state.state,
-        correlationId
-      )
+      throw new ComponentStateInactiveError(stateId, state.state, correlationId)
     }
 
     try {
@@ -354,7 +355,10 @@ export class ComponentStateService implements OnModuleDestroy {
           this.logger.warn('Custom cleanup function failed', {
             stateId,
             correlationId,
-            error: customCleanupError instanceof Error ? customCleanupError.message : String(customCleanupError),
+            error:
+              customCleanupError instanceof Error
+                ? customCleanupError.message
+                : String(customCleanupError),
           })
         }
       }
@@ -387,14 +391,20 @@ export class ComponentStateService implements OnModuleDestroy {
       })
     } catch (error) {
       // If it's already a MediaError, just re-throw
-      if (error instanceof ComponentStateError || error instanceof ComponentTransitionError) {
+      if (
+        error instanceof ComponentStateError ||
+        error instanceof ComponentTransitionError
+      ) {
         // State not found or invalid transition - these are acceptable for cleanup
         if (error instanceof ComponentStateNotFoundError) {
           // Component already cleaned up, this is not an error
-          this.logger.debug('Component already cleaned up', { stateId, correlationId })
+          this.logger.debug('Component already cleaned up', {
+            stateId,
+            correlationId,
+          })
           return
         }
-        
+
         // For transition errors during cleanup, log and return (don't throw)
         this.logger.debug('Component transition during cleanup', {
           stateId,
@@ -620,7 +630,7 @@ export class ComponentStateService implements OnModuleDestroy {
    */
   private async enforceComponentLimits(
     userId: string,
-    correlationId?: string
+    correlationId?: string,
   ): Promise<void> {
     const context: ErrorContext = {
       correlationId,
@@ -650,7 +660,10 @@ export class ComponentStateService implements OnModuleDestroy {
         )[0]
 
         if (oldestSession) {
-          const stateId = extractStringFromMetadata(oldestSession.metadata, 'stateId')
+          const stateId = extractStringFromMetadata(
+            oldestSession.metadata,
+            'stateId',
+          )
           if (!stateId) {
             throw new ComponentStateError(
               'Unable to clean up oldest session: missing stateId',
@@ -659,7 +672,7 @@ export class ComponentStateService implements OnModuleDestroy {
               {
                 sessionId: oldestSession.sessionId,
                 userSessionCount: userSessions.length,
-              }
+              },
             )
           }
 
@@ -680,8 +693,8 @@ export class ComponentStateService implements OnModuleDestroy {
         }
       } catch (error) {
         // If cleanup fails, throw limit exceeded error
-        const result = this.errorHandler.handleError(error, context)
-        
+        this.errorHandler.handleError(error, context)
+
         throw new ComponentLimitExceededError(
           'user',
           userSessions.length,

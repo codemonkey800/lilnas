@@ -2,10 +2,8 @@ import { Injectable, Logger } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { nanoid } from 'nanoid'
 
-import {
-  MediaLoggingError,
-} from 'src/media/errors/media-errors'
-import { MediaErrorHandler, ErrorContext } from 'src/media/errors/error-utils'
+import { MediaErrorHandler } from 'src/media/errors/error-utils'
+import { MediaLoggingError } from 'src/media/errors/media-errors'
 import {
   ComponentError,
   ComponentMetrics,
@@ -31,6 +29,7 @@ export interface MediaLogContext {
   timestamp: Date
   sessionId?: string
   requestId?: string
+  service?: 'sonarr' | 'radarr' | 'emby'
 }
 
 export interface PerformanceMetric {
@@ -129,42 +128,42 @@ export class MediaLoggingService {
     level: MediaLogLevel = MediaLogLevel.INFO,
   ): void {
     try {
-    const logContext: MediaLogContext = {
-      correlationId: context.correlationId || 'unknown',
-      userId: context.userId || 'unknown',
-      username: context.username,
-      guildId: context.guildId,
-      channelId: context.channelId,
-      mediaType: context.mediaType,
-      mediaId: context.mediaId,
-      componentId: context.componentId,
-      action: context.action,
-      timestamp: new Date(),
-      sessionId: context.sessionId,
-      requestId: context.requestId,
-    }
+      const logContext: MediaLogContext = {
+        correlationId: context.correlationId || 'unknown',
+        userId: context.userId || 'unknown',
+        username: context.username,
+        guildId: context.guildId,
+        channelId: context.channelId,
+        mediaType: context.mediaType,
+        mediaId: context.mediaId,
+        componentId: context.componentId,
+        action: context.action,
+        timestamp: new Date(),
+        sessionId: context.sessionId,
+        requestId: context.requestId,
+      }
 
-    const logData = {
-      operation,
-      ...logContext,
-    }
+      const logData = {
+        operation,
+        ...logContext,
+      }
 
-    switch (level) {
-      case MediaLogLevel.ERROR:
-        this.logger.error(message, logData)
-        break
-      case MediaLogLevel.WARN:
-        this.logger.warn(message, logData)
-        break
-      case MediaLogLevel.DEBUG:
-        this.logger.debug(message, logData)
-        break
-      case MediaLogLevel.TRACE:
-        this.logger.verbose(message, logData)
-        break
-      default:
-        this.logger.log(message, logData)
-    }
+      switch (level) {
+        case MediaLogLevel.ERROR:
+          this.logger.error(message, logData)
+          break
+        case MediaLogLevel.WARN:
+          this.logger.warn(message, logData)
+          break
+        case MediaLogLevel.DEBUG:
+          this.logger.debug(message, logData)
+          break
+        case MediaLogLevel.TRACE:
+          this.logger.verbose(message, logData)
+          break
+        default:
+          this.logger.log(message, logData)
+      }
 
       // Emit event for structured logging consumers
       this.eventEmitter.emit(EventType.API_REQUEST, {
@@ -186,7 +185,7 @@ export class MediaLoggingService {
           userId: context.userId,
         },
       })
-      
+
       // Only throw if this is a critical logging operation
       if (level === MediaLogLevel.ERROR) {
         throw new MediaLoggingError(

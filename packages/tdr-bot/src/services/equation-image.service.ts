@@ -63,7 +63,7 @@ export class EquationImageService {
     try {
       const url = `${env<EnvKey>('EQUATIONS_URL')}/equations`
 
-      const response = await this.retryService.executeWithCircuitBreaker(
+      const response = await this.retryService.executeWithRetry(
         () =>
           axios.post(
             url,
@@ -75,7 +75,6 @@ export class EquationImageService {
               timeout: 10000, // 10 second timeout
             },
           ),
-        'equation-service',
         {
           maxAttempts: 3,
           baseDelay: 1000,
@@ -83,6 +82,7 @@ export class EquationImageService {
           timeout: 10000,
         },
         `equation-service-${id}`,
+        ErrorCategory.EQUATION_SERVICE,
       )
 
       const end = performance.now()

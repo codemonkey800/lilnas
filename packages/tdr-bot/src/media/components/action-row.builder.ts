@@ -7,9 +7,9 @@ import {
 
 import {
   ComponentConstraints,
+  extractButtonData,
   ValidationError,
   ValidationResult,
-  extractButtonData,
 } from 'src/types/discord.types'
 
 @Injectable()

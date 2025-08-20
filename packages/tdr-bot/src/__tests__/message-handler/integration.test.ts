@@ -4,7 +4,7 @@ import { StateGraph } from '@langchain/langgraph'
 import { ToolNode } from '@langchain/langgraph/prebuilt'
 import { ChatOpenAI, DallEAPIWrapper } from '@langchain/openai'
 import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter'
-import { Test } from '@nestjs/testing'
+import { Test, TestingModule } from '@nestjs/testing'
 import axios from 'axios'
 import { Client, Collection, User } from 'discord.js'
 
@@ -41,6 +41,7 @@ describe('Message Handler Integration Tests', () => {
   let mockChatOpenAI: ReturnType<typeof createMockChatOpenAI>
   let mockStateGraph: ReturnType<typeof createMockStateGraph>
   let mockClient: jest.Mocked<Client>
+  let module: TestingModule
 
   beforeEach(async () => {
     // Setup mocks
@@ -98,7 +99,7 @@ describe('Message Handler Integration Tests', () => {
     } as unknown as jest.Mocked<Client>
 
     // Create testing module with all services
-    const module = await Test.createTestingModule({
+    module = await Test.createTestingModule({
       imports: [EventEmitterModule.forRoot()],
       providers: [
         MessageHandlerService,
@@ -126,6 +127,12 @@ describe('Message Handler Integration Tests', () => {
     // _llmService = module.get<LLMService>(LLMService)
     stateService = module.get<StateService>(StateService)
     eventEmitter = module.get<EventEmitter2>(EventEmitter2)
+  })
+
+  afterEach(async () => {
+    if (module) {
+      await module.close()
+    }
   })
 
   describe('full message flow', () => {

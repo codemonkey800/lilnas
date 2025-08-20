@@ -5,6 +5,14 @@ import {
   RawAxiosResponseHeaders,
 } from 'axios'
 
+import { Result } from 'src/types/advanced'
+import {
+  isAxiosError,
+  isAxiosErrorWithResponse,
+  isNetworkError,
+  isTimeoutError,
+} from 'src/types/type-guards'
+
 export interface ErrorClassification {
   isRetryable: boolean
   errorType: ErrorType
@@ -29,6 +37,7 @@ export enum ErrorCategory {
   OPENAI_API = 'openai_api',
   DISCORD_API = 'discord_api',
   EQUATION_SERVICE = 'equation_service',
+  MEDIA_API = 'media_api',
   HTTP_CLIENT = 'http_client',
   SYSTEM = 'system',
 }
@@ -45,13 +54,20 @@ export class ErrorClassificationService {
   private readonly logger = new Logger(ErrorClassificationService.name)
 
   /**
-   * Classify an error to determine retry strategy
+   * Classify an error to determine retry strategy with enhanced type safety
+   * @param error - The error to classify
+   * @param category - The error category for context-specific classification
+   * @returns Promise-wrapped classification result for async validation
    */
   classifyError(error: Error, category: ErrorCategory): ErrorClassification {
     this.logger.debug(`Classifying error for category: ${category}`, {
       errorMessage: error.message,
       errorName: error.name,
       category,
+      isAxiosError: isAxiosError(error),
+      hasResponse: isAxiosErrorWithResponse(error),
+      isNetworkError: isNetworkError(error),
+      isTimeoutError: isTimeoutError(error),
     })
 
     switch (category) {
@@ -61,6 +77,8 @@ export class ErrorClassificationService {
         return this.classifyDiscordError(error)
       case ErrorCategory.EQUATION_SERVICE:
         return this.classifyEquationServiceError(error)
+      case ErrorCategory.MEDIA_API:
+        return this.classifyMediaApiError(error)
       case ErrorCategory.HTTP_CLIENT:
         return this.classifyHttpError(error)
       case ErrorCategory.SYSTEM:
@@ -71,7 +89,31 @@ export class ErrorClassificationService {
   }
 
   /**
-   * Classify OpenAI API errors
+   * Classify an error and return a Result type for safe error handling
+   */
+  safeClassifyError(
+    error: Error,
+    category: ErrorCategory,
+  ): Result<ErrorClassification, string> {
+    try {
+      const classification = this.classifyError(error, category)
+      return { success: true, data: classification }
+    } catch (classificationError) {
+      const errorMsg = `Failed to classify error: ${classificationError instanceof Error ? classificationError.message : 'Unknown error'}`
+      this.logger.error(errorMsg, {
+        originalError: error.message,
+        category,
+        classificationError:
+          classificationError instanceof Error
+            ? classificationError.message
+            : classificationError,
+      })
+      return { success: false, error: errorMsg }
+    }
+  }
+
+  /**
+   * Classify OpenAI API errors with enhanced type safety
    */
   private classifyOpenAIError(error: Error): ErrorClassification {
     const axiosError = error as AxiosError
@@ -146,26 +188,7 @@ export class ErrorClassificationService {
       }
     }
 
-    // Network errors (no response)
-    if (axiosError.code === 'ECONNABORTED' || axiosError.code === 'ETIMEDOUT') {
-      return {
-        isRetryable: true,
-        errorType: ErrorType.TIMEOUT,
-        category: ErrorCategory.OPENAI_API,
-        severity: ErrorSeverity.MEDIUM,
-      }
-    }
-
-    if (axiosError.code === 'ECONNREFUSED' || axiosError.code === 'ENOTFOUND') {
-      return {
-        isRetryable: true,
-        errorType: ErrorType.NETWORK_ERROR,
-        category: ErrorCategory.OPENAI_API,
-        severity: ErrorSeverity.HIGH,
-      }
-    }
-
-    return this.getDefaultClassification(error, ErrorCategory.OPENAI_API)
+    return this.classifyNetworkError(error, ErrorCategory.OPENAI_API)
   }
 
   /**
@@ -297,6 +320,92 @@ export class ErrorClassificationService {
     }
 
     return this.classifyNetworkError(error, ErrorCategory.EQUATION_SERVICE)
+  }
+
+  /**
+   * Classify Media API errors (Sonarr, Radarr, Emby)
+   */
+  private classifyMediaApiError(error: Error): ErrorClassification {
+    const axiosError = error as AxiosError
+
+    if (axiosError.response?.status) {
+      const status = axiosError.response.status
+      const retryAfter = this.parseRetryAfter(axiosError.response.headers)
+
+      switch (status) {
+        case 429: // Rate limit
+          return {
+            isRetryable: true,
+            errorType: ErrorType.RATE_LIMIT,
+            retryAfterMs: retryAfter,
+            category: ErrorCategory.MEDIA_API,
+            severity: ErrorSeverity.MEDIUM,
+          }
+
+        case 500: // Internal server error
+        case 502: // Bad gateway
+        case 503: // Service unavailable
+        case 504: // Gateway timeout
+          return {
+            isRetryable: true,
+            errorType: ErrorType.SERVER_ERROR,
+            category: ErrorCategory.MEDIA_API,
+            severity: ErrorSeverity.HIGH,
+          }
+
+        case 408: // Request timeout
+          return {
+            isRetryable: true,
+            errorType: ErrorType.TIMEOUT,
+            category: ErrorCategory.MEDIA_API,
+            severity: ErrorSeverity.MEDIUM,
+          }
+
+        case 401: // Unauthorized - API key issues
+          return {
+            isRetryable: false,
+            errorType: ErrorType.AUTHENTICATION_ERROR,
+            category: ErrorCategory.MEDIA_API,
+            severity: ErrorSeverity.CRITICAL,
+          }
+
+        case 403: // Forbidden - Permissions
+          return {
+            isRetryable: false,
+            errorType: ErrorType.PERMISSION_ERROR,
+            category: ErrorCategory.MEDIA_API,
+            severity: ErrorSeverity.HIGH,
+          }
+
+        case 404: // Not found - Limited retry for timing issues
+          return {
+            isRetryable: true,
+            errorType: ErrorType.CLIENT_ERROR,
+            category: ErrorCategory.MEDIA_API,
+            severity: ErrorSeverity.LOW,
+          }
+
+        case 400: // Bad request
+        case 422: // Unprocessable entity
+          return {
+            isRetryable: false,
+            errorType: ErrorType.VALIDATION_ERROR,
+            category: ErrorCategory.MEDIA_API,
+            severity: ErrorSeverity.MEDIUM,
+          }
+
+        default:
+          return {
+            isRetryable: status >= 500,
+            errorType:
+              status >= 500 ? ErrorType.SERVER_ERROR : ErrorType.CLIENT_ERROR,
+            category: ErrorCategory.MEDIA_API,
+            severity: status >= 500 ? ErrorSeverity.HIGH : ErrorSeverity.MEDIUM,
+          }
+      }
+    }
+
+    return this.classifyNetworkError(error, ErrorCategory.MEDIA_API)
   }
 
   /**

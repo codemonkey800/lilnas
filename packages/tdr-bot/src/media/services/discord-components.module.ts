@@ -24,7 +24,7 @@ import { MediaLoggingService } from './media-logging.service'
  * - Discord.js v14 component builders (buttons, select menus, modals, action rows)
  * - Component state management with timeout handling and cleanup
  * - Discord-specific error handling with fallback mechanisms
- * - Rate limiting and circuit breaker patterns
+ * - Rate limiting and retry patterns
  * - Structured logging with correlation IDs
  * - Integration with existing error classification and retry services
  */

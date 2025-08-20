@@ -225,11 +225,6 @@ export function createMockStateService(): jest.Mocked<StateService> {
 export function createMockRetryService(): jest.Mocked<RetryService> {
   return {
     executeWithRetry: jest.fn().mockImplementation(operation => operation()),
-    executeWithCircuitBreaker: jest
-      .fn()
-      .mockImplementation(operation => operation()),
-    getCircuitBreakerStatus: jest.fn().mockReturnValue(undefined),
-    resetCircuitBreaker: jest.fn(),
   } as unknown as jest.Mocked<RetryService>
 }
 

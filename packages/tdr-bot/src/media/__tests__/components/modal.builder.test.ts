@@ -18,7 +18,7 @@ jest.mock('discord.js', () => ({
     setCustomId: jest.fn().mockReturnThis(),
     setTitle: jest.fn().mockReturnThis(),
     addComponents: jest.fn().mockReturnThis(),
-    data: { components: [] } as any,
+    data: { components: [] },
   })),
   TextInputBuilder: jest.fn().mockImplementation(() => ({
     setCustomId: jest.fn().mockReturnThis(),
@@ -29,7 +29,7 @@ jest.mock('discord.js', () => ({
     setMinLength: jest.fn().mockReturnThis(),
     setMaxLength: jest.fn().mockReturnThis(),
     setValue: jest.fn().mockReturnThis(),
-    data: {} as any,
+    data: {},
   })),
   ActionRowBuilder: jest.fn().mockImplementation(() => ({
     addComponents: jest.fn().mockReturnThis(),
@@ -1149,7 +1149,8 @@ describe('ModalBuilderService', () => {
       })
 
       // Verify it's a copy and not the original
-      ;(constraints as any).maxTextInputsPerModal = 10
+      const mutableConstraints = constraints as any
+      mutableConstraints.maxTextInputsPerModal = 10
       expect(service.getConstraints().maxTextInputsPerModal).toBe(5)
     })
   })

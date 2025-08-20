@@ -550,95 +550,145 @@ export interface ComponentData {
 }
 
 // Type guard functions for runtime type validation
-export function isButtonComponentData(data: unknown): data is ButtonComponentData {
+export function isButtonComponentData(
+  data: unknown,
+): data is ButtonComponentData {
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     return false
   }
 
   const obj = data as Record<string, unknown>
-  
+
   // Optional fields type validation
-  const validCustomId = obj.custom_id === undefined || typeof obj.custom_id === 'string'
+  const validCustomId =
+    obj.custom_id === undefined || typeof obj.custom_id === 'string'
   const validUrl = obj.url === undefined || typeof obj.url === 'string'
   const validLabel = obj.label === undefined || typeof obj.label === 'string'
-  const validEmoji = obj.emoji === undefined || (typeof obj.emoji === 'object' && obj.emoji !== null)
+  const validEmoji =
+    obj.emoji === undefined ||
+    (typeof obj.emoji === 'object' && obj.emoji !== null)
   const validStyle = obj.style === undefined || typeof obj.style === 'number'
-  const validDisabled = obj.disabled === undefined || typeof obj.disabled === 'boolean'
-  
-  return validCustomId && validUrl && validLabel && validEmoji && validStyle && validDisabled
+  const validDisabled =
+    obj.disabled === undefined || typeof obj.disabled === 'boolean'
+
+  return (
+    validCustomId &&
+    validUrl &&
+    validLabel &&
+    validEmoji &&
+    validStyle &&
+    validDisabled
+  )
 }
 
-export function isSelectMenuComponentData(data: unknown): data is SelectMenuComponentData {
+export function isSelectMenuComponentData(
+  data: unknown,
+): data is SelectMenuComponentData {
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     return false
   }
 
   const obj = data as Record<string, unknown>
-  
+
   // Validate optional fields
-  const validCustomId = obj.custom_id === undefined || typeof obj.custom_id === 'string'
-  const validPlaceholder = obj.placeholder === undefined || typeof obj.placeholder === 'string'
-  const validMinValues = obj.min_values === undefined || typeof obj.min_values === 'number'
-  const validMaxValues = obj.max_values === undefined || typeof obj.max_values === 'number'
-  const validDisabled = obj.disabled === undefined || typeof obj.disabled === 'boolean'
-  const validOptions = obj.options === undefined || 
+  const validCustomId =
+    obj.custom_id === undefined || typeof obj.custom_id === 'string'
+  const validPlaceholder =
+    obj.placeholder === undefined || typeof obj.placeholder === 'string'
+  const validMinValues =
+    obj.min_values === undefined || typeof obj.min_values === 'number'
+  const validMaxValues =
+    obj.max_values === undefined || typeof obj.max_values === 'number'
+  const validDisabled =
+    obj.disabled === undefined || typeof obj.disabled === 'boolean'
+  const validOptions =
+    obj.options === undefined ||
     (Array.isArray(obj.options) && obj.options.every(isSelectMenuOptionData))
-  
-  return validCustomId && validPlaceholder && validMinValues && validMaxValues && validDisabled && validOptions
+
+  return (
+    validCustomId &&
+    validPlaceholder &&
+    validMinValues &&
+    validMaxValues &&
+    validDisabled &&
+    validOptions
+  )
 }
 
-export function isSelectMenuOptionData(data: unknown): data is SelectMenuOptionData {
+export function isSelectMenuOptionData(
+  data: unknown,
+): data is SelectMenuOptionData {
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     return false
   }
 
   const obj = data as Record<string, unknown>
-  
+
   // Required fields
   const hasLabel = typeof obj.label === 'string'
   const hasValue = typeof obj.value === 'string'
-  
+
   // Optional fields
-  const validDescription = obj.description === undefined || typeof obj.description === 'string'
-  const validDefault = obj.default === undefined || typeof obj.default === 'boolean'
-  const validEmoji = obj.emoji === undefined || 
+  const validDescription =
+    obj.description === undefined || typeof obj.description === 'string'
+  const validDefault =
+    obj.default === undefined || typeof obj.default === 'boolean'
+  const validEmoji =
+    obj.emoji === undefined ||
     (typeof obj.emoji === 'object' && obj.emoji !== null)
-  
+
   return hasLabel && hasValue && validDescription && validDefault && validEmoji
 }
 
-export function isModalComponentData(data: unknown): data is ModalComponentData {
+export function isModalComponentData(
+  data: unknown,
+): data is ModalComponentData {
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     return false
   }
 
   const obj = data as Record<string, unknown>
-  
-  const validCustomId = obj.custom_id === undefined || typeof obj.custom_id === 'string'
+
+  const validCustomId =
+    obj.custom_id === undefined || typeof obj.custom_id === 'string'
   const validTitle = obj.title === undefined || typeof obj.title === 'string'
-  const validComponents = obj.components === undefined || 
-    (Array.isArray(obj.components) && obj.components.every(isActionRowComponentData))
-  
+  const validComponents =
+    obj.components === undefined ||
+    (Array.isArray(obj.components) &&
+      obj.components.every(isActionRowComponentData))
+
   return validCustomId && validTitle && validComponents
 }
 
-export function isEmbedComponentData(data: unknown): data is EmbedComponentData {
+export function isEmbedComponentData(
+  data: unknown,
+): data is EmbedComponentData {
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     return false
   }
 
   const obj = data as Record<string, unknown>
-  
+
   // All fields are optional, so we just validate types when present
   const validTitle = obj.title === undefined || typeof obj.title === 'string'
-  const validDescription = obj.description === undefined || typeof obj.description === 'string'
+  const validDescription =
+    obj.description === undefined || typeof obj.description === 'string'
   const validColor = obj.color === undefined || typeof obj.color === 'number'
   const validUrl = obj.url === undefined || typeof obj.url === 'string'
-  const validTimestamp = obj.timestamp === undefined || typeof obj.timestamp === 'string'
-  const validFields = obj.fields === undefined || 
+  const validTimestamp =
+    obj.timestamp === undefined || typeof obj.timestamp === 'string'
+  const validFields =
+    obj.fields === undefined ||
     (Array.isArray(obj.fields) && obj.fields.every(isEmbedFieldData))
-  
-  return validTitle && validDescription && validColor && validUrl && validTimestamp && validFields
+
+  return (
+    validTitle &&
+    validDescription &&
+    validColor &&
+    validUrl &&
+    validTimestamp &&
+    validFields
+  )
 }
 
 export function isEmbedFieldData(data: unknown): data is EmbedFieldData {
@@ -647,24 +697,28 @@ export function isEmbedFieldData(data: unknown): data is EmbedFieldData {
   }
 
   const obj = data as Record<string, unknown>
-  
+
   const validName = obj.name === undefined || typeof obj.name === 'string'
   const validValue = obj.value === undefined || typeof obj.value === 'string'
-  const validInline = obj.inline === undefined || typeof obj.inline === 'boolean'
-  
+  const validInline =
+    obj.inline === undefined || typeof obj.inline === 'boolean'
+
   return validName && validValue && validInline
 }
 
-export function isActionRowComponentData(data: unknown): data is ActionRowComponentData {
+export function isActionRowComponentData(
+  data: unknown,
+): data is ActionRowComponentData {
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     return false
   }
 
   const obj = data as Record<string, unknown>
-  
+
   const validType = obj.type === undefined || typeof obj.type === 'number'
-  const validComponents = obj.components === undefined || Array.isArray(obj.components)
-  
+  const validComponents =
+    obj.components === undefined || Array.isArray(obj.components)
+
   return validType && validComponents
 }
 
@@ -680,15 +734,15 @@ export function extractButtonData(builder: { data: unknown }): {
       customId: undefined,
       url: undefined,
       label: undefined,
-      emoji: undefined
+      emoji: undefined,
     }
   }
-  
+
   return {
     customId: builder.data.custom_id,
     url: builder.data.url,
     label: builder.data.label,
-    emoji: builder.data.emoji
+    emoji: builder.data.emoji,
   }
 }
 
@@ -699,13 +753,13 @@ export function extractSelectMenuData(builder: { data: unknown }): {
   if (!isSelectMenuComponentData(builder.data)) {
     return {
       customId: undefined,
-      options: undefined
+      options: undefined,
     }
   }
-  
+
   return {
     customId: builder.data.custom_id,
-    options: builder.data.options
+    options: builder.data.options,
   }
 }
 
@@ -718,14 +772,14 @@ export function extractModalData(builder: { data: unknown }): {
     return {
       customId: undefined,
       title: undefined,
-      components: undefined
+      components: undefined,
     }
   }
-  
+
   return {
     customId: builder.data.custom_id,
     title: builder.data.title,
-    components: builder.data.components
+    components: builder.data.components,
   }
 }
 
@@ -742,16 +796,16 @@ export function extractEmbedData(builder: { data: unknown }): {
       description: undefined,
       fields: undefined,
       author: undefined,
-      footer: undefined
+      footer: undefined,
     }
   }
-  
+
   return {
     title: builder.data.title,
     description: builder.data.description,
     fields: builder.data.fields,
     author: builder.data.author,
-    footer: builder.data.footer
+    footer: builder.data.footer,
   }
 }
 
@@ -760,17 +814,20 @@ export function extractActionRowData(builder: { data: unknown }): {
 } {
   if (!isActionRowComponentData(builder.data)) {
     return {
-      components: undefined
+      components: undefined,
     }
   }
-  
+
   return {
-    components: builder.data.components
+    components: builder.data.components,
   }
 }
 
 // Helper function to safely extract string values from metadata
-export function extractStringFromMetadata(metadata: Record<string, unknown>, key: string): string | undefined {
+export function extractStringFromMetadata(
+  metadata: Record<string, unknown>,
+  key: string,
+): string | undefined {
   const value = metadata[key]
   return typeof value === 'string' ? value : undefined
 }

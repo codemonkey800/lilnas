@@ -3,6 +3,7 @@ import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import { StateGraph } from '@langchain/langgraph'
 import { ToolNode } from '@langchain/langgraph/prebuilt'
 import { ChatOpenAI, DallEAPIWrapper } from '@langchain/openai'
+import { TestingModule } from '@nestjs/testing'
 
 import {
   createMockChatOpenAI,
@@ -28,6 +29,7 @@ jest.mock('@langchain/community/tools/tavily_search')
 
 describe('LLMService', () => {
   let service: LLMService
+  let module: TestingModule
   let stateService: jest.Mocked<StateService>
   let equationImageService: jest.Mocked<EquationImageService>
   let mockChatOpenAI: ReturnType<typeof createMockChatOpenAI>
@@ -83,7 +85,7 @@ describe('LLMService', () => {
       }),
     } as unknown as jest.Mocked<EquationImageService>
 
-    const module = await createTestingModule([
+    module = await createTestingModule([
       LLMService,
       {
         provide: StateService,
@@ -104,6 +106,12 @@ describe('LLMService', () => {
     ])
 
     service = module.get<LLMService>(LLMService)
+  })
+
+  afterEach(async () => {
+    if (module) {
+      await module.close()
+    }
   })
 
   describe('initialization', () => {

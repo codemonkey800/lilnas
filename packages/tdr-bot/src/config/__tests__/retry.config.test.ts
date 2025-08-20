@@ -87,6 +87,65 @@ describe('RetryConfigService', () => {
     })
   })
 
+  describe('media service configurations', () => {
+    it('should return Sonarr retry configuration', () => {
+      const config = service.getSonarrConfig()
+
+      expect(config).toEqual({
+        maxAttempts: 3,
+        baseDelay: 1000,
+        maxDelay: 15000,
+        backoffFactor: 2,
+        jitter: true,
+        timeout: 15000,
+        logRetryAttempts: true,
+        logSuccessfulRetries: true,
+        logFailedRetries: true,
+        logRetryDelays: false,
+        logErrorDetails: true,
+        logSeverityThreshold: 'low',
+      })
+    })
+
+    it('should return Radarr retry configuration', () => {
+      const config = service.getRadarrConfig()
+
+      expect(config).toEqual({
+        maxAttempts: 3,
+        baseDelay: 1000,
+        maxDelay: 15000,
+        backoffFactor: 2,
+        jitter: true,
+        timeout: 15000,
+        logRetryAttempts: true,
+        logSuccessfulRetries: true,
+        logFailedRetries: true,
+        logRetryDelays: false,
+        logErrorDetails: true,
+        logSeverityThreshold: 'low',
+      })
+    })
+
+    it('should return Emby retry configuration', () => {
+      const config = service.getEmbyConfig()
+
+      expect(config).toEqual({
+        maxAttempts: 2,
+        baseDelay: 500,
+        maxDelay: 5000,
+        backoffFactor: 2,
+        jitter: true,
+        timeout: 10000,
+        logRetryAttempts: true,
+        logSuccessfulRetries: true,
+        logFailedRetries: true,
+        logRetryDelays: false,
+        logErrorDetails: true,
+        logSeverityThreshold: 'low',
+      })
+    })
+  })
+
   describe('getDefaultConfig', () => {
     it('should return default retry configuration', () => {
       const config = service.getDefaultConfig()
@@ -264,6 +323,26 @@ describe('getRetryConfigFromEnv', () => {
     })
     expect(config.equationService).toEqual({
       timeout: 15000,
+    })
+  })
+
+  it('should parse media service environment variables', () => {
+    process.env.SONARR_RETRY_MAX_ATTEMPTS = '5'
+    process.env.SONARR_RETRY_TIMEOUT = '20000'
+    process.env.RADARR_RETRY_BASE_DELAY = '2000'
+    process.env.EMBY_RETRY_MAX_ATTEMPTS = '1'
+
+    const config = getRetryConfigFromEnv()
+
+    expect(config.sonarr).toEqual({
+      maxAttempts: 5,
+      timeout: 20000,
+    })
+    expect(config.radarr).toEqual({
+      baseDelay: 2000,
+    })
+    expect(config.emby).toEqual({
+      maxAttempts: 1,
     })
   })
 

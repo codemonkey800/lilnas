@@ -429,7 +429,7 @@ describe('DiscordErrorService', () => {
       const operation = jest.fn().mockResolvedValue('success')
       const operationName = 'test_operation'
 
-      mockRetryService.executeWithCircuitBreaker.mockResolvedValue('success')
+      mockRetryService.executeWithRetry.mockResolvedValue('success')
 
       const result = await service.executeWithRetry(
         operation,
@@ -438,9 +438,8 @@ describe('DiscordErrorService', () => {
       )
 
       expect(result).toBe('success')
-      expect(mockRetryService.executeWithCircuitBreaker).toHaveBeenCalledWith(
+      expect(mockRetryService.executeWithRetry).toHaveBeenCalledWith(
         expect.any(Function),
-        `discord:${context.correlationContext.guildId}:${context.correlationContext.channelId}`,
         expect.objectContaining({
           maxAttempts: 5,
           baseDelay: 1000,
@@ -459,11 +458,9 @@ describe('DiscordErrorService', () => {
       })
       const operation = jest.fn().mockResolvedValue('success')
 
-      mockRetryService.executeWithCircuitBreaker.mockImplementation(
-        async op => {
-          return await op() // Execute the wrapper function
-        },
-      )
+      mockRetryService.executeWithRetry.mockImplementation(async op => {
+        return await op() // Execute the wrapper function
+      })
 
       await expect(
         service.executeWithRetry(operation, context, 'test_operation'),
@@ -479,7 +476,7 @@ describe('DiscordErrorService', () => {
       const operation = jest.fn().mockResolvedValue('success')
       const error = new Error('Retry failed')
 
-      mockRetryService.executeWithCircuitBreaker.mockRejectedValue(error)
+      mockRetryService.executeWithRetry.mockRejectedValue(error)
 
       await expect(
         service.executeWithRetry(operation, context, 'test_operation'),
@@ -647,19 +644,6 @@ describe('DiscordErrorService', () => {
       expect(isInteractionExpired(expiredContext)).toBe(true)
       expect(isInteractionExpired(veryOldInteraction)).toBe(true)
       expect(isInteractionExpired(recentContext)).toBe(false)
-    })
-
-    it('should generate proper circuit breaker keys', () => {
-      const context = createMockDiscordInteractionContext()
-      const getCircuitBreakerKey = (service as any).getCircuitBreakerKey.bind(
-        service,
-      )
-
-      const key = getCircuitBreakerKey(context)
-
-      expect(key).toBe(
-        `discord:${context.correlationContext.guildId}:${context.correlationContext.channelId}`,
-      )
     })
 
     it('should generate error codes correctly', () => {

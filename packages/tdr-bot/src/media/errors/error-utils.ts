@@ -1,6 +1,6 @@
 /**
  * Error Utilities for Media Module
- * 
+ *
  * Provides utility functions for consistent error handling, logging,
  * and error transformation across all media services.
  */
@@ -11,14 +11,48 @@ import { DiscordAPIError } from 'discord.js'
 
 import { CorrelationContext } from 'src/types/discord.types'
 import { EventType } from 'src/types/enums'
+
 import {
-  MediaError,
-  DiscordInteractionError,
+  CleanupError,
   ComponentStateError,
+  DiscordInteractionError,
+  MediaError,
   MediaErrorFactory,
   TimeoutError,
-  CleanupError,
 } from './media-errors'
+
+/**
+ * Interface for errors with HTTP request information
+ */
+interface HttpRequestError extends Error {
+  method?: string
+  url?: string
+}
+
+/**
+ * Interface for errors with correlation ID information
+ */
+interface CorrelatedError extends Error {
+  correlationId?: string
+}
+
+/**
+ * Type guard to check if error has HTTP request info
+ */
+function hasHttpRequestInfo(error: unknown): error is HttpRequestError {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    ('method' in error || 'url' in error)
+  )
+}
+
+/**
+ * Type guard to check if error has correlation ID
+ */
+function hasCorrelationId(error: unknown): error is CorrelatedError {
+  return typeof error === 'object' && error !== null && 'correlationId' in error
+}
 
 /**
  * Error context for enhanced error handling
@@ -228,8 +262,10 @@ export class MediaErrorHandler {
       error.status,
       correlationId,
       {
-        httpMethod: (error as any).method || 'unknown',
-        url: (error as any).url || 'unknown',
+        httpMethod: hasHttpRequestInfo(error)
+          ? error.method || 'unknown'
+          : 'unknown',
+        url: hasHttpRequestInfo(error) ? error.url || 'unknown' : 'unknown',
       },
       error,
     )
@@ -238,10 +274,7 @@ export class MediaErrorHandler {
   /**
    * Convert generic Error to appropriate MediaError
    */
-  private convertGenericError(
-    error: Error,
-    context: ErrorContext,
-  ): MediaError {
+  private convertGenericError(error: Error, context: ErrorContext): MediaError {
     // Timeout errors
     if (
       error.name === 'TimeoutError' ||
@@ -336,7 +369,7 @@ export class MediaErrorHandler {
     if (error instanceof DiscordInteractionError) {
       return (
         error.httpStatus === 429 ||
-        error.discordErrorCode?.toString().includes('429')
+        (error.discordErrorCode?.toString().includes('429') ?? false)
       )
     }
 
@@ -346,8 +379,11 @@ export class MediaErrorHandler {
     }
 
     // Generic media errors might be retryable
-    return error.message.toLowerCase().includes('temporary') ||
-           error.message.toLowerCase().includes('retry') || false
+    return (
+      error.message.toLowerCase().includes('temporary') ||
+      error.message.toLowerCase().includes('retry') ||
+      false
+    )
   }
 
   /**
@@ -380,13 +416,19 @@ export class MediaErrorHandler {
     maxSize: number,
   ): ErrorContext {
     const serialized = JSON.stringify(context)
-    
+
     if (serialized.length <= maxSize) {
       return context
     }
 
     // Truncate large values while preserving important fields
-    const important = ['correlationId', 'userId', 'stateId', 'operation', 'errorName']
+    const important = [
+      'correlationId',
+      'userId',
+      'stateId',
+      'operation',
+      'errorName',
+    ]
     const sanitized: ErrorContext = {}
 
     // Always include important fields
@@ -435,20 +477,23 @@ export class MediaErrorHandler {
       retryAfter: result.retryAfter,
     }
 
-    // Add stack trace if requested and available
-    if (includeStack && (error.stack || originalError?.stack)) {
-      (logData as any).stack = error.stack || originalError?.stack
+    // Create log data with optional stack trace
+    const extendedLogData: typeof logData & { stack?: string } = {
+      ...logData,
+      ...(includeStack && (error.stack || originalError?.stack)
+        ? { stack: error.stack || originalError?.stack }
+        : {}),
     }
 
     switch (level) {
       case 'error':
-        this.logger.error(error.message, logData)
+        this.logger.error(error.message, extendedLogData)
         break
       case 'warn':
-        this.logger.warn(error.message, logData)
+        this.logger.warn(error.message, extendedLogData)
         break
       case 'debug':
-        this.logger.debug(error.message, logData)
+        this.logger.debug(error.message, extendedLogData)
         break
     }
   }
@@ -528,20 +573,24 @@ export function HandleMediaErrors(
 
     descriptor.value = async function (...args: any[]) {
       // Try to find error handler in the service instance
-      const errorHandler = (this as any).errorHandler as MediaErrorHandler | undefined
+      const errorHandler =
+        this && 'errorHandler' in this
+          ? (this.errorHandler as MediaErrorHandler | undefined)
+          : undefined
 
       if (!errorHandler) {
         // No error handler, execute original method
         return originalMethod.apply(this, args)
       }
 
-      const operation = operationName || `${target.constructor.name}.${propertyKey}`
+      const operation =
+        operationName || `${target.constructor.name}.${propertyKey}`
 
       // Try to extract correlation context from arguments
       const correlationArg = args.find(
-        (arg) => arg && typeof arg === 'object' && arg.correlationId,
+        arg => arg && typeof arg === 'object' && arg.correlationId,
       )
-      
+
       const context = correlationArg
         ? MediaErrorHandler.createErrorContext(correlationArg)
         : {}
@@ -574,18 +623,22 @@ export function HandleMediaErrorsWithFallback<T>(
     const originalMethod = descriptor.value
 
     descriptor.value = async function (...args: any[]) {
-      const errorHandler = (this as any).errorHandler as MediaErrorHandler | undefined
+      const errorHandler =
+        this && 'errorHandler' in this
+          ? (this.errorHandler as MediaErrorHandler | undefined)
+          : undefined
 
       if (!errorHandler) {
         return originalMethod.apply(this, args)
       }
 
-      const operation = operationName || `${target.constructor.name}.${propertyKey}`
+      const operation =
+        operationName || `${target.constructor.name}.${propertyKey}`
 
       const correlationArg = args.find(
-        (arg) => arg && typeof arg === 'object' && arg.correlationId,
+        arg => arg && typeof arg === 'object' && arg.correlationId,
       )
-      
+
       const context = correlationArg
         ? MediaErrorHandler.createErrorContext(correlationArg)
         : {}

@@ -306,12 +306,6 @@ export enum RateLimitStrategy {
   LEAKY_BUCKET = 'leaky_bucket',
 }
 
-export enum CircuitBreakerState {
-  CLOSED = 'closed',
-  OPEN = 'open',
-  HALF_OPEN = 'half_open',
-}
-
 export enum ServiceHealthStatus {
   HEALTHY = 'healthy',
   DEGRADED = 'degraded',
@@ -371,8 +365,6 @@ export enum EventType {
   API_ERROR = 'api.error',
   SERVICE_HEALTH_CHECK = 'service.health_check',
   RATE_LIMIT_EXCEEDED = 'rate_limit.exceeded',
-  CIRCUIT_BREAKER_OPENED = 'circuit_breaker.opened',
-  CIRCUIT_BREAKER_CLOSED = 'circuit_breaker.closed',
 }
 
 export enum Priority {

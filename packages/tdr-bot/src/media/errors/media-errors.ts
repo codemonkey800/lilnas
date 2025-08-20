@@ -1,6 +1,6 @@
 /**
  * Standardized Error Types for Media Module
- * 
+ *
  * This module provides consistent error handling across all media services
  * with proper error context, correlation ID tracking, and NestJS compatibility.
  */
@@ -76,7 +76,10 @@ export class ComponentStateError extends MediaError {
   }
 
   toUserMessage(): string {
-    if (this.message.includes('inactive') || this.message.includes('non-existent')) {
+    if (
+      this.message.includes('inactive') ||
+      this.message.includes('non-existent')
+    ) {
       return 'This interaction has expired. Please try the command again.'
     }
     if (this.message.includes('limit')) {
@@ -88,12 +91,9 @@ export class ComponentStateError extends MediaError {
 
 export class ComponentStateNotFoundError extends ComponentStateError {
   constructor(stateId: string, correlationId?: string) {
-    super(
-      `Component state not found: ${stateId}`,
-      correlationId,
-      stateId,
-      { operation: 'state_lookup' }
-    )
+    super(`Component state not found: ${stateId}`, correlationId, stateId, {
+      operation: 'state_lookup',
+    })
   }
 
   toUserMessage(): string {
@@ -102,16 +102,12 @@ export class ComponentStateNotFoundError extends ComponentStateError {
 }
 
 export class ComponentStateInactiveError extends ComponentStateError {
-  constructor(
-    stateId: string,
-    currentState: string,
-    correlationId?: string,
-  ) {
+  constructor(stateId: string, currentState: string, correlationId?: string) {
     super(
       `Component state is inactive: ${stateId} (current: ${currentState})`,
       correlationId,
       stateId,
-      { operation: 'state_update', currentState }
+      { operation: 'state_update', currentState },
     )
   }
 
@@ -132,18 +128,19 @@ export class ComponentLimitExceededError extends ComponentStateError {
       `${limitType === 'global' ? 'Global' : 'User'} component limit exceeded: ${currentCount}/${maxAllowed}`,
       correlationId,
       undefined,
-      { 
-        operation: 'limit_check', 
-        limitType, 
-        currentCount, 
-        maxAllowed, 
-        userId 
-      }
+      {
+        operation: 'limit_check',
+        limitType,
+        currentCount,
+        maxAllowed,
+        userId,
+      },
     )
   }
 
   toUserMessage(): string {
-    const limitType = (this.context.limitType as string) === 'global' ? 'system' : 'your'
+    const limitType =
+      (this.context.limitType as string) === 'global' ? 'system' : 'your'
     return `Maximum ${limitType} interaction limit reached. Please try again later.`
   }
 }
@@ -159,7 +156,7 @@ export class ComponentTransitionError extends ComponentStateError {
       `Invalid state transition for ${stateId}: ${fromState} -> ${toState}`,
       correlationId,
       stateId,
-      { operation: 'state_transition', fromState, toState }
+      { operation: 'state_transition', fromState, toState },
     )
   }
 
@@ -207,11 +204,11 @@ export class ComponentCreationError extends MediaError {
     correlationId?: string,
     context: Record<string, unknown> = {},
   ) {
-    super(
-      `Failed to create ${componentType}: ${reason}`,
-      correlationId,
-      { ...context, componentType, reason }
-    )
+    super(`Failed to create ${componentType}: ${reason}`, correlationId, {
+      ...context,
+      componentType,
+      reason,
+    })
   }
 
   toUserMessage(): string {
@@ -232,7 +229,12 @@ export class DiscordInteractionError extends MediaError {
     context: Record<string, unknown> = {},
     cause?: Error,
   ) {
-    super(message, correlationId, { ...context, discordErrorCode, httpStatus }, cause)
+    super(
+      message,
+      correlationId,
+      { ...context, discordErrorCode, httpStatus },
+      cause,
+    )
   }
 
   toUserMessage(): string {
@@ -263,7 +265,7 @@ export class DiscordRateLimitError extends DiscordInteractionError {
       429,
       429,
       correlationId,
-      { ...context, retryAfter }
+      { ...context, retryAfter },
     )
   }
 
@@ -286,7 +288,7 @@ export class DiscordPermissionError extends DiscordInteractionError {
       'DISCORD_50013',
       403,
       correlationId,
-      { requiredPermission, guildId, channelId }
+      { requiredPermission, guildId, channelId },
     )
   }
 
@@ -312,14 +314,14 @@ export class MediaServiceError extends MediaError {
       `${service.toUpperCase()} ${operation} failed: ${message}`,
       correlationId,
       { ...context, service, operation },
-      cause
+      cause,
     )
   }
 
   toUserMessage(): string {
     const service = (this.context.service as string).toLowerCase()
     const operation = this.context.operation as string
-    
+
     if (operation.includes('search')) {
       return `Unable to search ${service} library. Please try again.`
     }
@@ -327,6 +329,308 @@ export class MediaServiceError extends MediaError {
       return `Unable to add media to ${service}. Please try again.`
     }
     return `${service} service is currently unavailable. Please try again later.`
+  }
+}
+
+/**
+ * Base class for all Media API-specific errors
+ * Provides HTTP status code mapping and API-specific context
+ */
+export abstract class MediaApiError extends MediaError {
+  constructor(
+    message: string,
+    public readonly httpStatus: number,
+    public readonly service: 'sonarr' | 'radarr' | 'emby',
+    public readonly operation: string,
+    correlationId?: string,
+    context: Record<string, unknown> = {},
+    cause?: Error,
+  ) {
+    super(
+      message,
+      correlationId,
+      { ...context, httpStatus, service, operation },
+      cause,
+    )
+  }
+
+  /**
+   * Determine if this error should be retried based on its nature
+   */
+  abstract get isRetryable(): boolean
+
+  /**
+   * Get suggested retry delay in milliseconds
+   */
+  abstract get retryDelayMs(): number | undefined
+
+  /**
+   * Get user-friendly service name for display
+   */
+  protected getServiceDisplayName(): string {
+    switch (this.service) {
+      case 'sonarr':
+        return 'TV Show service'
+      case 'radarr':
+        return 'Movie service'
+      case 'emby':
+        return 'Media library'
+      default:
+        return 'Media service'
+    }
+  }
+}
+
+/**
+ * 401 Unauthorized - Invalid API credentials (non-retryable)
+ */
+export class MediaAuthenticationError extends MediaApiError {
+  constructor(
+    service: 'sonarr' | 'radarr' | 'emby',
+    operation: string,
+    correlationId?: string,
+    context: Record<string, unknown> = {},
+  ) {
+    super(
+      `${service.toUpperCase()} authentication failed during ${operation}`,
+      401,
+      service,
+      operation,
+      correlationId,
+      { ...context, errorCategory: 'authentication' },
+    )
+  }
+
+  get isRetryable(): boolean {
+    return false
+  }
+
+  get retryDelayMs(): number | undefined {
+    return undefined
+  }
+
+  toUserMessage(): string {
+    const serviceName = this.getServiceDisplayName()
+    return `${serviceName} authentication failed. Please contact an administrator to check API configuration.`
+  }
+}
+
+/**
+ * 429 Rate Limited - Too many requests (retryable with delay)
+ */
+export class MediaRateLimitError extends MediaApiError {
+  constructor(
+    service: 'sonarr' | 'radarr' | 'emby',
+    operation: string,
+    retryAfterSeconds?: number,
+    correlationId?: string,
+    context: Record<string, unknown> = {},
+  ) {
+    const retryAfterMs = retryAfterSeconds
+      ? retryAfterSeconds * 1000
+      : undefined
+    super(
+      `${service.toUpperCase()} rate limit exceeded during ${operation}${
+        retryAfterSeconds ? ` (retry after ${retryAfterSeconds}s)` : ''
+      }`,
+      429,
+      service,
+      operation,
+      correlationId,
+      { ...context, errorCategory: 'rate_limit', retryAfterMs },
+    )
+  }
+
+  get isRetryable(): boolean {
+    return true
+  }
+
+  get retryDelayMs(): number | undefined {
+    return (this.context.retryAfterMs as number) || 30000 // Default 30s delay
+  }
+
+  toUserMessage(): string {
+    const serviceName = this.getServiceDisplayName()
+    const delaySeconds = Math.ceil((this.retryDelayMs || 30000) / 1000)
+    return `${serviceName} is busy. Please try again in ${delaySeconds} second${delaySeconds !== 1 ? 's' : ''}.`
+  }
+}
+
+/**
+ * 503/5xx Server errors - Service temporarily unavailable (retryable)
+ */
+export class MediaServiceUnavailableError extends MediaApiError {
+  constructor(
+    service: 'sonarr' | 'radarr' | 'emby',
+    operation: string,
+    httpStatus: number = 503,
+    correlationId?: string,
+    context: Record<string, unknown> = {},
+    cause?: Error,
+  ) {
+    super(
+      `${service.toUpperCase()} service unavailable during ${operation} (HTTP ${httpStatus})`,
+      httpStatus,
+      service,
+      operation,
+      correlationId,
+      { ...context, errorCategory: 'service_unavailable' },
+      cause,
+    )
+  }
+
+  get isRetryable(): boolean {
+    return true
+  }
+
+  get retryDelayMs(): number | undefined {
+    // Progressive delay based on HTTP status
+    switch (this.httpStatus) {
+      case 500: // Internal server error
+        return 5000 // 5 seconds
+      case 502: // Bad gateway
+        return 10000 // 10 seconds
+      case 503: // Service unavailable
+        return 15000 // 15 seconds
+      case 504: // Gateway timeout
+        return 20000 // 20 seconds
+      default:
+        return 10000 // Default 10 seconds
+    }
+  }
+
+  toUserMessage(): string {
+    const serviceName = this.getServiceDisplayName()
+    return `${serviceName} is temporarily unavailable. The request will be retried automatically.`
+  }
+}
+
+/**
+ * 404 Not Found - Resource not found (limited retry)
+ */
+export class MediaNotFoundApiError extends MediaApiError {
+  constructor(
+    service: 'sonarr' | 'radarr' | 'emby',
+    operation: string,
+    resourceType: string,
+    resourceId: string,
+    correlationId?: string,
+    context: Record<string, unknown> = {},
+  ) {
+    super(
+      `${service.toUpperCase()} ${resourceType} not found: ${resourceId} during ${operation}`,
+      404,
+      service,
+      operation,
+      correlationId,
+      { ...context, errorCategory: 'not_found', resourceType, resourceId },
+    )
+  }
+
+  get isRetryable(): boolean {
+    // Only retry once for 404s in case it's a timing issue
+    return true
+  }
+
+  get retryDelayMs(): number | undefined {
+    return 2000 // Short delay for 404 retry
+  }
+
+  toUserMessage(): string {
+    const resourceType = this.context.resourceType as string
+    const serviceName = this.getServiceDisplayName()
+    return `${resourceType} not found in ${serviceName}. Please verify your search criteria.`
+  }
+}
+
+/**
+ * 400/422 Bad Request - Invalid request data (non-retryable)
+ */
+export class MediaValidationApiError extends MediaApiError {
+  constructor(
+    service: 'sonarr' | 'radarr' | 'emby',
+    operation: string,
+    validationDetails: string,
+    correlationId?: string,
+    context: Record<string, unknown> = {},
+  ) {
+    super(
+      `${service.toUpperCase()} validation failed during ${operation}: ${validationDetails}`,
+      400,
+      service,
+      operation,
+      correlationId,
+      { ...context, errorCategory: 'validation', validationDetails },
+    )
+  }
+
+  get isRetryable(): boolean {
+    return false
+  }
+
+  get retryDelayMs(): number | undefined {
+    return undefined
+  }
+
+  toUserMessage(): string {
+    const serviceName = this.getServiceDisplayName()
+    const details = this.context.validationDetails as string
+    return `Invalid request to ${serviceName}: ${details}. Please check your input and try again.`
+  }
+}
+
+/**
+ * Network/Connection errors (retryable)
+ */
+export class MediaNetworkError extends MediaApiError {
+  constructor(
+    service: 'sonarr' | 'radarr' | 'emby',
+    operation: string,
+    networkErrorCode: string,
+    correlationId?: string,
+    context: Record<string, unknown> = {},
+    cause?: Error,
+  ) {
+    super(
+      `${service.toUpperCase()} network error during ${operation}: ${networkErrorCode}`,
+      0, // No HTTP status for network errors
+      service,
+      operation,
+      correlationId,
+      { ...context, errorCategory: 'network', networkErrorCode },
+      cause,
+    )
+  }
+
+  get isRetryable(): boolean {
+    return true
+  }
+
+  get retryDelayMs(): number | undefined {
+    const errorCode = this.context.networkErrorCode as string
+    switch (errorCode) {
+      case 'ECONNREFUSED':
+      case 'ENOTFOUND':
+        return 30000 // 30 seconds for connection issues
+      case 'ETIMEDOUT':
+      case 'ECONNABORTED':
+        return 10000 // 10 seconds for timeouts
+      default:
+        return 15000 // Default 15 seconds
+    }
+  }
+
+  toUserMessage(): string {
+    const serviceName = this.getServiceDisplayName()
+    const errorCode = this.context.networkErrorCode as string
+
+    if (errorCode === 'ECONNREFUSED') {
+      return `Cannot connect to ${serviceName}. The service may be offline.`
+    }
+    if (errorCode === 'ETIMEDOUT') {
+      return `${serviceName} request timed out. Please try again.`
+    }
+    return `Network error connecting to ${serviceName}. Please try again.`
   }
 }
 
@@ -342,7 +646,7 @@ export class MediaNotFoundError extends MediaServiceError {
       'lookup',
       `${mediaType} not found: ${mediaId}`,
       correlationId,
-      { mediaId, mediaType }
+      { mediaId, mediaType },
     )
   }
 
@@ -367,7 +671,7 @@ export class MediaLoggingError extends MediaError {
       `Logging operation failed: ${operation} - ${reason}`,
       correlationId,
       { ...context, operation, reason },
-      cause
+      cause,
     )
   }
 
@@ -389,7 +693,7 @@ export class TimeoutError extends MediaError {
     super(
       `Operation timed out after ${timeoutMs}ms: ${operation}`,
       correlationId,
-      { ...context, operation, timeoutMs }
+      { ...context, operation, timeoutMs },
     )
   }
 
@@ -411,7 +715,7 @@ export class CleanupError extends MediaError {
       `Failed to cleanup ${resourceType} ${resourceId}: ${reason}`,
       correlationId,
       { ...context, resourceType, resourceId, reason },
-      cause
+      cause,
     )
   }
 
@@ -438,7 +742,7 @@ export class MediaHttpException extends HttpException {
         error: mediaError.name,
         statusCode: status,
       },
-      status
+      status,
     )
   }
 
@@ -572,6 +876,110 @@ export const MediaErrorFactory = {
       service,
       operation,
       message,
+      correlationId,
+      {},
+      cause,
+    )
+  },
+
+  /**
+   * Create media API authentication error
+   */
+  mediaAuthentication: (
+    service: 'sonarr' | 'radarr' | 'emby',
+    operation: string,
+    correlationId?: string,
+  ): MediaAuthenticationError => {
+    return new MediaAuthenticationError(service, operation, correlationId)
+  },
+
+  /**
+   * Create media API rate limit error
+   */
+  mediaRateLimit: (
+    service: 'sonarr' | 'radarr' | 'emby',
+    operation: string,
+    retryAfterSeconds?: number,
+    correlationId?: string,
+  ): MediaRateLimitError => {
+    return new MediaRateLimitError(
+      service,
+      operation,
+      retryAfterSeconds,
+      correlationId,
+    )
+  },
+
+  /**
+   * Create media API service unavailable error
+   */
+  mediaServiceUnavailable: (
+    service: 'sonarr' | 'radarr' | 'emby',
+    operation: string,
+    httpStatus: number = 503,
+    correlationId?: string,
+    cause?: Error,
+  ): MediaServiceUnavailableError => {
+    return new MediaServiceUnavailableError(
+      service,
+      operation,
+      httpStatus,
+      correlationId,
+      {},
+      cause,
+    )
+  },
+
+  /**
+   * Create media API not found error
+   */
+  mediaNotFoundApi: (
+    service: 'sonarr' | 'radarr' | 'emby',
+    operation: string,
+    resourceType: string,
+    resourceId: string,
+    correlationId?: string,
+  ): MediaNotFoundApiError => {
+    return new MediaNotFoundApiError(
+      service,
+      operation,
+      resourceType,
+      resourceId,
+      correlationId,
+    )
+  },
+
+  /**
+   * Create media API validation error
+   */
+  mediaValidationApi: (
+    service: 'sonarr' | 'radarr' | 'emby',
+    operation: string,
+    validationDetails: string,
+    correlationId?: string,
+  ): MediaValidationApiError => {
+    return new MediaValidationApiError(
+      service,
+      operation,
+      validationDetails,
+      correlationId,
+    )
+  },
+
+  /**
+   * Create media API network error
+   */
+  mediaNetwork: (
+    service: 'sonarr' | 'radarr' | 'emby',
+    operation: string,
+    networkErrorCode: string,
+    correlationId?: string,
+    cause?: Error,
+  ): MediaNetworkError => {
+    return new MediaNetworkError(
+      service,
+      operation,
+      networkErrorCode,
       correlationId,
       {},
       cause,

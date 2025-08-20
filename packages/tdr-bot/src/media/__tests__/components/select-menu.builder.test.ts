@@ -25,7 +25,7 @@ jest.mock('discord.js', () => ({
     setMinValues: jest.fn().mockReturnThis(),
     setMaxValues: jest.fn().mockReturnThis(),
     setDisabled: jest.fn().mockReturnThis(),
-    data: {} as any,
+    data: {},
   })),
   StringSelectMenuOptionBuilder: jest.fn().mockImplementation(() => ({
     setLabel: jest.fn().mockReturnThis(),
@@ -33,12 +33,13 @@ jest.mock('discord.js', () => ({
     setDescription: jest.fn().mockReturnThis(),
     setEmoji: jest.fn().mockReturnThis(),
     setDefault: jest.fn().mockReturnThis(),
-    data: {} as any,
+    data: {},
   })),
 }))
 
 describe('SelectMenuBuilderService', () => {
   let service: SelectMenuBuilderService
+  let privateService: any
   let loggerSpy: jest.SpyInstance
   let mockStringSelectMenuBuilder: jest.MockedClass<
     typeof StringSelectMenuBuilder
@@ -53,6 +54,7 @@ describe('SelectMenuBuilderService', () => {
     ])
 
     service = module.get<SelectMenuBuilderService>(SelectMenuBuilderService)
+    privateService = service as any
 
     mockStringSelectMenuBuilder = StringSelectMenuBuilder as jest.MockedClass<
       typeof StringSelectMenuBuilder
@@ -61,6 +63,9 @@ describe('SelectMenuBuilderService', () => {
       StringSelectMenuOptionBuilder as jest.MockedClass<
         typeof StringSelectMenuOptionBuilder
       >
+
+    // Create private service access
+    privateService = service as any
 
     // Mock logger to avoid console output during tests
     loggerSpy = jest
@@ -743,7 +748,7 @@ describe('SelectMenuBuilderService', () => {
         }
 
         // Access private method through any cast for testing
-        const option = (service as any).createSearchResultOption(movieResult)
+        const option = privateService.createSearchResultOption(movieResult)
 
         expect(mockStringSelectMenuOptionBuilder).toHaveBeenCalled()
         const optionInstance =
@@ -768,7 +773,7 @@ describe('SelectMenuBuilderService', () => {
           inLibrary: false,
         }
 
-        const option = (service as any).createSearchResultOption(seriesResult)
+        const option = privateService.createSearchResultOption(seriesResult)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -785,9 +790,7 @@ describe('SelectMenuBuilderService', () => {
           inLibrary: true,
         }
 
-        const option = (service as any).createSearchResultOption(
-          inLibraryResult,
-        )
+        const option = privateService.createSearchResultOption(inLibraryResult)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -807,7 +810,7 @@ describe('SelectMenuBuilderService', () => {
           inLibrary: false,
         }
 
-        const option = (service as any).createSearchResultOption(longResult)
+        const option = privateService.createSearchResultOption(longResult)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -826,7 +829,7 @@ describe('SelectMenuBuilderService', () => {
           inLibrary: false,
         }
 
-        const option = (service as any).createSearchResultOption(minimalResult)
+        const option = privateService.createSearchResultOption(minimalResult)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -844,9 +847,7 @@ describe('SelectMenuBuilderService', () => {
           isDefault: true,
         }
 
-        const option = (service as any).createQualityProfileOption(
-          defaultProfile,
-        )
+        const option = privateService.createQualityProfileOption(defaultProfile)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -866,7 +867,7 @@ describe('SelectMenuBuilderService', () => {
           isDefault: false,
         }
 
-        const option = (service as any).createQualityProfileOption(profile)
+        const option = privateService.createQualityProfileOption(profile)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -884,7 +885,7 @@ describe('SelectMenuBuilderService', () => {
           isDefault: false,
         }
 
-        const option = (service as any).createQualityProfileOption(longProfile)
+        const option = privateService.createQualityProfileOption(longProfile)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -902,7 +903,7 @@ describe('SelectMenuBuilderService', () => {
           freeSpace: 1024 * 1024 * 1024 * 100, // 100GB
         }
 
-        const option = (service as any).createRootFolderOption(folder)
+        const option = privateService.createRootFolderOption(folder)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -920,7 +921,7 @@ describe('SelectMenuBuilderService', () => {
           path: '/tv-shows',
         }
 
-        const option = (service as any).createRootFolderOption(folder)
+        const option = privateService.createRootFolderOption(folder)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -936,7 +937,7 @@ describe('SelectMenuBuilderService', () => {
           freeSpace: 1024 * 1024 * 1024 * 1000, // 1000GB
         }
 
-        const option = (service as any).createRootFolderOption(longFolder)
+        const option = privateService.createRootFolderOption(longFolder)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -952,7 +953,7 @@ describe('SelectMenuBuilderService', () => {
       it('should create option for regular season', () => {
         const season = { number: 1, monitored: true, episodeCount: 12 }
 
-        const option = (service as any).createSeasonOption(season)
+        const option = privateService.createSeasonOption(season)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -968,7 +969,7 @@ describe('SelectMenuBuilderService', () => {
       it('should create option for specials (season 0)', () => {
         const season = { number: 0, monitored: false, episodeCount: 5 }
 
-        const option = (service as any).createSeasonOption(season)
+        const option = privateService.createSeasonOption(season)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -981,7 +982,7 @@ describe('SelectMenuBuilderService', () => {
       it('should create option for unmonitored season', () => {
         const season = { number: 2, monitored: false, episodeCount: 8 }
 
-        const option = (service as any).createSeasonOption(season)
+        const option = privateService.createSeasonOption(season)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -992,7 +993,7 @@ describe('SelectMenuBuilderService', () => {
 
     describe('createMediaActionOption', () => {
       it('should create option for known action', () => {
-        const option = (service as any).createMediaActionOption('play')
+        const option = privateService.createMediaActionOption('play')
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -1005,7 +1006,7 @@ describe('SelectMenuBuilderService', () => {
       })
 
       it('should create option for unknown action with fallback', () => {
-        const option = (service as any).createMediaActionOption('custom_action')
+        const option = privateService.createMediaActionOption('custom_action')
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -1029,7 +1030,7 @@ describe('SelectMenuBuilderService', () => {
         ]
 
         actions.forEach((action, index) => {
-          const option = (service as any).createMediaActionOption(action)
+          const option = privateService.createMediaActionOption(action)
           const optionInstance =
             mockStringSelectMenuOptionBuilder.mock.results[index].value
           expect(optionInstance.setLabel).toHaveBeenCalled()
@@ -1050,7 +1051,7 @@ describe('SelectMenuBuilderService', () => {
           default: true,
         }
 
-        const option = (service as any).createOptionFromConfig(optionConfig)
+        const option = privateService.createOptionFromConfig(optionConfig)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -1069,7 +1070,7 @@ describe('SelectMenuBuilderService', () => {
           value: 'minimal_value',
         }
 
-        const option = (service as any).createOptionFromConfig(optionConfig)
+        const option = privateService.createOptionFromConfig(optionConfig)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -1087,7 +1088,7 @@ describe('SelectMenuBuilderService', () => {
           description: 'B'.repeat(120),
         }
 
-        const option = (service as any).createOptionFromConfig(optionConfig)
+        const option = privateService.createOptionFromConfig(optionConfig)
 
         const optionInstance =
           mockStringSelectMenuOptionBuilder.mock.results[0].value
@@ -1106,14 +1107,14 @@ describe('SelectMenuBuilderService', () => {
     describe('truncateText', () => {
       it('should return original text if within limit', () => {
         const text = 'Short text'
-        const result = (service as any).truncateText(text, 20)
+        const result = privateService.truncateText(text, 20)
 
         expect(result).toBe(text)
       })
 
       it('should truncate text with default suffix', () => {
         const text = 'This is a very long text that needs to be truncated'
-        const result = (service as any).truncateText(text, 20)
+        const result = privateService.truncateText(text, 20)
 
         expect(result).toBe('This is a very lo...')
         expect(result).toHaveLength(20)
@@ -1121,7 +1122,7 @@ describe('SelectMenuBuilderService', () => {
 
       it('should truncate text with custom suffix', () => {
         const text = 'This is a very long text'
-        const result = (service as any).truncateText(text, 15, '[...]')
+        const result = privateService.truncateText(text, 15, '[...]')
 
         expect(result).toBe('This is a [...]')
         expect(result).toHaveLength(15)
@@ -1129,16 +1130,16 @@ describe('SelectMenuBuilderService', () => {
 
       it('should handle edge cases', () => {
         const text = 'test'
-        expect((service as any).truncateText(text, 10)).toBe(text)
-        expect((service as any).truncateText(text, 4)).toBe(text)
-        expect((service as any).truncateText(text, 3)).toBe('...')
+        expect(privateService.truncateText(text, 10)).toBe(text)
+        expect(privateService.truncateText(text, 4)).toBe(text)
+        expect(privateService.truncateText(text, 3)).toBe('...')
       })
     })
 
     describe('truncateCustomId', () => {
       it('should truncate custom ID without suffix', () => {
         const longCustomId = 'a'.repeat(150)
-        const result = (service as any).truncateCustomId(longCustomId)
+        const result = privateService.truncateCustomId(longCustomId)
 
         expect(result).toHaveLength(100)
         expect(result.includes('...')).toBe(false)
@@ -1146,7 +1147,7 @@ describe('SelectMenuBuilderService', () => {
 
       it('should not truncate short custom IDs', () => {
         const shortCustomId = 'short-id'
-        const result = (service as any).truncateCustomId(shortCustomId)
+        const result = privateService.truncateCustomId(shortCustomId)
 
         expect(result).toBe(shortCustomId)
       })
@@ -1155,7 +1156,7 @@ describe('SelectMenuBuilderService', () => {
     describe('truncatePlaceholder', () => {
       it('should truncate placeholder with suffix', () => {
         const longPlaceholder = 'a'.repeat(120)
-        const result = (service as any).truncatePlaceholder(longPlaceholder)
+        const result = privateService.truncatePlaceholder(longPlaceholder)
 
         expect(result).toHaveLength(100)
         expect(result.endsWith('...')).toBe(true)
@@ -1163,7 +1164,7 @@ describe('SelectMenuBuilderService', () => {
 
       it('should not truncate short placeholders', () => {
         const shortPlaceholder = 'Choose option'
-        const result = (service as any).truncatePlaceholder(shortPlaceholder)
+        const result = privateService.truncatePlaceholder(shortPlaceholder)
 
         expect(result).toBe(shortPlaceholder)
       })
@@ -1188,16 +1189,22 @@ describe('SelectMenuBuilderService', () => {
       })
 
       // Verify it's a copy and not the original
-      ;(constraints as any).maxSelectMenuOptions = 50
+      const mutableConstraints = constraints as any
+      mutableConstraints.maxSelectMenuOptions = 50
       expect(service.getConstraints().maxSelectMenuOptions).toBe(25)
     })
   })
 
   describe('Edge cases and error handling', () => {
     it('should handle null/undefined input gracefully', () => {
-      expect(() => service.createSearchResultsMenu([] as any)).not.toThrow()
       expect(() =>
-        service.createQualityProfilesMenu([] as any, MediaType.MOVIE),
+        service.createSearchResultsMenu([] as SearchResultData[]),
+      ).not.toThrow()
+      expect(() =>
+        service.createQualityProfilesMenu(
+          [] as QualityProfileData[],
+          MediaType.MOVIE,
+        ),
       ).not.toThrow()
     })
 

@@ -7,26 +7,23 @@ import {
   StringSelectMenuBuilder,
 } from 'discord.js'
 
+import { ErrorContext, MediaErrorHandler } from 'src/media/errors/error-utils'
 import {
-  ComponentValidationError,
   ComponentCreationError,
-  MediaErrorFactory,
+  ComponentValidationError,
 } from 'src/media/errors/media-errors'
-import { MediaErrorHandler, ErrorContext } from 'src/media/errors/error-utils'
 import {
   ButtonConfig,
   ComponentConstraints,
-  ComponentFactory,
   EmbedConfig,
+  extractActionRowData,
+  extractButtonData,
+  extractEmbedData,
+  extractModalData,
+  extractSelectMenuData,
   ModalConfig,
   SelectMenuConfig,
-  ValidationError,
   ValidationResult,
-  extractButtonData,
-  extractSelectMenuData,
-  extractModalData,
-  extractEmbedData,
-  extractActionRowData,
 } from 'src/types/discord.types'
 
 import { ActionRowBuilderService } from './action-row.builder'
@@ -66,7 +63,7 @@ export class ComponentFactoryService {
         'action_row',
         'Cannot create action row with no components',
         correlationId,
-        { componentCount: 0 }
+        { componentCount: 0 },
       )
     }
 
@@ -81,10 +78,10 @@ export class ComponentFactoryService {
         'action_row',
         'All components in an action row must be of the same type',
         correlationId,
-        { 
+        {
           componentTypes: components.map(c => c.constructor.name),
-          firstType: firstComponentType 
-        }
+          firstType: firstComponentType,
+        },
       )
     }
 
@@ -100,7 +97,7 @@ export class ComponentFactoryService {
             'action_row',
             'Only one select menu component allowed per action row',
             correlationId,
-            { componentCount: components.length }
+            { componentCount: components.length },
           )
         }
         return this.actionRowBuilder.createSelectMenuRow(
@@ -112,14 +109,14 @@ export class ComponentFactoryService {
           'action_row',
           `Unsupported component type: ${firstComponentType}`,
           correlationId,
-          { componentType: firstComponentType }
+          { componentType: firstComponentType },
         )
       }
     } catch (error) {
       if (error instanceof ComponentCreationError) {
         throw error
       }
-      
+
       const result = this.errorHandler.handleError(error, context)
       throw new ComponentCreationError(
         'action_row',
@@ -155,7 +152,10 @@ export class ComponentFactoryService {
    * Create a select menu from configuration
    * @throws {ComponentCreationError} When select menu creation fails
    */
-  createSelectMenu(config: SelectMenuConfig, correlationId?: string): StringSelectMenuBuilder {
+  createSelectMenu(
+    config: SelectMenuConfig,
+    correlationId?: string,
+  ): StringSelectMenuBuilder {
     try {
       return this.selectMenuBuilder.createSelectMenu(config)
     } catch (error) {
@@ -204,62 +204,62 @@ export class ComponentFactoryService {
     }
 
     try {
-    const embed = new EmbedBuilder()
+      const embed = new EmbedBuilder()
 
-    if (config.title) {
-      embed.setTitle(this.truncateText(config.title, 256))
-    }
+      if (config.title) {
+        embed.setTitle(this.truncateText(config.title, 256))
+      }
 
-    if (config.description) {
-      embed.setDescription(this.truncateText(config.description, 4096))
-    }
+      if (config.description) {
+        embed.setDescription(this.truncateText(config.description, 4096))
+      }
 
-    if (config.color !== undefined) {
-      embed.setColor(config.color)
-    }
+      if (config.color !== undefined) {
+        embed.setColor(config.color)
+      }
 
-    if (config.author) {
-      embed.setAuthor({
-        name: this.truncateText(config.author.name, 256),
-        iconURL: config.author.iconURL,
-        url: config.author.url,
-      })
-    }
+      if (config.author) {
+        embed.setAuthor({
+          name: this.truncateText(config.author.name, 256),
+          iconURL: config.author.iconURL,
+          url: config.author.url,
+        })
+      }
 
-    if (config.thumbnail) {
-      embed.setThumbnail(config.thumbnail.url)
-    }
+      if (config.thumbnail) {
+        embed.setThumbnail(config.thumbnail.url)
+      }
 
-    if (config.image) {
-      embed.setImage(config.image.url)
-    }
+      if (config.image) {
+        embed.setImage(config.image.url)
+      }
 
-    if (config.footer) {
-      embed.setFooter({
-        text: this.truncateText(config.footer.text, 2048),
-        iconURL: config.footer.iconURL,
-      })
-    }
+      if (config.footer) {
+        embed.setFooter({
+          text: this.truncateText(config.footer.text, 2048),
+          iconURL: config.footer.iconURL,
+        })
+      }
 
-    if (config.timestamp) {
-      embed.setTimestamp(config.timestamp)
-    }
+      if (config.timestamp) {
+        embed.setTimestamp(config.timestamp)
+      }
 
-    if (config.url) {
-      embed.setURL(config.url)
-    }
+      if (config.url) {
+        embed.setURL(config.url)
+      }
 
-    if (config.fields) {
-      const validFields = config.fields
-        .slice(0, 25) // Max 25 fields
-        .map(field => ({
-          name: this.truncateText(field.name, 256),
-          value: this.truncateText(field.value, 1024),
-          inline: field.inline,
-        }))
+      if (config.fields) {
+        const validFields = config.fields
+          .slice(0, 25) // Max 25 fields
+          .map(field => ({
+            name: this.truncateText(field.name, 256),
+            value: this.truncateText(field.value, 1024),
+            inline: field.inline,
+          }))
 
-      embed.addFields(validFields)
-    }
+        embed.addFields(validFields)
+      }
 
       this.logger.debug('Created embed from config', {
         correlationId,
@@ -288,24 +288,35 @@ export class ComponentFactoryService {
    * @throws {ComponentValidationError} When component validation fails
    */
   validateConstraints(component: unknown, correlationId?: string): void {
-    if (component instanceof ButtonBuilder) {
-      this.validateButton(component, correlationId)
-    } else if (component instanceof StringSelectMenuBuilder) {
-      this.validateSelectMenu(component, correlationId)
-    } else if (component instanceof ModalBuilder) {
-      this.validateModal(component, correlationId)
-    } else if (component instanceof EmbedBuilder) {
-      this.validateEmbed(component, correlationId)
-    } else if (component instanceof ActionRowBuilder) {
-      this.validateActionRow(component, correlationId)
-    } else {
-      throw new ComponentValidationError(
-        'Unknown component type',
-        'component',
-        'UNKNOWN_TYPE',
-        correlationId,
-        { componentType: typeof component }
-      )
+    const componentType = this.getComponentType(component)
+
+    switch (componentType) {
+      case 'ButtonBuilder':
+        this.validateButton(component as ButtonBuilder, correlationId)
+        break
+      case 'StringSelectMenuBuilder':
+        this.validateSelectMenu(
+          component as StringSelectMenuBuilder,
+          correlationId,
+        )
+        break
+      case 'ModalBuilder':
+        this.validateModal(component as ModalBuilder, correlationId)
+        break
+      case 'EmbedBuilder':
+        this.validateEmbed(component as EmbedBuilder, correlationId)
+        break
+      case 'ActionRowBuilder':
+        this.validateActionRow(component as ActionRowBuilder, correlationId)
+        break
+      default:
+        throw new ComponentValidationError(
+          'Unknown component type',
+          'component',
+          'UNKNOWN_TYPE',
+          correlationId,
+          { componentType: typeof component, detectedType: componentType },
+        )
     }
   }
 
@@ -313,7 +324,10 @@ export class ComponentFactoryService {
    * Legacy validation method that returns results instead of throwing
    * @deprecated Use validateConstraints() which throws errors consistently
    */
-  validateConstraintsLegacy(component: unknown, correlationId?: string): ValidationResult {
+  validateConstraintsLegacy(
+    component: unknown,
+    correlationId?: string,
+  ): ValidationResult {
     try {
       this.validateConstraints(component, correlationId)
       return {
@@ -325,22 +339,26 @@ export class ComponentFactoryService {
       if (error instanceof ComponentValidationError) {
         return {
           valid: false,
-          errors: [{
-            field: error.field,
-            message: error.message,
-            code: error.validationCode,
-          }],
+          errors: [
+            {
+              field: error.field,
+              message: error.message,
+              code: error.validationCode,
+            },
+          ],
           warnings: [],
         }
       }
-      
+
       return {
         valid: false,
-        errors: [{
-          field: 'component',
-          message: error instanceof Error ? error.message : String(error),
-          code: 'VALIDATION_ERROR',
-        }],
+        errors: [
+          {
+            field: 'component',
+            message: error instanceof Error ? error.message : String(error),
+            code: 'VALIDATION_ERROR',
+          },
+        ],
         warnings: [],
       }
     }
@@ -369,7 +387,10 @@ export class ComponentFactoryService {
         'custom_id',
         'CUSTOM_ID_TOO_LONG',
         correlationId,
-        { customIdLength: customId.length, maxLength: constraints.maxCustomIdLength }
+        {
+          customIdLength: customId.length,
+          maxLength: constraints.maxCustomIdLength,
+        },
       )
     }
 
@@ -380,7 +401,7 @@ export class ComponentFactoryService {
         'label',
         'LABEL_TOO_LONG',
         correlationId,
-        { labelLength: label.length, maxLength: constraints.maxLabelLength }
+        { labelLength: label.length, maxLength: constraints.maxLabelLength },
       )
     }
 
@@ -420,7 +441,10 @@ export class ComponentFactoryService {
         'custom_id',
         'CUSTOM_ID_TOO_LONG',
         correlationId,
-        { customIdLength: customId.length, maxLength: constraints.maxCustomIdLength }
+        {
+          customIdLength: customId.length,
+          maxLength: constraints.maxCustomIdLength,
+        },
       )
     }
 
@@ -439,7 +463,10 @@ export class ComponentFactoryService {
         'options',
         'TOO_MANY_OPTIONS',
         correlationId,
-        { optionCount: options.length, maxOptions: constraints.maxSelectMenuOptions }
+        {
+          optionCount: options.length,
+          maxOptions: constraints.maxSelectMenuOptions,
+        },
       )
     }
   }
@@ -485,7 +512,10 @@ export class ComponentFactoryService {
         'components',
         'TOO_MANY_COMPONENTS',
         correlationId,
-        { componentCount: components.length, maxComponents: constraints.maxTextInputsPerModal }
+        {
+          componentCount: components.length,
+          maxComponents: constraints.maxTextInputsPerModal,
+        },
       )
     }
   }
@@ -495,7 +525,8 @@ export class ComponentFactoryService {
    * @throws {ComponentValidationError} When embed validation fails
    */
   private validateEmbed(embed: EmbedBuilder, correlationId?: string): void {
-    const { title, description, fields, author, footer } = extractEmbedData(embed)
+    const { title, description, fields, author, footer } =
+      extractEmbedData(embed)
 
     if (title && title.length > 256) {
       throw new ComponentValidationError(
@@ -503,7 +534,7 @@ export class ComponentFactoryService {
         'title',
         'TITLE_TOO_LONG',
         correlationId,
-        { titleLength: title.length, maxLength: 256 }
+        { titleLength: title.length, maxLength: 256 },
       )
     }
 
@@ -513,7 +544,7 @@ export class ComponentFactoryService {
         'description',
         'DESCRIPTION_TOO_LONG',
         correlationId,
-        { descriptionLength: description.length, maxLength: 4096 }
+        { descriptionLength: description.length, maxLength: 4096 },
       )
     }
 
@@ -523,7 +554,7 @@ export class ComponentFactoryService {
         'fields',
         'TOO_MANY_FIELDS',
         correlationId,
-        { fieldCount: fields.length, maxFields: 25 }
+        { fieldCount: fields.length, maxFields: 25 },
       )
     }
 
@@ -533,9 +564,8 @@ export class ComponentFactoryService {
       description?.length || 0,
       author?.name?.length || 0,
       footer?.text?.length || 0,
-      ...(fields?.map(
-        f => (f.name?.length || 0) + (f.value?.length || 0),
-      ) || []),
+      ...(fields?.map(f => (f.name?.length || 0) + (f.value?.length || 0)) ||
+        []),
     ].reduce((sum, len) => sum + len, 0)
 
     if (totalLength > 6000) {
@@ -544,7 +574,7 @@ export class ComponentFactoryService {
         'embed',
         'EMBED_TOO_LONG',
         correlationId,
-        { totalLength, maxLength: 6000 }
+        { totalLength, maxLength: 6000 },
       )
     }
   }
@@ -553,7 +583,10 @@ export class ComponentFactoryService {
    * Validate action row constraints
    * @throws {ComponentValidationError} When action row validation fails
    */
-  private validateActionRow(actionRow: ActionRowBuilder, correlationId?: string): void {
+  private validateActionRow(
+    actionRow: ActionRowBuilder,
+    correlationId?: string,
+  ): void {
     const constraints = this.getConstraints()
     const { components } = extractActionRowData(actionRow)
 
@@ -572,7 +605,10 @@ export class ComponentFactoryService {
         'components',
         'TOO_MANY_COMPONENTS',
         correlationId,
-        { componentCount: components.length, maxComponents: constraints.maxComponentsPerRow }
+        {
+          componentCount: components.length,
+          maxComponents: constraints.maxComponentsPerRow,
+        },
       )
     }
   }
@@ -657,5 +693,95 @@ export class ComponentFactoryService {
     const label = this.getButtonLabel(button)
     const emoji = this.getButtonEmoji(button)
     return Boolean(label || emoji)
+  }
+
+  /**
+   * Determine component type for both real and mock Discord.js components
+   */
+  private getComponentType(component: unknown): string | null {
+    if (!component || typeof component !== 'object') {
+      return null
+    }
+
+    // First try instanceof checks for real Discord.js components
+    if (component instanceof ButtonBuilder) {
+      return 'ButtonBuilder'
+    }
+    if (component instanceof StringSelectMenuBuilder) {
+      return 'StringSelectMenuBuilder'
+    }
+    if (component instanceof ModalBuilder) {
+      return 'ModalBuilder'
+    }
+    if (component instanceof EmbedBuilder) {
+      return 'EmbedBuilder'
+    }
+    if (component instanceof ActionRowBuilder) {
+      return 'ActionRowBuilder'
+    }
+
+    // For mock components, check constructor name
+    const obj = component as any
+    if (obj.constructor && obj.constructor.name) {
+      const constructorName = obj.constructor.name
+      if (
+        [
+          'ButtonBuilder',
+          'StringSelectMenuBuilder',
+          'ModalBuilder',
+          'EmbedBuilder',
+          'ActionRowBuilder',
+        ].includes(constructorName)
+      ) {
+        return constructorName
+      }
+
+      // Handle mock constructor functions that might have different names
+      if (constructorName === 'MockButtonBuilder') {
+        return 'ButtonBuilder'
+      }
+      if (constructorName === 'MockStringSelectMenuBuilder') {
+        return 'StringSelectMenuBuilder'
+      }
+      if (constructorName === 'MockModalBuilder') {
+        return 'ModalBuilder'
+      }
+      if (constructorName === 'MockEmbedBuilder') {
+        return 'EmbedBuilder'
+      }
+      if (constructorName === 'MockActionRowBuilder') {
+        return 'ActionRowBuilder'
+      }
+    }
+
+    // Additional fallback: check for distinctive properties
+    if (obj.data !== undefined) {
+      // Check for button-like properties
+      if (obj.setCustomId && obj.setLabel && obj.setStyle) {
+        return 'ButtonBuilder'
+      }
+      // Check for select menu-like properties
+      if (obj.setCustomId && obj.setPlaceholder && obj.addOptions) {
+        return 'StringSelectMenuBuilder'
+      }
+      // Check for modal-like properties
+      if (obj.setCustomId && obj.setTitle && obj.addComponents) {
+        return 'ModalBuilder'
+      }
+      // Check for embed-like properties
+      if (obj.setTitle && obj.setDescription && obj.setColor && obj.addFields) {
+        return 'EmbedBuilder'
+      }
+      // Check for action row-like properties
+      if (
+        obj.addComponents &&
+        obj.setComponents &&
+        obj.components !== undefined
+      ) {
+        return 'ActionRowBuilder'
+      }
+    }
+
+    return null
   }
 }

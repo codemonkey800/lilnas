@@ -16,7 +16,7 @@ jest.mock('discord.js', () => ({
     setEmoji: jest.fn().mockReturnThis(),
     setURL: jest.fn().mockReturnThis(),
     setDisabled: jest.fn().mockReturnThis(),
-    data: {} as any,
+    data: {},
   })),
   ButtonStyle: {
     Primary: 1,
@@ -636,7 +636,8 @@ describe('ButtonBuilderService', () => {
       })
 
       // Verify it's a copy and not the original
-      ;(constraints as any).maxButtonsPerRow = 10
+      const mutableConstraints = constraints as any
+      mutableConstraints.maxButtonsPerRow = 10
       expect(service.getConstraints().maxButtonsPerRow).toBe(5)
     })
   })

@@ -1,6 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common'
 
 import {
+  createOperationName,
+  isOperationName,
+  OperationName,
+} from 'src/types/branded'
+
+import {
   ErrorCategory,
   ErrorClassificationService,
   ErrorSeverity,
@@ -29,16 +35,30 @@ export interface RetryResult<T> {
   totalTime: number
 }
 
-export interface CircuitBreakerState {
-  failures: number
-  lastFailureTime: number
-  state: 'closed' | 'open' | 'half-open'
+/**
+ * Type constraint for operations that can be retried
+ */
+export type RetryableOperation<T> = () => Promise<T>
+
+/**
+ * Base interface for operations that provide context
+ */
+export interface OperationContext {
+  operationName: OperationName
+  category: ErrorCategory
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * Enhanced retry result with context
+ */
+export interface RetryResultWithContext<T> extends RetryResult<T> {
+  context: OperationContext
 }
 
 @Injectable()
 export class RetryService {
   private readonly logger = new Logger(RetryService.name)
-  private circuitBreakers = new Map<string, CircuitBreakerState>()
 
   constructor(private readonly errorClassifier: ErrorClassificationService) {}
 
@@ -59,13 +79,23 @@ export class RetryService {
 
   /**
    * Execute an async operation with retry logic and exponential backoff
+   * @template T - The return type of the operation
+   * @param operation - The async operation to execute with retry
+   * @param config - Partial retry configuration to override defaults
+   * @param operationName - Branded operation name for logging and identification
+   * @param errorCategory - Category for error classification
+   * @returns Promise that resolves to the operation result
    */
   async executeWithRetry<T>(
-    operation: () => Promise<T>,
+    operation: RetryableOperation<T>,
     config: Partial<RetryConfig> = {},
-    operationName = 'unknown',
+    operationName: OperationName | string = 'unknown',
     errorCategory: ErrorCategory = ErrorCategory.SYSTEM,
   ): Promise<T> {
+    // Ensure operationName is branded
+    const brandedOperationName = isOperationName(operationName)
+      ? operationName
+      : createOperationName(operationName as string)
     const finalConfig = { ...this.defaultConfig, ...config }
     const startTime = Date.now()
     let lastError: Error = new Error('Unknown error')
@@ -74,9 +104,9 @@ export class RetryService {
       try {
         if (finalConfig.logRetryAttempts) {
           this.logger.debug(
-            `Executing ${operationName} - attempt ${attempt}/${finalConfig.maxAttempts}`,
+            `Executing ${brandedOperationName} - attempt ${attempt}/${finalConfig.maxAttempts}`,
             {
-              operationName,
+              operationName: brandedOperationName,
               attempt,
               maxAttempts: finalConfig.maxAttempts,
               category: errorCategory,
@@ -92,9 +122,9 @@ export class RetryService {
         if (attempt > 1 && finalConfig.logSuccessfulRetries) {
           const totalTime = Date.now() - startTime
           this.logger.log(
-            `${operationName} succeeded after ${attempt} attempts in ${totalTime}ms`,
+            `${brandedOperationName} succeeded after ${attempt} attempts in ${totalTime}ms`,
             {
-              operationName,
+              operationName: brandedOperationName,
               attempt,
               totalTime,
               category: errorCategory,
@@ -120,7 +150,7 @@ export class RetryService {
 
         if (shouldLogError) {
           const logData = {
-            operationName,
+            operationName: brandedOperationName,
             attempt,
             maxAttempts: finalConfig.maxAttempts,
             category: errorCategory,
@@ -137,7 +167,7 @@ export class RetryService {
           }
 
           this.logger.warn(
-            `${operationName} failed on attempt ${attempt}/${finalConfig.maxAttempts}`,
+            `${brandedOperationName} failed on attempt ${attempt}/${finalConfig.maxAttempts}`,
             logData,
           )
         }
@@ -150,7 +180,7 @@ export class RetryService {
             this.logger.debug(
               `Waiting ${delay}ms before retry attempt ${attempt + 1}`,
               {
-                operationName,
+                operationName: brandedOperationName,
                 nextAttempt: attempt + 1,
                 delay,
                 category: errorCategory,
@@ -172,7 +202,7 @@ export class RetryService {
       )
 
       const logData = {
-        operationName,
+        operationName: brandedOperationName,
         attempts: finalConfig.maxAttempts,
         totalTime,
         category: errorCategory,
@@ -189,77 +219,12 @@ export class RetryService {
       }
 
       this.logger.error(
-        `${operationName} failed after ${finalConfig.maxAttempts} attempts in ${totalTime}ms`,
+        `${brandedOperationName} failed after ${finalConfig.maxAttempts} attempts in ${totalTime}ms`,
         logData,
       )
     }
 
     throw lastError
-  }
-
-  /**
-   * Execute operation with circuit breaker pattern
-   */
-  async executeWithCircuitBreaker<T>(
-    operation: () => Promise<T>,
-    circuitBreakerKey: string,
-    config: Partial<RetryConfig> = {},
-    operationName = 'unknown',
-    errorCategory: ErrorCategory = ErrorCategory.SYSTEM,
-  ): Promise<T> {
-    const circuitState = this.getCircuitBreakerState(circuitBreakerKey)
-
-    // Check if circuit is open
-    if (circuitState.state === 'open') {
-      const timeSinceLastFailure = Date.now() - circuitState.lastFailureTime
-      const resetTimeout = 30000 // 30 seconds
-
-      if (timeSinceLastFailure < resetTimeout) {
-        throw new Error(
-          `Circuit breaker is open for ${circuitBreakerKey}. Try again later.`,
-        )
-      }
-
-      // Move to half-open state
-      circuitState.state = 'half-open'
-      this.logger.log(
-        `Circuit breaker ${circuitBreakerKey} moved to half-open state`,
-      )
-    }
-
-    try {
-      const result = await this.executeWithRetry(
-        operation,
-        config,
-        operationName,
-        errorCategory,
-      )
-
-      // Success - reset circuit breaker
-      if (circuitState.state === 'half-open') {
-        circuitState.state = 'closed'
-        circuitState.failures = 0
-        this.logger.log(
-          `Circuit breaker ${circuitBreakerKey} closed after successful operation`,
-        )
-      }
-
-      return result
-    } catch (error) {
-      // Failure - update circuit breaker
-      circuitState.failures++
-      circuitState.lastFailureTime = Date.now()
-
-      const failureThreshold = 5
-      if (circuitState.failures >= failureThreshold) {
-        circuitState.state = 'open'
-        this.logger.warn(
-          `Circuit breaker ${circuitBreakerKey} opened after ${circuitState.failures} failures`,
-        )
-      }
-
-      throw error
-    }
   }
 
   /**
@@ -318,41 +283,25 @@ export class RetryService {
       return operation()
     }
 
+    let timeoutHandle: NodeJS.Timeout | null = null
+
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
+      timeoutHandle = setTimeout(() => {
         reject(new Error(`Operation timed out after ${timeout}ms`))
       }, timeout)
     })
 
-    return Promise.race([operation(), timeoutPromise])
-  }
-
-  /**
-   * Get or create circuit breaker state
-   */
-  private getCircuitBreakerState(key: string): CircuitBreakerState {
-    if (!this.circuitBreakers.has(key)) {
-      this.circuitBreakers.set(key, {
-        failures: 0,
-        lastFailureTime: 0,
-        state: 'closed',
-      })
+    try {
+      const result = await Promise.race([operation(), timeoutPromise])
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle)
+      }
+      return result
+    } catch (error) {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle)
+      }
+      throw error
     }
-    return this.circuitBreakers.get(key)!
-  }
-
-  /**
-   * Reset circuit breaker state
-   */
-  resetCircuitBreaker(key: string): void {
-    this.circuitBreakers.delete(key)
-    this.logger.log(`Circuit breaker ${key} reset`)
-  }
-
-  /**
-   * Get circuit breaker status
-   */
-  getCircuitBreakerStatus(key: string): CircuitBreakerState | undefined {
-    return this.circuitBreakers.get(key)
   }
 }

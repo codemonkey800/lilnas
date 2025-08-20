@@ -218,7 +218,10 @@ export interface EpisodeRange {
   episodeEnd: number
 }
 
-export interface SearchResult<T = MovieSearchResult | SeriesSearchResult> {
+/**
+ * Base interface for search results with discriminated union support
+ */
+export interface BaseSearchResult {
   title: string
   overview?: string
   year?: number
@@ -230,8 +233,27 @@ export interface SearchResult<T = MovieSearchResult | SeriesSearchResult> {
   hasFile?: boolean
   inLibrary?: boolean
   folder?: string
+}
+
+/**
+ * Generic search result with proper discriminated union constraint
+ */
+export interface SearchResult<
+  T extends MovieSearchResult | SeriesSearchResult =
+    | MovieSearchResult
+    | SeriesSearchResult,
+> extends BaseSearchResult {
   data: T
 }
+
+/**
+ * Discriminated search results for type safety
+ */
+export type MovieSearchResultContainer = SearchResult<MovieSearchResult>
+export type SeriesSearchResultContainer = SearchResult<SeriesSearchResult>
+export type MediaSearchResult =
+  | MovieSearchResultContainer
+  | SeriesSearchResultContainer
 
 export interface MovieSearchResult {
   title: string
@@ -614,3 +636,167 @@ export interface EmbySearchHint {
   SeriesThumbImageItemId?: string
   ImageTags?: { [key: string]: string }
 }
+
+// ============================================================================
+// Advanced Type Patterns and Utilities
+// ============================================================================
+
+/**
+ * Conditional type to extract media type from MediaItem
+ */
+export type ExtractMediaType<T> = T extends MovieItem
+  ? MediaType.MOVIE
+  : T extends SeriesItem
+    ? MediaType.SERIES
+    : never
+
+/**
+ * Conditional type to get appropriate search result type based on media type
+ */
+export type SearchResultForMediaType<T extends MediaType> =
+  T extends MediaType.MOVIE
+    ? MovieSearchResult
+    : T extends MediaType.SERIES
+      ? SeriesSearchResult
+      : never
+
+/**
+ * Conditional type to get appropriate media item type based on media type
+ */
+export type MediaItemForType<T extends MediaType> = T extends MediaType.MOVIE
+  ? MovieItem
+  : T extends MediaType.SERIES
+    ? SeriesItem
+    : never
+
+/**
+ * Mapped type to make all properties of a media item readonly except specified ones
+ */
+export type ReadonlyExcept<T, K extends keyof T> = Readonly<Omit<T, K>> &
+  Pick<T, K>
+
+/**
+ * Utility type to extract the ID type from a media item
+ */
+export type MediaItemId<T extends MediaItem> = T['id']
+
+/**
+ * Utility type to extract required fields from a media item
+ */
+export type RequiredFields<T> = {
+  [K in keyof T]-?: T[K]
+}
+
+/**
+ * Utility type to make certain fields optional in a media item
+ */
+export type PartialFields<T, K extends keyof T> = Omit<T, K> &
+  Partial<Pick<T, K>>
+
+/**
+ * Branded type for media request correlation IDs
+ */
+export type MediaRequestId = string & { readonly __brand: 'MediaRequestId' }
+
+/**
+ * Enhanced media request with discriminated union support
+ */
+export interface TypedMediaRequest<T extends MediaType>
+  extends Omit<MediaRequest, 'type'> {
+  type: T
+  searchData?: SearchResultForMediaType<T>
+}
+
+/**
+ * Discriminated union for typed media requests
+ */
+export type MovieRequest = TypedMediaRequest<MediaType.MOVIE>
+export type SeriesRequest = TypedMediaRequest<MediaType.SERIES>
+export type AnyMediaRequest = MovieRequest | SeriesRequest
+
+/**
+ * Utility type to check if a type has a specific discriminant
+ */
+export type HasDiscriminant<T, K extends keyof T, V> = T[K] extends V
+  ? T
+  : never
+
+/**
+ * Filter media items by type using discriminated unions
+ */
+export type FilterMediaItemsByType<
+  T extends MediaItem[],
+  MediaT extends MediaType,
+> = {
+  [K in keyof T]: T[K] extends MediaItemForType<MediaT> ? T[K] : never
+}[number][]
+
+/**
+ * Utility type for API responses with proper error union
+ */
+export type ApiResponse<T> =
+  | { success: true; data: T; error?: never }
+  | { success: false; data?: never; error: string }
+
+/**
+ * Utility type for paginated API responses
+ */
+export interface PaginatedApiResponse<T> {
+  items: T[]
+  totalRecords: number
+  page: number
+  pageSize: number
+  totalPages: number
+}
+
+/**
+ * Utility type for media API endpoints with proper typing
+ */
+export interface MediaApiEndpoints {
+  readonly search: string
+  readonly add: string
+  readonly status: string
+  readonly queue: string
+  readonly system: string
+  readonly rootFolders: string
+  readonly qualityProfiles: string
+  readonly tags: string
+}
+
+/**
+ * Conditional type for file information based on media type
+ */
+export type FileInfoForMediaType<T extends MediaType> =
+  T extends MediaType.MOVIE
+    ? MovieFile
+    : T extends MediaType.SERIES
+      ? EpisodeFile
+      : never
+
+/**
+ * Union type for all possible media file types
+ */
+export type AnyMediaFile = MovieFile | EpisodeFile
+
+/**
+ * Utility type to extract common properties from media items
+ */
+export type CommonMediaProperties = Pick<
+  MediaItem,
+  | 'id'
+  | 'title'
+  | 'overview'
+  | 'year'
+  | 'status'
+  | 'monitored'
+  | 'added'
+  | 'qualityProfileId'
+>
+
+/**
+ * Type-safe factory function signature for creating media items
+ */
+export type MediaItemFactory<T extends MediaType> = (
+  data: Partial<MediaItemForType<T>> &
+    Pick<MediaItemForType<T>, 'id' | 'title' | 'type'>,
+) => MediaItemForType<T>

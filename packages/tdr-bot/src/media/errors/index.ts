@@ -1,6 +1,6 @@
 /**
  * Media Error Handling - Index
- * 
+ *
  * Centralized exports for all media error types and utilities.
  * This provides a single import point for consistent error handling
  * across the media module.
@@ -8,32 +8,28 @@
 
 // Core error types
 export {
-  MediaError,
-  ComponentStateError,
-  ComponentStateNotFoundError,
-  ComponentStateInactiveError,
+  CleanupError,
+  ComponentCreationError,
   ComponentLimitExceededError,
+  ComponentStateError,
+  ComponentStateInactiveError,
+  ComponentStateNotFoundError,
   ComponentTransitionError,
   ComponentValidationError,
-  ComponentCreationError,
   DiscordInteractionError,
-  DiscordRateLimitError,
   DiscordPermissionError,
-  MediaServiceError,
-  MediaNotFoundError,
-  MediaLoggingError,
-  TimeoutError,
-  CleanupError,
-  MediaHttpException,
+  DiscordRateLimitError,
+  MediaError,
   MediaErrorFactory,
+  MediaHttpException,
+  MediaLoggingError,
+  MediaNotFoundError,
+  MediaServiceError,
+  TimeoutError,
 } from './media-errors'
 
 // Error handling utilities
-export {
-  MediaErrorHandler,
-  isMediaError,
-  isErrorResult,
-} from './error-utils'
+export { isErrorResult, isMediaError, MediaErrorHandler } from './error-utils'
 
 // Error handling types
 export type {
@@ -44,11 +40,11 @@ export type {
 
 // Type guards and utility functions
 import {
-  MediaError,
   ComponentStateError,
   ComponentValidationError,
   DiscordInteractionError,
   DiscordRateLimitError,
+  MediaError,
   TimeoutError,
 } from './media-errors'
 
@@ -85,8 +81,10 @@ export const MediaErrors = {
       return true
     }
     if (error instanceof MediaError) {
-      return error.message.toLowerCase().includes('temporary') ||
-             error.message.toLowerCase().includes('retry')
+      return (
+        error.message.toLowerCase().includes('temporary') ||
+        error.message.toLowerCase().includes('retry')
+      )
     }
     return false
   },
@@ -115,7 +113,8 @@ export const MediaErrors = {
       return error.correlationId
     }
     if (error && typeof error === 'object' && 'correlationId' in error) {
-      return (error as any).correlationId
+      const errorWithCorrelation = error as { correlationId: string }
+      return errorWithCorrelation.correlationId
     }
     return undefined
   },

@@ -12,9 +12,9 @@ import {
   ComponentLifecycleState,
 } from 'src/media/component-config'
 import {
-  ComponentStateNotFoundError,
-  ComponentStateInactiveError,
   ComponentLimitExceededError,
+  ComponentStateInactiveError,
+  ComponentStateNotFoundError,
 } from 'src/media/errors/media-errors'
 import { ComponentStateService } from 'src/media/services/component-state.service'
 import {
@@ -255,11 +255,7 @@ describe('ComponentStateService', () => {
       }
 
       await expect(
-        service.updateComponentState(
-          state.id,
-          updateData,
-          state.correlationId,
-        )
+        service.updateComponentState(state.id, updateData, state.correlationId),
       ).resolves.toBeUndefined()
 
       expect(state.data).toMatchObject(updateData)
@@ -277,7 +273,7 @@ describe('ComponentStateService', () => {
           state.id,
           { currentPage: 2 },
           state.correlationId,
-        )
+        ),
       ).rejects.toThrow(ComponentStateInactiveError)
 
       expect(state.interactionCount).toBe(0) // Should not increment
@@ -287,7 +283,7 @@ describe('ComponentStateService', () => {
       await expect(
         service.updateComponentState('non-existent-id', {
           currentPage: 2,
-        })
+        }),
       ).rejects.toThrow(ComponentStateNotFoundError)
     })
 
@@ -297,7 +293,7 @@ describe('ComponentStateService', () => {
         service.updateComponentState(state.id, {
           currentPage: 1,
           totalPages: 5,
-        })
+        }),
       ).resolves.toBeUndefined()
 
       // Update with additional data
@@ -305,7 +301,7 @@ describe('ComponentStateService', () => {
         service.updateComponentState(state.id, {
           currentPage: 2,
           searchTerm: 'test query',
-        })
+        }),
       ).resolves.toBeUndefined()
 
       expect(state.data).toMatchObject({
@@ -650,9 +646,7 @@ describe('ComponentStateService', () => {
   })
 
   describe('Lifecycle Timeout Management', () => {
-    it.skip('should schedule warning timeout', async () => {
-      // TODO: Fix async setTimeout testing with Jest fake timers
-      // This test is skipped because Jest's fake timers don't handle async setTimeout callbacks well
+    it('should schedule warning timeout', async () => {
       const state = await service.createComponentState(
         mockMessage,
         mockCorrelationContext,
@@ -662,11 +656,14 @@ describe('ComponentStateService', () => {
         state.expiresAt.getTime() - COMPONENT_CONFIG.WARNING_OFFSET_MS
       const warningDelay = warningTime - Date.now()
 
-      // Fast forward to warning time
-      jest.advanceTimersByTime(warningDelay)
-      
-      // Wait for async operations to complete
-      await new Promise(resolve => process.nextTick(resolve))
+      // Ensure we have a valid warning delay
+      expect(warningDelay).toBeGreaterThan(0)
+
+      // Clear any previous emit calls
+      mockEventEmitter.emit.mockClear()
+
+      // Fast forward to warning time using async advancement
+      await jest.advanceTimersByTimeAsync(warningDelay)
 
       expect(state.state).toBe(ComponentLifecycleState.WARNING)
       expect(mockEventEmitter.emit).toHaveBeenCalledWith(
@@ -700,9 +697,7 @@ describe('ComponentStateService', () => {
       )
     })
 
-    it.skip('should schedule expiration timeout', async () => {
-      // TODO: Fix async setTimeout testing with Jest fake timers
-      // This test is skipped because Jest's fake timers don't handle async setTimeout callbacks well
+    it('should schedule expiration timeout', async () => {
       const state = await service.createComponentState(
         mockMessage,
         mockCorrelationContext,
@@ -710,13 +705,24 @@ describe('ComponentStateService', () => {
 
       const expirationDelay = state.expiresAt.getTime() - Date.now()
 
-      // Fast forward to expiration
-      jest.advanceTimersByTime(expirationDelay)
-      
-      // Wait for async operations to complete
-      await new Promise(resolve => process.nextTick(resolve))
+      // Ensure we have a valid expiration delay
+      expect(expirationDelay).toBeGreaterThan(0)
+
+      // Clear any previous emit calls to focus on expiration events
+      mockEventEmitter.emit.mockClear()
+
+      // Fast forward to expiration using async advancement
+      await jest.advanceTimersByTimeAsync(expirationDelay)
 
       expect(state.state).toBe(ComponentLifecycleState.CLEANED)
+      expect(mockEventEmitter.emit).toHaveBeenCalledWith(
+        EventType.COMPONENT_EXPIRED,
+        expect.objectContaining({
+          stateId: state.id,
+          correlationId: state.correlationId,
+          reason: 'timeout',
+        }),
+      )
     })
 
     it('should not expire inactive state', async () => {
@@ -797,12 +803,14 @@ describe('ComponentStateService', () => {
         .mockRejectedValue(new Error('Cleanup failed'))
       state.cleanup = customCleanup
 
+      // Should not throw - custom cleanup errors are logged but don't fail the cleanup
       await expect(
         service.cleanupComponent(state.id, 'manual', state.correlationId),
-      ).rejects.toThrow('Cleanup failed')
+      ).resolves.not.toThrow()
 
       // State should still be marked as cleaned even if custom cleanup fails
       expect(state.state).toBe(ComponentLifecycleState.CLEANED)
+      expect(customCleanup).toHaveBeenCalled()
     })
 
     it('should not stop already ended collector', async () => {
@@ -914,9 +922,10 @@ describe('ComponentStateService', () => {
 
       const result = await service.performCleanup('timeout')
 
-      expect(result.cleanedComponents).toBe(0)
-      expect(result.errors).toHaveLength(1)
-      expect(result.errors[0]).toContain('Cleanup failed')
+      // Component should be cleaned successfully even with custom cleanup failure
+      expect(result.cleanedComponents).toBe(1)
+      expect(result.errors).toHaveLength(0)
+      // Custom cleanup errors are logged but don't fail the cleanup
     })
 
     it('should not emit event for no-op cleanup', async () => {
@@ -930,16 +939,23 @@ describe('ComponentStateService', () => {
       )
     })
 
-    it.skip('should use automatic cleanup interval', async () => {
-      // TODO: Fix async setInterval testing with Jest fake timers
-      // This test is skipped because Jest's fake timers don't handle async setInterval callbacks well
-      
-      // Restore original setInterval behavior for this test
+    it('should use automatic cleanup interval', async () => {
+      // Restore original setInterval behavior and setup fresh timers
       jest.restoreAllMocks()
       jest.useFakeTimers()
 
-      // Create new service instance to trigger interval setup
-      const module = await createTestingModule([ComponentStateService])
+      // Create new service instance to trigger interval setup with fresh mocks
+      const freshMockEventEmitter = {
+        emit: jest.fn(),
+      } as unknown as jest.Mocked<EventEmitter2>
+
+      const module = await createTestingModule([
+        ComponentStateService,
+        {
+          provide: EventEmitter2,
+          useValue: freshMockEventEmitter,
+        },
+      ])
       const intervalService = module.get<ComponentStateService>(
         ComponentStateService,
       )
@@ -950,15 +966,19 @@ describe('ComponentStateService', () => {
       )
 
       // Use atomic state transition to mark as expired
-      const atomicStateTransition = (intervalService as any).atomicStateTransition.bind(intervalService)
+      const atomicStateTransition = wrapAtomicStateTransition(
+        intervalService as any,
+      )
       await atomicStateTransition(state.id, ComponentLifecycleState.EXPIRED)
 
-      // Fast forward cleanup interval
-      jest.advanceTimersByTime(COMPONENT_CONFIG.CLEANUP_INTERVAL_MS)
-      
-      // Wait for async operations to complete
-      await new Promise(resolve => process.nextTick(resolve))
+      // Verify state is marked as expired
+      expect(state.state).toBe(ComponentLifecycleState.EXPIRED)
+      expect(intervalService.getComponentState(state.id)).toBeDefined()
 
+      // Fast forward cleanup interval using async advancement
+      await jest.advanceTimersByTimeAsync(COMPONENT_CONFIG.CLEANUP_INTERVAL_MS)
+
+      // State should now be cleaned up
       expect(intervalService.getComponentState(state.id)).toBeUndefined()
 
       await intervalService.onModuleDestroy()
@@ -1053,6 +1073,37 @@ describe('ComponentStateService', () => {
     })
   })
 
+  // Helper function to wrap atomicStateTransition with legacy test API
+  const wrapAtomicStateTransition = (service: any) => {
+    return async (
+      stateId: string,
+      targetState: any,
+      reason?: string,
+      correlationId?: string,
+    ) => {
+      try {
+        const result = await service.atomicStateTransition(
+          stateId,
+          targetState,
+          reason,
+          correlationId,
+        )
+        return {
+          success: true,
+          previousState: result.previousState,
+          state: result.state,
+        }
+      } catch (error) {
+        return {
+          success: false,
+          previousState: undefined,
+          state: undefined,
+          error,
+        }
+      }
+    }
+  }
+
   describe('Atomic State Transitions', () => {
     let state: ComponentState
 
@@ -1065,8 +1116,8 @@ describe('ComponentStateService', () => {
 
     it('should transition state atomically using private method', async () => {
       // Access private method for testing
-      const atomicStateTransition = (service as any).atomicStateTransition.bind(service)
-      
+      const atomicStateTransition = wrapAtomicStateTransition(service as any)
+
       const result = await atomicStateTransition(
         state.id,
         ComponentLifecycleState.WARNING,
@@ -1080,7 +1131,7 @@ describe('ComponentStateService', () => {
 
     it('should reject invalid state transitions', async () => {
       // Transition to WARNING first
-      const atomicStateTransition = (service as any).atomicStateTransition.bind(service)
+      const atomicStateTransition = wrapAtomicStateTransition(service as any)
       await atomicStateTransition(state.id, ComponentLifecycleState.WARNING)
 
       // Try invalid transition from WARNING back to ACTIVE (should fail)
@@ -1094,8 +1145,8 @@ describe('ComponentStateService', () => {
     })
 
     it('should handle concurrent state transition attempts', async () => {
-      const atomicStateTransition = (service as any).atomicStateTransition.bind(service)
-      
+      const atomicStateTransition = wrapAtomicStateTransition(service as any)
+
       // Start multiple concurrent transitions to different states
       const transitions = [
         atomicStateTransition(state.id, ComponentLifecycleState.WARNING),
@@ -1107,7 +1158,7 @@ describe('ComponentStateService', () => {
 
       // Due to the state machine, the transitions will happen sequentially:
       // ACTIVE -> WARNING (succeeds)
-      // WARNING -> EXPIRED (succeeds) 
+      // WARNING -> EXPIRED (succeeds)
       // EXPIRED -> CLEANED (succeeds)
       // All are valid transitions, but they happen in sequence due to mutex
       const successfulTransitions = results.filter(r => r.success)
@@ -1118,28 +1169,90 @@ describe('ComponentStateService', () => {
     })
 
     it('should validate all possible state transitions', () => {
-      const isValidStateTransition = (service as any).isValidStateTransition.bind(service)
+      const isValidStateTransition = (
+        service as any
+      ).isValidStateTransition.bind(service)
 
       // Valid transitions
-      expect(isValidStateTransition(ComponentLifecycleState.ACTIVE, ComponentLifecycleState.WARNING)).toBe(true)
-      expect(isValidStateTransition(ComponentLifecycleState.ACTIVE, ComponentLifecycleState.EXPIRED)).toBe(true)
-      expect(isValidStateTransition(ComponentLifecycleState.ACTIVE, ComponentLifecycleState.CLEANED)).toBe(true)
-      expect(isValidStateTransition(ComponentLifecycleState.WARNING, ComponentLifecycleState.EXPIRED)).toBe(true)
-      expect(isValidStateTransition(ComponentLifecycleState.WARNING, ComponentLifecycleState.CLEANED)).toBe(true)
-      expect(isValidStateTransition(ComponentLifecycleState.EXPIRED, ComponentLifecycleState.CLEANED)).toBe(true)
+      expect(
+        isValidStateTransition(
+          ComponentLifecycleState.ACTIVE,
+          ComponentLifecycleState.WARNING,
+        ),
+      ).toBe(true)
+      expect(
+        isValidStateTransition(
+          ComponentLifecycleState.ACTIVE,
+          ComponentLifecycleState.EXPIRED,
+        ),
+      ).toBe(true)
+      expect(
+        isValidStateTransition(
+          ComponentLifecycleState.ACTIVE,
+          ComponentLifecycleState.CLEANED,
+        ),
+      ).toBe(true)
+      expect(
+        isValidStateTransition(
+          ComponentLifecycleState.WARNING,
+          ComponentLifecycleState.EXPIRED,
+        ),
+      ).toBe(true)
+      expect(
+        isValidStateTransition(
+          ComponentLifecycleState.WARNING,
+          ComponentLifecycleState.CLEANED,
+        ),
+      ).toBe(true)
+      expect(
+        isValidStateTransition(
+          ComponentLifecycleState.EXPIRED,
+          ComponentLifecycleState.CLEANED,
+        ),
+      ).toBe(true)
 
       // Invalid transitions
-      expect(isValidStateTransition(ComponentLifecycleState.WARNING, ComponentLifecycleState.ACTIVE)).toBe(false)
-      expect(isValidStateTransition(ComponentLifecycleState.EXPIRED, ComponentLifecycleState.ACTIVE)).toBe(false)
-      expect(isValidStateTransition(ComponentLifecycleState.EXPIRED, ComponentLifecycleState.WARNING)).toBe(false)
-      expect(isValidStateTransition(ComponentLifecycleState.CLEANED, ComponentLifecycleState.ACTIVE)).toBe(false)
-      expect(isValidStateTransition(ComponentLifecycleState.CLEANED, ComponentLifecycleState.WARNING)).toBe(false)
-      expect(isValidStateTransition(ComponentLifecycleState.CLEANED, ComponentLifecycleState.EXPIRED)).toBe(false)
+      expect(
+        isValidStateTransition(
+          ComponentLifecycleState.WARNING,
+          ComponentLifecycleState.ACTIVE,
+        ),
+      ).toBe(false)
+      expect(
+        isValidStateTransition(
+          ComponentLifecycleState.EXPIRED,
+          ComponentLifecycleState.ACTIVE,
+        ),
+      ).toBe(false)
+      expect(
+        isValidStateTransition(
+          ComponentLifecycleState.EXPIRED,
+          ComponentLifecycleState.WARNING,
+        ),
+      ).toBe(false)
+      expect(
+        isValidStateTransition(
+          ComponentLifecycleState.CLEANED,
+          ComponentLifecycleState.ACTIVE,
+        ),
+      ).toBe(false)
+      expect(
+        isValidStateTransition(
+          ComponentLifecycleState.CLEANED,
+          ComponentLifecycleState.WARNING,
+        ),
+      ).toBe(false)
+      expect(
+        isValidStateTransition(
+          ComponentLifecycleState.CLEANED,
+          ComponentLifecycleState.EXPIRED,
+        ),
+      ).toBe(false)
     })
 
     it('should return failure for non-existent state ID', async () => {
-      const atomicStateTransition = (service as any).atomicStateTransition.bind(service)
-      
+      const atomicStateTransition = wrapAtomicStateTransition(service as any)
+
       const result = await atomicStateTransition(
         'non-existent-id',
         ComponentLifecycleState.CLEANED,
@@ -1168,10 +1281,10 @@ describe('ComponentStateService', () => {
 
     it('should clean up state mutex after cleanup', async () => {
       const stateMutexes = (service as any).stateMutexes
-      
+
       // Verify mutex exists for the state
       expect(stateMutexes.has(state.id)).toBe(false) // Not created yet
-      
+
       // Trigger mutex creation by accessing it
       const getStateMutex = (service as any).getStateMutex.bind(service)
       getStateMutex(state.id)
@@ -1205,7 +1318,11 @@ describe('ComponentStateService', () => {
       const cleanupPromises = []
       for (let i = 0; i < 5; i++) {
         cleanupPromises.push(
-          service.cleanupComponent(states[0].id, 'manual', states[0].correlationId)
+          service.cleanupComponent(
+            states[0].id,
+            'manual',
+            states[0].correlationId,
+          ),
         )
       }
 
@@ -1224,8 +1341,8 @@ describe('ComponentStateService', () => {
       )
 
       // Simulate concurrent timeout expiration and manual cleanup
-      const atomicStateTransition = (service as any).atomicStateTransition.bind(service)
-      
+      const atomicStateTransition = wrapAtomicStateTransition(service as any)
+
       const expiredTransitionPromise = atomicStateTransition(
         state.id,
         ComponentLifecycleState.EXPIRED,
@@ -1257,11 +1374,7 @@ describe('ComponentStateService', () => {
       )
 
       // Clean up the component before the warning timeout fires
-      await service.cleanupComponent(
-        state.id,
-        'manual',
-        state.correlationId,
-      )
+      await service.cleanupComponent(state.id, 'manual', state.correlationId)
 
       // Fast forward to when the warning would have been triggered
       jest.advanceTimersByTime(COMPONENT_CONFIG.WARNING_OFFSET_MS)
@@ -1272,7 +1385,7 @@ describe('ComponentStateService', () => {
 
       // Warning event should not be emitted since state transition will fail
       const warningCalls = mockEventEmitter.emit.mock.calls.filter(
-        call => call[0] === 'component.timeout.warning'
+        call => call[0] === 'component.timeout.warning',
       )
       expect(warningCalls.length).toBe(0)
 
@@ -1285,26 +1398,46 @@ describe('ComponentStateService', () => {
         mockCorrelationContext,
       )
 
-      const atomicStateTransition = (service as any).atomicStateTransition.bind(service)
+      const atomicStateTransition = wrapAtomicStateTransition(service as any)
 
       // Start multiple identical state transitions concurrently
       const transitionPromises = [
-        atomicStateTransition(state.id, ComponentLifecycleState.WARNING, 'test1'),
-        atomicStateTransition(state.id, ComponentLifecycleState.WARNING, 'test2'),
-        atomicStateTransition(state.id, ComponentLifecycleState.WARNING, 'test3'),
+        atomicStateTransition(
+          state.id,
+          ComponentLifecycleState.WARNING,
+          'test1',
+        ),
+        atomicStateTransition(
+          state.id,
+          ComponentLifecycleState.WARNING,
+          'test2',
+        ),
+        atomicStateTransition(
+          state.id,
+          ComponentLifecycleState.WARNING,
+          'test3',
+        ),
       ]
 
       const results = await Promise.all(transitionPromises)
 
-      // First transition succeeds, others fail because state is already WARNING
+      // All transitions succeed - first one changes state, others are no-ops
       const successCount = results.filter(r => r.success).length
-      expect(successCount).toBe(1)
+      expect(successCount).toBe(3)
       expect(state.state).toBe(ComponentLifecycleState.WARNING)
 
       // Now try transitioning to different states concurrently from WARNING
       const conflictingTransitions = [
-        atomicStateTransition(state.id, ComponentLifecycleState.EXPIRED, 'test4'),
-        atomicStateTransition(state.id, ComponentLifecycleState.CLEANED, 'test5'),
+        atomicStateTransition(
+          state.id,
+          ComponentLifecycleState.EXPIRED,
+          'test4',
+        ),
+        atomicStateTransition(
+          state.id,
+          ComponentLifecycleState.CLEANED,
+          'test5',
+        ),
       ]
 
       const conflictResults = await Promise.all(conflictingTransitions)
@@ -1390,9 +1523,11 @@ describe('ComponentStateService', () => {
         )
       }
 
-      await expect(Promise.all(updatePromises)).resolves.toEqual(
-        [undefined, undefined, undefined]
-      )
+      await expect(Promise.all(updatePromises)).resolves.toEqual([
+        undefined,
+        undefined,
+        undefined,
+      ])
       expect(state.interactionCount).toBe(3)
       expect(state.data).toMatchObject({
         field0: 'value0',
@@ -1413,18 +1548,23 @@ describe('ComponentStateService', () => {
         'manual',
         state.correlationId,
       )
-      
-      // The update might succeed or throw depending on race condition timing
-      const updatePromise = service.updateComponentState(state.id, {
-        searchTerm: 'testValue',
-      } as any).catch((error) => error) // Catch error to prevent unhandled rejection
 
-      const [, updateResult] = await Promise.all([cleanupPromise, updatePromise])
+      // The update might succeed or throw depending on race condition timing
+      const updatePromise = service
+        .updateComponentState(state.id, {
+          searchTerm: 'testValue',
+        } as any)
+        .catch(error => error) // Catch error to prevent unhandled rejection
+
+      const [, updateResult] = await Promise.all([
+        cleanupPromise,
+        updatePromise,
+      ])
 
       // Cleanup should always succeed with atomic transitions
       expect(state.state).toBe(ComponentLifecycleState.CLEANED)
       expect(service.getComponentState(state.id)).toBeUndefined()
-      
+
       // The update could succeed or fail depending on race condition timing
       // Both outcomes are valid with proper atomic state transitions
       if (updateResult === undefined) {
@@ -1534,7 +1674,7 @@ describe('ComponentStateService', () => {
         mockCorrelationContext,
       )
 
-      const result = await service.updateComponentState(state.id, {
+      const result = await service.updateComponentStateLegacy(state.id, {
         searchTerm: 'testValue',
       })
 

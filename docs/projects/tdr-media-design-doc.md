@@ -29,7 +29,7 @@ This document defines the Discord Media Management feature implementation for td
 - **Commands**: Necord Discord slash commands with Discord.js v14 components
 - **Components**: ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ModalBuilder
 - **State**: EventEmitter2-based state management with component collectors
-- **API**: Axios clients with retry/circuit breaker patterns
+- **API**: Axios clients with retry patterns
 - **Testing**: Jest with comprehensive mocking
 
 ### Implementation Approach
@@ -193,12 +193,11 @@ interface MediaService {
 
 ### API Client Architecture
 
-All external API clients inherit from a BaseMediaApiClient that provides standardized retry logic, circuit breaker integration, and error handling patterns. **The architecture leverages existing queue status endpoints to eliminate complex custom progress tracking.**
+All external API clients inherit from a BaseMediaApiClient that provides standardized retry logic and error handling patterns. **The architecture leverages existing queue status endpoints to eliminate complex custom progress tracking.**
 
 **Client Strategy:**
 
 - **Retry Logic**: Exponential backoff with configurable max attempts (typically 3 retries for transient errors)
-- **Circuit Breaker**: Automatic failover when services become unavailable (5 failures trigger open circuit)
 - **Timeout Handling**: Request timeouts with graceful degradation for slow responses
 - **Authentication**: Secure API key management with request signing where required
 - **Queue Status Integration**: Direct consumption of queue APIs for percentage, ETA, speed, and status information
@@ -1255,13 +1254,13 @@ Each error type has specific recovery mechanisms including fallback messages, st
 - All errors include correlation IDs for debugging
 - Fallback mechanisms ensure users always receive feedback
 
-### Circuit Breaker & Resilience (Simplified for Homelab)
+### Error Handling & Resilience
 
-**Simple Failure Detection:**
+**Simple Retry Logic:**
 
-- **Failure Threshold**: Service marked unavailable after 3 consecutive failures
-- **Recovery Time**: Retry after 30 seconds
-- **Service Isolation**: Each external API (Sonarr, Radarr, Emby) tracked independently
+- **Retry Attempts**: 3 attempts with exponential backoff for transient failures
+- **Backoff Strategy**: 1s, 2s, 4s delays with jitter to prevent thundering herd
+- **Service Isolation**: Each external API (Sonarr, Radarr, Emby) handles failures independently
 - **Graceful Degradation**: Continue with available services when others fail
 
 **Fallback Mechanisms:**

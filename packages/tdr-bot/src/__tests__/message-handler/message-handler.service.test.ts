@@ -1,3 +1,5 @@
+import { TestingModule } from '@nestjs/testing'
+
 import {
   createMockMessage,
   createTestingModule,
@@ -10,6 +12,7 @@ import { MessageHandler } from 'src/message-handler/types'
 
 describe('MessageHandlerService', () => {
   let service: MessageHandlerService
+  let module: TestingModule
   let chatService: jest.Mocked<ChatService>
   let keywordsService: jest.Mocked<KeywordsService>
 
@@ -29,7 +32,7 @@ describe('MessageHandlerService', () => {
       getHandlers: jest.fn().mockReturnValue([]),
     } as unknown as jest.Mocked<KeywordsService>
 
-    const module = await createTestingModule([
+    module = await createTestingModule([
       MessageHandlerService,
       {
         provide: ChatService,
@@ -42,6 +45,12 @@ describe('MessageHandlerService', () => {
     ])
 
     service = module.get<MessageHandlerService>(MessageHandlerService)
+  })
+
+  afterEach(async () => {
+    if (module) {
+      await module.close()
+    }
   })
 
   describe('onMessage', () => {

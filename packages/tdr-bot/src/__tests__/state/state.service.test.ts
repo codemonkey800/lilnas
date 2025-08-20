@@ -1,5 +1,6 @@
 import { SystemMessage } from '@langchain/core/messages'
 import { EventEmitter2 } from '@nestjs/event-emitter'
+import { TestingModule } from '@nestjs/testing'
 
 import { createTestingModule } from 'src/__tests__/test-utils'
 import {
@@ -11,6 +12,7 @@ import { TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
 
 describe('StateService', () => {
   let service: StateService
+  let module: TestingModule
   let eventEmitter: jest.Mocked<EventEmitter2>
 
   beforeEach(async () => {
@@ -22,7 +24,7 @@ describe('StateService', () => {
       removeAllListeners: jest.fn(),
     } as unknown as jest.Mocked<EventEmitter2>
 
-    const module = await createTestingModule([
+    module = await createTestingModule([
       StateService,
       {
         provide: EventEmitter2,
@@ -31,6 +33,12 @@ describe('StateService', () => {
     ])
 
     service = module.get<StateService>(StateService)
+  })
+
+  afterEach(async () => {
+    if (module) {
+      await module.close()
+    }
   })
 
   describe('initialization', () => {

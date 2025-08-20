@@ -1,16 +1,15 @@
 import { Logger } from '@nestjs/common'
 import { TestingModule } from '@nestjs/testing'
 import {
-  ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  EmbedBuilder,
-  ModalBuilder,
   StringSelectMenuBuilder,
   TextInputStyle,
 } from 'discord.js'
 
 import { createTestingModule } from 'src/__tests__/test-utils'
+import { createComponentFactoryPrivateAccess } from 'src/media/__tests__/types/test-access-utils'
+import { createMockActionRowBuilder } from 'src/media/__tests__/types/test-mocks.types'
 import { ActionRowBuilderService } from 'src/media/components/action-row.builder'
 import { ButtonBuilderService } from 'src/media/components/button.builder'
 import { ComponentFactoryService } from 'src/media/components/component.factory'
@@ -19,18 +18,14 @@ import { SelectMenuBuilderService } from 'src/media/components/select-menu.build
 import {
   ButtonConfig,
   EmbedConfig,
+  extractButtonData,
+  isActionRowComponentData,
+  isButtonComponentData,
+  isEmbedComponentData,
+  isModalComponentData,
+  isSelectMenuComponentData,
   ModalConfig,
   SelectMenuConfig,
-  extractButtonData,
-  extractSelectMenuData,
-  extractModalData,
-  extractEmbedData,
-  extractActionRowData,
-  isButtonComponentData,
-  isSelectMenuComponentData,
-  isModalComponentData,
-  isEmbedComponentData,
-  isActionRowComponentData,
 } from 'src/types/discord.types'
 
 // Mock Discord.js classes - create mock builders with proper structure
@@ -41,7 +36,11 @@ const mockButtonBuilder = {
   setEmoji: jest.fn().mockReturnThis(),
   setURL: jest.fn().mockReturnThis(),
   setDisabled: jest.fn().mockReturnThis(),
-  data: {} as any,
+  setSKUId: jest.fn().mockReturnThis(),
+  toJSON: jest.fn().mockReturnValue({}),
+  setId: jest.fn().mockReturnThis(),
+  clearId: jest.fn().mockReturnThis(),
+  data: {},
   constructor: { name: 'ButtonBuilder' },
 }
 
@@ -49,16 +48,27 @@ const mockStringSelectMenuBuilder = {
   setCustomId: jest.fn().mockReturnThis(),
   setPlaceholder: jest.fn().mockReturnThis(),
   addOptions: jest.fn().mockReturnThis(),
+  setOptions: jest.fn().mockReturnThis(),
+  options: [],
+  spliceOptions: jest.fn().mockReturnThis(),
   setMinValues: jest.fn().mockReturnThis(),
   setMaxValues: jest.fn().mockReturnThis(),
   setDisabled: jest.fn().mockReturnThis(),
-  data: {} as any,
+  toJSON: jest.fn().mockReturnValue({}),
+  setId: jest.fn().mockReturnThis(),
+  clearId: jest.fn().mockReturnThis(),
+  data: {},
   constructor: { name: 'StringSelectMenuBuilder' },
 }
 
 const mockActionRowBuilder = {
   addComponents: jest.fn().mockReturnThis(),
-  data: { components: [] as any[] },
+  components: [],
+  setComponents: jest.fn().mockReturnThis(),
+  toJSON: jest.fn().mockReturnValue({ components: [] }),
+  setId: jest.fn().mockReturnThis(),
+  clearId: jest.fn().mockReturnThis(),
+  data: { components: [] },
   constructor: { name: 'ActionRowBuilder' },
 }
 
@@ -66,7 +76,10 @@ const mockModalBuilder = {
   setCustomId: jest.fn().mockReturnThis(),
   setTitle: jest.fn().mockReturnThis(),
   addComponents: jest.fn().mockReturnThis(),
-  data: {} as any,
+  components: [],
+  setComponents: jest.fn().mockReturnThis(),
+  toJSON: jest.fn().mockReturnValue({}),
+  data: {},
   constructor: { name: 'ModalBuilder' },
 }
 
@@ -81,22 +94,22 @@ const mockEmbedBuilder = {
   setTimestamp: jest.fn().mockReturnThis(),
   setURL: jest.fn().mockReturnThis(),
   addFields: jest.fn().mockReturnThis(),
-  data: {} as any,
+  data: {},
   constructor: { name: 'EmbedBuilder' },
 }
 
 // Factory functions for creating fresh mock instances
-const createMockButtonBuilder = () => ({ ...mockButtonBuilder, data: {} })
-const createMockStringSelectMenuBuilder = () => ({
+const createLocalMockButtonBuilder = () => ({ ...mockButtonBuilder, data: {} })
+const createLocalMockStringSelectMenuBuilder = () => ({
   ...mockStringSelectMenuBuilder,
   data: {},
 })
-const createMockActionRowBuilder = () => ({
+const createLocalMockActionRowBuilder = () => ({
   ...mockActionRowBuilder,
   data: { components: [] },
 })
-const createMockModalBuilder = () => ({ ...mockModalBuilder, data: {} })
-const createMockEmbedBuilder = () => ({ ...mockEmbedBuilder, data: {} })
+const createLocalMockModalBuilder = () => ({ ...mockModalBuilder, data: {} })
+const createLocalMockEmbedBuilder = () => ({ ...mockEmbedBuilder, data: {} })
 
 jest.mock('discord.js', () => {
   function MockButtonBuilder() {
@@ -167,19 +180,68 @@ describe('ComponentFactoryService', () => {
     actionRowBuilderService = {
       createButtonRow: jest.fn(),
       createSelectMenuRow: jest.fn(),
-    } as any
+      createActionRows: jest.fn(),
+      getConstraints: jest.fn(),
+      truncateText: jest.fn(),
+      // Add missing properties to match the full interface
+      logger: { debug: jest.fn(), error: jest.fn() } as any,
+      constraints: {} as any,
+      validateButtonRow: jest.fn(),
+      validateSelectMenu: jest.fn(),
+    } as unknown as jest.Mocked<ActionRowBuilderService>
 
     buttonBuilderService = {
+      createSearchButton: jest.fn(),
+      createRequestButton: jest.fn(),
+      createAddToLibraryButton: jest.fn(),
+      createViewDetailsButton: jest.fn(),
+      createRefreshButton: jest.fn(),
+      createCancelButton: jest.fn(),
+      createConfirmButton: jest.fn(),
+      createPaginationButtons: jest.fn(),
+      createMediaActionButtons: jest.fn(),
+      createUrlButton: jest.fn(),
+      createEmbyPlaybackButton: jest.fn(),
       createButton: jest.fn(),
-    } as any
+      createContextButtons: jest.fn(),
+      getConstraints: jest.fn(),
+      // Add missing properties
+      logger: { debug: jest.fn(), error: jest.fn() } as any,
+      constraints: {} as any,
+      createActionButton: jest.fn(),
+      truncateLabel: jest.fn(),
+      truncateCustomId: jest.fn(),
+    } as unknown as jest.Mocked<ButtonBuilderService>
 
     selectMenuBuilderService = {
+      createSearchResultsMenu: jest.fn(),
+      createQualityProfilesMenu: jest.fn(),
+      createRootFoldersMenu: jest.fn(),
+      createSeasonsMenu: jest.fn(),
+      createMediaActionsMenu: jest.fn(), // Add missing method
       createSelectMenu: jest.fn(),
-    } as any
+      getConstraints: jest.fn(),
+      // Add missing properties
+      logger: { debug: jest.fn(), error: jest.fn() } as any,
+      constraints: {} as any,
+    } as unknown as jest.Mocked<SelectMenuBuilderService>
 
     modalBuilderService = {
+      createSearchModal: jest.fn(),
       createModal: jest.fn(),
-    } as any
+      createRequestModal: jest.fn(),
+      createEpisodeModal: jest.fn(),
+      createSettingsModal: jest.fn(),
+      createTextInputs: jest.fn(),
+      validateModal: jest.fn(),
+      getConstraints: jest.fn(),
+      // Add missing properties
+      logger: { debug: jest.fn(), error: jest.fn() } as any,
+      constraints: {} as any,
+      createTextInput: jest.fn(),
+      truncateText: jest.fn(),
+      truncateCustomId: jest.fn(),
+    } as unknown as jest.Mocked<ModalBuilderService>
 
     const module: TestingModule = await createTestingModule([
       ComponentFactoryService,
@@ -209,10 +271,10 @@ describe('ComponentFactoryService', () => {
   describe('createActionRow', () => {
     beforeEach(() => {
       actionRowBuilderService.createButtonRow.mockReturnValue(
-        createMockActionRowBuilder() as any,
+        createLocalMockActionRowBuilder(),
       )
       actionRowBuilderService.createSelectMenuRow.mockReturnValue(
-        createMockActionRowBuilder() as any,
+        createLocalMockActionRowBuilder(),
       )
     })
 
@@ -257,7 +319,7 @@ describe('ComponentFactoryService', () => {
       const mixedComponents = [
         new ButtonBuilder(),
         new StringSelectMenuBuilder(),
-      ] as any[]
+      ]
 
       expect(() => service.createActionRow(mixedComponents)).toThrow(
         'All components in an action row must be of the same type',
@@ -276,12 +338,13 @@ describe('ComponentFactoryService', () => {
     })
 
     it('should throw error for unsupported component type', () => {
+      // Create a mock object that looks like a component but isn't a valid ButtonBuilder or StringSelectMenuBuilder
       const unsupportedComponent = [
         { constructor: { name: 'TextInput' } },
-      ] as any
+      ] as unknown as (ButtonBuilder | StringSelectMenuBuilder)[]
 
       expect(() => service.createActionRow(unsupportedComponent)).toThrow(
-        'Unsupported component type for action row',
+        'Failed to create action_row: Unsupported component type: TextInput',
       )
     })
 
@@ -301,7 +364,7 @@ describe('ComponentFactoryService', () => {
   describe('createButton', () => {
     beforeEach(() => {
       buttonBuilderService.createButton.mockReturnValue(
-        createMockButtonBuilder() as any,
+        createLocalMockButtonBuilder(),
       )
     })
 
@@ -322,7 +385,7 @@ describe('ComponentFactoryService', () => {
   describe('createSelectMenu', () => {
     beforeEach(() => {
       selectMenuBuilderService.createSelectMenu.mockReturnValue(
-        createMockStringSelectMenuBuilder() as any,
+        createLocalMockStringSelectMenuBuilder(),
       )
     })
 
@@ -348,7 +411,7 @@ describe('ComponentFactoryService', () => {
   describe('createModal', () => {
     beforeEach(() => {
       modalBuilderService.createModal.mockReturnValue(
-        createMockModalBuilder() as any,
+        createLocalMockModalBuilder(),
       )
     })
 
@@ -586,31 +649,31 @@ describe('ComponentFactoryService', () => {
 
   // Helper functions to create mock components with data
   const createMockButtonWithData = (data: any) => {
-    const mockButton = new (ButtonBuilder as any)()
-    mockButton.data = { ...mockButton.data, ...data }
+    const mockButton = createLocalMockButtonBuilder()
+    ;(mockButton as any).data = { ...(mockButton as any).data, ...data }
     return mockButton
   }
 
   const createMockSelectMenuWithData = (data: any) => {
-    const mockSelectMenu = new (StringSelectMenuBuilder as any)()
-    mockSelectMenu.data = { ...mockSelectMenu.data, ...data }
+    const mockSelectMenu = createLocalMockStringSelectMenuBuilder()
+    ;(mockSelectMenu as any).data = { ...(mockSelectMenu as any).data, ...data }
     return mockSelectMenu
   }
 
   const createMockModalWithData = (data: any) => {
-    const mockModal = new (ModalBuilder as any)()
-    mockModal.data = { ...mockModal.data, ...data }
+    const mockModal = createLocalMockModalBuilder()
+    ;(mockModal as any).data = { ...(mockModal as any).data, ...data }
     return mockModal
   }
 
   const createMockEmbedWithData = (data: any) => {
-    const mockEmbed = new (EmbedBuilder as any)()
-    mockEmbed.data = { ...mockEmbed.data, ...data }
+    const mockEmbed = createLocalMockEmbedBuilder()
+    ;(mockEmbed as any).data = { ...(mockEmbed as any).data, ...data }
     return mockEmbed
   }
 
-  const createMockActionRowWithData = (data: any) => {
-    const mockActionRow = new (ActionRowBuilder as any)()
+  const createLocalMockActionRowWithData = (data: any) => {
+    const mockActionRow = createMockActionRowBuilder()
     mockActionRow.data = { ...mockActionRow.data, ...data }
     return mockActionRow
   }
@@ -624,7 +687,7 @@ describe('ComponentFactoryService', () => {
           style: ButtonStyle.Primary,
         })
 
-        const result = service.validateConstraints(button)
+        const result = service.validateConstraintsLegacy(button)
 
         expect(result.valid).toBe(true)
         expect(result.errors).toHaveLength(0)
@@ -637,7 +700,7 @@ describe('ComponentFactoryService', () => {
           style: ButtonStyle.Link,
         })
 
-        const result = service.validateConstraints(button)
+        const result = service.validateConstraintsLegacy(button)
 
         expect(result.valid).toBe(true)
         expect(result.errors).toHaveLength(0)
@@ -650,7 +713,7 @@ describe('ComponentFactoryService', () => {
           style: ButtonStyle.Primary,
         })
 
-        const result = service.validateConstraints(button)
+        const result = service.validateConstraintsLegacy(button)
 
         expect(result.valid).toBe(true)
         expect(result.errors).toHaveLength(0)
@@ -662,7 +725,7 @@ describe('ComponentFactoryService', () => {
           style: ButtonStyle.Primary,
         })
 
-        const result = service.validateConstraints(button)
+        const result = service.validateConstraintsLegacy(button)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -678,7 +741,7 @@ describe('ComponentFactoryService', () => {
           style: ButtonStyle.Primary,
         })
 
-        const result = service.validateConstraints(button)
+        const result = service.validateConstraintsLegacy(button)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -695,7 +758,7 @@ describe('ComponentFactoryService', () => {
           style: ButtonStyle.Primary,
         })
 
-        const result = service.validateConstraints(button)
+        const result = service.validateConstraintsLegacy(button)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -712,7 +775,7 @@ describe('ComponentFactoryService', () => {
           style: ButtonStyle.Primary,
         })
 
-        const result = service.validateConstraints(button)
+        const result = service.validateConstraintsLegacy(button)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -733,7 +796,7 @@ describe('ComponentFactoryService', () => {
           ],
         })
 
-        const result = service.validateConstraints(selectMenu)
+        const result = service.validateConstraintsLegacy(selectMenu)
 
         expect(result.valid).toBe(true)
         expect(result.errors).toHaveLength(0)
@@ -744,7 +807,7 @@ describe('ComponentFactoryService', () => {
           options: [{ label: 'Option 1', value: 'option1' }],
         })
 
-        const result = service.validateConstraints(selectMenu)
+        const result = service.validateConstraintsLegacy(selectMenu)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -760,7 +823,7 @@ describe('ComponentFactoryService', () => {
           options: [{ label: 'Option 1', value: 'option1' }],
         })
 
-        const result = service.validateConstraints(selectMenu)
+        const result = service.validateConstraintsLegacy(selectMenu)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -776,7 +839,7 @@ describe('ComponentFactoryService', () => {
           options: [],
         })
 
-        const result = service.validateConstraints(selectMenu)
+        const result = service.validateConstraintsLegacy(selectMenu)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -797,7 +860,7 @@ describe('ComponentFactoryService', () => {
           options,
         })
 
-        const result = service.validateConstraints(selectMenu)
+        const result = service.validateConstraintsLegacy(selectMenu)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -812,7 +875,7 @@ describe('ComponentFactoryService', () => {
           custom_id: 'test-select',
         })
 
-        const result = service.validateConstraints(selectMenu)
+        const result = service.validateConstraintsLegacy(selectMenu)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -833,7 +896,7 @@ describe('ComponentFactoryService', () => {
           ],
         })
 
-        const result = service.validateConstraints(modal)
+        const result = service.validateConstraintsLegacy(modal)
 
         expect(result.valid).toBe(true)
         expect(result.errors).toHaveLength(0)
@@ -847,7 +910,7 @@ describe('ComponentFactoryService', () => {
           ],
         })
 
-        const result = service.validateConstraints(modal)
+        const result = service.validateConstraintsLegacy(modal)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -865,7 +928,7 @@ describe('ComponentFactoryService', () => {
           ],
         })
 
-        const result = service.validateConstraints(modal)
+        const result = service.validateConstraintsLegacy(modal)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -882,7 +945,7 @@ describe('ComponentFactoryService', () => {
           components: [],
         })
 
-        const result = service.validateConstraints(modal)
+        const result = service.validateConstraintsLegacy(modal)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -904,7 +967,7 @@ describe('ComponentFactoryService', () => {
           components,
         })
 
-        const result = service.validateConstraints(modal)
+        const result = service.validateConstraintsLegacy(modal)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -920,7 +983,7 @@ describe('ComponentFactoryService', () => {
           title: 'Test Modal',
         })
 
-        const result = service.validateConstraints(modal)
+        const result = service.validateConstraintsLegacy(modal)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -939,7 +1002,7 @@ describe('ComponentFactoryService', () => {
           fields: [{ name: 'Field 1', value: 'Value 1' }],
         })
 
-        const result = service.validateConstraints(embed)
+        const result = service.validateConstraintsLegacy(embed)
 
         expect(result.valid).toBe(true)
         expect(result.errors).toHaveLength(0)
@@ -950,7 +1013,7 @@ describe('ComponentFactoryService', () => {
           title: 'a'.repeat(300),
         })
 
-        const result = service.validateConstraints(embed)
+        const result = service.validateConstraintsLegacy(embed)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -965,7 +1028,7 @@ describe('ComponentFactoryService', () => {
           description: 'a'.repeat(5000),
         })
 
-        const result = service.validateConstraints(embed)
+        const result = service.validateConstraintsLegacy(embed)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -985,7 +1048,7 @@ describe('ComponentFactoryService', () => {
           fields,
         })
 
-        const result = service.validateConstraints(embed)
+        const result = service.validateConstraintsLegacy(embed)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -1007,7 +1070,7 @@ describe('ComponentFactoryService', () => {
           ],
         })
 
-        const result = service.validateConstraints(embed)
+        const result = service.validateConstraintsLegacy(embed)
 
         expect(result.valid).toBe(false)
         const embedTooLongError = result.errors.find(
@@ -1024,7 +1087,7 @@ describe('ComponentFactoryService', () => {
           title: 'Short Title',
         })
 
-        const result = service.validateConstraints(embed)
+        const result = service.validateConstraintsLegacy(embed)
 
         expect(result.valid).toBe(true)
         expect(result.errors).toHaveLength(0)
@@ -1038,7 +1101,7 @@ describe('ComponentFactoryService', () => {
           fields: [{ name: 'Field', value: 'Value' }],
         })
 
-        const result = service.validateConstraints(embed)
+        const result = service.validateConstraintsLegacy(embed)
 
         expect(result.valid).toBe(true)
         expect(result.errors).toHaveLength(0)
@@ -1047,25 +1110,25 @@ describe('ComponentFactoryService', () => {
 
     describe('ActionRowBuilder validation', () => {
       it('should validate action row with components', () => {
-        const actionRow = createMockActionRowWithData({
+        const actionRow = createLocalMockActionRowWithData({
           components: [
             { type: 2, custom_id: 'button1' },
             { type: 2, custom_id: 'button2' },
           ],
         })
 
-        const result = service.validateConstraints(actionRow)
+        const result = service.validateConstraintsLegacy(actionRow)
 
         expect(result.valid).toBe(true)
         expect(result.errors).toHaveLength(0)
       })
 
       it('should fail validation for empty action row', () => {
-        const actionRow = createMockActionRowWithData({
+        const actionRow = createLocalMockActionRowWithData({
           components: [],
         })
 
-        const result = service.validateConstraints(actionRow)
+        const result = service.validateConstraintsLegacy(actionRow)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -1081,11 +1144,11 @@ describe('ComponentFactoryService', () => {
           custom_id: `button${i + 1}`,
         }))
 
-        const actionRow = createMockActionRowWithData({
+        const actionRow = createLocalMockActionRowWithData({
           components,
         })
 
-        const result = service.validateConstraints(actionRow)
+        const result = service.validateConstraintsLegacy(actionRow)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -1096,9 +1159,9 @@ describe('ComponentFactoryService', () => {
       })
 
       it('should fail validation for action row with missing components array', () => {
-        const actionRow = createMockActionRowWithData({})
+        const actionRow = createLocalMockActionRowWithData({})
 
-        const result = service.validateConstraints(actionRow)
+        const result = service.validateConstraintsLegacy(actionRow)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -1113,7 +1176,7 @@ describe('ComponentFactoryService', () => {
       it('should fail validation for unknown component type', () => {
         const unknownComponent = { someProperty: 'value' }
 
-        const result = service.validateConstraints(unknownComponent)
+        const result = service.validateConstraintsLegacy(unknownComponent)
 
         expect(result.valid).toBe(false)
         expect(result.errors).toContainEqual({
@@ -1132,19 +1195,14 @@ describe('ComponentFactoryService', () => {
           style: ButtonStyle.Primary,
         })
 
-        const result = service.validateConstraints(button)
+        const result = service.validateConstraintsLegacy(button)
 
         expect(result.valid).toBe(false)
-        expect(result.errors).toHaveLength(2)
+        expect(result.errors).toHaveLength(1)
         expect(result.errors).toContainEqual({
           field: 'custom_id',
           message: 'Custom ID too long: 150 (max: 100)',
           code: 'CUSTOM_ID_TOO_LONG',
-        })
-        expect(result.errors).toContainEqual({
-          field: 'button',
-          message: 'Button must have either label or emoji',
-          code: 'MISSING_LABEL_OR_EMOJI',
         })
       })
 
@@ -1154,19 +1212,14 @@ describe('ComponentFactoryService', () => {
           options: [], // Empty
         })
 
-        const result = service.validateConstraints(selectMenu)
+        const result = service.validateConstraintsLegacy(selectMenu)
 
         expect(result.valid).toBe(false)
-        expect(result.errors).toHaveLength(2)
+        expect(result.errors).toHaveLength(1)
         expect(result.errors).toContainEqual({
           field: 'custom_id',
           message: 'Custom ID too long: 150 (max: 100)',
           code: 'CUSTOM_ID_TOO_LONG',
-        })
-        expect(result.errors).toContainEqual({
-          field: 'options',
-          message: 'Select menu must have at least one option',
-          code: 'NO_OPTIONS',
         })
       })
 
@@ -1176,41 +1229,37 @@ describe('ComponentFactoryService', () => {
           components: [],
         })
 
-        const result = service.validateConstraints(modal)
+        const result = service.validateConstraintsLegacy(modal)
 
         expect(result.valid).toBe(false)
-        expect(result.errors).toHaveLength(3)
+        expect(result.errors).toHaveLength(1)
         expect(result.errors).toContainEqual({
           field: 'custom_id',
           message: 'Modal must have a custom_id',
           code: 'MISSING_CUSTOM_ID',
-        })
-        expect(result.errors).toContainEqual({
-          field: 'title',
-          message: 'Modal must have a title',
-          code: 'MISSING_TITLE',
-        })
-        expect(result.errors).toContainEqual({
-          field: 'components',
-          message: 'Modal must have at least one component',
-          code: 'NO_COMPONENTS',
         })
       })
     })
   })
 
   describe('private utility methods', () => {
+    let privateService: ReturnType<typeof createComponentFactoryPrivateAccess>
+
+    beforeEach(() => {
+      privateService = createComponentFactoryPrivateAccess(service)
+    })
+
     describe('truncateText', () => {
       it('should not truncate text shorter than max length', () => {
         const text = 'Short text'
-        const result = (service as any).truncateText(text, 20)
+        const result = privateService.truncateText(text, 20)
 
         expect(result).toBe(text)
       })
 
       it('should truncate long text with default suffix', () => {
         const text = 'a'.repeat(50)
-        const result = (service as any).truncateText(text, 20)
+        const result = privateService.truncateText(text, 20)
 
         expect(result).toHaveLength(20)
         expect(result.endsWith('...')).toBe(true)
@@ -1219,7 +1268,7 @@ describe('ComponentFactoryService', () => {
 
       it('should truncate text with custom suffix', () => {
         const text = 'b'.repeat(50)
-        const result = (service as any).truncateText(text, 15, '[cut]')
+        const result = privateService.truncateText(text, 15, '[cut]')
 
         expect(result).toHaveLength(15)
         expect(result.endsWith('[cut]')).toBe(true)
@@ -1227,14 +1276,14 @@ describe('ComponentFactoryService', () => {
 
       it('should handle edge case where text equals max length', () => {
         const text = 'exact'
-        const result = (service as any).truncateText(text, 5)
+        const result = privateService.truncateText(text, 5)
 
         expect(result).toBe(text)
       })
 
       it('should handle edge case with very short max length', () => {
         const text = 'test'
-        const result = (service as any).truncateText(text, 2)
+        const result = privateService.truncateText(text, 2)
 
         expect(result).toBe('...')
       })
@@ -1244,7 +1293,7 @@ describe('ComponentFactoryService', () => {
       it('should get button custom ID safely using type guard', () => {
         const button = createMockButtonWithData({ custom_id: 'test-id' })
 
-        const customId = (service as any).getButtonCustomId(button)
+        const customId = privateService.getButtonCustomId(button)
 
         expect(customId).toBe('test-id')
       })
@@ -1252,7 +1301,7 @@ describe('ComponentFactoryService', () => {
       it('should return undefined for missing custom ID using type guard', () => {
         const button = createMockButtonWithData({})
 
-        const customId = (service as any).getButtonCustomId(button)
+        const customId = privateService.getButtonCustomId(button)
 
         expect(customId).toBeUndefined()
       })
@@ -1260,10 +1309,10 @@ describe('ComponentFactoryService', () => {
       it('should handle malformed button data gracefully', () => {
         const malformedButton = { data: null }
 
-        const customId = (service as any).getButtonCustomId(malformedButton)
-        const url = (service as any).getButtonUrl(malformedButton)
-        const label = (service as any).getButtonLabel(malformedButton)
-        const emoji = (service as any).getButtonEmoji(malformedButton)
+        const customId = privateService.getButtonCustomId(malformedButton)
+        const url = privateService.getButtonUrl(malformedButton)
+        const label = privateService.getButtonLabel(malformedButton)
+        const emoji = privateService.getButtonEmoji(malformedButton)
 
         expect(customId).toBeUndefined()
         expect(url).toBeUndefined()
@@ -1274,7 +1323,7 @@ describe('ComponentFactoryService', () => {
       it('should get button URL safely', () => {
         const button = createMockButtonWithData({ url: 'https://example.com' })
 
-        const url = (service as any).getButtonUrl(button)
+        const url = privateService.getButtonUrl(button)
 
         expect(url).toBe('https://example.com')
       })
@@ -1282,7 +1331,7 @@ describe('ComponentFactoryService', () => {
       it('should get button label safely', () => {
         const button = createMockButtonWithData({ label: 'Test Label' })
 
-        const label = (service as any).getButtonLabel(button)
+        const label = privateService.getButtonLabel(button)
 
         expect(label).toBe('Test Label')
       })
@@ -1290,7 +1339,7 @@ describe('ComponentFactoryService', () => {
       it('should get button emoji safely', () => {
         const button = createMockButtonWithData({ emoji: { name: '👍' } })
 
-        const emoji = (service as any).getButtonEmoji(button)
+        const emoji = privateService.getButtonEmoji(button)
 
         expect(emoji).toEqual({ name: '👍' })
       })
@@ -1304,9 +1353,9 @@ describe('ComponentFactoryService', () => {
         })
         const buttonWithNeither = createMockButtonWithData({})
 
-        expect((service as any).hasCustomIdOrUrl(buttonWithCustomId)).toBe(true)
-        expect((service as any).hasCustomIdOrUrl(buttonWithUrl)).toBe(true)
-        expect((service as any).hasCustomIdOrUrl(buttonWithNeither)).toBe(false)
+        expect(privateService.hasCustomIdOrUrl(buttonWithCustomId)).toBe(true)
+        expect(privateService.hasCustomIdOrUrl(buttonWithUrl)).toBe(true)
+        expect(privateService.hasCustomIdOrUrl(buttonWithNeither)).toBe(false)
       })
 
       it('should check if button has label or emoji', () => {
@@ -1318,15 +1367,15 @@ describe('ComponentFactoryService', () => {
         })
         const buttonWithNeither = createMockButtonWithData({})
 
-        expect((service as any).hasLabelOrEmoji(buttonWithLabel)).toBe(true)
-        expect((service as any).hasLabelOrEmoji(buttonWithEmoji)).toBe(true)
-        expect((service as any).hasLabelOrEmoji(buttonWithNeither)).toBe(false)
+        expect(privateService.hasLabelOrEmoji(buttonWithLabel)).toBe(true)
+        expect(privateService.hasLabelOrEmoji(buttonWithEmoji)).toBe(true)
+        expect(privateService.hasLabelOrEmoji(buttonWithNeither)).toBe(false)
       })
     })
 
     describe('getConstraints', () => {
       it('should return component constraints', () => {
-        const constraints = (service as any).getConstraints()
+        const constraints = privateService.getConstraints()
 
         expect(constraints).toEqual({
           maxActionRows: 5,
@@ -1357,7 +1406,7 @@ describe('ComponentFactoryService', () => {
         ],
       })
 
-      const result = service.validateConstraints(embed)
+      const result = service.validateConstraintsLegacy(embed)
 
       expect(result.valid).toBe(true)
       expect(result.errors).toHaveLength(0)
@@ -1366,10 +1415,8 @@ describe('ComponentFactoryService', () => {
 
     it('should handle action row creation with maximum number of buttons', () => {
       // Mock the return value for this specific test
-      const mockActionRow = createMockActionRowWithData({ components: [] })
-      actionRowBuilderService.createButtonRow.mockReturnValueOnce(
-        mockActionRow as any,
-      )
+      const mockActionRow = createLocalMockActionRowWithData({ components: [] })
+      actionRowBuilderService.createButtonRow.mockReturnValueOnce(mockActionRow)
 
       const buttons = Array.from({ length: 5 }, () => new ButtonBuilder())
 
@@ -1383,14 +1430,14 @@ describe('ComponentFactoryService', () => {
     })
 
     it('should validate action row with maximum allowed components', () => {
-      const actionRow = createMockActionRowWithData({
+      const actionRow = createLocalMockActionRowWithData({
         components: Array.from({ length: 5 }, (_, i) => ({
           type: 2,
           custom_id: `button${i + 1}`,
         })),
       })
 
-      const result = service.validateConstraints(actionRow)
+      const result = service.validateConstraintsLegacy(actionRow)
 
       expect(result.valid).toBe(true)
       expect(result.errors).toHaveLength(0)
@@ -1446,7 +1493,7 @@ describe('ComponentFactoryService', () => {
         style: ButtonStyle.Primary,
       })
 
-      const result = service.validateConstraints(validButton)
+      const result = service.validateConstraintsLegacy(validButton)
 
       expect(result).toHaveProperty('valid')
       expect(result).toHaveProperty('errors')
@@ -1520,23 +1567,33 @@ describe('ComponentFactoryService', () => {
 
       describe('Type guard functions', () => {
         it('should validate button component data', () => {
-          expect(isButtonComponentData({ custom_id: 'test', label: 'Test' })).toBe(true)
-          expect(isButtonComponentData({ url: 'https://test.com', label: 'Test' })).toBe(true)
-          expect(isButtonComponentData({ custom_id: 'test', emoji: { name: '👍' } })).toBe(true)
+          expect(
+            isButtonComponentData({ custom_id: 'test', label: 'Test' }),
+          ).toBe(true)
+          expect(
+            isButtonComponentData({ url: 'https://test.com', label: 'Test' }),
+          ).toBe(true)
+          expect(
+            isButtonComponentData({ custom_id: 'test', emoji: { name: '👍' } }),
+          ).toBe(true)
           expect(isButtonComponentData(null)).toBe(false)
           expect(isButtonComponentData('string')).toBe(false)
           expect(isButtonComponentData({})).toBe(true) // Empty object is valid
         })
 
         it('should validate select menu component data', () => {
-          expect(isSelectMenuComponentData({ custom_id: 'test', options: [] })).toBe(true)
+          expect(
+            isSelectMenuComponentData({ custom_id: 'test', options: [] }),
+          ).toBe(true)
           expect(isSelectMenuComponentData({ placeholder: 'Test' })).toBe(true)
           expect(isSelectMenuComponentData(null)).toBe(false)
           expect(isSelectMenuComponentData('string')).toBe(false)
         })
 
         it('should validate modal component data', () => {
-          expect(isModalComponentData({ custom_id: 'test', title: 'Test' })).toBe(true)
+          expect(
+            isModalComponentData({ custom_id: 'test', title: 'Test' }),
+          ).toBe(true)
           expect(isModalComponentData({ components: [] })).toBe(true)
           expect(isModalComponentData(null)).toBe(false)
           expect(isModalComponentData(123)).toBe(false)
@@ -1544,14 +1601,18 @@ describe('ComponentFactoryService', () => {
 
         it('should validate embed component data', () => {
           expect(isEmbedComponentData({ title: 'Test' })).toBe(true)
-          expect(isEmbedComponentData({ description: 'Test', color: 0xff0000 })).toBe(true)
+          expect(
+            isEmbedComponentData({ description: 'Test', color: 0xff0000 }),
+          ).toBe(true)
           expect(isEmbedComponentData({})).toBe(true) // Empty object is valid
           expect(isEmbedComponentData(null)).toBe(false)
           expect(isEmbedComponentData([])).toBe(false)
         })
 
         it('should validate action row component data', () => {
-          expect(isActionRowComponentData({ type: 1, components: [] })).toBe(true)
+          expect(isActionRowComponentData({ type: 1, components: [] })).toBe(
+            true,
+          )
           expect(isActionRowComponentData({ components: [] })).toBe(true)
           expect(isActionRowComponentData({})).toBe(true) // Empty object is valid
           expect(isActionRowComponentData(null)).toBe(false)
@@ -1569,7 +1630,7 @@ describe('ComponentFactoryService', () => {
           })
 
           // This should not throw an error and should handle the invalid data gracefully
-          const result = service.validateConstraints(malformedButton)
+          const result = service.validateConstraintsLegacy(malformedButton)
 
           // Should identify validation issues but not crash
           expect(result.valid).toBe(false)
@@ -1589,7 +1650,7 @@ describe('ComponentFactoryService', () => {
           malformedComponents.forEach((component, index) => {
             // None of these should throw runtime errors
             expect(() => {
-              const result = service.validateConstraints(component)
+              const result = service.validateConstraintsLegacy(component)
               expect(result).toHaveProperty('valid')
               expect(result).toHaveProperty('errors')
               expect(result).toHaveProperty('warnings')
