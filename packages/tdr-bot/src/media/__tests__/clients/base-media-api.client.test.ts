@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing'
 import axios, { AxiosError, AxiosResponse } from 'axios'
-import { nanoid } from 'nanoid'
+import { v4 as uuid } from 'uuid'
 
 import {
   createMockAxiosInstance,
@@ -164,7 +164,7 @@ describe('BaseMediaApiClient', () => {
     serviceName: 'radarr',
   }
 
-  const correlationId = nanoid()
+  const correlationId = uuid()
 
   beforeEach(async () => {
     // Reset mocks
@@ -222,17 +222,17 @@ describe('BaseMediaApiClient', () => {
         timeout: 30000,
         maxRetries: 3,
         httpConfig: {
-          maxSockets: 10,
-          maxFreeSockets: 5,
-          keepAliveTimeout: 5000,
+          maxSockets: 3,
+          maxFreeSockets: 2,
+          keepAliveTimeout: 3000,
           keepAlive: true,
-          connectTimeout: 10000,
+          connectTimeout: 8000,
           maxContentLength: 10485760, // 10MB
-          maxRedirects: 5,
+          maxRedirects: 3,
         },
         versionConfig: {
-          supportedVersions: ['3.0.0', '2.0.0'],
-          preferredVersion: '3.0.0',
+          supportedVersions: ['5.26.2', '5.0.0', '4.0.0', '3.0.0', '2.0.0'],
+          preferredVersion: '5.26.2',
           fallbackVersion: '3.0.0',
           enableVersionDetection: true,
           compatibilityMode: 'fallback',
@@ -248,7 +248,7 @@ describe('BaseMediaApiClient', () => {
           timeout: 30000,
           maxContentLength: 10485760, // 10MB
           maxBodyLength: 10485760,
-          maxRedirects: 5,
+          maxRedirects: 3,
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
             Accept: 'application/json',

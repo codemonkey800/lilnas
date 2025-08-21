@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Client, EmbedBuilder } from 'discord.js'
-import { nanoid } from 'nanoid'
 import { remark } from 'remark'
+import { v4 as uuid } from 'uuid'
 
 import {
   ErrorCategory,
@@ -153,7 +153,7 @@ export class ChatService extends BaseMessageHandlerService {
       .replace(`<@${this.client.user?.id}>`, '')
       .trim()
 
-    const id = nanoid()
+    const id = uuid()
 
     this.logger.log(
       {

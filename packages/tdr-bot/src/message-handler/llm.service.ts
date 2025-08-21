@@ -11,7 +11,7 @@ import { isEnumValue } from '@lilnas/utils/enum'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 import dedent from 'dedent'
-import { nanoid } from 'nanoid'
+import { v4 as uuid } from 'uuid'
 
 import {
   GraphNode,
@@ -139,7 +139,7 @@ export class LLMService {
     this.logger.log('Checking response type')
 
     const message = new HumanMessage({
-      id: nanoid(),
+      id: uuid(),
       content: userInput,
     })
 

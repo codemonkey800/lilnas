@@ -9,6 +9,7 @@ module.exports = {
     '!**/__tests__/test-utils.ts',
     '!**/__tests__/**/test-access-utils.ts',
     '!**/__tests__/**/test-mocks.types.ts',
+    '!**/__tests__/e2e/**/*', // Exclude E2E tests from regular test runs
   ],
   transform: {
     '^.+\\.ts$': ['ts-jest', {

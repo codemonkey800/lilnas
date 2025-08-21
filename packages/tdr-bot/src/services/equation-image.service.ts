@@ -2,8 +2,8 @@ import { env } from '@lilnas/utils/env'
 import { Injectable, Logger } from '@nestjs/common'
 import axios from 'axios'
 import { LRUCache } from 'lru-cache'
-import { nanoid } from 'nanoid'
 import { performance } from 'perf_hooks'
+import { v4 as uuid } from 'uuid'
 import { z } from 'zod'
 
 import { EnvKey } from 'src/utils/env'
@@ -55,7 +55,7 @@ export class EquationImageService {
   private async fetchImage(
     latex: string,
   ): Promise<EquationAPISuccess | undefined> {
-    const id = nanoid()
+    const id = uuid()
 
     this.logger.log({ id }, 'Fetching latex image')
     const start = performance.now()
@@ -133,7 +133,7 @@ export class EquationImageService {
       return undefined
     }
 
-    const id = nanoid()
+    const id = uuid()
     const normalizedLatex = latex.trim()
 
     // Check cache first

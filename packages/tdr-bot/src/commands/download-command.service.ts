@@ -11,7 +11,6 @@ import { Inject, Injectable, Logger } from '@nestjs/common'
 import { DiscordAPIError, MessageFlags } from 'discord.js'
 import * as fs from 'fs-extra'
 import { Client } from 'minio'
-import { nanoid } from 'nanoid'
 import {
   BooleanOption,
   Context,
@@ -21,6 +20,7 @@ import {
   StringOption,
 } from 'necord'
 import { MINIO_CONNECTION } from 'nestjs-minio'
+import { v4 as uuid } from 'uuid'
 
 import { EnvKey } from 'src/utils/env'
 
@@ -78,7 +78,7 @@ export class DownloadCommandService {
     @Context() [interaction]: SlashCommandContext,
     @Options() { end, start, url, author, description }: DownloadDto,
   ) {
-    const id = nanoid()
+    const id = uuid()
     this.logger.log(
       {
         id,

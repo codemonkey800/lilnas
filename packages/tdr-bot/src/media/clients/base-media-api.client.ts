@@ -237,7 +237,7 @@ export interface ConnectionTestResult {
  *
  *   protected async validateServiceConfiguration(): Promise<ConnectionTestResult> {
  *     try {
- *       await this.get('/health', nanoid())
+ *       await this.get('/health', uuid())
  *       return { canConnect: true, isAuthenticated: true }
  *     } catch (error) {
  *       return { canConnect: false, isAuthenticated: false, error: error.message }
@@ -355,13 +355,24 @@ export interface ConnectionTestResult {
  * @see {@link MediaApiError} for error types
  * @see {@link MediaConfigValidationService} for configuration
  */
+/**
+ * Circuit breaker state for tracking endpoint failures
+ */
+interface CircuitBreakerState {
+  failures: number
+  lastFailureTime?: Date
+  state: 'closed' | 'open' | 'half-open'
+  nextRetryTime?: Date
+}
+
 @Injectable()
 export abstract class BaseMediaApiClient {
   protected readonly logger = new Logger(this.constructor.name)
   protected readonly axiosInstance: AxiosInstance
   protected readonly config: BaseApiClientConfig
-  protected readonly httpAgent: HttpAgent | HttpsAgent
+  protected httpAgent: HttpAgent | HttpsAgent
   private detectedApiVersion?: ApiVersionResult
+  private circuitBreakers = new Map<string, CircuitBreakerState>()
 
   /**
    * Initialize the BaseMediaApiClient with required dependencies and configuration
@@ -508,6 +519,15 @@ export abstract class BaseMediaApiClient {
   ): Promise<T> {
     const startTime = Date.now()
     const fullUrl = `${this.config.baseURL}${path}`
+    const endpointKey = `${method}:${path}`
+
+    // Check circuit breaker before making request
+    if (this.isCircuitBreakerOpen(endpointKey)) {
+      const breakerState = this.circuitBreakers.get(endpointKey)!
+      throw new Error(
+        `Circuit breaker is OPEN for ${endpointKey}. Next retry at ${breakerState.nextRetryTime?.toISOString()}. Failures: ${breakerState.failures}`,
+      )
+    }
 
     this.logger.debug(
       `Making ${method} request to ${this.config.serviceName}`,
@@ -516,15 +536,30 @@ export abstract class BaseMediaApiClient {
         url: fullUrl,
         correlationId,
         service: this.config.serviceName,
+        circuitBreakerState:
+          this.circuitBreakers.get(endpointKey)?.state || 'closed',
       },
     )
 
     try {
       const response = await this.retryService.executeWithRetry(
         async () => {
+          // Build URL with authentication query parameters if needed
+          const authParams = this.getAuthenticationParams()
+          let requestUrl = path
+
+          if (Object.keys(authParams).length > 0) {
+            const url = new URL(path, this.config.baseURL)
+            Object.entries(authParams).forEach(([key, value]) => {
+              url.searchParams.set(key, value)
+            })
+            // Get the path and search params portion only (without base URL)
+            requestUrl = url.pathname + url.search
+          }
+
           const requestConfig: AxiosRequestConfig = {
             ...config,
-            url: path,
+            url: requestUrl,
             headers: {
               ...config.headers,
               'X-Correlation-ID': correlationId,
@@ -535,17 +570,13 @@ export abstract class BaseMediaApiClient {
 
           return await this.axiosInstance.request<T>(requestConfig)
         },
-        {
-          maxAttempts: this.config.maxRetries,
-          baseDelay: 1000,
-          maxDelay: 30000,
-          backoffFactor: 2,
-          jitter: true,
-          timeout: this.config.timeout,
-        },
+        this.getOptimizedRetryConfig(method, path),
         `${this.config.serviceName}_${method}_${path}`,
         this.getErrorCategory(),
       )
+
+      // Reset circuit breaker on successful request
+      this.resetCircuitBreaker(endpointKey)
 
       // Log successful API call
       this.mediaLoggingService.logApiCall(
@@ -557,8 +588,61 @@ export abstract class BaseMediaApiClient {
         response.status,
       )
 
-      return response.data
+      // Ensure JSON responses are properly parsed and detect unexpected HTML responses
+      let responseData = response.data
+      const contentType = response.headers['content-type'] || ''
+
+      // If we expect JSON but got HTML (usually a login page), treat as error
+      if (
+        typeof responseData === 'string' &&
+        contentType.includes('text/html')
+      ) {
+        throw new MediaValidationApiError(
+          this.config.serviceName,
+          `${method} ${path}`,
+          'Invalid response type: received HTML instead of JSON',
+          correlationId,
+          {
+            originalError:
+              'Received HTML response instead of expected JSON - likely authentication required',
+            responsePreview: responseData.substring(0, 200),
+            contentType,
+            httpStatus: response.status,
+          },
+        )
+      }
+
+      // Parse JSON responses if they come as strings
+      if (
+        typeof responseData === 'string' &&
+        contentType.includes('application/json')
+      ) {
+        try {
+          responseData = JSON.parse(responseData)
+        } catch (parseError) {
+          this.logger.warn(
+            `Failed to parse JSON response from ${this.config.serviceName}`,
+            {
+              correlationId,
+              parseError:
+                parseError instanceof Error
+                  ? parseError.message
+                  : String(parseError),
+              responseLength:
+                typeof responseData === 'string'
+                  ? responseData.length
+                  : 'unknown',
+              contentType,
+            },
+          )
+        }
+      }
+
+      return responseData
     } catch (error) {
+      // Record failure in circuit breaker
+      this.recordCircuitBreakerFailure(endpointKey)
+
       const apiError = this.createMediaApiError(
         error as Error,
         correlationId,
@@ -599,13 +683,28 @@ export abstract class BaseMediaApiClient {
         Accept: 'application/json',
         'User-Agent': `TDR-Bot/${this.config.serviceName}-client/1.0.0`,
         'X-Client-Name': 'TDR-Bot-Media-Client',
+        // Add connection management headers
+        Connection: httpConfig.keepAlive ? 'keep-alive' : 'close',
       },
       // Use custom HTTP agent with connection pooling
       httpAgent: !isHttps ? this.httpAgent : undefined,
       httpsAgent: isHttps ? this.httpAgent : undefined,
-      // Timeout configuration handled by Axios timeout property
-      // Validate status codes
+      // Enhanced error handling for connection issues
       validateStatus: status => status >= 200 && status < 300,
+      // Disable automatic request transformation that can cause issues
+      transformRequest: [
+        data => {
+          if (data && typeof data === 'object') {
+            return JSON.stringify(data)
+          }
+          return data
+        },
+      ],
+      // Add response timeout separate from connection timeout
+      transitional: {
+        silentJSONParsing: false,
+        forcedJSONParsing: false,
+      },
     })
 
     this.logger.debug(`Created Axios instance for ${this.config.serviceName}`, {
@@ -726,17 +825,25 @@ export abstract class BaseMediaApiClient {
   }
 
   /**
-   * Get default HTTP connection configuration
+   * Get default HTTP connection configuration optimized for media API stability
    */
   private getDefaultHttpConfig(): HttpConnectionConfig {
+    // Detect if running in test environment
+    const isTestEnv =
+      process.env.NODE_ENV === 'test' ||
+      process.env.JEST_WORKER_ID !== undefined
+
     return {
-      maxSockets: 10,
-      maxFreeSockets: 5,
-      keepAliveTimeout: 5000,
+      // Reduced connection pool for better resource management in tests
+      maxSockets: isTestEnv ? 3 : 10,
+      maxFreeSockets: isTestEnv ? 2 : 5,
+      // Longer keep-alive for external services but shorter for tests to avoid hangs
+      keepAliveTimeout: isTestEnv ? 3000 : 10000,
       keepAlive: true,
-      connectTimeout: 10000,
+      // More conservative connection timeout for external services
+      connectTimeout: isTestEnv ? 8000 : 15000,
       maxContentLength: 10 * 1024 * 1024, // 10MB
-      maxRedirects: 5,
+      maxRedirects: 3, // Reduced to prevent redirect loops
     }
   }
 
@@ -746,13 +853,13 @@ export abstract class BaseMediaApiClient {
   private getDefaultVersionConfig(): ApiVersionConfig {
     const serviceDefaults = {
       sonarr: {
-        supportedVersions: ['3.0.0', '2.0.0'],
-        preferredVersion: '3.0.0',
+        supportedVersions: ['4.0.15', '4.0.0', '3.0.0', '2.0.0'],
+        preferredVersion: '4.0.15',
         fallbackVersion: '3.0.0',
       },
       radarr: {
-        supportedVersions: ['3.0.0', '2.0.0'],
-        preferredVersion: '3.0.0',
+        supportedVersions: ['5.26.2', '5.0.0', '4.0.0', '3.0.0', '2.0.0'],
+        preferredVersion: '5.26.2',
         fallbackVersion: '3.0.0',
       },
       emby: {
@@ -772,11 +879,14 @@ export abstract class BaseMediaApiClient {
   }
 
   /**
-   * Create HTTP/HTTPS agent with connection pooling and keep-alive
+   * Create HTTP/HTTPS agent with optimized connection pooling and keep-alive
    */
   private createHttpAgent(): HttpAgent | HttpsAgent {
     const httpConfig = this.config.httpConfig!
     const isHttps = this.config.baseURL.startsWith('https:')
+    const isTestEnv =
+      process.env.NODE_ENV === 'test' ||
+      process.env.JEST_WORKER_ID !== undefined
 
     const agentOptions = {
       keepAlive: httpConfig.keepAlive,
@@ -784,16 +894,34 @@ export abstract class BaseMediaApiClient {
       maxSockets: httpConfig.maxSockets,
       maxFreeSockets: httpConfig.maxFreeSockets,
       timeout: httpConfig.connectTimeout,
+      // Add socket timeout to prevent hanging connections
+      socketTimeout: isTestEnv ? 10000 : 30000,
+      // Enable TCP_NODELAY for faster small requests
+      noDelay: true,
+      // Set scheduling policy for better performance
+      scheduling: 'fifo' as const,
+    }
+
+    // Add HTTPS-specific options for secure connections
+    if (isHttps) {
+      Object.assign(agentOptions, {
+        // Allow self-signed certificates in development/test environments
+        rejectUnauthorized: process.env.NODE_ENV === 'production',
+        // Set secure protocol versions
+        secureProtocol: 'TLSv1_2_method',
+      })
     }
 
     this.logger.debug(
-      `Creating ${isHttps ? 'HTTPS' : 'HTTP'} agent for ${this.config.serviceName}`,
+      `Creating optimized ${isHttps ? 'HTTPS' : 'HTTP'} agent for ${this.config.serviceName}`,
       {
         service: this.config.serviceName,
         keepAlive: agentOptions.keepAlive,
         maxSockets: agentOptions.maxSockets,
         maxFreeSockets: agentOptions.maxFreeSockets,
         timeout: agentOptions.timeout,
+        socketTimeout: agentOptions.socketTimeout,
+        isTestEnv,
       },
     )
 
@@ -1078,6 +1206,37 @@ export abstract class BaseMediaApiClient {
   protected abstract getAuthenticationHeaders(): Record<string, string>
 
   /**
+   * Get authentication query parameters for API requests
+   *
+   * Some services (like Emby) require authentication via query parameters
+   * instead of or in addition to headers.
+   *
+   * @protected
+   * @returns Object containing authentication query parameters, or empty object if not needed
+   *
+   * @example
+   * ```typescript
+   * // For Emby
+   * protected getAuthenticationParams(): Record<string, string> {
+   *   return {
+   *     api_key: this.apiKey,
+   *     userId: this.userId
+   *   }
+   * }
+   *
+   * // For Sonarr/Radarr (default)
+   * protected getAuthenticationParams(): Record<string, string> {
+   *   return {} // Use headers only
+   * }
+   * ```
+   *
+   * @since 1.0.0
+   */
+  protected getAuthenticationParams(): Record<string, string> {
+    return {} // Default implementation for services that use headers only
+  }
+
+  /**
    * Validate service-specific configuration and test connectivity
    *
    * This method should perform a basic connectivity test and authentication
@@ -1092,7 +1251,7 @@ export abstract class BaseMediaApiClient {
    * protected async validateServiceConfiguration(): Promise<ConnectionTestResult> {
    *   const startTime = Date.now()
    *   try {
-   *     await this.get('/health', nanoid())
+   *     await this.get('/health', uuid())
    *     return {
    *       canConnect: true,
    *       isAuthenticated: true,
@@ -1238,6 +1397,192 @@ export abstract class BaseMediaApiClient {
         'MediaNetworkError',
       ],
     }
+  }
+
+  /**
+   * Get optimized retry configuration based on request type and environment
+   */
+  protected getOptimizedRetryConfig(method: string, path: string) {
+    const isTestEnv =
+      process.env.NODE_ENV === 'test' ||
+      process.env.JEST_WORKER_ID !== undefined
+    const isHealthCheck =
+      path.includes('/health') || path.includes('/system/status')
+    const isQuickOperation =
+      method === 'GET' && (isHealthCheck || path.includes('/lookup'))
+
+    // Base configuration
+    const baseConfig = {
+      maxAttempts: this.config.maxRetries,
+      baseDelay: isTestEnv ? 500 : 1000, // Faster retries in tests
+      maxDelay: isTestEnv ? 10000 : 30000, // Shorter max delay in tests
+      backoffFactor: isTestEnv ? 1.5 : 2, // Less aggressive backoff in tests
+      jitter: true,
+      timeout: this.config.timeout,
+      logRetryAttempts: !isTestEnv, // Reduce log noise in tests
+      logRetryDelays: !isTestEnv,
+    }
+
+    // Optimize for quick operations
+    if (isQuickOperation) {
+      return {
+        ...baseConfig,
+        maxAttempts: Math.min(this.config.maxRetries, 2), // Fewer retries for health checks
+        baseDelay: isTestEnv ? 250 : 500, // Very fast retries
+        maxDelay: isTestEnv ? 2000 : 5000, // Short max delay
+      }
+    }
+
+    // Optimize for test environment
+    if (isTestEnv) {
+      return {
+        ...baseConfig,
+        // Reduce total retry time in tests to prevent hangs
+        maxAttempts: Math.min(this.config.maxRetries, 3),
+        timeout: Math.min(this.config.timeout, 15000), // Shorter timeout in tests
+      }
+    }
+
+    return baseConfig
+  }
+
+  /**
+   * Circuit breaker implementation to prevent cascading failures
+   */
+  private isCircuitBreakerOpen(endpointKey: string): boolean {
+    const breaker = this.circuitBreakers.get(endpointKey)
+    if (!breaker || breaker.state === 'closed') {
+      return false
+    }
+
+    const now = new Date()
+    const isTestEnv =
+      process.env.NODE_ENV === 'test' ||
+      process.env.JEST_WORKER_ID !== undefined
+
+    // Circuit breaker thresholds
+    const failureThreshold = isTestEnv ? 3 : 5 // Lower threshold in tests
+    const openTimeoutMs = isTestEnv ? 5000 : 30000 // Shorter timeout in tests
+    const halfOpenTimeoutMs = isTestEnv ? 2000 : 10000 // Shorter half-open timeout in tests
+
+    if (breaker.state === 'open') {
+      // Check if we should transition to half-open
+      if (breaker.nextRetryTime && now >= breaker.nextRetryTime) {
+        breaker.state = 'half-open'
+        this.logger.debug(
+          `Circuit breaker transitioning to HALF-OPEN for ${endpointKey}`,
+          {
+            service: this.config.serviceName,
+            endpointKey,
+            failures: breaker.failures,
+          },
+        )
+        return false // Allow one request in half-open state
+      }
+      return true // Still open
+    }
+
+    if (breaker.state === 'half-open') {
+      // In half-open state, allow request but track carefully
+      return false
+    }
+
+    return false
+  }
+
+  private recordCircuitBreakerFailure(endpointKey: string): void {
+    const now = new Date()
+    const isTestEnv =
+      process.env.NODE_ENV === 'test' ||
+      process.env.JEST_WORKER_ID !== undefined
+    const failureThreshold = isTestEnv ? 3 : 5
+    const openTimeoutMs = isTestEnv ? 5000 : 30000
+
+    let breaker = this.circuitBreakers.get(endpointKey)
+    if (!breaker) {
+      breaker = {
+        failures: 0,
+        state: 'closed',
+      }
+      this.circuitBreakers.set(endpointKey, breaker)
+    }
+
+    breaker.failures++
+    breaker.lastFailureTime = now
+
+    if (breaker.failures >= failureThreshold) {
+      breaker.state = 'open'
+      breaker.nextRetryTime = new Date(now.getTime() + openTimeoutMs)
+
+      this.logger.warn(
+        `Circuit breaker OPENED for ${endpointKey} after ${breaker.failures} failures`,
+        {
+          service: this.config.serviceName,
+          endpointKey,
+          failures: breaker.failures,
+          nextRetryTime: breaker.nextRetryTime,
+          isTestEnv,
+        },
+      )
+    } else if (breaker.state === 'half-open') {
+      // Failed in half-open state, go back to open
+      breaker.state = 'open'
+      breaker.nextRetryTime = new Date(now.getTime() + openTimeoutMs)
+
+      this.logger.debug(
+        `Circuit breaker returned to OPEN from half-open for ${endpointKey}`,
+        {
+          service: this.config.serviceName,
+          endpointKey,
+          failures: breaker.failures,
+        },
+      )
+    }
+  }
+
+  private resetCircuitBreaker(endpointKey: string): void {
+    const breaker = this.circuitBreakers.get(endpointKey)
+    if (!breaker) return
+
+    const wasOpen = breaker.state !== 'closed'
+    breaker.failures = 0
+    breaker.state = 'closed'
+    breaker.lastFailureTime = undefined
+    breaker.nextRetryTime = undefined
+
+    if (wasOpen) {
+      this.logger.debug(
+        `Circuit breaker CLOSED for ${endpointKey} after successful request`,
+        {
+          service: this.config.serviceName,
+          endpointKey,
+        },
+      )
+    }
+  }
+
+  /**
+   * Get circuit breaker status for monitoring
+   */
+  public getCircuitBreakerStatus(): Record<string, CircuitBreakerState> {
+    const status: Record<string, CircuitBreakerState> = {}
+    for (const [endpoint, state] of this.circuitBreakers.entries()) {
+      status[endpoint] = { ...state }
+    }
+    return status
+  }
+
+  /**
+   * Reset all circuit breakers (useful for testing)
+   */
+  public resetAllCircuitBreakers(): void {
+    this.circuitBreakers.clear()
+    this.logger.debug(
+      `All circuit breakers reset for ${this.config.serviceName}`,
+      {
+        service: this.config.serviceName,
+      },
+    )
   }
 
   /**
@@ -1620,6 +1965,56 @@ export abstract class BaseMediaApiClient {
   }
 
   /**
+   * Force connection cleanup - useful between tests
+   */
+  public async forceCleanup(): Promise<void> {
+    this.logger.debug(
+      `Force cleanup for ${this.config.serviceName} API client`,
+      {
+        service: this.config.serviceName,
+      },
+    )
+
+    // Destroy current agent
+    if (this.httpAgent) {
+      this.httpAgent.destroy()
+    }
+
+    // Create new agent to ensure clean state
+    this.httpAgent = this.createHttpAgent()
+
+    // Reset circuit breakers on cleanup
+    this.resetAllCircuitBreakers()
+
+    // Small delay to ensure connections are properly closed
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+
+  /**
+   * Get connection statistics for monitoring
+   */
+  public getConnectionStats(): {
+    maxSockets: number
+    maxFreeSockets: number
+    keepAlive: boolean
+    keepAliveTimeout: number
+    connectTimeout: number
+    baseURL: string
+    serviceName: string
+  } {
+    const httpConfig = this.config.httpConfig!
+    return {
+      maxSockets: httpConfig.maxSockets || 10,
+      maxFreeSockets: httpConfig.maxFreeSockets || 5,
+      keepAlive: httpConfig.keepAlive || true,
+      keepAliveTimeout: httpConfig.keepAliveTimeout || 5000,
+      connectTimeout: httpConfig.connectTimeout || 10000,
+      baseURL: this.config.baseURL,
+      serviceName: this.config.serviceName,
+    }
+  }
+
+  /**
    * Test connection to the service and validate configuration
    * This is a public method that orchestrates the service validation
    */
@@ -1845,9 +2240,17 @@ export abstract class BaseMediaApiClient {
       recommendations.push('Check network connectivity and service performance')
     }
 
-    if (!apiVersion.detected) {
-      issues.push('Could not detect API version')
-      recommendations.push('Check service endpoints and authentication')
+    // Only treat version detection failure as an issue if the service is truly unusable
+    if (!apiVersion.detected && !apiVersion.isSupported) {
+      issues.push('Could not detect API version and service may be unsupported')
+      recommendations.push(
+        'Check service endpoints, authentication, and version compatibility',
+      )
+    } else if (!apiVersion.detected) {
+      // Version detection failed but service is still supported - treat as recommendation only
+      recommendations.push(
+        'API version detection failed but service appears functional - check service endpoints if issues occur',
+      )
     }
 
     if (!apiVersion.isSupported) {
@@ -1864,8 +2267,13 @@ export abstract class BaseMediaApiClient {
       recommendations.push('Service may have limited functionality')
     }
 
+    // Treat compatibility warnings as recommendations, not critical issues
     if (apiVersion.compatibilityWarnings?.length) {
-      issues.push(...apiVersion.compatibilityWarnings)
+      recommendations.push(
+        ...apiVersion.compatibilityWarnings.map(
+          warning => `Version warning: ${warning}`,
+        ),
+      )
     }
 
     diagnostics.summary = {

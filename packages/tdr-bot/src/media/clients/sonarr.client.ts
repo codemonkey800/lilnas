@@ -11,7 +11,7 @@
  */
 
 import { Injectable } from '@nestjs/common'
-import { nanoid } from 'nanoid'
+import { v4 as uuid } from 'uuid'
 
 import {
   BaseApiClientConfig,
@@ -193,8 +193,8 @@ export class SonarrClient extends BaseMediaApiClient {
     const startTime = Date.now()
 
     try {
-      // Test basic connectivity with health endpoint
-      await this.get('/health', nanoid())
+      // Test basic connectivity with API health endpoint
+      await this.get('/api/v3/health', uuid())
 
       const responseTime = Date.now() - startTime
 
@@ -228,21 +228,69 @@ export class SonarrClient extends BaseMediaApiClient {
   protected async getServiceCapabilities(
     correlationId: string,
   ): Promise<ServiceCapabilities> {
-    const apiVersion = await this.getApiVersion(correlationId)
+    try {
+      this.logger.debug('Getting Sonarr service capabilities', {
+        correlationId,
+        service: 'sonarr',
+      })
 
-    return {
-      canSearch: true,
-      canRequest: true,
-      canMonitor: apiVersion.isCompatible,
-      supportedMediaTypes: ['tv'],
-      version: apiVersion.version,
-      apiVersion,
-      featureLimitations: apiVersion.isSupported
-        ? []
-        : [
-            'Limited feature set due to version compatibility',
-            'Some advanced TV series features may not be available',
-          ],
+      const apiVersion = await this.getApiVersion(correlationId)
+
+      this.logger.debug('Retrieved API version for Sonarr capabilities', {
+        correlationId,
+        version: apiVersion.version,
+        isSupported: apiVersion.isSupported,
+        isCompatible: apiVersion.isCompatible,
+      })
+
+      const capabilities = {
+        canSearch: true,
+        canRequest: true,
+        canMonitor: apiVersion.isCompatible,
+        supportedMediaTypes: ['tv'],
+        version: apiVersion.version,
+        apiVersion,
+        featureLimitations: apiVersion.isSupported
+          ? []
+          : [
+              'Limited feature set due to version compatibility',
+              'Some advanced TV series features may not be available',
+            ],
+      }
+
+      this.logger.debug('Sonarr service capabilities determined', {
+        correlationId,
+        capabilities,
+      })
+
+      return capabilities
+    } catch (error) {
+      this.logger.error('Failed to get Sonarr service capabilities', {
+        correlationId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      })
+
+      // Return fallback capabilities
+      return {
+        canSearch: true,
+        canRequest: true,
+        canMonitor: false, // Conservative fallback
+        supportedMediaTypes: ['tv'],
+        version: '3.0.0',
+        apiVersion: {
+          version: '3.0.0',
+          detected: false,
+          isSupported: false,
+          isCompatible: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        featureLimitations: [
+          'Could not determine API version',
+          'Using fallback capabilities with limited monitoring',
+          error instanceof Error ? error.message : String(error),
+        ],
+      }
     }
   }
 
@@ -256,7 +304,7 @@ export class SonarrClient extends BaseMediaApiClient {
 
     try {
       const health = await this.get<{ version?: string }>(
-        '/health',
+        '/api/v3/health',
         correlationId,
       )
 
@@ -286,9 +334,10 @@ export class SonarrClient extends BaseMediaApiClient {
    */
   protected getApiEndpoints(): Record<string, string> {
     return {
-      health: '/health',
+      health: '/api/v3/health',
       series: '/api/v3/series',
       seriesLookup: '/api/v3/series/lookup',
+      search: '/api/v3/series/lookup',
       episode: '/api/v3/episode',
       queue: '/api/v3/queue',
       qualityProfile: '/api/v3/qualityprofile',
@@ -561,15 +610,14 @@ export class SonarrClient extends BaseMediaApiClient {
       (acc, season) => {
         const existing = acc.find(s => s.seasonNumber === season.seasonNumber)
         if (existing) {
-          if (season.episodes && existing.episodes) {
+          if (!season.episodes || !existing.episodes) {
+            // If either season is a full season (no episodes), make the merged one full season too
+            delete existing.episodes
+          } else {
+            // Both have specific episodes - merge them
             existing.episodes = [
               ...new Set([...existing.episodes, ...season.episodes]),
             ].sort((a, b) => a - b)
-          } else if (season.episodes) {
-            existing.episodes = season.episodes
-          } else {
-            // If one is full season, make the merged one full season too
-            delete existing.episodes
           }
         } else {
           acc.push(season)
@@ -579,9 +627,18 @@ export class SonarrClient extends BaseMediaApiClient {
       [] as Array<{ seasonNumber: number; episodes?: number[] }>,
     )
 
+    // Recalculate total episodes after merging
+    const finalTotalEpisodes = mergedSeasons.reduce((total, season) => {
+      if (season.episodes) {
+        return total + season.episodes.length
+      } else {
+        return total + 20 // Estimate 20 episodes per full season
+      }
+    }, 0)
+
     return {
       seasons: mergedSeasons,
-      totalEpisodes,
+      totalEpisodes: finalTotalEpisodes,
     }
   }
 

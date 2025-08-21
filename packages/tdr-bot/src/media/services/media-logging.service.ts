@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
-import { nanoid } from 'nanoid'
+import { v4 as uuid } from 'uuid'
 
 import { MediaErrorHandler } from 'src/media/errors/error-utils'
 import { MediaLoggingError } from 'src/media/errors/media-errors'
@@ -529,6 +529,6 @@ export class MediaLoggingService {
    * Generate unique correlation ID
    */
   private generateCorrelationId(): string {
-    return `media_${nanoid(12)}_${Date.now()}`
+    return `media_${uuid().substring(0, 12)}_${Date.now()}`
   }
 }

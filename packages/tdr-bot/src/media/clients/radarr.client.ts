@@ -11,7 +11,7 @@
  */
 
 import { Injectable } from '@nestjs/common'
-import { nanoid } from 'nanoid'
+import { v4 as uuid } from 'uuid'
 
 import {
   BaseApiClientConfig,
@@ -53,16 +53,13 @@ interface RadarrMovie {
 
 // RadarrMovieRequest interface is now imported from request-validation.schemas.ts
 
-interface RadarrHealthResponse {
-  status: string
-  version: string
-  branch: string
-  isDebug: boolean
-  isProduction: boolean
-  isAdmin: boolean
-  isUserInteractive: boolean
-  startTime: string
+interface RadarrHealthItem {
+  Type: string
+  Message: string
+  WikiUrl?: string
 }
+
+type RadarrHealthResponse = RadarrHealthItem[]
 
 interface RadarrQueueItem {
   id: number
@@ -155,8 +152,11 @@ export class RadarrClient extends BaseMediaApiClient {
     const startTime = Date.now()
 
     try {
-      // Test basic connectivity with health endpoint
-      const health = await this.get<RadarrHealthResponse>('/health', nanoid())
+      // Test basic connectivity with API health endpoint
+      const health = await this.get<RadarrHealthResponse>(
+        '/api/v3/health',
+        uuid(),
+      )
 
       const responseTime = Date.now() - startTime
 
@@ -190,21 +190,69 @@ export class RadarrClient extends BaseMediaApiClient {
   protected async getServiceCapabilities(
     correlationId: string,
   ): Promise<ServiceCapabilities> {
-    const apiVersion = await this.getApiVersion(correlationId)
+    try {
+      this.logger.debug('Getting Radarr service capabilities', {
+        correlationId,
+        service: 'radarr',
+      })
 
-    return {
-      canSearch: true,
-      canRequest: true,
-      canMonitor: apiVersion.isCompatible,
-      supportedMediaTypes: ['movie'],
-      version: apiVersion.version,
-      apiVersion,
-      featureLimitations: apiVersion.isSupported
-        ? []
-        : [
-            'Limited feature set due to version compatibility',
-            'Some advanced features may not be available',
-          ],
+      const apiVersion = await this.getApiVersion(correlationId)
+
+      this.logger.debug('Retrieved API version for Radarr capabilities', {
+        correlationId,
+        version: apiVersion.version,
+        isSupported: apiVersion.isSupported,
+        isCompatible: apiVersion.isCompatible,
+      })
+
+      const capabilities = {
+        canSearch: true,
+        canRequest: true,
+        canMonitor: apiVersion.isCompatible,
+        supportedMediaTypes: ['movie'],
+        version: apiVersion.version,
+        apiVersion,
+        featureLimitations: apiVersion.isSupported
+          ? []
+          : [
+              'Limited feature set due to version compatibility',
+              'Some advanced features may not be available',
+            ],
+      }
+
+      this.logger.debug('Radarr service capabilities determined', {
+        correlationId,
+        capabilities,
+      })
+
+      return capabilities
+    } catch (error) {
+      this.logger.error('Failed to get Radarr service capabilities', {
+        correlationId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      })
+
+      // Return fallback capabilities
+      return {
+        canSearch: true,
+        canRequest: true,
+        canMonitor: false, // Conservative fallback
+        supportedMediaTypes: ['movie'],
+        version: '3.0.0',
+        apiVersion: {
+          version: '3.0.0',
+          detected: false,
+          isSupported: false,
+          isCompatible: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        featureLimitations: [
+          'Could not determine API version',
+          'Using fallback capabilities with limited monitoring',
+          error instanceof Error ? error.message : String(error),
+        ],
+      }
     }
   }
 
@@ -217,20 +265,23 @@ export class RadarrClient extends BaseMediaApiClient {
     const startTime = Date.now()
 
     try {
-      const health = await this.get<RadarrHealthResponse>(
-        '/health',
+      const healthData = await this.get<RadarrHealthResponse>(
+        '/api/v3/health',
         correlationId,
       )
 
       // Get API version information for health check
       const apiVersion = await this.getApiVersion(correlationId)
 
+      // Check if there are any error-type health issues
+      const isHealthy = !healthData.some(item => item.Type === 'error')
+
       return {
-        isHealthy: health.status === 'healthy' || health.status === 'ok',
+        isHealthy,
         responseTime: Date.now() - startTime,
         lastChecked: new Date(),
-        version: health.version,
-        status: health.status,
+        version: apiVersion.version,
+        status: isHealthy ? 'healthy' : 'unhealthy',
         apiVersion,
       }
     } catch (error) {
@@ -248,9 +299,11 @@ export class RadarrClient extends BaseMediaApiClient {
    */
   protected getApiEndpoints(): Record<string, string> {
     return {
-      health: '/health',
+      health: '/api/v3/health',
       movie: '/api/v3/movie',
+      movies: '/api/v3/movie',
       movieLookup: '/api/v3/movie/lookup',
+      search: '/api/v3/movie/lookup',
       queue: '/api/v3/queue',
       qualityProfile: '/api/v3/qualityprofile',
       rootFolder: '/api/v3/rootfolder',

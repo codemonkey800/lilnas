@@ -31,6 +31,9 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
+    "test:e2e": "jest --config jest.e2e.config.js",
+    "test:e2e:watch": "jest --config jest.e2e.config.js --watch",
+    "test:e2e:ci": "jest --config jest.e2e.config.js --ci --maxWorkers=1",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

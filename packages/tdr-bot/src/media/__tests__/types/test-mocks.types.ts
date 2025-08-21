@@ -19,6 +19,13 @@ import type {
   TextInputStyle,
 } from 'discord.js'
 
+import type {
+  EmbyConfig,
+  MediaConfigValidationService,
+  RadarrConfig,
+  SonarrConfig,
+  ValidationResult,
+} from 'src/media/config/media-config.validation'
 import type { MediaLoggingService } from 'src/media/services/media-logging.service'
 import type { ErrorClassificationService } from 'src/utils/error-classifier'
 import type { RetryService } from 'src/utils/retry.service'
@@ -28,16 +35,20 @@ import type { RetryService } from 'src/utils/retry.service'
  */
 export interface MockAxiosInstance {
   request: jest.MockedFunction<AxiosInstance['request']>
+  get: jest.MockedFunction<AxiosInstance['get']>
+  post: jest.MockedFunction<AxiosInstance['post']>
+  put: jest.MockedFunction<AxiosInstance['put']>
+  delete: jest.MockedFunction<AxiosInstance['delete']>
   interceptors: {
-    request: { use: jest.MockedFunction<any> }
-    response: { use: jest.MockedFunction<any> }
+    request: { use: jest.MockedFunction<(...args: unknown[]) => unknown> }
+    response: { use: jest.MockedFunction<(...args: unknown[]) => unknown> }
   }
 }
 
 /**
  * Type-safe Axios response mock
  */
-export interface MockAxiosResponse<T = any> {
+export interface MockAxiosResponse<T = unknown> {
   data: T
   status: number
   statusText: string
@@ -56,11 +67,11 @@ export interface MockLogger {
   error: jest.MockedFunction<Logger['error']>
   warn: jest.MockedFunction<Logger['warn']>
   verbose: jest.MockedFunction<Logger['verbose']>
-  fatal: jest.MockedFunction<any>
-  setContext: jest.MockedFunction<any>
-  localInstance: jest.MockedFunction<any>
-  registerLocalInstanceRef: jest.MockedFunction<any>
-  options?: any
+  fatal: jest.MockedFunction<(...args: unknown[]) => void>
+  setContext: jest.MockedFunction<(context: string) => void>
+  localInstance: jest.MockedFunction<() => Logger>
+  registerLocalInstanceRef: jest.MockedFunction<() => void>
+  options?: Record<string, unknown>
 }
 
 /**
@@ -111,6 +122,45 @@ export interface MockMediaLoggingService {
 }
 
 /**
+ * Type-safe MediaConfigValidationService mock
+ */
+export interface MockMediaConfigValidationService {
+  getServiceConfig: jest.MockedFunction<
+    MediaConfigValidationService['getServiceConfig']
+  >
+  getConfiguration: jest.MockedFunction<
+    MediaConfigValidationService['getConfiguration']
+  >
+  getLastValidation: jest.MockedFunction<
+    MediaConfigValidationService['getLastValidation']
+  >
+  revalidateConfiguration: jest.MockedFunction<
+    MediaConfigValidationService['revalidateConfiguration']
+  >
+  areAllServicesValid: jest.MockedFunction<
+    MediaConfigValidationService['areAllServicesValid']
+  >
+  getAvailableServices: jest.MockedFunction<
+    MediaConfigValidationService['getAvailableServices']
+  >
+  onModuleInit: jest.MockedFunction<
+    MediaConfigValidationService['onModuleInit']
+  >
+}
+
+/**
+ * Type-safe RequestValidationUtils mock for static methods
+ */
+export interface MockRequestValidationUtils {
+  validateSonarrSeriesRequest: jest.MockedFunction<
+    (data: unknown, correlationId: string) => unknown
+  >
+  validateRadarrMovieRequest: jest.MockedFunction<
+    (data: unknown, correlationId: string) => unknown
+  >
+}
+
+/**
  * Type-safe Discord component builder mocks
  */
 
@@ -119,7 +169,10 @@ type RestOrArray<T> = T[] | [T[]]
 
 // Mock action row with proper generic typing
 export interface MockActionRowBuilder<
-  T extends ButtonBuilder | StringSelectMenuBuilder | TextInputBuilder = any,
+  T extends
+    | ButtonBuilder
+    | StringSelectMenuBuilder
+    | TextInputBuilder = ButtonBuilder,
 > {
   components: T[]
   addComponents: jest.MockedFunction<
@@ -130,17 +183,24 @@ export interface MockActionRowBuilder<
 
 // Enhanced action row factory that tracks components
 export interface MockActionRowBuilderWithTracking<
-  T extends ButtonBuilder | StringSelectMenuBuilder | TextInputBuilder = any,
+  T extends
+    | ButtonBuilder
+    | StringSelectMenuBuilder
+    | TextInputBuilder = ButtonBuilder,
 > {
   components: T[]
-  data: any
-  setId: jest.MockedFunction<any>
-  clearId: jest.MockedFunction<any>
-  setComponents: jest.MockedFunction<any>
+  data: Record<string, unknown>
+  setId: jest.MockedFunction<
+    (id: number) => MockActionRowBuilderWithTracking<T>
+  >
+  clearId: jest.MockedFunction<() => MockActionRowBuilderWithTracking<T>>
+  setComponents: jest.MockedFunction<
+    (...components: RestOrArray<T>) => MockActionRowBuilderWithTracking<T>
+  >
   addComponents: jest.MockedFunction<
     (...components: RestOrArray<T>) => MockActionRowBuilderWithTracking<T>
   >
-  toJSON: jest.MockedFunction<any>
+  toJSON: jest.MockedFunction<() => { type: 1; components: any[] }>
 }
 
 export interface MockButtonBuilder {
@@ -208,7 +268,7 @@ export interface MockModalBuilder {
   data: {
     custom_id?: string
     title?: string
-    components?: Array<any>
+    components?: Array<Record<string, unknown>>
   }
   setCustomId: jest.MockedFunction<ModalBuilder['setCustomId']>
   setTitle: jest.MockedFunction<ModalBuilder['setTitle']>
@@ -254,6 +314,10 @@ export interface MockEmbedBuilder {
 export function createMockAxiosInstance(): MockAxiosInstance {
   return {
     request: jest.fn(),
+    get: jest.fn(),
+    post: jest.fn(),
+    put: jest.fn(),
+    delete: jest.fn(),
     interceptors: {
       request: { use: jest.fn() },
       response: { use: jest.fn() },
@@ -261,7 +325,7 @@ export function createMockAxiosInstance(): MockAxiosInstance {
   }
 }
 
-export function createMockAxiosResponse<T = any>(
+export function createMockAxiosResponse<T = unknown>(
   data: T,
   status = 200,
 ): MockAxiosResponse<T> {
@@ -317,12 +381,156 @@ export function createMockLogger(): MockLogger {
     setContext: jest.fn(),
     localInstance: jest.fn(),
     registerLocalInstanceRef: jest.fn(),
-    options: {},
+    options: {} as Record<string, unknown>,
+  }
+}
+
+/**
+ * Factory function for MockMediaConfigValidationService
+ */
+export function createMockMediaConfigValidationService(): MockMediaConfigValidationService {
+  return {
+    getServiceConfig: jest.fn(),
+    getConfiguration: jest.fn(),
+    getLastValidation: jest.fn(),
+    revalidateConfiguration: jest.fn(),
+    areAllServicesValid: jest.fn(),
+    getAvailableServices: jest.fn(),
+    onModuleInit: jest.fn().mockResolvedValue(undefined),
+  }
+}
+
+/**
+ * Factory function for MockRequestValidationUtils (static methods)
+ */
+export function createMockRequestValidationUtils(): MockRequestValidationUtils {
+  return {
+    validateSonarrSeriesRequest: jest.fn(),
+    validateRadarrMovieRequest: jest.fn(),
+  }
+}
+
+/**
+ * Create mock SonarrConfig with realistic test data
+ */
+export function createMockSonarrConfig(
+  overrides: Partial<SonarrConfig> = {},
+): SonarrConfig {
+  return {
+    url: 'http://sonarr.test:8989',
+    apiKey: 'test-sonarr-api-key-123456',
+    timeout: 30000,
+    maxRetries: 3,
+    isValidated: true,
+    httpConfig: {
+      maxSockets: 10,
+      maxFreeSockets: 5,
+      keepAliveTimeout: 5000,
+      keepAlive: true,
+      connectTimeout: 10000,
+      maxContentLength: 10485760,
+      maxRedirects: 5,
+    },
+    versionConfig: {
+      supportedVersions: ['3.0.0', '2.0.0'],
+      preferredVersion: '3.0.0',
+      enableVersionDetection: true,
+      fallbackVersion: '3.0.0',
+      compatibilityMode: 'fallback' as const,
+    },
+    ...overrides,
+  }
+}
+
+/**
+ * Create mock RadarrConfig with realistic test data
+ */
+export function createMockRadarrConfig(
+  overrides: Partial<RadarrConfig> = {},
+): RadarrConfig {
+  return {
+    url: 'http://radarr.test:7878',
+    apiKey: 'test-radarr-api-key-789012',
+    timeout: 30000,
+    maxRetries: 3,
+    isValidated: true,
+    httpConfig: {
+      maxSockets: 10,
+      maxFreeSockets: 5,
+      keepAliveTimeout: 5000,
+      keepAlive: true,
+      connectTimeout: 10000,
+      maxContentLength: 10485760,
+      maxRedirects: 5,
+    },
+    versionConfig: {
+      supportedVersions: ['3.0.0', '2.0.0'],
+      preferredVersion: '3.0.0',
+      enableVersionDetection: true,
+      fallbackVersion: '3.0.0',
+      compatibilityMode: 'fallback' as const,
+    },
+    ...overrides,
+  }
+}
+
+/**
+ * Create mock EmbyConfig with realistic test data
+ */
+export function createMockEmbyConfig(
+  overrides: Partial<EmbyConfig> = {},
+): EmbyConfig {
+  return {
+    url: 'http://emby.test:8096',
+    apiKey: 'test-emby-api-key-345678',
+    userId: '12345678-1234-4678-9012-123456789012',
+    timeout: 30000,
+    maxRetries: 3,
+    isValidated: true,
+    httpConfig: {
+      maxSockets: 10,
+      maxFreeSockets: 5,
+      keepAliveTimeout: 5000,
+      keepAlive: true,
+      connectTimeout: 10000,
+      maxContentLength: 10485760,
+      maxRedirects: 5,
+    },
+    versionConfig: {
+      supportedVersions: ['4.7.0', '4.6.0', '4.5.0'],
+      preferredVersion: '4.7.0',
+      enableVersionDetection: true,
+      fallbackVersion: '4.7.0',
+      compatibilityMode: 'fallback' as const,
+    },
+    ...overrides,
+  }
+}
+
+/**
+ * Create mock ValidationResult with realistic test data
+ */
+export function createMockValidationResult(
+  overrides: Partial<ValidationResult> = {},
+): ValidationResult {
+  return {
+    isValid: true,
+    errors: [],
+    warnings: [],
+    serviceStatus: {
+      sonarr: 'valid',
+      radarr: 'valid',
+      emby: 'valid',
+    },
+    ...overrides,
   }
 }
 
 export function createMockActionRowBuilder<
-  T extends ButtonBuilder | StringSelectMenuBuilder | TextInputBuilder = any,
+  T extends
+    | ButtonBuilder
+    | StringSelectMenuBuilder
+    | TextInputBuilder = ButtonBuilder,
 >(): MockActionRowBuilderWithTracking<T> {
   const mock = {
     components: [],
@@ -343,7 +551,27 @@ export function createMockActionRowBuilder<
       this.components.push(...components)
       return this
     }),
-    toJSON: jest.fn(),
+    toJSON: jest.fn().mockImplementation(function (
+      this: MockActionRowBuilderWithTracking<T>,
+    ) {
+      return {
+        type: 1, // ComponentType.ActionRow
+        components: this.components.map((component: any) => {
+          if (component.toJSON && typeof component.toJSON === 'function') {
+            const componentData = component.toJSON()
+            return {
+              type: 2, // ComponentType.Button (default, can be overridden by component)
+              ...componentData,
+            }
+          }
+          // Fallback for simple data objects
+          return {
+            type: 2,
+            ...component.data,
+          }
+        }),
+      }
+    }),
   } as MockActionRowBuilderWithTracking<T>
   return mock
 }
@@ -423,14 +651,26 @@ export function createMockStringSelectMenuBuilder(
     }),
     setOptions: jest.fn().mockImplementation(function (
       this: MockStringSelectMenuBuilder,
-      options: any[],
+      options: Array<{
+        label: string
+        value: string
+        description?: string
+        emoji?: { name?: string; id?: string }
+        default?: boolean
+      }>,
     ) {
       this.data.options = options
       return this
     }),
     addOptions: jest.fn().mockImplementation(function (
       this: MockStringSelectMenuBuilder,
-      ...options: any[]
+      ...options: Array<{
+        label: string
+        value: string
+        description?: string
+        emoji?: { name?: string; id?: string }
+        default?: boolean
+      }>
     ) {
       if (!this.data.options) this.data.options = []
       this.data.options.push(...options)
@@ -487,7 +727,7 @@ export function createMockModalBuilder(
     }),
     addComponents: jest.fn().mockImplementation(function (
       this: MockModalBuilder,
-      ...components: any[]
+      ...components: Array<Record<string, unknown>>
     ) {
       if (!this.data.components) this.data.components = []
       this.data.components.push(...components)
