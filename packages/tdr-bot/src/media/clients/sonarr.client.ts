@@ -735,6 +735,364 @@ export class SonarrClient extends BaseMediaApiClient {
   }
 
   /**
+   * Update episode monitoring for specific episodes
+   *
+   * @param seriesId - Sonarr series ID
+   * @param episodeUpdates - Array of episode monitoring updates
+   * @param correlationId - Unique identifier for request tracing
+   * @returns Promise resolving to updated episodes
+   * @throws {MediaApiError} When update fails
+   *
+   * @example
+   * ```typescript
+   * // Monitor only episodes 3 and 4 of season 1
+   * await sonarrClient.updateEpisodeMonitoring(52, [
+   *   { seasonNumber: 1, episodeNumber: 3, monitored: true },
+   *   { seasonNumber: 1, episodeNumber: 4, monitored: true }
+   * ], correlationId)
+   * ```
+   *
+   * @since 1.0.0
+   */
+  async updateEpisodeMonitoring(
+    seriesId: number,
+    episodeUpdates: Array<{
+      seasonNumber: number
+      episodeNumber: number
+      monitored: boolean
+    }>,
+    correlationId: string,
+  ): Promise<SonarrEpisode[]> {
+    this.logger.debug('Updating episode monitoring', {
+      seriesId,
+      episodeCount: episodeUpdates.length,
+      correlationId,
+    })
+
+    // Get all episodes for the series
+    const episodes = await this.getSeriesEpisodes(seriesId, correlationId)
+    const updatedEpisodes: SonarrEpisode[] = []
+
+    // Process each episode update
+    for (const update of episodeUpdates) {
+      const episode = episodes.find(
+        ep =>
+          ep.seasonNumber === update.seasonNumber &&
+          ep.episodeNumber === update.episodeNumber,
+      )
+
+      if (!episode) {
+        this.logger.warn('Episode not found for monitoring update', {
+          seriesId,
+          seasonNumber: update.seasonNumber,
+          episodeNumber: update.episodeNumber,
+          correlationId,
+        })
+        continue
+      }
+
+      // Only update if monitoring status is different
+      if (episode.monitored !== update.monitored) {
+        this.logger.debug('Updating episode monitoring status', {
+          episodeId: episode.id,
+          seasonNumber: update.seasonNumber,
+          episodeNumber: update.episodeNumber,
+          oldMonitored: episode.monitored,
+          newMonitored: update.monitored,
+          correlationId,
+        })
+
+        const updatedEpisode = await this.put<SonarrEpisode>(
+          `/api/v3/episode/${episode.id}`,
+          { ...episode, monitored: update.monitored },
+          correlationId,
+        )
+        updatedEpisodes.push(updatedEpisode)
+      }
+    }
+
+    this.logger.debug('Episode monitoring updates completed', {
+      seriesId,
+      updatedCount: updatedEpisodes.length,
+      correlationId,
+    })
+
+    return updatedEpisodes
+  }
+
+  /**
+   * Set monitoring for specific episodes only (unmonitor all others)
+   *
+   * @param seriesId - Sonarr series ID
+   * @param targetEpisodes - Episodes to monitor (all others will be unmonitored)
+   * @param correlationId - Unique identifier for request tracing
+   * @returns Promise resolving to monitoring summary
+   * @throws {MediaApiError} When update fails
+   *
+   * @example
+   * ```typescript
+   * // Monitor only S1E3 and S1E4, unmonitor everything else
+   * const result = await sonarrClient.setExclusiveEpisodeMonitoring(52, [
+   *   { seasonNumber: 1, episodeNumber: 3 },
+   *   { seasonNumber: 1, episodeNumber: 4 }
+   * ], correlationId)
+   * ```
+   *
+   * @since 1.0.0
+   */
+  async setExclusiveEpisodeMonitoring(
+    seriesId: number,
+    targetEpisodes: Array<{
+      seasonNumber: number
+      episodeNumber: number
+    }>,
+    correlationId: string,
+  ): Promise<{
+    monitored: number
+    unmonitored: number
+    totalEpisodes: number
+    targetEpisodes: Array<{
+      seasonNumber: number
+      episodeNumber: number
+      found: boolean
+    }>
+  }> {
+    this.logger.debug('Setting exclusive episode monitoring', {
+      seriesId,
+      targetEpisodeCount: targetEpisodes.length,
+      correlationId,
+    })
+
+    // Get all episodes for the series
+    const episodes = await this.getSeriesEpisodes(seriesId, correlationId)
+    let monitoredCount = 0
+    let unmonitoredCount = 0
+
+    // Track which target episodes were found
+    const targetStatus = targetEpisodes.map(target => ({
+      ...target,
+      found: false,
+    }))
+
+    // Build update array for all episodes
+    const episodeUpdates = episodes.map(episode => {
+      const isTarget = targetEpisodes.some(
+        target =>
+          target.seasonNumber === episode.seasonNumber &&
+          target.episodeNumber === episode.episodeNumber,
+      )
+
+      // Mark target as found
+      if (isTarget) {
+        const targetIndex = targetStatus.findIndex(
+          target =>
+            target.seasonNumber === episode.seasonNumber &&
+            target.episodeNumber === episode.episodeNumber,
+        )
+        if (targetIndex >= 0) {
+          targetStatus[targetIndex].found = true
+        }
+      }
+
+      return {
+        seasonNumber: episode.seasonNumber,
+        episodeNumber: episode.episodeNumber,
+        monitored: isTarget,
+      }
+    })
+
+    // Apply the updates
+    await this.updateEpisodeMonitoring(seriesId, episodeUpdates, correlationId)
+
+    // Count results
+    episodeUpdates.forEach(update => {
+      if (update.monitored) {
+        monitoredCount++
+      } else {
+        unmonitoredCount++
+      }
+    })
+
+    const result = {
+      monitored: monitoredCount,
+      unmonitored: unmonitoredCount,
+      totalEpisodes: episodes.length,
+      targetEpisodes: targetStatus,
+    }
+
+    this.logger.debug('Exclusive episode monitoring completed', {
+      seriesId,
+      result,
+      correlationId,
+    })
+
+    return result
+  }
+
+  /**
+   * Validate episode specification against available episodes
+   *
+   * @param seriesId - Sonarr series ID
+   * @param episodeSpec - Episode specification to validate
+   * @param correlationId - Unique identifier for request tracing
+   * @returns Promise resolving to validation result
+   * @throws {MediaApiError} When validation fails
+   *
+   * @since 1.0.0
+   */
+  async validateEpisodeSpecification(
+    seriesId: number,
+    episodeSpec: EpisodeSpecification,
+    correlationId: string,
+  ): Promise<{
+    isValid: boolean
+    availableEpisodes: Array<{
+      seasonNumber: number
+      episodeNumber: number
+      available: boolean
+    }>
+    missingEpisodes: Array<{
+      seasonNumber: number
+      episodeNumber: number
+    }>
+    warnings: string[]
+  }> {
+    this.logger.debug('Validating episode specification', {
+      seriesId,
+      seasonCount: episodeSpec.seasons.length,
+      totalEpisodes: episodeSpec.totalEpisodes,
+      correlationId,
+    })
+
+    const episodes = await this.getSeriesEpisodes(seriesId, correlationId)
+    const availableEpisodes: Array<{
+      seasonNumber: number
+      episodeNumber: number
+      available: boolean
+    }> = []
+    const missingEpisodes: Array<{
+      seasonNumber: number
+      episodeNumber: number
+    }> = []
+    const warnings: string[] = []
+
+    // Check each season in the specification
+    for (const season of episodeSpec.seasons) {
+      const seasonEpisodes = episodes.filter(
+        ep => ep.seasonNumber === season.seasonNumber,
+      )
+
+      if (seasonEpisodes.length === 0) {
+        warnings.push(`Season ${season.seasonNumber} not found in series`)
+        continue
+      }
+
+      if (season.episodes) {
+        // Check specific episodes
+        for (const episodeNumber of season.episodes) {
+          const episode = seasonEpisodes.find(
+            ep => ep.episodeNumber === episodeNumber,
+          )
+          const available = !!episode
+
+          availableEpisodes.push({
+            seasonNumber: season.seasonNumber,
+            episodeNumber,
+            available,
+          })
+
+          if (!available) {
+            missingEpisodes.push({
+              seasonNumber: season.seasonNumber,
+              episodeNumber,
+            })
+          }
+        }
+      } else {
+        // Check all episodes in season
+        seasonEpisodes.forEach(episode => {
+          availableEpisodes.push({
+            seasonNumber: episode.seasonNumber,
+            episodeNumber: episode.episodeNumber,
+            available: true,
+          })
+        })
+      }
+    }
+
+    const isValid = missingEpisodes.length === 0
+
+    this.logger.debug('Episode specification validation completed', {
+      seriesId,
+      isValid,
+      availableCount: availableEpisodes.filter(ep => ep.available).length,
+      missingCount: missingEpisodes.length,
+      warningCount: warnings.length,
+      correlationId,
+    })
+
+    return {
+      isValid,
+      availableEpisodes,
+      missingEpisodes,
+      warnings,
+    }
+  }
+
+  /**
+   * Trigger episode search for specific episodes
+   *
+   * @param episodeIds - Array of Sonarr episode IDs to search for
+   * @param correlationId - Unique identifier for request tracing
+   * @returns Promise resolving to command response
+   * @throws {MediaApiError} When search request fails
+   *
+   * @example
+   * ```typescript
+   * // Search for specific episodes after setting up monitoring
+   * const command = await sonarrClient.searchEpisodesByIds([123, 124, 125], correlationId)
+   * console.log(`Search command initiated: ${command.id}`)
+   * ```
+   *
+   * @since 1.0.0
+   */
+  async searchEpisodesByIds(
+    episodeIds: number[],
+    correlationId: string,
+  ): Promise<{ id: number; name: string; status: string }> {
+    this.logger.debug('Initiating episode search for specific episodes', {
+      episodeIds,
+      episodeCount: episodeIds.length,
+      correlationId,
+    })
+
+    if (episodeIds.length === 0) {
+      throw new Error('At least one episode ID must be provided for search')
+    }
+
+    const commandRequest = {
+      name: 'EpisodeSearch',
+      episodeIds: episodeIds,
+    }
+
+    const command = await this.post<{
+      id: number
+      name: string
+      status: string
+    }>('/api/v3/command', commandRequest, correlationId)
+
+    this.logger.debug('Episode search command initiated', {
+      commandId: command.id,
+      commandName: command.name,
+      status: command.status,
+      episodeIds,
+      correlationId,
+    })
+
+    return command
+  }
+
+  /**
    * Delete series from Sonarr
    *
    * @param seriesId - Sonarr series ID
