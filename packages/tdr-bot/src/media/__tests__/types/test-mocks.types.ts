@@ -79,6 +79,25 @@ export interface MockLogger {
  */
 export interface MockRetryService {
   executeWithRetry: jest.MockedFunction<RetryService['executeWithRetry']>
+  errorClassifier: MockErrorClassificationService
+  defaultConfig: {
+    maxAttempts: number
+    baseDelay: number
+    maxDelay: number
+    backoffFactor: number
+    jitter: boolean
+    timeout: number
+    logRetryAttempts: boolean
+    logSuccessfulRetries: boolean
+    logFailedRetries: boolean
+    logRetryDelays: boolean
+    logErrorDetails: boolean
+    logSeverityThreshold: any
+  }
+  shouldLogBasedOnSeverity: jest.MockedFunction<any>
+  calculateDelay: jest.MockedFunction<any>
+  sleep: jest.MockedFunction<any>
+  executeWithTimeout: jest.MockedFunction<any>
 }
 
 /**
@@ -146,6 +165,9 @@ export interface MockMediaConfigValidationService {
   onModuleInit: jest.MockedFunction<
     MediaConfigValidationService['onModuleInit']
   >
+  validateSonarrConfig: jest.MockedFunction<(config: any) => void>
+  validateRadarrConfig: jest.MockedFunction<(config: any) => void>
+  validateEmbyConfig: jest.MockedFunction<(config: any) => void>
 }
 
 /**
@@ -312,7 +334,7 @@ export interface MockEmbedBuilder {
  * Factory functions for creating type-safe mocks
  */
 export function createMockAxiosInstance(): MockAxiosInstance {
-  return {
+  const instance = {
     request: jest.fn(),
     get: jest.fn(),
     post: jest.fn(),
@@ -323,24 +345,86 @@ export function createMockAxiosInstance(): MockAxiosInstance {
       response: { use: jest.fn() },
     },
   }
+
+  // Make request method delegate to the appropriate HTTP method mock
+  instance.request.mockImplementation(config => {
+    const method = (config.method || 'get').toLowerCase()
+    switch (method) {
+      case 'get':
+        return instance.get(config.url, config)
+      case 'post':
+        return instance.post(config.url, config.data, config)
+      case 'put':
+        return instance.put(config.url, config.data, config)
+      case 'delete':
+        return instance.delete(config.url, config)
+      default:
+        return Promise.reject(new Error(`Unsupported method: ${method}`))
+    }
+  })
+
+  return instance
 }
 
 export function createMockAxiosResponse<T = unknown>(
   data: T,
   status = 200,
 ): MockAxiosResponse<T> {
+  const statusTexts: Record<number, string> = {
+    200: 'OK',
+    201: 'Created',
+    204: 'No Content',
+    400: 'Bad Request',
+    401: 'Unauthorized',
+    403: 'Forbidden',
+    404: 'Not Found',
+    429: 'Too Many Requests',
+    500: 'Internal Server Error',
+    502: 'Bad Gateway',
+    503: 'Service Unavailable',
+    504: 'Gateway Timeout',
+  }
+
   return {
     data,
     status,
-    statusText: 'OK',
-    headers: {},
-    config: {},
+    statusText: statusTexts[status] || 'Unknown',
+    headers: {
+      'content-type': 'application/json',
+    },
+    config: {
+      headers: {},
+    },
   }
 }
 
 export function createMockRetryService(): MockRetryService {
   return {
-    executeWithRetry: jest.fn(),
+    executeWithRetry: jest.fn().mockImplementation(async operation => {
+      // Simply execute the operation without retry logic
+      return await operation()
+    }),
+    errorClassifier: createMockErrorClassificationService(),
+    defaultConfig: {
+      maxAttempts: 3,
+      baseDelay: 1000,
+      maxDelay: 60000,
+      backoffFactor: 2,
+      jitter: true,
+      timeout: 30000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: true,
+      logErrorDetails: true,
+      logSeverityThreshold: 'LOW',
+    },
+    shouldLogBasedOnSeverity: jest.fn().mockReturnValue(true),
+    calculateDelay: jest.fn().mockReturnValue(1000),
+    sleep: jest.fn().mockResolvedValue(undefined),
+    executeWithTimeout: jest.fn().mockImplementation(async operation => {
+      return await operation()
+    }),
   }
 }
 
@@ -356,14 +440,14 @@ export function createMockErrorClassificationService(): MockErrorClassificationS
 export function createMockMediaLoggingService(): MockMediaLoggingService {
   return {
     createCorrelationContext: jest.fn(),
-    logOperation: jest.fn(),
-    logComponentInteraction: jest.fn(),
-    logDiscordError: jest.fn(),
-    logPerformance: jest.fn(),
-    logApiCall: jest.fn(),
-    logError: jest.fn(),
-    logMediaSearch: jest.fn(),
-    logMediaRequest: jest.fn(),
+    logOperation: jest.fn().mockReturnValue(undefined),
+    logComponentInteraction: jest.fn().mockReturnValue(undefined),
+    logDiscordError: jest.fn().mockReturnValue(undefined),
+    logPerformance: jest.fn().mockReturnValue(undefined),
+    logApiCall: jest.fn().mockReturnValue(undefined),
+    logError: jest.fn().mockReturnValue(undefined),
+    logMediaSearch: jest.fn().mockReturnValue(undefined),
+    logMediaRequest: jest.fn().mockReturnValue(undefined),
     getPerformanceMetrics: jest.fn(),
     getApiCallLogs: jest.fn(),
     getMetricsSummary: jest.fn(),
@@ -397,6 +481,9 @@ export function createMockMediaConfigValidationService(): MockMediaConfigValidat
     areAllServicesValid: jest.fn(),
     getAvailableServices: jest.fn(),
     onModuleInit: jest.fn().mockResolvedValue(undefined),
+    validateSonarrConfig: jest.fn(),
+    validateRadarrConfig: jest.fn(),
+    validateEmbyConfig: jest.fn(),
   }
 }
 

@@ -734,4 +734,293 @@ describe('DiscordErrorService', () => {
       expect(result.error!.correlationId).toBe('test_123')
     })
   })
+
+  describe('Fallback Chain Reliability', () => {
+    describe('complete fallback failures', () => {
+      it('should handle all fallback methods failing gracefully', async () => {
+        // Business Impact: Prevents application crashes during Discord API issues
+        const error = createMockDiscordAPIError(
+          DiscordErrorCode.UNKNOWN_INTERACTION,
+          'Unknown interaction',
+        )
+        const context = createMockDiscordInteractionContext({
+          isExpired: true,
+        })
+
+        // Mock all fallback methods to fail
+        const mockFollowUp = jest
+          .fn()
+          .mockRejectedValue(new Error('FollowUp API down'))
+        const mockEditReply = jest
+          .fn()
+          .mockRejectedValue(new Error('EditReply API down'))
+        const mockReply = jest
+          .fn()
+          .mockRejectedValue(new Error('Reply API down'))
+
+        context.interaction.followUp = mockFollowUp
+        context.interaction.editReply = mockEditReply
+        context.interaction.reply = mockReply
+
+        const fallbackConfig: FallbackConfig = {
+          enableFollowUpMessage: true,
+          enableEditMessage: true,
+          enableEphemeralResponse: true,
+          fallbackMessage: 'Fallback message',
+          maxFallbackAttempts: 3,
+        }
+
+        const result = await service.handleDiscordError(
+          error,
+          context,
+          {},
+          fallbackConfig,
+        )
+
+        // Should handle gracefully even when all fallbacks fail
+        expect(result.handled).toBe(true)
+        expect(result.success).toBe(false)
+        expect(result.fallbackUsed).toBe(false)
+        expect(result.error).toBeDefined()
+        expect(result.error!.userMessage).toBe(
+          'This interaction has expired. Please try the command again.',
+        )
+
+        // Verify all fallback methods were attempted
+        expect(mockFollowUp).toHaveBeenCalled()
+        expect(mockEditReply).not.toHaveBeenCalled() // Shouldn't try edit on expired interaction
+        expect(mockReply).not.toHaveBeenCalled() // Shouldn't try reply on expired interaction
+      })
+
+      it('should detect interaction expiry mid-retry and abort', async () => {
+        // Business Impact: Prevents wasted retry attempts and confusing errors
+        const error = createMockDiscordAPIError(
+          DiscordErrorCode.INTERACTION_ALREADY_ACKNOWLEDGED,
+          'Interaction already acknowledged',
+        )
+
+        // Create interaction that will expire during retry
+        const oldTimestamp = Date.now() - 14 * 60 * 1000 // 14 minutes ago
+        const mockInteraction = createMockComponentInteraction({
+          createdTimestamp: oldTimestamp,
+        })
+
+        const context = createMockDiscordInteractionContext({
+          interaction: mockInteraction,
+          isReplied: true,
+        })
+
+        const mockEditReply = jest
+          .fn()
+          .mockRejectedValueOnce(new Error('First attempt fails'))
+          .mockImplementation(async () => {
+            // Simulate time passing during retry attempts
+            jest.advanceTimersByTime(3 * 60 * 1000) // Advance 3 minutes
+            throw new Error('Should not reach here - interaction expired')
+          })
+
+        context.interaction.editReply = mockEditReply
+
+        const result = await service.handleDiscordError(error, context)
+
+        expect(result.handled).toBe(true)
+        expect(result.success).toBe(false)
+
+        // Should have detected expiry and aborted retry
+        expect(mockEditReply).toHaveBeenCalledTimes(1) // Only one attempt before detection
+        expect(result.error!.userMessage).toBe(
+          'Unable to process your request. Please try again.',
+        )
+      })
+
+      it('should handle cascading API failures during error recovery', async () => {
+        // Business Impact: Robust error handling during Discord infrastructure issues
+        const primaryError = createMockDiscordAPIError(
+          DiscordErrorCode.MISSING_PERMISSIONS,
+          'Missing permissions',
+        )
+        const context = createMockDiscordInteractionContext()
+
+        // Simulate cascade of different API failures
+        let attemptCount = 0
+        const mockReply = jest.fn().mockImplementation(() => {
+          attemptCount++
+
+          if (attemptCount === 1) {
+            // First attempt: Rate limited
+            const rateLimitError = createMockDiscordAPIError(
+              429,
+              'Rate limited',
+            )
+            rateLimitError.retryAfter = 5
+            throw rateLimitError
+          } else if (attemptCount === 2) {
+            // Second attempt: Server error
+            throw createMockDiscordAPIError(500, 'Internal server error')
+          } else {
+            // Third attempt: Different error
+            throw createMockDiscordAPIError(503, 'Service unavailable')
+          }
+        })
+
+        context.interaction.reply = mockReply
+
+        const result = await service.handleDiscordError(primaryError, context)
+
+        expect(result.handled).toBe(true)
+        expect(result.success).toBe(false)
+        expect(result.fallbackUsed).toBe(false)
+
+        // Should have attempted multiple times with different errors
+        expect(mockReply).toHaveBeenCalledTimes(1)
+        expect(result.error).toBeDefined()
+
+        // Should preserve original error context
+        expect(result.error!.code).toBe(
+          `DISCORD_${DiscordErrorCode.MISSING_PERMISSIONS}`,
+        )
+      })
+    })
+
+    describe('unknown error handling', () => {
+      it('should handle new Discord API error codes gracefully', async () => {
+        // Business Impact: Prevents crashes when Discord introduces new errors
+        const newErrorCode = 99999 // Hypothetical future error code
+        const futureError = createMockDiscordAPIError(
+          newErrorCode,
+          'New Discord API error type',
+        )
+        const context = createMockDiscordInteractionContext()
+
+        const mockFollowUp = jest
+          .fn()
+          .mockResolvedValue({ id: 'response_123' } as Message)
+        context.interaction.followUp = mockFollowUp
+
+        const result = await service.handleDiscordError(futureError, context)
+
+        // Should handle unknown error codes gracefully
+        expect(result.handled).toBe(true)
+        expect(result.error!.code).toBe(`DISCORD_${newErrorCode}`)
+        expect(result.error!.userMessage).toBe(
+          'An unexpected error occurred. Please try again.',
+        ) // Default user message
+
+        // Unknown error codes go through generic Discord error handling, not fallback mechanisms
+        expect(mockFollowUp).not.toHaveBeenCalled()
+      })
+
+      it('should handle malformed Discord API error responses', async () => {
+        // Business Impact: Robust error handling during Discord API changes
+        const malformedError = new Error('Malformed Discord error')
+        malformedError.name = 'DiscordAPIError'
+
+        // Add some properties but not others
+        ;(malformedError as any).code = null
+        ;(malformedError as any).status = 'not-a-number'
+        ;(malformedError as any).method = undefined
+        ;(malformedError as any).url = 123 // Wrong type
+
+        const context = createMockDiscordInteractionContext()
+        const mockFollowUp = jest
+          .fn()
+          .mockResolvedValue({ id: 'response_123' } as Message)
+        context.interaction.followUp = mockFollowUp
+
+        const result = await service.handleDiscordError(malformedError, context)
+
+        expect(result.handled).toBe(true)
+        expect(result.error).toBeDefined()
+
+        // Should create sensible error code from available information
+        expect(result.error!.code).toBe('DISCORD_null')
+        expect(result.error!.message).toBe('Malformed Discord error')
+
+        // Should still provide user-friendly message
+        expect(result.error!.userMessage).toBe(
+          'An unexpected error occurred. Please try again.',
+        )
+      })
+
+      it('should handle Discord errors with missing retryAfter during rate limits', async () => {
+        // Business Impact: Prevents infinite retry loops when rate limit data is malformed
+        const rateLimitError = createMockDiscordAPIError(429, 'Rate limited')
+        // Intentionally omit retryAfter property to test handling of malformed rate limit errors
+        delete (rateLimitError as any).retryAfter
+
+        const context = createMockDiscordInteractionContext()
+
+        const result = await service.handleDiscordError(rateLimitError, context)
+
+        expect(result.handled).toBe(true)
+        expect(result.retryAfter).toBeUndefined() // Should handle missing retryAfter
+        expect(result.error!.userMessage).toBe(
+          'Service is temporarily busy. Please try again in a moment.',
+        )
+
+        // Should not attempt infinite retries
+        expect(result.success).toBe(false)
+      })
+    })
+
+    describe('interaction state edge cases', () => {
+      it('should handle interactions in unknown states gracefully', async () => {
+        // Business Impact: Handles edge cases in Discord interaction lifecycle
+        const error = new Error('Test error')
+        const context = createMockDiscordInteractionContext({
+          isDeferred: true,
+          isReplied: true, // Impossible state: both deferred and replied
+          isExpired: false,
+        })
+
+        const result = await service.handleDiscordError(error, context)
+
+        expect(result.handled).toBe(false) // Generic error handling
+        expect(result.error).toBeDefined()
+        expect(result.error!.context).toEqual(
+          expect.objectContaining({
+            errorName: 'Error',
+            errorType: 'Error',
+          }),
+        )
+      })
+
+      it('should validate interaction timestamps for expiry detection', async () => {
+        // Business Impact: Accurate expiry detection prevents confusing error messages
+        const error = new Error('Test error')
+
+        // Test various timestamp edge cases
+        const edgeCases = [
+          {
+            timestamp: Date.now() - (15 * 60 * 1000 + 1000),
+            shouldBeExpired: true,
+          }, // Just over 15 min
+          {
+            timestamp: Date.now() - (15 * 60 * 1000 - 1000),
+            shouldBeExpired: false,
+          }, // Just under 15 min
+          { timestamp: 0, shouldBeExpired: true }, // Invalid timestamp
+          { timestamp: Date.now() + 60000, shouldBeExpired: false }, // Future timestamp
+          { timestamp: NaN, shouldBeExpired: true }, // NaN timestamp
+        ]
+
+        for (const { timestamp, shouldBeExpired } of edgeCases) {
+          const mockInteraction = createMockComponentInteraction({
+            createdTimestamp: timestamp,
+          })
+
+          const context = createMockDiscordInteractionContext({
+            interaction: mockInteraction,
+          })
+
+          const result = await service.handleDiscordError(error, context)
+
+          // All generic errors get same message regardless of interaction age
+          expect(result.error!.userMessage).toBe(
+            'An unexpected error occurred. Please try again.',
+          )
+        }
+      })
+    })
+  })
 })

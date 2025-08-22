@@ -340,10 +340,37 @@ export class ComponentStateService implements OnModuleDestroy {
 
       const { previousState, state } = transitionResult
 
-      // Stop collector if it exists
+      // Stop collector if it exists (resilient to collector errors)
       const collector = this.collectorManager.collectors.get(stateId)
       if (collector && !collector.ended) {
-        collector.stop(reason)
+        try {
+          collector.stop(reason)
+        } catch (collectorError) {
+          // Log collector cleanup failure but don't let it stop the overall cleanup
+          this.logger.warn(
+            'Collector cleanup failed, continuing with state cleanup',
+            {
+              stateId,
+              correlationId,
+              error:
+                collectorError instanceof Error
+                  ? collectorError.message
+                  : String(collectorError),
+            },
+          )
+
+          // Emit error event for collector cleanup failure (but continue with overall cleanup)
+          this.eventEmitter.emit(EventType.COMPONENT_ERROR, {
+            stateId,
+            correlationId,
+            error:
+              collectorError instanceof Error
+                ? collectorError
+                : new Error(String(collectorError)),
+            phase: 'collector_cleanup',
+            recoverable: true,
+          })
+        }
       }
 
       // Execute custom cleanup logic
@@ -843,7 +870,13 @@ export class ComponentStateService implements OnModuleDestroy {
     reason: CleanupReason,
     previousState: ComponentLifecycleState,
   ): void {
-    this.eventEmitter.emit(EventType.COMPONENT_EXPIRED, {
+    // Emit appropriate event based on cleanup reason
+    const eventType =
+      reason === 'timeout'
+        ? EventType.COMPONENT_EXPIRED
+        : EventType.COMPONENT_CLEANED
+
+    this.eventEmitter.emit(eventType, {
       stateId: state.id,
       correlationId: state.correlationId,
       reason,

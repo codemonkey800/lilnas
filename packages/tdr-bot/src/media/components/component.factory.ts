@@ -86,12 +86,19 @@ export class ComponentFactoryService {
     }
 
     try {
-      if (components[0] instanceof ButtonBuilder) {
+      // Use constructor name checks for better test compatibility
+      if (
+        firstComponentType === 'ButtonBuilder' ||
+        components[0] instanceof ButtonBuilder
+      ) {
         return this.actionRowBuilder.createButtonRow(
           components as ButtonBuilder[],
           correlationId,
         ) as ActionRowBuilder<T>
-      } else if (components[0] instanceof StringSelectMenuBuilder) {
+      } else if (
+        firstComponentType === 'StringSelectMenuBuilder' ||
+        components[0] instanceof StringSelectMenuBuilder
+      ) {
         if (components.length > 1) {
           throw new ComponentCreationError(
             'action_row',

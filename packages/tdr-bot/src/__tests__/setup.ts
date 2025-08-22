@@ -58,6 +58,28 @@ jest.mock('discord.js', () => ({
     Listening: 2,
     Watching: 3,
   },
+  // Add missing Discord.js enums
+  ButtonStyle: {
+    Primary: 1,
+    Secondary: 2,
+    Success: 3,
+    Danger: 4,
+    Link: 5,
+  },
+  ComponentType: {
+    ActionRow: 1,
+    Button: 2,
+    StringSelect: 3,
+    TextInput: 4,
+    UserSelect: 5,
+    RoleSelect: 6,
+    MentionableSelect: 7,
+    ChannelSelect: 8,
+  },
+  TextInputStyle: {
+    Short: 1,
+    Paragraph: 2,
+  },
   Collection: class Collection extends Map {
     some(
       fn: (
@@ -93,6 +115,107 @@ jest.mock('discord.js', () => ({
     buffer,
     name,
   })),
+  // Add Discord builders
+  ActionRowBuilder: jest.fn().mockImplementation(() => ({
+    addComponents: jest.fn().mockReturnThis(),
+    setComponents: jest.fn().mockReturnThis(),
+    toJSON: jest.fn().mockReturnValue({ type: 1, components: [] }),
+  })),
+  ButtonBuilder: jest.fn().mockImplementation(function ButtonBuilder() {
+    const mockButton = {
+      data: {} as any,
+      setCustomId: jest.fn().mockImplementation((customId: string) => {
+        mockButton.data.custom_id = customId
+        return mockButton
+      }),
+      setLabel: jest.fn().mockImplementation((label: string) => {
+        mockButton.data.label = label
+        return mockButton
+      }),
+      setStyle: jest.fn().mockImplementation((style: number) => {
+        mockButton.data.style = style
+        return mockButton
+      }),
+      setEmoji: jest.fn().mockImplementation((emoji: string) => {
+        mockButton.data.emoji = emoji
+        return mockButton
+      }),
+      setURL: jest.fn().mockImplementation((url: string) => {
+        mockButton.data.url = url
+        return mockButton
+      }),
+      setDisabled: jest.fn().mockImplementation((disabled: boolean) => {
+        mockButton.data.disabled = disabled
+        return mockButton
+      }),
+      toJSON: jest.fn().mockImplementation(() => {
+        return mockButton.data
+      }),
+      constructor: { name: 'ButtonBuilder' },
+    }
+    return mockButton
+  }),
+  StringSelectMenuBuilder: jest
+    .fn()
+    .mockImplementation(function StringSelectMenuBuilder() {
+      return {
+        data: {},
+        setCustomId: jest.fn().mockReturnThis(),
+        setPlaceholder: jest.fn().mockReturnThis(),
+        setOptions: jest.fn().mockReturnThis(),
+        addOptions: jest.fn().mockReturnThis(),
+        setMaxValues: jest.fn().mockReturnThis(),
+        setMinValues: jest.fn().mockReturnThis(),
+        setDisabled: jest.fn().mockReturnThis(),
+        toJSON: jest.fn().mockReturnValue({}),
+        constructor: { name: 'StringSelectMenuBuilder' },
+      }
+    }),
+  StringSelectMenuOptionBuilder: jest.fn().mockImplementation(() => ({
+    data: {},
+    setLabel: jest.fn().mockReturnThis(),
+    setValue: jest.fn().mockReturnThis(),
+    setDescription: jest.fn().mockReturnThis(),
+    setEmoji: jest.fn().mockReturnThis(),
+    setDefault: jest.fn().mockReturnThis(),
+    toJSON: jest.fn().mockReturnValue({}),
+  })),
+  ModalBuilder: jest.fn().mockImplementation(() => ({
+    data: {},
+    setCustomId: jest.fn().mockReturnThis(),
+    setTitle: jest.fn().mockReturnThis(),
+    addComponents: jest.fn().mockReturnThis(),
+    toJSON: jest.fn().mockReturnValue({}),
+  })),
+  TextInputBuilder: jest.fn().mockImplementation(() => ({
+    data: {},
+    setCustomId: jest.fn().mockReturnThis(),
+    setLabel: jest.fn().mockReturnThis(),
+    setStyle: jest.fn().mockReturnThis(),
+    setPlaceholder: jest.fn().mockReturnThis(),
+    setRequired: jest.fn().mockReturnThis(),
+    setMinLength: jest.fn().mockReturnThis(),
+    setMaxLength: jest.fn().mockReturnThis(),
+    setValue: jest.fn().mockReturnThis(),
+    toJSON: jest.fn().mockReturnValue({}),
+  })),
+  // Add Discord API error classes
+  DiscordAPIError: class DiscordAPIError extends Error {
+    constructor(message: string, code: number) {
+      super(message)
+      this.name = 'DiscordAPIError'
+      this.code = code
+    }
+    code: number
+  },
+  RESTJSONErrorCodes: {
+    UnknownMessage: 10008,
+    UnknownChannel: 10003,
+    UnknownGuild: 50001,
+    UnknownUser: 10013,
+    UnknownInteraction: 10062,
+    InvalidFormBody: 50035,
+  },
 }))
 
 // Mock necord

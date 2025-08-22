@@ -148,6 +148,13 @@ export function createMockMessage(
     delete: jest.fn().mockResolvedValue({}),
     edit: jest.fn().mockResolvedValue({}),
     fetch: jest.fn().mockResolvedValue({}),
+    createMessageComponentCollector: jest.fn().mockReturnValue({
+      on: jest.fn(),
+      once: jest.fn(),
+      stop: jest.fn(),
+      ended: false,
+      filter: jest.fn().mockReturnValue(true),
+    }),
     ...overrides,
   })
 
@@ -248,19 +255,29 @@ export function createMockChatOpenAI() {
     invoke: jest.fn().mockResolvedValue({
       content: 'Mock response',
       additional_kwargs: {},
+      _getType: jest.fn().mockReturnValue('ai'),
     }),
     bind: jest.fn().mockReturnThis(),
     bindTools: jest.fn().mockReturnThis(),
     withConfig: jest.fn().mockReturnThis(),
     stream: jest.fn().mockImplementation(async function* () {
-      yield { content: 'Mock' }
-      yield { content: ' streaming' }
-      yield { content: ' response' }
+      yield { content: 'Mock', _getType: () => 'ai' }
+      yield { content: ' streaming', _getType: () => 'ai' }
+      yield { content: ' response', _getType: () => 'ai' }
     }),
   }
   // Make bindTools return the mock itself
   mock.bindTools.mockReturnValue(mock)
   return mock
+}
+
+// LangChain message mock
+export function createMockLangChainMessage(content: string, type = 'human') {
+  return {
+    content,
+    additional_kwargs: {},
+    _getType: jest.fn().mockReturnValue(type),
+  }
 }
 
 export function createMockStateGraph() {
@@ -300,9 +317,16 @@ export function createMockAxiosResponse<T = unknown>(data: T, status = 200) {
   return {
     data,
     status,
-    statusText: 'OK',
-    headers: {},
-    config: {},
+    statusText: getStatusText(status),
+    headers: {
+      'content-type': 'application/json',
+    },
+    config: {
+      method: 'get',
+      url: 'https://api.example.com',
+      headers: new AxiosHeaders(),
+      timeout: 5000,
+    },
   }
 }
 

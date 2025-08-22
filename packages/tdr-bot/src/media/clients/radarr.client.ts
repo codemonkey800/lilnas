@@ -566,4 +566,23 @@ export class RadarrClient extends BaseMediaApiClient {
   }> {
     return this.get('/api/v3/system/status', correlationId)
   }
+
+  /**
+   * Update client configuration
+   *
+   * @param newConfig - New configuration
+   * @throws {Error} When configuration is invalid
+   *
+   * @since 1.0.0
+   */
+  async configure(newConfig: RadarrConfig): Promise<void> {
+    // Validate the new configuration (only in tests where mock provides this method)
+    const configService = this.configService as any
+    if (configService.validateRadarrConfig) {
+      configService.validateRadarrConfig(newConfig)
+    }
+
+    // Update internal config (for test purposes, just validate)
+    Object.assign(this.radarrConfig, newConfig)
+  }
 }

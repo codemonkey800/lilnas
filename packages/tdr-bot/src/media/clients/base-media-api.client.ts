@@ -300,7 +300,7 @@ export interface ConnectionTestResult {
  *
  * ### HTTP Methods with Retry Protection
  * - GET, POST, PUT, DELETE methods with automatic retry logic
- * - Retry logic with exponential backoff prevents cascading failures
+ * - Retry logic with exponential backoff for transient failures
  * - Correlation ID propagation for distributed tracing
  * - Comprehensive error mapping to domain-specific exceptions
  *
@@ -355,15 +355,6 @@ export interface ConnectionTestResult {
  * @see {@link MediaApiError} for error types
  * @see {@link MediaConfigValidationService} for configuration
  */
-/**
- * Circuit breaker state for tracking endpoint failures
- */
-interface CircuitBreakerState {
-  failures: number
-  lastFailureTime?: Date
-  state: 'closed' | 'open' | 'half-open'
-  nextRetryTime?: Date
-}
 
 @Injectable()
 export abstract class BaseMediaApiClient {
@@ -372,7 +363,6 @@ export abstract class BaseMediaApiClient {
   protected readonly config: BaseApiClientConfig
   protected httpAgent: HttpAgent | HttpsAgent
   private detectedApiVersion?: ApiVersionResult
-  private circuitBreakers = new Map<string, CircuitBreakerState>()
 
   /**
    * Initialize the BaseMediaApiClient with required dependencies and configuration
@@ -519,15 +509,6 @@ export abstract class BaseMediaApiClient {
   ): Promise<T> {
     const startTime = Date.now()
     const fullUrl = `${this.config.baseURL}${path}`
-    const endpointKey = `${method}:${path}`
-
-    // Check circuit breaker before making request
-    if (this.isCircuitBreakerOpen(endpointKey)) {
-      const breakerState = this.circuitBreakers.get(endpointKey)!
-      throw new Error(
-        `Circuit breaker is OPEN for ${endpointKey}. Next retry at ${breakerState.nextRetryTime?.toISOString()}. Failures: ${breakerState.failures}`,
-      )
-    }
 
     this.logger.debug(
       `Making ${method} request to ${this.config.serviceName}`,
@@ -536,8 +517,6 @@ export abstract class BaseMediaApiClient {
         url: fullUrl,
         correlationId,
         service: this.config.serviceName,
-        circuitBreakerState:
-          this.circuitBreakers.get(endpointKey)?.state || 'closed',
       },
     )
 
@@ -575,9 +554,6 @@ export abstract class BaseMediaApiClient {
         this.getErrorCategory(),
       )
 
-      // Reset circuit breaker on successful request
-      this.resetCircuitBreaker(endpointKey)
-
       // Log successful API call
       this.mediaLoggingService.logApiCall(
         this.config.serviceName,
@@ -590,7 +566,7 @@ export abstract class BaseMediaApiClient {
 
       // Ensure JSON responses are properly parsed and detect unexpected HTML responses
       let responseData = response.data
-      const contentType = response.headers['content-type'] || ''
+      const contentType = response.headers?.['content-type'] || ''
 
       // If we expect JSON but got HTML (usually a login page), treat as error
       if (
@@ -640,9 +616,6 @@ export abstract class BaseMediaApiClient {
 
       return responseData
     } catch (error) {
-      // Record failure in circuit breaker
-      this.recordCircuitBreakerFailure(endpointKey)
-
       const apiError = this.createMediaApiError(
         error as Error,
         correlationId,
@@ -706,6 +679,13 @@ export abstract class BaseMediaApiClient {
         forcedJSONParsing: false,
       },
     })
+
+    // Validate instance creation - critical for test environments
+    if (!instance || !instance.interceptors) {
+      throw new Error(
+        `Failed to create Axios instance for ${this.config.serviceName}. Instance: ${!!instance}, Interceptors: ${!!instance?.interceptors}`,
+      )
+    }
 
     this.logger.debug(`Created Axios instance for ${this.config.serviceName}`, {
       service: this.config.serviceName,
@@ -1102,12 +1082,15 @@ export abstract class BaseMediaApiClient {
    * Extract version from API response
    */
   private extractVersionFromResponse(
-    data: any,
+    data: unknown,
     endpoint: string,
   ): string | null {
-    if (!data || typeof data !== 'object') {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
       return null
     }
+
+    // Cast to a more specific type for safe property access
+    const responseData = data as Record<string, unknown>
 
     // Try common version fields
     const versionFields = [
@@ -1118,9 +1101,11 @@ export abstract class BaseMediaApiClient {
       'buildVersion',
     ]
     for (const field of versionFields) {
-      if (data[field] && typeof data[field] === 'string') {
+      if (responseData[field] && typeof responseData[field] === 'string') {
         // Clean version string (remove build info, etc.)
-        const cleanVersion = this.cleanVersionString(data[field])
+        const cleanVersion = this.cleanVersionString(
+          responseData[field] as string,
+        )
         if (cleanVersion) {
           return cleanVersion
         }
@@ -1132,12 +1117,14 @@ export abstract class BaseMediaApiClient {
       case 'sonarr':
       case 'radarr':
         if (endpoint.includes('system/status')) {
-          return this.cleanVersionString(data.version || data.buildTime)
+          const versionData = (responseData.version ||
+            responseData.buildTime) as string
+          return this.cleanVersionString(versionData)
         }
         break
       case 'emby':
-        if (data.ServerVersion) {
-          return this.cleanVersionString(data.ServerVersion)
+        if (responseData.ServerVersion) {
+          return this.cleanVersionString(responseData.ServerVersion as string)
         }
         break
     }
@@ -1444,145 +1431,6 @@ export abstract class BaseMediaApiClient {
     }
 
     return baseConfig
-  }
-
-  /**
-   * Circuit breaker implementation to prevent cascading failures
-   */
-  private isCircuitBreakerOpen(endpointKey: string): boolean {
-    const breaker = this.circuitBreakers.get(endpointKey)
-    if (!breaker || breaker.state === 'closed') {
-      return false
-    }
-
-    const now = new Date()
-    const isTestEnv =
-      process.env.NODE_ENV === 'test' ||
-      process.env.JEST_WORKER_ID !== undefined
-
-    // Circuit breaker thresholds
-    const failureThreshold = isTestEnv ? 3 : 5 // Lower threshold in tests
-    const openTimeoutMs = isTestEnv ? 5000 : 30000 // Shorter timeout in tests
-    const halfOpenTimeoutMs = isTestEnv ? 2000 : 10000 // Shorter half-open timeout in tests
-
-    if (breaker.state === 'open') {
-      // Check if we should transition to half-open
-      if (breaker.nextRetryTime && now >= breaker.nextRetryTime) {
-        breaker.state = 'half-open'
-        this.logger.debug(
-          `Circuit breaker transitioning to HALF-OPEN for ${endpointKey}`,
-          {
-            service: this.config.serviceName,
-            endpointKey,
-            failures: breaker.failures,
-          },
-        )
-        return false // Allow one request in half-open state
-      }
-      return true // Still open
-    }
-
-    if (breaker.state === 'half-open') {
-      // In half-open state, allow request but track carefully
-      return false
-    }
-
-    return false
-  }
-
-  private recordCircuitBreakerFailure(endpointKey: string): void {
-    const now = new Date()
-    const isTestEnv =
-      process.env.NODE_ENV === 'test' ||
-      process.env.JEST_WORKER_ID !== undefined
-    const failureThreshold = isTestEnv ? 3 : 5
-    const openTimeoutMs = isTestEnv ? 5000 : 30000
-
-    let breaker = this.circuitBreakers.get(endpointKey)
-    if (!breaker) {
-      breaker = {
-        failures: 0,
-        state: 'closed',
-      }
-      this.circuitBreakers.set(endpointKey, breaker)
-    }
-
-    breaker.failures++
-    breaker.lastFailureTime = now
-
-    if (breaker.failures >= failureThreshold) {
-      breaker.state = 'open'
-      breaker.nextRetryTime = new Date(now.getTime() + openTimeoutMs)
-
-      this.logger.warn(
-        `Circuit breaker OPENED for ${endpointKey} after ${breaker.failures} failures`,
-        {
-          service: this.config.serviceName,
-          endpointKey,
-          failures: breaker.failures,
-          nextRetryTime: breaker.nextRetryTime,
-          isTestEnv,
-        },
-      )
-    } else if (breaker.state === 'half-open') {
-      // Failed in half-open state, go back to open
-      breaker.state = 'open'
-      breaker.nextRetryTime = new Date(now.getTime() + openTimeoutMs)
-
-      this.logger.debug(
-        `Circuit breaker returned to OPEN from half-open for ${endpointKey}`,
-        {
-          service: this.config.serviceName,
-          endpointKey,
-          failures: breaker.failures,
-        },
-      )
-    }
-  }
-
-  private resetCircuitBreaker(endpointKey: string): void {
-    const breaker = this.circuitBreakers.get(endpointKey)
-    if (!breaker) return
-
-    const wasOpen = breaker.state !== 'closed'
-    breaker.failures = 0
-    breaker.state = 'closed'
-    breaker.lastFailureTime = undefined
-    breaker.nextRetryTime = undefined
-
-    if (wasOpen) {
-      this.logger.debug(
-        `Circuit breaker CLOSED for ${endpointKey} after successful request`,
-        {
-          service: this.config.serviceName,
-          endpointKey,
-        },
-      )
-    }
-  }
-
-  /**
-   * Get circuit breaker status for monitoring
-   */
-  public getCircuitBreakerStatus(): Record<string, CircuitBreakerState> {
-    const status: Record<string, CircuitBreakerState> = {}
-    for (const [endpoint, state] of this.circuitBreakers.entries()) {
-      status[endpoint] = { ...state }
-    }
-    return status
-  }
-
-  /**
-   * Reset all circuit breakers (useful for testing)
-   */
-  public resetAllCircuitBreakers(): void {
-    this.circuitBreakers.clear()
-    this.logger.debug(
-      `All circuit breakers reset for ${this.config.serviceName}`,
-      {
-        service: this.config.serviceName,
-      },
-    )
   }
 
   /**
@@ -1982,9 +1830,6 @@ export abstract class BaseMediaApiClient {
 
     // Create new agent to ensure clean state
     this.httpAgent = this.createHttpAgent()
-
-    // Reset circuit breakers on cleanup
-    this.resetAllCircuitBreakers()
 
     // Small delay to ensure connections are properly closed
     await new Promise(resolve => setTimeout(resolve, 100))
