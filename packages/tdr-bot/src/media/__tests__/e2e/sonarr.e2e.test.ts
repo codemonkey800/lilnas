@@ -41,7 +41,6 @@ describe('Sonarr E2E Tests', () => {
 
   const skipReason = skipIfServiceUnavailable('sonarr')
   if (skipReason) {
-    // eslint-disable-next-line jest/no-disabled-tests
     describe.skip(`Sonarr tests skipped: ${skipReason}`, () => {
       test('placeholder', () => {
         expect(true).toBe(true)
@@ -195,8 +194,7 @@ describe('Sonarr E2E Tests', () => {
       'should search for TV series: %s',
       async query => {
         try {
-          let results
-          results = await measurePerformance(
+          const results = await measurePerformance(
             `sonarr_search_${query.replace(/\s+/g, '_').toLowerCase()}`,
             () => client.searchSeries(query, testContext.correlationId),
             testContext,
@@ -255,8 +253,7 @@ describe('Sonarr E2E Tests', () => {
           // Use a very specific nonsense query that's less likely to match anything
           const nonsenseQuery = `e2e-test-nonexistent-series-${uuid().substring(0, 8)}-zzz-impossible-show-name-xyz-123456789`
 
-          let results
-          results = await measurePerformance(
+          const results = await measurePerformance(
             'sonarr_search_empty',
             () => client.searchSeries(nonsenseQuery, testContext.correlationId),
             testContext,
@@ -293,8 +290,7 @@ describe('Sonarr E2E Tests', () => {
         try {
           const specialQuery = "Marvel's Agents of S.H.I.E.L.D."
 
-          let results
-          results = await measurePerformance(
+          const results = await measurePerformance(
             'sonarr_search_special_chars',
             () => client.searchSeries(specialQuery, testContext.correlationId),
             testContext,
@@ -327,8 +323,7 @@ describe('Sonarr E2E Tests', () => {
       'should retrieve quality profiles',
       async () => {
         try {
-          let profiles
-          profiles = await measurePerformance(
+          const profiles = await measurePerformance(
             'sonarr_quality_profiles',
             () => client.getQualityProfiles(testContext.correlationId),
             testContext,
@@ -374,8 +369,7 @@ describe('Sonarr E2E Tests', () => {
       'should retrieve root folders',
       async () => {
         try {
-          let rootFolders
-          rootFolders = await measurePerformance(
+          const rootFolders = await measurePerformance(
             'sonarr_root_folders',
             () => client.getRootFolders(testContext.correlationId),
             testContext,
@@ -419,8 +413,7 @@ describe('Sonarr E2E Tests', () => {
       'should retrieve language profiles',
       async () => {
         try {
-          let profiles
-          profiles = await measurePerformance(
+          const profiles = await measurePerformance(
             'sonarr_language_profiles',
             () => client.getLanguageProfiles(testContext.correlationId),
             testContext,
@@ -514,7 +507,7 @@ describe('Sonarr E2E Tests', () => {
       async () => {
         try {
           try {
-            // @ts-ignore - Intentionally calling invalid endpoint
+            // @ts-expect-error - Intentionally calling invalid endpoint
             const result = await client.get(
               '/invalid/endpoint',
               testContext.correlationId,
@@ -630,7 +623,6 @@ describe('Sonarr E2E Tests', () => {
     // Skip slow performance tests if configured
     const skipSlowTests = skipIfSlowTestsDisabled('Performance and Load tests')
     if (skipSlowTests) {
-      // eslint-disable-next-line jest/no-disabled-tests
       describe.skip(`Performance tests skipped: ${skipSlowTests}`, () => {
         test('placeholder', () => {
           try {

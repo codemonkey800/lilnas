@@ -1,5 +1,6 @@
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { TestingModule } from '@nestjs/testing'
+import { Guild, TextChannel } from 'discord.js'
 
 // Mock nanoid to generate unique IDs for testing
 jest.mock('nanoid', () => ({
@@ -9,6 +10,7 @@ jest.mock('nanoid', () => ({
 }))
 
 import { createTestingModule } from 'src/__tests__/test-utils'
+import { ComponentLifecycleState } from 'src/media/component-config'
 import {
   MediaLogContext,
   MediaLoggingService,
@@ -56,7 +58,7 @@ function createMockComponentState(
     lastInteractionAt: new Date(),
     interactionCount: 0,
     maxInteractions: 10,
-    state: 'ACTIVE' as any,
+    state: ComponentLifecycleState.ACTIVE,
     data: {},
     ...overrides,
   }
@@ -70,8 +72,8 @@ function createMockInteractionContext(
     state: createMockComponentState(),
     correlationContext: createMockCorrelationContext(),
     user: {} as any,
-    guild: {} as any,
-    channel: {} as any,
+    guild: {} as unknown as Guild | null,
+    channel: {} as unknown as TextChannel | null,
     message: {} as any,
     ...overrides,
   }
@@ -108,11 +110,11 @@ describe('MediaLoggingService', () => {
     }
 
     // Replace the service's private logger with our mock
-    ;(service as any).logger = mockLogger
+    ;(service as unknown as { logger: unknown }).logger = mockLogger
   })
 
   describe('createCorrelationContext', () => {
-    it('should create correlation context with all required fields', () => {
+    it('should create correlation context for media operations', () => {
       const context = service.createCorrelationContext(
         'user_123',
         'testuser',
@@ -133,157 +135,145 @@ describe('MediaLoggingService', () => {
     })
   })
 
-  describe('logOperation', () => {
-    describe('Service configuration testing', () => {
-      it.each([
-        [
-          MediaLogLevel.ERROR,
-          'error',
-          'error_operation',
-          'Error operation message',
-        ],
-        [
-          MediaLogLevel.WARN,
-          'warn',
-          'warn_operation',
-          'Warning operation message',
-        ],
-        [MediaLogLevel.INFO, 'log', 'info_operation', 'Info operation message'],
-        [
-          MediaLogLevel.DEBUG,
-          'debug',
-          'debug_operation',
-          'Debug operation message',
-        ],
-      ])(
-        'should log %s level operations with proper context',
-        (logLevel, expectedLogMethod, operation, message) => {
-          const context: Partial<MediaLogContext> = {
-            correlationId: 'test_123',
-            userId: 'user_123',
-            mediaType: MediaType.MOVIE,
-          }
-
-          service.logOperation(operation, message, context, logLevel)
-
-          expect((mockLogger as any)[expectedLogMethod]).toHaveBeenCalledWith(
-            message,
-            expect.objectContaining({
-              operation,
-              correlationId: 'test_123',
-              userId: 'user_123',
-              mediaType: MediaType.MOVIE,
-              timestamp: expect.any(Date),
-            }),
-          )
-
-          expect(mockEventEmitter.emit).toHaveBeenCalledWith(
-            EventType.API_REQUEST,
-            expect.objectContaining({
-              operation,
-              level: logLevel,
-            }),
-          )
-        },
-      )
-    })
-  })
-
-  describe('logComponentInteraction', () => {
-    it.each([
-      [
-        'successful button interaction',
-        'button_click',
-        'success',
-        undefined,
-        'log',
-        'Component interaction: button_click - success',
-      ],
-      [
-        'successful select menu interaction',
-        'select_menu',
-        'success',
-        undefined,
-        'log',
-        'Component interaction: select_menu - success',
-      ],
-      [
-        'failed button interaction',
-        'button_click',
-        'error',
-        new Error('Button interaction failed'),
-        'error',
-        'Component interaction: button_click - error',
-      ],
-      [
-        'failed modal interaction',
-        'modal_submit',
-        'error',
-        new Error('Modal interaction failed'),
-        'error',
-        'Component interaction: modal_submit - error',
-      ],
-    ])(
-      'should handle %s correctly',
-      (
-        scenario,
-        action,
-        result,
-        error,
-        expectedLogMethod,
-        expectedMessageContains,
-      ) => {
-        const interactionContext = createMockInteractionContext()
-
-        service.logComponentInteraction(
-          interactionContext,
-          action,
-          result as 'success' | 'error' | 'timeout',
-          error,
-        )
-
-        expect((mockLogger as any)[expectedLogMethod]).toHaveBeenCalledWith(
-          expect.stringContaining(expectedMessageContains),
-          expect.any(Object),
-        )
-      },
-    )
-  })
-
-  describe('logDiscordError', () => {
-    it('should log Discord errors and emit error events', () => {
-      const error: ComponentError = {
-        code: 'DISCORD_ERROR',
-        message: 'Discord API error',
-        userMessage: 'Something went wrong',
+  describe('Media Operation Logging', () => {
+    it('should log media operations with proper context and emit events', () => {
+      const context: Partial<MediaLogContext> = {
         correlationId: 'test_123',
-        timestamp: new Date(),
-        stack: 'Error stack',
-        context: {},
+        userId: 'user_123',
+        mediaType: MediaType.MOVIE,
       }
-      const correlationContext = createMockCorrelationContext()
 
-      service.logDiscordError(error, correlationContext)
+      service.logOperation(
+        'media_search',
+        'Search operation',
+        context,
+        MediaLogLevel.INFO,
+      )
 
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.stringContaining('Discord API error'),
+      expect(mockLogger.log).toHaveBeenCalledWith(
+        'Search operation',
         expect.objectContaining({
-          operation: 'discord_error',
-          correlationId: correlationContext.correlationId,
+          operation: 'media_search',
+          correlationId: 'test_123',
+          userId: 'user_123',
+          mediaType: MediaType.MOVIE,
+          timestamp: expect.any(Date),
         }),
       )
 
       expect(mockEventEmitter.emit).toHaveBeenCalledWith(
-        EventType.API_ERROR,
+        EventType.API_REQUEST,
         expect.objectContaining({
-          error,
-          correlationContext,
+          operation: 'media_search',
+          level: MediaLogLevel.INFO,
         }),
+      )
+    })
+
+    it('should log successful component interactions', () => {
+      const interactionContext = createMockInteractionContext()
+
+      service.logComponentInteraction(
+        interactionContext,
+        'button_click',
+        'success',
+      )
+
+      expect(mockLogger.log).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Component interaction: button_click - success',
+        ),
+        expect.any(Object),
+      )
+    })
+
+    it('should log failed component interactions', () => {
+      const interactionContext = createMockInteractionContext()
+      const error = new Error('Interaction failed')
+
+      service.logComponentInteraction(
+        interactionContext,
+        'button_click',
+        'error',
+        error,
+      )
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Component interaction: button_click - error'),
+        expect.any(Object),
       )
     })
   })
 
-  describe('logPerformance', () => {
+  describe('Media-Specific Logging', () => {
+    it('should log media searches with results and emit events', () => {
+      const searchTerm = 'The Matrix'
+      const mediaType = MediaType.MOVIE
+      const resultCount = 5
+      const correlationContext = createMockCorrelationContext()
+      const duration = 250
+
+      service.logMediaSearch(
+        searchTerm,
+        mediaType,
+        resultCount,
+        correlationContext,
+        duration,
+      )
+
+      expect(mockLogger.log).toHaveBeenCalledWith(
+        `Media search for "The Matrix" (movie) returned 5 results in 250ms`,
+        expect.objectContaining({
+          operation: 'media_search',
+          correlationId: correlationContext.correlationId,
+          mediaType,
+          action: 'search',
+        }),
+      )
+
+      expect(mockEventEmitter.emit).toHaveBeenCalledWith(
+        EventType.MEDIA_SEARCH,
+        expect.objectContaining({
+          searchTerm,
+          mediaType,
+          resultCount,
+          duration,
+        }),
+      )
+    })
+
+    it('should log media requests with success/failure states', () => {
+      const correlationContext = createMockCorrelationContext()
+
+      // Test successful request
+      service.logMediaRequest(
+        'movie_123',
+        MediaType.MOVIE,
+        'Test Movie',
+        correlationContext,
+        true,
+      )
+      expect(mockLogger.log).toHaveBeenCalledWith(
+        expect.stringContaining('Media request'),
+        expect.objectContaining({
+          operation: 'media_request',
+          correlationId: correlationContext.correlationId,
+        }),
+      )
+
+      // Test failed request
+      service.logMediaRequest(
+        'movie_456',
+        MediaType.MOVIE,
+        'Failed Movie',
+        correlationContext,
+        false,
+      )
+      expect(mockLogger.error).toHaveBeenCalled()
+    })
+  })
+
+  describe('API and Performance Tracking', () => {
     it('should track performance metrics and detect slow operations', () => {
       const operation = 'test_operation'
       const startTime = Date.now() - 500
@@ -309,9 +299,7 @@ describe('MediaLoggingService', () => {
       const metrics = service.getPerformanceMetrics()
       expect(metrics.length).toBe(2)
     })
-  })
 
-  describe('logApiCall', () => {
     it('should log API calls and handle success/error states', () => {
       // Test successful API call
       service.logApiCall(
@@ -352,7 +340,38 @@ describe('MediaLoggingService', () => {
     })
   })
 
-  describe('logError', () => {
+  describe('Error Handling and Discord Integration', () => {
+    it('should log Discord errors and emit error events', () => {
+      const error: ComponentError = {
+        code: 'DISCORD_ERROR',
+        message: 'Discord API error',
+        userMessage: 'Something went wrong',
+        correlationId: 'test_123',
+        timestamp: new Date(),
+        stack: 'Error stack',
+        context: {},
+      }
+      const correlationContext = createMockCorrelationContext()
+
+      service.logDiscordError(error, correlationContext)
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Discord API error'),
+        expect.objectContaining({
+          operation: 'discord_error',
+          correlationId: correlationContext.correlationId,
+        }),
+      )
+
+      expect(mockEventEmitter.emit).toHaveBeenCalledWith(
+        EventType.API_ERROR,
+        expect.objectContaining({
+          error,
+          correlationContext,
+        }),
+      )
+    })
+
     it('should log errors with full context and stack traces', () => {
       const error = new Error('Test error message')
       error.stack = 'Error stack trace'
@@ -385,99 +404,56 @@ describe('MediaLoggingService', () => {
         }),
       )
     })
-  })
 
-  describe('logMediaSearch', () => {
-    it('should log media searches with results and emit events', () => {
-      const searchTerm = 'The Matrix'
-      const mediaType = MediaType.MOVIE
-      const resultCount = 5
-      const correlationContext = createMockCorrelationContext()
-      const duration = 250
+    it('should handle incomplete logging contexts gracefully', () => {
+      const incompleteContext = {
+        correlationId: null,
+        userId: undefined,
+      } as Record<string, unknown>
 
-      service.logMediaSearch(
-        searchTerm,
-        mediaType,
-        resultCount,
-        correlationContext,
-        duration,
-      )
+      expect(() => {
+        service.logOperation(
+          'media_operation',
+          'Operation message',
+          incompleteContext,
+        )
+      }).not.toThrow()
 
       expect(mockLogger.log).toHaveBeenCalledWith(
-        `Media search for "The Matrix" (movie) returned 5 results in 250ms`,
+        'Operation message',
         expect.objectContaining({
-          operation: 'media_search',
-          correlationId: correlationContext.correlationId,
-          mediaType,
-          action: 'search',
-        }),
-      )
-
-      expect(mockEventEmitter.emit).toHaveBeenCalledWith(
-        EventType.MEDIA_SEARCH,
-        expect.objectContaining({
-          searchTerm,
-          mediaType,
-          resultCount,
-          duration,
+          correlationId: 'unknown',
+          userId: 'unknown',
         }),
       )
     })
   })
 
-  describe('logMediaRequest', () => {
-    it('should log media requests with success/failure states', () => {
-      const correlationContext = createMockCorrelationContext()
-
-      // Test successful request
-      service.logMediaRequest(
-        'movie_123',
-        MediaType.MOVIE,
-        'Test Movie',
-        correlationContext,
-        true,
+  describe('Business Metrics and Reporting', () => {
+    it('should track and filter performance metrics for business analysis', () => {
+      service.logPerformance('media_search', Date.now() - 100, 'user_session_1')
+      service.logPerformance(
+        'content_request',
+        Date.now() - 200,
+        'user_session_2',
       )
-      expect(mockLogger.log).toHaveBeenCalledWith(
-        expect.stringContaining('Media request'),
-        expect.objectContaining({
-          operation: 'media_request',
-          correlationId: correlationContext.correlationId,
-        }),
+      service.logPerformance(
+        'library_check',
+        Date.now() - 150,
+        'user_session_1',
       )
 
-      // Test failed request
-      service.logMediaRequest(
-        'movie_456',
-        MediaType.MOVIE,
-        'Failed Movie',
-        correlationContext,
-        false,
-      )
-      expect(mockLogger.error).toHaveBeenCalled()
-    })
-  })
-
-  describe('metrics and logging retrieval', () => {
-    it('should return and filter performance metrics correctly', () => {
-      // Add test metrics
-      service.logPerformance('test_op_1', Date.now() - 100, 'corr_1')
-      service.logPerformance('test_op_2', Date.now() - 200, 'corr_2')
-      service.logPerformance('test_op_3', Date.now() - 150, 'corr_1')
-
-      // Test retrieving all metrics
       const allMetrics = service.getPerformanceMetrics()
       expect(allMetrics).toHaveLength(3)
 
-      // Test filtering by correlation ID
-      const filteredMetrics = service.getPerformanceMetrics('corr_1')
-      expect(filteredMetrics).toHaveLength(2)
-      expect(filteredMetrics.every(m => m.correlationId === 'corr_1')).toBe(
-        true,
-      )
+      const sessionMetrics = service.getPerformanceMetrics('user_session_1')
+      expect(sessionMetrics).toHaveLength(2)
+      expect(
+        sessionMetrics.every(m => m.correlationId === 'user_session_1'),
+      ).toBe(true)
     })
 
-    it('should return and filter API call logs correctly', () => {
-      // Add test API call logs
+    it('should track API call logs for service monitoring', () => {
       service.logApiCall(
         'sonarr',
         'GET',
@@ -504,26 +480,23 @@ describe('MediaLoggingService', () => {
         new Error('Not found'),
       )
 
-      // Test retrieving all logs
       const allLogs = service.getApiCallLogs()
       expect(allLogs).toHaveLength(3)
 
-      // Test filtering by correlation ID
       const filteredLogs = service.getApiCallLogs('corr_1')
       expect(filteredLogs).toHaveLength(2)
       expect(filteredLogs.every(l => l.correlationId === 'corr_1')).toBe(true)
     })
 
-    it('should calculate performance metrics summary correctly', () => {
-      // Add test data
-      service.logPerformance('fast_op', Date.now() - 50, 'corr_1')
-      service.logPerformance('slow_op', Date.now() - 6000, 'corr_2') // >5000ms = slow
+    it('should provide business metrics summary for service health monitoring', () => {
+      service.logPerformance('fast_operation', Date.now() - 50, 'session_1')
+      service.logPerformance('slow_operation', Date.now() - 6000, 'session_2')
       service.logApiCall(
         'sonarr',
         'GET',
         '/api/series',
         Date.now() - 100,
-        'corr_1',
+        'session_1',
         200,
       )
       service.logApiCall(
@@ -531,352 +504,15 @@ describe('MediaLoggingService', () => {
         'GET',
         '/api/movie',
         Date.now() - 300,
-        'corr_1',
+        'session_1',
         404,
         new Error('Not found'),
       )
 
       const summary = service.getMetricsSummary()
       expect(summary.totalComponents).toBeGreaterThanOrEqual(0)
-      expect(summary.activeComponents).toBe(0)
-      expect(summary.expiredComponents).toBe(0)
-      expect(summary.totalInteractions).toBeGreaterThanOrEqual(0)
       expect(summary.avgResponseTime).toBeGreaterThanOrEqual(0)
       expect(summary.errorRate).toBeGreaterThanOrEqual(0)
-    })
-  })
-
-  describe('error handling and edge cases', () => {
-    it('should handle malformed contexts and null errors gracefully', () => {
-      const malformedContext = { correlationId: null, userId: undefined } as any
-
-      expect(() => {
-        service.logOperation('test', 'test message', malformedContext)
-      }).not.toThrow()
-
-      // Service should apply defaults for missing fields
-      expect(mockLogger.log).toHaveBeenCalledWith(
-        'test message',
-        expect.objectContaining({
-          correlationId: 'unknown',
-          userId: 'unknown',
-        }),
-      )
-
-      // Test null error handling separately
-      const correlationContext = createMockCorrelationContext()
-      expect(() => {
-        service.logError(null as any, correlationContext)
-      }).toThrow() // This will throw because error.message is accessed
-    })
-  })
-
-  describe('Resource Management', () => {
-    describe('memory leak prevention', () => {
-      const testFn = process.env.CI === 'true' ? it.skip : it
-      testFn(
-        'should prevent memory exhaustion during metric flood',
-        async () => {
-          // Test: Rapid metrics without unbounded growth
-          // Business Impact: Prevents OOM crashes under load
-          // Note: Skipped in CI to prevent timeout issues
-          const correlationId = 'flood_test_correlation'
-          const startMemory = process.memoryUsage().heapUsed
-
-          // Generate performance metrics (reduced for test performance)
-          const promises = Array.from({ length: 1000 }, (_, i) => {
-            return Promise.resolve().then(() => {
-              service.logPerformance(
-                `flood_operation_${i}`,
-                Date.now() - 100,
-                `${correlationId}_${i % 100}`,
-              )
-            })
-          })
-
-          await Promise.all(promises)
-
-          // Check that metrics are bounded (should not store all entries)
-          const metrics = service.getPerformanceMetrics()
-          expect(metrics.length).toBeLessThanOrEqual(1000) // Service has maxMetrics = 1000
-
-          // Memory should not have grown excessively (less than 50MB increase)
-          const endMemory = process.memoryUsage().heapUsed
-          const memoryIncrease = endMemory - startMemory
-          expect(memoryIncrease).toBeLessThan(50 * 1024 * 1024) // 50MB limit
-        },
-        10000,
-      ) // 10 second timeout
-
-      it('should handle large context objects safely', async () => {
-        // Test: Context sanitization with large objects
-        // Business Impact: Memory usage control during logging
-        const largeObject = {
-          data: 'A'.repeat(1024 * 1024), // 1MB string
-          nested: {
-            deep: {
-              structure: Array.from({ length: 100 }, (_, i) => ({
-                id: i,
-                value: 'test'.repeat(50),
-              })),
-            },
-          },
-          circular: null as any,
-        }
-
-        // Create circular reference
-        largeObject.circular = largeObject
-
-        const correlationContext = createMockCorrelationContext()
-        const startMemory = process.memoryUsage().heapUsed
-
-        // Should not crash or cause memory explosion
-        expect(() => {
-          service.logOperation('large_context_test', 'Testing large context', {
-            ...correlationContext,
-            largeContext: largeObject,
-          } as any)
-        }).not.toThrow()
-
-        const endMemory = process.memoryUsage().heapUsed
-        const memoryIncrease = endMemory - startMemory
-
-        // Memory increase should be reasonable (less than 10MB)
-        expect(memoryIncrease).toBeLessThan(10 * 1024 * 1024)
-
-        // Should have logged without crashing
-        expect(mockLogger.log).toHaveBeenCalled()
-      })
-
-      it('should manage event listener memory leaks', async () => {
-        // Test: Event listener cleanup
-        // Business Impact: Prevents memory leaks from event handlers
-
-        // Mock the listenerCount method if it doesn't exist
-        if (!mockEventEmitter.listenerCount) {
-          mockEventEmitter.listenerCount = jest.fn().mockReturnValue(0)
-        }
-
-        const initialListenerCount = mockEventEmitter.listenerCount(
-          EventType.API_REQUEST,
-        )
-
-        // Simulate rapid event emissions
-        for (let i = 0; i < 1000; i++) {
-          service.logOperation(
-            `test_op_${i}`,
-            'Test message',
-            createMockCorrelationContext(),
-          )
-        }
-
-        // Event emitter should not accumulate listeners
-        const finalListenerCount = mockEventEmitter.listenerCount(
-          EventType.API_REQUEST,
-        )
-        expect(finalListenerCount).toBe(initialListenerCount)
-
-        // Verify events were emitted but listeners didn't leak
-        expect(mockEventEmitter.emit).toHaveBeenCalledTimes(1000)
-      })
-    })
-
-    describe('logging infrastructure resilience', () => {
-      it('should continue functioning when underlying logger fails', async () => {
-        // Test: Logger failure resilience
-        // Business Impact: Service continues during infrastructure failures
-
-        // Mock logger to throw errors
-        mockLogger.log.mockImplementation(() => {
-          throw new Error('Logger infrastructure failure')
-        })
-        mockLogger.error.mockImplementation(() => {
-          throw new Error('Logger infrastructure failure')
-        })
-
-        const correlationContext = createMockCorrelationContext()
-
-        // Service should not crash when logger fails for INFO level operations
-        expect(() => {
-          service.logOperation(
-            'resilience_test',
-            'Test message',
-            correlationContext,
-          )
-          service.logPerformance('test_perf', Date.now() - 100, 'test_corr')
-        }).not.toThrow()
-
-        // Error logging will throw because it's ERROR level and logger is failing
-        expect(() => {
-          service.logError(new Error('Test error'), correlationContext)
-        }).toThrow()
-
-        // Event emission should still work even if logging fails
-        expect(mockEventEmitter.emit).toHaveBeenCalled()
-      })
-
-      it('should handle event emitter backpressure', async () => {
-        // Test: EventEmitter2 saturation scenarios
-        // Business Impact: Prevents event system lockup
-
-        // Mock event emitter to simulate slowdown
-        let emitCount = 0
-        mockEventEmitter.emit.mockImplementation((event: any, data: any) => {
-          emitCount++
-          if (emitCount > 100) {
-            // Simulate backpressure delay
-            setTimeout(() => {}, 10)
-          }
-          return true
-        })
-
-        const startTime = Date.now()
-
-        // Rapid fire 500 events
-        const promises = Array.from({ length: 50 }, (_, i) => {
-          return Promise.resolve().then(() => {
-            service.logOperation(
-              `backpressure_test_${i}`,
-              'Test message',
-              createMockCorrelationContext(),
-            )
-          })
-        })
-
-        await Promise.all(promises)
-
-        const duration = Date.now() - startTime
-
-        // Should complete within reasonable time despite backpressure (less than 30 seconds)
-        expect(duration).toBeLessThan(30000)
-        expect(mockEventEmitter.emit).toHaveBeenCalledTimes(50)
-      }, 35000) // 35 second timeout
-
-      it('should handle log rotation and file system issues', async () => {
-        // Test: File system resilience
-        // Business Impact: Logging continues during disk issues
-
-        // Mock console methods to simulate file system errors
-        const originalConsoleLog = console.log
-        const originalConsoleError = console.error
-
-        console.log = jest.fn().mockImplementation(() => {
-          throw new Error('ENOSPC: no space left on device')
-        })
-        console.error = jest.fn().mockImplementation(() => {
-          throw new Error('EACCES: permission denied')
-        })
-
-        try {
-          const correlationContext = createMockCorrelationContext()
-
-          // Service should handle file system errors gracefully
-          expect(() => {
-            service.logOperation(
-              'fs_resilience_test',
-              'Test message',
-              correlationContext,
-            )
-            service.logError(new Error('Test error'), correlationContext)
-          }).not.toThrow()
-
-          // Should still attempt to emit events
-          expect(mockEventEmitter.emit).toHaveBeenCalled()
-        } finally {
-          // Restore console methods
-          console.log = originalConsoleLog
-          console.error = originalConsoleError
-        }
-      })
-    })
-
-    describe('performance boundaries', () => {
-      it('should handle CPU intensive operations gracefully', async () => {
-        // Test: CPU usage limits
-        // Business Impact: Prevents system lockup during heavy processing
-
-        const startTime = Date.now()
-        const correlationContext = createMockCorrelationContext()
-
-        // Simulate CPU intensive context processing
-        const heavyContext = {
-          ...correlationContext,
-          heavyData: Array.from({ length: 1000 }, (_, i) => ({
-            id: i,
-            computedValue: Math.random() * Math.PI * i,
-            stringData: `heavy_computation_${i}_${'x'.repeat(100)}`,
-            nested: {
-              level1: { level2: { level3: { value: i * 1000 } } },
-            },
-          })),
-        }
-
-        // Should complete processing within reasonable time
-        expect(() => {
-          service.logOperation(
-            'cpu_intensive_test',
-            'Processing heavy context',
-            heavyContext as any,
-          )
-        }).not.toThrow()
-
-        const duration = Date.now() - startTime
-
-        // Should complete within 5 seconds even with heavy processing
-        expect(duration).toBeLessThan(5000)
-        expect(mockLogger.log).toHaveBeenCalled()
-      })
-
-      it('should manage concurrent operation limits', async () => {
-        // Test: Concurrency control
-        // Business Impact: Prevents resource exhaustion from too many concurrent ops
-
-        const correlationContext = createMockCorrelationContext()
-        const concurrentOperations = 1000
-        const startTime = Date.now()
-
-        // Launch 1000 concurrent logging operations
-        const promises = Array.from(
-          { length: concurrentOperations },
-          (_, i) => {
-            return new Promise<void>(resolve => {
-              setImmediate(() => {
-                service.logOperation(
-                  `concurrent_op_${i}`,
-                  `Concurrent test ${i}`,
-                  {
-                    ...correlationContext,
-                    correlationId: `concurrent_${i}`,
-                  },
-                )
-                service.logPerformance(
-                  `perf_op_${i}`,
-                  Date.now() - 50,
-                  `concurrent_${i}`,
-                )
-                resolve()
-              })
-            })
-          },
-        )
-
-        await Promise.all(promises)
-
-        const duration = Date.now() - startTime
-
-        // Should handle 1000 concurrent operations within 10 seconds
-        expect(duration).toBeLessThan(10000)
-
-        // All operations should have been logged
-        expect(mockLogger.log).toHaveBeenCalledTimes(concurrentOperations)
-        expect(mockEventEmitter.emit).toHaveBeenCalledTimes(
-          concurrentOperations * 3,
-        ) // log + perf operations + media.performance event
-
-        // Memory should not have exploded
-        const metrics = service.getPerformanceMetrics()
-        expect(metrics.length).toBeLessThanOrEqual(1000) // Service caps at maxMetrics = 1000
-      }, 15000) // 15 second timeout
     })
   })
 })

@@ -18,8 +18,8 @@ export type PrivateMethodAccess<T, K extends keyof T> = T & {
  */
 export function createPrivateAccess<T extends object, K extends string>(
   instance: T,
-): T & Record<K, any> {
-  return instance as T & Record<K, any>
+): T & Record<K, unknown> {
+  return instance as T & Record<K, unknown>
 }
 
 /**
@@ -29,23 +29,23 @@ export function createPrivateAccess<T extends object, K extends string>(
 // Component Factory Service private methods
 export interface ComponentFactoryPrivateAccess {
   truncateText(text: string, maxLength: number, suffix?: string): string
-  getButtonCustomId(button: any): string | undefined
-  getButtonUrl(button: any): string | undefined
-  getButtonLabel(button: any): string | undefined
-  getButtonEmoji(button: any): any
-  hasCustomIdOrUrl(button: any): boolean
-  hasLabelOrEmoji(button: any): boolean
-  getConstraints(): any
+  getButtonCustomId(button: unknown): string | undefined
+  getButtonUrl(button: unknown): string | undefined
+  getButtonLabel(button: unknown): string | undefined
+  getButtonEmoji(button: unknown): unknown
+  hasCustomIdOrUrl(button: unknown): boolean
+  hasLabelOrEmoji(button: unknown): boolean
+  getConstraints(): unknown
 }
 
 // Select Menu Builder Service private methods
 export interface SelectMenuBuilderPrivateAccess {
-  createSearchResultOption(result: any): any
-  createQualityProfileOption(profile: any): any
-  createRootFolderOption(folder: any): any
-  createSeasonOption(season: any): any
-  createMediaActionOption(action: string): any
-  createOptionFromConfig(config: any): any
+  createSearchResultOption(result: unknown): unknown
+  createQualityProfileOption(profile: unknown): unknown
+  createRootFolderOption(folder: unknown): unknown
+  createSeasonOption(season: unknown): unknown
+  createMediaActionOption(action: string): unknown
+  createOptionFromConfig(config: unknown): unknown
   truncateText(text: string, maxLength: number, suffix?: string): string
   truncateCustomId(customId: string): string
   truncatePlaceholder(placeholder: string): string
@@ -53,17 +53,17 @@ export interface SelectMenuBuilderPrivateAccess {
 
 // Modal Builder Service private methods
 export interface ModalBuilderPrivateAccess {
-  createTextInput(config: any): any
+  createTextInput(config: unknown): unknown
   truncateText(text: string, maxLength: number, suffix?: string): string
   truncateCustomId(customId: string): string
 }
 
 // Discord Error Service private methods
 export interface DiscordErrorServicePrivateAccess {
-  isDiscordAPIError(error: any): boolean
-  isInteractionExpired(error: any): boolean
-  getErrorCode(error: any): string
-  extractDiscordErrorInfo(error: any): any
+  isDiscordAPIError(error: unknown): boolean
+  isInteractionExpired(error: unknown): boolean
+  getErrorCode(error: unknown): string
+  extractDiscordErrorInfo(error: unknown): unknown
 }
 
 // Component State Service private methods
@@ -71,7 +71,7 @@ export interface ComponentStateServicePrivateAccess {
   atomicStateTransition<T>(
     sessionId: string,
     operation: string,
-    updateFn: (state: any) => any,
+    updateFn: (state: unknown) => unknown,
   ): Promise<T>
 }
 
@@ -80,9 +80,9 @@ export interface MediaConfigValidationServicePrivateAccess {
   isValidUrl(url: string): boolean
   isValidApiKey(apiKey: string): boolean
   isValidEmbyUserId(userId: string): boolean
-  validateSonarrConfig(config: any): any
-  validateRadarrConfig(config: any): any
-  validateEmbyConfig(config: any): any
+  validateSonarrConfig(config: unknown): unknown
+  validateRadarrConfig(config: unknown): unknown
+  validateEmbyConfig(config: unknown): unknown
 }
 
 /**
@@ -139,13 +139,16 @@ export function wrapAtomicStateTransition<T extends object>(
 export function hasPrivateMethod<T extends object, K extends string>(
   obj: T,
   methodName: K,
-): obj is T & Record<K, Function> {
-  return typeof (obj as any)[methodName] === 'function'
+): obj is T & Record<K, (...args: unknown[]) => unknown> {
+  return (
+    typeof (obj as unknown as Record<string, unknown>)[methodName] ===
+    'function'
+  )
 }
 
 export function hasPrivateProperty<T extends object, K extends string>(
   obj: T,
   propertyName: K,
-): obj is T & Record<K, any> {
+): obj is T & Record<K, unknown> {
   return propertyName in obj
 }

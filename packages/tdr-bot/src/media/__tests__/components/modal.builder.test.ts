@@ -2,6 +2,8 @@ import { TestingModule } from '@nestjs/testing'
 import { TextInputStyle } from 'discord.js'
 
 import { createTestingModule } from 'src/__tests__/test-utils'
+// Inline previous shared utilities
+import { type MockModalBuilder } from 'src/media/__tests__/types/test-mocks.types'
 import { ModalBuilderService } from 'src/media/components/modal.builder'
 import { ModalComponentConfig, ModalConfig } from 'src/types/discord.types'
 import { MediaType } from 'src/types/enums'
@@ -41,12 +43,21 @@ jest.mock('discord.js', () => ({
 
 describe('ModalBuilderService', () => {
   let service: ModalBuilderService
+  let mockModalBuilder: MockModalBuilder
 
   beforeEach(async () => {
     const module: TestingModule = await createTestingModule([
       ModalBuilderService,
     ])
     service = module.get<ModalBuilderService>(ModalBuilderService)
+
+    mockModalBuilder = {
+      data: {},
+      setCustomId: jest.fn().mockReturnThis(),
+      setTitle: jest.fn().mockReturnThis(),
+      addComponents: jest.fn().mockReturnThis(),
+      toJSON: jest.fn().mockReturnValue({ type: 'modal', components: [] }),
+    } as MockModalBuilder
   })
 
   describe('Modal Creation', () => {
@@ -54,20 +65,16 @@ describe('ModalBuilderService', () => {
       it.each([
         [MediaType.MOVIE, 'Movie Search Modal', 'Search for movies'],
         [MediaType.SERIES, 'Series Search Modal', 'Search for series'],
-      ])(
-        'should create modal components for %s',
-        (mediaType, title, description) => {
-          const config: ModalConfig = {
-            customId: `${mediaType.toLowerCase()}_modal`,
-            title,
-            components: [],
-            // actionType, mediaType, and correlationId removed as they don't exist in ModalConfig
-          }
+      ])('should create modal components for %s', (mediaType, title) => {
+        const config: ModalConfig = {
+          customId: `${mediaType.toLowerCase()}_modal`,
+          title,
+          components: [],
+        }
 
-          const result = service.createModal(config)
-          expect(result).toBeDefined()
-        },
-      )
+        const result = service.createModal(config)
+        expect(result).toBeDefined()
+      })
     })
 
     describe('Component constraints', () => {

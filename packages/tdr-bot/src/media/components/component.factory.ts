@@ -728,7 +728,7 @@ export class ComponentFactoryService {
     }
 
     // For mock components, check constructor name
-    const obj = component as any
+    const obj = component as unknown as { constructor?: { name?: string } }
     if (obj.constructor && obj.constructor.name) {
       const constructorName = obj.constructor.name
       if (
@@ -762,28 +762,45 @@ export class ComponentFactoryService {
     }
 
     // Additional fallback: check for distinctive properties
-    if (obj.data !== undefined) {
+    if ((obj as any).data !== undefined) {
       // Check for button-like properties
-      if (obj.setCustomId && obj.setLabel && obj.setStyle) {
+      if (
+        (obj as any).setCustomId &&
+        (obj as any).setLabel &&
+        (obj as any).setStyle
+      ) {
         return 'ButtonBuilder'
       }
       // Check for select menu-like properties
-      if (obj.setCustomId && obj.setPlaceholder && obj.addOptions) {
+      if (
+        (obj as any).setCustomId &&
+        (obj as any).setPlaceholder &&
+        (obj as any).addOptions
+      ) {
         return 'StringSelectMenuBuilder'
       }
       // Check for modal-like properties
-      if (obj.setCustomId && obj.setTitle && obj.addComponents) {
+      if (
+        (obj as any).setCustomId &&
+        (obj as any).setTitle &&
+        (obj as any).addComponents
+      ) {
         return 'ModalBuilder'
       }
       // Check for embed-like properties
-      if (obj.setTitle && obj.setDescription && obj.setColor && obj.addFields) {
+      if (
+        (obj as any).setTitle &&
+        (obj as any).setDescription &&
+        (obj as any).setColor &&
+        (obj as any).addFields
+      ) {
         return 'EmbedBuilder'
       }
       // Check for action row-like properties
       if (
-        obj.addComponents &&
-        obj.setComponents &&
-        obj.components !== undefined
+        (obj as any).addComponents &&
+        (obj as any).setComponents &&
+        (obj as any).components !== undefined
       ) {
         return 'ActionRowBuilder'
       }

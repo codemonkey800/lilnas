@@ -341,8 +341,10 @@ export class ButtonBuilderService {
    */
   createEmbyPlaybackButton(
     mediaId: string,
-    mediaType: MediaType,
-    title: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _mediaType: MediaType,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _title: string,
   ): ButtonBuilder {
     const embyUrl = `${process.env.EMBY_BASE_URL}/web/index.html#!/item?id=${mediaId}`
     const label = `Play in Emby`

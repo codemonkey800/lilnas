@@ -76,7 +76,7 @@ afterAll(async () => {
 }, 10000)
 
 // Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', reason => {
   logger.error('Unhandled promise rejection in E2E tests:', {
     reason: reason instanceof Error ? reason.message : String(reason),
     stack: reason instanceof Error ? reason.stack : undefined,

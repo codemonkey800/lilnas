@@ -17,7 +17,7 @@ import { MediaType } from './enums'
 /**
  * Conditional type to extract function return type safely
  */
-export type SafeReturnType<T> = T extends (...args: any[]) => infer R
+export type SafeReturnType<T> = T extends (...args: unknown[]) => infer R
   ? R
   : never
 
@@ -34,17 +34,19 @@ export type ArrayElement<T> = T extends (infer U)[] ? U : never
 /**
  * Conditional type to check if a type is an array
  */
-export type IsArray<T> = T extends any[] ? true : false
+export type IsArray<T> = T extends unknown[] ? true : false
 
 /**
  * Conditional type to check if a type is a function
  */
-export type IsFunction<T> = T extends (...args: any[]) => any ? true : false
+export type IsFunction<T> = T extends (...args: unknown[]) => unknown
+  ? true
+  : false
 
 /**
  * Conditional type to check if a type is a Promise
  */
-export type IsPromise<T> = T extends Promise<any> ? true : false
+export type IsPromise<T> = T extends Promise<unknown> ? true : false
 
 /**
  * Deep conditional type to make all properties optional recursively
@@ -259,14 +261,14 @@ export type ValidatedBrand<T, Brand extends string, Validator> = T & {
 /**
  * Utility type to extract all possible discriminant values
  */
-export type DiscriminantValues<T, K extends keyof T> = T extends any
+export type DiscriminantValues<T, K extends keyof T> = T extends unknown
   ? T[K]
   : never
 
 /**
  * Utility type to filter union members by discriminant
  */
-export type FilterByDiscriminant<T, K extends keyof T, V> = T extends any
+export type FilterByDiscriminant<T, K extends keyof T, V> = T extends unknown
   ? T[K] extends V
     ? T
     : never
@@ -308,7 +310,7 @@ export type MediaItemProcessor<T extends MediaItem> = {
 export type MediaApiResponses = {
   [K in MediaApiRoute as `${K}Response`]: {
     success: boolean
-    data: K extends 'search' ? MediaItem[] : any
+    data: K extends 'search' ? MediaItem[] : unknown
     error?: string
     timestamp: Date
   }
@@ -327,7 +329,7 @@ export type ErrorHandlerForCategory<C extends ErrorCategory> =
 /**
  * Advanced mapped type for service configurations
  */
-export type ServiceConfigurations<T extends Record<string, any>> = {
+export type ServiceConfigurations<T extends Record<string, unknown>> = {
   [K in keyof T as `${string & K}Config`]: {
     enabled: boolean
     options: T[K]
@@ -344,13 +346,13 @@ export type ApiClientMethods<S extends string> = S extends 'sonarr' | 'radarr'
       search: (query: string) => Promise<MediaItem[]>
       add: (item: MediaItem) => Promise<boolean>
       getStatus: (id: string | number) => Promise<MediaItem>
-      getQueue: () => Promise<any[]>
+      getQueue: () => Promise<unknown[]>
     }
   : S extends 'emby'
     ? {
-        search: (query: string) => Promise<any[]>
-        getLibrary: () => Promise<any[]>
-        getItem: (id: string) => Promise<any>
+        search: (query: string) => Promise<unknown[]>
+        getLibrary: () => Promise<unknown[]>
+        getItem: (id: string) => Promise<unknown>
       }
     : never
 
@@ -407,7 +409,7 @@ export type TupleToUnion<T extends readonly unknown[]> = T[number]
  * Type-level union to intersection conversion
  */
 export type UnionToIntersection<U> = (
-  U extends any ? (k: U) => void : never
+  U extends unknown ? (k: U) => void : never
 ) extends (k: infer I) => void
   ? I
   : never
@@ -443,7 +445,7 @@ export interface HKT {
 /**
  * Type-level function application for HKTs
  */
-export type Kind<F extends HKT, A> = F extends { readonly _A: any }
+export type Kind<F extends HKT, A> = F extends { readonly _A: unknown }
   ? (F & { readonly _A: A })['_URI']
   : never
 

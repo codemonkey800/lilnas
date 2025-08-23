@@ -123,7 +123,7 @@ jest.mock('discord.js', () => ({
   })),
   ButtonBuilder: jest.fn().mockImplementation(function ButtonBuilder() {
     const mockButton = {
-      data: {} as any,
+      data: {} as Record<string, unknown>,
       setCustomId: jest.fn().mockImplementation((customId: string) => {
         mockButton.data.custom_id = customId
         return mockButton

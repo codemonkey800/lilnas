@@ -842,7 +842,9 @@ describe('ErrorClassificationService', () => {
       testCases.forEach(({ status, expected }) => {
         // Access private method for testing
         const getErrorTypeFromStatus = (
-          service as any
+          service as unknown as {
+            getErrorTypeFromStatus: (status: number) => unknown
+          }
         ).getErrorTypeFromStatus.bind(service)
         const result = getErrorTypeFromStatus(status)
         expect(result).toBe(expected)
@@ -989,7 +991,7 @@ describe('ErrorClassificationService', () => {
         config: {},
       } as AxiosResponse
       // Explicitly remove status for test
-      delete (error.response as any).status
+      delete (error.response as unknown as { status?: number }).status
 
       const result = service.classifyError(error, ErrorCategory.OPENAI_API)
 
@@ -1097,10 +1099,14 @@ describe('ErrorClassificationService', () => {
       const error = new Error('Unknown error')
 
       // Test with explicit category parameter
-      const resultWithCategory = (service as any).getDefaultClassification(
-        error,
-        ErrorCategory.MEDIA_API,
-      )
+      const resultWithCategory = (
+        service as unknown as {
+          getDefaultClassification: (
+            error: Error,
+            category?: ErrorCategory,
+          ) => unknown
+        }
+      ).getDefaultClassification(error, ErrorCategory.MEDIA_API)
 
       expect(resultWithCategory).toEqual({
         isRetryable: false,
@@ -1110,9 +1116,11 @@ describe('ErrorClassificationService', () => {
       })
 
       // Test without category parameter (should default to SYSTEM)
-      const resultWithoutCategory = (service as any).getDefaultClassification(
-        error,
-      )
+      const resultWithoutCategory = (
+        service as unknown as {
+          getDefaultClassification: (error: Error) => unknown
+        }
+      ).getDefaultClassification(error)
 
       expect(resultWithoutCategory).toEqual({
         isRetryable: false,
@@ -1158,7 +1166,9 @@ describe('ErrorClassificationService', () => {
 
     it('should handle all defined ErrorType values in getErrorTypeFromStatus', () => {
       const getErrorTypeFromStatus = (
-        service as any
+        service as unknown as {
+          getErrorTypeFromStatus: (status: number) => unknown
+        }
       ).getErrorTypeFromStatus.bind(service)
 
       // Test status codes that should map to each error type

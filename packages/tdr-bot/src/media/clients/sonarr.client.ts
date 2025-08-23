@@ -560,7 +560,7 @@ export class SonarrClient extends BaseMediaApiClient {
    */
   parseEpisodeSpecification(episodeSpec: string): EpisodeSpecification {
     const seasons: Array<{ seasonNumber: number; episodes?: number[] }> = []
-    let totalEpisodes = 0
+    let _totalEpisodes = 0
 
     // Split by comma and process each part
     const parts = episodeSpec.split(',').map(part => part.trim())
@@ -584,11 +584,11 @@ export class SonarrClient extends BaseMediaApiClient {
       if (startEpisode === undefined) {
         // Full season (S1)
         seasons.push({ seasonNumber })
-        totalEpisodes += 20 // Estimate 20 episodes per season
+        _totalEpisodes += 20 // Estimate 20 episodes per season
       } else if (endEpisode === undefined) {
         // Single episode (S2E5)
         seasons.push({ seasonNumber, episodes: [startEpisode] })
-        totalEpisodes += 1
+        _totalEpisodes += 1
       } else {
         // Episode range (S3E1-10)
         if (endEpisode < startEpisode) {
@@ -601,7 +601,8 @@ export class SonarrClient extends BaseMediaApiClient {
           (_, i) => startEpisode + i,
         )
         seasons.push({ seasonNumber, episodes })
-        totalEpisodes += episodes.length
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        _totalEpisodes += episodes.length
       }
     }
 
@@ -1147,7 +1148,9 @@ export class SonarrClient extends BaseMediaApiClient {
    */
   async configure(newConfig: SonarrConfig): Promise<void> {
     // Validate the new configuration (only in tests where mock provides this method)
-    const configService = this.configService as any
+    const configService = this.configService as unknown as {
+      validateSonarrConfig?: (config: unknown) => void
+    }
     if (configService.validateSonarrConfig) {
       configService.validateSonarrConfig(newConfig)
     }

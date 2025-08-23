@@ -9,6 +9,7 @@ import {
   createMockMediaLoggingService,
   createMockRadarrConfig,
   createMockRetryService,
+  type MockAxiosInstance,
 } from 'src/media/__tests__/types/test-mocks.types'
 import { RadarrClient } from 'src/media/clients/radarr.client'
 import { MediaConfigValidationService } from 'src/media/config/media-config.validation'
@@ -26,7 +27,7 @@ const mockedAxios = axios as jest.Mocked<typeof axios>
 
 describe('RadarrClient', () => {
   let client: RadarrClient
-  let mockAxiosInstance: jest.Mocked<any>
+  let mockAxiosInstance: MockAxiosInstance
   const testConfig = createMockRadarrConfig()
 
   beforeEach(async () => {
@@ -57,23 +58,18 @@ describe('RadarrClient', () => {
 
   describe('Service Configuration', () => {
     describe('Service validation', () => {
-      it.each([
-        ['service name', () => client.getServiceInfo().serviceName, 'radarr'],
-        [
-          'base configuration',
-          () => mockedAxios.create.mock.calls[0][0],
+      it('should validate service name configuration', () => {
+        expect(client.getServiceInfo().serviceName).toBe('radarr')
+      })
+
+      it('should validate base configuration', () => {
+        expect(mockedAxios.create.mock.calls[0][0]).toEqual(
           expect.objectContaining({
             baseURL: testConfig.url,
             timeout: testConfig.timeout,
           }),
-        ],
-      ])(
-        'should validate %s configuration',
-        (validationType, getter, expected) => {
-          const result = getter()
-          expect(result).toEqual(expected)
-        },
-      )
+        )
+      })
     })
 
     describe('Service capabilities', () => {
@@ -282,19 +278,19 @@ describe('RadarrClient', () => {
 
   describe('System Status and Health', () => {
     it('should check system status and perform health checks', async () => {
-      const mockSystemStatus = {
-        version: '4.7.5.7809',
-        buildTime: '2023-08-15T10:30:00Z',
-        isDebug: false,
-        isProduction: true,
-        isAdmin: true,
-        isUserInteractive: false,
-        startupPath: '/app/radarr',
-        appData: '/config',
-        osName: 'Ubuntu',
-        osVersion: '20.04',
-        isDocker: true,
-      }
+      // const _mockSystemStatus = {
+      //   version: '4.7.5.7809',
+      //   buildTime: '2023-08-15T10:30:00Z',
+      //   isDebug: false,
+      //   isProduction: true,
+      //   isAdmin: true,
+      //   isUserInteractive: false,
+      //   startupPath: '/app/radarr',
+      //   appData: '/config',
+      //   osName: 'Ubuntu',
+      //   osVersion: '20.04',
+      //   isDocker: true,
+      // }
 
       // Mock health check - empty array means healthy (no errors)
       mockAxiosInstance.request.mockResolvedValue({

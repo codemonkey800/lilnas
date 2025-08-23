@@ -10,6 +10,7 @@ import {
   createMockMediaLoggingService,
   createMockRetryService,
   createMockSonarrConfig,
+  type MockAxiosInstance,
 } from 'src/media/__tests__/types/test-mocks.types'
 import { SonarrClient } from 'src/media/clients/sonarr.client'
 import { MediaConfigValidationService } from 'src/media/config/media-config.validation'
@@ -27,7 +28,7 @@ const mockedAxios = axios as jest.Mocked<typeof axios>
 
 describe('SonarrClient', () => {
   let client: SonarrClient
-  let mockAxiosInstance: jest.Mocked<any>
+  let mockAxiosInstance: MockAxiosInstance
   const testConfig = createMockSonarrConfig()
 
   beforeEach(async () => {
@@ -60,7 +61,7 @@ describe('SonarrClient', () => {
   describe('Service Configuration', () => {
     describe('Service validation', () => {
       it('should validate service name configuration', () => {
-        expect((client as any).config?.serviceName).toBe('sonarr')
+        expect(client.getServiceInfo().serviceName).toBe('sonarr')
       })
 
       it('should validate base configuration', () => {
@@ -74,19 +75,19 @@ describe('SonarrClient', () => {
     })
 
     describe('Service capabilities', () => {
-      it('should have search capabilities', async () => {
-        const capabilities = await (client as any).getServiceCapabilities(
-          'test-correlation',
-        )
-        expect(capabilities.canSearch).toBe(true)
-      })
-
-      it('should have library management capabilities', async () => {
-        const capabilities = await (client as any).getServiceCapabilities(
-          'test-correlation',
-        )
-        expect(capabilities.canRequest).toBe(true)
-      })
+      it.each([
+        ['canSearch', true],
+        ['canRequest', true],
+        ['canMonitor', true],
+      ])(
+        'should have %s capability set to %s',
+        async (capability, expectedValue) => {
+          const capabilities = await client.getCapabilities(uuid())
+          expect(capabilities[capability as keyof typeof capabilities]).toBe(
+            expectedValue,
+          )
+        },
+      )
     })
   })
 
@@ -433,9 +434,11 @@ describe('SonarrClient', () => {
         .mockResolvedValueOnce(createMockAxiosResponse(mockDiskSpace, 200))
 
       const correlationId = uuid()
-      const healthResult = await (client as any).performHealthCheck(
-        correlationId,
-      )
+      const healthResult = await (
+        client as unknown as {
+          performHealthCheck: (id: string) => Promise<unknown>
+        }
+      ).performHealthCheck(correlationId)
 
       expect(healthResult).toMatchObject({
         isHealthy: true,

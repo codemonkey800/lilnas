@@ -9,10 +9,11 @@ import {
   createMockMediaConfigValidationService,
   createMockMediaLoggingService,
   createMockRetryService,
-  MockErrorClassificationService,
-  MockMediaConfigValidationService,
-  MockMediaLoggingService,
-  MockRetryService,
+  type MockAxiosInstance,
+  type MockErrorClassificationService,
+  type MockMediaConfigValidationService,
+  type MockMediaLoggingService,
+  type MockRetryService,
 } from 'src/media/__tests__/types/test-mocks.types'
 import { EmbyClient } from 'src/media/clients/emby.client'
 import { MediaConfigValidationService } from 'src/media/config/media-config.validation'
@@ -35,7 +36,7 @@ describe('EmbyClient', () => {
   let mockErrorClassifier: MockErrorClassificationService
   let mockMediaLoggingService: MockMediaLoggingService
   let mockConfigValidationService: MockMediaConfigValidationService
-  let mockAxiosInstance: jest.Mocked<any>
+  let mockAxiosInstance: MockAxiosInstance
 
   const testConfig = createMockEmbyConfig()
 
@@ -70,31 +71,27 @@ describe('EmbyClient', () => {
 
   describe('Service Configuration and Initialization', () => {
     describe('Service validation', () => {
-      it.each([
-        ['service name', () => client.getServiceInfo().serviceName, 'emby'],
-        [
-          'authentication headers',
-          () => mockedAxios.create.mock.calls[0]?.[0]?.headers,
-          expect.objectContaining({
-            'User-Agent': expect.stringContaining('TDR-Bot'),
-            'X-Client-Name': 'TDR-Bot-Media-Client',
-          }),
-        ],
-        [
-          'base configuration',
-          () => mockedAxios.create.mock.calls[0][0],
+      it('should validate service name configuration', () => {
+        expect(client.getServiceInfo().serviceName).toBe('emby')
+      })
+
+      it('should validate base configuration', () => {
+        expect(mockedAxios.create.mock.calls[0][0]).toEqual(
           expect.objectContaining({
             baseURL: testConfig.url,
             timeout: testConfig.timeout,
           }),
-        ],
-      ])(
-        'should validate %s configuration',
-        (validationType, getter, expected) => {
-          const result = getter()
-          expect(result).toEqual(expected)
-        },
-      )
+        )
+      })
+
+      it('should validate authentication headers', () => {
+        expect(mockedAxios.create.mock.calls[0]?.[0]?.headers).toEqual(
+          expect.objectContaining({
+            'User-Agent': expect.stringContaining('TDR-Bot'),
+            'X-Client-Name': 'TDR-Bot-Media-Client',
+          }),
+        )
+      })
     })
 
     describe('Service capabilities', () => {

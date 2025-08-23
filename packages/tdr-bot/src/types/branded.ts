@@ -247,18 +247,18 @@ export function isComponentCustomId(
 /**
  * Extract the underlying type from a branded type
  */
-export type Unbrand<T extends Brand<any, any>> =
-  T extends Brand<infer U, any> ? U : never
+export type Unbrand<T extends Brand<unknown, string>> =
+  T extends Brand<infer U, string> ? U : never
 
 /**
  * Create a map type with branded keys
  */
-export type BrandedMap<K extends Brand<string, any>, V> = Map<K, V>
+export type BrandedMap<K extends Brand<string, string>, V> = Map<K, V>
 
 /**
  * Create a record type with branded keys
  */
-export type BrandedRecord<K extends Brand<string, any>, V> = Record<
+export type BrandedRecord<K extends Brand<string, string>, V> = Record<
   Unbrand<K>,
   V
 >
@@ -267,8 +267,8 @@ export type BrandedRecord<K extends Brand<string, any>, V> = Record<
  * Utility type to check if all values in an object are of a specific branded type
  */
 export type AllBranded<
-  T extends Record<string, any>,
-  B extends Brand<any, any>,
+  T extends Record<string, unknown>,
+  B extends Brand<unknown, string>,
 > = {
   [K in keyof T]: T[K] extends B ? T[K] : never
 }

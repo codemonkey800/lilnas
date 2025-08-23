@@ -48,7 +48,7 @@ describe('LLMService', () => {
     ;(StateGraph as jest.MockedClass<typeof StateGraph>).mockImplementation(
       () =>
         mockStateGraph as unknown as StateGraph<
-          unknown,
+          Record<string, unknown>,
           unknown,
           unknown,
           string

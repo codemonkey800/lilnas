@@ -41,7 +41,7 @@ jest.mock('discord.js', () => ({
 
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { TestingModule } from '@nestjs/testing'
-import { ButtonStyle, TextInputStyle } from 'discord.js'
+import { ButtonStyle, Message, TextInputStyle } from 'discord.js'
 
 import { createTestingModule } from 'src/__tests__/test-utils'
 import {
@@ -91,8 +91,6 @@ describe('End-to-End Component Workflows', () => {
   let componentFactory: ComponentFactoryService
   let componentState: ComponentStateService
   let loggingService: MockMediaLoggingService
-  let errorService: DiscordErrorService
-  let eventEmitter: EventEmitter2
   let mockMessage: MockMessage
 
   beforeEach(async () => {
@@ -109,20 +107,22 @@ describe('End-to-End Component Workflows', () => {
       {
         provide: ActionRowBuilderService,
         useValue: {
-          createButtonRow: jest.fn().mockImplementation((buttons: any[]) => ({
-            addComponents: jest.fn().mockReturnThis(),
-            toJSON: jest.fn().mockReturnValue({
-              type: 1,
-              components: buttons.map(b => b.toJSON?.() || b),
-            }),
-          })),
-          createSelectMenuRow: jest
+          createButtonRow: jest
             .fn()
-            .mockImplementation((selectMenu: any) => ({
+            .mockImplementation((buttons: unknown[]) => ({
               addComponents: jest.fn().mockReturnThis(),
               toJSON: jest.fn().mockReturnValue({
                 type: 1,
-                components: [selectMenu.toJSON?.() || selectMenu],
+                components: buttons.map(b => (b as any).toJSON?.() || b),
+              }),
+            })),
+          createSelectMenuRow: jest
+            .fn()
+            .mockImplementation((selectMenu: unknown) => ({
+              addComponents: jest.fn().mockReturnThis(),
+              toJSON: jest.fn().mockReturnValue({
+                type: 1,
+                components: [(selectMenu as any).toJSON?.() || selectMenu],
               }),
             })),
         },
@@ -130,19 +130,19 @@ describe('End-to-End Component Workflows', () => {
       {
         provide: ButtonBuilderService,
         useValue: {
-          createButton: jest.fn().mockImplementation((config: any) => ({
+          createButton: jest.fn().mockImplementation((config: unknown) => ({
             data: {
-              custom_id: config.customId,
-              label: config.label,
-              style: config.style,
+              custom_id: (config as any).customId,
+              label: (config as any).label,
+              style: (config as any).style,
             },
             setCustomId: jest.fn().mockReturnThis(),
             setLabel: jest.fn().mockReturnThis(),
             setStyle: jest.fn().mockReturnThis(),
             toJSON: jest.fn().mockReturnValue({
-              custom_id: config.customId,
-              label: config.label,
-              style: config.style,
+              custom_id: (config as any).customId,
+              label: (config as any).label,
+              style: (config as any).style,
             }),
           })),
         },
@@ -150,20 +150,20 @@ describe('End-to-End Component Workflows', () => {
       {
         provide: SelectMenuBuilderService,
         useValue: {
-          createSelectMenu: jest.fn().mockImplementation((config: any) => ({
+          createSelectMenu: jest.fn().mockImplementation((config: unknown) => ({
             data: {
-              custom_id: config.customId,
-              placeholder: config.placeholder,
-              options: config.options || [],
+              custom_id: (config as any).customId,
+              placeholder: (config as any).placeholder,
+              options: (config as any).options || [],
             },
             setCustomId: jest.fn().mockReturnThis(),
             setPlaceholder: jest.fn().mockReturnThis(),
             setOptions: jest.fn().mockReturnThis(),
             addOptions: jest.fn().mockReturnThis(),
             toJSON: jest.fn().mockReturnValue({
-              custom_id: config.customId,
-              placeholder: config.placeholder,
-              options: config.options || [],
+              custom_id: (config as any).customId,
+              placeholder: (config as any).placeholder,
+              options: (config as any).options || [],
             }),
           })),
         },
@@ -171,19 +171,19 @@ describe('End-to-End Component Workflows', () => {
       {
         provide: ModalBuilderService,
         useValue: {
-          createModal: jest.fn().mockImplementation((config: any) => ({
+          createModal: jest.fn().mockImplementation((config: unknown) => ({
             data: {
-              custom_id: config.customId,
-              title: config.title,
-              components: config.components || [],
+              custom_id: (config as any).customId,
+              title: (config as any).title,
+              components: (config as any).components || [],
             },
             setCustomId: jest.fn().mockReturnThis(),
             setTitle: jest.fn().mockReturnThis(),
             addComponents: jest.fn().mockReturnThis(),
             toJSON: jest.fn().mockReturnValue({
-              custom_id: config.customId,
-              title: config.title,
-              components: config.components || [],
+              custom_id: (config as any).customId,
+              title: (config as any).title,
+              components: (config as any).components || [],
             }),
           })),
         },
@@ -205,8 +205,6 @@ describe('End-to-End Component Workflows', () => {
     loggingService = module.get<MediaLoggingService>(
       MediaLoggingService,
     ) as unknown as MockMediaLoggingService
-    errorService = module.get<DiscordErrorService>(DiscordErrorService)
-    eventEmitter = module.get<EventEmitter2>(EventEmitter2)
 
     mockMessage = new MockMessage()
 
@@ -220,10 +218,10 @@ describe('End-to-End Component Workflows', () => {
       startTime: new Date(),
     })
     // Mock as any to avoid strict typing issues in integration tests
-    ;(loggingService.logComponentInteraction as any).mockResolvedValue(
+    ;(loggingService.logComponentInteraction as jest.Mock).mockResolvedValue(
       undefined,
     )
-    ;(loggingService.logPerformance as any).mockResolvedValue(undefined)
+    ;(loggingService.logPerformance as jest.Mock).mockResolvedValue(undefined)
   })
 
   afterEach(async () => {
@@ -262,7 +260,7 @@ describe('End-to-End Component Workflows', () => {
 
       const searchButton = componentFactory.createButton(searchButtonConfig)
       const initialState = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message<boolean>,
         correlationContext,
         { time: 60000 },
       )
@@ -288,7 +286,8 @@ describe('End-to-End Component Workflows', () => {
         ],
       }
 
-      const modal = componentFactory.createModal(modalConfig)
+      // Test modal creation capability (variable not used in assertion)
+      componentFactory.createModal(modalConfig)
 
       // Simulate user filling out modal and submitting
       await componentState.updateComponentState(
@@ -323,8 +322,8 @@ describe('End-to-End Component Workflows', () => {
         ],
       }
 
-      const resultsSelect =
-        componentFactory.createSelectMenu(resultsSelectConfig)
+      // Test select menu creation capability (variable not used in assertion)
+      componentFactory.createSelectMenu(resultsSelectConfig)
 
       // Simulate user selection
       await componentState.updateComponentState(
@@ -349,7 +348,8 @@ describe('End-to-End Component Workflows', () => {
         style: ButtonStyle.Success,
       }
 
-      const confirmButton = componentFactory.createButton(confirmButtonConfig)
+      // Test button creation capability (variable not used in assertion)
+      componentFactory.createButton(confirmButtonConfig)
 
       // Final state should contain complete workflow data
       const finalState = componentState.getComponentState(initialState.id)
@@ -376,7 +376,7 @@ describe('End-to-End Component Workflows', () => {
 
       // Create component with very short timeout for testing
       const state = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message<boolean>,
         correlationContext,
         { time: 100 }, // 100ms timeout
       )
@@ -423,12 +423,12 @@ describe('End-to-End Component Workflows', () => {
 
       // Create separate states for different users
       const user1State = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message<boolean>,
         user1Context,
       )
 
       const user2State = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message<boolean>,
         user2Context,
       )
 
@@ -476,7 +476,7 @@ describe('End-to-End Component Workflows', () => {
       }
 
       const state = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message<boolean>,
         correlationContext,
       )
 
@@ -556,14 +556,14 @@ describe('End-to-End Component Workflows', () => {
 
       // Create active component with long timeout
       const activeState = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message<boolean>,
         activeContext,
         { time: 60000 },
       )
 
       // Create component that will expire quickly
       const expiredState = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message<boolean>,
         expiredContext,
         { time: 100 },
       )
@@ -614,7 +614,7 @@ describe('End-to-End Component Workflows', () => {
       }
 
       const state = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message<boolean>,
         correlationContext,
       )
 
@@ -667,7 +667,7 @@ describe('End-to-End Component Workflows', () => {
 
       // Create component and test with data that violates multiple constraints
       const state = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message<boolean>,
         correlationContext,
       )
 
@@ -708,7 +708,7 @@ describe('End-to-End Component Workflows', () => {
       }
 
       const state = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message<boolean>,
         correlationContext,
       )
 
@@ -734,7 +734,7 @@ describe('End-to-End Component Workflows', () => {
       buttons.forEach((button, i) => {
         expect(button).toBeDefined()
         // The button should have the custom_id in its data
-        const buttonData = button.data as any
+        const buttonData = button.data as Record<string, unknown>
         expect(buttonData?.custom_id).toBe(`button_${i}`)
       })
 
@@ -766,7 +766,7 @@ describe('End-to-End Component Workflows', () => {
       }
 
       const state = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message<boolean>,
         correlationContext,
       )
 

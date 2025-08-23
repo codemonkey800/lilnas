@@ -683,7 +683,7 @@ export class EmbyClient extends BaseMediaApiClient {
     try {
       const item = await this.getItem(mediaId, correlationId)
       return this.isMediaAvailable(item)
-    } catch (error) {
+    } catch {
       return false
     }
   }
@@ -854,7 +854,8 @@ export class EmbyClient extends BaseMediaApiClient {
       videoCodec?: string
       container?: string
     },
-    correlationId: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _correlationId: string,
   ): Promise<string> {
     const params = new URLSearchParams({
       api_key: this.embyConfig.apiKey,
@@ -958,7 +959,9 @@ export class EmbyClient extends BaseMediaApiClient {
    */
   async configure(newConfig: EmbyConfig): Promise<void> {
     // Validate the new configuration (only in tests where mock provides this method)
-    const configService = this.configService as any
+    const configService = this.configService as unknown as {
+      validateEmbyConfig?: (config: unknown) => void
+    }
     if (configService.validateEmbyConfig) {
       configService.validateEmbyConfig(newConfig)
     }

@@ -1,11 +1,53 @@
-import { Logger } from '@nestjs/common'
 import { TestingModule } from '@nestjs/testing'
 import { ButtonBuilder, ButtonStyle } from 'discord.js'
 
 import { createTestingModule } from 'src/__tests__/test-utils'
 import { ButtonBuilderService } from 'src/media/components/button.builder'
+// Utilities previously from shared-component-test-utils
+const DEFAULT_BUTTON_TEST_CASES = [
+  {
+    mediaType: 'sonarr',
+    actionType: 'search',
+    expectedLabel: 'Search TV Shows',
+    expectedEmoji: '📺',
+  },
+  {
+    mediaType: 'radarr',
+    actionType: 'request',
+    expectedLabel: 'Request Movie',
+    expectedEmoji: '🎬',
+  },
+]
+
+const DEFAULT_BUTTON_CONFIG_TEST_CASES = [
+  {
+    configType: 'disabled',
+    config: {
+      customId: 'test-button',
+      label: 'Test Button',
+      style: ButtonStyle.Secondary,
+      disabled: true,
+    },
+    expectedMethods: ['setDisabled'],
+  },
+]
+
+const DEFAULT_BUTTON_STYLE_TEST_CASES = [
+  {
+    styleName: 'Primary',
+    style: ButtonStyle.Primary,
+  },
+  {
+    styleName: 'Secondary',
+    style: ButtonStyle.Secondary,
+  },
+]
+import {
+  createMockLogger,
+  type MockButtonBuilder,
+  type MockLogger,
+} from 'src/media/__tests__/types/test-mocks.types'
 import { ButtonConfig } from 'src/types/discord.types'
-import { ActionType, MediaType } from 'src/types/enums'
 
 // Mock Discord.js classes
 jest.mock('discord.js', () => ({
@@ -16,6 +58,10 @@ jest.mock('discord.js', () => ({
     setEmoji: jest.fn().mockReturnThis(),
     setURL: jest.fn().mockReturnThis(),
     setDisabled: jest.fn().mockReturnThis(),
+    setSKUId: jest.fn().mockReturnThis(),
+    toJSON: jest.fn(() => ({})),
+    setId: jest.fn().mockReturnThis(),
+    clearId: jest.fn().mockReturnThis(),
     data: {},
   })),
   ButtonStyle: {
@@ -29,8 +75,8 @@ jest.mock('discord.js', () => ({
 
 describe('ButtonBuilderService', () => {
   let service: ButtonBuilderService
-  let mockLogger: jest.Mocked<Logger>
-  let mockButtonBuilder: jest.Mocked<ButtonBuilder>
+  let mockLogger: MockLogger
+  let mockButtonBuilder: MockButtonBuilder
 
   beforeEach(async () => {
     const module: TestingModule = await createTestingModule([
@@ -38,8 +84,8 @@ describe('ButtonBuilderService', () => {
     ])
 
     service = module.get<ButtonBuilderService>(ButtonBuilderService)
-    mockLogger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() } as any
-    ;(service as any).logger = mockLogger
+    mockLogger = createMockLogger()
+    ;(service as unknown as { logger: MockLogger }).logger = mockLogger
 
     mockButtonBuilder = {
       setCustomId: jest.fn().mockReturnThis(),
@@ -48,19 +94,17 @@ describe('ButtonBuilderService', () => {
       setEmoji: jest.fn().mockReturnThis(),
       setURL: jest.fn().mockReturnThis(),
       setDisabled: jest.fn().mockReturnThis(),
+      toJSON: jest.fn(() => ({})),
       data: {},
-    } as any
+    } as any as MockButtonBuilder
     ;(ButtonBuilder as unknown as jest.Mock).mockReturnValue(mockButtonBuilder)
   })
 
   describe('Button Creation', () => {
     describe('Media type handling', () => {
-      it.each([
-        [MediaType.MOVIE, ActionType.SEARCH, 'Movie Search', '🎬'],
-        [MediaType.SERIES, ActionType.ADD, 'Add Series', '📺'],
-      ])(
-        'should create search components for %s with action %s',
-        async (mediaType, actionType, expectedLabel, expectedEmoji) => {
+      it.each(DEFAULT_BUTTON_TEST_CASES)(
+        'should create search components for $mediaType with action $actionType',
+        async ({ mediaType, actionType, expectedLabel, expectedEmoji }) => {
           const config: ButtonConfig = {
             customId: `${mediaType.toLowerCase()}_${actionType.toLowerCase()}`,
             label: expectedLabel,
@@ -82,44 +126,9 @@ describe('ButtonBuilderService', () => {
     })
 
     describe('Button configuration patterns', () => {
-      it.each([
-        [
-          'basic',
-          {
-            customId: 'test_button',
-            label: 'Test Button',
-            style: ButtonStyle.Primary,
-          },
-          ['setCustomId', 'setLabel', 'setStyle'],
-        ],
-        [
-          'with emoji and URL',
-          {
-            customId: 'emoji_button',
-            label: 'With Emoji',
-            style: ButtonStyle.Link,
-            emoji: '🎬',
-            url: 'https://example.com',
-          },
-          ['setCustomId', 'setLabel', 'setStyle', 'setEmoji', 'setURL'],
-        ],
-        [
-          'disabled',
-          {
-            customId: 'disabled_button',
-            label: 'Disabled Button',
-            style: ButtonStyle.Secondary,
-            disabled: true,
-          },
-          ['setCustomId', 'setLabel', 'setStyle', 'setDisabled'],
-        ],
-      ])(
-        'should create button with %s configuration',
-        (configType, baseConfig, expectedMethods) => {
-          const config: ButtonConfig = {
-            ...baseConfig,
-          } as ButtonConfig
-
+      it.each(DEFAULT_BUTTON_CONFIG_TEST_CASES)(
+        'should create button with $configType configuration',
+        ({ configType, config, expectedMethods }) => {
           const result = service.createButton(config)
 
           expect(ButtonBuilder).toHaveBeenCalled()
@@ -133,22 +142,19 @@ describe('ButtonBuilderService', () => {
   })
 
   describe('Button Styles and Types', () => {
-    it.each([
-      [ButtonStyle.Primary, 'Primary'],
-      [ButtonStyle.Secondary, 'Secondary'],
-      [ButtonStyle.Success, 'Success'],
-      [ButtonStyle.Danger, 'Danger'],
-      [ButtonStyle.Link, 'Link'],
-    ])('should support %s button style', (style, styleName) => {
-      const config: ButtonConfig = {
-        customId: `button_${style}`,
-        label: `Style ${styleName}`,
-        style,
-      }
+    it.each(DEFAULT_BUTTON_STYLE_TEST_CASES)(
+      'should support $styleName button style',
+      ({ style }) => {
+        const config: ButtonConfig = {
+          customId: `button_${style}`,
+          label: `Style ${style}`,
+          style,
+        }
 
-      service.createButton(config)
-      expect(mockButtonBuilder.setStyle).toHaveBeenCalledWith(style)
-    })
+        service.createButton(config)
+        expect(mockButtonBuilder.setStyle).toHaveBeenCalledWith(style)
+      },
+    )
   })
 
   describe('Error Handling', () => {

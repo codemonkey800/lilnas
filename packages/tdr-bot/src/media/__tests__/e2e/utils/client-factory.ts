@@ -26,7 +26,10 @@ const logger = new Logger('E2E-ClientFactory')
 /**
  * Validate service configuration with detailed error messages
  */
-function validateServiceConfig(serviceName: string, config: any): string[] {
+function validateServiceConfig(
+  serviceName: string,
+  config: Record<string, unknown>,
+): string[] {
   const errors: string[] = []
 
   if (!config) {
@@ -91,7 +94,9 @@ function validateServiceConfig(serviceName: string, config: any): string[] {
 /**
  * Create mock configuration service for E2E testing with validation
  */
-function createMockConfigService(serviceConfig: Record<string, any>) {
+function createMockConfigService(
+  serviceConfig: Record<string, Record<string, unknown>>,
+) {
   return {
     getServiceConfig: (serviceName: string) => {
       const config = serviceConfig[serviceName] || {}
@@ -161,7 +166,7 @@ export function createSonarrClient(config: E2ETestConfig): SonarrClient {
     dependencies.retryService,
     dependencies.errorClassifier,
     dependencies.mediaLoggingService,
-    mockConfigService as any,
+    mockConfigService as unknown as MediaConfigValidationService,
   )
 
   if (config.debugLogging) {
@@ -224,7 +229,7 @@ export function createRadarrClient(config: E2ETestConfig): RadarrClient {
     dependencies.retryService,
     dependencies.errorClassifier,
     dependencies.mediaLoggingService,
-    mockConfigService as any,
+    mockConfigService as unknown as MediaConfigValidationService,
   )
 
   if (config.debugLogging) {
@@ -296,7 +301,7 @@ export function createEmbyClient(config: E2ETestConfig): EmbyClient {
     dependencies.retryService,
     dependencies.errorClassifier,
     dependencies.mediaLoggingService,
-    mockConfigService as any,
+    mockConfigService as unknown as MediaConfigValidationService,
   )
 
   if (config.debugLogging) {

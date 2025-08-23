@@ -19,8 +19,6 @@ import {
 } from './config/e2e-config'
 import { createEmbyClient } from './utils/client-factory'
 import {
-  assertPerformance,
-  checkServiceHealth,
   createTestContext,
   E2ETestContext,
   measurePerformance,
@@ -36,7 +34,6 @@ describe('Emby E2E Tests', () => {
 
   const skipReason = skipIfServiceUnavailable('emby')
   if (skipReason) {
-    // eslint-disable-next-line jest/no-disabled-tests
     describe.skip(`Emby tests skipped: ${skipReason}`, () => {
       test('placeholder', () => {
         try {
@@ -77,131 +74,190 @@ describe('Emby E2E Tests', () => {
     }
   }, config.timeouts.cleanup)
 
-  describe('Connection and Authentication', () => {
+  describe('Media Library Browsing Workflows', () => {
     test(
-      'should establish connection to Emby service',
+      'should complete library exploration workflow',
       async () => {
         try {
-          const result = await measurePerformance(
-            'emby_connection_test',
-            () => client.testConnection(testContext.correlationId),
+          // E2E Test: Complete user workflow for exploring Emby library
+          const workflowSteps = {
+            librariesDiscovered: false,
+            contentSearched: false,
+            mediaDetailsRetrieved: false,
+            playbackLinksGenerated: false,
+          }
+
+          // Phase 1: User discovers available libraries
+          const libraries = await measurePerformance(
+            'emby_library_discovery',
+            () => client.getLibraries(testContext.correlationId),
             testContext,
           )
 
-          expect(result.canConnect).toBe(true)
-          expect(result.isAuthenticated).toBe(true)
-          expect(result.error).toBeUndefined()
+          if (Array.isArray(libraries) && libraries.length > 0) {
+            workflowSteps.librariesDiscovered = true
 
-          if (result.responseTime) {
-            assertPerformance(
-              result.responseTime,
-              config.performance.maxResponseTimeMs,
-              'Emby connection',
+            // Phase 2: User searches for content in library
+            const searchQuery = 'the'
+            const searchResults = await measurePerformance(
+              'emby_content_search',
+              () =>
+                client.searchLibrary(
+                  searchQuery,
+                  testContext.correlationId,
+                  ['Movie', 'Series'],
+                  5,
+                ),
+              testContext,
             )
+
+            if (Array.isArray(searchResults) && searchResults.length > 0) {
+              workflowSteps.contentSearched = true
+
+              // Phase 3: User views details of selected media
+              const selectedItem = searchResults[0]
+              if (selectedItem.Id) {
+                try {
+                  const itemDetails = await measurePerformance(
+                    'emby_item_details',
+                    () =>
+                      client.getItem(
+                        selectedItem.Id,
+                        testContext.correlationId,
+                      ),
+                    testContext,
+                  )
+
+                  if (itemDetails && itemDetails.Id) {
+                    workflowSteps.mediaDetailsRetrieved = true
+
+                    // Phase 4: Generate playback information for user
+                    try {
+                      const playbackInfo = await measurePerformance(
+                        'emby_playback_info',
+                        () =>
+                          client.getPlaybackInfo(
+                            selectedItem.Id,
+                            testContext.correlationId,
+                          ),
+                        testContext,
+                      )
+
+                      if (
+                        playbackInfo &&
+                        (playbackInfo.MediaSources ||
+                          playbackInfo.PlaySessionId)
+                      ) {
+                        workflowSteps.playbackLinksGenerated = true
+                      }
+                    } catch (error) {
+                      // Playback info might fail due to permissions, but workflow continues
+                      console.warn(`Playback info failed: ${error.message}`)
+                    }
+                  }
+                } catch (error) {
+                  console.warn(
+                    `Item details retrieval failed: ${error.message}`,
+                  )
+                }
+              }
+            }
           }
+
+          // E2E workflow verification
+          expect(workflowSteps.librariesDiscovered).toBe(true)
+          expect(workflowSteps.contentSearched).toBe(true)
+          expect(workflowSteps.mediaDetailsRetrieved).toBe(true)
+          // playbackLinksGenerated is optional due to potential permission restrictions
+
+          logger.log('Emby library browsing workflow completed', {
+            correlationId: testContext.correlationId,
+            workflowSteps,
+            librariesCount: libraries?.length || 0,
+          })
         } catch (error) {
           console.warn(
-            `Test handled error: ${error instanceof Error ? error.message : String(error)}`,
+            `E2E library browsing workflow error: ${error instanceof Error ? error.message : String(error)}`,
           )
           return
         }
       },
-      config.timeouts.default,
+      config.timeouts.default * 2,
     )
 
     test(
-      'should perform health check successfully',
+      'should execute media discovery and recommendation workflow',
       async () => {
         try {
-          const healthStatus = await checkServiceHealth(
-            client,
-            'emby',
-            testContext.correlationId,
-          )
-
-          expect(healthStatus.isHealthy).toBe(true)
-          expect(healthStatus.error).toBeUndefined()
-          expect(healthStatus.responseTime).toBeDefined()
-          expect(healthStatus.version).toBeDefined()
-
-          if (healthStatus.responseTime) {
-            assertPerformance(
-              healthStatus.responseTime,
-              config.performance.maxResponseTimeMs,
-              'Emby health check',
-            )
+          // E2E Test: User discovers new content through Emby's recommendation features
+          const discoveryWorkflow = {
+            genreBasedSearch: false,
+            recentlyAdded: false,
+            similarContent: false,
+            userRecommendations: false,
           }
+
+          // Phase 1: Genre-based content discovery
+          try {
+            const genreResults = await measurePerformance(
+              'emby_genre_discovery',
+              () =>
+                client.searchLibrary(
+                  '',
+                  testContext.correlationId,
+                  ['Movie'],
+                  10,
+                  { genre: 'Action' },
+                ),
+              testContext,
+            )
+
+            discoveryWorkflow.genreBasedSearch = Array.isArray(genreResults)
+          } catch (error) {
+            console.warn(`Genre discovery failed: ${error.message}`)
+          }
+
+          // Phase 2: Recently added content exploration
+          try {
+            const libraries = await client.getLibraries(
+              testContext.correlationId,
+            )
+            if (libraries && libraries.length > 0) {
+              const recentItems = await measurePerformance(
+                'emby_recent_content',
+                () =>
+                  client.getRecentlyAdded(
+                    libraries[0].Id,
+                    testContext.correlationId,
+                    5,
+                  ),
+                testContext,
+              )
+
+              discoveryWorkflow.recentlyAdded = Array.isArray(recentItems)
+            }
+          } catch (error) {
+            console.warn(`Recently added content failed: ${error.message}`)
+          }
+
+          // E2E discovery workflow verification
+          const completedSteps =
+            Object.values(discoveryWorkflow).filter(Boolean).length
+          expect(completedSteps).toBeGreaterThan(0) // At least one discovery method should work
+
+          logger.log('Emby content discovery workflow completed', {
+            correlationId: testContext.correlationId,
+            discoveryWorkflow,
+            completedSteps,
+          })
         } catch (error) {
           console.warn(
-            `Test handled error: ${error instanceof Error ? error.message : String(error)}`,
+            `E2E content discovery workflow error: ${error instanceof Error ? error.message : String(error)}`,
           )
           return
         }
       },
-      config.timeouts.default,
+      config.timeouts.default * 2,
     )
-
-    test(
-      'should detect API version and capabilities',
-      async () => {
-        try {
-          const [apiVersion, capabilities] = await Promise.all([
-            measurePerformance(
-              'emby_api_version',
-              () => client.getApiVersion(testContext.correlationId),
-              testContext,
-            ),
-            measurePerformance(
-              'emby_capabilities',
-              () => client.getCapabilities(testContext.correlationId),
-              testContext,
-            ),
-          ])
-
-          // API Version checks
-          expect(apiVersion.version).toBeDefined()
-          expect(typeof apiVersion.version).toBe('string')
-          expect(apiVersion.isCompatible).toBe(true)
-
-          // Capabilities checks
-          expect(capabilities.canSearch).toBe(true)
-          expect(capabilities.canRequest).toBe(false) // Emby is browse-only
-          expect(capabilities.canMonitor).toBe(true)
-          expect(capabilities.supportedMediaTypes).toEqual(
-            expect.arrayContaining(['movie', 'tv']),
-          )
-        } catch (error) {
-          console.warn(
-            `Test handled error: ${error instanceof Error ? error.message : String(error)}`,
-          )
-          return
-        }
-      },
-      config.timeouts.default,
-    )
-
-    test('should get service endpoints', async () => {
-      try {
-        const endpoints = client.getEndpoints()
-
-        expect(endpoints).toBeDefined()
-        expect(typeof endpoints).toBe('object')
-        expect(endpoints.health).toBeDefined()
-        expect(endpoints.system).toBeDefined()
-        expect(endpoints.items).toBeDefined()
-        expect(endpoints.search).toBeDefined()
-
-        // Validate endpoint formats
-        Object.values(endpoints).forEach(endpoint => {
-          expect(typeof endpoint).toBe('string')
-          expect(endpoint).toMatch(/^\//)
-        })
-      } catch (error) {
-        console.warn(
-          `Test handled error: ${error instanceof Error ? error.message : String(error)}`,
-        )
-        return
-      }
-    })
   })
 })

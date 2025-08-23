@@ -10,6 +10,7 @@
  */
 
 import { Logger } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { v4 as uuid } from 'uuid'
 
 import {
@@ -162,7 +163,7 @@ export function createTestDependencies() {
     on: jest.fn(),
     off: jest.fn(),
     removeAllListeners: jest.fn(),
-  } as any
+  } as Partial<EventEmitter2>
 
   // Create ErrorClassificationService (it doesn't require dependencies)
   const errorClassifier = new ErrorClassificationService()
@@ -625,7 +626,8 @@ export function getAllHealthStatus(): ServiceHealthStatus[] {
  * Add delay between requests to prevent API rate limiting
  */
 export async function delayBetweenRequests(
-  context?: E2ETestContext,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _context?: E2ETestContext,
 ): Promise<void> {
   const { config } = getCachedE2EConfig()
   if (config.request.delayMs > 0) {
@@ -646,7 +648,8 @@ export async function safeApiOperation<T>(
     context?: E2ETestContext
   } = {},
 ): Promise<T | null> {
-  const { expectArray = false, allowEmpty = false, context } = options
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { expectArray = false, allowEmpty = false, context: _context } = options
 
   let result: T
   try {
@@ -690,7 +693,7 @@ export async function safeApiOperation<T>(
  * Assert service capabilities with detailed error context
  */
 export function assertServiceCapabilities(
-  actual: any,
+  actual: unknown,
   serviceName: string,
   correlationId: string,
 ): void {
@@ -762,7 +765,7 @@ export function assertServiceCapabilities(
  * Assert API endpoints with detailed error context
  */
 export function assertApiEndpoints(
-  actual: any,
+  actual: unknown,
   serviceName: string,
   correlationId: string,
 ): void {
@@ -821,7 +824,7 @@ export function assertApiEndpoints(
  * Assert health check result with detailed error context
  */
 export function assertHealthCheckResult(
-  actual: any,
+  actual: unknown,
   serviceName: string,
   correlationId: string,
 ): void {
@@ -883,7 +886,7 @@ export function assertHealthCheckResult(
  * Assert connection test result with detailed error context
  */
 export function assertConnectionTestResult(
-  actual: any,
+  actual: unknown,
   serviceName: string,
   correlationId: string,
 ): void {

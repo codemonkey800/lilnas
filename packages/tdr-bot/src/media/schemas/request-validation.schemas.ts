@@ -338,7 +338,7 @@ export class RequestValidationUtils {
   static validateCorrelationId(correlationId: unknown): string {
     try {
       return CorrelationIdSchema.parse(correlationId)
-    } catch (error) {
+    } catch {
       throw new Error('Invalid correlation ID format: must be a valid UUID')
     }
   }

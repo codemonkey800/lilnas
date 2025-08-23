@@ -30,19 +30,51 @@ import type { MediaLoggingService } from 'src/media/services/media-logging.servi
 import type { ErrorClassificationService } from 'src/utils/error-classifier'
 import type { RetryService } from 'src/utils/retry.service'
 
+// Re-export types that are needed by other test files
+export type {
+  EmbyConfig,
+  MediaConfigValidationService,
+  RadarrConfig,
+  SonarrConfig,
+  ValidationResult,
+}
+
 /**
- * Type-safe Axios instance mock
+ * Type-safe Axios instance mock - Compatible with jest.Mocked<AxiosStatic>
  */
-export interface MockAxiosInstance {
+export interface MockAxiosInstance extends jest.Mocked<AxiosInstance> {
+  // Axios instance methods
   request: jest.MockedFunction<AxiosInstance['request']>
   get: jest.MockedFunction<AxiosInstance['get']>
   post: jest.MockedFunction<AxiosInstance['post']>
   put: jest.MockedFunction<AxiosInstance['put']>
   delete: jest.MockedFunction<AxiosInstance['delete']>
+  patch: jest.MockedFunction<AxiosInstance['patch']>
+  head: jest.MockedFunction<AxiosInstance['head']>
+  options: jest.MockedFunction<AxiosInstance['options']>
+  postForm: jest.MockedFunction<AxiosInstance['postForm']>
+  putForm: jest.MockedFunction<AxiosInstance['putForm']>
+  patchForm: jest.MockedFunction<AxiosInstance['patchForm']>
+
+  // Interceptors with proper typing
   interceptors: {
-    request: { use: jest.MockedFunction<(...args: unknown[]) => unknown> }
-    response: { use: jest.MockedFunction<(...args: unknown[]) => unknown> }
+    request: {
+      use: jest.MockedFunction<(...args: unknown[]) => number>
+      eject: jest.MockedFunction<(id: number) => void>
+      clear: jest.MockedFunction<() => void>
+    }
+    response: {
+      use: jest.MockedFunction<(...args: unknown[]) => number>
+      eject: jest.MockedFunction<(id: number) => void>
+      clear: jest.MockedFunction<() => void>
+    }
   }
+
+  // Instance properties
+  defaults: jest.Mocked<AxiosInstance['defaults']>
+
+  // Support for indexing (needed by some tests)
+  [key: string]: unknown
 }
 
 /**
@@ -92,12 +124,14 @@ export interface MockRetryService {
     logFailedRetries: boolean
     logRetryDelays: boolean
     logErrorDetails: boolean
-    logSeverityThreshold: any
+    logSeverityThreshold: unknown
   }
-  shouldLogBasedOnSeverity: jest.MockedFunction<any>
-  calculateDelay: jest.MockedFunction<any>
-  sleep: jest.MockedFunction<any>
-  executeWithTimeout: jest.MockedFunction<any>
+  shouldLogBasedOnSeverity: jest.MockedFunction<(severity: unknown) => boolean>
+  calculateDelay: jest.MockedFunction<(attempt: number) => number>
+  sleep: jest.MockedFunction<(ms: number) => Promise<void>>
+  executeWithTimeout: jest.MockedFunction<
+    (fn: () => Promise<unknown>, timeout: number) => Promise<unknown>
+  >
 }
 
 /**
@@ -165,9 +199,9 @@ export interface MockMediaConfigValidationService {
   onModuleInit: jest.MockedFunction<
     MediaConfigValidationService['onModuleInit']
   >
-  validateSonarrConfig: jest.MockedFunction<(config: any) => void>
-  validateRadarrConfig: jest.MockedFunction<(config: any) => void>
-  validateEmbyConfig: jest.MockedFunction<(config: any) => void>
+  validateSonarrConfig: jest.MockedFunction<(config: SonarrConfig) => void>
+  validateRadarrConfig: jest.MockedFunction<(config: RadarrConfig) => void>
+  validateEmbyConfig: jest.MockedFunction<(config: EmbyConfig) => void>
 }
 
 /**
@@ -222,7 +256,7 @@ export interface MockActionRowBuilderWithTracking<
   addComponents: jest.MockedFunction<
     (...components: RestOrArray<T>) => MockActionRowBuilderWithTracking<T>
   >
-  toJSON: jest.MockedFunction<() => { type: 1; components: any[] }>
+  toJSON: jest.MockedFunction<() => { type: 1; components: unknown[] }>
 }
 
 export interface MockButtonBuilder {
@@ -340,24 +374,69 @@ export function createMockAxiosInstance(): MockAxiosInstance {
     post: jest.fn(),
     put: jest.fn(),
     delete: jest.fn(),
+    patch: jest.fn(),
+    head: jest.fn(),
+    options: jest.fn(),
+    postForm: jest.fn(),
+    putForm: jest.fn(),
+    patchForm: jest.fn(),
     interceptors: {
-      request: { use: jest.fn() },
-      response: { use: jest.fn() },
+      request: {
+        use: jest.fn(() => 1),
+        eject: jest.fn(),
+        clear: jest.fn(),
+      },
+      response: {
+        use: jest.fn(() => 1),
+        eject: jest.fn(),
+        clear: jest.fn(),
+      },
     },
-  }
+    defaults: {
+      headers: {},
+      timeout: 30000,
+      adapter: jest.fn(),
+      transformRequest: [],
+      transformResponse: [],
+      validateStatus: jest.fn(),
+      maxContentLength: -1,
+      maxBodyLength: -1,
+      transitional: {
+        silentJSONParsing: true,
+        forcedJSONParsing: true,
+        clarifyTimeoutError: false,
+      },
+    },
+    getUri: jest.fn(),
+
+    // Allow dynamic properties for test flexibility
+    [Symbol.toStringTag]: 'MockAxiosInstance',
+  } as any as MockAxiosInstance
 
   // Make request method delegate to the appropriate HTTP method mock
   instance.request.mockImplementation(config => {
     const method = (config.method || 'get').toLowerCase()
     switch (method) {
       case 'get':
-        return instance.get(config.url, config)
+        return instance.get(config.url || '', config)
       case 'post':
-        return instance.post(config.url, config.data, config)
+        return instance.post(config.url || '', config.data, config)
       case 'put':
-        return instance.put(config.url, config.data, config)
+        return instance.put(config.url || '', config.data, config)
       case 'delete':
-        return instance.delete(config.url, config)
+        return instance.delete(config.url || '', config)
+      case 'patch':
+        return instance.patch(config.url || '', config.data, config)
+      case 'head':
+        return instance.head(config.url || '', config)
+      case 'options':
+        return instance.options(config.url || '', config)
+      case 'postform':
+        return instance.postForm(config.url || '', config.data, config)
+      case 'putform':
+        return instance.putForm(config.url || '', config.data, config)
+      case 'patchform':
+        return instance.patchForm(config.url || '', config.data, config)
       default:
         return Promise.reject(new Error(`Unsupported method: ${method}`))
     }
@@ -643,9 +722,12 @@ export function createMockActionRowBuilder<
     ) {
       return {
         type: 1, // ComponentType.ActionRow
-        components: this.components.map((component: any) => {
-          if (component.toJSON && typeof component.toJSON === 'function') {
-            const componentData = component.toJSON()
+        components: this.components.map((component: unknown) => {
+          if (
+            (component as any).toJSON &&
+            typeof (component as any).toJSON === 'function'
+          ) {
+            const componentData = (component as any).toJSON()
             return {
               type: 2, // ComponentType.Button (default, can be overridden by component)
               ...componentData,
@@ -654,7 +736,7 @@ export function createMockActionRowBuilder<
           // Fallback for simple data objects
           return {
             type: 2,
-            ...component.data,
+            ...(component as any).data,
           }
         }),
       }

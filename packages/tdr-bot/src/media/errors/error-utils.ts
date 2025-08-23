@@ -30,13 +30,6 @@ interface HttpRequestError extends Error {
 }
 
 /**
- * Interface for errors with correlation ID information
- */
-interface CorrelatedError extends Error {
-  correlationId?: string
-}
-
-/**
  * Type guard to check if error has HTTP request info
  */
 function hasHttpRequestInfo(error: unknown): error is HttpRequestError {
@@ -45,13 +38,6 @@ function hasHttpRequestInfo(error: unknown): error is HttpRequestError {
     error !== null &&
     ('method' in error || 'url' in error)
   )
-}
-
-/**
- * Type guard to check if error has correlation ID
- */
-function hasCorrelationId(error: unknown): error is CorrelatedError {
-  return typeof error === 'object' && error !== null && 'correlationId' in error
 }
 
 /**
@@ -565,13 +551,13 @@ export function HandleMediaErrors(
   config: ErrorHandlingConfig = {},
 ) {
   return function (
-    target: any,
+    target: Record<string, unknown>,
     propertyKey: string,
     descriptor: PropertyDescriptor,
   ) {
     const originalMethod = descriptor.value
 
-    descriptor.value = async function (...args: any[]) {
+    descriptor.value = async function (...args: unknown[]) {
       // Try to find error handler in the service instance
       const errorHandler =
         this && 'errorHandler' in this
@@ -583,16 +569,13 @@ export function HandleMediaErrors(
         return originalMethod.apply(this, args)
       }
 
-      const operation =
-        operationName || `${target.constructor.name}.${propertyKey}`
-
       // Try to extract correlation context from arguments
       const correlationArg = args.find(
-        arg => arg && typeof arg === 'object' && arg.correlationId,
+        arg => arg && typeof arg === 'object' && (arg as any).correlationId,
       )
 
       const context = correlationArg
-        ? MediaErrorHandler.createErrorContext(correlationArg)
+        ? MediaErrorHandler.createErrorContext(correlationArg as any)
         : {}
 
       try {
@@ -616,13 +599,13 @@ export function HandleMediaErrorsWithFallback<T>(
   config: ErrorHandlingConfig = {},
 ) {
   return function (
-    target: any,
+    target: Record<string, unknown>,
     propertyKey: string,
     descriptor: PropertyDescriptor,
   ) {
     const originalMethod = descriptor.value
 
-    descriptor.value = async function (...args: any[]) {
+    descriptor.value = async function (...args: unknown[]) {
       const errorHandler =
         this && 'errorHandler' in this
           ? (this.errorHandler as MediaErrorHandler | undefined)
@@ -632,15 +615,12 @@ export function HandleMediaErrorsWithFallback<T>(
         return originalMethod.apply(this, args)
       }
 
-      const operation =
-        operationName || `${target.constructor.name}.${propertyKey}`
-
       const correlationArg = args.find(
-        arg => arg && typeof arg === 'object' && arg.correlationId,
+        arg => arg && typeof arg === 'object' && (arg as any).correlationId,
       )
 
       const context = correlationArg
-        ? MediaErrorHandler.createErrorContext(correlationArg)
+        ? MediaErrorHandler.createErrorContext(correlationArg as any)
         : {}
 
       try {

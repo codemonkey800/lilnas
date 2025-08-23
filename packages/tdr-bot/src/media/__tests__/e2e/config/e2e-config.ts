@@ -11,6 +11,7 @@
 
 import { Logger } from '@nestjs/common'
 import * as dotenv from 'dotenv'
+import * as fs from 'fs'
 import * as path from 'path'
 
 // Load E2E environment variables
@@ -209,7 +210,6 @@ export function validateE2EConfig(
   const skippedServices: string[] = []
 
   // Check if .env.e2e file exists
-  const fs = require('fs')
   const envPath = path.join(process.cwd(), '.env.e2e')
   if (!fs.existsSync(envPath)) {
     errors.push(

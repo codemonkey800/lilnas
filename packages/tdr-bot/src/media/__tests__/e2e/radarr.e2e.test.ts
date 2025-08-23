@@ -36,7 +36,6 @@ describe('Radarr E2E Tests', () => {
 
   const skipReason = skipIfServiceUnavailable('radarr')
   if (skipReason) {
-    // eslint-disable-next-line jest/no-disabled-tests
     describe.skip(`Radarr tests skipped: ${skipReason}`, () => {
       test('placeholder', () => {
         try {

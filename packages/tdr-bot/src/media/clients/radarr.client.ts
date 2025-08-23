@@ -153,7 +153,8 @@ export class RadarrClient extends BaseMediaApiClient {
 
     try {
       // Test basic connectivity with API health endpoint
-      const health = await this.get<RadarrHealthResponse>(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const _health = await this.get<RadarrHealthResponse>(
         '/api/v3/health',
         uuid(),
       )
@@ -577,7 +578,9 @@ export class RadarrClient extends BaseMediaApiClient {
    */
   async configure(newConfig: RadarrConfig): Promise<void> {
     // Validate the new configuration (only in tests where mock provides this method)
-    const configService = this.configService as any
+    const configService = this.configService as unknown as {
+      validateRadarrConfig?: (config: unknown) => void
+    }
     if (configService.validateRadarrConfig) {
       configService.validateRadarrConfig(newConfig)
     }
