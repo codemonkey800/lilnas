@@ -2,8 +2,6 @@ import { TestingModule } from '@nestjs/testing'
 import { TextInputStyle } from 'discord.js'
 
 import { createTestingModule } from 'src/__tests__/test-utils'
-// Inline previous shared utilities
-import { type MockModalBuilder } from 'src/media/__tests__/types/test-mocks.types'
 import { ModalBuilderService } from 'src/media/components/modal.builder'
 import { ModalComponentConfig, ModalConfig } from 'src/types/discord.types'
 import { MediaType } from 'src/types/enums'
@@ -43,21 +41,12 @@ jest.mock('discord.js', () => ({
 
 describe('ModalBuilderService', () => {
   let service: ModalBuilderService
-  let mockModalBuilder: MockModalBuilder
 
   beforeEach(async () => {
     const module: TestingModule = await createTestingModule([
       ModalBuilderService,
     ])
     service = module.get<ModalBuilderService>(ModalBuilderService)
-
-    mockModalBuilder = {
-      data: {},
-      setCustomId: jest.fn().mockReturnThis(),
-      setTitle: jest.fn().mockReturnThis(),
-      addComponents: jest.fn().mockReturnThis(),
-      toJSON: jest.fn().mockReturnValue({ type: 'modal', components: [] }),
-    } as MockModalBuilder
   })
 
   describe('Modal Creation', () => {

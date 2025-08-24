@@ -3,8 +3,21 @@ import {
   ComponentType,
   StringSelectMenuInteraction,
 } from 'discord.js'
+import { StringOption } from 'necord'
 
 import { MediaType } from 'src/types/enums'
+
+/**
+ * DTO for search subcommand
+ */
+export class SearchSubcommandDto {
+  @StringOption({
+    name: 'query',
+    description: 'Search term for movies and series',
+    required: true,
+  })
+  query!: string
+}
 
 /**
  * Component state data specific to media search interactions
@@ -31,6 +44,7 @@ export interface MediaSearchResult {
   tmdbId?: number
   imdbId?: string
   tvdbId?: number
+  radarrId?: number // Radarr's internal movie ID for API operations
   mediaType: MediaType
   inLibrary: boolean
   monitored?: boolean
@@ -92,8 +106,6 @@ export enum MediaSearchAction {
   ADD_TO_LIBRARY = 'add_to_library',
   MONITOR_MEDIA = 'monitor_media',
   UNMONITOR_MEDIA = 'unmonitor_media',
-  SEARCH_MANUAL = 'search_manual',
-  REFRESH_DATA = 'refresh_data',
 
   // Utility actions
   CANCEL = 'cancel',
@@ -125,6 +137,7 @@ export interface MediaSearchResponse {
   shouldCreateNewMessage?: boolean
   components?: boolean // Whether to include components in response
   embed?: boolean // Whether to include embed in response
+  retryable?: boolean // Whether the operation can be retried by the user
 }
 
 /**
@@ -175,10 +188,10 @@ export const DEFAULT_DISPLAY_OPTIONS: MediaSearchDisplayOptions = {
   showYear: true,
   showOverview: true,
   truncateOverview: true,
-  overviewMaxLength: 100,
+  overviewMaxLength: 300,
   showPagination: true,
   showActionButtons: true,
-  maxResultsPerPage: 10,
+  maxResultsPerPage: 1,
 }
 
 /**
@@ -195,8 +208,9 @@ export const COMPONENT_TIMEOUTS = {
  */
 export const CUSTOM_ID_PATTERNS = {
   SEARCH_RESULTS: /^search_results:([^:]+):(\d+)$/,
-  PAGINATION: /^pagination:([^:]+):([^:]+):(\d+)$/,
-  MEDIA_ACTION: /^media_action:([^:]+):([^:]+):([^:]+)$/,
+  PAGINATION: /^pagination:([^:]+):([^:]+):([^:]+)(?::(\d+))?$/,
+  MEDIA_ACTION: /^media_action:([^:]+):([^:]+):([^:]+):([^:]+)$/,
+  REQUEST_ACTION: /^request_action:([^:]+):([^:]+):([^:]+)$/,
   SIMPLE_ACTION: /^([^:]+):([^:]+)$/,
 } as const
 

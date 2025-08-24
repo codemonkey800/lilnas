@@ -580,6 +580,68 @@ export class ComponentStateService implements OnModuleDestroy {
           return
         }
 
+        // Immediately acknowledge the interaction to prevent timeout
+        // Discord requires acknowledgment within 3 seconds
+        try {
+          if (!interaction.deferred && !interaction.replied) {
+            this.logger.debug('Attempting to acknowledge interaction', {
+              stateId: state.id,
+              correlationId: state.correlationId,
+              userId: interaction.user.id,
+              customId: interaction.customId,
+              deferred: interaction.deferred,
+              replied: interaction.replied,
+            })
+
+            await interaction.deferUpdate()
+
+            this.logger.debug('Interaction acknowledged successfully', {
+              stateId: state.id,
+              correlationId: state.correlationId,
+              userId: interaction.user.id,
+              customId: interaction.customId,
+            })
+          } else {
+            this.logger.warn('Interaction already acknowledged, skipping', {
+              stateId: state.id,
+              correlationId: state.correlationId,
+              userId: interaction.user.id,
+              customId: interaction.customId,
+              deferred: interaction.deferred,
+              replied: interaction.replied,
+            })
+
+            // If interaction is already acknowledged but processing failed,
+            // we should NOT continue processing as it will fail
+            if (interaction.replied) {
+              this.logger.error(
+                'Interaction already replied, cannot continue processing',
+                {
+                  stateId: state.id,
+                  correlationId: state.correlationId,
+                  userId: interaction.user.id,
+                  customId: interaction.customId,
+                },
+              )
+              return // Stop processing this interaction
+            }
+          }
+        } catch (error) {
+          this.logger.error('CRITICAL: Failed to acknowledge interaction', {
+            stateId: state.id,
+            correlationId: state.correlationId,
+            userId: interaction.user.id,
+            customId: interaction.customId,
+            error: error instanceof Error ? error.message : String(error),
+            deferred: interaction.deferred,
+            replied: interaction.replied,
+          })
+
+          // If acknowledgment fails, we MUST stop processing
+          // Continuing will cause "interaction failed" errors
+          return
+        }
+
         // Update interaction tracking
         state.lastInteractionAt = new Date()
         state.interactionCount++
@@ -602,6 +664,7 @@ export class ComponentStateService implements OnModuleDestroy {
           componentType: interaction.componentType,
           customId: interaction.customId,
           timestamp: new Date(),
+          interaction, // Include the full interaction object
         })
       },
     )

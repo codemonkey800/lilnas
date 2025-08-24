@@ -154,7 +154,7 @@ describe('Cross-Service Error Propagation', () => {
     mockConfigService = createMockMediaConfigValidationService()
 
     // Get the mocked axios instance
-    const mockedAxios = jest.mocked(axios) as any
+    const mockedAxios = jest.mocked(axios)
     _mockAxios = mockedAxios.create() as MockAxiosInstance
 
     // Reset all axios mocks to default successful state
@@ -291,7 +291,7 @@ describe('Cross-Service Error Propagation', () => {
 
       // Successfully create first component
       const successfulState = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message,
         correlationContext,
       )
 
@@ -302,7 +302,7 @@ describe('Cross-Service Error Propagation', () => {
 
       // Attempt to create second component - should fail
       await expect(
-        componentState.createComponentState(mockMessage as any, {
+        componentState.createComponentState(mockMessage as unknown as Message, {
           ...correlationContext,
           correlationId: createCorrelationId('partial-failure-002'),
           username: 'TestUser2',
@@ -341,7 +341,7 @@ describe('Cross-Service Error Propagation', () => {
       }
 
       const state = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message,
         correlationContext,
       )
 
@@ -381,7 +381,7 @@ describe('Cross-Service Error Propagation', () => {
       })
 
       const state = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message,
         correlationContext,
       )
 
@@ -422,7 +422,7 @@ describe('Cross-Service Error Propagation', () => {
         .mockReturnValueOnce(undefined) // Third call succeeds
 
       const state = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message,
         correlationContext,
       )
 
@@ -512,7 +512,7 @@ describe('Cross-Service Error Propagation', () => {
 
       // Create component state that will be affected by media service errors
       const state = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message,
         correlationContext,
       )
 
@@ -523,7 +523,7 @@ describe('Cross-Service Error Propagation', () => {
           code: 'ECONNREFUSED',
         },
       )
-      const mockedAxios = jest.mocked(axios) as any
+      const mockedAxios = jest.mocked(axios)
       mockedAxios.get.mockRejectedValue(networkError)
       mockedAxios.post.mockRejectedValue(networkError)
       mockedAxios.request.mockRejectedValue(networkError)
@@ -626,7 +626,7 @@ describe('Cross-Service Error Propagation', () => {
       }
 
       const state = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message,
         correlationContext,
       )
 
@@ -648,7 +648,7 @@ describe('Cross-Service Error Propagation', () => {
       )
 
       // Configure mixed service responses - some succeed, some fail
-      const mockedAxios = jest.mocked(axios) as any
+      const mockedAxios = jest.mocked(axios)
 
       // Sonarr succeeds
       mockedAxios.request
@@ -667,9 +667,9 @@ describe('Cross-Service Error Propagation', () => {
         })
 
       // Integration test: How state service coordinates multiple service results
-      let sonarrResults: any[] = []
+      let sonarrResults: unknown[] = []
       let radarrError: Error | undefined
-      let embyResults: any[] = []
+      let embyResults: unknown[] = []
 
       try {
         sonarrResults =
@@ -677,7 +677,7 @@ describe('Cross-Service Error Propagation', () => {
             'The Matrix',
             correlationContext.correlationId,
           )) || []
-      } catch (error) {
+      } catch {
         // Expected in this test scenario
         console.warn('Sonarr search failed as expected in integration test')
       }
@@ -699,7 +699,7 @@ describe('Cross-Service Error Propagation', () => {
             ['Movie'],
             10,
           )) || []
-      } catch (error) {
+      } catch {
         // Expected in this test scenario
         console.warn('Emby search failed as expected in integration test')
       }
@@ -787,7 +787,7 @@ describe('Cross-Service Error Propagation', () => {
       }
 
       const state = await componentState.createComponentState(
-        mockMessage as any,
+        mockMessage as unknown as Message,
         correlationContext,
       )
 
@@ -799,7 +799,7 @@ describe('Cross-Service Error Propagation', () => {
         },
       )
 
-      const mockedAxios = jest.mocked(axios) as any
+      const mockedAxios = jest.mocked(axios)
       mockedAxios.get.mockRejectedValue(networkError)
       mockedAxios.post.mockRejectedValue(networkError)
       mockedAxios.request.mockRejectedValue(networkError)
@@ -832,15 +832,13 @@ describe('Cross-Service Error Propagation', () => {
       }
 
       // Test integration: How state service coordinates cascade failure information
-      const failureResults = Object.keys(serviceErrors).map(
-        (service, index) => ({
-          id: `failure-${service}`,
-          title: `${service.charAt(0).toUpperCase() + service.slice(1)} Service Unavailable`,
-          mediaType: MediaType.MOVIE,
-          inLibrary: false,
-          overview: `Integration test: ${service} failed during cascade failure`,
-        }),
-      )
+      const failureResults = Object.keys(serviceErrors).map(service => ({
+        id: `failure-${service}`,
+        title: `${service.charAt(0).toUpperCase() + service.slice(1)} Service Unavailable`,
+        mediaType: MediaType.MOVIE,
+        inLibrary: false,
+        overview: `Integration test: ${service} failed during cascade failure`,
+      }))
 
       await componentState.updateComponentState(
         state.id,
@@ -874,7 +872,7 @@ describe('Cross-Service Error Propagation', () => {
       })
 
       // Integration test: How services coordinate recovery
-      const recoveryResults: Record<string, any[]> = {}
+      const recoveryResults: Record<string, unknown[]> = {}
 
       try {
         recoveryResults.sonarr =
@@ -892,7 +890,7 @@ describe('Cross-Service Error Propagation', () => {
             'Test',
             correlationContext.correlationId,
           )) || []
-      } catch (error) {
+      } catch {
         // Some services might still fail, but recovery test continues
         console.warn('Some services still failing during recovery test')
       }
@@ -900,14 +898,25 @@ describe('Cross-Service Error Propagation', () => {
       // Test integration: How state service coordinates recovery information
       const recoveryResultsFlat = Object.entries(recoveryResults)
         .filter(([, results]) => Array.isArray(results) && results.length > 0)
-        .flatMap(([service, results]) =>
-          results.slice(0, 2).map((result: any, index) => ({
-            id: `recovery-${service}-${index}`,
-            title: result?.title || result?.Name || `${service} Recovered Item`,
-            mediaType: MediaType.MOVIE,
-            inLibrary: false,
-            overview: `Integration test recovery from ${service}`,
-          })),
+        .flatMap(([service, results], index) =>
+          results.slice(0, 2).map((result: unknown) => {
+            // Type guard to check if result has the expected properties
+            const typedResult = result as
+              | Record<string, unknown>
+              | null
+              | undefined
+            return {
+              id: `recovery-${service}-${index}`,
+              title: String(
+                typedResult?.title ||
+                  typedResult?.Name ||
+                  `${service} Recovered Item`,
+              ),
+              mediaType: MediaType.MOVIE,
+              inLibrary: false,
+              overview: `Integration test recovery from ${service}`,
+            }
+          }),
         )
 
       await componentState.updateComponentState(

@@ -33,9 +33,18 @@ import { ErrorClassificationService } from 'src/utils/error-classifier'
 import { RetryService } from 'src/utils/retry.service'
 
 /**
+ * Media image interface to match Radarr API response structure
+ */
+export interface MediaImage {
+  coverType: string
+  url: string
+  remoteUrl: string
+}
+
+/**
  * Radarr API response interfaces
  */
-interface RadarrMovie {
+export interface RadarrMovie {
   id?: number
   title: string
   titleSlug: string
@@ -44,6 +53,8 @@ interface RadarrMovie {
   imdbId?: string
   overview?: string
   posterUrl?: string
+  images?: MediaImage[]
+  remotePoster?: string
   monitored: boolean
   qualityProfileId: number
   rootFolderPath: string
@@ -337,20 +348,77 @@ export class RadarrClient extends BaseMediaApiClient {
     this.logger.debug('Searching movies in Radarr', {
       query,
       correlationId,
+      radarrUrl: this.radarrConfig.url,
+      apiKeyPresent: !!this.radarrConfig.apiKey,
     })
 
-    const movies = await this.get<RadarrMovie[]>(
-      `/api/v3/movie/lookup?term=${encodeURIComponent(query)}`,
-      correlationId,
-    )
+    try {
+      // Validate input
+      if (!query || query.trim().length === 0) {
+        throw new Error('Search query cannot be empty')
+      }
 
-    this.logger.debug('Movie search completed', {
-      query,
-      resultCount: movies.length,
-      correlationId,
-    })
+      // Validate configuration
+      if (!this.radarrConfig.url) {
+        throw new Error('Radarr URL is not configured')
+      }
 
-    return movies
+      if (!this.radarrConfig.apiKey) {
+        throw new Error('Radarr API key is not configured')
+      }
+
+      const trimmedQuery = query.trim()
+      const searchUrl = `/api/v3/movie/lookup?term=${encodeURIComponent(trimmedQuery)}`
+
+      this.logger.debug('Making Radarr API request', {
+        correlationId,
+        url: searchUrl,
+        baseUrl: this.radarrConfig.url,
+      })
+
+      const movies = await this.get<RadarrMovie[]>(searchUrl, correlationId)
+
+      this.logger.debug('Movie search completed', {
+        query: trimmedQuery,
+        resultCount: movies?.length || 0,
+        correlationId,
+      })
+
+      // Ensure we return an array even if response is null/undefined
+      return Array.isArray(movies) ? movies : []
+    } catch (error) {
+      this.logger.error(
+        {
+          err: error instanceof Error ? error : new Error(String(error)),
+          query,
+          correlationId,
+          radarrUrl: this.radarrConfig.url,
+          apiKeyPresent: !!this.radarrConfig.apiKey,
+          errorCode: (error as { code?: string })?.code || 'unknown',
+          httpStatus: (error as { status?: number })?.status || 'unknown',
+          response:
+            (error as { response?: { data?: unknown } })?.response?.data ||
+            'unknown',
+          context: 'RadarrClient',
+        },
+        'Radarr movie search failed',
+      )
+
+      // Re-throw with enhanced error message
+      const enhancedMessage = `Radarr search failed for query "${query}": ${
+        error instanceof Error ? error.message : String(error)
+      }`
+
+      const enhancedError = new Error(enhancedMessage)
+      enhancedError.cause = error
+
+      // Preserve original error properties
+      if (error && typeof error === 'object') {
+        Object.assign(enhancedError, error)
+      }
+
+      throw enhancedError
+    }
   }
 
   /**
@@ -380,33 +448,71 @@ export class RadarrClient extends BaseMediaApiClient {
     movieRequest: RadarrMovieRequest,
     correlationId: string,
   ): Promise<RadarrMovie> {
-    // Validate request body before sending
-    const validatedRequest = RequestValidationUtils.validateRadarrMovieRequest(
-      movieRequest,
-      correlationId,
-    )
+    try {
+      // Validate request body before sending
+      const validatedRequest =
+        RequestValidationUtils.validateRadarrMovieRequest(
+          movieRequest,
+          correlationId,
+        )
 
-    this.logger.debug('Adding movie to Radarr', {
-      title: validatedRequest.title,
-      year: validatedRequest.year,
-      tmdbId: validatedRequest.tmdbId,
-      correlationId,
-    })
+      this.logger.debug('Adding movie to Radarr', {
+        title: validatedRequest.title,
+        year: validatedRequest.year,
+        tmdbId: validatedRequest.tmdbId,
+        correlationId,
+        radarrUrl: this.radarrConfig.url,
+        apiKeyPresent: !!this.radarrConfig.apiKey,
+      })
 
-    const movie = await this.post<RadarrMovie>(
-      '/api/v3/movie',
-      validatedRequest,
-      correlationId,
-    )
+      const movie = await this.post<RadarrMovie>(
+        '/api/v3/movie',
+        validatedRequest,
+        correlationId,
+      )
 
-    this.logger.debug('Movie added successfully', {
-      id: movie.id,
-      title: movie.title,
-      status: movie.status,
-      correlationId,
-    })
+      this.logger.debug('Movie added successfully', {
+        id: movie.id,
+        title: movie.title,
+        status: movie.status,
+        correlationId,
+      })
 
-    return movie
+      return movie
+    } catch (error) {
+      this.logger.error(
+        {
+          err: error instanceof Error ? error : new Error(String(error)),
+          title: movieRequest.title,
+          tmdbId: movieRequest.tmdbId,
+          correlationId,
+          radarrUrl: this.radarrConfig.url,
+          apiKeyPresent: !!this.radarrConfig.apiKey,
+          errorCode: (error as { code?: string })?.code || 'unknown',
+          httpStatus: (error as { status?: number })?.status || 'unknown',
+          response:
+            (error as { response?: { data?: unknown } })?.response?.data ||
+            'unknown',
+          context: 'RadarrClient',
+        },
+        'Failed to add movie to Radarr',
+      )
+
+      // Re-throw with enhanced error message
+      const enhancedMessage = `Failed to add movie "${movieRequest.title}" to Radarr: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+
+      const enhancedError = new Error(enhancedMessage)
+      enhancedError.cause = error
+
+      // Preserve original error properties
+      if (error && typeof error === 'object') {
+        Object.assign(enhancedError, error)
+      }
+
+      throw enhancedError
+    }
   }
 
   /**
@@ -474,10 +580,47 @@ export class RadarrClient extends BaseMediaApiClient {
     deleteFiles: boolean,
     correlationId: string,
   ): Promise<void> {
-    await this.delete(
-      `/api/v3/movie/${movieId}?deleteFiles=${deleteFiles}`,
+    // Radarr HTTP API expects camelCase parameter names, not snake_case
+    const endpoint = `/api/v3/movie/${movieId}?deleteFiles=${deleteFiles}`
+
+    this.logger.debug('Radarr DELETE movie operation starting', {
+      movieId,
+      deleteFiles,
+      endpoint,
       correlationId,
-    )
+      service: 'radarr',
+      operation: 'deleteMovie',
+    })
+
+    try {
+      await this.delete(endpoint, correlationId)
+
+      this.logger.debug(
+        'Radarr DELETE movie operation completed successfully',
+        {
+          movieId,
+          deleteFiles,
+          endpoint,
+          correlationId,
+          service: 'radarr',
+          operation: 'deleteMovie',
+        },
+      )
+    } catch (error) {
+      this.logger.error('Radarr DELETE movie operation failed', {
+        movieId,
+        deleteFiles,
+        endpoint,
+        correlationId,
+        service: 'radarr',
+        operation: 'deleteMovie',
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : 'Unknown',
+      })
+
+      // Re-throw the error to maintain the existing error handling flow
+      throw error
+    }
   }
 
   /**

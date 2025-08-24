@@ -1,6 +1,12 @@
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { TestingModule } from '@nestjs/testing'
-import { Guild, TextChannel } from 'discord.js'
+import {
+  ButtonInteraction,
+  Guild,
+  Message,
+  TextChannel,
+  User,
+} from 'discord.js'
 
 // Mock nanoid to generate unique IDs for testing
 jest.mock('nanoid', () => ({
@@ -68,13 +74,13 @@ function createMockInteractionContext(
   overrides: Partial<InteractionContext> = {},
 ): InteractionContext {
   return {
-    interaction: {} as any,
+    interaction: {} as ButtonInteraction,
     state: createMockComponentState(),
     correlationContext: createMockCorrelationContext(),
-    user: {} as any,
-    guild: {} as unknown as Guild | null,
-    channel: {} as unknown as TextChannel | null,
-    message: {} as any,
+    user: {} as User,
+    guild: {} as Guild | null,
+    channel: {} as TextChannel | null,
+    message: {} as Message | null,
     ...overrides,
   }
 }
@@ -380,28 +386,17 @@ describe('MediaLoggingService', () => {
 
       service.logError(error, correlationContext, additionalContext)
 
-      expect(mockLogger.error).toHaveBeenNthCalledWith(
-        1,
-        'Error occurred: Test error message',
+      expect(mockLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({
-          operation: 'error',
           correlationId: correlationContext.correlationId,
           userId: correlationContext.userId,
           guildId: correlationContext.guildId,
           channelId: correlationContext.channelId,
-        }),
-      )
-
-      // Second call should be for the stack trace
-      expect(mockLogger.error).toHaveBeenNthCalledWith(
-        2,
-        'Stack trace',
-        expect.objectContaining({
-          correlationId: correlationContext.correlationId,
           customField: 'value',
-          stack: 'Error stack trace',
-          name: 'Error',
+          err: error,
+          context: 'MediaLoggingService',
         }),
+        'Error occurred: Test error message',
       )
     })
 

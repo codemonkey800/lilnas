@@ -571,11 +571,13 @@ export function HandleMediaErrors(
 
       // Try to extract correlation context from arguments
       const correlationArg = args.find(
-        arg => arg && typeof arg === 'object' && (arg as any).correlationId,
+        arg => arg && typeof arg === 'object' && 'correlationId' in arg,
       )
 
       const context = correlationArg
-        ? MediaErrorHandler.createErrorContext(correlationArg as any)
+        ? MediaErrorHandler.createErrorContext(
+            correlationArg as CorrelationContext,
+          )
         : {}
 
       try {
@@ -616,11 +618,13 @@ export function HandleMediaErrorsWithFallback<T>(
       }
 
       const correlationArg = args.find(
-        arg => arg && typeof arg === 'object' && (arg as any).correlationId,
+        arg => arg && typeof arg === 'object' && 'correlationId' in arg,
       )
 
       const context = correlationArg
-        ? MediaErrorHandler.createErrorContext(correlationArg as any)
+        ? MediaErrorHandler.createErrorContext(
+            correlationArg as CorrelationContext,
+          )
         : {}
 
       try {

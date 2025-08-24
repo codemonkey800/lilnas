@@ -30,6 +30,8 @@ export interface MediaLogContext {
   sessionId?: string
   requestId?: string
   service?: 'sonarr' | 'radarr' | 'emby'
+  httpStatus?: number
+  metadata?: Record<string, unknown>
 }
 
 export interface PerformanceMetric {
@@ -51,6 +53,17 @@ export interface ApiCallLog {
   success: boolean
   timestamp: Date
   error?: string
+  responseBody?: string
+  requestDetails?: {
+    headers?: Record<string, string>
+    body?: unknown
+  }
+  errorDetails?: {
+    statusText?: string
+    responseHeaders?: string[]
+    networkError?: boolean
+    timeout?: boolean
+  }
 }
 
 @Injectable()
@@ -313,6 +326,19 @@ export class MediaLoggingService {
     correlationId: string,
     status?: number,
     error?: Error,
+    additionalContext?: {
+      responseBody?: string
+      requestDetails?: {
+        headers?: Record<string, string>
+        body?: unknown
+      }
+      errorDetails?: {
+        statusText?: string
+        responseHeaders?: string[]
+        networkError?: boolean
+        timeout?: boolean
+      }
+    },
   ): void {
     const duration = Date.now() - startTime
     const success =
@@ -328,6 +354,9 @@ export class MediaLoggingService {
       success,
       timestamp: new Date(),
       error: error?.message,
+      responseBody: additionalContext?.responseBody,
+      requestDetails: additionalContext?.requestDetails,
+      errorDetails: additionalContext?.errorDetails,
     }
 
     // Add to circular buffer
@@ -336,15 +365,60 @@ export class MediaLoggingService {
       this.apiCallLogs.shift()
     }
 
+    // Enhanced logging with additional context for failed requests
+    const logMessage = success
+      ? `${service.toUpperCase()} API ${method} ${url} - success (${duration}ms)`
+      : `${service.toUpperCase()} API ${method} ${url} - error (${duration}ms) [Status: ${status || 'N/A'}]`
+
+    const logContext = {
+      correlationId,
+      action: `${service}_${method.toLowerCase()}`,
+      status,
+      duration,
+      ...(additionalContext?.errorDetails && {
+        statusText: additionalContext.errorDetails.statusText,
+        networkError: additionalContext.errorDetails.networkError,
+        timeout: additionalContext.errorDetails.timeout,
+        responseHeaders: additionalContext.errorDetails.responseHeaders,
+      }),
+      ...(additionalContext?.responseBody &&
+        !success && {
+          responseBodyPreview: additionalContext.responseBody.substring(0, 500),
+        }),
+    }
+
     this.logOperation(
       'api_call',
-      `${service.toUpperCase()} API ${method} ${url} - ${success ? 'success' : 'error'} (${duration}ms)`,
-      {
-        correlationId,
-        action: `${service}_${method.toLowerCase()}`,
-      },
+      logMessage,
+      logContext,
       success ? MediaLogLevel.DEBUG : MediaLogLevel.ERROR,
     )
+
+    // Enhanced error logging for diagnostic purposes
+    if (!success && error) {
+      this.logOperation(
+        'api_error_details',
+        `Detailed error information for ${service.toUpperCase()} ${method} ${url}`,
+        {
+          correlationId,
+          httpStatus: status,
+          action: 'api_error_details',
+          timestamp: new Date(),
+          service,
+          userId: '', // Will be set by caller if available
+          metadata: {
+            errorMessage: error.message,
+            errorType: error.constructor.name,
+            responseBody: additionalContext?.responseBody,
+            requestUrl: url,
+            requestMethod: method,
+            serviceName: service,
+            ...additionalContext?.errorDetails,
+          },
+        },
+        MediaLogLevel.ERROR,
+      )
+    }
 
     // Emit API call event
     this.eventEmitter.emit(
@@ -363,22 +437,16 @@ export class MediaLoggingService {
   ): void {
     const logContext = this.buildLogContext(correlationContext)
 
-    this.logOperation(
-      'error',
-      `Error occurred: ${error.message}`,
+    // Use Pino's error serialization directly
+    this.logger.error(
       {
+        err: error,
         ...logContext,
         ...additionalContext,
+        context: 'MediaLoggingService',
       },
-      MediaLogLevel.ERROR,
+      `Error occurred: ${error.message}`,
     )
-
-    this.logger.error('Stack trace', {
-      correlationId: correlationContext.correlationId,
-      stack: error.stack,
-      name: error.name,
-      ...additionalContext,
-    })
   }
 
   /**

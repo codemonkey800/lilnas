@@ -411,7 +411,7 @@ export function createMockAxiosInstance(): MockAxiosInstance {
 
     // Allow dynamic properties for test flexibility
     [Symbol.toStringTag]: 'MockAxiosInstance',
-  } as any as MockAxiosInstance
+  } as unknown as MockAxiosInstance
 
   // Make request method delegate to the appropriate HTTP method mock
   instance.request.mockImplementation(config => {
@@ -724,19 +724,27 @@ export function createMockActionRowBuilder<
         type: 1, // ComponentType.ActionRow
         components: this.components.map((component: unknown) => {
           if (
-            (component as any).toJSON &&
-            typeof (component as any).toJSON === 'function'
+            typeof component === 'object' &&
+            component !== null &&
+            'toJSON' in component &&
+            typeof (component as { toJSON: unknown }).toJSON === 'function'
           ) {
-            const componentData = (component as any).toJSON()
+            const componentWithToJSON = component as {
+              toJSON: () => Record<string, unknown>
+            }
+            const componentData = componentWithToJSON.toJSON()
             return {
               type: 2, // ComponentType.Button (default, can be overridden by component)
               ...componentData,
             }
           }
           // Fallback for simple data objects
+          const componentWithData = component as {
+            data?: Record<string, unknown>
+          }
           return {
             type: 2,
-            ...(component as any).data,
+            ...componentWithData.data,
           }
         }),
       }

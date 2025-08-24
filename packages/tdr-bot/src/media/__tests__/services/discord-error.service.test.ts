@@ -1,6 +1,12 @@
 import { Logger } from '@nestjs/common'
 import { TestingModule } from '@nestjs/testing'
-import { InteractionResponse, Message } from 'discord.js'
+import {
+  DiscordErrorData,
+  InteractionResponse,
+  Message,
+  OAuthErrorData,
+  RequestBody,
+} from 'discord.js'
 
 // Mock DiscordAPIError at global level for instanceof checks
 class MockDiscordAPIError extends Error {
@@ -9,8 +15,8 @@ class MockDiscordAPIError extends Error {
   method: string
   url: string
   retryAfter?: number
-  rawError: unknown
-  requestBody: unknown
+  rawError: DiscordErrorData | OAuthErrorData
+  requestBody: RequestBody
 
   constructor(
     message: string,
@@ -25,8 +31,8 @@ class MockDiscordAPIError extends Error {
     this.status = status
     this.method = method
     this.url = url
-    this.rawError = {}
-    this.requestBody = {}
+    this.rawError = { code: code, message: message } as DiscordErrorData
+    this.requestBody = { json: {}, files: [] }
   }
 }
 
@@ -519,7 +525,7 @@ describe('DiscordErrorService', () => {
       const error = createMockDiscordAPIError(429, 'Rate limited')
       error.retryAfter = 60
 
-      const delay = service.getRateLimitDelay(error as any)
+      const delay = service.getRateLimitDelay(error as MockDiscordAPIError)
 
       expect(delay).toBe(60000) // Convert seconds to milliseconds
     })
@@ -527,7 +533,7 @@ describe('DiscordErrorService', () => {
     it('should return undefined for non-rate-limit errors', () => {
       const error = createMockDiscordAPIError(500, 'Server error')
 
-      const delay = service.getRateLimitDelay(error as any)
+      const delay = service.getRateLimitDelay(error as MockDiscordAPIError)
 
       expect(delay).toBeUndefined()
     })
@@ -537,7 +543,7 @@ describe('DiscordErrorService', () => {
         retryAfter: undefined,
       })
 
-      const delay = service.getRateLimitDelay(error as any)
+      const delay = service.getRateLimitDelay(error as MockDiscordAPIError)
 
       expect(delay).toBeUndefined()
     })

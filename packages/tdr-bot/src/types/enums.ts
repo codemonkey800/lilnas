@@ -379,13 +379,11 @@ export enum Priority {
 }
 
 export enum ActionType {
-  SEARCH = 'search',
   REQUEST = 'request',
   ADD = 'add',
   DELETE = 'delete',
   MONITOR = 'monitor',
   UNMONITOR = 'unmonitor',
-  REFRESH = 'refresh',
   CANCEL = 'cancel',
   CONFIRM = 'confirm',
   VIEW = 'view',

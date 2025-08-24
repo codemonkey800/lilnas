@@ -392,11 +392,6 @@ export class SelectMenuBuilderService {
         emoji: '🔍',
         description: 'Search for better quality releases',
       },
-      refresh: {
-        label: 'Refresh',
-        emoji: '🔄',
-        description: 'Refresh metadata from TMDB/TVDB',
-      },
     }
 
     const config = actionMap[action] || {

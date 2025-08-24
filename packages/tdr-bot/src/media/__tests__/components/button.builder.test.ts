@@ -94,9 +94,14 @@ describe('ButtonBuilderService', () => {
       setEmoji: jest.fn().mockReturnThis(),
       setURL: jest.fn().mockReturnThis(),
       setDisabled: jest.fn().mockReturnThis(),
-      toJSON: jest.fn(() => ({})),
+      toJSON: jest.fn().mockReturnValue({
+        type: 2,
+        style: 1,
+        label: 'Test',
+        custom_id: 'test',
+      }),
       data: {},
-    } as any as MockButtonBuilder
+    }
     ;(ButtonBuilder as unknown as jest.Mock).mockReturnValue(mockButtonBuilder)
   })
 
@@ -128,12 +133,15 @@ describe('ButtonBuilderService', () => {
     describe('Button configuration patterns', () => {
       it.each(DEFAULT_BUTTON_CONFIG_TEST_CASES)(
         'should create button with $configType configuration',
-        ({ configType, config, expectedMethods }) => {
+        ({ config, expectedMethods }) => {
           const result = service.createButton(config)
 
           expect(ButtonBuilder).toHaveBeenCalled()
           expectedMethods.forEach(method => {
-            expect((mockButtonBuilder as any)[method]).toHaveBeenCalled()
+            const mockMethod = mockButtonBuilder[
+              method as keyof MockButtonBuilder
+            ] as jest.MockedFunction<() => MockButtonBuilder>
+            expect(mockMethod).toHaveBeenCalled()
           })
           expect(result).toBe(mockButtonBuilder)
         },

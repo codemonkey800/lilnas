@@ -22,7 +22,63 @@ import { EnvKey } from './utils/env'
     ApiModule,
     CommandsModule,
     EventEmitterModule.forRoot(),
-    LoggerModule.forRoot(),
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: env<EnvKey>('NODE_ENV') === 'development' ? 'debug' : 'info',
+        transport:
+          env<EnvKey>('NODE_ENV') === 'development'
+            ? {
+                target: 'pino-pretty',
+                options: {
+                  colorize: true,
+                  translateTime: 'SYS:standard',
+                  ignore: 'pid,hostname',
+                  errorLikeObjectKeys: [
+                    'err',
+                    'error',
+                    'errorMessage',
+                    'originalError',
+                  ],
+                  singleLine: false,
+                  messageFormat: '\x1b[36m[{context}]\x1b[0m {msg}',
+                },
+              }
+            : undefined,
+        serializers: {
+          req: () => undefined,
+          res: () => undefined,
+          err: (error: Error) => {
+            return {
+              ...error,
+              type: error.constructor.name,
+              message: error.message,
+              stack: error.stack,
+            }
+          },
+          error: (error: Error) => {
+            return {
+              ...error,
+              type: error.constructor.name,
+              message: error.message,
+              stack: error.stack,
+            }
+          },
+          originalError: (error: Error) => {
+            return {
+              ...error,
+              type: error.constructor.name,
+              message: error.message,
+              stack: error.stack,
+            }
+          },
+        },
+        formatters: {
+          level: (label: string) => {
+            return { level: label }
+          },
+        },
+      },
+    }),
     MediaModule,
     MessageHandlerModule,
     NestMinioModule.register({

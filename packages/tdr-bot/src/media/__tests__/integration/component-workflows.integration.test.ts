@@ -113,7 +113,9 @@ describe('End-to-End Component Workflows', () => {
               addComponents: jest.fn().mockReturnThis(),
               toJSON: jest.fn().mockReturnValue({
                 type: 1,
-                components: buttons.map(b => (b as any).toJSON?.() || b),
+                components: buttons.map(
+                  b => (b as { toJSON?: () => unknown }).toJSON?.() || b,
+                ),
               }),
             })),
           createSelectMenuRow: jest
@@ -122,7 +124,10 @@ describe('End-to-End Component Workflows', () => {
               addComponents: jest.fn().mockReturnThis(),
               toJSON: jest.fn().mockReturnValue({
                 type: 1,
-                components: [(selectMenu as any).toJSON?.() || selectMenu],
+                components: [
+                  (selectMenu as { toJSON?: () => unknown }).toJSON?.() ||
+                    selectMenu,
+                ],
               }),
             })),
         },
@@ -132,17 +137,17 @@ describe('End-to-End Component Workflows', () => {
         useValue: {
           createButton: jest.fn().mockImplementation((config: unknown) => ({
             data: {
-              custom_id: (config as any).customId,
-              label: (config as any).label,
-              style: (config as any).style,
+              custom_id: (config as ButtonConfig).customId,
+              label: (config as ButtonConfig).label,
+              style: (config as ButtonConfig).style,
             },
             setCustomId: jest.fn().mockReturnThis(),
             setLabel: jest.fn().mockReturnThis(),
             setStyle: jest.fn().mockReturnThis(),
             toJSON: jest.fn().mockReturnValue({
-              custom_id: (config as any).customId,
-              label: (config as any).label,
-              style: (config as any).style,
+              custom_id: (config as ButtonConfig).customId,
+              label: (config as ButtonConfig).label,
+              style: (config as ButtonConfig).style,
             }),
           })),
         },
@@ -152,18 +157,18 @@ describe('End-to-End Component Workflows', () => {
         useValue: {
           createSelectMenu: jest.fn().mockImplementation((config: unknown) => ({
             data: {
-              custom_id: (config as any).customId,
-              placeholder: (config as any).placeholder,
-              options: (config as any).options || [],
+              custom_id: (config as SelectMenuConfig).customId,
+              placeholder: (config as SelectMenuConfig).placeholder,
+              options: (config as SelectMenuConfig).options || [],
             },
             setCustomId: jest.fn().mockReturnThis(),
             setPlaceholder: jest.fn().mockReturnThis(),
             setOptions: jest.fn().mockReturnThis(),
             addOptions: jest.fn().mockReturnThis(),
             toJSON: jest.fn().mockReturnValue({
-              custom_id: (config as any).customId,
-              placeholder: (config as any).placeholder,
-              options: (config as any).options || [],
+              custom_id: (config as SelectMenuConfig).customId,
+              placeholder: (config as SelectMenuConfig).placeholder,
+              options: (config as SelectMenuConfig).options || [],
             }),
           })),
         },
@@ -173,17 +178,17 @@ describe('End-to-End Component Workflows', () => {
         useValue: {
           createModal: jest.fn().mockImplementation((config: unknown) => ({
             data: {
-              custom_id: (config as any).customId,
-              title: (config as any).title,
-              components: (config as any).components || [],
+              custom_id: (config as ModalConfig).customId,
+              title: (config as ModalConfig).title,
+              components: (config as ModalConfig).components || [],
             },
             setCustomId: jest.fn().mockReturnThis(),
             setTitle: jest.fn().mockReturnThis(),
             addComponents: jest.fn().mockReturnThis(),
             toJSON: jest.fn().mockReturnValue({
-              custom_id: (config as any).customId,
-              title: (config as any).title,
-              components: (config as any).components || [],
+              custom_id: (config as ModalConfig).customId,
+              title: (config as ModalConfig).title,
+              components: (config as ModalConfig).components || [],
             }),
           })),
         },
@@ -252,7 +257,7 @@ describe('End-to-End Component Workflows', () => {
       }
 
       // Phase 1: Initial search button creation and state setup
-      const searchButtonConfig: ButtonConfig = {
+      const searchButtonConfig = {
         customId: 'search_movie_btn',
         label: 'Search Movies',
         style: ButtonStyle.Primary,
@@ -270,7 +275,7 @@ describe('End-to-End Component Workflows', () => {
       expect(initialState.correlationId).toBe(correlationContext.correlationId)
 
       // Phase 2: Modal creation and form interaction simulation
-      const modalConfig: ModalConfig = {
+      const modalConfig = {
         customId: 'search_modal',
         title: 'Movie Search',
         components: [
@@ -305,7 +310,7 @@ describe('End-to-End Component Workflows', () => {
       expect(updatedState?.interactionCount).toBe(1)
 
       // Phase 3: Search results selection menu creation
-      const resultsSelectConfig: SelectMenuConfig = {
+      const resultsSelectConfig = {
         customId: 'movie_results_select',
         placeholder: 'Select a movie from results',
         options: [
@@ -342,7 +347,7 @@ describe('End-to-End Component Workflows', () => {
       )
 
       // Phase 4: Request confirmation workflow
-      const confirmButtonConfig: ButtonConfig = {
+      const confirmButtonConfig = {
         customId: 'confirm_request',
         label: 'Request Movie',
         style: ButtonStyle.Success,
@@ -672,7 +677,7 @@ describe('End-to-End Component Workflows', () => {
       )
 
       // Create an overly complex select menu that would violate Discord limits
-      const oversizedSelectConfig: SelectMenuConfig = {
+      const oversizedSelectConfig = {
         customId: 'oversized_select',
         placeholder:
           "This is an extremely long placeholder that exceeds Discord's limits for select menu placeholders and should be handled gracefully by the constraint validation system",

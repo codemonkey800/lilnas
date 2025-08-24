@@ -1,6 +1,6 @@
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { TestingModule } from '@nestjs/testing'
-import { Message } from 'discord.js'
+import { type InteractionCollector, Message } from 'discord.js'
 import { nanoid } from 'nanoid'
 
 import {
@@ -39,7 +39,7 @@ describe('ComponentStateService', () => {
     once: jest.fn(),
     stop: jest.fn(),
     ended: false,
-  } as Record<string, unknown>
+  }
 
   beforeEach(async () => {
     jest.useFakeTimers()
@@ -58,7 +58,8 @@ describe('ComponentStateService', () => {
     // Setup mock message with collector
     mockMessage = createMockMessage() as jest.Mocked<Message>
     mockMessage.createMessageComponentCollector.mockReturnValue(
-      mockCollector as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mockCollector as unknown as InteractionCollector<any>,
     )
 
     mockCorrelationContext = {
@@ -293,13 +294,17 @@ describe('ComponentStateService', () => {
       // Simulate user interacting with component
       const mockInteraction = {
         user: { id: mockCorrelationContext.userId },
+        deferred: false,
+        replied: false,
+        deferUpdate: jest.fn().mockResolvedValue(undefined),
+        customId: 'test-component-id',
       } as Record<string, unknown>
-      const collectHandler = (mockCollector.on as any).mock.calls.find(
-        (call: unknown[]) => call[0] === 'collect',
-      )?.[1]
+      const collectHandler = (
+        mockCollector.on as jest.MockedFunction<typeof mockCollector.on>
+      ).mock.calls.find((call: unknown[]) => call[0] === 'collect')?.[1]
 
       if (collectHandler) {
-        collectHandler(mockInteraction)
+        await collectHandler(mockInteraction)
 
         // Session should reflect user activity
         const updatedState = service.getComponentState(state.id)
@@ -355,9 +360,9 @@ describe('ComponentStateService', () => {
       )
 
       // Simulate user session error
-      const errorHandler = (mockCollector.once as any).mock.calls.find(
-        (call: unknown[]) => call[0] === 'error',
-      )?.[1]
+      const errorHandler = (
+        mockCollector.once as jest.MockedFunction<typeof mockCollector.once>
+      ).mock.calls.find((call: unknown[]) => call[0] === 'error')?.[1]
       if (errorHandler) {
         const testError = new Error('Session error')
         errorHandler(testError)

@@ -136,7 +136,7 @@ describe('Emby E2E Tests', () => {
                       const playbackInfo = await measurePerformance(
                         'emby_playback_info',
                         () =>
-                          client.getPlaybackInfo(
+                          client.getMediaPlaybackInfo(
                             selectedItem.Id,
                             testContext.correlationId,
                           ),
@@ -145,19 +145,20 @@ describe('Emby E2E Tests', () => {
 
                       if (
                         playbackInfo &&
-                        (playbackInfo.MediaSources ||
-                          playbackInfo.PlaySessionId)
+                        (playbackInfo.playbackUrl || playbackInfo.isAvailable)
                       ) {
                         workflowSteps.playbackLinksGenerated = true
                       }
                     } catch (error) {
                       // Playback info might fail due to permissions, but workflow continues
-                      console.warn(`Playback info failed: ${error.message}`)
+                      console.warn(
+                        `Playback info failed: ${error instanceof Error ? error.message : String(error)}`,
+                      )
                     }
                   }
                 } catch (error) {
                   console.warn(
-                    `Item details retrieval failed: ${error.message}`,
+                    `Item details retrieval failed: ${error instanceof Error ? error.message : String(error)}`,
                   )
                 }
               }
@@ -207,14 +208,15 @@ describe('Emby E2E Tests', () => {
                   testContext.correlationId,
                   ['Movie'],
                   10,
-                  { genre: 'Action' },
                 ),
               testContext,
             )
 
             discoveryWorkflow.genreBasedSearch = Array.isArray(genreResults)
           } catch (error) {
-            console.warn(`Genre discovery failed: ${error.message}`)
+            console.warn(
+              `Genre discovery failed: ${error instanceof Error ? error.message : String(error)}`,
+            )
           }
 
           // Phase 2: Recently added content exploration
@@ -226,9 +228,9 @@ describe('Emby E2E Tests', () => {
               const recentItems = await measurePerformance(
                 'emby_recent_content',
                 () =>
-                  client.getRecentlyAdded(
-                    libraries[0].Id,
+                  client.getLibraryItems(
                     testContext.correlationId,
+                    ['Movie', 'Series'],
                     5,
                   ),
                 testContext,
@@ -237,7 +239,9 @@ describe('Emby E2E Tests', () => {
               discoveryWorkflow.recentlyAdded = Array.isArray(recentItems)
             }
           } catch (error) {
-            console.warn(`Recently added content failed: ${error.message}`)
+            console.warn(
+              `Recently added content failed: ${error instanceof Error ? error.message : String(error)}`,
+            )
           }
 
           // E2E discovery workflow verification

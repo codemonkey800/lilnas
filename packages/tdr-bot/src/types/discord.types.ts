@@ -157,7 +157,6 @@ export interface DiscordButtonComponents {
   requestAction: ButtonBuilder
   addToLibrary: ButtonBuilder
   viewDetails: ButtonBuilder
-  refresh: ButtonBuilder
   cancel: ButtonBuilder
   confirm: ButtonBuilder
   pagination: PaginationButtons
@@ -169,7 +168,6 @@ export interface PaginationButtons {
   previous: ButtonBuilder
   next: ButtonBuilder
   last: ButtonBuilder
-  pageInfo: ButtonBuilder
 }
 
 export interface MediaActionButtons {
@@ -178,7 +176,6 @@ export interface MediaActionButtons {
   delete: ButtonBuilder
   monitor: ButtonBuilder
   unmonitor: ButtonBuilder
-  search: ButtonBuilder
 }
 
 export interface DiscordSelectMenuComponents {

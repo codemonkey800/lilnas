@@ -762,45 +762,46 @@ export class ComponentFactoryService {
     }
 
     // Additional fallback: check for distinctive properties
-    if ((obj as any).data !== undefined) {
+    if (typeof obj === 'object' && obj !== null && 'data' in obj) {
+      const component = obj as Record<string, unknown>
       // Check for button-like properties
       if (
-        (obj as any).setCustomId &&
-        (obj as any).setLabel &&
-        (obj as any).setStyle
+        'setCustomId' in component &&
+        'setLabel' in component &&
+        'setStyle' in component
       ) {
         return 'ButtonBuilder'
       }
       // Check for select menu-like properties
       if (
-        (obj as any).setCustomId &&
-        (obj as any).setPlaceholder &&
-        (obj as any).addOptions
+        'setCustomId' in component &&
+        'setPlaceholder' in component &&
+        'addOptions' in component
       ) {
         return 'StringSelectMenuBuilder'
       }
       // Check for modal-like properties
       if (
-        (obj as any).setCustomId &&
-        (obj as any).setTitle &&
-        (obj as any).addComponents
+        'setCustomId' in component &&
+        'setTitle' in component &&
+        'addComponents' in component
       ) {
         return 'ModalBuilder'
       }
       // Check for embed-like properties
       if (
-        (obj as any).setTitle &&
-        (obj as any).setDescription &&
-        (obj as any).setColor &&
-        (obj as any).addFields
+        'setTitle' in component &&
+        'setDescription' in component &&
+        'setColor' in component &&
+        'addFields' in component
       ) {
         return 'EmbedBuilder'
       }
       // Check for action row-like properties
       if (
-        (obj as any).addComponents &&
-        (obj as any).setComponents &&
-        (obj as any).components !== undefined
+        'addComponents' in component &&
+        'setComponents' in component &&
+        'components' in component
       ) {
         return 'ActionRowBuilder'
       }

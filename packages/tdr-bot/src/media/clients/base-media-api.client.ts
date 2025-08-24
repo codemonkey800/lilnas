@@ -623,7 +623,24 @@ export abstract class BaseMediaApiClient {
         path,
       )
 
-      // Log failed API call
+      // Extract error response details for enhanced logging
+      const axiosError = error as AxiosError
+      const errorResponseData = axiosError.response?.data
+      const responseHeaders = axiosError.response?.headers
+
+      let responseBody: string | undefined
+      if (errorResponseData) {
+        const responseStr =
+          typeof errorResponseData === 'string'
+            ? errorResponseData
+            : JSON.stringify(errorResponseData)
+        responseBody =
+          responseStr.length > 1000
+            ? `${responseStr.substring(0, 1000)}... [truncated]`
+            : responseStr
+      }
+
+      // Log failed API call with comprehensive error details
       this.mediaLoggingService.logApiCall(
         this.config.serviceName,
         method,
@@ -632,6 +649,17 @@ export abstract class BaseMediaApiClient {
         correlationId,
         apiError.httpStatus,
         apiError,
+        {
+          responseBody,
+          errorDetails: {
+            statusText: axiosError.response?.statusText,
+            responseHeaders: responseHeaders
+              ? Object.keys(responseHeaders)
+              : [],
+            networkError: !axiosError.response,
+            timeout: axiosError.code === 'ECONNABORTED',
+          },
+        },
       )
 
       throw apiError
@@ -782,21 +810,74 @@ export abstract class BaseMediaApiClient {
       },
       error => {
         const correlationId = error.config?.headers?.['X-Correlation-ID']
+        const axiosError = error as AxiosError
 
+        // Capture full error response details for diagnostics
+        const errorResponseData = axiosError.response?.data
+        const responseHeaders = axiosError.response?.headers
+        const httpStatus = axiosError.response?.status
+        const httpStatusText = axiosError.response?.statusText
+
+        // Format response body for logging (truncate if too large)
+        let responseBody = 'N/A'
+        if (errorResponseData) {
+          const responseStr =
+            typeof errorResponseData === 'string'
+              ? errorResponseData
+              : JSON.stringify(errorResponseData)
+          responseBody =
+            responseStr.length > 1000
+              ? `${responseStr.substring(0, 1000)}... [truncated]`
+              : responseStr
+        }
+
+        // Enhanced error logging with full context
         this.logger.error(
           `${this.config.serviceName.toUpperCase()} Response Error`,
           {
-            status: error.response?.status,
-            statusText: error.response?.statusText,
+            // HTTP Response Details
+            status: httpStatus,
+            statusText: httpStatusText,
+            responseBody,
+            responseHeaders: responseHeaders
+              ? Object.keys(responseHeaders)
+              : [],
+            contentType: responseHeaders?.['content-type'],
+
+            // Request Context
             message: error.message,
             service: this.config.serviceName,
             correlationId,
             code: error.code,
             url: error.config?.url,
-            method: error.config?.method,
+            method: error.config?.method?.toUpperCase(),
+
+            // Error Classification
             timeout: error.code === 'ECONNABORTED',
+            networkError: !axiosError.response,
+            serverError: httpStatus && httpStatus >= 500,
+            clientError: httpStatus && httpStatus >= 400 && httpStatus < 500,
+
+            // Diagnostic Information
+            requestId:
+              responseHeaders?.['x-request-id'] ||
+              responseHeaders?.['request-id'],
+            retryAfter: responseHeaders?.['retry-after'],
+            timestamp: new Date().toISOString(),
           },
         )
+
+        // Log specific error context based on status code for better debugging
+        if (httpStatus) {
+          this.logDetailedHttpError(
+            httpStatus,
+            correlationId,
+            error.config?.method,
+            error.config?.url,
+            responseBody,
+          )
+        }
+
         return Promise.reject(error)
       },
     )
@@ -1490,25 +1571,61 @@ export abstract class BaseMediaApiClient {
   ): MediaApiError {
     const errorMessage = this.formatErrorMessage(axiosError, 'API', operation)
 
+    // Extract comprehensive error context for diagnostics
+    const responseData = axiosError.response?.data
+    const responseHeaders = axiosError.response?.headers
+    const statusText = axiosError.response?.statusText
+
+    // Format response body for error context
+    let responseBody: string | undefined
+    if (responseData) {
+      const responseStr =
+        typeof responseData === 'string'
+          ? responseData
+          : JSON.stringify(responseData)
+      responseBody =
+        responseStr.length > 500
+          ? `${responseStr.substring(0, 500)}... [truncated]`
+          : responseStr
+    }
+
+    // Enhanced error context with response details
+    const errorContext = {
+      originalError: errorMessage,
+      httpStatus: status,
+      statusText,
+      responseBody,
+      responseHeaders: responseHeaders ? Object.keys(responseHeaders) : [],
+      requestUrl: axiosError.config?.url,
+      requestMethod: axiosError.config?.method?.toUpperCase(),
+      timestamp: new Date().toISOString(),
+    }
+
     switch (status) {
       case 401:
         return new MediaAuthenticationError(
           this.config.serviceName,
           operation,
           correlationId,
-          { originalError: errorMessage },
+          {
+            ...errorContext,
+            userFriendlyMessage:
+              'Authentication failed - check API key validity and permissions',
+          },
         )
 
       case 429: {
-        const retryAfterSeconds = this.extractRetryAfterSeconds(
-          axiosError.response?.headers,
-        )
+        const retryAfterSeconds = this.extractRetryAfterSeconds(responseHeaders)
         return new MediaRateLimitError(
           this.config.serviceName,
           operation,
           retryAfterSeconds,
           correlationId,
-          { originalError: errorMessage },
+          {
+            ...errorContext,
+            userFriendlyMessage:
+              'Rate limit exceeded - requests are being throttled',
+          },
         )
       }
 
@@ -1519,7 +1636,12 @@ export abstract class BaseMediaApiClient {
           'resource',
           'unknown',
           correlationId,
-          { originalError: errorMessage, httpStatus: status },
+          {
+            ...errorContext,
+            userFriendlyMessage: operation.includes('DELETE')
+              ? 'Movie not found in Radarr (may have already been deleted)'
+              : 'Resource not found - may not exist or may be temporarily unavailable',
+          },
         )
 
       case 400:
@@ -1530,7 +1652,11 @@ export abstract class BaseMediaApiClient {
           operation,
           validationDetails,
           correlationId,
-          { originalError: errorMessage, httpStatus: status },
+          {
+            ...errorContext,
+            userFriendlyMessage:
+              'Invalid request format or missing required data',
+          },
         )
       }
 
@@ -1543,7 +1669,10 @@ export abstract class BaseMediaApiClient {
           operation,
           status,
           correlationId,
-          { originalError: errorMessage },
+          {
+            ...errorContext,
+            userFriendlyMessage: this.getServerErrorMessage(status),
+          },
           axiosError,
         )
 
@@ -1555,7 +1684,10 @@ export abstract class BaseMediaApiClient {
             operation,
             status,
             correlationId,
-            { originalError: errorMessage },
+            {
+              ...errorContext,
+              userFriendlyMessage: `Server error (${status}) - service may be unavailable`,
+            },
             axiosError,
           )
         } else {
@@ -1564,9 +1696,228 @@ export abstract class BaseMediaApiClient {
             operation,
             `HTTP ${status}: ${errorMessage}`,
             correlationId,
-            { originalError: errorMessage, httpStatus: status },
+            {
+              ...errorContext,
+              userFriendlyMessage: `Request failed with HTTP ${status}`,
+            },
           )
         }
+    }
+  }
+
+  /**
+   * Get user-friendly error message for server errors
+   */
+  private getServerErrorMessage(status: number): string {
+    const errorMessages: Record<number, string> = {
+      500: 'Radarr server error - service may be unavailable',
+      502: 'Gateway error - Radarr service may be unreachable',
+      503: 'Service temporarily unavailable - Radarr may be overloaded',
+      504: 'Request timeout - operation took too long to complete',
+    }
+
+    return (
+      errorMessages[status] ||
+      `Server error (${status}) - service may be unavailable`
+    )
+  }
+
+  /**
+   * Get comprehensive HTTP status code to user-friendly error message mapping
+   * This provides specific, actionable error messages for users
+   */
+  public static getHttpStatusErrorMessage(
+    status: number,
+    operation?: string,
+    serviceName?: string,
+  ): {
+    message: string
+    category:
+      | 'authentication'
+      | 'permission'
+      | 'validation'
+      | 'not-found'
+      | 'rate-limit'
+      | 'server-error'
+      | 'network'
+      | 'unknown'
+    isRetryable: boolean
+    suggestedActions: string[]
+  } {
+    const service = serviceName || 'service'
+    const isDeletionOperation = operation?.includes('DELETE') || false
+
+    const mappings: Record<
+      number,
+      {
+        message: string
+        category:
+          | 'authentication'
+          | 'permission'
+          | 'validation'
+          | 'not-found'
+          | 'rate-limit'
+          | 'server-error'
+          | 'network'
+          | 'unknown'
+        isRetryable: boolean
+        suggestedActions: string[]
+      }
+    > = {
+      // Authentication Errors
+      401: {
+        message: `Authentication failed with ${service}`,
+        category: 'authentication' as const,
+        isRetryable: false,
+        suggestedActions: [
+          'Check API key configuration',
+          'Verify API key has not expired',
+          'Ensure API key has proper permissions',
+        ],
+      },
+      403: {
+        message: `Access forbidden - insufficient permissions for ${service}`,
+        category: 'permission' as const,
+        isRetryable: false,
+        suggestedActions: [
+          'Check user permissions',
+          'Verify API key scope and permissions',
+          'Contact administrator to review access rights',
+        ],
+      },
+
+      // Client Errors
+      400: {
+        message: 'Invalid request format or parameters',
+        category: 'validation' as const,
+        isRetryable: false,
+        suggestedActions: [
+          'Review request parameters',
+          'Check data format requirements',
+          'Validate required fields are present',
+        ],
+      },
+      404: {
+        message: isDeletionOperation
+          ? `Movie not found in ${service} (may have already been deleted)`
+          : `Resource not found in ${service}`,
+        category: 'not-found' as const,
+        isRetryable: isDeletionOperation, // Only retry DELETE operations
+        suggestedActions: isDeletionOperation
+          ? [
+              'Resource may have already been deleted',
+              'Check if the movie was removed by another process',
+              'Verify movie ID is correct',
+            ]
+          : [
+              'Verify resource ID is correct',
+              'Check if resource exists in the service',
+              'Resource may be temporarily unavailable',
+            ],
+      },
+      422: {
+        message: 'Request validation failed',
+        category: 'validation' as const,
+        isRetryable: false,
+        suggestedActions: [
+          'Review request data against API schema',
+          'Check for missing required fields',
+          'Validate data types and formats',
+        ],
+      },
+      429: {
+        message: `Rate limit exceeded for ${service}`,
+        category: 'rate-limit' as const,
+        isRetryable: true,
+        suggestedActions: [
+          'Reduce request frequency',
+          'Implement exponential backoff',
+          'Check rate limit headers for guidance',
+        ],
+      },
+
+      // Server Errors
+      500: {
+        message: `${service} internal server error`,
+        category: 'server-error' as const,
+        isRetryable: true,
+        suggestedActions: [
+          'Check service logs for errors',
+          'Retry after a brief delay',
+          'Contact administrator if error persists',
+        ],
+      },
+      502: {
+        message: `Gateway error - ${service} may be unreachable`,
+        category: 'server-error' as const,
+        isRetryable: true,
+        suggestedActions: [
+          'Check service connectivity',
+          'Verify gateway configuration',
+          'Wait for service recovery',
+        ],
+      },
+      503: {
+        message: `${service} temporarily unavailable`,
+        category: 'server-error' as const,
+        isRetryable: true,
+        suggestedActions: [
+          'Service may be overloaded or restarting',
+          'Wait for service recovery',
+          'Retry with exponential backoff',
+        ],
+      },
+      504: {
+        message: 'Request timeout - operation took too long',
+        category: 'server-error' as const,
+        isRetryable: true,
+        suggestedActions: [
+          'Consider reducing request complexity',
+          'Check network connectivity',
+          'Increase timeout if possible',
+        ],
+      },
+    }
+
+    const mapping = mappings[status]
+    if (mapping) {
+      return mapping
+    }
+
+    // Fallback for unmapped status codes
+    if (status >= 500) {
+      return {
+        message: `Server error (${status}) - ${service} may be unavailable`,
+        category: 'server-error',
+        isRetryable: true,
+        suggestedActions: [
+          'Server-side error occurred',
+          'Retry after delay',
+          'Check service status',
+        ],
+      }
+    } else if (status >= 400) {
+      return {
+        message: `Client error (${status}) - request failed`,
+        category: 'validation',
+        isRetryable: false,
+        suggestedActions: [
+          'Review request format',
+          'Check parameters and data',
+          'Consult API documentation',
+        ],
+      }
+    } else {
+      return {
+        message: `HTTP ${status} error occurred`,
+        category: 'unknown',
+        isRetryable: false,
+        suggestedActions: [
+          'Review request and response',
+          'Check service status',
+          'Contact support if needed',
+        ],
+      }
     }
   }
 
@@ -1633,6 +1984,78 @@ export abstract class BaseMediaApiClient {
     }
 
     return axiosError.message || 'Invalid request data'
+  }
+
+  /**
+   * Log detailed HTTP error information for debugging API issues
+   */
+  private logDetailedHttpError(
+    status: number,
+    correlationId: string,
+    method?: string,
+    url?: string,
+    responseBody?: string,
+  ): void {
+    const serviceName = this.config.serviceName.toUpperCase()
+
+    // Provide specific diagnostic information based on status code
+    const statusMappings: Record<number, string> = {
+      404: 'Resource not found - may have been deleted or moved',
+      401: 'Authentication failed - check API key validity and permissions',
+      403: 'Access forbidden - insufficient permissions for this operation',
+      400: 'Bad request - invalid request format or missing required parameters',
+      422: 'Validation error - request data failed validation rules',
+      429: 'Rate limit exceeded - requests are being throttled',
+      500: 'Internal server error - service-side issue occurred',
+      502: 'Bad gateway - proxy/gateway error, service may be unreachable',
+      503: 'Service unavailable - service temporarily down or overloaded',
+      504: 'Gateway timeout - request processing took too long',
+    }
+
+    const diagnosis = statusMappings[status] || `HTTP ${status} error occurred`
+
+    this.logger.error(`${serviceName} Detailed Error Analysis`, {
+      httpStatus: status,
+      diagnosis,
+      method: method?.toUpperCase(),
+      url,
+      correlationId,
+      service: this.config.serviceName,
+      responseBodyPreview: responseBody
+        ? responseBody.substring(0, 200)
+        : 'No response body',
+      timestamp: new Date().toISOString(),
+      isRetryable: this.isStatusRetryable(status),
+      suggestedAction: this.getSuggestedAction(status),
+    })
+  }
+
+  /**
+   * Determine if a status code should trigger a retry
+   */
+  private isStatusRetryable(status: number): boolean {
+    // Retry for server errors and some specific client errors
+    return status >= 500 || status === 404 || status === 429
+  }
+
+  /**
+   * Get suggested action based on status code
+   */
+  private getSuggestedAction(status: number): string {
+    const actionMappings: Record<number, string> = {
+      404: 'Verify resource ID and check if item exists in the service',
+      401: 'Verify API key configuration and ensure it has proper permissions',
+      403: 'Check user permissions and API key scope',
+      400: 'Validate request parameters and data format',
+      422: 'Review request data against API schema requirements',
+      429: 'Implement exponential backoff or reduce request frequency',
+      500: 'Check service logs and consider retrying after delay',
+      502: 'Verify service connectivity and gateway configuration',
+      503: 'Wait for service recovery and retry with exponential backoff',
+      504: 'Consider reducing request complexity or increasing timeout',
+    }
+
+    return actionMappings[status] || 'Review request and service status'
   }
 
   /**

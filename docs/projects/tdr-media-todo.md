@@ -125,7 +125,7 @@ This document provides a production-ready TODO list for implementing the Discord
 ### 2.3 Discord Command Implementation (Days 5-6)
 
 - [ ] **2.3.1** Implement all Discord slash commands
-  - [ ] `/media search` - Search with interactive dropdowns and action buttons
+  - [x] `/media search` - Search with interactive dropdowns and action buttons (completed in commit 8014b4a)
   - [ ] `/media request` - Modal forms with quality and episode selection
   - [ ] `/media library` - Browse with pagination and deletion
   - [ ] `/media status` - Queue monitoring with progress display

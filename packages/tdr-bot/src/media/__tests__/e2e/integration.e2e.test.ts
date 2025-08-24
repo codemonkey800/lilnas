@@ -87,7 +87,7 @@ describe('Cross-Service Integration E2E Tests', () => {
         const searchQuery = 'matrix'
         const workflowResults = {
           searchInitiated: false,
-          servicesQueried: [],
+          servicesQueried: [] as string[],
           resultsAggregated: false,
           userNotified: false,
         }
@@ -180,9 +180,17 @@ describe('Cross-Service Integration E2E Tests', () => {
               expect(firstResult).toBeDefined()
 
               if (service === 'emby') {
-                expect(firstResult.Name || firstResult.title).toBeDefined()
+                expect(
+                  'Name' in firstResult
+                    ? firstResult.Name
+                    : 'title' in firstResult
+                      ? firstResult.title
+                      : 'Unknown',
+                ).toBeDefined()
               } else {
-                expect(firstResult.title).toBeDefined()
+                expect(
+                  'title' in firstResult ? firstResult.title : 'Unknown',
+                ).toBeDefined()
               }
             })
           }
@@ -262,7 +270,9 @@ describe('Cross-Service Integration E2E Tests', () => {
               }
             } catch (error) {
               // E2E test continues even if one service fails
-              console.warn(`Sonarr search failed in workflow: ${error.message}`)
+              console.warn(
+                `Sonarr search failed in workflow: ${error instanceof Error ? error.message : String(error)}`,
+              )
             }
           }
 
@@ -292,7 +302,9 @@ describe('Cross-Service Integration E2E Tests', () => {
               }
             } catch (error) {
               // E2E test continues even if one service fails
-              console.warn(`Radarr search failed in workflow: ${error.message}`)
+              console.warn(
+                `Radarr search failed in workflow: ${error instanceof Error ? error.message : String(error)}`,
+              )
             }
           }
 
@@ -330,7 +342,7 @@ describe('Cross-Service Integration E2E Tests', () => {
                 }
               } catch (error) {
                 console.warn(
-                  `Media request simulation failed: ${error.message}`,
+                  `Media request simulation failed: ${error instanceof Error ? error.message : String(error)}`,
                 )
               }
 
@@ -376,7 +388,7 @@ describe('Cross-Service Integration E2E Tests', () => {
       // E2E Test: User workflow interrupted by service failures, then recovered
       const workflowState = {
         searchStarted: false,
-        serviceError: null,
+        serviceError: null as Error | null,
         recoveryAttempted: false,
         workflowCompleted: false,
       }
@@ -408,7 +420,7 @@ describe('Cross-Service Integration E2E Tests', () => {
           }
         } catch (error) {
           // This error is expected - represents service interruption during user workflow
-          workflowState.serviceError = error
+          workflowState.serviceError = error as Error
         } finally {
           cleanupClients(timeoutClients)
         }
@@ -428,7 +440,9 @@ describe('Cross-Service Integration E2E Tests', () => {
             }
           } catch (error) {
             // Recovery failed, but E2E test continues
-            console.warn(`Workflow recovery failed: ${error.message}`)
+            console.warn(
+              `Workflow recovery failed: ${error instanceof Error ? error.message : String(error)}`,
+            )
           }
         } else if (clients.radarr) {
           try {
@@ -442,7 +456,9 @@ describe('Cross-Service Integration E2E Tests', () => {
             }
           } catch (error) {
             // Recovery failed, but E2E test continues
-            console.warn(`Workflow recovery failed: ${error.message}`)
+            console.warn(
+              `Workflow recovery failed: ${error instanceof Error ? error.message : String(error)}`,
+            )
           }
         }
       } catch (error) {
@@ -505,9 +521,18 @@ describe('Cross-Service Integration E2E Tests', () => {
         // All services should have version information
         versionResults.forEach(({ version }) => {
           expect(version).toBeDefined()
-          expect(version.version).toBeDefined()
-          expect(typeof version.version).toBe('string')
-          expect(version.isCompatible).toBe(true)
+          expect(typeof version).toBe('object')
+          if (version && typeof version === 'object' && 'version' in version) {
+            expect(version.version).toBeDefined()
+            expect(typeof version.version).toBe('string')
+          }
+          if (
+            version &&
+            typeof version === 'object' &&
+            'isCompatible' in version
+          ) {
+            expect(version.isCompatible).toBe(true)
+          }
         })
 
         logger.log('API version comparison', {
@@ -554,9 +579,18 @@ describe('Cross-Service Integration E2E Tests', () => {
         // All services should have capabilities
         capabilityResults.forEach(({ capabilities }) => {
           expect(capabilities).toBeDefined()
-          expect(typeof capabilities.canSearch).toBe('boolean')
-          expect(typeof capabilities.canMonitor).toBe('boolean')
-          expect(Array.isArray(capabilities.supportedMediaTypes)).toBe(true)
+          expect(typeof capabilities).toBe('object')
+          if (capabilities && typeof capabilities === 'object') {
+            if ('canSearch' in capabilities) {
+              expect(typeof capabilities.canSearch).toBe('boolean')
+            }
+            if ('canMonitor' in capabilities) {
+              expect(typeof capabilities.canMonitor).toBe('boolean')
+            }
+            if ('supportedMediaTypes' in capabilities) {
+              expect(Array.isArray(capabilities.supportedMediaTypes)).toBe(true)
+            }
+          }
         })
 
         // Content management services should support requests
@@ -564,7 +598,13 @@ describe('Cross-Service Integration E2E Tests', () => {
           ({ service }) => service === 'sonarr' || service === 'radarr',
         )
         contentServices.forEach(({ capabilities }) => {
-          expect(capabilities.canRequest).toBe(true)
+          if (
+            capabilities &&
+            typeof capabilities === 'object' &&
+            'canRequest' in capabilities
+          ) {
+            expect(capabilities.canRequest).toBe(true)
+          }
         })
 
         // Media library services should support search but not necessarily requests
@@ -572,8 +612,14 @@ describe('Cross-Service Integration E2E Tests', () => {
           ({ service }) => service === 'emby',
         )
         libraryServices.forEach(({ capabilities }) => {
-          expect(capabilities.canSearch).toBe(true)
-          expect(capabilities.canRequest).toBe(false) // Emby is browse-only
+          if (capabilities && typeof capabilities === 'object') {
+            if ('canSearch' in capabilities) {
+              expect(capabilities.canSearch).toBe(true)
+            }
+            if ('canRequest' in capabilities) {
+              expect(capabilities.canRequest).toBe(false) // Emby is browse-only
+            }
+          }
         })
       },
       config.timeouts.default,
@@ -684,7 +730,18 @@ describe('Cross-Service Integration E2E Tests', () => {
               // Check that results are relevant to query
               const queryWords = query.toLowerCase().split(' ')
               const titleField = service === 'emby' ? 'Name' : 'title'
-              const title = firstResult[titleField]?.toLowerCase() || ''
+              let title = ''
+              if (
+                firstResult &&
+                typeof firstResult === 'object' &&
+                titleField in firstResult
+              ) {
+                const titleValue = (firstResult as Record<string, unknown>)[
+                  titleField
+                ]
+                title =
+                  typeof titleValue === 'string' ? titleValue.toLowerCase() : ''
+              }
 
               const hasRelevantMatch = queryWords.some(word =>
                 title.includes(word),
@@ -747,22 +804,90 @@ describe('Cross-Service Integration E2E Tests', () => {
 
         // All services should pass diagnostics
         diagnosticResults.forEach(({ diagnostics }) => {
-          expect(diagnostics.summary.isOperational).toBe(true)
-          expect(diagnostics.connection.canConnect).toBe(true)
-          expect(diagnostics.connection.isAuthenticated).toBe(true)
-          expect(diagnostics.health.isHealthy).toBe(true)
-          expect(diagnostics.summary.issues.length).toBe(0)
+          expect(diagnostics).toBeDefined()
+          expect(typeof diagnostics).toBe('object')
+
+          if (diagnostics && typeof diagnostics === 'object') {
+            if (
+              'summary' in diagnostics &&
+              diagnostics.summary &&
+              typeof diagnostics.summary === 'object'
+            ) {
+              if ('isOperational' in diagnostics.summary) {
+                expect(diagnostics.summary.isOperational).toBe(true)
+              }
+              if (
+                'issues' in diagnostics.summary &&
+                Array.isArray(diagnostics.summary.issues)
+              ) {
+                expect(diagnostics.summary.issues.length).toBe(0)
+              }
+            }
+
+            if (
+              'connection' in diagnostics &&
+              diagnostics.connection &&
+              typeof diagnostics.connection === 'object'
+            ) {
+              if ('canConnect' in diagnostics.connection) {
+                expect(diagnostics.connection.canConnect).toBe(true)
+              }
+              if ('isAuthenticated' in diagnostics.connection) {
+                expect(diagnostics.connection.isAuthenticated).toBe(true)
+              }
+            }
+
+            if (
+              'health' in diagnostics &&
+              diagnostics.health &&
+              typeof diagnostics.health === 'object'
+            ) {
+              if ('isHealthy' in diagnostics.health) {
+                expect(diagnostics.health.isHealthy).toBe(true)
+              }
+            }
+          }
         })
 
         logger.log('Service diagnostics summary', {
           correlationId: testContext.correlationId,
-          results: diagnosticResults.map(({ service, diagnostics }) => ({
-            service,
-            isOperational: diagnostics.summary.isOperational,
-            responseTime: diagnostics.health.responseTime,
-            version: diagnostics.health.version,
-            apiVersion: diagnostics.health.apiVersion?.version,
-          })),
+          results: diagnosticResults.map(({ service, diagnostics }) => {
+            const result: Record<string, unknown> = { service }
+
+            if (diagnostics && typeof diagnostics === 'object') {
+              if (
+                'summary' in diagnostics &&
+                diagnostics.summary &&
+                typeof diagnostics.summary === 'object' &&
+                'isOperational' in diagnostics.summary
+              ) {
+                result.isOperational = diagnostics.summary.isOperational
+              }
+
+              if (
+                'health' in diagnostics &&
+                diagnostics.health &&
+                typeof diagnostics.health === 'object'
+              ) {
+                if ('responseTime' in diagnostics.health) {
+                  result.responseTime = diagnostics.health.responseTime
+                }
+                if ('version' in diagnostics.health) {
+                  result.version = diagnostics.health.version
+                }
+                if (
+                  'apiVersion' in diagnostics.health &&
+                  diagnostics.health.apiVersion &&
+                  typeof diagnostics.health.apiVersion === 'object' &&
+                  'version' in diagnostics.health.apiVersion
+                ) {
+                  result.apiVersion = diagnostics.health.apiVersion.version
+                }
+              }
+            }
+
+            return result
+          }),
         })
       },
       config.timeouts.default * availableServices.length,

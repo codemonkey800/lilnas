@@ -27,23 +27,6 @@ export class ButtonBuilderService {
   }
 
   /**
-   * Create search action button
-   */
-  createSearchButton(
-    mediaType: MediaType,
-    correlationId?: string,
-  ): ButtonBuilder {
-    const customId = `search_action:${correlationId || 'unknown'}:${mediaType}`
-    const label = `Search ${mediaType === MediaType.MOVIE ? 'Movies' : 'Series'}`
-
-    return new ButtonBuilder()
-      .setCustomId(this.truncateCustomId(customId))
-      .setLabel(this.truncateLabel(label))
-      .setStyle(ButtonStyle.Primary)
-      .setEmoji('🔍')
-  }
-
-  /**
    * Create request action button
    */
   createRequestButton(
@@ -78,38 +61,6 @@ export class ButtonBuilderService {
       .setLabel(this.truncateLabel(label))
       .setStyle(ButtonStyle.Success)
       .setEmoji('📚')
-  }
-
-  /**
-   * Create view details button
-   */
-  createViewDetailsButton(
-    mediaId: string,
-    mediaType: MediaType,
-    correlationId?: string,
-  ): ButtonBuilder {
-    const customId = `view_details:${correlationId || 'unknown'}:${mediaType}:${mediaId}`
-    const label = 'Details'
-
-    return new ButtonBuilder()
-      .setCustomId(this.truncateCustomId(customId))
-      .setLabel(this.truncateLabel(label))
-      .setStyle(ButtonStyle.Secondary)
-      .setEmoji('ℹ️')
-  }
-
-  /**
-   * Create refresh button
-   */
-  createRefreshButton(context: string, correlationId?: string): ButtonBuilder {
-    const customId = `refresh:${correlationId || 'unknown'}:${context}`
-    const label = 'Refresh'
-
-    return new ButtonBuilder()
-      .setCustomId(this.truncateCustomId(customId))
-      .setLabel(this.truncateLabel(label))
-      .setStyle(ButtonStyle.Secondary)
-      .setEmoji('🔄')
   }
 
   /**
@@ -179,12 +130,6 @@ export class ButtonBuilderService {
         .setStyle(ButtonStyle.Secondary)
         .setEmoji('⏭️')
         .setDisabled(currentPage >= totalPages - 1),
-
-      pageInfo: new ButtonBuilder()
-        .setCustomId('page_info') // This button is disabled, so custom_id is not used
-        .setLabel(`${currentPage + 1}/${totalPages}`)
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(true),
     }
   }
 
@@ -218,11 +163,6 @@ export class ButtonBuilderService {
       ),
       unmonitor: this.createActionButton(
         ActionType.UNMONITOR,
-        baseId,
-        availableActions,
-      ),
-      search: this.createActionButton(
-        ActionType.SEARCH,
         baseId,
         availableActions,
       ),
@@ -269,11 +209,6 @@ export class ButtonBuilderService {
         emoji: '🚫',
         style: ButtonStyle.Secondary,
       },
-      [ActionType.SEARCH]: {
-        label: 'Search',
-        emoji: '🔍',
-        style: ButtonStyle.Secondary,
-      },
       [ActionType.ADD]: {
         label: 'Add',
         emoji: '➕',
@@ -283,11 +218,6 @@ export class ButtonBuilderService {
         label: 'Request',
         emoji: '📝',
         style: ButtonStyle.Primary,
-      },
-      [ActionType.REFRESH]: {
-        label: 'Refresh',
-        emoji: '🔄',
-        style: ButtonStyle.Secondary,
       },
       [ActionType.CANCEL]: {
         label: 'Cancel',
@@ -418,21 +348,7 @@ export class ButtonBuilderService {
           ),
         )
       }
-
-      buttons.push(
-        this.createActionButton(
-          ActionType.SEARCH,
-          `media_action:${correlationId}:${mediaType}:${mediaId}`,
-          [ActionType.SEARCH],
-        ),
-      )
     }
-
-    // Always show details and refresh buttons
-    buttons.push(
-      this.createViewDetailsButton(mediaId, mediaType, correlationId),
-    )
-    buttons.push(this.createRefreshButton(`media:${mediaId}`, correlationId))
 
     return buttons
   }

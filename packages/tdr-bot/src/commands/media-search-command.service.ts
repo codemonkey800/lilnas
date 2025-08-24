@@ -1,28 +1,28 @@
 import { Injectable, Logger } from '@nestjs/common'
 import {
   ActionRowBuilder,
+  type APIActionRowComponent,
+  type APIMessageActionRowComponent,
   ButtonBuilder,
   EmbedBuilder,
-  StringSelectMenuBuilder,
 } from 'discord.js'
 import {
   Context,
+  createCommandGroupDecorator,
   Options,
-  SlashCommand,
   type SlashCommandContext,
-  StringOption,
+  Subcommand,
 } from 'necord'
 import { v4 as uuid } from 'uuid'
 
 import { RadarrClient } from 'src/media/clients/radarr.client'
 import { ButtonBuilderService } from 'src/media/components/button.builder'
-import { SelectMenuBuilderService } from 'src/media/components/select-menu.builder'
 import { ComponentStateService } from 'src/media/services/component-state.service'
 import { MediaLoggingService } from 'src/media/services/media-logging.service'
+import { convertRadarrMovieToSearchResult } from 'src/media/utils/search-result-converter'
 import {
   ComponentCollectorConfig,
   CorrelationContext,
-  SearchResultData,
 } from 'src/types/discord.types'
 import { MediaType } from 'src/types/enums'
 
@@ -30,70 +30,39 @@ import {
   COMPONENT_TIMEOUTS,
   DEFAULT_DISPLAY_OPTIONS,
   getMediaTypeEmoji,
-  getStatusEmoji,
   MediaSearchResult,
   MediaSearchState,
+  SearchSubcommandDto,
 } from './media-search.types'
 
-class MediaSearchDto {
-  @StringOption({
-    name: 'query',
-    description: 'Search term for movies or series',
-    required: true,
-  })
-  query!: string
-
-  @StringOption({
-    name: 'type',
-    description: 'Type of media to search for',
-    choices: [
-      { name: 'Movies', value: 'movies' },
-      { name: 'Series', value: 'series' },
-      { name: 'Both', value: 'both' },
-    ],
-  })
-  type!: 'movies' | 'series' | 'both' | null
-}
-
-interface RadarrMovie {
-  id?: number
-  title: string
-  year: number
-  tmdbId?: number
-  imdbId?: string
-  overview?: string
-  posterUrl?: string
-  monitored?: boolean
-  qualityProfileId?: number
-  rootFolderPath?: string
-  downloaded?: boolean
-  status?: 'wanted' | 'downloaded' | 'available'
-  runtime?: number
-  genres?: string[]
-}
+// Create the media command group decorator
+export const MediaCommandDecorator = createCommandGroupDecorator({
+  name: 'media',
+  description: 'Search and manage movies and TV series',
+})
 
 @Injectable()
+@MediaCommandDecorator()
 export class MediaSearchCommandService {
   private readonly logger = new Logger(MediaSearchCommandService.name)
 
   constructor(
     private readonly radarrClient: RadarrClient,
     private readonly componentStateService: ComponentStateService,
-    private readonly selectMenuBuilder: SelectMenuBuilderService,
     private readonly buttonBuilder: ButtonBuilderService,
     private readonly mediaLogging: MediaLoggingService,
   ) {}
 
-  @SlashCommand({
-    name: 'media',
+  @Subcommand({
+    name: 'search',
     description: 'Search for movies and TV series',
   })
-  async mediaSearch(
+  async searchMedia(
     @Context() [interaction]: SlashCommandContext,
-    @Options() { query, type }: MediaSearchDto,
+    @Options() { query }: SearchSubcommandDto,
   ) {
     const correlationId = uuid()
-    const searchType = type || 'both'
+    const searchType = 'both' // Always search both movies and series
     const trimmedQuery = query.trim()
 
     this.logger.log(
@@ -104,7 +73,7 @@ export class MediaSearchCommandService {
         user: interaction.user.username,
         correlationId,
       },
-      'User used media search command',
+      'User executed /media search command',
     )
 
     // Input validation
@@ -122,43 +91,59 @@ export class MediaSearchCommandService {
     try {
       let allResults: MediaSearchResult[] = []
 
-      // Search for movies
-      if (searchType === 'movies' || searchType === 'both') {
+      // Search for movies (always search both movies and series)
+      if (searchType === 'both') {
         this.logger.debug('Searching for movies', {
           query: trimmedQuery,
           correlationId,
         })
 
-        const movies = await this.radarrClient.searchMovies(
-          trimmedQuery,
-          correlationId,
-        )
+        try {
+          const movies = await this.radarrClient.searchMovies(
+            trimmedQuery,
+            correlationId,
+          )
 
-        this.logger.debug('Movie search completed', {
-          query: trimmedQuery,
-          resultCount: movies.length,
-          correlationId,
-        })
+          this.logger.debug('Movie search completed', {
+            query: trimmedQuery,
+            resultCount: movies.length,
+            correlationId,
+          })
 
-        const movieResults = movies.map(movie =>
-          this.convertToSearchResult(movie),
-        )
-        allResults = [...allResults, ...movieResults]
+          const movieResults = movies.map(movie =>
+            convertRadarrMovieToSearchResult(movie, this.logger),
+          )
+          allResults = [...allResults, ...movieResults]
+        } catch (radarrError) {
+          this.logger.error(
+            {
+              err:
+                radarrError instanceof Error
+                  ? radarrError
+                  : new Error(String(radarrError)),
+              query: trimmedQuery,
+              correlationId,
+              radarrUrl: this.radarrClient['radarrConfig']?.url || 'unknown',
+              apiKeyPresent: !!this.radarrClient['radarrConfig']?.apiKey,
+              context: 'RadarrMovieSearch',
+            },
+            'Radarr movie search failed',
+          )
+
+          // Re-throw with more context
+          throw new Error(
+            `Radarr search failed: ${radarrError instanceof Error ? radarrError.message : String(radarrError)}`,
+          )
+        }
       }
 
-      // Search for series (placeholder for future implementation)
-      if (searchType === 'series') {
-        // TODO: Implement series search when Sonarr client is ready
-        await interaction.editReply({
-          content: '🚧 TV series search is not yet implemented. Coming soon!',
-        })
-        return
-      }
+      // TODO: Search for series when Sonarr client is ready
+      // Series search will be added here
 
       // Handle no results
       if (allResults.length === 0) {
         await interaction.editReply({
-          content: `❌ No ${searchType === 'movies' ? 'movies' : 'media'} found for "${trimmedQuery}".\n\n💡 Try different keywords or check your spelling.`,
+          content: `❌ No media found for "${trimmedQuery}".\n\n💡 Try different keywords or check your spelling.`,
         })
         return
       }
@@ -172,17 +157,55 @@ export class MediaSearchCommandService {
         correlationId,
       )
     } catch (error) {
-      this.logger.error('Media search failed', {
-        query: trimmedQuery,
-        type: searchType,
-        correlationId,
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      })
+      // Enhanced error logging with proper Pino error serialization
+      this.logger.error(
+        {
+          err: error instanceof Error ? error : new Error(String(error)),
+          query: trimmedQuery,
+          type: searchType,
+          correlationId,
+          userId: interaction.user.id,
+          username: interaction.user.username,
+          guildId: interaction.guild?.id,
+          channelId: interaction.channel?.id,
+          errorCode: (error as { code?: string })?.code || 'unknown',
+          httpStatus: (error as { status?: number })?.status || 'unknown',
+          url: (error as { url?: string })?.url || 'unknown',
+          method: (error as { method?: string })?.method || 'unknown',
+          context: 'MediaSearchCommandService',
+        },
+        '/media search command failed',
+      )
+
+      // Provide more specific error messages based on error type
+      let userMessage =
+        '❌ Sorry, there was an error searching for media. Please try again later.'
+
+      if (error instanceof Error) {
+        // Network/API errors
+        if (error.message.toLowerCase().includes('timeout')) {
+          userMessage =
+            '❌ The search timed out. Please try again with a shorter query.'
+        } else if (
+          error.message.toLowerCase().includes('network') ||
+          error.message.toLowerCase().includes('connect')
+        ) {
+          userMessage =
+            '❌ Cannot connect to the media server. Please try again later.'
+        } else if (
+          error.message.toLowerCase().includes('api') ||
+          error.message.toLowerCase().includes('unauthorized')
+        ) {
+          userMessage =
+            '❌ Media server authentication failed. Please contact an administrator.'
+        } else if (error.message.toLowerCase().includes('not found')) {
+          userMessage =
+            '❌ Media service is not available. Please try again later.'
+        }
+      }
 
       await interaction.editReply({
-        content:
-          '❌ Sorry, there was an error searching for media. Please try again later.',
+        content: userMessage,
       })
     }
   }
@@ -238,7 +261,8 @@ export class MediaSearchCommandService {
     // Send the interactive response
     const message = await interaction.editReply({
       embeds: [embed],
-      components: components as any,
+      components:
+        components as unknown as APIActionRowComponent<APIMessageActionRowComponent>[],
     })
 
     // Create component state for interaction handling
@@ -262,7 +286,7 @@ export class MediaSearchCommandService {
         correlationId,
       )
 
-      this.logger.debug('Created interactive media search response', {
+      this.logger.debug('Created interactive /media search response', {
         correlationId,
         userId: interaction.user.id,
         resultCount: results.length,
@@ -270,10 +294,14 @@ export class MediaSearchCommandService {
         componentStateId: componentState.id,
       })
     } catch (error) {
-      this.logger.error('Failed to create component state', {
-        correlationId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.logger.error(
+        {
+          err: error instanceof Error ? error : new Error(String(error)),
+          correlationId,
+          context: 'ComponentStateCreation',
+        },
+        'Failed to create component state',
+      )
 
       // Fallback to simple text response
       await interaction.editReply({
@@ -292,81 +320,111 @@ export class MediaSearchCommandService {
     const endIndex = Math.min(startIndex + state.pageSize, state.results.length)
     const pageResults = state.results.slice(startIndex, endIndex)
 
-    const embed = new EmbedBuilder()
-      .setTitle(`🎬 Media Search Results for "${state.searchTerm}"`)
-      .setColor(0x00aaff)
-      .setFooter({
-        text: `Page ${state.currentPage + 1}/${state.totalPages} • ${state.results.length} total results • Use the dropdown to select`,
-      })
-
     if (pageResults.length === 0) {
-      embed.setDescription('No results found on this page.')
+      const embed = new EmbedBuilder()
+        .setTitle(`🎬 Media Search Results for "${state.searchTerm}"`)
+        .setColor(0x00aaff)
+        .setDescription('No results found on this page.')
+        .setFooter({
+          text: `Movie ${state.currentPage + 1} of ${state.results.length} • No results`,
+        })
       return embed
     }
 
-    const description = pageResults
-      .map(result => {
-        const emoji = getMediaTypeEmoji(result.mediaType)
-        const statusEmoji = getStatusEmoji(result)
-        const year = result.year ? ` (${result.year})` : ''
-        const status = statusEmoji ? ` ${statusEmoji}` : ''
+    // Since we're showing 1 movie per page, get the single result
+    const result = pageResults[0]
+    const emoji = getMediaTypeEmoji(result.mediaType)
+    const year = result.year ? ` (${result.year})` : ''
 
-        return `${emoji} **${result.title}${year}**${status}`
+    // Color-code based on status
+    const embedColor = result.inLibrary ? 0x00ff00 : 0xffa500 // Green if in library, orange if not
+
+    const embed = new EmbedBuilder()
+      .setTitle(`${emoji} ${result.title}${year}`)
+      .setColor(embedColor)
+      .setFooter({
+        text: `Movie ${state.currentPage + 1} of ${state.results.length} • ${state.searchTerm}`,
       })
-      .join('\n')
 
-    embed.setDescription(
-      `Select a result from the dropdown below to view details and available actions.\n\n${description}`,
-    )
+    // Add cover art if available
+    if (result.posterUrl) {
+      embed.setImage(result.posterUrl)
+    }
+
+    // Add overview as description
+    if (result.overview) {
+      embed.setDescription(result.overview)
+    }
+
+    // Add status field
+    let statusText = result.inLibrary ? '✅ In Library' : '❌ Not in Library'
+    if (result.monitored) statusText += ' • 👁️ Monitored'
+    if (result.hasFile) statusText += ' • 📥 Downloaded'
+
+    embed.addFields([
+      {
+        name: 'Status',
+        value: statusText,
+        inline: true,
+      },
+    ])
+
+    // Add runtime if available
+    if (result.runtime) {
+      embed.addFields([
+        {
+          name: 'Runtime',
+          value: `${result.runtime} minutes`,
+          inline: true,
+        },
+      ])
+    }
+
+    // Add genres if available
+    if (result.genres && result.genres.length > 0) {
+      embed.addFields([
+        {
+          name: 'Genres',
+          value: result.genres.join(', '),
+          inline: false,
+        },
+      ])
+    }
+
+    // Add ratings/IDs field
+    const ids: string[] = []
+    if (result.tmdbId) ids.push(`TMDB: ${result.tmdbId}`)
+    if (result.imdbId) ids.push(`IMDb: ${result.imdbId}`)
+
+    if (ids.length > 0) {
+      embed.addFields([
+        {
+          name: 'References',
+          value: ids.join(' • '),
+          inline: false,
+        },
+      ])
+    }
 
     return embed
   }
 
   /**
-   * Create search results components (select menu + pagination buttons)
+   * Create search results components (pagination + action buttons)
    */
   private createSearchResultsComponents(
     results: MediaSearchResult[],
     currentPage: number,
     totalPages: number,
     correlationId: string,
-  ): ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] {
-    const components: ActionRowBuilder<
-      StringSelectMenuBuilder | ButtonBuilder
-    >[] = []
+  ): ActionRowBuilder<ButtonBuilder>[] {
+    const components: ActionRowBuilder<ButtonBuilder>[] = []
 
-    // Convert results to SearchResultData format for the select menu builder
-    const searchResultsData: SearchResultData[] = results.map(result => ({
-      id: result.id,
-      title: result.title,
-      year: result.year,
-      overview: result.overview,
-      posterUrl: result.posterUrl,
-      tmdbId: result.tmdbId,
-      imdbId: result.imdbId,
-      tvdbId: result.tvdbId,
-      mediaType: result.mediaType,
-      inLibrary: result.inLibrary,
-      monitored: result.monitored,
-      hasFile: result.hasFile,
-      status: result.status,
-      runtime: result.runtime,
-      genres: result.genres,
-    }))
+    // Get the current movie being displayed
+    const startIndex = currentPage * DEFAULT_DISPLAY_OPTIONS.maxResultsPerPage
+    const currentMovie = results[startIndex]
 
-    // Create select menu for results
-    const selectMenu = this.selectMenuBuilder.createSearchResultsMenu(
-      searchResultsData,
-      currentPage,
-      DEFAULT_DISPLAY_OPTIONS.maxResultsPerPage,
-      correlationId,
-    )
-
-    const selectMenuRow =
-      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu)
-    components.push(selectMenuRow)
-
-    // Create pagination buttons if needed
+    // Create pagination buttons if needed (top row)
     if (totalPages > 1) {
       const paginationButtons = this.buttonBuilder.createPaginationButtons(
         currentPage,
@@ -378,7 +436,6 @@ export class MediaSearchCommandService {
       const paginationRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         paginationButtons.first,
         paginationButtons.previous,
-        paginationButtons.pageInfo,
         paginationButtons.next,
         paginationButtons.last,
       )
@@ -386,39 +443,61 @@ export class MediaSearchCommandService {
       components.push(paginationRow)
     }
 
-    // Add utility buttons (refresh, cancel)
-    const utilityButtons = [
-      this.buttonBuilder.createRefreshButton('search', correlationId),
-      this.buttonBuilder.createCancelButton(correlationId),
-    ]
+    // Create utility row with primary actions and cancel button (bottom row)
+    if (currentMovie) {
+      const utilityButtons: ButtonBuilder[] = []
 
-    const utilityRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      ...utilityButtons,
-    )
-    components.push(utilityRow)
+      if (!currentMovie.inLibrary) {
+        // Add request button for media not in library
+        utilityButtons.push(
+          this.buttonBuilder.createRequestButton(
+            currentMovie.id,
+            currentMovie.mediaType,
+            currentMovie.title,
+            correlationId,
+          ),
+        )
+      } else {
+        // Add play button if media has files
+        if (currentMovie.hasFile) {
+          utilityButtons.push(
+            this.buttonBuilder.createEmbyPlaybackButton(
+              currentMovie.id,
+              currentMovie.mediaType,
+              currentMovie.title,
+            ),
+          )
+        }
+
+        // Add monitor/unmonitor button using context buttons method
+        const contextButtons = this.buttonBuilder.createContextButtons(
+          currentMovie.id,
+          currentMovie.mediaType,
+          currentMovie.inLibrary,
+          currentMovie.monitored || false,
+          currentMovie.hasFile || false,
+          correlationId,
+        )
+
+        // Add only the monitor/unmonitor buttons (details button was removed)
+        utilityButtons.push(...contextButtons)
+      }
+
+      // Always add cancel button at the end
+      utilityButtons.push(this.buttonBuilder.createCancelButton(correlationId))
+
+      const utilityRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        ...utilityButtons.slice(0, 5), // Ensure we don't exceed 5 buttons per row
+      )
+      components.push(utilityRow)
+    } else {
+      // Fallback: just add cancel button if no current movie
+      const utilityRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        this.buttonBuilder.createCancelButton(correlationId),
+      )
+      components.push(utilityRow)
+    }
 
     return components
-  }
-
-  /**
-   * Convert Radarr movie to search result
-   */
-  private convertToSearchResult(movie: RadarrMovie): MediaSearchResult {
-    return {
-      id: movie.tmdbId?.toString() || movie.id?.toString() || 'unknown',
-      title: movie.title,
-      year: movie.year,
-      overview: movie.overview,
-      posterUrl: movie.posterUrl,
-      tmdbId: movie.tmdbId,
-      imdbId: movie.imdbId,
-      mediaType: MediaType.MOVIE,
-      inLibrary: movie.id !== undefined, // If it has an internal ID, it's in library
-      monitored: movie.monitored,
-      hasFile: movie.downloaded,
-      status: movie.status,
-      runtime: movie.runtime,
-      genres: movie.genres,
-    }
   }
 }

@@ -18,6 +18,7 @@ import {
 import { EmbyClient } from 'src/media/clients/emby.client'
 import { RadarrClient } from 'src/media/clients/radarr.client'
 import { SonarrClient } from 'src/media/clients/sonarr.client'
+import { MediaConfigValidationService } from 'src/media/config/media-config.validation'
 
 import { createTestDependencies } from './test-setup'
 
@@ -42,7 +43,7 @@ function validateServiceConfig(
     errors.push(`Missing required field: url for ${serviceName}`)
   } else {
     try {
-      new URL(config.url)
+      new URL(config.url as string)
     } catch {
       errors.push(`Invalid URL format for ${serviceName}: ${config.url}`)
     }

@@ -159,11 +159,11 @@ export function createTestContext(
 export function createTestDependencies() {
   // Create mock EventEmitter2 for MediaLoggingService
   const mockEventEmitter = {
-    emit: jest.fn(),
+    emit: jest.fn().mockReturnValue(true),
     on: jest.fn(),
     off: jest.fn(),
     removeAllListeners: jest.fn(),
-  } as Partial<EventEmitter2>
+  } as unknown as EventEmitter2
 
   // Create ErrorClassificationService (it doesn't require dependencies)
   const errorClassifier = new ErrorClassificationService()
@@ -705,47 +705,51 @@ export function assertServiceCapabilities(
     )
   }
 
+  const actualRecord = actual as Record<string, unknown>
+
   // Check required boolean fields
-  if (typeof actual.canSearch !== 'boolean') {
+  if (typeof actualRecord.canSearch !== 'boolean') {
     errors.push(
-      `canSearch should be boolean, got ${typeof actual.canSearch}: ${actual.canSearch}`,
+      `canSearch should be boolean, got ${typeof actualRecord.canSearch}: ${actualRecord.canSearch}`,
     )
   }
 
-  if (typeof actual.canRequest !== 'boolean') {
+  if (typeof actualRecord.canRequest !== 'boolean') {
     errors.push(
-      `canRequest should be boolean, got ${typeof actual.canRequest}: ${actual.canRequest}`,
+      `canRequest should be boolean, got ${typeof actualRecord.canRequest}: ${actualRecord.canRequest}`,
     )
   }
 
-  if (typeof actual.canMonitor !== 'boolean') {
+  if (typeof actualRecord.canMonitor !== 'boolean') {
     errors.push(
-      `canMonitor should be boolean, got ${typeof actual.canMonitor}: ${actual.canMonitor}`,
+      `canMonitor should be boolean, got ${typeof actualRecord.canMonitor}: ${actualRecord.canMonitor}`,
     )
   }
 
   // Check supportedMediaTypes array
-  if (!Array.isArray(actual.supportedMediaTypes)) {
+  if (!Array.isArray(actualRecord.supportedMediaTypes)) {
     errors.push(
-      `supportedMediaTypes should be array, got ${typeof actual.supportedMediaTypes}`,
+      `supportedMediaTypes should be array, got ${typeof actualRecord.supportedMediaTypes}`,
     )
-  } else if (actual.supportedMediaTypes.length === 0) {
+  } else if (actualRecord.supportedMediaTypes.length === 0) {
     errors.push('supportedMediaTypes should not be empty')
   }
 
   // Check version string
   if (
-    typeof actual.version !== 'string' ||
-    actual.version.trim().length === 0
+    typeof actualRecord.version !== 'string' ||
+    actualRecord.version.trim().length === 0
   ) {
     errors.push(
-      `version should be non-empty string, got ${typeof actual.version}: ${actual.version}`,
+      `version should be non-empty string, got ${typeof actualRecord.version}: ${actualRecord.version}`,
     )
   }
 
   // Check apiVersion object
-  if (!actual.apiVersion || typeof actual.apiVersion !== 'object') {
-    errors.push(`apiVersion should be object, got ${typeof actual.apiVersion}`)
+  if (!actualRecord.apiVersion || typeof actualRecord.apiVersion !== 'object') {
+    errors.push(
+      `apiVersion should be object, got ${typeof actualRecord.apiVersion}`,
+    )
   }
 
   if (errors.length > 0) {
@@ -781,19 +785,20 @@ export function assertApiEndpoints(
     )
   }
 
+  const actualRecord = actual as Record<string, unknown>
   const expectedEndpoints = ['health', 'system']
   const missing: string[] = []
   const invalid: string[] = []
 
   for (const endpoint of expectedEndpoints) {
-    if (!(endpoint in actual)) {
+    if (!(endpoint in actualRecord)) {
       missing.push(endpoint)
     } else if (
-      typeof actual[endpoint] !== 'string' ||
-      !actual[endpoint].startsWith('/')
+      typeof actualRecord[endpoint] !== 'string' ||
+      !(actualRecord[endpoint] as string).startsWith('/')
     ) {
       invalid.push(
-        `${endpoint}: expected string starting with '/', got ${typeof actual[endpoint]}: ${actual[endpoint]}`,
+        `${endpoint}: expected string starting with '/', got ${typeof actualRecord[endpoint]}: ${actualRecord[endpoint]}`,
       )
     }
   }
@@ -813,7 +818,7 @@ export function assertApiEndpoints(
       '',
       `Correlation ID: ${correlationId}`,
       `Actual endpoints: ${JSON.stringify(actual, null, 2)}`,
-      `Available keys: ${Object.keys(actual)}`,
+      `Available keys: ${Object.keys(actualRecord)}`,
     ].join('\n')
 
     throw new Error(errorMessage)
@@ -836,36 +841,41 @@ export function assertHealthCheckResult(
     )
   }
 
+  const actualRecord = actual as Record<string, unknown>
+
   // Check required boolean field
-  if (typeof actual.isHealthy !== 'boolean') {
+  if (typeof actualRecord.isHealthy !== 'boolean') {
     errors.push(
-      `isHealthy should be boolean, got ${typeof actual.isHealthy}: ${actual.isHealthy}`,
+      `isHealthy should be boolean, got ${typeof actualRecord.isHealthy}: ${actualRecord.isHealthy}`,
     )
   }
 
   // Check responseTime if present
-  if (actual.responseTime !== undefined) {
-    if (typeof actual.responseTime !== 'number' || actual.responseTime < 0) {
+  if (actualRecord.responseTime !== undefined) {
+    if (
+      typeof actualRecord.responseTime !== 'number' ||
+      actualRecord.responseTime < 0
+    ) {
       errors.push(
-        `responseTime should be non-negative number, got ${typeof actual.responseTime}: ${actual.responseTime}`,
+        `responseTime should be non-negative number, got ${typeof actualRecord.responseTime}: ${actualRecord.responseTime}`,
       )
     }
   }
 
   // Check lastChecked if present
-  if (actual.lastChecked !== undefined) {
+  if (actualRecord.lastChecked !== undefined) {
     if (
-      !(actual.lastChecked instanceof Date) &&
-      typeof actual.lastChecked !== 'string'
+      !(actualRecord.lastChecked instanceof Date) &&
+      typeof actualRecord.lastChecked !== 'string'
     ) {
       errors.push(
-        `lastChecked should be Date or string, got ${typeof actual.lastChecked}`,
+        `lastChecked should be Date or string, got ${typeof actualRecord.lastChecked}`,
       )
     }
   }
 
   // If unhealthy, should have error or reason
-  if (actual.isHealthy === false && !actual.error) {
+  if (actualRecord.isHealthy === false && !actualRecord.error) {
     errors.push('Unhealthy service should provide error message')
   }
 
@@ -898,33 +908,41 @@ export function assertConnectionTestResult(
     )
   }
 
+  const actualRecord = actual as Record<string, unknown>
+
   // Check required boolean fields
-  if (typeof actual.canConnect !== 'boolean') {
+  if (typeof actualRecord.canConnect !== 'boolean') {
     errors.push(
-      `canConnect should be boolean, got ${typeof actual.canConnect}: ${actual.canConnect}`,
+      `canConnect should be boolean, got ${typeof actualRecord.canConnect}: ${actualRecord.canConnect}`,
     )
   }
 
-  if (typeof actual.isAuthenticated !== 'boolean') {
+  if (typeof actualRecord.isAuthenticated !== 'boolean') {
     errors.push(
-      `isAuthenticated should be boolean, got ${typeof actual.isAuthenticated}: ${actual.isAuthenticated}`,
+      `isAuthenticated should be boolean, got ${typeof actualRecord.isAuthenticated}: ${actualRecord.isAuthenticated}`,
     )
   }
 
   // Check responseTime if present
-  if (actual.responseTime !== undefined) {
-    if (typeof actual.responseTime !== 'number' || actual.responseTime < 0) {
+  if (actualRecord.responseTime !== undefined) {
+    if (
+      typeof actualRecord.responseTime !== 'number' ||
+      actualRecord.responseTime < 0
+    ) {
       errors.push(
-        `responseTime should be non-negative number, got ${typeof actual.responseTime}: ${actual.responseTime}`,
+        `responseTime should be non-negative number, got ${typeof actualRecord.responseTime}: ${actualRecord.responseTime}`,
       )
     }
   }
 
   // If connection failed, should have error or suggestions
   if (
-    actual.canConnect === false &&
-    !actual.error &&
-    !actual.suggestions?.length
+    actualRecord.canConnect === false &&
+    !actualRecord.error &&
+    !(
+      Array.isArray(actualRecord.suggestions) &&
+      actualRecord.suggestions.length > 0
+    )
   ) {
     errors.push('Failed connection should provide error message or suggestions')
   }
