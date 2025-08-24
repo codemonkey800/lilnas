@@ -46,7 +46,7 @@ describe('MediaConfigValidationService', () => {
       providers: [
         {
           provide: MediaConfigValidationService,
-          useFactory: () => new MediaConfigValidationService(configService),
+          useFactory: () => new MediaConfigValidationService(),
         },
       ],
     }).compile()

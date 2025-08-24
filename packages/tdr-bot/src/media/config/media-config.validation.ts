@@ -5,16 +5,11 @@
  * including environment variable checks, URL validation, and service-specific requirements.
  */
 
+import { env } from '@lilnas/utils/env'
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { URL } from 'url'
 
 import { EnvKey } from 'src/utils/env'
-
-// ConfigService interface with proper generic constraints
-interface ConfigService {
-  get<T = string>(propertyPath: string): T | undefined
-  get<T = string>(propertyPath: string, defaultValue: T): T
-}
 
 export interface MediaServiceConfig {
   sonarr: SonarrConfig
@@ -93,17 +88,20 @@ export interface ServiceHealthStatus {
 @Injectable()
 export class MediaConfigValidationService implements OnModuleInit {
   private readonly logger = new Logger(MediaConfigValidationService.name)
-  private mediaConfig?: MediaServiceConfig
+  private mediaConfig: MediaServiceConfig
   private lastValidation?: ValidationResult
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor() {
+    // Load configuration synchronously during construction
+    // This allows clients to access configuration immediately
+    this.mediaConfig = this.loadConfiguration()
+  }
 
   async onModuleInit(): Promise<void> {
     this.logger.log('Initializing media service configuration validation')
 
     try {
-      const config = this.loadConfiguration()
-      const validation = this.validateConfiguration(config)
+      const validation = this.validateConfiguration(this.mediaConfig)
 
       if (!validation.isValid) {
         this.logger.error('Media service configuration validation failed', {
@@ -120,7 +118,6 @@ export class MediaConfigValidationService implements OnModuleInit {
         )
       }
 
-      this.mediaConfig = config
       this.lastValidation = validation
 
       if (validation.warnings.length > 0) {
@@ -465,7 +462,7 @@ export class MediaConfigValidationService implements OnModuleInit {
    * Get required environment variable with optional default
    */
   private getRequiredEnvVar(key: EnvKey, defaultValue?: string): string {
-    const value = this.configService.get<string>(key) || defaultValue
+    const value = env<EnvKey>(key) || defaultValue
 
     if (!value) {
       throw new Error(`Required environment variable ${key} is not set`)
@@ -513,11 +510,6 @@ export class MediaConfigValidationService implements OnModuleInit {
    * Get the validated configuration
    */
   getConfiguration(): MediaServiceConfig {
-    if (!this.mediaConfig) {
-      throw new Error(
-        'Media configuration not initialized. Call onModuleInit() first.',
-      )
-    }
     return this.mediaConfig
   }
 
