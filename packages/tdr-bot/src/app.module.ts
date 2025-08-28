@@ -10,6 +10,7 @@ import { LoggerModule } from 'nestjs-pino'
 import { ApiModule } from './api/api.module'
 import { AppEventsService } from './app-events.service'
 import { CommandsModule } from './commands/commands.module'
+import { MediaModule } from './media/media.module'
 import { MessageHandlerModule } from './message-handler/message-handler.module'
 import { SchedulesModule } from './schedules/schedules.module'
 import { ServicesModule } from './services/services.module'
@@ -20,6 +21,7 @@ import { EnvKey } from './utils/env'
   imports: [
     ApiModule,
     CommandsModule,
+    MediaModule,
     EventEmitterModule.forRoot(),
     LoggerModule.forRoot(),
     MessageHandlerModule,
