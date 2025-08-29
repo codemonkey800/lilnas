@@ -17,5 +17,7 @@ export type EnvKey =
   | 'MINIO_SECRET_KEY'
   | 'NODE_ENV'
   | 'OPENAI_API_KEY'
+  | 'RADARR_API_KEY'
+  | 'RADARR_URL'
   | 'SERP_API_KEY'
   | 'TAVILY_API_KEY'

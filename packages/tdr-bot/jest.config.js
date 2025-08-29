@@ -7,6 +7,10 @@ module.exports = {
     '**/?(*.)+(spec|test).ts',
     '!**/__tests__/setup.ts',
     '!**/__tests__/test-utils.ts',
+    '!**/__tests__/config/*.ts',
+    '!**/__tests__/factories/*.ts',
+    '!**/__tests__/helpers/*.ts',
+    '!**/__tests__/matchers/*.ts',
   ],
   transform: {
     '^.+\\.ts$': ['ts-jest', {

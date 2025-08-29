@@ -30,6 +30,7 @@ export enum ErrorCategory {
   DISCORD_API = 'discord_api',
   EQUATION_SERVICE = 'equation_service',
   HTTP_CLIENT = 'http_client',
+  MEDIA_API = 'media_api',
   SYSTEM = 'system',
 }
 
@@ -63,6 +64,8 @@ export class ErrorClassificationService {
         return this.classifyEquationServiceError(error)
       case ErrorCategory.HTTP_CLIENT:
         return this.classifyHttpError(error)
+      case ErrorCategory.MEDIA_API:
+        return this.classifyMediaApiError(error)
       case ErrorCategory.SYSTEM:
         return this.classifySystemError(error)
       default:
@@ -297,6 +300,84 @@ export class ErrorClassificationService {
     }
 
     return this.classifyNetworkError(error, ErrorCategory.EQUATION_SERVICE)
+  }
+
+  /**
+   * Classify media API errors
+   */
+  private classifyMediaApiError(error: Error): ErrorClassification {
+    const axiosError = error as AxiosError
+
+    if (axiosError.response?.status) {
+      const status = axiosError.response.status
+
+      switch (status) {
+        case 429: // Rate limit
+          return {
+            isRetryable: true,
+            errorType: ErrorType.RATE_LIMIT,
+            retryAfterMs: this.parseRetryAfter(axiosError.response.headers),
+            category: ErrorCategory.MEDIA_API,
+            severity: ErrorSeverity.MEDIUM,
+          }
+
+        case 500: // Internal server error
+        case 502: // Bad gateway
+        case 503: // Service unavailable
+        case 504: // Gateway timeout
+          return {
+            isRetryable: true,
+            errorType: ErrorType.SERVER_ERROR,
+            category: ErrorCategory.MEDIA_API,
+            severity: ErrorSeverity.HIGH,
+          }
+
+        case 408: // Request timeout
+          return {
+            isRetryable: true,
+            errorType: ErrorType.TIMEOUT,
+            category: ErrorCategory.MEDIA_API,
+            severity: ErrorSeverity.MEDIUM,
+          }
+
+        case 401: // Unauthorized
+          return {
+            isRetryable: false,
+            errorType: ErrorType.AUTHENTICATION_ERROR,
+            category: ErrorCategory.MEDIA_API,
+            severity: ErrorSeverity.CRITICAL,
+          }
+
+        case 403: // Forbidden
+          return {
+            isRetryable: false,
+            errorType: ErrorType.PERMISSION_ERROR,
+            category: ErrorCategory.MEDIA_API,
+            severity: ErrorSeverity.HIGH,
+          }
+
+        case 400: // Bad request
+        case 404: // Not found
+        case 422: // Unprocessable entity
+          return {
+            isRetryable: false,
+            errorType: ErrorType.VALIDATION_ERROR,
+            category: ErrorCategory.MEDIA_API,
+            severity: ErrorSeverity.MEDIUM,
+          }
+
+        default:
+          return {
+            isRetryable: status >= 500,
+            errorType:
+              status >= 500 ? ErrorType.SERVER_ERROR : ErrorType.CLIENT_ERROR,
+            category: ErrorCategory.MEDIA_API,
+            severity: ErrorSeverity.MEDIUM,
+          }
+      }
+    }
+
+    return this.classifyNetworkError(error, ErrorCategory.MEDIA_API)
   }
 
   /**
