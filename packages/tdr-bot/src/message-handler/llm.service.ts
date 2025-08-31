@@ -13,6 +13,8 @@ import { Injectable, Logger } from '@nestjs/common'
 import dedent from 'dedent'
 import { nanoid } from 'nanoid'
 
+import { RadarrService } from 'src/media/services/radarr.service'
+import { SonarrService } from 'src/media/services/sonarr.service'
 import {
   GraphNode,
   ImageQuerySchema,
@@ -37,7 +39,7 @@ import {
 } from 'src/utils/prompts'
 import { RetryService } from 'src/utils/retry.service'
 
-import { dateTool } from './tools'
+import { createMediaTools, dateTool } from './tools'
 
 const RESPONSE_TYPE_GRAPH_NODE_MAP: Record<ResponseType, GraphNode> = {
   [ResponseType.Default]: GraphNode.GetModelDefaultResponse,
@@ -55,11 +57,17 @@ export class LLMService {
     private readonly equationImage: EquationImageService,
     private readonly retryService: RetryService,
     private readonly errorClassifier: ErrorClassificationService,
+    private readonly radarrService: RadarrService,
+    private readonly sonarrService: SonarrService,
   ) {}
 
   private readonly logger = new Logger(LLMService.name)
 
-  private tools = [new TavilySearchResults(), dateTool]
+  private tools = [
+    new TavilySearchResults(),
+    dateTool,
+    ...createMediaTools(this.radarrService, this.sonarrService),
+  ]
 
   private toolNode = new ToolNode(this.tools)
 

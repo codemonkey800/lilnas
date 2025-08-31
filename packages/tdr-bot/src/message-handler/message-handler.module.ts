@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 
+import { MediaModule } from 'src/media/media.module'
 import { ServicesModule } from 'src/services/services.module'
 import { StateModule } from 'src/state/state.module'
 
@@ -9,7 +10,7 @@ import { LLMService } from './llm.service'
 import { MessageHandlerService } from './message-handler.service'
 
 @Module({
-  imports: [ServicesModule, StateModule],
+  imports: [MediaModule, ServicesModule, StateModule],
   providers: [ChatService, KeywordsService, LLMService, MessageHandlerService],
 })
 export class MessageHandlerModule {}
