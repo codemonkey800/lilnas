@@ -23,6 +23,18 @@ export const SearchQuerySchema = z.object({
 })
 
 /**
+ * Optional search query input validation schema for library search
+ */
+export const OptionalSearchQuerySchema = z.object({
+  query: z
+    .string()
+    .trim()
+    .min(2, 'Search query must be at least 2 characters')
+    .max(200, 'Search query must be less than 200 characters')
+    .optional(),
+})
+
+/**
  * Radarr image schema
  */
 export const RadarrImageSchema = z.object({
@@ -291,6 +303,29 @@ export const MovieSearchResultSchema = z.object({
  * Array of movie search results
  */
 export const MovieSearchResultArraySchema = z.array(MovieSearchResultSchema)
+
+/**
+ * Movie library search result schema (extends MovieSearchResult with library-specific fields)
+ */
+export const MovieLibrarySearchResultSchema = MovieSearchResultSchema.extend({
+  id: z.number().int(),
+  monitored: z.boolean(),
+  path: z.string(),
+  hasFile: z.boolean(),
+  added: z.string().datetime(),
+  sizeOnDisk: z.number().int().nonnegative().optional(),
+  qualityProfileId: z.number().int(),
+  rootFolderPath: z.string(),
+  minimumAvailability: z.nativeEnum(RadarrMinimumAvailability),
+  isAvailable: z.boolean(),
+})
+
+/**
+ * Array of movie library search results
+ */
+export const MovieLibrarySearchResultArraySchema = z.array(
+  MovieLibrarySearchResultSchema,
+)
 
 /**
  * Radarr system status schema
@@ -584,6 +619,7 @@ export const RadarrErrorResponseSchema = z.object({
  */
 export const RadarrInputSchemas = {
   searchQuery: SearchQuerySchema,
+  optionalSearchQuery: OptionalSearchQuerySchema,
   addMovieRequest: AddMovieRequestSchema,
   commandRequest: RadarrCommandRequestSchema,
   monitorMovieOptions: MonitorMovieOptionsSchema,
@@ -600,6 +636,8 @@ export const RadarrOutputSchemas = {
   movieResourceArray: RadarrMovieResourceArraySchema,
   movieSearchResult: MovieSearchResultSchema,
   movieSearchResultArray: MovieSearchResultArraySchema,
+  movieLibrarySearchResult: MovieLibrarySearchResultSchema,
+  movieLibrarySearchResultArray: MovieLibrarySearchResultArraySchema,
   systemStatus: RadarrSystemStatusSchema,
   qualityProfile: RadarrQualityProfileSchema,
   qualityProfileArray: z.array(RadarrQualityProfileSchema),
@@ -621,6 +659,7 @@ export const RadarrOutputSchemas = {
  * Type inference helpers
  */
 export type SearchQueryInput = z.infer<typeof SearchQuerySchema>
+export type OptionalSearchQueryInput = z.infer<typeof OptionalSearchQuerySchema>
 export type AddMovieRequestInput = z.infer<typeof AddMovieRequestSchema>
 export type RadarrCommandRequestInput = z.infer<
   typeof RadarrCommandRequestSchema
@@ -633,6 +672,9 @@ export type RadarrMovieResourceOutput = z.infer<
   typeof RadarrMovieResourceSchema
 >
 export type MovieSearchResultOutput = z.infer<typeof MovieSearchResultSchema>
+export type MovieLibrarySearchResultOutput = z.infer<
+  typeof MovieLibrarySearchResultSchema
+>
 export type RadarrSystemStatusOutput = z.infer<typeof RadarrSystemStatusSchema>
 export type RadarrQualityProfileOutput = z.infer<
   typeof RadarrQualityProfileSchema

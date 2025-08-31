@@ -460,47 +460,316 @@ describe('RadarrService', () => {
     })
   })
 
-  describe('getAllMoviesInLibrary', () => {
+  describe('getLibraryMovies', () => {
     beforeEach(() => {
+      // Mock input validation
       jest
-        .spyOn(RadarrOutputSchemas.movieArray, 'parse')
+        .spyOn(RadarrInputSchemas.optionalSearchQuery, 'parse')
         .mockImplementation(
           input =>
-            input as ReturnType<typeof RadarrOutputSchemas.movieArray.parse>,
+            input as ReturnType<
+              typeof RadarrInputSchemas.optionalSearchQuery.parse
+            >,
+        )
+
+      // Mock output validation
+      jest
+        .spyOn(RadarrOutputSchemas.movieLibrarySearchResultArray, 'parse')
+        .mockImplementation(
+          input =>
+            input as ReturnType<
+              typeof RadarrOutputSchemas.movieLibrarySearchResultArray.parse
+            >,
         )
     })
 
-    it('should get all movies successfully', async () => {
+    it('should get all library movies successfully without query', async () => {
       const mockMovies = [
-        createMockRadarrMovie({ id: 1 }),
-        createMockRadarrMovie({ id: 2 }),
+        createMockRadarrMovie({
+          id: 1,
+          title: 'Action Movie',
+          genres: ['Action', 'Adventure'],
+        }),
+        createMockRadarrMovie({
+          id: 2,
+          title: 'Comedy Movie',
+          genres: ['Comedy'],
+        }),
       ]
       mockRadarrClient.getAllMovies.mockResolvedValue(mockMovies)
       mockPerformanceNow.mockReturnValueOnce(1000).mockReturnValueOnce(1200) // 200ms duration
 
-      const result = await service.getAllMoviesInLibrary()
+      const result = await service.getLibraryMovies()
 
       expect(mockRadarrClient.getAllMovies).toHaveBeenCalled()
-      expect(RadarrOutputSchemas.movieArray.parse).toHaveBeenCalledWith(
-        mockMovies,
+      expect(RadarrInputSchemas.optionalSearchQuery.parse).toHaveBeenCalledWith(
+        { query: undefined },
       )
-      expect(result).toEqual(mockMovies)
+      expect(
+        RadarrOutputSchemas.movieLibrarySearchResultArray.parse,
+      ).toHaveBeenCalled()
+      expect(result).toHaveLength(2)
+      expect(result[0]).toMatchObject({
+        id: 1,
+        title: 'Action Movie',
+        monitored: true,
+        hasFile: false,
+      })
     })
 
-    it('should handle validation errors', async () => {
-      const mockMovies = [createMockRadarrMovie()]
+    it('should get filtered library movies successfully with query', async () => {
+      const mockMovies = [
+        createMockRadarrMovie({
+          id: 1,
+          title: 'Action Movie',
+          genres: ['Action', 'Adventure'],
+        }),
+        createMockRadarrMovie({
+          id: 2,
+          title: 'Comedy Movie',
+          genres: ['Comedy'],
+        }),
+        createMockRadarrMovie({
+          id: 3,
+          title: 'Action Hero',
+          genres: ['Action'],
+        }),
+      ]
+      mockRadarrClient.getAllMovies.mockResolvedValue(mockMovies)
+      mockPerformanceNow.mockReturnValueOnce(1000).mockReturnValueOnce(1200) // 200ms duration
+
+      const result = await service.getLibraryMovies('action')
+
+      expect(mockRadarrClient.getAllMovies).toHaveBeenCalled()
+      expect(RadarrInputSchemas.optionalSearchQuery.parse).toHaveBeenCalledWith(
+        { query: 'action' },
+      )
+      expect(
+        RadarrOutputSchemas.movieLibrarySearchResultArray.parse,
+      ).toHaveBeenCalled()
+      expect(result).toHaveLength(2)
+      expect(result[0].title).toBe('Action Movie')
+      expect(result[1].title).toBe('Action Hero')
+    })
+
+    it('should filter movies by title, genre, and other fields', async () => {
+      const mockMovies = [
+        createMockRadarrMovie({
+          id: 1,
+          title: 'The Dark Knight',
+          originalTitle: 'Batman Movie',
+          year: 2008,
+          genres: ['Action', 'Crime', 'Drama'],
+          overview: 'Batman fights Joker',
+          certification: 'PG-13',
+          studio: 'Warner Bros',
+        }),
+        createMockRadarrMovie({
+          id: 2,
+          title: 'Comedy Central',
+          year: 2020,
+          genres: ['Comedy'],
+          studio: 'Comedy Studios',
+        }),
+      ]
       mockRadarrClient.getAllMovies.mockResolvedValue(mockMovies)
 
-      const validationError = new Error('Invalid movie array')
+      // Test filtering by different fields
+      let result = await service.getLibraryMovies('batman')
+      expect(result).toHaveLength(1)
+      expect(result[0].title).toBe('The Dark Knight')
+
+      result = await service.getLibraryMovies('2008')
+      expect(result).toHaveLength(1)
+
+      result = await service.getLibraryMovies('crime')
+      expect(result).toHaveLength(1)
+
+      result = await service.getLibraryMovies('joker')
+      expect(result).toHaveLength(1)
+
+      result = await service.getLibraryMovies('pg-13')
+      expect(result).toHaveLength(1)
+
+      result = await service.getLibraryMovies('warner')
+      expect(result).toHaveLength(1)
+    })
+
+    it('should handle case insensitive filtering', async () => {
+      const mockMovies = [
+        createMockRadarrMovie({
+          id: 1,
+          title: 'The Dark Knight',
+          genres: ['Action', 'CRIME'],
+        }),
+      ]
+      mockRadarrClient.getAllMovies.mockResolvedValue(mockMovies)
+
+      let result = await service.getLibraryMovies('DARK')
+      expect(result).toHaveLength(1)
+
+      result = await service.getLibraryMovies('knight')
+      expect(result).toHaveLength(1)
+
+      result = await service.getLibraryMovies('action')
+      expect(result).toHaveLength(1)
+
+      result = await service.getLibraryMovies('Crime')
+      expect(result).toHaveLength(1)
+    })
+
+    it('should handle special characters in search queries', async () => {
+      const mockMovies = [
+        createMockRadarrMovie({
+          id: 1,
+          title: 'Fast & Furious',
+          overview: 'Cars, action & family',
+        }),
+        createMockRadarrMovie({
+          id: 2,
+          title: 'Movie: The Sequel',
+          overview: 'Part 2 of the saga',
+        }),
+      ]
+      mockRadarrClient.getAllMovies.mockResolvedValue(mockMovies)
+
+      let result = await service.getLibraryMovies('&')
+      expect(result).toHaveLength(1)
+      expect(result[0].title).toBe('Fast & Furious')
+
+      result = await service.getLibraryMovies(':')
+      expect(result).toHaveLength(1)
+      expect(result[0].title).toBe('Movie: The Sequel')
+    })
+
+    it('should handle Unicode characters in search queries', async () => {
+      const mockMovies = [
+        createMockRadarrMovie({
+          id: 1,
+          title: 'Amélie',
+          studio: 'Café Films',
+        }),
+        createMockRadarrMovie({
+          id: 2,
+          title: 'Naïve Movie',
+          overview: 'A story about naïveté',
+        }),
+      ]
+      mockRadarrClient.getAllMovies.mockResolvedValue(mockMovies)
+
+      let result = await service.getLibraryMovies('amélie')
+      expect(result).toHaveLength(1)
+      expect(result[0].title).toBe('Amélie')
+
+      result = await service.getLibraryMovies('café')
+      expect(result).toHaveLength(1)
+
+      result = await service.getLibraryMovies('naïve')
+      expect(result).toHaveLength(1)
+      expect(result[0].title).toBe('Naïve Movie')
+    })
+
+    it('should handle partial word matching', async () => {
+      const mockMovies = [
+        createMockRadarrMovie({
+          id: 1,
+          title: 'Transformers',
+          genres: ['Action', 'Sci-Fi'],
+        }),
+        createMockRadarrMovie({
+          id: 2,
+          title: 'Transformer',
+          genres: ['Drama'],
+        }),
+      ]
+      mockRadarrClient.getAllMovies.mockResolvedValue(mockMovies)
+
+      let result = await service.getLibraryMovies('transform')
+      expect(result).toHaveLength(2)
+
+      result = await service.getLibraryMovies('former')
+      expect(result).toHaveLength(2)
+    })
+
+    it('should return empty array for no matches', async () => {
+      const mockMovies = [
+        createMockRadarrMovie({
+          id: 1,
+          title: 'Movie A',
+          genres: ['Action'],
+        }),
+      ]
+      mockRadarrClient.getAllMovies.mockResolvedValue(mockMovies)
+
+      const result = await service.getLibraryMovies('nonexistent')
+      expect(result).toHaveLength(0)
+    })
+
+    it('should handle whitespace-only queries', async () => {
+      const mockMovies = [
+        createMockRadarrMovie({
+          id: 1,
+          title: 'Test Movie',
+        }),
+      ]
+      mockRadarrClient.getAllMovies.mockResolvedValue(mockMovies)
+
+      const result = await service.getLibraryMovies('   ')
+      // Should return all movies when query is effectively empty after trimming
+      expect(result).toHaveLength(1)
+    })
+
+    it('should handle movies with null/undefined fields', async () => {
+      const mockMovies = [
+        createMockRadarrMovie({
+          id: 1,
+          title: 'Movie with nulls',
+          originalTitle: undefined,
+          overview: undefined,
+          certification: undefined,
+          studio: undefined,
+        }) as RadarrMovie,
+      ]
+      mockRadarrClient.getAllMovies.mockResolvedValue(mockMovies)
+
+      const result = await service.getLibraryMovies('movie')
+      expect(result).toHaveLength(1)
+      expect(result[0].title).toBe('Movie with nulls')
+    })
+
+    it('should handle input validation errors', async () => {
+      const validationError = new Error('Query too short')
       jest
-        .spyOn(RadarrOutputSchemas.movieArray, 'parse')
+        .spyOn(RadarrInputSchemas.optionalSearchQuery, 'parse')
         .mockImplementation(() => {
           throw validationError
         })
 
-      await expect(service.getAllMoviesInLibrary()).rejects.toThrow(
-        'Invalid movie array',
+      await expect(service.getLibraryMovies('x')).rejects.toThrow(
+        'Invalid search query: Query too short',
       )
+    })
+
+    it('should handle output validation errors', async () => {
+      const mockMovies = [createMockRadarrMovie()]
+      mockRadarrClient.getAllMovies.mockResolvedValue(mockMovies)
+
+      const validationError = new Error('Invalid library search result array')
+      jest
+        .spyOn(RadarrOutputSchemas.movieLibrarySearchResultArray, 'parse')
+        .mockImplementation(() => {
+          throw validationError
+        })
+
+      await expect(service.getLibraryMovies()).rejects.toThrow(
+        'Invalid library search result array',
+      )
+    })
+
+    it('should handle API errors', async () => {
+      mockRadarrClient.getAllMovies.mockRejectedValue(new Error('API Error'))
+
+      await expect(service.getLibraryMovies()).rejects.toThrow('API Error')
     })
   })
 
@@ -823,6 +1092,162 @@ describe('RadarrService', () => {
           'Configuration error: No accessible root folders available in Radarr',
       })
     })
+
+    it('should handle movie with special characters in title', async () => {
+      const specialMovie = createMockMovieSearchResult({
+        title: 'Fast & Furious: Tokyo Drift',
+        tmdbId: 999999,
+      })
+      const addedMovie = createMockRadarrMovie({
+        id: 1,
+        tmdbId: 999999,
+        title: 'Fast & Furious: Tokyo Drift',
+        monitored: true,
+      })
+
+      mockRadarrClient.isMovieInLibrary.mockResolvedValue(null)
+      mockRadarrClient.addMovie.mockResolvedValue(addedMovie)
+      mockRadarrClient.triggerMovieSearch.mockResolvedValue(mockCommand)
+
+      const result = await service.monitorAndDownloadMovie(specialMovie)
+
+      expect(mockRadarrClient.addMovie).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Fast & Furious: Tokyo Drift',
+          titleSlug: 'fast-furious-tokyo-drift',
+        }),
+      )
+      expect(result.success).toBe(true)
+    })
+
+    it('should handle movie with Unicode characters in title', async () => {
+      const unicodeMovie = createMockMovieSearchResult({
+        title: 'Amélie: Café Dreams',
+        tmdbId: 888888,
+      })
+      const addedMovie = createMockRadarrMovie({
+        id: 1,
+        tmdbId: 888888,
+        title: 'Amélie: Café Dreams',
+        monitored: true,
+      })
+
+      mockRadarrClient.isMovieInLibrary.mockResolvedValue(null)
+      mockRadarrClient.addMovie.mockResolvedValue(addedMovie)
+      mockRadarrClient.triggerMovieSearch.mockResolvedValue(mockCommand)
+
+      const result = await service.monitorAndDownloadMovie(unicodeMovie)
+
+      expect(mockRadarrClient.addMovie).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Amélie: Café Dreams',
+          titleSlug: 'amlie-caf-dreams',
+        }),
+      )
+      expect(result.success).toBe(true)
+    })
+
+    it('should handle movie with only special characters in title', async () => {
+      const weirdMovie = createMockMovieSearchResult({
+        title: '!!!@#$%^&*()',
+        tmdbId: 777777,
+      })
+      const addedMovie = createMockRadarrMovie({
+        id: 1,
+        tmdbId: 777777,
+        title: '!!!@#$%^&*()',
+        monitored: true,
+      })
+
+      mockRadarrClient.isMovieInLibrary.mockResolvedValue(null)
+      mockRadarrClient.addMovie.mockResolvedValue(addedMovie)
+      mockRadarrClient.triggerMovieSearch.mockResolvedValue(mockCommand)
+
+      const result = await service.monitorAndDownloadMovie(weirdMovie)
+
+      expect(mockRadarrClient.addMovie).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: '!!!@#$%^&*()',
+          titleSlug: '', // Should result in empty slug
+        }),
+      )
+      expect(result.success).toBe(true)
+    })
+
+    it('should handle movie with very long title', async () => {
+      const longTitle = 'A'.repeat(500) // Very long title
+      const longTitleMovie = createMockMovieSearchResult({
+        title: longTitle,
+        tmdbId: 666666,
+      })
+      const addedMovie = createMockRadarrMovie({
+        id: 1,
+        tmdbId: 666666,
+        title: longTitle,
+        monitored: true,
+      })
+
+      mockRadarrClient.isMovieInLibrary.mockResolvedValue(null)
+      mockRadarrClient.addMovie.mockResolvedValue(addedMovie)
+      mockRadarrClient.triggerMovieSearch.mockResolvedValue(mockCommand)
+
+      const result = await service.monitorAndDownloadMovie(longTitleMovie)
+
+      expect(result.success).toBe(true)
+      expect(mockRadarrClient.addMovie).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: longTitle,
+          titleSlug: 'a'.repeat(500).toLowerCase(),
+        }),
+      )
+    })
+
+    it('should handle isMovieInLibrary API errors gracefully', async () => {
+      mockRadarrClient.isMovieInLibrary.mockRejectedValue(
+        new Error('API timeout'),
+      )
+
+      const result = await service.monitorAndDownloadMovie(mockMovie)
+
+      expect(result).toEqual({
+        success: false,
+        movieAdded: false,
+        searchTriggered: false,
+        error: 'API timeout',
+      })
+    })
+
+    it('should handle quality profiles API errors', async () => {
+      mockRadarrClient.isMovieInLibrary.mockResolvedValue(null)
+      mockRadarrClient.getQualityProfiles.mockRejectedValue(
+        new Error('Quality profiles unavailable'),
+      )
+
+      const result = await service.monitorAndDownloadMovie(mockMovie)
+
+      expect(result).toEqual({
+        success: false,
+        movieAdded: false,
+        searchTriggered: false,
+        error: 'Configuration error: Quality profiles unavailable',
+      })
+    })
+
+    it('should handle root folders API errors', async () => {
+      mockRadarrClient.isMovieInLibrary.mockResolvedValue(null)
+      mockRadarrClient.getRootFolders.mockRejectedValue(
+        new Error('Root folders unavailable'),
+      )
+
+      const result = await service.monitorAndDownloadMovie(mockMovie)
+
+      expect(result).toEqual({
+        success: false,
+        movieAdded: false,
+        searchTriggered: false,
+        error: 'Configuration error: Root folders unavailable',
+      })
+    })
   })
 
   describe('unmonitorAndDeleteMovie', () => {
@@ -993,6 +1418,112 @@ describe('RadarrService', () => {
 
       await expect(service.getSystemStatus()).rejects.toThrow('Test error')
       expect(mockRadarrClient.getSystemStatus).toHaveBeenCalled()
+    })
+
+    it('should handle network timeout errors gracefully', async () => {
+      const timeoutError = new Error('Request timeout')
+      timeoutError.name = 'TimeoutError'
+
+      mockRadarrClient.searchMovies.mockRejectedValue(timeoutError)
+
+      await expect(service.searchMovies('test')).rejects.toThrow(
+        'Request timeout',
+      )
+    })
+
+    it('should handle connection refused errors gracefully', async () => {
+      const connectionError = new Error('ECONNREFUSED')
+      connectionError.name = 'ConnectionError'
+
+      mockRadarrClient.getAllMovies.mockRejectedValue(connectionError)
+
+      await expect(service.getLibraryMovies()).rejects.toThrow('ECONNREFUSED')
+    })
+
+    it('should handle malformed response errors', async () => {
+      const parseError = new Error('Unexpected token < in JSON at position 0')
+      parseError.name = 'SyntaxError'
+
+      mockRadarrClient.getAllQueueItems.mockRejectedValue(parseError)
+
+      await expect(service.getDownloadingMovies()).rejects.toThrow(
+        'Unexpected token < in JSON at position 0',
+      )
+    })
+
+    it('should handle HTTP 500 errors gracefully', async () => {
+      const serverError = new Error('Internal Server Error')
+      serverError.name = 'HTTPError'
+
+      mockRadarrClient.getSystemStatus.mockRejectedValue(serverError)
+
+      await expect(service.getSystemStatus()).rejects.toThrow(
+        'Internal Server Error',
+      )
+    })
+
+    it('should handle HTTP 401 authentication errors', async () => {
+      const authError = new Error('Unauthorized')
+      authError.name = 'HTTPError'
+
+      mockRadarrClient.isMovieInLibrary.mockResolvedValue(null)
+      mockRadarrClient.getQualityProfiles.mockRejectedValue(authError)
+
+      const movie = createMockMovieSearchResult()
+      const result = await service.monitorAndDownloadMovie(movie)
+
+      expect(result).toEqual({
+        success: false,
+        movieAdded: false,
+        searchTriggered: false,
+        error: 'Configuration error: Unauthorized',
+      })
+    })
+
+    it('should handle HTTP 404 not found errors', async () => {
+      const notFoundError = new Error('Not Found')
+      notFoundError.name = 'HTTPError'
+
+      mockRadarrClient.getMovie.mockRejectedValue(notFoundError)
+      const mockMovie = createMockRadarrMovie()
+
+      const result = await service.unmonitorAndDeleteMovie(mockMovie)
+
+      expect(result).toEqual({
+        success: false,
+        movieDeleted: false,
+        filesDeleted: false,
+        error: 'Movie not found in Radarr: Not Found',
+      })
+    })
+
+    it('should handle validation errors with detailed messages', async () => {
+      const validationError = new Error('Invalid input: title is required')
+      validationError.name = 'ValidationError'
+
+      jest
+        .spyOn(RadarrInputSchemas.searchQuery, 'parse')
+        .mockImplementation(() => {
+          throw validationError
+        })
+
+      await expect(service.searchMovies('')).rejects.toThrow(
+        'Invalid search query: Invalid input: title is required',
+      )
+    })
+
+    it('should handle unknown error types gracefully', async () => {
+      const unknownError = { message: 'Something weird happened' }
+
+      jest
+        .spyOn(RadarrInputSchemas.searchQuery, 'parse')
+        .mockReturnValue({ query: 'test' })
+
+      mockRadarrClient.searchMovies.mockRejectedValue(unknownError)
+
+      await expect(service.searchMovies('test')).rejects.toMatchObject(
+        unknownError,
+      )
     })
   })
 })

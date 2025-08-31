@@ -289,6 +289,52 @@ describe('RadarrClient', () => {
         '/movie/lookup?term=test+%26+movie%3A+part+1',
       )
     })
+
+    it('should handle Unicode characters in query', async () => {
+      const mockMovies = [createMockMovieResource()]
+      mockGet.mockResolvedValue(mockMovies)
+
+      await client.searchMovies('Amélie café naïve')
+
+      expect(mockGet).toHaveBeenCalledWith(
+        '/movie/lookup?term=Am%C3%A9lie+caf%C3%A9+na%C3%AFve',
+      )
+    })
+
+    it('should handle very long query strings', async () => {
+      const longQuery = 'a'.repeat(1000)
+      const mockMovies = [createMockMovieResource()]
+      mockGet.mockResolvedValue(mockMovies)
+
+      await client.searchMovies(longQuery)
+
+      expect(mockGet).toHaveBeenCalledWith(
+        expect.stringContaining('/movie/lookup?term='),
+      )
+      expect(mockGet).toHaveBeenCalledWith(
+        expect.stringContaining('a'.repeat(100)), // Should contain many 'a's
+      )
+    })
+
+    it('should handle query with only numbers', async () => {
+      const mockMovies = [createMockMovieResource()]
+      mockGet.mockResolvedValue(mockMovies)
+
+      await client.searchMovies('2023')
+
+      expect(mockGet).toHaveBeenCalledWith('/movie/lookup?term=2023')
+    })
+
+    it('should handle query with mixed whitespace types', async () => {
+      const mockMovies = [createMockMovieResource()]
+      mockGet.mockResolvedValue(mockMovies)
+
+      await client.searchMovies('test\tmovie\npart\r2')
+
+      expect(mockGet).toHaveBeenCalledWith(
+        '/movie/lookup?term=test%09movie%0Apart%0D2',
+      )
+    })
   })
 
   describe('getSystemStatus', () => {
@@ -471,6 +517,20 @@ describe('RadarrClient', () => {
 
       await expect(client.getMovie(999)).rejects.toThrow('Movie not found')
     })
+
+    it('should handle negative movie ID', async () => {
+      mockGet.mockRejectedValue(new Error('Invalid movie ID'))
+
+      await expect(client.getMovie(-1)).rejects.toThrow('Invalid movie ID')
+      expect(mockGet).toHaveBeenCalledWith('/movie/-1')
+    })
+
+    it('should handle zero movie ID', async () => {
+      mockGet.mockRejectedValue(new Error('Invalid movie ID'))
+
+      await expect(client.getMovie(0)).rejects.toThrow('Invalid movie ID')
+      expect(mockGet).toHaveBeenCalledWith('/movie/0')
+    })
   })
 
   describe('triggerMovieSearch', () => {
@@ -509,6 +569,30 @@ describe('RadarrClient', () => {
         movieIds: [123],
       })
       expect(result).toEqual(mockCommand)
+    })
+
+    it('should handle invalid movie ID for search', async () => {
+      mockPost.mockRejectedValue(new Error('Movie not found'))
+
+      await expect(client.triggerMovieSearch(999999)).rejects.toThrow(
+        'Movie not found',
+      )
+      expect(mockPost).toHaveBeenCalledWith('/command', {
+        name: 'MoviesSearch',
+        movieIds: [999999],
+      })
+    })
+
+    it('should handle negative movie ID for search', async () => {
+      mockPost.mockRejectedValue(new Error('Invalid movie ID'))
+
+      await expect(client.triggerMovieSearch(-1)).rejects.toThrow(
+        'Invalid movie ID',
+      )
+      expect(mockPost).toHaveBeenCalledWith('/command', {
+        name: 'MoviesSearch',
+        movieIds: [-1],
+      })
     })
   })
 
@@ -576,6 +660,38 @@ describe('RadarrClient', () => {
 
       expect(mockDelete).toHaveBeenCalledWith('/movie/123?deleteFiles=true')
     })
+
+    it('should delete movie with explicit deleteFiles false', async () => {
+      const options: DeleteMovieOptions = { deleteFiles: false }
+      mockDelete.mockResolvedValue(undefined)
+
+      await client.deleteMovie(123, options)
+
+      expect(mockDelete).toHaveBeenCalledWith('/movie/123?deleteFiles=false')
+    })
+
+    it('should handle invalid movie ID gracefully', async () => {
+      mockDelete.mockRejectedValue(new Error('Movie not found'))
+
+      await expect(client.deleteMovie(999999)).rejects.toThrow(
+        'Movie not found',
+      )
+      expect(mockDelete).toHaveBeenCalledWith('/movie/999999')
+    })
+
+    it('should handle negative movie ID', async () => {
+      mockDelete.mockRejectedValue(new Error('Invalid movie ID'))
+
+      await expect(client.deleteMovie(-1)).rejects.toThrow('Invalid movie ID')
+      expect(mockDelete).toHaveBeenCalledWith('/movie/-1')
+    })
+
+    it('should handle zero movie ID', async () => {
+      mockDelete.mockRejectedValue(new Error('Invalid movie ID'))
+
+      await expect(client.deleteMovie(0)).rejects.toThrow('Invalid movie ID')
+      expect(mockDelete).toHaveBeenCalledWith('/movie/0')
+    })
   })
 
   describe('getAllQueueItems', () => {
@@ -622,6 +738,80 @@ describe('RadarrClient', () => {
 
       expect(mockGet).toHaveBeenCalledWith(
         '/queue?page=2&pageSize=10&sortKey=progress&sortDirection=descending&includeMovie=true',
+      )
+      expect(result).toEqual(mockResponse.records)
+    })
+
+    it('should include includeUnknownMovieItems parameter', async () => {
+      const mockResponse: RadarrQueuePaginatedResponse = {
+        page: 1,
+        pageSize: 20,
+        sortKey: 'timeleft',
+        sortDirection: 'ascending',
+        totalRecords: 1,
+        records: [createMockQueueItem()],
+      }
+      mockGet.mockResolvedValue(mockResponse)
+
+      const options = {
+        includeUnknownMovieItems: true,
+        includeMovie: false,
+      }
+
+      const result = await client.getAllQueueItems(options)
+
+      expect(mockGet).toHaveBeenCalledWith(
+        '/queue?includeUnknownMovieItems=true&includeMovie=false',
+      )
+      expect(result).toEqual(mockResponse.records)
+    })
+
+    it('should handle boundary values for pagination parameters', async () => {
+      const mockResponse: RadarrQueuePaginatedResponse = {
+        page: 1,
+        pageSize: 1,
+        sortKey: 'timeleft',
+        sortDirection: 'ascending',
+        totalRecords: 1,
+        records: [createMockQueueItem()],
+      }
+      mockGet.mockResolvedValue(mockResponse)
+
+      const options = {
+        page: 1,
+        pageSize: 1,
+      }
+
+      const result = await client.getAllQueueItems(options)
+
+      expect(mockGet).toHaveBeenCalledWith('/queue?page=1&pageSize=1')
+      expect(result).toEqual(mockResponse.records)
+    })
+
+    it('should handle all optional parameters together', async () => {
+      const mockResponse: RadarrQueuePaginatedResponse = {
+        page: 3,
+        pageSize: 50,
+        sortKey: 'progress',
+        sortDirection: 'ascending',
+        totalRecords: 100,
+        records: [createMockQueueItem()],
+      }
+      mockGet.mockResolvedValue(mockResponse)
+
+      const options = {
+        page: 3,
+        pageSize: 50,
+        sortKey: 'progress',
+        sortDirection: 'ascending' as const,
+        includeUnknownMovieItems: false,
+        includeMovie: true,
+      }
+
+      const result = await client.getAllQueueItems(options)
+
+      expect(mockGet).toHaveBeenCalledWith(
+        '/queue?page=3&pageSize=50&sortKey=progress&sortDirection=ascending&includeUnknownMovieItems=false&includeMovie=true',
       )
       expect(result).toEqual(mockResponse.records)
     })
@@ -680,6 +870,68 @@ describe('RadarrClient', () => {
       expect(mockDelete).toHaveBeenCalledWith(
         '/queue/123?removeFromClient=true&blocklist=false',
       )
+    })
+
+    it('should cancel queue item with only removeFromClient option', async () => {
+      mockDelete.mockResolvedValue(undefined)
+
+      await client.cancelQueueItem(123, {
+        removeFromClient: true,
+      })
+
+      expect(mockDelete).toHaveBeenCalledWith(
+        '/queue/123?removeFromClient=true',
+      )
+    })
+
+    it('should cancel queue item with only blocklist option', async () => {
+      mockDelete.mockResolvedValue(undefined)
+
+      await client.cancelQueueItem(123, {
+        blocklist: true,
+      })
+
+      expect(mockDelete).toHaveBeenCalledWith('/queue/123?blocklist=true')
+    })
+
+    it('should cancel queue item with both options false', async () => {
+      mockDelete.mockResolvedValue(undefined)
+
+      await client.cancelQueueItem(123, {
+        removeFromClient: false,
+        blocklist: false,
+      })
+
+      expect(mockDelete).toHaveBeenCalledWith(
+        '/queue/123?removeFromClient=false&blocklist=false',
+      )
+    })
+
+    it('should handle invalid queue ID gracefully', async () => {
+      mockDelete.mockRejectedValue(new Error('Queue item not found'))
+
+      await expect(client.cancelQueueItem(999999)).rejects.toThrow(
+        'Queue item not found',
+      )
+      expect(mockDelete).toHaveBeenCalledWith('/queue/999999')
+    })
+
+    it('should handle negative queue ID', async () => {
+      mockDelete.mockRejectedValue(new Error('Invalid queue ID'))
+
+      await expect(client.cancelQueueItem(-1)).rejects.toThrow(
+        'Invalid queue ID',
+      )
+      expect(mockDelete).toHaveBeenCalledWith('/queue/-1')
+    })
+
+    it('should handle zero queue ID', async () => {
+      mockDelete.mockRejectedValue(new Error('Invalid queue ID'))
+
+      await expect(client.cancelQueueItem(0)).rejects.toThrow(
+        'Invalid queue ID',
+      )
+      expect(mockDelete).toHaveBeenCalledWith('/queue/0')
     })
   })
 

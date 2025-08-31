@@ -4,6 +4,7 @@ import { performance } from 'perf_hooks'
 
 import { RadarrClient } from 'src/media/clients/radarr.client'
 import {
+  OptionalSearchQueryInput,
   RadarrInputSchemas,
   RadarrOutputSchemas,
   SearchQueryInput,
@@ -14,6 +15,7 @@ import {
   DownloadingMovie,
   MonitorAndDownloadResult,
   MonitorMovieOptions,
+  MovieLibrarySearchResult,
   MovieSearchResult,
   RadarrMinimumAvailability,
   RadarrMovie,
@@ -118,40 +120,23 @@ export class RadarrService {
   }
 
   /**
-   * Get all movies in the Radarr library
-   * @returns Array of movies in the library
+   * Get movies in Radarr library with optional search query
+   * @param query - Optional search query to filter library movies (min 2 characters)
+   * @returns Array of library movies (all if no query, filtered if query provided)
    */
-  async getAllMoviesInLibrary(): Promise<RadarrMovie[]> {
+  async getLibraryMovies(query?: string): Promise<MovieLibrarySearchResult[]> {
     const id = nanoid()
 
-    this.logger.log({ id }, 'Getting all movies from Radarr library')
+    // Validate input if query is provided
+    const validatedInput = this.validateOptionalSearchQuery({ query })
+    const normalizedQuery = validatedInput.query
 
-    try {
-      const start = performance.now()
-      const movies = await this.radarrClient.getAllMovies()
-      const duration = performance.now() - start
+    this.logger.log(
+      { id, query: normalizedQuery, hasQuery: !!normalizedQuery },
+      'Getting library movies from Radarr',
+    )
 
-      // Validate output using movie array schema
-      const validatedMovies = RadarrOutputSchemas.movieArray.parse(
-        movies,
-      ) as RadarrMovie[]
-
-      this.logger.log(
-        { id, movieCount: validatedMovies.length, duration },
-        'All movies retrieved from Radarr library',
-      )
-
-      return validatedMovies
-    } catch (error) {
-      this.logger.error(
-        {
-          id,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        'Failed to get all movies from Radarr library',
-      )
-      throw error
-    }
+    return await this.fetchLibraryMovies(normalizedQuery, id)
   }
 
   /**
@@ -838,6 +823,193 @@ export class RadarrService {
         'Failed to check for active downloads',
       )
       throw error
+    }
+  }
+
+  /**
+   * Private method to fetch library movies with optional search
+   */
+  private async fetchLibraryMovies(
+    query: string | undefined,
+    operationId: string,
+  ): Promise<MovieLibrarySearchResult[]> {
+    this.logger.log(
+      { id: operationId, query, hasQuery: !!query },
+      'Fetching library movies from Radarr API',
+    )
+    const start = performance.now()
+
+    try {
+      // Get all movies from library
+      const allMovies = await this.radarrClient.getAllMovies()
+      let filteredMovies = allMovies
+
+      // Filter if query is provided
+      if (query) {
+        filteredMovies = this.filterMoviesByQuery(allMovies, query)
+        this.logger.log(
+          {
+            id: operationId,
+            query,
+            totalMovies: allMovies.length,
+            filteredCount: filteredMovies.length,
+          },
+          'Filtered library movies by query',
+        )
+      }
+
+      // Transform to library search results
+      const results = this.transformToLibraryResults(filteredMovies)
+      const duration = performance.now() - start
+
+      // Validate output
+      const validatedResults =
+        RadarrOutputSchemas.movieLibrarySearchResultArray.parse(results)
+
+      this.logger.log(
+        {
+          id: operationId,
+          query,
+          resultCount: validatedResults.length,
+          duration,
+        },
+        'Library movies fetch completed',
+      )
+
+      return validatedResults
+    } catch (error) {
+      const duration = performance.now() - start
+
+      this.logger.error(
+        {
+          id: operationId,
+          query,
+          duration,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        'Failed to fetch library movies',
+      )
+
+      throw error
+    }
+  }
+
+  /**
+   * Filter movies array by search query
+   */
+  private filterMoviesByQuery(
+    movies: RadarrMovie[],
+    query: string,
+  ): RadarrMovie[] {
+    const normalizedQuery = query.toLowerCase().trim()
+
+    return movies.filter(movie => {
+      // Search in title
+      if (movie.title.toLowerCase().includes(normalizedQuery)) {
+        return true
+      }
+
+      // Search in original title
+      if (movie.originalTitle?.toLowerCase().includes(normalizedQuery)) {
+        return true
+      }
+
+      // Search in year
+      if (movie.year?.toString().includes(normalizedQuery)) {
+        return true
+      }
+
+      // Search in genres
+      if (
+        movie.genres.some(genre =>
+          genre.toLowerCase().includes(normalizedQuery),
+        )
+      ) {
+        return true
+      }
+
+      // Search in overview
+      if (movie.overview?.toLowerCase().includes(normalizedQuery)) {
+        return true
+      }
+
+      // Search in certification
+      if (movie.certification?.toLowerCase().includes(normalizedQuery)) {
+        return true
+      }
+
+      // Search in studio
+      if (movie.studio?.toLowerCase().includes(normalizedQuery)) {
+        return true
+      }
+
+      return false
+    })
+  }
+
+  /**
+   * Transform RadarrMovie to MovieLibrarySearchResult
+   */
+  private transformToLibraryResults(
+    movies: RadarrMovie[],
+  ): MovieLibrarySearchResult[] {
+    return movies.map(movie => ({
+      // Base fields from MovieSearchResult
+      tmdbId: movie.tmdbId,
+      imdbId: movie.imdbId,
+      title: movie.title,
+      originalTitle: movie.originalTitle,
+      year: movie.year,
+      overview: movie.overview,
+      runtime: movie.runtime,
+      genres: movie.genres,
+      rating: movie.ratings.imdb?.value,
+      posterPath: movie.images.find(img => img.coverType === 'poster')
+        ?.remoteUrl,
+      backdropPath: movie.images.find(img => img.coverType === 'fanart')
+        ?.remoteUrl,
+      inCinemas: movie.inCinemas,
+      physicalRelease: movie.physicalRelease,
+      digitalRelease: movie.digitalRelease,
+      status: movie.status,
+      certification: movie.certification,
+      studio: movie.studio,
+      website: movie.website,
+      youTubeTrailerId: movie.youTubeTrailerId,
+      popularity: movie.popularity,
+      // Library-specific fields
+      id: movie.id,
+      monitored: movie.monitored,
+      path: movie.path,
+      hasFile: movie.hasFile,
+      added: movie.added,
+      sizeOnDisk: movie.sizeOnDisk,
+      qualityProfileId: movie.qualityProfileId,
+      rootFolderPath: movie.path,
+      minimumAvailability: movie.minimumAvailability,
+      isAvailable: movie.isAvailable,
+    }))
+  }
+
+  /**
+   * Validate optional search query input
+   */
+  private validateOptionalSearchQuery(input: {
+    query?: string
+  }): OptionalSearchQueryInput {
+    try {
+      return RadarrInputSchemas.optionalSearchQuery.parse(input)
+    } catch (error) {
+      this.logger.error(
+        {
+          input,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        'Invalid optional search query input',
+      )
+      throw new Error(
+        `Invalid search query: ${error instanceof Error ? error.message : 'Unknown validation error'}`,
+      )
     }
   }
 }

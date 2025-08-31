@@ -257,6 +257,22 @@ export interface MovieSearchResult {
 }
 
 /**
+ * Movie library search result - extends MovieSearchResult with library-specific fields
+ */
+export interface MovieLibrarySearchResult extends MovieSearchResult {
+  id: number
+  monitored: boolean
+  path: string
+  hasFile: boolean
+  added: string
+  sizeOnDisk?: number
+  qualityProfileId: number
+  rootFolderPath: string
+  minimumAvailability: RadarrMinimumAvailability
+  isAvailable: boolean
+}
+
+/**
  * Radarr API error response
  */
 export interface RadarrErrorResponse {
