@@ -20,4 +20,6 @@ export type EnvKey =
   | 'RADARR_API_KEY'
   | 'RADARR_URL'
   | 'SERP_API_KEY'
+  | 'SONARR_API_KEY'
+  | 'SONARR_URL'
   | 'TAVILY_API_KEY'

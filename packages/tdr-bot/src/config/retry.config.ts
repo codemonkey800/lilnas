@@ -8,6 +8,7 @@ export interface ServiceRetryConfig {
   discord: RetryConfig
   equationService: RetryConfig
   radarr: RetryConfig
+  sonarr: RetryConfig
   default: RetryConfig
 }
 
@@ -16,6 +17,7 @@ export interface PartialServiceRetryConfig {
   discord?: Partial<RetryConfig>
   equationService?: Partial<RetryConfig>
   radarr?: Partial<RetryConfig>
+  sonarr?: Partial<RetryConfig>
   default?: Partial<RetryConfig>
 }
 
@@ -78,6 +80,20 @@ export class RetryConfigService {
       logErrorDetails: true,
       logSeverityThreshold: ErrorSeverity.LOW,
     },
+    sonarr: {
+      maxAttempts: 3,
+      baseDelay: 1000,
+      maxDelay: 30000,
+      backoffFactor: 2,
+      jitter: true,
+      timeout: 15000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
+    },
     default: {
       maxAttempts: 3,
       baseDelay: 1000,
@@ -123,6 +139,13 @@ export class RetryConfigService {
   }
 
   /**
+   * Get retry configuration for Sonarr API calls
+   */
+  getSonarrConfig(): RetryConfig {
+    return { ...this.configs.sonarr }
+  }
+
+  /**
    * Get default retry configuration
    */
   getDefaultConfig(): RetryConfig {
@@ -155,6 +178,7 @@ export class RetryConfigService {
       discord: { ...this.configs.discord },
       equationService: { ...this.configs.equationService },
       radarr: { ...this.configs.radarr },
+      sonarr: { ...this.configs.sonarr },
       default: { ...this.configs.default },
     }
   }
@@ -209,6 +233,21 @@ export class RetryConfigService {
     }
 
     this.configs.radarr = {
+      maxAttempts: 3,
+      baseDelay: 1000,
+      maxDelay: 30000,
+      backoffFactor: 2,
+      jitter: true,
+      timeout: 15000,
+      logRetryAttempts: true,
+      logSuccessfulRetries: true,
+      logFailedRetries: true,
+      logRetryDelays: false,
+      logErrorDetails: true,
+      logSeverityThreshold: ErrorSeverity.LOW,
+    }
+
+    this.configs.sonarr = {
       maxAttempts: 3,
       baseDelay: 1000,
       maxDelay: 30000,
@@ -431,6 +470,50 @@ export const getRetryConfigFromEnv = (): PartialServiceRetryConfig => {
   }
   if (Object.keys(radarrConfig).length > 0) {
     envConfig.radarr = radarrConfig
+  }
+
+  // Sonarr configuration
+  const sonarrConfig: Partial<RetryConfig> = {}
+  if (process.env.SONARR_RETRY_MAX_ATTEMPTS) {
+    sonarrConfig.maxAttempts = parseInt(
+      process.env.SONARR_RETRY_MAX_ATTEMPTS,
+      10,
+    )
+  }
+  if (process.env.SONARR_RETRY_BASE_DELAY) {
+    sonarrConfig.baseDelay = parseInt(process.env.SONARR_RETRY_BASE_DELAY, 10)
+  }
+  if (process.env.SONARR_RETRY_MAX_DELAY) {
+    sonarrConfig.maxDelay = parseInt(process.env.SONARR_RETRY_MAX_DELAY, 10)
+  }
+  if (process.env.SONARR_RETRY_TIMEOUT) {
+    sonarrConfig.timeout = parseInt(process.env.SONARR_RETRY_TIMEOUT, 10)
+  }
+  if (process.env.SONARR_RETRY_LOG_ATTEMPTS) {
+    sonarrConfig.logRetryAttempts =
+      process.env.SONARR_RETRY_LOG_ATTEMPTS === 'true'
+  }
+  if (process.env.SONARR_RETRY_LOG_SUCCESS) {
+    sonarrConfig.logSuccessfulRetries =
+      process.env.SONARR_RETRY_LOG_SUCCESS === 'true'
+  }
+  if (process.env.SONARR_RETRY_LOG_FAILED) {
+    sonarrConfig.logFailedRetries =
+      process.env.SONARR_RETRY_LOG_FAILED === 'true'
+  }
+  if (process.env.SONARR_RETRY_LOG_DELAYS) {
+    sonarrConfig.logRetryDelays = process.env.SONARR_RETRY_LOG_DELAYS === 'true'
+  }
+  if (process.env.SONARR_RETRY_LOG_ERROR_DETAILS) {
+    sonarrConfig.logErrorDetails =
+      process.env.SONARR_RETRY_LOG_ERROR_DETAILS === 'true'
+  }
+  if (process.env.SONARR_RETRY_LOG_SEVERITY_THRESHOLD) {
+    sonarrConfig.logSeverityThreshold = process.env
+      .SONARR_RETRY_LOG_SEVERITY_THRESHOLD as ErrorSeverity
+  }
+  if (Object.keys(sonarrConfig).length > 0) {
+    envConfig.sonarr = sonarrConfig
   }
 
   return envConfig
