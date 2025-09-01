@@ -96,6 +96,42 @@ export class RadarrClient extends BaseMediaApiClient {
   }
 
   /**
+   * Lookup a movie by TMDB ID
+   * This uses the dedicated TMDB lookup endpoint which is more reliable than searching by TMDB ID as text
+   * @param tmdbId - The TMDB ID of the movie to lookup
+   * @returns Single movie resource if found
+   */
+  async lookupMovieByTmdbId(tmdbId: number): Promise<RadarrMovieResource> {
+    if (!tmdbId || tmdbId <= 0) {
+      throw new Error('Valid TMDB ID is required')
+    }
+
+    this.logger.log({ tmdbId }, 'Looking up movie by TMDB ID via Radarr API')
+
+    try {
+      const movie = await this.get<RadarrMovieResource>(
+        `/movie/lookup/tmdb?tmdbId=${tmdbId}`,
+      )
+
+      this.logger.log(
+        { tmdbId, title: movie.title },
+        'Movie lookup by TMDB ID completed successfully',
+      )
+
+      return movie
+    } catch (error) {
+      this.logger.error(
+        {
+          tmdbId,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        'Failed to lookup movie by TMDB ID',
+      )
+      throw error
+    }
+  }
+
+  /**
    * Get system status for health check
    */
   async getSystemStatus(): Promise<RadarrSystemStatus> {

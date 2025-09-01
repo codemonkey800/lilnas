@@ -502,6 +502,7 @@ export const MonitorSeriesOptionsSchema = z.object({
  */
 export const UnmonitorSeriesOptionsSchema = z.object({
   selection: z.array(SeasonEpisodeSelectionSchema).optional(),
+  deleteFiles: z.boolean().optional(),
 })
 
 /**

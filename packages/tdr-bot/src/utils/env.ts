@@ -10,6 +10,7 @@ export type EnvKey =
   | 'FRONTEND_PORT'
   | 'GRAPH_TEST'
   | 'HUGGING_FACE_TOKEN'
+  | 'LOG_FILE_PATH'
   | 'MINIO_ACCESS_KEY'
   | 'MINIO_HOST'
   | 'MINIO_PORT'

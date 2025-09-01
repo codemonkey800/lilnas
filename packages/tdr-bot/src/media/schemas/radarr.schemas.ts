@@ -567,6 +567,7 @@ export const RadarrQueueItemSchema = z.object({
   outputPath: z.string().optional(),
   estimatedCompletionTime: z.string().optional(),
   added: z.string().optional(),
+  sizeleft: z.number().int().nonnegative().optional(),
 })
 
 /**
@@ -602,7 +603,10 @@ export const DownloadingMovieSchema = z.object({
   outputPath: z.string().optional(),
   estimatedCompletionTime: z.string().optional(),
   added: z.string().optional(),
-  progress: z.number().min(0).max(100).optional(),
+  sizeleft: z.number().int().nonnegative(),
+  // Calculated fields
+  progressPercent: z.number().min(0).max(100),
+  downloadedBytes: z.number().int().nonnegative(),
 })
 
 /**

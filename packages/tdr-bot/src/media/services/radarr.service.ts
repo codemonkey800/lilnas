@@ -23,7 +23,10 @@ import {
   RadarrSystemStatus,
   UnmonitorAndDeleteResult,
 } from 'src/media/types/radarr.types'
-import { transformToSearchResults } from 'src/media/utils/radarr.utils'
+import {
+  transformToSearchResult,
+  transformToSearchResults,
+} from 'src/media/utils/radarr.utils'
 import { ErrorClassificationService } from 'src/utils/error-classifier'
 import { RetryService } from 'src/utils/retry.service'
 
@@ -168,27 +171,40 @@ export class RadarrService {
 
       // Transform queue items to simplified downloading movie format
       const downloadingMovies: DownloadingMovie[] = downloadingItems.map(
-        item => ({
-          id: item.id,
-          movieId: item.movieId,
-          movieTitle: item.movie?.title || item.title,
-          movieYear: item.movie?.year,
-          size: item.size,
-          status: item.status,
-          trackedDownloadStatus: item.trackedDownloadStatus,
-          trackedDownloadState: item.trackedDownloadState,
-          statusMessages: item.statusMessages,
-          errorMessage: item.errorMessage,
-          downloadId: item.downloadId,
-          protocol: item.protocol,
-          downloadClient: item.downloadClient,
-          indexer: item.indexer,
-          outputPath: item.outputPath,
-          estimatedCompletionTime: item.estimatedCompletionTime,
-          added: item.added,
-          // Calculate progress if available (this would need to be added to RadarrQueueItem if Radarr provides it)
-          progress: undefined,
-        }),
+        item => {
+          // Calculate progress safely
+          const size = item.size || 0
+          const sizeleft = item.sizeleft || 0
+          const downloadedBytes = Math.max(0, size - sizeleft)
+          const progressPercent =
+            size > 0
+              ? Math.min(100, Math.max(0, (downloadedBytes / size) * 100))
+              : 0
+
+          return {
+            id: item.id,
+            movieId: item.movieId,
+            movieTitle: item.movie?.title || item.title,
+            movieYear: item.movie?.year,
+            size,
+            status: item.status,
+            trackedDownloadStatus: item.trackedDownloadStatus,
+            trackedDownloadState: item.trackedDownloadState,
+            statusMessages: item.statusMessages,
+            errorMessage: item.errorMessage,
+            downloadId: item.downloadId,
+            protocol: item.protocol,
+            downloadClient: item.downloadClient,
+            indexer: item.indexer,
+            outputPath: item.outputPath,
+            estimatedCompletionTime: item.estimatedCompletionTime,
+            added: item.added,
+            sizeleft,
+            // Calculated fields
+            progressPercent,
+            downloadedBytes,
+          }
+        },
       )
 
       const duration = performance.now() - start
@@ -295,32 +311,30 @@ export class RadarrService {
 
   /**
    * Monitor a movie and trigger immediate download
-   * @param movie - Movie object to monitor and download
+   * @param tmdbId - TMDB ID of the movie to monitor and download
    * @param options - Optional configuration for monitoring
    * @returns Result of the monitor and download operation
    */
   async monitorAndDownloadMovie(
-    movie: MovieSearchResult,
+    tmdbId: number,
     options: MonitorMovieOptions = {},
   ): Promise<MonitorAndDownloadResult> {
     const id = nanoid()
     const warnings: string[] = []
 
     this.logger.log(
-      { id, tmdbId: movie.tmdbId, options },
+      { id, tmdbId, options },
       'Starting monitor and download movie operation',
     )
 
     try {
       // Check if movie is already in library
-      const existingMovie = await this.radarrClient.isMovieInLibrary(
-        movie.tmdbId,
-      )
+      const existingMovie = await this.radarrClient.isMovieInLibrary(tmdbId)
       if (existingMovie) {
         this.logger.log(
           {
             id,
-            tmdbId: movie.tmdbId,
+            tmdbId,
             movieId: existingMovie.id,
             title: existingMovie.title,
           },
@@ -345,7 +359,7 @@ export class RadarrService {
             this.logger.error(
               {
                 id,
-                tmdbId: movie.tmdbId,
+                tmdbId,
                 movieId: existingMovie.id,
                 error: searchError,
               },
@@ -364,13 +378,35 @@ export class RadarrService {
         }
       }
 
-      // Use the provided movie object directly
+      // Get the movie details by looking up TMDB ID
+      let movie: MovieSearchResult
+      try {
+        const movieResource =
+          await this.radarrClient.lookupMovieByTmdbId(tmdbId)
+        movie = transformToSearchResult(movieResource)
+
+        this.logger.log(
+          { id, tmdbId, title: movie.title },
+          'Found movie via TMDB lookup',
+        )
+      } catch (lookupError) {
+        this.logger.error(
+          { id, tmdbId, error: lookupError },
+          'Failed to lookup movie by TMDB ID',
+        )
+        return {
+          success: false,
+          movieAdded: false,
+          searchTriggered: false,
+          error: `Failed to lookup movie: ${lookupError instanceof Error ? lookupError.message : 'Unknown error'}`,
+        }
+      }
 
       // Get configuration if not provided
       const config = await this.getMovieConfiguration(options)
       if (!config.success) {
         this.logger.error(
-          { id, tmdbId: movie.tmdbId, error: config.error },
+          { id, tmdbId, error: config.error },
           'Configuration failed',
         )
         return {
@@ -412,7 +448,7 @@ export class RadarrService {
         this.logger.log(
           {
             id,
-            tmdbId: movie.tmdbId,
+            tmdbId,
             movieId: addedMovie.id,
             title: addedMovie.title,
           },
@@ -420,7 +456,7 @@ export class RadarrService {
         )
       } catch (addError) {
         this.logger.error(
-          { id, tmdbId: movie.tmdbId, error: addError },
+          { id, tmdbId, error: addError },
           'Failed to add movie to Radarr',
         )
         return {
@@ -444,7 +480,7 @@ export class RadarrService {
           this.logger.log(
             {
               id,
-              tmdbId: movie.tmdbId,
+              tmdbId,
               movieId: addedMovie.id,
               commandId: command.id,
             },
@@ -454,7 +490,7 @@ export class RadarrService {
           this.logger.error(
             {
               id,
-              tmdbId: movie.tmdbId,
+              tmdbId,
               movieId: addedMovie.id,
               error: searchError,
             },
@@ -480,7 +516,7 @@ export class RadarrService {
       this.logger.log(
         {
           id,
-          tmdbId: movie.tmdbId,
+          tmdbId,
           movieId: addedMovie.id,
           searchTriggered,
           commandId,
@@ -494,7 +530,7 @@ export class RadarrService {
       this.logger.error(
         {
           id,
-          tmdbId: movie.tmdbId,
+          tmdbId,
           error: error instanceof Error ? error.message : 'Unknown error',
         },
         'Monitor and download movie operation failed',
@@ -587,23 +623,37 @@ export class RadarrService {
 
   /**
    * Unmonitor a movie and delete its files
-   * @param movie - Movie object to unmonitor and delete
+   * @param tmdbId - TMDB ID of the movie to unmonitor and delete
    * @param options - Optional configuration for deletion
    * @returns Result of the unmonitor and delete operation
    */
   async unmonitorAndDeleteMovie(
-    movie: RadarrMovie,
+    tmdbId: number,
     options: DeleteMovieOptions = {},
   ): Promise<UnmonitorAndDeleteResult> {
     const id = nanoid()
     const warnings: string[] = []
 
     this.logger.log(
-      { id, movieId: movie.id, title: movie.title, options },
+      { id, tmdbId, options },
       'Starting unmonitor and delete movie operation',
     )
 
     try {
+      // Find movie by TMDB ID in the library
+      const libraryMovies = await this.getLibraryMovies()
+      const movie = libraryMovies.find(m => m.tmdbId === tmdbId)
+
+      if (!movie) {
+        this.logger.error({ id, tmdbId }, 'Movie not found in Jeremy+ library')
+        return {
+          success: false,
+          movieDeleted: false,
+          filesDeleted: false,
+          error: `Movie with TMDB ID ${tmdbId} not found in Jeremy+ library`,
+        }
+      }
+
       // Verify movie still exists in Radarr before attempting deletion
       let currentMovie: RadarrMovie
       try {
@@ -611,6 +661,7 @@ export class RadarrService {
         this.logger.log(
           {
             id,
+            tmdbId,
             movieId: movie.id,
             title: currentMovie.title,
             monitored: currentMovie.monitored,
@@ -619,7 +670,7 @@ export class RadarrService {
         )
       } catch (getError) {
         this.logger.error(
-          { id, movieId: movie.id, error: getError },
+          { id, tmdbId, movieId: movie.id, error: getError },
           'Movie not found in Radarr, may have been deleted already',
         )
         return {
@@ -645,6 +696,7 @@ export class RadarrService {
         this.logger.warn(
           {
             id,
+            tmdbId,
             movieId: movie.id,
             error:
               downloadError instanceof Error
@@ -669,6 +721,7 @@ export class RadarrService {
         this.logger.log(
           {
             id,
+            tmdbId,
             movieId: movie.id,
             title: currentMovie.title,
             deleteFiles: options.deleteFiles,
@@ -680,7 +733,7 @@ export class RadarrService {
         )
       } catch (deleteError) {
         this.logger.error(
-          { id, movieId: movie.id, error: deleteError },
+          { id, tmdbId, movieId: movie.id, error: deleteError },
           'Failed to delete movie from Radarr',
         )
         return {
@@ -718,6 +771,7 @@ export class RadarrService {
       this.logger.log(
         {
           id,
+          tmdbId,
           movieId: movie.id,
           title: currentMovie.title,
           filesDeleted,
@@ -733,8 +787,7 @@ export class RadarrService {
       this.logger.error(
         {
           id,
-          movieId: movie.id,
-          title: movie.title,
+          tmdbId,
           error: error instanceof Error ? error.message : 'Unknown error',
         },
         'Unmonitor and delete movie operation failed',

@@ -20,9 +20,13 @@ import {
   ImageQuerySchema,
   ImageResponseSchema,
   InputStateAnnotation,
+  MediaRequest,
+  MediaRequestSchema,
+  MediaRequestType,
   OutputStateAnnotation,
   OverallStateAnnotation,
   ResponseType,
+  SearchIntent,
 } from 'src/schemas/graph'
 import { MessageResponse } from 'src/schemas/messages'
 import { EquationImageService } from 'src/services/equation-image.service'
@@ -33,18 +37,21 @@ import {
   EXTRACT_IMAGE_QUERIES_PROMPT,
   GET_CHAT_MATH_RESPONSE,
   GET_MATH_RESPONSE_PROMPT,
+  GET_MEDIA_TYPE_PROMPT,
   GET_RESPONSE_TYPE_PROMPT,
   IMAGE_RESPONSE,
+  MEDIA_CONTEXT_PROMPT,
   TDR_SYSTEM_PROMPT_ID,
 } from 'src/utils/prompts'
 import { RetryService } from 'src/utils/retry.service'
 
-import { createMediaTools, dateTool } from './tools'
+import { dateTool } from './tools'
 
 const RESPONSE_TYPE_GRAPH_NODE_MAP: Record<ResponseType, GraphNode> = {
   [ResponseType.Default]: GraphNode.GetModelDefaultResponse,
   [ResponseType.Math]: GraphNode.GetModelMathResponse,
   [ResponseType.Image]: GraphNode.GetModelImageResponse,
+  [ResponseType.Media]: GraphNode.GetModelMediaResponse,
 }
 
 /**
@@ -59,15 +66,20 @@ export class LLMService {
     private readonly errorClassifier: ErrorClassificationService,
     private readonly radarrService: RadarrService,
     private readonly sonarrService: SonarrService,
-  ) {}
+  ) {
+    // Log tool registration for debugging
+    this.logger.log(
+      {
+        totalToolCount: this.tools.length,
+        toolNames: this.tools.map(t => t.name),
+      },
+      'LLM tools registered and initialized',
+    )
+  }
 
   private readonly logger = new Logger(LLMService.name)
 
-  private tools = [
-    new TavilySearchResults(),
-    dateTool,
-    ...createMediaTools(this.radarrService, this.sonarrService),
-  ]
+  private tools = [new TavilySearchResults(), dateTool]
 
   private toolNode = new ToolNode(this.tools)
 
@@ -99,6 +111,10 @@ export class LLMService {
       GraphNode.GetModelMathResponse,
       this.getModelMathResponse.bind(this),
     )
+    .addNode(
+      GraphNode.GetModelMediaResponse,
+      this.getModelMediaResponse.bind(this),
+    )
     .addNode(GraphNode.Tools, this.toolNode)
     // Edges
     .addEdge(GraphNode.Start, GraphNode.CheckResponseType)
@@ -107,6 +123,7 @@ export class LLMService {
     .addEdge(GraphNode.Tools, GraphNode.GetModelDefaultResponse)
     .addEdge(GraphNode.GetModelImageResponse, GraphNode.End)
     .addEdge(GraphNode.GetModelMathResponse, GraphNode.End)
+    .addEdge(GraphNode.GetModelMediaResponse, GraphNode.End)
     // Conditional edges
     .addConditionalEdges(
       GraphNode.AddTdrSystemPrompt,
@@ -366,6 +383,331 @@ export class LLMService {
         : [],
       messages: messages.concat(chatResponse),
     }
+  }
+
+  private async getModelMediaResponse({
+    message,
+    messages,
+  }: typeof OverallStateAnnotation.State) {
+    this.logger.log({ message: message.content }, 'Processing media request')
+
+    try {
+      // Step 1: Determine media type and search intent
+      this.logger.log('Determining media type and search intent')
+      const mediaTypeResponse = await this.retryService.executeWithRetry(
+        () => this.getReasoningModel().invoke([GET_MEDIA_TYPE_PROMPT, message]),
+        {
+          maxAttempts: 3,
+          baseDelay: 1000,
+          maxDelay: 30000,
+          timeout: 30000,
+        },
+        'OpenAI-getMediaTypeAndIntent',
+      )
+
+      // Parse and validate JSON response using Zod schema
+      let mediaRequest: MediaRequest
+      try {
+        const responseContent = mediaTypeResponse.content as string
+        const parsedResponse = JSON.parse(responseContent)
+        mediaRequest = MediaRequestSchema.parse(parsedResponse)
+      } catch (error) {
+        this.logger.warn(
+          {
+            response: mediaTypeResponse.content,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          },
+          'Invalid media request response, using defaults',
+        )
+        // Fallback to defaults
+        mediaRequest = {
+          mediaType: MediaRequestType.Both,
+          searchIntent: SearchIntent.Library,
+          searchTerms: '',
+        }
+      }
+
+      const { mediaType, searchIntent, searchTerms } = mediaRequest
+      const searchQuery = searchTerms.trim()
+
+      this.logger.log(
+        { mediaType, searchIntent, searchQuery },
+        'Determined media type, search intent, and extracted search terms',
+      )
+
+      // Step 3: Fetch data based on intent and type
+      let mediaData = ''
+      let totalCount = 0
+
+      // Fetch library data if needed
+      if (
+        searchIntent === SearchIntent.Library ||
+        searchIntent === SearchIntent.Both
+      ) {
+        const libraryData = await this.fetchLibraryData(mediaType)
+        mediaData += libraryData.content
+        totalCount += libraryData.count
+      }
+
+      // Fetch external search data if needed
+      if (
+        searchIntent === SearchIntent.External ||
+        searchIntent === SearchIntent.Both
+      ) {
+        if (searchQuery) {
+          const externalData = await this.fetchExternalSearchData(
+            mediaType,
+            searchQuery,
+          )
+          if (searchIntent === SearchIntent.Both && mediaData) {
+            mediaData += '\n\n---\n' // Separator between library and external results
+          }
+          mediaData += externalData.content
+          totalCount += externalData.count
+        } else {
+          this.logger.warn(
+            'External search requested but no search terms extracted',
+          )
+          mediaData +=
+            '\n\n**SEARCH:** Please provide more specific search terms to find new content.'
+        }
+      }
+
+      // Step 4: Create context prompt
+      const contextPrompt = new HumanMessage({
+        content: `${MEDIA_CONTEXT_PROMPT.content}\n\nUser's request: "${message.content}"\n\nMEDIA DATA:${mediaData}`,
+        id: nanoid(),
+      })
+
+      // Step 5: Get conversational response
+      this.logger.log('Getting conversational response with media context')
+      const chatResponse = await this.retryService.executeWithRetry(
+        () => this.getChatModel().invoke([...messages, contextPrompt]),
+        {
+          maxAttempts: 3,
+          baseDelay: 1000,
+          maxDelay: 30000,
+          timeout: 45000,
+        },
+        'OpenAI-getMediaChatResponse',
+      )
+
+      this.logger.log(
+        { mediaType, searchIntent, totalCount },
+        'Media response generated successfully',
+      )
+
+      return {
+        images: [],
+        messages: messages.concat(chatResponse),
+      }
+    } catch (error) {
+      this.logger.error(
+        { error: error instanceof Error ? error.message : 'Unknown error' },
+        'Error processing media request',
+      )
+
+      // Fallback response in case of error
+      const fallbackResponse = new HumanMessage({
+        content:
+          'Sorry, I ran into an issue with your media request! 😅 The services might be down or having trouble.',
+        id: nanoid(),
+      })
+
+      return {
+        images: [],
+        messages: messages.concat(fallbackResponse),
+      }
+    }
+  }
+
+  /**
+   * Fetch library data based on media type
+   */
+  private async fetchLibraryData(mediaType: MediaRequestType): Promise<{
+    content: string
+    count: number
+  }> {
+    let content = ''
+    let count = 0
+
+    if (
+      mediaType === MediaRequestType.Movies ||
+      mediaType === MediaRequestType.Both
+    ) {
+      try {
+        this.logger.log('Fetching movie library data')
+        const movies = await this.radarrService.getLibraryMovies()
+        count += movies.length
+
+        if (movies.length > 0) {
+          content += '\n\n**MOVIES IN LIBRARY:**\n'
+          content += movies
+            .slice(0, 20)
+            .map(movie => {
+              const status = movie.hasFile ? '✅ Downloaded' : '📥 Missing'
+              const year = movie.year ? ` (${movie.year})` : ''
+              return `- ${movie.title}${year} - ${status}`
+            })
+            .join('\n')
+
+          if (movies.length > 20) {
+            content += `\n... and ${movies.length - 20} more movies`
+          }
+          content += `\n\nTotal movies: ${movies.length}`
+        } else {
+          content += '\n\n**MOVIES:** No movies found in library'
+        }
+      } catch (error) {
+        this.logger.error(
+          { error: error instanceof Error ? error.message : 'Unknown error' },
+          'Failed to fetch movie library',
+        )
+        content +=
+          '\n\n**MOVIES:** Unable to fetch movie library (service may be unavailable)'
+      }
+    }
+
+    if (
+      mediaType === MediaRequestType.Shows ||
+      mediaType === MediaRequestType.Both
+    ) {
+      try {
+        this.logger.log('Fetching TV series library data')
+        const series = await this.sonarrService.getLibrarySeries()
+        count += series.length
+
+        if (series.length > 0) {
+          content += '\n\n**TV SHOWS IN LIBRARY:**\n'
+          content += series
+            .slice(0, 20)
+            .map(show => {
+              const seasons = show.statistics
+                ? `S${show.statistics.seasonCount || 0}`
+                : ''
+              const episodes = show.statistics
+                ? `E${show.statistics.totalEpisodeCount || 0}`
+                : ''
+              const status =
+                show.statistics?.percentOfEpisodes === 100
+                  ? '✅ Complete'
+                  : '📥 Partial'
+              return `- ${show.title} ${seasons}${episodes} - ${status}`
+            })
+            .join('\n')
+
+          if (series.length > 20) {
+            content += `\n... and ${series.length - 20} more shows`
+          }
+          content += `\n\nTotal shows: ${series.length}`
+        } else {
+          content += '\n\n**TV SHOWS:** No TV shows found in library'
+        }
+      } catch (error) {
+        this.logger.error(
+          { error: error instanceof Error ? error.message : 'Unknown error' },
+          'Failed to fetch TV series library',
+        )
+        content +=
+          '\n\n**TV SHOWS:** Unable to fetch TV series library (service may be unavailable)'
+      }
+    }
+
+    return { content, count }
+  }
+
+  /**
+   * Fetch external search data based on media type and search query
+   */
+  private async fetchExternalSearchData(
+    mediaType: MediaRequestType,
+    searchQuery: string,
+  ): Promise<{
+    content: string
+    count: number
+  }> {
+    let content = ''
+    let count = 0
+
+    if (
+      mediaType === MediaRequestType.Movies ||
+      mediaType === MediaRequestType.Both
+    ) {
+      try {
+        this.logger.log({ searchQuery }, 'Searching for movies externally')
+        const movies = await this.radarrService.searchMovies(searchQuery)
+        count += movies.length
+
+        if (movies.length > 0) {
+          content += '\n\n**🔍 MOVIE SEARCH RESULTS:**\n'
+          content += movies
+            .slice(0, 15) // Limit external results to avoid overwhelming
+            .map(movie => {
+              const year = movie.year ? ` (${movie.year})` : ''
+              const rating = movie.rating ? ` ⭐${movie.rating.toFixed(1)}` : ''
+              return `- ${movie.title}${year}${rating} - 🔍 Available to add`
+            })
+            .join('\n')
+
+          if (movies.length > 15) {
+            content += `\n... and ${movies.length - 15} more movie results`
+          }
+          content += `\n\nFound ${movies.length} movies matching "${searchQuery}"`
+        } else {
+          content += `\n\n**🔍 MOVIE SEARCH:** No movies found for "${searchQuery}"`
+        }
+      } catch (error) {
+        this.logger.error(
+          {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            searchQuery,
+          },
+          'Failed to search movies externally',
+        )
+        content += `\n\n**🔍 MOVIES:** Unable to search for "${searchQuery}" (service may be unavailable)`
+      }
+    }
+
+    if (
+      mediaType === MediaRequestType.Shows ||
+      mediaType === MediaRequestType.Both
+    ) {
+      try {
+        this.logger.log({ searchQuery }, 'Searching for TV shows externally')
+        const shows = await this.sonarrService.searchShows(searchQuery)
+        count += shows.length
+
+        if (shows.length > 0) {
+          content += '\n\n**🔍 TV SHOW SEARCH RESULTS:**\n'
+          content += shows
+            .slice(0, 15) // Limit external results to avoid overwhelming
+            .map(show => {
+              const year = show.year ? ` (${show.year})` : ''
+              const rating = show.rating ? ` ⭐${show.rating.toFixed(1)}` : ''
+              return `- ${show.title}${year}${rating} - 🔍 Available to add`
+            })
+            .join('\n')
+
+          if (shows.length > 15) {
+            content += `\n... and ${shows.length - 15} more show results`
+          }
+          content += `\n\nFound ${shows.length} shows matching "${searchQuery}"`
+        } else {
+          content += `\n\n**🔍 TV SHOWS:** No shows found for "${searchQuery}"`
+        }
+      } catch (error) {
+        this.logger.error(
+          {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            searchQuery,
+          },
+          'Failed to search TV shows externally',
+        )
+        content += `\n\n**🔍 TV SHOWS:** Unable to search for "${searchQuery}" (service may be unavailable)`
+      }
+    }
+
+    return { content, count }
   }
 
   private trimMessages({ messages }: typeof OverallStateAnnotation.State) {

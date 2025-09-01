@@ -583,6 +583,7 @@ export interface RadarrQueueItem {
   outputPath?: string
   estimatedCompletionTime?: string
   added?: string
+  sizeleft?: number
 }
 
 /**
@@ -618,5 +619,8 @@ export interface DownloadingMovie {
   outputPath?: string
   estimatedCompletionTime?: string
   added?: string
-  progress?: number
+  sizeleft: number
+  // Calculated fields
+  progressPercent: number
+  downloadedBytes: number
 }

@@ -467,6 +467,7 @@ export interface MonitorSeriesOptions {
  */
 export interface UnmonitorSeriesOptions {
   selection?: SeasonEpisodeSelection[] // If omitted, unmonitor entire series (delete)
+  deleteFiles?: boolean // Whether to delete files (default: false for granular, true for full series)
 }
 
 /**

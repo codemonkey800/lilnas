@@ -2,7 +2,7 @@ import { BaseMessage, SystemMessage } from '@langchain/core/messages'
 import dedent from 'dedent'
 
 import { VERSION } from 'src/constants/version'
-import { ResponseType } from 'src/schemas/graph'
+import { MediaRequestType, ResponseType, SearchIntent } from 'src/schemas/graph'
 
 import { emojis } from './emojis'
 
@@ -14,6 +14,13 @@ export const GET_RESPONSE_TYPE_PROMPT = new SystemMessage(dedent`
   If the message is asking for the solution to a complex math problem or asking
   a math question, respond with "${ResponseType.Math}". Simple arithmetic like 1
   + 2 is not considered as complex math.
+
+  If the message is related to media operations (movies, TV shows, series) or mentions "Jeremy+" or "jeremy plus", return "${ResponseType.Media}". This includes requests to:
+  - Download, add, get, or obtain movies/shows
+  - Delete, remove, or uninstall movies/shows  
+  - Search, find, or look for movies/shows
+  - Check progress, status, or library content
+  - Any mention of "Jeremy+" regardless of the request type
 
   Otherwise, respond with "${ResponseType.Default}".
 `)
@@ -50,6 +57,61 @@ export const GET_CHAT_MATH_RESPONSE = new SystemMessage(dedent`
 export const IMAGE_RESPONSE = new SystemMessage(dedent`
   Tell the user the image generated is displayed below. Don't tell the user you
   can't draw images because you can.
+`)
+
+export const GET_MEDIA_TYPE_PROMPT = new SystemMessage(dedent`
+  Analyze the user's media request and return a JSON object with the following structure:
+  
+  {
+    "mediaType": "movies" | "shows" | "both",
+    "searchIntent": "library" | "external" | "both",
+    "searchTerms": "extracted search terms"
+  }
+  
+  Media Types:
+  - "${MediaRequestType.Movies}" - for movies, films, cinema
+  - "${MediaRequestType.Shows}" - for TV shows, series, television, episodes  
+  - "${MediaRequestType.Both}" - for both types or general library queries
+  
+  Search Intents:
+  - "${SearchIntent.Library}" - browsing existing collection ("what do I have", "show me my", "do I have")
+  - "${SearchIntent.External}" - finding new content ("search for", "find", "look for", "add", "get me")
+  - "${SearchIntent.Both}" - both existing and new content
+  
+  Search Terms (extract meaningful terms for searching):
+  - Include: movie/show titles, actors, directors, genres, years, keywords, themes
+  - Remove: action words (search, find), filler words (me, some, new), media type words (movies, shows)
+  - For library-only requests, can be empty string or relevant filter terms
+  - For complex queries, extract the core searchable content
+  
+  Examples:
+  - "what movies do I have?" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Library}", "searchTerms": ""}
+  - "search for The Batman" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.External}", "searchTerms": "The Batman"}
+  - "find me horror shows from the 90s" → {"mediaType": "${MediaRequestType.Shows}", "searchIntent": "${SearchIntent.External}", "searchTerms": "horror 90s"}
+  - "do I have Breaking Bad?" → {"mediaType": "${MediaRequestType.Shows}", "searchIntent": "${SearchIntent.Library}", "searchTerms": "Breaking Bad"}
+  - "show me sci-fi movies and find new ones" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Both}", "searchTerms": "sci-fi"}
+  - "that movie with Ryan Gosling about space" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.External}", "searchTerms": "Ryan Gosling space"}
+  - "cooking shows like MasterChef" → {"mediaType": "${MediaRequestType.Shows}", "searchIntent": "${SearchIntent.External}", "searchTerms": "cooking MasterChef"}
+  
+  Return only valid JSON, no additional text.
+`)
+
+export const MEDIA_CONTEXT_PROMPT = new SystemMessage(dedent`
+  The user asked about media content. Respond conversationally using the provided data below. Be helpful and enthusiastic about their request.
+  
+  The data below will indicate the type of content:
+  - **LIBRARY CONTENT**: Shows existing movies/shows already downloaded or monitored in their collection
+    - Respond about their current collection, highlights, totals, and interesting details
+    - Use status indicators like ✅ (downloaded) and 📥 (missing/wanted)
+  
+  - **EXTERNAL SEARCH RESULTS**: Shows movies/shows available to add from external databases
+    - Present these as options they can add to their library
+    - Explain that these are not currently in their collection but can be added
+    - Use indicators like 🔍 (search result) and ➕ (available to add)
+  
+  - **MIXED RESULTS**: Contains both library and external content
+    - Clearly distinguish between what they already have vs what's available to add
+    - Group the results appropriately with clear section headers
 `)
 
 export const PROMPT_INTRO = dedent`

@@ -16,6 +16,8 @@ import {
   createMockStateGraph,
   MessageBuilder,
 } from 'src/__tests__/test-utils'
+import { RadarrService } from 'src/media/services/radarr.service'
+import { SonarrService } from 'src/media/services/sonarr.service'
 import { ChatService } from 'src/message-handler/chat.service'
 import { KeywordsService } from 'src/message-handler/keywords.service'
 import { LLMService } from 'src/message-handler/llm.service'
@@ -118,6 +120,31 @@ describe('Message Handler Integration Tests', () => {
         {
           provide: ErrorClassificationService,
           useValue: createMockErrorClassificationService(),
+        },
+        {
+          provide: RadarrService,
+          useValue: {
+            searchMovies: jest.fn(),
+            getSystemStatus: jest.fn(),
+            checkHealth: jest.fn(),
+            getLibraryMovies: jest.fn(),
+            getDownloadingMovies: jest.fn(),
+            monitorAndDownloadMovie: jest.fn(),
+            unmonitorAndDeleteMovie: jest.fn(),
+          },
+        },
+        {
+          provide: SonarrService,
+          useValue: {
+            searchShows: jest.fn(),
+            getSystemStatus: jest.fn(),
+            checkHealth: jest.fn(),
+            getDownloadingEpisodes: jest.fn(),
+            monitorAndDownloadSeries: jest.fn(),
+            getLibrarySeries: jest.fn(),
+            unmonitorAndDeleteSeries: jest.fn(),
+            getSeriesDetails: jest.fn(),
+          },
         },
       ],
     }).compile()

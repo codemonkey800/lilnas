@@ -457,12 +457,12 @@ export class SonarrService {
 
   /**
    * Monitor and download a series with granular control over seasons/episodes
-   * @param series - Series search result from searchShows()
+   * @param tvdbId - TVDB ID of the series to monitor and download
    * @param options - Monitoring options (optional)
    * @returns Result of the monitoring operation
    */
   async monitorAndDownloadSeries(
-    series: SeriesSearchResult,
+    tvdbId: number,
     options: MonitorSeriesOptions = {},
   ): Promise<MonitorAndDownloadSeriesResult> {
     const id = nanoid()
@@ -473,8 +473,7 @@ export class SonarrService {
       this.logger.log(
         {
           id,
-          tvdbId: series.tvdbId,
-          title: series.title,
+          tvdbId,
           options: validatedOptions,
         },
         'Starting monitor and download series operation',
@@ -483,9 +482,7 @@ export class SonarrService {
       const start = performance.now()
 
       // Check if series already exists
-      const existingSeries = await this.sonarrClient.getSeriesByTvdbId(
-        series.tvdbId,
-      )
+      const existingSeries = await this.sonarrClient.getSeriesByTvdbId(tvdbId)
 
       let result: MonitorAndDownloadSeriesResult
 
@@ -500,10 +497,49 @@ export class SonarrService {
           id,
         )
       } else {
-        this.logger.log(
-          { id, tvdbId: series.tvdbId },
-          'Adding new series to Sonarr',
-        )
+        // Search for the series by TVDB ID since it's not in library
+        let series: SeriesSearchResult
+        try {
+          const searchResults = await this.searchShows(tvdbId.toString())
+          const exactMatch = searchResults.find(
+            result => result.tvdbId === tvdbId,
+          )
+
+          if (!exactMatch) {
+            this.logger.error(
+              { id, tvdbId },
+              'Series not found in search results',
+            )
+            return {
+              success: false,
+              seriesAdded: false,
+              seriesUpdated: false,
+              searchTriggered: false,
+              changes: [],
+              error: `Series with TVDB ID ${tvdbId} not found`,
+            }
+          }
+
+          series = exactMatch
+          this.logger.log(
+            { id, tvdbId, title: series.title },
+            'Found series in search results, adding to Sonarr',
+          )
+        } catch (searchError) {
+          this.logger.error(
+            { id, tvdbId, error: searchError },
+            'Failed to search for series',
+          )
+          return {
+            success: false,
+            seriesAdded: false,
+            seriesUpdated: false,
+            searchTriggered: false,
+            changes: [],
+            error: `Failed to search for series: ${searchError instanceof Error ? searchError.message : 'Unknown error'}`,
+          }
+        }
+
         result = await this.addNewSeries(series, validatedOptions, id)
       }
 
@@ -511,8 +547,7 @@ export class SonarrService {
       this.logger.log(
         {
           id,
-          tvdbId: series.tvdbId,
-          title: series.title,
+          tvdbId,
           seriesAdded: result.seriesAdded,
           seriesUpdated: result.seriesUpdated,
           searchTriggered: result.searchTriggered,
@@ -527,8 +562,7 @@ export class SonarrService {
       this.logger.error(
         {
           id,
-          tvdbId: series.tvdbId,
-          title: series.title,
+          tvdbId,
           error: error instanceof Error ? error.message : 'Unknown error',
         },
         'Failed to monitor and download series',
@@ -1087,12 +1121,12 @@ export class SonarrService {
 
   /**
    * Unmonitor and delete series with granular control over seasons/episodes
-   * @param series - Series search result or series with id and tvdbId
+   * @param tvdbId - TVDB ID of the series to unmonitor and delete
    * @param options - Unmonitoring options (optional)
    * @returns Result of the unmonitoring operation
    */
   async unmonitorAndDeleteSeries(
-    series: SeriesSearchResult | { id: number; tvdbId: number },
+    tvdbId: number,
     options: UnmonitorSeriesOptions = {},
   ): Promise<UnmonitorAndDeleteSeriesResult> {
     const id = nanoid()
@@ -1103,8 +1137,7 @@ export class SonarrService {
       this.logger.log(
         {
           id,
-          tvdbId: series.tvdbId,
-          title: 'title' in series ? series.title : 'Unknown',
+          tvdbId,
           options: validatedOptions,
         },
         'Starting unmonitor and delete series operation',
@@ -1112,24 +1145,11 @@ export class SonarrService {
 
       const start = performance.now()
 
-      // Get existing series from Sonarr
-      let existingSeries: SonarrSeries | null = null
-
-      if ('id' in series) {
-        // Series already has internal ID
-        existingSeries = await this.sonarrClient.getSeriesById(series.id)
-      } else {
-        // Lookup by TVDB ID
-        existingSeries = await this.sonarrClient.getSeriesByTvdbId(
-          series.tvdbId,
-        )
-      }
+      // Get existing series from Sonarr by TVDB ID
+      const existingSeries = await this.sonarrClient.getSeriesByTvdbId(tvdbId)
 
       if (!existingSeries) {
-        this.logger.warn(
-          { id, tvdbId: series.tvdbId },
-          'Series not found in Sonarr library',
-        )
+        this.logger.warn({ id, tvdbId }, 'Series not found in Sonarr library')
 
         return {
           success: false,
@@ -1170,8 +1190,8 @@ export class SonarrService {
       this.logger.log(
         {
           id,
-          tvdbId: series.tvdbId,
-          title: 'title' in series ? series.title : existingSeries.title,
+          tvdbId,
+          title: existingSeries.title,
           seriesDeleted: result.seriesDeleted,
           episodesUnmonitored: result.episodesUnmonitored,
           canceledDownloads: result.canceledDownloads,
@@ -1186,8 +1206,7 @@ export class SonarrService {
       this.logger.error(
         {
           id,
-          tvdbId: series.tvdbId,
-          title: 'title' in series ? series.title : 'Unknown',
+          tvdbId,
           error: error instanceof Error ? error.message : 'Unknown error',
         },
         'Failed to unmonitor and delete series',
@@ -1396,7 +1415,7 @@ export class SonarrService {
 
       // Delete the series
       await this.sonarrClient.deleteSeries(series.id, {
-        deleteFiles: true, // Delete files when removing entire series
+        deleteFiles: true, // Always delete files when removing entire series
         addImportListExclusion: false, // Don't add to exclusion list
       })
 
@@ -1503,9 +1522,9 @@ export class SonarrService {
           'No monitored episodes remain, deleting series',
         )
 
-        // Delete the series (files remain since we're doing granular unmonitoring)
+        // Delete the series - check if files should be deleted
         await this.sonarrClient.deleteSeries(series.id, {
-          deleteFiles: false, // Keep files since this was granular unmonitoring
+          deleteFiles: options.deleteFiles ?? false, // Use option or default to false for granular unmonitoring
           addImportListExclusion: false,
         })
 

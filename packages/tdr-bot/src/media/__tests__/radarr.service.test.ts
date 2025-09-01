@@ -11,6 +11,7 @@ import {
   DeleteMovieOptions,
   DownloadProtocol,
   MonitorMovieOptions,
+  MovieLibrarySearchResult,
   MovieSearchResult,
   RadarrCommandResponse,
   RadarrImageType,
@@ -29,17 +30,23 @@ import {
 import { ErrorClassificationService } from 'src/utils/error-classifier'
 import { RetryService } from 'src/utils/retry.service'
 
-// Mock the utility function
+// Mock the utility functions
 jest.mock('src/media/utils/radarr.utils', () => ({
   transformToSearchResults: jest.fn(),
+  transformToSearchResult: jest.fn(),
 }))
 
-// Import the mocked function
-import { transformToSearchResults } from 'src/media/utils/radarr.utils'
+// Import the mocked functions
+import {
+  transformToSearchResult,
+  transformToSearchResults,
+} from 'src/media/utils/radarr.utils'
 const mockTransformToSearchResults =
   transformToSearchResults as jest.MockedFunction<
     typeof transformToSearchResults
   >
+const mockTransformToSearchResult =
+  transformToSearchResult as jest.MockedFunction<typeof transformToSearchResult>
 
 // Mock nanoid
 jest.mock('nanoid', () => ({
@@ -196,6 +203,7 @@ describe('RadarrService', () => {
     // Create comprehensive mocked RadarrClient
     mockRadarrClient = {
       searchMovies: jest.fn(),
+      lookupMovieByTmdbId: jest.fn(),
       getSystemStatus: jest.fn(),
       checkHealth: jest.fn(),
       getAllMovies: jest.fn(),
@@ -897,6 +905,72 @@ describe('RadarrService', () => {
     beforeEach(() => {
       mockRadarrClient.getQualityProfiles.mockResolvedValue(mockQualityProfiles)
       mockRadarrClient.getRootFolders.mockResolvedValue(mockRootFolders)
+      // Mock lookupMovieByTmdbId to return a movie resource that transforms to mockMovie
+      mockRadarrClient.lookupMovieByTmdbId = jest.fn().mockResolvedValue({
+        tmdbId: mockMovie.tmdbId,
+        title: mockMovie.title,
+        year: mockMovie.year,
+        overview: mockMovie.overview,
+        runtime: mockMovie.runtime,
+        genres: mockMovie.genres,
+        inCinemas: mockMovie.inCinemas,
+        physicalRelease: mockMovie.physicalRelease,
+        digitalRelease: mockMovie.digitalRelease,
+        certification: mockMovie.certification,
+        studio: mockMovie.studio,
+        website: mockMovie.website,
+        youTubeTrailerId: mockMovie.youTubeTrailerId,
+        popularity: mockMovie.popularity,
+        imdbId: mockMovie.imdbId,
+        originalTitle: mockMovie.originalTitle,
+        ratings: {
+          imdb: { value: mockMovie.rating || 0, votes: 1000, type: 'user' },
+        },
+        images: [
+          {
+            coverType: RadarrImageType.POSTER,
+            url: mockMovie.posterPath || '',
+          },
+          {
+            coverType: RadarrImageType.FANART,
+            url: mockMovie.backdropPath || '',
+          },
+        ],
+        status: mockMovie.status,
+        hasFile: false,
+        isAvailable: true,
+        minimumAvailability: RadarrMinimumAvailability.RELEASED,
+        cleanTitle: 'testmovie',
+        titleSlug: 'test-movie',
+      })
+
+      // Mock transformToSearchResult to return a proper MovieSearchResult
+      mockTransformToSearchResult.mockImplementation(movieResource => ({
+        tmdbId: movieResource.tmdbId,
+        imdbId: movieResource.imdbId,
+        title: movieResource.title,
+        originalTitle: movieResource.originalTitle,
+        year: movieResource.year,
+        overview: movieResource.overview,
+        runtime: movieResource.runtime,
+        genres: movieResource.genres,
+        rating: movieResource.ratings?.imdb?.value,
+        posterPath: movieResource.images?.find(
+          img => img.coverType === 'poster',
+        )?.url,
+        backdropPath: movieResource.images?.find(
+          img => img.coverType === 'fanart',
+        )?.url,
+        inCinemas: movieResource.inCinemas,
+        physicalRelease: movieResource.physicalRelease,
+        digitalRelease: movieResource.digitalRelease,
+        status: movieResource.status,
+        certification: movieResource.certification,
+        studio: movieResource.studio,
+        website: movieResource.website,
+        youTubeTrailerId: movieResource.youTubeTrailerId,
+        popularity: movieResource.popularity,
+      }))
     })
 
     it('should monitor and download movie successfully with new movie', async () => {
@@ -910,9 +984,12 @@ describe('RadarrService', () => {
       mockRadarrClient.addMovie.mockResolvedValue(addedMovie)
       mockRadarrClient.triggerMovieSearch.mockResolvedValue(mockCommand)
 
-      const result = await service.monitorAndDownloadMovie(mockMovie)
+      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
 
       expect(mockRadarrClient.isMovieInLibrary).toHaveBeenCalledWith(
+        mockMovie.tmdbId,
+      )
+      expect(mockRadarrClient.lookupMovieByTmdbId).toHaveBeenCalledWith(
         mockMovie.tmdbId,
       )
       expect(mockRadarrClient.getQualityProfiles).toHaveBeenCalled()
@@ -950,9 +1027,10 @@ describe('RadarrService', () => {
       mockRadarrClient.isMovieInLibrary.mockResolvedValue(existingMovie)
       mockRadarrClient.triggerMovieSearch.mockResolvedValue(mockCommand)
 
-      const result = await service.monitorAndDownloadMovie(mockMovie)
+      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
 
       expect(mockRadarrClient.addMovie).not.toHaveBeenCalled()
+      expect(mockRadarrClient.lookupMovieByTmdbId).not.toHaveBeenCalled() // Should not lookup if already in library
       expect(mockRadarrClient.triggerMovieSearch).toHaveBeenCalledWith(1)
 
       expect(result).toEqual({
@@ -981,7 +1059,7 @@ describe('RadarrService', () => {
       mockRadarrClient.addMovie.mockResolvedValue(addedMovie)
       mockRadarrClient.triggerMovieSearch.mockResolvedValue(mockCommand)
 
-      const result = await service.monitorAndDownloadMovie(mockMovie)
+      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
 
       expect(mockRadarrClient.addMovie).toHaveBeenCalled()
       expect(result.success).toBe(true)
@@ -1007,7 +1085,10 @@ describe('RadarrService', () => {
         monitored: false,
       })
 
-      const result = await service.monitorAndDownloadMovie(mockMovie, options)
+      const result = await service.monitorAndDownloadMovie(
+        mockMovie.tmdbId,
+        options,
+      )
 
       expect(mockRadarrClient.addMovie).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1027,7 +1108,7 @@ describe('RadarrService', () => {
       mockRadarrClient.isMovieInLibrary.mockResolvedValue(null)
       mockRadarrClient.getQualityProfiles.mockResolvedValue([])
 
-      const result = await service.monitorAndDownloadMovie(mockMovie)
+      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
 
       expect(result).toEqual({
         success: false,
@@ -1043,7 +1124,7 @@ describe('RadarrService', () => {
         new Error('Movie already exists'),
       )
 
-      const result = await service.monitorAndDownloadMovie(mockMovie)
+      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
 
       expect(result).toEqual({
         success: false,
@@ -1066,7 +1147,7 @@ describe('RadarrService', () => {
         new Error('Search failed'),
       )
 
-      const result = await service.monitorAndDownloadMovie(mockMovie)
+      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
 
       expect(result.success).toBe(true)
       expect(result.movieAdded).toBe(true)
@@ -1082,7 +1163,7 @@ describe('RadarrService', () => {
         createMockRootFolder({ accessible: false }),
       ])
 
-      const result = await service.monitorAndDownloadMovie(mockMovie)
+      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
 
       expect(result).toEqual({
         success: false,
@@ -1106,10 +1187,47 @@ describe('RadarrService', () => {
       })
 
       mockRadarrClient.isMovieInLibrary.mockResolvedValue(null)
+      mockRadarrClient.lookupMovieByTmdbId.mockResolvedValueOnce({
+        tmdbId: specialMovie.tmdbId,
+        title: specialMovie.title,
+        year: specialMovie.year || 2023,
+        overview: specialMovie.overview,
+        runtime: specialMovie.runtime || 120,
+        genres: specialMovie.genres,
+        inCinemas: specialMovie.inCinemas,
+        physicalRelease: specialMovie.physicalRelease,
+        digitalRelease: specialMovie.digitalRelease,
+        certification: specialMovie.certification,
+        studio: specialMovie.studio,
+        website: specialMovie.website,
+        youTubeTrailerId: specialMovie.youTubeTrailerId,
+        popularity: specialMovie.popularity,
+        imdbId: specialMovie.imdbId,
+        originalTitle: specialMovie.originalTitle,
+        ratings: {
+          imdb: { value: specialMovie.rating || 0, votes: 1000, type: 'user' },
+        },
+        images: [
+          {
+            coverType: RadarrImageType.POSTER,
+            url: specialMovie.posterPath || '',
+          },
+          {
+            coverType: RadarrImageType.FANART,
+            url: specialMovie.backdropPath || '',
+          },
+        ],
+        status: specialMovie.status,
+        hasFile: false,
+        isAvailable: true,
+        minimumAvailability: RadarrMinimumAvailability.RELEASED,
+        cleanTitle: 'testmovie',
+        titleSlug: 'test-movie',
+      })
       mockRadarrClient.addMovie.mockResolvedValue(addedMovie)
       mockRadarrClient.triggerMovieSearch.mockResolvedValue(mockCommand)
 
-      const result = await service.monitorAndDownloadMovie(specialMovie)
+      const result = await service.monitorAndDownloadMovie(specialMovie.tmdbId)
 
       expect(mockRadarrClient.addMovie).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1136,7 +1254,46 @@ describe('RadarrService', () => {
       mockRadarrClient.addMovie.mockResolvedValue(addedMovie)
       mockRadarrClient.triggerMovieSearch.mockResolvedValue(mockCommand)
 
-      const result = await service.monitorAndDownloadMovie(unicodeMovie)
+      // Mock lookup for Unicode movie
+      mockRadarrClient.lookupMovieByTmdbId.mockResolvedValueOnce({
+        tmdbId: unicodeMovie.tmdbId,
+        title: unicodeMovie.title,
+        year: unicodeMovie.year || 2023,
+        overview: unicodeMovie.overview,
+        runtime: unicodeMovie.runtime || 120,
+        genres: unicodeMovie.genres,
+        inCinemas: unicodeMovie.inCinemas,
+        physicalRelease: unicodeMovie.physicalRelease,
+        digitalRelease: unicodeMovie.digitalRelease,
+        certification: unicodeMovie.certification,
+        studio: unicodeMovie.studio,
+        website: unicodeMovie.website,
+        youTubeTrailerId: unicodeMovie.youTubeTrailerId,
+        popularity: unicodeMovie.popularity,
+        imdbId: unicodeMovie.imdbId,
+        originalTitle: unicodeMovie.originalTitle,
+        ratings: {
+          imdb: { value: unicodeMovie.rating || 0, votes: 1000, type: 'user' },
+        },
+        images: [
+          {
+            coverType: RadarrImageType.POSTER,
+            url: unicodeMovie.posterPath || '',
+          },
+          {
+            coverType: RadarrImageType.FANART,
+            url: unicodeMovie.backdropPath || '',
+          },
+        ],
+        status: unicodeMovie.status,
+        hasFile: false,
+        isAvailable: true,
+        minimumAvailability: RadarrMinimumAvailability.RELEASED,
+        cleanTitle: 'testmovie',
+        titleSlug: 'test-movie',
+      })
+
+      const result = await service.monitorAndDownloadMovie(unicodeMovie.tmdbId)
 
       expect(mockRadarrClient.addMovie).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1160,10 +1317,48 @@ describe('RadarrService', () => {
       })
 
       mockRadarrClient.isMovieInLibrary.mockResolvedValue(null)
+      // Mock lookup for weird movie
+      mockRadarrClient.lookupMovieByTmdbId.mockResolvedValueOnce({
+        tmdbId: weirdMovie.tmdbId,
+        title: weirdMovie.title,
+        year: weirdMovie.year || 2023,
+        overview: weirdMovie.overview,
+        runtime: weirdMovie.runtime || 120,
+        genres: weirdMovie.genres,
+        inCinemas: weirdMovie.inCinemas,
+        physicalRelease: weirdMovie.physicalRelease,
+        digitalRelease: weirdMovie.digitalRelease,
+        certification: weirdMovie.certification,
+        studio: weirdMovie.studio,
+        website: weirdMovie.website,
+        youTubeTrailerId: weirdMovie.youTubeTrailerId,
+        popularity: weirdMovie.popularity,
+        imdbId: weirdMovie.imdbId,
+        originalTitle: weirdMovie.originalTitle,
+        ratings: {
+          imdb: { value: weirdMovie.rating || 0, votes: 1000, type: 'user' },
+        },
+        images: [
+          {
+            coverType: RadarrImageType.POSTER,
+            url: weirdMovie.posterPath || '',
+          },
+          {
+            coverType: RadarrImageType.FANART,
+            url: weirdMovie.backdropPath || '',
+          },
+        ],
+        status: weirdMovie.status,
+        hasFile: false,
+        isAvailable: true,
+        minimumAvailability: RadarrMinimumAvailability.RELEASED,
+        cleanTitle: 'testmovie',
+        titleSlug: 'test-movie',
+      })
       mockRadarrClient.addMovie.mockResolvedValue(addedMovie)
       mockRadarrClient.triggerMovieSearch.mockResolvedValue(mockCommand)
 
-      const result = await service.monitorAndDownloadMovie(weirdMovie)
+      const result = await service.monitorAndDownloadMovie(weirdMovie.tmdbId)
 
       expect(mockRadarrClient.addMovie).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1188,10 +1383,54 @@ describe('RadarrService', () => {
       })
 
       mockRadarrClient.isMovieInLibrary.mockResolvedValue(null)
+      // Mock lookup for long title movie
+      mockRadarrClient.lookupMovieByTmdbId.mockResolvedValueOnce({
+        tmdbId: longTitleMovie.tmdbId,
+        title: longTitleMovie.title,
+        year: longTitleMovie.year || 2023,
+        overview: longTitleMovie.overview,
+        runtime: longTitleMovie.runtime || 120,
+        genres: longTitleMovie.genres,
+        inCinemas: longTitleMovie.inCinemas,
+        physicalRelease: longTitleMovie.physicalRelease,
+        digitalRelease: longTitleMovie.digitalRelease,
+        certification: longTitleMovie.certification,
+        studio: longTitleMovie.studio,
+        website: longTitleMovie.website,
+        youTubeTrailerId: longTitleMovie.youTubeTrailerId,
+        popularity: longTitleMovie.popularity,
+        imdbId: longTitleMovie.imdbId,
+        originalTitle: longTitleMovie.originalTitle,
+        ratings: {
+          imdb: {
+            value: longTitleMovie.rating || 0,
+            votes: 1000,
+            type: 'user',
+          },
+        },
+        images: [
+          {
+            coverType: RadarrImageType.POSTER,
+            url: longTitleMovie.posterPath || '',
+          },
+          {
+            coverType: RadarrImageType.FANART,
+            url: longTitleMovie.backdropPath || '',
+          },
+        ],
+        status: longTitleMovie.status,
+        hasFile: false,
+        isAvailable: true,
+        minimumAvailability: RadarrMinimumAvailability.RELEASED,
+        cleanTitle: 'testmovie',
+        titleSlug: 'test-movie',
+      })
       mockRadarrClient.addMovie.mockResolvedValue(addedMovie)
       mockRadarrClient.triggerMovieSearch.mockResolvedValue(mockCommand)
 
-      const result = await service.monitorAndDownloadMovie(longTitleMovie)
+      const result = await service.monitorAndDownloadMovie(
+        longTitleMovie.tmdbId,
+      )
 
       expect(result.success).toBe(true)
       expect(mockRadarrClient.addMovie).toHaveBeenCalledWith(
@@ -1207,7 +1446,7 @@ describe('RadarrService', () => {
         new Error('API timeout'),
       )
 
-      const result = await service.monitorAndDownloadMovie(mockMovie)
+      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
 
       expect(result).toEqual({
         success: false,
@@ -1223,7 +1462,7 @@ describe('RadarrService', () => {
         new Error('Quality profiles unavailable'),
       )
 
-      const result = await service.monitorAndDownloadMovie(mockMovie)
+      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
 
       expect(result).toEqual({
         success: false,
@@ -1239,7 +1478,7 @@ describe('RadarrService', () => {
         new Error('Root folders unavailable'),
       )
 
-      const result = await service.monitorAndDownloadMovie(mockMovie)
+      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
 
       expect(result).toEqual({
         success: false,
@@ -1258,13 +1497,30 @@ describe('RadarrService', () => {
     })
 
     it('should unmonitor and delete movie successfully', async () => {
+      // Mock getLibraryMovies to return the movie we want to delete
+      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
+        {
+          ...mockMovie,
+          tmdbId: mockMovie.tmdbId,
+          monitored: mockMovie.monitored,
+          hasFile: mockMovie.hasFile,
+          path: mockMovie.path,
+          added: mockMovie.added,
+          qualityProfileId: mockMovie.qualityProfileId,
+          rootFolderPath: '/movies',
+          isAvailable: mockMovie.isAvailable,
+        } as MovieLibrarySearchResult,
+      ])
       mockRadarrClient.getMovie.mockResolvedValue(mockMovie)
       mockRadarrClient.getQueueItemsForMovie.mockResolvedValue([])
       mockRadarrClient.deleteMovie.mockResolvedValue(undefined)
 
       const options: DeleteMovieOptions = { deleteFiles: true }
 
-      const result = await service.unmonitorAndDeleteMovie(mockMovie, options)
+      const result = await service.unmonitorAndDeleteMovie(
+        mockMovie.tmdbId,
+        options,
+      )
 
       expect(mockRadarrClient.getMovie).toHaveBeenCalledWith(1)
       expect(mockRadarrClient.getQueueItemsForMovie).toHaveBeenCalledWith(1)
@@ -1285,12 +1541,20 @@ describe('RadarrService', () => {
         createMockQueueItem({ id: 2, movieId: 1 }),
       ]
 
+      // Mock getLibraryMovies to return the movie we want to delete
+      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
+        {
+          ...mockMovie,
+          tmdbId: mockMovie.tmdbId,
+        } as any,
+      ])
+
       mockRadarrClient.getMovie.mockResolvedValue(mockMovie)
       mockRadarrClient.getQueueItemsForMovie.mockResolvedValue(mockQueueItems)
       mockRadarrClient.cancelAllQueueItemsForMovie.mockResolvedValue(2)
       mockRadarrClient.deleteMovie.mockResolvedValue(undefined)
 
-      const result = await service.unmonitorAndDeleteMovie(mockMovie, {
+      const result = await service.unmonitorAndDeleteMovie(mockMovie.tmdbId, {
         deleteFiles: true,
       })
 
@@ -1307,12 +1571,20 @@ describe('RadarrService', () => {
         createMockQueueItem({ id: 2, movieId: 1 }),
       ]
 
+      // Mock getLibraryMovies to return the movie we want to delete
+      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
+        {
+          ...mockMovie,
+          tmdbId: mockMovie.tmdbId,
+        } as any,
+      ])
+
       mockRadarrClient.getMovie.mockResolvedValue(mockMovie)
       mockRadarrClient.getQueueItemsForMovie.mockResolvedValue(mockQueueItems)
       mockRadarrClient.cancelAllQueueItemsForMovie.mockResolvedValue(1) // Only 1 out of 2 cancelled
       mockRadarrClient.deleteMovie.mockResolvedValue(undefined)
 
-      const result = await service.unmonitorAndDeleteMovie(mockMovie, {
+      const result = await service.unmonitorAndDeleteMovie(mockMovie.tmdbId, {
         deleteFiles: true,
       })
 
@@ -1322,9 +1594,17 @@ describe('RadarrService', () => {
     })
 
     it('should handle movie not found error', async () => {
+      // Mock getLibraryMovies to return the movie we want to delete
+      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
+        {
+          ...mockMovie,
+          tmdbId: mockMovie.tmdbId,
+        } as any,
+      ])
+
       mockRadarrClient.getMovie.mockRejectedValue(new Error('Movie not found'))
 
-      const result = await service.unmonitorAndDeleteMovie(mockMovie)
+      const result = await service.unmonitorAndDeleteMovie(mockMovie.tmdbId)
 
       expect(result).toEqual({
         success: false,
@@ -1335,13 +1615,21 @@ describe('RadarrService', () => {
     })
 
     it('should handle download cancellation failures with warnings', async () => {
+      // Mock getLibraryMovies to return the movie we want to delete
+      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
+        {
+          ...mockMovie,
+          tmdbId: mockMovie.tmdbId,
+        } as any,
+      ])
+
       mockRadarrClient.getMovie.mockResolvedValue(mockMovie)
       mockRadarrClient.getQueueItemsForMovie.mockRejectedValue(
         new Error('Queue access failed'),
       )
       mockRadarrClient.deleteMovie.mockResolvedValue(undefined)
 
-      const result = await service.unmonitorAndDeleteMovie(mockMovie, {
+      const result = await service.unmonitorAndDeleteMovie(mockMovie.tmdbId, {
         deleteFiles: true,
       })
 
@@ -1352,11 +1640,19 @@ describe('RadarrService', () => {
     })
 
     it('should handle deletion failures', async () => {
+      // Mock getLibraryMovies to return the movie we want to delete
+      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
+        {
+          ...mockMovie,
+          tmdbId: mockMovie.tmdbId,
+        } as any,
+      ])
+
       mockRadarrClient.getMovie.mockResolvedValue(mockMovie)
       mockRadarrClient.getQueueItemsForMovie.mockResolvedValue([])
       mockRadarrClient.deleteMovie.mockRejectedValue(new Error('Delete failed'))
 
-      const result = await service.unmonitorAndDeleteMovie(mockMovie)
+      const result = await service.unmonitorAndDeleteMovie(mockMovie.tmdbId)
 
       expect(result).toEqual({
         success: false,
@@ -1376,13 +1672,24 @@ describe('RadarrService', () => {
         hasFile: false,
       })
 
+      // Mock getLibraryMovies to return the movie we want to delete
+      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
+        {
+          ...unmonitoredMovie,
+          tmdbId: unmonitoredMovie.tmdbId,
+        } as any,
+      ])
+
       mockRadarrClient.getMovie.mockResolvedValue(unmonitoredMovie)
       mockRadarrClient.getQueueItemsForMovie.mockResolvedValue([])
       mockRadarrClient.deleteMovie.mockResolvedValue(undefined)
 
-      const result = await service.unmonitorAndDeleteMovie(unmonitoredMovie, {
-        deleteFiles: true,
-      })
+      const result = await service.unmonitorAndDeleteMovie(
+        unmonitoredMovie.tmdbId,
+        {
+          deleteFiles: true,
+        },
+      )
 
       expect(result.warnings).toContain(
         'Movie was not monitored before deletion',
@@ -1398,13 +1705,24 @@ describe('RadarrService', () => {
         hasFile: false,
       })
 
+      // Mock getLibraryMovies to return the movie we want to delete
+      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
+        {
+          ...movieWithoutFiles,
+          tmdbId: movieWithoutFiles.tmdbId,
+        } as any,
+      ])
+
       mockRadarrClient.getMovie.mockResolvedValue(movieWithoutFiles)
       mockRadarrClient.getQueueItemsForMovie.mockResolvedValue([])
       mockRadarrClient.deleteMovie.mockResolvedValue(undefined)
 
-      const result = await service.unmonitorAndDeleteMovie(movieWithoutFiles, {
-        deleteFiles: true,
-      })
+      const result = await service.unmonitorAndDeleteMovie(
+        movieWithoutFiles.tmdbId,
+        {
+          deleteFiles: true,
+        },
+      )
 
       expect(result.filesDeleted).toBe(false)
     })
@@ -1466,11 +1784,43 @@ describe('RadarrService', () => {
       const authError = new Error('Unauthorized')
       authError.name = 'HTTPError'
 
+      const movie = createMockMovieSearchResult()
       mockRadarrClient.isMovieInLibrary.mockResolvedValue(null)
+      // Mock successful lookup since we want to test the getQualityProfiles failure
+      mockRadarrClient.lookupMovieByTmdbId.mockResolvedValue({
+        tmdbId: movie.tmdbId,
+        title: movie.title,
+        year: movie.year || 2023,
+        overview: movie.overview,
+        runtime: movie.runtime || 120,
+        genres: movie.genres,
+        inCinemas: movie.inCinemas,
+        physicalRelease: movie.physicalRelease,
+        digitalRelease: movie.digitalRelease,
+        certification: movie.certification,
+        studio: movie.studio,
+        website: movie.website,
+        youTubeTrailerId: movie.youTubeTrailerId,
+        popularity: movie.popularity,
+        imdbId: movie.imdbId,
+        originalTitle: movie.originalTitle,
+        ratings: {
+          imdb: { value: movie.rating || 0, votes: 1000, type: 'user' },
+        },
+        images: [
+          { coverType: RadarrImageType.POSTER, url: movie.posterPath || '' },
+          { coverType: RadarrImageType.FANART, url: movie.backdropPath || '' },
+        ],
+        status: movie.status,
+        hasFile: false,
+        isAvailable: true,
+        minimumAvailability: RadarrMinimumAvailability.RELEASED,
+        cleanTitle: 'testmovie',
+        titleSlug: 'test-movie',
+      })
       mockRadarrClient.getQualityProfiles.mockRejectedValue(authError)
 
-      const movie = createMockMovieSearchResult()
-      const result = await service.monitorAndDownloadMovie(movie)
+      const result = await service.monitorAndDownloadMovie(movie.tmdbId)
 
       expect(result).toEqual({
         success: false,
@@ -1484,10 +1834,19 @@ describe('RadarrService', () => {
       const notFoundError = new Error('Not Found')
       notFoundError.name = 'HTTPError'
 
-      mockRadarrClient.getMovie.mockRejectedValue(notFoundError)
       const mockMovie = createMockRadarrMovie()
 
-      const result = await service.unmonitorAndDeleteMovie(mockMovie)
+      // Mock getLibraryMovies to return the movie we want to delete
+      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
+        {
+          ...mockMovie,
+          tmdbId: mockMovie.tmdbId,
+        } as any,
+      ])
+
+      mockRadarrClient.getMovie.mockRejectedValue(notFoundError)
+
+      const result = await service.unmonitorAndDeleteMovie(mockMovie.tmdbId)
 
       expect(result).toEqual({
         success: false,

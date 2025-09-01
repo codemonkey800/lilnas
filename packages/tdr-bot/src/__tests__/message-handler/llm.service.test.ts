@@ -13,6 +13,8 @@ import {
   createMockToolNode,
   createTestingModule,
 } from 'src/__tests__/test-utils'
+import { RadarrService } from 'src/media/services/radarr.service'
+import { SonarrService } from 'src/media/services/sonarr.service'
 import { LLMService } from 'src/message-handler/llm.service'
 import { ResponseType } from 'src/schemas/graph'
 import { EquationImageService } from 'src/services/equation-image.service'
@@ -100,6 +102,18 @@ describe('LLMService', () => {
       {
         provide: ErrorClassificationService,
         useValue: createMockErrorClassificationService(),
+      },
+      {
+        provide: RadarrService,
+        useValue: {
+          getLibraryMovies: jest.fn().mockResolvedValue([]),
+        },
+      },
+      {
+        provide: SonarrService,
+        useValue: {
+          getLibrarySeries: jest.fn().mockResolvedValue([]),
+        },
       },
     ])
 
