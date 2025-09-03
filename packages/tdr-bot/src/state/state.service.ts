@@ -6,6 +6,7 @@ import _ from 'lodash'
 import { ChatModel } from 'openai/resources/index'
 
 import { OutputStateAnnotation } from 'src/schemas/graph'
+import { MovieSelectionContext } from 'src/schemas/movie'
 import {
   EMOJI_DICTIONARY,
   INPUT_FORMAT,
@@ -21,6 +22,7 @@ export interface AppState {
   prompt: string
   reasoningModel: ChatModel
   temperature: number
+  userMovieContexts: Map<string, MovieSelectionContext>
 }
 
 export class StateChangeEvent {
@@ -43,6 +45,7 @@ export class StateService {
     reasoningModel: 'gpt-4o-mini',
     prompt: KAWAII_PROMPT,
     temperature: 0,
+    userMovieContexts: new Map(),
   }
 
   setState(
@@ -76,5 +79,51 @@ export class StateService {
         ${EMOJI_DICTIONARY}
       `,
     })
+  }
+
+  // Movie context management methods
+  setUserMovieContext(userId: string, context: MovieSelectionContext) {
+    this.logger.log(
+      { userId, query: context.query },
+      'Setting movie context for user',
+    )
+    this.setState(prev => ({
+      userMovieContexts: new Map(prev.userMovieContexts).set(userId, context),
+    }))
+  }
+
+  clearUserMovieContext(userId: string) {
+    this.logger.log({ userId }, 'Clearing movie context for user')
+    this.setState(prev => {
+      const newMap = new Map(prev.userMovieContexts)
+      newMap.delete(userId)
+      return { userMovieContexts: newMap }
+    })
+  }
+
+  getUserMovieContext(userId: string): MovieSelectionContext | undefined {
+    return this.state.userMovieContexts.get(userId)
+  }
+
+  isMovieContextExpired(context: MovieSelectionContext): boolean {
+    const CONTEXT_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
+    const now = Date.now()
+    return now - context.timestamp > CONTEXT_TIMEOUT_MS
+  }
+
+  cleanupExpiredMovieContexts() {
+    const cleanedContexts = new Map()
+
+    for (const [userId, context] of this.state.userMovieContexts) {
+      if (!this.isMovieContextExpired(context)) {
+        cleanedContexts.set(userId, context)
+      } else {
+        this.logger.log({ userId }, 'Cleaned up expired movie context')
+      }
+    }
+
+    if (cleanedContexts.size !== this.state.userMovieContexts.size) {
+      this.setState({ userMovieContexts: cleanedContexts })
+    }
   }
 }

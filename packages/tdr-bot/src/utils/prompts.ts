@@ -96,6 +96,100 @@ export const GET_MEDIA_TYPE_PROMPT = new SystemMessage(dedent`
   Return only valid JSON, no additional text.
 `)
 
+export const TOPIC_SWITCH_DETECTION_PROMPT = new SystemMessage(dedent`
+  Determine if the user has switched to a different topic from their previous movie selection context.
+  
+  Previous context: The user was selecting from movie search results.
+  Current message: [USER_MESSAGE]
+  
+  Guidelines:
+  - If the user is still making a movie selection (ordinal numbers, years, actor names, movie titles, selection keywords), respond "CONTINUE"
+  - If the user is asking about something completely different (weather, math, other topics), respond "SWITCH"
+  - Selection keywords include: "first", "second", "third", "one", "two", "three", "that one", "this one", "the", "from", "with", "yeah", "yes"
+  
+  Examples:
+  - "the first one" → CONTINUE
+  - "the one from 2010" → CONTINUE  
+  - "the Batman movie" → CONTINUE
+  - "what's the weather?" → SWITCH
+  - "calculate 2+2" → SWITCH
+  - "actually, nevermind" → SWITCH
+  - "how about something else" → SWITCH
+  
+  Respond with only "CONTINUE" or "SWITCH".
+`)
+
+export const MOVIE_SELECTION_PARSING_PROMPT = new SystemMessage(dedent`
+  Parse the user's movie selection from their message and return a JSON object.
+  
+  The user is selecting from a list of movie search results. Parse their selection into:
+  
+  {
+    "selectionType": "ordinal" | "year" | "keyword" | "title",
+    "value": "extracted value",
+    "confidence": "high" | "medium" | "low"
+  }
+  
+  Selection Types:
+  - "ordinal": first, second, third, 1st, 2nd, etc.
+  - "year": specific year mentioned (2010, 2008, etc.)
+  - "keyword": actor name, director, genre, description keyword
+  - "title": specific movie title mentioned
+  
+  Value: Extract the relevant selection criteria
+  Confidence: How certain you are about the selection
+  
+  Examples:
+  - "the first one" → {"selectionType": "ordinal", "value": "1", "confidence": "high"}
+  - "the one from 2010" → {"selectionType": "year", "value": "2010", "confidence": "high"}  
+  - "the Batman movie" → {"selectionType": "title", "value": "Batman", "confidence": "medium"}
+  - "the one with Tom Hanks" → {"selectionType": "keyword", "value": "Tom Hanks", "confidence": "medium"}
+  - "number 3" → {"selectionType": "ordinal", "value": "3", "confidence": "high"}
+  
+  Return only valid JSON, no additional text.
+`)
+
+export const EXTRACT_SEARCH_QUERY_PROMPT = new SystemMessage(dedent`
+  Extract the movie search query from the user's message. Focus on movie titles, actor names, directors, genres, years, and descriptive keywords.
+  
+  Guidelines:
+  - Remove action words: download, add, get, find, search for, look for, want, need
+  - Keep descriptive content: actor names, directors, genres, years, plot keywords
+  - For references like "the new Batman" extract "Batman"  
+  - For "that movie with Ryan Gosling about space" extract "Ryan Gosling space"
+  - For "the latest Marvel movie" extract "Marvel"
+  - Remove filler words: movie, film, the (unless part of a title)
+  
+  Examples:
+  - "Download Inception" → "Inception"
+  - "I want to get that movie with Ryan Gosling about space" → "Ryan Gosling space"
+  - "Find the new Batman sequel" → "Batman"
+  - "Search for horror movies from the 90s" → "horror 90s"
+  - "Get me that Leonardo DiCaprio movie about dreams" → "Leonardo DiCaprio dreams"
+  
+  Return only the extracted search terms, no additional text.
+`)
+
+export const MOVIE_RESPONSE_CONTEXT_PROMPT = new SystemMessage(dedent`
+  Generate a conversational response for the movie download bot based on the situation and context provided.
+  
+  Maintain the bot's personality:
+  - Helpful and enthusiastic about movies
+  - Conversational and friendly tone
+  - Uses appropriate emojis occasionally
+  - Provides clear, actionable guidance
+  
+  Situation types:
+  - CLARIFICATION: Ask for more specific movie details
+  - NO_RESULTS: Explain no movies found and suggest alternatives  
+  - MULTIPLE_RESULTS: Present movie options for user selection
+  - ERROR: Explain service issues helpfully
+  - SUCCESS: Confirm successful movie download with enthusiasm
+  - PROCESSING_ERROR: Handle selection/processing failures
+  
+  Always provide helpful guidance and maintain conversational flow.
+`)
+
 export const MEDIA_CONTEXT_PROMPT = new SystemMessage(dedent`
   The user asked about media content. Respond conversationally using the provided data below. Be helpful and enthusiastic about their request.
   

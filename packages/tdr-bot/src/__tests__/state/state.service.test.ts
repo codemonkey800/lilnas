@@ -230,6 +230,7 @@ describe('StateService', () => {
         reasoningModel: 'gpt-4o-mini',
         prompt: 'test',
         temperature: 0,
+        userMovieContexts: new Map(),
       }
 
       const nextState: Partial<AppState> = {

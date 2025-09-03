@@ -60,6 +60,7 @@ export type MediaRequest = z.infer<typeof MediaRequestSchema>
 export const InputStateAnnotation = Annotation.Root({
   messages: Annotation<BaseMessage[]>,
   userInput: Annotation<string>,
+  userId: Annotation<string>,
 })
 
 export const OutputStateAnnotation = Annotation.Root({
@@ -74,4 +75,5 @@ export const OverallStateAnnotation = Annotation.Root({
   prevMessages: Annotation<BaseMessage[]>,
   responseType: Annotation<ResponseType>,
   userInput: Annotation<string>,
+  userId: Annotation<string>,
 })

@@ -166,6 +166,7 @@ export function createMockLangGraphState(
     message:
       null as unknown as (typeof OverallStateAnnotation.State)['message'],
     prevMessages: [],
+    userId: 'test-user-id',
     ...overrides,
   }
 }
