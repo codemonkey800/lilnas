@@ -6,7 +6,7 @@ import _ from 'lodash'
 import { ChatModel } from 'openai/resources/index'
 
 import { OutputStateAnnotation } from 'src/schemas/graph'
-import { MovieSelectionContext } from 'src/schemas/movie'
+import { MovieDeleteContext, MovieSelectionContext } from 'src/schemas/movie'
 import { TvShowSelectionContext } from 'src/schemas/tv-show'
 import {
   EMOJI_DICTIONARY,
@@ -24,7 +24,10 @@ export interface AppState {
   reasoningModel: ChatModel
   temperature: number
   userMovieContexts: Map<string, MovieSelectionContext>
+  userMovieDeleteContexts: Map<string, MovieDeleteContext>
   userTvShowContexts: Map<string, TvShowSelectionContext>
+  // TODO: Add TV show delete contexts when implementing TV show delete feature
+  // userTvShowDeleteContexts: Map<string, TvShowDeleteContext>
 }
 
 export class StateChangeEvent {
@@ -48,7 +51,10 @@ export class StateService {
     prompt: KAWAII_PROMPT,
     temperature: 0,
     userMovieContexts: new Map(),
+    userMovieDeleteContexts: new Map(),
     userTvShowContexts: new Map(),
+    // TODO: Initialize TV show delete contexts when implementing TV show delete feature
+    // userTvShowDeleteContexts: new Map(),
   }
 
   setState(
@@ -175,4 +181,60 @@ export class StateService {
       this.setState({ userTvShowContexts: cleanedContexts })
     }
   }
+
+  // Movie delete context management methods
+  setUserMovieDeleteContext(userId: string, context: MovieDeleteContext) {
+    this.logger.log(
+      { userId, query: context.query },
+      'Setting movie delete context for user',
+    )
+    this.setState(prev => ({
+      userMovieDeleteContexts: new Map(prev.userMovieDeleteContexts).set(
+        userId,
+        context,
+      ),
+    }))
+  }
+
+  clearUserMovieDeleteContext(userId: string) {
+    this.logger.log({ userId }, 'Clearing movie delete context for user')
+    this.setState(prev => {
+      const newMap = new Map(prev.userMovieDeleteContexts)
+      newMap.delete(userId)
+      return { userMovieDeleteContexts: newMap }
+    })
+  }
+
+  getUserMovieDeleteContext(userId: string): MovieDeleteContext | undefined {
+    return this.state.userMovieDeleteContexts.get(userId)
+  }
+
+  isMovieDeleteContextExpired(context: MovieDeleteContext): boolean {
+    const CONTEXT_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
+    const now = Date.now()
+    return now - context.timestamp > CONTEXT_TIMEOUT_MS
+  }
+
+  cleanupExpiredMovieDeleteContexts() {
+    const cleanedContexts = new Map()
+
+    for (const [userId, context] of this.state.userMovieDeleteContexts) {
+      if (!this.isMovieDeleteContextExpired(context)) {
+        cleanedContexts.set(userId, context)
+      } else {
+        this.logger.log({ userId }, 'Cleaned up expired movie delete context')
+      }
+    }
+
+    if (cleanedContexts.size !== this.state.userMovieDeleteContexts.size) {
+      this.setState({ userMovieDeleteContexts: cleanedContexts })
+    }
+  }
+
+  // TODO: Add TV show delete context management methods when implementing TV show delete feature
+  // setUserTvShowDeleteContext(userId: string, context: TvShowDeleteContext)
+  // clearUserTvShowDeleteContext(userId: string)
+  // getUserTvShowDeleteContext(userId: string): TvShowDeleteContext | undefined
+  // isTvShowDeleteContextExpired(context: TvShowDeleteContext): boolean
+  // cleanupExpiredTvShowDeleteContexts()
 }

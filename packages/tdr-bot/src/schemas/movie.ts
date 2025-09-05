@@ -13,6 +13,18 @@ export const MovieSelectionContextSchema = z.object({
 export type MovieSelectionContext = z.infer<typeof MovieSelectionContextSchema>
 
 /**
+ * Schema for movie delete context stored in user state
+ */
+export const MovieDeleteContextSchema = z.object({
+  searchResults: z.array(z.any()), // Use any to match MovieLibrarySearchResult type flexibility
+  query: z.string(),
+  timestamp: z.number(),
+  isActive: z.boolean(),
+})
+
+export type MovieDeleteContext = z.infer<typeof MovieDeleteContextSchema>
+
+/**
  * Schema for movie download request result
  */
 export const MovieDownloadResultSchema = z.object({

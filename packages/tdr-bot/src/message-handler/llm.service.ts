@@ -15,7 +15,10 @@ import { nanoid } from 'nanoid'
 
 import { RadarrService } from 'src/media/services/radarr.service'
 import { SonarrService } from 'src/media/services/sonarr.service'
-import { MovieSearchResult } from 'src/media/types/radarr.types'
+import {
+  MovieLibrarySearchResult,
+  MovieSearchResult,
+} from 'src/media/types/radarr.types'
 import { SeriesSearchResult } from 'src/media/types/sonarr.types'
 import {
   GraphNode,
@@ -35,7 +38,7 @@ import {
   MediaTypeClassificationSchema,
 } from 'src/schemas/media-classification'
 import { MessageResponse } from 'src/schemas/messages'
-import { MovieSelectionContext } from 'src/schemas/movie'
+import { MovieDeleteContext, MovieSelectionContext } from 'src/schemas/movie'
 import {
   SearchSelection,
   SearchSelectionSchema,
@@ -189,7 +192,10 @@ export class LLMService {
 
     // Clean up expired contexts first
     this.state.cleanupExpiredMovieContexts()
+    this.state.cleanupExpiredMovieDeleteContexts()
     this.state.cleanupExpiredTvShowContexts()
+    // TODO: Add TV show delete context cleanup when implementing TV show delete feature
+    // this.state.cleanupExpiredTvShowDeleteContexts()
 
     // Check for active movie context first
     const movieContext = this.state.getUserMovieContext(userId)
@@ -256,6 +262,45 @@ export class LLMService {
         return { message, responseType: ResponseType.Media }
       }
     }
+
+    // Check for active movie delete context
+    const movieDeleteContext = this.state.getUserMovieDeleteContext(userId)
+    if (
+      movieDeleteContext?.isActive &&
+      !this.state.isMovieDeleteContextExpired(movieDeleteContext)
+    ) {
+      this.logger.log(
+        { userId, query: movieDeleteContext.query },
+        'Active movie delete context found',
+      )
+
+      // Check if user switched topics using LLM
+      const topicSwitched = await this.detectTopicSwitch(userInput)
+      if (topicSwitched) {
+        this.logger.log(
+          { userId },
+          'Topic switch detected, clearing movie delete context',
+        )
+        this.state.clearUserMovieDeleteContext(userId)
+        // Continue with normal intent detection
+      } else {
+        this.logger.log(
+          { userId },
+          'User still in movie delete context, routing to media response',
+        )
+        const message = new HumanMessage({
+          id: nanoid(),
+          content: userInput,
+        })
+        return { message, responseType: ResponseType.Media }
+      }
+    }
+
+    // TODO: Add TV show delete context check when implementing TV show delete feature
+    // const tvShowDeleteContext = this.state.getUserTvShowDeleteContext(userId)
+    // if (tvShowDeleteContext?.isActive && !this.state.isTvShowDeleteContextExpired(tvShowDeleteContext)) {
+    //   // Similar logic to movie delete context
+    // }
 
     // Standard intent detection if no active context or topic switched
     const message = new HumanMessage({
@@ -528,6 +573,24 @@ export class LLMService {
     )
 
     try {
+      // Check if user has active movie delete context (selection phase)
+      const movieDeleteContext = this.state.getUserMovieDeleteContext(userId)
+      if (
+        movieDeleteContext?.isActive &&
+        !this.state.isMovieDeleteContextExpired(movieDeleteContext)
+      ) {
+        this.logger.log(
+          { userId, query: movieDeleteContext.query },
+          'Using existing movie delete context for selection',
+        )
+        return await this.handleMovieDeleteSelection(
+          message,
+          messages,
+          movieDeleteContext,
+          userId,
+        )
+      }
+
       // Check if user has active movie context (selection phase)
       const movieContext = this.state.getUserMovieContext(userId)
       if (movieContext?.isActive) {
@@ -569,7 +632,7 @@ export class LLMService {
         'Determined media intent',
       )
 
-      // Route based on intent: download vs browse
+      // Route based on intent: download vs delete vs browse
       if (this.isDownloadRequest(mediaRequest, message)) {
         this.logger.log({ userId }, 'Routing to download flow')
 
@@ -636,6 +699,86 @@ export class LLMService {
             return await this.handleNewMovieSearch(message, messages, userId)
           }
         }
+      } else if (this.isDeleteRequest(mediaRequest)) {
+        this.logger.log({ userId }, 'Routing to delete flow')
+
+        // Check for existing delete contexts first
+        const movieDeleteContext = this.state.getUserMovieDeleteContext(userId)
+        // TODO: Add TV show delete context check when implementing TV show delete feature
+        // const tvShowDeleteContext = this.state.getUserTvShowDeleteContext(userId)
+
+        if (
+          movieDeleteContext?.isActive &&
+          !this.state.isMovieDeleteContextExpired(movieDeleteContext)
+        ) {
+          this.logger.log(
+            { userId, query: movieDeleteContext.query },
+            'Using existing movie delete context for selection',
+          )
+          return await this.handleMovieDeleteSelection(
+            message,
+            messages,
+            movieDeleteContext,
+            userId,
+          )
+        }
+
+        // TODO: Add TV show delete context check when implementing TV show delete feature
+        // if (tvShowDeleteContext?.isActive && !this.state.isTvShowDeleteContextExpired(tvShowDeleteContext)) {
+        //   return await this.handleTvShowDeleteSelection(message, messages, tvShowDeleteContext, userId)
+        // }
+
+        // No existing delete context - start new delete based on media type
+        if (mediaRequest.mediaType === MediaRequestType.Movies) {
+          return await this.handleNewMovieDelete(message, messages, userId)
+        } else if (mediaRequest.mediaType === MediaRequestType.Shows) {
+          // TODO: Implement TV show delete when adding TV show delete feature
+          const todoResponse = await this.generateMovieDeleteChatResponse(
+            messages,
+            'error_delete',
+            {
+              errorMessage:
+                'TV show deletion is not yet implemented. Only movies can be deleted currently.',
+            },
+          )
+          return {
+            images: [],
+            messages: messages.concat(todoResponse),
+          }
+        } else {
+          // MediaRequestType.Both - use LLM classification
+          const classification = await this.classifyMediaType(message)
+
+          this.logger.log(
+            {
+              userId,
+              classification,
+              message:
+                typeof message.content === 'string'
+                  ? message.content
+                  : message.content.toString(),
+            },
+            'Using LLM classification for delete media type',
+          )
+
+          if (classification.mediaType === 'tv_show') {
+            // TODO: Implement TV show delete when adding TV show delete feature
+            const todoResponse = await this.generateMovieDeleteChatResponse(
+              messages,
+              'error_delete',
+              {
+                errorMessage:
+                  'TV show deletion is not yet implemented. Only movies can be deleted currently.',
+              },
+            )
+            return {
+              images: [],
+              messages: messages.concat(todoResponse),
+            }
+          } else {
+            return await this.handleNewMovieDelete(message, messages, userId)
+          }
+        }
       } else {
         this.logger.log({ userId }, 'Routing to media browsing flow')
         return await this.handleMediaBrowsing(mediaRequest, message, messages)
@@ -651,7 +794,10 @@ export class LLMService {
 
       // Clear any active context on error
       this.state.clearUserMovieContext(userId)
+      this.state.clearUserMovieDeleteContext(userId)
       this.state.clearUserTvShowContext(userId)
+      // TODO: Add TV show delete context clearing when implementing TV show delete feature
+      // this.state.clearUserTvShowDeleteContext(userId)
 
       const fallbackResponse = await this.generateChatResponse(
         messages,
@@ -1076,6 +1222,375 @@ export class LLMService {
     }
   }
 
+  // Movie delete methods
+  private async handleNewMovieDelete(
+    message: HumanMessage,
+    messages: BaseMessage[],
+    userId: string,
+  ) {
+    this.logger.log(
+      { userId, content: message.content },
+      'Starting new movie delete',
+    )
+
+    // Parse both search query and selection criteria upfront
+    const messageContent =
+      typeof message.content === 'string'
+        ? message.content
+        : message.content.toString()
+    const { searchQuery, selection } =
+      await this.parseInitialSelection(messageContent)
+
+    if (!searchQuery.trim()) {
+      const clarificationResponse = await this.generateMovieDeleteChatResponse(
+        messages,
+        'clarification_delete',
+      )
+      return {
+        images: [],
+        messages: messages.concat(clarificationResponse),
+      }
+    }
+
+    try {
+      // Search library for movies using RadarrService
+      const libraryResults =
+        await this.radarrService.getLibraryMovies(searchQuery)
+      this.logger.log(
+        {
+          userId,
+          searchQuery,
+          resultCount: libraryResults.length,
+          hasSelection: !!selection,
+        },
+        'Movie library search for delete completed',
+      )
+
+      if (libraryResults.length === 0) {
+        const noResultsResponse = await this.generateMovieDeleteChatResponse(
+          messages,
+          'no_results_delete',
+          { searchQuery },
+        )
+        return {
+          images: [],
+          messages: messages.concat(noResultsResponse),
+        }
+      }
+
+      // Smart auto-selection: Apply when user provides explicit search selection (ordinal/year only) for movies
+      if (
+        selection &&
+        (selection.selectionType === 'ordinal' ||
+          selection.selectionType === 'year') &&
+        libraryResults.length > 0
+      ) {
+        const selectedMovie = this.findSelectedMovieFromLibrary(
+          selection,
+          libraryResults,
+        )
+        if (selectedMovie) {
+          this.logger.log(
+            {
+              userId,
+              tmdbId: selectedMovie.tmdbId,
+              selectionType: selection.selectionType,
+              selectionValue: selection.value,
+              movieTitle: selectedMovie.title,
+            },
+            'Auto-applying movie selection for delete (explicit search selection provided)',
+          )
+
+          // Clear any existing context and delete the movie directly
+          this.state.clearUserMovieDeleteContext(userId)
+          return await this.deleteMovie(
+            selectedMovie,
+            message,
+            messages,
+            userId,
+          )
+        } else {
+          this.logger.warn(
+            { userId, selection, searchResultsCount: libraryResults.length },
+            'Could not find selected movie from library specification, falling back to list',
+          )
+        }
+      }
+
+      if (libraryResults.length === 1) {
+        // Only one result - delete it directly
+        this.logger.log(
+          { userId, tmdbId: libraryResults[0].tmdbId },
+          'Single result found in library, deleting directly',
+        )
+        return await this.deleteMovie(
+          libraryResults[0],
+          message,
+          messages,
+          userId,
+        )
+      }
+
+      // Multiple results - store context and ask user to choose
+      const movieDeleteContext = {
+        searchResults: libraryResults.slice(0, 10), // Limit to top 10 results
+        query: searchQuery,
+        timestamp: Date.now(),
+        isActive: true,
+      }
+
+      this.state.setUserMovieDeleteContext(userId, movieDeleteContext)
+
+      // Create selection prompt
+      const selectionResponse = await this.generateMovieDeleteChatResponse(
+        messages,
+        'multiple_results_delete',
+        {
+          searchQuery,
+          movies: libraryResults.slice(0, 10),
+        },
+      )
+
+      return {
+        images: [],
+        messages: messages.concat(selectionResponse),
+      }
+    } catch (error) {
+      this.logger.error(
+        { error: getErrorMessage(error), userId, searchQuery },
+        'Failed to search library for movie delete',
+      )
+
+      const errorResponse = await this.generateMovieDeleteChatResponse(
+        messages,
+        'error_delete',
+        {
+          searchQuery,
+          errorMessage: `Couldn't search library for "${searchQuery}" right now. The Radarr service might be unavailable.`,
+        },
+      )
+
+      return {
+        images: [],
+        messages: messages.concat(errorResponse),
+      }
+    }
+  }
+
+  private async handleMovieDeleteSelection(
+    message: HumanMessage,
+    messages: BaseMessage[],
+    movieDeleteContext: MovieDeleteContext,
+    userId: string,
+  ) {
+    this.logger.log(
+      { userId, selectionMessage: message.content },
+      'Processing movie delete selection',
+    )
+
+    try {
+      // Parse the user's selection using LLM
+      const messageContent =
+        typeof message.content === 'string'
+          ? message.content
+          : message.content.toString()
+      const selection = await this.parseSearchSelection(messageContent).catch(
+        () => null,
+      )
+      this.logger.log({ userId, selection }, 'Parsed movie delete selection')
+
+      // If no selection was parsed, ask user to clarify
+      if (!selection) {
+        const clarificationResponse =
+          await this.generateMovieDeleteChatResponse(
+            messages,
+            'multiple_results_delete',
+            {
+              searchQuery: movieDeleteContext.query,
+              movies: movieDeleteContext.searchResults,
+            },
+          )
+        return {
+          images: [],
+          messages: messages.concat(clarificationResponse),
+        }
+      }
+
+      // Find the selected movie from context
+      const selectedMovie = this.findSelectedMovieFromLibrary(
+        selection,
+        movieDeleteContext.searchResults,
+      )
+
+      if (!selectedMovie) {
+        const clarificationResponse =
+          await this.generateMovieDeleteChatResponse(
+            messages,
+            'multiple_results_delete',
+            {
+              searchQuery: movieDeleteContext.query,
+              movies: movieDeleteContext.searchResults,
+            },
+          )
+        return {
+          images: [],
+          messages: messages.concat(clarificationResponse),
+        }
+      }
+
+      // Clear context and delete the movie
+      this.state.clearUserMovieDeleteContext(userId)
+      return await this.deleteMovie(selectedMovie, message, messages, userId)
+    } catch (error) {
+      this.logger.error(
+        { error: getErrorMessage(error), userId },
+        'Failed to process movie delete selection',
+      )
+
+      // Clear context on error
+      this.state.clearUserMovieDeleteContext(userId)
+
+      const errorResponse = await this.generateMovieDeleteChatResponse(
+        messages,
+        'processing_error_delete',
+        {
+          errorMessage:
+            'Had trouble processing your selection. Please try searching again.',
+        },
+      )
+
+      return {
+        images: [],
+        messages: messages.concat(errorResponse),
+      }
+    }
+  }
+
+  private async deleteMovie(
+    movie: MovieLibrarySearchResult,
+    _originalMessage: HumanMessage,
+    messages: BaseMessage[],
+    userId: string,
+  ) {
+    this.logger.log(
+      { userId, movieTitle: movie.title, tmdbId: movie.tmdbId },
+      'Attempting to delete movie',
+    )
+
+    try {
+      const result = await this.radarrService.unmonitorAndDeleteMovie(
+        movie.tmdbId,
+        { deleteFiles: true }, // Default to deleting files
+      )
+
+      if (result.success) {
+        const successResponse = await this.generateMovieDeleteChatResponse(
+          messages,
+          'success_delete',
+          {
+            selectedMovie: movie,
+            deleteResult: result,
+          },
+        )
+
+        return {
+          images: [],
+          messages: messages.concat(successResponse),
+        }
+      } else {
+        const errorResponse = await this.generateMovieDeleteChatResponse(
+          messages,
+          'error_delete',
+          {
+            selectedMovie: movie,
+            errorMessage: `Failed to delete "${movie.title}": ${result.error}`,
+          },
+        )
+
+        return {
+          images: [],
+          messages: messages.concat(errorResponse),
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        { error: getErrorMessage(error), userId, movieTitle: movie.title },
+        'Failed to delete movie',
+      )
+
+      const errorResponse = await this.generateMovieDeleteChatResponse(
+        messages,
+        'error_delete',
+        {
+          selectedMovie: movie,
+          errorMessage: `Couldn't delete "${movie.title}". The Radarr service might be unavailable.`,
+        },
+      )
+
+      return {
+        images: [],
+        messages: messages.concat(errorResponse),
+      }
+    }
+  }
+
+  private findSelectedMovieFromLibrary(
+    selection: SearchSelection,
+    movies: MovieLibrarySearchResult[],
+  ): MovieLibrarySearchResult | null {
+    // MovieLibrarySearchResult | null
+    const { selectionType, value } = selection
+
+    this.logger.log(
+      { selectionType, value, movieCount: movies.length },
+      'Finding selected movie from library results',
+    )
+
+    switch (selectionType) {
+      case 'ordinal': {
+        const index = parseInt(value) - 1
+        if (index >= 0 && index < movies.length) {
+          this.logger.log(
+            { selectedIndex: index },
+            'Selected movie by ordinal from library',
+          )
+          return movies[index]
+        }
+        this.logger.warn(
+          { index, movieCount: movies.length },
+          'Ordinal index out of range, defaulting to first',
+        )
+        return movies[0] || null
+      }
+
+      case 'year': {
+        const yearMatch = movies.find(movie => movie.year?.toString() === value)
+        if (yearMatch) {
+          this.logger.log(
+            { selectedYear: value },
+            'Selected movie by year from library',
+          )
+          return yearMatch
+        }
+        this.logger.warn(
+          { year: value },
+          'No movie found for year in library, defaulting to first',
+        )
+        return movies[0] || null
+      }
+
+      default: {
+        this.logger.log('Using default selection (first movie from library)')
+        return movies[0] || null // Default to first
+      }
+    }
+  }
+
+  // TODO: Add TV show delete methods when implementing TV show delete feature
+  // private async handleNewTvShowDelete(message, messages, userId) { ... }
+  // private async handleTvShowDeleteSelection(message, messages, tvShowDeleteContext, userId) { ... }
+  // private async deleteTvShow(show, message, messages, userId) { ... }
+
   private async parseInitialSelection(messageContent: string): Promise<{
     searchQuery: string
     selection: SearchSelection | null
@@ -1274,6 +1789,135 @@ export class LLMService {
           'Sorry, there was an error with your movie request. Please try again.',
         success: `Successfully added "${context?.selectedMovie?.title}" to downloads!`,
         processing_error:
+          'Sorry, I had trouble processing your selection. Please try searching again.',
+      }
+
+      return new HumanMessage({
+        id: nanoid(),
+        content: fallbackMessages[situation],
+      })
+    }
+  }
+
+  private async generateMovieDeleteChatResponse(
+    messages: BaseMessage[],
+    situation:
+      | 'clarification_delete'
+      | 'no_results_delete'
+      | 'multiple_results_delete'
+      | 'error_delete'
+      | 'success_delete'
+      | 'processing_error_delete',
+    context?: {
+      searchQuery?: string
+      movies?: MovieLibrarySearchResult[]
+      selectedMovie?: MovieLibrarySearchResult
+      errorMessage?: string
+      deleteResult?: unknown
+      autoApplied?: boolean
+      selectionCriteria?: string
+    },
+  ): Promise<HumanMessage> {
+    try {
+      let contextPrompt = `Situation: ${situation.toUpperCase()}\n\n`
+
+      switch (situation) {
+        case 'clarification_delete':
+          contextPrompt +=
+            "The user's movie delete request was too vague. Ask them to be more specific with the movie title or description."
+          break
+        case 'no_results_delete':
+          contextPrompt += `No movies were found in your library for search query "${context?.searchQuery}". Explain that the movie might not be in their collection and suggest they try a different title or be more specific.`
+          break
+        case 'multiple_results_delete':
+          if (context?.movies) {
+            const movieList = context.movies
+              .map((movie, index) => {
+                const year = movie.year ? ` (${movie.year})` : ''
+                const rating = movie.rating
+                  ? ` ⭐${movie.rating?.toFixed(1)}`
+                  : ''
+                const hasFile = movie.hasFile
+                  ? ' 📁 Downloaded'
+                  : ' 📋 Monitored only'
+                return `${index + 1}. ${movie.title}${year}${rating}${hasFile}`
+              })
+              .join('\n')
+            contextPrompt += `Multiple movies found in your library for "${context.searchQuery}":\n\n${movieList}\n\n`
+            contextPrompt += `Which movie would you like to delete? They can respond with ordinal numbers, years, etc. Note that deleting will remove the movie from monitoring and delete the files.`
+          }
+          break
+        case 'error_delete':
+          contextPrompt += `There was an error with the movie delete request. ${context?.errorMessage || 'The Radarr service might be unavailable.'} Respond helpfully and suggest they try again.`
+          break
+        case 'success_delete':
+          if (context?.selectedMovie && context?.deleteResult) {
+            const movie = context.selectedMovie
+            const result = context.deleteResult as {
+              movieDeleted: boolean
+              filesDeleted: boolean
+              downloadsFound?: number
+              downloadsCancelled?: number
+            }
+
+            let successMessage = ''
+            if (context.autoApplied && context.selectionCriteria) {
+              successMessage += `Using ${context.selectionCriteria} as requested! `
+            }
+
+            successMessage += `Successfully deleted "${movie.title}" from your library${result.filesDeleted ? ' (files removed)' : ' (files kept)'}. `
+
+            if (result.downloadsFound) {
+              successMessage += `${result.downloadsCancelled || 0}/${result.downloadsFound} active downloads were cancelled. `
+            }
+
+            successMessage +=
+              'Respond with confirmation and mention what was removed.'
+            contextPrompt += successMessage
+          }
+          break
+        case 'processing_error_delete':
+          contextPrompt += `There was an error processing the user's movie delete selection. ${context?.errorMessage || 'Suggest they try searching again.'} Be helpful and encouraging.`
+          break
+      }
+
+      const response = await this.retryService.executeWithRetry(
+        () =>
+          this.getChatModel().invoke([
+            ...messages,
+            MOVIE_RESPONSE_CONTEXT_PROMPT,
+            new HumanMessage({ id: nanoid(), content: contextPrompt }),
+          ]),
+        {
+          maxAttempts: 3,
+          baseDelay: 1000,
+          maxDelay: 30000,
+          timeout: 30000,
+        },
+        `OpenAI-generateMovieDeleteChatResponse-${situation}`,
+      )
+
+      return new HumanMessage({
+        id: nanoid(),
+        content: response.content.toString(),
+      })
+    } catch (error) {
+      this.logger.error(
+        { error: getErrorMessage(error), situation },
+        'Failed to generate movie delete chat response, using fallback',
+      )
+
+      // Fallback to simple messages
+      const fallbackMessages = {
+        clarification_delete:
+          'What movie would you like to delete? Please be more specific.',
+        no_results_delete: `I couldn't find any movies matching "${context?.searchQuery}" in your library. Try a different title!`,
+        multiple_results_delete:
+          'I found multiple movies in your library. Which one would you like to delete?',
+        error_delete:
+          'Sorry, there was an error with your movie delete request. Please try again.',
+        success_delete: `Successfully deleted "${context?.selectedMovie?.title}" from your library!`,
+        processing_error_delete:
           'Sorry, I had trouble processing your selection. Please try searching again.',
       }
 
@@ -1510,6 +2154,11 @@ export class LLMService {
         hasDownloadKeyword) ||
       (mediaRequest.searchIntent === SearchIntent.Both && hasDownloadKeyword)
     )
+  }
+
+  private isDeleteRequest(mediaRequest: MediaRequest): boolean {
+    // Delete requests are identified by the SearchIntent.Delete
+    return mediaRequest.searchIntent === SearchIntent.Delete
   }
 
   private async parseSearchSelection(

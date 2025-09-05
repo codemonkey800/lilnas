@@ -32,6 +32,7 @@ export enum SearchIntent {
   Library = 'library',
   External = 'external',
   Both = 'both',
+  Delete = 'delete',
 }
 
 export const ImageQuerySchema = z.array(

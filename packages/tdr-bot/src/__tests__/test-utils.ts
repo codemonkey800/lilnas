@@ -225,6 +225,12 @@ export function createMockStateService(): jest.Mocked<StateService> {
     getUserMovieContext: jest.fn().mockReturnValue(undefined),
     isMovieContextExpired: jest.fn().mockReturnValue(false),
     cleanupExpiredMovieContexts: jest.fn(),
+    // Movie delete context methods
+    setUserMovieDeleteContext: jest.fn(),
+    clearUserMovieDeleteContext: jest.fn(),
+    getUserMovieDeleteContext: jest.fn().mockReturnValue(undefined),
+    isMovieDeleteContextExpired: jest.fn().mockReturnValue(false),
+    cleanupExpiredMovieDeleteContexts: jest.fn(),
     // TV show context methods
     setUserTvShowContext: jest.fn(),
     clearUserTvShowContext: jest.fn(),

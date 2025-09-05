@@ -77,6 +77,7 @@ export const GET_MEDIA_TYPE_PROMPT = new SystemMessage(dedent`
   - "${SearchIntent.Library}" - browsing existing collection ("what do I have", "show me my", "do I have")
   - "${SearchIntent.External}" - finding new content ("search for", "find", "look for", "add", "get me")
   - "${SearchIntent.Both}" - both existing and new content
+  - "${SearchIntent.Delete}" - deleting from library ("delete", "remove", "uninstall")
   
   Search Terms (extract meaningful terms for searching):
   - Include: movie/show titles, actors, directors, genres, years, keywords, themes
@@ -92,6 +93,9 @@ export const GET_MEDIA_TYPE_PROMPT = new SystemMessage(dedent`
   - "show me sci-fi movies and find new ones" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Both}", "searchTerms": "sci-fi"}
   - "that movie with Ryan Gosling about space" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.External}", "searchTerms": "Ryan Gosling space"}
   - "cooking shows like MasterChef" → {"mediaType": "${MediaRequestType.Shows}", "searchIntent": "${SearchIntent.External}", "searchTerms": "cooking MasterChef"}
+  - "delete Cars movie" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Delete}", "searchTerms": "Cars"}
+  - "remove The Batman from my library" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Delete}", "searchTerms": "The Batman"}
+  - "delete cars the first one" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Delete}", "searchTerms": "cars"}
   
   Return only valid JSON, no additional text.
 `)
@@ -163,10 +167,10 @@ export const EXTRACT_SEARCH_QUERY_PROMPT = new SystemMessage(dedent`
   Extract the movie search query from the user's message. Focus on movie titles, actor names, directors, genres, years, and descriptive keywords.
   
   Guidelines:
-  - Remove action words: download, add, get, find, search for, look for, want, need
+  - Remove action words: download, add, get, find, search for, look for, want, need, delete, remove, uninstall
   - Keep descriptive content: actor names, directors, genres, years, plot keywords
   - For references like "the new Batman" extract "Batman"  
-  - For "that movie with Ryan Gosling about space" extract "Ryan Gosling space"
+  - For "that movie with Ryan Goslin about space" extract "Ryan Gosling space"
   - For "the latest Marvel movie" extract "Marvel"
   - Remove filler words: movie, film, the (unless part of a title)
   
@@ -176,6 +180,9 @@ export const EXTRACT_SEARCH_QUERY_PROMPT = new SystemMessage(dedent`
   - "Find the new Batman sequel" → "Batman"
   - "Search for horror movies from the 90s" → "horror 90s"
   - "Get me that Leonardo DiCaprio movie about dreams" → "Leonardo DiCaprio dreams"
+  - "Delete Cars movie" → "Cars"
+  - "Remove The Batman from my library" → "The Batman"
+  - "Delete cars the first one" → "cars"
   
   Return only the extracted search terms, no additional text.
 `)
