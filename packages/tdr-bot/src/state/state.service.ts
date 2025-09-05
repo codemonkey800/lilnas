@@ -7,6 +7,7 @@ import { ChatModel } from 'openai/resources/index'
 
 import { OutputStateAnnotation } from 'src/schemas/graph'
 import { MovieSelectionContext } from 'src/schemas/movie'
+import { TvShowSelectionContext } from 'src/schemas/tv-show'
 import {
   EMOJI_DICTIONARY,
   INPUT_FORMAT,
@@ -23,6 +24,7 @@ export interface AppState {
   reasoningModel: ChatModel
   temperature: number
   userMovieContexts: Map<string, MovieSelectionContext>
+  userTvShowContexts: Map<string, TvShowSelectionContext>
 }
 
 export class StateChangeEvent {
@@ -46,6 +48,7 @@ export class StateService {
     prompt: KAWAII_PROMPT,
     temperature: 0,
     userMovieContexts: new Map(),
+    userTvShowContexts: new Map(),
   }
 
   setState(
@@ -124,6 +127,52 @@ export class StateService {
 
     if (cleanedContexts.size !== this.state.userMovieContexts.size) {
       this.setState({ userMovieContexts: cleanedContexts })
+    }
+  }
+
+  // TV show context management methods
+  setUserTvShowContext(userId: string, context: TvShowSelectionContext) {
+    this.logger.log(
+      { userId, query: context.query },
+      'Setting TV show context for user',
+    )
+    this.setState(prev => ({
+      userTvShowContexts: new Map(prev.userTvShowContexts).set(userId, context),
+    }))
+  }
+
+  clearUserTvShowContext(userId: string) {
+    this.logger.log({ userId }, 'Clearing TV show context for user')
+    this.setState(prev => {
+      const newMap = new Map(prev.userTvShowContexts)
+      newMap.delete(userId)
+      return { userTvShowContexts: newMap }
+    })
+  }
+
+  getUserTvShowContext(userId: string): TvShowSelectionContext | undefined {
+    return this.state.userTvShowContexts.get(userId)
+  }
+
+  isTvShowContextExpired(context: TvShowSelectionContext): boolean {
+    const CONTEXT_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
+    const now = Date.now()
+    return now - context.timestamp > CONTEXT_TIMEOUT_MS
+  }
+
+  cleanupExpiredTvShowContexts() {
+    const cleanedContexts = new Map()
+
+    for (const [userId, context] of this.state.userTvShowContexts) {
+      if (!this.isTvShowContextExpired(context)) {
+        cleanedContexts.set(userId, context)
+      } else {
+        this.logger.log({ userId }, 'Cleaned up expired TV show context')
+      }
+    }
+
+    if (cleanedContexts.size !== this.state.userTvShowContexts.size) {
+      this.setState({ userTvShowContexts: cleanedContexts })
     }
   }
 }

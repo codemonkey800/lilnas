@@ -97,20 +97,23 @@ export const GET_MEDIA_TYPE_PROMPT = new SystemMessage(dedent`
 `)
 
 export const TOPIC_SWITCH_DETECTION_PROMPT = new SystemMessage(dedent`
-  Determine if the user has switched to a different topic from their previous movie selection context.
+  Determine if the user has switched to a different topic from their previous media selection context.
   
-  Previous context: The user was selecting from movie search results.
+  Previous context: The user was selecting from movie or TV show search results.
   Current message: [USER_MESSAGE]
   
   Guidelines:
-  - If the user is still making a movie selection (ordinal numbers, years, actor names, movie titles, selection keywords), respond "CONTINUE"
+  - If the user is still making a media selection (ordinal numbers, years, actor names, titles, season/episode selections), respond "CONTINUE"
   - If the user is asking about something completely different (weather, math, other topics), respond "SWITCH"
   - Selection keywords include: "first", "second", "third", "one", "two", "three", "that one", "this one", "the", "from", "with", "yeah", "yes"
+  - TV show selections include: "entire series", "season", "episode", "seasons 1-3", "all of it"
   
   Examples:
   - "the first one" → CONTINUE
   - "the one from 2010" → CONTINUE  
   - "the Batman movie" → CONTINUE
+  - "entire series" → CONTINUE
+  - "season 1 and 3" → CONTINUE
   - "what's the weather?" → SWITCH
   - "calculate 2+2" → SWITCH
   - "actually, nevermind" → SWITCH
@@ -125,26 +128,33 @@ export const MOVIE_SELECTION_PARSING_PROMPT = new SystemMessage(dedent`
   The user is selecting from a list of movie search results. Parse their selection into:
   
   {
-    "selectionType": "ordinal" | "year" | "keyword" | "title",
-    "value": "extracted value",
-    "confidence": "high" | "medium" | "low"
+    "selectionType": "ordinal" | "year",
+    "value": "extracted value"
   }
   
   Selection Types:
-  - "ordinal": first, second, third, 1st, 2nd, etc.
+  - "ordinal": first, second, third, 1st, 2nd, etc., number references (1, 2, 3)
   - "year": specific year mentioned (2010, 2008, etc.)
-  - "keyword": actor name, director, genre, description keyword
-  - "title": specific movie title mentioned
   
   Value: Extract the relevant selection criteria
-  Confidence: How certain you are about the selection
+  
+  IMPORTANT: Only parse explicit ordinal positions or years. Do NOT extract titles, names, or keywords as selections. If no clear ordinal or year is mentioned, return {"error": "no_selection_found"} instead.
   
   Examples:
-  - "the first one" → {"selectionType": "ordinal", "value": "1", "confidence": "high"}
-  - "the one from 2010" → {"selectionType": "year", "value": "2010", "confidence": "high"}  
-  - "the Batman movie" → {"selectionType": "title", "value": "Batman", "confidence": "medium"}
-  - "the one with Tom Hanks" → {"selectionType": "keyword", "value": "Tom Hanks", "confidence": "medium"}
-  - "number 3" → {"selectionType": "ordinal", "value": "3", "confidence": "high"}
+  - "the first one" → {"selectionType": "ordinal", "value": "1"}
+  - "the one from 2010" → {"selectionType": "year", "value": "2010"}  
+  - "number 3" → {"selectionType": "ordinal", "value": "3"}
+  - "download breaking bad? the first result in the list?" → {"selectionType": "ordinal", "value": "1"}
+  - "get me the second option" → {"selectionType": "ordinal", "value": "2"}
+  - "the first result" → {"selectionType": "ordinal", "value": "1"}
+  - "first in the list" → {"selectionType": "ordinal", "value": "1"}
+  - "the top one" → {"selectionType": "ordinal", "value": "1"}
+  - "add the first movie?" → {"selectionType": "ordinal", "value": "1"}
+  - "download the second one from the results" → {"selectionType": "ordinal", "value": "2"}
+  - "the 2008 version" → {"selectionType": "year", "value": "2008"}
+  - "I want the one from 1994" → {"selectionType": "year", "value": "1994"}
+  - "download breaking bad season 2?" → {"error": "no_selection_found"}
+  - "get me some action movies" → {"error": "no_selection_found"}
   
   Return only valid JSON, no additional text.
 `)
@@ -275,6 +285,98 @@ export const DRUNK_PROMPT = dedent`
   replies. You will also use a lot of emojis only from the emoji dictionary due
   to how drunk you are.
 `
+
+export const TV_SHOW_SELECTION_PARSING_PROMPT = new SystemMessage(dedent`
+  Parse the user's TV show selection from their message and return a JSON object that matches the exact structure expected by the Sonarr service.
+  
+  IMPORTANT: Only extract season/episode information when EXPLICIT season/episode keywords are present. Do NOT extract from bare numbers that could be part of show titles or other contexts.
+  
+  The user is selecting what to download from a TV show. Parse their selection into this format:
+  
+  {
+    "selection": [
+      { "season": number, "episodes": [number, number, ...] }
+    ]
+  }
+  
+  Rules:
+  - If they want the entire series, return an empty object: {}
+  - If they want entire seasons, omit the "episodes" field: { "season": 1 }
+  - If they want specific episodes, include the "episodes" array: { "season": 1, "episodes": [1, 2, 3] }
+  - Expand ranges like "episodes 1-5" to [1, 2, 3, 4, 5]
+  - Handle complex selections like "season 1 and season 2 episodes 3-4"
+  - ONLY extract when explicit keywords are present: "season", "episode", "seasons", "episodes", "s01e05", "s1e1"
+  - IGNORE bare numbers that could be part of show titles, years, or ordinal selections
+  - If no explicit season/episode keywords found, return {"error": "no_tv_selection_found"}
+  
+  POSITIVE Examples (WITH explicit season/episode keywords):
+  - "entire series" → {}
+  - "all of it" → {}
+  - "download the whole thing" → {}
+  - "get me everything" → {}
+  - "season 1" → {"selection": [{"season": 1}]}
+  - "season 1 and 3" → {"selection": [{"season": 1}, {"season": 3}]}
+  - "seasons 1-3" → {"selection": [{"season": 1}, {"season": 2}, {"season": 3}]}
+  - "season 1 episodes 1-3" → {"selection": [{"season": 1, "episodes": [1, 2, 3]}]}
+  - "season 1 episodes 1-3 and season 2" → {"selection": [{"season": 1, "episodes": [1, 2, 3]}, {"season": 2}]}
+  - "season 2 episodes 3-4" → {"selection": [{"season": 2, "episodes": [3, 4]}]}
+  - "download season 1 please" → {"selection": [{"season": 1}]}
+  - "get me seasons 2 and 3" → {"selection": [{"season": 2}, {"season": 3}]}
+  - "add the first season" → {"selection": [{"season": 1}]}
+  - "just season 1 episodes 1-5" → {"selection": [{"season": 1, "episodes": [1, 2, 3, 4, 5]}]}
+  
+  NEGATIVE Examples (WITHOUT explicit keywords - should return error):
+  - "download breaking bad 2, the first one" → {"error": "no_tv_selection_found"}
+  - "fast and furious 8" → {"error": "no_tv_selection_found"}
+  - "the first in the list" → {"error": "no_tv_selection_found"}
+  - "number 2 from search results" → {"error": "no_tv_selection_found"}
+  - "the 2008 version" → {"error": "no_tv_selection_found"}
+  - "breaking bad 2" → {"error": "no_tv_selection_found"}
+  - "get me some action movies" → {"error": "no_tv_selection_found"}
+  
+  Return only valid JSON, no additional text.
+`)
+
+export const TV_SHOW_RESPONSE_CONTEXT_PROMPT = new SystemMessage(dedent`
+  Generate a conversational response for the TV show download bot based on the situation and context provided.
+  
+  Maintain the bot's personality:
+  - Helpful and enthusiastic about TV shows
+  - Conversational and friendly tone  
+  - Uses appropriate emojis from the dictionary occasionally
+  - Provides clear, actionable guidance for TV show selection
+  
+  Situation types:
+  - TV_SHOW_SELECTION_NEEDED: Present show options and explain selection choices (entire series, specific seasons, specific episodes)
+  - TV_SHOW_CLARIFICATION: Ask for more specific show details
+  - TV_SHOW_NO_RESULTS: Explain no shows found and suggest alternatives
+  - TV_SHOW_SUCCESS: Confirm successful show download with enthusiasm
+  - TV_SHOW_ERROR: Explain service issues helpfully
+  - TV_SHOW_PROCESSING_ERROR: Handle selection/processing failures
+  
+  Always provide helpful guidance about TV show selection options and maintain conversational flow.
+`)
+
+export const EXTRACT_TV_SEARCH_QUERY_PROMPT = new SystemMessage(dedent`
+  Extract the TV show search query from the user's message. Focus on show titles, actor names, genres, years, and descriptive keywords.
+  
+  Guidelines:
+  - Remove action words: download, add, get, find, search for, look for, want, need
+  - Keep descriptive content: show titles, actor names, genres, years, plot keywords
+  - For references like "the new season of Breaking Bad" extract "Breaking Bad"  
+  - For "that show with Bryan Cranston about drugs" extract "Bryan Cranston drugs"
+  - For "the latest HBO series" extract "HBO"
+  - Remove filler words: show, series, TV, television, the (unless part of a title)
+  
+  Examples:
+  - "Download Breaking Bad" → "Breaking Bad"
+  - "I want to get that show with Bryan Cranston about drugs" → "Bryan Cranston drugs"
+  - "Find the new Game of Thrones" → "Game of Thrones"
+  - "Search for comedy shows from the 90s" → "comedy 90s"
+  - "Get me that Netflix show about chess" → "Netflix chess"
+  
+  Return only the extracted search terms, no additional text.
+`)
 
 export const TDR_SYSTEM_PROMPT_ID = 'tdr-system-prompt'
 

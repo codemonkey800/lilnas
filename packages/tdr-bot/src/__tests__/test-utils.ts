@@ -219,6 +219,18 @@ export function createMockStateService(): jest.Mocked<StateService> {
     }),
     getPrompt: jest.fn().mockReturnValue('Generated prompt'),
     onModuleInit: jest.fn(),
+    // Movie context methods
+    setUserMovieContext: jest.fn(),
+    clearUserMovieContext: jest.fn(),
+    getUserMovieContext: jest.fn().mockReturnValue(undefined),
+    isMovieContextExpired: jest.fn().mockReturnValue(false),
+    cleanupExpiredMovieContexts: jest.fn(),
+    // TV show context methods
+    setUserTvShowContext: jest.fn(),
+    clearUserTvShowContext: jest.fn(),
+    getUserTvShowContext: jest.fn().mockReturnValue(undefined),
+    isTvShowContextExpired: jest.fn().mockReturnValue(false),
+    cleanupExpiredTvShowContexts: jest.fn(),
   } as unknown as jest.Mocked<StateService>
 }
 

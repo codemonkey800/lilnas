@@ -522,6 +522,7 @@ describe('LLMService', () => {
 
       expect(compiledGraph.invoke).toHaveBeenCalledWith({
         userInput: 'TestUser said "Hello"',
+        userId: 'TestUser',
         messages: [],
       })
 
@@ -560,6 +561,7 @@ describe('LLMService', () => {
 
       expect(compiledGraph.invoke).toHaveBeenCalledWith({
         userInput: 'TestUser said "New message"',
+        userId: 'TestUser',
         messages: previousMessages,
       })
     })
@@ -642,6 +644,194 @@ describe('LLMService', () => {
       const result = handleModelResponse({ messages })
 
       expect(result).toBe('__end__')
+    })
+  })
+
+  describe('TV Show Selection State Preservation', () => {
+    it('should preserve original granular selection in TV show context', () => {
+      // Mock a TV show context with original selections
+      const mockTvShowContext = {
+        searchResults: [{ tvdbId: 81189, title: 'Breaking Bad', year: 2008 }],
+        query: 'Breaking Bad 2008 season 1',
+        timestamp: Date.now(),
+        isActive: true,
+        originalSearchSelection: {
+          selectionType: 'year' as const,
+          value: '2008',
+          confidence: 'high' as const,
+        },
+        originalTvSelection: {
+          selection: [{ season: 1 }],
+        },
+      }
+
+      // Verify that context creation preserves both selections
+      expect(mockTvShowContext.originalSearchSelection).toBeDefined()
+      expect(mockTvShowContext.originalTvSelection).toBeDefined()
+      expect(mockTvShowContext.originalSearchSelection?.selectionType).toBe(
+        'year',
+      )
+      expect(mockTvShowContext.originalSearchSelection?.value).toBe('2008')
+      expect(mockTvShowContext.originalTvSelection?.selection).toEqual([
+        { season: 1 },
+      ])
+    })
+
+    it('should handle contexts without original selections', () => {
+      const mockTvShowContext = {
+        searchResults: [{ tvdbId: 81189, title: 'Breaking Bad', year: 2008 }],
+        query: 'Breaking Bad',
+        timestamp: Date.now(),
+        isActive: true,
+        originalSearchSelection: undefined,
+        originalTvSelection: undefined,
+      }
+
+      // Verify that context creation handles optional selections
+      expect(mockTvShowContext.originalSearchSelection).toBeUndefined()
+      expect(mockTvShowContext.originalTvSelection).toBeUndefined()
+    })
+  })
+
+  describe('Media Type Classification', () => {
+    let mockClassificationModel: {
+      invoke: jest.Mock
+    }
+
+    beforeEach(() => {
+      mockClassificationModel = {
+        invoke: jest.fn(),
+      }
+
+      // Mock ChatOpenAI.withStructuredOutput
+      jest.mocked(ChatOpenAI).mockImplementation(
+        () =>
+          ({
+            withStructuredOutput: jest.fn(() => mockClassificationModel),
+          }) as unknown as ChatOpenAI,
+      )
+    })
+
+    it('should classify TV show request correctly', async () => {
+      const message = new HumanMessage('I want to watch Breaking Bad')
+      const expectedResult = {
+        mediaType: 'tv_show',
+        reasoning: 'Breaking Bad is a known TV series',
+      }
+
+      mockClassificationModel.invoke.mockResolvedValue(expectedResult)
+
+      // Access private method for testing
+      const result = await (
+        service as unknown as {
+          classifyMediaType: (
+            message: HumanMessage,
+          ) => Promise<{ mediaType: string; reasoning: string }>
+        }
+      ).classifyMediaType(message)
+
+      expect(result).toEqual(expectedResult)
+      expect(mockClassificationModel.invoke).toHaveBeenCalledWith([
+        {
+          role: 'system',
+          content: expect.stringContaining('You are a media type classifier'),
+        },
+        { role: 'user', content: 'I want to watch Breaking Bad' },
+      ])
+    })
+
+    it('should classify movie request correctly', async () => {
+      const message = new HumanMessage('Show me some good action movies')
+      const expectedResult = {
+        mediaType: 'movie',
+        reasoning: 'Clear movie intent despite containing "show"',
+      }
+
+      mockClassificationModel.invoke.mockResolvedValue(expectedResult)
+
+      const result = await (
+        service as unknown as {
+          classifyMediaType: (
+            message: HumanMessage,
+          ) => Promise<{ mediaType: string; reasoning: string }>
+        }
+      ).classifyMediaType(message)
+
+      expect(result).toEqual(expectedResult)
+      expect(mockClassificationModel.invoke).toHaveBeenCalledWith([
+        {
+          role: 'system',
+          content: expect.stringContaining('You are a media type classifier'),
+        },
+        { role: 'user', content: 'Show me some good action movies' },
+      ])
+    })
+
+    it('should handle ambiguous requests', async () => {
+      const message = new HumanMessage('What should I watch tonight?')
+      const expectedResult = {
+        mediaType: 'movie',
+        reasoning: 'Ambiguous request, defaulting to movie',
+      }
+
+      mockClassificationModel.invoke.mockResolvedValue(expectedResult)
+
+      const result = await (
+        service as unknown as {
+          classifyMediaType: (
+            message: HumanMessage,
+          ) => Promise<{ mediaType: string; reasoning: string }>
+        }
+      ).classifyMediaType(message)
+
+      expect(result).toEqual(expectedResult)
+    })
+
+    it('should handle classification errors gracefully', async () => {
+      const message = new HumanMessage('Some request')
+
+      mockClassificationModel.invoke.mockRejectedValue(new Error('API Error'))
+
+      const result = await (
+        service as unknown as {
+          classifyMediaType: (
+            message: HumanMessage,
+          ) => Promise<{ mediaType: string; reasoning: string }>
+        }
+      ).classifyMediaType(message)
+
+      expect(result).toEqual({
+        mediaType: 'movie',
+        reasoning: 'Classification failed, defaulting to movie',
+      })
+    })
+
+    it('should handle non-string message content', async () => {
+      // Create a message with complex content that will need toString() conversion
+      const message = new HumanMessage({ content: 'Looking for a new series' })
+      const expectedResult = {
+        mediaType: 'tv_show',
+        reasoning: 'Series keyword indicates TV show intent',
+      }
+
+      mockClassificationModel.invoke.mockResolvedValue(expectedResult)
+
+      const result = await (
+        service as unknown as {
+          classifyMediaType: (
+            message: HumanMessage,
+          ) => Promise<{ mediaType: string; reasoning: string }>
+        }
+      ).classifyMediaType(message)
+
+      expect(result).toEqual(expectedResult)
+      expect(mockClassificationModel.invoke).toHaveBeenCalledWith([
+        {
+          role: 'system',
+          content: expect.stringContaining('You are a media type classifier'),
+        },
+        { role: 'user', content: 'Looking for a new series' },
+      ])
     })
   })
 })

@@ -13,17 +13,6 @@ export const MovieSelectionContextSchema = z.object({
 export type MovieSelectionContext = z.infer<typeof MovieSelectionContextSchema>
 
 /**
- * Schema for parsing user movie selection from natural language
- */
-export const MovieSelectionSchema = z.object({
-  selectionType: z.enum(['ordinal', 'year', 'keyword', 'title']),
-  value: z.string(),
-  confidence: z.enum(['high', 'medium', 'low']),
-})
-
-export type MovieSelection = z.infer<typeof MovieSelectionSchema>
-
-/**
  * Schema for movie download request result
  */
 export const MovieDownloadResultSchema = z.object({
