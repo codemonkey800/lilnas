@@ -7,7 +7,10 @@ import { ChatModel } from 'openai/resources/index'
 
 import { OutputStateAnnotation } from 'src/schemas/graph'
 import { MovieDeleteContext, MovieSelectionContext } from 'src/schemas/movie'
-import { TvShowSelectionContext } from 'src/schemas/tv-show'
+import {
+  TvShowDeleteContext,
+  TvShowSelectionContext,
+} from 'src/schemas/tv-show'
 import {
   EMOJI_DICTIONARY,
   INPUT_FORMAT,
@@ -26,8 +29,7 @@ export interface AppState {
   userMovieContexts: Map<string, MovieSelectionContext>
   userMovieDeleteContexts: Map<string, MovieDeleteContext>
   userTvShowContexts: Map<string, TvShowSelectionContext>
-  // TODO: Add TV show delete contexts when implementing TV show delete feature
-  // userTvShowDeleteContexts: Map<string, TvShowDeleteContext>
+  userTvShowDeleteContexts: Map<string, TvShowDeleteContext>
 }
 
 export class StateChangeEvent {
@@ -53,8 +55,7 @@ export class StateService {
     userMovieContexts: new Map(),
     userMovieDeleteContexts: new Map(),
     userTvShowContexts: new Map(),
-    // TODO: Initialize TV show delete contexts when implementing TV show delete feature
-    // userTvShowDeleteContexts: new Map(),
+    userTvShowDeleteContexts: new Map(),
   }
 
   setState(
@@ -231,10 +232,51 @@ export class StateService {
     }
   }
 
-  // TODO: Add TV show delete context management methods when implementing TV show delete feature
-  // setUserTvShowDeleteContext(userId: string, context: TvShowDeleteContext)
-  // clearUserTvShowDeleteContext(userId: string)
-  // getUserTvShowDeleteContext(userId: string): TvShowDeleteContext | undefined
-  // isTvShowDeleteContextExpired(context: TvShowDeleteContext): boolean
-  // cleanupExpiredTvShowDeleteContexts()
+  setUserTvShowDeleteContext(userId: string, context: TvShowDeleteContext) {
+    this.logger.log(
+      { userId, query: context.query },
+      'Setting TV show delete context for user',
+    )
+    this.setState(prev => ({
+      userTvShowDeleteContexts: new Map(prev.userTvShowDeleteContexts).set(
+        userId,
+        context,
+      ),
+    }))
+  }
+
+  clearUserTvShowDeleteContext(userId: string) {
+    this.logger.log({ userId }, 'Clearing TV show delete context for user')
+    this.setState(prev => {
+      const newMap = new Map(prev.userTvShowDeleteContexts)
+      newMap.delete(userId)
+      return { userTvShowDeleteContexts: newMap }
+    })
+  }
+
+  getUserTvShowDeleteContext(userId: string): TvShowDeleteContext | undefined {
+    return this.state.userTvShowDeleteContexts.get(userId)
+  }
+
+  isTvShowDeleteContextExpired(context: TvShowDeleteContext): boolean {
+    const CONTEXT_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
+    const now = Date.now()
+    return now - context.timestamp > CONTEXT_TIMEOUT_MS
+  }
+
+  cleanupExpiredTvShowDeleteContexts() {
+    const cleanedContexts = new Map()
+
+    for (const [userId, context] of this.state.userTvShowDeleteContexts) {
+      if (!this.isTvShowDeleteContextExpired(context)) {
+        cleanedContexts.set(userId, context)
+      } else {
+        this.logger.log({ userId }, 'Cleaned up expired TV show delete context')
+      }
+    }
+
+    if (cleanedContexts.size !== this.state.userTvShowDeleteContexts.size) {
+      this.setState({ userTvShowDeleteContexts: cleanedContexts })
+    }
+  }
 }

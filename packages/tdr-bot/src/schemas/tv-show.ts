@@ -71,6 +71,33 @@ export type TvShowSelectionContext = z.infer<
 >
 
 /**
+ * TV Show delete context stored in user state - for managing TV show deletion flow
+ */
+export const TvShowDeleteContextSchema = z.object({
+  searchResults: z.array(
+    z.object({
+      // Using a more specific schema for library search results
+      id: z.number(), // Sonarr series ID
+      tvdbId: z.number(),
+      tmdbId: z.number().optional(),
+      title: z.string(),
+      year: z.number().optional(),
+      monitored: z.boolean(),
+      path: z.string().optional(),
+      // Add other fields as needed for display/selection
+    }),
+  ),
+  query: z.string(),
+  timestamp: z.number(),
+  isActive: z.boolean(),
+  // Store the original selections from the user's request to preserve intent
+  originalSearchSelection: SearchSelectionSchema.optional(), // How to pick which show (year, ordinal, etc.)
+  originalTvSelection: z.lazy(() => TvShowSelectionSchema).optional(), // Which parts to delete (seasons, episodes)
+})
+
+export type TvShowDeleteContext = z.infer<typeof TvShowDeleteContextSchema>
+
+/**
  * TV Show selection structure - matches exactly what SonarrService.monitorAndDownloadSeries expects
  */
 export const TvShowSelectionSchema = z.object({

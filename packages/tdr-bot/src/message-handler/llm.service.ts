@@ -19,7 +19,10 @@ import {
   MovieLibrarySearchResult,
   MovieSearchResult,
 } from 'src/media/types/radarr.types'
-import { SeriesSearchResult } from 'src/media/types/sonarr.types'
+import {
+  SeriesSearchResult,
+  UnmonitorAndDeleteSeriesResult,
+} from 'src/media/types/sonarr.types'
 import {
   GraphNode,
   ImageQuerySchema,
@@ -44,6 +47,7 @@ import {
   SearchSelectionSchema,
 } from 'src/schemas/search-selection'
 import {
+  TvShowDeleteContext,
   TvShowSelection,
   TvShowSelectionContext,
   TvShowSelectionSchema,
@@ -66,6 +70,7 @@ import {
   MOVIE_SELECTION_PARSING_PROMPT,
   TDR_SYSTEM_PROMPT_ID,
   TOPIC_SWITCH_DETECTION_PROMPT,
+  TV_SHOW_DELETE_RESPONSE_CONTEXT_PROMPT,
   TV_SHOW_RESPONSE_CONTEXT_PROMPT,
   TV_SHOW_SELECTION_PARSING_PROMPT,
 } from 'src/utils/prompts'
@@ -591,6 +596,24 @@ export class LLMService {
         )
       }
 
+      // Check if user has active TV show delete context (selection phase)
+      const tvShowDeleteContext = this.state.getUserTvShowDeleteContext(userId)
+      if (
+        tvShowDeleteContext?.isActive &&
+        !this.state.isTvShowDeleteContextExpired(tvShowDeleteContext)
+      ) {
+        this.logger.log(
+          { userId, query: tvShowDeleteContext.query },
+          'Using existing TV show delete context for selection',
+        )
+        return await this.handleTvShowDeleteSelection(
+          message,
+          messages,
+          tvShowDeleteContext,
+          userId,
+        )
+      }
+
       // Check if user has active movie context (selection phase)
       const movieContext = this.state.getUserMovieContext(userId)
       if (movieContext?.isActive) {
@@ -704,8 +727,8 @@ export class LLMService {
 
         // Check for existing delete contexts first
         const movieDeleteContext = this.state.getUserMovieDeleteContext(userId)
-        // TODO: Add TV show delete context check when implementing TV show delete feature
-        // const tvShowDeleteContext = this.state.getUserTvShowDeleteContext(userId)
+        const tvShowDeleteContext =
+          this.state.getUserTvShowDeleteContext(userId)
 
         if (
           movieDeleteContext?.isActive &&
@@ -723,28 +746,27 @@ export class LLMService {
           )
         }
 
-        // TODO: Add TV show delete context check when implementing TV show delete feature
-        // if (tvShowDeleteContext?.isActive && !this.state.isTvShowDeleteContextExpired(tvShowDeleteContext)) {
-        //   return await this.handleTvShowDeleteSelection(message, messages, tvShowDeleteContext, userId)
-        // }
+        if (
+          tvShowDeleteContext?.isActive &&
+          !this.state.isTvShowDeleteContextExpired(tvShowDeleteContext)
+        ) {
+          this.logger.log(
+            { userId, query: tvShowDeleteContext.query },
+            'Using existing TV show delete context for selection',
+          )
+          return await this.handleTvShowDeleteSelection(
+            message,
+            messages,
+            tvShowDeleteContext,
+            userId,
+          )
+        }
 
         // No existing delete context - start new delete based on media type
         if (mediaRequest.mediaType === MediaRequestType.Movies) {
           return await this.handleNewMovieDelete(message, messages, userId)
         } else if (mediaRequest.mediaType === MediaRequestType.Shows) {
-          // TODO: Implement TV show delete when adding TV show delete feature
-          const todoResponse = await this.generateMovieDeleteChatResponse(
-            messages,
-            'error_delete',
-            {
-              errorMessage:
-                'TV show deletion is not yet implemented. Only movies can be deleted currently.',
-            },
-          )
-          return {
-            images: [],
-            messages: messages.concat(todoResponse),
-          }
+          return await this.handleNewTvShowDelete(message, messages, userId)
         } else {
           // MediaRequestType.Both - use LLM classification
           const classification = await this.classifyMediaType(message)
@@ -762,19 +784,7 @@ export class LLMService {
           )
 
           if (classification.mediaType === 'tv_show') {
-            // TODO: Implement TV show delete when adding TV show delete feature
-            const todoResponse = await this.generateMovieDeleteChatResponse(
-              messages,
-              'error_delete',
-              {
-                errorMessage:
-                  'TV show deletion is not yet implemented. Only movies can be deleted currently.',
-              },
-            )
-            return {
-              images: [],
-              messages: messages.concat(todoResponse),
-            }
+            return await this.handleNewTvShowDelete(message, messages, userId)
           } else {
             return await this.handleNewMovieDelete(message, messages, userId)
           }
@@ -1072,6 +1082,241 @@ export class LLMService {
     }
   }
 
+  private async handleNewTvShowSearch(
+    message: HumanMessage,
+    messages: BaseMessage[],
+    userId: string,
+  ) {
+    this.logger.log(
+      { userId, content: message.content },
+      'Starting new TV show search',
+    )
+
+    // Parse both search query and TV show selection criteria upfront
+    const messageContent =
+      typeof message.content === 'string'
+        ? message.content
+        : message.content.toString()
+
+    const { searchQuery, selection, tvSelection } =
+      await this.parseInitialTvShowSelection(messageContent)
+
+    if (!searchQuery.trim()) {
+      const clarificationResponse = await this.generateTvShowChatResponse(
+        messages,
+        'TV_SHOW_CLARIFICATION',
+      )
+      return {
+        images: [],
+        messages: messages.concat(clarificationResponse),
+      }
+    }
+
+    try {
+      // Search for TV shows using SonarrService
+      const searchResults = await this.sonarrService.searchShows(searchQuery)
+      this.logger.log(
+        {
+          userId,
+          searchQuery,
+          resultCount: searchResults.length,
+          hasSelection: !!selection,
+          hasTvSelection: !!tvSelection,
+        },
+        'TV show search completed',
+      )
+
+      if (searchResults.length === 0) {
+        const noResultsResponse = await this.generateTvShowChatResponse(
+          messages,
+          'TV_SHOW_NO_RESULTS',
+          { searchQuery },
+        )
+        return {
+          images: [],
+          messages: messages.concat(noResultsResponse),
+        }
+      }
+
+      // Smart auto-selection: Apply when user provides explicit selections
+      if (
+        selection &&
+        (selection.selectionType === 'ordinal' ||
+          selection.selectionType === 'year') &&
+        searchResults.length > 0
+      ) {
+        const selectedShow = this.findSelectedTvShow(selection, searchResults)
+        if (selectedShow) {
+          this.logger.log(
+            {
+              userId,
+              tvdbId: selectedShow.tvdbId,
+              selectionType: selection.selectionType,
+              selectionValue: selection.value,
+              showTitle: selectedShow.title,
+              tvSelection,
+            },
+            'Auto-applying TV show selection (explicit search selection provided)',
+          )
+
+          // If we also have TV selection (seasons/episodes), download directly
+          if (tvSelection?.selection && tvSelection.selection.length > 0) {
+            return await this.downloadTvShow(
+              selectedShow,
+              tvSelection,
+              message,
+              messages,
+              userId,
+            )
+          } else if (tvSelection && Object.keys(tvSelection).length === 0) {
+            // Empty tvSelection means entire series
+            return await this.downloadTvShow(
+              selectedShow,
+              tvSelection,
+              message,
+              messages,
+              userId,
+            )
+          } else {
+            // Need to ask for season/episode selection
+            const tvShowContext = {
+              searchResults: [selectedShow],
+              query: searchQuery,
+              timestamp: Date.now(),
+              isActive: true,
+              originalSearchSelection: selection || undefined,
+              originalTvSelection: tvSelection || undefined,
+            }
+
+            this.state.setUserTvShowContext(userId, tvShowContext)
+
+            const selectionResponse = await this.generateTvShowChatResponse(
+              messages,
+              'TV_SHOW_SELECTION_NEEDED',
+              {
+                selectedShow: selectedShow || undefined,
+                searchQuery,
+              },
+            )
+
+            return {
+              images: [],
+              messages: messages.concat(selectionResponse),
+            }
+          }
+        } else {
+          this.logger.warn(
+            { userId, selection, searchResultsCount: searchResults.length },
+            'Could not find selected TV show from specification, falling back to list',
+          )
+        }
+      }
+
+      // Handle single result with TV selection provided
+      if (searchResults.length === 1) {
+        if (tvSelection?.selection && tvSelection.selection.length > 0) {
+          // Single result with explicit season/episode selection - download directly
+          this.logger.log(
+            { userId, tvdbId: searchResults[0].tvdbId },
+            'Single result found with TV selection, downloading directly',
+          )
+          return await this.downloadTvShow(
+            searchResults[0],
+            tvSelection,
+            message,
+            messages,
+            userId,
+          )
+        } else if (tvSelection && Object.keys(tvSelection).length === 0) {
+          // Single result with entire series selection
+          this.logger.log(
+            { userId, tvdbId: searchResults[0].tvdbId },
+            'Single result found with entire series selection, downloading directly',
+          )
+          return await this.downloadTvShow(
+            searchResults[0],
+            tvSelection,
+            message,
+            messages,
+            userId,
+          )
+        } else {
+          // Single result but need to ask for season/episode selection
+          const tvShowContext = {
+            searchResults: searchResults.slice(0, 1),
+            query: searchQuery,
+            timestamp: Date.now(),
+            isActive: true,
+            originalSearchSelection: selection || undefined,
+            originalTvSelection: tvSelection || undefined,
+          }
+
+          this.state.setUserTvShowContext(userId, tvShowContext)
+
+          const selectionResponse = await this.generateTvShowChatResponse(
+            messages,
+            'TV_SHOW_SELECTION_NEEDED',
+            {
+              selectedShow: searchResults[0],
+              searchQuery,
+            },
+          )
+
+          return {
+            images: [],
+            messages: messages.concat(selectionResponse),
+          }
+        }
+      }
+
+      // Multiple results - store context and ask user to choose
+      const tvShowContext = {
+        searchResults: searchResults.slice(0, 10), // Limit to top 10 results
+        query: searchQuery,
+        timestamp: Date.now(),
+        isActive: true,
+        originalSearchSelection: selection || undefined,
+        originalTvSelection: tvSelection || undefined,
+      }
+
+      this.state.setUserTvShowContext(userId, tvShowContext)
+
+      // Create selection prompt
+      const selectionResponse = await this.generateTvShowChatResponse(
+        messages,
+        'TV_SHOW_SELECTION_NEEDED',
+        {
+          searchQuery,
+          shows: searchResults.slice(0, 10),
+        },
+      )
+
+      return {
+        images: [],
+        messages: messages.concat(selectionResponse),
+      }
+    } catch (error) {
+      this.logger.error(
+        { error: getErrorMessage(error), userId, searchQuery },
+        'Failed to search for TV shows',
+      )
+
+      const errorResponse = await this.generateTvShowChatResponse(
+        messages,
+        'TV_SHOW_ERROR',
+        {
+          searchQuery,
+          errorMessage: `Couldn't search for "${searchQuery}" right now. The Sonarr service might be unavailable.`,
+        },
+      )
+
+      return {
+        images: [],
+        messages: messages.concat(errorResponse),
+      }
+    }
+  }
+
   private async handleMovieSelection(
     message: HumanMessage,
     messages: BaseMessage[],
@@ -1159,6 +1404,130 @@ export class LLMService {
     }
   }
 
+  private async handleTvShowSelection(
+    message: HumanMessage,
+    messages: BaseMessage[],
+    tvShowContext: TvShowSelectionContext,
+    userId: string,
+  ) {
+    this.logger.log(
+      { userId, selectionMessage: message.content },
+      'Processing TV show selection',
+    )
+
+    try {
+      // Parse the user's selection using LLM - both show selection and TV selection
+      const messageContent =
+        typeof message.content === 'string'
+          ? message.content
+          : message.content.toString()
+
+      const { selection, tvSelection } =
+        await this.parseInitialTvShowSelection(messageContent)
+
+      this.logger.log(
+        { userId, selection, tvSelection },
+        'Parsed TV show selection',
+      )
+
+      // Determine the final search selection
+      const finalSearchSelection =
+        selection || tvShowContext.originalSearchSelection
+      const finalTvSelection = tvSelection || tvShowContext.originalTvSelection
+
+      // Validate we have the required selections
+      if (tvShowContext.searchResults.length > 1 && !finalSearchSelection) {
+        // Still need show selection
+        const clarificationResponse = await this.generateTvShowChatResponse(
+          messages,
+          'TV_SHOW_SELECTION_NEEDED',
+          {
+            searchQuery: tvShowContext.query,
+            shows: tvShowContext.searchResults,
+          },
+        )
+        return {
+          images: [],
+          messages: messages.concat(clarificationResponse),
+        }
+      }
+
+      // Find the selected show
+      const selectedShow =
+        tvShowContext.searchResults.length === 1
+          ? tvShowContext.searchResults[0]
+          : finalSearchSelection
+            ? this.findSelectedTvShow(
+                finalSearchSelection,
+                tvShowContext.searchResults,
+              )
+            : null
+
+      if (!selectedShow && tvShowContext.searchResults.length > 1) {
+        const clarificationResponse = await this.generateTvShowChatResponse(
+          messages,
+          'TV_SHOW_SELECTION_NEEDED',
+          {
+            searchQuery: tvShowContext.query,
+            shows: tvShowContext.searchResults,
+          },
+        )
+        return {
+          images: [],
+          messages: messages.concat(clarificationResponse),
+        }
+      }
+
+      // Check if we need TV selection (seasons/episodes)
+      if (!finalTvSelection) {
+        const selectionResponse = await this.generateTvShowChatResponse(
+          messages,
+          'TV_SHOW_SELECTION_NEEDED',
+          {
+            selectedShow,
+            searchQuery: tvShowContext.query,
+          },
+        )
+        return {
+          images: [],
+          messages: messages.concat(selectionResponse),
+        }
+      }
+
+      // Clear context and download
+      this.state.clearUserTvShowContext(userId)
+      return await this.downloadTvShow(
+        selectedShow!,
+        finalTvSelection,
+        message,
+        messages,
+        userId,
+      )
+    } catch (error) {
+      this.logger.error(
+        { error: getErrorMessage(error), userId },
+        'Failed to process TV show selection',
+      )
+
+      // Clear context on error
+      this.state.clearUserTvShowContext(userId)
+
+      const errorResponse = await this.generateTvShowChatResponse(
+        messages,
+        'TV_SHOW_PROCESSING_ERROR',
+        {
+          errorMessage:
+            'Had trouble processing your selection. Please try searching again.',
+        },
+      )
+
+      return {
+        images: [],
+        messages: messages.concat(errorResponse),
+      }
+    }
+  }
+
   private async downloadMovie(
     movie: MovieSearchResult,
     _originalMessage: HumanMessage,
@@ -1214,6 +1583,81 @@ export class LLMService {
         selectedMovie: movie,
         errorMessage: `Couldn't add "${movie.title}" to downloads. The Radarr service might be unavailable.`,
       })
+
+      return {
+        images: [],
+        messages: messages.concat(errorResponse),
+      }
+    }
+  }
+
+  private async downloadTvShow(
+    show: SeriesSearchResult,
+    tvSelection: TvShowSelection,
+    _originalMessage: HumanMessage,
+    messages: BaseMessage[],
+    userId: string,
+  ) {
+    this.logger.log(
+      {
+        userId,
+        showTitle: show.title,
+        tvdbId: show.tvdbId,
+        selection: tvSelection,
+      },
+      'Attempting to download TV show',
+    )
+
+    try {
+      const result = await this.sonarrService.monitorAndDownloadSeries(
+        show.tvdbId,
+        tvSelection,
+      )
+
+      if (result.success) {
+        const successResponse = await this.generateTvShowChatResponse(
+          messages,
+          'TV_SHOW_SUCCESS',
+          {
+            selectedShow: show,
+            downloadResult: result,
+            tvSelection,
+          },
+        )
+
+        return {
+          images: [],
+          messages: messages.concat(successResponse),
+        }
+      } else {
+        const errorResponse = await this.generateTvShowChatResponse(
+          messages,
+          'TV_SHOW_ERROR',
+          {
+            selectedShow: show,
+            errorMessage: `Failed to add "${show.title}" to downloads: ${result.error}`,
+          },
+        )
+
+        return {
+          images: [],
+          messages: messages.concat(errorResponse),
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        { error: getErrorMessage(error), userId, showTitle: show.title },
+        'Failed to download TV show',
+      )
+
+      const errorResponse = await this.generateTvShowChatResponse(
+        messages,
+        'TV_SHOW_ERROR',
+        {
+          selectedShow: show,
+          errorMessage: `Couldn't add "${show.title}" to downloads. The Sonarr service might be unavailable.`,
+        },
+      )
 
       return {
         images: [],
@@ -1462,6 +1906,511 @@ export class LLMService {
       return {
         images: [],
         messages: messages.concat(errorResponse),
+      }
+    }
+  }
+
+  /**
+   * Handle new TV show delete request - search library and manage selection flow
+   */
+  private async handleNewTvShowDelete(
+    message: HumanMessage,
+    messages: BaseMessage[],
+    userId: string,
+  ) {
+    this.logger.log(
+      { userId, content: message.content },
+      'Starting new TV show delete',
+    )
+
+    // Parse both search query and selections upfront
+    const messageContent =
+      typeof message.content === 'string'
+        ? message.content
+        : message.content.toString()
+
+    try {
+      const searchQuery = await this.extractTvDeleteQueryWithLLM(messageContent)
+
+      if (!searchQuery.trim()) {
+        const clarificationResponse =
+          await this.generateTvShowDeleteChatResponse(
+            messages,
+            'TV_SHOW_DELETE_NO_RESULTS',
+            {
+              searchQuery: '',
+            },
+          )
+        return {
+          images: [],
+          messages: messages.concat(clarificationResponse),
+        }
+      }
+
+      // Parse initial selections (both search and series selection)
+      let searchSelection: SearchSelection | null = null
+      let tvSelection: TvShowSelection | null = null
+
+      try {
+        // Try to parse search selection (which show to select)
+        searchSelection = await this.parseSearchSelection(messageContent).catch(
+          () => null,
+        )
+        // Try to parse TV show selection (which parts to delete)
+        tvSelection = await this.parseTvShowSelection(messageContent).catch(
+          () => null,
+        )
+      } catch (error) {
+        this.logger.log(
+          { error: getErrorMessage(error) },
+          'Failed to parse initial selections, will ask user for clarification',
+        )
+      }
+
+      // Search library for TV shows using SonarrService
+      const libraryResults =
+        await this.sonarrService.getLibrarySeries(searchQuery)
+      this.logger.log(
+        {
+          userId,
+          searchQuery,
+          resultCount: libraryResults.length,
+          hasSearchSelection: !!searchSelection,
+          hasTvSelection: !!tvSelection,
+        },
+        'TV show library search for delete completed',
+      )
+
+      if (libraryResults.length === 0) {
+        const noResultsResponse = await this.generateTvShowDeleteChatResponse(
+          messages,
+          'TV_SHOW_DELETE_NO_RESULTS',
+          { searchQuery },
+        )
+        return {
+          images: [],
+          messages: messages.concat(noResultsResponse),
+        }
+      }
+
+      // Transform library results to match our delete context schema
+      const transformedResults = libraryResults.slice(0, 10).map(show => ({
+        id: show.id,
+        tvdbId: show.tvdbId,
+        tmdbId: show.tmdbId,
+        title: show.title,
+        year: show.year,
+        monitored: show.monitored,
+        path: show.path,
+      }))
+
+      // Apply selection validation logic based on our plan
+      if (libraryResults.length === 1) {
+        // Single result - only need series selection
+        this.logger.log(
+          {
+            userId,
+            tvSelection,
+            tvSelectionExists: !!tvSelection,
+            tvSelectionHasSelection: !!tvSelection?.selection,
+            tvSelectionLength: tvSelection?.selection?.length || 0,
+            searchSelection,
+            searchSelectionExists: !!searchSelection,
+          },
+          'DEBUG: Evaluating delete criteria for single result',
+        )
+
+        if (tvSelection?.selection && tvSelection.selection.length > 0) {
+          // Has both result (implied single) and series selection
+          this.logger.log(
+            { userId, showTitle: libraryResults[0].title, tvSelection },
+            'Single result with series selection, proceeding with delete',
+          )
+          return await this.deleteTvShow(
+            transformedResults[0],
+            tvSelection,
+            message,
+            messages,
+            userId,
+          )
+        } else if (tvSelection && Object.keys(tvSelection).length === 0) {
+          // Empty tvSelection object means "entire series" - proceed automatically
+          this.logger.log(
+            { userId, showTitle: libraryResults[0].title },
+            'Single result with entire series selection, proceeding with delete',
+          )
+          return await this.deleteTvShow(
+            transformedResults[0],
+            tvSelection,
+            message,
+            messages,
+            userId,
+          )
+        } else {
+          // Missing series selection - create context for single result case
+          const tvShowDeleteContext: TvShowDeleteContext = {
+            searchResults: transformedResults,
+            query: searchQuery,
+            timestamp: Date.now(),
+            isActive: true,
+            originalSearchSelection: searchSelection || undefined,
+            originalTvSelection: tvSelection || undefined,
+          }
+
+          this.state.setUserTvShowDeleteContext(userId, tvShowDeleteContext)
+
+          const needSeriesResponse =
+            await this.generateTvShowDeleteChatResponse(
+              messages,
+              'TV_SHOW_DELETE_NEED_SERIES_SELECTION',
+              {
+                selectedShow: transformedResults[0],
+              },
+            )
+          return {
+            images: [],
+            messages: messages.concat(needSeriesResponse),
+          }
+        }
+      } else {
+        // Multiple results - need both result and series selection
+        this.logger.log(
+          {
+            userId,
+            searchSelectionExists: !!searchSelection,
+            tvSelectionExists: !!tvSelection,
+            tvSelectionHasSelection: !!(
+              tvSelection?.selection && tvSelection.selection.length > 0
+            ),
+            tvSelectionIsEntireSeries: !!(
+              tvSelection && Object.keys(tvSelection).length === 0
+            ),
+            resultsCount: transformedResults.length,
+          },
+          'DEBUG: Evaluating delete criteria for multiple results',
+        )
+
+        if (
+          searchSelection &&
+          ((tvSelection?.selection && tvSelection.selection.length > 0) ||
+            (tvSelection && Object.keys(tvSelection).length === 0))
+        ) {
+          // Has both selections (either specific episodes/seasons or entire series)
+          const selectedShow = this.findSelectedTvShowFromLibrary(
+            searchSelection,
+            transformedResults,
+          )
+          if (selectedShow) {
+            this.logger.log(
+              { userId, showTitle: selectedShow.title, tvSelection },
+              'Multiple results with both selections, proceeding with delete',
+            )
+            return await this.deleteTvShow(
+              selectedShow,
+              tvSelection,
+              message,
+              messages,
+              userId,
+            )
+          }
+        }
+
+        // Store context for multi-turn conversation
+        const tvShowDeleteContext: TvShowDeleteContext = {
+          searchResults: transformedResults,
+          query: searchQuery,
+          timestamp: Date.now(),
+          isActive: true,
+          originalSearchSelection: searchSelection || undefined,
+          originalTvSelection: tvSelection || undefined,
+        }
+
+        this.state.setUserTvShowDeleteContext(userId, tvShowDeleteContext)
+
+        // Determine what we need to ask for
+        if (!searchSelection && !tvSelection) {
+          // Need both selections
+          const response = await this.generateTvShowDeleteChatResponse(
+            messages,
+            'TV_SHOW_DELETE_MULTIPLE_RESULTS_NEED_BOTH',
+            {
+              searchResults: transformedResults,
+              searchQuery,
+            },
+          )
+          return {
+            images: [],
+            messages: messages.concat(response),
+          }
+        } else if (!searchSelection) {
+          // Need result selection
+          const response = await this.generateTvShowDeleteChatResponse(
+            messages,
+            'TV_SHOW_DELETE_NEED_RESULT_SELECTION',
+            {
+              searchResults: transformedResults,
+              searchQuery,
+            },
+          )
+          return {
+            images: [],
+            messages: messages.concat(response),
+          }
+        } else {
+          // Need series selection
+          const response = await this.generateTvShowDeleteChatResponse(
+            messages,
+            'TV_SHOW_DELETE_NEED_SERIES_SELECTION',
+            {
+              searchResults: transformedResults,
+              searchQuery,
+            },
+          )
+          return {
+            images: [],
+            messages: messages.concat(response),
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        { error: getErrorMessage(error), userId },
+        'Failed to search library for TV show delete',
+      )
+
+      const errorResponse = await this.generateTvShowDeleteChatResponse(
+        messages,
+        'TV_SHOW_DELETE_ERROR',
+        {
+          errorMessage: `Couldn't search library right now. The Sonarr service might be unavailable.`,
+        },
+      )
+
+      return {
+        images: [],
+        messages: messages.concat(errorResponse),
+      }
+    }
+  }
+
+  /**
+   * Handle TV show delete selection when context exists
+   */
+  private async handleTvShowDeleteSelection(
+    message: HumanMessage,
+    messages: BaseMessage[],
+    tvShowDeleteContext: TvShowDeleteContext,
+    userId: string,
+  ) {
+    this.logger.log(
+      { userId, selectionMessage: message.content },
+      'Processing TV show delete selection',
+    )
+
+    try {
+      // Parse the user's new selections
+      const messageContent =
+        typeof message.content === 'string'
+          ? message.content
+          : message.content.toString()
+
+      let searchSelection: SearchSelection | null = null
+      let tvSelection: TvShowSelection | null = null
+
+      try {
+        searchSelection = await this.parseSearchSelection(messageContent).catch(
+          () => null,
+        )
+        tvSelection = await this.parseTvShowSelection(messageContent).catch(
+          () => null,
+        )
+      } catch (error) {
+        this.logger.log(
+          { error: getErrorMessage(error) },
+          'Failed to parse selections from user message',
+        )
+      }
+
+      // Combine with existing context selections
+      const finalSearchSelection =
+        searchSelection || tvShowDeleteContext.originalSearchSelection
+      const finalTvSelection =
+        tvSelection || tvShowDeleteContext.originalTvSelection
+
+      // Validate we have both required selections
+      if (
+        tvShowDeleteContext.searchResults.length > 1 &&
+        !finalSearchSelection
+      ) {
+        // Still need result selection
+        const response = await this.generateTvShowDeleteChatResponse(
+          messages,
+          'TV_SHOW_DELETE_NEED_RESULT_SELECTION',
+          {
+            searchResults: tvShowDeleteContext.searchResults,
+            searchQuery: tvShowDeleteContext.query,
+          },
+        )
+        return {
+          images: [],
+          messages: messages.concat(response),
+        }
+      }
+
+      if (
+        !finalTvSelection?.selection ||
+        finalTvSelection.selection.length === 0
+      ) {
+        // Still need series selection
+        const selectedShow =
+          tvShowDeleteContext.searchResults.length === 1
+            ? tvShowDeleteContext.searchResults[0]
+            : finalSearchSelection
+              ? this.findSelectedTvShowFromLibrary(
+                  finalSearchSelection,
+                  tvShowDeleteContext.searchResults,
+                )
+              : null
+
+        const response = await this.generateTvShowDeleteChatResponse(
+          messages,
+          'TV_SHOW_DELETE_NEED_SERIES_SELECTION',
+          {
+            selectedShow: selectedShow || undefined,
+            searchResults: tvShowDeleteContext.searchResults,
+            searchQuery: tvShowDeleteContext.query,
+          },
+        )
+        return {
+          images: [],
+          messages: messages.concat(response),
+        }
+      }
+
+      // Find the selected show
+      const selectedShow =
+        tvShowDeleteContext.searchResults.length === 1
+          ? tvShowDeleteContext.searchResults[0]
+          : finalSearchSelection
+            ? this.findSelectedTvShowFromLibrary(
+                finalSearchSelection,
+                tvShowDeleteContext.searchResults,
+              )
+            : null
+
+      if (!selectedShow) {
+        const response = await this.generateTvShowDeleteChatResponse(
+          messages,
+          'TV_SHOW_DELETE_NEED_RESULT_SELECTION',
+          {
+            searchResults: tvShowDeleteContext.searchResults,
+            searchQuery: tvShowDeleteContext.query,
+          },
+        )
+        return {
+          images: [],
+          messages: messages.concat(response),
+        }
+      }
+
+      // Clear context and proceed with deletion
+      this.state.clearUserTvShowDeleteContext(userId)
+      return await this.deleteTvShow(
+        selectedShow,
+        finalTvSelection,
+        message,
+        messages,
+        userId,
+      )
+    } catch (error) {
+      this.logger.error(
+        { error: getErrorMessage(error), userId },
+        'Failed to process TV show delete selection',
+      )
+
+      // Clear context on error
+      this.state.clearUserTvShowDeleteContext(userId)
+
+      const errorResponse = await this.generateTvShowDeleteChatResponse(
+        messages,
+        'TV_SHOW_DELETE_ERROR',
+        {
+          errorMessage:
+            'Had trouble processing your selection. Please try searching again.',
+        },
+      )
+
+      return {
+        images: [],
+        messages: messages.concat(errorResponse),
+      }
+    }
+  }
+
+  /**
+   * Find selected TV show from library search results
+   */
+  private findSelectedTvShowFromLibrary(
+    selection: SearchSelection,
+    shows: Array<{ id: number; title: string; year?: number }>,
+  ): { id: number; tvdbId: number; title: string; year?: number } | null {
+    const { selectionType, value } = selection
+
+    this.logger.log(
+      { selectionType, value, showCount: shows.length },
+      'Finding selected TV show from library results',
+    )
+
+    switch (selectionType) {
+      case 'ordinal': {
+        const index = parseInt(value) - 1
+        if (index >= 0 && index < shows.length) {
+          return shows[index] as {
+            id: number
+            tvdbId: number
+            title: string
+            year?: number
+          }
+        }
+        return (
+          (shows[0] as {
+            id: number
+            tvdbId: number
+            title: string
+            year?: number
+          }) || null
+        )
+      }
+
+      case 'year': {
+        const yearMatch = shows.find(show => show.year?.toString() === value)
+        if (yearMatch) {
+          return yearMatch as {
+            id: number
+            tvdbId: number
+            title: string
+            year?: number
+          }
+        }
+        return (
+          (shows[0] as {
+            id: number
+            tvdbId: number
+            title: string
+            year?: number
+          }) || null
+        )
+      }
+
+      default: {
+        return (
+          (shows[0] as {
+            id: number
+            tvdbId: number
+            title: string
+            year?: number
+          }) || null
+        )
       }
     }
   }
@@ -2164,6 +3113,11 @@ export class LLMService {
   private async parseSearchSelection(
     selectionText: string,
   ): Promise<SearchSelection> {
+    this.logger.log(
+      { selectionText },
+      'DEBUG: Starting parseSearchSelection with input',
+    )
+
     try {
       const response = await this.retryService.executeWithRetry(
         () =>
@@ -2180,11 +3134,42 @@ export class LLMService {
         'OpenAI-parseSearchSelection',
       )
 
-      const parsed = JSON.parse(response.content.toString())
-      return SearchSelectionSchema.parse(parsed)
+      const rawResponse = response.content.toString()
+      this.logger.log(
+        { rawResponse, selectionText },
+        'DEBUG: Raw LLM response for search selection parsing',
+      )
+
+      const parsed = JSON.parse(rawResponse)
+      this.logger.log(
+        { parsed, selectionText },
+        'DEBUG: Parsed JSON for search selection (before schema validation)',
+      )
+
+      // Handle error responses from LLM
+      if (parsed.error) {
+        this.logger.log(
+          { error: parsed.error, selectionText },
+          'DEBUG: LLM returned error response for search selection',
+        )
+        throw new Error(`LLM parsing error: ${parsed.error}`)
+      }
+
+      const validated = SearchSelectionSchema.parse(parsed)
+      this.logger.log(
+        { validated, selectionText },
+        'DEBUG: Successfully validated search selection',
+      )
+
+      return validated
     } catch (error) {
       this.logger.error(
-        { error: getErrorMessage(error), selectionText },
+        {
+          error: getErrorMessage(error),
+          selectionText,
+          errorType:
+            error instanceof Error ? error.constructor.name : typeof error,
+        },
         'Failed to parse search selection - no fallback, letting conversation flow handle it',
       )
       throw error
@@ -2960,6 +3945,259 @@ export class LLMService {
     }
   }
 
+  /**
+   * Delete a TV show from the library with support for complex selections
+   */
+  private async deleteTvShow(
+    show: { id: number; tvdbId: number; title: string; year?: number },
+    selection: TvShowSelection,
+    _originalMessage: HumanMessage,
+    messages: BaseMessage[],
+    userId: string,
+  ) {
+    // VALIDATION GATE: Ensure we have valid selection data before proceeding
+    if (
+      !selection ||
+      !selection.selection ||
+      selection.selection.length === 0
+    ) {
+      this.logger.error(
+        {
+          userId,
+          showTitle: show.title,
+          selection,
+        },
+        'VALIDATION GATE: Invalid TV selection provided to deleteTvShow',
+      )
+
+      const errorResponse = await this.generateTvShowDeleteChatResponse(
+        messages,
+        'TV_SHOW_DELETE_ERROR',
+        {
+          selectedShow: show,
+          errorMessage: 'Invalid selection data - cannot proceed with deletion',
+        },
+      )
+
+      return {
+        images: [],
+        messages: messages.concat(errorResponse),
+      }
+    }
+
+    this.logger.log(
+      {
+        userId,
+        showTitle: show.title,
+        tvdbId: show.tvdbId,
+        seriesId: show.id,
+        selection,
+      },
+      'Attempting to delete TV show',
+    )
+
+    try {
+      const result = await this.sonarrService.unmonitorAndDeleteSeries(
+        show.tvdbId,
+        {
+          selection: selection.selection,
+          deleteFiles: true, // Always delete files for user-initiated deletes
+        },
+      )
+
+      if (result.success) {
+        this.logger.log(
+          {
+            userId,
+            showTitle: show.title,
+            situationType: 'TV_SHOW_DELETE_SUCCESS',
+            deleteResult: result,
+          },
+          'DEBUG: Generating TV show delete success response',
+        )
+
+        const successResponse = await this.generateTvShowDeleteChatResponse(
+          messages,
+          'TV_SHOW_DELETE_SUCCESS',
+          {
+            selectedShow: show,
+            deleteResult: result,
+          },
+        )
+
+        return {
+          images: [],
+          messages: messages.concat(successResponse),
+        }
+      } else {
+        const errorResponse = await this.generateTvShowDeleteChatResponse(
+          messages,
+          'TV_SHOW_DELETE_ERROR',
+          {
+            selectedShow: show,
+            errorMessage: `Failed to delete "${show.title}": ${result.error}`,
+          },
+        )
+
+        return {
+          images: [],
+          messages: messages.concat(errorResponse),
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        { error: getErrorMessage(error), userId, showTitle: show.title },
+        'Failed to delete TV show',
+      )
+
+      const errorResponse = await this.generateTvShowDeleteChatResponse(
+        messages,
+        'TV_SHOW_DELETE_ERROR',
+        {
+          selectedShow: show,
+          errorMessage: `Couldn't delete "${show.title}". The Sonarr service might be unavailable.`,
+        },
+      )
+
+      return {
+        images: [],
+        messages: messages.concat(errorResponse),
+      }
+    }
+  }
+
+  /**
+   * Generate conversational response for TV show delete operations
+   */
+  private async generateTvShowDeleteChatResponse(
+    messages: BaseMessage[],
+    situationType: string,
+    context: {
+      selectedShow?: { title: string; year?: number }
+      deleteResult?: UnmonitorAndDeleteSeriesResult
+      errorMessage?: string
+      searchResults?: Array<{ id: number; title: string; year?: number }>
+      searchQuery?: string
+    },
+  ): Promise<HumanMessage> {
+    try {
+      this.logger.log(
+        {
+          situationType,
+          context,
+        },
+        'DEBUG: Generating TV show delete chat response with context',
+      )
+
+      const contextMessage = new HumanMessage({
+        id: nanoid(),
+        content: JSON.stringify({
+          situationType,
+          context,
+        }),
+      })
+
+      const response = await this.retryService.executeWithRetry(
+        () =>
+          this.getChatModel().invoke([
+            TV_SHOW_DELETE_RESPONSE_CONTEXT_PROMPT,
+            contextMessage,
+            ...messages,
+          ]),
+        {
+          maxAttempts: 3,
+          baseDelay: 1000,
+          maxDelay: 30000,
+          timeout: 15000,
+        },
+        'OpenAI-generateTvShowDeleteResponse',
+      )
+
+      this.logger.log(
+        {
+          situationType,
+          responseContent: response.content.toString(),
+        },
+        'DEBUG: Generated TV show delete response',
+      )
+
+      return new HumanMessage({
+        id: nanoid(),
+        content: response.content.toString(),
+      })
+    } catch (error) {
+      this.logger.error(
+        { error: getErrorMessage(error), situationType },
+        'Failed to generate TV show delete chat response',
+      )
+
+      // Fallback responses based on situation type
+      const fallbackResponses: Record<string, string> = {
+        TV_SHOW_DELETE_SUCCESS: `✅ Successfully deleted "${context.selectedShow?.title}" from your library! The files have been permanently removed. 🗑️`,
+        TV_SHOW_DELETE_ERROR:
+          context.errorMessage ||
+          'Failed to delete the TV show. Please try again.',
+        TV_SHOW_DELETE_NO_RESULTS: `I couldn't find any TV shows matching "${context.searchQuery}" in your library. Try a different title!`,
+        TV_SHOW_DELETE_MULTIPLE_RESULTS_NEED_BOTH: `I found multiple TV shows. Which one do you want to delete, and what parts? (e.g., "the first one, entire series" or "the 2009 version, season 1")`,
+        TV_SHOW_DELETE_NEED_RESULT_SELECTION: `I found multiple TV shows. Which one do you want to delete? (e.g., "the first one" or "the 2009 version")`,
+        TV_SHOW_DELETE_NEED_SERIES_SELECTION: `What parts of "${context.selectedShow?.title}" do you want to delete? (e.g., "entire series", "season 1", "season 2 episodes 1-3")`,
+      }
+
+      return new HumanMessage({
+        id: nanoid(),
+        content:
+          fallbackResponses[situationType] ||
+          'Something went wrong with the TV show delete operation.',
+      })
+    }
+  }
+
+  /**
+   * Extract TV show delete query from user message using LLM
+   */
+  private async extractTvDeleteQueryWithLLM(content: string): Promise<string> {
+    try {
+      const response = await this.retryService.executeWithRetry(
+        () =>
+          this.getReasoningModel().invoke([
+            EXTRACT_TV_SEARCH_QUERY_PROMPT, // Reuse the same extraction logic
+            new HumanMessage({ id: nanoid(), content }),
+          ]),
+        {
+          maxAttempts: 3,
+          baseDelay: 1000,
+          maxDelay: 30000,
+          timeout: 15000,
+        },
+        'OpenAI-extractTvDeleteQuery',
+      )
+
+      const extractedQuery = response.content.toString().trim()
+
+      // Clean the extracted query by removing surrounding quotes that LLM might add
+      const cleanedQuery = extractedQuery.replace(/^["']|["']$/g, '').trim()
+
+      this.logger.log(
+        { originalContent: content, extractedQuery, cleanedQuery },
+        'Extracted TV delete query using LLM',
+      )
+
+      return cleanedQuery || content // Fallback to original if empty
+    } catch (error) {
+      this.logger.error(
+        { error: getErrorMessage(error), content },
+        'Failed to extract TV delete query with LLM, using fallback',
+      )
+
+      // Simple fallback extraction for delete operations
+      return content
+        .toLowerCase()
+        .replace(/\b(delete|remove|unmonitor|get rid of)\b/gi, '')
+        .replace(/\b(show|series|tv|television|the)\b/gi, '')
+        .trim()
+    }
+  }
+
   private async extractTvSearchQueryWithLLM(content: string): Promise<string> {
     try {
       const response = await this.retryService.executeWithRetry(
@@ -3002,6 +4240,11 @@ export class LLMService {
   private async parseTvShowSelection(
     selectionText: string,
   ): Promise<TvShowSelection> {
+    this.logger.log(
+      { selectionText },
+      'DEBUG: Starting parseTvShowSelection with input',
+    )
+
     try {
       const response = await this.retryService.executeWithRetry(
         () =>
@@ -3018,11 +4261,42 @@ export class LLMService {
         'OpenAI-parseTvShowSelection',
       )
 
-      const parsed = JSON.parse(response.content.toString())
-      return TvShowSelectionSchema.parse(parsed)
+      const rawResponse = response.content.toString()
+      this.logger.log(
+        { rawResponse, selectionText },
+        'DEBUG: Raw LLM response for TV show selection parsing',
+      )
+
+      const parsed = JSON.parse(rawResponse)
+      this.logger.log(
+        { parsed, selectionText },
+        'DEBUG: Parsed JSON for TV show selection (before schema validation)',
+      )
+
+      // Handle error responses from LLM
+      if (parsed.error) {
+        this.logger.log(
+          { error: parsed.error, selectionText },
+          'DEBUG: LLM returned error response for TV show selection',
+        )
+        throw new Error(`LLM parsing error: ${parsed.error}`)
+      }
+
+      const validated = TvShowSelectionSchema.parse(parsed)
+      this.logger.log(
+        { validated, selectionText },
+        'DEBUG: Successfully validated TV show selection',
+      )
+
+      return validated
     } catch (error) {
       this.logger.error(
-        { error: getErrorMessage(error), selectionText },
+        {
+          error: getErrorMessage(error),
+          selectionText,
+          errorType:
+            error instanceof Error ? error.constructor.name : typeof error,
+        },
         'Failed to parse TV show selection - no fallback, letting conversation flow handle it',
       )
       throw error
@@ -3262,6 +4536,111 @@ export class LLMService {
       return new HumanMessage({
         id: nanoid(),
         content: fallbackMessages[situation],
+      })
+    }
+  }
+
+  // TV Show helper methods
+  private async parseInitialTvShowSelection(messageContent: string): Promise<{
+    searchQuery: string
+    selection: SearchSelection | null
+    tvSelection: TvShowSelection | null
+  }> {
+    // Simple implementation - extract search query by removing common command words
+    const searchQuery = messageContent
+      .replace(
+        /^(download|add|get|find|search for|want|need|delete|remove)\s+/i,
+        '',
+      )
+      .trim()
+
+    // TODO: Implement proper selection parsing using existing methods
+    const selection = null
+    const tvSelection = null
+
+    return { searchQuery, selection, tvSelection }
+  }
+
+  private findSelectedTvShow(
+    selection: SearchSelection,
+    shows: SeriesSearchResult[],
+  ): SeriesSearchResult | null {
+    if (selection.selectionType === 'ordinal') {
+      const index = parseInt(selection.value) - 1 // Convert 1-based to 0-based
+      return shows[index] || null
+    }
+
+    if (selection.selectionType === 'year') {
+      const targetYear = parseInt(selection.value)
+      return shows.find(show => show.year === targetYear) || null
+    }
+
+    return null
+  }
+
+  private async generateTvShowChatResponse(
+    messages: BaseMessage[],
+    situation: string,
+    context?: {
+      searchQuery?: string
+      selectedShow?: SeriesSearchResult
+      shows?: SeriesSearchResult[]
+      errorMessage?: string
+      downloadResult?: unknown
+      tvSelection?: TvShowSelection
+      autoApplied?: boolean
+      selectionCriteria?: string
+    },
+  ): Promise<HumanMessage> {
+    try {
+      const response = await this.sendMessage(
+        messages,
+        TV_SHOW_RESPONSE_CONTEXT_PROMPT,
+        'chat',
+        {
+          temperature: 0.7,
+          maxTokens: 1000,
+        },
+        {
+          situation,
+          context,
+        },
+      )
+
+      return new HumanMessage({
+        id: nanoid(),
+        content:
+          typeof response === 'string'
+            ? response
+            : 'I can help you with TV shows! What would you like to watch?',
+      })
+    } catch (error) {
+      this.logger.error(
+        { error: getErrorMessage(error), situation, context },
+        'Failed to generate TV show chat response',
+      )
+
+      // Fallback responses based on situation type
+      const fallbackResponses: Record<string, string> = {
+        TV_SHOW_SUCCESS: `Successfully added "${context?.selectedShow?.title || 'TV show'}" to your downloads! 📺`,
+        TV_SHOW_ERROR:
+          context?.errorMessage ||
+          'Failed to download the TV show. Please try again.',
+        TV_SHOW_NO_RESULTS: `I couldn't find any TV shows matching "${context?.searchQuery || 'your search'}". Try a different title!`,
+        TV_SHOW_SELECTION_NEEDED: context?.shows
+          ? `I found ${context.shows.length} TV shows. Which one do you want to download?`
+          : `What parts of "${context?.selectedShow?.title || 'the show'}" would you like to download? (e.g., "entire series", "season 1", "season 2 episodes 1-3")`,
+        TV_SHOW_CLARIFICATION:
+          'What TV show would you like to download? Please be more specific.',
+        TV_SHOW_PROCESSING_ERROR:
+          'Sorry, I had trouble processing your selection. Please try searching again.',
+      }
+
+      return new HumanMessage({
+        id: nanoid(),
+        content:
+          fallbackResponses[situation] ||
+          'Something went wrong with the TV show operation.',
       })
     }
   }

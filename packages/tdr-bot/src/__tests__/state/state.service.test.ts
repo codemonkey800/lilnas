@@ -47,6 +47,7 @@ describe('StateService', () => {
         userMovieContexts: new Map(),
         userMovieDeleteContexts: new Map(),
         userTvShowContexts: new Map(),
+        userTvShowDeleteContexts: new Map(),
       })
     })
   })
@@ -236,6 +237,7 @@ describe('StateService', () => {
         userMovieContexts: new Map(),
         userMovieDeleteContexts: new Map(),
         userTvShowContexts: new Map(),
+        userTvShowDeleteContexts: new Map(),
       }
 
       const nextState: Partial<AppState> = {

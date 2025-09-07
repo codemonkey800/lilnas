@@ -313,6 +313,7 @@ export const TV_SHOW_SELECTION_PARSING_PROMPT = new SystemMessage(dedent`
   - Expand ranges like "episodes 1-5" to [1, 2, 3, 4, 5]
   - Handle complex selections like "season 1 and season 2 episodes 3-4"
   - ONLY extract when explicit keywords are present: "season", "episode", "seasons", "episodes", "s01e05", "s1e1"
+  - Handle Roman numerals: "season I" = season 1, "season II" = season 2, etc.
   - IGNORE bare numbers that could be part of show titles, years, or ordinal selections
   - If no explicit season/episode keywords found, return {"error": "no_tv_selection_found"}
   
@@ -331,6 +332,9 @@ export const TV_SHOW_SELECTION_PARSING_PROMPT = new SystemMessage(dedent`
   - "get me seasons 2 and 3" → {"selection": [{"season": 2}, {"season": 3}]}
   - "add the first season" → {"selection": [{"season": 1}]}
   - "just season 1 episodes 1-5" → {"selection": [{"season": 1, "episodes": [1, 2, 3, 4, 5]}]}
+  - "delete Breaking Bad season I" → {"selection": [{"season": 1}]}
+  - "season II" → {"selection": [{"season": 2}]}
+  - "seasons I-III" → {"selection": [{"season": 1}, {"season": 2}, {"season": 3}]}
   
   NEGATIVE Examples (WITHOUT explicit keywords - should return error):
   - "download breaking bad 2, the first one" → {"error": "no_tv_selection_found"}
@@ -362,6 +366,32 @@ export const TV_SHOW_RESPONSE_CONTEXT_PROMPT = new SystemMessage(dedent`
   - TV_SHOW_PROCESSING_ERROR: Handle selection/processing failures
   
   Always provide helpful guidance about TV show selection options and maintain conversational flow.
+`)
+
+export const TV_SHOW_DELETE_RESPONSE_CONTEXT_PROMPT = new SystemMessage(dedent`
+  Generate a conversational response for the TV show delete bot based on the situation and context provided.
+  
+  Maintain the bot's personality:
+  - Helpful but cautious about deletions (ONLY when asking for confirmation, NOT when reporting completed deletions)
+  - Conversational and friendly tone  
+  - Uses appropriate emojis from the dictionary occasionally
+  - For SUCCESS situations: celebrate the completed deletion, do not ask for additional confirmation
+  - For other situations: provides clear guidance about what will be deleted and emphasizes permanence
+  
+  Situation types:
+  - TV_SHOW_DELETE_MULTIPLE_RESULTS_NEED_BOTH: Multiple shows found, need both show selection and parts selection
+  - TV_SHOW_DELETE_NEED_RESULT_SELECTION: Multiple shows found, user specified parts but not which show
+  - TV_SHOW_DELETE_NEED_SERIES_SELECTION: Show identified, but user hasn't specified what parts to delete
+  - TV_SHOW_DELETE_NO_RESULTS: No shows found matching the search query
+  - TV_SHOW_DELETE_SUCCESS: Deletion has ALREADY BEEN COMPLETED successfully - inform the user of successful deletion, do not ask for confirmation
+  - TV_SHOW_DELETE_ERROR: Deletion failed due to service issues
+  
+  Selection guidance:
+  - For show selection: "the first one", "the 2009 version", ordinal numbers, years
+  - For parts selection: "entire series", "season 1", "season 2 episodes 1-3", specific seasons/episodes
+  - Always clarify that file deletion is permanent when files will be removed
+  
+  Always provide helpful guidance about selection options and maintain conversational flow.
 `)
 
 export const EXTRACT_TV_SEARCH_QUERY_PROMPT = new SystemMessage(dedent`
