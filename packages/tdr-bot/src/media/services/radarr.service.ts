@@ -174,12 +174,34 @@ export class RadarrService {
         item => {
           // Calculate progress safely
           const size = item.size || 0
-          const sizeleft = item.sizeleft || 0
+          const sizeleft = item.sizeleft ?? 0 // Use nullish coalescing for better undefined handling
           const downloadedBytes = Math.max(0, size - sizeleft)
-          const progressPercent =
-            size > 0
-              ? Math.min(100, Math.max(0, (downloadedBytes / size) * 100))
-              : 0
+
+          // Calculate progress percentage, ensuring we don't get invalid values
+          let progressPercent = 0
+          if (size > 0 && downloadedBytes >= 0) {
+            progressPercent = Math.min(
+              100,
+              Math.max(0, (downloadedBytes / size) * 100),
+            )
+
+            // Debug logging to understand the calculation
+            this.logger.debug(
+              {
+                movieTitle: item.movie?.title || item.title,
+                rawSize: item.size,
+                rawSizeleft: item.sizeleft,
+                calculatedSize: size,
+                calculatedSizeleft: sizeleft,
+                downloadedBytes,
+                progressPercent,
+              },
+              'Progress calculation debug info',
+            )
+
+            // Round to 2 decimal places for precision
+            progressPercent = Math.round(progressPercent * 100) / 100
+          }
 
           return {
             id: item.id,

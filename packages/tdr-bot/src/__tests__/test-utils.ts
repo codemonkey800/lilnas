@@ -237,6 +237,12 @@ export function createMockStateService(): jest.Mocked<StateService> {
     getUserTvShowContext: jest.fn().mockReturnValue(undefined),
     isTvShowContextExpired: jest.fn().mockReturnValue(false),
     cleanupExpiredTvShowContexts: jest.fn(),
+    // TV show delete context methods
+    setUserTvShowDeleteContext: jest.fn(),
+    clearUserTvShowDeleteContext: jest.fn(),
+    getUserTvShowDeleteContext: jest.fn().mockReturnValue(undefined),
+    isTvShowDeleteContextExpired: jest.fn().mockReturnValue(false),
+    cleanupExpiredTvShowDeleteContexts: jest.fn(),
   } as unknown as jest.Mocked<StateService>
 }
 

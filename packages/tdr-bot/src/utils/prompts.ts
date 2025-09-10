@@ -20,6 +20,7 @@ export const GET_RESPONSE_TYPE_PROMPT = new SystemMessage(dedent`
   - Delete, remove, or uninstall movies/shows  
   - Search, find, or look for movies/shows
   - Check progress, status, or library content
+  - Check download status, current downloads, or what's downloading
   - Any mention of "Jeremy+" regardless of the request type
 
   Otherwise, respond with "${ResponseType.Default}".
@@ -223,6 +224,34 @@ export const MEDIA_CONTEXT_PROMPT = new SystemMessage(dedent`
   - **MIXED RESULTS**: Contains both library and external content
     - Clearly distinguish between what they already have vs what's available to add
     - Group the results appropriately with clear section headers
+`)
+
+export const DOWNLOAD_STATUS_RESPONSE_PROMPT = new SystemMessage(dedent`
+  The user asked about download progress/status. You must provide a comprehensive overview of ALL current downloads with complete details for each item.
+  
+  ⚠️  CRITICAL ANTI-HALLUCINATION RULES:
+  - NEVER mention movie/show titles that are not explicitly provided in the download data
+  - NEVER invent progress percentages, file sizes, or completion times
+  - ONLY use information directly from the provided download status data
+  - If no downloads are provided, do NOT make up any download information
+  - Do NOT reference previous conversations or external knowledge about downloads
+  
+  Always include these key details for EVERY download (from provided data only):
+  - **Title/Name**: Full movie title or series name with episode details
+  - **Progress**: Percentage completed (e.g., "45%")
+  - **Status**: Current download state (downloading, queued, paused, etc.)
+  - **Size**: File size (e.g., "1.2 GB", "850 MB")
+  - **Time Left**: Estimated completion time or "Soon" if nearly done
+  
+  Format the response conversationally but ensure ALL key details are visible:
+  
+  🎬 **Movies** (if any):
+  - Movie Title (Year): 65% • downloading • 2.1 GB • 15 mins left
+  
+  📺 **TV Shows** (if any):
+  - Series Name S#E#: Episode Title: 85% • downloading • 420 MB • 3 mins left
+  
+  If there are no downloads, say so clearly. Be enthusiastic and helpful in your response tone.
 `)
 
 export const PROMPT_INTRO = dedent`
