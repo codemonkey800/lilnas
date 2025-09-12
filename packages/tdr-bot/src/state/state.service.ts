@@ -5,6 +5,7 @@ import dedent from 'dedent'
 import _ from 'lodash'
 import { ChatModel } from 'openai/resources/index'
 
+import { DEFAULT_CHAT_TEMPERATURE, DEFAULT_MAX_TOKENS } from 'src/constants/llm'
 import { OutputStateAnnotation } from 'src/schemas/graph'
 import { MovieDeleteContext, MovieSelectionContext } from 'src/schemas/movie'
 import {
@@ -47,11 +48,11 @@ export class StateService {
 
   private state: AppState = {
     graphHistory: [],
-    maxTokens: 50_000,
+    maxTokens: DEFAULT_MAX_TOKENS,
     chatModel: 'gpt-4-turbo',
     reasoningModel: 'gpt-4o-mini',
     prompt: KAWAII_PROMPT,
-    temperature: 0,
+    temperature: DEFAULT_CHAT_TEMPERATURE,
     userMovieContexts: new Map(),
     userMovieDeleteContexts: new Map(),
     userTvShowContexts: new Map(),
@@ -116,9 +117,8 @@ export class StateService {
   }
 
   isMovieContextExpired(context: MovieSelectionContext): boolean {
-    const CONTEXT_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
     const now = Date.now()
-    return now - context.timestamp > CONTEXT_TIMEOUT_MS
+    return now - context.timestamp > 5 * 60 * 1000 // 5 minutes
   }
 
   cleanupExpiredMovieContexts() {
@@ -162,9 +162,8 @@ export class StateService {
   }
 
   isTvShowContextExpired(context: TvShowSelectionContext): boolean {
-    const CONTEXT_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
     const now = Date.now()
-    return now - context.timestamp > CONTEXT_TIMEOUT_MS
+    return now - context.timestamp > 5 * 60 * 1000 // 5 minutes
   }
 
   cleanupExpiredTvShowContexts() {
@@ -211,9 +210,8 @@ export class StateService {
   }
 
   isMovieDeleteContextExpired(context: MovieDeleteContext): boolean {
-    const CONTEXT_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
     const now = Date.now()
-    return now - context.timestamp > CONTEXT_TIMEOUT_MS
+    return now - context.timestamp > 5 * 60 * 1000 // 5 minutes
   }
 
   cleanupExpiredMovieDeleteContexts() {
@@ -259,9 +257,8 @@ export class StateService {
   }
 
   isTvShowDeleteContextExpired(context: TvShowDeleteContext): boolean {
-    const CONTEXT_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
     const now = Date.now()
-    return now - context.timestamp > CONTEXT_TIMEOUT_MS
+    return now - context.timestamp > 5 * 60 * 1000 // 5 minutes
   }
 
   cleanupExpiredTvShowDeleteContexts() {

@@ -14,6 +14,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import dedent from 'dedent'
 import { nanoid } from 'nanoid'
 
+import { MAX_SEARCH_RESULTS, REASONING_TEMPERATURE } from 'src/constants/llm'
 import { RadarrService } from 'src/media/services/radarr.service'
 import { SonarrService } from 'src/media/services/sonarr.service'
 import {
@@ -176,7 +177,7 @@ export class LLMService {
 
     return new ChatOpenAI({
       model: state.reasoningModel,
-      temperature: 0,
+      temperature: REASONING_TEMPERATURE,
     })
   }
 
@@ -1042,7 +1043,7 @@ export class LLMService {
 
       // Multiple results - store context and ask user to choose
       const movieContext = {
-        searchResults: searchResults.slice(0, 10), // Limit to top 10 results
+        searchResults: searchResults.slice(0, MAX_SEARCH_RESULTS),
         query: searchQuery,
         timestamp: Date.now(),
         isActive: true,
@@ -1056,7 +1057,7 @@ export class LLMService {
         'multiple_results',
         {
           searchQuery,
-          movies: searchResults.slice(0, 10),
+          movies: searchResults.slice(0, MAX_SEARCH_RESULTS),
         },
       )
 
@@ -1418,7 +1419,7 @@ export class LLMService {
 
       // Multiple results - store context and ask user to choose
       const movieDeleteContext = {
-        searchResults: libraryResults.slice(0, 10), // Limit to top 10 results
+        searchResults: libraryResults.slice(0, MAX_SEARCH_RESULTS),
         query: searchQuery,
         timestamp: Date.now(),
         isActive: true,
@@ -1432,7 +1433,7 @@ export class LLMService {
         'multiple_results_delete',
         {
           searchQuery,
-          movies: libraryResults.slice(0, 10),
+          movies: libraryResults.slice(0, MAX_SEARCH_RESULTS),
         },
       )
 
@@ -1635,15 +1636,17 @@ export class LLMService {
       }
 
       // Transform library results to match our delete context schema
-      const transformedResults = libraryResults.slice(0, 10).map(show => ({
-        id: show.id,
-        tvdbId: show.tvdbId,
-        tmdbId: show.tmdbId,
-        title: show.title,
-        year: show.year,
-        monitored: show.monitored,
-        path: show.path,
-      }))
+      const transformedResults = libraryResults
+        .slice(0, MAX_SEARCH_RESULTS)
+        .map(show => ({
+          id: show.id,
+          tvdbId: show.tvdbId,
+          tmdbId: show.tmdbId,
+          title: show.title,
+          year: show.year,
+          monitored: show.monitored,
+          path: show.path,
+        }))
 
       // Apply selection validation logic based on our plan
       if (libraryResults.length === 1) {
@@ -3211,7 +3214,7 @@ export class LLMService {
 
     const classificationModel = new ChatOpenAI({
       model: 'gpt-4o-mini',
-      temperature: 0,
+      temperature: REASONING_TEMPERATURE,
     }).withStructuredOutput(MediaTypeClassificationSchema)
 
     const systemPrompt = dedent`
@@ -3531,7 +3534,7 @@ export class LLMService {
 
       // Multiple results - store context and ask user to choose
       const tvShowContext = {
-        searchResults: searchResults.slice(0, 10), // Limit to top 10 results
+        searchResults: searchResults.slice(0, MAX_SEARCH_RESULTS),
         query: searchQuery,
         timestamp: Date.now(),
         isActive: true,
@@ -3547,7 +3550,7 @@ export class LLMService {
         'TV_SHOW_SELECTION_NEEDED',
         {
           searchQuery,
-          shows: searchResults.slice(0, 10),
+          shows: searchResults.slice(0, MAX_SEARCH_RESULTS),
         },
       )
 
