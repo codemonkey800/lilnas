@@ -25,42 +25,31 @@ import { EnvKey } from './utils/env'
     EventEmitterModule.forRoot(),
     LoggerModule.forRoot(
       (() => {
-        const targets = []
         const isProduction = env<EnvKey>('NODE_ENV') === 'production'
         const logFilePath = env<EnvKey>('LOG_FILE_PATH', '')
 
-        // Add console pretty printing in development
-        if (!isProduction) {
-          targets.push({
-            level: 'debug',
-            target: 'pino-pretty',
-          })
-        }
-
-        // Add file logging if path specified
+        // Use file logging if path specified, otherwise default stdout
         if (logFilePath) {
-          targets.push({
-            level: isProduction ? 'info' : 'debug',
-            target: 'pino/file',
-            options: {
-              destination: logFilePath,
-              mkdir: true,
+          return {
+            pinoHttp: {
+              transport: {
+                target: 'pino/file',
+                options: {
+                  destination: logFilePath,
+                  mkdir: true,
+                },
+              },
+              level: isProduction ? 'info' : 'debug',
             },
-          })
+          }
         }
 
-        // Use transport with targets if any, otherwise use default
-        return targets.length > 0
-          ? {
-              pinoHttp: {
-                transport: { targets },
-              },
-            }
-          : {
-              pinoHttp: {
-                level: isProduction ? 'info' : 'debug',
-              },
-            }
+        // Default stdout logging - let CLI pipe handle pretty formatting in dev
+        return {
+          pinoHttp: {
+            level: isProduction ? 'info' : 'debug',
+          },
+        }
       })(),
     ),
     MessageHandlerModule,
