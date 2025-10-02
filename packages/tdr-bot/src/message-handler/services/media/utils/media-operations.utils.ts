@@ -11,7 +11,8 @@ import { SearchSelection } from 'src/schemas/search-selection'
  * Generic media item interface that all media types should extend
  */
 interface MediaItem {
-  tmdbId: number
+  tmdbId?: number
+  tvdbId?: number
   title: string
   year?: number
 }
@@ -204,7 +205,7 @@ export async function executeMediaOperation<T extends MediaItem>(
   operationName: string,
 ): Promise<MediaOperationResponse> {
   logger.log(
-    { userId, itemTitle: item.title, tmdbId: item.tmdbId },
+    { userId, itemTitle: item.title, tmdbId: item.tmdbId, tvdbId: item.tvdbId },
     `Attempting to ${operationName}`,
   )
 

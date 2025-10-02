@@ -1,7 +1,6 @@
 import { BaseMessage, HumanMessage } from '@langchain/core/messages'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
-import { nanoid } from 'nanoid'
 
 import { MAX_SEARCH_RESULTS } from 'src/constants/llm'
 import { RadarrService } from 'src/media/services/radarr.service'
@@ -12,10 +11,7 @@ import {
 import { ContextManagementService } from 'src/message-handler/context/context-management.service'
 import { PromptGenerationService } from 'src/message-handler/services/prompts/prompt-generation.service'
 import { MovieDeleteContext, MovieSelectionContext } from 'src/schemas/movie'
-import {
-  SearchSelection,
-  SearchSelectionSchema,
-} from 'src/schemas/search-selection'
+import { SearchSelection } from 'src/schemas/search-selection'
 import { StateService } from 'src/state/state.service'
 import {
   EXTRACT_SEARCH_QUERY_PROMPT,
@@ -43,6 +39,10 @@ import {
   handleSingleResult,
   tryAutoMediaSelection,
 } from './utils/media-operations.utils'
+import {
+  extractSearchQueryWithLLM,
+  parseSearchSelection,
+} from './utils/media-parsing.utils'
 
 /**
  * Service handling movie-specific operations including search, selection, and deletion.
@@ -202,9 +202,13 @@ export class MovieOperationsService
     try {
       // Parse the user's selection using LLM
       const messageContent = extractMessageContent(message)
-      const selection = await this.parseSearchSelection(messageContent).catch(
-        () => null,
-      )
+      const selection = await parseSearchSelection(
+        messageContent,
+        this.getReasoningModel(),
+        this.retryService,
+        MOVIE_SELECTION_PARSING_PROMPT,
+        this.logger,
+      ).catch(() => null)
       this.logger.log({ userId, selection }, 'Parsed movie selection')
 
       // If no selection was parsed, ask user to clarify
@@ -321,12 +325,29 @@ export class MovieOperationsService
       }
 
       // Smart auto-selection: Apply when user provides explicit search selection (ordinal/year only) for movies
-      const autoDeleteResult = await this.tryAutoDeleteSelection(
+      const autoDeleteResult = await tryAutoMediaSelection(
         selection,
         libraryResults,
         userId,
-        message,
         messages,
+        movie =>
+          this.radarrService.unmonitorAndDeleteMovie(movie.tmdbId, {
+            deleteFiles: true,
+          }),
+        (movie, result, context) =>
+          this.generateMovieDeleteResponse(messages, 'success_delete', {
+            selectedMovie: movie,
+            deleteResult: result,
+            autoApplied: context.autoApplied,
+            selectionCriteria: context.selectionCriteria,
+          }),
+        (movie, error) =>
+          this.generateMovieDeleteResponse(messages, 'error_delete', {
+            selectedMovie: movie,
+            errorMessage: error,
+          }),
+        this.logger,
+        'movie library results',
       )
 
       if (autoDeleteResult) {
@@ -334,22 +355,30 @@ export class MovieOperationsService
       }
 
       // Handle single result directly
-      const singleResult = await this.handleSingleLibraryResult(
+      const singleResult = await handleSingleResult(
         libraryResults,
-        message,
-        messages,
+        movie => this.deleteMovie(movie, message, messages, userId),
+        this.logger,
         userId,
+        'movie library',
       )
       if (singleResult) {
         return singleResult
       }
 
       // Handle multiple results with context storage
-      return await this.handleMultipleLibraryResults(
+      return await handleMultipleResults(
         libraryResults,
         searchQuery,
         userId,
         messages,
+        'movie_delete',
+        this.contextService,
+        context =>
+          this.generateMovieDeleteResponse(messages, 'multiple_results_delete', {
+            searchQuery: context.searchQuery,
+            movies: context.items,
+          }),
       )
     } catch (error) {
       this.logger.error(
@@ -387,9 +416,13 @@ export class MovieOperationsService
     try {
       // Parse the user's selection using LLM
       const messageContent = extractMessageContent(message)
-      const selection = await this.parseSearchSelection(messageContent).catch(
-        () => null,
-      )
+      const selection = await parseSearchSelection(
+        messageContent,
+        this.getReasoningModel(),
+        this.retryService,
+        MOVIE_SELECTION_PARSING_PROMPT,
+        this.logger,
+      ).catch(() => null)
       this.logger.log({ userId, selection }, 'Parsed movie delete selection')
 
       // If no selection was parsed, ask user to clarify
@@ -532,8 +565,21 @@ export class MovieOperationsService
     try {
       // Parse search query and search selection in parallel for efficiency
       const [searchQuery, searchSelection] = await Promise.all([
-        this.extractSearchQueryWithLLM(messageContent),
-        this.parseSearchSelection(messageContent).catch(() => null),
+        extractSearchQueryWithLLM(
+          messageContent,
+          this.getReasoningModel(),
+          this.retryService,
+          EXTRACT_SEARCH_QUERY_PROMPT,
+          ['movie', 'film', 'the'],
+          this.logger,
+        ),
+        parseSearchSelection(
+          messageContent,
+          this.getReasoningModel(),
+          this.retryService,
+          MOVIE_SELECTION_PARSING_PROMPT,
+          this.logger,
+        ).catch(() => null),
       ])
 
       this.logger.log(
@@ -555,171 +601,19 @@ export class MovieOperationsService
       )
 
       // Fallback to just search query extraction
-      const searchQuery = await this.extractSearchQueryWithLLM(messageContent)
+      const searchQuery = await extractSearchQueryWithLLM(
+        messageContent,
+        this.getReasoningModel(),
+        this.retryService,
+        EXTRACT_SEARCH_QUERY_PROMPT,
+        ['movie', 'film', 'the'],
+        this.logger,
+      )
       return {
         searchQuery,
         selection: null,
       }
     }
-  }
-
-  /**
-   * Extract search query from user message using LLM
-   */
-  private async extractSearchQueryWithLLM(content: string): Promise<string> {
-    try {
-      const response = await this.retryService.executeWithRetry(
-        () =>
-          this.getReasoningModel().invoke([
-            EXTRACT_SEARCH_QUERY_PROMPT,
-            new HumanMessage({ id: nanoid(), content }),
-          ]),
-        RETRY_CONFIGS.DEFAULT,
-        'OpenAI-extractSearchQuery',
-      )
-
-      const extractedQuery = response.content.toString().trim()
-      this.logger.log(
-        { originalContent: content, extractedQuery },
-        'Extracted search query using LLM',
-      )
-
-      return extractedQuery || content // Fallback to original if empty
-    } catch (error) {
-      this.logger.error(
-        { error: getErrorMessage(error), content },
-        'Failed to extract search query with LLM, using fallback',
-      )
-
-      // Simple fallback extraction
-      return content
-        .toLowerCase()
-        .replace(/\b(download|add|get|find|search for|look for)\b/gi, '')
-        .replace(/\b(movie|film|the)\b/gi, '')
-        .trim()
-    }
-  }
-
-  /**
-   * Parse search selection from user message
-   */
-  private async parseSearchSelection(
-    selectionText: string,
-  ): Promise<SearchSelection> {
-    this.logger.log(
-      { selectionText },
-      'DEBUG: Starting parseSearchSelection with input',
-    )
-
-    try {
-      const response = await this.retryService.executeWithRetry(
-        () =>
-          this.getReasoningModel().invoke([
-            MOVIE_SELECTION_PARSING_PROMPT,
-            new HumanMessage({ id: nanoid(), content: selectionText }),
-          ]),
-        RETRY_CONFIGS.DEFAULT,
-        'OpenAI-parseSearchSelection',
-      )
-
-      const rawResponse = response.content.toString()
-      this.logger.log(
-        { rawResponse, selectionText },
-        'DEBUG: Raw LLM response for search selection parsing',
-      )
-
-      const parsed = JSON.parse(rawResponse)
-      const validatedResult = SearchSelectionSchema.parse(parsed)
-
-      this.logger.log(
-        { validatedResult },
-        'DEBUG: Successfully parsed and validated search selection',
-      )
-
-      return validatedResult
-    } catch (error) {
-      this.logger.error(
-        { error: getErrorMessage(error), selectionText },
-        'DEBUG: Failed to parse search selection',
-      )
-      throw error
-    }
-  }
-
-  /**
-   * Generic movie finder that works with both search and library results
-   */
-  private findSelectedMovieGeneric<
-    T extends { title: string; year?: number; tmdbId: number },
-  >(selection: SearchSelection, movies: T[], logContext: string): T | null {
-    const { selectionType, value } = selection
-
-    this.logger.log(
-      { selectionType, value, movieCount: movies.length },
-      `Finding selected movie from ${logContext}`,
-    )
-
-    try {
-      switch (selectionType) {
-        case 'ordinal': {
-          const index = parseInt(value) - 1
-          if (index >= 0 && index < movies.length) {
-            const selected = movies[index]
-            this.logger.log(
-              { index, selectedMovie: selected.title },
-              `Found movie by ordinal selection from ${logContext}`,
-            )
-            return selected
-          }
-          break
-        }
-
-        case 'year': {
-          const targetYear = parseInt(value)
-          const found = movies.find(movie => movie.year === targetYear)
-          if (found) {
-            this.logger.log(
-              { targetYear, selectedMovie: found.title },
-              `Found movie by year selection from ${logContext}`,
-            )
-            return found
-          }
-          break
-        }
-      }
-
-      this.logger.warn(
-        { selection, movieCount: movies.length },
-        `Could not find selected movie from criteria in ${logContext}`,
-      )
-      return null
-    } catch (error) {
-      this.logger.error(
-        { error: getErrorMessage(error), selection },
-        `Error finding selected movie in ${logContext}`,
-      )
-      return null
-    }
-  }
-
-  /**
-   * Find selected movie from search results
-   */
-  private findSelectedMovie(
-    selection: SearchSelection,
-    movies: MovieSearchResult[],
-  ): MovieSearchResult | null {
-    return this.findSelectedMovieGeneric(selection, movies, 'search results')
-  }
-
-  /**
-   * Find selected movie from library search results
-   */
-  private findSelectedMovieFromLibrary(
-    selection: SearchSelection,
-    movies: MovieLibrarySearchResult[],
-  ): MovieLibrarySearchResult | null {
-    return this.findSelectedMovieGeneric(selection, movies, 'library results')
   }
 
   /**
@@ -797,255 +691,4 @@ export class MovieOperationsService
     return createChatModel(this.stateService, this.logger)
   }
 
-  // Utility methods - using centralized utilities for most operations
-
-  /**
-   * Try auto-selection for search results
-   */
-  private async tryAutoSelection(
-    selection: SearchSelection | null,
-    searchResults: MovieSearchResult[],
-    userId: string,
-    messages: BaseMessage[],
-  ): Promise<MediaOperationResponse | null> {
-    if (
-      !selection ||
-      !(
-        selection.selectionType === 'ordinal' ||
-        selection.selectionType === 'year'
-      ) ||
-      searchResults.length === 0
-    ) {
-      return null
-    }
-
-    const selectedMovie = this.findSelectedMovie(selection, searchResults)
-    if (!selectedMovie) {
-      this.logger.warn(
-        { userId, selection, searchResultsCount: searchResults.length },
-        'Could not find selected movie from specification, falling back to list',
-      )
-      return null
-    }
-
-    this.logger.log(
-      {
-        userId,
-        tmdbId: selectedMovie.tmdbId,
-        selectionType: selection.selectionType,
-        selectionValue: selection.value,
-        movieTitle: selectedMovie.title,
-      },
-      'Auto-applying movie selection (explicit search selection provided)',
-    )
-
-    // Generate acknowledgment message first
-    const response = await this.generateMovieResponse(messages, 'success', {
-      selectedMovie,
-      downloadResult: { movieAdded: true, searchTriggered: true },
-      autoApplied: true,
-      selectionCriteria: `${selection.selectionType}: ${selection.value}`,
-    })
-
-    // Start download process
-    const downloadResult = await this.radarrService.monitorAndDownloadMovie(
-      selectedMovie.tmdbId,
-    )
-
-    if (!downloadResult.success) {
-      // Override response with error if download failed
-      const errorResponse = await this.generateMovieResponse(
-        messages,
-        'error',
-        {
-          selectedMovie,
-          errorMessage: `Failed to add "${selectedMovie.title}" to downloads: ${downloadResult.error}`,
-        },
-      )
-      return buildResponse(messages, errorResponse)
-    }
-
-    return buildResponse(messages, response)
-  }
-
-  /**
-   * Try auto-selection for delete results
-   */
-  private async tryAutoDeleteSelection(
-    selection: SearchSelection | null,
-    libraryResults: MovieLibrarySearchResult[],
-    userId: string,
-    message: HumanMessage,
-    messages: BaseMessage[],
-  ): Promise<MediaOperationResponse | null> {
-    if (
-      !selection ||
-      !(
-        selection.selectionType === 'ordinal' ||
-        selection.selectionType === 'year'
-      ) ||
-      libraryResults.length === 0
-    ) {
-      return null
-    }
-
-    const selectedMovie = this.findSelectedMovieFromLibrary(
-      selection,
-      libraryResults,
-    )
-    if (!selectedMovie) {
-      this.logger.warn(
-        { userId, selection, searchResultsCount: libraryResults.length },
-        'Could not find selected movie from library specification, falling back to list',
-      )
-      return null
-    }
-
-    this.logger.log(
-      {
-        userId,
-        tmdbId: selectedMovie.tmdbId,
-        selectionType: selection.selectionType,
-        selectionValue: selection.value,
-        movieTitle: selectedMovie.title,
-      },
-      'Auto-applying movie selection for delete (explicit search selection provided)',
-    )
-
-    // Clear any existing context and delete the movie directly
-    await this.contextService.clearContext(userId)
-    return await this.deleteMovie(selectedMovie, message, messages, userId)
-  }
-
-  /**
-   * Handle single search result by downloading directly
-   */
-  private async handleSingleSearchResult(
-    searchResults: MovieSearchResult[],
-    message: HumanMessage,
-    messages: BaseMessage[],
-    userId: string,
-  ): Promise<MediaOperationResponse | null> {
-    if (searchResults.length !== 1) {
-      return null
-    }
-
-    this.logger.log(
-      { userId, tmdbId: searchResults[0].tmdbId },
-      'Single result found, downloading directly',
-    )
-    return await this.downloadMovie(searchResults[0], message, messages, userId)
-  }
-
-  /**
-   * Handle single library result by deleting directly
-   */
-  private async handleSingleLibraryResult(
-    libraryResults: MovieLibrarySearchResult[],
-    message: HumanMessage,
-    messages: BaseMessage[],
-    userId: string,
-  ): Promise<MediaOperationResponse | null> {
-    if (libraryResults.length !== 1) {
-      return null
-    }
-
-    this.logger.log(
-      { userId, tmdbId: libraryResults[0].tmdbId },
-      'Single result found in library, deleting directly',
-    )
-    return await this.deleteMovie(libraryResults[0], message, messages, userId)
-  }
-
-  /**
-   * Handle multiple search results by storing context and asking for selection
-   */
-  private async handleMultipleSearchResults(
-    searchResults: MovieSearchResult[],
-    searchQuery: string,
-    userId: string,
-    messages: BaseMessage[],
-  ): Promise<MediaOperationResponse> {
-    const movieContext: MovieSelectionContext = {
-      searchResults: searchResults.slice(0, MAX_SEARCH_RESULTS),
-      query: searchQuery,
-      timestamp: Date.now(),
-      isActive: true,
-    }
-
-    await this.contextService.setContext(
-      userId,
-      'movie_selection',
-      movieContext,
-    )
-
-    const selectionResponse = await this.generateMovieResponse(
-      messages,
-      'multiple_results',
-      {
-        searchQuery,
-        movies: searchResults.slice(0, MAX_SEARCH_RESULTS),
-      },
-    )
-
-    return buildResponse(messages, selectionResponse)
-  }
-
-  /**
-   * Handle multiple library results by storing context and asking for selection
-   */
-  private async handleMultipleLibraryResults(
-    libraryResults: MovieLibrarySearchResult[],
-    searchQuery: string,
-    userId: string,
-    messages: BaseMessage[],
-  ): Promise<MediaOperationResponse> {
-    const movieDeleteContext: MovieDeleteContext = {
-      searchResults: libraryResults.slice(0, MAX_SEARCH_RESULTS),
-      query: searchQuery,
-      timestamp: Date.now(),
-      isActive: true,
-    }
-
-    await this.contextService.setContext(
-      userId,
-      'movie_delete',
-      movieDeleteContext,
-    )
-
-    const selectionResponse = await this.generateMovieDeleteResponse(
-      messages,
-      'multiple_results_delete',
-      {
-        searchQuery,
-        movies: libraryResults.slice(0, MAX_SEARCH_RESULTS),
-      },
-    )
-
-    return buildResponse(messages, selectionResponse)
-  }
-
-  /**
-   * Handle operation errors with consistent logging and response generation
-   */
-  private async handleOperationError(
-    error: unknown,
-    context: {
-      operation: string
-      userId?: string
-      searchQuery?: string
-      movieTitle?: string
-    },
-    messages: BaseMessage[],
-    responseGenerator: (errorMessage: string) => Promise<HumanMessage>,
-    fallbackMessage: string,
-  ): Promise<MediaOperationResponse> {
-    this.logger.error(
-      { error: getErrorMessage(error), ...context },
-      `Failed to ${context.operation}`,
-    )
-
-    const errorResponse = await responseGenerator(fallbackMessage)
-    return buildResponse(messages, errorResponse)
-  }
 }

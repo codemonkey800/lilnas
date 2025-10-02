@@ -28,7 +28,7 @@ import { RetryService } from 'src/utils/retry.service'
 
 // Mock the env utility
 jest.mock('@lilnas/utils/env', () => ({
-  env: jest.fn((key: string) => {
+  env: jest.fn((key) => {
     if (key === 'RADARR_URL') return 'http://localhost:7878'
     if (key === 'RADARR_API_KEY') return 'test-api-key'
     return undefined
@@ -42,10 +42,10 @@ const mockDelete = jest.fn()
 
 jest.mock('src/media/clients/base-media-api.client', () => ({
   BaseMediaApiClient: class {
-    protected logger = { log: jest.fn(), error: jest.fn(), warn: jest.fn() }
-    protected get = mockGet
-    protected post = mockPost
-    protected delete = mockDelete
+    logger = { log: jest.fn(), error: jest.fn(), warn: jest.fn() }
+    get = mockGet
+    post = mockPost
+    delete = mockDelete
   },
 }))
 

@@ -1635,18 +1635,8 @@ export class LLMService {
         }
       }
 
-      // Transform library results to match our delete context schema
-      const transformedResults = libraryResults
-        .slice(0, MAX_SEARCH_RESULTS)
-        .map(show => ({
-          id: show.id,
-          tvdbId: show.tvdbId,
-          tmdbId: show.tmdbId,
-          title: show.title,
-          year: show.year,
-          monitored: show.monitored,
-          path: show.path,
-        }))
+      // Limit library results to maximum
+      const transformedResults = libraryResults.slice(0, MAX_SEARCH_RESULTS)
 
       // Apply selection validation logic based on our plan
       if (libraryResults.length === 1) {

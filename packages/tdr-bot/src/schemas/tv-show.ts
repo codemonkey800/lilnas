@@ -71,22 +71,33 @@ export type TvShowSelectionContext = z.infer<
 >
 
 /**
+ * Library Search Result schema - extends SeriesSearchResult with library-specific fields
+ */
+export const LibrarySearchResultSchema = SeriesSearchResultSchema.extend({
+  id: z.number(), // Sonarr series ID
+  monitored: z.boolean(),
+  path: z.string(),
+  added: z.string(),
+  statistics: z
+    .object({
+      seasonCount: z.number(),
+      episodeFileCount: z.number(),
+      episodeCount: z.number(),
+      totalEpisodeCount: z.number(),
+      sizeOnDisk: z.number(),
+      releaseGroups: z.array(z.string()).optional(),
+      percentOfEpisodes: z.number(),
+    })
+    .optional(),
+})
+
+export type LibrarySearchResult = z.infer<typeof LibrarySearchResultSchema>
+
+/**
  * TV Show delete context stored in user state - for managing TV show deletion flow
  */
 export const TvShowDeleteContextSchema = z.object({
-  searchResults: z.array(
-    z.object({
-      // Using a more specific schema for library search results
-      id: z.number(), // Sonarr series ID
-      tvdbId: z.number(),
-      tmdbId: z.number().optional(),
-      title: z.string(),
-      year: z.number().optional(),
-      monitored: z.boolean(),
-      path: z.string().optional(),
-      // Add other fields as needed for display/selection
-    }),
-  ),
+  searchResults: z.array(LibrarySearchResultSchema),
   query: z.string(),
   timestamp: z.number(),
   isActive: z.boolean(),
