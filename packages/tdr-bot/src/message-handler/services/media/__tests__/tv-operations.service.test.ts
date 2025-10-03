@@ -1,5 +1,4 @@
 import { HumanMessage } from '@langchain/core/messages'
-import { ChatOpenAI } from '@langchain/openai'
 import { Test, TestingModule } from '@nestjs/testing'
 import { nanoid } from 'nanoid'
 
@@ -644,9 +643,7 @@ describe('TvOperationsService', () => {
     })
 
     it('should store context and ask for selection with multiple results', async () => {
-      sonarrService.getLibrarySeries.mockResolvedValue(
-        mockLibrarySearchResults,
-      )
+      sonarrService.getLibrarySeries.mockResolvedValue(mockLibrarySearchResults)
 
       await service.handleDelete(mockHumanMessage, mockMessages, mockUserId)
 

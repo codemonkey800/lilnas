@@ -2,7 +2,6 @@ import { BaseMessage, HumanMessage } from '@langchain/core/messages'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 
-import { MAX_SEARCH_RESULTS } from 'src/constants/llm'
 import { RadarrService } from 'src/media/services/radarr.service'
 import {
   MovieLibrarySearchResult,
@@ -27,7 +26,6 @@ import { createChatModel, createReasoningModel } from './utils/llm-model.utils'
 import {
   handleEmptyResults,
   handleOperationError,
-  RETRY_CONFIGS,
   validateAndHandleSearchQuery,
 } from './utils/media-error-handler.utils'
 import {
@@ -375,10 +373,14 @@ export class MovieOperationsService
         'movie_delete',
         this.contextService,
         context =>
-          this.generateMovieDeleteResponse(messages, 'multiple_results_delete', {
-            searchQuery: context.searchQuery,
-            movies: context.items,
-          }),
+          this.generateMovieDeleteResponse(
+            messages,
+            'multiple_results_delete',
+            {
+              searchQuery: context.searchQuery,
+              movies: context.items,
+            },
+          ),
       )
     } catch (error) {
       this.logger.error(
@@ -690,5 +692,4 @@ export class MovieOperationsService
   private getChatModel() {
     return createChatModel(this.stateService, this.logger)
   }
-
 }

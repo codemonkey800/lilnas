@@ -1,5 +1,4 @@
 import { HumanMessage } from '@langchain/core/messages'
-import { ChatOpenAI } from '@langchain/openai'
 import { Test, TestingModule } from '@nestjs/testing'
 import { nanoid } from 'nanoid'
 
@@ -8,26 +7,38 @@ const mockChatOpenAI = jest.fn().mockImplementation(() => ({
   invoke: jest.fn().mockImplementation(messages => {
     try {
       // Check if this is a search selection parsing request
-      const systemMessage = typeof messages?.[0]?.content === 'string' ? messages[0].content : ''
-      const content = messages?.[1]?.content !== undefined ? messages[1].content : (messages?.[0]?.content || '')
+      const systemMessage =
+        typeof messages?.[0]?.content === 'string' ? messages[0].content : ''
+      const content =
+        messages?.[1]?.content !== undefined
+          ? messages[1].content
+          : messages?.[0]?.content || ''
 
       // If content is a number, return ordinal selection for selection parsing
       if (/^\d+$/.test(String(content))) {
         return Promise.resolve({
           content: {
-            toString: () => JSON.stringify({
-              selectionType: 'ordinal',
-              value: String(content),
-            }),
+            toString: () =>
+              JSON.stringify({
+                selectionType: 'ordinal',
+                value: String(content),
+              }),
           },
         })
       }
 
       // For search query extraction, extract the movie name
-      if (String(systemMessage).toLowerCase().includes('extract the movie search query')) {
+      if (
+        String(systemMessage)
+          .toLowerCase()
+          .includes('extract the movie search query')
+      ) {
         // Extract search term from common patterns, removing only action words
         const cleanedContent = String(content)
-          .replace(/\b(download|add|get|find|search for|look for|want|need|delete|remove)\s+/gi, '')
+          .replace(
+            /\b(download|add|get|find|search for|look for|want|need|delete|remove)\s+/gi,
+            '',
+          )
           .trim()
         // Return the cleaned content (may be empty string)
         return Promise.resolve({
@@ -43,7 +54,7 @@ const mockChatOpenAI = jest.fn().mockImplementation(() => ({
           toString: () => 'test movie',
         },
       })
-    } catch (error) {
+    } catch {
       // Fallback in case of any errors
       return Promise.resolve({
         content: {
@@ -197,7 +208,7 @@ describe('MovieOperationsService', () => {
     }
 
     const mockRetryService = {
-      executeWithRetry: jest.fn().mockImplementation((fn) => fn()),
+      executeWithRetry: jest.fn().mockImplementation(fn => fn()),
     }
 
     const mockStateService = {
@@ -377,7 +388,7 @@ describe('MovieOperationsService', () => {
         expect.anything(),
         'error',
         expect.objectContaining({
-          errorMessage: expect.stringContaining("Had trouble search for"),
+          errorMessage: expect.stringContaining('Had trouble search for'),
         }),
       )
     })

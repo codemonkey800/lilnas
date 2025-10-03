@@ -28,7 +28,7 @@ import { RetryService } from 'src/utils/retry.service'
 
 // Mock the env utility
 jest.mock('@lilnas/utils/env', () => ({
-  env: jest.fn((key) => {
+  env: jest.fn(key => {
     if (key === 'RADARR_URL') return 'http://localhost:7878'
     if (key === 'RADARR_API_KEY') return 'test-api-key'
     return undefined

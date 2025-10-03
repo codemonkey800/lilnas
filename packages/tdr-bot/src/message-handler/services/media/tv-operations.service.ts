@@ -12,12 +12,13 @@ import {
 } from 'src/media/types/sonarr.types'
 import { ContextManagementService } from 'src/message-handler/context/context-management.service'
 import { PromptGenerationService } from 'src/message-handler/services/prompts/prompt-generation.service'
+import { SearchSelection } from 'src/schemas/search-selection'
 import {
   TvShowDeleteContext,
+  TvShowSelection,
   TvShowSelectionContext,
+  TvShowSelectionSchema,
 } from 'src/schemas/tv-show'
-import { SearchSelection } from 'src/schemas/search-selection'
-import { TvShowSelection, TvShowSelectionSchema } from 'src/schemas/tv-show'
 import { StateService } from 'src/state/state.service'
 import {
   EXTRACT_TV_SEARCH_QUERY_PROMPT,
@@ -130,7 +131,11 @@ export class TvOperationsService
           searchQuery,
           messages,
           context =>
-            this.generateTvShowResponse(messages, 'TV_SHOW_NO_RESULTS', context),
+            this.generateTvShowResponse(
+              messages,
+              'TV_SHOW_NO_RESULTS',
+              context,
+            ),
         )
       }
 
@@ -1025,7 +1030,13 @@ export class TvOperationsService
         'Single show with granular selection, deleting directly',
       )
 
-      return await this.deleteTvShow(show, tvSelection, message, messages, userId)
+      return await this.deleteTvShow(
+        show,
+        tvSelection,
+        message,
+        messages,
+        userId,
+      )
     }
 
     // Store context and ask for granular selection
@@ -1038,7 +1049,11 @@ export class TvOperationsService
       originalTvSelection: tvSelection || undefined,
     }
 
-    await this.contextService.setContext(userId, 'tv_delete', tvShowDeleteContext)
+    await this.contextService.setContext(
+      userId,
+      'tv_delete',
+      tvShowDeleteContext,
+    )
 
     const selectionResponse = await this.generateTvShowDeleteResponse(
       messages,
@@ -1069,7 +1084,11 @@ export class TvOperationsService
       originalTvSelection: tvSelection || undefined,
     }
 
-    await this.contextService.setContext(userId, 'tv_delete', tvShowDeleteContext)
+    await this.contextService.setContext(
+      userId,
+      'tv_delete',
+      tvShowDeleteContext,
+    )
 
     const selectionResponse = await this.generateTvShowDeleteResponse(
       messages,
@@ -1095,7 +1114,8 @@ export class TvOperationsService
   ): Promise<MediaOperationResponse> {
     return await executeMediaOperation(
       show,
-      show => this.sonarrService.monitorAndDownloadSeries(show.tvdbId, selection),
+      show =>
+        this.sonarrService.monitorAndDownloadSeries(show.tvdbId, selection),
       (show, result) =>
         this.generateTvShowResponse(messages, 'TV_SHOW_SUCCESS', {
           selectedShow: show,

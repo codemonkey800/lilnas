@@ -1,10 +1,13 @@
 import { HumanMessage } from '@langchain/core/messages'
-import { getErrorMessage } from '@lilnas/utils/error'
 import { ChatOpenAI } from '@langchain/openai'
+import { getErrorMessage } from '@lilnas/utils/error'
 import { Logger } from '@nestjs/common'
 import { nanoid } from 'nanoid'
 
-import { SearchSelection, SearchSelectionSchema } from 'src/schemas/search-selection'
+import {
+  SearchSelection,
+  SearchSelectionSchema,
+} from 'src/schemas/search-selection'
 import { RetryService } from 'src/utils/retry.service'
 
 import { RETRY_CONFIGS } from './media-error-handler.utils'
