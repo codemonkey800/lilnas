@@ -248,6 +248,25 @@
 
 ### Initial Game Components
 
+**Recommended Implementation Order:**
+
+Components should be implemented in the following order to ensure a logical, bottom-up approach:
+
+1. **Scene Setup** ✅ (Already completed) - Foundation for everything else
+2. **Lighting System** - Essential for visibility and atmosphere; needed before testing other components
+3. **Terrain Component** - Provides ground and collision surfaces for player movement
+4. **Input Manager** - Core system for capturing keyboard/mouse input; foundation for player control
+5. **First Person Controller** - Movement physics and stamina system; depends on Input Manager
+6. **Player Controller** - Ties together input, movement, and camera; the final piece that makes the game playable
+
+**Rationale:**
+- **Bottom-up approach**: Build foundational systems (lighting, terrain) before dependent systems (player, movement)
+- **Testable increments**: Each component can be tested independently as it's added
+- **Dependency order**: Later components depend on earlier ones functioning correctly
+- **Visual feedback**: Having lighting and terrain in place makes testing player movement much easier
+
+---
+
 #### Scene Setup (`src/game/components/Scene.tsx`) ✅ COMPLETED
 
 - [x] Create Canvas wrapper with proper settings:
@@ -262,13 +281,29 @@
 - [x] App.tsx updated to render Scene component
 - [x] Temporary test cube and lighting added for verification
 
-#### Player Controller (`src/game/components/Player.tsx`)
+#### Lighting System (`src/game/components/Lighting.tsx`)
 
-- [ ] Implement first-person camera setup
-- [ ] Create collision capsule for player
-- [ ] Add RigidBody from Rapier
-- [ ] Connect to input manager
-- [ ] Initial position and rotation
+- [ ] Configure ambient light (very dim, 0.05 intensity)
+- [ ] Create flashlight (SpotLight):
+  - [ ] Attach to camera
+  - [ ] Angle: 30 degrees
+  - [ ] Range: 20 units
+  - [ ] Intensity: 1
+  - [ ] Add volumetric fog effect (optional)
+- [ ] Add moon light (directional, very dim)
+- [ ] Configure shadow settings
+
+#### Terrain Component (`src/game/components/Terrain.tsx`)
+
+- [ ] Create basic ground plane (500x500 units)
+- [ ] Add physics collider
+- [ ] Apply dark grass/dirt texture (or color)
+- [ ] Add height variation (optional for MVP)
+- [ ] Place placeholder tree meshes:
+  - [ ] Simple cylinder trunks
+  - [ ] Cone or sphere canopies
+  - [ ] Random positioning algorithm
+  - [ ] Collision boxes for trees
 
 #### Input Manager (`src/game/controllers/InputManager.ts`)
 
@@ -301,29 +336,13 @@
 - [ ] Implement camera head bob
 - [ ] Add movement smoothing/interpolation
 
-#### Terrain Component (`src/game/components/Terrain.tsx`)
+#### Player Controller (`src/game/components/Player.tsx`)
 
-- [ ] Create basic ground plane (500x500 units)
-- [ ] Add physics collider
-- [ ] Apply dark grass/dirt texture (or color)
-- [ ] Add height variation (optional for MVP)
-- [ ] Place placeholder tree meshes:
-  - [ ] Simple cylinder trunks
-  - [ ] Cone or sphere canopies
-  - [ ] Random positioning algorithm
-  - [ ] Collision boxes for trees
-
-#### Lighting System (`src/game/components/Lighting.tsx`)
-
-- [ ] Configure ambient light (very dim, 0.05 intensity)
-- [ ] Create flashlight (SpotLight):
-  - [ ] Attach to camera
-  - [ ] Angle: 30 degrees
-  - [ ] Range: 20 units
-  - [ ] Intensity: 1
-  - [ ] Add volumetric fog effect (optional)
-- [ ] Add moon light (directional, very dim)
-- [ ] Configure shadow settings
+- [ ] Implement first-person camera setup
+- [ ] Create collision capsule for player
+- [ ] Add RigidBody from Rapier
+- [ ] Connect to input manager
+- [ ] Initial position and rotation
 
 ### State Management
 
