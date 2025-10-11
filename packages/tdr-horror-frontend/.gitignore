@@ -1,0 +1,6 @@
+# Vite
+.vite/
+*.local
+
+# OS
+.DS_Store

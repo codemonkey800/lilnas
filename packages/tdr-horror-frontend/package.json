@@ -1,0 +1,45 @@
+{
+  "name": "@lilnas/tdr-horror-frontend",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "packageManager": "pnpm@10.13.1",
+  "prettier": "@lilnas/prettier",
+  "files": [
+    "./dist"
+  ],
+  "scripts": {
+    "build": "tsc && vite build",
+    "clean": "rm -rf dist/ .turbo/ tsconfig.tsbuildinfo",
+    "dev": "vite --port 8080 --host",
+    "lint": "run-p -l 'lint:!(fix)'",
+    "lint:eslint": "eslint src",
+    "lint:prettier": "prettier -c src",
+    "lint:fix": "run-p -l lint:*:fix",
+    "lint:eslint:fix": "eslint --fix src",
+    "lint:prettier:fix": "prettier -w src",
+    "preview": "vite preview --port 8080",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-three/drei": "10.7.6",
+    "@react-three/fiber": "9.3.0",
+    "@types/three": "0.170.0",
+    "leva": "0.9.35",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "socket.io-client": "4.8.1",
+    "three": "0.170.0",
+    "zustand": "5.0.2"
+  },
+  "devDependencies": {
+    "@lilnas/eslint": "workspace:*",
+    "@lilnas/prettier": "workspace:*",
+    "@tailwindcss/postcss": "4.0.15",
+    "@vitejs/plugin-react-swc": "3.8.1",
+    "autoprefixer": "10.4.21",
+    "postcss": "8.5.3",
+    "vite": "6.2.2",
+    "vite-tsconfig-paths": "5.1.4"
+  }
+}
