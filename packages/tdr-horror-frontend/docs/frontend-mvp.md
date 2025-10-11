@@ -252,8 +252,8 @@
 
 Components should be implemented in the following order to ensure a logical, bottom-up approach:
 
-1. **Scene Setup** ✅ (Already completed) - Foundation for everything else
-2. **Lighting System** - Essential for visibility and atmosphere; needed before testing other components
+1. **Scene Setup** ✅ COMPLETED - Foundation for everything else
+2. **Lighting System** ✅ COMPLETED - Essential for visibility and atmosphere; needed before testing other components
 3. **Terrain Component** - Provides ground and collision surfaces for player movement
 4. **Input Manager** - Core system for capturing keyboard/mouse input; foundation for player control
 5. **First Person Controller** - Movement physics and stamina system; depends on Input Manager
@@ -281,17 +281,17 @@ Components should be implemented in the following order to ensure a logical, bot
 - [x] App.tsx updated to render Scene component
 - [x] Temporary test cube and lighting added for verification
 
-#### Lighting System (`src/game/components/Lighting.tsx`)
+#### Lighting System (`src/game/components/Lighting.tsx`) ✅ COMPLETED
 
-- [ ] Configure ambient light (very dim, 0.05 intensity)
-- [ ] Create flashlight (SpotLight):
-  - [ ] Attach to camera
-  - [ ] Angle: 30 degrees
-  - [ ] Range: 20 units
-  - [ ] Intensity: 1
-  - [ ] Add volumetric fog effect (optional)
-- [ ] Add moon light (directional, very dim)
-- [ ] Configure shadow settings
+- [x] Configure ambient light (very dim, 0.05 intensity)
+- [x] Create flashlight (SpotLight):
+  - [x] Attach to camera
+  - [x] Angle: 30 degrees
+  - [x] Range: 20 units
+  - [x] Intensity: 1
+  - [x] Add volumetric fog effect (optional - skipped for MVP)
+- [x] Add moon light (directional, very dim)
+- [x] Configure shadow settings
 
 #### Terrain Component (`src/game/components/Terrain.tsx`)
 

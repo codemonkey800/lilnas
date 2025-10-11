@@ -2,6 +2,8 @@ import { Stats } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
 import * as THREE from 'three'
 
+import { Lighting } from './Lighting'
+
 export function Scene() {
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
@@ -23,18 +25,10 @@ export function Scene() {
         {/* Performance monitoring */}
         <Stats />
 
-        {/* Temporary: basic lighting to see the cube */}
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[5, 5, 5]} intensity={1} />
-
-        {/* Temporary: test cube to verify scene works */}
-        <mesh position={[0, 0, 0]}>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial color="red" />
-        </mesh>
+        {/* Lighting system */}
+        <Lighting />
 
         {/* Game components - will be added as they are implemented */}
-        {/* <Lighting /> */}
         {/* <Environment /> */}
         {/* <Terrain /> */}
         {/* <Player /> */}
