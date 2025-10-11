@@ -24,12 +24,12 @@ export function Lighting() {
   return (
     <>
       {/* Ambient light - very dim for minimal global illumination */}
-      <ambientLight intensity={0.05} />
+      <ambientLight intensity={0.1} />
 
       {/* Directional light (Moon) - very dim with blue tint */}
       <directionalLight
         position={[10, 20, 10]}
-        intensity={0.1}
+        intensity={0.2}
         color="#b0c4de"
         castShadow
         shadow-mapSize={[1024, 1024]}
@@ -45,15 +45,15 @@ export function Lighting() {
       {/* SpotLight (Flashlight) - follows camera */}
       <spotLight
         ref={spotlightRef}
-        intensity={1}
-        angle={Math.PI / 6}
-        distance={20}
+        intensity={3}
+        angle={Math.PI / 4}
+        distance={30}
         penumbra={0.5}
         decay={2}
         castShadow
         shadow-mapSize={[1024, 1024]}
         shadow-camera-near={0.5}
-        shadow-camera-far={20}
+        shadow-camera-far={30}
         shadow-bias={-0.0001}
       />
     </>

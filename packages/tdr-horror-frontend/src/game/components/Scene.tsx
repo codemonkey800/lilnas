@@ -3,13 +3,14 @@ import { Canvas } from '@react-three/fiber'
 import * as THREE from 'three'
 
 import { Lighting } from './Lighting'
+import { Terrain } from './Terrain'
 
 export function Scene() {
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
       <Canvas
         shadows
-        camera={{ fov: 75, near: 0.1, far: 1000, position: [0, 2, 5] }}
+        camera={{ fov: 75, near: 0.1, far: 1000, position: [0, 3, 8] }}
         dpr={[1, 2]}
         gl={{
           toneMapping: THREE.ACESFilmicToneMapping,
@@ -30,7 +31,7 @@ export function Scene() {
 
         {/* Game components - will be added as they are implemented */}
         {/* <Environment /> */}
-        {/* <Terrain /> */}
+        <Terrain />
         {/* <Player /> */}
       </Canvas>
     </div>

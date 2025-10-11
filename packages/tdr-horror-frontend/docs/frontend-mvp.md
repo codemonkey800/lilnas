@@ -254,7 +254,7 @@ Components should be implemented in the following order to ensure a logical, bot
 
 1. **Scene Setup** ✅ COMPLETED - Foundation for everything else
 2. **Lighting System** ✅ COMPLETED - Essential for visibility and atmosphere; needed before testing other components
-3. **Terrain Component** - Provides ground and collision surfaces for player movement
+3. **Terrain Component** ✅ COMPLETED - Provides ground and collision surfaces for player movement
 4. **Input Manager** - Core system for capturing keyboard/mouse input; foundation for player control
 5. **First Person Controller** - Movement physics and stamina system; depends on Input Manager
 6. **Player Controller** - Ties together input, movement, and camera; the final piece that makes the game playable
@@ -293,17 +293,17 @@ Components should be implemented in the following order to ensure a logical, bot
 - [x] Add moon light (directional, very dim)
 - [x] Configure shadow settings
 
-#### Terrain Component (`src/game/components/Terrain.tsx`)
+#### Terrain Component (`src/game/components/Terrain.tsx`) ✅ COMPLETED
 
-- [ ] Create basic ground plane (500x500 units)
-- [ ] Add physics collider
-- [ ] Apply dark grass/dirt texture (or color)
-- [ ] Add height variation (optional for MVP)
-- [ ] Place placeholder tree meshes:
-  - [ ] Simple cylinder trunks
-  - [ ] Cone or sphere canopies
-  - [ ] Random positioning algorithm
-  - [ ] Collision boxes for trees
+- [x] Create basic ground plane (500x500 units)
+- [ ] Add physics collider (deferred to Player Controller phase)
+- [x] Apply dark grass/dirt texture (or color) - Using #3a4a2a greenish-brown
+- [ ] Add height variation (optional for MVP - skipped)
+- [x] Place placeholder tree meshes:
+  - [x] Simple cylinder trunks (dark brown #3d2817)
+  - [x] Cone or sphere canopies (cone geometry, dark green #1a3a1a)
+  - [x] Random positioning algorithm (40 trees with 8-unit minimum distance)
+  - [x] Collision boxes for trees (shadow casting/receiving implemented, physics deferred)
 
 #### Input Manager (`src/game/controllers/InputManager.ts`)
 

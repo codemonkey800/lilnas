@@ -24,6 +24,7 @@ module.exports = [
             'penumbra',
             'decay',
             'castShadow',
+            'receiveShadow',
             'shadow-mapSize',
             'shadow-camera-near',
             'shadow-camera-far',
