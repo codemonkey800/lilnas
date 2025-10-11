@@ -305,44 +305,62 @@ Components should be implemented in the following order to ensure a logical, bot
   - [x] Random positioning algorithm (40 trees with 8-unit minimum distance)
   - [x] Collision boxes for trees (shadow casting/receiving implemented, physics deferred)
 
-#### Input Manager (`src/game/controllers/InputManager.ts`)
+#### Input Manager (`src/game/controllers/InputManager.ts`) ✅ COMPLETED
 
-- [ ] Set up keyboard input detection:
-  - [ ] W/A/S/D for movement
-  - [ ] Shift for running
-  - [ ] Space for jumping
-  - [ ] Ctrl for crouching
-  - [ ] Tab for inventory (future)
-  - [ ] Escape for pause menu
-- [ ] Set up mouse input:
-  - [ ] Mouse move for camera rotation
-  - [ ] Click to interact (future)
-  - [ ] Pointer lock API integration
-- [ ] Create input state management
-- [ ] Handle multiple simultaneous inputs
+- [x] Set up keyboard input detection:
+  - [x] W/A/S/D for movement
+  - [x] Shift for running
+  - [x] Space for jumping
+  - [x] Ctrl for crouching
+  - [x] Tab for inventory (future)
+  - [x] Escape for pause menu
+- [x] Set up mouse input:
+  - [x] Mouse move for camera rotation
+  - [x] Click to interact (future)
+  - [x] Pointer lock API integration
+- [x] Create input state management
+- [x] Handle multiple simultaneous inputs
+- [x] Singleton pattern for global access
+- [x] React hook wrapper (useInputManager) with useMemo fix
 
-#### First Person Controller (`src/game/controllers/FirstPersonController.ts`)
+#### First Person Controller (`src/game/components/Scene.tsx`) ✅ COMPLETED
 
-- [ ] Implement movement physics:
-  - [ ] Walk speed: 4 units/second
-  - [ ] Run speed: 8 units/second
-  - [ ] Jump velocity: 5 units
-  - [ ] Crouch height reduction: 50%
-- [ ] Add stamina system:
+**Note:** Implemented as CameraController component in Scene.tsx instead of separate FirstPersonController.ts
+
+- [x] Implement movement physics:
+  - [x] Walk speed: 5 units/second (adjustable)
+  - [x] Movement smoothing with velocity decay
+  - [x] Camera rotation applied to movement direction
+  - [ ] Run speed: 8 units/second (deferred - needs stamina system)
+  - [ ] Jump velocity: 5 units (deferred - needs physics)
+  - [ ] Crouch height reduction: 50% (deferred - needs physics)
+- [ ] Add stamina system (deferred to Player component):
   - [ ] Max stamina: 100
   - [ ] Run drain: 20/second
   - [ ] Recovery rate: 10/second
   - [ ] Exhausted state when stamina = 0
-- [ ] Implement camera head bob
-- [ ] Add movement smoothing/interpolation
+- [ ] Implement camera head bob (deferred - polish feature)
+- [x] Add movement smoothing/interpolation
+
+#### Camera Controller (Integrated in Scene.tsx) ✅ COMPLETED
+
+- [x] Mouse look with pointer lock
+- [x] Vertical rotation clamping (prevents over-rotation)
+- [x] Horizontal rotation (unlimited)
+- [x] Smooth mouse sensitivity (0.002)
+- [x] WASD movement with camera-relative directions
+- [x] Camera positioned at eye level (1.7m)
+- [x] Camera starts facing forward (no downward tilt)
 
 #### Player Controller (`src/game/components/Player.tsx`)
 
-- [ ] Implement first-person camera setup
-- [ ] Create collision capsule for player
-- [ ] Add RigidBody from Rapier
-- [ ] Connect to input manager
-- [ ] Initial position and rotation
+**Status:** Partially implemented via CameraController, full Player component deferred
+
+- [x] Implement first-person camera setup (done in CameraController)
+- [ ] Create collision capsule for player (needs physics library)
+- [ ] Add RigidBody from Rapier (needs @react-three/rapier)
+- [x] Connect to input manager (done in CameraController)
+- [x] Initial position and rotation (camera at [0, 1.7, 0])
 
 ### State Management
 
@@ -513,10 +531,14 @@ Components should be implemented in the following order to ensure a logical, bot
 
 ## 🔄 Progress Tracking
 
-**Last Updated:** [Date]
-**Current Phase:** [Phase Number]
-**Blockers:** [List any blockers]
-**Next Steps:** [Immediate next actions]
+**Last Updated:** 2025-10-11
+**Current Phase:** Phase 5 - Three.js & Game Libraries (Input/Movement Complete)
+**Blockers:** None
+**Next Steps:**
+- Add stamina system
+- Implement physics with Rapier for collisions
+- Add jump mechanics
+- Implement crouch/sprint functionality
 
 ---
 

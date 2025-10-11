@@ -1,12 +1,9 @@
 import './index.css'
 
-import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { App } from './App'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+// Note: StrictMode is disabled for Three.js compatibility
+// StrictMode causes double-mounting which breaks WebGL context
+createRoot(document.getElementById('root')!).render(<App />)
