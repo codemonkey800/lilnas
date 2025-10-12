@@ -1466,7 +1466,16 @@ describe('SonarrService', () => {
 
       jest
         .spyOn(SonarrOutputSchemas.librarySearchResultArray, 'parse')
-        .mockImplementation(<T>(input: T) => input as T[])
+        .mockImplementation((input: unknown) => {
+          if (Array.isArray(input)) {
+            return input as ReturnType<
+              typeof SonarrOutputSchemas.librarySearchResultArray.parse
+            >
+          }
+          return [input] as ReturnType<
+            typeof SonarrOutputSchemas.librarySearchResultArray.parse
+          >
+        })
     })
 
     it('should get all library series without query', async () => {

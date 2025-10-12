@@ -1,3 +1,4 @@
+import { TavilySearchResults } from '@langchain/community/tools/tavily_search'
 import { ChatOpenAI, DallEAPIWrapper } from '@langchain/openai'
 import { TestingModule } from '@nestjs/testing'
 
@@ -814,9 +815,6 @@ describe('LLMOrchestrationService - Integration Tests', () => {
         jest.spyOn(ChatOpenAI.prototype, 'bindTools').mockReturnThis()
 
         // Mock Tavily to fail
-        const TavilySearchResults =
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          require('@langchain/community/tools/tavily_search').TavilySearchResults
         jest
           .spyOn(TavilySearchResults.prototype, 'invoke')
           .mockRejectedValue(new Error('Tavily API unavailable'))
@@ -918,9 +916,6 @@ describe('LLMOrchestrationService - Integration Tests', () => {
         jest.spyOn(ChatOpenAI.prototype, 'bindTools').mockReturnThis()
 
         // Mock all tools to fail
-        const TavilySearchResults =
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          require('@langchain/community/tools/tavily_search').TavilySearchResults
         jest
           .spyOn(TavilySearchResults.prototype, 'invoke')
           .mockRejectedValue(new Error('Tavily failed'))

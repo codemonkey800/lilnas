@@ -133,13 +133,12 @@ export const LONG_CONVERSATION = [
  */
 export function createToolCall(
   name: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Matches LangChain's ToolCall.args type
-  args: Record<string, any>,
+  args: Record<string, unknown>,
   id: string = DEFAULT_MESSAGE_IDS.TOOL_CALL,
 ): ToolCall {
   return {
     name,
-    args,
+    args: args as ToolCall['args'],
     id,
   }
 }

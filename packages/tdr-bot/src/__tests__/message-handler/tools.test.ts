@@ -21,7 +21,7 @@ describe('tools', () => {
       const mockDate = 'December 25, 2023 10:30:45 AM'
       const mockDayjs = {
         format: jest.fn().mockReturnValue(mockDate),
-      }
+      } as unknown as ReturnType<typeof dayjs>
 
       ;(dayjs as jest.MockedFunction<typeof dayjs>).mockReturnValue(mockDayjs)
 
@@ -35,10 +35,10 @@ describe('tools', () => {
     it('should return different dates on subsequent calls', async () => {
       const mockDayjs1 = {
         format: jest.fn().mockReturnValue('January 01, 2024 12:00:00 AM'),
-      }
+      } as unknown as ReturnType<typeof dayjs>
       const mockDayjs2 = {
         format: jest.fn().mockReturnValue('January 01, 2024 12:00:01 AM'),
-      }
+      } as unknown as ReturnType<typeof dayjs>
 
       ;(dayjs as jest.MockedFunction<typeof dayjs>)
         .mockReturnValueOnce(mockDayjs1)
@@ -63,7 +63,7 @@ describe('tools', () => {
       const mockDate = 'July 04, 2024 06:00:00 PM'
       const mockDayjs = {
         format: jest.fn().mockReturnValue(mockDate),
-      }
+      } as unknown as ReturnType<typeof dayjs>
 
       ;(dayjs as jest.MockedFunction<typeof dayjs>).mockReturnValue(mockDayjs)
 
@@ -105,7 +105,7 @@ describe('tools', () => {
       const mockDate = 'March 15, 2024 03:14:15 PM'
       const mockDayjs = {
         format: jest.fn().mockReturnValue(mockDate),
-      }
+      } as unknown as ReturnType<typeof dayjs>
 
       ;(dayjs as jest.MockedFunction<typeof dayjs>).mockReturnValue(mockDayjs)
 
@@ -131,7 +131,7 @@ describe('tools', () => {
       dates.forEach(date => {
         const mockDayjs = {
           format: jest.fn().mockReturnValue(date),
-        }
+        } as unknown as ReturnType<typeof dayjs>
         ;(dayjs as jest.MockedFunction<typeof dayjs>).mockReturnValueOnce(
           mockDayjs,
         )

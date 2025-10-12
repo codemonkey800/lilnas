@@ -135,9 +135,12 @@ describe('MediaRequestHandler', () => {
   describe('handleRequest', () => {
     describe('Context routing', () => {
       it('should route to movieDownloadStrategy when context type is "movie"', async () => {
-        const mockContext: Partial<MovieSelectionContext> = {
+        const mockContext: MovieSelectionContext = {
           type: 'movie',
           query: 'The Matrix',
+          searchResults: [],
+          timestamp: Date.now(),
+          isActive: true,
         }
         contextService.hasContext.mockResolvedValue(true)
         contextService.getContextType.mockResolvedValue('movie')
@@ -165,9 +168,12 @@ describe('MediaRequestHandler', () => {
       })
 
       it('should route to tvDownloadStrategy when context type is "tv"', async () => {
-        const mockContext: Partial<TvShowSelectionContext> = {
+        const mockContext: TvShowSelectionContext = {
           type: 'tvShow',
           query: 'Breaking Bad',
+          searchResults: [],
+          timestamp: Date.now(),
+          isActive: true,
         }
         contextService.hasContext.mockResolvedValue(true)
         contextService.getContextType.mockResolvedValue('tv')
@@ -192,9 +198,12 @@ describe('MediaRequestHandler', () => {
       })
 
       it('should route to movieDeleteStrategy when context type is "movieDelete"', async () => {
-        const mockContext: Partial<MovieDeleteContext> = {
+        const mockContext: MovieDeleteContext = {
           type: 'movieDelete',
           query: 'The Matrix',
+          searchResults: [],
+          timestamp: Date.now(),
+          isActive: true,
         }
         contextService.hasContext.mockResolvedValue(true)
         contextService.getContextType.mockResolvedValue('movieDelete')
@@ -219,9 +228,13 @@ describe('MediaRequestHandler', () => {
       })
 
       it('should route to tvDeleteStrategy when context type is "tvDelete"', async () => {
-        const mockContext: Partial<TvShowDeleteContext> = {
+        const mockContext: TvShowDeleteContext = {
           type: 'tvShowDelete',
           query: 'Breaking Bad',
+          searchResults: [],
+          timestamp: Date.now(),
+          isActive: true,
+          originalTvSelection: { selection: [] },
         }
         contextService.hasContext.mockResolvedValue(true)
         contextService.getContextType.mockResolvedValue('tvDelete')
@@ -248,7 +261,10 @@ describe('MediaRequestHandler', () => {
       it('should clear context and continue when context type is unknown', async () => {
         contextService.hasContext.mockResolvedValue(true)
         contextService.getContextType.mockResolvedValue('unknownType')
-        contextService.getContext.mockResolvedValue({})
+        contextService.getContext.mockResolvedValue({
+          timestamp: Date.now(),
+          isActive: true,
+        })
         contextService.clearContext.mockResolvedValue(true)
 
         // Mock getMediaTypeAndIntent to return a browse request

@@ -75,10 +75,10 @@ class DownloadInfoScript {
   private initializeServices(): void {
     try {
       // Create comprehensive mock services for dependency injection
+      // Mock services - using 'as any' to avoid implementing full interfaces in this standalone script
       const mockRetryService = {
         executeWithRetry: async (fn: () => Promise<unknown>) => fn(),
         executeWithCircuitBreaker: async (fn: () => Promise<unknown>) => fn(),
-        // Add any other methods that might be called
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any
 

@@ -1091,8 +1091,7 @@ describe('SonarrClient', () => {
     })
 
     it('should get all episode files when no options provided', async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mockEpisodeFiles: any[] = []
+      const mockEpisodeFiles: unknown[] = []
       mockGet.mockResolvedValue(mockEpisodeFiles)
 
       const result = await client.getEpisodeFiles()
@@ -1163,8 +1162,7 @@ describe('SonarrClient', () => {
     })
 
     it('should handle empty episode files response', async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const emptyFiles: any[] = []
+      const emptyFiles: unknown[] = []
       mockGet.mockResolvedValue(emptyFiles)
 
       const result = await client.getEpisodeFiles({ seriesId: 1 })

@@ -132,7 +132,7 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
     }
     // If it's a function, call it to get the mock
     if (typeof mock === 'function' && !('mock' in mock)) {
-      return mock()
+      return mock() as jest.Mock
     }
     // Otherwise it's already a Jest mock
     return mock

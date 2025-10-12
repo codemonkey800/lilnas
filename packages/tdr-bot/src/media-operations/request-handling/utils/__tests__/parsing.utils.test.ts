@@ -19,8 +19,8 @@ import { RetryService } from 'src/utils/retry.service'
 
 describe('ParsingUtilities', () => {
   let service: ParsingUtilities
-  let mockStateService: jest.Mocked<StateService>
-  let mockRetryService: jest.Mocked<RetryService>
+  let mockStateService: jest.Mocked<Pick<StateService, 'getState'>>
+  let mockRetryService: jest.Mocked<Pick<RetryService, 'executeWithRetry'>>
 
   beforeEach(async () => {
     // Reset all mocks
