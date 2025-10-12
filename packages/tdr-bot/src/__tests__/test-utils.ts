@@ -166,6 +166,7 @@ export function createMockLangGraphState(
     message:
       null as unknown as (typeof OverallStateAnnotation.State)['message'],
     prevMessages: [],
+    userId: 'test-user-id',
     ...overrides,
   }
 }
@@ -218,6 +219,30 @@ export function createMockStateService(): jest.Mocked<StateService> {
     }),
     getPrompt: jest.fn().mockReturnValue('Generated prompt'),
     onModuleInit: jest.fn(),
+    // Movie context methods
+    setUserMovieContext: jest.fn(),
+    clearUserMovieContext: jest.fn(),
+    getUserMovieContext: jest.fn().mockReturnValue(undefined),
+    isMovieContextExpired: jest.fn().mockReturnValue(false),
+    cleanupExpiredMovieContexts: jest.fn(),
+    // Movie delete context methods
+    setUserMovieDeleteContext: jest.fn(),
+    clearUserMovieDeleteContext: jest.fn(),
+    getUserMovieDeleteContext: jest.fn().mockReturnValue(undefined),
+    isMovieDeleteContextExpired: jest.fn().mockReturnValue(false),
+    cleanupExpiredMovieDeleteContexts: jest.fn(),
+    // TV show context methods
+    setUserTvShowContext: jest.fn(),
+    clearUserTvShowContext: jest.fn(),
+    getUserTvShowContext: jest.fn().mockReturnValue(undefined),
+    isTvShowContextExpired: jest.fn().mockReturnValue(false),
+    cleanupExpiredTvShowContexts: jest.fn(),
+    // TV show delete context methods
+    setUserTvShowDeleteContext: jest.fn(),
+    clearUserTvShowDeleteContext: jest.fn(),
+    getUserTvShowDeleteContext: jest.fn().mockReturnValue(undefined),
+    isTvShowDeleteContextExpired: jest.fn().mockReturnValue(false),
+    cleanupExpiredTvShowDeleteContexts: jest.fn(),
   } as unknown as jest.Mocked<StateService>
 }
 

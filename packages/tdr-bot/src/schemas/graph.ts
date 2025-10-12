@@ -9,6 +9,7 @@ export enum GraphNode {
   GetModelDefaultResponse = 'getModelDefaultResponse',
   GetModelImageResponse = 'getModelImageResponse',
   GetModelMathResponse = 'getModelMathResponse',
+  GetModelMediaResponse = 'getModelMediaResponse',
   Start = '__start__',
   Tools = 'tools',
   TrimMessages = 'trimMessages',
@@ -18,6 +19,20 @@ export enum ResponseType {
   Default = 'default',
   Image = 'image',
   Math = 'math',
+  Media = 'media',
+}
+
+export enum MediaRequestType {
+  Movies = 'movies',
+  Shows = 'shows',
+  Both = 'both',
+}
+
+export enum SearchIntent {
+  Library = 'library',
+  External = 'external',
+  Both = 'both',
+  Delete = 'delete',
 }
 
 export const ImageQuerySchema = z.array(
@@ -35,9 +50,18 @@ export const ImageResponseSchema = z.object({
 
 export type ImageResponse = z.infer<typeof ImageResponseSchema>
 
+export const MediaRequestSchema = z.object({
+  mediaType: z.nativeEnum(MediaRequestType),
+  searchIntent: z.nativeEnum(SearchIntent),
+  searchTerms: z.string(),
+})
+
+export type MediaRequest = z.infer<typeof MediaRequestSchema>
+
 export const InputStateAnnotation = Annotation.Root({
   messages: Annotation<BaseMessage[]>,
   userInput: Annotation<string>,
+  userId: Annotation<string>,
 })
 
 export const OutputStateAnnotation = Annotation.Root({
@@ -52,4 +76,5 @@ export const OverallStateAnnotation = Annotation.Root({
   prevMessages: Annotation<BaseMessage[]>,
   responseType: Annotation<ResponseType>,
   userInput: Annotation<string>,
+  userId: Annotation<string>,
 })
