@@ -1,4 +1,6 @@
-import { folder, useControls } from 'leva'
+import { button, folder, useControls } from 'leva'
+
+import { useAudioStore } from 'src/game/store/audioStore'
 
 export interface DebugControls {
   // Player Settings
@@ -25,6 +27,8 @@ export interface DebugControls {
  * Provides real-time tweaking of game parameters for development
  */
 export function useDebugControls(): DebugControls {
+  const audioStore = useAudioStore()
+
   return useControls({
     'Player Settings': folder({
       walkSpeed: {
@@ -92,6 +96,57 @@ export function useDebugControls(): DebugControls {
         step: 0.0001,
         label: 'Mouse Sensitivity',
       },
+    }),
+    Audio: folder({
+      masterVolume: {
+        value: audioStore.masterVolume,
+        min: 0,
+        max: 1,
+        step: 0.01,
+        label: 'Master Volume',
+        onChange: (value: number) => audioStore.setMasterVolume(value),
+      },
+      ambientVolume: {
+        value: audioStore.categoryVolumes.ambient,
+        min: 0,
+        max: 1,
+        step: 0.01,
+        label: 'Ambient Volume',
+        onChange: (value: number) =>
+          audioStore.setCategoryVolume('ambient', value),
+      },
+      playerVolume: {
+        value: audioStore.categoryVolumes.player,
+        min: 0,
+        max: 1,
+        step: 0.01,
+        label: 'Player Volume',
+        onChange: (value: number) =>
+          audioStore.setCategoryVolume('player', value),
+      },
+      uiVolume: {
+        value: audioStore.categoryVolumes.ui,
+        min: 0,
+        max: 1,
+        step: 0.01,
+        label: 'UI Volume',
+        onChange: (value: number) => audioStore.setCategoryVolume('ui', value),
+      },
+      monsterVolume: {
+        value: audioStore.categoryVolumes.monster,
+        min: 0,
+        max: 1,
+        step: 0.01,
+        label: 'Monster Volume',
+        onChange: (value: number) =>
+          audioStore.setCategoryVolume('monster', value),
+      },
+      isMuted: {
+        value: audioStore.isMuted,
+        label: 'Mute All',
+        onChange: (value: boolean) => audioStore.setMuted(value),
+      },
+      'Reset to Defaults': button(() => audioStore.resetToDefaults()),
     }),
     Debug: folder({
       showCollisionBoxes: {

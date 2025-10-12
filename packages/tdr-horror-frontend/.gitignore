@@ -2,5 +2,8 @@
 .vite/
 *.local
 
+# Environment variables
+.env
+
 # OS
 .DS_Store

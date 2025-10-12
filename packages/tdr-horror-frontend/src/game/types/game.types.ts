@@ -53,3 +53,20 @@ export interface PlayerInfo {
   isFlashlightOn: boolean
   movementState: MovementStateEnum
 }
+
+// Audio system types
+export type SoundCategory = 'ambient' | 'player' | 'ui' | 'monster'
+
+export interface AudioSettings {
+  masterVolume: number
+  categoryVolumes: Record<SoundCategory, number>
+  isMuted: boolean
+}
+
+export interface PlaySoundOptions {
+  volume?: number
+  loop?: boolean
+  position?: Vector3Like
+  refDistance?: number
+  maxDistance?: number
+}

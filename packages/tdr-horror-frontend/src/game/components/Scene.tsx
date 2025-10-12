@@ -1,7 +1,7 @@
 import { Stats } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Leva } from 'leva'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 
 import { StaminaBar } from 'src/components/StaminaBar'
@@ -11,6 +11,7 @@ import {
   PLAYER_HEIGHT,
 } from 'src/game/constants/gameSettings'
 import { usePlayerStore } from 'src/game/store/playerStore'
+import { useAudioSystem } from 'src/hooks/useAudioSystem'
 import { useDebugControls } from 'src/hooks/useDebugControls'
 import { useInputManager } from 'src/hooks/useInputManager'
 
@@ -18,13 +19,43 @@ import { Lighting } from './Lighting'
 import { Terrain, useTerrainStore } from './Terrain'
 
 /**
+ * AudioInitializer - Initializes the audio system with the camera
+ */
+function AudioInitializer() {
+  const { camera } = useThree()
+  const audioSystem = useAudioSystem()
+
+  useEffect(() => {
+    if (!audioSystem.isInitialized()) {
+      audioSystem.init(camera)
+      console.log('AudioSystem initialized in Scene')
+
+      // Load movement sounds
+      audioSystem
+        .loadSound('grass-walk', 'player', '/sounds/grass-walk.mp3', false)
+        .catch(err => console.error('Failed to load grass-walk sound:', err))
+
+      audioSystem
+        .loadSound('grass-run', 'player', '/sounds/grass-run.mp3', false)
+        .catch(err => console.error('Failed to load grass-run sound:', err))
+    }
+  }, [audioSystem, camera])
+
+  return null
+}
+
+/**
  * First-person camera controller with stamina, collision, and head bob
  */
 function CameraController() {
   const { camera } = useThree()
   const inputManager = useInputManager()
+  const audioSystem = useAudioSystem()
   const velocityRef = useRef(new THREE.Vector3())
   const headBobTimeRef = useRef(0)
+  const previousMovementStateRef = useRef<'idle' | 'walking' | 'running'>(
+    'idle',
+  )
 
   // Player state
   const { stamina, isExhausted, drainStamina, recoverStamina } =
@@ -42,6 +73,14 @@ function CameraController() {
     mouseSensitivity,
     godMode,
   } = useDebugControls()
+
+  // Cleanup movement sounds on unmount
+  useEffect(() => {
+    return () => {
+      audioSystem.stop('grass-walk')
+      audioSystem.stop('grass-run')
+    }
+  }, [audioSystem])
 
   useFrame((_, delta) => {
     if (!inputManager) return
@@ -158,6 +197,28 @@ function CameraController() {
       )
     }
 
+    // Movement sound management
+    const currentMovementState: 'idle' | 'walking' | 'running' = !isMoving
+      ? 'idle'
+      : isRunning
+        ? 'running'
+        : 'walking'
+
+    if (currentMovementState !== previousMovementStateRef.current) {
+      // Stop all movement sounds
+      audioSystem.stop('grass-walk')
+      audioSystem.stop('grass-run')
+
+      // Play appropriate sound for new state
+      if (currentMovementState === 'walking') {
+        audioSystem.play('grass-walk', { loop: true, volume: 0.7 })
+      } else if (currentMovementState === 'running') {
+        audioSystem.play('grass-run', { loop: true, volume: 0.8 })
+      }
+
+      previousMovementStateRef.current = currentMovementState
+    }
+
     // Reset mouse delta
     inputManager.resetMouseDelta()
   })
@@ -184,6 +245,9 @@ function SceneContent() {
 
       {/* Performance monitoring */}
       {showStats && <Stats />}
+
+      {/* Audio system initialization */}
+      <AudioInitializer />
 
       {/* Camera controller */}
       <CameraController />
