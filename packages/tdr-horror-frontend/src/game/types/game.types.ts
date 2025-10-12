@@ -13,3 +13,16 @@ export interface MovementInput {
   run: boolean
   crouch: boolean
 }
+
+// Player state types
+export interface PlayerState {
+  stamina: number
+  isExhausted: boolean
+}
+
+// Tree collision types
+export interface TreePosition {
+  x: number
+  z: number
+  scale: number
+}

@@ -331,16 +331,19 @@ Components should be implemented in the following order to ensure a logical, bot
   - [x] Walk speed: 5 units/second (adjustable)
   - [x] Movement smoothing with velocity decay
   - [x] Camera rotation applied to movement direction
-  - [ ] Run speed: 8 units/second (deferred - needs stamina system)
+  - [x] Run speed: 8 units/second (with stamina system)
   - [ ] Jump velocity: 5 units (deferred - needs physics)
   - [ ] Crouch height reduction: 50% (deferred - needs physics)
-- [ ] Add stamina system (deferred to Player component):
-  - [ ] Max stamina: 100
-  - [ ] Run drain: 20/second
-  - [ ] Recovery rate: 10/second
-  - [ ] Exhausted state when stamina = 0
-- [ ] Implement camera head bob (deferred - polish feature)
+- [x] Add stamina system:
+  - [x] Max stamina: 100
+  - [x] Run drain: 20/second
+  - [x] Recovery rate: 10/second
+  - [x] Exhausted state when stamina = 0
+  - [x] Stamina HUD display with visual feedback
+- [x] Implement camera head bob (subtle vertical oscillation when moving)
 - [x] Add movement smoothing/interpolation
+- [x] Add ground collision (player clamped to y >= 1.7)
+- [x] Add tree collision detection (sphere-based collision with 2.5 unit radius)
 
 #### Camera Controller (Integrated in Scene.tsx) ✅ COMPLETED
 
@@ -374,14 +377,16 @@ Components should be implemented in the following order to ensure a logical, bot
   - [ ] Cabin location
   - [ ] Items collected
 
-#### Player Store (`src/game/store/playerStore.ts`)
+#### Player Store (`src/game/store/playerStore.ts`) ✅ COMPLETED
 
-- [ ] Create player-specific store:
-  - [ ] Position and rotation
-  - [ ] Health/alive status
-  - [ ] Stamina level
-  - [ ] Movement state (idle/walking/running/crouching/hiding)
-  - [ ] Inventory items
+- [x] Create player-specific store:
+  - [ ] Position and rotation (tracked in camera, not store)
+  - [ ] Health/alive status (deferred)
+  - [x] Stamina level (0-100)
+  - [x] Exhausted state tracking
+  - [x] Stamina drain/recovery actions
+  - [ ] Movement state (idle/walking/running/crouching/hiding) (deferred)
+  - [ ] Inventory items (deferred)
   - [ ] Flashlight battery (future)
 
 ### Debug Tools
@@ -470,16 +475,16 @@ Components should be implemented in the following order to ensure a logical, bot
 
 ### MVP Ready Criteria
 
-- [ ] Player can move in 3D space with WASD
-- [ ] Mouse look controls work smoothly
-- [ ] Flashlight illuminates dark environment
-- [ ] Basic terrain with trees exists
-- [ ] Stamina system functions
-- [ ] Game runs at 60 FPS
-- [ ] Debug tools available via Leva
-- [ ] Build completes without errors
-- [ ] Code passes linting
-- [ ] TypeScript has no errors
+- [x] Player can move in 3D space with WASD
+- [x] Mouse look controls work smoothly
+- [x] Flashlight illuminates dark environment
+- [x] Basic terrain with trees exists
+- [x] Stamina system functions
+- [x] Game runs at 60 FPS
+- [ ] Debug tools available via Leva (deferred - Stats component provides FPS monitoring)
+- [x] Build completes without errors
+- [x] Code passes linting
+- [x] TypeScript has no errors
 
 ### Next Sprint Ready
 

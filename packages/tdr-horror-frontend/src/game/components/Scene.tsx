@@ -3,21 +3,44 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useRef } from 'react'
 import * as THREE from 'three'
 
+import { StaminaBar } from 'src/components/StaminaBar'
+import {
+  HEAD_BOB_AMPLITUDE,
+  HEAD_BOB_FREQUENCY,
+  PLAYER_HEIGHT,
+  RUN_SPEED,
+  STAMINA_DRAIN_RATE,
+  STAMINA_RECOVERY_RATE,
+  WALK_SPEED,
+} from 'src/game/constants/gameSettings'
+import { usePlayerStore } from 'src/game/store/playerStore'
 import { useInputManager } from 'src/hooks/useInputManager'
 
 import { Lighting } from './Lighting'
-import { Terrain } from './Terrain'
+import { Terrain, useTerrainStore } from './Terrain'
 
 /**
- * First-person camera controller
+ * First-person camera controller with stamina, collision, and head bob
  */
 function CameraController() {
   const { camera } = useThree()
   const inputManager = useInputManager()
   const velocityRef = useRef(new THREE.Vector3())
+  const headBobTimeRef = useRef(0)
+
+  // Player state
+  const { stamina, isExhausted, drainStamina, recoverStamina } =
+    usePlayerStore()
+
+  // Terrain collision
+  const treePositions = useTerrainStore(state => state.treePositions)
 
   useFrame((_, delta) => {
     if (!inputManager) return
+
+    // Set rotation order to YXZ for proper first-person camera behavior
+    // This prevents gimbal lock and ensures pitch (up/down) works correctly
+    camera.rotation.order = 'YXZ'
 
     const movement = inputManager.getMovementInput()
     const mouseDelta = inputManager.getMouseDelta()
@@ -33,8 +56,18 @@ function CameraController() {
       )
     }
 
-    // Movement
-    const moveSpeed = 5
+    // Determine speed based on run input and stamina
+    const isRunning = movement.run && stamina > 0 && !isExhausted
+    const moveSpeed = isRunning ? RUN_SPEED : WALK_SPEED
+
+    // Stamina management
+    if (isRunning && (movement.forward || movement.backward)) {
+      drainStamina(STAMINA_DRAIN_RATE * delta)
+    } else {
+      recoverStamina(STAMINA_RECOVERY_RATE * delta)
+    }
+
+    // Movement direction
     const direction = new THREE.Vector3()
 
     if (movement.forward) direction.z -= 1
@@ -65,7 +98,53 @@ function CameraController() {
       velocityRef.current.multiplyScalar(0.8)
     }
 
-    camera.position.addScaledVector(velocityRef.current, delta)
+    // Calculate new position
+    const newPosition = camera.position.clone()
+    newPosition.addScaledVector(velocityRef.current, delta)
+
+    // Tree collision detection
+    const TREE_COLLISION_RADIUS = 2.5
+    let collisionDetected = false
+
+    for (const tree of treePositions) {
+      const dx = newPosition.x - tree.x
+      const dz = newPosition.z - tree.z
+      const distanceSquared = dx * dx + dz * dz
+      const minDistSquared =
+        TREE_COLLISION_RADIUS * TREE_COLLISION_RADIUS * tree.scale * tree.scale
+
+      if (distanceSquared < minDistSquared) {
+        collisionDetected = true
+        break
+      }
+    }
+
+    // Apply movement if no collision
+    if (!collisionDetected) {
+      camera.position.copy(newPosition)
+    }
+
+    // Ground clamping
+    if (camera.position.y < PLAYER_HEIGHT) {
+      camera.position.y = PLAYER_HEIGHT
+    }
+
+    // Head bob effect
+    const isMoving = velocityRef.current.length() > 0.1
+    if (isMoving) {
+      headBobTimeRef.current += delta * HEAD_BOB_FREQUENCY
+      const bobOffset =
+        Math.sin(headBobTimeRef.current) * HEAD_BOB_AMPLITUDE * moveSpeed * 0.1
+      camera.position.y = PLAYER_HEIGHT + bobOffset
+    } else {
+      // Smoothly return to normal height
+      headBobTimeRef.current = 0
+      camera.position.y = THREE.MathUtils.lerp(
+        camera.position.y,
+        PLAYER_HEIGHT,
+        delta * 5,
+      )
+    }
 
     // Reset mouse delta
     inputManager.resetMouseDelta()
@@ -134,6 +213,9 @@ export function Scene() {
       >
         <SceneContent />
       </Canvas>
+
+      {/* HUD overlay - rendered outside Canvas */}
+      <StaminaBar />
     </div>
   )
 }

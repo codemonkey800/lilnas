@@ -1,10 +1,18 @@
 import { useMemo } from 'react'
+import { create } from 'zustand'
 
-interface TreePosition {
-  x: number
-  z: number
-  scale: number
+import type { TreePosition } from 'src/game/types/game.types'
+
+// Store for tree positions (used for collision detection)
+interface TerrainStore {
+  treePositions: TreePosition[]
+  setTreePositions: (positions: TreePosition[]) => void
 }
+
+export const useTerrainStore = create<TerrainStore>(set => ({
+  treePositions: [],
+  setTreePositions: positions => set({ treePositions: positions }),
+}))
 
 interface TreeProps {
   position: [number, number, number]
@@ -30,6 +38,8 @@ function Tree({ position, scale }: TreeProps) {
 }
 
 export function Terrain() {
+  const setTreePositions = useTerrainStore(state => state.setTreePositions)
+
   // Generate random tree positions with collision avoidance
   const treePositions = useMemo<TreePosition[]>(() => {
     const positions: TreePosition[] = []
@@ -71,6 +81,11 @@ export function Terrain() {
 
     return positions
   }, [])
+
+  // Store tree positions for collision detection
+  useMemo(() => {
+    setTreePositions(treePositions)
+  }, [treePositions, setTreePositions])
 
   return (
     <group>
