@@ -1,5 +1,6 @@
 import { Stats } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Leva } from 'leva'
 import { useRef } from 'react'
 import * as THREE from 'three'
 
@@ -8,12 +9,9 @@ import {
   HEAD_BOB_AMPLITUDE,
   HEAD_BOB_FREQUENCY,
   PLAYER_HEIGHT,
-  RUN_SPEED,
-  STAMINA_DRAIN_RATE,
-  STAMINA_RECOVERY_RATE,
-  WALK_SPEED,
 } from 'src/game/constants/gameSettings'
 import { usePlayerStore } from 'src/game/store/playerStore'
+import { useDebugControls } from 'src/hooks/useDebugControls'
 import { useInputManager } from 'src/hooks/useInputManager'
 
 import { Lighting } from './Lighting'
@@ -35,6 +33,16 @@ function CameraController() {
   // Terrain collision
   const treePositions = useTerrainStore(state => state.treePositions)
 
+  // Debug controls
+  const {
+    walkSpeed,
+    runSpeed,
+    staminaDrainRate,
+    staminaRecoveryRate,
+    mouseSensitivity,
+    godMode,
+  } = useDebugControls()
+
   useFrame((_, delta) => {
     if (!inputManager) return
 
@@ -47,9 +55,8 @@ function CameraController() {
 
     // Mouse look
     if (inputManager.isPointerLocked()) {
-      const sensitivity = 0.002
-      camera.rotation.y -= mouseDelta.x * sensitivity
-      camera.rotation.x -= mouseDelta.y * sensitivity
+      camera.rotation.y -= mouseDelta.x * mouseSensitivity
+      camera.rotation.x -= mouseDelta.y * mouseSensitivity
       camera.rotation.x = Math.max(
         -Math.PI / 2,
         Math.min(Math.PI / 2, camera.rotation.x),
@@ -58,13 +65,13 @@ function CameraController() {
 
     // Determine speed based on run input and stamina
     const isRunning = movement.run && stamina > 0 && !isExhausted
-    const moveSpeed = isRunning ? RUN_SPEED : WALK_SPEED
+    const moveSpeed = isRunning ? runSpeed : walkSpeed
 
     // Stamina management
     if (isRunning && (movement.forward || movement.backward)) {
-      drainStamina(STAMINA_DRAIN_RATE * delta)
+      drainStamina(staminaDrainRate * delta)
     } else {
-      recoverStamina(STAMINA_RECOVERY_RATE * delta)
+      recoverStamina(staminaRecoveryRate * delta)
     }
 
     // Movement direction
@@ -102,23 +109,25 @@ function CameraController() {
     const newPosition = camera.position.clone()
     newPosition.addScaledVector(velocityRef.current, delta)
 
-    // Tree collision detection
+    // Tree collision detection (skip if god mode is enabled)
     const TREE_COLLISION_RADIUS = 2.5
     let collisionDetected = false
 
-    for (const tree of treePositions) {
-      const dx = newPosition.x - tree.x
-      const dz = newPosition.z - tree.z
-      const distanceSquared = dx * dx + dz * dz
-      const minDistSquared =
-        TREE_COLLISION_RADIUS *
-        TREE_COLLISION_RADIUS *
-        tree.scaleWidth *
-        tree.scaleWidth
+    if (!godMode) {
+      for (const tree of treePositions) {
+        const dx = newPosition.x - tree.x
+        const dz = newPosition.z - tree.z
+        const distanceSquared = dx * dx + dz * dz
+        const minDistSquared =
+          TREE_COLLISION_RADIUS *
+          TREE_COLLISION_RADIUS *
+          tree.scaleWidth *
+          tree.scaleWidth
 
-      if (distanceSquared < minDistSquared) {
-        collisionDetected = true
-        break
+        if (distanceSquared < minDistSquared) {
+          collisionDetected = true
+          break
+        }
       }
     }
 
@@ -162,16 +171,19 @@ function CameraController() {
 function SceneContent() {
   useInputManager()
 
+  // Debug controls
+  const { fogDensity, showStats, showCollisionBoxes } = useDebugControls()
+
   return (
     <>
       {/* Dark background */}
       <color args={['#000000']} attach="background" />
 
-      {/* Exponential fog for atmosphere - reduced for visibility */}
-      <fogExp2 args={['#000000', 0.008]} attach="fog" />
+      {/* Exponential fog for atmosphere */}
+      <fogExp2 args={['#000000', fogDensity]} attach="fog" />
 
       {/* Performance monitoring */}
-      <Stats />
+      {showStats && <Stats />}
 
       {/* Camera controller */}
       <CameraController />
@@ -181,7 +193,7 @@ function SceneContent() {
 
       {/* Game components - will be added as they are implemented */}
       {/* <Environment /> */}
-      <Terrain />
+      <Terrain showCollisionBoxes={showCollisionBoxes} />
       {/* <Player /> */}
     </>
   )
@@ -192,6 +204,9 @@ export function Scene() {
 
   return (
     <div ref={canvasRef} style={{ width: '100vw', height: '100vh' }}>
+      {/* Leva debug panel - must be explicitly rendered for React 19 compatibility */}
+      <Leva />
+
       <Canvas
         shadows
         camera={{

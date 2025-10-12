@@ -2,9 +2,15 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { useRef } from 'react'
 import * as THREE from 'three'
 
+import { useDebugControls } from 'src/hooks/useDebugControls'
+
 export function Lighting() {
   const { camera } = useThree()
   const spotlightRef = useRef<THREE.SpotLight>(null)
+
+  // Debug controls
+  const { ambientLightIntensity, flashlightIntensity, flashlightDistance } =
+    useDebugControls()
 
   // Update spotlight position and direction to follow camera
   useFrame(() => {
@@ -24,7 +30,7 @@ export function Lighting() {
   return (
     <>
       {/* Ambient light - darker for horror atmosphere */}
-      <ambientLight intensity={0.15} />
+      <ambientLight intensity={ambientLightIntensity} />
 
       {/* Directional light (Moon) - darker for horror atmosphere */}
       <directionalLight
@@ -45,15 +51,15 @@ export function Lighting() {
       {/* SpotLight (Flashlight) - brighter and more focused */}
       <spotLight
         ref={spotlightRef}
-        intensity={25}
+        intensity={flashlightIntensity}
         angle={Math.PI / 6}
-        distance={80}
+        distance={flashlightDistance}
         penumbra={0.3}
         decay={1.2}
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-camera-near={0.5}
-        shadow-camera-far={80}
+        shadow-camera-far={flashlightDistance}
         shadow-bias={-0.0001}
       />
     </>

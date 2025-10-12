@@ -118,9 +118,19 @@ interface TreeProps {
   position: [number, number, number]
   scaleHeight: number
   scaleWidth: number
+  showCollisionBox?: boolean
 }
 
-function Tree({ position, scaleHeight, scaleWidth }: TreeProps) {
+function Tree({
+  position,
+  scaleHeight,
+  scaleWidth,
+  showCollisionBox = false,
+}: TreeProps) {
+  // Collision radius matches the calculation in Scene.tsx
+  const TREE_COLLISION_RADIUS = 2.5
+  const collisionRadius = TREE_COLLISION_RADIUS * scaleWidth
+
   return (
     <group position={position} scale={[scaleWidth, scaleHeight, scaleWidth]}>
       {/* Trunk */}
@@ -134,11 +144,24 @@ function Tree({ position, scaleHeight, scaleWidth }: TreeProps) {
         <coneGeometry args={[2.5, 4, 8]} />
         <meshStandardMaterial color="#1a3a1a" />
       </mesh>
+
+      {/* Collision visualization (debug) */}
+      {showCollisionBox && (
+        <mesh position={[0, 1.7, 0]}>
+          <sphereGeometry args={[collisionRadius / scaleWidth, 16, 16]} />
+          {/* eslint-disable-next-line react/no-unknown-property */}
+          <meshBasicMaterial color="#00ffff" wireframe={true} />
+        </mesh>
+      )}
     </group>
   )
 }
 
-export function Terrain() {
+interface TerrainProps {
+  showCollisionBoxes?: boolean
+}
+
+export function Terrain({ showCollisionBoxes = false }: TerrainProps) {
   const setTreePositions = useTerrainStore(state => state.setTreePositions)
 
   // Generate paths once
@@ -241,6 +264,7 @@ export function Terrain() {
           position={[pos.x, 0, pos.z]}
           scaleHeight={pos.scaleHeight}
           scaleWidth={pos.scaleWidth}
+          showCollisionBox={showCollisionBoxes}
         />
       ))}
     </group>
