@@ -283,15 +283,18 @@ Components should be implemented in the following order to ensure a logical, bot
 
 #### Lighting System (`src/game/components/Lighting.tsx`) ✅ COMPLETED
 
-- [x] Configure ambient light (very dim, 0.05 intensity)
+- [x] Configure ambient light (darker for horror: 0.15 intensity)
 - [x] Create flashlight (SpotLight):
   - [x] Attach to camera
-  - [x] Angle: 30 degrees
-  - [x] Range: 20 units
-  - [x] Intensity: 1
+  - [x] Angle: 30 degrees (π/6 radians)
+  - [x] Range: 80 units (increased for better visibility)
+  - [x] Intensity: 25 (brighter, more focused beam)
+  - [x] Penumbra: 0.3 (tighter falloff)
+  - [x] Decay: 1.2 (realistic light falloff)
+  - [x] Shadow map: 2048x2048 (high quality)
   - [x] Add volumetric fog effect (optional - skipped for MVP)
-- [x] Add moon light (directional, very dim)
-- [x] Configure shadow settings
+- [x] Add moon light (directional, 0.3 intensity, blue tint)
+- [x] Configure shadow settings with bias correction
 
 #### Terrain Component (`src/game/components/Terrain.tsx`) ✅ COMPLETED
 
@@ -302,8 +305,15 @@ Components should be implemented in the following order to ensure a logical, bot
 - [x] Place placeholder tree meshes:
   - [x] Simple cylinder trunks (dark brown #3d2817)
   - [x] Cone or sphere canopies (cone geometry, dark green #1a3a1a)
-  - [x] Random positioning algorithm (40 trees with 8-unit minimum distance)
+  - [x] Dense forest generation (2000 trees with 2-unit minimum distance)
+  - [x] Variable tree dimensions (height 0.6-1.4x, width 0.7-1.3x)
   - [x] Collision boxes for trees (shadow casting/receiving implemented, physics deferred)
+- [x] Procedural path generation:
+  - [x] Four winding paths radiating from spawn point
+  - [x] 200-unit path length with 7-unit width
+  - [x] Sinusoidal curves for natural winding appearance
+  - [x] Dirt/worn ground material (#4a3a2a brown)
+  - [x] Path-aware tree placement (no trees on paths)
 
 #### Input Manager (`src/game/controllers/InputManager.ts`) ✅ COMPLETED
 
@@ -343,7 +353,7 @@ Components should be implemented in the following order to ensure a logical, bot
 - [x] Implement camera head bob (subtle vertical oscillation when moving)
 - [x] Add movement smoothing/interpolation
 - [x] Add ground collision (player clamped to y >= 1.7)
-- [x] Add tree collision detection (sphere-based collision with 2.5 unit radius)
+- [x] Add tree collision detection (sphere-based with variable radius based on tree width)
 
 #### Camera Controller (Integrated in Scene.tsx) ✅ COMPLETED
 
@@ -537,13 +547,20 @@ Components should be implemented in the following order to ensure a logical, bot
 ## 🔄 Progress Tracking
 
 **Last Updated:** 2025-10-11
-**Current Phase:** Phase 5 - Three.js & Game Libraries (Input/Movement Complete)
+**Current Phase:** Phase 5 - Three.js & Game Libraries (Movement & Environment Complete)
 **Blockers:** None
+**Recent Updates:**
+- Enhanced lighting system with darker atmosphere and stronger flashlight
+- Implemented dense procedural forest (2000 trees) with path generation
+- Added winding paths radiating from spawn point for navigation
+- Improved tree collision detection with variable width scaling
+- Optimized lighting parameters for horror atmosphere
+
 **Next Steps:**
-- Add stamina system
-- Implement physics with Rapier for collisions
-- Add jump mechanics
-- Implement crouch/sprint functionality
+- Implement physics with Rapier for proper collision system
+- Add jump mechanics with proper physics
+- Implement crouch functionality
+- Begin Phase 6: Audio System Foundation
 
 ---
 

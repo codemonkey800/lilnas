@@ -111,7 +111,10 @@ function CameraController() {
       const dz = newPosition.z - tree.z
       const distanceSquared = dx * dx + dz * dz
       const minDistSquared =
-        TREE_COLLISION_RADIUS * TREE_COLLISION_RADIUS * tree.scale * tree.scale
+        TREE_COLLISION_RADIUS *
+        TREE_COLLISION_RADIUS *
+        tree.scaleWidth *
+        tree.scaleWidth
 
       if (distanceSquared < minDistSquared) {
         collisionDetected = true

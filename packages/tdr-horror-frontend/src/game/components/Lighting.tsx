@@ -23,13 +23,13 @@ export function Lighting() {
 
   return (
     <>
-      {/* Ambient light - much brighter for development */}
-      <ambientLight intensity={0.6} />
+      {/* Ambient light - darker for horror atmosphere */}
+      <ambientLight intensity={0.15} />
 
-      {/* Directional light (Moon) - much brighter for development */}
+      {/* Directional light (Moon) - darker for horror atmosphere */}
       <directionalLight
         position={[10, 20, 10]}
-        intensity={1.2}
+        intensity={0.3}
         color="#b0c4de"
         castShadow
         shadow-mapSize={[1024, 1024]}
@@ -42,18 +42,18 @@ export function Lighting() {
         shadow-bias={-0.0001}
       />
 
-      {/* SpotLight (Flashlight) - follows camera */}
+      {/* SpotLight (Flashlight) - brighter and more focused */}
       <spotLight
         ref={spotlightRef}
-        intensity={8}
-        angle={Math.PI / 4}
-        distance={30}
-        penumbra={0.5}
-        decay={2}
+        intensity={25}
+        angle={Math.PI / 6}
+        distance={80}
+        penumbra={0.3}
+        decay={1.2}
         castShadow
-        shadow-mapSize={[1024, 1024]}
+        shadow-mapSize={[2048, 2048]}
         shadow-camera-near={0.5}
-        shadow-camera-far={30}
+        shadow-camera-far={80}
         shadow-bias={-0.0001}
       />
     </>

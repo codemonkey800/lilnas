@@ -24,5 +24,6 @@ export interface PlayerState {
 export interface TreePosition {
   x: number
   z: number
-  scale: number
+  scaleHeight: number
+  scaleWidth: number
 }
