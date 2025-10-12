@@ -28,8 +28,11 @@
     "start": "run-p start:*",
     "start:backend": "node dist/main",
     "start:frontend": "node server.js",
-    "test": "jest",
-    "test:watch": "jest --watch",
+    "test": "jest --testPathIgnorePatterns=integration-e2e",
+    "test:unit": "jest --testPathIgnorePatterns=integration-e2e",
+    "test:integration": "jest --testPathPattern=integration-e2e --runInBand",
+    "test:all": "jest",
+    "test:watch": "jest --watch --testPathIgnorePatterns=integration-e2e",
     "test:cov": "jest --coverage",
     "type-check": "tsc --noEmit"
   },
@@ -53,6 +56,7 @@
     "@nestjs/schedule": "5.0.1",
     "@tanstack/react-query": "5.69.0",
     "@tavily/core": "0.3.3",
+    "async-mutex": "^0.5.0",
     "axios": "1.8.4",
     "cheerio": "1.0.0",
     "chokidar": "4.0.3",
@@ -90,7 +94,11 @@
   },
   "devDependencies": {
     "@nestjs/testing": "11.0.12",
+    "@types/jest": "29.5.14",
     "@types/mdast": "4.0.4",
-    "pino": "^9.7.0"
+    "jest": "29.7.0",
+    "jest-environment-node": "29.7.0",
+    "pino": "^9.7.0",
+    "ts-jest": "29.2.6"
   }
 }

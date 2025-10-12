@@ -2,17 +2,23 @@ import { Logger, Module } from '@nestjs/common'
 import { EventEmitterModule } from '@nestjs/event-emitter'
 import { LoggerModule } from 'nestjs-pino'
 
-import { LLMService } from './message-handler/llm.service'
+import { LLMOrchestrationModule } from './message-handler/llm-orchestration.module'
+import { LLMOrchestrationService } from './message-handler/llm-orchestration.service'
 import { StateModule } from './state/state.module'
 
 @Module({
-  imports: [EventEmitterModule.forRoot(), LoggerModule.forRoot(), StateModule],
-  providers: [LLMService],
+  imports: [
+    EventEmitterModule.forRoot(),
+    LoggerModule.forRoot(),
+    StateModule,
+    LLMOrchestrationModule,
+  ],
+  providers: [],
 })
 export class GraphTestModule {
-  private readonly logger = new Logger(LLMService.name)
+  private readonly logger = new Logger(LLMOrchestrationService.name)
 
-  constructor(private llmService: LLMService) {}
+  constructor(private llmService: LLMOrchestrationService) {}
 
   test() {
     this.logger.log('Starting graph test')

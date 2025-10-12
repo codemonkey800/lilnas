@@ -5,7 +5,13 @@ import dedent from 'dedent'
 import _ from 'lodash'
 import { ChatModel } from 'openai/resources/index'
 
+import { DEFAULT_CHAT_TEMPERATURE, DEFAULT_MAX_TOKENS } from 'src/constants/llm'
 import { OutputStateAnnotation } from 'src/schemas/graph'
+import { MovieDeleteContext, MovieSelectionContext } from 'src/schemas/movie'
+import {
+  TvShowDeleteContext,
+  TvShowSelectionContext,
+} from 'src/schemas/tv-show'
 import {
   EMOJI_DICTIONARY,
   INPUT_FORMAT,
@@ -21,6 +27,10 @@ export interface AppState {
   prompt: string
   reasoningModel: ChatModel
   temperature: number
+  userMovieContexts: Map<string, MovieSelectionContext>
+  userMovieDeleteContexts: Map<string, MovieDeleteContext>
+  userTvShowContexts: Map<string, TvShowSelectionContext>
+  userTvShowDeleteContexts: Map<string, TvShowDeleteContext>
 }
 
 export class StateChangeEvent {
@@ -38,11 +48,15 @@ export class StateService {
 
   private state: AppState = {
     graphHistory: [],
-    maxTokens: 50_000,
+    maxTokens: DEFAULT_MAX_TOKENS,
     chatModel: 'gpt-4-turbo',
     reasoningModel: 'gpt-4o-mini',
     prompt: KAWAII_PROMPT,
-    temperature: 0,
+    temperature: DEFAULT_CHAT_TEMPERATURE,
+    userMovieContexts: new Map(),
+    userMovieDeleteContexts: new Map(),
+    userTvShowContexts: new Map(),
+    userTvShowDeleteContexts: new Map(),
   }
 
   setState(
@@ -76,5 +90,190 @@ export class StateService {
         ${EMOJI_DICTIONARY}
       `,
     })
+  }
+
+  // Movie context management methods
+  setUserMovieContext(userId: string, context: MovieSelectionContext) {
+    this.logger.log(
+      { userId, query: context.query },
+      'Setting movie context for user',
+    )
+    this.setState(prev => ({
+      userMovieContexts: new Map(prev.userMovieContexts).set(userId, context),
+    }))
+  }
+
+  clearUserMovieContext(userId: string) {
+    this.logger.log({ userId }, 'Clearing movie context for user')
+    this.setState(prev => {
+      const newMap = new Map(prev.userMovieContexts)
+      newMap.delete(userId)
+      return { userMovieContexts: newMap }
+    })
+  }
+
+  getUserMovieContext(userId: string): MovieSelectionContext | undefined {
+    return this.state.userMovieContexts.get(userId)
+  }
+
+  isMovieContextExpired(context: MovieSelectionContext): boolean {
+    const now = Date.now()
+    return now - context.timestamp > 5 * 60 * 1000 // 5 minutes
+  }
+
+  cleanupExpiredMovieContexts() {
+    const cleanedContexts = new Map()
+
+    for (const [userId, context] of this.state.userMovieContexts) {
+      if (!this.isMovieContextExpired(context)) {
+        cleanedContexts.set(userId, context)
+      } else {
+        this.logger.log({ userId }, 'Cleaned up expired movie context')
+      }
+    }
+
+    if (cleanedContexts.size !== this.state.userMovieContexts.size) {
+      this.setState({ userMovieContexts: cleanedContexts })
+    }
+  }
+
+  // TV show context management methods
+  setUserTvShowContext(userId: string, context: TvShowSelectionContext) {
+    this.logger.log(
+      { userId, query: context.query },
+      'Setting TV show context for user',
+    )
+    this.setState(prev => ({
+      userTvShowContexts: new Map(prev.userTvShowContexts).set(userId, context),
+    }))
+  }
+
+  clearUserTvShowContext(userId: string) {
+    this.logger.log({ userId }, 'Clearing TV show context for user')
+    this.setState(prev => {
+      const newMap = new Map(prev.userTvShowContexts)
+      newMap.delete(userId)
+      return { userTvShowContexts: newMap }
+    })
+  }
+
+  getUserTvShowContext(userId: string): TvShowSelectionContext | undefined {
+    return this.state.userTvShowContexts.get(userId)
+  }
+
+  isTvShowContextExpired(context: TvShowSelectionContext): boolean {
+    const now = Date.now()
+    return now - context.timestamp > 5 * 60 * 1000 // 5 minutes
+  }
+
+  cleanupExpiredTvShowContexts() {
+    const cleanedContexts = new Map()
+
+    for (const [userId, context] of this.state.userTvShowContexts) {
+      if (!this.isTvShowContextExpired(context)) {
+        cleanedContexts.set(userId, context)
+      } else {
+        this.logger.log({ userId }, 'Cleaned up expired TV show context')
+      }
+    }
+
+    if (cleanedContexts.size !== this.state.userTvShowContexts.size) {
+      this.setState({ userTvShowContexts: cleanedContexts })
+    }
+  }
+
+  // Movie delete context management methods
+  setUserMovieDeleteContext(userId: string, context: MovieDeleteContext) {
+    this.logger.log(
+      { userId, query: context.query },
+      'Setting movie delete context for user',
+    )
+    this.setState(prev => ({
+      userMovieDeleteContexts: new Map(prev.userMovieDeleteContexts).set(
+        userId,
+        context,
+      ),
+    }))
+  }
+
+  clearUserMovieDeleteContext(userId: string) {
+    this.logger.log({ userId }, 'Clearing movie delete context for user')
+    this.setState(prev => {
+      const newMap = new Map(prev.userMovieDeleteContexts)
+      newMap.delete(userId)
+      return { userMovieDeleteContexts: newMap }
+    })
+  }
+
+  getUserMovieDeleteContext(userId: string): MovieDeleteContext | undefined {
+    return this.state.userMovieDeleteContexts.get(userId)
+  }
+
+  isMovieDeleteContextExpired(context: MovieDeleteContext): boolean {
+    const now = Date.now()
+    return now - context.timestamp > 5 * 60 * 1000 // 5 minutes
+  }
+
+  cleanupExpiredMovieDeleteContexts() {
+    const cleanedContexts = new Map()
+
+    for (const [userId, context] of this.state.userMovieDeleteContexts) {
+      if (!this.isMovieDeleteContextExpired(context)) {
+        cleanedContexts.set(userId, context)
+      } else {
+        this.logger.log({ userId }, 'Cleaned up expired movie delete context')
+      }
+    }
+
+    if (cleanedContexts.size !== this.state.userMovieDeleteContexts.size) {
+      this.setState({ userMovieDeleteContexts: cleanedContexts })
+    }
+  }
+
+  setUserTvShowDeleteContext(userId: string, context: TvShowDeleteContext) {
+    this.logger.log(
+      { userId, query: context.query },
+      'Setting TV show delete context for user',
+    )
+    this.setState(prev => ({
+      userTvShowDeleteContexts: new Map(prev.userTvShowDeleteContexts).set(
+        userId,
+        context,
+      ),
+    }))
+  }
+
+  clearUserTvShowDeleteContext(userId: string) {
+    this.logger.log({ userId }, 'Clearing TV show delete context for user')
+    this.setState(prev => {
+      const newMap = new Map(prev.userTvShowDeleteContexts)
+      newMap.delete(userId)
+      return { userTvShowDeleteContexts: newMap }
+    })
+  }
+
+  getUserTvShowDeleteContext(userId: string): TvShowDeleteContext | undefined {
+    return this.state.userTvShowDeleteContexts.get(userId)
+  }
+
+  isTvShowDeleteContextExpired(context: TvShowDeleteContext): boolean {
+    const now = Date.now()
+    return now - context.timestamp > 5 * 60 * 1000 // 5 minutes
+  }
+
+  cleanupExpiredTvShowDeleteContexts() {
+    const cleanedContexts = new Map()
+
+    for (const [userId, context] of this.state.userTvShowDeleteContexts) {
+      if (!this.isTvShowDeleteContextExpired(context)) {
+        cleanedContexts.set(userId, context)
+      } else {
+        this.logger.log({ userId }, 'Cleaned up expired TV show delete context')
+      }
+    }
+
+    if (cleanedContexts.size !== this.state.userTvShowDeleteContexts.size) {
+      this.setState({ userTvShowDeleteContexts: cleanedContexts })
+    }
   }
 }

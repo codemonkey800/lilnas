@@ -3,6 +3,7 @@ import { Client, EmbedBuilder } from 'discord.js'
 import { nanoid } from 'nanoid'
 import { remark } from 'remark'
 
+import { MAX_SEND_TYPING_COUNT, TYPING_DELAY_MS } from 'src/constants/chat'
 import {
   ErrorCategory,
   ErrorClassificationService,
@@ -11,16 +12,10 @@ import { remarkFixLinkPlugin } from 'src/utils/fix-link'
 import { RetryService } from 'src/utils/retry.service'
 
 import { BaseMessageHandlerService } from './base-message-handler.service'
-import { LLMService } from './llm.service'
+import { LLMOrchestrationService } from './llm-orchestration.service'
 import { Message } from './types'
 
 const INITIAL_SEND_TYPING_COUNT = 1
-const MAX_SEND_TYPING_COUNT = 5
-
-/**
- * The default max time for typing is 10 seconds
- */
-const MAX_TYPING_DELAY = 10 * 1000
 
 /**
  * Service for responding to chat messages using ChatGPT.
@@ -29,7 +24,7 @@ const MAX_TYPING_DELAY = 10 * 1000
 export class ChatService extends BaseMessageHandlerService {
   constructor(
     protected readonly client: Client,
-    private readonly llm: LLMService,
+    private readonly llm: LLMOrchestrationService,
     private readonly retryService: RetryService,
     private readonly errorClassifier: ErrorClassificationService,
   ) {
@@ -93,7 +88,7 @@ export class ChatService extends BaseMessageHandlerService {
     }
 
     sendTyping()
-    this.typingInterval = setInterval(sendTyping, MAX_TYPING_DELAY)
+    this.typingInterval = setInterval(sendTyping, TYPING_DELAY_MS)
   }
 
   private stopBotTyping() {

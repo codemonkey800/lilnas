@@ -10,6 +10,7 @@ import { LoggerModule } from 'nestjs-pino'
 import { ApiModule } from './api/api.module'
 import { AppEventsService } from './app-events.service'
 import { CommandsModule } from './commands/commands.module'
+import { MediaModule } from './media/media.module'
 import { MessageHandlerModule } from './message-handler/message-handler.module'
 import { SchedulesModule } from './schedules/schedules.module'
 import { ServicesModule } from './services/services.module'
@@ -20,8 +21,37 @@ import { EnvKey } from './utils/env'
   imports: [
     ApiModule,
     CommandsModule,
+    MediaModule,
     EventEmitterModule.forRoot(),
-    LoggerModule.forRoot(),
+    LoggerModule.forRoot(
+      (() => {
+        const isProduction = env<EnvKey>('NODE_ENV') === 'production'
+        const logFilePath = env<EnvKey>('LOG_FILE_PATH', '')
+
+        // Use file logging if path specified, otherwise default stdout
+        if (logFilePath) {
+          return {
+            pinoHttp: {
+              transport: {
+                target: 'pino/file',
+                options: {
+                  destination: logFilePath,
+                  mkdir: true,
+                },
+              },
+              level: isProduction ? 'info' : 'debug',
+            },
+          }
+        }
+
+        // Default stdout logging - let CLI pipe handle pretty formatting in dev
+        return {
+          pinoHttp: {
+            level: isProduction ? 'info' : 'debug',
+          },
+        }
+      })(),
+    ),
     MessageHandlerModule,
     NestMinioModule.register({
       accessKey: env<EnvKey>('MINIO_ACCESS_KEY'),

@@ -8,6 +8,7 @@
 .pnpm-store/
 .turbo/
 *.tsbuildinfo
+*.log
 coverage/
 data/
 dist/

@@ -44,6 +44,10 @@ describe('StateService', () => {
         reasoningModel: 'gpt-4o-mini',
         prompt: expect.stringContaining('kawaii'), // KAWAII_PROMPT
         temperature: 0,
+        userMovieContexts: new Map(),
+        userMovieDeleteContexts: new Map(),
+        userTvShowContexts: new Map(),
+        userTvShowDeleteContexts: new Map(),
       })
     })
   })
@@ -230,6 +234,10 @@ describe('StateService', () => {
         reasoningModel: 'gpt-4o-mini',
         prompt: 'test',
         temperature: 0,
+        userMovieContexts: new Map(),
+        userMovieDeleteContexts: new Map(),
+        userTvShowContexts: new Map(),
+        userTvShowDeleteContexts: new Map(),
       }
 
       const nextState: Partial<AppState> = {
