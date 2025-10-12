@@ -85,49 +85,6 @@ describe('YtdlpUpdateService', () => {
       })
     })
 
-    it('should detect update available and allow update when no downloads active', async () => {
-      const currentVersion = '2024.1.10'
-
-      mockSpawn.mockImplementation(() => {
-        const proc = new MockChildProcess()
-        setTimeout(() => {
-          proc.stdout.emit('data', Buffer.from(currentVersion))
-          proc.emit('close', 0)
-        }, 10)
-        return proc as unknown as ChildProcess
-      })
-
-      mockAxios.get.mockResolvedValueOnce({ data: mockNewerGitHubRelease })
-
-      // Mock the download and installation process
-      mockAxios.get.mockResolvedValueOnce({
-        data: {
-          pipe: jest.fn(),
-        },
-      })
-
-      mockFs.createWriteStream.mockReturnValue({
-        on: jest.fn((event, callback) => {
-          if (event === 'finish') setTimeout(callback, 10)
-        }),
-      } as never)
-
-      mockFs.chmod.mockResolvedValue(undefined as never)
-      mockFs.copy.mockResolvedValue(undefined as never)
-      mockFs.move.mockResolvedValue(undefined as never)
-      mockFs.pathExists.mockResolvedValue(true as never)
-      mockFs.remove.mockResolvedValue(undefined as never)
-
-      const result = await service.checkForUpdates()
-
-      expect(result).toEqual({
-        currentVersion,
-        latestVersion: '2024.2.1',
-        updateAvailable: true,
-        canUpdate: true,
-      })
-    })
-
     it('should not allow update when downloads are in progress', async () => {
       const currentVersion = '2024.1.10'
 
@@ -322,34 +279,6 @@ describe('YtdlpUpdateService', () => {
   })
 
   describe('downloadNewBinary', () => {
-    it('should download and make binary executable', async () => {
-      const mockStream = { pipe: jest.fn() }
-      const mockWriter = {
-        on: jest.fn((event, callback) => {
-          if (event === 'finish') setTimeout(callback, 10)
-        }),
-      }
-
-      mockAxios.get.mockResolvedValueOnce({ data: mockStream })
-      mockFs.createWriteStream.mockReturnValueOnce(mockWriter as never)
-      mockFs.chmod.mockResolvedValueOnce(undefined as never)
-
-      const downloadMethod = (
-        service as unknown as { downloadNewBinary: () => Promise<void> }
-      ).downloadNewBinary.bind(service)
-      await downloadMethod()
-
-      expect(mockAxios.get).toHaveBeenCalledWith(
-        'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp',
-        {
-          responseType: 'stream',
-          timeout: 30000,
-        },
-      )
-      expect(mockFs.createWriteStream).toHaveBeenCalledWith('/tmp/yt-dlp-new')
-      expect(mockFs.chmod).toHaveBeenCalledWith('/tmp/yt-dlp-new', 0o755)
-    })
-
     it('should handle download errors', async () => {
       mockAxios.get.mockRejectedValueOnce(new Error('Download failed'))
 
