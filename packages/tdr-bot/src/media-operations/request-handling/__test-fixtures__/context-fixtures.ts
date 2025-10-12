@@ -34,7 +34,7 @@ export function createMockState(): MockState {
 // Context Factory Functions
 // ============================================================================
 
-export function createMockMovieContext(overrides?: any) {
+export function createMockMovieContext(overrides?: Record<string, unknown>) {
   return {
     type: 'movie' as const,
     searchResults: [],
@@ -45,7 +45,9 @@ export function createMockMovieContext(overrides?: any) {
   }
 }
 
-export function createMockMovieDeleteContext(overrides?: any) {
+export function createMockMovieDeleteContext(
+  overrides?: Record<string, unknown>,
+) {
   return {
     type: 'movieDelete' as const,
     searchResults: [],
@@ -56,7 +58,7 @@ export function createMockMovieDeleteContext(overrides?: any) {
   }
 }
 
-export function createMockTvShowContext(overrides?: any) {
+export function createMockTvShowContext(overrides?: Record<string, unknown>) {
   return {
     type: 'tvShow' as const,
     searchResults: [],
@@ -69,7 +71,9 @@ export function createMockTvShowContext(overrides?: any) {
   }
 }
 
-export function createMockTvShowDeleteContext(overrides?: any) {
+export function createMockTvShowDeleteContext(
+  overrides?: Record<string, unknown>,
+) {
   return {
     type: 'tvShowDelete' as const,
     searchResults: [],

@@ -221,7 +221,7 @@ describe('ValidationUtilities', () => {
         })
 
         it('should handle unclosed quotes without crashing', () => {
-          const _loggerWarnSpy = jest.spyOn(service['logger'], 'warn')
+          jest.spyOn(service['logger'], 'warn')
           const response = new AIMessage({
             content: 'Downloading "Unclosed quote at 50% complete',
           })
@@ -254,7 +254,7 @@ describe('ValidationUtilities', () => {
         })
 
         it('should detect suspicious Japanese titles not in valid list', () => {
-          const _loggerWarnSpy = jest.spyOn(service['logger'], 'warn')
+          jest.spyOn(service['logger'], 'warn')
           const response = new AIMessage({
             content: 'Downloading "偽の映画" at 50%', // "Fake Movie" in Japanese
           })
@@ -320,7 +320,7 @@ describe('ValidationUtilities', () => {
         })
 
         it('should handle titles with 500+ characters in percentage pattern', () => {
-          const loggerWarnSpy = jest.spyOn(service['logger'], 'warn')
+          jest.spyOn(service['logger'], 'warn')
           const longTitle = 'Word '.repeat(100).trim() // ~500 characters with spaces
           const validTitles = [longTitle]
           const response = new AIMessage({

@@ -23,11 +23,11 @@ describe('MessageHandlerService', () => {
     // Mock services
     chatService = {
       getHandlers: jest.fn().mockReturnValue([]),
-    } as unknown as jest.Mocked<ChatService>
+    } as unknown as jest.Mocked<never>
 
     keywordsService = {
       getHandlers: jest.fn().mockReturnValue([]),
-    } as unknown as jest.Mocked<KeywordsService>
+    } as unknown as jest.Mocked<never>
 
     const module = await createTestingModule([
       MessageHandlerService,

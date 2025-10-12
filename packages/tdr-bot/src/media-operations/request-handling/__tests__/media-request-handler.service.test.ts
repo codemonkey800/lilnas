@@ -6,6 +6,12 @@ import { ChatOpenAI } from '@langchain/openai'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { MediaRequestHandler } from 'src/media-operations/request-handling/media-request-handler.service'
+import {
+  MovieDeleteContext,
+  MovieSelectionContext,
+  TvShowDeleteContext,
+  TvShowSelectionContext,
+} from 'src/media-operations/request-handling/strategies/base/strategy.types'
 import { DownloadStatusStrategy } from 'src/media-operations/request-handling/strategies/download-status.strategy'
 import { MediaBrowsingStrategy } from 'src/media-operations/request-handling/strategies/media-browsing.strategy'
 import { MovieDeleteStrategy } from 'src/media-operations/request-handling/strategies/movie-delete.strategy'
@@ -51,7 +57,7 @@ describe('MediaRequestHandler', () => {
         ({
           invoke: mockInvoke,
           withStructuredOutput: jest.fn().mockReturnThis(),
-        }) as any,
+        }) as unknown as ChatOpenAI,
     )
 
     const module: TestingModule = await Test.createTestingModule({
@@ -129,7 +135,10 @@ describe('MediaRequestHandler', () => {
   describe('handleRequest', () => {
     describe('Context routing', () => {
       it('should route to movieDownloadStrategy when context type is "movie"', async () => {
-        const mockContext = { movieTitle: 'The Matrix' } as any
+        const mockContext: Partial<MovieSelectionContext> = {
+          type: 'movie',
+          query: 'The Matrix',
+        }
         contextService.hasContext.mockResolvedValue(true)
         contextService.getContextType.mockResolvedValue('movie')
         contextService.getContext.mockResolvedValue(mockContext)
@@ -156,7 +165,10 @@ describe('MediaRequestHandler', () => {
       })
 
       it('should route to tvDownloadStrategy when context type is "tv"', async () => {
-        const mockContext = { showTitle: 'Breaking Bad' } as any
+        const mockContext: Partial<TvShowSelectionContext> = {
+          type: 'tvShow',
+          query: 'Breaking Bad',
+        }
         contextService.hasContext.mockResolvedValue(true)
         contextService.getContextType.mockResolvedValue('tv')
         contextService.getContext.mockResolvedValue(mockContext)
@@ -180,7 +192,10 @@ describe('MediaRequestHandler', () => {
       })
 
       it('should route to movieDeleteStrategy when context type is "movieDelete"', async () => {
-        const mockContext = { movieId: 123 } as any
+        const mockContext: Partial<MovieDeleteContext> = {
+          type: 'movieDelete',
+          query: 'The Matrix',
+        }
         contextService.hasContext.mockResolvedValue(true)
         contextService.getContextType.mockResolvedValue('movieDelete')
         contextService.getContext.mockResolvedValue(mockContext)
@@ -204,7 +219,10 @@ describe('MediaRequestHandler', () => {
       })
 
       it('should route to tvDeleteStrategy when context type is "tvDelete"', async () => {
-        const mockContext = { showId: 456 } as any
+        const mockContext: Partial<TvShowDeleteContext> = {
+          type: 'tvShowDelete',
+          query: 'Breaking Bad',
+        }
         contextService.hasContext.mockResolvedValue(true)
         contextService.getContextType.mockResolvedValue('tvDelete')
         contextService.getContext.mockResolvedValue(mockContext)
@@ -230,12 +248,12 @@ describe('MediaRequestHandler', () => {
       it('should clear context and continue when context type is unknown', async () => {
         contextService.hasContext.mockResolvedValue(true)
         contextService.getContextType.mockResolvedValue('unknownType')
-        contextService.getContext.mockResolvedValue({} as any)
+        contextService.getContext.mockResolvedValue({})
         contextService.clearContext.mockResolvedValue(true)
 
         // Mock getMediaTypeAndIntent to return a browse request
-        retryService.executeWithRetry.mockImplementation((callback: any) =>
-          callback(),
+        retryService.executeWithRetry.mockImplementation(
+          <T>(callback: () => T) => Promise.resolve(callback()),
         )
         mockInvoke.mockResolvedValue({
           content: JSON.stringify({
@@ -309,8 +327,8 @@ describe('MediaRequestHandler', () => {
     describe('Download request routing', () => {
       beforeEach(() => {
         contextService.hasContext.mockResolvedValue(false)
-        retryService.executeWithRetry.mockImplementation((callback: any) =>
-          callback(),
+        retryService.executeWithRetry.mockImplementation(
+          <T>(callback: () => T) => Promise.resolve(callback()),
         )
       })
 
@@ -422,8 +440,8 @@ describe('MediaRequestHandler', () => {
     describe('Delete request routing', () => {
       beforeEach(() => {
         contextService.hasContext.mockResolvedValue(false)
-        retryService.executeWithRetry.mockImplementation((callback: any) =>
-          callback(),
+        retryService.executeWithRetry.mockImplementation(
+          <T>(callback: () => T) => Promise.resolve(callback()),
         )
       })
 
@@ -473,8 +491,8 @@ describe('MediaRequestHandler', () => {
     describe('Browse request routing', () => {
       beforeEach(() => {
         contextService.hasContext.mockResolvedValue(false)
-        retryService.executeWithRetry.mockImplementation((callback: any) =>
-          callback(),
+        retryService.executeWithRetry.mockImplementation(
+          <T>(callback: () => T) => Promise.resolve(callback()),
         )
         mediaBrowsingStrategy.handleRequest.mockResolvedValue(
           mockStrategyResult,
@@ -542,8 +560,8 @@ describe('MediaRequestHandler', () => {
 
       it('should throw error when strategy fails', async () => {
         const error = new Error('Strategy failed')
-        retryService.executeWithRetry.mockImplementation((callback: any) =>
-          callback(),
+        retryService.executeWithRetry.mockImplementation(
+          <T>(callback: () => T) => Promise.resolve(callback()),
         )
         mockInvoke.mockResolvedValue({
           content: JSON.stringify({
@@ -594,8 +612,8 @@ describe('MediaRequestHandler', () => {
         searchTerms: 'The Matrix',
       }
 
-      retryService.executeWithRetry.mockImplementation((callback: any) =>
-        callback(),
+      retryService.executeWithRetry.mockImplementation(<T>(callback: () => T) =>
+        Promise.resolve(callback()),
       )
       mockInvoke.mockResolvedValue({
         content: JSON.stringify(expectedResponse),
@@ -620,8 +638,8 @@ describe('MediaRequestHandler', () => {
     })
 
     it('should return defaults when LLM response is invalid', async () => {
-      retryService.executeWithRetry.mockImplementation((callback: any) =>
-        callback(),
+      retryService.executeWithRetry.mockImplementation(<T>(callback: () => T) =>
+        Promise.resolve(callback()),
       )
       mockInvoke.mockResolvedValue({
         content: 'invalid json',
@@ -639,7 +657,7 @@ describe('MediaRequestHandler', () => {
     it('should use retry service for LLM calls', async () => {
       let attempts = 0
       retryService.executeWithRetry.mockImplementation(
-        async (callback: any) => {
+        async (callback: () => unknown) => {
           attempts++
           if (attempts < 2) {
             throw new Error('Temporary failure')
@@ -668,8 +686,8 @@ describe('MediaRequestHandler', () => {
   describe('routeDownloadRequest', () => {
     beforeEach(() => {
       contextService.hasContext.mockResolvedValue(false)
-      retryService.executeWithRetry.mockImplementation((callback: any) =>
-        callback(),
+      retryService.executeWithRetry.mockImplementation(<T>(callback: () => T) =>
+        Promise.resolve(callback()),
       )
     })
 
@@ -740,8 +758,8 @@ describe('MediaRequestHandler', () => {
   describe('routeDeleteRequest', () => {
     beforeEach(() => {
       contextService.hasContext.mockResolvedValue(false)
-      retryService.executeWithRetry.mockImplementation((callback: any) =>
-        callback(),
+      retryService.executeWithRetry.mockImplementation(<T>(callback: () => T) =>
+        Promise.resolve(callback()),
       )
     })
 
@@ -812,8 +830,8 @@ describe('MediaRequestHandler', () => {
   describe('Helper methods', () => {
     beforeEach(() => {
       contextService.hasContext.mockResolvedValue(false)
-      retryService.executeWithRetry.mockImplementation((callback: any) =>
-        callback(),
+      retryService.executeWithRetry.mockImplementation(<T>(callback: () => T) =>
+        Promise.resolve(callback()),
       )
       downloadStatusStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
     })
@@ -933,10 +951,12 @@ describe('MediaRequestHandler', () => {
       contextService.getContext.mockResolvedValue({
         timestamp: Date.now(),
         isActive: true,
-      } as any)
+      })
 
       // Topic switch detection returns SWITCH
-      retryService.executeWithRetry.mockImplementation((fn: any) => fn())
+      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
+        Promise.resolve(fn()),
+      )
       mockInvoke.mockResolvedValueOnce({
         content: 'SWITCH',
       })
@@ -967,10 +987,12 @@ describe('MediaRequestHandler', () => {
       contextService.getContext.mockResolvedValue({
         timestamp: Date.now(),
         isActive: true,
-      } as any)
+      })
 
       // Topic switch detection returns CONTINUE
-      retryService.executeWithRetry.mockImplementation((fn: any) => fn())
+      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
+        Promise.resolve(fn()),
+      )
       mockInvoke.mockResolvedValueOnce({
         content: 'CONTINUE',
       })
@@ -998,10 +1020,12 @@ describe('MediaRequestHandler', () => {
       contextService.getContext.mockResolvedValue({
         timestamp: Date.now(),
         isActive: true,
-      } as any)
+      })
 
       // Topic switch detection returns SWITCH
-      retryService.executeWithRetry.mockImplementation((fn: any) => fn())
+      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
+        Promise.resolve(fn()),
+      )
       mockInvoke.mockResolvedValueOnce({
         content: 'SWITCH',
       })
@@ -1036,10 +1060,12 @@ describe('MediaRequestHandler', () => {
       contextService.getContext.mockResolvedValue({
         timestamp: Date.now(),
         isActive: true,
-      } as any)
+      })
 
       // Topic switch detection returns CONTINUE
-      retryService.executeWithRetry.mockImplementation((fn: any) => fn())
+      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
+        Promise.resolve(fn()),
+      )
       mockInvoke.mockResolvedValueOnce({
         content: 'CONTINUE',
       })
@@ -1061,10 +1087,12 @@ describe('MediaRequestHandler', () => {
       contextService.getContext.mockResolvedValue({
         timestamp: Date.now(),
         isActive: true,
-      } as any)
+      })
 
       // Topic switch detection throws error
-      retryService.executeWithRetry.mockImplementation((fn: any) => fn())
+      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
+        Promise.resolve(fn()),
+      )
       mockInvoke.mockRejectedValueOnce(new Error('LLM timeout'))
 
       movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
@@ -1085,10 +1113,12 @@ describe('MediaRequestHandler', () => {
       contextService.getContext.mockResolvedValue({
         timestamp: Date.now(),
         isActive: true,
-      } as any)
+      })
 
       // Topic switch detection returns SWITCH
-      retryService.executeWithRetry.mockImplementation((fn: any) => fn())
+      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
+        Promise.resolve(fn()),
+      )
       mockInvoke.mockResolvedValueOnce({
         content: 'SWITCH',
       })
@@ -1121,10 +1151,12 @@ describe('MediaRequestHandler', () => {
       contextService.getContext.mockResolvedValue({
         timestamp: Date.now(),
         isActive: true,
-      } as any)
+      })
 
       // Topic switch detection returns CONTINUE
-      retryService.executeWithRetry.mockImplementation((fn: any) => fn())
+      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
+        Promise.resolve(fn()),
+      )
       mockInvoke.mockResolvedValueOnce({
         content: 'CONTINUE',
       })
@@ -1150,10 +1182,12 @@ describe('MediaRequestHandler', () => {
       contextService.getContext.mockResolvedValue({
         timestamp: Date.now(),
         isActive: true,
-      } as any)
+      })
 
       // Topic switch returns lowercase "switch"
-      retryService.executeWithRetry.mockImplementation((fn: any) => fn())
+      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
+        Promise.resolve(fn()),
+      )
       mockInvoke.mockResolvedValueOnce({
         content: 'switch',
       })

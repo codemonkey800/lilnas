@@ -44,7 +44,7 @@ export interface IntegrationTestSetup {
   serviceMocks?: {
     equationImage?: Partial<EquationImageService>
     mediaRequestHandler?: Partial<MediaRequestHandler>
-    dallE?: any
+    dallE?: { invoke: jest.Mock }
   }
 }
 
@@ -107,7 +107,7 @@ export async function setupIntegrationTest(
 
   // Mock RetryService (pass through by default)
   const mockRetryService = {
-    executeWithRetry: jest.fn((fn: () => any) => fn()),
+    executeWithRetry: jest.fn((fn: () => unknown) => fn()),
   } as unknown as RetryService
 
   // Mock ErrorClassificationService
@@ -196,7 +196,10 @@ export function createMockDallE(
  *
  * @param result The result from service.processMessage()
  */
-export function expectSuccessfulGraphExecution(result: any) {
+export function expectSuccessfulGraphExecution(result: {
+  messages?: unknown[]
+  responseType?: string
+}) {
   expect(result).toBeDefined()
   expect(result.messages).toBeDefined()
   expect(Array.isArray(result.messages)).toBe(true)
@@ -244,10 +247,16 @@ export function expectToolCallsInMessages(
 ) {
   const aiMessages = messages.filter(msg => msg._getType() === 'ai')
   const hasToolCalls = aiMessages.some(msg => {
-    const toolCalls = (msg as any).additional_kwargs?.tool_calls
+    const toolCalls = (
+      msg as BaseMessage & {
+        additional_kwargs?: {
+          tool_calls?: Array<{ function?: { name: string } }>
+        }
+      }
+    ).additional_kwargs?.tool_calls
     if (!toolCalls || toolCalls.length === 0) return false
     if (toolName) {
-      return toolCalls.some((call: any) => call.function?.name === toolName)
+      return toolCalls.some(call => call.function?.name === toolName)
     }
     return true
   })

@@ -14,36 +14,22 @@ export interface StrategyEdgeCasesConfig<TMediaItem, TOperationResult> {
   /** Mock services (using getters to avoid initialization order issues) */
   mocks: {
     parsingUtils: {
-      parseInitialSelection?:
-        | jest.MockedFunction<any>
-        | { (): jest.MockedFunction<any> }
-      parseSearchSelection:
-        | jest.MockedFunction<any>
-        | { (): jest.MockedFunction<any> }
+      parseInitialSelection?: jest.Mock | (() => unknown)
+      parseSearchSelection: jest.Mock | (() => unknown)
     }
     selectionUtils: {
-      findSelectedItem:
-        | jest.MockedFunction<any>
-        | { (): jest.MockedFunction<any> }
+      findSelectedItem: jest.Mock | (() => unknown)
     }
     mediaService: {
-      searchMethod: jest.MockedFunction<any> | { (): jest.MockedFunction<any> }
-      operationMethod:
-        | jest.MockedFunction<any>
-        | { (): jest.MockedFunction<any> }
+      searchMethod: jest.Mock | (() => unknown)
+      operationMethod: jest.Mock | (() => unknown)
     }
     promptService: {
-      generatePromptMethod:
-        | jest.MockedFunction<any>
-        | { (): jest.MockedFunction<any> }
+      generatePromptMethod: jest.Mock | (() => unknown)
     }
     stateService?: {
-      setContextMethod:
-        | jest.MockedFunction<any>
-        | { (): jest.MockedFunction<any> }
-      clearContextMethod:
-        | jest.MockedFunction<any>
-        | { (): jest.MockedFunction<any> }
+      setContextMethod: jest.Mock | (() => unknown)
+      clearContextMethod: jest.Mock | (() => unknown)
     }
   }
 
@@ -96,22 +82,23 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
       serviceName,
       searchMethodName,
       operationMethodName,
-      errorPromptType,
-      processingErrorPromptType,
+      // errorPromptType and processingErrorPromptType are not used in edge case tests
     },
   } = testConfig
 
   // Helper to unwrap getter functions if needed - delays evaluation until first access
-  const unwrapMock = <T>(mock: T | { (): T } | undefined): T | undefined => {
+  const unwrapMock = (
+    mock: jest.Mock | (() => unknown) | undefined,
+  ): jest.Mock | undefined => {
     if (!mock) {
       return undefined
     }
-    // Check if it's a Jest mock first (has mock property)
-    if (mock && typeof mock === 'object' && 'mock' in mock) {
-      return mock as T
+    // If it's a function, call it to get the mock
+    if (typeof mock === 'function' && !('mock' in mock)) {
+      return mock()
     }
-    // Otherwise, if it's a function, call it to get the mock
-    return typeof mock === 'function' ? (mock as { (): T })() : mock
+    // Otherwise it's already a Jest mock
+    return mock
   }
 
   // Create proxy objects that delay unwrapping until the mock is actually used
@@ -120,34 +107,34 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
       return unwrapMock(mocks.parsingUtils.parseInitialSelection)
     },
     get parseSearchSelection() {
-      return unwrapMock(mocks.parsingUtils.parseSearchSelection)
+      return unwrapMock(mocks.parsingUtils.parseSearchSelection)!
     },
   }
   const selectionUtils = {
     get findSelectedItem() {
-      return unwrapMock(mocks.selectionUtils.findSelectedItem)
+      return unwrapMock(mocks.selectionUtils.findSelectedItem)!
     },
   }
   const mediaService = {
     get searchMethod() {
-      return unwrapMock(mocks.mediaService.searchMethod)
+      return unwrapMock(mocks.mediaService.searchMethod)!
     },
     get operationMethod() {
-      return unwrapMock(mocks.mediaService.operationMethod)
+      return unwrapMock(mocks.mediaService.operationMethod)!
     },
   }
   const promptService = {
     get generatePromptMethod() {
-      return unwrapMock(mocks.promptService.generatePromptMethod)
+      return unwrapMock(mocks.promptService.generatePromptMethod)!
     },
   }
   const stateService = mocks.stateService
     ? {
         get setContextMethod() {
-          return unwrapMock(mocks.stateService!.setContextMethod)
+          return unwrapMock(mocks.stateService!.setContextMethod)!
         },
         get clearContextMethod() {
-          return unwrapMock(mocks.stateService!.clearContextMethod)
+          return unwrapMock(mocks.stateService!.clearContextMethod)!
         },
       }
     : null
@@ -185,7 +172,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         }))
 
         // Setup mocks
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: 'test',
           selection: null,
           tvSelection: null,
@@ -236,7 +223,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           state: state2,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: 'test',
           selection: null,
           tvSelection: null,
@@ -294,7 +281,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           state: createMockState(),
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: 'test',
           selection: null,
           tvSelection: null,
@@ -336,11 +323,11 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
-          context: { isActive: true, searchResults: [] } as any,
+          context: { isActive: true, searchResults: [] } as unknown,
           state: mockState,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: null,
           tvSelection: null,
@@ -371,11 +358,11 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
             searchResults: [mediaItems[0]],
             query: 'test',
             timestamp: Date.now(),
-          } as any,
+          } as unknown,
           state: mockState,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: null,
           tvSelection: null,
@@ -407,11 +394,11 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
             searchResults: [],
             query: 'test',
             timestamp: Date.now(),
-          } as any,
+          } as unknown,
           state: mockState,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: null,
           tvSelection: null,
@@ -440,7 +427,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           state: mockState,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: null,
           tvSelection: null,
@@ -466,7 +453,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           state: mockState,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: '',
           selection: null,
           tvSelection: null,
@@ -492,11 +479,11 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
-          context: null as any,
+          context: null as unknown,
           state: mockState,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: null,
           tvSelection: null,
@@ -526,7 +513,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           state: mockState,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: null,
           tvSelection: null,
@@ -550,7 +537,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
             isActive: true,
             query: 'test',
             timestamp: Date.now(),
-          } as any,
+          } as unknown,
           state: mockState,
         }
 
@@ -610,7 +597,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           state: mockState,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: null,
           tvSelection: null,
@@ -642,7 +629,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           state: mockState,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: null,
           tvSelection: null,
@@ -675,7 +662,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           state: mockState,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: null,
           tvSelection: null,
@@ -709,7 +696,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           state: mockState,
         }
 
-        parsingUtils.parseInitialSelection.mockRejectedValue(
+        parsingUtils.parseInitialSelection!.mockRejectedValue(
           new Error('Parse error'),
         )
         promptService.generatePromptMethod.mockResolvedValue(chatResponse)
@@ -807,7 +794,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           state: undefined,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: null,
           tvSelection: null,
@@ -832,10 +819,10 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
-          state: null as any,
+          state: null as unknown,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: null,
           tvSelection: null,
@@ -860,10 +847,10 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
-          state: {} as any,
+          state: {} as unknown,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: null,
           tvSelection: null,
@@ -898,7 +885,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           state: failingState,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: null,
           tvSelection: null,
@@ -935,7 +922,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           state: failingState,
         }
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: null,
           tvSelection: null,
@@ -1083,7 +1070,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
             }
           : null
 
-        parsingUtils.parseInitialSelection.mockResolvedValue({
+        parsingUtils.parseInitialSelection!.mockResolvedValue({
           searchQuery: mediaType,
           selection: { selectionType: 'ordinal', value: '1' },
           tvSelection,

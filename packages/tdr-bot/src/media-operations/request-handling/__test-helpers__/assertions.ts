@@ -86,12 +86,10 @@ export function assertStrategyResult(
  * })
  */
 export function assertContextSet(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mockState: any,
+  mockState: Record<string, jest.Mock>,
   userId: string,
   contextType: ContextType,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expectedData?: any,
+  expectedData?: unknown,
 ): void {
   const methodMap = {
     movie: 'setUserMovieContext',
@@ -115,8 +113,7 @@ export function assertContextSet(
  * assertContextNotSet(mockState, 'movie')
  */
 export function assertContextNotSet(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mockState: any,
+  mockState: Record<string, jest.Mock>,
   contextType: ContextType,
 ): void {
   const methodMap = {
@@ -143,15 +140,13 @@ export function assertContextNotSet(
  * })
  */
 export function assertPromptGenerated(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mockPromptService: any,
+  mockPromptService: Record<string, jest.Mock>,
   methodName: string,
   options?: {
     /** Which call to check (default: 0) */
     callIndex?: number
     /** Expected arguments for the call */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expectedArgs?: any[]
+    expectedArgs?: unknown[]
     /** Expected number of times called */
     callCount?: number
   },

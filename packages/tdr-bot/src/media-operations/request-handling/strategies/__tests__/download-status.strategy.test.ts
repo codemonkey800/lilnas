@@ -570,7 +570,7 @@ describe('DownloadStatusStrategy', () => {
         }
 
         const malformedMovie = createMockDownloadingMovie({
-          movieTitle: undefined as any,
+          movieTitle: undefined as never,
         })
 
         radarrService.getDownloadingMovies.mockResolvedValue([malformedMovie])
@@ -599,7 +599,7 @@ describe('DownloadStatusStrategy', () => {
         }
 
         const malformedMovie = createMockDownloadingMovie({
-          progressPercent: null as any,
+          progressPercent: null as never,
         })
 
         radarrService.getDownloadingMovies.mockResolvedValue([malformedMovie])
@@ -618,7 +618,7 @@ describe('DownloadStatusStrategy', () => {
         }
 
         const malformedEpisode = createMockDownloadingSeries({
-          size: undefined as any,
+          size: undefined as never,
         })
 
         radarrService.getDownloadingMovies.mockResolvedValue([])
@@ -639,9 +639,9 @@ describe('DownloadStatusStrategy', () => {
         }
 
         const malformedEpisode = createMockDownloadingSeries({
-          seasonNumber: undefined as any,
-          episodeNumber: undefined as any,
-          episodeTitle: undefined as any,
+          seasonNumber: undefined as never,
+          episodeNumber: undefined as never,
+          episodeTitle: undefined as never,
         })
 
         radarrService.getDownloadingMovies.mockResolvedValue([])
@@ -835,7 +835,7 @@ describe('DownloadStatusStrategy', () => {
         const params: StrategyRequestParams = {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
-          userId: undefined as any,
+          userId: undefined as never,
         }
 
         radarrService.getDownloadingMovies.mockResolvedValue([
@@ -886,7 +886,7 @@ describe('DownloadStatusStrategy', () => {
 
       it('should handle null message', async () => {
         const params: StrategyRequestParams = {
-          message: null as any,
+          message: null as never,
           messages: [],
           userId: 'user123',
         }
@@ -904,7 +904,7 @@ describe('DownloadStatusStrategy', () => {
       it('should handle undefined messages array', async () => {
         const params: StrategyRequestParams = {
           message: new HumanMessage({ id: '1', content: 'download status' }),
-          messages: undefined as any,
+          messages: undefined as never,
           userId: 'user123',
         }
 

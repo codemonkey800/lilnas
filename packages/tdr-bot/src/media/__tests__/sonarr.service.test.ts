@@ -11,6 +11,7 @@ import {
 } from 'src/media/schemas/sonarr.schemas'
 import { SonarrService } from 'src/media/services/sonarr.service'
 import {
+  EpisodeFileResource,
   EpisodeResource,
   SeriesSearchResult,
   SonarrCommandResponse,
@@ -329,8 +330,7 @@ describe('SonarrService', () => {
     ...overrides,
   })
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const createMockEpisodeFile = (overrides: Record<string, any> = {}) => ({
+  const createMockEpisodeFile = (overrides: Record<string, unknown> = {}) => ({
     id: 1,
     seriesId: 1,
     seasonNumber: 1,
@@ -391,11 +391,11 @@ describe('SonarrService', () => {
 
     mockRetryService = {
       execute: jest.fn().mockImplementation(async fn => fn()),
-    } as unknown as jest.Mocked<RetryService>
+    } as unknown as jest.Mocked<never>
 
     mockErrorClassifier = {
       classifyError: jest.fn().mockReturnValue({ isRetriable: true }),
-    } as unknown as jest.Mocked<ErrorClassificationService>
+    } as unknown as jest.Mocked<never>
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -1466,8 +1466,7 @@ describe('SonarrService', () => {
 
       jest
         .spyOn(SonarrOutputSchemas.librarySearchResultArray, 'parse')
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .mockImplementation((input: unknown) => input as any[])
+        .mockImplementation(<T>(input: T) => input as T[])
     })
 
     it('should get all library series without query', async () => {
@@ -2477,8 +2476,7 @@ describe('SonarrService', () => {
       // Mock Zod validation to pass through
       jest
         .spyOn(SonarrOutputSchemas.seriesDetails, 'parse')
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .mockImplementation(input => input as any)
+        .mockImplementation(input => input as never)
     })
 
     it('should get comprehensive series details with statistics', async () => {
@@ -2730,8 +2728,7 @@ describe('SonarrService', () => {
       // Mock Zod validation to pass through
       jest
         .spyOn(SonarrOutputSchemas.seasonDetails, 'parse')
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .mockImplementation(input => input as any)
+        .mockImplementation(input => input as never)
     })
 
     it('should get comprehensive season details with episodes and files', async () => {
@@ -3099,12 +3096,13 @@ describe('SonarrService', () => {
           episodeFileId: 999, // File doesn't exist in file list
         }),
       ]
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mockEpisodeFiles: any[] = [] // No files returned
+      const mockEpisodeFiles: EpisodeFileResource[] = [] // No files returned
 
       mockSonarrClient.getSeriesById.mockResolvedValue(mockSeries)
       mockSonarrClient.getEpisodes.mockResolvedValue(mockEpisodes)
-      mockSonarrClient.getEpisodeFiles.mockResolvedValue(mockEpisodeFiles)
+      mockSonarrClient.getEpisodeFiles.mockResolvedValue(
+        mockEpisodeFiles as EpisodeFileResource[],
+      )
 
       const result = await service.getSeasonDetails(1, 1)
 
@@ -3126,8 +3124,7 @@ describe('SonarrService', () => {
       // Mock Zod validation to pass through
       jest
         .spyOn(SonarrOutputSchemas.episodeDetails, 'parse')
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .mockImplementation(input => input as any)
+        .mockImplementation(input => input as never)
     })
 
     it('should get comprehensive episode details with file information', async () => {

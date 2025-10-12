@@ -222,11 +222,11 @@ describe('RadarrService', () => {
 
     mockRetryService = {
       execute: jest.fn().mockImplementation(async fn => fn()),
-    } as unknown as jest.Mocked<RetryService>
+    } as unknown as jest.Mocked<never>
 
     mockErrorClassifier = {
       classifyError: jest.fn().mockReturnValue({ isRetriable: true }),
-    } as unknown as jest.Mocked<ErrorClassificationService>
+    } as unknown as jest.Mocked<never>
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -1509,7 +1509,7 @@ describe('RadarrService', () => {
           qualityProfileId: mockMovie.qualityProfileId,
           rootFolderPath: '/movies',
           isAvailable: mockMovie.isAvailable,
-        } as unknown as MovieLibrarySearchResult,
+        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
       ])
       mockRadarrClient.getMovie.mockResolvedValue(mockMovie)
       mockRadarrClient.getQueueItemsForMovie.mockResolvedValue([])
@@ -1546,7 +1546,7 @@ describe('RadarrService', () => {
         {
           ...mockMovie,
           tmdbId: mockMovie.tmdbId,
-        } as unknown as MovieLibrarySearchResult,
+        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
       ])
 
       mockRadarrClient.getMovie.mockResolvedValue(mockMovie)
@@ -1576,7 +1576,7 @@ describe('RadarrService', () => {
         {
           ...mockMovie,
           tmdbId: mockMovie.tmdbId,
-        } as unknown as MovieLibrarySearchResult,
+        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
       ])
 
       mockRadarrClient.getMovie.mockResolvedValue(mockMovie)
@@ -1599,7 +1599,7 @@ describe('RadarrService', () => {
         {
           ...mockMovie,
           tmdbId: mockMovie.tmdbId,
-        } as unknown as MovieLibrarySearchResult,
+        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
       ])
 
       mockRadarrClient.getMovie.mockRejectedValue(new Error('Movie not found'))
@@ -1620,7 +1620,7 @@ describe('RadarrService', () => {
         {
           ...mockMovie,
           tmdbId: mockMovie.tmdbId,
-        } as unknown as MovieLibrarySearchResult,
+        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
       ])
 
       mockRadarrClient.getMovie.mockResolvedValue(mockMovie)
@@ -1645,7 +1645,7 @@ describe('RadarrService', () => {
         {
           ...mockMovie,
           tmdbId: mockMovie.tmdbId,
-        } as unknown as MovieLibrarySearchResult,
+        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
       ])
 
       mockRadarrClient.getMovie.mockResolvedValue(mockMovie)
@@ -1677,7 +1677,7 @@ describe('RadarrService', () => {
         {
           ...unmonitoredMovie,
           tmdbId: unmonitoredMovie.tmdbId,
-        } as unknown as MovieLibrarySearchResult,
+        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
       ])
 
       mockRadarrClient.getMovie.mockResolvedValue(unmonitoredMovie)
@@ -1710,7 +1710,7 @@ describe('RadarrService', () => {
         {
           ...movieWithoutFiles,
           tmdbId: movieWithoutFiles.tmdbId,
-        } as unknown as MovieLibrarySearchResult,
+        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
       ])
 
       mockRadarrClient.getMovie.mockResolvedValue(movieWithoutFiles)
@@ -1841,7 +1841,7 @@ describe('RadarrService', () => {
         {
           ...mockMovie,
           tmdbId: mockMovie.tmdbId,
-        } as unknown as MovieLibrarySearchResult,
+        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
       ])
 
       mockRadarrClient.getMovie.mockRejectedValue(notFoundError)

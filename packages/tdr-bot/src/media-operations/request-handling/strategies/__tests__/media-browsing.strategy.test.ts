@@ -567,7 +567,7 @@ describe('MediaBrowsingStrategy', () => {
           context: {
             searchIntent: SearchIntent.Library,
             searchTerms: 'matrix',
-          } as any,
+          } as never,
         }
 
         // Base strategy catches all errors and returns error response
@@ -587,7 +587,7 @@ describe('MediaBrowsingStrategy', () => {
           context: {
             mediaType: MediaRequestType.Movies,
             searchTerms: 'matrix',
-          } as any,
+          } as never,
         }
 
         dataFetchingUtilities.fetchLibraryData.mockResolvedValue(
@@ -611,7 +611,7 @@ describe('MediaBrowsingStrategy', () => {
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
-          } as any,
+          } as never,
         }
 
         // Missing searchTerms causes error when accessing .trim()
@@ -656,7 +656,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'search movies' }),
           messages: [],
           userId: 'user123',
-          context: null as any,
+          context: null as never,
         }
 
         // Base strategy catches destructure error and returns error response
@@ -673,7 +673,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'search movies' }),
           messages: [],
           userId: 'user123',
-          context: undefined as any,
+          context: undefined as never,
         }
 
         // Base strategy catches destructure error and returns error response
@@ -823,7 +823,7 @@ describe('MediaBrowsingStrategy', () => {
         const params: StrategyRequestParams = {
           message: new HumanMessage({ id: '1', content: 'search movies' }),
           messages: [],
-          userId: undefined as any,
+          userId: undefined as never,
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
@@ -886,7 +886,7 @@ describe('MediaBrowsingStrategy', () => {
 
       it('should handle null message', async () => {
         const params: StrategyRequestParams = {
-          message: null as any,
+          message: null as never,
           messages: [],
           userId: 'user123',
           context: {
@@ -908,7 +908,7 @@ describe('MediaBrowsingStrategy', () => {
       it('should handle undefined messages array', async () => {
         const params: StrategyRequestParams = {
           message: new HumanMessage({ id: '1', content: 'search movies' }),
-          messages: undefined as any,
+          messages: undefined as never,
           userId: 'user123',
           context: {
             mediaType: MediaRequestType.Movies,

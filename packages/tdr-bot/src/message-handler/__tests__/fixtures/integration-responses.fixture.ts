@@ -173,11 +173,16 @@ export const INTEGRATION_CONTEXT_SWITCH = {
  */
 export function createMockChatResponse(
   content: string,
-  toolCalls: any[] = [],
+  toolCalls: Array<{
+    id: string
+    type: 'function'
+    function: { name: string; arguments: string }
+  }> = [],
 ): AIMessage {
   return new AIMessage({
     content,
-    additional_kwargs: toolCalls.length > 0 ? { tool_calls: toolCalls } : {},
+    additional_kwargs:
+      toolCalls.length > 0 ? { tool_calls: toolCalls as never } : {},
   })
 }
 

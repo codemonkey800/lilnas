@@ -21,7 +21,7 @@ export function createMockRadarrService(): jest.Mocked<RadarrService> {
     getDownloadingMovies: jest.fn(),
     monitorAndDownloadMovie: jest.fn(),
     unmonitorAndDeleteMovie: jest.fn(),
-  } as any as jest.Mocked<RadarrService>
+  } as unknown as jest.Mocked<RadarrService>
 }
 
 export function createMockSonarrService(): jest.Mocked<SonarrService> {
@@ -36,11 +36,11 @@ export function createMockSonarrService(): jest.Mocked<SonarrService> {
     getSeriesDetails: jest.fn(),
     getSeasonDetails: jest.fn(),
     getEpisodeDetails: jest.fn(),
-  } as any as jest.Mocked<SonarrService>
+  } as unknown as jest.Mocked<SonarrService>
 }
 
 export function createMockStateService(
-  stateOverrides?: any,
+  stateOverrides?: Record<string, unknown>,
 ): jest.Mocked<StateService> {
   return {
     setState: jest.fn(),
@@ -78,7 +78,7 @@ export function createMockStateService(
     getUserTvShowDeleteContext: jest.fn(),
     isTvShowDeleteContextExpired: jest.fn(),
     cleanupExpiredTvShowDeleteContexts: jest.fn(),
-  } as any as jest.Mocked<StateService>
+  } as unknown as jest.Mocked<StateService>
 }
 
 export function createMockRetryService(): jest.Mocked<RetryService> {
@@ -89,7 +89,7 @@ export function createMockRetryService(): jest.Mocked<RetryService> {
       .mockImplementation(async fn => await fn()),
     resetCircuitBreaker: jest.fn(),
     getCircuitBreakerStatus: jest.fn(),
-  } as any as jest.Mocked<RetryService>
+  } as unknown as jest.Mocked<RetryService>
 }
 
 export function createMockPromptGenerationService(): jest.Mocked<PromptGenerationService> {
@@ -101,7 +101,7 @@ export function createMockPromptGenerationService(): jest.Mocked<PromptGeneratio
     generateTvShowDeletePrompt: jest.fn(),
     generateTvShowChatResponse: jest.fn(),
     generateTvShowDeleteChatResponse: jest.fn(),
-  } as any as jest.Mocked<PromptGenerationService>
+  } as unknown as jest.Mocked<PromptGenerationService>
 }
 
 export function createMockParsingUtilities(): jest.Mocked<ParsingUtilities> {
@@ -114,7 +114,7 @@ export function createMockParsingUtilities(): jest.Mocked<ParsingUtilities> {
       error: jest.fn(),
       warn: jest.fn(),
       debug: jest.fn(),
-    } as any,
+    } as unknown as jest.Mocked<ParsingUtilities['logger']>,
     state: mockState,
     retryService: mockRetry,
     getReasoningModel: jest.fn(),
@@ -123,7 +123,7 @@ export function createMockParsingUtilities(): jest.Mocked<ParsingUtilities> {
     parseTvShowSelection: jest.fn(),
     extractSearchQueryWithLLM: jest.fn(),
     extractTvDeleteQueryWithLLM: jest.fn(),
-  } as any as jest.Mocked<ParsingUtilities>
+  } as unknown as jest.Mocked<ParsingUtilities>
 }
 
 export function createMockSelectionUtilities(): jest.Mocked<SelectionUtilities> {
@@ -133,12 +133,12 @@ export function createMockSelectionUtilities(): jest.Mocked<SelectionUtilities> 
       error: jest.fn(),
       warn: jest.fn(),
       debug: jest.fn(),
-    } as any,
+    } as unknown as jest.Mocked<SelectionUtilities['logger']>,
     findSelectedMovie: jest.fn(),
     findSelectedMovieFromLibrary: jest.fn(),
     findSelectedShow: jest.fn(),
     findSelectedTvShowFromLibrary: jest.fn(),
-  } as any as jest.Mocked<SelectionUtilities>
+  } as unknown as jest.Mocked<SelectionUtilities>
 }
 
 export function createMockDataFetchingUtilities(): jest.Mocked<DataFetchingUtilities> {
@@ -151,12 +151,12 @@ export function createMockDataFetchingUtilities(): jest.Mocked<DataFetchingUtili
       error: jest.fn(),
       warn: jest.fn(),
       debug: jest.fn(),
-    } as any,
+    } as unknown as jest.Mocked<DataFetchingUtilities['logger']>,
     radarrService: mockRadarr,
     sonarrService: mockSonarr,
     fetchLibraryData: jest.fn(),
     fetchExternalSearchData: jest.fn(),
-  } as any as jest.Mocked<DataFetchingUtilities>
+  } as unknown as jest.Mocked<DataFetchingUtilities>
 }
 
 export function createMockValidationUtilities(): jest.Mocked<ValidationUtilities> {
@@ -166,9 +166,9 @@ export function createMockValidationUtilities(): jest.Mocked<ValidationUtilities
       error: jest.fn(),
       warn: jest.fn(),
       debug: jest.fn(),
-    } as any,
+    } as unknown as jest.Mocked<ValidationUtilities['logger']>,
     validateDownloadResponse: jest.fn(),
-  } as any as jest.Mocked<ValidationUtilities>
+  } as unknown as jest.Mocked<ValidationUtilities>
 }
 
 // ============================================================================
@@ -219,7 +219,7 @@ export function createStrategyMocks(
  * Useful for TestingModule.createTestingModule()
  */
 export function createMockProviders(mocks: StrategyTestMocks) {
-  const providers: any[] = []
+  const providers: Array<{ provide: unknown; useValue: unknown }> = []
 
   if (mocks.radarr) {
     providers.push({ provide: RadarrService, useValue: mocks.radarr })

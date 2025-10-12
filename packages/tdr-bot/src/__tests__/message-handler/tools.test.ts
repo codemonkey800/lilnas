@@ -23,7 +23,7 @@ describe('tools', () => {
         format: jest.fn().mockReturnValue(mockDate),
       }
 
-      ;(dayjs as unknown as jest.Mock).mockReturnValue(mockDayjs)
+      ;(dayjs as jest.MockedFunction<typeof dayjs>).mockReturnValue(mockDayjs)
 
       const result = await dateTool.invoke({})
 
@@ -40,7 +40,7 @@ describe('tools', () => {
         format: jest.fn().mockReturnValue('January 01, 2024 12:00:01 AM'),
       }
 
-      ;(dayjs as unknown as jest.Mock)
+      ;(dayjs as jest.MockedFunction<typeof dayjs>)
         .mockReturnValueOnce(mockDayjs1)
         .mockReturnValueOnce(mockDayjs2)
 
@@ -52,7 +52,7 @@ describe('tools', () => {
     })
 
     it('should handle dayjs errors gracefully', async () => {
-      ;(dayjs as unknown as jest.Mock).mockImplementation(() => {
+      ;(dayjs as jest.MockedFunction<typeof dayjs>).mockImplementation(() => {
         throw new Error('Dayjs error')
       })
 
@@ -65,7 +65,7 @@ describe('tools', () => {
         format: jest.fn().mockReturnValue(mockDate),
       }
 
-      ;(dayjs as unknown as jest.Mock).mockReturnValue(mockDayjs)
+      ;(dayjs as jest.MockedFunction<typeof dayjs>).mockReturnValue(mockDayjs)
 
       // Simulate being called from LangChain tool node
       const toolInput = {}
@@ -107,7 +107,7 @@ describe('tools', () => {
         format: jest.fn().mockReturnValue(mockDate),
       }
 
-      ;(dayjs as unknown as jest.Mock).mockReturnValue(mockDayjs)
+      ;(dayjs as jest.MockedFunction<typeof dayjs>).mockReturnValue(mockDayjs)
 
       // Simulate how ToolNode would call the tool
       const toolCall = {
@@ -132,7 +132,9 @@ describe('tools', () => {
         const mockDayjs = {
           format: jest.fn().mockReturnValue(date),
         }
-        ;(dayjs as unknown as jest.Mock).mockReturnValueOnce(mockDayjs)
+        ;(dayjs as jest.MockedFunction<typeof dayjs>).mockReturnValueOnce(
+          mockDayjs,
+        )
       })
 
       const results = await Promise.all([

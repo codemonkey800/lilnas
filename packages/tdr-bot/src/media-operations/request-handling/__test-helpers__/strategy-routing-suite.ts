@@ -14,39 +14,25 @@ export interface StrategyRoutingConfig<TMediaItem, TOperationResult> {
   /** Mock services (using getters to avoid initialization order issues) */
   mocks: {
     parsingUtils: {
-      parseInitialSelection:
-        | jest.MockedFunction<any>
-        | { (): jest.MockedFunction<any> }
-      parseSearchSelection:
-        | jest.MockedFunction<any>
-        | { (): jest.MockedFunction<any> }
-      parseTvShowSelection?:
-        | jest.MockedFunction<any>
-        | { (): jest.MockedFunction<any> }
+      parseInitialSelection: jest.Mock | (() => unknown)
+      parseSearchSelection: jest.Mock | (() => unknown)
+      parseTvShowSelection?: jest.Mock | (() => unknown)
     }
     selectionUtils: {
-      findSelectedItem:
-        | jest.MockedFunction<any>
-        | { (): jest.MockedFunction<any> }
+      findSelectedItem: jest.Mock | (() => unknown)
     }
     mediaService: {
-      searchOrLibraryMethod:
-        | jest.MockedFunction<any>
-        | { (): jest.MockedFunction<any> }
-      operationMethod:
-        | jest.MockedFunction<any>
-        | { (): jest.MockedFunction<any> }
+      searchOrLibraryMethod: jest.Mock | (() => unknown)
+      operationMethod: jest.Mock | (() => unknown)
     }
     promptService: {
-      generatePromptMethod:
-        | jest.MockedFunction<any>
-        | { (): jest.MockedFunction<any> }
+      generatePromptMethod: jest.Mock | (() => unknown)
     }
   }
 
   /** Test fixtures */
   fixtures: {
-    validContext: any // Active context matching the strategy type
+    validContext: unknown // Active context matching the strategy type
     mediaItems: TMediaItem[]
     operationResult: TOperationResult
     chatResponse: HumanMessage
@@ -127,25 +113,27 @@ export function testStrategyRouting<TMediaItem, TOperationResult>(
   } = testConfig
 
   // Helper to unwrap getter functions if needed - delays evaluation until first access
-  const unwrapMock = <T>(mock: T | { (): T } | undefined): T | undefined => {
+  const unwrapMock = (
+    mock: jest.Mock | (() => unknown) | undefined,
+  ): jest.Mock | undefined => {
     if (!mock) {
       return undefined
     }
-    // Check if it's a Jest mock first (has mock property)
-    if (mock && typeof mock === 'object' && 'mock' in mock) {
-      return mock as T
+    // If it's a function, call it to get the mock
+    if (typeof mock === 'function' && !('mock' in mock)) {
+      return mock()
     }
-    // Otherwise, if it's a function, call it to get the mock
-    return typeof mock === 'function' ? (mock as { (): T })() : mock
+    // Otherwise it's already a Jest mock
+    return mock
   }
 
   // Create proxy objects that delay unwrapping until the mock is actually used
   const parsingUtils = {
     get parseInitialSelection() {
-      return unwrapMock(mocks.parsingUtils.parseInitialSelection)
+      return unwrapMock(mocks.parsingUtils.parseInitialSelection)!
     },
     get parseSearchSelection() {
-      return unwrapMock(mocks.parsingUtils.parseSearchSelection)
+      return unwrapMock(mocks.parsingUtils.parseSearchSelection)!
     },
     get parseTvShowSelection() {
       return unwrapMock(mocks.parsingUtils.parseTvShowSelection)
@@ -153,20 +141,20 @@ export function testStrategyRouting<TMediaItem, TOperationResult>(
   }
   const selectionUtils = {
     get findSelectedItem() {
-      return unwrapMock(mocks.selectionUtils.findSelectedItem)
+      return unwrapMock(mocks.selectionUtils.findSelectedItem)!
     },
   }
   const mediaService = {
     get searchOrLibraryMethod() {
-      return unwrapMock(mocks.mediaService.searchOrLibraryMethod)
+      return unwrapMock(mocks.mediaService.searchOrLibraryMethod)!
     },
     get operationMethod() {
-      return unwrapMock(mocks.mediaService.operationMethod)
+      return unwrapMock(mocks.mediaService.operationMethod)!
     },
   }
   const promptService = {
     get generatePromptMethod() {
-      return unwrapMock(mocks.promptService.generatePromptMethod)
+      return unwrapMock(mocks.promptService.generatePromptMethod)!
     },
   }
 

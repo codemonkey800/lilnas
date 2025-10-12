@@ -283,8 +283,7 @@ describe('sonarr.utils', () => {
 
     it('should detect missing status', () => {
       const series = createValidSeries()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      series.status = '' as any
+      series.status = '' as unknown as typeof series.status
 
       const result = validateSeriesData(series)
 

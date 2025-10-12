@@ -183,18 +183,18 @@ describe('RadarrClient', () => {
     // Create mocked services
     mockRetryService = {
       execute: jest.fn().mockImplementation(async fn => fn()),
-    } as unknown as jest.Mocked<RetryService>
+    } as unknown as jest.Mocked<never>
 
     mockErrorClassifier = {
       classifyError: jest.fn().mockReturnValue({ isRetriable: true }),
-    } as unknown as jest.Mocked<ErrorClassificationService>
+    } as unknown as jest.Mocked<never>
 
     mockRetryConfigService = {
       getRadarrConfig: jest.fn().mockReturnValue({
         maxRetries: 3,
         baseDelay: 1000,
       }),
-    } as unknown as jest.Mocked<RetryConfigService>
+    } as unknown as jest.Mocked<never>
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

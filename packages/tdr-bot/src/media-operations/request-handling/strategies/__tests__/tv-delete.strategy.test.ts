@@ -325,8 +325,8 @@ describe('TvDeleteStrategy', () => {
       parsingUtilities.extractTvDeleteQueryWithLLM.mockResolvedValue(
         'nonexistent',
       )
-      parsingUtilities.parseSearchSelection.mockResolvedValue(null as any)
-      parsingUtilities.parseTvShowSelection.mockResolvedValue(null as any)
+      parsingUtilities.parseSearchSelection.mockResolvedValue(null as never)
+      parsingUtilities.parseTvShowSelection.mockResolvedValue(null as never)
       sonarrService.getLibrarySeries.mockResolvedValue([])
       promptService.generateTvShowDeleteChatResponse.mockResolvedValue(
         mockChatResponse,
@@ -352,8 +352,8 @@ describe('TvDeleteStrategy', () => {
       parsingUtilities.extractTvDeleteQueryWithLLM.mockResolvedValue(
         'breaking bad',
       )
-      parsingUtilities.parseSearchSelection.mockResolvedValue(null as any)
-      parsingUtilities.parseTvShowSelection.mockResolvedValue(null as any)
+      parsingUtilities.parseSearchSelection.mockResolvedValue(null as never)
+      parsingUtilities.parseTvShowSelection.mockResolvedValue(null as never)
       sonarrService.getLibrarySeries.mockResolvedValue([mockLibraryShow1])
       promptService.generateTvShowDeleteChatResponse.mockResolvedValue(
         mockChatResponse,
@@ -388,7 +388,7 @@ describe('TvDeleteStrategy', () => {
       parsingUtilities.extractTvDeleteQueryWithLLM.mockResolvedValue(
         'breaking bad',
       )
-      parsingUtilities.parseSearchSelection.mockResolvedValue(null as any)
+      parsingUtilities.parseSearchSelection.mockResolvedValue(null as never)
       parsingUtilities.parseTvShowSelection.mockResolvedValue({
         selection: [{ season: 1 }],
       })
@@ -420,7 +420,7 @@ describe('TvDeleteStrategy', () => {
       parsingUtilities.extractTvDeleteQueryWithLLM.mockResolvedValue(
         'breaking bad',
       )
-      parsingUtilities.parseSearchSelection.mockResolvedValue(null as any)
+      parsingUtilities.parseSearchSelection.mockResolvedValue(null as never)
       parsingUtilities.parseTvShowSelection.mockResolvedValue({})
       sonarrService.getLibrarySeries.mockResolvedValue([mockLibraryShow1])
       sonarrService.unmonitorAndDeleteSeries.mockResolvedValue(
@@ -445,8 +445,8 @@ describe('TvDeleteStrategy', () => {
       }
 
       parsingUtilities.extractTvDeleteQueryWithLLM.mockResolvedValue('breaking')
-      parsingUtilities.parseSearchSelection.mockResolvedValue(null as any)
-      parsingUtilities.parseTvShowSelection.mockResolvedValue(null as any)
+      parsingUtilities.parseSearchSelection.mockResolvedValue(null as never)
+      parsingUtilities.parseTvShowSelection.mockResolvedValue(null as never)
       sonarrService.getLibrarySeries.mockResolvedValue([
         mockLibraryShow1,
         mockLibraryShow3,
@@ -484,8 +484,8 @@ describe('TvDeleteStrategy', () => {
       parsingUtilities.extractTvDeleteQueryWithLLM.mockResolvedValue(
         'breaking bad',
       )
-      parsingUtilities.parseSearchSelection.mockResolvedValue(null as any)
-      parsingUtilities.parseTvShowSelection.mockResolvedValue(null as any)
+      parsingUtilities.parseSearchSelection.mockResolvedValue(null as never)
+      parsingUtilities.parseTvShowSelection.mockResolvedValue(null as never)
       sonarrService.getLibrarySeries.mockRejectedValue(
         new Error('Sonarr service unavailable'),
       )
@@ -795,7 +795,7 @@ describe('TvDeleteStrategy', () => {
       parsingUtilities.parseSearchSelection.mockRejectedValue(
         new Error('Parse failed'),
       )
-      parsingUtilities.parseTvShowSelection.mockResolvedValue(null as any)
+      parsingUtilities.parseTvShowSelection.mockResolvedValue(null as never)
       promptService.generateTvShowDeleteChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -886,7 +886,7 @@ describe('TvDeleteStrategy', () => {
         state: mockState,
       }
 
-      parsingUtilities.parseSearchSelection.mockResolvedValue(null as any)
+      parsingUtilities.parseSearchSelection.mockResolvedValue(null as never)
       parsingUtilities.parseTvShowSelection.mockResolvedValue({})
       sonarrService.unmonitorAndDeleteSeries.mockResolvedValue(
         mockSuccessResult,
@@ -968,7 +968,7 @@ describe('TvDeleteStrategy', () => {
       parsingUtilities.extractTvDeleteQueryWithLLM.mockResolvedValue(
         'breaking bad',
       )
-      parsingUtilities.parseSearchSelection.mockResolvedValue(null as any)
+      parsingUtilities.parseSearchSelection.mockResolvedValue(null as never)
       parsingUtilities.parseTvShowSelection.mockResolvedValue({
         selection: [{ season: 1 }],
       })
@@ -999,7 +999,7 @@ describe('TvDeleteStrategy', () => {
       parsingUtilities.extractTvDeleteQueryWithLLM.mockResolvedValue(
         'breaking bad',
       )
-      parsingUtilities.parseSearchSelection.mockResolvedValue(null as any)
+      parsingUtilities.parseSearchSelection.mockResolvedValue(null as never)
       parsingUtilities.parseTvShowSelection.mockResolvedValue({
         selection: [{ season: 1 }],
       })

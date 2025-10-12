@@ -65,7 +65,9 @@ describe('LLMOrchestrationService - Unit Tests', () => {
       withStructuredOutput: jest.fn().mockReturnThis(),
     }
 
-    mockChatOpenAI.mockImplementation(() => mockChatInstance as any)
+    mockChatOpenAI.mockImplementation(
+      () => mockChatInstance as unknown as ChatOpenAI,
+    )
     mockBindTools.mockReturnValue(mockChatInstance)
 
     // Create mock services
@@ -87,21 +89,21 @@ describe('LLMOrchestrationService - Unit Tests', () => {
         id: 'system-prompt',
         content: 'You are TDR, a helpful assistant.',
       }),
-    } as any
+    } as unknown as jest.Mocked<StateService>
 
     mockEquationImage = {
       getImage: jest.fn().mockResolvedValue({
         url: 'https://example.com/equation.png',
       }),
-    } as any
+    } as unknown as jest.Mocked<EquationImageService>
 
     mockRetryService = {
       executeWithRetry: jest.fn(fn => fn()),
-    } as any
+    } as unknown as jest.Mocked<RetryService>
 
     mockErrorClassifier = {
       classify: jest.fn(),
-    } as any
+    } as unknown as jest.Mocked<ErrorClassificationService>
 
     mockMediaHandler = {
       handleRequest: jest.fn().mockResolvedValue({
@@ -114,7 +116,7 @@ describe('LLMOrchestrationService - Unit Tests', () => {
         ],
       }),
       hasActiveMediaContext: jest.fn().mockResolvedValue(false),
-    } as any
+    } as unknown as jest.Mocked<MediaRequestHandler>
 
     // Create testing module
     module = await Test.createTestingModule({
@@ -628,7 +630,7 @@ describe('LLMOrchestrationService - Unit Tests', () => {
 
       // Mock app.invoke to return empty messages
       mockInvoke.mockResolvedValueOnce(responseTypeMessage)
-      mockInvoke.mockResolvedValueOnce(null as any) // Simulate no response
+      mockInvoke.mockResolvedValueOnce(null as unknown) // Simulate no response
 
       // Act
       const result = await service.sendMessage({
@@ -748,7 +750,11 @@ describe('LLMOrchestrationService - Unit Tests', () => {
   describe('Protected Helper Methods', () => {
     it('should create reasoning model with correct configuration', () => {
       // Act
-      const model = (service as any).getReasoningModel()
+      const model = (
+        service as unknown as {
+          getReasoningModel: () => unknown
+        }
+      ).getReasoningModel()
 
       // Assert
       expect(model).toBeDefined()
@@ -760,7 +766,11 @@ describe('LLMOrchestrationService - Unit Tests', () => {
 
     it('should create chat model with tools bound', () => {
       // Act
-      const model = (service as any).getChatModel()
+      const model = (
+        service as unknown as {
+          getChatModel: () => { bindTools?: unknown }
+        }
+      ).getChatModel()
 
       // Assert
       expect(model).toBeDefined()

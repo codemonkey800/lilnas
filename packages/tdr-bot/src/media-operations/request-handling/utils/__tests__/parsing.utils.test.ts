@@ -31,13 +31,11 @@ describe('ParsingUtilities', () => {
         reasoningModel: 'gpt-4o-mini',
         temperature: 0,
       }),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any
+    } as jest.Mocked<Pick<StateService, 'getState'>>
 
     mockRetryService = {
       executeWithRetry: jest.fn().mockImplementation(async fn => await fn()),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any
+    } as jest.Mocked<Pick<RetryService, 'executeWithRetry'>>
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
