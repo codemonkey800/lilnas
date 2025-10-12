@@ -6,11 +6,11 @@ import { StateModule } from 'src/state/state.module'
 
 import { ChatService } from './chat.service'
 import { KeywordsService } from './keywords.service'
-import { LLMService } from './llm.service'
+import { LLMOrchestrationModule } from './llm-orchestration.module'
 import { MessageHandlerService } from './message-handler.service'
 
 @Module({
-  imports: [MediaModule, ServicesModule, StateModule],
-  providers: [ChatService, KeywordsService, LLMService, MessageHandlerService],
+  imports: [MediaModule, ServicesModule, StateModule, LLMOrchestrationModule],
+  providers: [ChatService, KeywordsService, MessageHandlerService],
 })
 export class MessageHandlerModule {}

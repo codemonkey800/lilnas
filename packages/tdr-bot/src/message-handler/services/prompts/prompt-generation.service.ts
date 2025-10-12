@@ -520,9 +520,9 @@ export class PromptGenerationService {
       const response = await this.retryService.executeWithRetry(
         () =>
           chatModel.invoke([
+            ...messages,
             TV_SHOW_DELETE_RESPONSE_CONTEXT_PROMPT,
             contextMessage,
-            ...messages,
           ]),
         {
           maxAttempts: 3,
@@ -570,5 +570,73 @@ export class PromptGenerationService {
           'Something went wrong with the TV show delete operation.',
       })
     }
+  }
+
+  /**
+   * Wrapper method for TV show chat responses without requiring chatModel parameter
+   * Creates a default chatModel internally for strategy use
+   */
+  async generateTvShowChatResponse(
+    messages: BaseMessage[],
+    situation:
+      | 'TV_SHOW_CLARIFICATION'
+      | 'TV_SHOW_NO_RESULTS'
+      | 'TV_SHOW_SELECTION_NEEDED'
+      | 'TV_SHOW_GRANULAR_SELECTION_NEEDED'
+      | 'TV_SHOW_ERROR'
+      | 'TV_SHOW_SUCCESS'
+      | 'TV_SHOW_PROCESSING_ERROR',
+    context?: {
+      searchQuery?: string
+      shows?: SeriesSearchResult[]
+      selectedShow?: SeriesSearchResult
+      errorMessage?: string
+      downloadResult?: unknown
+      autoApplied?: boolean
+      selectionCriteria?: string
+      granularSelection?: TvShowSelection | null
+      autoSelectedShow?: boolean
+      selectionHint?: SearchSelection | null
+      granularSelectionHint?: TvShowSelection | null
+    },
+  ): Promise<HumanMessage> {
+    // Create default chatModel for strategy use
+    const chatModel = new ChatOpenAI({
+      modelName: process.env.OPENAI_MODEL || 'gpt-4o',
+      temperature: 0.7,
+      maxTokens: 500,
+    })
+
+    return this.generateTvShowPrompt(messages, chatModel, situation, context)
+  }
+
+  /**
+   * Wrapper method for TV show delete chat responses without requiring chatModel parameter
+   * Creates a default chatModel internally for strategy use
+   */
+  async generateTvShowDeleteChatResponse(
+    messages: BaseMessage[],
+    situationType: string,
+    context: {
+      selectedShow?: { title: string; year?: number }
+      deleteResult?: UnmonitorAndDeleteSeriesResult
+      errorMessage?: string
+      searchResults?: Array<{ id: number; title: string; year?: number }>
+      searchQuery?: string
+    },
+  ): Promise<HumanMessage> {
+    // Create default chatModel for strategy use
+    const chatModel = new ChatOpenAI({
+      modelName: process.env.OPENAI_MODEL || 'gpt-4o',
+      temperature: 0.7,
+      maxTokens: 500,
+    })
+
+    return this.generateTvShowDeletePrompt(
+      messages,
+      chatModel,
+      situationType,
+      context,
+    )
   }
 }

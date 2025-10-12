@@ -12,7 +12,7 @@ import { remarkFixLinkPlugin } from 'src/utils/fix-link'
 import { RetryService } from 'src/utils/retry.service'
 
 import { BaseMessageHandlerService } from './base-message-handler.service'
-import { LLMService } from './llm.service'
+import { LLMOrchestrationService } from './llm-orchestration.service'
 import { Message } from './types'
 
 const INITIAL_SEND_TYPING_COUNT = 1
@@ -24,7 +24,7 @@ const INITIAL_SEND_TYPING_COUNT = 1
 export class ChatService extends BaseMessageHandlerService {
   constructor(
     protected readonly client: Client,
-    private readonly llm: LLMService,
+    private readonly llm: LLMOrchestrationService,
     private readonly retryService: RetryService,
     private readonly errorClassifier: ErrorClassificationService,
   ) {

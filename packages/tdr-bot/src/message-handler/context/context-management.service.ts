@@ -28,7 +28,10 @@ export class ContextManagementService {
       }
 
       this.contexts.set(userId, contextEntry as ContextEntry<BaseContext>)
-      this.logger.log({ userId, contextType }, 'Context set for user')
+      this.logger.log(
+        { userId, contextType, timestamp: now, ttl: CONTEXT_TTL_MS },
+        'Context set for user',
+      )
     } finally {
       release()
     }
@@ -44,9 +47,18 @@ export class ContextManagementService {
 
       // Check if context has expired
       const now = Date.now()
-      if (now - entry.createdAt > CONTEXT_TTL_MS) {
+      const age = now - entry.createdAt
+      if (age > CONTEXT_TTL_MS) {
         this.contexts.delete(userId)
-        this.logger.log({ userId }, 'Context expired and removed for user')
+        this.logger.log(
+          {
+            userId,
+            contextType: entry.contextType,
+            age,
+            ttl: CONTEXT_TTL_MS,
+          },
+          'Context expired and removed for user',
+        )
         return null
       }
 
@@ -61,9 +73,14 @@ export class ContextManagementService {
   async clearContext(userId: string): Promise<boolean> {
     const release = await this.mutex.acquire()
     try {
+      const entry = this.contexts.get(userId)
       const deleted = this.contexts.delete(userId)
-      if (deleted) {
-        this.logger.log({ userId }, 'Context cleared for user')
+      if (deleted && entry) {
+        const age = Date.now() - entry.createdAt
+        this.logger.log(
+          { userId, contextType: entry.contextType, age },
+          'Context cleared for user',
+        )
       }
       return deleted
     } finally {
@@ -81,9 +98,18 @@ export class ContextManagementService {
 
       // Check if context has expired
       const now = Date.now()
-      if (now - entry.createdAt > CONTEXT_TTL_MS) {
+      const age = now - entry.createdAt
+      if (age > CONTEXT_TTL_MS) {
         this.contexts.delete(userId)
-        this.logger.log({ userId }, 'Context expired and removed for user')
+        this.logger.log(
+          {
+            userId,
+            contextType: entry.contextType,
+            age,
+            ttl: CONTEXT_TTL_MS,
+          },
+          'Context expired and removed for user',
+        )
         return false
       }
 
@@ -103,9 +129,18 @@ export class ContextManagementService {
 
       // Check if context has expired
       const now = Date.now()
-      if (now - entry.createdAt > CONTEXT_TTL_MS) {
+      const age = now - entry.createdAt
+      if (age > CONTEXT_TTL_MS) {
         this.contexts.delete(userId)
-        this.logger.log({ userId }, 'Context expired and removed for user')
+        this.logger.log(
+          {
+            userId,
+            contextType: entry.contextType,
+            age,
+            ttl: CONTEXT_TTL_MS,
+          },
+          'Context expired and removed for user',
+        )
         return null
       }
 
@@ -123,17 +158,26 @@ export class ContextManagementService {
     try {
       const now = Date.now()
       let cleanedCount = 0
+      const contextTypeCounts: Record<string, number> = {}
 
       for (const [userId, entry] of this.contexts.entries()) {
-        if (now - entry.createdAt > CONTEXT_TTL_MS) {
+        const age = now - entry.createdAt
+        if (age > CONTEXT_TTL_MS) {
           this.contexts.delete(userId)
           cleanedCount++
+          contextTypeCounts[entry.contextType] =
+            (contextTypeCounts[entry.contextType] || 0) + 1
         }
       }
 
       if (cleanedCount > 0) {
         this.logger.log(
-          { cleanedCount, totalContexts: this.contexts.size },
+          {
+            cleanedCount,
+            remainingContexts: this.contexts.size,
+            contextTypeCounts,
+            ttl: CONTEXT_TTL_MS,
+          },
           'Cleaned up expired contexts',
         )
       }
