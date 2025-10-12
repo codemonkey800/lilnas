@@ -408,7 +408,7 @@ Components should be implemented in the following order to ensure a logical, bot
 - Removed performance metrics (Stats component + DevTools sufficient)
 - Uses plain objects for Vector3 positions (better serialization for future persist middleware)
 
-#### Player Store (`src/game/store/playerStore.ts`) ✅ COMPLETED
+#### Player Store (`src/game/store/playerStore.ts`) ✅ COMPLETED + ENHANCED
 
 - [x] Create player-specific store:
   - [ ] Position and rotation (tracked in camera, not store)
@@ -419,6 +419,11 @@ Components should be implemented in the following order to ensure a logical, bot
   - [ ] Movement state (idle/walking/running/crouching/hiding) (deferred)
   - [ ] Inventory items (deferred)
   - [ ] Flashlight battery (future)
+- [x] Enhancements:
+  - [x] Export `PlayerState` interface for type safety
+  - [x] Import `MAX_STAMINA` from `gameSettings.ts` (single source of truth)
+  - [x] Helper methods: `getStaminaPercent()`, `canRun()`, `isLowStamina()`, `setStamina()`
+  - [x] Comprehensive JSDoc documentation with usage examples
 
 ### Debug Tools
 
@@ -568,15 +573,16 @@ Components should be implemented in the following order to ensure a logical, bot
 ## 🔄 Progress Tracking
 
 **Last Updated:** 2025-10-11
-**Current Phase:** Phase 5 - Three.js & Game Libraries (State Management Complete)
+**Current Phase:** Phase 5 - Three.js & Game Libraries (State Management Complete + Enhanced)
 **Blockers:** None
 **Recent Updates:**
 
-- ✅ Implemented complete game store with multiplayer-ready architecture
-- ✅ Added comprehensive player state tracking (up to 8 players)
-- ✅ Created win condition logic (all alive players reach cabin)
-- ✅ Added TypeScript types for game state (GameStateEnum, PlayerInfo, Vector3Like)
-- ✅ Simplified design based on actual game requirements (removed objectives system, items)
+- ✅ Enhanced player store with helper methods and improved type safety
+- ✅ Fixed constants duplication (MAX_STAMINA now imported from gameSettings)
+- ✅ Added JSDoc documentation for better IDE support
+- ✅ Exported PlayerState interface for external use
+- ✅ Added helper methods: getStaminaPercent(), canRun(), isLowStamina(), setStamina()
+- ✅ All enhancements pass TypeScript type check and ESLint validation
 
 **Next Steps:**
 
