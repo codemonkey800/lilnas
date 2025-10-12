@@ -13,14 +13,17 @@
 ### Monorepo Structure Analysis
 
 - [x] Identify package manager (npm/yarn/pnpm)
+
   - **Package Manager:** pnpm@10.13.1 (enforced via `packageManager` field)
   - **Workspaces:** Configured via `pnpm-workspace.yaml` with pattern `packages/*`
 
 - [x] Check for workspace configuration (`pnpm-workspace.yaml`, `lerna.json`, `nx.json`, etc.)
+
   - **Workspace Config:** `pnpm-workspace.yaml` exists with simple `packages/*` pattern
   - **No Lerna/Nx:** Project uses pnpm workspaces only
 
 - [x] Document existing packages structure
+
   - **Frontend Apps:**
     - `@lilnas/apps` - Next.js portal/dashboard
     - `@lilnas/dashcam` - Vite+React dashcam viewer (reference for our implementation)
@@ -37,13 +40,15 @@
     - `@lilnas/prettier` - Shared Prettier config package
 
 - [x] Identify root-level configs (ESLint, Prettier, TypeScript)
+
   - **No root tsconfig.json** - Each package has its own TypeScript config
   - **Shared configs via packages:**
-    - ESLint: `@lilnas/eslint` package (workspace:*)
-    - Prettier: `@lilnas/prettier` package (workspace:*)
+    - ESLint: `@lilnas/eslint` package (workspace:\*)
+    - Prettier: `@lilnas/prettier` package (workspace:\*)
   - **Root devDependencies:** ESLint, Prettier, TypeScript, Turbo, Jest, etc.
 
 - [x] Check for shared dependencies in root `package.json`
+
   - **Common devDependencies in root:**
     - `@lilnas/eslint` and `@lilnas/prettier` (workspace packages)
     - `typescript@5.8.2`, `eslint@9.23.0`, `prettier@3.5.3`
@@ -61,12 +66,14 @@
 ### Existing Configuration Audit
 
 - [x] Locate and analyze `.eslintrc*` or `eslint.config.*` files
+
   - **Format:** All packages use new flat config format (`eslint.config.cjs`)
   - **Location:** Each package has its own `eslint.config.cjs`
   - **Pattern:** Packages extend from `@lilnas/eslint` workspace package
   - **Example (dashcam):** `const { base, react } = require('@lilnas/eslint'); module.exports = [...base, ...react]`
 
 - [x] Locate and analyze `.prettierrc*` or `prettier.config.*` files
+
   - **Format:** Prettier config is a package (`@lilnas/prettier`)
   - **Configuration:**
     - `arrowParens: 'avoid'`
@@ -77,6 +84,7 @@
   - **Usage:** Packages reference via `"prettier": "@lilnas/prettier"` in package.json
 
 - [x] Check for root `tsconfig.json` and any extending configs
+
   - **No root tsconfig.json** - Each package maintains independent TypeScript config
   - **Reference Config (dashcam/tsconfig.json):**
     - `jsx: "react-jsx"`
@@ -86,6 +94,7 @@
     - `baseUrl: "."`, `composite: true`, `isolatedModules: true`
 
 - [x] Document any custom ESLint rules or plugins
+
   - **Base Config (`@lilnas/eslint/base.js`):**
     - TypeScript ESLint with recommended rules
     - Import plugin with TypeScript resolver
@@ -98,6 +107,7 @@
     - Auto-detect React version
 
 - [x] Check for existing Vite/React packages to follow patterns
+
   - **Reference Package:** `@lilnas/dashcam` (Vite + React + TypeScript)
   - **Key Dependencies:**
     - `vite@6.2.2`, `@vitejs/plugin-react-swc@3.8.1`
@@ -155,7 +165,7 @@
   - [x] jsx: "react-jsx"
   - [x] module: "ESNext", moduleResolution: "bundler"
   - [x] strict: true
-  - [x] Path mapping: "src/*": ["./src/*"]
+  - [x] Path mapping: "src/_": ["./src/_"]
 
 ---
 
@@ -260,6 +270,7 @@ Components should be implemented in the following order to ensure a logical, bot
 6. **Player Controller** - Ties together input, movement, and camera; the final piece that makes the game playable
 
 **Rationale:**
+
 - **Bottom-up approach**: Build foundational systems (lighting, terrain) before dependent systems (player, movement)
 - **Testable increments**: Each component can be tested independently as it's added
 - **Dependency order**: Later components depend on earlier ones functioning correctly
@@ -377,15 +388,25 @@ Components should be implemented in the following order to ensure a logical, bot
 
 ### State Management
 
-#### Game Store (`src/game/store/gameStore.ts`)
+#### Game Store (`src/game/store/gameStore.ts`) ✅ COMPLETED
 
-- [ ] Create Zustand store with:
-  - [ ] Game state (menu/playing/paused/gameover)
-  - [ ] Current objective
-  - [ ] Players list (for multiplayer prep)
-  - [ ] Monster position (future)
-  - [ ] Cabin location
-  - [ ] Items collected
+- [x] Create Zustand store with:
+  - [x] Game state (menu/playing/paused/gameover)
+  - [x] Players list (for multiplayer prep, up to 8 players)
+    - [x] Player position, alive status, cabin reach status
+    - [x] Flashlight and movement states for visual sync
+    - [x] Update/remove player methods
+  - [x] Monster position (future-ready)
+  - [x] Cabin location
+  - [x] Win condition logic (all alive players must reach cabin)
+  - [x] TypeScript types in game.types.ts (GameStateEnum, PlayerInfo, Vector3Like, MovementStateEnum)
+
+**Design decisions:**
+
+- Removed objective system (always same objective: reach cabin)
+- Removed items collected (not in design.md MVP)
+- Removed performance metrics (Stats component + DevTools sufficient)
+- Uses plain objects for Vector3 positions (better serialization for future persist middleware)
 
 #### Player Store (`src/game/store/playerStore.ts`) ✅ COMPLETED
 
@@ -498,12 +519,12 @@ Components should be implemented in the following order to ensure a logical, bot
 
 ### Next Sprint Ready
 
-- [ ] Code structure supports multiplayer addition
-- [ ] State management prepared for networking
-- [ ] Monster AI system scaffolded
-- [ ] Objective system framework in place
+- [x] Code structure supports multiplayer addition
+- [x] State management prepared for networking
+- [x] Monster AI system scaffolded (gameStore has monster position tracking)
+- [x] Objective system framework in place (simplified: cabin reach = win)
 - [ ] Audio system ready for sounds
-- [ ] Performance baseline established
+- [x] Performance baseline established (Stats component shows FPS)
 
 ---
 
@@ -547,16 +568,19 @@ Components should be implemented in the following order to ensure a logical, bot
 ## 🔄 Progress Tracking
 
 **Last Updated:** 2025-10-11
-**Current Phase:** Phase 5 - Three.js & Game Libraries (Movement & Environment Complete)
+**Current Phase:** Phase 5 - Three.js & Game Libraries (State Management Complete)
 **Blockers:** None
 **Recent Updates:**
-- Enhanced lighting system with darker atmosphere and stronger flashlight
-- Implemented dense procedural forest (2000 trees) with path generation
-- Added winding paths radiating from spawn point for navigation
-- Improved tree collision detection with variable width scaling
-- Optimized lighting parameters for horror atmosphere
+
+- ✅ Implemented complete game store with multiplayer-ready architecture
+- ✅ Added comprehensive player state tracking (up to 8 players)
+- ✅ Created win condition logic (all alive players reach cabin)
+- ✅ Added TypeScript types for game state (GameStateEnum, PlayerInfo, Vector3Like)
+- ✅ Simplified design based on actual game requirements (removed objectives system, items)
 
 **Next Steps:**
+
+- Set up Leva debug controls panel for runtime tweaking
 - Implement physics with Rapier for proper collision system
 - Add jump mechanics with proper physics
 - Implement crouch functionality
