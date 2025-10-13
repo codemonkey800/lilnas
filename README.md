@@ -39,50 +39,28 @@ npm -g install pnpm
 pnpm install
 ```
 
-### CLI Setup
+### Development Setup
 
-A Command Line Interface (CLI) is provided to facilitate interaction with the
-codebase. The CLI offers various functionalities, including listing services,
-managing the development environment, handling production deployments, and
-synchronizing photos.
-
-If you are utilizing the Fish shell, you can source the `.env.fish` file to access the `lilnas` CLI:
+If you are utilizing the Fish shell, you can source the `.env.fish` file to set up the Node.js environment:
 
 ```fish
 source .env.fish
 ```
 
-For other shells, you can execute the CLI by either running the `lilnas` script directly or sourcing it to enable usage throughout the repository.
+### Docker Compose Service Management
+
+Use Docker Compose to manage services in the development environment:
 
 ```sh
-# Execute directly
-./lilnas -h
+# Start all services in development mode
+docker-compose -f docker-compose.dev.yml up -d
 
-# Source the script
-source lilnas
-lilnas -h
-```
+# Start a specific service
+docker-compose -f docker-compose.dev.yml up -d tdr-bot
 
-### Sync Container Dependencies
+# View logs for a service
+docker-compose -f docker-compose.dev.yml logs -f tdr-bot
 
-Before starting the development environment, it is essential to install the
-dependencies from the container. This step is necessary to avoid any potential
-dependency issues related to the container's native environment. For instance,
-the tdr-bot backend will not start unless this step is completed.
-
-```sh
-lilnas dev sync-deps
-```
-
-### Start service
-
-To initiate a service, execute the command `lilnas dev start`. To view a list of
-available services, use the command `lilnas ls`:
-
-```sh
-# Get list of services
-lilnas dev ls
-
-# Start a service in dev mode
-lilnas dev start tdr-bot
+# Stop services
+docker-compose -f docker-compose.dev.yml down
 ```

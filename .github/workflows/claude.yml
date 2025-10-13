@@ -171,14 +171,13 @@ jobs:
             - @lilnas/download: Video download service with yt-dlp/ffmpeg
 
             ### Development Tools
-            - @lilnas/cli: Docker Compose management (./lilnas command)
             - @lilnas/utils, eslint-config, prettier-config: Shared configs
 
             ## Key Commands
             - Build: pnpm run build (uses Turbo caching)
             - Test: pnpm test (Jest)
             - Lint/Format: pnpm run lint:fix
-            - Service management: ./lilnas dev [start|stop|logs]
+            - Service management: docker-compose commands
             - Kubernetes: kubectl (available if KUBE_TOKEN secret is configured)
 
             ## Critical Guidelines

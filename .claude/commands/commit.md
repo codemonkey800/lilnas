@@ -107,7 +107,6 @@ When creating a commit:
 
 Common scopes in the lilnas monorepo:
 
-- `cli` - CLI tool changes
 - `apps` - Main Next.js dashboard
 - `tdr-bot` - Discord bot with AI
 - `download` - Video download service
@@ -223,8 +222,8 @@ Pre-commit checks are run intelligently based on the files being committed:
 3. **Package-Specific Testing**:
    - Tests only run for packages that have modified files
    - Example: Changes to `k8s/` won't trigger any tests
-   - Example: Changes to `packages/cli/` only run CLI tests
-   - Currently testable packages: cli, tdr-bot
+   - Example: Changes to `packages/tdr-bot/` only run tdr-bot tests
+   - Currently testable packages: tdr-bot, utils
 
 ### Examples
 
@@ -237,9 +236,9 @@ git add k8s/
 
 **Single package TypeScript changes**:
 ```bash
-# Only runs checks for the cli package
-git add packages/cli/src/
-/commit  # Runs: lint (cli), type-check (cli), test (cli), build
+# Only runs checks for the tdr-bot package
+git add packages/tdr-bot/src/
+/commit  # Runs: lint (tdr-bot), type-check (tdr-bot), test (tdr-bot), build
 ```
 
 **Mixed commit (k8s + TypeScript)**:
