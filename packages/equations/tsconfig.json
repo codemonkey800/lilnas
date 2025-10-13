@@ -5,7 +5,10 @@
     "rootDir": "./src",
     "outDir": "./dist",
     "baseUrl": ".",
-    "paths": { "src/*": ["./src/*"] },
+    "paths": {
+      "src/*": ["./src/*"],
+      "__tests__/*": ["./__tests__/*"]
+    },
     "allowJs": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
