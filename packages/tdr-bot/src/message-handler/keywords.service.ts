@@ -14,7 +14,7 @@ import { Message, MessageHandler } from './types'
 @Injectable()
 export class KeywordsService extends BaseMessageHandlerService {
   constructor(
-    protected readonly client: Client,
+    protected override readonly client: Client,
     private readonly retryService: RetryService,
     private readonly errorClassifier: ErrorClassificationService,
   ) {

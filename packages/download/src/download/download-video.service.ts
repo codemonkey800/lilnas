@@ -167,12 +167,12 @@ export class DownloadVideoService {
               'Parsing multi-line JSON output (Instagram posts)',
             )
 
-            const firstLine = result.split('\n')[0]
+            const firstLine = result.split('\n')[0] ?? ''
             const info = VideoInfoSchema.parse(JSON.parse(firstLine))
 
             parsedInfo = {
               title: info.playlist || info.title,
-              description: info.description,
+              description: info.description ?? '',
             }
           }
 
@@ -309,6 +309,7 @@ export class DownloadVideoService {
 
     for (let index = 0; index < files.length; index++) {
       const file = files[index]
+      if (!file) continue
       const args = [
         '-i',
         file,

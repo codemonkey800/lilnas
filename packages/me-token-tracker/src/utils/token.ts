@@ -11,5 +11,5 @@ export async function getMagicEdenTokenPrice() {
     vs_currencies: 'usd',
   })
 
-  return price['magic-eden'].usd
+  return price?.['magic-eden']?.['usd']
 }

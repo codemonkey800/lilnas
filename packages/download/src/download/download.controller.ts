@@ -17,7 +17,6 @@ import {
 import { createZodDto } from 'nestjs-zod'
 
 import { DownloadService } from './download.service'
-import { DownloadSchedulerService } from './download-scheduler.service'
 import { DownloadStateService } from './download-state.service'
 
 class CreateJobInputDto extends createZodDto(CreateDownloadJobInputSchema) {}
@@ -28,7 +27,6 @@ export class DownloadController {
 
   constructor(
     private downloadService: DownloadService,
-    private downloadSchedulerService: DownloadSchedulerService,
     private downloadStateService: DownloadStateService,
   ) {}
 
