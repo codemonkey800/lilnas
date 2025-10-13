@@ -44,53 +44,36 @@ pnpm test:watch
 
 # Test files are located in __tests__ directories
 # Packages with test coverage:
-# - @lilnas/cli - Most comprehensive test coverage
 # - @lilnas/utils - Utility functions testing with Jest
 # - @lilnas/tdr-bot - Message handler and service tests
 # Tests are automatically run in CI for changed packages
 # Coverage reports are generated in coverage/ directories
 ```
 
-### Service Management (lilnas CLI)
+### Service Management
 
 ```bash
-# Execute lilnas CLI directly
-./lilnas
+# Start services in development mode
+docker-compose -f docker-compose.dev.yml up -d
 
-# List all available services
-./lilnas dev ls
-
-# Sync container dependencies (required before first run)
-./lilnas dev sync-deps
-
-# Start specific service in dev mode
-./lilnas dev start <service-name>
+# Start specific service
+docker-compose -f docker-compose.dev.yml up -d <service-name>
 
 # View service logs
-./lilnas dev logs <service-name> -f
+docker-compose -f docker-compose.dev.yml logs -f <service-name>
 
 # Show status of services
-./lilnas dev ps
+docker-compose -f docker-compose.dev.yml ps
 
-# Start a shell within the container
-./lilnas dev shell <service-name>
+# Start a shell within a container
+docker-compose -f docker-compose.dev.yml exec <service-name> sh
 
 # Stop services
-./lilnas dev down
+docker-compose -f docker-compose.dev.yml down
 
 # Production deployment commands
-./lilnas up [services...]      # Deploy a service
-./lilnas down [services...]    # Bring down a service
-
-# Sync iCloud photos to local directory
-./lilnas sync-photos
-
-# IMPORTANT: Service Management Commands
-# When using the lilnas CLI, you can bring up development services:
-# - Bring up services: lilnas dev up -d
-# - Bring down services: lilnas dev down
-# - Clean all images: lilnas dev down --all
-# - Redeploy with fresh source code: lilnas redeploy <service> --rebuild-base
+docker-compose up -d [services...]      # Deploy services
+docker-compose down [services...]       # Bring down services
 ```
 
 ### Individual Package Development
@@ -195,7 +178,6 @@ lilnas is a TypeScript monorepo using pnpm workspaces with Turbo build orchestra
 
 **Development Tools:**
 
-- `@lilnas/cli` - Docker Compose management CLI (yargs-based)
 - `@lilnas/utils` - Shared utilities and types
 - `@lilnas/eslint` - Shared ESLint config
 - `@lilnas/prettier` - Shared Prettier config
@@ -288,20 +270,11 @@ The `@lilnas/tdr-bot` package includes sophisticated AI capabilities:
 - Shared configs ensure consistency across packages
 - Turbo handles build caching and dependency order
 
-### CLI Development
-
-The `lilnas` CLI is implemented as a bash script:
-
-- Bash shell: `./lilnas` (main executable)
-- Implementation: `packages/cli/src/main.ts` (TypeScript)
-- Uses tsx for direct TypeScript execution
-
 ### Docker Development Workflow
 
-1. Run `./lilnas dev sync-deps` to sync container dependencies
-2. Use `./lilnas dev start <service>` for development
-3. Logs available via `./lilnas dev logs <service> -f`
-4. Services auto-reload with volume mounts
+1. Start services with `docker-compose -f docker-compose.dev.yml up -d <service>`
+2. View logs with `docker-compose -f docker-compose.dev.yml logs -f <service>`
+3. Services auto-reload with volume mounts
 
 ### Docker Base Images
 
@@ -330,22 +303,17 @@ The project uses a layered Docker base image system for consistent environments:
 
 **Important: Docker Cache and Source Code Updates**
 
-The `lilnas-monorepo-builder` base image contains a snapshot of the source code. When you make changes to your code and run `lilnas redeploy`, the changes might not be reflected because the base image is cached. To ensure fresh source code is deployed:
+The `lilnas-monorepo-builder` base image contains a snapshot of the source code. When you make changes to your code and redeploy, the changes might not be reflected because the base image is cached. To ensure fresh source code is deployed:
 
 ```bash
-# Option 1: Use the --rebuild-base flag (recommended)
-./lilnas redeploy tdr-bot --rebuild-base
-
-# Option 2: Manually rebuild base images first
+# Option 1: Rebuild base images first (recommended)
 ./infra/base-images/build-base-images.sh
-./lilnas redeploy tdr-bot
+docker-compose up -d --build <service>
 
-# Option 3: Remove all images to force complete rebuild
-./lilnas down --all
-./lilnas up tdr-bot
+# Option 2: Remove all images to force complete rebuild
+docker-compose down --rmi all
+docker-compose up -d <service>
 ```
-
-The `--rebuild-base` flag automatically rebuilds the base images before redeploying, ensuring your latest source code changes are included.
 
 ### Build Process
 

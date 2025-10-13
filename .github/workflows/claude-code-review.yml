@@ -62,7 +62,6 @@ jobs:
           FRONTEND_VITE=false
           BACKEND_NESTJS=false
           FULLSTACK=false
-          CLI_TOOLS=false
           CONFIG_UTILS=false
           INFRA=false
           SECURITY_SENSITIVE=false
@@ -83,9 +82,6 @@ jobs:
             # Full-stack packages
             elif [[ "$file" =~ packages/(tdr-bot|download)/ ]]; then
               FULLSTACK=true
-            # CLI/Tools
-            elif [[ "$file" =~ packages/cli/ ]]; then
-              CLI_TOOLS=true
             # Config/Utils
             elif [[ "$file" =~ packages/(utils|eslint-config-lilnas|prettier-config-lilnas)/ ]]; then
               CONFIG_UTILS=true
@@ -100,7 +96,6 @@ jobs:
           echo "frontend_vite=$FRONTEND_VITE" >> $GITHUB_OUTPUT
           echo "backend_nestjs=$BACKEND_NESTJS" >> $GITHUB_OUTPUT
           echo "fullstack=$FULLSTACK" >> $GITHUB_OUTPUT
-          echo "cli_tools=$CLI_TOOLS" >> $GITHUB_OUTPUT
           echo "config_utils=$CONFIG_UTILS" >> $GITHUB_OUTPUT
           echo "infra=$INFRA" >> $GITHUB_OUTPUT
           echo "security_sensitive=$SECURITY_SENSITIVE" >> $GITHUB_OUTPUT
@@ -110,7 +105,6 @@ jobs:
           echo "- Frontend (Vite): $FRONTEND_VITE"
           echo "- Backend (NestJS): $BACKEND_NESTJS"
           echo "- Full-stack: $FULLSTACK"
-          echo "- CLI/Tools: $CLI_TOOLS"
           echo "- Config/Utils: $CONFIG_UTILS"
           echo "- Infrastructure: $INFRA"
           echo "- Security Sensitive: $SECURITY_SENSITIVE"
@@ -228,21 +222,6 @@ jobs:
           - End-to-end type safety
           - API error handling on the frontend
           - Loading states and optimistic updates"
-          fi
-
-          # Add CLI specific criteria
-          if [ "${{ steps.detect_packages.outputs.cli_tools }}" == "true" ]; then
-            PROMPT="$PROMPT
-
-          ## CLI Tool Review Points
-          - Command structure and yargs configuration
-          - Error messages and user feedback clarity
-          - File system operations safety and error handling
-          - Shell command execution security
-          - Cross-platform compatibility (Windows/Mac/Linux)
-          - Help text completeness and examples
-          - Exit codes and error propagation
-          - Test coverage (especially important for CLI tools)"
           fi
 
           # Add config/utils specific criteria
