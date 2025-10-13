@@ -11,12 +11,23 @@ This document outlines the comprehensive security measures implemented to protec
 - **Zod Schema Validation**: Comprehensive input validation using TypeScript-first schema validation
 - **Dangerous Command Detection**: Blocks LaTeX commands that can execute shell commands or access files
 - **Package Whitelist**: Only allows safe mathematical packages (amsmath, amssymb, etc.)
-- **Content Limits**: 
+- **Content Limits**:
   - Maximum 2000 characters
   - Maximum 50 LaTeX commands
   - Maximum 20 mathematical expressions
   - Maximum 200 characters per line
 - **Structure Validation**: Prevents excessive nesting and ensures balanced braces
+
+#### Validation Strategy: Defense in Depth
+
+The validation layer focuses on blocking valid LaTeX command syntax that poses security risks. Some obfuscation techniques (such as whitespace padding like `\write18  {evil}`) may bypass regex validation. This is acceptable because:
+
+1. **LaTeX Compiler Restrictions**: The LaTeX compiler has strict syntax requirements and will reject malformed commands
+2. **Secure Execution Layer**: The `secure-exec.ts` layer uses `spawn()` without shell, preventing shell interpretation entirely
+3. **Command Whitelisting**: Only `pdflatex` and `convert` commands are allowed
+4. **Restricted TeX Environment**: Uses `-no-shell-escape` and paranoid file access modes
+
+This defense-in-depth approach ensures multiple layers of protection even if one layer is bypassed.
 
 ### 2. Secure Command Execution
 
