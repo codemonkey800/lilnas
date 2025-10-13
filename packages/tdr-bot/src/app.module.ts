@@ -28,26 +28,46 @@ import { EnvKey } from './utils/env'
         const isProduction = env<EnvKey>('NODE_ENV') === 'production'
         const logFilePath = env<EnvKey>('LOG_FILE_PATH', '')
 
-        // Use file logging if path specified, otherwise default stdout
-        if (logFilePath) {
+        // Production: always JSON to stdout for container logging
+        if (isProduction) {
           return {
             pinoHttp: {
-              transport: {
-                target: 'pino/file',
-                options: {
-                  destination: logFilePath,
-                  mkdir: true,
-                },
-              },
-              level: isProduction ? 'info' : 'debug',
+              level: 'info',
             },
           }
         }
 
-        // Default stdout logging - let CLI pipe handle pretty formatting in dev
+        // Development with file logging: pretty to both console and file
+        if (logFilePath) {
+          return {
+            pinoHttp: {
+              transport: {
+                targets: [
+                  {
+                    target: 'pino-pretty',
+                    options: { destination: 1 }, // stdout
+                  },
+                  {
+                    target: 'pino-pretty',
+                    options: {
+                      destination: logFilePath,
+                      mkdir: true,
+                    },
+                  },
+                ],
+              },
+              level: 'debug',
+            },
+          }
+        }
+
+        // Development without file: pino-pretty to stdout
         return {
           pinoHttp: {
-            level: isProduction ? 'info' : 'debug',
+            transport: {
+              target: 'pino-pretty',
+            },
+            level: 'debug',
           },
         }
       })(),
