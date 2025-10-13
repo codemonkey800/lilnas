@@ -1,8 +1,8 @@
 # Optimized Dockerfile using pre-built LaTeX image
-FROM node:24.4.1-bullseye AS base
+FROM node:24.10.0-bullseye AS base
 
 # Install pnpm
-RUN npm install -g pnpm@10.13.1
+RUN npm install -g pnpm@10.18.2
 
 # Build stage  
 FROM base AS deps
@@ -32,7 +32,7 @@ RUN pnpm build --filter=@lilnas/equations
 RUN pnpm --filter=equations --prod deploy /app
 
 # Production stage - use Node base and install LaTeX
-FROM node:24.4.1-bullseye-slim AS production
+FROM node:24.10.0-bullseye-slim AS production
 
 # Install LaTeX packages
 RUN apt-get update && \
@@ -49,7 +49,7 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pnpm
-RUN npm install -g pnpm@10.13.1
+RUN npm install -g pnpm@10.18.2
 
 # Create app user
 RUN groupadd -r app && useradd -r -g app app

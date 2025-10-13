@@ -2,7 +2,7 @@
   "name": "@lilnas/apps",
   "version": "0.2.0",
   "private": true,
-  "packageManager": "pnpm@10.13.1",
+  "packageManager": "pnpm@10.18.2",
   "prettier": "@lilnas/prettier",
   "scripts": {
     "build": "next build",
@@ -19,9 +19,9 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "15.2.3",
+    "next": "15.5.4",
     "node-docker-api": "1.1.22",
-    "react": "19.0.0",
-    "react-dom": "19.0.0"
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
   }
 }

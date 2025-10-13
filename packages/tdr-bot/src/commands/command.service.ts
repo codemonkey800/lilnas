@@ -1,6 +1,5 @@
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import _ from 'lodash'
-import { Client } from 'minio'
 import {
   BooleanOption,
   Context,
@@ -9,7 +8,6 @@ import {
   SlashCommand,
   type SlashCommandContext,
 } from 'necord'
-import { MINIO_CONNECTION } from 'nestjs-minio'
 import { Docker } from 'node-docker-api'
 
 import { getWeeklyCookiesMessage } from 'src/utils/crumbl'
@@ -37,8 +35,6 @@ interface ContainerData {
 @Injectable()
 export class CommandsService {
   private readonly logger = new Logger(CommandsService.name)
-
-  constructor(@Inject(MINIO_CONNECTION) private readonly minioClient: Client) {}
 
   @SlashCommand({
     name: 'cookies',
