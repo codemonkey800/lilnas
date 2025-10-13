@@ -1,7 +1,7 @@
 # Build stage
-FROM node AS dashcam-builder
+FROM node:24.10.0 AS dashcam-builder
 
-ENV PNPM_VERSION="10.13.1"
+ENV PNPM_VERSION="10.18.2"
 
 # Copy the entire monorepo
 COPY ../.. /source
