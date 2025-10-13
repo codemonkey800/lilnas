@@ -4,7 +4,7 @@
   "license": "MIT",
   "private": true,
   "sideEffects": false,
-  "packageManager": "pnpm@10.13.1",
+  "packageManager": "pnpm@10.18.2",
   "prettier": "@lilnas/prettier",
   "files": [
     "./dist"
@@ -24,21 +24,21 @@
   },
   "dependencies": {
     "@lilnas/utils": "workspace:*",
-    "@nestjs/common": "11.0.12",
-    "@nestjs/core": "11.0.12",
-    "@nestjs/platform-express": "11.0.12",
-    "@nestjs/throttler": "^6.0.0",
-    "dotenv": "16.4.7",
-    "fs-extra": "11.3.0",
-    "minio": "8.0.5",
-    "necord": "6.8.8",
+    "@nestjs/common": "11.1.6",
+    "@nestjs/core": "11.1.6",
+    "@nestjs/platform-express": "11.1.6",
+    "@nestjs/throttler": "^6.4.0",
+    "dotenv": "17.2.3",
+    "fs-extra": "11.3.2",
+    "minio": "8.0.6",
+    "necord": "6.11.1",
     "nestjs-minio": "2.6.2",
-    "nestjs-pino": "4.4.0",
+    "nestjs-pino": "4.4.1",
     "npm-run-all": "4.1.5",
-    "pino-http": "10.4.0",
+    "pino-http": "11.0.0",
     "reflect-metadata": "0.2.2",
     "source-map-support": "0.5.21",
-    "ts-pattern": "5.6.2",
-    "zod": "^3.22.0"
+    "ts-pattern": "5.8.0",
+    "zod": "^4.1.12"
   }
 }

@@ -4,7 +4,7 @@
   "license": "MIT",
   "private": true,
   "sideEffects": false,
-  "packageManager": "pnpm@10.13.1",
+  "packageManager": "pnpm@10.18.2",
   "prettier": "@lilnas/prettier",
   "files": [
     "./dist"
@@ -24,23 +24,23 @@
   },
   "dependencies": {
     "@lilnas/utils": "workspace:*",
-    "@nestjs/common": "11.0.12",
-    "@nestjs/core": "11.0.12",
+    "@nestjs/common": "11.1.6",
+    "@nestjs/core": "11.1.6",
     "@nestjs/event-emitter": "3.0.1",
-    "@nestjs/platform-express": "11.0.12",
-    "@nestjs/schedule": "5.0.1",
-    "axios": "1.8.4",
-    "coingecko-api-v3": "0.0.29",
-    "dedent": "1.5.3",
-    "discord.js": "14.18.0",
-    "dotenv": "16.4.7",
+    "@nestjs/platform-express": "11.1.6",
+    "@nestjs/schedule": "6.0.1",
+    "axios": "1.12.2",
+    "coingecko-api-v3": "0.0.31",
+    "dedent": "1.7.0",
+    "discord.js": "14.23.2",
+    "dotenv": "17.2.3",
     "http-server": "14.1.1",
-    "necord": "6.8.8",
-    "nestjs-pino": "4.4.0",
+    "necord": "6.11.1",
+    "nestjs-pino": "4.4.1",
     "npm-run-all": "4.1.5",
-    "pino-http": "10.4.0",
+    "pino-http": "11.0.0",
     "reflect-metadata": "0.2.2",
     "source-map-support": "0.5.21",
-    "ts-pattern": "5.6.2"
+    "ts-pattern": "5.8.0"
   }
 }

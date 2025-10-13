@@ -2,7 +2,7 @@
   "name": "@lilnas/utils",
   "version": "0.2.0",
   "private": true,
-  "packageManager": "pnpm@10.13.1",
+  "packageManager": "pnpm@10.18.2",
   "prettier": "@lilnas/prettier",
   "exports": {
     "./*": "./dist/*.js"
@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "clsx": "2.1.1",
-    "tailwind-merge": "3.0.2",
-    "zod": "3.24.2"
+    "tailwind-merge": "3.3.1",
+    "zod": "4.1.12"
   }
 }

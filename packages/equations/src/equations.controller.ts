@@ -228,13 +228,13 @@ export class EquationsController {
     const validationResult = CreateEquationSchema.safeParse(body)
     if (!validationResult.success) {
       this.logger.warn(
-        { errors: validationResult.error.errors },
+        { errors: validationResult.error.issues },
         'Invalid input received',
       )
       throw new HttpException(
         {
           info: 'Invalid input',
-          errors: validationResult.error.errors.map(e => e.message),
+          errors: validationResult.error.issues.map(e => e.message),
         },
         HttpStatus.BAD_REQUEST,
       )

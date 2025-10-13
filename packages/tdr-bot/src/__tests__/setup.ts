@@ -3,7 +3,7 @@ import 'reflect-metadata'
 import { TextDecoder, TextEncoder } from 'util'
 
 // Polyfill for TextEncoder/TextDecoder
-global.TextEncoder = TextEncoder
+global.TextEncoder = TextEncoder as unknown as typeof globalThis.TextEncoder
 global.TextDecoder = TextDecoder as unknown as typeof globalThis.TextDecoder
 
 // Set test environment variables
