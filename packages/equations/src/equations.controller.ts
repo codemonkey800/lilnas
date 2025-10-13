@@ -1,4 +1,5 @@
 import { env } from '@lilnas/utils/env'
+import { getErrorMessage } from '@lilnas/utils/error'
 import {
   Body,
   Controller,
@@ -19,7 +20,6 @@ import path from 'path'
 
 // Note: We'll handle validation manually in the controller
 import { EnvKey } from './utils/env'
-import { getErrorMessage } from './utils/error'
 import { getLatexTemplate } from './utils/latex'
 import { SecureExecutor } from './utils/secure-exec'
 import {
