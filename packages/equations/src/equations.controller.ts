@@ -1,4 +1,5 @@
 import { env } from '@lilnas/utils/env'
+import { getErrorMessage } from '@lilnas/utils/error'
 import {
   Body,
   Controller,
@@ -19,7 +20,6 @@ import path from 'path'
 
 // Note: We'll handle validation manually in the controller
 import { EnvKey } from './utils/env'
-import { getErrorMessage } from './utils/error'
 import { getLatexTemplate } from './utils/latex'
 import { SecureExecutor } from './utils/secure-exec'
 import {
@@ -35,7 +35,6 @@ export class EquationsController {
 
   // Resource limits
   private static readonly MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB
-  private static readonly LATEX_TIMEOUT = 15000 // 15 seconds
   private static readonly MAX_CONCURRENT_JOBS = 3
 
   private activJobs = new Set<string>()
@@ -44,7 +43,7 @@ export class EquationsController {
 
   private async logBadFile(file: string) {
     const baseDir =
-      process.env.NODE_ENV === 'production'
+      process.env['NODE_ENV'] === 'production'
         ? '/tmp/equations'
         : '/tmp/equations-dev'
     const badFilesDir = path.join(baseDir, 'bad-files')
@@ -59,7 +58,7 @@ export class EquationsController {
   private async storeLatexFile(jobId: string, latexContent: string) {
     try {
       const baseDir =
-        process.env.NODE_ENV === 'production'
+        process.env['NODE_ENV'] === 'production'
           ? '/tmp/equations'
           : '/tmp/equations-dev'
       const latexFilesDir = path.join(baseDir, 'latex-files')
@@ -255,7 +254,7 @@ export class EquationsController {
 
     // Use more secure directory structure
     const baseDir =
-      process.env.NODE_ENV === 'production'
+      process.env['NODE_ENV'] === 'production'
         ? '/tmp/equations'
         : '/tmp/equations-dev'
     const dir = path.join(baseDir, jobId)

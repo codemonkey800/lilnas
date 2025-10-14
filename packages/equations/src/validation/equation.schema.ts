@@ -9,7 +9,7 @@ const PATH_TRAVERSAL_REGEX =
   /\.\.|\/\.\.|~|\/etc\/|\/proc\/|\/sys\/|\/dev\/|\/tmp\/|\\string|\\detokenize/i
 
 // Only allow basic math packages
-const ALLOWED_PACKAGES = [
+export const ALLOWED_PACKAGES = [
   'amsmath',
   'amssymb',
   'amsfonts',

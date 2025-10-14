@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/utils" },
+    { "path": "./packages/apps" },
+    { "path": "./packages/tdr-bot" },
+    { "path": "./packages/equations" },
+    { "path": "./packages/download" },
+    { "path": "./packages/dashcam" },
+    { "path": "./packages/me-token-tracker" }
+  ]
+}

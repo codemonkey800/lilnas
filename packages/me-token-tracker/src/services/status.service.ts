@@ -19,7 +19,7 @@ export class StatusService {
     }
 
     const price = await getMagicEdenTokenPrice()
-    const formattedPrice = price.toFixed(2)
+    const formattedPrice = price?.toFixed(2) ?? '0.00'
 
     this.logger.log({
       info: 'Setting price activity',
