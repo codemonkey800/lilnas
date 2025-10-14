@@ -163,6 +163,7 @@ export class SecureExecutor {
       /^\d+%?$/, // percentages and numbers
       /^#[0-9a-fA-F]{6}$/, // hex colors
       /^rgb\(\d+,\d+,\d+\)$/, // rgb colors
+      /^[a-zA-Z0-9]+:[a-zA-Z0-9_=-]+$/, // ImageMagick -define args like png:compression-level=6
     ]
 
     // Allow known safe patterns
@@ -172,21 +173,49 @@ export class SecureExecutor {
       }
     }
 
-    // Remove or escape dangerous characters for other args
-    const dangerous = /[;&|`$(){}[\]'"\\]/g
-    if (dangerous.test(arg)) {
+    let sanitized = arg
+
+    // Check for path traversal attempts (e.g., ../, ..\)
+    if (
+      sanitized.includes('..') &&
+      (sanitized.includes('/') || sanitized.includes('\\'))
+    ) {
       this.logger.warn(
-        { arg },
+        { arg: sanitized },
+        'Argument contains path traversal pattern',
+      )
+      // Extract basename and normalize path separators for cross-platform handling
+      const normalized = sanitized.replace(/\\/g, '/')
+      sanitized = path.basename(normalized)
+    }
+
+    // Check for absolute paths (should use basename only for security)
+    if (sanitized.startsWith('/') || /^[A-Za-z]:\\/.test(sanitized)) {
+      this.logger.warn({ arg: sanitized }, 'Argument contains absolute path')
+      const normalized = sanitized.replace(/\\/g, '/')
+      sanitized = path.basename(normalized)
+    }
+
+    // Remove or escape dangerous characters
+    // Include colon to prevent ImageMagick coder attacks (msl:, ephemeral:, etc.)
+    // Include null bytes, newlines, and other control characters
+    // eslint-disable-next-line no-control-regex
+    const dangerous = /[;&|`$(){}[\]'":>\\<\x00\n\r]/g
+    if (dangerous.test(sanitized)) {
+      this.logger.warn(
+        { arg: sanitized },
         'Argument contains potentially dangerous characters',
       )
       // For file paths, use basename only
-      if (arg.includes('/') || arg.includes('\\')) {
-        return path.basename(arg)
+      if (sanitized.includes('/') || sanitized.includes('\\')) {
+        const normalized = sanitized.replace(/\\/g, '/')
+        sanitized = path.basename(normalized)
       }
-      // For other args, remove dangerous chars (but preserve < and > for ImageMagick)
-      return arg.replace(dangerous, '')
+      // Remove dangerous chars
+      sanitized = sanitized.replace(dangerous, '')
     }
-    return arg
+
+    return sanitized
   }
 
   /**
