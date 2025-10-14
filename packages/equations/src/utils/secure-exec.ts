@@ -87,6 +87,7 @@ export class SecureExecutor {
       child.stdout?.on('data', (data: Buffer) => {
         stdout += data.toString()
         if (stdout.length > maxBuffer) {
+          clearTimeout(timeoutHandle)
           child.kill('SIGKILL')
           reject(new Error('Output buffer exceeded maximum size'))
         }
@@ -96,6 +97,7 @@ export class SecureExecutor {
       child.stderr?.on('data', (data: Buffer) => {
         stderr += data.toString()
         if (stderr.length > maxBuffer) {
+          clearTimeout(timeoutHandle)
           child.kill('SIGKILL')
           reject(new Error('Error buffer exceeded maximum size'))
         }

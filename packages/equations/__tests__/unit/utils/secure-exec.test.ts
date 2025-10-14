@@ -49,11 +49,21 @@ function createMockChildProcess(config: MockChildProcessConfig = {}) {
   mockChild.stderr = mockStderr as any
   mockChild.kill = jest.fn()
 
-  // Simulate process execution
-  setImmediate(() => {
+  // Simulate process execution - use setTimeout with small delay
+  // This ensures listeners are attached before events are emitted
+  const mainTimeout = setTimeout(() => {
     // Emit error if configured
     if (config.error) {
-      mockChild.emit('error', config.error)
+      // Wait a bit longer to ensure error listener is attached in safeExec
+      const errorTimeout = setTimeout(() => {
+        mockChild.emit('error', config.error)
+        // Also emit close event with error code after a brief delay
+        const closeTimeout = setTimeout(() => {
+          mockChild.emit('close', 1, null)
+        }, 10)
+        closeTimeout.unref()
+      }, 15)
+      errorTimeout.unref()
       return
     }
 
@@ -74,26 +84,30 @@ function createMockChildProcess(config: MockChildProcessConfig = {}) {
     // Emit stdout data
     if (config.stdout !== undefined) {
       const delay = config.stdoutDelay ?? 0
-      setTimeout(() => {
+      const stdoutTimeout = setTimeout(() => {
         mockStdout.emit('data', Buffer.from(config.stdout!))
       }, delay)
+      stdoutTimeout.unref()
     }
 
     // Emit stderr data
     if (config.stderr !== undefined) {
       const delay = config.stderrDelay ?? 0
-      setTimeout(() => {
+      const stderrTimeout = setTimeout(() => {
         mockStderr.emit('data', Buffer.from(config.stderr!))
       }, delay)
+      stderrTimeout.unref()
     }
 
     // Emit close event
     const closeDelay = config.delay ?? 10
-    setTimeout(() => {
+    const closeTimeout = setTimeout(() => {
       const exitCode = config.exitCode !== undefined ? config.exitCode : 0
       mockChild.emit('close', exitCode, config.signal ?? null)
     }, closeDelay)
-  })
+    closeTimeout.unref()
+  }, 5) // Small initial delay to ensure spawn completes
+  mainTimeout.unref()
 
   return mockChild
 }
@@ -149,6 +163,7 @@ describe('SecureExecutor', () => {
 
   afterEach(() => {
     jest.restoreAllMocks()
+    jest.useRealTimers()
   })
 
   describe('safeExec - Command Whitelisting', () => {
@@ -1936,9 +1951,10 @@ describe('SecureExecutor', () => {
 
       const promise = executor.compilePdfLatex('test.tex', '/tmp/workdir')
 
-      await Promise.resolve()
-      jest.runOnlyPendingTimers()
-      jest.advanceTimersByTime(30000) // Convert timeout is 30s
+      // Advance timers to complete pdflatex
+      await jest.advanceTimersByTimeAsync(100)
+      // Advance timers to trigger convert timeout (30s)
+      await jest.advanceTimersByTimeAsync(31000)
 
       const result = await promise
       // Should return PDF result even though convert timed out
