@@ -158,12 +158,12 @@ export class DownloadService {
               'Parsing multi-line JSON output (Instagram posts)',
             )
 
-            const firstLine = result.split('\n')[0]
+            const firstLine = result.split('\n')[0] ?? ''
             const info = VideoInfoSchema.parse(JSON.parse(firstLine))
 
             parsedInfo = {
               title: info.playlist || info.title,
-              description: info.description,
+              description: info.description ?? '',
             }
           }
 
@@ -277,7 +277,6 @@ export class DownloadService {
     job.proc.removeAllListeners('close')
     job.proc.once('close', () => {
       this.downloadStateService.updateJob(job.id, {
-        proc: undefined,
         status: DownloadJobStatus.Cancelled,
       })
 

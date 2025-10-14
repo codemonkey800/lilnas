@@ -1,32 +1,21 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "allowJs": true,
-    "allowSyntheticDefaultImports": true,
+    "composite": true,
+    "rootDir": "./src",
+    "outDir": "./dist",
     "baseUrl": ".",
-    "declaration": true,
+    "paths": { "src/*": ["./src/*"] },
+    "allowJs": true,
     "emitDecoratorMetadata": true,
-    "esModuleInterop": true,
     "experimentalDecorators": true,
-    "forceConsistentCasingInFileNames": false,
-    "incremental": true,
     "isolatedModules": true,
     "lib": ["dom", "dom.iterable", "esnext"],
     "module": "Preserve",
     "moduleResolution": "bundler",
-    "noEmit": true,
-    "noFallthroughCasesInSwitch": false,
-    "noImplicitAny": true,
-    "noImplicitReturns": true,
-    "noImplicitThis": true,
-    "outDir": "./dist",
-    "paths": { "src/*": ["./src/*"] },
     "removeComments": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "sourceMap": true,
-    "strict": true,
-    "target": "ESNext"
+    "resolveJsonModule": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "dist"]
 }

@@ -20,6 +20,9 @@
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
     "start": "NODE_ENV=production node dist/main",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
@@ -40,5 +43,9 @@
     "source-map-support": "0.5.21",
     "ts-pattern": "5.8.0",
     "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/supertest": "^6.0.2",
+    "supertest": "^7.0.0"
   }
 }

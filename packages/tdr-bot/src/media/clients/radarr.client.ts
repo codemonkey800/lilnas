@@ -30,8 +30,8 @@ export class RadarrClient extends BaseMediaApiClient {
   protected readonly circuitBreakerKey = 'radarr-api'
 
   constructor(
-    protected readonly retryService: RetryService,
-    protected readonly errorClassifier: ErrorClassificationService,
+    protected override readonly retryService: RetryService,
+    protected override readonly errorClassifier: ErrorClassificationService,
     private readonly retryConfigService: RetryConfigService,
   ) {
     super(retryService, errorClassifier)

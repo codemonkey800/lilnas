@@ -23,7 +23,7 @@ const INITIAL_SEND_TYPING_COUNT = 1
 @Injectable()
 export class ChatService extends BaseMessageHandlerService {
   constructor(
-    protected readonly client: Client,
+    protected override readonly client: Client,
     private readonly llm: LLMOrchestrationService,
     private readonly retryService: RetryService,
     private readonly errorClassifier: ErrorClassificationService,
