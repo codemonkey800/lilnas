@@ -29,6 +29,7 @@
     "start:frontend": "node server.js",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
     "test:integration": "jest --testPathPattern=integration",
     "test:ytdlp-update": "jest --testPathPattern=ytdlp-update",
     "test:ytdlp-update:docker": "docker build -f src/ytdlp-update/__tests__/Dockerfile.test -t ytdlp-update-test . && docker run --rm ytdlp-update-test",
