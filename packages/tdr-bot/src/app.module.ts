@@ -82,7 +82,7 @@ import { EnvKey } from './utils/env'
       useSSL: false,
     }),
     NecordModule.forRoot({
-      development: [env<EnvKey>('DISCORD_DEV_GUILD_ID', '')],
+      development: [env<EnvKey>('DISCORD_GUILD_ID', '')],
       token: env<EnvKey>('DISCORD_API_TOKEN'),
       intents: [
         IntentsBitField.Flags.GuildMessages,
