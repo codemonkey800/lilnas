@@ -285,9 +285,10 @@ export class LLMOrchestrationService {
    */
   private async getModelDefaultResponse({
     messages,
+    message,
     prevMessages,
   }: typeof OverallStateAnnotation.State) {
-    const allMessages = (prevMessages ?? []).concat(messages)
+    const allMessages = (prevMessages ?? []).concat(messages).concat(message)
 
     this.logger.log('Getting response from model')
     const response = await this.retryService.executeWithRetry(
