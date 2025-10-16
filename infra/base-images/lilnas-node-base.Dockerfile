@@ -1,4 +1,4 @@
-FROM node:24.10.0-slim
+FROM node:25.0.0-slim
 ENV PNPM_VERSION="10.18.2"
 RUN npm install -g pnpm@${PNPM_VERSION}
 

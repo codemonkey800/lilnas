@@ -1,5 +1,5 @@
 # Test Docker image for yt-dlp update integration tests
-FROM node:24.10.0-alpine
+FROM node:25.0.0-alpine
 
 # Install basic tools and pnpm
 RUN apk add --no-cache curl bash
