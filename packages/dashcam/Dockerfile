@@ -1,5 +1,5 @@
 # Build stage
-FROM node:24.10.0 AS dashcam-builder
+FROM node:25.0.0 AS dashcam-builder
 
 ENV PNPM_VERSION="10.18.2"
 
