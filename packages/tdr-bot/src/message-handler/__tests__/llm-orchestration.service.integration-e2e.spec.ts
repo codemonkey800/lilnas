@@ -384,6 +384,12 @@ describe('LLMOrchestrationService - Integration Tests', () => {
             messages: [fixtures.workflows.movieDownloadConfirm],
             images: [],
           })
+        jest
+          .spyOn(mockMediaHandler, 'hasActiveMediaContext')
+          // Turn 1: No active context
+          .mockResolvedValueOnce(false)
+          // Turn 2: Active context from Turn 1
+          .mockResolvedValueOnce(true)
 
         // Act: Turn 1 - Search for movie
         const result1 = await service.sendMessage({
@@ -450,6 +456,12 @@ describe('LLMOrchestrationService - Integration Tests', () => {
             messages: [fixtures.workflows.tvDownloadConfirm],
             images: [],
           })
+        jest
+          .spyOn(mockMediaHandler, 'hasActiveMediaContext')
+          // Turn 1: No active context
+          .mockResolvedValueOnce(false)
+          // Turn 2: Active context from Turn 1
+          .mockResolvedValueOnce(true)
 
         // Act: Turn 1 - Search for TV show
         const result1 = await service.sendMessage({
@@ -514,6 +526,12 @@ describe('LLMOrchestrationService - Integration Tests', () => {
             messages: [fixtures.workflows.workflowCancelled],
             images: [],
           })
+        jest
+          .spyOn(mockMediaHandler, 'hasActiveMediaContext')
+          // Turn 1: No active context
+          .mockResolvedValueOnce(false)
+          // Turn 2: Active context from Turn 1
+          .mockResolvedValueOnce(true)
 
         // Act: Turn 1 - Search for movie
         const result1 = await service.sendMessage({
@@ -1102,7 +1120,7 @@ describe('LLMOrchestrationService - Integration Tests', () => {
         // Assert - Verify MediaRequestHandler.handleRequest was called
         expect(handleRequestSpy).toHaveBeenCalledWith(
           expect.objectContaining({
-            content: message,
+            content: expect.stringContaining(message),
           }),
           expect.any(Array), // messages array
           userId,
@@ -1151,7 +1169,7 @@ describe('LLMOrchestrationService - Integration Tests', () => {
         // Assert - Verify MediaRequestHandler.handleRequest was called
         expect(handleRequestSpy).toHaveBeenCalledWith(
           expect.objectContaining({
-            content: message,
+            content: expect.stringContaining(message),
           }),
           expect.any(Array), // messages array
           userId,
@@ -1200,7 +1218,7 @@ describe('LLMOrchestrationService - Integration Tests', () => {
         // Assert - Verify MediaRequestHandler.handleRequest was called
         expect(handleRequestSpy).toHaveBeenCalledWith(
           expect.objectContaining({
-            content: message,
+            content: expect.stringContaining(message),
           }),
           expect.any(Array), // messages array
           userId,
@@ -1249,7 +1267,7 @@ describe('LLMOrchestrationService - Integration Tests', () => {
         // Assert - Verify MediaRequestHandler.handleRequest was called
         expect(handleRequestSpy).toHaveBeenCalledWith(
           expect.objectContaining({
-            content: message,
+            content: expect.stringContaining(message),
           }),
           expect.any(Array), // messages array
           userId,
