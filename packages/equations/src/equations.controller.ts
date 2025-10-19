@@ -18,8 +18,8 @@ import { Client } from 'minio'
 import { MINIO_CONNECTION } from 'nestjs-minio'
 import path from 'path'
 
+import { EnvKeys } from './env'
 // Note: We'll handle validation manually in the controller
-import { EnvKey } from './utils/env'
 import { getLatexTemplate } from './utils/latex'
 import { SecureExecutor } from './utils/secure-exec'
 import {
@@ -43,7 +43,7 @@ export class EquationsController {
 
   private async logBadFile(file: string) {
     const baseDir =
-      process.env['NODE_ENV'] === 'production'
+      env(EnvKeys.NODE_ENV) === 'production'
         ? '/tmp/equations'
         : '/tmp/equations-dev'
     const badFilesDir = path.join(baseDir, 'bad-files')
@@ -58,7 +58,7 @@ export class EquationsController {
   private async storeLatexFile(jobId: string, latexContent: string) {
     try {
       const baseDir =
-        process.env['NODE_ENV'] === 'production'
+        env(EnvKeys.NODE_ENV) === 'production'
           ? '/tmp/equations'
           : '/tmp/equations-dev'
       const latexFilesDir = path.join(baseDir, 'latex-files')
@@ -241,7 +241,7 @@ export class EquationsController {
 
     const validatedBody = validationResult.data
     // Validate authentication
-    if (validatedBody.token !== env<EnvKey>('API_TOKEN')) {
+    if (validatedBody.token !== env(EnvKeys.API_TOKEN)) {
       this.logger.warn(
         { ip: 'unknown', timestamp: new Date().toISOString() },
         'Unauthorized equation creation attempt',
@@ -254,7 +254,7 @@ export class EquationsController {
 
     // Use more secure directory structure
     const baseDir =
-      process.env['NODE_ENV'] === 'production'
+      env(EnvKeys.NODE_ENV) === 'production'
         ? '/tmp/equations'
         : '/tmp/equations-dev'
     const dir = path.join(baseDir, jobId)
@@ -311,7 +311,7 @@ export class EquationsController {
         jobId,
         bucket,
         file: filename,
-        url: `${env('MINIO_PUBLIC_URL')}/${bucket}/${filename}`,
+        url: `${env(EnvKeys.MINIO_PUBLIC_URL)}/${bucket}/${filename}`,
         generatedAt: new Date().toISOString(),
       }
     } catch (err) {

@@ -22,7 +22,7 @@ import {
 } from 'necord'
 import { MINIO_CONNECTION } from 'nestjs-minio'
 
-import { EnvKey } from 'src/utils/env'
+import { EnvKeys } from 'src/env'
 
 const DOWNLOAD_URL =
   process.env.NODE_ENV === 'production'
@@ -228,7 +228,7 @@ export class DownloadCommandService {
       return
     }
 
-    if (iteration == +env<EnvKey>('DOWNLOAD_POLL_RETRIES')) {
+    if (iteration == +env(EnvKeys.DOWNLOAD_POLL_RETRIES)) {
       this.logger.log(
         { id, job, iteration },
         'download job iteration maxed out',
@@ -286,7 +286,7 @@ export class DownloadCommandService {
           interaction,
           jobId,
         }),
-      +env<EnvKey>('DOWNLOAD_POLL_DURATION_MS'),
+      +env(EnvKeys.DOWNLOAD_POLL_DURATION_MS),
     )
   }
 

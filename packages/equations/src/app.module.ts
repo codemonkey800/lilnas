@@ -4,9 +4,9 @@ import { ThrottlerModule } from '@nestjs/throttler'
 import { NestMinioModule } from 'nestjs-minio'
 import { LoggerModule } from 'nestjs-pino'
 
+import { EnvKeys } from './env'
 import { EquationsController } from './equations.controller'
 import { HealthController } from './health.controller'
-import { EnvKey } from './utils/env'
 
 @Module({
   imports: [
@@ -29,11 +29,11 @@ import { EnvKey } from './utils/env'
       },
     ]),
     NestMinioModule.register({
-      accessKey: env<EnvKey>('MINIO_ACCESS_KEY'),
-      endPoint: env<EnvKey>('MINIO_HOST'),
+      accessKey: env(EnvKeys.MINIO_ACCESS_KEY),
+      endPoint: env(EnvKeys.MINIO_HOST),
       isGlobal: true,
-      port: +env<EnvKey>('MINIO_PORT'),
-      secretKey: env<EnvKey>('MINIO_SECRET_KEY'),
+      port: +env(EnvKeys.MINIO_PORT),
+      secretKey: env(EnvKeys.MINIO_SECRET_KEY),
       useSSL: false,
     }),
   ],

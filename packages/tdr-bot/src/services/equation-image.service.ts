@@ -6,7 +6,7 @@ import { nanoid } from 'nanoid'
 import { performance } from 'perf_hooks'
 import { z } from 'zod'
 
-import { EnvKey } from 'src/utils/env'
+import { EnvKeys } from 'src/env'
 import {
   ErrorCategory,
   ErrorClassificationService,
@@ -61,7 +61,7 @@ export class EquationImageService {
     const start = performance.now()
 
     try {
-      const url = `${env<EnvKey>('EQUATIONS_URL')}/equations`
+      const url = `${env(EnvKeys.EQUATIONS_URL)}/equations`
 
       const response = await this.retryService.executeWithCircuitBreaker(
         () =>
@@ -69,7 +69,7 @@ export class EquationImageService {
             url,
             {
               latex,
-              token: env<EnvKey>('EQUATIONS_API_KEY'),
+              token: env(EnvKeys.EQUATIONS_API_KEY),
             },
             {
               timeout: 10000, // 10 second timeout

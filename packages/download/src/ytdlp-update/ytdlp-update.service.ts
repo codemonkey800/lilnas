@@ -9,7 +9,7 @@ import { chmod, copy, move, pathExists, remove } from 'fs-extra'
 import { gt } from 'semver'
 
 import { DownloadStateService } from 'src/download/download-state.service'
-import { EnvKey } from 'src/utils/env'
+import { EnvKeys } from 'src/env'
 
 import { GitHubRelease, UpdateCheckResult, UpdateResult } from './types'
 
@@ -29,11 +29,10 @@ export class YtdlpUpdateService {
 
   constructor(private readonly downloadStateService: DownloadStateService) {}
 
-  @Cron(env<EnvKey>('YTDLP_UPDATE_CRON', CronExpression.EVERY_DAY_AT_3AM))
+  @Cron(env(EnvKeys.YTDLP_UPDATE_CRON, CronExpression.EVERY_DAY_AT_3AM))
   async scheduledUpdateCheck(): Promise<void> {
     const action = 'scheduledUpdateCheck'
-    const isEnabled =
-      env<EnvKey>('YTDLP_AUTO_UPDATE_ENABLED', 'true') === 'true'
+    const isEnabled = env(EnvKeys.YTDLP_AUTO_UPDATE_ENABLED, 'true') === 'true'
 
     if (!isEnabled) {
       this.logger.log({ action }, 'Auto-update is disabled, skipping check')
@@ -506,8 +505,8 @@ export class YtdlpUpdateService {
 
   private scheduleRetry(): void {
     const action = 'scheduleRetry'
-    const maxRetries = +env<EnvKey>('YTDLP_UPDATE_MAX_RETRIES', '24')
-    const retryInterval = +env<EnvKey>('YTDLP_UPDATE_RETRY_INTERVAL', '3600000') // 1 hour
+    const maxRetries = +env(EnvKeys.YTDLP_UPDATE_MAX_RETRIES, '24')
+    const retryInterval = +env(EnvKeys.YTDLP_UPDATE_RETRY_INTERVAL, '3600000') // 1 hour
 
     if (this.updateRetryCount >= maxRetries) {
       this.logger.warn(

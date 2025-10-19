@@ -8,7 +8,7 @@ import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 import { match } from 'ts-pattern'
 
-import { EnvKey } from 'src/utils/env'
+import { EnvKeys } from 'src/env'
 
 import { DownloadStateService } from './download-state.service'
 import { DownloadVideoService } from './download-video.service'
@@ -120,7 +120,7 @@ export class DownloadSchedulerService {
       return
     }
 
-    const maxDownloads = +env<EnvKey>('MAX_DOWNLOADS')
+    const maxDownloads = +env(EnvKeys.MAX_DOWNLOADS)
     if (inProgressJobs.size >= maxDownloads) {
       this.logger.log(
         {

@@ -10,12 +10,12 @@ import { LoggerModule } from 'nestjs-pino'
 import { ApiModule } from './api/api.module'
 import { AppEventsService } from './app-events.service'
 import { CommandsModule } from './commands/commands.module'
+import { EnvKeys } from './env'
 import { MediaModule } from './media/media.module'
 import { MessageHandlerModule } from './message-handler/message-handler.module'
 import { SchedulesModule } from './schedules/schedules.module'
 import { ServicesModule } from './services/services.module'
 import { StateModule } from './state/state.module'
-import { EnvKey } from './utils/env'
 
 @Module({
   imports: [
@@ -25,8 +25,8 @@ import { EnvKey } from './utils/env'
     EventEmitterModule.forRoot(),
     LoggerModule.forRoot(
       (() => {
-        const isProduction = env<EnvKey>('NODE_ENV') === 'production'
-        const logFilePath = env<EnvKey>('LOG_FILE_PATH', '')
+        const isProduction = env(EnvKeys.NODE_ENV) === 'production'
+        const logFilePath = env(EnvKeys.LOG_FILE_PATH, '')
 
         // Production: always JSON to stdout for container logging
         if (isProduction) {
@@ -74,16 +74,16 @@ import { EnvKey } from './utils/env'
     ),
     MessageHandlerModule,
     NestMinioModule.register({
-      accessKey: env<EnvKey>('MINIO_ACCESS_KEY'),
-      endPoint: env<EnvKey>('MINIO_HOST'),
+      accessKey: env(EnvKeys.MINIO_ACCESS_KEY),
+      endPoint: env(EnvKeys.MINIO_HOST),
       isGlobal: true,
-      port: +env<EnvKey>('MINIO_PORT'),
-      secretKey: env<EnvKey>('MINIO_SECRET_KEY'),
+      port: +env(EnvKeys.MINIO_PORT),
+      secretKey: env(EnvKeys.MINIO_SECRET_KEY),
       useSSL: false,
     }),
     NecordModule.forRoot({
-      development: [env<EnvKey>('DISCORD_GUILD_ID', '')],
-      token: env<EnvKey>('DISCORD_API_TOKEN'),
+      development: [env(EnvKeys.DISCORD_GUILD_ID, '')],
+      token: env(EnvKeys.DISCORD_API_TOKEN),
       intents: [
         IntentsBitField.Flags.GuildMessages,
         IntentsBitField.Flags.Guilds,
