@@ -1,5 +1,5 @@
 import { BaseMessage, HumanMessage } from '@langchain/core/messages'
-import { Annotation } from '@langchain/langgraph'
+import { Annotation, messagesStateReducer } from '@langchain/langgraph'
 import { z } from 'zod'
 
 export enum GraphNode {
@@ -70,11 +70,12 @@ export const OutputStateAnnotation = Annotation.Root({
 })
 
 export const OverallStateAnnotation = Annotation.Root({
-  ...InputStateAnnotation.spec,
-  ...OutputStateAnnotation.spec,
-  message: Annotation<HumanMessage>(),
-  prevMessages: Annotation<BaseMessage[]>,
-  responseType: Annotation<ResponseType>,
+  messages: Annotation<BaseMessage[]>({
+    reducer: messagesStateReducer,
+  }),
   userInput: Annotation<string>,
   userId: Annotation<string>,
+  images: Annotation<ImageResponse[]>,
+  message: Annotation<HumanMessage>(),
+  responseType: Annotation<ResponseType>,
 })

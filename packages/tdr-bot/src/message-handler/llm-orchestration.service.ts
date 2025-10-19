@@ -286,9 +286,8 @@ export class LLMOrchestrationService {
   private async getModelDefaultResponse({
     messages,
     message,
-    prevMessages,
   }: typeof OverallStateAnnotation.State) {
-    const allMessages = (prevMessages ?? []).concat(messages).concat(message)
+    const allMessages = messages.concat(message)
 
     this.logger.log('Getting response from model')
     const response = await this.retryService.executeWithRetry(
@@ -303,13 +302,8 @@ export class LLMOrchestrationService {
     )
     this.logger.log('Got response from model')
 
-    const messagesWithResponse = allMessages.concat(response)
-
-    // Store previous messages in state because tools node loses that info somehow
-    // TODO fix issue with messages being erased from state.
     return {
-      messages: messagesWithResponse,
-      prevMessages: messagesWithResponse,
+      messages: [message, response],
     }
   }
 
@@ -402,7 +396,7 @@ export class LLMOrchestrationService {
           ...image,
           parentId: chatResponse.id,
         })),
-        messages: messages.concat(chatResponse),
+        messages: [chatResponse],
       }
     } catch (err) {
       this.logger.error(
@@ -426,7 +420,7 @@ export class LLMOrchestrationService {
 
       return {
         images: [],
-        messages: messages.concat(errorMessage),
+        messages: [errorMessage],
       }
     }
   }
@@ -501,7 +495,7 @@ export class LLMOrchestrationService {
             },
           ]
         : [],
-      messages: messages.concat(chatResponse),
+      messages: [chatResponse],
     }
   }
 
