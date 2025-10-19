@@ -1,8 +1,9 @@
+import { YtdlpTestHelper } from 'src/ytdlp-update/__tests__/helpers/ytdlp-test.helper'
 import { GitHubRelease } from 'src/ytdlp-update/types'
 
 export const mockGitHubRelease: GitHubRelease = {
-  tag_name: '2024.1.15',
-  name: 'Release 2024.1.15',
+  tag_name: YtdlpTestHelper.MOCK_MODERATE_VERSION,
+  name: `Release ${YtdlpTestHelper.MOCK_MODERATE_VERSION}`,
   published_at: '2024-01-15T12:00:00Z',
   assets: [
     {
@@ -21,8 +22,8 @@ export const mockGitHubRelease: GitHubRelease = {
 }
 
 export const mockOlderGitHubRelease: GitHubRelease = {
-  tag_name: '2024.1.10',
-  name: 'Release 2024.1.10',
+  tag_name: YtdlpTestHelper.MOCK_OLDER_VERSION,
+  name: `Release ${YtdlpTestHelper.MOCK_OLDER_VERSION}`,
   published_at: '2024-01-10T12:00:00Z',
   assets: [
     {
@@ -35,8 +36,8 @@ export const mockOlderGitHubRelease: GitHubRelease = {
 }
 
 export const mockNewerGitHubRelease: GitHubRelease = {
-  tag_name: '2024.2.1',
-  name: 'Release 2024.2.1',
+  tag_name: YtdlpTestHelper.MOCK_NEWER_VERSION,
+  name: `Release ${YtdlpTestHelper.MOCK_NEWER_VERSION}`,
   published_at: '2024-02-01T12:00:00Z',
   assets: [
     {
