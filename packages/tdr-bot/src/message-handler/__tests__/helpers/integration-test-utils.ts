@@ -1,4 +1,4 @@
-import { BaseMessage } from '@langchain/core/messages'
+import { BaseMessage, SystemMessage } from '@langchain/core/messages'
 import { ChatOpenAI, DallEAPIWrapper } from '@langchain/openai'
 import { Test, TestingModule } from '@nestjs/testing'
 
@@ -80,10 +80,12 @@ export async function setupIntegrationTest(
   const mockStateService = {
     getState: jest.fn().mockReturnValue(mockState),
     setState: jest.fn(),
-    getPrompt: jest.fn().mockReturnValue({
-      id: 'tdr-system-prompt',
-      content: 'You are TDR, a helpful AI assistant.',
-    }),
+    getPrompt: jest.fn().mockReturnValue(
+      new SystemMessage({
+        id: 'tdr-system-prompt',
+        content: 'You are TDR, a helpful AI assistant.',
+      }),
+    ),
   } as unknown as StateService
 
   // Mock EquationImageService
@@ -102,6 +104,7 @@ export async function setupIntegrationTest(
       messages: [],
       images: [],
     }),
+    hasActiveMediaContext: jest.fn().mockResolvedValue(false),
     ...setup.serviceMocks?.mediaRequestHandler,
   } as unknown as MediaRequestHandler
 
