@@ -106,7 +106,7 @@ describe('YtdlpUpdateService', () => {
 
       expect(result).toEqual({
         currentVersion,
-        latestVersion: '2024.2.1',
+        latestVersion: mockNewerGitHubRelease.tag_name,
         updateAvailable: true,
         canUpdate: false,
         reason: 'Downloads in progress',
@@ -297,7 +297,7 @@ describe('YtdlpUpdateService', () => {
       mockSpawn.mockImplementation(() => {
         const proc = new MockChildProcess()
         setTimeout(() => {
-          proc.stdout.emit('data', Buffer.from('2024.2.1'))
+          proc.stdout.emit('data', Buffer.from(mockNewerGitHubRelease.tag_name))
           proc.emit('close', 0)
         }, 10)
         return proc as unknown as ChildProcess

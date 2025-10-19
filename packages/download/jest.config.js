@@ -8,6 +8,7 @@ module.exports = {
     '!**/__tests__/setup.ts',
     '!**/__tests__/test-utils.ts',
     '!**/__tests__/fixtures/**/*',
+    '!**/__tests__/helpers/**/*',
   ],
   transform: {
     '^.+\\.ts$': [
