@@ -28,9 +28,8 @@
     "start": "run-p start:*",
     "start:backend": "node dist/main",
     "start:frontend": "node server.js",
-    "test": "jest --testPathIgnorePatterns=integration-e2e",
-    "test:integration": "jest --testPathPattern=integration-e2e --runInBand",
-    "test:watch": "jest --watch --testPathIgnorePatterns=integration-e2e",
+    "test": "jest",
+    "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "type-check": "tsc --noEmit"
   },
