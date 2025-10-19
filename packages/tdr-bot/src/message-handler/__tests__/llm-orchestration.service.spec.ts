@@ -6,7 +6,11 @@ jest.unmock('@langchain/langgraph/prebuilt')
 jest.mock('@langchain/openai')
 jest.mock('@langchain/community/tools/tavily_search')
 
-import { AIMessage, HumanMessage } from '@langchain/core/messages'
+import {
+  AIMessage,
+  HumanMessage,
+  SystemMessage,
+} from '@langchain/core/messages'
 import { ChatOpenAI } from '@langchain/openai'
 import { Test, TestingModule } from '@nestjs/testing'
 
@@ -85,10 +89,12 @@ describe('LLMOrchestrationService - Unit Tests', () => {
         userTvShowDeleteContexts: new Map(),
       }),
       setState: jest.fn(),
-      getPrompt: jest.fn().mockReturnValue({
-        id: 'system-prompt',
-        content: 'You are TDR, a helpful assistant.',
-      }),
+      getPrompt: jest.fn().mockReturnValue(
+        new SystemMessage({
+          id: 'system-prompt',
+          content: 'You are TDR, a helpful assistant.',
+        }),
+      ),
     } as unknown as jest.Mocked<StateService>
 
     mockEquationImage = {
