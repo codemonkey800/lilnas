@@ -13,10 +13,6 @@ export function createMockAppState(overrides?: Partial<AppState>): AppState {
     reasoningModel: 'gpt-4o-mini',
     prompt: KAWAII_PROMPT,
     temperature: DEFAULT_CHAT_TEMPERATURE,
-    userMovieContexts: new Map(),
-    userMovieDeleteContexts: new Map(),
-    userTvShowContexts: new Map(),
-    userTvShowDeleteContexts: new Map(),
     ...overrides,
   }
 }

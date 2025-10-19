@@ -721,10 +721,6 @@ describe('LLMOrchestrationService - Unit Tests', () => {
         maxTokens: 4096,
         prompt: 'You are TDR, a helpful assistant.',
         graphHistory: [{ messages: existingHistory, images: [] }],
-        userMovieContexts: new Map(),
-        userMovieDeleteContexts: new Map(),
-        userTvShowContexts: new Map(),
-        userTvShowDeleteContexts: new Map(),
       })
 
       const responseTypeMessage = new AIMessage({
