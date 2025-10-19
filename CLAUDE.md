@@ -389,3 +389,4 @@ Environment configuration follows a secure pattern:
 ### Local Development Domains
 
 - Local services will be located under the *.localhost subdomain. For example, traefik.localhost or storage.localhost.
+- always use cns() when combining class names or when you need to split up long class names on multiple lines
