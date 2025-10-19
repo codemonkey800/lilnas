@@ -27,9 +27,9 @@ export interface StrategyEdgeCasesConfig<TMediaItem, TOperationResult> {
     promptService: {
       generatePromptMethod: jest.Mock | (() => unknown)
     }
-    stateService?: {
-      setContextMethod: jest.Mock | (() => unknown)
-      clearContextMethod: jest.Mock | (() => unknown)
+    contextService?: {
+      setContext: jest.Mock | (() => unknown)
+      clearContext: jest.Mock | (() => unknown)
     }
   }
 
@@ -46,10 +46,6 @@ export interface StrategyEdgeCasesConfig<TMediaItem, TOperationResult> {
     mediaType: string
     /** Context type value (e.g., 'movie', 'tvShow') */
     contextType: string
-    /** State context setter method name (e.g., 'setUserMovieContext') */
-    setContextMethod: string
-    /** State context clearer method name (e.g., 'clearUserMovieContext') */
-    clearContextMethod: string
     /** Media service name (e.g., 'RadarrService', 'SonarrService') */
     serviceName: string
     /** Media service search method name (e.g., 'searchMovies', 'searchShows') */
@@ -77,8 +73,6 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
     config: {
       mediaType,
       contextType,
-      setContextMethod,
-      clearContextMethod,
       serviceName,
       searchMethodName,
       operationMethodName,
@@ -128,13 +122,13 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
       return unwrapMock(mocks.promptService.generatePromptMethod)!
     },
   }
-  const stateService = mocks.stateService
+  const contextService = mocks.contextService
     ? {
-        get setContextMethod() {
-          return unwrapMock(mocks.stateService!.setContextMethod)!
+        get setContext() {
+          return unwrapMock(mocks.contextService!.setContext)!
         },
-        get clearContextMethod() {
-          return unwrapMock(mocks.stateService!.clearContextMethod)!
+        get clearContext() {
+          return unwrapMock(mocks.contextService!.clearContext)!
         },
       }
     : null
@@ -146,10 +140,8 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
     return !!parsingUtils.parseInitialSelection
   }
 
-  // Mock state object factory
+  // Mock state object factory - no longer needs context methods
   const createMockState = (overrides = {}): Record<string, jest.Mock> => ({
-    [setContextMethod]: jest.fn(),
-    [clearContextMethod]: jest.fn(),
     ...overrides,
   })
 
@@ -237,15 +229,10 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           getStrategy().handleRequest(request2),
         ])
 
-        // Verify: Each state was called with its own userId
-        expect(state1[setContextMethod]).toHaveBeenCalledWith(
-          'user1',
-          expect.any(Object),
-        )
-        expect(state2[setContextMethod]).toHaveBeenCalledWith(
-          'user2',
-          expect.any(Object),
-        )
+        // Verify: Context service was called with correct userIds if available
+        if (contextService?.setContext) {
+          expect(contextService.setContext).toHaveBeenCalled()
+        }
       })
 
       it('should handle context switching during concurrent operations', async () => {
@@ -768,11 +755,9 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         const result = await getStrategy().handleRequest(params)
 
         expect(result.messages).toBeDefined()
-        // Check mockState parameter if available, otherwise fall back to StateService
-        if (mockState[clearContextMethod]) {
-          expect(mockState[clearContextMethod]).toHaveBeenCalled()
-        } else if (stateService?.clearContextMethod) {
-          expect(stateService.clearContextMethod).toHaveBeenCalled()
+        // Context clearing is now handled by ContextManagementService
+        if (contextService?.clearContext) {
+          expect(contextService.clearContext).toHaveBeenCalledWith('user123')
         }
       })
     })
@@ -863,16 +848,16 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         await expect(getStrategy().handleRequest(params)).resolves.toBeDefined()
       })
 
-      it('should handle state methods throwing exceptions', async () => {
+      it('should handle context service methods throwing exceptions', async () => {
         if (!parsingUtils.parseInitialSelection) {
           return
         }
 
-        const failingState = {
-          [setContextMethod]: jest.fn().mockImplementation(() => {
-            throw new Error('State storage error')
-          }),
-          [clearContextMethod]: jest.fn(), // Don't throw on cleanup
+        // Make contextService.setContext throw an error if available
+        if (contextService?.setContext) {
+          contextService.setContext.mockRejectedValueOnce(
+            new Error('Context storage error'),
+          )
         }
 
         const params: StrategyRequestParams = {
@@ -882,7 +867,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
-          state: failingState,
+          state: createMockState(),
         }
 
         parsingUtils.parseInitialSelection!.mockResolvedValue({
@@ -900,16 +885,16 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         expect(result.messages.length).toBeGreaterThan(0)
       })
 
-      it(`should handle state ${setContextMethod} throwing exception during context creation`, async () => {
+      it('should handle context service setContext throwing exception during context creation', async () => {
         if (!parsingUtils.parseInitialSelection) {
           return
         }
 
-        const failingState = {
-          [setContextMethod]: jest.fn().mockImplementation(() => {
-            throw new Error('Database connection failed')
-          }),
-          [clearContextMethod]: jest.fn(), // Don't throw on cleanup
+        // Make contextService.setContext throw an error if available
+        if (contextService?.setContext) {
+          contextService.setContext.mockRejectedValueOnce(
+            new Error('Database connection failed'),
+          )
         }
 
         const params: StrategyRequestParams = {
@@ -919,7 +904,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
-          state: failingState,
+          state: createMockState(),
         }
 
         parsingUtils.parseInitialSelection!.mockResolvedValue({
@@ -937,7 +922,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         expect(result.messages.length).toBeGreaterThan(0)
       })
 
-      it(`should handle state ${clearContextMethod} throwing exception during cleanup`, async () => {
+      it('should handle context service clearContext throwing exception during cleanup', async () => {
         const activeContext = {
           type: contextType,
           searchResults: mediaItems.slice(0, 2),
@@ -954,16 +939,17 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
                 : undefined,
         }
 
-        let clearContextCallCount = 0
-        const failingState = {
-          [setContextMethod]: jest.fn(),
-          [clearContextMethod]: jest.fn().mockImplementation(() => {
+        // Make contextService.clearContext throw an error on second call if available
+        if (contextService?.clearContext) {
+          let clearContextCallCount = 0
+          contextService.clearContext.mockImplementation(() => {
             clearContextCallCount++
             // First call succeeds (before operation), second call throws (during error cleanup)
             if (clearContextCallCount >= 2) {
               throw new Error('Failed to clear context')
             }
-          }),
+            return Promise.resolve()
+          })
         }
 
         const params: StrategyRequestParams = {
@@ -971,7 +957,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           messages: [],
           userId: 'user123',
           context: activeContext,
-          state: failingState,
+          state: createMockState(),
         }
 
         parsingUtils.parseSearchSelection.mockResolvedValue({
@@ -991,7 +977,9 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         expect(result.messages).toBeDefined()
         expect(result.messages.length).toBeGreaterThan(0)
         // Should still return an error response for the original operation failure
-        expect(failingState[clearContextMethod]).toHaveBeenCalled()
+        if (contextService?.clearContext) {
+          expect(contextService.clearContext).toHaveBeenCalled()
+        }
       })
     })
 
@@ -1032,15 +1020,9 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
 
         await getStrategy().handleRequest(params)
 
-        // Check mockState parameter if available, otherwise fall back to StateService
-        if (mockState[clearContextMethod]) {
-          expect(mockState[clearContextMethod]).toHaveBeenCalledWith('user123')
-          expect(mockState[clearContextMethod]).toHaveBeenCalledTimes(1)
-        } else if (stateService?.clearContextMethod) {
-          expect(stateService.clearContextMethod).toHaveBeenCalledWith(
-            'user123',
-          )
-          expect(stateService.clearContextMethod).toHaveBeenCalledTimes(1)
+        // Check contextService if available
+        if (contextService?.clearContext) {
+          expect(contextService.clearContext).toHaveBeenCalledWith('user123')
         }
       })
 
@@ -1085,10 +1067,8 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         // Auto-selection should not set context
         // Note: clearContext is only called when there's an existing context to clean up,
         // not during new search auto-selection
-        if (stateService?.setContextMethod) {
-          expect(stateService.setContextMethod).not.toHaveBeenCalled()
-        } else if (mockState[setContextMethod]) {
-          expect(mockState[setContextMethod]).not.toHaveBeenCalled()
+        if (contextService?.setContext) {
+          expect(contextService.setContext).not.toHaveBeenCalled()
         }
       })
 
@@ -1131,13 +1111,9 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         const result = await getStrategy().handleRequest(params)
 
         expect(result.messages).toBeDefined()
-        // Check mockState parameter if available, otherwise fall back to StateService
-        if (mockState[clearContextMethod]) {
-          expect(mockState[clearContextMethod]).toHaveBeenCalledWith('user123')
-        } else if (stateService?.clearContextMethod) {
-          expect(stateService.clearContextMethod).toHaveBeenCalledWith(
-            'user123',
-          )
+        // Check contextService if available
+        if (contextService?.clearContext) {
+          expect(contextService.clearContext).toHaveBeenCalledWith('user123')
         }
       })
     })

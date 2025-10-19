@@ -24,7 +24,7 @@ describe('TvDeleteStrategy', () => {
   let promptService: jest.Mocked<PromptGenerationService>
   let parsingUtilities: jest.Mocked<ParsingUtilities>
   let selectionUtilities: jest.Mocked<SelectionUtilities>
-  let stateService: jest.Mocked<StateService>
+  let contextService: jest.Mocked<ContextManagementService>
 
   // Mock response messages
   const mockChatResponse = new HumanMessage({
@@ -173,11 +173,8 @@ describe('TvDeleteStrategy', () => {
     error: 'Failed to delete series from Sonarr',
   }
 
-  // Mock state object (passed in params, not DI)
-  const mockState = {
-    setUserTvShowDeleteContext: jest.fn(),
-    clearUserTvShowDeleteContext: jest.fn(),
-  }
+  // Mock state object (passed in params, not DI) - context methods removed, now in ContextManagementService
+  const mockState = {}
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -236,13 +233,7 @@ describe('TvDeleteStrategy', () => {
     promptService = module.get(PromptGenerationService)
     parsingUtilities = module.get(ParsingUtilities)
     selectionUtilities = module.get(SelectionUtilities)
-    stateService = module.get(StateService)
-
-    // Reset state mocks
-    mockState.setUserTvShowDeleteContext.mockClear()
-    mockState.clearUserTvShowDeleteContext.mockClear()
-    stateService.setUserTvShowDeleteContext.mockClear()
-    stateService.clearUserTvShowDeleteContext.mockClear()
+    contextService = module.get(ContextManagementService)
   })
 
   testStrategyRouting({
@@ -361,8 +352,9 @@ describe('TvDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowDeleteContext).toHaveBeenCalledWith(
+      expect(contextService.setContext).toHaveBeenCalledWith(
         'user123',
+        'tvDelete',
         expect.objectContaining({
           type: 'tvShowDelete',
           searchResults: [mockLibraryShow1],
@@ -402,7 +394,7 @@ describe('TvDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowDeleteContext).not.toHaveBeenCalled()
+      expect(contextService.setContext).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -432,7 +424,7 @@ describe('TvDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowDeleteContext).not.toHaveBeenCalled()
+      expect(contextService.setContext).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -457,8 +449,9 @@ describe('TvDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowDeleteContext).toHaveBeenCalledWith(
+      expect(contextService.setContext).toHaveBeenCalledWith(
         'user123',
+        'tvDelete',
         expect.objectContaining({
           type: 'tvShowDelete',
           searchResults: [mockLibraryShow1, mockLibraryShow3],
@@ -608,8 +601,9 @@ describe('TvDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowDeleteContext).toHaveBeenCalledWith(
+      expect(contextService.setContext).toHaveBeenCalledWith(
         'user123',
+        'tvDelete',
         expect.objectContaining({
           type: 'tvShowDelete',
           searchResults: [mockLibraryShow1, mockLibraryShow3],
@@ -653,8 +647,9 @@ describe('TvDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowDeleteContext).toHaveBeenCalledWith(
+      expect(contextService.setContext).toHaveBeenCalledWith(
         'user123',
+        'tvDelete',
         expect.objectContaining({
           type: 'tvShowDelete',
           searchResults: [mockLibraryShow1, mockLibraryShow3],
@@ -696,7 +691,7 @@ describe('TvDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowDeleteContext).toHaveBeenCalled()
+      expect(contextService.setContext).toHaveBeenCalled()
       expect(sonarrService.unmonitorAndDeleteSeries).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -739,9 +734,7 @@ describe('TvDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserTvShowDeleteContext).toHaveBeenCalledWith(
-        'user123',
-      )
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
 
@@ -776,9 +769,7 @@ describe('TvDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserTvShowDeleteContext).toHaveBeenCalledWith(
-        'user123',
-      )
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
 
@@ -802,7 +793,7 @@ describe('TvDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserTvShowDeleteContext).not.toHaveBeenCalled()
+      expect(contextService.clearContext).not.toHaveBeenCalled()
       expect(sonarrService.unmonitorAndDeleteSeries).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -830,7 +821,7 @@ describe('TvDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserTvShowDeleteContext).not.toHaveBeenCalled()
+      expect(contextService.clearContext).not.toHaveBeenCalled()
       expect(sonarrService.unmonitorAndDeleteSeries).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -863,9 +854,7 @@ describe('TvDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserTvShowDeleteContext).toHaveBeenCalledWith(
-        'user123',
-      )
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
 
@@ -904,9 +893,7 @@ describe('TvDeleteStrategy', () => {
           deleteFiles: true,
         }),
       )
-      expect(mockState.clearUserTvShowDeleteContext).toHaveBeenCalledWith(
-        'user123',
-      )
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
 
@@ -946,9 +933,7 @@ describe('TvDeleteStrategy', () => {
           deleteFiles: true,
         }),
       )
-      expect(mockState.clearUserTvShowDeleteContext).toHaveBeenCalledWith(
-        'user123',
-      )
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
   })
@@ -1038,9 +1023,9 @@ describe('TvDeleteStrategy', () => {
         generatePromptMethod: () =>
           promptService.generateTvShowDeleteChatResponse,
       },
-      stateService: {
-        setContextMethod: () => stateService.setUserTvShowDeleteContext,
-        clearContextMethod: () => stateService.clearUserTvShowDeleteContext,
+      contextService: {
+        setContext: () => contextService.setContext,
+        clearContext: () => contextService.clearContext,
       },
     },
     fixtures: {
@@ -1051,8 +1036,6 @@ describe('TvDeleteStrategy', () => {
     config: {
       mediaType: 'tv show',
       contextType: 'tvShowDelete',
-      setContextMethod: 'setUserTvShowDeleteContext',
-      clearContextMethod: 'clearUserTvShowDeleteContext',
       serviceName: 'SonarrService',
       searchMethodName: 'getLibrarySeries',
       operationMethodName: 'unmonitorAndDeleteSeries',

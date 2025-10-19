@@ -1,6 +1,7 @@
 import { BaseMessage } from '@langchain/core/messages'
 
 import { TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
+import { hasToolCalls } from 'src/utils/type-guards'
 
 /**
  * MessageUtils - Pure utility functions for message operations
@@ -84,15 +85,13 @@ export class MessageUtils {
    * ```
    */
   static getToolCallNames(message: BaseMessage): string[] {
-    if (!MessageUtils.isToolsMessage(message)) {
+    // Use type guard to safely narrow the type
+    if (!hasToolCalls(message)) {
       return []
     }
 
-    // Type assertion is safe here because isToolsMessage verified tool_calls exists
-    const toolCalls = (
-      message as BaseMessage & { tool_calls: Array<{ name: string }> }
-    ).tool_calls
-    return toolCalls?.map(tc => tc.name) ?? []
+    // Type is now narrowed, safe to access tool_calls
+    return message.tool_calls.map(tc => tc.name)
   }
 
   /**

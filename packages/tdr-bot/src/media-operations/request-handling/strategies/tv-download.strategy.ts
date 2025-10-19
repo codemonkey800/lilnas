@@ -17,10 +17,7 @@ import { StateService } from 'src/state/state.service'
 
 import { BaseMediaStrategy } from './base/base-media-strategy'
 import { MAX_SEARCH_RESULTS } from './base/strategy.constants'
-import type {
-  TvShowOperationState,
-  TvShowSelectionContext,
-} from './base/strategy.types'
+import type { TvShowSelectionContext } from './base/strategy.types'
 
 /**
  * Strategy for handling TV show download requests.
@@ -53,27 +50,18 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
   }
 
   /**
-   * Get the state service to use (params.state if provided, otherwise this.stateService)
-   */
-  private getStateService(state?: TvShowOperationState): TvShowOperationState {
-    return (state || this.stateService) as TvShowOperationState
-  }
-
-  /**
    * Handle TV show download request.
    * Routes to either new search or selection handling based on context.
    */
   protected async executeRequest(
     params: StrategyRequestParams,
   ): Promise<StrategyResult> {
-    const { message, messages, context, userId, state } = params
+    const { message, messages, context, userId } = params
 
     this.logger.log(
       { userId, hasContext: !!context, strategy: this.strategyName },
       'Strategy execution started',
     )
-
-    const operationState = state as TvShowOperationState | undefined
 
     // If we have an active TV show context, this is a selection
     const tvShowContext = context as TvShowSelectionContext | undefined
@@ -83,17 +71,11 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
         messages,
         tvShowContext,
         userId,
-        operationState,
       )
     }
 
     // Otherwise, it's a new search
-    return await this.handleNewTvShowSearch(
-      message,
-      messages,
-      userId,
-      operationState,
-    )
+    return await this.handleNewTvShowSearch(message, messages, userId)
   }
 
   /**
@@ -104,7 +86,6 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
     message: HumanMessage,
     messages: BaseMessage[],
     userId: string,
-    state?: TvShowOperationState,
   ): Promise<StrategyResult> {
     this.logger.log(
       { userId, content: message.content },
@@ -268,11 +249,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
             originalTvSelection: tvSelection || undefined,
           }
 
-          // Store in both StateService and ContextManagementService for proper context tracking
-          this.getStateService(state).setUserTvShowContext(
-            userId,
-            tvShowContext,
-          )
+          // Store context in ContextManagementService
           await this.contextService.setContext(userId, 'tv', tvShowContext)
 
           const granularSelectionResponse =
@@ -365,8 +342,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
           originalTvSelection: tvSelection || undefined,
         }
 
-        // Store in both StateService and ContextManagementService for proper context tracking
-        this.getStateService(state).setUserTvShowContext(userId, tvShowContext)
+        // Store context in ContextManagementService
         await this.contextService.setContext(userId, 'tv', tvShowContext)
 
         const selectionResponse =
@@ -393,8 +369,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
         originalTvSelection: tvSelection || undefined,
       }
 
-      // Store in both StateService and ContextManagementService for proper context tracking
-      this.getStateService(state).setUserTvShowContext(userId, tvShowContext)
+      // Store context in ContextManagementService
       await this.contextService.setContext(userId, 'tv', tvShowContext)
 
       // Create selection prompt
@@ -443,7 +418,6 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
     messages: BaseMessage[],
     tvShowContext: TvShowSelectionContext,
     userId: string,
-    state?: TvShowOperationState,
   ): Promise<StrategyResult> {
     this.logger.log(
       { userId, selectionMessage: message.content },
@@ -514,8 +488,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
             'Auto-applying stored granular selection after show selection',
           )
 
-          // Clear context from both services and download the TV show with stored granular selection
-          this.getStateService(state).clearUserTvShowContext(userId)
+          // Clear context and download the TV show with stored granular selection
           await this.contextService.clearContext(userId)
           return await this.downloadTvShow(
             selectedShow,
@@ -539,11 +512,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
             ...tvShowContext,
             searchResults: [selectedShow],
           }
-          // Store in both StateService and ContextManagementService for proper context tracking
-          this.getStateService(state).setUserTvShowContext(
-            userId,
-            updatedContext,
-          )
+          // Store context in ContextManagementService
           await this.contextService.setContext(userId, 'tv', updatedContext)
 
           const granularSelectionResponse =
@@ -590,8 +559,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
 
       const selectedShow = tvShowContext.searchResults[0]
 
-      // Clear context from both services and download the TV show
-      this.getStateService(state).clearUserTvShowContext(userId)
+      // Clear context and download the TV show
       await this.contextService.clearContext(userId)
       return await this.downloadTvShow(
         selectedShow,
@@ -606,9 +574,8 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
         'Failed to process TV show selection',
       )
 
-      // Clear context from both services on error (wrapped to prevent cleanup errors from breaking error response)
+      // Clear context on error
       try {
-        this.getStateService(state).clearUserTvShowContext(userId)
         await this.contextService.clearContext(userId)
       } catch (clearError) {
         this.logger.warn(

@@ -17,10 +17,7 @@ import { StateService } from 'src/state/state.service'
 
 import { BaseMediaStrategy } from './base/base-media-strategy'
 import { MAX_SEARCH_RESULTS } from './base/strategy.constants'
-import type {
-  TvShowDeleteContext,
-  TvShowDeleteOperationState,
-} from './base/strategy.types'
+import type { TvShowDeleteContext } from './base/strategy.types'
 
 /**
  * Strategy for handling TV show deletion requests.
@@ -38,7 +35,6 @@ import type {
 export class TvDeleteStrategy extends BaseMediaStrategy {
   protected readonly logger = new Logger(TvDeleteStrategy.name)
   protected readonly strategyName = 'TvDeleteStrategy'
-  private currentState?: TvShowDeleteOperationState
 
   constructor(
     private readonly sonarrService: SonarrService,
@@ -54,51 +50,35 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
   }
 
   /**
-   * Get the state service to use (params.state if provided, otherwise this.stateService)
-   */
-  private getStateService(): TvShowDeleteOperationState {
-    return (this.currentState ||
-      this.stateService) as TvShowDeleteOperationState
-  }
-
-  /**
    * Handle TV show delete request.
    * Routes to either new delete or selection handling based on context.
    */
   protected async executeRequest(
     params: StrategyRequestParams,
   ): Promise<StrategyResult> {
-    const { message, messages, context, userId, state } = params
-
-    // Store state parameter for use in helper methods
-    this.currentState = state as TvShowDeleteOperationState | undefined
+    const { message, messages, context, userId } = params
 
     this.logger.log(
       { userId, hasContext: !!context, strategy: this.strategyName },
       'Strategy execution started',
     )
 
-    try {
-      // If we have an active TV show delete context, this is a selection
-      const tvShowDeleteContext = context as TvShowDeleteContext | undefined
-      if (
-        tvShowDeleteContext?.type === 'tvShowDelete' &&
-        tvShowDeleteContext.isActive
-      ) {
-        return await this.handleTvShowDeleteSelection(
-          message,
-          messages,
-          tvShowDeleteContext,
-          userId,
-        )
-      }
-
-      // Otherwise, it's a new delete request
-      return await this.handleNewTvShowDelete(message, messages, userId)
-    } finally {
-      // Clear the current state after execution
-      this.currentState = undefined
+    // If we have an active TV show delete context, this is a selection
+    const tvShowDeleteContext = context as TvShowDeleteContext | undefined
+    if (
+      tvShowDeleteContext?.type === 'tvShowDelete' &&
+      tvShowDeleteContext.isActive
+    ) {
+      return await this.handleTvShowDeleteSelection(
+        message,
+        messages,
+        tvShowDeleteContext,
+        userId,
+      )
     }
+
+    // Otherwise, it's a new delete request
+    return await this.handleNewTvShowDelete(message, messages, userId)
   }
 
   /**
@@ -241,11 +221,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
             originalTvSelection: tvSelection || undefined,
           }
 
-          // Store in both StateService and ContextManagementService for proper context tracking
-          this.getStateService().setUserTvShowDeleteContext(
-            userId,
-            tvShowDeleteContext,
-          )
+          // Store context in ContextManagementService
           await this.contextService.setContext(
             userId,
             'tvDelete',
@@ -325,11 +301,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
           originalTvSelection: tvSelection || undefined,
         }
 
-        // Store in both StateService and ContextManagementService for proper context tracking
-        this.getStateService().setUserTvShowDeleteContext(
-          userId,
-          tvShowDeleteContext,
-        )
+        // Store context in ContextManagementService
         await this.contextService.setContext(
           userId,
           'tvDelete',
@@ -530,8 +502,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
         }
       }
 
-      // Clear context from both services and proceed with delete
-      this.getStateService().clearUserTvShowDeleteContext(userId)
+      // Clear context and proceed with delete
       await this.contextService.clearContext(userId)
       return await this.deleteTvShow(
         selectedShow,
@@ -546,9 +517,8 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
         'Failed to process TV show delete selection',
       )
 
-      // Clear context from both services on error (wrapped to prevent cleanup errors from breaking error response)
+      // Clear context on error
       try {
-        this.getStateService().clearUserTvShowDeleteContext(userId)
         await this.contextService.clearContext(userId)
       } catch (clearError) {
         this.logger.warn(

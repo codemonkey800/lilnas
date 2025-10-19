@@ -28,9 +28,9 @@ export interface SelectionBehaviorConfig<TMediaItem, TOperationResult> {
     promptService: {
       generatePromptMethod: jest.Mock | (() => unknown)
     }
-    stateService?: {
-      setContextMethod: jest.Mock | (() => unknown)
-      clearContextMethod: jest.Mock | (() => unknown)
+    contextService: {
+      setContext: jest.Mock | (() => unknown)
+      clearContext: jest.Mock | (() => unknown)
     }
   }
 
@@ -48,8 +48,6 @@ export interface SelectionBehaviorConfig<TMediaItem, TOperationResult> {
     mediaType: string
     /** Context type value (e.g., 'movie', 'movieDelete', 'tvShow', 'tvShowDelete') */
     contextType: string
-    /** State context setter method name (e.g., 'setUserMovieContext') */
-    setContextMethod: string
     /** Whether this strategy supports ordinal selection */
     supportsOrdinalSelection: boolean
     /** Whether this strategy supports year selection */
@@ -86,6 +84,10 @@ export interface SelectionBehaviorConfig<TMediaItem, TOperationResult> {
  *     promptService: {
  *       generatePromptMethod: () => promptService.generateMoviePrompt,
  *     },
+ *     contextService: {
+ *       setContext: () => contextService.setContext,
+ *       clearContext: () => contextService.clearContext,
+ *     },
  *   },
  *   fixtures: {
  *     mediaItems: [mockMovie1, mockMovie2, mockMovie3],
@@ -95,7 +97,6 @@ export interface SelectionBehaviorConfig<TMediaItem, TOperationResult> {
  *   config: {
  *     mediaType: 'movie',
  *     contextType: 'movie',
- *     setContextMethod: 'setUserMovieContext',
  *     supportsOrdinalSelection: true,
  *     supportsYearSelection: true,
  *     supportsTvSelection: false,
@@ -114,7 +115,6 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
     config: {
       mediaType,
       contextType,
-      setContextMethod,
       supportsOrdinalSelection,
       supportsYearSelection,
       supportsTvSelection,
@@ -168,16 +168,14 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
       return unwrapMock(mocks.promptService.generatePromptMethod)!
     },
   }
-  const stateService = mocks.stateService
-    ? {
-        get setContextMethod() {
-          return unwrapMock(mocks.stateService!.setContextMethod)!
-        },
-        get clearContextMethod() {
-          return unwrapMock(mocks.stateService!.clearContextMethod)!
-        },
-      }
-    : null
+  const contextService = {
+    get setContext() {
+      return unwrapMock(mocks.contextService.setContext)!
+    },
+    get clearContext() {
+      return unwrapMock(mocks.contextService.clearContext)!
+    },
+  }
 
   const { mediaItems, operationResult, chatResponse, tvSelection } = fixtures
 
@@ -215,12 +213,7 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
 
         const result = await getStrategy().handleRequest(params)
 
-        // Check mockState when provided in params, otherwise fall back to StateService
-        if (mockState[setContextMethod]) {
-          expect(mockState[setContextMethod]).not.toHaveBeenCalled()
-        } else if (stateService?.setContextMethod) {
-          expect(stateService.setContextMethod).not.toHaveBeenCalled()
-        }
+        expect(contextService.setContext).not.toHaveBeenCalled()
         expect(result.messages).toHaveLength(1)
       })
 
@@ -248,27 +241,17 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
 
         const result = await getStrategy().handleRequest(params)
 
-        // Check mockState when provided in params, otherwise fall back to StateService
-        if (mockState[setContextMethod]) {
-          expect(mockState[setContextMethod]).toHaveBeenCalledWith('user123', {
+        expect(contextService.setContext).toHaveBeenCalledWith(
+          'user123',
+          contextType,
+          {
             type: contextType,
             searchResults: mediaItems.slice(0, 3),
             query: mediaType,
             timestamp: expect.any(Number),
             isActive: true,
-          })
-        } else if (stateService?.setContextMethod) {
-          expect(stateService.setContextMethod).toHaveBeenCalledWith(
-            'user123',
-            {
-              type: contextType,
-              searchResults: mediaItems.slice(0, 3),
-              query: mediaType,
-              timestamp: expect.any(Number),
-              isActive: true,
-            },
-          )
-        }
+          },
+        )
         expect(mediaService.operationMethod).not.toHaveBeenCalled()
         expect(result.messages).toHaveLength(1)
       })
@@ -309,12 +292,7 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
 
         const result = await getStrategy().handleRequest(params)
 
-        // Check mockState when provided in params, otherwise fall back to StateService
-        if (mockState[setContextMethod]) {
-          expect(mockState[setContextMethod]).not.toHaveBeenCalled()
-        } else if (stateService?.setContextMethod) {
-          expect(stateService.setContextMethod).not.toHaveBeenCalled()
-        }
+        expect(contextService.setContext).not.toHaveBeenCalled()
         expect(result.messages).toHaveLength(1)
       })
 
@@ -342,27 +320,17 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
 
         const result = await getStrategy().handleRequest(params)
 
-        // Check mockState when provided in params, otherwise fall back to StateService
-        if (mockState[setContextMethod]) {
-          expect(mockState[setContextMethod]).toHaveBeenCalledWith('user123', {
+        expect(contextService.setContext).toHaveBeenCalledWith(
+          'user123',
+          contextType,
+          {
             type: contextType,
             searchResults: mediaItems.slice(0, 3),
             query: mediaType,
             timestamp: expect.any(Number),
             isActive: true,
-          })
-        } else if (stateService?.setContextMethod) {
-          expect(stateService.setContextMethod).toHaveBeenCalledWith(
-            'user123',
-            {
-              type: contextType,
-              searchResults: mediaItems.slice(0, 3),
-              query: mediaType,
-              timestamp: expect.any(Number),
-              isActive: true,
-            },
-          )
-        }
+          },
+        )
         expect(mediaService.operationMethod).not.toHaveBeenCalled()
         expect(result.messages).toHaveLength(1)
       })

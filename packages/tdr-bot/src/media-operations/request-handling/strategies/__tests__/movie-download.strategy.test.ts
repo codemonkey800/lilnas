@@ -24,7 +24,7 @@ describe('MovieDownloadStrategy', () => {
   let promptService: jest.Mocked<PromptGenerationService>
   let parsingUtilities: jest.Mocked<ParsingUtilities>
   let selectionUtilities: jest.Mocked<SelectionUtilities>
-  let stateService: jest.Mocked<StateService>
+  let contextService: jest.Mocked<ContextManagementService>
 
   // Mock response messages
   const mockChatResponse = new HumanMessage({
@@ -101,11 +101,8 @@ describe('MovieDownloadStrategy', () => {
     error: 'Failed to add movie to Radarr',
   }
 
-  // Mock state object (passed in params, not DI)
-  const mockState = {
-    setUserMovieContext: jest.fn(),
-    clearUserMovieContext: jest.fn(),
-  }
+  // Mock state object (passed in params, not DI) - context methods removed, now in ContextManagementService
+  const mockState = {}
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -165,13 +162,7 @@ describe('MovieDownloadStrategy', () => {
     promptService = module.get(PromptGenerationService)
     parsingUtilities = module.get(ParsingUtilities)
     selectionUtilities = module.get(SelectionUtilities)
-    stateService = module.get(StateService)
-
-    // Reset state mocks
-    mockState.setUserMovieContext.mockClear()
-    mockState.clearUserMovieContext.mockClear()
-    stateService.setUserMovieContext.mockClear()
-    stateService.clearUserMovieContext.mockClear()
+    contextService = module.get(ContextManagementService)
   })
 
   testStrategyRouting({
@@ -282,7 +273,7 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(stateService.setUserMovieContext).not.toHaveBeenCalled()
+      expect(contextService.setContext).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -308,13 +299,17 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserMovieContext).toHaveBeenCalledWith('user123', {
-        type: 'movie',
-        searchResults: [mockMovie1, mockMovie2, mockMovie3],
-        query: 'matrix',
-        timestamp: expect.any(Number),
-        isActive: true,
-      })
+      expect(contextService.setContext).toHaveBeenCalledWith(
+        'user123',
+        'movie',
+        {
+          type: 'movie',
+          searchResults: [mockMovie1, mockMovie2, mockMovie3],
+          query: 'matrix',
+          timestamp: expect.any(Number),
+          isActive: true,
+        },
+      )
       expect(radarrService.monitorAndDownloadMovie).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -360,12 +355,9 @@ describe('MovieDownloadStrategy', () => {
       promptService: {
         generatePromptMethod: () => promptService.generateMoviePrompt,
       },
-      stateService: {
-        setContextMethod: () =>
-          stateService.setUserMovieContext || stateService.setUserTvShowContext,
-        clearContextMethod: () =>
-          stateService.clearUserMovieContext ||
-          stateService.clearUserTvShowContext,
+      contextService: {
+        setContext: () => contextService.setContext,
+        clearContext: () => contextService.clearContext,
       },
     },
     fixtures: {
@@ -376,7 +368,6 @@ describe('MovieDownloadStrategy', () => {
     config: {
       mediaType: 'movie',
       contextType: 'movie',
-      setContextMethod: 'setUserMovieContext',
       supportsOrdinalSelection: true,
       supportsYearSelection: true,
       supportsTvSelection: false,
@@ -413,7 +404,7 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserMovieContext).toHaveBeenCalledWith('user123')
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
 
@@ -436,7 +427,7 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserMovieContext).toHaveBeenCalledWith('user123')
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
 
@@ -458,7 +449,7 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(stateService.clearUserMovieContext).not.toHaveBeenCalled()
+      expect(contextService.clearContext).not.toHaveBeenCalled()
       expect(radarrService.monitorAndDownloadMovie).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -481,7 +472,7 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(stateService.clearUserMovieContext).not.toHaveBeenCalled()
+      expect(contextService.clearContext).not.toHaveBeenCalled()
       expect(radarrService.monitorAndDownloadMovie).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -507,7 +498,7 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserMovieContext).toHaveBeenCalledWith('user123')
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
   })
@@ -580,9 +571,9 @@ describe('MovieDownloadStrategy', () => {
       promptService: {
         generatePromptMethod: () => promptService.generateMoviePrompt,
       },
-      stateService: {
-        setContextMethod: () => stateService.setUserMovieContext,
-        clearContextMethod: () => stateService.clearUserMovieContext,
+      contextService: {
+        setContext: () => contextService.setContext,
+        clearContext: () => contextService.clearContext,
       },
     },
     fixtures: {
@@ -593,8 +584,6 @@ describe('MovieDownloadStrategy', () => {
     config: {
       mediaType: 'movie',
       contextType: 'movie',
-      setContextMethod: 'setUserMovieContext',
-      clearContextMethod: 'clearUserMovieContext',
       serviceName: 'RadarrService',
       searchMethodName: 'searchMovies',
       operationMethodName: 'monitorAndDownloadMovie',

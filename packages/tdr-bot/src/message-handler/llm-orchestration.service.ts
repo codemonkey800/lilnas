@@ -8,7 +8,6 @@ import {
 import { StateGraph, StateType, UpdateType } from '@langchain/langgraph'
 import { ToolNode } from '@langchain/langgraph/prebuilt'
 import { ChatOpenAI, DallEAPIWrapper } from '@langchain/openai'
-import { isEnumValue } from '@lilnas/utils/enum'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 import dedent from 'dedent'
@@ -26,6 +25,10 @@ import {
   OverallStateAnnotation,
   ResponseType,
 } from 'src/schemas/graph'
+import {
+  LLMStringContentSchema,
+  ResponseTypeContentSchema,
+} from 'src/schemas/llm.schemas'
 import { MessageResponse } from 'src/schemas/messages'
 import { EquationImageService } from 'src/services/equation-image.service'
 import { StateService } from 'src/state/state.service'
@@ -220,11 +223,8 @@ export class LLMOrchestrationService {
       'OpenAI-checkResponseType',
     )
 
-    if (!isEnumValue(response.content, ResponseType)) {
-      throw new Error(`Invalid response type: "${response.content}"`)
-    }
-
-    const responseType = response.content as ResponseType
+    // Validate response type using Zod schema
+    const responseType = ResponseTypeContentSchema.parse(response.content)
 
     this.logger.log({ responseType }, 'Got response type')
 
@@ -333,9 +333,11 @@ export class LLMOrchestrationService {
           'OpenAI-getModelImageResponse-extract',
         )
 
-      const imageQueries = ImageQuerySchema.parse(
-        JSON.parse(extractImageQueriesResponse.content as string),
+      // Validate content is a string before parsing
+      const contentString = LLMStringContentSchema.parse(
+        extractImageQueriesResponse.content,
       )
+      const imageQueries = ImageQuerySchema.parse(JSON.parse(contentString))
 
       this.logger.log(
         {
@@ -606,9 +608,12 @@ export class LLMOrchestrationService {
         )
       }
 
+      // Validate content is a string
+      const content = LLMStringContentSchema.parse(lastMessage.content)
+
       return {
         images,
-        content: lastMessage.content as string,
+        content,
       }
     } catch (err) {
       this.logger.error(

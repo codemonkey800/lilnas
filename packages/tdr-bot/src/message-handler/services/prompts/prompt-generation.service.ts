@@ -12,6 +12,11 @@ import {
   SeriesSearchResult,
   UnmonitorAndDeleteSeriesResult,
 } from 'src/media/types/sonarr.types'
+import {
+  MovieDeleteResultSchema,
+  MovieDownloadResultSchema,
+  TVDownloadResultSchema,
+} from 'src/schemas/context.schemas'
 import { SearchSelection } from 'src/schemas/search-selection'
 import { TvShowSelection } from 'src/schemas/tv-show'
 import { RetryService } from 'src/utils/retry.service'
@@ -88,10 +93,10 @@ export class PromptGenerationService {
         case 'success':
           if (context?.selectedMovie && context?.downloadResult) {
             const movie = context.selectedMovie
-            const result = context.downloadResult as {
-              movieAdded: boolean
-              searchTriggered: boolean
-            }
+            // Validate the result structure with Zod schema
+            const result = MovieDownloadResultSchema.parse(
+              context.downloadResult,
+            )
 
             let successMessage = ''
             if (context.autoApplied && context.selectionCriteria) {
@@ -213,12 +218,8 @@ export class PromptGenerationService {
         case 'success_delete':
           if (context?.selectedMovie && context?.deleteResult) {
             const movie = context.selectedMovie
-            const result = context.deleteResult as {
-              movieDeleted: boolean
-              filesDeleted: boolean
-              downloadsFound?: number
-              downloadsCancelled?: number
-            }
+            // Validate the result structure with Zod schema
+            const result = MovieDeleteResultSchema.parse(context.deleteResult)
 
             let successMessage = ''
             if (context.autoApplied && context.selectionCriteria) {
@@ -398,11 +399,8 @@ export class PromptGenerationService {
         case 'TV_SHOW_SUCCESS':
           if (context?.selectedShow && context?.downloadResult) {
             const show = context.selectedShow
-            const result = context.downloadResult as {
-              seriesAdded: boolean
-              seriesUpdated: boolean
-              searchTriggered: boolean
-            }
+            // Validate the result structure with Zod schema
+            const result = TVDownloadResultSchema.parse(context.downloadResult)
 
             let successMessage = ''
             if (context.autoApplied && context.selectionCriteria) {
