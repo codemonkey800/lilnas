@@ -67,21 +67,51 @@ RUN echo 'export interface DownloadJob { url: string; status: string; title?: st
 RUN echo 'exports.Queue = class Queue { constructor() { this._size = 0; } size() { return this._size; } };' > node_modules/@lilnas/utils/queue.js
 RUN echo 'export declare class Queue<T> { constructor(); size(): number; }' > node_modules/@lilnas/utils/queue.d.ts
 
-# Copy source code  
+# Copy source code
 COPY . .
+
+# Create a standalone tsconfig.json for the test container
+RUN echo '{ \
+  "compilerOptions": { \
+    "target": "ES2021", \
+    "module": "commonjs", \
+    "moduleResolution": "node", \
+    "strict": true, \
+    "esModuleInterop": true, \
+    "skipLibCheck": true, \
+    "forceConsistentCasingInFileNames": true, \
+    "declaration": true, \
+    "sourceMap": true, \
+    "experimentalDecorators": true, \
+    "emitDecoratorMetadata": true, \
+    "allowJs": true, \
+    "resolveJsonModule": true, \
+    "isolatedModules": true, \
+    "baseUrl": ".", \
+    "paths": { \
+      "src/*": ["./src/*"] \
+    }, \
+    "lib": ["ES2021", "dom", "dom.iterable"] \
+  }, \
+  "include": ["src/**/*.ts", "src/**/*.tsx"], \
+  "exclude": ["node_modules", "dist"] \
+}' > tsconfig.json
 
 # Create a basic jest config for integration tests
 RUN echo "module.exports = { \
   preset: 'ts-jest', \
   testEnvironment: 'node', \
   roots: ['<rootDir>/src'], \
-  testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'], \
+  testMatch: ['**/__tests__/**/*.spec.ts', '**/__tests__/**/*.test.ts'], \
+  testPathIgnorePatterns: ['/node_modules/', '/fixtures/', '/helpers/'], \
   transform: { '^.+\\\\.ts$': ['ts-jest', { tsconfig: { experimentalDecorators: true, emitDecoratorMetadata: true } }] }, \
   transformIgnorePatterns: ['/node_modules/(?!(@lilnas|nanoid|lru-cache)/)'], \
   moduleNameMapper: { '^src/(.*)$': '<rootDir>/src/\$1' }, \
   clearMocks: true, \
   restoreMocks: true, \
-  testTimeout: 10000 \
+  testTimeout: 10000, \
+  forceExit: true, \
+  maxWorkers: 1 \
 };" > jest.config.js
 
 # Set environment variables for testing
@@ -90,5 +120,5 @@ ENV YTDLP_AUTO_UPDATE_ENABLED=true
 ENV YTDLP_UPDATE_MAX_RETRIES=3
 ENV YTDLP_UPDATE_RETRY_INTERVAL=1000
 
-# Default command runs integration tests
-CMD ["pnpm", "run", "test:integration"]
+# Default command runs tests
+CMD ["pnpm", "test"]
