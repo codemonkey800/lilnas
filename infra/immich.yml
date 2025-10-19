@@ -9,6 +9,7 @@ services:
       - /storage/photos/google-photos:/google-photos:ro
       - /storage/photos/home-movies:/home-movies:ro
       - /storage/photos/icloud:/icloud:ro
+      - /storage/photos/icloud-mom:/icloud-mom:ro
       - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env
