@@ -10,8 +10,6 @@ import { StrategyResult } from 'src/media-operations/request-handling/types/stra
 // Types
 // ============================================================================
 
-export type ContextType = 'movie' | 'movieDelete' | 'tvShow' | 'tvShowDelete'
-
 export interface StrategyResultExpectation {
   /** Expected number of messages */
   messageCount?: number
@@ -74,57 +72,6 @@ export function assertStrategyResult(
   } else if (expected.hasImages === false) {
     expect(result.images).toEqual([])
   }
-}
-
-/**
- * Assert that a context was set on the state service
- *
- * @example
- * assertContextSet(mockState, 'user123', 'movie', {
- *   searchResults: [mockMovie1, mockMovie2],
- *   query: 'matrix'
- * })
- */
-export function assertContextSet(
-  mockState: Record<string, jest.Mock>,
-  userId: string,
-  contextType: ContextType,
-  expectedData?: unknown,
-): void {
-  const methodMap = {
-    movie: 'setUserMovieContext',
-    movieDelete: 'setUserMovieDeleteContext',
-    tvShow: 'setUserTvShowContext',
-    tvShowDelete: 'setUserTvShowDeleteContext',
-  }
-
-  const method = methodMap[contextType]
-  expect(mockState[method]).toHaveBeenCalled()
-
-  if (expectedData !== undefined) {
-    expect(mockState[method]).toHaveBeenCalledWith(userId, expectedData)
-  }
-}
-
-/**
- * Assert that a context was NOT set on the state service
- *
- * @example
- * assertContextNotSet(mockState, 'movie')
- */
-export function assertContextNotSet(
-  mockState: Record<string, jest.Mock>,
-  contextType: ContextType,
-): void {
-  const methodMap = {
-    movie: 'setUserMovieContext',
-    movieDelete: 'setUserMovieDeleteContext',
-    tvShow: 'setUserTvShowContext',
-    tvShowDelete: 'setUserTvShowDeleteContext',
-  }
-
-  const method = methodMap[contextType]
-  expect(mockState[method]).not.toHaveBeenCalled()
 }
 
 /**

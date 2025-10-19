@@ -25,7 +25,7 @@ describe('MovieDeleteStrategy', () => {
   let promptService: jest.Mocked<PromptGenerationService>
   let parsingUtilities: jest.Mocked<ParsingUtilities>
   let selectionUtilities: jest.Mocked<SelectionUtilities>
-  let stateService: jest.Mocked<StateService>
+  let contextService: jest.Mocked<ContextManagementService>
 
   // Mock response messages
   const mockChatResponse = new HumanMessage({
@@ -132,11 +132,8 @@ describe('MovieDeleteStrategy', () => {
     error: 'Failed to delete movie from Radarr',
   }
 
-  // Mock state object (passed in params, not DI)
-  const mockState = {
-    setUserMovieDeleteContext: jest.fn(),
-    clearUserMovieDeleteContext: jest.fn(),
-  }
+  // Mock state object (passed in params, not DI) - context methods removed, now in ContextManagementService
+  const mockState = {}
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -175,8 +172,6 @@ describe('MovieDeleteStrategy', () => {
               chatModel: 'gpt-4',
               temperature: 0.7,
             }),
-            setUserMovieDeleteContext: jest.fn(),
-            clearUserMovieDeleteContext: jest.fn(),
           },
         },
         {
@@ -195,13 +190,7 @@ describe('MovieDeleteStrategy', () => {
     promptService = module.get(PromptGenerationService)
     parsingUtilities = module.get(ParsingUtilities)
     selectionUtilities = module.get(SelectionUtilities)
-    stateService = module.get(StateService)
-
-    // Reset state mocks
-    mockState.setUserMovieDeleteContext.mockClear()
-    mockState.clearUserMovieDeleteContext.mockClear()
-    stateService.setUserMovieDeleteContext.mockClear()
-    stateService.clearUserMovieDeleteContext.mockClear()
+    contextService = module.get(ContextManagementService)
   })
 
   testStrategyRouting({
@@ -318,7 +307,7 @@ describe('MovieDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(stateService.setUserMovieDeleteContext).not.toHaveBeenCalled()
+      expect(contextService.setContext).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -346,8 +335,9 @@ describe('MovieDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserMovieDeleteContext).toHaveBeenCalledWith(
+      expect(contextService.setContext).toHaveBeenCalledWith(
         'user123',
+        'movieDelete',
         {
           type: 'movieDelete',
           searchResults: [
@@ -407,12 +397,9 @@ describe('MovieDeleteStrategy', () => {
       promptService: {
         generatePromptMethod: () => promptService.generateMovieDeletePrompt,
       },
-      stateService: {
-        setContextMethod: () =>
-          stateService.setUserMovieContext || stateService.setUserTvShowContext,
-        clearContextMethod: () =>
-          stateService.clearUserMovieContext ||
-          stateService.clearUserTvShowContext,
+      contextService: {
+        setContext: () => contextService.setContext,
+        clearContext: () => contextService.clearContext,
       },
     },
     fixtures: {
@@ -423,7 +410,6 @@ describe('MovieDeleteStrategy', () => {
     config: {
       mediaType: 'movie',
       contextType: 'movieDelete',
-      setContextMethod: 'setUserMovieDeleteContext',
       supportsOrdinalSelection: true,
       supportsYearSelection: true,
       supportsTvSelection: false,
@@ -464,9 +450,7 @@ describe('MovieDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserMovieDeleteContext).toHaveBeenCalledWith(
-        'user123',
-      )
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
 
@@ -493,9 +477,7 @@ describe('MovieDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserMovieDeleteContext).toHaveBeenCalledWith(
-        'user123',
-      )
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
 
@@ -518,7 +500,7 @@ describe('MovieDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserMovieDeleteContext).not.toHaveBeenCalled()
+      expect(contextService.clearContext).not.toHaveBeenCalled()
       expect(radarrService.unmonitorAndDeleteMovie).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -543,7 +525,7 @@ describe('MovieDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserMovieDeleteContext).not.toHaveBeenCalled()
+      expect(contextService.clearContext).not.toHaveBeenCalled()
       expect(radarrService.unmonitorAndDeleteMovie).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -571,9 +553,7 @@ describe('MovieDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserMovieDeleteContext).toHaveBeenCalledWith(
-        'user123',
-      )
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
   })
@@ -649,9 +629,9 @@ describe('MovieDeleteStrategy', () => {
       promptService: {
         generatePromptMethod: () => promptService.generateMovieDeletePrompt,
       },
-      stateService: {
-        setContextMethod: () => stateService.setUserMovieDeleteContext,
-        clearContextMethod: () => stateService.clearUserMovieDeleteContext,
+      contextService: {
+        setContext: () => contextService.setContext,
+        clearContext: () => contextService.clearContext,
       },
     },
     fixtures: {
@@ -662,8 +642,6 @@ describe('MovieDeleteStrategy', () => {
     config: {
       mediaType: 'movie',
       contextType: 'movieDelete',
-      setContextMethod: 'setUserMovieDeleteContext',
-      clearContextMethod: 'clearUserMovieDeleteContext',
       serviceName: 'RadarrService',
       searchMethodName: 'getLibraryMovies',
       operationMethodName: 'unmonitorAndDeleteMovie',

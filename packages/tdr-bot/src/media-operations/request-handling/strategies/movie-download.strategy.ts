@@ -16,10 +16,7 @@ import { StateService } from 'src/state/state.service'
 
 import { BaseMediaStrategy } from './base/base-media-strategy'
 import { MAX_SEARCH_RESULTS } from './base/strategy.constants'
-import type {
-  MovieOperationState,
-  MovieSelectionContext,
-} from './base/strategy.types'
+import type { MovieSelectionContext } from './base/strategy.types'
 
 /**
  * Strategy for handling movie download requests.
@@ -51,27 +48,18 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
   }
 
   /**
-   * Get the state service to use (params.state if provided, otherwise this.stateService)
-   */
-  private getStateService(state?: MovieOperationState): MovieOperationState {
-    return (state || this.stateService) as MovieOperationState
-  }
-
-  /**
    * Handle movie download request.
    * Routes to either new search or selection handling based on context.
    */
   protected async executeRequest(
     params: StrategyRequestParams,
   ): Promise<StrategyResult> {
-    const { message, messages, context, userId, state } = params
+    const { message, messages, context, userId } = params
 
     this.logger.log(
       { userId, hasContext: !!context, strategy: this.strategyName },
       'Strategy execution started',
     )
-
-    const operationState = state as MovieOperationState | undefined
 
     // If we have an active movie context, this is a selection
     const movieContext = context as MovieSelectionContext | undefined
@@ -81,17 +69,11 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         messages,
         movieContext,
         userId,
-        operationState,
       )
     }
 
     // Otherwise, it's a new search
-    return await this.handleNewMovieSearch(
-      message,
-      messages,
-      userId,
-      operationState,
-    )
+    return await this.handleNewMovieSearch(message, messages, userId)
   }
 
   /**
@@ -102,7 +84,6 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
     message: HumanMessage,
     messages: HumanMessage[],
     userId: string,
-    state?: MovieOperationState,
   ): Promise<StrategyResult> {
     this.logger.log(
       { userId, content: message.content },
@@ -249,8 +230,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         isActive: true,
       }
 
-      // Store in both StateService and ContextManagementService for proper context tracking
-      this.getStateService(state).setUserMovieContext(userId, movieContext)
+      // Store context in ContextManagementService
       await this.contextService.setContext(userId, 'movie', movieContext)
 
       this.logger.log(
@@ -309,7 +289,6 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
     messages: HumanMessage[],
     movieContext: MovieSelectionContext,
     userId: string,
-    state?: MovieOperationState,
   ): Promise<StrategyResult> {
     this.logger.log(
       { userId, selectionMessage: message.content },
@@ -365,8 +344,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         }
       }
 
-      // Clear context from both services and download the movie
-      this.getStateService(state).clearUserMovieContext(userId)
+      // Clear context and download the movie
       await this.contextService.clearContext(userId)
       this.logger.log({ userId }, 'Cleared movie context after selection')
 
@@ -377,8 +355,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         'Failed to process movie selection',
       )
 
-      // Clear context from both services on error
-      this.getStateService(state).clearUserMovieContext(userId)
+      // Clear context on error
       await this.contextService.clearContext(userId)
 
       const errorResponse = await this.promptService.generateMoviePrompt(

@@ -10,6 +10,7 @@ import {
 } from 'src/utils/error-classifier'
 import { remarkFixLinkPlugin } from 'src/utils/fix-link'
 import { RetryService } from 'src/utils/retry.service'
+import { isError } from 'src/utils/type-guards'
 
 import { BaseMessageHandlerService } from './base-message-handler.service'
 import { LLMOrchestrationService } from './llm-orchestration.service'
@@ -226,8 +227,13 @@ export class ChatService extends BaseMessageHandlerService {
         message: content,
       })
 
+      // Safely handle error classification
+      const errorToClassify = isError(error)
+        ? error
+        : new Error('Unknown error occurred')
+
       const classification = this.errorClassifier.classifyError(
-        error as Error,
+        errorToClassify,
         ErrorCategory.SYSTEM,
       )
 

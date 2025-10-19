@@ -25,7 +25,7 @@ describe('TvDownloadStrategy', () => {
   let promptService: jest.Mocked<PromptGenerationService>
   let parsingUtilities: jest.Mocked<ParsingUtilities>
   let selectionUtilities: jest.Mocked<SelectionUtilities>
-  let stateService: jest.Mocked<StateService>
+  let contextService: jest.Mocked<ContextManagementService>
 
   // Mock response messages
   const mockChatResponse = new HumanMessage({
@@ -145,11 +145,8 @@ describe('TvDownloadStrategy', () => {
     error: 'Failed to add series to Sonarr',
   }
 
-  // Mock state object (passed in params, not DI)
-  const mockState = {
-    setUserTvShowContext: jest.fn(),
-    clearUserTvShowContext: jest.fn(),
-  }
+  // Mock state object (passed in params, not DI) - context methods removed, now in ContextManagementService
+  const mockState = {}
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -209,13 +206,11 @@ describe('TvDownloadStrategy', () => {
     promptService = module.get(PromptGenerationService)
     parsingUtilities = module.get(ParsingUtilities)
     selectionUtilities = module.get(SelectionUtilities)
-    stateService = module.get(StateService)
+    contextService = module.get(ContextManagementService)
 
-    // Reset state mocks
-    mockState.setUserTvShowContext.mockClear()
-    mockState.clearUserTvShowContext.mockClear()
-    stateService.setUserTvShowContext.mockClear()
-    stateService.clearUserTvShowContext.mockClear()
+    // Reset context service mocks
+    contextService.setContext.mockClear()
+    contextService.clearContext.mockClear()
   })
 
   testStrategyRouting({
@@ -335,7 +330,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowContext).toHaveBeenCalledWith('user123', {
+      expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
         type: 'tvShow',
         searchResults: [mockShow1],
         query: 'breaking bad',
@@ -372,7 +367,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowContext).toHaveBeenCalledWith('user123', {
+      expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
         type: 'tvShow',
         searchResults: [mockShow1, mockShow2, mockShow3],
         query: 'breaking',
@@ -446,7 +441,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowContext).not.toHaveBeenCalled()
+      expect(contextService.setContext).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -475,7 +470,7 @@ describe('TvDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(sonarrService.monitorAndDownloadSeries).not.toHaveBeenCalled()
-      expect(mockState.setUserTvShowContext).toHaveBeenCalledWith('user123', {
+      expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
         type: 'tvShow',
         searchResults: [mockShow1, mockShow2],
         query: 'breaking',
@@ -544,8 +539,8 @@ describe('TvDownloadStrategy', () => {
 
       await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowContext).not.toHaveBeenCalled()
-      expect(mockState.clearUserTvShowContext).not.toHaveBeenCalled()
+      expect(contextService.setContext).not.toHaveBeenCalled()
+      expect(contextService.clearContext).not.toHaveBeenCalled()
     })
   })
 
@@ -609,7 +604,7 @@ describe('TvDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(sonarrService.monitorAndDownloadSeries).not.toHaveBeenCalled()
-      expect(mockState.setUserTvShowContext).toHaveBeenCalled()
+      expect(contextService.setContext).toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -669,7 +664,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowContext).toHaveBeenCalledWith('user123', {
+      expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
         type: 'tvShow',
         searchResults: [mockShow2],
         query: 'breaking',
@@ -705,7 +700,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowContext).toHaveBeenCalledWith('user123', {
+      expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
         type: 'tvShow',
         searchResults: [mockShow1],
         query: 'breaking',
@@ -741,7 +736,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowContext).toHaveBeenCalledWith('user123', {
+      expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
         type: 'tvShow',
         searchResults: [mockShow1, mockShow2],
         query: 'breaking',
@@ -781,7 +776,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowContext).not.toHaveBeenCalled()
+      expect(contextService.setContext).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -809,7 +804,7 @@ describe('TvDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(sonarrService.monitorAndDownloadSeries).not.toHaveBeenCalled()
-      expect(mockState.setUserTvShowContext).toHaveBeenCalledWith('user123', {
+      expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
         type: 'tvShow',
         searchResults: [mockShow1],
         query: 'breaking bad',
@@ -878,8 +873,9 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowContext).toHaveBeenCalledWith(
+      expect(contextService.setContext).toHaveBeenCalledWith(
         'user123',
+        'tv',
         expect.objectContaining({
           searchResults: [mockShow1],
         }),
@@ -913,8 +909,9 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.setUserTvShowContext).toHaveBeenCalledWith(
+      expect(contextService.setContext).toHaveBeenCalledWith(
         'user123',
+        'tv',
         expect.objectContaining({
           searchResults: [mockShow2],
         }),
@@ -952,7 +949,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserTvShowContext).toHaveBeenCalledWith('user123')
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1045,8 +1042,7 @@ describe('TvDownloadStrategy', () => {
 
       await strategy.handleRequest(params)
 
-      expect(mockState.clearUserTvShowContext).toHaveBeenCalledWith('user123')
-      expect(mockState.clearUserTvShowContext).toHaveBeenCalledTimes(1)
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
     })
   })
 
@@ -1078,7 +1074,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserTvShowContext).toHaveBeenCalledWith('user123')
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1109,7 +1105,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserTvShowContext).toHaveBeenCalledWith('user123')
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1140,7 +1136,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserTvShowContext).toHaveBeenCalledWith('user123')
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1174,7 +1170,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(mockState.clearUserTvShowContext).toHaveBeenCalledWith('user123')
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1203,7 +1199,7 @@ describe('TvDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(sonarrService.monitorAndDownloadSeries).not.toHaveBeenCalled()
-      expect(mockState.clearUserTvShowContext).not.toHaveBeenCalled()
+      expect(contextService.clearContext).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1234,8 +1230,7 @@ describe('TvDownloadStrategy', () => {
 
       await strategy.handleRequest(params)
 
-      expect(mockState.clearUserTvShowContext).toHaveBeenCalledWith('user123')
-      expect(mockState.clearUserTvShowContext).toHaveBeenCalledTimes(1)
+      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
     })
   })
 
@@ -1382,9 +1377,9 @@ describe('TvDownloadStrategy', () => {
       promptService: {
         generatePromptMethod: () => promptService.generateTvShowChatResponse,
       },
-      stateService: {
-        setContextMethod: () => stateService.setUserTvShowContext,
-        clearContextMethod: () => stateService.clearUserTvShowContext,
+      contextService: {
+        setContext: () => contextService.setContext,
+        clearContext: () => contextService.clearContext,
       },
     },
     fixtures: {
@@ -1395,8 +1390,6 @@ describe('TvDownloadStrategy', () => {
     config: {
       mediaType: 'tv show',
       contextType: 'tvShow',
-      setContextMethod: 'setUserTvShowContext',
-      clearContextMethod: 'clearUserTvShowContext',
       serviceName: 'SonarrService',
       searchMethodName: 'searchShows',
       operationMethodName: 'monitorAndDownloadSeries',

@@ -16,10 +16,7 @@ import { StateService } from 'src/state/state.service'
 
 import { BaseMediaStrategy } from './base/base-media-strategy'
 import { MAX_SEARCH_RESULTS } from './base/strategy.constants'
-import type {
-  MovieDeleteContext,
-  MovieDeleteOperationState,
-} from './base/strategy.types'
+import type { MovieDeleteContext } from './base/strategy.types'
 
 /**
  * Strategy for handling movie deletion requests.
@@ -51,29 +48,18 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
   }
 
   /**
-   * Get the state service to use (params.state if provided, otherwise this.stateService)
-   */
-  private getStateService(
-    state?: MovieDeleteOperationState,
-  ): MovieDeleteOperationState {
-    return (state || this.stateService) as MovieDeleteOperationState
-  }
-
-  /**
    * Handle movie delete request.
    * Routes to either new delete or selection handling based on context.
    */
   protected async executeRequest(
     params: StrategyRequestParams,
   ): Promise<StrategyResult> {
-    const { message, messages, context, userId, state } = params
+    const { message, messages, context, userId } = params
 
     this.logger.log(
       { userId, hasContext: !!context, strategy: this.strategyName },
       'Strategy execution started',
     )
-
-    const operationState = state as MovieDeleteOperationState | undefined
 
     // If we have an active movie delete context, this is a selection
     const movieDeleteContext = context as MovieDeleteContext | undefined
@@ -86,17 +72,11 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
         messages,
         movieDeleteContext,
         userId,
-        operationState,
       )
     }
 
     // Otherwise, it's a new delete request
-    return await this.handleNewMovieDelete(
-      message,
-      messages,
-      userId,
-      operationState,
-    )
+    return await this.handleNewMovieDelete(message, messages, userId)
   }
 
   /**
@@ -107,7 +87,6 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
     message: HumanMessage,
     messages: HumanMessage[],
     userId: string,
-    state?: MovieDeleteOperationState,
   ): Promise<StrategyResult> {
     this.logger.log(
       { userId, content: message.content },
@@ -184,8 +163,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
             'Auto-applying movie selection for delete (explicit search selection provided)',
           )
 
-          // Clear any existing context from both services and delete the movie directly
-          this.getStateService(state).clearUserMovieDeleteContext(userId)
+          // Clear any existing context and delete the movie directly
           await this.contextService.clearContext(userId)
           return await this.deleteMovie(
             selectedMovie,
@@ -224,11 +202,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
         isActive: true,
       }
 
-      // Store in both StateService and ContextManagementService for proper context tracking
-      this.getStateService(state).setUserMovieDeleteContext(
-        userId,
-        movieDeleteContext,
-      )
+      // Store context in ContextManagementService
       await this.contextService.setContext(
         userId,
         'movieDelete',
@@ -283,7 +257,6 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
     messages: HumanMessage[],
     movieDeleteContext: MovieDeleteContext,
     userId: string,
-    state?: MovieDeleteOperationState,
   ): Promise<StrategyResult> {
     this.logger.log(
       { userId, selectionMessage: message.content },
@@ -340,8 +313,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
         }
       }
 
-      // Clear context from both services and delete the movie
-      this.getStateService(state).clearUserMovieDeleteContext(userId)
+      // Clear context and delete the movie
       await this.contextService.clearContext(userId)
       return await this.deleteMovie(selectedMovie, message, messages, userId)
     } catch (error) {
@@ -350,8 +322,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
         'Failed to process movie delete selection',
       )
 
-      // Clear context from both services on error
-      this.getStateService(state).clearUserMovieDeleteContext(userId)
+      // Clear context on error
       await this.contextService.clearContext(userId)
 
       const errorResponse = await this.promptService.generateMovieDeletePrompt(
