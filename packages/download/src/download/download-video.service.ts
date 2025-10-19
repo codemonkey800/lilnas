@@ -12,7 +12,7 @@ import { Client } from 'minio'
 import { MINIO_CONNECTION } from 'nestjs-minio'
 import path from 'path'
 
-import { EnvKey } from 'src/utils/env'
+import { EnvKeys } from 'src/env'
 
 import { DownloadStateService } from './download-state.service'
 import { DownloadStepOptions } from './types'
@@ -384,14 +384,14 @@ export class DownloadVideoService {
     log('log', { ...options, files: files }, 'Video file uploaded')
 
     const downloadUrls = files.map(
-      file => `${env<EnvKey>('MINIO_PUBLIC_URL')}/videos/${getFileKey(file)}`,
+      file => `${env(EnvKeys.MINIO_PUBLIC_URL)}/videos/${getFileKey(file)}`,
     )
 
     log('log', { ...options, downloadUrls }, 'Updating job with download URLs')
 
     this.downloadStateService.updateJob(job.id, {
       downloadUrls: files.map(
-        file => `${env<EnvKey>('MINIO_PUBLIC_URL')}/videos/${getFileKey(file)}`,
+        file => `${env(EnvKeys.MINIO_PUBLIC_URL)}/videos/${getFileKey(file)}`,
       ),
     })
   }

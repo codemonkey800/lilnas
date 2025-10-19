@@ -2,6 +2,7 @@ import { env } from '@lilnas/utils/env'
 import { Injectable } from '@nestjs/common'
 
 import { RetryConfigService } from 'src/config/retry.config'
+import { EnvKeys } from 'src/env'
 import {
   AddSeriesRequest,
   BulkEpisodeUpdateRequest,
@@ -18,7 +19,6 @@ import {
   SonarrSystemStatus,
   UpdateEpisodeRequest,
 } from 'src/media/types/sonarr.types'
-import { EnvKey } from 'src/utils/env'
 import { ErrorClassificationService } from 'src/utils/error-classifier'
 import { RetryService } from 'src/utils/retry.service'
 
@@ -38,8 +38,8 @@ export class SonarrClient extends BaseMediaApiClient {
   ) {
     super(retryService, errorClassifier)
 
-    this.baseUrl = env<EnvKey>('SONARR_URL')
-    this.apiKey = env<EnvKey>('SONARR_API_KEY')
+    this.baseUrl = env(EnvKeys.SONARR_URL)
+    this.apiKey = env(EnvKeys.SONARR_API_KEY)
 
     // Ensure baseUrl ends with /api/v3
     if (!this.baseUrl.endsWith('/api/v3')) {

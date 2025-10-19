@@ -2,6 +2,7 @@ import { env } from '@lilnas/utils/env'
 import { Injectable } from '@nestjs/common'
 
 import { RetryConfigService } from 'src/config/retry.config'
+import { EnvKeys } from 'src/env'
 import {
   AddMovieRequest,
   AddMovieResponse,
@@ -16,7 +17,6 @@ import {
   RadarrRootFolder,
   RadarrSystemStatus,
 } from 'src/media/types/radarr.types'
-import { EnvKey } from 'src/utils/env'
 import { ErrorClassificationService } from 'src/utils/error-classifier'
 import { RetryService } from 'src/utils/retry.service'
 
@@ -36,8 +36,8 @@ export class RadarrClient extends BaseMediaApiClient {
   ) {
     super(retryService, errorClassifier)
 
-    this.baseUrl = env<EnvKey>('RADARR_URL')
-    this.apiKey = env<EnvKey>('RADARR_API_KEY')
+    this.baseUrl = env(EnvKeys.RADARR_URL)
+    this.apiKey = env(EnvKeys.RADARR_API_KEY)
 
     // Ensure baseUrl ends with /api/v3
     if (!this.baseUrl.endsWith('/api/v3')) {

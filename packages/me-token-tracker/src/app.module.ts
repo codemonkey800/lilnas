@@ -6,18 +6,18 @@ import { IntentsBitField } from 'discord.js'
 import { NecordModule } from 'necord'
 import { LoggerModule } from 'nestjs-pino'
 
+import { EnvKeys } from './env'
 import { AppEventsService } from './services/app-events.service'
 import { SchedulesService } from './services/schedules.service'
 import { StatusService } from './services/status.service'
-import { EnvKey } from './utils/env'
 
 @Module({
   imports: [
     EventEmitterModule.forRoot(),
     LoggerModule.forRoot(),
     NecordModule.forRoot({
-      development: [env<EnvKey>('DEV_GUILD_ID', '')],
-      token: env<EnvKey>('API_TOKEN'),
+      development: [env(EnvKeys.DEV_GUILD_ID, '')],
+      token: env(EnvKeys.API_TOKEN),
       intents: [
         IntentsBitField.Flags.GuildMessages,
         IntentsBitField.Flags.Guilds,

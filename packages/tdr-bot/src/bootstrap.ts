@@ -3,14 +3,14 @@ import { NestFactory } from '@nestjs/core'
 import { Logger } from 'nestjs-pino'
 
 import { AppModule } from './app.module'
+import { EnvKeys } from './env'
 import { GraphTestModule } from './graph-test.module'
-import { EnvKey } from './utils/env'
 
 export async function bootstrapApp() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true })
   app.useLogger(app.get(Logger))
 
-  const port = +env<EnvKey>('BACKEND_PORT')
+  const port = +env(EnvKeys.BACKEND_PORT)
   await app.listen(port)
 
   console.log(`Started backend server at http://localhost:${port}`)

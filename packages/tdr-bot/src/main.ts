@@ -3,10 +3,10 @@ import * as dotenv from 'dotenv'
 import { unlink } from 'fs/promises'
 import * as sourceMapSupport from 'source-map-support'
 
-import { EnvKey } from './utils/env'
+import { EnvKeys } from './env'
 
 async function cleanupLogFile() {
-  const logFilePath = env<EnvKey>('LOG_FILE_PATH', '')
+  const logFilePath = env(EnvKeys.LOG_FILE_PATH, '')
 
   if (logFilePath) {
     try {
@@ -49,7 +49,7 @@ async function main() {
   dotenv.config()
   sourceMapSupport.install()
 
-  if (env<EnvKey>('GRAPH_TEST', 'false') === 'true') {
+  if (env(EnvKeys.GRAPH_TEST, 'false') === 'true') {
     await runGraphTest()
   } else {
     await runApp()
