@@ -312,7 +312,9 @@ export class DownloadCommandService {
     this.logger.log({ id, job, dir, urls }, 'downloading files')
 
     await Promise.all(
-      urls.map(url => this.downloadFile({ dir, files, id, job, url })),
+      urls.map((url: string) =>
+        this.downloadFile({ dir, files, id, job, url }),
+      ),
     )
 
     this.logger.log({ id, job, files }, 'downloaded files')
@@ -338,7 +340,10 @@ export class DownloadCommandService {
           )
 
           const downloadLinks = urls
-            .map((url, index) => `[Download File ${index + 1}](${url})`)
+            .map(
+              (url: string, index: number) =>
+                `[Download File ${index + 1}](${url})`,
+            )
             .join(' • ')
 
           await interaction.channel.send({
