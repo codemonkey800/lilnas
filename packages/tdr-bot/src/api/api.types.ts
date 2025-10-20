@@ -22,3 +22,19 @@ export interface HealthResponse {
   uptime: number
   version: string
 }
+
+export interface ChannelInfo {
+  id: string
+  name: string
+  type: string
+}
+
+export interface SendMessageRequest {
+  content: string
+}
+
+export interface SendMessageResponse {
+  success: boolean
+  message?: string
+  sentAt?: string
+}

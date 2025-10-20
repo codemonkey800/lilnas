@@ -10,6 +10,8 @@ import {
 import { ThemeProvider } from 'next-themes'
 import { ReactNode } from 'react'
 
+import { Toaster } from './Sonner'
+
 function makeQueryClient() {
   return new QueryClient({
     defaultOptions: {
@@ -56,6 +58,7 @@ export default function Providers({ children }: { children: ReactNode }) {
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <QueryClientProvider>{children}</QueryClientProvider>
+      <Toaster />
     </ThemeProvider>
   )
 }

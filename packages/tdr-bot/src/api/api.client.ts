@@ -1,6 +1,11 @@
-import { EditableAppState, MessageState } from './api.types'
+import {
+  ChannelInfo,
+  EditableAppState,
+  MessageState,
+  SendMessageResponse,
+} from './api.types'
 
-const API_URL = 'http://localhost:8081'
+const API_URL = '/api'
 
 let instance: ApiClient | null = null
 
@@ -32,6 +37,23 @@ export class ApiClient {
     const response = await this.request('/state', {
       method: 'POST',
       body: JSON.stringify(state),
+    })
+
+    return await response.json()
+  }
+
+  async getChannels(): Promise<ChannelInfo[]> {
+    const response = await this.request('/channels')
+    return await response.json()
+  }
+
+  async sendMessage(
+    channelId: string,
+    content: string,
+  ): Promise<SendMessageResponse> {
+    const response = await this.request(`/channels/${channelId}/message`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
     })
 
     return await response.json()

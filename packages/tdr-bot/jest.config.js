@@ -15,12 +15,15 @@ module.exports = {
     '!**/__tests__/fixtures/*.ts',
   ],
   transform: {
-    '^.+\\.ts$': ['ts-jest', {
-      tsconfig: {
-        experimentalDecorators: true,
-        emitDecoratorMetadata: true,
+    '^.+\\.ts$': [
+      'ts-jest',
+      {
+        tsconfig: {
+          experimentalDecorators: true,
+          emitDecoratorMetadata: true,
+        },
       },
-    }],
+    ],
   },
   transformIgnorePatterns: [
     '/node_modules/(?!(@lilnas|nanoid|remark|unified|unist|vfile|bail|is-plain-obj|trough|mdast|unist-util-visit|unist-util-is|unist-util-visit-parents))',

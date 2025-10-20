@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Post } from '@nestjs/common'
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+} from '@nestjs/common'
+import { ChannelType, Client } from 'discord.js'
 import { ChatModel } from 'openai/resources'
 
 import { VERSION } from 'src/constants/version'
@@ -6,6 +15,11 @@ import { ImageResponse } from 'src/schemas/graph'
 import { EquationImageService } from 'src/services/equation-image.service'
 import { AppState, StateService } from 'src/state/state.service'
 
+import type {
+  ChannelInfo,
+  SendMessageRequest,
+  SendMessageResponse,
+} from './api.types'
 import { EditableAppState, HealthResponse, MessageState } from './api.types'
 
 class UpdateStateDto {
@@ -21,6 +35,7 @@ export class ApiController {
   constructor(
     private readonly state: StateService,
     private readonly equationImage: EquationImageService,
+    private readonly client: Client,
   ) {}
 
   @Get('state')
@@ -91,6 +106,84 @@ export class ApiController {
       timestamp: new Date().toISOString(),
       uptime: Math.floor(process.uptime()),
       version: VERSION,
+    }
+  }
+
+  @Get('channels')
+  async getChannels(): Promise<ChannelInfo[]> {
+    const channels: ChannelInfo[] = []
+
+    this.client.guilds.cache.forEach(guild => {
+      guild.channels.cache.forEach(channel => {
+        if (
+          channel.type === ChannelType.GuildText ||
+          channel.type === ChannelType.GuildAnnouncement
+        ) {
+          channels.push({
+            id: channel.id,
+            name: channel.name,
+            type:
+              channel.type === ChannelType.GuildText ? 'text' : 'announcement',
+          })
+        }
+      })
+    })
+
+    return channels.sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  @Post('channels/:channelId/message')
+  async sendMessage(
+    @Param('channelId') channelId: string,
+    @Body() body: SendMessageRequest,
+  ): Promise<SendMessageResponse> {
+    const { content } = body
+
+    if (!content || content.trim().length === 0) {
+      throw new BadRequestException('Message content cannot be empty')
+    }
+
+    if (content.length > 2000) {
+      throw new BadRequestException(
+        'Message content exceeds Discord limit of 2000 characters',
+      )
+    }
+
+    try {
+      const channel = await this.client.channels.fetch(channelId)
+
+      if (!channel) {
+        throw new NotFoundException(`Channel with ID ${channelId} not found`)
+      }
+
+      if (!channel.isTextBased()) {
+        throw new BadRequestException('Channel is not a text-based channel')
+      }
+
+      if ('send' in channel) {
+        await channel.send(content)
+      } else {
+        throw new BadRequestException(
+          'Channel does not support sending messages',
+        )
+      }
+
+      return {
+        success: true,
+        message: 'Message sent successfully',
+        sentAt: new Date().toISOString(),
+      }
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error
+      }
+
+      throw new BadRequestException(
+        `Failed to send message: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      )
     }
   }
 }
