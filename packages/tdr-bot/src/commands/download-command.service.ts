@@ -340,10 +340,7 @@ export class DownloadCommandService {
           )
 
           const downloadLinks = urls
-            .map(
-              (url: string, index: number) =>
-                `[Download File ${index + 1}](${url})`,
-            )
+            .map((url: string, index: number) => `[Video ${index + 1}](${url})`)
             .join(' • ')
 
           await interaction.channel.send({
@@ -351,7 +348,6 @@ export class DownloadCommandService {
               job.title ? `[**${job.title}**](<${job.url}>)\n` : '',
               author ? `sent by <@${author}>\n` : '',
               description ? `${description}\n\n` : '',
-              '⚠️ Files too large for Discord upload\n',
               downloadLinks,
             ]
               .filter(Boolean)
