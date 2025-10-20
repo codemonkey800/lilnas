@@ -30,6 +30,10 @@ export interface DownloadJob extends CreateDownloadJobInput {
   id: string
   proc?: ChildProcessWithoutNullStreams
   status: DownloadJobStatus
+  timeRange?: {
+    start: string
+    end: string
+  }
   title?: string
   type: DownloadType
   url: string
