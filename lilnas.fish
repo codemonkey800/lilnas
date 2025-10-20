@@ -19,6 +19,7 @@ Commands:
     list                    List all services in the monorepo
     up                      Bring up services with docker-compose up -d
     down                    Bring down services with docker-compose down --rmi all -v
+    redeploy                Redeploy services (bring down then up)
 
 Options:
     --apps                  Target only package services (from packages/*)
@@ -40,7 +41,13 @@ Examples:
     ./lilnas.fish down                        # All services
     ./lilnas.fish down --apps                 # All package services
     ./lilnas.fish down --services             # All infra services
-    ./lilnas.fish down tdr-bot download       # Specific services"
+    ./lilnas.fish down tdr-bot download       # Specific services
+
+    # Redeploy services
+    ./lilnas.fish redeploy                    # All services
+    ./lilnas.fish redeploy --apps             # All package services
+    ./lilnas.fish redeploy --services         # All infra services
+    ./lilnas.fish redeploy tdr-bot download   # Specific services"
     exit 0
 end
 
@@ -234,6 +241,23 @@ function cmd_down
     end
 end
 
+# Command handler for redeploying services (down then up)
+function cmd_redeploy
+    # Store original arguments to pass to both commands
+    set -l original_args $argv
+
+    echo "Redeploying services..."
+    echo ""
+
+    # First bring down the services
+    cmd_down $original_args
+
+    echo ""
+
+    # Then bring them back up
+    cmd_up $original_args
+end
+
 # Main entry point
 function main
     # Check for docker-compose
@@ -257,6 +281,8 @@ function main
             cmd_up $argv
         case down
             cmd_down $argv
+        case redeploy
+            cmd_redeploy $argv
         case -h --help help
             usage
         case '*'
