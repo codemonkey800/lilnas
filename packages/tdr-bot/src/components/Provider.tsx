@@ -7,9 +7,8 @@ import {
   QueryClient,
   QueryClientProvider as BaseQueryClientProvider,
 } from '@tanstack/react-query'
+import { ThemeProvider } from 'next-themes'
 import { ReactNode } from 'react'
-
-import { ThemeProvider } from './ThemeProvider'
 
 function makeQueryClient() {
   return new QueryClient({
@@ -55,7 +54,7 @@ function QueryClientProvider({ children }: { children: ReactNode }) {
 
 export default function Providers({ children }: { children: ReactNode }) {
   return (
-    <ThemeProvider>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <QueryClientProvider>{children}</QueryClientProvider>
     </ThemeProvider>
   )

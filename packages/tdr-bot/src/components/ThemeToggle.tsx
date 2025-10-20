@@ -1,30 +1,93 @@
 'use client'
 
-import { MoonIcon, SunIcon } from '@heroicons/react/24/outline'
 import { cns } from '@lilnas/utils/cns'
+import { Moon, Sun } from 'lucide-react'
+import { AnimatePresence, motion } from 'motion/react'
+import { useTheme } from 'next-themes'
+import { useEffect, useState } from 'react'
 
-import { useTheme } from './ThemeProvider'
+import { Button } from 'src/components/Button'
+
+const ICON_CLASS_NAME = 'h-[1.2rem] w-[1.2rem]'
 
 export function ThemeToggle() {
-  const { theme, toggleTheme } = useTheme()
+  const { theme, resolvedTheme, setTheme } = useTheme()
+  const [isClient, setIsClient] = useState(false)
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsClient(true)
+  }, [])
+
+  const isDark = resolvedTheme === 'dark'
+  const isLight = resolvedTheme === 'light'
+
+  // Animation variants
+  const iconVariants = {
+    initial: { y: '100%', opacity: 0 },
+    animate: { y: 0, opacity: 1 },
+    exit: { y: '-100%', opacity: 0 },
+  }
+
+  const transition = { duration: 0.3, ease: [0.4, 0, 0.2, 1] as const }
+
+  const handleToggle = () => {
+    if (theme === 'system') {
+      // First toggle from system: switch to opposite of current resolved theme
+      setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
+    } else {
+      // Already on explicit theme: toggle between light and dark
+      setTheme(theme === 'dark' ? 'light' : 'dark')
+    }
+  }
 
   return (
-    <button
-      onClick={toggleTheme}
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={handleToggle}
       className={cns(
-        'rounded-lg p-2 transition-colors duration-200',
-        'hover:bg-gray-200 dark:hover:bg-gray-700',
-        'focus:outline-none focus:ring-2 focus:ring-eminence-500 focus:ring-offset-2',
-        'text-gray-700 dark:text-gray-300',
+        '!bg-transparent',
+        'hover:!bg-transparent',
+        'cursor-pointer',
+        'hover:!text-black',
+        'dark:hover:!text-white',
+        'transition-colors',
       )}
-      aria-label="Toggle theme"
-      type="button"
     >
-      {theme === 'light' ? (
-        <MoonIcon className="h-5 w-5" />
-      ) : (
-        <SunIcon className="h-5 w-5" />
-      )}
-    </button>
+      <div className="relative h-[1.2rem] w-[1.2rem] overflow-hidden">
+        <AnimatePresence initial={false}>
+          {isClient && isDark && (
+            <motion.div
+              key="sun"
+              className="absolute inset-0"
+              variants={iconVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={transition}
+            >
+              <Sun className={ICON_CLASS_NAME} />
+            </motion.div>
+          )}
+
+          {isClient && isLight && (
+            <motion.div
+              key="moon"
+              className="absolute inset-0"
+              variants={iconVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={transition}
+            >
+              <Moon className={ICON_CLASS_NAME} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <span className="sr-only">Toggle theme</span>
+    </Button>
   )
 }

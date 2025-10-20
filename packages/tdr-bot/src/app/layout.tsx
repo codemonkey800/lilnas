@@ -9,8 +9,12 @@ import Providers from 'src/components/Provider'
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
-    <html className={cns('w-full h-full', GeistSans.className)} lang="en">
-      <body className="w-full h-full flex flex-auto flex-col">
+    <html
+      className={cns('w-full h-full', GeistSans.className)}
+      lang="en"
+      suppressHydrationWarning
+    >
+      <body className="w-full h-full flex flex-auto flex-col transition-colors">
         <Providers>
           <Layout>{children}</Layout>
         </Providers>
