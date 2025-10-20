@@ -9,7 +9,6 @@ import { GraphHistoryLoggerService } from './graph-history-logger.service'
 import { KeywordsService } from './keywords.service'
 import { LLMOrchestrationModule } from './llm-orchestration.module'
 import { MessageHandlerService } from './message-handler.service'
-import { MessageLoggerService } from './message-logger.service'
 
 @Module({
   imports: [MediaModule, ServicesModule, StateModule, LLMOrchestrationModule],
@@ -17,7 +16,6 @@ import { MessageLoggerService } from './message-logger.service'
     ChatService,
     KeywordsService,
     MessageHandlerService,
-    MessageLoggerService,
     GraphHistoryLoggerService,
   ],
 })
