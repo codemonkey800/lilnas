@@ -51,6 +51,106 @@ Examples:
     exit 0
 end
 
+# Function to print usage for list command
+function usage_list
+    echo "Usage: ./lilnas.fish list [options]
+
+Description:
+    List all services in the monorepo
+
+Options:
+    --apps                  List only package services (from packages/*)
+    --services              List only infrastructure services (from infra/*)
+    -h, --help              Show this help message
+
+Examples:
+    ./lilnas.fish list              # List all services
+    ./lilnas.fish list --apps       # List only package services
+    ./lilnas.fish list --services   # List only infrastructure services"
+    exit 0
+end
+
+# Function to print usage for up command
+function usage_up
+    echo "Usage: ./lilnas.fish up [options] [SERVICE...]
+
+Description:
+    Bring up services with docker-compose up -d
+
+Options:
+    --apps                  Bring up only package services (from packages/*)
+    --services              Bring up only infrastructure services (from infra/*)
+    -h, --help              Show this help message
+
+Arguments:
+    SERVICE                 Specific service names to bring up (optional, multiple allowed)
+
+Note:
+    Cannot specify both --apps/--services flags and specific service names.
+    Cannot use both --apps and --services flags together.
+
+Examples:
+    ./lilnas.fish up                        # Bring up all services
+    ./lilnas.fish up --apps                 # Bring up all package services
+    ./lilnas.fish up --services             # Bring up all infra services
+    ./lilnas.fish up tdr-bot download       # Bring up specific services"
+    exit 0
+end
+
+# Function to print usage for down command
+function usage_down
+    echo "Usage: ./lilnas.fish down [options] [SERVICE...]
+
+Description:
+    Bring down services with docker-compose down --rmi all -v
+
+Options:
+    --apps                  Bring down only package services (from packages/*)
+    --services              Bring down only infrastructure services (from infra/*)
+    -h, --help              Show this help message
+
+Arguments:
+    SERVICE                 Specific service names to bring down (optional, multiple allowed)
+
+Note:
+    Cannot specify both --apps/--services flags and specific service names.
+    Cannot use both --apps and --services flags together.
+
+Examples:
+    ./lilnas.fish down                      # Bring down all services
+    ./lilnas.fish down --apps               # Bring down all package services
+    ./lilnas.fish down --services           # Bring down all infra services
+    ./lilnas.fish down tdr-bot download     # Bring down specific services"
+    exit 0
+end
+
+# Function to print usage for redeploy command
+function usage_redeploy
+    echo "Usage: ./lilnas.fish redeploy [options] [SERVICE...]
+
+Description:
+    Redeploy services (bring down then up)
+
+Options:
+    --apps                  Redeploy only package services (from packages/*)
+    --services              Redeploy only infrastructure services (from infra/*)
+    -h, --help              Show this help message
+
+Arguments:
+    SERVICE                 Specific service names to redeploy (optional, multiple allowed)
+
+Note:
+    Cannot specify both --apps/--services flags and specific service names.
+    Cannot use both --apps and --services flags together.
+
+Examples:
+    ./lilnas.fish redeploy                  # Redeploy all services
+    ./lilnas.fish redeploy --apps           # Redeploy all package services
+    ./lilnas.fish redeploy --services       # Redeploy all infra services
+    ./lilnas.fish redeploy tdr-bot download # Redeploy specific services"
+    exit 0
+end
+
 # Function to extract services from a compose file
 function get_services_from_file
     set -l file $argv[1]
@@ -107,9 +207,14 @@ end
 
 # Main command handler for list
 function cmd_list
-    argparse 'apps' 'services' -- $argv
+    argparse 'h/help' 'apps' 'services' -- $argv
     or begin
         error "Invalid options for list command"
+    end
+
+    # Show help if requested
+    if set -q _flag_help
+        usage_list
     end
 
     set -l show_apps false
@@ -141,9 +246,14 @@ end
 
 # Command handler for bringing services up
 function cmd_up
-    argparse 'apps' 'services' -- $argv
+    argparse 'h/help' 'apps' 'services' -- $argv
     or begin
         error "Invalid options for up command"
+    end
+
+    # Show help if requested
+    if set -q _flag_help
+        usage_up
     end
 
     set -l show_apps false
@@ -192,9 +302,14 @@ end
 
 # Command handler for bringing services down
 function cmd_down
-    argparse 'apps' 'services' -- $argv
+    argparse 'h/help' 'apps' 'services' -- $argv
     or begin
         error "Invalid options for down command"
+    end
+
+    # Show help if requested
+    if set -q _flag_help
+        usage_down
     end
 
     set -l show_apps false
@@ -243,6 +358,16 @@ end
 
 # Command handler for redeploying services (down then up)
 function cmd_redeploy
+    argparse 'h/help' 'apps' 'services' -- $argv
+    or begin
+        error "Invalid options for redeploy command"
+    end
+
+    # Show help if requested
+    if set -q _flag_help
+        usage_redeploy
+    end
+
     # Store original arguments to pass to both commands
     set -l original_args $argv
 
