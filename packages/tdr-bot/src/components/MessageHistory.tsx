@@ -1,6 +1,7 @@
 'use client'
 
 import { cns } from '@lilnas/utils/cns'
+import { useState } from 'react'
 
 import {
   Card,
@@ -9,18 +10,74 @@ import {
   CardHeader,
   CardTitle,
 } from 'src/components/Card'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from 'src/components/Select'
+import { useGraphHistoryFiles } from 'src/queries/useGraphHistoryFiles'
+import { useGraphHistoryMessages } from 'src/queries/useGraphHistoryMessages'
 import { useMessages } from 'src/queries/useMessages'
 import { ImageResponse } from 'src/schemas/graph'
 
 export function MessageHistory() {
-  const { data: messages = [], isLoading, error } = useMessages()
+  const [selectedSource, setSelectedSource] = useState<string>('current')
+
+  // Fetch available history files
+  const { data: historyFiles = [] } = useGraphHistoryFiles()
+
+  // Fetch current state messages
+  const {
+    data: currentMessages = [],
+    isLoading: currentLoading,
+    error: currentError,
+  } = useMessages()
+
+  // Fetch historical messages (only when file selected)
+  const {
+    data: historyMessages = [],
+    isLoading: historyLoading,
+    error: historyError,
+  } = useGraphHistoryMessages(
+    selectedSource !== 'current' ? selectedSource : undefined,
+  )
+
+  // Determine which data to display
+  const messages =
+    selectedSource === 'current' ? currentMessages : historyMessages
+  const isLoading =
+    selectedSource === 'current' ? currentLoading : historyLoading
+  const error = selectedSource === 'current' ? currentError : historyError
+
+  const selectedFile = historyFiles.find(f => f.filename === selectedSource)
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Chat History</CardTitle>
+        <div className={cns('flex items-center justify-between', 'gap-4 mb-2')}>
+          <CardTitle>Chat History</CardTitle>
+
+          <Select value={selectedSource} onValueChange={setSelectedSource}>
+            <SelectTrigger className={cns('w-[200px]')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="current">Current State</SelectItem>
+              {historyFiles.map(file => (
+                <SelectItem key={file.filename} value={file.filename}>
+                  {file.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <CardDescription>
-          Real-time view of TDR Bot conversation messages
+          {selectedSource === 'current'
+            ? 'Real-time view of TDR Bot conversation messages'
+            : `Viewing ${selectedFile?.label} (${messages.length} messages)`}
         </CardDescription>
       </CardHeader>
 
@@ -75,7 +132,7 @@ export function MessageHistory() {
           >
             {messages.map((message, index) => (
               <MessageItem
-                key={message.id || `message-${index}`}
+                key={`${selectedSource}-${message.id || `message-${index}`}`}
                 message={message}
               />
             ))}

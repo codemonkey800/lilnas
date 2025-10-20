@@ -38,3 +38,11 @@ export interface SendMessageResponse {
   message?: string
   sentAt?: string
 }
+
+export interface GraphHistoryFile {
+  filename: string
+  index: number
+  label: string
+}
+
+export type GraphHistoryFilesResponse = GraphHistoryFile[]
