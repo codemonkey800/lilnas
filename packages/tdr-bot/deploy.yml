@@ -8,6 +8,7 @@ services:
       - ../../infra/.env.tdr-bot
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /storage/app-data/tdr-bot:/mnt
     labels:
       - traefik.enable=true
       - traefik.http.routers.tdr.rule=Host(`tdr.lilnas.io`)
