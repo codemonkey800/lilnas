@@ -13,6 +13,7 @@ coverage/
 data/
 dist/
 infra/dev.yml
+logs/
 node_modules/
 truereflection-dev/
 

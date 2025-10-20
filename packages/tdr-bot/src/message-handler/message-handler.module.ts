@@ -8,9 +8,15 @@ import { ChatService } from './chat.service'
 import { KeywordsService } from './keywords.service'
 import { LLMOrchestrationModule } from './llm-orchestration.module'
 import { MessageHandlerService } from './message-handler.service'
+import { MessageLoggerService } from './message-logger.service'
 
 @Module({
   imports: [MediaModule, ServicesModule, StateModule, LLMOrchestrationModule],
-  providers: [ChatService, KeywordsService, MessageHandlerService],
+  providers: [
+    ChatService,
+    KeywordsService,
+    MessageHandlerService,
+    MessageLoggerService,
+  ],
 })
 export class MessageHandlerModule {}
