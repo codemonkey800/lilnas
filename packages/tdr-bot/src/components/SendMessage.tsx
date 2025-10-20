@@ -79,7 +79,7 @@ export function SendMessage() {
                 }
               />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-96">
               {channels?.map(channel => (
                 <SelectItem key={channel.id} value={channel.id}>
                   #{channel.name}
