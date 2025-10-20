@@ -1,6 +1,7 @@
 import {
   ChannelInfo,
   EditableAppState,
+  GraphHistoryFile,
   MessageState,
   SendMessageResponse,
 } from './api.types'
@@ -56,6 +57,16 @@ export class ApiClient {
       body: JSON.stringify({ content }),
     })
 
+    return await response.json()
+  }
+
+  async getGraphHistoryFiles(): Promise<GraphHistoryFile[]> {
+    const response = await this.request('/graph-history/files')
+    return await response.json()
+  }
+
+  async getGraphHistoryMessages(filename: string): Promise<MessageState[]> {
+    const response = await this.request(`/graph-history/files/${filename}`)
     return await response.json()
   }
 

@@ -8,19 +8,29 @@ import {
   Post,
 } from '@nestjs/common'
 import { ChannelType, Client } from 'discord.js'
+import * as fs from 'fs-extra'
 import { ChatModel } from 'openai/resources'
+import * as path from 'path'
 
 import { VERSION } from 'src/constants/version'
 import { ImageResponse } from 'src/schemas/graph'
 import { EquationImageService } from 'src/services/equation-image.service'
 import { AppState, StateService } from 'src/state/state.service'
+import { TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
 
 import type {
   ChannelInfo,
   SendMessageRequest,
   SendMessageResponse,
 } from './api.types'
-import { EditableAppState, HealthResponse, MessageState } from './api.types'
+import {
+  EditableAppState,
+  GraphHistoryFile,
+  HealthResponse,
+  MessageState,
+} from './api.types'
+
+const LOG_DIR = process.env.NODE_ENV === 'development' ? './logs' : '/mnt/logs'
 
 class UpdateStateDto {
   chatModel?: ChatModel
@@ -82,20 +92,23 @@ export class ApiController {
     }
 
     return Promise.all(
-      state.graphHistory.at(-1)?.messages.map(async message => {
-        const id = message.id ?? ''
-        const images = imagesMap.get(id) ?? []
+      state.graphHistory
+        .at(-1)
+        ?.messages.filter(m => m.id !== TDR_SYSTEM_PROMPT_ID)
+        .map(async message => {
+          const id = message.id ?? ''
+          const images = imagesMap.get(id) ?? []
 
-        return {
-          id: message?.id,
-          content: message?.content.toString() ?? '--',
-          kwargs: message?.additional_kwargs ?? {},
-          type: message?.getType() ?? 'human',
-          images,
+          return {
+            id: message?.id,
+            content: message?.content.toString() ?? '--',
+            kwargs: message?.additional_kwargs ?? {},
+            type: message?.getType() ?? 'human',
+            images,
 
-          ...(images && images.length > 0 ? { images } : {}),
-        }
-      }) ?? [],
+            ...(images && images.length > 0 ? { images } : {}),
+          }
+        }) ?? [],
     )
   }
 
@@ -184,6 +197,84 @@ export class ApiController {
       throw new BadRequestException(
         `Failed to send message: ${error instanceof Error ? error.message : 'Unknown error'}`,
       )
+    }
+  }
+
+  @Get('graph-history/files')
+  async getGraphHistoryFiles(): Promise<GraphHistoryFile[]> {
+    try {
+      const files = await fs.readdir(LOG_DIR)
+
+      // Filter for graph-history files
+      const graphHistoryFiles = files.filter(
+        file => file.startsWith('graph-history-') && file.endsWith('.jsonl'),
+      )
+
+      // Extract indices and sort in reverse order (newest first)
+      const historyFiles = graphHistoryFiles
+        .map(filename => {
+          const match = filename.match(/graph-history-(\d+)\.jsonl/)
+          if (!match) return null
+
+          const index = parseInt(match[1], 10)
+          return {
+            filename,
+            index,
+            label: `Log File ${index}`,
+          }
+        })
+        .filter((file): file is GraphHistoryFile => file !== null)
+        .sort((a, b) => b.index - a.index) // Newest first
+
+      return historyFiles
+    } catch {
+      // If directory doesn't exist or other errors, return empty array
+      return []
+    }
+  }
+
+  @Get('graph-history/files/:filename')
+  async getGraphHistoryMessages(
+    @Param('filename') filename: string,
+  ): Promise<MessageState[]> {
+    // Validate filename to prevent directory traversal
+    if (!filename.match(/^graph-history-\d+\.jsonl$/)) {
+      throw new BadRequestException('Invalid filename')
+    }
+
+    const filePath = path.join(LOG_DIR, filename)
+
+    try {
+      const fileExists = await fs.pathExists(filePath)
+      if (!fileExists) {
+        throw new NotFoundException('History file not found')
+      }
+
+      // Read and parse JSONL
+      const content = await fs.readFile(filePath, 'utf-8')
+      const lines = content.trim().split('\n')
+
+      const messages: MessageState[] = lines
+        .filter(line => line.trim().length > 0)
+        .map(line => {
+          try {
+            return JSON.parse(line)
+          } catch {
+            return null
+          }
+        })
+        .filter((msg): msg is MessageState => msg !== null)
+
+      return messages
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error
+      }
+
+      throw new BadRequestException('Failed to read history file')
     }
   }
 }
