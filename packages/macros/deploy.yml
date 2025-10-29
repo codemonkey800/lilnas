@@ -1,0 +1,11 @@
+services:
+  macros:
+    build:
+      context: ../..
+      dockerfile: packages/macros/Dockerfile
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.macros.rule=Host(`macros.lilnas.io`)
+      - traefik.http.routers.macros.entrypoints=websecure
+      - traefik.http.routers.macros.tls.certresolver=le

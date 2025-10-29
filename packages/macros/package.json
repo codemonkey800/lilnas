@@ -1,0 +1,35 @@
+{
+  "name": "@lilnas/macros",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "packageManager": "pnpm@10.18.2",
+  "prettier": "@lilnas/prettier",
+  "files": [
+    "./dist"
+  ],
+  "scripts": {
+    "build": "tsc && vite build",
+    "clean": "rm -rf dist/ .turbo/ tsconfig.tsbuildinfo",
+    "dev": "vite --port 8080 --host",
+    "lint": "run-p -l 'lint:!(fix)'",
+    "lint:eslint": "eslint src",
+    "lint:prettier": "prettier -c src",
+    "lint:fix": "run-p -l lint:*:fix",
+    "lint:eslint:fix": "eslint --fix src",
+    "lint:prettier:fix": "prettier -w src",
+    "preview": "vite preview --port 8080",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lilnas/utils": "workspace:*",
+    "@radix-ui/react-label": "2.1.7",
+    "@radix-ui/react-select": "2.2.6",
+    "lucide-react": "0.548.0",
+    "motion": "12.23.24",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "usehooks-ts": "3.1.1"
+  }
+}
+
