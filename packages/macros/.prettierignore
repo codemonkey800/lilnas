@@ -1,0 +1,23 @@
+# Dependencies
+node_modules
+
+# Build outputs
+dist
+dist-ssr
+build
+.vite
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+
+# IDE
+.vscode
+.idea
+
+# Misc
+coverage
+.nyc_output
+*.local
