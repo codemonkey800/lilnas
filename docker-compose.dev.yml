@@ -8,5 +8,6 @@ include:
   - ./packages/dashcam/deploy.dev.yml
   - ./packages/download/deploy.dev.yml
   - ./packages/equations/deploy.dev.yml
+  - ./packages/macros/deploy.dev.yml
   - ./packages/me-token-tracker/deploy.dev.yml
   - ./packages/tdr-bot/deploy.dev.yml

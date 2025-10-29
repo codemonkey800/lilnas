@@ -1,0 +1,11 @@
+services:
+  macros:
+    image: lilnas-dev
+    command: -c "pnpm --filter=macros dev"
+    restart: unless-stopped
+    volumes:
+      - ../../:/source
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.macros.rule=Host(`macros.localhost`)
+      - traefik.http.services.macros.loadbalancer.server.port=8080
