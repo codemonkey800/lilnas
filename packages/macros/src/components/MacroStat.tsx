@@ -49,7 +49,7 @@ export const MacroStat = ({
       transition={{ duration: 0.3 }}
       className={cns(
         'flex flex-col items-center gap-2',
-        'rounded-xl bg-gradient-to-br p-6',
+        'rounded-xl bg-gradient-to-br px-1 pt-6 pb-8',
         'shadow-lg transition-shadow hover:shadow-xl',
         color,
       )}
@@ -62,7 +62,7 @@ export const MacroStat = ({
             {unit}
           </span>
         </div>
-        <div className="mt-1 text-sm font-medium uppercase tracking-wide text-white/90">
+        <div className="mt-2 pb-1 text-sm font-medium uppercase leading-relaxed tracking-wide text-white/90">
           {label}
         </div>
       </div>
