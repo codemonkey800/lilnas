@@ -20,6 +20,7 @@ Commands:
     up                      Bring up services with docker-compose up -d
     down                    Bring down services with docker-compose down --rmi all -v
     redeploy                Redeploy services (bring down then up)
+    build                   Build Docker images for services
 
 Options:
     --apps                  Target only package services (from packages/*)
@@ -47,7 +48,13 @@ Examples:
     ./lilnas.fish redeploy                    # All services
     ./lilnas.fish redeploy --apps             # All package services
     ./lilnas.fish redeploy --services         # All infra services
-    ./lilnas.fish redeploy tdr-bot download   # Specific services"
+    ./lilnas.fish redeploy tdr-bot download   # Specific services
+
+    # Build services
+    ./lilnas.fish build                       # All services
+    ./lilnas.fish build --apps                # All package services
+    ./lilnas.fish build --services            # All infra services
+    ./lilnas.fish build tdr-bot download      # Specific services"
     exit 0
 end
 
@@ -148,6 +155,33 @@ Examples:
     ./lilnas.fish redeploy --apps           # Redeploy all package services
     ./lilnas.fish redeploy --services       # Redeploy all infra services
     ./lilnas.fish redeploy tdr-bot download # Redeploy specific services"
+    exit 0
+end
+
+# Function to print usage for build command
+function usage_build
+    echo "Usage: ./lilnas.fish build [options] [SERVICE...]
+
+Description:
+    Build Docker images for services with docker-compose build
+
+Options:
+    --apps                  Build only package services (from packages/*)
+    --services              Build only infrastructure services (from infra/*)
+    -h, --help              Show this help message
+
+Arguments:
+    SERVICE                 Specific service names to build (optional, multiple allowed)
+
+Note:
+    Cannot specify both --apps/--services flags and specific service names.
+    Cannot use both --apps and --services flags together.
+
+Examples:
+    ./lilnas.fish build                     # Build all services
+    ./lilnas.fish build --apps              # Build all package services
+    ./lilnas.fish build --services          # Build all infra services
+    ./lilnas.fish build tdr-bot download    # Build specific services"
     exit 0
 end
 
@@ -383,6 +417,62 @@ function cmd_redeploy
     cmd_up $original_args
 end
 
+# Command handler for building services
+function cmd_build
+    argparse 'h/help' 'apps' 'services' -- $argv
+    or begin
+        error "Invalid options for build command"
+    end
+
+    # Show help if requested
+    if set -q _flag_help
+        usage_build
+    end
+
+    set -l show_apps false
+    set -l show_services false
+    set -l specific_services $argv
+
+    if set -q _flag_apps
+        set show_apps true
+    end
+
+    if set -q _flag_services
+        set show_services true
+    end
+
+    # Validate: can't mix flags with specific services
+    if test (count $specific_services) -gt 0 -a \( "$show_apps" = true -o "$show_services" = true \)
+        error "Cannot specify both --apps/--services flags and specific service names"
+    end
+
+    # Validate: can't use both --apps and --services
+    if test "$show_apps" = true -a "$show_services" = true
+        error "Cannot specify both --apps and --services flags"
+    end
+
+    set -l compose_file (get_compose_file)
+    set -l services_to_build
+
+    # Determine which services to build
+    if test "$show_apps" = true
+        set services_to_build (list_package_services)
+    else if test "$show_services" = true
+        set services_to_build (list_infra_services)
+    else if test (count $specific_services) -gt 0
+        set services_to_build $specific_services
+    end
+
+    # Execute docker-compose build
+    if test (count $services_to_build) -gt 0
+        echo "Building services: $services_to_build"
+        docker-compose -f "$compose_file" build $services_to_build
+    else
+        echo "Building all services"
+        docker-compose -f "$compose_file" build
+    end
+end
+
 # Main entry point
 function main
     # Check for docker-compose
@@ -408,6 +498,8 @@ function main
             cmd_down $argv
         case redeploy
             cmd_redeploy $argv
+        case build
+            cmd_build $argv
         case -h --help help
             usage
         case '*'
