@@ -11,5 +11,6 @@ include:
   - ./packages/dashcam/deploy.yml
   - ./packages/download/deploy.yml
   - ./packages/equations/deploy.yml
+  - ./packages/macros/deploy.yml
   - ./packages/me-token-tracker/deploy.yml
   - ./packages/tdr-bot/deploy.yml
