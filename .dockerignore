@@ -4,6 +4,7 @@
 **/build
 **/dist
 **/node_modules
+**/*.tsbuildinfo
 data/
 images/
 packages/*/.turbo/turbo-build.log
