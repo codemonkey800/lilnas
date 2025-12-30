@@ -182,8 +182,8 @@ describe('CreateEquationSchema', () => {
   })
 
   describe('Input Size Validation', () => {
-    it('should accept input at exactly 2000 characters', () => {
-      const latex = 'A'.repeat(2000)
+    it('should accept input at exactly 5000 characters', () => {
+      const latex = 'A'.repeat(5000)
       const result = CreateEquationSchema.safeParse({
         token: validToken,
         latex,
@@ -191,8 +191,8 @@ describe('CreateEquationSchema', () => {
       expect(result.success).toBe(true)
     })
 
-    it('should accept input just under the limit (1999 characters)', () => {
-      const latex = 'A'.repeat(1999)
+    it('should accept input just under the limit (4999 characters)', () => {
+      const latex = 'A'.repeat(4999)
       const result = CreateEquationSchema.safeParse({
         token: validToken,
         latex,

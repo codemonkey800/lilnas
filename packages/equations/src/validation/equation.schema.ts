@@ -54,7 +54,7 @@ export const CreateEquationSchema = z.object({
   latex: z
     .string()
     .min(1, 'LaTeX content is required')
-    .max(2000, 'LaTeX content too long (max 2000 characters)')
+    .max(5000, 'LaTeX content too long (max 5000 characters)')
     .refine((latex: string) => !DANGEROUS_COMMANDS_REGEX.test(latex), {
       message: 'LaTeX contains potentially dangerous commands',
     })
