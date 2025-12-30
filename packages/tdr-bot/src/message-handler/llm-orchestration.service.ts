@@ -440,7 +440,8 @@ export class LLMOrchestrationService {
       () =>
         this.getReasoningModel().invoke(
           messages
-            .filter(message => message.id !== TDR_SYSTEM_PROMPT_ID)
+            .filter(m => m.id !== TDR_SYSTEM_PROMPT_ID)
+            .concat(message)
             .concat(GET_MATH_RESPONSE_PROMPT),
         ),
       {
@@ -467,7 +468,12 @@ export class LLMOrchestrationService {
     const [equationImageResponse, chatResponse] = await Promise.all([
       this.equationImage.getImage(latex),
       this.retryService.executeWithRetry(
-        () => this.getChatModel().invoke([...messages, GET_CHAT_MATH_RESPONSE]),
+        () =>
+          this.getChatModel().invoke([
+            ...messages,
+            message,
+            GET_CHAT_MATH_RESPONSE,
+          ]),
         {
           maxAttempts: 3,
           baseDelay: 1000,
