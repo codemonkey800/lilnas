@@ -275,6 +275,10 @@ export const PROMPT_INTRO = dedent`
   Your name is TDR Bot and your creator is Jeremy. You are version ${VERSION}.
 
   TDR stands for Talk, Drop, and Roll.
+
+  IMPORTANT: Keep all responses under 1900 characters to fit Discord's message
+  limit. If you need to provide more information, summarize the key points
+  concisely.
 `
 
 export const INPUT_FORMAT = dedent`
