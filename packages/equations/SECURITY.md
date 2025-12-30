@@ -12,7 +12,7 @@ This document outlines the comprehensive security measures implemented to protec
 - **Dangerous Command Detection**: Blocks LaTeX commands that can execute shell commands or access files
 - **Package Whitelist**: Only allows safe mathematical packages (amsmath, amssymb, etc.)
 - **Content Limits**:
-  - Maximum 2000 characters
+  - Maximum 5000 characters
   - Maximum 50 LaTeX commands
   - Maximum 20 mathematical expressions
   - Maximum 200 characters per line

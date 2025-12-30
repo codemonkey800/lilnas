@@ -2,7 +2,7 @@
  * Invalid LaTeX equation inputs for structural/size validation testing
  *
  * These inputs should all FAIL validation due to:
- * - Excessive size (>2000 characters)
+ * - Excessive size (>5000 characters)
  * - Excessive nesting (>10 levels)
  * - Unbalanced braces
  * - Excessive repetition (DoS prevention)
@@ -15,19 +15,19 @@
 
 export const oversizedInputs = [
   {
-    latex: 'A'.repeat(2001),
-    description: 'Exactly 2001 characters (1 over limit)',
+    latex: 'A'.repeat(5001),
+    description: 'Exactly 5001 characters (1 over limit)',
   },
   {
-    latex: 'A'.repeat(3000),
-    description: '3000 characters',
+    latex: 'A'.repeat(6000),
+    description: '6000 characters',
   },
   {
     latex: 'A'.repeat(10000),
     description: '10000 characters',
   },
   {
-    latex: '$' + 'x'.repeat(2000) + '$',
+    latex: '$' + 'x'.repeat(5000) + '$',
     description: 'Valid structure but oversized',
   },
 ]
