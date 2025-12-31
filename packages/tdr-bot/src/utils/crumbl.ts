@@ -10,16 +10,15 @@ interface CrumblCookieProduct {
   calorieInformation: {
     perServing: string | null
   }
-  allergyInformation?: {
-    description?: string
-  }
 }
 
 interface CrumblSSRData {
   props: {
     pageProps: {
       products: {
-        cookies: CrumblCookieProduct[]
+        rotatingMenu?: {
+          desserts: CrumblCookieProduct[]
+        }
       }
     }
   }
@@ -33,7 +32,7 @@ async function getWeeklyCookies(): Promise<CrumblCookieProduct[]> {
     $('#__NEXT_DATA__').html() || 'null',
   ) as CrumblSSRData | null
 
-  return data?.props.pageProps.products.cookies ?? []
+  return data?.props.pageProps.products.rotatingMenu?.desserts ?? []
 }
 
 type WeeklyCookiesMessage = Pick<MessageCreateOptions, 'content' | 'embeds'>
@@ -57,14 +56,6 @@ export async function getWeeklyCookiesMessage({
           embed = embed.addFields({
             name: 'Calories',
             value: cookie.calorieInformation.perServing,
-          })
-        }
-
-        const allergyDescription = cookie.allergyInformation?.description
-        if (allergyDescription) {
-          embed = embed.addFields({
-            name: 'Allergies',
-            value: allergyDescription,
           })
         }
 
