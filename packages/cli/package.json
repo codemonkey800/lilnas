@@ -26,7 +26,6 @@
     "@lilnas/eslint": "workspace:*",
     "@lilnas/prettier": "workspace:*",
     "@types/node": "22.15.21",
-    "npm-run-all2": "7.0.2",
     "typescript": "5.8.3"
   }
 }
