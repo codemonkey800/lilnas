@@ -6,13 +6,20 @@
   "prettier": "@lilnas/prettier",
   "type": "module",
   "bin": {
-    "lilnas": "./dist/index.js"
+    "lilnas": "./bin/run.js"
   },
   "exports": {
     ".": "./dist/index.js"
   },
+  "oclif": {
+    "bin": "lilnas",
+    "dirname": "lilnas",
+    "commands": "./dist/commands",
+    "topicSeparator": " "
+  },
   "scripts": {
     "build": "tsc -p .",
+    "dev": "./bin/dev.js",
     "clean": "rm -rf dist/ .turbo/",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
@@ -21,5 +28,8 @@
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
     "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@oclif/core": "^4.8.0"
   }
 }

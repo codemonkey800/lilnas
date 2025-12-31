@@ -1,3 +1,4 @@
 #!/usr/bin/env node
+import { run } from '@oclif/core'
 
-console.log('lilnas cli')
+await run()
