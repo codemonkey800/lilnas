@@ -13,6 +13,7 @@
     "type-check": "pnpm run -r type-check"
   },
   "devDependencies": {
+    "@lilnas/cli": "workspace:*",
     "@lilnas/eslint": "workspace:*",
     "@lilnas/prettier": "workspace:*",
     "@nestjs/cli": "11.0.10",

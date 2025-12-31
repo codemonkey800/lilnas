@@ -1,0 +1,32 @@
+{
+  "name": "@lilnas/cli",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.18.2",
+  "prettier": "@lilnas/prettier",
+  "type": "module",
+  "bin": {
+    "lilnas": "./dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "clean": "rm -rf dist/ .turbo/",
+    "lint": "run-p -l 'lint:!(fix)'",
+    "lint:eslint": "eslint src",
+    "lint:prettier": "prettier -c src",
+    "lint:fix": "run-p -l lint:*:fix",
+    "lint:eslint:fix": "eslint --fix src",
+    "lint:prettier:fix": "prettier -w src",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@lilnas/eslint": "workspace:*",
+    "@lilnas/prettier": "workspace:*",
+    "@types/node": "22.15.21",
+    "npm-run-all2": "7.0.2",
+    "typescript": "5.8.3"
+  }
+}
