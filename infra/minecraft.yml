@@ -15,17 +15,17 @@ services:
       VERSION: LATEST
       TYPE: VANILLA
       EULA: TRUE
-      
+
       # Server optimization
       MEMORY: 2G
       DIFFICULTY: normal
       MAX_PLAYERS: 20
-      MOTD: "Vanilla Minecraft Server"
-      
+      MOTD: "tdr minecraft"
+
       # Remote console access
       ENABLE_RCON: true
       RCON_PASSWORD: minecraft
-      
+
       # Previous SevTech: Ages modpack configuration (commented out, backed up)
       # CF_SLUG: sevtech-ages
       # CF_API_KEY: '$$2a$$10$$KsGznF2XwmjdbLQsyiJEPuTs5mMpYSsJtmKK0yuNTeMYh9eOb6sqG'
