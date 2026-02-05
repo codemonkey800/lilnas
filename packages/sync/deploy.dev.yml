@@ -5,8 +5,12 @@ services:
     restart: unless-stopped
     volumes:
       - ../..:/source
+      - sync_node_modules:/source/node_modules
     working_dir: /source
     labels:
       - traefik.enable=true
       - traefik.http.routers.sync.rule=Host(`sync.localhost`)
       - traefik.http.services.sync.loadbalancer.server.port=8080
+
+volumes:
+  sync_node_modules:

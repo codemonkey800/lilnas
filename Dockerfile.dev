@@ -26,6 +26,13 @@ RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o 
 EXPOSE 8080
 WORKDIR /source
 
+# Copy package files first for better layer caching (--parents preserves directory structure)
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY --parents packages/*/package.json ./
+
+# Install dependencies with Linux-native binaries
+RUN pnpm install --frozen-lockfile
+
 # Add OCI image source label
 LABEL org.opencontainers.image.source=https://github.com/codemonkey800/lilnas
 
