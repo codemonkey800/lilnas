@@ -3,8 +3,8 @@ services:
     image: lilnas-dev
     restart: unless-stopped
     working_dir: /source
-    command: -c "pnpm --filter=$PACKAGE_NAME dev"
+    command: -c "pnpm --filter=$$PACKAGE_NAME dev"
 
     volumes:
-      - ../../:/source
-      - lilnas_node_modules:/source/node_modules
+      - ../:/source
+      - node_modules:/source/node_modules
