@@ -1,0 +1,12 @@
+services:
+  sync:
+    image: lilnas-dev
+    command: -c "pnpm --filter=sync dev"
+    restart: unless-stopped
+    volumes:
+      - ../..:/source
+    working_dir: /source
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.sync.rule=Host(`sync.localhost`)
+      - traefik.http.services.sync.loadbalancer.server.port=8080

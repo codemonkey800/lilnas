@@ -1,0 +1,13 @@
+services:
+  sync:
+    build:
+      context: ../..
+      dockerfile: packages/sync/Dockerfile
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.sync.rule=Host(`sync.lilnas.io`)
+      - traefik.http.routers.sync.entrypoints=websecure
+      - traefik.http.routers.sync.tls.certresolver=le
+      - traefik.http.routers.sync.middlewares=forward-auth
+      - traefik.http.services.sync.loadbalancer.server.port=8080
