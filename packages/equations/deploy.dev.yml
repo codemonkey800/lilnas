@@ -1,12 +1,15 @@
 services:
   equations:
-    image: lilnas-dev
-    command: -c "pnpm --filter=equations dev"
-    restart: unless-stopped
+    extends:
+      file: ../../infra/deploy.dev.base.yml
+      service: dev-base
+
+    environment:
+      PACKAGE_NAME: equations
+
     env_file:
       - ../../infra/.env.equations
-    volumes:
-      - ../../:/source
+
     labels:
       - traefik.enable=true
       - traefik.http.routers.equations.rule=Host(`equations.localhost`)

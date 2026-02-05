@@ -1,10 +1,12 @@
 services:
   macros:
-    image: lilnas-dev
-    command: -c "pnpm --filter=macros dev"
-    restart: unless-stopped
-    volumes:
-      - ../../:/source
+    extends:
+      file: ../../infra/deploy.dev.base.yml
+      service: dev-base
+
+    environment:
+      PACKAGE_NAME: macros
+
     labels:
       - traefik.enable=true
       - traefik.http.routers.macros.rule=Host(`macros.localhost`)

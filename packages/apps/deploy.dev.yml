@@ -1,12 +1,15 @@
 services:
   apps:
-    image: lilnas-dev
-    command: -c "pnpm --filter=apps dev"
-    restart: unless-stopped
+    extends:
+      file: ../../infra/deploy.dev.base.yml
+      service: dev-base
+
+    environment:
+      PACKAGE_NAME: apps
+
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ../..:/source
-    working_dir: /source
+
     labels:
       - traefik.enable=true
       - traefik.http.routers.apps.rule=Host(`apps.localhost`)

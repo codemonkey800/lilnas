@@ -1,9 +1,11 @@
 services:
   me-token-tracker:
-    image: lilnas-dev
-    command: -c "pnpm --filter=me-token-tracker dev"
-    restart: unless-stopped
+    extends:
+      file: ../../infra/deploy.dev.base.yml
+      service: dev-base
+
+    environment:
+      PACKAGE_NAME: me-token-tracker
+
     env_file:
       - ../../infra/.env.me-token-tracker
-    volumes:
-      - ../../:/source

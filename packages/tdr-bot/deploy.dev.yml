@@ -1,13 +1,18 @@
 services:
   tdr-bot:
-    image: lilnas-dev
-    command: -c "pnpm --filter=tdr-bot dev"
-    restart: unless-stopped
+    extends:
+      file: ../../infra/deploy.dev.base.yml
+      service: dev-base
+
+    environment:
+      PACKAGE_NAME: tdr-bot
+
     env_file:
       - ../../infra/.env.tdr-bot
+
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ../../:/source
+
     labels:
       - traefik.enable=true
       - traefik.http.routers.tdr.rule=Host(`tdr.localhost`)

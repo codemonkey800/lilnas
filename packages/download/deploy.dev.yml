@@ -1,12 +1,15 @@
 services:
   download:
-    image: lilnas-dev
-    command: -c "pnpm --filter=download dev"
-    restart: unless-stopped
+    extends:
+      file: ../../infra/deploy.dev.base.yml
+      service: dev-base
+
+    environment:
+      PACKAGE_NAME: download
+
     env_file:
       - ../../infra/.env.download
-    volumes:
-      - ../..:/source
+
     labels:
       - traefik.enable=true
       - traefik.http.routers.download.rule=Host(`download.localhost`)

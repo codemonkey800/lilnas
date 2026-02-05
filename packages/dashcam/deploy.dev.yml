@@ -1,10 +1,12 @@
 services:
   dashcam:
-    image: lilnas-dev
-    command: -c "pnpm --filter=dashcam dev"
-    restart: unless-stopped
-    volumes:
-      - ../../:/source
+    extends:
+      file: ../../infra/deploy.dev.base.yml
+      service: dev-base
+
+    environment:
+      PACKAGE_NAME: dashcam
+
     labels:
       - traefik.enable=true
       - traefik.http.routers.dashcam.rule=Host(`dashcam.localhost`)
