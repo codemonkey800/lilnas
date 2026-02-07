@@ -1,0 +1,54 @@
+{
+  "name": "@lilnas/cli",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.18.2",
+  "prettier": "@lilnas/prettier",
+  "bin": {
+    "lilnas": "./bin/run.js"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p . && tsc-alias -p tsconfig.json",
+    "clean": "rm -rf dist/ .turbo/",
+    "dev": "node bin/dev.js",
+    "lint": "run-p -l 'lint:!(fix)'",
+    "lint:eslint": "eslint src",
+    "lint:prettier": "prettier -c src",
+    "lint:fix": "run-p -l lint:*:fix",
+    "lint:eslint:fix": "eslint --fix src",
+    "lint:prettier:fix": "prettier -w src",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@oclif/core": "^4",
+    "@oclif/plugin-help": "^6.2.37",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "oclif": "^4",
+    "tsc-alias": "^1.8.16"
+  },
+  "oclif": {
+    "bin": "lilnas",
+    "dirname": "lilnas",
+    "commands": "./dist/commands",
+    "topicSeparator": " ",
+    "additionalHelpFlags": [
+      "-h"
+    ],
+    "topics": {
+      "dev": {
+        "description": "Development environment commands (uses docker-compose.dev.yml)"
+      }
+    },
+    "plugins": [
+      "@oclif/plugin-help"
+    ]
+  }
+}
