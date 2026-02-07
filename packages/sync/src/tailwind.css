@@ -1,1 +1,162 @@
 @import 'tailwindcss';
+
+/* ============================================================
+   Sync Design System — Dark Purple Theme
+   ============================================================
+   A minimal, delightful design system built on Tailwind CSS v4.
+   All tokens are defined here via @theme so they generate
+   utility classes automatically (e.g. bg-primary, text-muted).
+   ============================================================ */
+
+@theme {
+  /* --------------------------------------------------------
+     Colors — Backgrounds
+     -------------------------------------------------------- */
+  --color-bg: #0a0a12;
+  --color-bg-raised: #11111e;
+  --color-bg-surface: #1a1a2e;
+  --color-bg-overlay: #22223a;
+
+  /* --------------------------------------------------------
+     Colors — Primary (purple)
+     -------------------------------------------------------- */
+  --color-primary-50: #f3f0ff;
+  --color-primary-100: #e5deff;
+  --color-primary-200: #cdbdff;
+  --color-primary-300: #b197fc;
+  --color-primary-400: #9775fa;
+  --color-primary-500: #845ef7;
+  --color-primary-600: #7048e8;
+  --color-primary-700: #5f3dc4;
+  --color-primary-800: #4c309e;
+  --color-primary-900: #3b2478;
+  --color-primary: #845ef7;
+
+  /* --------------------------------------------------------
+     Colors — Text
+     -------------------------------------------------------- */
+  --color-text: #f0eef6;
+  --color-text-secondary: #a8a3b8;
+  --color-text-muted: #6e6880;
+  --color-text-inverse: #0a0a12;
+
+  /* --------------------------------------------------------
+     Colors — Borders & Rings
+     -------------------------------------------------------- */
+  --color-border: #2a2a40;
+  --color-border-subtle: #1e1e32;
+  --color-ring: #845ef780;
+  --color-ring-focus: #9775fa;
+
+  /* --------------------------------------------------------
+     Colors — Semantic
+     -------------------------------------------------------- */
+  --color-success: #34d399;
+  --color-success-muted: #065f46;
+  --color-warning: #fbbf24;
+  --color-warning-muted: #78350f;
+  --color-error: #fb7185;
+  --color-error-muted: #881337;
+
+  /* --------------------------------------------------------
+     Shadows — Purple-tinted elevation
+     -------------------------------------------------------- */
+  --shadow-sm: 0 1px 2px 0 rgb(10 10 18 / 0.6);
+  --shadow-md: 0 4px 12px -2px rgb(10 10 18 / 0.5),
+    0 2px 4px -2px rgb(93 61 196 / 0.08);
+  --shadow-lg: 0 12px 32px -4px rgb(10 10 18 / 0.6),
+    0 4px 8px -2px rgb(93 61 196 / 0.1);
+  --shadow-glow: 0 0 20px 2px rgb(132 94 247 / 0.15);
+  --shadow-focus: 0 0 0 3px rgb(132 94 247 / 0.4);
+
+  /* --------------------------------------------------------
+     Radii
+     -------------------------------------------------------- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* --------------------------------------------------------
+     Animations
+     -------------------------------------------------------- */
+  --animate-fade-in: fade-in 0.3s ease-out;
+  --animate-slide-up: slide-up 0.3s ease-out;
+  --animate-scale-in: scale-in 0.2s ease-out;
+  --animate-pulse-glow: pulse-glow 2s ease-in-out infinite;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes pulse-glow {
+    0%,
+    100% {
+      box-shadow: 0 0 8px 0 rgb(132 94 247 / 0.2);
+    }
+    50% {
+      box-shadow: 0 0 20px 4px rgb(132 94 247 / 0.35);
+    }
+  }
+
+  /* --------------------------------------------------------
+     Easing
+     -------------------------------------------------------- */
+  --ease-smooth: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ===========================================================
+   Base Styles
+   =========================================================== */
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background-color: rgb(132 94 247 / 0.3);
+    color: #fff;
+  }
+
+  /* Focus-visible ring for keyboard navigation */
+  :focus-visible {
+    outline: 2px solid var(--color-ring-focus);
+    outline-offset: 2px;
+  }
+}

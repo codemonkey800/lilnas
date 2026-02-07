@@ -26,12 +26,14 @@ export function Counter({ initialValue }: CounterProps) {
   }
 
   return (
-    <div className="flex flex-col items-center gap-8">
-      <p className="text-8xl font-bold tabular-nums">{initialValue}</p>
+    <div className="flex flex-col items-center gap-8 animate-slide-up">
+      <p className="text-8xl font-bold tabular-nums text-primary-300">
+        {initialValue}
+      </p>
 
-      <div className="flex gap-4">
+      <div className="flex gap-3">
         <button
-          className="flex h-12 w-12 items-center justify-center rounded-lg bg-red-500 text-2xl font-bold text-white transition-colors hover:bg-red-600 disabled:opacity-50"
+          className="flex h-12 w-12 items-center justify-center rounded-md bg-bg-surface text-2xl font-bold text-error transition-colors duration-150 ease-smooth hover:bg-bg-overlay focus-visible:shadow-focus disabled:opacity-40"
           disabled={isPending}
           onClick={handleDecrement}
         >
@@ -39,7 +41,7 @@ export function Counter({ initialValue }: CounterProps) {
         </button>
 
         <button
-          className="flex h-12 w-12 items-center justify-center rounded-lg bg-green-500 text-2xl font-bold text-white transition-colors hover:bg-green-600 disabled:opacity-50"
+          className="flex h-12 w-12 items-center justify-center rounded-md bg-primary text-2xl font-bold text-text-inverse transition-colors duration-150 ease-smooth hover:bg-primary-600 focus-visible:shadow-focus disabled:opacity-40"
           disabled={isPending}
           onClick={handleIncrement}
         >
@@ -48,7 +50,7 @@ export function Counter({ initialValue }: CounterProps) {
       </div>
 
       {isPending && (
-        <p className="text-sm text-gray-400">Updating...</p>
+        <p className="text-sm text-text-muted animate-pulse">Updating...</p>
       )}
     </div>
   )
