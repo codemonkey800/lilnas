@@ -6,6 +6,8 @@ import {
   type ServiceMode,
 } from 'src/services/discovery.js'
 
+export const IMAGE_NAME = 'lilnas-dev'
+
 const BASE_IMAGES = [
   'lilnas-node-base',
   'lilnas-monorepo-builder',
@@ -50,9 +52,9 @@ export function ensureDockerImages(
 
   // In dev mode, check lilnas-dev if targets include app services
   if (mode === 'dev' && targetsIncludeApps(mode, targets)) {
-    if (!imageExists('lilnas-dev')) {
-      log('Missing lilnas-dev image. Building...')
-      execSync('docker build -f Dockerfile.dev -t lilnas-dev .', {
+    if (!imageExists(IMAGE_NAME)) {
+      log(`Missing ${IMAGE_NAME} image. Building...`)
+      execSync(`docker build -f Dockerfile.dev -t ${IMAGE_NAME} .`, {
         cwd: root,
         stdio: 'inherit',
       })
