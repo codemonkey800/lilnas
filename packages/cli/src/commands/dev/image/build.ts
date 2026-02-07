@@ -2,7 +2,7 @@ import { execSync } from 'node:child_process'
 
 import { Command, Flags } from '@oclif/core'
 
-import { IMAGE_NAME } from 'src/core/docker-images.js'
+import { IMAGE_NAME, computeLockfileHash } from 'src/core/docker-images.js'
 import { getMonorepoRoot } from 'src/services/discovery.js'
 
 export default class DevImageBuild extends Command {
@@ -18,8 +18,9 @@ export default class DevImageBuild extends Command {
   async run(): Promise<void> {
     const { flags } = await this.parse(DevImageBuild)
     const root = getMonorepoRoot()
+    const hash = computeLockfileHash(root)
     const noCache = flags['no-cache'] ? ' --no-cache' : ''
-    const cmd = `docker build -f Dockerfile.dev -t ${IMAGE_NAME}${noCache} .`
+    const cmd = `docker build -f Dockerfile.dev -t ${IMAGE_NAME} --label "lockfile.hash=${hash}"${noCache} .`
 
     this.log(`Building ${IMAGE_NAME} image...`)
     this.log(`Running: ${cmd}`)

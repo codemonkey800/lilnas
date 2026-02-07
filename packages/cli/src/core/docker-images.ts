@@ -1,4 +1,7 @@
 import { execSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import {
   discoverAppServices,
@@ -14,6 +17,23 @@ const BASE_IMAGES = [
   'lilnas-node-runtime',
   'lilnas-nextjs-runtime',
 ]
+
+export function computeLockfileHash(root: string): string {
+  const lockfile = readFileSync(join(root, 'pnpm-lock.yaml'))
+  return createHash('sha256').update(lockfile).digest('hex')
+}
+
+export function getImageLockfileHash(imageName: string): string | null {
+  try {
+    const hash = execSync(
+      `docker image inspect ${imageName} --format '{{index .Config.Labels "lockfile.hash"}}'`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] },
+    ).trim()
+    return hash || null
+  } catch {
+    return null
+  }
+}
 
 function imageExists(name: string): boolean {
   try {
@@ -52,12 +72,19 @@ export function ensureDockerImages(
 
   // In dev mode, check lilnas-dev if targets include app services
   if (mode === 'dev' && targetsIncludeApps(mode, targets)) {
-    if (!imageExists(IMAGE_NAME)) {
-      log(`Missing ${IMAGE_NAME} image. Building...`)
-      execSync(`docker build -f Dockerfile.dev -t ${IMAGE_NAME} .`, {
-        cwd: root,
-        stdio: 'inherit',
-      })
+    const currentHash = computeLockfileHash(root)
+    const imageHash = getImageLockfileHash(IMAGE_NAME)
+
+    if (!imageHash || imageHash !== currentHash) {
+      log(
+        imageHash
+          ? `${IMAGE_NAME} lockfile hash mismatch (dependencies changed). Rebuilding...`
+          : `Missing ${IMAGE_NAME} image. Building...`,
+      )
+      execSync(
+        `docker build -f Dockerfile.dev -t ${IMAGE_NAME} --label "lockfile.hash=${currentHash}" .`,
+        { cwd: root, stdio: 'inherit' },
+      )
     }
   }
 }
