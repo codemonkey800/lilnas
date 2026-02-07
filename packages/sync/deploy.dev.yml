@@ -3,11 +3,43 @@ services:
     extends:
       file: ../../infra/deploy.dev.base.yml
       service: dev-base
-
     environment:
       PACKAGE_NAME: sync
-
+    env_file:
+      - ../../infra/.env.sync
+    depends_on:
+      sync-db:
+        condition: service_healthy
     labels:
       - traefik.enable=true
       - traefik.http.routers.sync.rule=Host(`sync.localhost`)
       - traefik.http.services.sync.loadbalancer.server.port=8080
+
+  sync-db:
+    image: postgres:16-alpine
+    env_file:
+      - ../../infra/.env.sync
+    volumes:
+      - ../../data/sync-db:/var/lib/postgresql/data
+    healthcheck:
+      # Use $$ to defer variable interpolation to container runtime
+      test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  sync-db-push:
+    image: lilnas-dev
+    working_dir: /source
+    command: -c "pnpm --filter=sync db:push"
+    volumes:
+      - ../..:/source
+      - node_modules:/source/node_modules
+    env_file:
+      - ../../infra/.env.sync
+    depends_on:
+      sync-db:
+        condition: service_healthy
+    profiles:
+      - tools

@@ -16,10 +16,16 @@
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
     "start": "NODE_ENV=production node server.js",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "drizzle-orm": "^0.38.0",
     "next": "15.5.4",
+    "pg": "^8.13.0",
     "react": "19.2.0",
     "react-dom": "19.2.0"
   },
@@ -27,8 +33,10 @@
     "@lilnas/eslint": "workspace:*",
     "@lilnas/prettier": "workspace:*",
     "@types/node": "^22.15.29",
+    "@types/pg": "^8.11.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "drizzle-kit": "^0.30.0",
     "npm-run-all2": "^8.0.4",
     "tailwindcss": "^4.1.8",
     "typescript": "^5.8.3"

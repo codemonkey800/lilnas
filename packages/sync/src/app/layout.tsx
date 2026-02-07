@@ -1,7 +1,7 @@
+import 'src/tailwind.css'
+
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
-
-import 'src/tailwind.css'
 
 export const metadata: Metadata = {
   title: 'Sync',
