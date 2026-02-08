@@ -14,10 +14,21 @@ export default class Redeploy extends BaseComposeCommand {
 
   override async run(): Promise<void> {
     const targets = await this.resolveTargets()
-    ensureDockerImages(this.mode, targets, msg => this.log(msg))
+
+    this.verbose(`Redeploy targets: ${JSON.stringify(targets)}`)
+
+    ensureDockerImages(
+      this.mode,
+      targets,
+      msg => this.log(msg),
+      msg => this.verbose(msg),
+    )
     const root = getMonorepoRoot()
     const composeFile = getComposeFile(this.mode)
     const targetArgs = targets.length > 0 ? ` ${targets.join(' ')}` : ''
+
+    this.verbose(`Monorepo root: ${root}`)
+    this.verbose(`Compose file: ${composeFile}`)
 
     const downCmd = `docker-compose -f ${composeFile} down --rmi all -v${targetArgs}`
     this.log(`Running: ${downCmd}`)

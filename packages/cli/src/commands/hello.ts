@@ -1,6 +1,6 @@
-import { Command } from '@oclif/core'
+import BaseCommand from 'src/core/base-command.js'
 
-export default class Hello extends Command {
+export default class Hello extends BaseCommand {
   static override description = 'Say hello (placeholder command)'
 
   async run(): Promise<void> {

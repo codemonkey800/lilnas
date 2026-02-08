@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 import {
   discoverAppServices,
@@ -10,6 +10,7 @@ import {
 } from 'src/services/discovery.js'
 
 export const IMAGE_NAME = 'lilnas-dev'
+const NODE_MODULES_VOLUME_SUFFIX = 'node_modules'
 
 const BASE_IMAGES = [
   'lilnas-node-base',
@@ -55,10 +56,16 @@ export function ensureDockerImages(
   mode: ServiceMode,
   targets: string[],
   log: (msg: string) => void,
+  verbose: (msg: string) => void = () => {},
 ): void {
   const root = getMonorepoRoot()
 
   // Check base images
+  for (const img of BASE_IMAGES) {
+    const exists = imageExists(img)
+    verbose(`Checking base image: ${img} -> ${exists ? 'exists' : 'missing'}`)
+  }
+
   const missingBase = BASE_IMAGES.filter(img => !imageExists(img))
   if (missingBase.length > 0) {
     log(
@@ -68,14 +75,25 @@ export function ensureDockerImages(
       cwd: root,
       stdio: 'inherit',
     })
+  } else {
+    verbose('All base images present')
   }
 
   // In dev mode, check lilnas-dev if targets include app services
-  if (mode === 'dev' && targetsIncludeApps(mode, targets)) {
+  const includesApps = targetsIncludeApps(mode, targets)
+  verbose(`Targets include app services: ${String(includesApps)}`)
+
+  if (mode === 'dev' && includesApps) {
     const currentHash = computeLockfileHash(root)
     const imageHash = getImageLockfileHash(IMAGE_NAME)
+    verbose(`Current lockfile hash: ${currentHash}`)
+    verbose(`Image lockfile hash: ${imageHash ?? 'none'}`)
 
     if (!imageHash || imageHash !== currentHash) {
+      const reason = imageHash
+        ? 'lockfile hash mismatch (dependencies changed)'
+        : `missing ${IMAGE_NAME} image`
+      verbose(`Rebuild needed: ${reason}`)
       log(
         imageHash
           ? `${IMAGE_NAME} lockfile hash mismatch (dependencies changed). Rebuilding...`
@@ -85,6 +103,24 @@ export function ensureDockerImages(
         `docker build -f Dockerfile.dev -t ${IMAGE_NAME} --label "lockfile.hash=${currentHash}" .`,
         { cwd: root, stdio: 'inherit' },
       )
+
+      // Remove the stale node_modules Docker volume so it gets repopulated
+      // from the fresh image. The volume caches pnpm's .pnpm store, and
+      // when the lockfile changes the dependency hashes change too, causing
+      // symlinks in packages/*/node_modules/ to point to non-existent paths.
+      const projectName = basename(root)
+      const volumeName = `${projectName}_${NODE_MODULES_VOLUME_SUFFIX}`
+      verbose(`Removing stale volume: ${volumeName}`)
+      try {
+        execSync(`docker volume rm ${volumeName}`, {
+          stdio: ['pipe', 'pipe', 'ignore'],
+        })
+        log(`Removed stale ${volumeName} volume`)
+      } catch {
+        verbose(`Volume ${volumeName} not found or in use, skipping removal`)
+      }
+    } else {
+      verbose('Lockfile hashes match, no rebuild needed')
     }
   }
 }

@@ -1,5 +1,6 @@
-import { Command, Flags } from '@oclif/core'
+import { Flags } from '@oclif/core'
 
+import BaseCommand from 'src/core/base-command.js'
 import {
   discoverAllServiceDetails,
   discoverAppServiceDetails,
@@ -92,7 +93,7 @@ function groupByType(
   return groups
 }
 
-export default class List extends Command {
+export default class List extends BaseCommand {
   static override aliases = ['ls']
 
   static override description =
@@ -127,8 +128,18 @@ export default class List extends Command {
       serviceInfos = discoverAllServiceDetails(this.mode)
     }
 
+    this.verbose(`Mode: ${this.mode}`)
+    this.verbose(`Discovered ${serviceInfos.length} service(s)`)
+    for (const info of serviceInfos) {
+      this.verbose(
+        `  ${info.name} (${info.type}) image=${info.image ?? '-'} domain=${info.domain ?? '-'}`,
+      )
+    }
+
     const statuses = getContainerStatuses(this.mode)
     const traefikRunning = statuses.get('traefik')?.state === 'running'
+    this.verbose(`Container statuses fetched: ${statuses.size} container(s)`)
+    this.verbose(`Traefik running: ${String(traefikRunning)}`)
 
     const rows = serviceInfos.map(info => {
       const container = statuses.get(info.name)

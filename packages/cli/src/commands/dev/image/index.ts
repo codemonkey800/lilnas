@@ -1,15 +1,14 @@
 import { execSync } from 'node:child_process'
 
-import { Command } from '@oclif/core'
-
+import BaseCommand from 'src/core/base-command.js'
 import {
-  IMAGE_NAME,
   computeLockfileHash,
   getImageLockfileHash,
+  IMAGE_NAME,
 } from 'src/core/docker-images.js'
 import { getMonorepoRoot } from 'src/services/discovery.js'
 
-export default class DevImage extends Command {
+export default class DevImage extends BaseCommand {
   static override description = 'Show status of the lilnas-dev Docker image'
 
   async run(): Promise<void> {
@@ -30,6 +29,13 @@ export default class DevImage extends Command {
       const currentHash = computeLockfileHash(root)
       const hashMatch =
         imageHash && currentHash === imageHash ? 'up to date' : 'outdated'
+
+      this.verbose(`Monorepo root: ${root}`)
+      this.verbose(`Full image ID: ${id}`)
+      this.verbose(`Size bytes: ${sizeBytes}`)
+      this.verbose(`Current lockfile hash: ${currentHash}`)
+      this.verbose(`Image lockfile hash: ${imageHash ?? 'none'}`)
+      this.verbose(`Hash status: ${hashMatch}`)
 
       this.log(`${IMAGE_NAME} image:`)
       this.log(`  ID:      ${id.slice(0, 19)}`)
