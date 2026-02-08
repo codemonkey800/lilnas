@@ -1,6 +1,9 @@
+import { eq } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 
 import { auth, signOut } from 'src/auth'
+import { db } from 'src/db'
+import { profiles } from 'src/db/schema'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,6 +12,17 @@ export default async function HomePage() {
 
   if (!session?.user) {
     redirect('/login')
+  }
+
+  // Redirect new users to onboarding
+  const profile = await db
+    .select({ onboardingCompleted: profiles.onboardingCompleted })
+    .from(profiles)
+    .where(eq(profiles.userId, session.user.id!))
+    .limit(1)
+
+  if (!profile[0]?.onboardingCompleted) {
+    redirect('/onboarding')
   }
 
   return (

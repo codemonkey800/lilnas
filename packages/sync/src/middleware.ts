@@ -1,24 +1,12 @@
-import type { NextFetchEvent } from 'next/server'
-import { NextResponse } from 'next/server'
+import NextAuth, { type NextAuthResult } from 'next-auth'
 
-import { auth } from 'src/auth'
+import { authConfig } from 'src/auth.config'
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export default auth((req, _ctx: NextFetchEvent) => {
-  if (!req.auth && req.nextUrl.pathname !== '/login') {
-    const loginUrl = new URL('/login', req.nextUrl.origin)
-    return NextResponse.redirect(loginUrl)
-  }
+const nextAuth: NextAuthResult = NextAuth(authConfig)
 
-  if (req.auth && req.nextUrl.pathname === '/login') {
-    const homeUrl = new URL('/', req.nextUrl.origin)
-    return NextResponse.redirect(homeUrl)
-  }
-
-  return NextResponse.next()
-})
+const middleware: NextAuthResult['auth'] = nextAuth.auth
+export default middleware
 
 export const config = {
   matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
-  runtime: 'nodejs',
 }

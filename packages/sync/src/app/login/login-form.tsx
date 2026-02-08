@@ -1,13 +1,16 @@
 'use client'
 
 import { cns } from '@lilnas/utils/cns'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { FormEvent, useState } from 'react'
 
-import { sendMagicLink } from './actions'
+import { loginWithCredentials } from './actions'
 
 export function LoginForm() {
+  const router = useRouter()
   const [email, setEmail] = useState('')
-  const [submitted, setSubmitted] = useState(false)
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -18,78 +21,17 @@ export function LoginForm() {
 
     const formData = new FormData()
     formData.set('email', email)
+    formData.set('password', password)
 
-    const result = await sendMagicLink(formData)
+    const result = await loginWithCredentials(formData)
 
     setLoading(false)
 
     if (result.success) {
-      setSubmitted(true)
+      router.push('/')
     } else {
       setError(result.error)
     }
-  }
-
-  if (submitted) {
-    return (
-      <div
-        className={cns(
-          'flex w-full max-w-sm flex-col items-center gap-6',
-          'rounded-md border border-border bg-bg-surface p-6 shadow-md md:p-8',
-          'animate-slide-up',
-        )}
-      >
-        {/* Mail icon */}
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-bg-overlay">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-8 w-8 text-primary-400"
-          >
-            <rect x="2" y="4" width="20" height="16" rx="2" />
-            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-          </svg>
-        </div>
-
-        <div className="flex flex-col items-center gap-2 text-center">
-          <h1 className="text-2xl font-bold text-text">Check your email</h1>
-          <p className="text-sm text-text-secondary">
-            We sent a magic link to{' '}
-            <span className="font-medium text-primary-300">{email}</span>
-          </p>
-          <p className="text-sm text-text-secondary">
-            Click the link in the email to sign in. It may take a minute to
-            arrive.
-          </p>
-        </div>
-
-        <p className="text-xs text-text-muted">
-          Don&apos;t see it? Check your spam folder.
-        </p>
-
-        <button
-          type="button"
-          onClick={() => {
-            setSubmitted(false)
-            setError(null)
-          }}
-          className={cns(
-            'inline-flex items-center justify-center rounded-sm px-4 py-2',
-            'text-sm font-medium text-text-secondary',
-            'transition-colors duration-150 ease-smooth',
-            'hover:bg-bg-overlay hover:text-text',
-            'focus-visible:shadow-focus',
-          )}
-        >
-          Use a different email
-        </button>
-      </div>
-    )
   }
 
   return (
@@ -106,32 +48,56 @@ export function LoginForm() {
           Sign in to Sync
         </h1>
         <p className="text-sm text-text-secondary">
-          Enter your email and we&apos;ll send you a magic link.
+          Enter your credentials to continue.
         </p>
       </div>
 
-      <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-text-secondary">
-          Email address
-        </span>
-        <input
-          type="email"
-          name="email"
-          required
-          autoFocus
-          autoComplete="email"
-          placeholder="you@example.com"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          className={cns(
-            'w-full rounded-sm border border-border bg-bg-raised px-3 py-2',
-            'text-sm text-text placeholder:text-text-muted',
-            'transition-colors duration-150 ease-smooth',
-            'focus:border-primary focus:outline-none focus-visible:shadow-focus',
-          )}
-        />
-        {error && <p className="text-sm text-error">{error}</p>}
-      </label>
+      <div className="flex flex-col gap-4">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-text-secondary">
+            Email address
+          </span>
+          <input
+            type="email"
+            name="email"
+            required
+            autoFocus
+            autoComplete="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            className={cns(
+              'w-full rounded-sm border border-border bg-bg-raised px-3 py-2',
+              'text-sm text-text placeholder:text-text-muted',
+              'transition-colors duration-150 ease-smooth',
+              'focus:border-primary focus:outline-none focus-visible:shadow-focus',
+            )}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-text-secondary">
+            Password
+          </span>
+          <input
+            type="password"
+            name="password"
+            required
+            autoComplete="current-password"
+            placeholder="Enter your password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            className={cns(
+              'w-full rounded-sm border border-border bg-bg-raised px-3 py-2',
+              'text-sm text-text placeholder:text-text-muted',
+              'transition-colors duration-150 ease-smooth',
+              'focus:border-primary focus:outline-none focus-visible:shadow-focus',
+            )}
+          />
+        </label>
+
+        {error && <p className="text-sm text-error animate-fade-in">{error}</p>}
+      </div>
 
       <button
         type="submit"
@@ -145,8 +111,22 @@ export function LoginForm() {
           'disabled:opacity-40',
         )}
       >
-        {loading ? 'Sending...' : 'Continue with Email'}
+        {loading ? 'Signing in...' : 'Sign in'}
       </button>
+
+      <p className="text-center text-sm text-text-secondary">
+        Don&apos;t have an account?{' '}
+        <Link
+          href="/register"
+          className={cns(
+            'font-medium text-primary-300',
+            'transition-colors duration-150 ease-smooth',
+            'hover:text-primary-200',
+          )}
+        >
+          Create one
+        </Link>
+      </p>
     </form>
   )
 }

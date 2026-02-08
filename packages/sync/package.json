@@ -27,8 +27,8 @@
     "@lilnas/utils": "workspace:*",
     "drizzle-orm": "^0.38.0",
     "next": "15.5.4",
+    "bcryptjs": "^2.4.3",
     "next-auth": "5.0.0-beta.30",
-    "nodemailer": "^8.0.0",
     "pg": "^8.13.0",
     "react": "19.2.0",
     "react-dom": "19.2.0"
@@ -37,7 +37,7 @@
     "@lilnas/eslint": "workspace:*",
     "@lilnas/prettier": "workspace:*",
     "@types/node": "^22.15.29",
-    "@types/nodemailer": "^7.0.9",
+    "@types/bcryptjs": "^2.4.6",
     "@types/pg": "^8.11.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",

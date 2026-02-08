@@ -1,64 +1,50 @@
 import { DrizzleAdapter } from '@auth/drizzle-adapter'
+import { eq } from 'drizzle-orm'
 import NextAuth, { type NextAuthResult } from 'next-auth'
-import Nodemailer from 'next-auth/providers/nodemailer'
-import { createTransport } from 'nodemailer'
+import Credentials from 'next-auth/providers/credentials'
 
+import { authConfig } from 'src/auth.config'
 import { db } from 'src/db'
-import { accounts, sessions, users, verificationTokens } from 'src/db/schema'
-import { html, text } from 'src/email/magic-link'
+import { accounts, sessions, users } from 'src/db/schema'
+import { verifyPassword } from 'src/lib/password'
 
 const nextAuth: NextAuthResult = NextAuth({
+  ...authConfig,
+
   adapter: DrizzleAdapter(db, {
     usersTable: users,
     accountsTable: accounts,
     sessionsTable: sessions,
-    verificationTokensTable: verificationTokens,
   }),
 
   providers: [
-    Nodemailer({
-      server: {
-        host: process.env.EMAIL_SERVER_HOST,
-        port: Number(process.env.EMAIL_SERVER_PORT),
-        auth: {
-          user: process.env.EMAIL_SERVER_USER,
-          pass: process.env.EMAIL_SERVER_PASSWORD,
-        },
+    Credentials({
+      credentials: {
+        email: {},
+        password: {},
       },
-      from: process.env.EMAIL_FROM,
 
-      async sendVerificationRequest({
-        identifier: email,
-        url,
-        provider: { server, from },
-      }) {
-        const { host } = new URL(url)
-        const transport = createTransport(server)
+      async authorize(credentials) {
+        const email = credentials.email as string | undefined
+        const password = credentials.password as string | undefined
 
-        const result = await transport.sendMail({
-          to: email,
-          from,
-          subject: 'Sign in to Sync',
-          text: text({ url, host }),
-          html: html({ url, host }),
-        })
+        if (!email || !password) return null
 
-        const failed = result.rejected.concat(result.pending).filter(Boolean)
+        const [user] = await db
+          .select()
+          .from(users)
+          .where(eq(users.email, email))
+          .limit(1)
 
-        if (failed.length) {
-          throw new Error(`Email(s) (${failed.join(', ')}) could not be sent`)
-        }
+        if (!user?.passwordHash) return null
+
+        const valid = await verifyPassword(password, user.passwordHash)
+        if (!valid) return null
+
+        return { id: user.id, email: user.email, name: user.name }
       },
     }),
   ],
-
-  pages: {
-    signIn: '/login',
-  },
-
-  session: {
-    strategy: 'database',
-  },
 })
 
 export const handlers: NextAuthResult['handlers'] = nextAuth.handlers

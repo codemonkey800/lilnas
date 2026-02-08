@@ -1,4 +1,5 @@
 import {
+  boolean,
   integer,
   pgTable,
   primaryKey,
@@ -18,6 +19,7 @@ export const users = pgTable('users', {
   email: text('email').unique(),
   emailVerified: timestamp('email_verified', { mode: 'date' }),
   image: text('image'),
+  passwordHash: text('password_hash'),
 })
 
 export const accounts = pgTable(
@@ -59,3 +61,34 @@ export const verificationTokens = pgTable(
   },
   vt => [primaryKey({ columns: [vt.identifier, vt.token] })],
 )
+
+// ---------------------------------------------------------------------------
+// User profiles (onboarding data for LLM personalization)
+// ---------------------------------------------------------------------------
+
+export const profiles = pgTable('profiles', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' })
+    .unique(),
+
+  // About You
+  displayName: text('display_name').notNull(),
+  birthday: text('birthday'),
+  pronouns: text('pronouns'),
+
+  // Love & Connection
+  loveLang: text('love_lang'),
+  interests: text('interests'), // JSON stringified array
+
+  // Goals
+  goals: text('goals'), // JSON stringified array
+
+  // Metadata
+  onboardingCompleted: boolean('onboarding_completed').notNull().default(false),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+})
