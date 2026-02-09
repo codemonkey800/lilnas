@@ -1,10 +1,13 @@
+import { sql } from 'drizzle-orm'
 import {
   boolean,
   integer,
+  pgEnum,
   pgTable,
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
 // ---------------------------------------------------------------------------
@@ -92,3 +95,44 @@ export const profiles = pgTable('profiles', {
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
 })
+
+// ---------------------------------------------------------------------------
+// Partnerships (partner connection system)
+// ---------------------------------------------------------------------------
+
+export const partnershipStatusEnum = pgEnum('partnership_status', [
+  'pending',
+  'accepted',
+  'declined',
+  'cancelled',
+  'dissolved',
+])
+
+export const partnerships = pgTable(
+  'partnerships',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+
+    inviterId: text('inviter_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+
+    inviteeId: text('invitee_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+
+    status: partnershipStatusEnum('status').notNull().default('pending'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+  },
+  table => [
+    uniqueIndex('unique_active_pair')
+      .on(
+        sql`LEAST(${table.inviterId}, ${table.inviteeId})`,
+        sql`GREATEST(${table.inviterId}, ${table.inviteeId})`,
+      )
+      .where(sql`${table.status} IN ('pending', 'accepted')`),
+  ],
+)

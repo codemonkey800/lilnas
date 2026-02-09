@@ -1,9 +1,9 @@
-import { eq } from 'drizzle-orm'
+import { and, eq, or } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 
 import { auth, signOut } from 'src/auth'
 import { db } from 'src/db'
-import { profiles } from 'src/db/schema'
+import { partnerships, profiles } from 'src/db/schema'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,15 +14,36 @@ export default async function HomePage() {
     redirect('/login')
   }
 
-  // Redirect new users to onboarding
-  const profile = await db
-    .select({ onboardingCompleted: profiles.onboardingCompleted })
-    .from(profiles)
-    .where(eq(profiles.userId, session.user.id!))
-    .limit(1)
+  const userId = session.user.id!
 
-  if (!profile[0]?.onboardingCompleted) {
+  // Run both checks concurrently
+  const [profileResult, partnershipResult] = await Promise.all([
+    db
+      .select({ onboardingCompleted: profiles.onboardingCompleted })
+      .from(profiles)
+      .where(eq(profiles.userId, userId))
+      .limit(1),
+    db
+      .select({ id: partnerships.id })
+      .from(partnerships)
+      .where(
+        and(
+          eq(partnerships.status, 'accepted'),
+          or(
+            eq(partnerships.inviterId, userId),
+            eq(partnerships.inviteeId, userId),
+          ),
+        ),
+      )
+      .limit(1),
+  ])
+
+  if (!profileResult[0]?.onboardingCompleted) {
     redirect('/onboarding')
+  }
+
+  if (!partnershipResult[0]) {
+    redirect('/partner')
   }
 
   return (
