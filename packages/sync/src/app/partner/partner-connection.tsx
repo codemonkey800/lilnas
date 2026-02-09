@@ -12,6 +12,12 @@ import {
 } from 'react-icons/hi2'
 
 import { SyncIcon } from 'src/components/sync-icon'
+import { Avatar } from 'src/components/ui/avatar'
+import { Button } from 'src/components/ui/button'
+import { Card, CardInner } from 'src/components/ui/card'
+import { FormField } from 'src/components/ui/form-field'
+import { Input } from 'src/components/ui/input'
+import { LoadingDots } from 'src/components/ui/loading-dots'
 
 import {
   acceptInvite,
@@ -133,14 +139,7 @@ function IncomingInviteView({
   }
 
   return (
-    <div
-      key={invite.id}
-      className={cns(
-        'flex w-full max-w-lg flex-col gap-6',
-        'rounded-md border border-border bg-bg-surface p-6 shadow-md md:p-8',
-        'animate-fade-in',
-      )}
-    >
+    <Card key={invite.id}>
       {/* Icon */}
       <div className="flex justify-center">
         <SyncIcon className="h-10 w-10 text-primary-400" />
@@ -158,21 +157,8 @@ function IncomingInviteView({
       </div>
 
       {/* Invite card */}
-      <div
-        className={cns(
-          'flex flex-col items-center gap-3 rounded-md border border-border-subtle',
-          'bg-bg-raised p-5 animate-slide-up',
-        )}
-      >
-        {/* Avatar placeholder */}
-        <div
-          className={cns(
-            'flex h-14 w-14 items-center justify-center rounded-full',
-            'bg-primary-900 text-xl font-bold text-primary-300',
-          )}
-        >
-          {invite.inviterDisplayName.charAt(0).toUpperCase()}
-        </div>
+      <CardInner className="animate-slide-up">
+        <Avatar initial={invite.inviterDisplayName} />
 
         <div className="flex flex-col items-center gap-1">
           <span className="text-lg font-semibold text-text">
@@ -183,7 +169,7 @@ function IncomingInviteView({
             {invite.inviterEmail}
           </span>
         </div>
-      </div>
+      </CardInner>
 
       {/* Error */}
       {error && (
@@ -194,39 +180,26 @@ function IncomingInviteView({
 
       {/* Actions */}
       <div className="flex flex-col gap-3">
-        <button
-          type="button"
+        <Button
+          size="lg"
+          className="w-full"
           onClick={handleAccept}
           disabled={loading !== null}
-          className={cns(
-            'inline-flex w-full items-center justify-center gap-2 rounded-sm px-5 py-2.5',
-            'bg-primary text-sm font-medium text-text-inverse',
-            'transition-colors duration-150 ease-smooth',
-            'hover:bg-primary-600',
-            'focus-visible:shadow-focus',
-            'disabled:opacity-40',
-          )}
         >
           <HiCheck className="h-4 w-4" />
           {loading === 'accept' ? 'Accepting...' : 'Accept'}
-        </button>
+        </Button>
 
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="lg"
+          className="w-full"
           onClick={handleDecline}
           disabled={loading !== null}
-          className={cns(
-            'inline-flex w-full items-center justify-center gap-2 rounded-sm px-4 py-2.5',
-            'text-sm font-medium text-text-secondary',
-            'transition-colors duration-150 ease-smooth',
-            'hover:bg-bg-overlay hover:text-text',
-            'focus-visible:shadow-focus',
-            'disabled:opacity-40',
-          )}
         >
           <HiXMark className="h-4 w-4" />
           {loading === 'decline' ? 'Declining...' : 'Decline'}
-        </button>
+        </Button>
       </div>
 
       {/* Counter */}
@@ -235,7 +208,7 @@ function IncomingInviteView({
           Request {currentIndex + 1} of {totalCount}
         </p>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -273,74 +246,63 @@ function InviteFormView({ onSent }: InviteFormViewProps) {
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className={cns(
-        'flex w-full max-w-lg flex-col gap-6',
-        'rounded-md border border-border bg-bg-surface p-6 shadow-md md:p-8',
-        'animate-fade-in',
-      )}
-    >
-      {/* Icon */}
-      <div className="flex justify-center">
-        <SyncIcon className="h-10 w-10 text-primary-400" />
-      </div>
+    <Card>
+      <form onSubmit={handleSubmit} className="contents">
+        {/* Icon */}
+        <div className="flex justify-center">
+          <SyncIcon className="h-10 w-10 text-primary-400" />
+        </div>
 
-      {/* Header */}
-      <div className="flex flex-col items-center gap-2 text-center">
-        <HiHeart className="h-6 w-6 text-primary-400" />
-        <h1 className="text-2xl font-bold text-text md:text-3xl">
-          Connect with your partner
-        </h1>
-        <p className="text-sm text-text-secondary">
-          Enter your partner&apos;s email to send them a connection request.
-          They&apos;ll need to accept before you can start checking in together.
-        </p>
-      </div>
+        {/* Header */}
+        <div className="flex flex-col items-center gap-2 text-center">
+          <HiHeart className="h-6 w-6 text-primary-400" />
+          <h1 className="text-2xl font-bold text-text md:text-3xl">
+            Connect with your partner
+          </h1>
+          <p className="text-sm text-text-secondary">
+            Enter your partner&apos;s email to send them a connection request.
+            They&apos;ll need to accept before you can start checking in
+            together.
+          </p>
+        </div>
 
-      {/* Email input */}
-      <label className="flex flex-col gap-1.5">
-        <span className="flex items-center gap-1.5 text-sm font-medium text-text-secondary">
-          <HiEnvelope className="h-3.5 w-3.5" />
-          Partner&apos;s email
-        </span>
-        <input
-          type="email"
-          required
-          autoFocus
-          autoComplete="email"
-          placeholder="partner@example.com"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          className={cns(
-            'w-full rounded-sm border border-border bg-bg-raised px-3 py-2.5',
-            'text-sm text-text placeholder:text-text-muted',
-            'transition-colors duration-150 ease-smooth',
-            'focus:border-primary focus:outline-none focus-visible:shadow-focus',
-          )}
-        />
-      </label>
+        {/* Email input */}
+        <FormField
+          label={
+            <span className="flex items-center gap-1.5">
+              <HiEnvelope className="h-3.5 w-3.5" />
+              Partner&apos;s email
+            </span>
+          }
+        >
+          <Input
+            type="email"
+            required
+            autoFocus
+            autoComplete="email"
+            placeholder="partner@example.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            className="py-2.5"
+          />
+        </FormField>
 
-      {/* Error */}
-      {error && <p className="text-sm text-error animate-fade-in">{error}</p>}
+        {/* Error */}
+        {error && <p className="text-sm text-error animate-fade-in">{error}</p>}
 
-      {/* Submit */}
-      <button
-        type="submit"
-        disabled={loading || !email.trim()}
-        className={cns(
-          'inline-flex w-full items-center justify-center gap-2 rounded-sm px-5 py-2.5',
-          'bg-primary text-sm font-medium text-text-inverse',
-          'transition-colors duration-150 ease-smooth',
-          'hover:bg-primary-600',
-          'focus-visible:shadow-focus',
-          'disabled:opacity-40',
-        )}
-      >
-        <HiPaperAirplane className="h-4 w-4" />
-        {loading ? 'Sending...' : 'Send Invite'}
-      </button>
-    </form>
+        {/* Submit */}
+        <Button
+          type="submit"
+          size="lg"
+          className="w-full"
+          disabled={!email.trim()}
+          loading={loading}
+        >
+          <HiPaperAirplane className="h-4 w-4" />
+          {loading ? 'Sending...' : 'Send Invite'}
+        </Button>
+      </form>
+    </Card>
   )
 }
 
@@ -390,13 +352,7 @@ function PendingOutgoingView({
   }
 
   return (
-    <div
-      className={cns(
-        'flex w-full max-w-lg flex-col gap-6',
-        'rounded-md border border-border bg-bg-surface p-6 shadow-md md:p-8',
-        'animate-fade-in',
-      )}
-    >
+    <Card>
       {/* Icon with glow */}
       <div className="flex justify-center">
         <div className="animate-pulse-glow rounded-full p-2">
@@ -420,29 +376,12 @@ function PendingOutgoingView({
       </div>
 
       {/* Waiting indicator */}
-      <div
-        className={cns(
-          'flex items-center justify-center gap-3 rounded-md border border-border-subtle',
-          'bg-bg-raised px-5 py-4',
-        )}
+      <CardInner
+        className={cns('flex-row items-center justify-center gap-3 px-5 py-4')}
       >
-        {/* Animated dots */}
-        <div className="flex gap-1.5">
-          <span
-            className="h-2 w-2 animate-bounce rounded-full bg-primary-500"
-            style={{ animationDelay: '0ms' }}
-          />
-          <span
-            className="h-2 w-2 animate-bounce rounded-full bg-primary-500"
-            style={{ animationDelay: '150ms' }}
-          />
-          <span
-            className="h-2 w-2 animate-bounce rounded-full bg-primary-500"
-            style={{ animationDelay: '300ms' }}
-          />
-        </div>
+        <LoadingDots />
         <span className="text-sm text-text-muted">Waiting for response</span>
-      </div>
+      </CardInner>
 
       {/* Error */}
       {error && (
@@ -452,22 +391,16 @@ function PendingOutgoingView({
       )}
 
       {/* Cancel */}
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="lg"
+        className="w-full"
         onClick={handleCancel}
-        disabled={loading}
-        className={cns(
-          'inline-flex w-full items-center justify-center gap-2 rounded-sm px-4 py-2.5',
-          'text-sm font-medium text-text-secondary',
-          'transition-colors duration-150 ease-smooth',
-          'hover:bg-bg-overlay hover:text-text',
-          'focus-visible:shadow-focus',
-          'disabled:opacity-40',
-        )}
+        loading={loading}
       >
         <HiXMark className="h-4 w-4" />
         {loading ? 'Cancelling...' : 'Cancel Invite'}
-      </button>
-    </div>
+      </Button>
+    </Card>
   )
 }

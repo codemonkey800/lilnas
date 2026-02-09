@@ -4,6 +4,12 @@ import { cns } from '@lilnas/utils/cns'
 import { useRouter } from 'next/navigation'
 import { FormEvent, useState } from 'react'
 
+import { Button } from 'src/components/ui/button'
+import { Card } from 'src/components/ui/card'
+import { FormField } from 'src/components/ui/form-field'
+import { Input } from 'src/components/ui/input'
+import { PillButton } from 'src/components/ui/pill-button'
+
 import { type OnboardingData, saveProfile } from './actions'
 
 // ---------------------------------------------------------------------------
@@ -240,116 +246,88 @@ export function OnboardingWizard() {
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className={cns(
-        'flex w-full max-w-lg flex-col gap-6',
-        'rounded-md border border-border bg-bg-surface p-6 shadow-md md:p-8',
-        'animate-fade-in',
-      )}
-    >
-      {/* Progress */}
-      <div className="flex items-center gap-2">
-        {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
-          <div
-            key={i}
-            className={cns(
-              'h-1.5 flex-1 rounded-full transition-colors duration-300 ease-smooth',
-              i <= step ? 'bg-primary' : 'bg-bg-overlay',
-            )}
-          />
-        ))}
-      </div>
+    <Card>
+      <form onSubmit={handleSubmit} className="contents">
+        {/* Progress */}
+        <div className="flex items-center gap-2">
+          {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+            <div
+              key={i}
+              className={cns(
+                'h-1.5 flex-1 rounded-full transition-colors duration-300 ease-smooth',
+                i <= step ? 'bg-primary' : 'bg-bg-overlay',
+              )}
+            />
+          ))}
+        </div>
 
-      {/* Step content */}
-      <div key={step} className="flex flex-col gap-6 animate-slide-up">
-        {step === 0 && (
-          <StepAboutYou
-            displayName={displayName}
-            setDisplayName={setDisplayName}
-            birthday={birthday}
-            setBirthday={setBirthday}
-            pronouns={pronouns}
-            setPronouns={setPronouns}
-            customPronouns={customPronouns}
-            setCustomPronouns={setCustomPronouns}
-          />
-        )}
+        {/* Step content */}
+        <div key={step} className="flex flex-col gap-6 animate-slide-up">
+          {step === 0 && (
+            <StepAboutYou
+              displayName={displayName}
+              setDisplayName={setDisplayName}
+              birthday={birthday}
+              setBirthday={setBirthday}
+              pronouns={pronouns}
+              setPronouns={setPronouns}
+              customPronouns={customPronouns}
+              setCustomPronouns={setCustomPronouns}
+            />
+          )}
 
-        {step === 1 && (
-          <StepLoveConnection
-            loveLang={loveLang}
-            setLoveLang={setLoveLang}
-            interests={interests}
-            toggleInterest={toggleInterest}
-            customInterest={customInterest}
-            setCustomInterest={setCustomInterest}
-            addCustomInterest={addCustomInterest}
-          />
-        )}
+          {step === 1 && (
+            <StepLoveConnection
+              loveLang={loveLang}
+              setLoveLang={setLoveLang}
+              interests={interests}
+              toggleInterest={toggleInterest}
+              customInterest={customInterest}
+              setCustomInterest={setCustomInterest}
+              addCustomInterest={addCustomInterest}
+            />
+          )}
 
-        {step === 2 && <StepGoals goals={goals} toggleGoal={toggleGoal} />}
-      </div>
+          {step === 2 && <StepGoals goals={goals} toggleGoal={toggleGoal} />}
+        </div>
 
-      {/* Error */}
-      {error && <p className="text-sm text-error animate-fade-in">{error}</p>}
+        {/* Error */}
+        {error && <p className="text-sm text-error animate-fade-in">{error}</p>}
 
-      {/* Navigation */}
-      <div className="flex items-center justify-between gap-3">
-        {step > 0 ? (
-          <button
-            type="button"
-            onClick={handleBack}
-            className={cns(
-              'inline-flex items-center justify-center rounded-sm px-4 py-2',
-              'text-sm font-medium text-text-secondary',
-              'transition-colors duration-150 ease-smooth',
-              'hover:bg-bg-overlay hover:text-text',
-              'focus-visible:shadow-focus',
-            )}
-          >
-            Back
-          </button>
-        ) : (
-          <div />
-        )}
+        {/* Navigation */}
+        <div className="flex items-center justify-between gap-3">
+          {step > 0 ? (
+            <Button type="button" variant="ghost" onClick={handleBack}>
+              Back
+            </Button>
+          ) : (
+            <div />
+          )}
 
-        {step < TOTAL_STEPS - 1 ? (
-          <button
-            key="continue"
-            type="button"
-            onClick={handleNext}
-            disabled={!canContinue()}
-            className={cns(
-              'inline-flex items-center justify-center rounded-sm px-5 py-2',
-              'bg-primary text-sm font-medium text-text-inverse',
-              'transition-colors duration-150 ease-smooth',
-              'hover:bg-primary-600',
-              'focus-visible:shadow-focus',
-              'disabled:opacity-40',
-            )}
-          >
-            Continue
-          </button>
-        ) : (
-          <button
-            key="submit"
-            type="submit"
-            disabled={loading || !canContinue()}
-            className={cns(
-              'inline-flex items-center justify-center rounded-sm px-5 py-2',
-              'bg-primary text-sm font-medium text-text-inverse',
-              'transition-colors duration-150 ease-smooth',
-              'hover:bg-primary-600',
-              'focus-visible:shadow-focus',
-              'disabled:opacity-40',
-            )}
-          >
-            {loading ? 'Saving...' : 'Get Started'}
-          </button>
-        )}
-      </div>
-    </form>
+          {step < TOTAL_STEPS - 1 ? (
+            <Button
+              key="continue"
+              type="button"
+              size="lg"
+              onClick={handleNext}
+              disabled={!canContinue()}
+            >
+              Continue
+            </Button>
+          ) : (
+            <Button
+              key="submit"
+              type="submit"
+              size="lg"
+              disabled={!canContinue()}
+              loading={loading}
+            >
+              {loading ? 'Saving...' : 'Get Started'}
+            </Button>
+          )}
+        </div>
+      </form>
+    </Card>
   )
 }
 
@@ -392,11 +370,8 @@ function StepAboutYou({
       </div>
 
       {/* Display name */}
-      <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-text-secondary">
-          What should we call you?
-        </span>
-        <input
+      <FormField label="What should we call you?">
+        <Input
           type="text"
           required
           autoFocus
@@ -404,34 +379,25 @@ function StepAboutYou({
           placeholder="Your name"
           value={displayName}
           onChange={e => setDisplayName(e.target.value)}
-          className={cns(
-            'w-full rounded-sm border border-border bg-bg-raised px-3 py-2',
-            'text-sm text-text placeholder:text-text-muted',
-            'transition-colors duration-150 ease-smooth',
-            'focus:border-primary focus:outline-none focus-visible:shadow-focus',
-          )}
         />
-      </label>
+      </FormField>
 
       {/* Birthday */}
-      <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-text-secondary">
-          Birthday
-          <span className="ml-1.5 text-xs text-text-muted">(optional)</span>
-        </span>
-        <input
+      <FormField
+        label={
+          <>
+            Birthday
+            <span className="ml-1.5 text-xs text-text-muted">(optional)</span>
+          </>
+        }
+      >
+        <Input
           type="date"
           value={birthday}
           onChange={e => setBirthday(e.target.value)}
-          className={cns(
-            'w-full rounded-sm border border-border bg-bg-raised px-3 py-2',
-            'text-sm text-text',
-            'transition-colors duration-150 ease-smooth',
-            'focus:border-primary focus:outline-none focus-visible:shadow-focus',
-            '[color-scheme:dark]',
-          )}
+          className="[color-scheme:dark]"
         />
-      </label>
+      </FormField>
 
       {/* Pronouns */}
       <fieldset className="flex flex-col gap-2">
@@ -441,51 +407,29 @@ function StepAboutYou({
         </legend>
         <div className="flex flex-wrap gap-2">
           {PRONOUNS_OPTIONS.map(option => (
-            <button
+            <PillButton
               key={option}
-              type="button"
+              selected={pronouns === option}
               onClick={() => setPronouns(option)}
-              className={cns(
-                'rounded-full border px-3 py-1.5 text-sm font-medium',
-                'transition-all duration-150 ease-smooth',
-                'focus-visible:shadow-focus',
-                pronouns === option
-                  ? 'border-primary bg-primary-900 text-primary-300'
-                  : 'border-border bg-bg-raised text-text-secondary hover:border-primary-700 hover:text-text',
-              )}
             >
               {option}
-            </button>
+            </PillButton>
           ))}
-          <button
-            type="button"
+          <PillButton
+            selected={pronouns === 'custom'}
             onClick={() => setPronouns('custom')}
-            className={cns(
-              'rounded-full border px-3 py-1.5 text-sm font-medium',
-              'transition-all duration-150 ease-smooth',
-              'focus-visible:shadow-focus',
-              pronouns === 'custom'
-                ? 'border-primary bg-primary-900 text-primary-300'
-                : 'border-border bg-bg-raised text-text-secondary hover:border-primary-700 hover:text-text',
-            )}
           >
             Other
-          </button>
+          </PillButton>
         </div>
         {pronouns === 'custom' && (
-          <input
+          <Input
             type="text"
             autoFocus
             placeholder="Enter your pronouns"
             value={customPronouns}
             onChange={e => setCustomPronouns(e.target.value)}
-            className={cns(
-              'mt-1 w-full rounded-sm border border-border bg-bg-raised px-3 py-2',
-              'text-sm text-text placeholder:text-text-muted',
-              'transition-colors duration-150 ease-smooth',
-              'focus:border-primary focus:outline-none focus-visible:shadow-focus',
-              'animate-fade-in',
-            )}
+            className="mt-1 animate-fade-in"
           />
         )}
       </fieldset>
@@ -585,21 +529,13 @@ function StepLoveConnection({
         </legend>
         <div className="flex flex-wrap gap-2">
           {INTEREST_OPTIONS.map(interest => (
-            <button
+            <PillButton
               key={interest}
-              type="button"
+              selected={interests.includes(interest)}
               onClick={() => toggleInterest(interest)}
-              className={cns(
-                'rounded-full border px-3 py-1.5 text-sm font-medium',
-                'transition-all duration-150 ease-smooth',
-                'focus-visible:shadow-focus',
-                interests.includes(interest)
-                  ? 'border-primary bg-primary-900 text-primary-300'
-                  : 'border-border bg-bg-raised text-text-secondary hover:border-primary-700 hover:text-text',
-              )}
             >
               {interest}
-            </button>
+            </PillButton>
           ))}
           {/* Custom interests added by user */}
           {interests
@@ -610,23 +546,17 @@ function StepLoveConnection({
                 ),
             )
             .map(interest => (
-              <button
+              <PillButton
                 key={interest}
-                type="button"
+                selected
                 onClick={() => toggleInterest(interest)}
-                className={cns(
-                  'rounded-full border px-3 py-1.5 text-sm font-medium',
-                  'transition-all duration-150 ease-smooth',
-                  'focus-visible:shadow-focus',
-                  'border-primary bg-primary-900 text-primary-300',
-                )}
               >
                 {interest}
-              </button>
+              </PillButton>
             ))}
         </div>
         <div className="flex gap-2">
-          <input
+          <Input
             type="text"
             placeholder="Add your own..."
             value={customInterest}
@@ -637,28 +567,17 @@ function StepLoveConnection({
                 addCustomInterest()
               }
             }}
-            className={cns(
-              'flex-1 rounded-sm border border-border bg-bg-raised px-3 py-1.5',
-              'text-sm text-text placeholder:text-text-muted',
-              'transition-colors duration-150 ease-smooth',
-              'focus:border-primary focus:outline-none focus-visible:shadow-focus',
-            )}
+            className="flex-1 py-1.5"
           />
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             onClick={addCustomInterest}
             disabled={!customInterest.trim()}
-            className={cns(
-              'inline-flex items-center justify-center rounded-sm px-3 py-1.5',
-              'border border-border bg-bg-raised text-sm font-medium text-text-secondary',
-              'transition-colors duration-150 ease-smooth',
-              'hover:bg-bg-overlay hover:text-text',
-              'focus-visible:shadow-focus',
-              'disabled:opacity-40',
-            )}
           >
             Add
-          </button>
+          </Button>
         </div>
       </fieldset>
     </>

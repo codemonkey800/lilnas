@@ -3,6 +3,7 @@ import { alias } from 'drizzle-orm/pg-core'
 import { redirect } from 'next/navigation'
 
 import { auth, signOut } from 'src/auth'
+import { Button } from 'src/components/ui/button'
 import { db } from 'src/db'
 import { partnerships, profiles, users } from 'src/db/schema'
 
@@ -109,12 +110,9 @@ export default async function HomePage() {
           await signOut({ redirectTo: '/login' })
         }}
       >
-        <button
-          type="submit"
-          className="rounded-sm bg-bg-surface px-5 py-2.5 text-sm font-medium text-text transition-colors duration-150 ease-smooth hover:bg-bg-overlay focus-visible:shadow-focus"
-        >
+        <Button type="submit" variant="secondary">
           Sign out
-        </button>
+        </Button>
       </form>
     </main>
   )

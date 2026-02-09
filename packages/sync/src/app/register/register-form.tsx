@@ -4,6 +4,11 @@ import { cns } from '@lilnas/utils/cns'
 import Link from 'next/link'
 import { FormEvent, useState } from 'react'
 
+import { Button } from 'src/components/ui/button'
+import { Card } from 'src/components/ui/card'
+import { FormField } from 'src/components/ui/form-field'
+import { Input } from 'src/components/ui/input'
+
 import { register } from './actions'
 
 export function RegisterForm() {
@@ -45,13 +50,7 @@ export function RegisterForm() {
 
   if (success) {
     return (
-      <div
-        className={cns(
-          'flex w-full max-w-sm flex-col items-center gap-6',
-          'rounded-md border border-border bg-bg-surface p-6 shadow-md md:p-8',
-          'animate-slide-up',
-        )}
-      >
+      <Card className="max-w-sm items-center animate-slide-up">
         {/* Checkmark icon */}
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-bg-overlay">
           <svg
@@ -88,134 +87,93 @@ export function RegisterForm() {
         >
           Continue to sign in
         </Link>
-      </div>
+      </Card>
     )
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className={cns(
-        'flex w-full max-w-sm flex-col gap-6',
-        'rounded-md border border-border bg-bg-surface p-6 shadow-md md:p-8',
-        'animate-fade-in',
-      )}
-    >
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-bold text-text md:text-3xl">
-          Create your account
-        </h1>
-        <p className="text-sm text-text-secondary">
-          Sign up to get started with Sync.
+    <Card className="max-w-sm">
+      <form onSubmit={handleSubmit} className="contents">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-2xl font-bold text-text md:text-3xl">
+            Create your account
+          </h1>
+          <p className="text-sm text-text-secondary">
+            Sign up to get started with Sync.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <FormField label="Email address">
+            <Input
+              type="email"
+              name="email"
+              required
+              autoFocus
+              autoComplete="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+            />
+          </FormField>
+
+          <FormField
+            label="Password"
+            error={
+              passwordTooShort
+                ? 'Password must be at least 8 characters.'
+                : null
+            }
+          >
+            <Input
+              type="password"
+              name="password"
+              required
+              autoComplete="new-password"
+              placeholder="At least 8 characters"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+            />
+          </FormField>
+
+          <FormField
+            label="Confirm password"
+            error={passwordMismatch ? 'Passwords do not match.' : null}
+          >
+            <Input
+              type="password"
+              name="confirmPassword"
+              required
+              autoComplete="new-password"
+              placeholder="Re-enter your password"
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+            />
+          </FormField>
+
+          {error && (
+            <p className="text-sm text-error animate-fade-in">{error}</p>
+          )}
+        </div>
+
+        <Button type="submit" disabled={!canSubmit} loading={loading}>
+          {loading ? 'Creating account...' : 'Create account'}
+        </Button>
+
+        <p className="text-center text-sm text-text-secondary">
+          Already have an account?{' '}
+          <Link
+            href="/login"
+            className={cns(
+              'font-medium text-primary-300',
+              'transition-colors duration-150 ease-smooth',
+              'hover:text-primary-200',
+            )}
+          >
+            Sign in
+          </Link>
         </p>
-      </div>
-
-      <div className="flex flex-col gap-4">
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-text-secondary">
-            Email address
-          </span>
-          <input
-            type="email"
-            name="email"
-            required
-            autoFocus
-            autoComplete="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            className={cns(
-              'w-full rounded-sm border border-border bg-bg-raised px-3 py-2',
-              'text-sm text-text placeholder:text-text-muted',
-              'transition-colors duration-150 ease-smooth',
-              'focus:border-primary focus:outline-none focus-visible:shadow-focus',
-            )}
-          />
-        </label>
-
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-text-secondary">
-            Password
-          </span>
-          <input
-            type="password"
-            name="password"
-            required
-            autoComplete="new-password"
-            placeholder="At least 8 characters"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            className={cns(
-              'w-full rounded-sm border border-border bg-bg-raised px-3 py-2',
-              'text-sm text-text placeholder:text-text-muted',
-              'transition-colors duration-150 ease-smooth',
-              'focus:border-primary focus:outline-none focus-visible:shadow-focus',
-            )}
-          />
-          {passwordTooShort && (
-            <p className="text-sm text-error animate-fade-in">
-              Password must be at least 8 characters.
-            </p>
-          )}
-        </label>
-
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-text-secondary">
-            Confirm password
-          </span>
-          <input
-            type="password"
-            name="confirmPassword"
-            required
-            autoComplete="new-password"
-            placeholder="Re-enter your password"
-            value={confirmPassword}
-            onChange={e => setConfirmPassword(e.target.value)}
-            className={cns(
-              'w-full rounded-sm border border-border bg-bg-raised px-3 py-2',
-              'text-sm text-text placeholder:text-text-muted',
-              'transition-colors duration-150 ease-smooth',
-              'focus:border-primary focus:outline-none focus-visible:shadow-focus',
-            )}
-          />
-          {passwordMismatch && (
-            <p className="text-sm text-error animate-fade-in">
-              Passwords do not match.
-            </p>
-          )}
-        </label>
-
-        {error && <p className="text-sm text-error animate-fade-in">{error}</p>}
-      </div>
-
-      <button
-        type="submit"
-        disabled={!canSubmit}
-        className={cns(
-          'inline-flex items-center justify-center rounded-sm px-4 py-2',
-          'bg-primary text-sm font-medium text-text-inverse',
-          'transition-colors duration-150 ease-smooth',
-          'hover:bg-primary-600',
-          'focus-visible:shadow-focus',
-          'disabled:opacity-40',
-        )}
-      >
-        {loading ? 'Creating account...' : 'Create account'}
-      </button>
-
-      <p className="text-center text-sm text-text-secondary">
-        Already have an account?{' '}
-        <Link
-          href="/login"
-          className={cns(
-            'font-medium text-primary-300',
-            'transition-colors duration-150 ease-smooth',
-            'hover:text-primary-200',
-          )}
-        >
-          Sign in
-        </Link>
-      </p>
-    </form>
+      </form>
+    </Card>
   )
 }
