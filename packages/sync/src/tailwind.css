@@ -159,4 +159,9 @@
     outline: 2px solid var(--color-ring-focus);
     outline-offset: 2px;
   }
+
+  /* Native <dialog> backdrop overlay */
+  dialog::backdrop {
+    background-color: rgb(0 0 0 / 0.6);
+  }
 }

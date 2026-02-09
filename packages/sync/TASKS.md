@@ -75,10 +75,9 @@ These features are shipped and require no further work unless noted.
 - [x] **P1-A5**: `cancelInvite(partnershipId)` -- Cancels an outgoing pending invite
   - File: `src/app/partner/actions.ts`
 
-- [ ] **P1-A6**: `dissolvePartnership(partnershipId)` -- Dissolves an active partnership
+- [x] **P1-A6**: `dissolvePartnership(partnershipId)` -- Dissolves an active partnership
   - File: `src/app/partner/actions.ts`
-  - PRD ref: P1-5. Sets partnership status to `dissolved`. Both users return to unpartnered state.
-  - Must verify: caller is a member of the partnership, partnership is currently `accepted`.
+  - Uses transaction. Verifies caller is a member of the partnership, partnership is currently `accepted`. Sets status to `dissolved`.
   - Side effects: `revalidatePath('/')`, `revalidatePath('/partner')`.
 
 ### UI Components
@@ -92,14 +91,16 @@ These features are shipped and require no further work unless noted.
 - [x] **P1-U3**: `IncomingInviteView` -- Shows inviter info with accept/decline buttons
   - File: `src/app/partner/partner-connection.tsx`
 
-- [ ] **P1-U4**: `PartnerCard` -- Shows partner's display name, pronouns, and "Disconnect" button
-  - File: `src/app/partner/partner-connection.tsx` or new component
-  - PRD ref: UI Components. Displayed on dashboard when user has an active partnership.
-  - Currently: The dashboard (`src/app/page.tsx`) just shows "You are logged in as [email]" after partnership is active. Needs to show partner info.
+- [x] **P1-U4**: `PartnerCard` -- Shows partner's display name, pronouns, email, avatar initial, and "Unlink" button
+  - File: `src/app/partner/partner-card.tsx` (new client component)
+  - Dashboard (`src/app/page.tsx`) now fetches partner info via table-alias joins and renders `PartnerCard`.
+  - Note: `src/app/partner/queries.ts` also added with a `getPartnerInfo` helper (currently unused -- page uses inline joins).
 
-- [ ] **P1-U5**: `DisconnectConfirmDialog` -- Modal confirming partnership dissolution
-  - File: `src/app/partner/partner-connection.tsx` or new component
-  - PRD ref: P1-5. Message: "Are you sure? Your check-in history will be preserved but you will no longer be able to create new check-ins together."
+- [x] **P1-U5**: `UnlinkConfirmDialog` -- Modal confirming partnership dissolution
+  - File: `src/app/partner/partner-card.tsx` (colocated with `PartnerCard`)
+  - Uses native `<dialog>` with `showModal()` for focus trap and scroll lock. Backdrop click to dismiss. Loading/error states.
+  - Message: "Your check-in history will be preserved, but you won't be able to create new check-ins together."
+  - CSS: `dialog::backdrop` style added to `src/tailwind.css`.
 
 ### Pages
 
@@ -108,11 +109,7 @@ These features are shipped and require no further work unless noted.
 
 ### Remaining Phase 1 Work
 
-| Task | Effort | Priority |
-|------|--------|----------|
-| P1-A6 dissolvePartnership action | Small | Medium |
-| P1-U4 PartnerCard on dashboard | Small | Medium |
-| P1-U5 DisconnectConfirmDialog | Small | Medium |
+All Phase 1 tasks are complete.
 
 ---
 

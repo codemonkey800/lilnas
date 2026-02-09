@@ -121,9 +121,7 @@ export async function getPartnershipStatus(): Promise<PartnershipStatus | null> 
 // Mutations
 // ---------------------------------------------------------------------------
 
-export async function sendPartnerInvite(
-  email: string,
-): Promise<ActionResult> {
+export async function sendPartnerInvite(email: string): Promise<ActionResult> {
   const session = await auth()
   if (!session?.user?.id) {
     return { success: false, error: 'You must be logged in.' }
@@ -400,6 +398,65 @@ export async function cancelInvite(
     revalidatePath('/partner')
 
     return { success: true }
+  } catch {
+    return {
+      success: false,
+      error: 'Something went wrong. Please try again.',
+    }
+  }
+}
+
+export async function dissolvePartnership(
+  partnershipId: string,
+): Promise<ActionResult> {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return { success: false, error: 'You must be logged in.' }
+  }
+
+  const userId = session.user.id
+
+  try {
+    return await db.transaction(async tx => {
+      const [partnership] = await tx
+        .select({
+          id: partnerships.id,
+          inviterId: partnerships.inviterId,
+          inviteeId: partnerships.inviteeId,
+          status: partnerships.status,
+        })
+        .from(partnerships)
+        .where(eq(partnerships.id, partnershipId))
+        .limit(1)
+
+      if (!partnership) {
+        return { success: false, error: 'Partnership not found.' }
+      }
+
+      if (
+        partnership.inviterId !== userId &&
+        partnership.inviteeId !== userId
+      ) {
+        return {
+          success: false,
+          error: 'You are not a member of this partnership.',
+        }
+      }
+
+      if (partnership.status !== 'accepted') {
+        return { success: false, error: 'This partnership is not active.' }
+      }
+
+      await tx
+        .update(partnerships)
+        .set({ status: 'dissolved', updatedAt: new Date() })
+        .where(eq(partnerships.id, partnershipId))
+
+      revalidatePath('/')
+      revalidatePath('/partner')
+
+      return { success: true }
+    })
   } catch {
     return {
       success: false,
