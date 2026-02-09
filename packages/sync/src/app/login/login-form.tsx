@@ -4,6 +4,7 @@ import { cns } from '@lilnas/utils/cns'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { FormEvent, useState } from 'react'
+import { HiArrowRight, HiExclamationCircle } from 'react-icons/hi2'
 
 import { Button } from 'src/components/ui/button'
 import { Card } from 'src/components/ui/card'
@@ -78,12 +79,16 @@ export function LoginForm() {
           </FormField>
 
           {error && (
-            <p className="text-sm text-error animate-fade-in">{error}</p>
+            <p className="flex items-center gap-1.5 text-sm text-error animate-fade-in">
+              <HiExclamationCircle className="h-4 w-4 shrink-0" />
+              {error}
+            </p>
           )}
         </div>
 
         <Button type="submit" loading={loading}>
           {loading ? 'Signing in...' : 'Sign in'}
+          {!loading && <HiArrowRight className="h-4 w-4" />}
         </Button>
 
         <p className="text-center text-sm text-text-secondary">
@@ -97,6 +102,7 @@ export function LoginForm() {
             )}
           >
             Create one
+            <HiArrowRight className="inline h-3.5 w-3.5" />
           </Link>
         </p>
       </form>

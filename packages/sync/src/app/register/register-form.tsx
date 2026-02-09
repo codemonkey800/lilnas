@@ -3,6 +3,12 @@
 import { cns } from '@lilnas/utils/cns'
 import Link from 'next/link'
 import { FormEvent, useState } from 'react'
+import {
+  HiArrowRight,
+  HiCheckCircle,
+  HiExclamationCircle,
+  HiUserPlus,
+} from 'react-icons/hi2'
 
 import { Button } from 'src/components/ui/button'
 import { Card } from 'src/components/ui/card'
@@ -53,19 +59,7 @@ export function RegisterForm() {
       <Card className="max-w-sm items-center animate-slide-up">
         {/* Checkmark icon */}
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-bg-overlay">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-8 w-8 text-success"
-          >
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-            <polyline points="22 4 12 14.01 9 11.01" />
-          </svg>
+          <HiCheckCircle className="h-8 w-8 text-success" />
         </div>
 
         <div className="flex flex-col items-center gap-2 text-center">
@@ -86,6 +80,7 @@ export function RegisterForm() {
           )}
         >
           Continue to sign in
+          <HiArrowRight className="h-4 w-4" />
         </Link>
       </Card>
     )
@@ -152,11 +147,15 @@ export function RegisterForm() {
           </FormField>
 
           {error && (
-            <p className="text-sm text-error animate-fade-in">{error}</p>
+            <p className="flex items-center gap-1.5 text-sm text-error animate-fade-in">
+              <HiExclamationCircle className="h-4 w-4 shrink-0" />
+              {error}
+            </p>
           )}
         </div>
 
         <Button type="submit" disabled={!canSubmit} loading={loading}>
+          {!loading && <HiUserPlus className="h-4 w-4" />}
           {loading ? 'Creating account...' : 'Create account'}
         </Button>
 
@@ -171,6 +170,7 @@ export function RegisterForm() {
             )}
           >
             Sign in
+            <HiArrowRight className="inline h-3.5 w-3.5" />
           </Link>
         </p>
       </form>

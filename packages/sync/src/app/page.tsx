@@ -2,6 +2,8 @@ import { and, eq, or } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { redirect } from 'next/navigation'
 
+import { HiArrowLeftOnRectangle } from 'react-icons/hi2'
+
 import { auth, signOut } from 'src/auth'
 import { Button } from 'src/components/ui/button'
 import { db } from 'src/db'
@@ -111,6 +113,7 @@ export default async function HomePage() {
         }}
       >
         <Button type="submit" variant="secondary">
+          <HiArrowLeftOnRectangle className="h-4 w-4" />
           Sign out
         </Button>
       </form>

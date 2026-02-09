@@ -3,6 +3,21 @@
 import { cns } from '@lilnas/utils/cns'
 import { useRouter } from 'next/navigation'
 import { FormEvent, useState } from 'react'
+import {
+  HiArrowLeft,
+  HiArrowRight,
+  HiChatBubbleBottomCenterText,
+  HiCheck,
+  HiClock,
+  HiExclamationCircle,
+  HiGift,
+  HiHandRaised,
+  HiHeart,
+  HiPlus,
+  HiRocketLaunch,
+  HiSparkles,
+  HiUser,
+} from 'react-icons/hi2'
 
 import { Button } from 'src/components/ui/button'
 import { Card } from 'src/components/ui/card'
@@ -23,105 +38,31 @@ const LOVE_LANGUAGES = [
     id: 'words-of-affirmation',
     label: 'Words of Affirmation',
     description: 'Verbal compliments & encouragement',
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="h-6 w-6"
-      >
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        <path d="M12 7v2" />
-        <path d="M12 13h.01" />
-      </svg>
-    ),
+    icon: <HiChatBubbleBottomCenterText className="h-6 w-6" />,
   },
   {
     id: 'acts-of-service',
     label: 'Acts of Service',
     description: 'Helpful actions & thoughtful deeds',
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="h-6 w-6"
-      >
-        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-      </svg>
-    ),
+    icon: <HiHeart className="h-6 w-6" />,
   },
   {
     id: 'receiving-gifts',
     label: 'Receiving Gifts',
     description: 'Thoughtful presents & surprises',
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="h-6 w-6"
-      >
-        <rect x="3" y="8" width="18" height="4" rx="1" />
-        <path d="M12 8v13" />
-        <path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" />
-        <path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 4.8 0 0 1 12 8a4.8 4.8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5" />
-      </svg>
-    ),
+    icon: <HiGift className="h-6 w-6" />,
   },
   {
     id: 'quality-time',
     label: 'Quality Time',
     description: 'Undivided attention & togetherness',
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="h-6 w-6"
-      >
-        <circle cx="12" cy="12" r="10" />
-        <polyline points="12 6 12 12 16 14" />
-      </svg>
-    ),
+    icon: <HiClock className="h-6 w-6" />,
   },
   {
     id: 'physical-touch',
     label: 'Physical Touch',
     description: 'Hugs, closeness & physical presence',
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="h-6 w-6"
-      >
-        <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" />
-        <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" />
-        <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" />
-        <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
-      </svg>
-    ),
+    icon: <HiHandRaised className="h-6 w-6" />,
   },
 ] as const
 
@@ -292,12 +233,18 @@ export function OnboardingWizard() {
         </div>
 
         {/* Error */}
-        {error && <p className="text-sm text-error animate-fade-in">{error}</p>}
+        {error && (
+          <p className="flex items-center gap-1.5 text-sm text-error animate-fade-in">
+            <HiExclamationCircle className="h-4 w-4 shrink-0" />
+            {error}
+          </p>
+        )}
 
         {/* Navigation */}
         <div className="flex items-center justify-between gap-3">
           {step > 0 ? (
             <Button type="button" variant="ghost" onClick={handleBack}>
+              <HiArrowLeft className="h-4 w-4" />
               Back
             </Button>
           ) : (
@@ -313,6 +260,7 @@ export function OnboardingWizard() {
               disabled={!canContinue()}
             >
               Continue
+              <HiArrowRight className="h-4 w-4" />
             </Button>
           ) : (
             <Button
@@ -323,6 +271,7 @@ export function OnboardingWizard() {
               loading={loading}
             >
               {loading ? 'Saving...' : 'Get Started'}
+              {!loading && <HiRocketLaunch className="h-4 w-4" />}
             </Button>
           )}
         </div>
@@ -362,7 +311,10 @@ function StepAboutYou({
         <p className="text-xs font-medium uppercase tracking-wider text-primary-400">
           Step 1 of {TOTAL_STEPS}
         </p>
-        <h1 className="text-2xl font-bold text-text md:text-3xl">About You</h1>
+        <h1 className="flex items-center gap-2 text-2xl font-bold text-text md:text-3xl">
+          <HiUser className="h-5 w-5 text-primary-400" />
+          About You
+        </h1>
         <p className="text-sm text-text-secondary">
           Let&apos;s start with the basics so we can personalize your
           experience.
@@ -466,7 +418,8 @@ function StepLoveConnection({
         <p className="text-xs font-medium uppercase tracking-wider text-primary-400">
           Step 2 of {TOTAL_STEPS}
         </p>
-        <h1 className="text-2xl font-bold text-text md:text-3xl">
+        <h1 className="flex items-center gap-2 text-2xl font-bold text-text md:text-3xl">
+          <HiHeart className="h-5 w-5 text-primary-400" />
           Love &amp; Connection
         </h1>
         <p className="text-sm text-text-secondary">
@@ -576,6 +529,7 @@ function StepLoveConnection({
             onClick={addCustomInterest}
             disabled={!customInterest.trim()}
           >
+            <HiPlus className="h-4 w-4" />
             Add
           </Button>
         </div>
@@ -600,7 +554,8 @@ function StepGoals({ goals, toggleGoal }: StepGoalsProps) {
         <p className="text-xs font-medium uppercase tracking-wider text-primary-400">
           Step 3 of {TOTAL_STEPS}
         </p>
-        <h1 className="text-2xl font-bold text-text md:text-3xl">
+        <h1 className="flex items-center gap-2 text-2xl font-bold text-text md:text-3xl">
+          <HiSparkles className="h-5 w-5 text-primary-400" />
           What brings you to Sync?
         </h1>
         <p className="text-sm text-text-secondary">
@@ -635,18 +590,7 @@ function StepGoals({ goals, toggleGoal }: StepGoalsProps) {
               )}
             >
               {goals.includes(goal) && (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={3}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-3 w-3"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+                <HiCheck className="h-3 w-3" />
               )}
             </span>
             <span
