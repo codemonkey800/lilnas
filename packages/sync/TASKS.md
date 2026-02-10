@@ -660,37 +660,39 @@ All Phase 1 tasks are complete.
 
 ### Refactoring
 
-- [ ] **P7-R1**: Extract onboarding step components into shared profile components
-  - Source: `src/app/onboarding/onboarding-wizard.tsx` (currently contains `StepAboutYou`, `StepLoveConnection`, `StepGoals` inline)
-  - Target: `src/components/profile/` directory (new)
+- [x] **P7-R1**: Extract onboarding step components into shared profile components
+  - Source: `src/app/onboarding/onboarding-wizard.tsx` (previously contained `StepAboutYou`, `StepLoveConnection`, `StepGoals` inline)
+  - Target: `src/components/profile/` directory
+    - `src/components/profile/constants.ts` -- shared constants (`PRONOUNS_OPTIONS`, `LOVE_LANGUAGES`, `INTEREST_OPTIONS`, `GOAL_OPTIONS`)
     - `src/components/profile/about-you-fields.tsx`
     - `src/components/profile/love-connection-fields.tsx`
     - `src/components/profile/goals-fields.tsx`
-  - The extracted components should accept form state as props so they can be used in both the onboarding wizard and the profile edit page.
-  - Update `onboarding-wizard.tsx` to import from the new shared components.
+  - The extracted components accept form state as props so they can be used in both the onboarding wizard and the profile edit page.
+  - `onboarding-wizard.tsx` updated to import from the new shared components. Step headers kept wizard-specific via a local `StepHeader` helper.
 
 ### Server Actions
 
-- [ ] **P7-A1**: `updateProfile(data)` -- Updates the user's profile
-  - File: `src/app/settings/actions.ts` (new)
+- [x] **P7-A1**: `updateProfile(data)` -- Updates the user's profile
+  - File: `src/app/(app)/settings/actions.ts`
   - Reuses validation logic from onboarding `saveProfile` (`src/app/onboarding/actions.ts`).
   - Input: `{ displayName, birthday?, pronouns?, loveLang?, interests?, goals? }`
   - Updates the existing profile row. Does not change `onboardingCompleted`.
+  - Revalidates `/settings/profile` and `/` after update.
 
 ### UI Components
 
-- [ ] **P7-U1**: `ProfileEditPage` -- Single-page form with all profile fields
-  - File: `src/app/settings/profile/profile-edit-form.tsx` (new)
-  - All sections on one page (no wizard steps).
+- [x] **P7-U1**: `ProfileEditForm` -- Single-page form with all profile fields
+  - File: `src/app/(app)/settings/profile/profile-edit-form.tsx`
+  - All sections on one page (no wizard steps). Three sections: About You, Love & Connection, Goals.
   - Uses the shared profile field components from P7-R1.
-  - Pre-populated with current profile data.
-  - Save button at the bottom. Success toast on save. Validation errors inline.
+  - Pre-populated with current profile data (parses JSON interests/goals, resolves custom pronouns).
+  - Save button at the bottom. Success message on save (auto-clears after 3s). Validation errors inline.
 
 ### Pages
 
-- [ ] **P7-P1**: `/settings/profile` -- Profile edit page
-  - File: `src/app/settings/profile/page.tsx` (new)
-  - Server component. Auth guard. Fetches current profile. Renders `ProfileEditForm`.
+- [x] **P7-P1**: `/settings/profile` -- Profile edit page
+  - File: `src/app/(app)/settings/profile/page.tsx`
+  - Server component. Auth guard (defensive, layout handles primary guard). Fetches current profile. Renders `ProfileEditForm`.
 
 ### Phase 7 Task Summary
 
@@ -847,7 +849,7 @@ For each phase, work in this order: **Schema -> Seed -> Actions -> Components ->
 | ----- | --------------------------------------------------------------------- | ----------------- |
 | ~~1~~ | ~~P1-A6, P1-U4, P1-U5 (finish Phase 1 gaps)~~                         | ~~1~~             |
 | ~~2~~ | ~~NAV-1, NAV-2, ROUTE-1 through ROUTE-4 (navigation + route groups)~~ | ~~Cross-cutting~~ |
-| 3     | P7-R1, P7-A1, P7-U1, P7-P1 (profile editing, independent)             | 7                 |
+| ~~3~~ | ~~P7-R1, P7-A1, P7-U1, P7-P1 (profile editing, independent)~~         | ~~7~~             |
 | 4     | P2-S1, P2-S2, P2-SEED (template schema + seed)                        | 2                 |
 | 5     | P2-A1 through P2-A6 (template actions)                                | 2                 |
 | 6     | P2-U1 through P2-U5, P2-P1 through P2-P4 (template UI + pages)        | 2                 |
