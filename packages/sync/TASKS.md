@@ -5,11 +5,11 @@
 
 ## Legend
 
-| Symbol | Meaning |
-|--------|---------|
-| `[x]` | Done |
-| `[~]` | Partial -- some work exists but gaps remain |
-| `[ ]` | To do |
+| Symbol | Meaning                                     |
+| ------ | ------------------------------------------- |
+| `[x]`  | Done                                        |
+| `[~]`  | Partial -- some work exists but gaps remain |
+| `[ ]`  | To do                                       |
 
 ---
 
@@ -19,8 +19,8 @@ These features are shipped and require no further work unless noted.
 
 ### Core Features
 
-- [x] **Email/password registration** -- `src/app/register/` (page, form, server action)
-- [x] **Email/password login** -- `src/app/login/` (page, form, server action)
+- [x] **Email/password registration** -- `src/app/(auth)/register/` (page, form, server action)
+- [x] **Email/password login** -- `src/app/(auth)/login/` (page, form, server action)
 - [x] **Onboarding wizard (3 steps)** -- `src/app/onboarding/` (About You, Love & Connection, Goals)
 - [x] **Auth middleware** -- `src/middleware.ts`, `src/auth.ts`, `src/auth.config.ts`
 - [x] **User & profile schema** -- `src/db/schema.ts` (`users`, `accounts`, `sessions`, `verificationTokens`, `profiles`)
@@ -59,53 +59,53 @@ These features are shipped and require no further work unless noted.
 ### Server Actions
 
 - [x] **P1-A1**: `getPartnershipStatus()` -- Query active partnership, incoming invites, outgoing invite
-  - File: `src/app/partner/actions.ts`
+  - File: `src/app/(app)/partner/actions.ts`
 
 - [x] **P1-A2**: `sendPartnerInvite(email)` -- Validates and creates a partnership invite
-  - File: `src/app/partner/actions.ts`
+  - File: `src/app/(app)/partner/actions.ts`
   - Validations: no self-invite, no existing active partnership, no existing pending outgoing invite, target must have account, target must not have active partnership.
 
 - [x] **P1-A3**: `acceptInvite(partnershipId)` -- Accepts a pending invite
-  - File: `src/app/partner/actions.ts`
+  - File: `src/app/(app)/partner/actions.ts`
   - Uses transaction. Checks invite exists, belongs to user, is pending, user has no active partnership.
 
 - [x] **P1-A4**: `declineInvite(partnershipId)` -- Declines a pending invite
-  - File: `src/app/partner/actions.ts`
+  - File: `src/app/(app)/partner/actions.ts`
 
 - [x] **P1-A5**: `cancelInvite(partnershipId)` -- Cancels an outgoing pending invite
-  - File: `src/app/partner/actions.ts`
+  - File: `src/app/(app)/partner/actions.ts`
 
 - [x] **P1-A6**: `dissolvePartnership(partnershipId)` -- Dissolves an active partnership
-  - File: `src/app/partner/actions.ts`
+  - File: `src/app/(app)/partner/actions.ts`
   - Uses transaction. Verifies caller is a member of the partnership, partnership is currently `accepted`. Sets status to `dissolved`.
   - Side effects: `revalidatePath('/')`, `revalidatePath('/partner')`.
 
 ### UI Components
 
 - [x] **P1-U1**: `InviteFormView` -- Email input + submit button (shown when no partnership or pending outgoing invite)
-  - File: `src/app/partner/partner-connection.tsx`
+  - File: `src/app/(app)/partner/partner-connection.tsx`
 
 - [x] **P1-U2**: `PendingOutgoingView` -- Shows "Invite sent to [email]" with cancel button and polling
-  - File: `src/app/partner/partner-connection.tsx`
+  - File: `src/app/(app)/partner/partner-connection.tsx`
 
 - [x] **P1-U3**: `IncomingInviteView` -- Shows inviter info with accept/decline buttons
-  - File: `src/app/partner/partner-connection.tsx`
+  - File: `src/app/(app)/partner/partner-connection.tsx`
 
 - [x] **P1-U4**: `PartnerCard` -- Shows partner's display name, pronouns, email, avatar initial, and "Unlink" button
-  - File: `src/app/partner/partner-card.tsx` (new client component)
-  - Dashboard (`src/app/page.tsx`) now fetches partner info via table-alias joins and renders `PartnerCard`.
-  - Note: `src/app/partner/queries.ts` also added with a `getPartnerInfo` helper (currently unused -- page uses inline joins).
+  - File: `src/app/(app)/partner/partner-card.tsx`
+  - Dashboard (`src/app/(app)/page.tsx`) fetches partner info via table-alias joins and renders `PartnerCard`.
+  - Note: `src/app/(app)/partner/queries.ts` also added with a `getPartnerInfo` helper (currently unused -- page uses inline joins).
 
 - [x] **P1-U5**: `UnlinkConfirmDialog` -- Modal confirming partnership dissolution
-  - File: `src/app/partner/partner-card.tsx` (colocated with `PartnerCard`)
+  - File: `src/app/(app)/partner/partner-card.tsx` (colocated with `PartnerCard`)
   - Uses native `<dialog>` with `showModal()` for focus trap and scroll lock. Backdrop click to dismiss. Loading/error states.
   - Message: "Your check-in history will be preserved, but you won't be able to create new check-ins together."
   - CSS: `dialog::backdrop` style added to `src/tailwind.css`.
 
 ### Pages
 
-- [x] **P1-P1**: `/partner` page -- Server component with auth/onboarding guards
-  - File: `src/app/partner/page.tsx`
+- [x] **P1-P1**: `/partner` page -- Server component (auth/onboarding guards now handled by `(app)` layout)
+  - File: `src/app/(app)/partner/page.tsx`
 
 ### Remaining Phase 1 Work
 
@@ -221,26 +221,26 @@ All Phase 1 tasks are complete.
 
 ### Phase 2 Task Summary
 
-| Task | Category | Effort | Dependencies |
-|------|----------|--------|--------------|
-| P2-S1 checkInTemplates table | Schema | Small | -- |
-| P2-S2 templateQuestions table | Schema | Small | P2-S1 |
-| P2-SEED system templates | Data | Small | P2-S1, P2-S2 |
-| P2-A1 createTemplate | Action | Medium | P2-S1, P2-S2 |
-| P2-A2 updateTemplate | Action | Medium | P2-S1, P2-S2 |
-| P2-A3 deleteTemplate | Action | Small | P2-S1 |
-| P2-A4 duplicateTemplate | Action | Small | P2-S1, P2-S2 |
-| P2-A5 getTemplates | Action | Small | P2-S1 |
-| P2-A6 getTemplate | Action | Small | P2-S1, P2-S2 |
-| P2-U1 TemplateList | UI | Medium | P2-A5 |
-| P2-U2 TemplateCard | UI | Small | -- |
-| P2-U3 TemplateForm | UI | Large | P2-U4, P2-A1, P2-A2 |
-| P2-U4 QuestionBuilder | UI | Large | -- |
-| P2-U5 TemplateDetail | UI | Small | P2-A6 |
-| P2-P1 /templates page | Page | Small | P2-U1 |
-| P2-P2 /templates/new page | Page | Small | P2-U3 |
-| P2-P3 /templates/[id] page | Page | Small | P2-U5 |
-| P2-P4 /templates/[id]/edit page | Page | Small | P2-U3 |
+| Task                            | Category | Effort | Dependencies        |
+| ------------------------------- | -------- | ------ | ------------------- |
+| P2-S1 checkInTemplates table    | Schema   | Small  | --                  |
+| P2-S2 templateQuestions table   | Schema   | Small  | P2-S1               |
+| P2-SEED system templates        | Data     | Small  | P2-S1, P2-S2        |
+| P2-A1 createTemplate            | Action   | Medium | P2-S1, P2-S2        |
+| P2-A2 updateTemplate            | Action   | Medium | P2-S1, P2-S2        |
+| P2-A3 deleteTemplate            | Action   | Small  | P2-S1               |
+| P2-A4 duplicateTemplate         | Action   | Small  | P2-S1, P2-S2        |
+| P2-A5 getTemplates              | Action   | Small  | P2-S1               |
+| P2-A6 getTemplate               | Action   | Small  | P2-S1, P2-S2        |
+| P2-U1 TemplateList              | UI       | Medium | P2-A5               |
+| P2-U2 TemplateCard              | UI       | Small  | --                  |
+| P2-U3 TemplateForm              | UI       | Large  | P2-U4, P2-A1, P2-A2 |
+| P2-U4 QuestionBuilder           | UI       | Large  | --                  |
+| P2-U5 TemplateDetail            | UI       | Small  | P2-A6               |
+| P2-P1 /templates page           | Page     | Small  | P2-U1               |
+| P2-P2 /templates/new page       | Page     | Small  | P2-U3               |
+| P2-P3 /templates/[id] page      | Page     | Small  | P2-U5               |
+| P2-P4 /templates/[id]/edit page | Page     | Small  | P2-U3               |
 
 ---
 
@@ -411,34 +411,34 @@ All Phase 1 tasks are complete.
 
 ### Phase 3 Task Summary
 
-| Task | Category | Effort | Dependencies |
-|------|----------|--------|--------------|
-| P3-S1 checkInStatusEnum | Schema | Small | -- |
-| P3-S2 checkIns table | Schema | Small | P3-S1 |
-| P3-S3 questionTypeEnum | Schema | Small | -- |
-| P3-S4 checkInQuestions table | Schema | Small | P3-S2, P3-S3 |
-| P3-S5 checkInResponses table | Schema | Small | P3-S4 |
-| P3-A1 createCheckIn | Action | Medium | P3-S2, P3-S4, P2-S2 |
-| P3-A2 addQuestion | Action | Small | P3-S4 |
-| P3-A3 updateQuestion | Action | Small | P3-S4 |
-| P3-A4 removeQuestion | Action | Small | P3-S4, P3-S5 |
-| P3-A5 reorderQuestions | Action | Small | P3-S4 |
-| P3-A6 saveResponse | Action | Medium | P3-S5 |
-| P3-A7 startCheckIn | Action | Medium | P3-S2, P3-S5 |
-| P3-A8 completeCheckIn | Action | Small | P3-S2 |
-| P3-A9 reopenCheckIn | Action | Small | P3-S2 |
-| P3-A10 getCheckIn | Action | Medium | P3-S2, P3-S4, P3-S5 |
-| P3-A11 getCheckIns | Action | Small | P3-S2 |
-| P3-U1 CreateCheckInForm | UI | Medium | P2-A5, P3-A1 |
-| P3-U2 CheckInDraftView | UI | Large | P3-A6, P3-U3, P3-U7 |
-| P3-U3 CheckInQuestionEditor | UI | Medium | P3-A2, P3-A3 |
-| P3-U4 CheckInActiveView | UI | Large | P3-A6, P3-U7 |
-| P3-U5 CheckInResultsView | UI | Medium | P3-A10 |
-| P3-U6 CheckInStatusBadge | UI | Small | -- |
-| P3-U7 ResponseInput | UI | Medium | -- |
-| P3-P1 /check-ins page | Page | Small | P3-A11, P3-U6 |
-| P3-P2 /check-ins/new page | Page | Small | P3-U1 |
-| P3-P3 /check-ins/[id] page | Page | Medium | P3-U2, P3-U4, P3-U5 |
+| Task                         | Category | Effort | Dependencies        |
+| ---------------------------- | -------- | ------ | ------------------- |
+| P3-S1 checkInStatusEnum      | Schema   | Small  | --                  |
+| P3-S2 checkIns table         | Schema   | Small  | P3-S1               |
+| P3-S3 questionTypeEnum       | Schema   | Small  | --                  |
+| P3-S4 checkInQuestions table | Schema   | Small  | P3-S2, P3-S3        |
+| P3-S5 checkInResponses table | Schema   | Small  | P3-S4               |
+| P3-A1 createCheckIn          | Action   | Medium | P3-S2, P3-S4, P2-S2 |
+| P3-A2 addQuestion            | Action   | Small  | P3-S4               |
+| P3-A3 updateQuestion         | Action   | Small  | P3-S4               |
+| P3-A4 removeQuestion         | Action   | Small  | P3-S4, P3-S5        |
+| P3-A5 reorderQuestions       | Action   | Small  | P3-S4               |
+| P3-A6 saveResponse           | Action   | Medium | P3-S5               |
+| P3-A7 startCheckIn           | Action   | Medium | P3-S2, P3-S5        |
+| P3-A8 completeCheckIn        | Action   | Small  | P3-S2               |
+| P3-A9 reopenCheckIn          | Action   | Small  | P3-S2               |
+| P3-A10 getCheckIn            | Action   | Medium | P3-S2, P3-S4, P3-S5 |
+| P3-A11 getCheckIns           | Action   | Small  | P3-S2               |
+| P3-U1 CreateCheckInForm      | UI       | Medium | P2-A5, P3-A1        |
+| P3-U2 CheckInDraftView       | UI       | Large  | P3-A6, P3-U3, P3-U7 |
+| P3-U3 CheckInQuestionEditor  | UI       | Medium | P3-A2, P3-A3        |
+| P3-U4 CheckInActiveView      | UI       | Large  | P3-A6, P3-U7        |
+| P3-U5 CheckInResultsView     | UI       | Medium | P3-A10              |
+| P3-U6 CheckInStatusBadge     | UI       | Small  | --                  |
+| P3-U7 ResponseInput          | UI       | Medium | --                  |
+| P3-P1 /check-ins page        | Page     | Small  | P3-A11, P3-U6       |
+| P3-P2 /check-ins/new page    | Page     | Small  | P3-U1               |
+| P3-P3 /check-ins/[id] page   | Page     | Medium | P3-U2, P3-U4, P3-U5 |
 
 ---
 
@@ -513,20 +513,20 @@ All Phase 1 tasks are complete.
 
 ### Phase 4 Task Summary
 
-| Task | Category | Effort | Dependencies |
-|------|----------|--------|--------------|
-| P4-S1 actionItems table | Schema | Small | P3-S2, P3-S4 |
-| P4-A1 createActionItem | Action | Small | P4-S1 |
-| P4-A2 updateActionItemStatus | Action | Small | P4-S1 |
-| P4-A3 updateActionItem | Action | Small | P4-S1 |
-| P4-A4 deleteActionItem | Action | Small | P4-S1 |
-| P4-A5 getMyActionItems | Action | Small | P4-S1 |
-| P4-U1 ActionItemForm | UI | Medium | P4-A1 |
-| P4-U2 ActionItemCard | UI | Small | P4-A2 |
-| P4-U3 ActionItemList | UI | Small | P4-U2 |
-| P4-U4 DashboardActionItems | UI | Medium | P4-A5, P4-U3 |
-| P4-INT1 Wire into ActiveView | Integration | Medium | P3-U4, P4-U1, P4-U3 |
-| P4-INT2 Wire into ResultsView | Integration | Small | P3-U5, P4-U3 |
+| Task                          | Category    | Effort | Dependencies        |
+| ----------------------------- | ----------- | ------ | ------------------- |
+| P4-S1 actionItems table       | Schema      | Small  | P3-S2, P3-S4        |
+| P4-A1 createActionItem        | Action      | Small  | P4-S1               |
+| P4-A2 updateActionItemStatus  | Action      | Small  | P4-S1               |
+| P4-A3 updateActionItem        | Action      | Small  | P4-S1               |
+| P4-A4 deleteActionItem        | Action      | Small  | P4-S1               |
+| P4-A5 getMyActionItems        | Action      | Small  | P4-S1               |
+| P4-U1 ActionItemForm          | UI          | Medium | P4-A1               |
+| P4-U2 ActionItemCard          | UI          | Small  | P4-A2               |
+| P4-U3 ActionItemList          | UI          | Small  | P4-U2               |
+| P4-U4 DashboardActionItems    | UI          | Medium | P4-A5, P4-U3        |
+| P4-INT1 Wire into ActiveView  | Integration | Medium | P3-U4, P4-U1, P4-U3 |
+| P4-INT2 Wire into ResultsView | Integration | Small  | P3-U5, P4-U3        |
 
 ---
 
@@ -571,14 +571,14 @@ All Phase 1 tasks are complete.
 
 ### Phase 5 Task Summary
 
-| Task | Category | Effort | Dependencies |
-|------|----------|--------|--------------|
-| P5-A1 searchCheckIns | Action | Large | P3-S2, P3-S4, P3-S5, P4-S1 |
-| P5-U1 SearchBar | UI | Small | -- |
-| P5-U2 StatusFilter | UI | Small | -- |
-| P5-U3 DateRangeFilter | UI | Small | -- |
-| P5-U4 CheckInHistoryCard | UI | Small | P3-U6 |
-| P5-U5 Enhance /check-ins page | Page | Medium | P5-A1, P5-U1, P5-U2, P5-U3, P5-U4 |
+| Task                          | Category | Effort | Dependencies                      |
+| ----------------------------- | -------- | ------ | --------------------------------- |
+| P5-A1 searchCheckIns          | Action   | Large  | P3-S2, P3-S4, P3-S5, P4-S1        |
+| P5-U1 SearchBar               | UI       | Small  | --                                |
+| P5-U2 StatusFilter            | UI       | Small  | --                                |
+| P5-U3 DateRangeFilter         | UI       | Small  | --                                |
+| P5-U4 CheckInHistoryCard      | UI       | Small  | P3-U6                             |
+| P5-U5 Enhance /check-ins page | Page     | Medium | P5-A1, P5-U1, P5-U2, P5-U3, P5-U4 |
 
 ---
 
@@ -639,16 +639,16 @@ All Phase 1 tasks are complete.
 
 ### Phase 6 Task Summary
 
-| Task | Category | Effort | Dependencies |
-|------|----------|--------|--------------|
-| P6-S1 aiSummaries table | Schema | Small | P3-S2 |
-| P6-DEP1 OpenAI dependency | Config | Small | -- |
-| P6-A1 generateSummary | Action | Large | P6-S1, P6-DEP1, P3-S5, P4-S1 |
-| P6-A2 getSummary | Action | Small | P6-S1 |
-| P6-U1 SummarizeButton | UI | Small | P6-A1 |
-| P6-U2 AISummaryCard | UI | Medium | P6-A2 |
-| P6-U3 AIDisclaimerDialog | UI | Small | -- |
-| P6-INT1 Wire into ResultsView | Integration | Small | P3-U5, P6-U1, P6-U2, P6-U3 |
+| Task                          | Category    | Effort | Dependencies                 |
+| ----------------------------- | ----------- | ------ | ---------------------------- |
+| P6-S1 aiSummaries table       | Schema      | Small  | P3-S2                        |
+| P6-DEP1 OpenAI dependency     | Config      | Small  | --                           |
+| P6-A1 generateSummary         | Action      | Large  | P6-S1, P6-DEP1, P3-S5, P4-S1 |
+| P6-A2 getSummary              | Action      | Small  | P6-S1                        |
+| P6-U1 SummarizeButton         | UI          | Small  | P6-A1                        |
+| P6-U2 AISummaryCard           | UI          | Medium | P6-A2                        |
+| P6-U3 AIDisclaimerDialog      | UI          | Small  | --                           |
+| P6-INT1 Wire into ResultsView | Integration | Small  | P3-U5, P6-U1, P6-U2, P6-U3   |
 
 ---
 
@@ -694,12 +694,12 @@ All Phase 1 tasks are complete.
 
 ### Phase 7 Task Summary
 
-| Task | Category | Effort | Dependencies |
-|------|----------|--------|--------------|
-| P7-R1 Extract profile components | Refactor | Medium | -- |
-| P7-A1 updateProfile | Action | Small | -- |
-| P7-U1 ProfileEditForm | UI | Medium | P7-R1, P7-A1 |
-| P7-P1 /settings/profile page | Page | Small | P7-U1 |
+| Task                             | Category | Effort | Dependencies |
+| -------------------------------- | -------- | ------ | ------------ |
+| P7-R1 Extract profile components | Refactor | Medium | --           |
+| P7-A1 updateProfile              | Action   | Small  | --           |
+| P7-U1 ProfileEditForm            | UI       | Medium | P7-R1, P7-A1 |
+| P7-P1 /settings/profile page     | Page     | Small  | P7-U1        |
 
 ---
 
@@ -710,30 +710,56 @@ All Phase 1 tasks are complete.
 
 ### Navigation
 
-- [ ] **NAV-1**: Persistent navigation bar
-  - File: `src/components/nav-bar.tsx` (new)
-  - Desktop: sidebar layout. Mobile: bottom tab bar.
-  - Items: Home (dashboard), Check-ins (history), Templates, Settings.
+- [x] **NAV-1**: Persistent navigation bar
+  - File: `src/components/nav-bar.tsx`
+  - Desktop: fixed top bar with logo, centered nav links, user avatar + sign out.
+  - Mobile: fixed top bar (logo + avatar + sign out) + bottom tab bar.
+  - Items: Home (`/`), Check-ins (`/check-ins`), Templates (`/templates`), Settings (`/settings/profile`).
   - Partner page accessible from dashboard, not a nav item.
-  - Highlight active route.
+  - Active route highlighted via `isActive()` helper using `usePathname()`.
 
-- [ ] **NAV-2**: Wire navigation into layout
-  - File: `src/app/layout.tsx` (modify)
-  - Render `NavBar` for authenticated users who have completed onboarding.
-  - Do not show on `/login`, `/register`, `/onboarding`.
+- [x] **NAV-2**: Wire navigation into app layout
+  - File: `src/app/(app)/layout.tsx` (new route-group layout)
+  - `(app)` route group renders `NavBar` for authenticated users who have completed onboarding.
+  - Auth pages (`/login`, `/register`) live in `(auth)` group and do not render NavBar.
+  - `/onboarding` lives outside both groups and does not render NavBar.
+
+### Route Group Restructuring
+
+- [x] **ROUTE-1**: Introduce `(app)` route group for authenticated app pages
+  - Files moved: `src/app/page.tsx` -> `src/app/(app)/page.tsx`, `src/app/partner/` -> `src/app/(app)/partner/`
+  - New layout: `src/app/(app)/layout.tsx` -- server component that checks auth session + onboarding completion, redirects to `/login` or `/onboarding` as needed, renders `NavBar`, wraps children in centered `<main>` container.
+  - Eliminates per-page auth/onboarding guard boilerplate.
+
+- [x] **ROUTE-2**: Introduce `(auth)` route group for login/register pages
+  - Files moved: `src/app/login/` -> `src/app/(auth)/login/`, `src/app/register/` -> `src/app/(auth)/register/`
+  - Auth pages do not render the NavBar or app layout.
+
+- [x] **ROUTE-3**: Extract sign-out server action
+  - File: `src/lib/sign-out-action.ts`
+  - Calls `signOut({ redirectTo: '/login' })`. Used by NavBar sign-out button.
+  - Replaces inline sign-out form that was previously in the dashboard page.
+
+- [x] **ROUTE-4**: Placeholder route stubs for future feature pages
+  - `src/app/(app)/check-ins/page.tsx` -- "Coming soon" stub for check-in history page (P3-P1).
+  - `src/app/(app)/templates/page.tsx` -- "Coming soon" stub for template list page (P2-P1).
+  - `src/app/(app)/settings/profile/page.tsx` -- "Coming soon" stub for profile settings page (P7-P1).
+  - These stubs make nav links functional immediately; actual feature content will replace them.
 
 ### Dashboard Redesign
 
 - [ ] **DASH-1**: Unpartnered dashboard state
-  - File: `src/app/page.tsx` (modify)
+  - File: `src/app/(app)/page.tsx` (modify)
   - Welcome message with user's display name.
   - Invite partner form or pending invite status (inline or link to `/partner`).
+  - Note: Currently redirects unpartnered users to `/partner` instead of showing inline content.
 
 - [ ] **DASH-2**: Partnered dashboard state
-  - File: `src/app/page.tsx` (modify)
+  - File: `src/app/(app)/page.tsx` (modify)
   - Welcome message with partner's display name.
   - Sections: upcoming check-ins, my action items, recent check-ins (last 3), quick actions ("New check-in" button, "View history" link).
   - Depends on Phases 3 and 4 for data.
+  - Note: Currently shows "Dashboard" heading + PartnerCard only.
 
 ---
 
@@ -817,22 +843,22 @@ npx drizzle-kit migrate
 
 For each phase, work in this order: **Schema -> Seed -> Actions -> Components -> Pages -> Integration**.
 
-| Order | Tasks | Phase |
-|-------|-------|-------|
-| 1 | P1-A6, P1-U4, P1-U5 (finish Phase 1 gaps) | 1 |
-| 2 | P7-R1, P7-A1, P7-U1, P7-P1 (profile editing, independent) | 7 |
-| 3 | NAV-1, NAV-2 (navigation) | Cross-cutting |
-| 4 | P2-S1, P2-S2, P2-SEED (template schema + seed) | 2 |
-| 5 | P2-A1 through P2-A6 (template actions) | 2 |
-| 6 | P2-U1 through P2-U5, P2-P1 through P2-P4 (template UI + pages) | 2 |
-| 7 | P3-S1 through P3-S5 (check-in schema) | 3 |
-| 8 | P3-A1 through P3-A11 (check-in actions) | 3 |
-| 9 | P3-U6, P3-U7 (shared components) | 3 |
-| 10 | P3-U1 through P3-U5, P3-P1 through P3-P3 (check-in UI + pages) | 3 |
-| 11 | P4-S1, P4-A1 through P4-A5 (action items schema + actions) | 4 |
-| 12 | P4-U1 through P4-U4, P4-INT1, P4-INT2 (action items UI + integration) | 4 |
-| 13 | DASH-1, DASH-2 (dashboard redesign) | Cross-cutting |
-| 14 | P5-A1, P5-U1 through P5-U5 (history + search) | 5 |
-| 15 | P6-S1, P6-DEP1, P6-A1, P6-A2 (AI schema + actions) | 6 |
-| 16 | P6-U1 through P6-U3, P6-INT1 (AI UI + integration) | 6 |
-| 17 | NF-1 through NF-8 (non-functional polish) | Cross-cutting |
+| Order | Tasks                                                                 | Phase             |
+| ----- | --------------------------------------------------------------------- | ----------------- |
+| ~~1~~ | ~~P1-A6, P1-U4, P1-U5 (finish Phase 1 gaps)~~                         | ~~1~~             |
+| ~~2~~ | ~~NAV-1, NAV-2, ROUTE-1 through ROUTE-4 (navigation + route groups)~~ | ~~Cross-cutting~~ |
+| 3     | P7-R1, P7-A1, P7-U1, P7-P1 (profile editing, independent)             | 7                 |
+| 4     | P2-S1, P2-S2, P2-SEED (template schema + seed)                        | 2                 |
+| 5     | P2-A1 through P2-A6 (template actions)                                | 2                 |
+| 6     | P2-U1 through P2-U5, P2-P1 through P2-P4 (template UI + pages)        | 2                 |
+| 7     | P3-S1 through P3-S5 (check-in schema)                                 | 3                 |
+| 8     | P3-A1 through P3-A11 (check-in actions)                               | 3                 |
+| 9     | P3-U6, P3-U7 (shared components)                                      | 3                 |
+| 10    | P3-U1 through P3-U5, P3-P1 through P3-P3 (check-in UI + pages)        | 3                 |
+| 11    | P4-S1, P4-A1 through P4-A5 (action items schema + actions)            | 4                 |
+| 12    | P4-U1 through P4-U4, P4-INT1, P4-INT2 (action items UI + integration) | 4                 |
+| 13    | DASH-1, DASH-2 (dashboard redesign)                                   | Cross-cutting     |
+| 14    | P5-A1, P5-U1 through P5-U5 (history + search)                         | 5                 |
+| 15    | P6-S1, P6-DEP1, P6-A1, P6-A2 (AI schema + actions)                    | 6                 |
+| 16    | P6-U1 through P6-U3, P6-INT1 (AI UI + integration)                    | 6                 |
+| 17    | NF-1 through NF-8 (non-functional polish)                             | Cross-cutting     |
