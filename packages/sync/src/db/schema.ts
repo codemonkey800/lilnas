@@ -136,3 +136,44 @@ export const partnerships = pgTable(
       .where(sql`${table.status} IN ('pending', 'accepted')`),
   ],
 )
+
+// ---------------------------------------------------------------------------
+// Check-in templates (reusable question sets for check-ins)
+// ---------------------------------------------------------------------------
+
+export const checkInTemplates = pgTable('check_in_templates', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+
+  partnershipId: text('partnership_id').references(() => partnerships.id, {
+    onDelete: 'cascade',
+  }),
+
+  createdById: text('created_by_id').references(() => users.id, {
+    onDelete: 'cascade',
+  }),
+
+  name: text('name').notNull(),
+  description: text('description'),
+  isSystem: boolean('is_system').notNull().default(false),
+
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+})
+
+export const templateQuestions = pgTable('template_questions', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+
+  templateId: text('template_id')
+    .notNull()
+    .references(() => checkInTemplates.id, { onDelete: 'cascade' }),
+
+  questionText: text('question_text').notNull(),
+  isRequired: boolean('is_required').notNull().default(true),
+  orderIndex: integer('order_index').notNull(),
+
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+})

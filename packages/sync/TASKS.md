@@ -121,19 +121,20 @@ All Phase 1 tasks are complete.
 
 ### Schema
 
-- [ ] **P2-S1**: `checkInTemplates` table
+- [x] **P2-S1**: `checkInTemplates` table
   - File: `src/db/schema.ts`
   - Columns: `id` (text PK, UUID), `partnershipId` (text FK nullable -- null for system templates), `createdById` (text FK nullable), `name` (text NOT NULL), `description` (text nullable), `isSystem` (boolean default false), `createdAt` (timestamp), `updatedAt` (timestamp).
 
-- [ ] **P2-S2**: `templateQuestions` table
+- [x] **P2-S2**: `templateQuestions` table
   - File: `src/db/schema.ts`
-  - Columns: `id` (text PK, UUID), `templateId` (text FK to `checkInTemplates`, cascade delete), `questionText` (text NOT NULL), `questionType` (text: `free_text | scale | multiple_choice`), `options` (text, JSON-stringified array for multiple_choice), `isRequired` (boolean default true), `orderIndex` (integer NOT NULL), `createdAt` (timestamp).
-  - Consider: Use a `pgEnum` for question types to match the pattern used for `partnershipStatusEnum`.
+  - Columns: `id` (text PK, UUID), `templateId` (text FK to `checkInTemplates`, cascade delete), `questionText` (text NOT NULL), `isRequired` (boolean default true), `orderIndex` (integer NOT NULL), `createdAt` (timestamp).
+  - Note: `questionType` and `options` columns omitted for now -- all questions are free text. Will add when scale/multiple choice support is needed.
 
 ### Seed Data
 
-- [ ] **P2-SEED**: Seed 3 system default templates
-  - File: `src/db/seed.ts` (new) or migration script
+- [x] **P2-SEED**: Seed 3 system default templates
+  - File: `src/db/seed.ts`
+  - Script: `pnpm db:seed` (added to `package.json`)
   - Templates to create (all with `isSystem: true`, `partnershipId: null`, `createdById: null`):
     1. **Weekly Check-in** (5 questions): feeling about us, appreciation, on your mind, connection scale 1-10, one thing together this week.
     2. **Monthly Deep Dive** (7 questions): overall state, highlight, unresolved issue, communication satisfaction scale, intimacy satisfaction scale, goal for next month, unasked needs.
