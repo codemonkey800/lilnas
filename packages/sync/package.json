@@ -22,7 +22,11 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:integration": "vitest run -c vitest.config.integration.ts",
+    "test:integration:db": "./scripts/test-integration.sh",
+    "test:e2e": "playwright test",
+    "test:e2e:db": "./scripts/test-e2e.sh"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.1",
@@ -39,6 +43,7 @@
   "devDependencies": {
     "@lilnas/eslint": "workspace:*",
     "@lilnas/prettier": "workspace:*",
+    "@playwright/test": "^1.58.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

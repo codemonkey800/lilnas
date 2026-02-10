@@ -215,7 +215,7 @@ export async function sendPartnerInvite(email: string): Promise<ActionResult> {
         }
       }
 
-      const [created] = await tx
+      const rows = await tx
         .insert(partnerships)
         .values({
           inviterId: userId,
@@ -226,7 +226,7 @@ export async function sendPartnerInvite(email: string): Promise<ActionResult> {
 
       revalidatePath('/partner')
 
-      return { success: true, partnershipId: created.id } as const
+      return { success: true, partnershipId: rows[0]!.id } as const
     })
   } catch {
     return {

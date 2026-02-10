@@ -9,12 +9,11 @@ import {
   HiUser,
 } from 'react-icons/hi2'
 
+import { type ProfileData, updateProfile } from 'src/app/(app)/settings/actions'
 import { AboutYouFields } from 'src/components/profile/about-you-fields'
 import { GoalsFields } from 'src/components/profile/goals-fields'
 import { LoveConnectionFields } from 'src/components/profile/love-connection-fields'
 import { Button } from 'src/components/ui/button'
-
-import { type ProfileData, updateProfile } from '../actions'
 
 // ---------------------------------------------------------------------------
 // Types
