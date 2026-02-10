@@ -77,7 +77,7 @@ export function Dialog({
       ref={dialogRef}
       onClick={handleBackdropClick}
       className={cns(
-        'w-full max-w-sm border-none',
+        'm-auto w-full max-w-sm border-none',
         'rounded-lg bg-bg-overlay p-6 shadow-lg',
         'animate-scale-in',
         className,
