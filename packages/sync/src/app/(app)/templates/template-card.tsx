@@ -90,9 +90,7 @@ export function TemplateCard({ template }: TemplateCardProps) {
         </div>
 
         {/* Error */}
-        {error && (
-          <p className="text-sm text-error animate-fade-in">{error}</p>
-        )}
+        {error && <p className="text-sm text-error animate-fade-in">{error}</p>}
 
         {/* Actions */}
         <div className="flex items-center gap-2 border-t border-border-subtle pt-3">

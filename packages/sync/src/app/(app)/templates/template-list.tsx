@@ -27,9 +27,7 @@ export function TemplateList({ templates }: TemplateListProps) {
       {/* System templates */}
       {systemTemplates.length > 0 && (
         <section className="flex flex-col gap-4">
-          <h2 className="text-xl font-semibold text-text">
-            Default Templates
-          </h2>
+          <h2 className="text-xl font-semibold text-text">Default Templates</h2>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {systemTemplates.map(t => (
@@ -51,9 +49,7 @@ export function TemplateList({ templates }: TemplateListProps) {
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3 rounded-md border border-border-subtle bg-bg-raised py-10">
-            <p className="text-sm text-text-muted">
-              No custom templates yet.
-            </p>
+            <p className="text-sm text-text-muted">No custom templates yet.</p>
             <Link
               href="/templates/new"
               className="inline-flex items-center gap-1.5 text-sm font-medium text-primary-400 transition-colors duration-150 ease-smooth hover:text-primary-300"

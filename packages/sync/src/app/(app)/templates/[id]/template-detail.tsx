@@ -121,9 +121,7 @@ export function TemplateDetail({ template }: TemplateDetailProps) {
       </div>
 
       {/* Error */}
-      {error && (
-        <p className="text-sm text-error animate-fade-in">{error}</p>
-      )}
+      {error && <p className="text-sm text-error animate-fade-in">{error}</p>}
 
       {/* Divider */}
       <hr className="border-border-subtle" />

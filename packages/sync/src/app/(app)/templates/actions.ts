@@ -14,7 +14,11 @@ import {
   validateQuestions,
   validateTemplateInput,
 } from './helpers'
-import type { ActionResult, CreateTemplateInput, UpdateTemplateInput } from './types'
+import type {
+  ActionResult,
+  CreateTemplateInput,
+  UpdateTemplateInput,
+} from './types'
 
 // ---------------------------------------------------------------------------
 // Mutations
@@ -227,9 +231,7 @@ export async function deleteTemplate(id: string): Promise<ActionResult> {
 
   try {
     // Cascade delete handles templateQuestions automatically
-    await db
-      .delete(checkInTemplates)
-      .where(eq(checkInTemplates.id, id))
+    await db.delete(checkInTemplates).where(eq(checkInTemplates.id, id))
 
     revalidatePath('/templates')
 

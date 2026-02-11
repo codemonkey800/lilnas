@@ -31,9 +31,7 @@ export function TemplateForm({ mode, initialData }: TemplateFormProps) {
   const router = useRouter()
 
   const [name, setName] = useState(initialData?.name ?? '')
-  const [description, setDescription] = useState(
-    initialData?.description ?? '',
-  )
+  const [description, setDescription] = useState(initialData?.description ?? '')
   const [questions, setQuestions] = useState<QuestionInput[]>(
     initialData?.questions.map(q => ({
       questionText: q.questionText,
@@ -98,7 +96,10 @@ export function TemplateForm({ mode, initialData }: TemplateFormProps) {
   )
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-6 animate-fade-in">
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-6 animate-fade-in"
+    >
       {/* Back link */}
       <Link
         href={
@@ -159,9 +160,7 @@ export function TemplateForm({ mode, initialData }: TemplateFormProps) {
       <QuestionBuilder questions={questions} onChange={setQuestions} />
 
       {/* Error */}
-      {error && (
-        <p className="text-sm text-error animate-fade-in">{error}</p>
-      )}
+      {error && <p className="text-sm text-error animate-fade-in">{error}</p>}
 
       {/* Submit */}
       <Button

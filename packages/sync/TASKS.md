@@ -256,31 +256,31 @@ All Phase 1 tasks are complete.
 
 ### Phase 2 Task Summary
 
-| Task                            | Category | Effort | Dependencies         | Status |
-| ------------------------------- | -------- | ------ | -------------------- | ------ |
-| P2-S1 checkInTemplates table    | Schema   | Small  | --                   | Done   |
-| P2-S2 templateQuestions table   | Schema   | Small  | P2-S1                | Done   |
-| P2-SEED system templates        | Data     | Small  | P2-S1, P2-S2         | Done   |
-| P2-H1 Template types            | Support  | Small  | --                   | Done   |
-| P2-H2 Validation helpers        | Support  | Small  | --                   | Done   |
-| P2-A1 createTemplate            | Action   | Medium | P2-S1, P2-S2         | Done   |
-| P2-A2 updateTemplate            | Action   | Medium | P2-S1, P2-S2         | Done   |
-| P2-A3 deleteTemplate            | Action   | Small  | P2-S1                | Done   |
-| P2-A4 duplicateTemplate         | Action   | Small  | P2-S1, P2-S2         | Done   |
-| P2-A5 getTemplates              | Action   | Small  | P2-S1                | Done   |
-| P2-A6 getTemplate               | Action   | Small  | P2-S1, P2-S2         | Done   |
-| P2-T1 Test helpers              | Test     | Small  | P2-S1, P2-S2         | Done   |
-| P2-T2 Action integration tests  | Test     | Medium | P2-A1..A4, P2-T1     | Done   |
-| P2-T3 Query integration tests   | Test     | Medium | P2-A5, P2-A6, P2-T1  | Done   |
-| P2-U1 TemplateList              | UI       | Medium | P2-A5                | Done   |
-| P2-U2 TemplateCard              | UI       | Small  | --                   | Done   |
-| P2-U3 TemplateForm              | UI       | Large  | P2-U4, P2-A1, P2-A2  | Done   |
-| P2-U4 QuestionBuilder           | UI       | Large  | --                   | Done   |
-| P2-U5 TemplateDetail            | UI       | Small  | P2-A6                | Done   |
-| P2-P1 /templates page           | Page     | Small  | P2-U1                | Done   |
-| P2-P2 /templates/new page       | Page     | Small  | P2-U3                | Done   |
-| P2-P3 /templates/[id] page      | Page     | Small  | P2-U5                | Done   |
-| P2-P4 /templates/[id]/edit page | Page     | Small  | P2-U3                | Done   |
+| Task                            | Category | Effort | Dependencies        | Status |
+| ------------------------------- | -------- | ------ | ------------------- | ------ |
+| P2-S1 checkInTemplates table    | Schema   | Small  | --                  | Done   |
+| P2-S2 templateQuestions table   | Schema   | Small  | P2-S1               | Done   |
+| P2-SEED system templates        | Data     | Small  | P2-S1, P2-S2        | Done   |
+| P2-H1 Template types            | Support  | Small  | --                  | Done   |
+| P2-H2 Validation helpers        | Support  | Small  | --                  | Done   |
+| P2-A1 createTemplate            | Action   | Medium | P2-S1, P2-S2        | Done   |
+| P2-A2 updateTemplate            | Action   | Medium | P2-S1, P2-S2        | Done   |
+| P2-A3 deleteTemplate            | Action   | Small  | P2-S1               | Done   |
+| P2-A4 duplicateTemplate         | Action   | Small  | P2-S1, P2-S2        | Done   |
+| P2-A5 getTemplates              | Action   | Small  | P2-S1               | Done   |
+| P2-A6 getTemplate               | Action   | Small  | P2-S1, P2-S2        | Done   |
+| P2-T1 Test helpers              | Test     | Small  | P2-S1, P2-S2        | Done   |
+| P2-T2 Action integration tests  | Test     | Medium | P2-A1..A4, P2-T1    | Done   |
+| P2-T3 Query integration tests   | Test     | Medium | P2-A5, P2-A6, P2-T1 | Done   |
+| P2-U1 TemplateList              | UI       | Medium | P2-A5               | Done   |
+| P2-U2 TemplateCard              | UI       | Small  | --                  | Done   |
+| P2-U3 TemplateForm              | UI       | Large  | P2-U4, P2-A1, P2-A2 | Done   |
+| P2-U4 QuestionBuilder           | UI       | Large  | --                  | Done   |
+| P2-U5 TemplateDetail            | UI       | Small  | P2-A6               | Done   |
+| P2-P1 /templates page           | Page     | Small  | P2-U1               | Done   |
+| P2-P2 /templates/new page       | Page     | Small  | P2-U3               | Done   |
+| P2-P3 /templates/[id] page      | Page     | Small  | P2-U5               | Done   |
+| P2-P4 /templates/[id]/edit page | Page     | Small  | P2-U3               | Done   |
 
 ### Remaining Phase 2 Work
 

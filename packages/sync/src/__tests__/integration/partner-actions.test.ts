@@ -306,11 +306,7 @@ describe('partner actions', () => {
       const bob = await createTestUser()
       const charlie = await createTestUser()
       const invite1 = await createTestPartnership(alice.id, bob.id, 'pending')
-      const invite2 = await createTestPartnership(
-        charlie.id,
-        bob.id,
-        'pending',
-      )
+      const invite2 = await createTestPartnership(charlie.id, bob.id, 'pending')
       await mockAuthAs(bob.id)
 
       await acceptInvite(invite1.id)

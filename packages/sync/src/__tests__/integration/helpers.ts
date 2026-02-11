@@ -250,9 +250,7 @@ export async function getTemplate(id: string): Promise<
 /**
  * Read all questions for a template, ordered by orderIndex.
  */
-export async function getTemplateQuestions(
-  templateId: string,
-): Promise<
+export async function getTemplateQuestions(templateId: string): Promise<
   Array<{
     id: string
     questionText: string

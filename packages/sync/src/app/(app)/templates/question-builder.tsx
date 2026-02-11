@@ -2,12 +2,7 @@
 
 import { cns } from '@lilnas/utils/cns'
 import { useCallback } from 'react'
-import {
-  HiArrowDown,
-  HiArrowUp,
-  HiPlus,
-  HiTrash,
-} from 'react-icons/hi2'
+import { HiArrowDown, HiArrowUp, HiPlus, HiTrash } from 'react-icons/hi2'
 
 import { Button } from 'src/components/ui/button'
 import { Input } from 'src/components/ui/input'
@@ -136,7 +131,11 @@ interface QuestionRowProps {
   question: QuestionInput
   isFirst: boolean
   isLast: boolean
-  onChange: (index: number, field: keyof QuestionInput, value: string | boolean) => void
+  onChange: (
+    index: number,
+    field: keyof QuestionInput,
+    value: string | boolean,
+  ) => void
   onMoveUp: (index: number) => void
   onMoveDown: (index: number) => void
   onRemove: (index: number) => void

@@ -46,13 +46,13 @@ Couples in committed relationships (dating, engaged, married) who want to:
 
 The following features are already shipped:
 
-| Feature | Status | Key Files |
-|---------|--------|-----------|
-| Email/password registration | Done | `src/app/register/` |
-| Email/password login | Done | `src/app/login/` |
-| Onboarding wizard (3 steps) | Done | `src/app/onboarding/` |
-| Minimal dashboard | Done | `src/app/page.tsx` |
-| User profiles table | Done | `src/db/schema.ts` |
+| Feature                     | Status | Key Files             |
+| --------------------------- | ------ | --------------------- |
+| Email/password registration | Done   | `src/app/register/`   |
+| Email/password login        | Done   | `src/app/login/`      |
+| Onboarding wizard (3 steps) | Done   | `src/app/onboarding/` |
+| Minimal dashboard           | Done   | `src/app/page.tsx`    |
+| User profiles table         | Done   | `src/db/schema.ts`    |
 
 Tech stack: Next.js 15, NextAuth v5 (JWT sessions), Drizzle ORM, PostgreSQL, Tailwind CSS v4 (dark purple theme).
 
@@ -131,14 +131,14 @@ Partners must be linked before any check-in features are useful. This phase intr
 
 #### User Stories
 
-| ID | Story | Acceptance Criteria |
-|----|-------|---------------------|
-| P1-1 | As a user, I can invite my partner by entering their email | The email must belong to a registered user. System creates a pending invite and the invitee sees it on their dashboard immediately. |
-| P1-2 | As a user, I can see a pending invite on my dashboard | Invite card shows inviter's display name, email, and accept/decline buttons. |
-| P1-3 | As a user, I can accept a partnership invite | Both users are now linked. The invite card is replaced with a partner card showing partner info. |
-| P1-4 | As a user, I can decline a partnership invite | The invite is removed. The inviter sees a "declined" status and can invite someone else. |
-| P1-5 | As a user, I can dissolve my active partnership | Both users are unlinked. All existing check-in data is retained but read-only. |
-| P1-6 | As a user, I cannot invite a second partner while I have an active partnership | The invite form is hidden or disabled when a partnership is active. |
+| ID   | Story                                                                          | Acceptance Criteria                                                                                                                 |
+| ---- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| P1-1 | As a user, I can invite my partner by entering their email                     | The email must belong to a registered user. System creates a pending invite and the invitee sees it on their dashboard immediately. |
+| P1-2 | As a user, I can see a pending invite on my dashboard                          | Invite card shows inviter's display name, email, and accept/decline buttons.                                                        |
+| P1-3 | As a user, I can accept a partnership invite                                   | Both users are now linked. The invite card is replaced with a partner card showing partner info.                                    |
+| P1-4 | As a user, I can decline a partnership invite                                  | The invite is removed. The inviter sees a "declined" status and can invite someone else.                                            |
+| P1-5 | As a user, I can dissolve my active partnership                                | Both users are unlinked. All existing check-in data is retained but read-only.                                                      |
+| P1-6 | As a user, I cannot invite a second partner while I have an active partnership | The invite form is hidden or disabled when a partnership is active.                                                                 |
 
 #### Invite Flow
 
@@ -170,16 +170,17 @@ Partners must be linked before any check-in features are useful. This phase intr
 
 #### Database: `partnerships` Table
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | `text` (UUID) | Primary key |
-| `inviter_id` | `text` | FK to `users.id`, NOT NULL |
-| `invitee_id` | `text` | FK to `users.id`, NOT NULL |
-| `status` | `text` | One of: `pending`, `accepted`, `declined`, `cancelled`, `dissolved` |
-| `created_at` | `timestamp` | Default: now |
-| `updated_at` | `timestamp` | Default: now |
+| Column       | Type          | Notes                                                               |
+| ------------ | ------------- | ------------------------------------------------------------------- |
+| `id`         | `text` (UUID) | Primary key                                                         |
+| `inviter_id` | `text`        | FK to `users.id`, NOT NULL                                          |
+| `invitee_id` | `text`        | FK to `users.id`, NOT NULL                                          |
+| `status`     | `text`        | One of: `pending`, `accepted`, `declined`, `cancelled`, `dissolved` |
+| `created_at` | `timestamp`   | Default: now                                                        |
+| `updated_at` | `timestamp`   | Default: now                                                        |
 
 **Indexes:**
+
 - Unique constraint: only one `accepted` partnership per user (enforced in application logic).
 - Index on `inviter_id` and `invitee_id` for dashboard queries.
 
@@ -233,22 +234,22 @@ Users can create templates from scratch or by duplicating a system template. Eit
 
 #### Question Types
 
-| Type | Description | Response Format |
-|------|-------------|-----------------|
-| `free_text` | Open-ended question | Free-form text response |
-| `scale` | Numeric scale rating | Integer from 1 to 10 |
+| Type              | Description                    | Response Format                      |
+| ----------------- | ------------------------------ | ------------------------------------ |
+| `free_text`       | Open-ended question            | Free-form text response              |
+| `scale`           | Numeric scale rating           | Integer from 1 to 10                 |
 | `multiple_choice` | Select from predefined options | One selection from a list of options |
 
 #### User Stories
 
-| ID | Story | Acceptance Criteria |
-|----|-------|---------------------|
-| T1 | As a user, I can browse available templates | List shows system defaults and any custom templates for my partnership. |
-| T2 | As a user, I can view a template's questions | Detail view shows all questions in order with their types. |
-| T3 | As a user, I can create a custom template | Form for name, description, and adding/reordering questions. |
-| T4 | As a user, I can edit a custom template | Can modify name, description, add/remove/reorder questions. Cannot edit system templates. |
-| T5 | As a user, I can delete a custom template | Confirmation dialog. Cannot delete if a check-in is currently using this template. |
-| T6 | As a user, I can duplicate a system template | Creates an editable copy with "(Copy)" appended to the name. |
+| ID  | Story                                        | Acceptance Criteria                                                                       |
+| --- | -------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| T1  | As a user, I can browse available templates  | List shows system defaults and any custom templates for my partnership.                   |
+| T2  | As a user, I can view a template's questions | Detail view shows all questions in order with their types.                                |
+| T3  | As a user, I can create a custom template    | Form for name, description, and adding/reordering questions.                              |
+| T4  | As a user, I can edit a custom template      | Can modify name, description, add/remove/reorder questions. Cannot edit system templates. |
+| T5  | As a user, I can delete a custom template    | Confirmation dialog. Cannot delete if a check-in is currently using this template.        |
+| T6  | As a user, I can duplicate a system template | Creates an editable copy with "(Copy)" appended to the name.                              |
 
 #### Template Creation Flow
 
@@ -263,29 +264,29 @@ Users can create templates from scratch or by duplicating a system template. Eit
 
 #### Database: `check_in_templates` Table
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | `text` (UUID) | Primary key |
-| `partnership_id` | `text` | FK to `partnerships.id`, nullable (null for system templates) |
-| `created_by_id` | `text` | FK to `users.id`, nullable (null for system templates) |
-| `name` | `text` | NOT NULL |
-| `description` | `text` | Nullable |
-| `is_system` | `boolean` | Default: false. True for system-provided templates. |
-| `created_at` | `timestamp` | Default: now |
-| `updated_at` | `timestamp` | Default: now |
+| Column           | Type          | Notes                                                         |
+| ---------------- | ------------- | ------------------------------------------------------------- |
+| `id`             | `text` (UUID) | Primary key                                                   |
+| `partnership_id` | `text`        | FK to `partnerships.id`, nullable (null for system templates) |
+| `created_by_id`  | `text`        | FK to `users.id`, nullable (null for system templates)        |
+| `name`           | `text`        | NOT NULL                                                      |
+| `description`    | `text`        | Nullable                                                      |
+| `is_system`      | `boolean`     | Default: false. True for system-provided templates.           |
+| `created_at`     | `timestamp`   | Default: now                                                  |
+| `updated_at`     | `timestamp`   | Default: now                                                  |
 
 #### Database: `template_questions` Table
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | `text` (UUID) | Primary key |
-| `template_id` | `text` | FK to `check_in_templates.id`, NOT NULL, cascade delete |
-| `question_text` | `text` | NOT NULL |
-| `question_type` | `text` | One of: `free_text`, `scale`, `multiple_choice` |
-| `options` | `text` | JSON-stringified array of strings. Only used for `multiple_choice`. |
-| `is_required` | `boolean` | Default: true |
-| `order_index` | `integer` | NOT NULL, determines display order |
-| `created_at` | `timestamp` | Default: now |
+| Column          | Type          | Notes                                                               |
+| --------------- | ------------- | ------------------------------------------------------------------- |
+| `id`            | `text` (UUID) | Primary key                                                         |
+| `template_id`   | `text`        | FK to `check_in_templates.id`, NOT NULL, cascade delete             |
+| `question_text` | `text`        | NOT NULL                                                            |
+| `question_type` | `text`        | One of: `free_text`, `scale`, `multiple_choice`                     |
+| `options`       | `text`        | JSON-stringified array of strings. Only used for `multiple_choice`. |
+| `is_required`   | `boolean`     | Default: true                                                       |
+| `order_index`   | `integer`     | NOT NULL, determines display order                                  |
+| `created_at`    | `timestamp`   | Default: now                                                        |
 
 #### UI Components
 
@@ -307,30 +308,30 @@ This is the core feature. A check-in is an instance of a template (or a custom s
 
 See [Section 7: Check-in State Machine](#7-check-in-state-machine) for the full state diagram.
 
-| State | Description |
-|-------|-------------|
-| `draft` | Check-in created, questions defined. Partners can draft answers privately. |
-| `scheduled` | Check-in has a future date/time. Behaves like `draft` until then. |
+| State         | Description                                                                                           |
+| ------------- | ----------------------------------------------------------------------------------------------------- |
+| `draft`       | Check-in created, questions defined. Partners can draft answers privately.                            |
+| `scheduled`   | Check-in has a future date/time. Behaves like `draft` until then.                                     |
 | `in_progress` | Check-in is active. Both partners can see each other's answers, edit their own, and add action items. |
-| `completed` | Check-in is finished. Results view is available. Answers are read-only. |
+| `completed`   | Check-in is finished. Results view is available. Answers are read-only.                               |
 
 #### User Stories
 
-| ID | Story | Acceptance Criteria |
-|----|-------|---------------------|
-| C1 | As a user, I can create a check-in from a template | Questions are copied from the template. Check-in starts in `draft` state. |
-| C2 | As a user, I can schedule a check-in for a specific date and time | Check-in enters `scheduled` state. Date/time is displayed on the dashboard. |
-| C3 | As a user, I can draft answers before the check-in starts | In `draft` or `scheduled` state, I can write answers. My partner cannot see them yet. |
-| C4 | As a user, I can start a check-in | Transitions from `draft` or `scheduled` to `in_progress`. Both partners' answers become visible. |
-| C5 | As a user, I can answer questions during an active check-in | In `in_progress` state, I can type or update my responses. |
-| C6 | As a user, I can see my partner's answers during an active check-in | Both sets of answers are shown side by side per question. |
-| C7 | As a user, I can complete a check-in | Transitions to `completed`. Results summary is shown. |
-| C8 | As a user, I can re-open a completed check-in | Transitions back to `in_progress`. Answers become editable again. |
-| C9 | As a user, I can view the results of a completed check-in | Shows all questions with both partners' answers and any action items. |
-| C10 | As a user, I can add custom questions to a check-in | In `draft` or `scheduled` state, I can add new questions with a type and optional options. New questions appear at the end of the list. |
-| C11 | As a user, I can edit a question on a check-in | In `draft` or `scheduled` state, I can edit the question text, type, options, and required flag of any question. |
-| C12 | As a user, I can remove a question from a check-in | In `draft` or `scheduled` state, I can remove any question. Removal deletes associated draft responses. A confirmation dialog is shown. |
-| C13 | As a user, I can reorder questions on a check-in | In `draft` or `scheduled` state, I can drag questions to reorder them. Order indexes are updated accordingly. |
+| ID  | Story                                                               | Acceptance Criteria                                                                                                                     |
+| --- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| C1  | As a user, I can create a check-in from a template                  | Questions are copied from the template. Check-in starts in `draft` state.                                                               |
+| C2  | As a user, I can schedule a check-in for a specific date and time   | Check-in enters `scheduled` state. Date/time is displayed on the dashboard.                                                             |
+| C3  | As a user, I can draft answers before the check-in starts           | In `draft` or `scheduled` state, I can write answers. My partner cannot see them yet.                                                   |
+| C4  | As a user, I can start a check-in                                   | Transitions from `draft` or `scheduled` to `in_progress`. Both partners' answers become visible.                                        |
+| C5  | As a user, I can answer questions during an active check-in         | In `in_progress` state, I can type or update my responses.                                                                              |
+| C6  | As a user, I can see my partner's answers during an active check-in | Both sets of answers are shown side by side per question.                                                                               |
+| C7  | As a user, I can complete a check-in                                | Transitions to `completed`. Results summary is shown.                                                                                   |
+| C8  | As a user, I can re-open a completed check-in                       | Transitions back to `in_progress`. Answers become editable again.                                                                       |
+| C9  | As a user, I can view the results of a completed check-in           | Shows all questions with both partners' answers and any action items.                                                                   |
+| C10 | As a user, I can add custom questions to a check-in                 | In `draft` or `scheduled` state, I can add new questions with a type and optional options. New questions appear at the end of the list. |
+| C11 | As a user, I can edit a question on a check-in                      | In `draft` or `scheduled` state, I can edit the question text, type, options, and required flag of any question.                        |
+| C12 | As a user, I can remove a question from a check-in                  | In `draft` or `scheduled` state, I can remove any question. Removal deletes associated draft responses. A confirmation dialog is shown. |
+| C13 | As a user, I can reorder questions on a check-in                    | In `draft` or `scheduled` state, I can drag questions to reorder them. Order indexes are updated accordingly.                           |
 
 #### Creating a Check-in
 
@@ -405,53 +406,55 @@ Displayed when a check-in is in `completed` state (also accessible from history)
 
 #### Database: `check_ins` Table
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | `text` (UUID) | Primary key |
-| `partnership_id` | `text` | FK to `partnerships.id`, NOT NULL |
-| `template_id` | `text` | FK to `check_in_templates.id`, nullable (null if created from scratch) |
-| `title` | `text` | NOT NULL. Defaults to template name + date. |
-| `status` | `text` | One of: `draft`, `scheduled`, `in_progress`, `completed` |
-| `scheduled_for` | `timestamp` | Nullable. The date/time the check-in is planned for. |
-| `started_at` | `timestamp` | Nullable. When the check-in transitioned to `in_progress`. |
-| `completed_at` | `timestamp` | Nullable. When the check-in was marked complete. |
-| `created_by_id` | `text` | FK to `users.id`, NOT NULL |
-| `created_at` | `timestamp` | Default: now |
-| `updated_at` | `timestamp` | Default: now |
+| Column           | Type          | Notes                                                                  |
+| ---------------- | ------------- | ---------------------------------------------------------------------- |
+| `id`             | `text` (UUID) | Primary key                                                            |
+| `partnership_id` | `text`        | FK to `partnerships.id`, NOT NULL                                      |
+| `template_id`    | `text`        | FK to `check_in_templates.id`, nullable (null if created from scratch) |
+| `title`          | `text`        | NOT NULL. Defaults to template name + date.                            |
+| `status`         | `text`        | One of: `draft`, `scheduled`, `in_progress`, `completed`               |
+| `scheduled_for`  | `timestamp`   | Nullable. The date/time the check-in is planned for.                   |
+| `started_at`     | `timestamp`   | Nullable. When the check-in transitioned to `in_progress`.             |
+| `completed_at`   | `timestamp`   | Nullable. When the check-in was marked complete.                       |
+| `created_by_id`  | `text`        | FK to `users.id`, NOT NULL                                             |
+| `created_at`     | `timestamp`   | Default: now                                                           |
+| `updated_at`     | `timestamp`   | Default: now                                                           |
 
 **Indexes:**
+
 - Index on `partnership_id` for listing a partnership's check-ins.
 - Index on `status` for filtering.
 - Index on `scheduled_for` for upcoming check-ins queries.
 
 #### Database: `check_in_questions` Table
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | `text` (UUID) | Primary key |
-| `check_in_id` | `text` | FK to `check_ins.id`, NOT NULL, cascade delete |
-| `question_text` | `text` | NOT NULL (copied from template at creation time, or written by user for custom questions) |
-| `question_type` | `text` | One of: `free_text`, `scale`, `multiple_choice` |
-| `options` | `text` | JSON-stringified array. Only for `multiple_choice`. |
-| `is_required` | `boolean` | Default: true |
-| `order_index` | `integer` | NOT NULL |
-| `created_by_id` | `text` | FK to `users.id`, nullable. Null for questions copied from templates; set for user-added questions. |
+| Column          | Type          | Notes                                                                                               |
+| --------------- | ------------- | --------------------------------------------------------------------------------------------------- |
+| `id`            | `text` (UUID) | Primary key                                                                                         |
+| `check_in_id`   | `text`        | FK to `check_ins.id`, NOT NULL, cascade delete                                                      |
+| `question_text` | `text`        | NOT NULL (copied from template at creation time, or written by user for custom questions)           |
+| `question_type` | `text`        | One of: `free_text`, `scale`, `multiple_choice`                                                     |
+| `options`       | `text`        | JSON-stringified array. Only for `multiple_choice`.                                                 |
+| `is_required`   | `boolean`     | Default: true                                                                                       |
+| `order_index`   | `integer`     | NOT NULL                                                                                            |
+| `created_by_id` | `text`        | FK to `users.id`, nullable. Null for questions copied from templates; set for user-added questions. |
 
 Questions can be added, edited, removed, and reordered while the check-in is in `draft` or `scheduled` state. Once the check-in transitions to `in_progress`, questions are locked.
 
 #### Database: `check_in_responses` Table
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | `text` (UUID) | Primary key |
-| `check_in_question_id` | `text` | FK to `check_in_questions.id`, NOT NULL, cascade delete |
-| `user_id` | `text` | FK to `users.id`, NOT NULL |
-| `response_text` | `text` | The answer content |
-| `is_draft` | `boolean` | Default: true. Set to false when check-in moves to `in_progress`. |
-| `created_at` | `timestamp` | Default: now |
-| `updated_at` | `timestamp` | Default: now |
+| Column                 | Type          | Notes                                                             |
+| ---------------------- | ------------- | ----------------------------------------------------------------- |
+| `id`                   | `text` (UUID) | Primary key                                                       |
+| `check_in_question_id` | `text`        | FK to `check_in_questions.id`, NOT NULL, cascade delete           |
+| `user_id`              | `text`        | FK to `users.id`, NOT NULL                                        |
+| `response_text`        | `text`        | The answer content                                                |
+| `is_draft`             | `boolean`     | Default: true. Set to false when check-in moves to `in_progress`. |
+| `created_at`           | `timestamp`   | Default: now                                                      |
+| `updated_at`           | `timestamp`   | Default: now                                                      |
 
 **Constraints:**
+
 - Unique constraint on (`check_in_question_id`, `user_id`) -- one response per user per question.
 
 #### UI Components
@@ -473,14 +476,14 @@ During an active check-in, partners can create action items tied to specific que
 
 #### User Stories
 
-| ID | Story | Acceptance Criteria |
-|----|-------|---------------------|
-| A1 | As a user, I can add an action item to a question during an active check-in | Action item appears under the question with owner selector. |
-| A2 | As a user, I can assign an action item to myself or my partner | Owner is shown by display name. |
-| A3 | As a user, I can set an optional due date for an action item | Date picker input on the action item. |
-| A4 | As a user, I can mark an action item as complete | Status changes to `completed`. Shown with strikethrough or checkmark. |
-| A5 | As a user, I can view all my action items across check-ins | Action items dashboard/section on the main dashboard. |
-| A6 | As a user, I can edit or delete an action item | Only while the check-in is `in_progress`. In `completed` state, only status changes are allowed. |
+| ID  | Story                                                                       | Acceptance Criteria                                                                              |
+| --- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| A1  | As a user, I can add an action item to a question during an active check-in | Action item appears under the question with owner selector.                                      |
+| A2  | As a user, I can assign an action item to myself or my partner              | Owner is shown by display name.                                                                  |
+| A3  | As a user, I can set an optional due date for an action item                | Date picker input on the action item.                                                            |
+| A4  | As a user, I can mark an action item as complete                            | Status changes to `completed`. Shown with strikethrough or checkmark.                            |
+| A5  | As a user, I can view all my action items across check-ins                  | Action items dashboard/section on the main dashboard.                                            |
+| A6  | As a user, I can edit or delete an action item                              | Only while the check-in is `in_progress`. In `completed` state, only status changes are allowed. |
 
 #### Action Item Lifecycle
 
@@ -492,21 +495,22 @@ Status changes can happen at any time, regardless of check-in state.
 
 #### Database: `action_items` Table
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | `text` (UUID) | Primary key |
-| `check_in_id` | `text` | FK to `check_ins.id`, NOT NULL |
-| `check_in_question_id` | `text` | FK to `check_in_questions.id`, NOT NULL |
-| `description` | `text` | NOT NULL |
-| `owner_id` | `text` | FK to `users.id`, NOT NULL |
-| `created_by_id` | `text` | FK to `users.id`, NOT NULL |
-| `status` | `text` | One of: `open`, `in_progress`, `completed`. Default: `open`. |
-| `due_date` | `timestamp` | Nullable |
-| `completed_at` | `timestamp` | Nullable. Set when status changes to `completed`. |
-| `created_at` | `timestamp` | Default: now |
-| `updated_at` | `timestamp` | Default: now |
+| Column                 | Type          | Notes                                                        |
+| ---------------------- | ------------- | ------------------------------------------------------------ |
+| `id`                   | `text` (UUID) | Primary key                                                  |
+| `check_in_id`          | `text`        | FK to `check_ins.id`, NOT NULL                               |
+| `check_in_question_id` | `text`        | FK to `check_in_questions.id`, NOT NULL                      |
+| `description`          | `text`        | NOT NULL                                                     |
+| `owner_id`             | `text`        | FK to `users.id`, NOT NULL                                   |
+| `created_by_id`        | `text`        | FK to `users.id`, NOT NULL                                   |
+| `status`               | `text`        | One of: `open`, `in_progress`, `completed`. Default: `open`. |
+| `due_date`             | `timestamp`   | Nullable                                                     |
+| `completed_at`         | `timestamp`   | Nullable. Set when status changes to `completed`.            |
+| `created_at`           | `timestamp`   | Default: now                                                 |
+| `updated_at`           | `timestamp`   | Default: now                                                 |
 
 **Indexes:**
+
 - Index on `check_in_id` for loading action items with a check-in.
 - Index on `owner_id` for "my action items" queries.
 - Index on `status` for filtering open items.
@@ -528,13 +532,13 @@ Partners can browse their complete check-in history, search across check-in cont
 
 #### User Stories
 
-| ID | Story | Acceptance Criteria |
-|----|-------|---------------------|
-| H1 | As a user, I can view a chronological list of all check-ins | List shows title, date, status badge, and question count. Most recent first. |
-| H2 | As a user, I can search check-in history by keyword | Searches across question text, responses, and action item descriptions. |
-| H3 | As a user, I can filter check-ins by status | Dropdown or toggle for: all, draft, scheduled, in progress, completed. |
-| H4 | As a user, I can filter check-ins by date range | Date range picker filters the list. |
-| H5 | As a user, I can click a check-in to view its details | Navigates to the check-in detail page. |
+| ID  | Story                                                       | Acceptance Criteria                                                          |
+| --- | ----------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| H1  | As a user, I can view a chronological list of all check-ins | List shows title, date, status badge, and question count. Most recent first. |
+| H2  | As a user, I can search check-in history by keyword         | Searches across question text, responses, and action item descriptions.      |
+| H3  | As a user, I can filter check-ins by status                 | Dropdown or toggle for: all, draft, scheduled, in progress, completed.       |
+| H4  | As a user, I can filter check-ins by date range             | Date range picker filters the list.                                          |
+| H5  | As a user, I can click a check-in to view its details       | Navigates to the check-in detail page.                                       |
 
 #### Search Implementation
 
@@ -564,12 +568,12 @@ After completing a check-in, either partner can request an AI-generated summary.
 
 #### User Stories
 
-| ID | Story | Acceptance Criteria |
-|----|-------|---------------------|
-| AI1 | As a user, I can request an AI summary of a completed check-in | "Summarize" button on the results page. Shows loading state while generating. |
-| AI2 | As a user, I can view the AI-generated summary | Summary includes: overview paragraph, key themes, areas of alignment, areas for attention, and suggested follow-ups. |
-| AI3 | As a user, I can regenerate a summary | If the summary feels off, the user can request a fresh one. |
-| AI4 | As a user, I can view previously generated summaries | Summaries are persisted and displayed without re-generating. |
+| ID  | Story                                                          | Acceptance Criteria                                                                                                  |
+| --- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| AI1 | As a user, I can request an AI summary of a completed check-in | "Summarize" button on the results page. Shows loading state while generating.                                        |
+| AI2 | As a user, I can view the AI-generated summary                 | Summary includes: overview paragraph, key themes, areas of alignment, areas for attention, and suggested follow-ups. |
+| AI3 | As a user, I can regenerate a summary                          | If the summary feels off, the user can request a fresh one.                                                          |
+| AI4 | As a user, I can view previously generated summaries           | Summaries are persisted and displayed without re-generating.                                                         |
 
 #### AI Prompt Design
 
@@ -600,17 +604,17 @@ The response schema:
 
 #### Database: `ai_summaries` Table
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | `text` (UUID) | Primary key |
-| `check_in_id` | `text` | FK to `check_ins.id`, NOT NULL, cascade delete |
-| `overview` | `text` | NOT NULL |
-| `themes` | `text` | JSON-stringified array of strings |
-| `alignments` | `text` | JSON-stringified array of strings |
-| `attention_areas` | `text` | JSON-stringified array of strings |
-| `suggested_follow_ups` | `text` | JSON-stringified array of strings |
-| `generated_at` | `timestamp` | NOT NULL |
-| `created_at` | `timestamp` | Default: now |
+| Column                 | Type          | Notes                                          |
+| ---------------------- | ------------- | ---------------------------------------------- |
+| `id`                   | `text` (UUID) | Primary key                                    |
+| `check_in_id`          | `text`        | FK to `check_ins.id`, NOT NULL, cascade delete |
+| `overview`             | `text`        | NOT NULL                                       |
+| `themes`               | `text`        | JSON-stringified array of strings              |
+| `alignments`           | `text`        | JSON-stringified array of strings              |
+| `attention_areas`      | `text`        | JSON-stringified array of strings              |
+| `suggested_follow_ups` | `text`        | JSON-stringified array of strings              |
+| `generated_at`         | `timestamp`   | NOT NULL                                       |
+| `created_at`           | `timestamp`   | Default: now                                   |
 
 #### UI Components
 
@@ -628,15 +632,15 @@ Users can edit any information they provided during onboarding. This re-uses the
 
 #### User Stories
 
-| ID | Story | Acceptance Criteria |
-|----|-------|---------------------|
-| PE1 | As a user, I can access my profile settings | Settings link in navigation or dashboard. |
-| PE2 | As a user, I can edit my display name | Updated immediately in all views. |
-| PE3 | As a user, I can edit my birthday | Date picker pre-filled with current value. |
-| PE4 | As a user, I can change my pronouns | Same pronoun selector as onboarding. |
-| PE5 | As a user, I can change my love language | Same love language picker as onboarding. |
-| PE6 | As a user, I can update my interests | Same interest chips as onboarding. |
-| PE7 | As a user, I can update my goals | Same goal selector as onboarding. |
+| ID  | Story                                       | Acceptance Criteria                              |
+| --- | ------------------------------------------- | ------------------------------------------------ |
+| PE1 | As a user, I can access my profile settings | Settings link in navigation or dashboard.        |
+| PE2 | As a user, I can edit my display name       | Updated immediately in all views.                |
+| PE3 | As a user, I can edit my birthday           | Date picker pre-filled with current value.       |
+| PE4 | As a user, I can change my pronouns         | Same pronoun selector as onboarding.             |
+| PE5 | As a user, I can change my love language    | Same love language picker as onboarding.         |
+| PE6 | As a user, I can update my interests        | Same interest chips as onboarding.               |
+| PE7 | As a user, I can update my goals            | Same goal selector as onboarding.                |
 | PE8 | As a user, I can save changes with feedback | Success toast on save. Validation errors inline. |
 
 #### Implementation Notes
@@ -689,16 +693,16 @@ check_in_questions
 
 ### New Tables Summary
 
-| Table | Phase | Description |
-|-------|-------|-------------|
-| `partnerships` | 1 | Links two users as partners |
-| `check_in_templates` | 2 | Defines reusable check-in structures |
-| `template_questions` | 2 | Questions belonging to a template |
-| `check_ins` | 3 | Individual check-in instances |
-| `check_in_questions` | 3 | Questions copied from a template or added by users directly |
-| `check_in_responses` | 3 | Each partner's answers |
-| `action_items` | 4 | Follow-up tasks with owners |
-| `ai_summaries` | 6 | AI-generated check-in summaries |
+| Table                | Phase | Description                                                 |
+| -------------------- | ----- | ----------------------------------------------------------- |
+| `partnerships`       | 1     | Links two users as partners                                 |
+| `check_in_templates` | 2     | Defines reusable check-in structures                        |
+| `template_questions` | 2     | Questions belonging to a template                           |
+| `check_ins`          | 3     | Individual check-in instances                               |
+| `check_in_questions` | 3     | Questions copied from a template or added by users directly |
+| `check_in_responses` | 3     | Each partner's answers                                      |
+| `action_items`       | 4     | Follow-up tasks with owners                                 |
+| `ai_summaries`       | 6     | AI-generated check-in summaries                             |
 
 ### Drizzle Schema Additions
 
@@ -715,62 +719,62 @@ All new tables follow the existing schema patterns in `src/db/schema.ts`:
 
 ### Phase 1: Partner Connection
 
-| Action | File | Description |
-|--------|------|-------------|
-| `sendPartnerInvite(email)` | `src/app/partner/actions.ts` | Validates and creates a partnership invite |
-| `acceptInvite(partnershipId)` | `src/app/partner/actions.ts` | Accepts a pending invite |
-| `declineInvite(partnershipId)` | `src/app/partner/actions.ts` | Declines a pending invite |
-| `cancelInvite(partnershipId)` | `src/app/partner/actions.ts` | Cancels an outgoing pending invite |
-| `dissolvePartnership(partnershipId)` | `src/app/partner/actions.ts` | Dissolves an active partnership |
+| Action                               | File                         | Description                                |
+| ------------------------------------ | ---------------------------- | ------------------------------------------ |
+| `sendPartnerInvite(email)`           | `src/app/partner/actions.ts` | Validates and creates a partnership invite |
+| `acceptInvite(partnershipId)`        | `src/app/partner/actions.ts` | Accepts a pending invite                   |
+| `declineInvite(partnershipId)`       | `src/app/partner/actions.ts` | Declines a pending invite                  |
+| `cancelInvite(partnershipId)`        | `src/app/partner/actions.ts` | Cancels an outgoing pending invite         |
+| `dissolvePartnership(partnershipId)` | `src/app/partner/actions.ts` | Dissolves an active partnership            |
 
 ### Phase 2: Check-in Templates
 
-| Action | File | Description |
-|--------|------|-------------|
-| `createTemplate(data)` | `src/app/templates/actions.ts` | Creates a new template with questions |
+| Action                     | File                           | Description                                       |
+| -------------------------- | ------------------------------ | ------------------------------------------------- |
+| `createTemplate(data)`     | `src/app/templates/actions.ts` | Creates a new template with questions             |
 | `updateTemplate(id, data)` | `src/app/templates/actions.ts` | Updates template name, description, and questions |
-| `deleteTemplate(id)` | `src/app/templates/actions.ts` | Deletes a custom template |
-| `duplicateTemplate(id)` | `src/app/templates/actions.ts` | Duplicates a template (system or custom) |
+| `deleteTemplate(id)`       | `src/app/templates/actions.ts` | Deletes a custom template                         |
+| `duplicateTemplate(id)`    | `src/app/templates/actions.ts` | Duplicates a template (system or custom)          |
 
 ### Phase 3: Check-in Lifecycle
 
-| Action | File | Description |
-|--------|------|-------------|
-| `createCheckIn(data)` | `src/app/check-ins/actions.ts` | Creates a check-in from template or scratch |
-| `addQuestion(checkInId, data)` | `src/app/check-ins/actions.ts` | Adds a custom question to a draft/scheduled check-in |
-| `updateQuestion(questionId, data)` | `src/app/check-ins/actions.ts` | Edits a question's text, type, options, or required flag |
-| `removeQuestion(questionId)` | `src/app/check-ins/actions.ts` | Removes a question and its draft responses |
-| `reorderQuestions(checkInId, orderedIds)` | `src/app/check-ins/actions.ts` | Updates order_index for all questions in the check-in |
-| `saveResponse(questionId, text)` | `src/app/check-ins/actions.ts` | Upserts a response (draft or active) |
-| `startCheckIn(checkInId)` | `src/app/check-ins/actions.ts` | Transitions to `in_progress` |
-| `completeCheckIn(checkInId)` | `src/app/check-ins/actions.ts` | Transitions to `completed` |
-| `reopenCheckIn(checkInId)` | `src/app/check-ins/actions.ts` | Transitions back to `in_progress` |
+| Action                                    | File                           | Description                                              |
+| ----------------------------------------- | ------------------------------ | -------------------------------------------------------- |
+| `createCheckIn(data)`                     | `src/app/check-ins/actions.ts` | Creates a check-in from template or scratch              |
+| `addQuestion(checkInId, data)`            | `src/app/check-ins/actions.ts` | Adds a custom question to a draft/scheduled check-in     |
+| `updateQuestion(questionId, data)`        | `src/app/check-ins/actions.ts` | Edits a question's text, type, options, or required flag |
+| `removeQuestion(questionId)`              | `src/app/check-ins/actions.ts` | Removes a question and its draft responses               |
+| `reorderQuestions(checkInId, orderedIds)` | `src/app/check-ins/actions.ts` | Updates order_index for all questions in the check-in    |
+| `saveResponse(questionId, text)`          | `src/app/check-ins/actions.ts` | Upserts a response (draft or active)                     |
+| `startCheckIn(checkInId)`                 | `src/app/check-ins/actions.ts` | Transitions to `in_progress`                             |
+| `completeCheckIn(checkInId)`              | `src/app/check-ins/actions.ts` | Transitions to `completed`                               |
+| `reopenCheckIn(checkInId)`                | `src/app/check-ins/actions.ts` | Transitions back to `in_progress`                        |
 
 ### Phase 4: Action Items
 
-| Action | File | Description |
-|--------|------|-------------|
-| `createActionItem(data)` | `src/app/check-ins/actions.ts` | Creates an action item for a question |
-| `updateActionItemStatus(id, status)` | `src/app/check-ins/actions.ts` | Updates action item status |
-| `updateActionItem(id, data)` | `src/app/check-ins/actions.ts` | Edits action item description, owner, due date |
-| `deleteActionItem(id)` | `src/app/check-ins/actions.ts` | Removes an action item |
+| Action                               | File                           | Description                                    |
+| ------------------------------------ | ------------------------------ | ---------------------------------------------- |
+| `createActionItem(data)`             | `src/app/check-ins/actions.ts` | Creates an action item for a question          |
+| `updateActionItemStatus(id, status)` | `src/app/check-ins/actions.ts` | Updates action item status                     |
+| `updateActionItem(id, data)`         | `src/app/check-ins/actions.ts` | Edits action item description, owner, due date |
+| `deleteActionItem(id)`               | `src/app/check-ins/actions.ts` | Removes an action item                         |
 
 ### Phase 5: Check-in History
 
-| Action | File | Description |
-|--------|------|-------------|
+| Action                           | File                           | Description                                 |
+| -------------------------------- | ------------------------------ | ------------------------------------------- |
 | `searchCheckIns(query, filters)` | `src/app/check-ins/actions.ts` | Searches check-ins with keyword and filters |
 
 ### Phase 6: AI Summarization
 
-| Action | File | Description |
-|--------|------|-------------|
+| Action                       | File                           | Description                         |
+| ---------------------------- | ------------------------------ | ----------------------------------- |
 | `generateSummary(checkInId)` | `src/app/check-ins/actions.ts` | Calls OpenAI and stores the summary |
 
 ### Phase 7: Profile Editing
 
-| Action | File | Description |
-|--------|------|-------------|
+| Action                | File                          | Description                                                             |
+| --------------------- | ----------------------------- | ----------------------------------------------------------------------- |
 | `updateProfile(data)` | `src/app/settings/actions.ts` | Updates the user's profile. Reuses logic from onboarding `saveProfile`. |
 
 ---
@@ -821,11 +825,13 @@ The partner connection page is accessible from the dashboard and does not need i
 The dashboard (`/`) adapts based on partnership status:
 
 **Unpartnered state:**
+
 - Welcome message with user's display name.
 - Invite partner form or pending invite status.
 - Profile completion card (if applicable).
 
 **Partnered state:**
+
 - Welcome message with partner's display name.
 - **Upcoming check-ins** section: Shows scheduled or in-progress check-ins.
 - **My action items** section: Open action items assigned to the user.
@@ -871,14 +877,14 @@ The dashboard (`/`) adapts based on partnership status:
 
 ### Transition Rules
 
-| From | To | Trigger | Guard | Side Effects |
-|------|----|---------|-------|-------------|
-| `draft` | `scheduled` | User sets a scheduled date/time | `scheduled_for` must be in the future | `scheduled_for` is saved |
-| `draft` | `in_progress` | User clicks "Start Check-in" | -- | `started_at` = now, all draft responses have `is_draft` set to false |
-| `scheduled` | `in_progress` | User clicks "Start Check-in" or scheduled time arrives | -- | `started_at` = now, all draft responses have `is_draft` set to false |
-| `scheduled` | `draft` | User removes the scheduled date | -- | `scheduled_for` is cleared |
-| `in_progress` | `completed` | User clicks "Complete Check-in" | -- | `completed_at` = now |
-| `completed` | `in_progress` | User clicks "Re-open" | -- | `completed_at` is cleared |
+| From          | To            | Trigger                                                | Guard                                 | Side Effects                                                         |
+| ------------- | ------------- | ------------------------------------------------------ | ------------------------------------- | -------------------------------------------------------------------- |
+| `draft`       | `scheduled`   | User sets a scheduled date/time                        | `scheduled_for` must be in the future | `scheduled_for` is saved                                             |
+| `draft`       | `in_progress` | User clicks "Start Check-in"                           | --                                    | `started_at` = now, all draft responses have `is_draft` set to false |
+| `scheduled`   | `in_progress` | User clicks "Start Check-in" or scheduled time arrives | --                                    | `started_at` = now, all draft responses have `is_draft` set to false |
+| `scheduled`   | `draft`       | User removes the scheduled date                        | --                                    | `scheduled_for` is cleared                                           |
+| `in_progress` | `completed`   | User clicks "Complete Check-in"                        | --                                    | `completed_at` = now                                                 |
+| `completed`   | `in_progress` | User clicks "Re-open"                                  | --                                    | `completed_at` is cleared                                            |
 
 ### Authorization
 

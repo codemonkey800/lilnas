@@ -55,9 +55,7 @@ export async function getTemplates(): Promise<TemplateListItem[] | null> {
 /**
  * P2-A6: Get a single template with its questions.
  */
-export async function getTemplate(
-  id: string,
-): Promise<TemplateDetail | null> {
+export async function getTemplate(id: string): Promise<TemplateDetail | null> {
   const session = await auth()
   if (!session?.user?.id) return null
 
