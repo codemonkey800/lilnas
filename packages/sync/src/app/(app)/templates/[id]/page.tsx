@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 
-import { getTemplate } from '../queries'
+import { getTemplate } from 'src/app/(app)/templates/queries'
 
 import { TemplateDetail } from './template-detail'
 

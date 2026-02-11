@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 
-import { getTemplate } from '../../queries'
-import { TemplateForm } from '../../template-form'
+import { getTemplate } from 'src/app/(app)/templates/queries'
+import { TemplateForm } from 'src/app/(app)/templates/template-form'
 
 interface EditTemplatePageProps {
   params: Promise<{ id: string }>

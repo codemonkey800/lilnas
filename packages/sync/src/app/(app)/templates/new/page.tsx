@@ -1,4 +1,4 @@
-import { TemplateForm } from '../template-form'
+import { TemplateForm } from 'src/app/(app)/templates/template-form'
 
 export const metadata = {
   title: 'New Template — Sync',

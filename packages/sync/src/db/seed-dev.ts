@@ -1,4 +1,4 @@
-import bcrypt from 'bcryptjs'
+import { hash } from 'bcryptjs'
 import { and, eq } from 'drizzle-orm'
 
 import { db } from './index'
@@ -313,7 +313,7 @@ async function seed() {
 
   // 1. Users
   console.log('Users:')
-  const passwordHash = await bcrypt.hash(DEV_PASSWORD, 12)
+  const passwordHash = await hash(DEV_PASSWORD, 12)
   for (const user of SEED_USERS) {
     await upsertUser(user, passwordHash)
   }

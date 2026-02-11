@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock src/auth with signOut before importing the action
 vi.mock('src/auth', () => ({

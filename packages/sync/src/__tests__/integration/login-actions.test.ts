@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock next-auth to avoid pulling in next/server in the test environment.
 // The action imports AuthError from next-auth for instanceof checks, so both

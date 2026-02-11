@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { MAX_QUESTIONS } from 'src/app/(app)/templates/helpers'
+import { MAX_QUESTIONS } from 'src/app/(app)/templates/constants'
 
 import {
   createTestPartnership,

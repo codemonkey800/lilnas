@@ -12,12 +12,14 @@ import {
   HiTrash,
 } from 'react-icons/hi2'
 
+import {
+  deleteTemplate,
+  duplicateTemplate,
+} from 'src/app/(app)/templates/actions'
+import type { TemplateDetail as TemplateDetailType } from 'src/app/(app)/templates/types'
 import { Badge } from 'src/components/ui/badge'
 import { Button } from 'src/components/ui/button'
 import { Dialog } from 'src/components/ui/dialog'
-
-import { deleteTemplate, duplicateTemplate } from '../actions'
-import type { TemplateDetail as TemplateDetailType } from '../types'
 
 // ---------------------------------------------------------------------------
 // Props
