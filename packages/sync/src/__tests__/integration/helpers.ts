@@ -3,6 +3,9 @@ import type { Mock } from 'vitest'
 
 import { testDb } from 'src/__tests__/integration-setup'
 import {
+  checkInQuestions,
+  checkInResponses,
+  checkIns,
   checkInTemplates,
   partnerships,
   profiles,
@@ -43,6 +46,9 @@ export async function mockAuthAs(userId: string | null): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const TABLES_IN_DELETE_ORDER = [
+  checkInResponses,
+  checkInQuestions,
+  checkIns,
   templateQuestions,
   checkInTemplates,
   partnerships,
@@ -268,4 +274,179 @@ export async function getTemplateQuestions(templateId: string): Promise<
     .from(templateQuestions)
     .where(eq(templateQuestions.templateId, templateId))
     .orderBy(templateQuestions.orderIndex)
+}
+
+// ---------------------------------------------------------------------------
+// Check-in factory helpers
+// ---------------------------------------------------------------------------
+
+interface CreateCheckInOptions {
+  title?: string
+  templateId?: string | null
+  status?: 'draft' | 'scheduled' | 'in_progress' | 'completed'
+  scheduledFor?: Date | null
+  startedAt?: Date | null
+  completedAt?: Date | null
+}
+
+/**
+ * Insert a check-in directly (for setting up test preconditions).
+ */
+export async function createTestCheckIn(
+  partnershipId: string,
+  createdById: string,
+  overrides: CreateCheckInOptions = {},
+): Promise<{ id: string }> {
+  const rows = await testDb
+    .insert(checkIns)
+    .values({
+      partnershipId,
+      createdById,
+      title: overrides.title ?? 'Test Check-in',
+      templateId: overrides.templateId ?? null,
+      status: overrides.status ?? 'draft',
+      scheduledFor: overrides.scheduledFor ?? null,
+      startedAt: overrides.startedAt ?? null,
+      completedAt: overrides.completedAt ?? null,
+    })
+    .returning({ id: checkIns.id })
+
+  return rows[0]!
+}
+
+/**
+ * Read a check-in row by id.
+ */
+export async function getCheckIn(id: string): Promise<
+  | {
+      id: string
+      title: string
+      status: string
+      partnershipId: string
+      templateId: string | null
+      createdById: string
+      scheduledFor: Date | null
+      startedAt: Date | null
+      completedAt: Date | null
+    }
+  | undefined
+> {
+  const [row] = await testDb
+    .select({
+      id: checkIns.id,
+      title: checkIns.title,
+      status: checkIns.status,
+      partnershipId: checkIns.partnershipId,
+      templateId: checkIns.templateId,
+      createdById: checkIns.createdById,
+      scheduledFor: checkIns.scheduledFor,
+      startedAt: checkIns.startedAt,
+      completedAt: checkIns.completedAt,
+    })
+    .from(checkIns)
+    .where(eq(checkIns.id, id))
+    .limit(1)
+
+  return row
+}
+
+interface CreateCheckInQuestionOptions {
+  questionText?: string
+  isRequired?: boolean
+  orderIndex?: number
+  createdById?: string | null
+}
+
+/**
+ * Insert a check-in question directly (for setting up test preconditions).
+ */
+export async function createTestCheckInQuestion(
+  checkInId: string,
+  overrides: CreateCheckInQuestionOptions = {},
+): Promise<{ id: string }> {
+  const rows = await testDb
+    .insert(checkInQuestions)
+    .values({
+      checkInId,
+      questionText: overrides.questionText ?? 'Test check-in question?',
+      isRequired: overrides.isRequired ?? true,
+      orderIndex: overrides.orderIndex ?? 0,
+      createdById: overrides.createdById ?? null,
+    })
+    .returning({ id: checkInQuestions.id })
+
+  return rows[0]!
+}
+
+/**
+ * Read all questions for a check-in, ordered by orderIndex.
+ */
+export async function getCheckInQuestions(checkInId: string): Promise<
+  Array<{
+    id: string
+    questionText: string
+    isRequired: boolean
+    orderIndex: number
+    createdById: string | null
+  }>
+> {
+  return testDb
+    .select({
+      id: checkInQuestions.id,
+      questionText: checkInQuestions.questionText,
+      isRequired: checkInQuestions.isRequired,
+      orderIndex: checkInQuestions.orderIndex,
+      createdById: checkInQuestions.createdById,
+    })
+    .from(checkInQuestions)
+    .where(eq(checkInQuestions.checkInId, checkInId))
+    .orderBy(checkInQuestions.orderIndex)
+}
+
+interface CreateCheckInResponseOptions {
+  responseText?: string | null
+  isDraft?: boolean
+}
+
+/**
+ * Insert a check-in response directly (for setting up test preconditions).
+ */
+export async function createTestCheckInResponse(
+  checkInQuestionId: string,
+  userId: string,
+  overrides: CreateCheckInResponseOptions = {},
+): Promise<{ id: string }> {
+  const rows = await testDb
+    .insert(checkInResponses)
+    .values({
+      checkInQuestionId,
+      userId,
+      responseText: overrides.responseText ?? null,
+      isDraft: overrides.isDraft ?? true,
+    })
+    .returning({ id: checkInResponses.id })
+
+  return rows[0]!
+}
+
+/**
+ * Read all responses for a check-in question.
+ */
+export async function getCheckInResponses(checkInQuestionId: string): Promise<
+  Array<{
+    id: string
+    userId: string
+    responseText: string | null
+    isDraft: boolean
+  }>
+> {
+  return testDb
+    .select({
+      id: checkInResponses.id,
+      userId: checkInResponses.userId,
+      responseText: checkInResponses.responseText,
+      isDraft: checkInResponses.isDraft,
+    })
+    .from(checkInResponses)
+    .where(eq(checkInResponses.checkInQuestionId, checkInQuestionId))
 }

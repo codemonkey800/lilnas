@@ -38,7 +38,7 @@ Couples in committed relationships (dating, engaged, married) who want to:
 ### Core Value Proposition
 
 1. **Structured reflection** -- Templates with thoughtful questions remove the awkwardness of "we need to talk"
-2. **Mutual accountability** -- Action items with clear owners ensure follow-through
+2. **Mutual accountability** -- Action items with clear owners (individual or shared) ensure follow-through
 3. **Longitudinal insight** -- Check-in history and AI summaries reveal patterns across weeks and months
 4. **Private and safe** -- Each partner drafts answers independently before sharing, eliminating pressure to perform in the moment
 
@@ -81,7 +81,7 @@ Register --> Onboarding --> Connect Partner --> Create/Pick Template --> Schedul
 5. **Both partners draft answers** independently before Sunday. Neither can see the other's drafts.
 6. **Sunday arrives** -- Alex starts the check-in, transitioning it to "in progress."
 7. **During the check-in**, both partners can see each other's answers, edit their own, and fill in anything they skipped.
-8. **They add action items** for specific questions (e.g., "Plan a date night this week" assigned to Jordan).
+8. **They add action items** for specific questions (e.g., "Plan a date night this week" assigned to Jordan, or "Research couples therapists" assigned to both of them).
 9. **Alex marks the check-in as complete.** Both partners see the full results: answers side by side plus action items.
 10. **Jordan taps "Summarize with AI"** to get key themes and suggested follow-ups.
 11. **Over the following week**, they check off action items as they complete them.
@@ -472,55 +472,86 @@ Questions can be added, edited, removed, and reordered while the check-in is in 
 
 #### Overview
 
-During an active check-in, partners can create action items tied to specific questions. Action items have an owner (one of the two partners), a description, and a status. They appear in the check-in results and can be tracked independently.
+During an active check-in, partners can create action items tied to specific questions. Action items have an owner -- one of the two partners, or **both** of them for shared commitments they want to tackle together. They appear in the check-in results and can be tracked independently on the dashboard.
+
+#### Ownership Model
+
+Each action item has an **owner type** that determines who is responsible:
+
+| Owner Type   | Description                                                                                             | Dashboard Visibility                  |
+| ------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `individual` | Assigned to one specific partner. That partner is responsible for completing it.                        | Shown on the assigned partner's dashboard. |
+| `both`       | A shared commitment. Both partners are equally responsible and should work on it together.              | Shown on **both** partners' dashboards.    |
+
+When `owner_type` is `individual`, the `owner_id` column identifies the assigned partner. When `owner_type` is `both`, `owner_id` is `null` -- the action item belongs to both partners equally.
+
+**Examples:**
+- "Plan a date night this week" -- assigned to Jordan (`individual`).
+- "Research couples therapists together" -- assigned to both (`both`).
+- "Write a letter of appreciation" -- assigned to Alex (`individual`).
 
 #### User Stories
 
-| ID  | Story                                                                       | Acceptance Criteria                                                                              |
-| --- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| A1  | As a user, I can add an action item to a question during an active check-in | Action item appears under the question with owner selector.                                      |
-| A2  | As a user, I can assign an action item to myself or my partner              | Owner is shown by display name.                                                                  |
-| A3  | As a user, I can set an optional due date for an action item                | Date picker input on the action item.                                                            |
-| A4  | As a user, I can mark an action item as complete                            | Status changes to `completed`. Shown with strikethrough or checkmark.                            |
-| A5  | As a user, I can view all my action items across check-ins                  | Action items dashboard/section on the main dashboard.                                            |
-| A6  | As a user, I can edit or delete an action item                              | Only while the check-in is `in_progress`. In `completed` state, only status changes are allowed. |
+| ID  | Story                                                                       | Acceptance Criteria                                                                                              |
+| --- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| A1  | As a user, I can add an action item to a question during an active check-in | Action item appears under the question with owner selector.                                                      |
+| A2  | As a user, I can assign an action item to myself, my partner, or both of us | Owner selector offers three options: "Me", "Partner name", and "Both of us". Displayed with appropriate label.  |
+| A3  | As a user, I can set an optional due date for an action item                | Date picker input on the action item.                                                                            |
+| A4  | As a user, I can mark an action item as complete                            | Status changes to `completed`. Shown with strikethrough or checkmark.                                            |
+| A5  | As a user, I can view all my action items across check-ins                  | Action items dashboard/section on the main dashboard. Includes items assigned to me individually and shared items. |
+| A6  | As a user, I can edit or delete an action item                              | Only while the check-in is `in_progress`. In `completed` state, only status changes are allowed.                 |
+| A7  | As a user, I can filter action items by owner type on the dashboard         | Filter options: "All", "Mine", "Partner's", "Shared". Helps focus on personal vs. joint commitments.            |
 
 #### Action Item Lifecycle
 
 1. **Created** during `in_progress` check-in. Status: `open`.
-2. **In progress** -- partner has started working on it. Status: `in_progress`.
-3. **Completed** -- partner has finished it. Status: `completed`.
+2. **In progress** -- partner(s) have started working on it. Status: `in_progress`.
+3. **Completed** -- partner(s) have finished it. Status: `completed`.
 
-Status changes can happen at any time, regardless of check-in state.
+Status changes can happen at any time, regardless of check-in state. For shared (`both`) action items, either partner can update the status.
 
 #### Database: `action_items` Table
 
-| Column                 | Type          | Notes                                                        |
-| ---------------------- | ------------- | ------------------------------------------------------------ |
-| `id`                   | `text` (UUID) | Primary key                                                  |
-| `check_in_id`          | `text`        | FK to `check_ins.id`, NOT NULL                               |
-| `check_in_question_id` | `text`        | FK to `check_in_questions.id`, NOT NULL                      |
-| `description`          | `text`        | NOT NULL                                                     |
-| `owner_id`             | `text`        | FK to `users.id`, NOT NULL                                   |
-| `created_by_id`        | `text`        | FK to `users.id`, NOT NULL                                   |
-| `status`               | `text`        | One of: `open`, `in_progress`, `completed`. Default: `open`. |
-| `due_date`             | `timestamp`   | Nullable                                                     |
-| `completed_at`         | `timestamp`   | Nullable. Set when status changes to `completed`.            |
-| `created_at`           | `timestamp`   | Default: now                                                 |
-| `updated_at`           | `timestamp`   | Default: now                                                 |
+| Column                 | Type          | Notes                                                                          |
+| ---------------------- | ------------- | ------------------------------------------------------------------------------ |
+| `id`                   | `text` (UUID) | Primary key                                                                    |
+| `check_in_id`          | `text`        | FK to `check_ins.id`, NOT NULL                                                 |
+| `check_in_question_id` | `text`        | FK to `check_in_questions.id`, NOT NULL                                        |
+| `description`          | `text`        | NOT NULL                                                                       |
+| `owner_type`           | `text`        | One of: `individual`, `both`. Default: `individual`.                           |
+| `owner_id`             | `text`        | FK to `users.id`, nullable. Set when `owner_type` is `individual`; null when `both`. |
+| `created_by_id`        | `text`        | FK to `users.id`, NOT NULL                                                     |
+| `status`               | `text`        | One of: `open`, `in_progress`, `completed`. Default: `open`.                   |
+| `due_date`             | `timestamp`   | Nullable                                                                       |
+| `completed_at`         | `timestamp`   | Nullable. Set when status changes to `completed`.                              |
+| `created_at`           | `timestamp`   | Default: now                                                                   |
+| `updated_at`           | `timestamp`   | Default: now                                                                   |
+
+**Constraints:**
+
+- `owner_id` is NOT NULL when `owner_type = 'individual'`, and NULL when `owner_type = 'both'`. Enforced in application logic.
 
 **Indexes:**
 
 - Index on `check_in_id` for loading action items with a check-in.
 - Index on `owner_id` for "my action items" queries.
+- Index on `owner_type` for filtering shared vs. individual items.
 - Index on `status` for filtering open items.
+
+#### "My Action Items" Query Logic
+
+The dashboard "My Action Items" widget should show action items where:
+1. `owner_type = 'individual'` AND `owner_id = currentUserId` -- items assigned directly to me.
+2. `owner_type = 'both'` AND the action item's check-in belongs to the user's active partnership -- shared items.
+
+Both sets are combined and sorted by due date (soonest first), then creation date.
 
 #### UI Components
 
-- **ActionItemForm**: Inline form under a question to add an action item (description, owner selector, optional due date).
-- **ActionItemCard**: Shows description, owner name, status badge, due date. Click to toggle status.
-- **ActionItemList**: Aggregated view of all action items for a check-in or for a user.
-- **DashboardActionItems**: Widget on the main dashboard showing open action items assigned to the current user.
+- **ActionItemForm**: Inline form under a question to add an action item (description, owner selector with "Me" / "Partner name" / "Both of us" options, optional due date).
+- **ActionItemCard**: Shows description, owner label (partner name or "Both of you"), status badge, due date. Click to toggle status. Shared items display a "Shared" badge or icon.
+- **ActionItemList**: Aggregated view of all action items for a check-in or for a user. Supports filtering by owner type.
+- **DashboardActionItems**: Widget on the main dashboard showing open action items assigned to the current user (individual + shared). Grouped or filterable by "Mine" / "Shared".
 
 ---
 
@@ -701,7 +732,7 @@ check_in_questions
 | `check_ins`          | 3     | Individual check-in instances                               |
 | `check_in_questions` | 3     | Questions copied from a template or added by users directly |
 | `check_in_responses` | 3     | Each partner's answers                                      |
-| `action_items`       | 4     | Follow-up tasks with owners                                 |
+| `action_items`       | 4     | Follow-up tasks with individual or shared ownership         |
 | `ai_summaries`       | 6     | AI-generated check-in summaries                             |
 
 ### Drizzle Schema Additions
@@ -754,10 +785,10 @@ All new tables follow the existing schema patterns in `src/db/schema.ts`:
 
 | Action                               | File                           | Description                                    |
 | ------------------------------------ | ------------------------------ | ---------------------------------------------- |
-| `createActionItem(data)`             | `src/app/check-ins/actions.ts` | Creates an action item for a question          |
-| `updateActionItemStatus(id, status)` | `src/app/check-ins/actions.ts` | Updates action item status                     |
-| `updateActionItem(id, data)`         | `src/app/check-ins/actions.ts` | Edits action item description, owner, due date |
-| `deleteActionItem(id)`               | `src/app/check-ins/actions.ts` | Removes an action item                         |
+| `createActionItem(data)`             | `src/app/check-ins/actions.ts` | Creates an action item for a question (individual or shared owner) |
+| `updateActionItemStatus(id, status)` | `src/app/check-ins/actions.ts` | Updates action item status                                        |
+| `updateActionItem(id, data)`         | `src/app/check-ins/actions.ts` | Edits action item description, owner type/id, due date            |
+| `deleteActionItem(id)`               | `src/app/check-ins/actions.ts` | Removes an action item                                            |
 
 ### Phase 5: Check-in History
 
@@ -939,3 +970,4 @@ The dashboard (`/`) adapts based on partnership status:
 - Question modifications (add, edit, remove, reorder) are only permitted when the check-in status is `draft` or `scheduled`. Server actions reject changes if the check-in is `in_progress` or `completed`.
 - Response text has no hard limit but is capped at 5,000 characters per response.
 - Action item descriptions are capped at 500 characters.
+- Action item `owner_type` must be `individual` or `both`. When `individual`, `owner_id` must reference a member of the partnership. When `both`, `owner_id` must be null.

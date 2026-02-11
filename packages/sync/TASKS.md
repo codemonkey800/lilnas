@@ -317,26 +317,26 @@ All Phase 2 tasks are complete.
 
 ### Schema
 
-- [ ] **P3-S1**: `checkInStatusEnum` -- Enum for check-in states
+- [x] **P3-S1**: `checkInStatusEnum` -- Enum for check-in states
   - File: `src/db/schema.ts`
   - Values: `draft`, `scheduled`, `in_progress`, `completed`
 
-- [ ] **P3-S2**: `checkIns` table
+- [x] **P3-S2**: `checkIns` table
   - File: `src/db/schema.ts`
   - Columns: `id` (text PK, UUID), `partnershipId` (text FK NOT NULL), `templateId` (text FK nullable), `title` (text NOT NULL), `status` (checkInStatusEnum), `scheduledFor` (timestamp nullable), `startedAt` (timestamp nullable), `completedAt` (timestamp nullable), `createdById` (text FK NOT NULL), `createdAt` (timestamp), `updatedAt` (timestamp).
   - Indexes: on `partnershipId`, on `status`, on `scheduledFor`.
 
-- [ ] **P3-S3**: `questionTypeEnum` -- Enum for question types (if not already created in Phase 2)
-  - File: `src/db/schema.ts`
-  - Values: `free_text`, `scale`, `multiple_choice`
-  - Note: Could be shared between `templateQuestions` and `checkInQuestions`.
+- [x] **P3-S3**: `questionTypeEnum` -- Skipped (not needed yet)
+  - All questions are free text, matching the `templateQuestions` table pattern.
+  - Will add when scale/multiple choice support is needed.
 
-- [ ] **P3-S4**: `checkInQuestions` table
+- [x] **P3-S4**: `checkInQuestions` table
   - File: `src/db/schema.ts`
-  - Columns: `id` (text PK, UUID), `checkInId` (text FK, cascade delete), `questionText` (text NOT NULL), `questionType` (text/enum), `options` (text, JSON), `isRequired` (boolean default true), `orderIndex` (integer NOT NULL), `createdById` (text FK nullable -- null for template-copied questions).
+  - Columns: `id` (text PK, UUID), `checkInId` (text FK, cascade delete), `questionText` (text NOT NULL), `isRequired` (boolean default true), `orderIndex` (integer NOT NULL), `createdById` (text FK nullable -- null for template-copied questions).
+  - Note: `questionType` and `options` columns omitted -- all questions are free text, consistent with `templateQuestions`. Will add when scale/multiple choice support is needed.
   - Questions are copied from a template at creation time. Can also be added directly by users.
 
-- [ ] **P3-S5**: `checkInResponses` table
+- [x] **P3-S5**: `checkInResponses` table
   - File: `src/db/schema.ts`
   - Columns: `id` (text PK, UUID), `checkInQuestionId` (text FK, cascade delete), `userId` (text FK NOT NULL), `responseText` (text), `isDraft` (boolean default true), `createdAt` (timestamp), `updatedAt` (timestamp).
   - Unique constraint: `(checkInQuestionId, userId)` -- one response per user per question.
@@ -517,26 +517,29 @@ All Phase 2 tasks are complete.
 
 - [ ] **P4-S1**: `actionItems` table
   - File: `src/db/schema.ts`
-  - Columns: `id` (text PK, UUID), `checkInId` (text FK NOT NULL), `checkInQuestionId` (text FK NOT NULL), `description` (text NOT NULL, max 500 chars), `ownerId` (text FK NOT NULL), `createdById` (text FK NOT NULL), `status` (text: `open | in_progress | completed`, default `open`), `dueDate` (timestamp nullable), `completedAt` (timestamp nullable), `createdAt` (timestamp), `updatedAt` (timestamp).
-  - Indexes: on `checkInId`, on `ownerId`, on `status`.
-  - Consider: `pgEnum` for action item status.
+  - Columns: `id` (text PK, UUID), `checkInId` (text FK NOT NULL), `checkInQuestionId` (text FK NOT NULL), `description` (text NOT NULL, max 500 chars), `ownerType` (text: `individual | both`, default `individual`), `ownerId` (text FK nullable -- set when `ownerType` is `individual`, null when `both`), `createdById` (text FK NOT NULL), `status` (text: `open | in_progress | completed`, default `open`), `dueDate` (timestamp nullable), `completedAt` (timestamp nullable), `createdAt` (timestamp), `updatedAt` (timestamp).
+  - Indexes: on `checkInId`, on `ownerId`, on `ownerType`, on `status`.
+  - Consider: `pgEnum` for action item status and owner type.
+  - Application-level constraint: `ownerId` NOT NULL when `ownerType = 'individual'`, NULL when `ownerType = 'both'`.
 
 ### Server Actions
 
 - [ ] **P4-A1**: `createActionItem(data)` -- Creates an action item for a question
   - File: `src/app/check-ins/actions.ts`
-  - Input: `{ checkInId, checkInQuestionId, description, ownerId, dueDate? }`
+  - Input: `{ checkInId, checkInQuestionId, description, ownerType, ownerId?, dueDate? }`
   - Guard: check-in must be `in_progress`.
-  - Validation: description 1-500 chars. Owner must be a member of the partnership.
+  - Validation: description 1-500 chars. If `ownerType` is `individual`, `ownerId` is required and must be a member of the partnership. If `ownerType` is `both`, `ownerId` must be null/omitted.
 
 - [ ] **P4-A2**: `updateActionItemStatus(id, status)` -- Updates action item status
   - File: `src/app/check-ins/actions.ts`
   - Can be done regardless of check-in state (per PRD: "Status changes can happen at any time").
   - If status is `completed`, set `completedAt = now()`. Otherwise, clear `completedAt`.
+  - For shared (`both`) action items, either partner can update the status.
 
-- [ ] **P4-A3**: `updateActionItem(id, data)` -- Edits description, owner, due date
+- [ ] **P4-A3**: `updateActionItem(id, data)` -- Edits description, owner type/id, due date
   - File: `src/app/check-ins/actions.ts`
   - Guard: only while check-in is `in_progress`. In `completed` state, only status changes are allowed (P4-A2).
+  - Supports changing owner type (e.g., individual -> both or vice versa). Validates ownership constraints.
 
 - [ ] **P4-A4**: `deleteActionItem(id)` -- Removes an action item
   - File: `src/app/check-ins/actions.ts`
@@ -545,25 +548,31 @@ All Phase 2 tasks are complete.
 - [ ] **P4-A5**: `getMyActionItems()` -- Gets open action items assigned to the current user across all check-ins
   - File: `src/app/check-ins/actions.ts`
   - Used for the dashboard widget.
+  - Query logic: returns items where (`ownerType = 'individual'` AND `ownerId = currentUserId`) OR (`ownerType = 'both'` AND the action item's check-in belongs to the user's active partnership).
+  - Sorted by due date (soonest first), then creation date.
 
 ### UI Components
 
 - [ ] **P4-U1**: `ActionItemForm` -- Inline form under a question to add an action item
   - File: `src/components/action-item-form.tsx` (new)
-  - Inputs: description, owner selector (self or partner), optional due date picker.
+  - Inputs: description, owner selector ("Me" / "Partner name" / "Both of us"), optional due date picker.
+  - "Both of us" sets `ownerType: 'both'` and `ownerId: null`.
 
 - [ ] **P4-U2**: `ActionItemCard` -- Shows a single action item with status toggle
   - File: `src/components/action-item-card.tsx` (new)
-  - Shows: description, owner name, status badge, due date.
+  - Shows: description, owner label (partner name for individual, "Both of you" / "Shared" for both), status badge, due date.
+  - Shared items display a "Shared" badge or icon to distinguish from individual items.
   - Click/button to cycle status: open -> in_progress -> completed.
 
 - [ ] **P4-U3**: `ActionItemList` -- Aggregated view of action items for a check-in or user
   - File: `src/components/action-item-list.tsx` (new)
   - Used in check-in results view and on the dashboard.
+  - Supports filtering by owner type: "All", "Mine", "Partner's", "Shared".
 
 - [ ] **P4-U4**: `DashboardActionItems` -- Widget on main dashboard showing open items for the user
   - File: `src/app/dashboard-action-items.tsx` (new) or inline in page.tsx
-  - Shows open/in-progress action items assigned to the current user.
+  - Shows open/in-progress action items assigned to the current user (individual) + shared items (both).
+  - Groups or allows filtering: "Mine" vs. "Shared".
   - Links to the check-in detail page for each item.
 
 ### Integration Points
@@ -571,24 +580,26 @@ All Phase 2 tasks are complete.
 - [ ] **P4-INT1**: Wire action item controls into `CheckInActiveView` (P3-U4)
   - Per-question action item form and list.
   - Add action items during `in_progress` state.
+  - Owner selector shows "Me", partner's name, and "Both of us".
 
 - [ ] **P4-INT2**: Wire action item display into `CheckInResultsView` (P3-U5)
   - Show action items per question and in summary section.
   - Status toggle works even in completed check-ins.
+  - Shared action items are visually distinguished (e.g., "Shared" badge).
 
 ### Phase 4 Task Summary
 
 | Task                          | Category    | Effort | Dependencies        |
 | ----------------------------- | ----------- | ------ | ------------------- |
 | P4-S1 actionItems table       | Schema      | Small  | P3-S2, P3-S4        |
-| P4-A1 createActionItem        | Action      | Small  | P4-S1               |
+| P4-A1 createActionItem        | Action      | Medium | P4-S1               |
 | P4-A2 updateActionItemStatus  | Action      | Small  | P4-S1               |
 | P4-A3 updateActionItem        | Action      | Small  | P4-S1               |
 | P4-A4 deleteActionItem        | Action      | Small  | P4-S1               |
-| P4-A5 getMyActionItems        | Action      | Small  | P4-S1               |
+| P4-A5 getMyActionItems        | Action      | Medium | P4-S1               |
 | P4-U1 ActionItemForm          | UI          | Medium | P4-A1               |
-| P4-U2 ActionItemCard          | UI          | Small  | P4-A2               |
-| P4-U3 ActionItemList          | UI          | Small  | P4-U2               |
+| P4-U2 ActionItemCard          | UI          | Medium | P4-A2               |
+| P4-U3 ActionItemList          | UI          | Medium | P4-U2               |
 | P4-U4 DashboardActionItems    | UI          | Medium | P4-A5, P4-U3        |
 | P4-INT1 Wire into ActiveView  | Integration | Medium | P3-U4, P4-U1, P4-U3 |
 | P4-INT2 Wire into ResultsView | Integration | Small  | P3-U5, P4-U3        |
@@ -873,6 +884,7 @@ All Phase 2 tasks are complete.
   - Multiple choice options: >= 2 items, each 1-200 chars.
   - Response text: max 5,000 chars.
   - Action item description: max 500 chars.
+  - Action item `ownerType`: must be `individual` or `both`. When `individual`, `ownerId` required and must reference a partnership member. When `both`, `ownerId` must be null.
   - Email format for partner invites.
   - Add `zod` dependency if not present.
 

@@ -1,12 +1,14 @@
 import { sql } from 'drizzle-orm'
 import {
   boolean,
+  index,
   integer,
   pgEnum,
   pgTable,
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
@@ -177,3 +179,104 @@ export const templateQuestions = pgTable('template_questions', {
 
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
 })
+
+// ---------------------------------------------------------------------------
+// Check-ins (instances of a template that partners work through together)
+// ---------------------------------------------------------------------------
+
+export const checkInStatusEnum = pgEnum('check_in_status', [
+  'draft',
+  'scheduled',
+  'in_progress',
+  'completed',
+])
+
+export const checkIns = pgTable(
+  'check_ins',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+
+    partnershipId: text('partnership_id')
+      .notNull()
+      .references(() => partnerships.id, { onDelete: 'cascade' }),
+
+    templateId: text('template_id').references(() => checkInTemplates.id),
+
+    title: text('title').notNull(),
+    status: checkInStatusEnum('status').notNull().default('draft'),
+
+    scheduledFor: timestamp('scheduled_for', { mode: 'date' }),
+    startedAt: timestamp('started_at', { mode: 'date' }),
+    completedAt: timestamp('completed_at', { mode: 'date' }),
+
+    createdById: text('created_by_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+  },
+  table => [
+    index('check_ins_partnership_id_idx').on(table.partnershipId),
+    index('check_ins_status_idx').on(table.status),
+    index('check_ins_scheduled_for_idx').on(table.scheduledFor),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Check-in questions (copied from template or added by users per check-in)
+// ---------------------------------------------------------------------------
+
+export const checkInQuestions = pgTable('check_in_questions', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+
+  checkInId: text('check_in_id')
+    .notNull()
+    .references(() => checkIns.id, { onDelete: 'cascade' }),
+
+  questionText: text('question_text').notNull(),
+  isRequired: boolean('is_required').notNull().default(true),
+  orderIndex: integer('order_index').notNull(),
+
+  // Null for questions copied from a template; set for user-added questions
+  createdById: text('created_by_id').references(() => users.id, {
+    onDelete: 'cascade',
+  }),
+})
+
+// ---------------------------------------------------------------------------
+// Check-in responses (each partner's answers to check-in questions)
+// ---------------------------------------------------------------------------
+
+export const checkInResponses = pgTable(
+  'check_in_responses',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+
+    checkInQuestionId: text('check_in_question_id')
+      .notNull()
+      .references(() => checkInQuestions.id, { onDelete: 'cascade' }),
+
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+
+    responseText: text('response_text'),
+    isDraft: boolean('is_draft').notNull().default(true),
+
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+  },
+  table => [
+    unique('check_in_responses_question_user_uniq').on(
+      table.checkInQuestionId,
+      table.userId,
+    ),
+  ],
+)
