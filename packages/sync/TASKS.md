@@ -121,15 +121,17 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
   - "Re-open" button.
   - "Summarize with AI" button (Phase 6 placeholder).
 
-- [ ] **P3-U6**: `CheckInStatusBadge` -- Visual indicator of check-in state
-  - File: `src/components/check-in-status-badge.tsx` (new)
+- [x] **P3-U6**: `CheckInStatusBadge` -- Visual indicator of check-in state
+  - File: `src/components/check-in-status-badge.tsx`
   - States: draft, scheduled, in progress, completed.
   - Uses both color and text (not color alone, per accessibility requirements).
+  - Tests: `src/components/__tests__/check-in-status-badge.test.tsx`
 
-- [ ] **P3-U7**: `ResponseInput` -- Textarea input component for answering questions
-  - File: `src/components/response-input.tsx` (new)
+- [x] **P3-U7**: `ResponseInput` -- Textarea input component for answering questions
+  - File: `src/components/response-input.tsx`
   - Textarea with character counter (max 5,000).
-  - Supports auto-save via `onChange` callback with debounce.
+  - Supports auto-save via `onAutoSave` callback with 1s debounce.
+  - Tests: `src/components/__tests__/response-input.test.tsx`
 
 ### Pages
 
@@ -190,8 +192,8 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 | P3-U2 CheckInDraftView       | UI       | Medium | P3-A6, P3-U7        |        |
 | P3-U4 CheckInActiveView      | UI       | Large  | P3-A6, P3-U7        |        |
 | P3-U5 CheckInResultsView     | UI       | Medium | P3-A10              |        |
-| P3-U6 CheckInStatusBadge     | UI       | Small  | --                  |        |
-| P3-U7 ResponseInput          | UI       | Small  | --                  |        |
+| P3-U6 CheckInStatusBadge     | UI       | Small  | --                  | Done   |
+| P3-U7 ResponseInput          | UI       | Small  | --                  | Done   |
 | P3-P1 /check-ins page        | Page     | Small  | P3-A11, P3-U6       |        |
 | P3-P2 /check-ins/new page    | Page     | Small  | P3-U1               |        |
 | P3-P3 /check-ins/[id] page   | Page     | Medium | P3-U2, P3-U4, P3-U5 |        |
