@@ -202,7 +202,9 @@ export const checkIns = pgTable(
       .notNull()
       .references(() => partnerships.id, { onDelete: 'cascade' }),
 
-    templateId: text('template_id').references(() => checkInTemplates.id),
+    templateId: text('template_id')
+      .notNull()
+      .references(() => checkInTemplates.id),
 
     title: text('title').notNull(),
     status: checkInStatusEnum('status').notNull().default('draft'),

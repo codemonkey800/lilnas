@@ -323,7 +323,7 @@ All Phase 2 tasks are complete.
 
 - [x] **P3-S2**: `checkIns` table
   - File: `src/db/schema.ts`
-  - Columns: `id` (text PK, UUID), `partnershipId` (text FK NOT NULL), `templateId` (text FK nullable), `title` (text NOT NULL), `status` (checkInStatusEnum), `scheduledFor` (timestamp nullable), `startedAt` (timestamp nullable), `completedAt` (timestamp nullable), `createdById` (text FK NOT NULL), `createdAt` (timestamp), `updatedAt` (timestamp).
+  - Columns: `id` (text PK, UUID), `partnershipId` (text FK NOT NULL), `templateId` (text FK NOT NULL -- a template is always required), `title` (text NOT NULL), `status` (checkInStatusEnum), `scheduledFor` (timestamp nullable), `startedAt` (timestamp nullable), `completedAt` (timestamp nullable), `createdById` (text FK NOT NULL), `createdAt` (timestamp), `updatedAt` (timestamp).
   - Indexes: on `partnershipId`, on `status`, on `scheduledFor`.
 
 - [x] **P3-S3**: `questionTypeEnum` -- Skipped (not needed yet)
@@ -334,7 +334,7 @@ All Phase 2 tasks are complete.
   - File: `src/db/schema.ts`
   - Columns: `id` (text PK, UUID), `checkInId` (text FK, cascade delete), `questionText` (text NOT NULL), `isRequired` (boolean default true), `orderIndex` (integer NOT NULL), `createdById` (text FK nullable -- null for template-copied questions).
   - Note: `questionType` and `options` columns omitted -- all questions are free text, consistent with `templateQuestions`. Will add when scale/multiple choice support is needed.
-  - Questions are copied from a template at creation time. Can also be added directly by users.
+  - Questions are copied from the template at creation time and are immutable for the lifetime of the check-in (no per-check-in editing).
 
 - [x] **P3-S5**: `checkInResponses` table
   - File: `src/db/schema.ts`
@@ -343,89 +343,69 @@ All Phase 2 tasks are complete.
 
 ### Server Actions
 
-- [ ] **P3-A1**: `createCheckIn(data)` -- Creates a check-in from a template or from scratch
-  - File: `src/app/check-ins/actions.ts` (new)
-  - Input: `{ templateId?: string, title?: string, scheduledFor?: Date }`
-  - If `templateId` is provided: copy questions from the template into `checkInQuestions`. Title defaults to template name + date.
-  - If no template: create a blank check-in with no questions. Title is required.
+- [x] **P3-A1**: `createCheckIn(data)` -- Creates a check-in from a template (required)
+  - File: `src/app/(app)/check-ins/actions.ts`
+  - Input: `{ templateId: string, title?: string, scheduledFor?: Date }`
+  - `templateId` is required: copies questions from the template into `checkInQuestions`. Title defaults to template name + date.
   - Sets status to `draft` (or `scheduled` if `scheduledFor` is in the future).
   - Authorization: user must have an active partnership. Check-in is created under that partnership.
 
-- [ ] **P3-A2**: `addQuestion(checkInId, data)` -- Adds a custom question to a draft/scheduled check-in
-  - File: `src/app/check-ins/actions.ts`
-  - Input: `{ questionText, questionType, options?, isRequired? }`
-  - Guard: check-in must be in `draft` or `scheduled` state.
-  - Sets `orderIndex` to max existing + 1. Sets `createdById` to current user.
+- ~~**P3-A2**: `addQuestion`~~ -- Dropped. Questions are copied from templates and locked.
 
-- [ ] **P3-A3**: `updateQuestion(questionId, data)` -- Edits a question on a check-in
-  - File: `src/app/check-ins/actions.ts`
-  - Input: `{ questionText?, questionType?, options?, isRequired? }`
-  - Guard: check-in must be in `draft` or `scheduled` state.
-  - Preserves existing draft responses (user can re-answer if question changed).
+- ~~**P3-A3**: `updateQuestion`~~ -- Dropped. Questions are copied from templates and locked.
 
-- [ ] **P3-A4**: `removeQuestion(questionId)` -- Removes a question and its draft responses
-  - File: `src/app/check-ins/actions.ts`
-  - Guard: check-in must be in `draft` or `scheduled` state.
-  - Cascade: deletes associated `checkInResponses` for that question.
+- ~~**P3-A4**: `removeQuestion`~~ -- Dropped. Questions are copied from templates and locked.
 
-- [ ] **P3-A5**: `reorderQuestions(checkInId, orderedIds)` -- Updates order_index for all questions
-  - File: `src/app/check-ins/actions.ts`
-  - Input: `string[]` of question IDs in desired order.
-  - Guard: check-in must be in `draft` or `scheduled` state.
-  - Updates `orderIndex` for each question in a transaction.
+- ~~**P3-A5**: `reorderQuestions`~~ -- Dropped. Questions are copied from templates and locked.
 
-- [ ] **P3-A6**: `saveResponse(questionId, text)` -- Upserts a response (draft or active)
-  - File: `src/app/check-ins/actions.ts`
+- [x] **P3-A6**: `saveResponse(questionId, text)` -- Upserts a response (draft or active)
+  - File: `src/app/(app)/check-ins/actions.ts`
   - Upserts on `(checkInQuestionId, userId)`. Sets `isDraft` based on check-in status.
   - Response text max 5,000 chars.
 
-- [ ] **P3-A7**: `startCheckIn(checkInId)` -- Transitions to `in_progress`
-  - File: `src/app/check-ins/actions.ts`
+- [x] **P3-A7**: `startCheckIn(checkInId)` -- Transitions to `in_progress`
+  - File: `src/app/(app)/check-ins/actions.ts`
   - Guard: check-in must be in `draft` or `scheduled` state.
   - Side effects: set `startedAt = now()`, set all existing responses `isDraft = false`.
-  - Questions become locked (no add/edit/remove/reorder).
 
-- [ ] **P3-A8**: `completeCheckIn(checkInId)` -- Transitions to `completed`
-  - File: `src/app/check-ins/actions.ts`
+- [x] **P3-A8**: `completeCheckIn(checkInId)` -- Transitions to `completed`
+  - File: `src/app/(app)/check-ins/actions.ts`
   - Guard: check-in must be in `in_progress` state.
   - Side effects: set `completedAt = now()`. Answers become read-only.
 
-- [ ] **P3-A9**: `reopenCheckIn(checkInId)` -- Transitions back to `in_progress`
-  - File: `src/app/check-ins/actions.ts`
+- [x] **P3-A9**: `reopenCheckIn(checkInId)` -- Transitions back to `in_progress`
+  - File: `src/app/(app)/check-ins/actions.ts`
   - Guard: check-in must be in `completed` state.
   - Side effects: clear `completedAt`. Answers become editable again.
 
-- [ ] **P3-A10**: `getCheckIn(id)` -- Gets a check-in with questions, responses, and action items
-  - File: `src/app/check-ins/actions.ts`
+- [x] **P3-A10**: `getCheckIn(id)` -- Gets a check-in with questions and responses
+  - File: `src/app/(app)/check-ins/queries.ts`
   - Authorization: user must be a member of the check-in's partnership.
   - Privacy: if check-in is `draft` or `scheduled`, only return the current user's responses (not partner's). If `in_progress` or `completed`, return both.
 
-- [ ] **P3-A11**: `getCheckIns(partnershipId)` -- Lists check-ins for a partnership
-  - File: `src/app/check-ins/actions.ts`
+- [x] **P3-A11**: `getCheckIns()` -- Lists check-ins for the user's active partnership
+  - File: `src/app/(app)/check-ins/queries.ts`
   - Returns: id, title, status, scheduledFor, completedAt, question count. Ordered by most recent first.
 
 ### UI Components
 
-- [ ] **P3-U1**: `CreateCheckInForm` -- Template selector, optional title override, optional schedule picker
-  - File: `src/app/check-ins/new/create-check-in-form.tsx` (new)
-  - Lists available templates (system + custom). Option for "Blank check-in."
+- [ ] **P3-U1**: `CreateCheckInForm` -- Template selector (required), optional title override, optional schedule picker
+  - File: `src/app/(app)/check-ins/new/create-check-in-form.tsx` (new)
+  - Lists available templates (system + custom). A template must be selected.
   - Title input (defaults to template name + date).
   - Optional date/time picker for scheduling.
 
-- [ ] **P3-U2**: `CheckInDraftView` -- Question list with answer inputs + question management
-  - File: `src/app/check-ins/[id]/check-in-draft-view.tsx` (new)
-  - Shows questions in order. Each has an answer input (type-aware: textarea for free_text, number slider for scale, radio/select for multiple_choice).
-  - Question management controls: add, edit, remove, reorder buttons.
+- [ ] **P3-U2**: `CheckInDraftView` -- Question list with answer inputs (questions are read-only)
+  - File: `src/app/(app)/check-ins/[id]/check-in-draft-view.tsx` (new)
+  - Shows questions in order. Each has a textarea answer input.
+  - Questions are read-only (copied from template, no editing controls).
   - Progress indicator: "You: 3/5 answered. Partner: 2/5 answered." (count only, no content).
   - "Start Check-in" button with confirmation dialog.
 
-- [ ] **P3-U3**: `CheckInQuestionEditor` -- Inline form for adding or editing a question
-  - File: `src/app/check-ins/[id]/check-in-question-editor.tsx` (new)
-  - Text input, type selector, options builder for multiple_choice, required toggle.
-  - Used in both draft view (for check-in questions) and could share logic with `QuestionBuilder` from Phase 2.
+- ~~**P3-U3**: `CheckInQuestionEditor`~~ -- Dropped. Questions are locked from template.
 
 - [ ] **P3-U4**: `CheckInActiveView` -- Side-by-side answer display during in_progress state
-  - File: `src/app/check-ins/[id]/check-in-active-view.tsx` (new)
+  - File: `src/app/(app)/check-ins/[id]/check-in-active-view.tsx` (new)
   - Questions displayed in order. For each question:
     - Partner A's answer (labeled with display name).
     - Partner B's answer (labeled with display name).
@@ -436,7 +416,7 @@ All Phase 2 tasks are complete.
   - "Complete Check-in" button.
 
 - [ ] **P3-U5**: `CheckInResultsView` -- Read-only summary of completed check-in
-  - File: `src/app/check-ins/[id]/check-in-results-view.tsx` (new)
+  - File: `src/app/(app)/check-ins/[id]/check-in-results-view.tsx` (new)
   - Header: title, template name, completion date.
   - Questions listed with both partners' answers side-by-side.
   - Action items section.
@@ -448,12 +428,9 @@ All Phase 2 tasks are complete.
   - States: draft, scheduled, in progress, completed.
   - Uses both color and text (not color alone, per accessibility requirements).
 
-- [ ] **P3-U7**: `ResponseInput` -- Type-aware input component for answering questions
+- [ ] **P3-U7**: `ResponseInput` -- Textarea input component for answering questions
   - File: `src/components/response-input.tsx` (new)
-  - Renders based on question type:
-    - `free_text`: textarea with character counter (max 5,000).
-    - `scale`: numbered 1-10 selector (buttons or slider).
-    - `multiple_choice`: radio button group from options.
+  - Textarea with character counter (max 5,000).
   - Supports auto-save via `onChange` callback with debounce.
 
 ### Pages
@@ -474,36 +451,76 @@ All Phase 2 tasks are complete.
     - `in_progress` -> `CheckInActiveView`
     - `completed` -> `CheckInResultsView`
 
+### Supporting Code
+
+- [x] **P3-H1**: Shared partnership helpers extracted to `src/lib/partnership.ts`
+  - `getActivePartnership(userId)` and `isPartnershipMember(partnershipId, userId)`.
+  - Previously in `src/app/(app)/templates/helpers.ts`; now re-exported from there for backward compatibility.
+
+- [x] **P3-H2**: Check-in types definition
+  - File: `src/app/(app)/check-ins/types.ts`
+  - Types: `ActionResult`, `CreateCheckInInput`, `CheckInListItem`, `CheckInQuestion`, `CheckInResponse`, `CheckInDetail`.
+
+- [x] **P3-H3**: Check-in helpers
+  - File: `src/app/(app)/check-ins/helpers.ts`
+  - Helpers: `getCheckInForUser()`, `guardDraftOrScheduled()`, `guardCanRespond()`, `guardInProgress()`, `guardCompleted()`, `validateTitle()`, `validateResponseText()`.
+
+### Integration Tests
+
+- [x] **P3-T1**: Integration test helpers for check-ins
+  - File: `src/__tests__/integration/helpers.ts`
+  - Added: `createTestCheckIn()`, `createTestCheckInQuestion()`, `createTestCheckInResponse()`, `getCheckIn()`, `getCheckInQuestions()`, `getCheckInResponses()` factory/assertion helpers.
+  - Updated `TABLES_IN_DELETE_ORDER` to include `checkInResponses`, `checkInQuestions`, and `checkIns`.
+
+- [x] **P3-T2**: Integration tests for check-in actions
+  - File: `src/__tests__/integration/check-in-actions.test.ts`
+  - Coverage: `createCheckIn` (happy path, custom title, default title, scheduled status, draft status, auth, partnership, template not found, empty template, title validation), `saveResponse` (new response, upsert, isDraft by status, auth, question not found, membership, completed guard, response length), `startCheckIn` (draft->in_progress, marks drafts visible, auth, membership, already started, already completed), `completeCheckIn` (in_progress->completed, auth, membership, draft guard, completed guard), `reopenCheckIn` (completed->in_progress, clears completedAt, auth, membership, draft guard, in_progress guard).
+
+- [x] **P3-T3**: Integration tests for check-in queries
+  - File: `src/__tests__/integration/check-in-queries.test.ts`
+  - Coverage: `getCheckIn` (member access with questions/responses, draft privacy filtering, in_progress shows both, displayName included, non-member rejection, auth), `getCheckIns` (ordering by most recent, questionCount, empty partnership, auth, no partnership).
+
+- [x] **P3-T4**: Unit tests for check-in helpers
+  - File: `src/app/(app)/check-ins/__tests__/helpers.test.ts`
+  - Coverage: `guardDraftOrScheduled` (accepts draft/scheduled, rejects in_progress/completed), `guardCanRespond` (accepts draft/scheduled/in_progress, rejects completed), `guardInProgress` (accepts in_progress, rejects others), `guardCompleted` (accepts completed, rejects others), `validateTitle` (valid, boundary 200 chars, empty, whitespace, over limit, trimming), `validateResponseText` (empty, boundary 5000 chars, over limit).
+
 ### Phase 3 Task Summary
 
-| Task                         | Category | Effort | Dependencies        |
-| ---------------------------- | -------- | ------ | ------------------- |
-| P3-S1 checkInStatusEnum      | Schema   | Small  | --                  |
-| P3-S2 checkIns table         | Schema   | Small  | P3-S1               |
-| P3-S3 questionTypeEnum       | Schema   | Small  | --                  |
-| P3-S4 checkInQuestions table | Schema   | Small  | P3-S2, P3-S3        |
-| P3-S5 checkInResponses table | Schema   | Small  | P3-S4               |
-| P3-A1 createCheckIn          | Action   | Medium | P3-S2, P3-S4, P2-S2 |
-| P3-A2 addQuestion            | Action   | Small  | P3-S4               |
-| P3-A3 updateQuestion         | Action   | Small  | P3-S4               |
-| P3-A4 removeQuestion         | Action   | Small  | P3-S4, P3-S5        |
-| P3-A5 reorderQuestions       | Action   | Small  | P3-S4               |
-| P3-A6 saveResponse           | Action   | Medium | P3-S5               |
-| P3-A7 startCheckIn           | Action   | Medium | P3-S2, P3-S5        |
-| P3-A8 completeCheckIn        | Action   | Small  | P3-S2               |
-| P3-A9 reopenCheckIn          | Action   | Small  | P3-S2               |
-| P3-A10 getCheckIn            | Action   | Medium | P3-S2, P3-S4, P3-S5 |
-| P3-A11 getCheckIns           | Action   | Small  | P3-S2               |
-| P3-U1 CreateCheckInForm      | UI       | Medium | P2-A5, P3-A1        |
-| P3-U2 CheckInDraftView       | UI       | Large  | P3-A6, P3-U3, P3-U7 |
-| P3-U3 CheckInQuestionEditor  | UI       | Medium | P3-A2, P3-A3        |
-| P3-U4 CheckInActiveView      | UI       | Large  | P3-A6, P3-U7        |
-| P3-U5 CheckInResultsView     | UI       | Medium | P3-A10              |
-| P3-U6 CheckInStatusBadge     | UI       | Small  | --                  |
-| P3-U7 ResponseInput          | UI       | Medium | --                  |
-| P3-P1 /check-ins page        | Page     | Small  | P3-A11, P3-U6       |
-| P3-P2 /check-ins/new page    | Page     | Small  | P3-U1               |
-| P3-P3 /check-ins/[id] page   | Page     | Medium | P3-U2, P3-U4, P3-U5 |
+| Task                         | Category | Effort | Dependencies        | Status  |
+| ---------------------------- | -------- | ------ | ------------------- | ------- |
+| P3-S1 checkInStatusEnum      | Schema   | Small  | --                  | Done    |
+| P3-S2 checkIns table         | Schema   | Small  | P3-S1               | Done    |
+| P3-S3 questionTypeEnum       | Schema   | Small  | --                  | Skipped |
+| P3-S4 checkInQuestions table | Schema   | Small  | P3-S2               | Done    |
+| P3-S5 checkInResponses table | Schema   | Small  | P3-S4               | Done    |
+| P3-H1 Shared partnership     | Support  | Small  | --                  | Done    |
+| P3-H2 Check-in types         | Support  | Small  | --                  | Done    |
+| P3-H3 Check-in helpers       | Support  | Small  | --                  | Done    |
+| P3-A1 createCheckIn          | Action   | Medium | P3-S2, P3-S4, P2-S2 | Done    |
+| ~~P3-A2 addQuestion~~        | Action   | --     | --                  | Dropped |
+| ~~P3-A3 updateQuestion~~     | Action   | --     | --                  | Dropped |
+| ~~P3-A4 removeQuestion~~     | Action   | --     | --                  | Dropped |
+| ~~P3-A5 reorderQuestions~~   | Action   | --     | --                  | Dropped |
+| P3-A6 saveResponse           | Action   | Medium | P3-S5               | Done    |
+| P3-A7 startCheckIn           | Action   | Medium | P3-S2, P3-S5        | Done    |
+| P3-A8 completeCheckIn        | Action   | Small  | P3-S2               | Done    |
+| P3-A9 reopenCheckIn          | Action   | Small  | P3-S2               | Done    |
+| P3-A10 getCheckIn            | Query    | Medium | P3-S2, P3-S4, P3-S5 | Done    |
+| P3-A11 getCheckIns           | Query    | Small  | P3-S2               | Done    |
+| P3-T1 Test helpers           | Test     | Small  | P3-S2, P3-S4, P3-S5 | Done    |
+| P3-T2 Action integration tests | Test   | Medium | P3-A1..A9, P3-T1    | Done    |
+| P3-T3 Query integration tests | Test    | Medium | P3-A10, P3-A11, P3-T1 | Done  |
+| P3-T4 Helper unit tests      | Test     | Small  | P3-H3               | Done    |
+| P3-U1 CreateCheckInForm      | UI       | Medium | P2-A5, P3-A1        |         |
+| P3-U2 CheckInDraftView       | UI       | Medium | P3-A6, P3-U7        |         |
+| ~~P3-U3 CheckInQuestionEditor~~ | UI    | --     | --                  | Dropped |
+| P3-U4 CheckInActiveView      | UI       | Large  | P3-A6, P3-U7        |         |
+| P3-U5 CheckInResultsView     | UI       | Medium | P3-A10              |         |
+| P3-U6 CheckInStatusBadge     | UI       | Small  | --                  |         |
+| P3-U7 ResponseInput          | UI       | Small  | --                  |         |
+| P3-P1 /check-ins page        | Page     | Small  | P3-A11, P3-U6       |         |
+| P3-P2 /check-ins/new page    | Page     | Small  | P3-U1               |         |
+| P3-P3 /check-ins/[id] page   | Page     | Medium | P3-U2, P3-U4, P3-U5 |         |
 
 ---
 
@@ -930,10 +947,10 @@ For each phase, work in this order: **Schema -> Seed -> Actions -> Components ->
 | ~~4~~ | ~~P2-S1, P2-S2, P2-SEED (template schema + seed)~~                    | ~~2~~             |
 | ~~5~~ | ~~P2-A1 through P2-A6 (template actions + queries)~~                  | ~~2~~             |
 | ~~6~~ | ~~P2-U1 through P2-U5, P2-P1 through P2-P4 (template UI + pages)~~    | ~~2~~             |
-| 7     | P3-S1 through P3-S5 (check-in schema)                                 | 3                 |
-| 8     | P3-A1 through P3-A11 (check-in actions)                               | 3                 |
+| ~~7~~ | ~~P3-S1 through P3-S5 (check-in schema)~~                              | ~~3~~             |
+| ~~8~~ | ~~P3-H1-H3, A1, A6-A11, T1-T4 (supporting code, actions, queries, tests; A2-A5 dropped)~~ | ~~3~~ |
 | 9     | P3-U6, P3-U7 (shared components)                                      | 3                 |
-| 10    | P3-U1 through P3-U5, P3-P1 through P3-P3 (check-in UI + pages)        | 3                 |
+| 10    | P3-U1, P3-U2, P3-U4, P3-U5, P3-P1 through P3-P3 (check-in UI + pages) | 3               |
 | 11    | P4-S1, P4-A1 through P4-A5 (action items schema + actions)            | 4                 |
 | 12    | P4-U1 through P4-U4, P4-INT1, P4-INT2 (action items UI + integration) | 4                 |
 | 13    | DASH-1, DASH-2 (dashboard redesign)                                   | Cross-cutting     |

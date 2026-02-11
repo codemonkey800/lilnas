@@ -302,7 +302,7 @@ Users can create templates from scratch or by duplicating a system template. Eit
 
 #### Overview
 
-This is the core feature. A check-in is an instance of a template (or a custom set of questions) that both partners work through together. Check-ins have a well-defined lifecycle managed by a state machine.
+This is the core feature. A check-in is an instance of a template that both partners work through together. A template must always be selected when creating a check-in; questions are copied from the template and locked (no per-check-in question editing). Check-ins have a well-defined lifecycle managed by a state machine.
 
 #### Check-in States
 
@@ -319,7 +319,7 @@ See [Section 7: Check-in State Machine](#7-check-in-state-machine) for the full 
 
 | ID  | Story                                                               | Acceptance Criteria                                                                                                                     |
 | --- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| C1  | As a user, I can create a check-in from a template                  | Questions are copied from the template. Check-in starts in `draft` state.                                                               |
+| C1  | As a user, I can create a check-in from a template                  | A template must be selected. Questions are copied and locked. Check-in starts in `draft` state.                                         |
 | C2  | As a user, I can schedule a check-in for a specific date and time   | Check-in enters `scheduled` state. Date/time is displayed on the dashboard.                                                             |
 | C3  | As a user, I can draft answers before the check-in starts           | In `draft` or `scheduled` state, I can write answers. My partner cannot see them yet.                                                   |
 | C4  | As a user, I can start a check-in                                   | Transitions from `draft` or `scheduled` to `in_progress`. Both partners' answers become visible.                                        |
@@ -328,29 +328,16 @@ See [Section 7: Check-in State Machine](#7-check-in-state-machine) for the full 
 | C7  | As a user, I can complete a check-in                                | Transitions to `completed`. Results summary is shown.                                                                                   |
 | C8  | As a user, I can re-open a completed check-in                       | Transitions back to `in_progress`. Answers become editable again.                                                                       |
 | C9  | As a user, I can view the results of a completed check-in           | Shows all questions with both partners' answers and any action items.                                                                   |
-| C10 | As a user, I can add custom questions to a check-in                 | In `draft` or `scheduled` state, I can add new questions with a type and optional options. New questions appear at the end of the list. |
-| C11 | As a user, I can edit a question on a check-in                      | In `draft` or `scheduled` state, I can edit the question text, type, options, and required flag of any question.                        |
-| C12 | As a user, I can remove a question from a check-in                  | In `draft` or `scheduled` state, I can remove any question. Removal deletes associated draft responses. A confirmation dialog is shown. |
-| C13 | As a user, I can reorder questions on a check-in                    | In `draft` or `scheduled` state, I can drag questions to reorder them. Order indexes are updated accordingly.                           |
 
 #### Creating a Check-in
 
 1. User navigates to `/check-ins/new`.
-2. Selects a template from the list (or "Blank check-in" to start with no questions).
-3. If using a template, questions are **copied** into the check-in (so template changes don't affect existing check-ins).
+2. Selects a template from the list (a template is always required).
+3. Questions are **copied** from the template into the check-in and **locked** (so template changes don't affect existing check-ins, and questions cannot be modified per check-in).
 4. Optionally sets a scheduled date/time.
 5. Saves. Check-in enters `draft` (or `scheduled` if a date was provided).
 
-#### Customizing Questions
-
-While a check-in is in `draft` or `scheduled` state, either partner can modify the question list:
-
-- **Add a question**: Click "Add question" at the bottom of the question list. Specify question text, type (free text, scale, or multiple choice), and whether it is required. The question is appended to the end.
-- **Edit a question**: Click the edit icon on any question to modify its text, type, options (for multiple choice), or required flag. If a draft response already exists for that question, it is preserved (the user can re-answer if the question changed substantially).
-- **Remove a question**: Click the delete icon on any question. A confirmation dialog is shown. Removing a question also deletes any draft responses associated with it.
-- **Reorder questions**: Drag questions to rearrange them. The `order_index` values are updated.
-
-Once a check-in moves to `in_progress`, questions are **locked** -- no adding, editing, removing, or reordering. This ensures both partners are answering the same set of questions. If questions need to change after starting, the check-in must be re-opened as a new draft (not supported -- the user should create a new check-in instead).
+> **Note:** Per-check-in question editing (add, edit, remove, reorder) was removed to simplify the experience. Users who want different questions should create or duplicate a template instead.
 
 #### Drafting Answers
 
@@ -410,7 +397,7 @@ Displayed when a check-in is in `completed` state (also accessible from history)
 | ---------------- | ------------- | ---------------------------------------------------------------------- |
 | `id`             | `text` (UUID) | Primary key                                                            |
 | `partnership_id` | `text`        | FK to `partnerships.id`, NOT NULL                                      |
-| `template_id`    | `text`        | FK to `check_in_templates.id`, nullable (null if created from scratch) |
+| `template_id`    | `text`        | FK to `check_in_templates.id`, NOT NULL (a template is always required) |
 | `title`          | `text`        | NOT NULL. Defaults to template name + date.                            |
 | `status`         | `text`        | One of: `draft`, `scheduled`, `in_progress`, `completed`               |
 | `scheduled_for`  | `timestamp`   | Nullable. The date/time the check-in is planned for.                   |
@@ -432,14 +419,12 @@ Displayed when a check-in is in `completed` state (also accessible from history)
 | --------------- | ------------- | --------------------------------------------------------------------------------------------------- |
 | `id`            | `text` (UUID) | Primary key                                                                                         |
 | `check_in_id`   | `text`        | FK to `check_ins.id`, NOT NULL, cascade delete                                                      |
-| `question_text` | `text`        | NOT NULL (copied from template at creation time, or written by user for custom questions)           |
-| `question_type` | `text`        | One of: `free_text`, `scale`, `multiple_choice`                                                     |
-| `options`       | `text`        | JSON-stringified array. Only for `multiple_choice`.                                                 |
-| `is_required`   | `boolean`     | Default: true                                                                                       |
+| `question_text` | `text`        | NOT NULL (copied from template at creation time)                                                    |
+| `is_required`   | `boolean`     | Default: true (always true; all questions are required)                                             |
 | `order_index`   | `integer`     | NOT NULL                                                                                            |
-| `created_by_id` | `text`        | FK to `users.id`, nullable. Null for questions copied from templates; set for user-added questions. |
+| `created_by_id` | `text`        | FK to `users.id`, nullable. Always null (questions are copied from templates).                      |
 
-Questions can be added, edited, removed, and reordered while the check-in is in `draft` or `scheduled` state. Once the check-in transitions to `in_progress`, questions are locked.
+Questions are copied from the template when the check-in is created and are immutable for the lifetime of the check-in.
 
 #### Database: `check_in_responses` Table
 
@@ -459,10 +444,9 @@ Questions can be added, edited, removed, and reordered while the check-in is in 
 
 #### UI Components
 
-- **CreateCheckInForm**: Template selector, optional title override, optional schedule picker.
-- **CheckInDraftView**: Question list with answer inputs, question management controls (add, edit, remove, reorder). Progress indicator. "Start Check-in" button.
-- **CheckInQuestionEditor**: Inline form for adding or editing a question (text input, type selector, options builder for multiple choice, required toggle).
-- **CheckInActiveView**: Side-by-side answer display per question. Editable own answers. Action item controls. Questions are locked (no editing).
+- **CreateCheckInForm**: Template selector (required), optional title override, optional schedule picker.
+- **CheckInDraftView**: Question list with answer inputs. Progress indicator. "Start Check-in" button. Questions are read-only (copied from template).
+- **CheckInActiveView**: Side-by-side answer display per question. Editable own answers. Action item controls.
 - **CheckInResultsView**: Read-only summary of all answers and action items. Re-open and AI summarize buttons.
 - **CheckInStatusBadge**: Visual indicator of check-in state (draft, scheduled, in progress, completed).
 
@@ -769,17 +753,13 @@ All new tables follow the existing schema patterns in `src/db/schema.ts`:
 
 ### Phase 3: Check-in Lifecycle
 
-| Action                                    | File                           | Description                                              |
-| ----------------------------------------- | ------------------------------ | -------------------------------------------------------- |
-| `createCheckIn(data)`                     | `src/app/check-ins/actions.ts` | Creates a check-in from template or scratch              |
-| `addQuestion(checkInId, data)`            | `src/app/check-ins/actions.ts` | Adds a custom question to a draft/scheduled check-in     |
-| `updateQuestion(questionId, data)`        | `src/app/check-ins/actions.ts` | Edits a question's text, type, options, or required flag |
-| `removeQuestion(questionId)`              | `src/app/check-ins/actions.ts` | Removes a question and its draft responses               |
-| `reorderQuestions(checkInId, orderedIds)` | `src/app/check-ins/actions.ts` | Updates order_index for all questions in the check-in    |
-| `saveResponse(questionId, text)`          | `src/app/check-ins/actions.ts` | Upserts a response (draft or active)                     |
-| `startCheckIn(checkInId)`                 | `src/app/check-ins/actions.ts` | Transitions to `in_progress`                             |
-| `completeCheckIn(checkInId)`              | `src/app/check-ins/actions.ts` | Transitions to `completed`                               |
-| `reopenCheckIn(checkInId)`                | `src/app/check-ins/actions.ts` | Transitions back to `in_progress`                        |
+| Action                           | File                           | Description                                              |
+| -------------------------------- | ------------------------------ | -------------------------------------------------------- |
+| `createCheckIn(data)`            | `src/app/check-ins/actions.ts` | Creates a check-in from a template (required)            |
+| `saveResponse(questionId, text)` | `src/app/check-ins/actions.ts` | Upserts a response (draft or active)                     |
+| `startCheckIn(checkInId)`        | `src/app/check-ins/actions.ts` | Transitions to `in_progress`                             |
+| `completeCheckIn(checkInId)`     | `src/app/check-ins/actions.ts` | Transitions to `completed`                               |
+| `reopenCheckIn(checkInId)`       | `src/app/check-ins/actions.ts` | Transitions back to `in_progress`                        |
 
 ### Phase 4: Action Items
 
@@ -967,7 +947,7 @@ The dashboard (`/`) adapts based on partnership status:
 - Template names must be 1-100 characters.
 - Question text must be 1-500 characters.
 - Multiple choice options must have at least 2 items, each 1-200 characters.
-- Question modifications (add, edit, remove, reorder) are only permitted when the check-in status is `draft` or `scheduled`. Server actions reject changes if the check-in is `in_progress` or `completed`.
+- Questions are copied from the template and locked for the lifetime of the check-in (no per-check-in editing).
 - Response text has no hard limit but is capped at 5,000 characters per response.
 - Action item descriptions are capped at 500 characters.
 - Action item `owner_type` must be `individual` or `both`. When `individual`, `owner_id` must reference a member of the partnership. When `both`, `owner_id` must be null.
