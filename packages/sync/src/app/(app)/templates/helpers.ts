@@ -3,13 +3,8 @@ import { and, eq, or } from 'drizzle-orm'
 import { db } from 'src/db'
 import { partnerships } from 'src/db/schema'
 
+import { MAX_QUESTIONS } from './constants'
 import type { QuestionInput } from './types'
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-export const MAX_QUESTIONS = 20
 
 // ---------------------------------------------------------------------------
 // Internal helpers

@@ -181,7 +181,7 @@ All Phase 1 tasks are complete.
 - [x] **P2-H2**: Template validation helpers
   - File: `src/app/(app)/templates/helpers.ts`
   - Helpers: `getActivePartnership()`, `isPartnershipMember()`, `validateName()`, `validateQuestions()`, `validateTemplateInput()`.
-  - Shared across actions and queries. Includes `MAX_QUESTIONS = 20` constant.
+  - Shared across actions and queries. `MAX_QUESTIONS = 20` extracted to `src/app/(app)/templates/constants.ts`.
 
 ### Integration Tests
 
@@ -200,52 +200,59 @@ All Phase 1 tasks are complete.
 
 ### UI Components
 
-- [ ] **P2-U1**: `TemplateList` -- Grid/list of available templates
-  - File: `src/app/(app)/templates/template-list.tsx` (new)
+- [x] **P2-U1**: `TemplateList` -- Grid/list of available templates
+  - File: `src/app/(app)/templates/template-list.tsx`
   - Shows system badge on default templates. Card for each template with name, description preview, question count.
+  - Separates system templates ("Default Templates") and custom templates ("Your Templates") into sections.
+  - Empty state with link to create first template.
 
-- [ ] **P2-U2**: `TemplateCard` -- Summary card for a template
-  - File: `src/app/(app)/templates/template-card.tsx` (new)
+- [x] **P2-U2**: `TemplateCard` -- Summary card for a template
+  - File: `src/app/(app)/templates/template-card.tsx`
   - Shows: name, description preview, question count, actions (view, edit, duplicate, delete).
   - System templates: view and duplicate only (no edit/delete).
+  - Includes inline `DeleteConfirmDialog` using the `Dialog` component.
 
-- [ ] **P2-U3**: `TemplateForm` -- Create/edit form for templates
-  - File: `src/app/(app)/templates/template-form.tsx` (new)
-  - Inputs: name (required), description (optional).
+- [x] **P2-U3**: `TemplateForm` -- Create/edit form for templates
+  - File: `src/app/(app)/templates/template-form.tsx`
+  - Inputs: name (required), description (optional textarea).
   - Contains `QuestionBuilder` for managing questions.
-  - Validation inline: name 1-100 chars, at least 1 question.
+  - Client-side validation: name 1-100 chars, at least 1 non-empty question, question text max 500 chars.
+  - Supports both create and edit modes. Redirects to template detail on success.
 
-- [ ] **P2-U4**: `QuestionBuilder` -- Sortable list of questions with type selector
-  - File: `src/app/(app)/templates/question-builder.tsx` (new)
-  - Each question row: text input, type dropdown (free_text, scale, multiple_choice), required toggle.
-  - If type is `multiple_choice`: options editor (add/remove options, min 2).
-  - Drag-to-reorder (or up/down buttons as simpler alternative).
-  - "Add question" button at bottom.
+- [x] **P2-U4**: `QuestionBuilder` -- Sortable list of questions with controls
+  - File: `src/app/(app)/templates/question-builder.tsx`
+  - Each question row: text input with character counter (500 max), required toggle.
+  - Up/down buttons for reordering (simpler alternative to drag-to-reorder).
+  - "Add question" button at bottom. Max questions enforced (MAX_QUESTIONS = 20).
+  - Note: Question type dropdown (free_text, scale, multiple_choice) and options editor not yet implemented -- all questions default to free text. Will add when scale/multiple choice support is needed.
 
-- [ ] **P2-U5**: `TemplateDetail` -- Read-only view of a template's questions
-  - File: `src/app/(app)/templates/[id]/template-detail.tsx` (new)
-  - Shows all questions in order with their types and options.
+- [x] **P2-U5**: `TemplateDetail` -- Read-only view of a template's questions
+  - File: `src/app/(app)/templates/[id]/template-detail.tsx`
+  - Shows all questions in order with numbering. Optional badge for non-required questions.
+  - Action bar: Edit (custom only), Duplicate, Delete (custom only).
+  - Includes inline `DeleteDetailDialog` that redirects to `/templates` on success.
 
 ### Pages
 
-- [ ] **P2-P1**: `/templates` -- Template list page
-  - File: `src/app/(app)/templates/page.tsx` (replace stub)
-  - Server component. Auth guard. Fetches templates and renders `TemplateList`.
-  - "Create template" button linking to `/templates/new`.
+- [x] **P2-P1**: `/templates` -- Template list page
+  - File: `src/app/(app)/templates/page.tsx` (replaced stub)
+  - Server component. Fetches templates via `getTemplates()` and renders `TemplateList`.
+  - "New Template" button linking to `/templates/new`.
+  - Shows partnership setup prompt when user has no active partnership.
 
-- [ ] **P2-P2**: `/templates/new` -- Create template page
-  - File: `src/app/(app)/templates/new/page.tsx` (new)
+- [x] **P2-P2**: `/templates/new` -- Create template page
+  - File: `src/app/(app)/templates/new/page.tsx`
   - Server component wrapper. Renders `TemplateForm` in create mode.
 
-- [ ] **P2-P3**: `/templates/[id]` -- View template detail page
-  - File: `src/app/(app)/templates/[id]/page.tsx` (new)
-  - Server component. Fetches template + questions. Renders `TemplateDetail`.
-  - Actions: Edit (if custom), Duplicate, Delete (if custom).
+- [x] **P2-P3**: `/templates/[id]` -- View template detail page
+  - File: `src/app/(app)/templates/[id]/page.tsx`
+  - Server component. Fetches template + questions via `getTemplate()`. Renders `TemplateDetail`.
+  - Dynamic metadata with template name. Returns 404 if template not found.
 
-- [ ] **P2-P4**: `/templates/[id]/edit` -- Edit template page
-  - File: `src/app/(app)/templates/[id]/edit/page.tsx` (new)
+- [x] **P2-P4**: `/templates/[id]/edit` -- Edit template page
+  - File: `src/app/(app)/templates/[id]/edit/page.tsx`
   - Server component. Fetches template + questions. Renders `TemplateForm` in edit mode.
-  - Redirect or 403 if system template.
+  - Redirects to detail page if system template. Returns 404 if template not found.
 
 ### Phase 2 Task Summary
 
@@ -265,15 +272,40 @@ All Phase 1 tasks are complete.
 | P2-T1 Test helpers              | Test     | Small  | P2-S1, P2-S2         | Done   |
 | P2-T2 Action integration tests  | Test     | Medium | P2-A1..A4, P2-T1     | Done   |
 | P2-T3 Query integration tests   | Test     | Medium | P2-A5, P2-A6, P2-T1  | Done   |
-| P2-U1 TemplateList              | UI       | Medium | P2-A5                |        |
-| P2-U2 TemplateCard              | UI       | Small  | --                   |        |
-| P2-U3 TemplateForm              | UI       | Large  | P2-U4, P2-A1, P2-A2  |        |
-| P2-U4 QuestionBuilder           | UI       | Large  | --                   |        |
-| P2-U5 TemplateDetail            | UI       | Small  | P2-A6                |        |
-| P2-P1 /templates page           | Page     | Small  | P2-U1                |        |
-| P2-P2 /templates/new page       | Page     | Small  | P2-U3                |        |
-| P2-P3 /templates/[id] page      | Page     | Small  | P2-U5                |        |
-| P2-P4 /templates/[id]/edit page | Page     | Small  | P2-U3                |        |
+| P2-U1 TemplateList              | UI       | Medium | P2-A5                | Done   |
+| P2-U2 TemplateCard              | UI       | Small  | --                   | Done   |
+| P2-U3 TemplateForm              | UI       | Large  | P2-U4, P2-A1, P2-A2  | Done   |
+| P2-U4 QuestionBuilder           | UI       | Large  | --                   | Done   |
+| P2-U5 TemplateDetail            | UI       | Small  | P2-A6                | Done   |
+| P2-P1 /templates page           | Page     | Small  | P2-U1                | Done   |
+| P2-P2 /templates/new page       | Page     | Small  | P2-U3                | Done   |
+| P2-P3 /templates/[id] page      | Page     | Small  | P2-U5                | Done   |
+| P2-P4 /templates/[id]/edit page | Page     | Small  | P2-U3                | Done   |
+
+### Remaining Phase 2 Work
+
+All Phase 2 tasks are complete.
+
+---
+
+## Cross-cutting: Dev Seed Data
+
+> Development seed data for local testing with realistic users, partnership, and templates.
+
+- [x] **DEV-SEED-1**: Dev seed script with full test data
+  - File: `src/db/seed-dev.ts`
+  - Script: `pnpm db:seed:dev` (added to `package.json`)
+  - Creates two users (Jeremy, Monica) with password `password`, complete profiles (display names, birthdays, pronouns, love languages, interests, goals), an accepted partnership, and templates (3 system + 1 custom).
+  - Idempotent: uses upsert logic (checks for existing records, updates if present).
+  - Prints login credentials on completion.
+
+- [x] **DEV-SEED-2**: Updated `db:seed` script to load `.env` file
+  - File: `package.json`
+  - Changed `db:seed` from `npx tsx src/db/seed.ts` to `npx tsx --env-file=.env src/db/seed.ts`.
+
+- [x] **DEV-SEED-3**: Extracted `MAX_QUESTIONS` to shared constants file
+  - File: `src/app/(app)/templates/constants.ts`
+  - `MAX_QUESTIONS = 20` moved from `helpers.ts` to `constants.ts` for reuse across `helpers.ts` and `question-builder.tsx`.
 
 ---
 
@@ -885,7 +917,7 @@ For each phase, work in this order: **Schema -> Seed -> Actions -> Components ->
 | ~~3~~ | ~~P7-R1, P7-A1, P7-U1, P7-P1 (profile editing, independent)~~         | ~~7~~             |
 | ~~4~~ | ~~P2-S1, P2-S2, P2-SEED (template schema + seed)~~                    | ~~2~~             |
 | ~~5~~ | ~~P2-A1 through P2-A6 (template actions + queries)~~                  | ~~2~~             |
-| 6     | P2-U1 through P2-U5, P2-P1 through P2-P4 (template UI + pages)        | 2                 |
+| ~~6~~ | ~~P2-U1 through P2-U5, P2-P1 through P2-P4 (template UI + pages)~~    | ~~2~~             |
 | 7     | P3-S1 through P3-S5 (check-in schema)                                 | 3                 |
 | 8     | P3-A1 through P3-A11 (check-in actions)                               | 3                 |
 | 9     | P3-U6, P3-U7 (shared components)                                      | 3                 |
