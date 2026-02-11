@@ -19,8 +19,10 @@ services:
     image: postgres:16-alpine
     env_file:
       - ../../infra/.env.sync
+    ports:
+      - '5432:5432'
     volumes:
-      - ../../data/sync-db:/var/lib/postgresql/data
+      - ./data/sync-db:/var/lib/postgresql/data
     healthcheck:
       # Use $$ to defer variable interpolation to container runtime
       test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
@@ -28,18 +30,3 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
-
-  sync-db-push:
-    image: lilnas-dev
-    working_dir: /source
-    command: -c "pnpm --filter=sync db:push"
-    volumes:
-      - ../..:/source
-      - node_modules:/source/node_modules
-    env_file:
-      - ../../infra/.env.sync
-    depends_on:
-      sync-db:
-        condition: service_healthy
-    profiles:
-      - tools
