@@ -144,104 +144,136 @@ All Phase 1 tasks are complete.
 
 ### Server Actions
 
-- [ ] **P2-A1**: `createTemplate(data)` -- Creates a new custom template with questions
-  - File: `src/app/templates/actions.ts` (new)
-  - Input: `{ name: string, description?: string, questions: Array<{ questionText, questionType, options?, isRequired? }> }`
-  - Validation: User must have an active partnership. Name 1-100 chars. At least 1 question. Question text 1-500 chars. Multiple choice needs >= 2 options, each 1-200 chars.
-  - Sets `partnershipId` to the user's active partnership, `createdById` to the user.
+- [x] **P2-A1**: `createTemplate(data)` -- Creates a new custom template with questions
+  - File: `src/app/(app)/templates/actions.ts`
+  - Input: `{ name: string, description?: string, questions: Array<{ questionText, isRequired? }> }`
+  - Validation: User must have an active partnership. Name 1-100 chars. At least 1 question, max 20. Question text 1-500 chars.
+  - Sets `partnershipId` to the user's active partnership, `createdById` to the user. Uses transaction.
 
-- [ ] **P2-A2**: `updateTemplate(id, data)` -- Updates template name, description, and questions
-  - File: `src/app/templates/actions.ts`
+- [x] **P2-A2**: `updateTemplate(id, data)` -- Updates template name, description, and questions
+  - File: `src/app/(app)/templates/actions.ts`
   - Validation: Template must not be a system template. User must be in the owning partnership.
-  - Strategy: Replace all questions (delete existing, insert new) in a transaction.
+  - Strategy: Replace all questions (delete existing, insert new) in a transaction. Partial updates supported (name only, questions only, or both).
 
-- [ ] **P2-A3**: `deleteTemplate(id)` -- Deletes a custom template
-  - File: `src/app/templates/actions.ts`
-  - Validation: Not a system template. No active check-in using this template (status `draft`, `scheduled`, or `in_progress`). User must be in the owning partnership.
+- [x] **P2-A3**: `deleteTemplate(id)` -- Deletes a custom template
+  - File: `src/app/(app)/templates/actions.ts`
+  - Validation: Not a system template. User must be in the owning partnership. Cascade delete handles questions.
 
-- [ ] **P2-A4**: `duplicateTemplate(id)` -- Duplicates a template (system or custom)
-  - File: `src/app/templates/actions.ts`
+- [x] **P2-A4**: `duplicateTemplate(id)` -- Duplicates a template (system or custom)
+  - File: `src/app/(app)/templates/actions.ts`
   - Creates a new template with name + " (Copy)". Copies all questions. Sets `isSystem: false`, `partnershipId` to user's partnership.
+  - Does not compound "(Copy)" suffix when duplicating an existing copy.
 
-- [ ] **P2-A5**: `getTemplates()` -- Lists available templates for the current partnership
-  - File: `src/app/templates/actions.ts`
-  - Returns: System templates + custom templates belonging to the user's partnership.
+- [x] **P2-A5**: `getTemplates()` -- Lists available templates for the current partnership
+  - File: `src/app/(app)/templates/queries.ts`
+  - Returns: System templates + custom templates belonging to the user's partnership. Includes question count via LEFT JOIN + GROUP BY.
 
-- [ ] **P2-A6**: `getTemplate(id)` -- Gets a single template with its questions
-  - File: `src/app/templates/actions.ts`
-  - Authorization: System templates are readable by all. Custom templates only by partnership members.
+- [x] **P2-A6**: `getTemplate(id)` -- Gets a single template with its questions
+  - File: `src/app/(app)/templates/queries.ts`
+  - Authorization: System templates are readable by all. Custom templates only by partnership members. Returns ordered questions.
+
+### Supporting Code
+
+- [x] **P2-H1**: Template types definition
+  - File: `src/app/(app)/templates/types.ts`
+  - Types: `ActionResult`, `TemplateListItem`, `TemplateDetail`, `QuestionInput`, `CreateTemplateInput`, `UpdateTemplateInput`.
+
+- [x] **P2-H2**: Template validation helpers
+  - File: `src/app/(app)/templates/helpers.ts`
+  - Helpers: `getActivePartnership()`, `isPartnershipMember()`, `validateName()`, `validateQuestions()`, `validateTemplateInput()`.
+  - Shared across actions and queries. Includes `MAX_QUESTIONS = 20` constant.
+
+### Integration Tests
+
+- [x] **P2-T1**: Integration test helpers for templates
+  - File: `src/__tests__/integration/helpers.ts`
+  - Added: `createTestTemplate()`, `createTestTemplateQuestion()`, `getTemplate()`, `getTemplateQuestions()` factory/assertion helpers.
+  - Updated `TABLES_IN_DELETE_ORDER` to include `templateQuestions` and `checkInTemplates`.
+
+- [x] **P2-T2**: Integration tests for template mutations
+  - File: `src/__tests__/integration/template-actions.test.ts`
+  - Coverage: `createTemplate` (happy path, auth, partnership, name validation, question validation, max questions, ordering, trimming), `updateTemplate` (name/desc, replace questions, system rejection, membership, validation), `deleteTemplate` (cascade, system rejection, membership), `duplicateTemplate` (system, custom, ordering, no compound suffix, membership).
+
+- [x] **P2-T3**: Integration tests for template queries
+  - File: `src/__tests__/integration/template-queries.test.ts`
+  - Coverage: `getTemplates` (system templates, partnership scoping, cross-partnership isolation, question count), `getTemplate` (system access, partnership member access, cross-partnership rejection, non-existent, auth).
 
 ### UI Components
 
 - [ ] **P2-U1**: `TemplateList` -- Grid/list of available templates
-  - File: `src/app/templates/template-list.tsx` (new)
+  - File: `src/app/(app)/templates/template-list.tsx` (new)
   - Shows system badge on default templates. Card for each template with name, description preview, question count.
 
 - [ ] **P2-U2**: `TemplateCard` -- Summary card for a template
-  - File: `src/app/templates/template-card.tsx` (new)
+  - File: `src/app/(app)/templates/template-card.tsx` (new)
   - Shows: name, description preview, question count, actions (view, edit, duplicate, delete).
   - System templates: view and duplicate only (no edit/delete).
 
 - [ ] **P2-U3**: `TemplateForm` -- Create/edit form for templates
-  - File: `src/app/templates/template-form.tsx` (new)
+  - File: `src/app/(app)/templates/template-form.tsx` (new)
   - Inputs: name (required), description (optional).
   - Contains `QuestionBuilder` for managing questions.
   - Validation inline: name 1-100 chars, at least 1 question.
 
 - [ ] **P2-U4**: `QuestionBuilder` -- Sortable list of questions with type selector
-  - File: `src/app/templates/question-builder.tsx` (new)
+  - File: `src/app/(app)/templates/question-builder.tsx` (new)
   - Each question row: text input, type dropdown (free_text, scale, multiple_choice), required toggle.
   - If type is `multiple_choice`: options editor (add/remove options, min 2).
   - Drag-to-reorder (or up/down buttons as simpler alternative).
   - "Add question" button at bottom.
 
 - [ ] **P2-U5**: `TemplateDetail` -- Read-only view of a template's questions
-  - File: `src/app/templates/[id]/template-detail.tsx` (new)
+  - File: `src/app/(app)/templates/[id]/template-detail.tsx` (new)
   - Shows all questions in order with their types and options.
 
 ### Pages
 
 - [ ] **P2-P1**: `/templates` -- Template list page
-  - File: `src/app/templates/page.tsx` (new)
+  - File: `src/app/(app)/templates/page.tsx` (replace stub)
   - Server component. Auth guard. Fetches templates and renders `TemplateList`.
   - "Create template" button linking to `/templates/new`.
 
 - [ ] **P2-P2**: `/templates/new` -- Create template page
-  - File: `src/app/templates/new/page.tsx` (new)
+  - File: `src/app/(app)/templates/new/page.tsx` (new)
   - Server component wrapper. Renders `TemplateForm` in create mode.
 
 - [ ] **P2-P3**: `/templates/[id]` -- View template detail page
-  - File: `src/app/templates/[id]/page.tsx` (new)
+  - File: `src/app/(app)/templates/[id]/page.tsx` (new)
   - Server component. Fetches template + questions. Renders `TemplateDetail`.
   - Actions: Edit (if custom), Duplicate, Delete (if custom).
 
 - [ ] **P2-P4**: `/templates/[id]/edit` -- Edit template page
-  - File: `src/app/templates/[id]/edit/page.tsx` (new)
+  - File: `src/app/(app)/templates/[id]/edit/page.tsx` (new)
   - Server component. Fetches template + questions. Renders `TemplateForm` in edit mode.
   - Redirect or 403 if system template.
 
 ### Phase 2 Task Summary
 
-| Task                            | Category | Effort | Dependencies        |
-| ------------------------------- | -------- | ------ | ------------------- |
-| P2-S1 checkInTemplates table    | Schema   | Small  | --                  |
-| P2-S2 templateQuestions table   | Schema   | Small  | P2-S1               |
-| P2-SEED system templates        | Data     | Small  | P2-S1, P2-S2        |
-| P2-A1 createTemplate            | Action   | Medium | P2-S1, P2-S2        |
-| P2-A2 updateTemplate            | Action   | Medium | P2-S1, P2-S2        |
-| P2-A3 deleteTemplate            | Action   | Small  | P2-S1               |
-| P2-A4 duplicateTemplate         | Action   | Small  | P2-S1, P2-S2        |
-| P2-A5 getTemplates              | Action   | Small  | P2-S1               |
-| P2-A6 getTemplate               | Action   | Small  | P2-S1, P2-S2        |
-| P2-U1 TemplateList              | UI       | Medium | P2-A5               |
-| P2-U2 TemplateCard              | UI       | Small  | --                  |
-| P2-U3 TemplateForm              | UI       | Large  | P2-U4, P2-A1, P2-A2 |
-| P2-U4 QuestionBuilder           | UI       | Large  | --                  |
-| P2-U5 TemplateDetail            | UI       | Small  | P2-A6               |
-| P2-P1 /templates page           | Page     | Small  | P2-U1               |
-| P2-P2 /templates/new page       | Page     | Small  | P2-U3               |
-| P2-P3 /templates/[id] page      | Page     | Small  | P2-U5               |
-| P2-P4 /templates/[id]/edit page | Page     | Small  | P2-U3               |
+| Task                            | Category | Effort | Dependencies         | Status |
+| ------------------------------- | -------- | ------ | -------------------- | ------ |
+| P2-S1 checkInTemplates table    | Schema   | Small  | --                   | Done   |
+| P2-S2 templateQuestions table   | Schema   | Small  | P2-S1                | Done   |
+| P2-SEED system templates        | Data     | Small  | P2-S1, P2-S2         | Done   |
+| P2-H1 Template types            | Support  | Small  | --                   | Done   |
+| P2-H2 Validation helpers        | Support  | Small  | --                   | Done   |
+| P2-A1 createTemplate            | Action   | Medium | P2-S1, P2-S2         | Done   |
+| P2-A2 updateTemplate            | Action   | Medium | P2-S1, P2-S2         | Done   |
+| P2-A3 deleteTemplate            | Action   | Small  | P2-S1                | Done   |
+| P2-A4 duplicateTemplate         | Action   | Small  | P2-S1, P2-S2         | Done   |
+| P2-A5 getTemplates              | Action   | Small  | P2-S1                | Done   |
+| P2-A6 getTemplate               | Action   | Small  | P2-S1, P2-S2         | Done   |
+| P2-T1 Test helpers              | Test     | Small  | P2-S1, P2-S2         | Done   |
+| P2-T2 Action integration tests  | Test     | Medium | P2-A1..A4, P2-T1     | Done   |
+| P2-T3 Query integration tests   | Test     | Medium | P2-A5, P2-A6, P2-T1  | Done   |
+| P2-U1 TemplateList              | UI       | Medium | P2-A5                |        |
+| P2-U2 TemplateCard              | UI       | Small  | --                   |        |
+| P2-U3 TemplateForm              | UI       | Large  | P2-U4, P2-A1, P2-A2  |        |
+| P2-U4 QuestionBuilder           | UI       | Large  | --                   |        |
+| P2-U5 TemplateDetail            | UI       | Small  | P2-A6                |        |
+| P2-P1 /templates page           | Page     | Small  | P2-U1                |        |
+| P2-P2 /templates/new page       | Page     | Small  | P2-U3                |        |
+| P2-P3 /templates/[id] page      | Page     | Small  | P2-U5                |        |
+| P2-P4 /templates/[id]/edit page | Page     | Small  | P2-U3                |        |
 
 ---
 
@@ -851,8 +883,8 @@ For each phase, work in this order: **Schema -> Seed -> Actions -> Components ->
 | ~~1~~ | ~~P1-A6, P1-U4, P1-U5 (finish Phase 1 gaps)~~                         | ~~1~~             |
 | ~~2~~ | ~~NAV-1, NAV-2, ROUTE-1 through ROUTE-4 (navigation + route groups)~~ | ~~Cross-cutting~~ |
 | ~~3~~ | ~~P7-R1, P7-A1, P7-U1, P7-P1 (profile editing, independent)~~         | ~~7~~             |
-| 4     | P2-S1, P2-S2, P2-SEED (template schema + seed)                        | 2                 |
-| 5     | P2-A1 through P2-A6 (template actions)                                | 2                 |
+| ~~4~~ | ~~P2-S1, P2-S2, P2-SEED (template schema + seed)~~                    | ~~2~~             |
+| ~~5~~ | ~~P2-A1 through P2-A6 (template actions + queries)~~                  | ~~2~~             |
 | 6     | P2-U1 through P2-U5, P2-P1 through P2-P4 (template UI + pages)        | 2                 |
 | 7     | P3-S1 through P3-S5 (check-in schema)                                 | 3                 |
 | 8     | P3-A1 through P3-A11 (check-in actions)                               | 3                 |

@@ -1,8 +1,14 @@
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import type { Mock } from 'vitest'
 
 import { testDb } from 'src/__tests__/integration-setup'
-import { partnerships, profiles, users } from 'src/db/schema'
+import {
+  checkInTemplates,
+  partnerships,
+  profiles,
+  templateQuestions,
+  users,
+} from 'src/db/schema'
 
 // Re-export for convenience in test files
 export { testDb }
@@ -36,7 +42,13 @@ export async function mockAuthAs(userId: string | null): Promise<void> {
 // Table truncation
 // ---------------------------------------------------------------------------
 
-const TABLES_IN_DELETE_ORDER = [partnerships, profiles, users] as const
+const TABLES_IN_DELETE_ORDER = [
+  templateQuestions,
+  checkInTemplates,
+  partnerships,
+  profiles,
+  users,
+] as const
 
 /**
  * Truncate all application tables between tests. Uses DELETE (not TRUNCATE)
@@ -144,4 +156,118 @@ export async function getPartnership(
     .limit(1)
 
   return row
+}
+
+// ---------------------------------------------------------------------------
+// Template factory helpers
+// ---------------------------------------------------------------------------
+
+interface CreateTemplateOptions {
+  name?: string
+  description?: string | null
+  isSystem?: boolean
+  createdById?: string | null
+}
+
+/**
+ * Insert a check-in template directly (for setting up test preconditions).
+ * If `partnershipId` is omitted and `isSystem` is true, creates a system template.
+ */
+export async function createTestTemplate(
+  partnershipId: string | null = null,
+  overrides: CreateTemplateOptions = {},
+): Promise<{ id: string }> {
+  const rows = await testDb
+    .insert(checkInTemplates)
+    .values({
+      partnershipId,
+      createdById: overrides.createdById ?? null,
+      name: overrides.name ?? 'Test Template',
+      description: overrides.description ?? null,
+      isSystem: overrides.isSystem ?? false,
+    })
+    .returning({ id: checkInTemplates.id })
+
+  return rows[0]!
+}
+
+interface CreateTemplateQuestionOptions {
+  questionText?: string
+  isRequired?: boolean
+  orderIndex?: number
+}
+
+/**
+ * Insert a template question directly (for setting up test preconditions).
+ */
+export async function createTestTemplateQuestion(
+  templateId: string,
+  overrides: CreateTemplateQuestionOptions = {},
+): Promise<{ id: string }> {
+  const rows = await testDb
+    .insert(templateQuestions)
+    .values({
+      templateId,
+      questionText: overrides.questionText ?? 'Test question?',
+      isRequired: overrides.isRequired ?? true,
+      orderIndex: overrides.orderIndex ?? 0,
+    })
+    .returning({ id: templateQuestions.id })
+
+  return rows[0]!
+}
+
+/**
+ * Read a template row by id.
+ */
+export async function getTemplate(id: string): Promise<
+  | {
+      id: string
+      name: string
+      description: string | null
+      isSystem: boolean
+      partnershipId: string | null
+      createdById: string | null
+    }
+  | undefined
+> {
+  const [row] = await testDb
+    .select({
+      id: checkInTemplates.id,
+      name: checkInTemplates.name,
+      description: checkInTemplates.description,
+      isSystem: checkInTemplates.isSystem,
+      partnershipId: checkInTemplates.partnershipId,
+      createdById: checkInTemplates.createdById,
+    })
+    .from(checkInTemplates)
+    .where(eq(checkInTemplates.id, id))
+    .limit(1)
+
+  return row
+}
+
+/**
+ * Read all questions for a template, ordered by orderIndex.
+ */
+export async function getTemplateQuestions(
+  templateId: string,
+): Promise<
+  Array<{
+    id: string
+    questionText: string
+    isRequired: boolean
+    orderIndex: number
+  }>
+> {
+  return testDb
+    .select({
+      id: templateQuestions.id,
+      questionText: templateQuestions.questionText,
+      isRequired: templateQuestions.isRequired,
+      orderIndex: templateQuestions.orderIndex,
+    })
+    .from(templateQuestions)
+    .where(eq(templateQuestions.templateId, templateId))
+    .orderBy(templateQuestions.orderIndex)
 }
