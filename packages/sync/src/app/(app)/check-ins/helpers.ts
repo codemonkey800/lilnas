@@ -9,6 +9,7 @@ import { checkIns, partnerships } from 'src/db/schema'
 
 const MAX_TITLE_LENGTH = 200
 const MAX_RESPONSE_LENGTH = 5_000
+const MAX_ACTION_ITEM_DESCRIPTION_LENGTH = 500
 
 /**
  * Fetch a check-in and verify the given user is a member of its partnership.
@@ -120,5 +121,55 @@ export function validateResponseText(text: string): string | null {
   if (text.length > MAX_RESPONSE_LENGTH) {
     return `Response must be ${MAX_RESPONSE_LENGTH.toLocaleString()} characters or fewer.`
   }
+  return null
+}
+
+/**
+ * Validate an action item description.
+ * Returns an error string if invalid, null if valid.
+ */
+export function validateActionItemDescription(
+  description: string,
+): string | null {
+  const trimmed = description.trim()
+  if (!trimmed || trimmed.length > MAX_ACTION_ITEM_DESCRIPTION_LENGTH) {
+    return `Description must be between 1 and ${MAX_ACTION_ITEM_DESCRIPTION_LENGTH} characters.`
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// Display helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Format a display date string for a check-in list item.
+ * Returns a prefixed string ("Scheduled: ...", "Completed: ...") or the
+ * plain creation date, depending on the check-in status.
+ */
+export function formatCheckInDate(checkIn: {
+  status: 'draft' | 'scheduled' | 'in_progress' | 'completed'
+  scheduledFor: Date | null
+  completedAt: Date | null
+  createdAt: Date | null
+}): string | null {
+  const opts: Intl.DateTimeFormatOptions = {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }
+
+  if (checkIn.status === 'scheduled' && checkIn.scheduledFor) {
+    return `Scheduled: ${checkIn.scheduledFor.toLocaleDateString('en-US', opts)}`
+  }
+
+  if (checkIn.status === 'completed' && checkIn.completedAt) {
+    return `Completed: ${checkIn.completedAt.toLocaleDateString('en-US', opts)}`
+  }
+
+  if (checkIn.createdAt) {
+    return checkIn.createdAt.toLocaleDateString('en-US', opts)
+  }
+
   return null
 }

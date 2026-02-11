@@ -48,4 +48,27 @@ describe('FormField', () => {
     )
     expect(screen.getByText('Invalid email')).toBeInTheDocument()
   })
+
+  it('renders hint text when hint is provided', () => {
+    render(
+      <FormField label="Title" hint="Keep it short and descriptive.">
+        <input />
+      </FormField>,
+    )
+    expect(
+      screen.getByText('Keep it short and descriptive.'),
+    ).toBeInTheDocument()
+  })
+
+  it('does not render hint when hint is omitted', () => {
+    render(
+      <FormField label="Title">
+        <input />
+      </FormField>,
+    )
+    // The hint span should not exist in the DOM
+    expect(
+      screen.queryByText('Keep it short and descriptive.'),
+    ).not.toBeInTheDocument()
+  })
 })

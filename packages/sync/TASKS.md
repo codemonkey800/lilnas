@@ -43,7 +43,7 @@ Persistent nav bar (`src/components/nav-bar.tsx`) with desktop top bar and mobil
 
 ---
 
-## Phase 3: Check-in Lifecycle (In Progress)
+## Phase 3: Check-in Lifecycle (Complete)
 
 > The core feature. A check-in is an instance of a template that both partners work through together.
 > PRD reference: Section 3 -- Phase 3
@@ -87,23 +87,23 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 
 ### UI Components
 
-- [ ] **P3-U1**: `CreateCheckInForm` -- Template selector (required), optional title override, optional schedule picker
-  - File: `src/app/(app)/check-ins/new/create-check-in-form.tsx` (new)
+- [x] **P3-U1**: `CreateCheckInForm` -- Template selector (required), optional title override, optional schedule picker
+  - File: `src/app/(app)/check-ins/new/create-check-in-form.tsx`
   - Lists available templates (system + custom). A template must be selected.
   - Title input (defaults to template name + date).
   - Optional date/time picker for scheduling.
 
-- [ ] **P3-U2**: `CheckInDraftView` -- Question list with answer inputs (questions are read-only)
-  - File: `src/app/(app)/check-ins/[id]/check-in-draft-view.tsx` (new)
+- [x] **P3-U2**: `CheckInDraftView` -- Question list with answer inputs (questions are read-only)
+  - File: `src/app/(app)/check-ins/[id]/check-in-draft-view.tsx`
   - Shows questions in order. Each has a textarea answer input.
   - Questions are read-only (copied from template, no editing controls).
-  - Progress indicator: "You: 3/5 answered. Partner: 2/5 answered." (count only, no content).
+  - Progress indicator: "You: X/Y answered" (count only, no content; partner count hidden in draft for privacy).
   - "Start Check-in" button with confirmation dialog.
 
 - ~~**P3-U3**: `CheckInQuestionEditor`~~ -- Dropped. Questions are locked from template.
 
-- [ ] **P3-U4**: `CheckInActiveView` -- Side-by-side answer display during in_progress state
-  - File: `src/app/(app)/check-ins/[id]/check-in-active-view.tsx` (new)
+- [x] **P3-U4**: `CheckInActiveView` -- Side-by-side answer display during in_progress state
+  - File: `src/app/(app)/check-ins/[id]/check-in-active-view.tsx`
   - Questions displayed in order. For each question:
     - Partner A's answer (labeled with display name).
     - Partner B's answer (labeled with display name).
@@ -113,13 +113,13 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
   - Action item controls per question (Phase 4).
   - "Complete Check-in" button.
 
-- [ ] **P3-U5**: `CheckInResultsView` -- Read-only summary of completed check-in
-  - File: `src/app/(app)/check-ins/[id]/check-in-results-view.tsx` (new)
+- [x] **P3-U5**: `CheckInResultsView` -- Read-only summary of completed check-in
+  - File: `src/app/(app)/check-ins/[id]/check-in-results-view.tsx`
   - Header: title, template name, completion date.
   - Questions listed with both partners' answers side-by-side.
-  - Action items section.
-  - "Re-open" button.
-  - "Summarize with AI" button (Phase 6 placeholder).
+  - Action items section (placeholder for Phase 4).
+  - "Re-open" button with confirmation dialog.
+  - "Summarize with AI" button (Phase 6 placeholder, disabled).
 
 - [x] **P3-U6**: `CheckInStatusBadge` -- Visual indicator of check-in state
   - File: `src/components/check-in-status-badge.tsx`
@@ -135,17 +135,17 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 
 ### Pages
 
-- [ ] **P3-P1**: `/check-ins` -- Check-in history/list page (basic list, expanded in Phase 5)
-  - File: `src/app/check-ins/page.tsx` (new)
-  - Server component. Lists check-ins for the user's partnership.
-  - "New check-in" button.
+- [x] **P3-P1**: `/check-ins` -- Check-in history/list page (basic list, expanded in Phase 5)
+  - File: `src/app/(app)/check-ins/page.tsx`
+  - Server component. Lists check-ins for the user's partnership with status badges, question counts, and dates.
+  - "New check-in" button. Empty state and unpartnered state handled.
 
-- [ ] **P3-P2**: `/check-ins/new` -- Create a new check-in
-  - File: `src/app/check-ins/new/page.tsx` (new)
+- [x] **P3-P2**: `/check-ins/new` -- Create a new check-in
+  - File: `src/app/(app)/check-ins/new/page.tsx`
   - Server component. Fetches available templates. Renders `CreateCheckInForm`.
 
-- [ ] **P3-P3**: `/check-ins/[id]` -- Check-in detail page (adaptive view)
-  - File: `src/app/check-ins/[id]/page.tsx` (new)
+- [x] **P3-P3**: `/check-ins/[id]` -- Check-in detail page (adaptive view)
+  - File: `src/app/(app)/check-ins/[id]/page.tsx`
   - Server component. Fetches check-in data. Renders the appropriate view based on status:
     - `draft` or `scheduled` -> `CheckInDraftView`
     - `in_progress` -> `CheckInActiveView`
@@ -163,7 +163,7 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 
 - [x] **P3-H3**: Check-in helpers
   - File: `src/app/(app)/check-ins/helpers.ts`
-  - Helpers: `getCheckInForUser()`, `guardDraftOrScheduled()`, `guardCanRespond()`, `guardInProgress()`, `guardCompleted()`, `validateTitle()`, `validateResponseText()`.
+  - Helpers: `getCheckInForUser()`, `guardDraftOrScheduled()`, `guardCanRespond()`, `guardInProgress()`, `guardCompleted()`, `validateTitle()`, `validateResponseText()`, `formatCheckInDate()`.
 
 ### Integration Tests
 
@@ -182,85 +182,86 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 
 - [x] **P3-T4**: Unit tests for check-in helpers
   - File: `src/app/(app)/check-ins/__tests__/helpers.test.ts`
-  - Coverage: `guardDraftOrScheduled` (accepts draft/scheduled, rejects in_progress/completed), `guardCanRespond` (accepts draft/scheduled/in_progress, rejects completed), `guardInProgress` (accepts in_progress, rejects others), `guardCompleted` (accepts completed, rejects others), `validateTitle` (valid, boundary 200 chars, empty, whitespace, over limit, trimming), `validateResponseText` (empty, boundary 5000 chars, over limit).
+  - Coverage: `guardDraftOrScheduled` (accepts draft/scheduled, rejects in_progress/completed), `guardCanRespond` (accepts draft/scheduled/in_progress, rejects completed), `guardInProgress` (accepts in_progress, rejects others), `guardCompleted` (accepts completed, rejects others), `validateTitle` (valid, boundary 200 chars, empty, whitespace, over limit, trimming), `validateResponseText` (empty, boundary 5000 chars, over limit), `formatCheckInDate` (scheduled prefix, completed prefix, fallback to createdAt, null when no dates).
 
 ### Phase 3 Remaining Tasks
 
-| Task                         | Category | Effort | Dependencies        | Status |
-| ---------------------------- | -------- | ------ | ------------------- | ------ |
-| P3-U1 CreateCheckInForm      | UI       | Medium | P2-A5, P3-A1        |        |
-| P3-U2 CheckInDraftView       | UI       | Medium | P3-A6, P3-U7        |        |
-| P3-U4 CheckInActiveView      | UI       | Large  | P3-A6, P3-U7        |        |
-| P3-U5 CheckInResultsView     | UI       | Medium | P3-A10              |        |
-| P3-U6 CheckInStatusBadge     | UI       | Small  | --                  | Done   |
-| P3-U7 ResponseInput          | UI       | Small  | --                  | Done   |
-| P3-P1 /check-ins page        | Page     | Small  | P3-A11, P3-U6       |        |
-| P3-P2 /check-ins/new page    | Page     | Small  | P3-U1               |        |
-| P3-P3 /check-ins/[id] page   | Page     | Medium | P3-U2, P3-U4, P3-U5 |        |
+| Task                       | Category | Effort | Dependencies        | Status |
+| -------------------------- | -------- | ------ | ------------------- | ------ |
+| P3-U1 CreateCheckInForm    | UI       | Medium | P2-A5, P3-A1        | Done   |
+| P3-U2 CheckInDraftView     | UI       | Medium | P3-A6, P3-U7        | Done   |
+| P3-U4 CheckInActiveView    | UI       | Large  | P3-A6, P3-U7        | Done   |
+| P3-U5 CheckInResultsView   | UI       | Medium | P3-A10              | Done   |
+| P3-U6 CheckInStatusBadge   | UI       | Small  | --                  | Done   |
+| P3-U7 ResponseInput        | UI       | Small  | --                  | Done   |
+| P3-P1 /check-ins page      | Page     | Small  | P3-A11, P3-U6       | Done   |
+| P3-P2 /check-ins/new page  | Page     | Small  | P3-U1               | Done   |
+| P3-P3 /check-ins/[id] page | Page     | Medium | P3-U2, P3-U4, P3-U5 | Done   |
 
 ---
 
-## Phase 4: Action Items
+## Phase 4: Action Items (In Progress)
 
 > During an active check-in, partners can create action items tied to specific questions.
 > PRD reference: Section 3 -- Phase 4
 > Depends on: Phase 3
 
-### Schema
+### Schema (Complete)
 
-- [ ] **P4-S1**: `actionItems` table
+- [x] **P4-S1**: `actionItems` table
   - File: `src/db/schema.ts`
-  - Columns: `id` (text PK, UUID), `checkInId` (text FK NOT NULL), `checkInQuestionId` (text FK NOT NULL), `description` (text NOT NULL, max 500 chars), `ownerType` (text: `individual | both`, default `individual`), `ownerId` (text FK nullable -- set when `ownerType` is `individual`, null when `both`), `createdById` (text FK NOT NULL), `status` (text: `open | in_progress | completed`, default `open`), `dueDate` (timestamp nullable), `completedAt` (timestamp nullable), `createdAt` (timestamp), `updatedAt` (timestamp).
-  - Indexes: on `checkInId`, on `ownerId`, on `ownerType`, on `status`.
-  - Consider: `pgEnum` for action item status and owner type.
+  - Columns: `id` (text PK, UUID), `checkInId` (text FK NOT NULL), `checkInQuestionId` (text FK NOT NULL), `description` (text NOT NULL, max 500 chars), `ownerType` (`actionItemOwnerTypeEnum`: `individual | both`, default `individual`), `ownerId` (text FK nullable -- set when `ownerType` is `individual`, null when `both`), `createdById` (text FK NOT NULL), `status` (`actionItemStatusEnum`: `open | in_progress | completed`, default `open`), `dueDate` (timestamp nullable), `completedAt` (timestamp nullable), `createdAt` (timestamp), `updatedAt` (timestamp).
+  - Indexes: on `checkInId`, on `ownerId`, on `status`.
+  - Uses `pgEnum` for both `actionItemOwnerTypeEnum` and `actionItemStatusEnum`.
   - Application-level constraint: `ownerId` NOT NULL when `ownerType = 'individual'`, NULL when `ownerType = 'both'`.
 
 ### Server Actions
 
-- [ ] **P4-A1**: `createActionItem(data)` -- Creates an action item for a question
-  - File: `src/app/check-ins/actions.ts`
-  - Input: `{ checkInId, checkInQuestionId, description, ownerType, ownerId?, dueDate? }`
+- [x] **P4-A1**: `createActionItem(data)` -- Creates an action item for a question
+  - File: `src/app/(app)/check-ins/actions.ts`
+  - Input: `{ checkInId, checkInQuestionId, description, ownerType, ownerId? }`
   - Guard: check-in must be `in_progress`.
-  - Validation: description 1-500 chars. If `ownerType` is `individual`, `ownerId` is required and must be a member of the partnership. If `ownerType` is `both`, `ownerId` must be null/omitted.
+  - Validation: description 1-500 chars via `validateActionItemDescription`. If `ownerType` is `individual`, `ownerId` is required and must be a member of the partnership. If `ownerType` is `both`, `ownerId` must be null/omitted.
 
-- [ ] **P4-A2**: `updateActionItemStatus(id, status)` -- Updates action item status
-  - File: `src/app/check-ins/actions.ts`
+- [x] **P4-A2**: `updateActionItemStatus(id, status)` -- Updates action item status
+  - File: `src/app/(app)/check-ins/actions.ts`
   - Can be done regardless of check-in state (per PRD: "Status changes can happen at any time").
   - If status is `completed`, set `completedAt = now()`. Otherwise, clear `completedAt`.
   - For shared (`both`) action items, either partner can update the status.
 
 - [ ] **P4-A3**: `updateActionItem(id, data)` -- Edits description, owner type/id, due date
-  - File: `src/app/check-ins/actions.ts`
+  - File: `src/app/(app)/check-ins/actions.ts`
   - Guard: only while check-in is `in_progress`. In `completed` state, only status changes are allowed (P4-A2).
   - Supports changing owner type (e.g., individual -> both or vice versa). Validates ownership constraints.
 
-- [ ] **P4-A4**: `deleteActionItem(id)` -- Removes an action item
-  - File: `src/app/check-ins/actions.ts`
+- [x] **P4-A4**: `deleteActionItem(id)` -- Removes an action item
+  - File: `src/app/(app)/check-ins/actions.ts`
   - Guard: only while check-in is `in_progress`.
 
 - [ ] **P4-A5**: `getMyActionItems()` -- Gets open action items assigned to the current user across all check-ins
-  - File: `src/app/check-ins/actions.ts`
+  - File: `src/app/(app)/check-ins/actions.ts`
   - Used for the dashboard widget.
   - Query logic: returns items where (`ownerType = 'individual'` AND `ownerId = currentUserId`) OR (`ownerType = 'both'` AND the action item's check-in belongs to the user's active partnership).
   - Sorted by due date (soonest first), then creation date.
 
 ### UI Components
 
-- [ ] **P4-U1**: `ActionItemForm` -- Inline form under a question to add an action item
-  - File: `src/components/action-item-form.tsx` (new)
-  - Inputs: description, owner selector ("Me" / "Partner name" / "Both of us"), optional due date picker.
+- [x] **P4-U1**: `ActionItemForm` -- Inline form under a question to add an action item
+  - File: `src/components/action-item-form.tsx`
+  - Inputs: description, owner selector ("Me" / "Partner name" / "Both of us").
   - "Both of us" sets `ownerType: 'both'` and `ownerId: null`.
+  - Collapsible: shows "Add action item" button that expands to form. Cancel resets and collapses.
 
-- [ ] **P4-U2**: `ActionItemCard` -- Shows a single action item with status toggle
-  - File: `src/components/action-item-card.tsx` (new)
-  - Shows: description, owner label (partner name for individual, "Both of you" / "Shared" for both), status badge, due date.
-  - Shared items display a "Shared" badge or icon to distinguish from individual items.
-  - Click/button to cycle status: open -> in_progress -> completed.
+- [x] **P4-U2**: `ActionItemCard` -- Shows a single action item with status toggle
+  - File: `src/components/action-item-card.tsx`
+  - Shows: description, owner label (partner name for individual, "Both" for shared), status circle indicator.
+  - Click status circle to cycle: open -> in_progress -> completed. Optimistic UI with revert on failure.
+  - Delete button visible only when check-in is `in_progress`.
 
-- [ ] **P4-U3**: `ActionItemList` -- Aggregated view of action items for a check-in or user
-  - File: `src/components/action-item-list.tsx` (new)
-  - Used in check-in results view and on the dashboard.
-  - Supports filtering by owner type: "All", "Mine", "Partner's", "Shared".
+- [x] **P4-U3**: `ActionItemList` -- Aggregated view of action items for a check-in
+  - File: `src/components/action-item-list.tsx`
+  - Used in check-in active view and results view.
+  - Optional `showEmpty` prop for "No action items yet" message.
 
 - [ ] **P4-U4**: `DashboardActionItems` -- Widget on main dashboard showing open items for the user
   - File: `src/app/dashboard-action-items.tsx` (new) or inline in page.tsx
@@ -270,32 +271,48 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 
 ### Integration Points
 
-- [ ] **P4-INT1**: Wire action item controls into `CheckInActiveView` (P3-U4)
-  - Per-question action item form and list.
+- [x] **P4-INT1**: Wire action item controls into `CheckInActiveView` (P3-U4)
+  - Per-question `ActionItemForm` and `ActionItemList` rendered below answers.
   - Add action items during `in_progress` state.
   - Owner selector shows "Me", partner's name, and "Both of us".
+  - `page.tsx` fetches action items via `getActionItemsForCheckIn` and passes to views.
 
-- [ ] **P4-INT2**: Wire action item display into `CheckInResultsView` (P3-U5)
-  - Show action items per question and in summary section.
-  - Status toggle works even in completed check-ins.
-  - Shared action items are visually distinguished (e.g., "Shared" badge).
+- [x] **P4-INT2**: Wire action item display into `CheckInResultsView` (P3-U5)
+  - Show action items per question using `ActionItemList`.
+  - Status toggle works even in completed check-ins (via `ActionItemCard` optimistic cycle).
+  - `page.tsx` conditionally fetches action items for `in_progress` and `completed` states.
+
+### Supporting Code
+
+- [x] **P4-H1**: Action item types definition
+  - File: `src/app/(app)/check-ins/types.ts`
+  - Types: `ActionItemOwnerType`, `ActionItemStatus`, `ActionItem`, `CreateActionItemInput`, `CheckInStatus`.
+
+- [x] **P4-H2**: Action item validation helper
+  - File: `src/app/(app)/check-ins/helpers.ts`
+  - `validateActionItemDescription()` -- validates 1-500 chars.
+
+- [x] **P4-H3**: `getActionItemsForCheckIn(checkInId)` query
+  - File: `src/app/(app)/check-ins/queries.ts`
+  - Fetches all action items for a check-in with owner display names resolved.
+  - Returns items ordered by creation date (oldest first).
 
 ### Phase 4 Task Summary
 
-| Task                          | Category    | Effort | Dependencies        |
-| ----------------------------- | ----------- | ------ | ------------------- |
-| P4-S1 actionItems table       | Schema      | Small  | P3-S2, P3-S4        |
-| P4-A1 createActionItem        | Action      | Medium | P4-S1               |
-| P4-A2 updateActionItemStatus  | Action      | Small  | P4-S1               |
-| P4-A3 updateActionItem        | Action      | Small  | P4-S1               |
-| P4-A4 deleteActionItem        | Action      | Small  | P4-S1               |
-| P4-A5 getMyActionItems        | Action      | Medium | P4-S1               |
-| P4-U1 ActionItemForm          | UI          | Medium | P4-A1               |
-| P4-U2 ActionItemCard          | UI          | Medium | P4-A2               |
-| P4-U3 ActionItemList          | UI          | Medium | P4-U2               |
-| P4-U4 DashboardActionItems    | UI          | Medium | P4-A5, P4-U3        |
-| P4-INT1 Wire into ActiveView  | Integration | Medium | P3-U4, P4-U1, P4-U3 |
-| P4-INT2 Wire into ResultsView | Integration | Small  | P3-U5, P4-U3        |
+| Task                          | Category    | Effort | Dependencies         | Status |
+| ----------------------------- | ----------- | ------ | -------------------- | ------ |
+| P4-S1 actionItems table       | Schema      | Small  | P3-S2, P3-S4         | Done   |
+| P4-A1 createActionItem        | Action      | Medium | P4-S1                | Done   |
+| P4-A2 updateActionItemStatus  | Action      | Small  | P4-S1                | Done   |
+| P4-A3 updateActionItem        | Action      | Small  | P4-S1                |        |
+| P4-A4 deleteActionItem        | Action      | Small  | P4-S1                | Done   |
+| P4-A5 getMyActionItems        | Action      | Medium | P4-S1                |        |
+| P4-U1 ActionItemForm          | UI          | Medium | P4-A1                | Done   |
+| P4-U2 ActionItemCard          | UI          | Medium | P4-A2                | Done   |
+| P4-U3 ActionItemList          | UI          | Medium | P4-U2                | Done   |
+| P4-U4 DashboardActionItems    | UI          | Medium | P4-A5, P4-U3         |        |
+| P4-INT1 Wire into ActiveView  | Integration | Medium | P3-U4, P4-U1, P4-U3  | Done   |
+| P4-INT2 Wire into ResultsView | Integration | Small  | P3-U5, P4-U3         | Done   |
 
 ---
 
@@ -494,6 +511,20 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 
 ---
 
+## Cross-cutting: UI Enhancements
+
+- [x] **UI-1**: `FormField` hint prop
+  - File: `src/components/ui/form-field.tsx`
+  - Added optional `hint` prop for descriptive text below the label.
+  - Tests: `src/components/ui/__tests__/form-field.test.tsx` (renders hint, omits when not provided).
+
+- [x] **UI-2**: `CheckInCard` component in check-ins list page
+  - File: `src/app/(app)/check-ins/page.tsx`
+  - Inline `CheckInCard` component with status badge, question count, and formatted date.
+  - Uses `formatCheckInDate` helper for contextual date display (Scheduled/Completed prefix).
+
+---
+
 ## Cross-cutting: Non-functional Requirements
 
 > PRD reference: Section 8
@@ -575,14 +606,14 @@ npx drizzle-kit migrate
 
 For each phase, work in this order: **Schema -> Seed -> Actions -> Components -> Pages -> Integration**.
 
-| Order | Tasks                                                                   | Phase         |
-| ----- | ----------------------------------------------------------------------- | ------------- |
-| 1     | P3-U6, P3-U7 (shared components)                                       | 3             |
-| 2     | P3-U1, P3-U2, P3-U4, P3-U5, P3-P1 through P3-P3 (check-in UI + pages) | 3             |
-| 3     | P4-S1, P4-A1 through P4-A5 (action items schema + actions)             | 4             |
-| 4     | P4-U1 through P4-U4, P4-INT1, P4-INT2 (action items UI + integration)  | 4             |
-| 5     | DASH-1, DASH-2 (dashboard redesign)                                     | Cross-cutting |
-| 6     | P5-A1, P5-U1 through P5-U5 (history + search)                          | 5             |
-| 7     | P6-S1, P6-DEP1, P6-A1, P6-A2 (AI schema + actions)                     | 6             |
-| 8     | P6-U1 through P6-U3, P6-INT1 (AI UI + integration)                     | 6             |
-| 9     | NF-1 through NF-8 (non-functional polish)                               | Cross-cutting |
+| Order | Tasks                                                                   | Phase         | Status      |
+| ----- | ----------------------------------------------------------------------- | ------------- | ----------- |
+| 1     | P3-U6, P3-U7 (shared components)                                       | 3             | Done        |
+| 2     | P3-U1, P3-U2, P3-U4, P3-U5, P3-P1 through P3-P3 (check-in UI + pages) | 3             | Done        |
+| 3     | P4-S1, P4-A1 through P4-A5 (action items schema + actions)             | 4             | In Progress |
+| 4     | P4-U1 through P4-U4, P4-INT1, P4-INT2 (action items UI + integration)  | 4             | In Progress |
+| 5     | DASH-1, DASH-2 (dashboard redesign)                                     | Cross-cutting |             |
+| 6     | P5-A1, P5-U1 through P5-U5 (history + search)                          | 5             |             |
+| 7     | P6-S1, P6-DEP1, P6-A1, P6-A2 (AI schema + actions)                     | 6             |             |
+| 8     | P6-U1 through P6-U3, P6-INT1 (AI UI + integration)                     | 6             |             |
+| 9     | NF-1 through NF-8 (non-functional polish)                               | Cross-cutting |             |

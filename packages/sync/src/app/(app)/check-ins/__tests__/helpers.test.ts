@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  formatCheckInDate,
   guardCanRespond,
   guardCompleted,
   guardDraftOrScheduled,
@@ -121,5 +122,61 @@ describe('validateResponseText', () => {
     expect(validateResponseText('x'.repeat(5_001))).toBe(
       'Response must be 5,000 characters or fewer.',
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Display helpers
+// ---------------------------------------------------------------------------
+
+describe('formatCheckInDate', () => {
+  it('returns "Scheduled: ..." for a scheduled check-in with scheduledFor', () => {
+    const result = formatCheckInDate({
+      status: 'scheduled',
+      scheduledFor: new Date('2025-03-15T00:00:00'),
+      completedAt: null,
+      createdAt: new Date('2025-03-01T00:00:00'),
+    })
+    expect(result).toBe('Scheduled: Mar 15, 2025')
+  })
+
+  it('returns "Completed: ..." for a completed check-in with completedAt', () => {
+    const result = formatCheckInDate({
+      status: 'completed',
+      scheduledFor: null,
+      completedAt: new Date('2025-06-20T00:00:00'),
+      createdAt: new Date('2025-06-10T00:00:00'),
+    })
+    expect(result).toBe('Completed: Jun 20, 2025')
+  })
+
+  it('falls back to createdAt for draft check-ins', () => {
+    const result = formatCheckInDate({
+      status: 'draft',
+      scheduledFor: null,
+      completedAt: null,
+      createdAt: new Date('2025-01-05T00:00:00'),
+    })
+    expect(result).toBe('Jan 5, 2025')
+  })
+
+  it('falls back to createdAt for in_progress check-ins', () => {
+    const result = formatCheckInDate({
+      status: 'in_progress',
+      scheduledFor: null,
+      completedAt: null,
+      createdAt: new Date('2025-09-30T00:00:00'),
+    })
+    expect(result).toBe('Sep 30, 2025')
+  })
+
+  it('returns null when all date fields are null', () => {
+    const result = formatCheckInDate({
+      status: 'draft',
+      scheduledFor: null,
+      completedAt: null,
+      createdAt: null,
+    })
+    expect(result).toBeNull()
   })
 })

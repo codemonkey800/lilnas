@@ -251,6 +251,66 @@ export const checkInQuestions = pgTable('check_in_questions', {
 })
 
 // ---------------------------------------------------------------------------
+// Action items (tasks created during check-ins)
+// ---------------------------------------------------------------------------
+
+export const actionItemOwnerTypeEnum = pgEnum('action_item_owner_type', [
+  'individual',
+  'both',
+])
+
+export const actionItemStatusEnum = pgEnum('action_item_status', [
+  'open',
+  'in_progress',
+  'completed',
+])
+
+export const actionItems = pgTable(
+  'action_items',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+
+    checkInId: text('check_in_id')
+      .notNull()
+      .references(() => checkIns.id, { onDelete: 'cascade' }),
+
+    checkInQuestionId: text('check_in_question_id')
+      .notNull()
+      .references(() => checkInQuestions.id, { onDelete: 'cascade' }),
+
+    description: text('description').notNull(),
+
+    ownerType: actionItemOwnerTypeEnum('owner_type')
+      .notNull()
+      .default('individual'),
+
+    // Set when ownerType is 'individual'; null when 'both'
+    ownerId: text('owner_id').references(() => users.id, {
+      onDelete: 'cascade',
+    }),
+
+    createdById: text('created_by_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+
+    status: actionItemStatusEnum('status').notNull().default('open'),
+
+    dueDate: timestamp('due_date', { mode: 'date' }),
+    completedAt: timestamp('completed_at', { mode: 'date' }),
+
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+  },
+  table => [
+    index('action_items_check_in_id_idx').on(table.checkInId),
+    index('action_items_owner_id_idx').on(table.ownerId),
+    index('action_items_status_idx').on(table.status),
+  ],
+)
+
+// ---------------------------------------------------------------------------
 // Check-in responses (each partner's answers to check-in questions)
 // ---------------------------------------------------------------------------
 

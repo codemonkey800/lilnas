@@ -2,6 +2,38 @@
 // Check-in types
 // ---------------------------------------------------------------------------
 
+export type CheckInStatus = 'draft' | 'scheduled' | 'in_progress' | 'completed'
+
+// ---------------------------------------------------------------------------
+// Action item types
+// ---------------------------------------------------------------------------
+
+export type ActionItemOwnerType = 'individual' | 'both'
+export type ActionItemStatus = 'open' | 'in_progress' | 'completed'
+
+export interface ActionItem {
+  id: string
+  checkInId: string
+  checkInQuestionId: string
+  description: string
+  ownerType: ActionItemOwnerType
+  ownerId: string | null
+  ownerDisplayName: string | null
+  createdById: string
+  status: ActionItemStatus
+  dueDate: Date | null
+  completedAt: Date | null
+  createdAt: Date | null
+}
+
+export interface CreateActionItemInput {
+  checkInId: string
+  checkInQuestionId: string
+  description: string
+  ownerType: ActionItemOwnerType
+  ownerId?: string
+}
+
 export type ActionResult =
   | { success: true; checkInId?: string }
   | { success: false; error: string }
@@ -15,7 +47,7 @@ export interface CreateCheckInInput {
 export interface CheckInListItem {
   id: string
   title: string
-  status: 'draft' | 'scheduled' | 'in_progress' | 'completed'
+  status: CheckInStatus
   scheduledFor: Date | null
   completedAt: Date | null
   createdAt: Date | null
@@ -39,7 +71,7 @@ export interface CheckInResponse {
 export interface CheckInDetail {
   id: string
   title: string
-  status: 'draft' | 'scheduled' | 'in_progress' | 'completed'
+  status: CheckInStatus
   templateId: string
   partnershipId: string
   scheduledFor: Date | null

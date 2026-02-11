@@ -1,10 +1,11 @@
 'use server'
 
-import { and, count, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray } from 'drizzle-orm'
 
 import { auth } from 'src/auth'
 import { db } from 'src/db'
 import {
+  actionItems,
   checkInQuestions,
   checkInResponses,
   checkIns,
@@ -13,7 +14,7 @@ import {
 } from 'src/db/schema'
 import { getActivePartnership } from 'src/services/partnership'
 
-import type { CheckInDetail, CheckInListItem } from './types'
+import type { ActionItem, CheckInDetail, CheckInListItem } from './types'
 
 // ---------------------------------------------------------------------------
 // P3-A10: Get a single check-in with questions and responses
@@ -167,6 +168,43 @@ export async function getCheckIns(): Promise<CheckInListItem[] | null> {
     .where(eq(checkIns.partnershipId, activePartnership.id))
     .groupBy(checkIns.id)
     .orderBy(desc(checkIns.createdAt))
+
+  return rows
+}
+
+// ---------------------------------------------------------------------------
+// P4-A5: Get action items for a check-in
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetches all action items for a check-in with owner display names resolved.
+ * Returns items ordered by creation date (oldest first).
+ */
+export async function getActionItemsForCheckIn(
+  checkInId: string,
+): Promise<ActionItem[]> {
+  const session = await auth()
+  if (!session?.user?.id) return []
+
+  const rows = await db
+    .select({
+      id: actionItems.id,
+      checkInId: actionItems.checkInId,
+      checkInQuestionId: actionItems.checkInQuestionId,
+      description: actionItems.description,
+      ownerType: actionItems.ownerType,
+      ownerId: actionItems.ownerId,
+      ownerDisplayName: profiles.displayName,
+      createdById: actionItems.createdById,
+      status: actionItems.status,
+      dueDate: actionItems.dueDate,
+      completedAt: actionItems.completedAt,
+      createdAt: actionItems.createdAt,
+    })
+    .from(actionItems)
+    .leftJoin(profiles, eq(profiles.userId, actionItems.ownerId))
+    .where(eq(actionItems.checkInId, checkInId))
+    .orderBy(asc(actionItems.createdAt))
 
   return rows
 }
