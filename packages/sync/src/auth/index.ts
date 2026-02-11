@@ -3,10 +3,10 @@ import { eq } from 'drizzle-orm'
 import NextAuth, { type NextAuthResult } from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 
-import { authConfig } from 'src/auth.config'
+import { authConfig } from 'src/auth/config'
+import { verifyPassword } from 'src/auth/password'
 import { db } from 'src/db'
 import { accounts, sessions, users } from 'src/db/schema'
-import { verifyPassword } from 'src/lib/password'
 
 const nextAuth: NextAuthResult = NextAuth({
   ...authConfig,

@@ -2,9 +2,9 @@
 
 import { eq } from 'drizzle-orm'
 
+import { hashPassword } from 'src/auth/password'
 import { db } from 'src/db'
 import { users } from 'src/db/schema'
-import { hashPassword } from 'src/lib/password'
 
 export async function register(
   formData: FormData,

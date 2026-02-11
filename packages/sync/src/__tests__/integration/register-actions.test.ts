@@ -1,8 +1,8 @@
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 
+import { verifyPassword } from 'src/auth/password'
 import { users } from 'src/db/schema'
-import { verifyPassword } from 'src/lib/password'
 
 import { createTestUser, testDb, truncateAll } from './helpers'
 

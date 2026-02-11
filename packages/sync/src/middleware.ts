@@ -1,6 +1,6 @@
 import NextAuth, { type NextAuthResult } from 'next-auth'
 
-import { authConfig } from 'src/auth.config'
+import { authConfig } from 'src/auth/config'
 
 const nextAuth: NextAuthResult = NextAuth(authConfig)
 

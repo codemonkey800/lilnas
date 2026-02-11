@@ -11,7 +11,7 @@ import {
   partnerships,
   profiles,
 } from 'src/db/schema'
-import { getActivePartnership } from 'src/lib/partnership'
+import { getActivePartnership } from 'src/services/partnership'
 
 import type { CheckInDetail, CheckInListItem } from './types'
 

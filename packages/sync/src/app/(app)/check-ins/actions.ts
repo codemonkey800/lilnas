@@ -12,7 +12,7 @@ import {
   checkInTemplates,
   templateQuestions,
 } from 'src/db/schema'
-import { getActivePartnership } from 'src/lib/partnership'
+import { getActivePartnership } from 'src/services/partnership'
 
 import {
   getCheckInForUser,

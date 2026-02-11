@@ -9,7 +9,7 @@ vi.mock('src/auth', () => ({
 const authModule = await import('src/auth')
 const mockSignOut = authModule.signOut as unknown as Mock
 
-const { signOutAction } = await import('src/lib/sign-out-action')
+const { signOutAction } = await import('src/auth/sign-out-action')
 
 // ---------------------------------------------------------------------------
 // Test suite

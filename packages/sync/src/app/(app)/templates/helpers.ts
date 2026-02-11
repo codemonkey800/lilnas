@@ -1,8 +1,11 @@
-// Re-export shared partnership helpers for backward compatibility
-export { getActivePartnership, isPartnershipMember } from 'src/lib/partnership'
-
 import { MAX_QUESTIONS } from './constants'
 import type { QuestionInput } from './types'
+
+// Re-export shared partnership helpers for backward compatibility
+export {
+  getActivePartnership,
+  isPartnershipMember,
+} from 'src/services/partnership'
 
 // ---------------------------------------------------------------------------
 // Template-specific helpers

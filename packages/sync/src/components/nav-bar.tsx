@@ -11,9 +11,9 @@ import {
   HiRectangleStack,
 } from 'react-icons/hi2'
 
+import { signOutAction } from 'src/auth/sign-out-action'
 import { SyncIcon } from 'src/components/sync-icon'
 import { Avatar } from 'src/components/ui/avatar'
-import { signOutAction } from 'src/lib/sign-out-action'
 
 const navItems = [
   { label: 'Home', href: '/', icon: HiHome },
