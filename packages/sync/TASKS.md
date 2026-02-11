@@ -13,379 +13,77 @@
 
 ---
 
-## Pre-requisites (Already Complete)
+## Completed Phases (Summarized)
 
-These features are shipped and require no further work unless noted.
+The following phases are fully implemented and require no further work.
 
-### Core Features
+### Pre-requisites
 
-- [x] **Email/password registration** -- `src/app/(auth)/register/` (page, form, server action)
-- [x] **Email/password login** -- `src/app/(auth)/login/` (page, form, server action)
-- [x] **Onboarding wizard (3 steps)** -- `src/app/onboarding/` (About You, Love & Connection, Goals)
-- [x] **Auth middleware** -- `src/middleware.ts`, `src/auth.ts`, `src/auth.config.ts`
-- [x] **User & profile schema** -- `src/db/schema.ts` (`users`, `accounts`, `sessions`, `verificationTokens`, `profiles`)
+Auth (registration, login, middleware), onboarding wizard, user/profile schema, project scaffolding, database setup (Drizzle + PostgreSQL), NextAuth, design system (dark purple theme), Docker/deployment config. All in `src/app/(auth)/`, `src/middleware.ts`, `src/auth.ts`, `src/db/schema.ts`, `src/tailwind.css`, etc.
 
-### Infrastructure & Scaffolding
+### Phase 1: Partner Connection
 
-- [x] **Project scaffolding** -- `package.json`, `next.config.ts` (standalone output), `tsconfig.json`, `eslint.config.cjs`, `postcss.config.cjs`
-- [x] **Database connection setup** -- `src/db/index.ts` (Drizzle + PostgreSQL pool)
-- [x] **Drizzle configuration** -- `drizzle.config.ts`
-- [x] **Password utilities** -- `src/lib/password.ts` (bcryptjs, 12 salt rounds)
-- [x] **NextAuth API route** -- `src/app/api/auth/[...nextauth]/route.ts`
-- [x] **Root layout with SessionProvider** -- `src/app/layout.tsx`
-- [x] **Health check endpoint** -- `src/app/api/health/route.ts`
-- [x] **Design system** -- `src/tailwind.css` (dark purple theme, custom color tokens, background layers, semantic colors, shadows, animations)
-- [x] **Design system documentation** -- `DESIGN_SYSTEM.md`
-- [x] **SyncIcon component** -- `src/components/sync-icon.tsx` (app logo SVG)
-- [x] **Docker/deployment configuration** -- `Dockerfile` (multi-stage build), `deploy.yml`, `deploy.dev.yml`, `.dockerignore`
+Partnership lifecycle with `partnerships` table (pgEnum: pending/accepted/declined/cancelled/dissolved), unique active pair index. Server actions in `src/app/(app)/partner/actions.ts`: invite, accept, decline, cancel, dissolve, get status. UI: invite form, pending/incoming views, partner card with unlink dialog. Page: `/partner`.
 
----
+### Phase 2: Check-in Templates
 
-## Phase 1: Partner Connection
+Template system with `checkInTemplates` and `templateQuestions` tables (all questions free text). 3 seeded system templates (Weekly, Monthly Deep Dive, Quick Pulse). CRUD actions + duplicate in `src/app/(app)/templates/actions.ts` and `queries.ts`. Types in `types.ts`, validation helpers in `helpers.ts`, `MAX_QUESTIONS = 20` in `constants.ts`. Full UI: template list, card, form with question builder, detail view. Pages: `/templates`, `/templates/new`, `/templates/[id]`, `/templates/[id]/edit`. Integration tests in `src/__tests__/integration/template-actions.test.ts` and `template-queries.test.ts`.
 
-> Partners must be linked before any check-in features are useful.
-> PRD reference: Section 3 -- Phase 1
+### Phase 7: Profile Editing (Independent)
 
-### Schema
+Extracted shared profile field components from onboarding wizard to `src/components/profile/` (constants, about-you, love-connection, goals fields). `updateProfile` action in `src/app/(app)/settings/actions.ts`. Single-page `ProfileEditForm` at `/settings/profile`.
 
-- [x] **P1-S1**: `partnerships` table with `id`, `inviterId`, `inviteeId`, `status`, `createdAt`, `updatedAt`
-  - File: `src/db/schema.ts`
-  - Note: Already implemented. Uses `pgEnum` with `pending | accepted | declined | cancelled | dissolved`.
+### Cross-cutting: Dev Seed Data
 
-- [x] **P1-S2**: Unique index on active partnership pairs
-  - File: `src/db/schema.ts`
-  - Note: Implemented as `unique_active_pair` using `LEAST/GREATEST` with status filter.
+Dev seed script (`src/db/seed-dev.ts`, `pnpm db:seed:dev`) creates two test users (Jeremy, Monica), profiles, partnership, and templates. Idempotent with upsert logic. `db:seed` updated to load `.env`.
 
-### Server Actions
+### Cross-cutting: Navigation & Route Groups
 
-- [x] **P1-A1**: `getPartnershipStatus()` -- Query active partnership, incoming invites, outgoing invite
-  - File: `src/app/(app)/partner/actions.ts`
-
-- [x] **P1-A2**: `sendPartnerInvite(email)` -- Validates and creates a partnership invite
-  - File: `src/app/(app)/partner/actions.ts`
-  - Validations: no self-invite, no existing active partnership, no existing pending outgoing invite, target must have account, target must not have active partnership.
-
-- [x] **P1-A3**: `acceptInvite(partnershipId)` -- Accepts a pending invite
-  - File: `src/app/(app)/partner/actions.ts`
-  - Uses transaction. Checks invite exists, belongs to user, is pending, user has no active partnership.
-
-- [x] **P1-A4**: `declineInvite(partnershipId)` -- Declines a pending invite
-  - File: `src/app/(app)/partner/actions.ts`
-
-- [x] **P1-A5**: `cancelInvite(partnershipId)` -- Cancels an outgoing pending invite
-  - File: `src/app/(app)/partner/actions.ts`
-
-- [x] **P1-A6**: `dissolvePartnership(partnershipId)` -- Dissolves an active partnership
-  - File: `src/app/(app)/partner/actions.ts`
-  - Uses transaction. Verifies caller is a member of the partnership, partnership is currently `accepted`. Sets status to `dissolved`.
-  - Side effects: `revalidatePath('/')`, `revalidatePath('/partner')`.
-
-### UI Components
-
-- [x] **P1-U1**: `InviteFormView` -- Email input + submit button (shown when no partnership or pending outgoing invite)
-  - File: `src/app/(app)/partner/partner-connection.tsx`
-
-- [x] **P1-U2**: `PendingOutgoingView` -- Shows "Invite sent to [email]" with cancel button and polling
-  - File: `src/app/(app)/partner/partner-connection.tsx`
-
-- [x] **P1-U3**: `IncomingInviteView` -- Shows inviter info with accept/decline buttons
-  - File: `src/app/(app)/partner/partner-connection.tsx`
-
-- [x] **P1-U4**: `PartnerCard` -- Shows partner's display name, pronouns, email, avatar initial, and "Unlink" button
-  - File: `src/app/(app)/partner/partner-card.tsx`
-  - Dashboard (`src/app/(app)/page.tsx`) fetches partner info via table-alias joins and renders `PartnerCard`.
-  - Note: `src/app/(app)/partner/queries.ts` also added with a `getPartnerInfo` helper (currently unused -- page uses inline joins).
-
-- [x] **P1-U5**: `UnlinkConfirmDialog` -- Modal confirming partnership dissolution
-  - File: `src/app/(app)/partner/partner-card.tsx` (colocated with `PartnerCard`)
-  - Uses native `<dialog>` with `showModal()` for focus trap and scroll lock. Backdrop click to dismiss. Loading/error states.
-  - Message: "Your check-in history will be preserved, but you won't be able to create new check-ins together."
-  - CSS: `dialog::backdrop` style added to `src/tailwind.css`.
-
-### Pages
-
-- [x] **P1-P1**: `/partner` page -- Server component (auth/onboarding guards now handled by `(app)` layout)
-  - File: `src/app/(app)/partner/page.tsx`
-
-### Remaining Phase 1 Work
-
-All Phase 1 tasks are complete.
+Persistent nav bar (`src/components/nav-bar.tsx`) with desktop top bar and mobile bottom tabs. `(app)` route group layout (`src/app/(app)/layout.tsx`) handles auth/onboarding guards. `(auth)` route group for login/register. Sign-out action in `src/lib/sign-out-action.ts`. Route stubs created for all nav targets.
 
 ---
 
-## Phase 2: Check-in Templates
-
-> Templates define the structure of a check-in: a name, description, and ordered list of questions.
-> PRD reference: Section 3 -- Phase 2
-> Depends on: Phase 1
-
-### Schema
-
-- [x] **P2-S1**: `checkInTemplates` table
-  - File: `src/db/schema.ts`
-  - Columns: `id` (text PK, UUID), `partnershipId` (text FK nullable -- null for system templates), `createdById` (text FK nullable), `name` (text NOT NULL), `description` (text nullable), `isSystem` (boolean default false), `createdAt` (timestamp), `updatedAt` (timestamp).
-
-- [x] **P2-S2**: `templateQuestions` table
-  - File: `src/db/schema.ts`
-  - Columns: `id` (text PK, UUID), `templateId` (text FK to `checkInTemplates`, cascade delete), `questionText` (text NOT NULL), `isRequired` (boolean default true), `orderIndex` (integer NOT NULL), `createdAt` (timestamp).
-  - Note: `questionType` and `options` columns omitted for now -- all questions are free text. Will add when scale/multiple choice support is needed.
-
-### Seed Data
-
-- [x] **P2-SEED**: Seed 3 system default templates
-  - File: `src/db/seed.ts`
-  - Script: `pnpm db:seed` (added to `package.json`)
-  - Templates to create (all with `isSystem: true`, `partnershipId: null`, `createdById: null`):
-    1. **Weekly Check-in** (5 questions): feeling about us, appreciation, on your mind, connection scale 1-10, one thing together this week.
-    2. **Monthly Deep Dive** (7 questions): overall state, highlight, unresolved issue, communication satisfaction scale, intimacy satisfaction scale, goal for next month, unasked needs.
-    3. **Quick Pulse** (3 questions): one word feeling, anything needed today, connection scale.
-  - PRD ref: Section 3 Phase 2, "System Default Templates."
-  - Must be idempotent (safe to re-run without duplicating).
-
-### Server Actions
-
-- [x] **P2-A1**: `createTemplate(data)` -- Creates a new custom template with questions
-  - File: `src/app/(app)/templates/actions.ts`
-  - Input: `{ name: string, description?: string, questions: Array<{ questionText, isRequired? }> }`
-  - Validation: User must have an active partnership. Name 1-100 chars. At least 1 question, max 20. Question text 1-500 chars.
-  - Sets `partnershipId` to the user's active partnership, `createdById` to the user. Uses transaction.
-
-- [x] **P2-A2**: `updateTemplate(id, data)` -- Updates template name, description, and questions
-  - File: `src/app/(app)/templates/actions.ts`
-  - Validation: Template must not be a system template. User must be in the owning partnership.
-  - Strategy: Replace all questions (delete existing, insert new) in a transaction. Partial updates supported (name only, questions only, or both).
-
-- [x] **P2-A3**: `deleteTemplate(id)` -- Deletes a custom template
-  - File: `src/app/(app)/templates/actions.ts`
-  - Validation: Not a system template. User must be in the owning partnership. Cascade delete handles questions.
-
-- [x] **P2-A4**: `duplicateTemplate(id)` -- Duplicates a template (system or custom)
-  - File: `src/app/(app)/templates/actions.ts`
-  - Creates a new template with name + " (Copy)". Copies all questions. Sets `isSystem: false`, `partnershipId` to user's partnership.
-  - Does not compound "(Copy)" suffix when duplicating an existing copy.
-
-- [x] **P2-A5**: `getTemplates()` -- Lists available templates for the current partnership
-  - File: `src/app/(app)/templates/queries.ts`
-  - Returns: System templates + custom templates belonging to the user's partnership. Includes question count via LEFT JOIN + GROUP BY.
-
-- [x] **P2-A6**: `getTemplate(id)` -- Gets a single template with its questions
-  - File: `src/app/(app)/templates/queries.ts`
-  - Authorization: System templates are readable by all. Custom templates only by partnership members. Returns ordered questions.
-
-### Supporting Code
-
-- [x] **P2-H1**: Template types definition
-  - File: `src/app/(app)/templates/types.ts`
-  - Types: `ActionResult`, `TemplateListItem`, `TemplateDetail`, `QuestionInput`, `CreateTemplateInput`, `UpdateTemplateInput`.
-
-- [x] **P2-H2**: Template validation helpers
-  - File: `src/app/(app)/templates/helpers.ts`
-  - Helpers: `getActivePartnership()`, `isPartnershipMember()`, `validateName()`, `validateQuestions()`, `validateTemplateInput()`.
-  - Shared across actions and queries. `MAX_QUESTIONS = 20` extracted to `src/app/(app)/templates/constants.ts`.
-
-### Integration Tests
-
-- [x] **P2-T1**: Integration test helpers for templates
-  - File: `src/__tests__/integration/helpers.ts`
-  - Added: `createTestTemplate()`, `createTestTemplateQuestion()`, `getTemplate()`, `getTemplateQuestions()` factory/assertion helpers.
-  - Updated `TABLES_IN_DELETE_ORDER` to include `templateQuestions` and `checkInTemplates`.
-
-- [x] **P2-T2**: Integration tests for template mutations
-  - File: `src/__tests__/integration/template-actions.test.ts`
-  - Coverage: `createTemplate` (happy path, auth, partnership, name validation, question validation, max questions, ordering, trimming), `updateTemplate` (name/desc, replace questions, system rejection, membership, validation), `deleteTemplate` (cascade, system rejection, membership), `duplicateTemplate` (system, custom, ordering, no compound suffix, membership).
-
-- [x] **P2-T3**: Integration tests for template queries
-  - File: `src/__tests__/integration/template-queries.test.ts`
-  - Coverage: `getTemplates` (system templates, partnership scoping, cross-partnership isolation, question count), `getTemplate` (system access, partnership member access, cross-partnership rejection, non-existent, auth).
-
-### UI Components
-
-- [x] **P2-U1**: `TemplateList` -- Grid/list of available templates
-  - File: `src/app/(app)/templates/template-list.tsx`
-  - Shows system badge on default templates. Card for each template with name, description preview, question count.
-  - Separates system templates ("Default Templates") and custom templates ("Your Templates") into sections.
-  - Empty state with link to create first template.
-
-- [x] **P2-U2**: `TemplateCard` -- Summary card for a template
-  - File: `src/app/(app)/templates/template-card.tsx`
-  - Shows: name, description preview, question count, actions (view, edit, duplicate, delete).
-  - System templates: view and duplicate only (no edit/delete).
-  - Includes inline `DeleteConfirmDialog` using the `Dialog` component.
-
-- [x] **P2-U3**: `TemplateForm` -- Create/edit form for templates
-  - File: `src/app/(app)/templates/template-form.tsx`
-  - Inputs: name (required), description (optional textarea).
-  - Contains `QuestionBuilder` for managing questions.
-  - Client-side validation: name 1-100 chars, at least 1 non-empty question, question text max 500 chars.
-  - Supports both create and edit modes. Redirects to template detail on success.
-
-- [x] **P2-U4**: `QuestionBuilder` -- Sortable list of questions with controls
-  - File: `src/app/(app)/templates/question-builder.tsx`
-  - Each question row: text input with character counter (500 max), required toggle.
-  - Up/down buttons for reordering (simpler alternative to drag-to-reorder).
-  - "Add question" button at bottom. Max questions enforced (MAX_QUESTIONS = 20).
-  - Note: Question type dropdown (free_text, scale, multiple_choice) and options editor not yet implemented -- all questions default to free text. Will add when scale/multiple choice support is needed.
-
-- [x] **P2-U5**: `TemplateDetail` -- Read-only view of a template's questions
-  - File: `src/app/(app)/templates/[id]/template-detail.tsx`
-  - Shows all questions in order with numbering. Optional badge for non-required questions.
-  - Action bar: Edit (custom only), Duplicate, Delete (custom only).
-  - Includes inline `DeleteDetailDialog` that redirects to `/templates` on success.
-
-### Pages
-
-- [x] **P2-P1**: `/templates` -- Template list page
-  - File: `src/app/(app)/templates/page.tsx` (replaced stub)
-  - Server component. Fetches templates via `getTemplates()` and renders `TemplateList`.
-  - "New Template" button linking to `/templates/new`.
-  - Shows partnership setup prompt when user has no active partnership.
-
-- [x] **P2-P2**: `/templates/new` -- Create template page
-  - File: `src/app/(app)/templates/new/page.tsx`
-  - Server component wrapper. Renders `TemplateForm` in create mode.
-
-- [x] **P2-P3**: `/templates/[id]` -- View template detail page
-  - File: `src/app/(app)/templates/[id]/page.tsx`
-  - Server component. Fetches template + questions via `getTemplate()`. Renders `TemplateDetail`.
-  - Dynamic metadata with template name. Returns 404 if template not found.
-
-- [x] **P2-P4**: `/templates/[id]/edit` -- Edit template page
-  - File: `src/app/(app)/templates/[id]/edit/page.tsx`
-  - Server component. Fetches template + questions. Renders `TemplateForm` in edit mode.
-  - Redirects to detail page if system template. Returns 404 if template not found.
-
-### Phase 2 Task Summary
-
-| Task                            | Category | Effort | Dependencies        | Status |
-| ------------------------------- | -------- | ------ | ------------------- | ------ |
-| P2-S1 checkInTemplates table    | Schema   | Small  | --                  | Done   |
-| P2-S2 templateQuestions table   | Schema   | Small  | P2-S1               | Done   |
-| P2-SEED system templates        | Data     | Small  | P2-S1, P2-S2        | Done   |
-| P2-H1 Template types            | Support  | Small  | --                  | Done   |
-| P2-H2 Validation helpers        | Support  | Small  | --                  | Done   |
-| P2-A1 createTemplate            | Action   | Medium | P2-S1, P2-S2        | Done   |
-| P2-A2 updateTemplate            | Action   | Medium | P2-S1, P2-S2        | Done   |
-| P2-A3 deleteTemplate            | Action   | Small  | P2-S1               | Done   |
-| P2-A4 duplicateTemplate         | Action   | Small  | P2-S1, P2-S2        | Done   |
-| P2-A5 getTemplates              | Action   | Small  | P2-S1               | Done   |
-| P2-A6 getTemplate               | Action   | Small  | P2-S1, P2-S2        | Done   |
-| P2-T1 Test helpers              | Test     | Small  | P2-S1, P2-S2        | Done   |
-| P2-T2 Action integration tests  | Test     | Medium | P2-A1..A4, P2-T1    | Done   |
-| P2-T3 Query integration tests   | Test     | Medium | P2-A5, P2-A6, P2-T1 | Done   |
-| P2-U1 TemplateList              | UI       | Medium | P2-A5               | Done   |
-| P2-U2 TemplateCard              | UI       | Small  | --                  | Done   |
-| P2-U3 TemplateForm              | UI       | Large  | P2-U4, P2-A1, P2-A2 | Done   |
-| P2-U4 QuestionBuilder           | UI       | Large  | --                  | Done   |
-| P2-U5 TemplateDetail            | UI       | Small  | P2-A6               | Done   |
-| P2-P1 /templates page           | Page     | Small  | P2-U1               | Done   |
-| P2-P2 /templates/new page       | Page     | Small  | P2-U3               | Done   |
-| P2-P3 /templates/[id] page      | Page     | Small  | P2-U5               | Done   |
-| P2-P4 /templates/[id]/edit page | Page     | Small  | P2-U3               | Done   |
-
-### Remaining Phase 2 Work
-
-All Phase 2 tasks are complete.
-
----
-
-## Cross-cutting: Dev Seed Data
-
-> Development seed data for local testing with realistic users, partnership, and templates.
-
-- [x] **DEV-SEED-1**: Dev seed script with full test data
-  - File: `src/db/seed-dev.ts`
-  - Script: `pnpm db:seed:dev` (added to `package.json`)
-  - Creates two users (Jeremy, Monica) with password `password`, complete profiles (display names, birthdays, pronouns, love languages, interests, goals), an accepted partnership, and templates (3 system + 1 custom).
-  - Idempotent: uses upsert logic (checks for existing records, updates if present).
-  - Prints login credentials on completion.
-
-- [x] **DEV-SEED-2**: Updated `db:seed` script to load `.env` file
-  - File: `package.json`
-  - Changed `db:seed` from `npx tsx src/db/seed.ts` to `npx tsx --env-file=.env src/db/seed.ts`.
-
-- [x] **DEV-SEED-3**: Extracted `MAX_QUESTIONS` to shared constants file
-  - File: `src/app/(app)/templates/constants.ts`
-  - `MAX_QUESTIONS = 20` moved from `helpers.ts` to `constants.ts` for reuse across `helpers.ts` and `question-builder.tsx`.
-
----
-
-## Phase 3: Check-in Lifecycle
+## Phase 3: Check-in Lifecycle (In Progress)
 
 > The core feature. A check-in is an instance of a template that both partners work through together.
 > PRD reference: Section 3 -- Phase 3
 > Depends on: Phase 2
 
-### Schema
+### Schema (Complete)
 
-- [x] **P3-S1**: `checkInStatusEnum` -- Enum for check-in states
-  - File: `src/db/schema.ts`
-  - Values: `draft`, `scheduled`, `in_progress`, `completed`
+- [x] **P3-S1**: `checkInStatusEnum` -- values: `draft`, `scheduled`, `in_progress`, `completed`
+- [x] **P3-S2**: `checkIns` table -- `id`, `partnershipId`, `templateId`, `title`, `status`, `scheduledFor`, `startedAt`, `completedAt`, `createdById`, timestamps. Indexes on partnershipId, status, scheduledFor.
+- [x] **P3-S3**: `questionTypeEnum` -- Skipped (all free text for now)
+- [x] **P3-S4**: `checkInQuestions` table -- copied from template at creation, immutable. Cascade delete from checkIn.
+- [x] **P3-S5**: `checkInResponses` table -- unique on `(checkInQuestionId, userId)`, `isDraft` flag.
 
-- [x] **P3-S2**: `checkIns` table
-  - File: `src/db/schema.ts`
-  - Columns: `id` (text PK, UUID), `partnershipId` (text FK NOT NULL), `templateId` (text FK NOT NULL -- a template is always required), `title` (text NOT NULL), `status` (checkInStatusEnum), `scheduledFor` (timestamp nullable), `startedAt` (timestamp nullable), `completedAt` (timestamp nullable), `createdById` (text FK NOT NULL), `createdAt` (timestamp), `updatedAt` (timestamp).
-  - Indexes: on `partnershipId`, on `status`, on `scheduledFor`.
+All schema in `src/db/schema.ts`.
 
-- [x] **P3-S3**: `questionTypeEnum` -- Skipped (not needed yet)
-  - All questions are free text, matching the `templateQuestions` table pattern.
-  - Will add when scale/multiple choice support is needed.
+### Server Actions (Complete)
 
-- [x] **P3-S4**: `checkInQuestions` table
-  - File: `src/db/schema.ts`
-  - Columns: `id` (text PK, UUID), `checkInId` (text FK, cascade delete), `questionText` (text NOT NULL), `isRequired` (boolean default true), `orderIndex` (integer NOT NULL), `createdById` (text FK nullable -- null for template-copied questions).
-  - Note: `questionType` and `options` columns omitted -- all questions are free text, consistent with `templateQuestions`. Will add when scale/multiple choice support is needed.
-  - Questions are copied from the template at creation time and are immutable for the lifetime of the check-in (no per-check-in editing).
+- [x] **P3-A1**: `createCheckIn(data)` -- from template (required), copies questions, sets draft/scheduled
+- ~~P3-A2 through P3-A5~~ -- Dropped (questions locked from template)
+- [x] **P3-A6**: `saveResponse(questionId, text)` -- upsert, isDraft by status, max 5k chars
+- [x] **P3-A7**: `startCheckIn` -- draft/scheduled -> in_progress, marks responses visible
+- [x] **P3-A8**: `completeCheckIn` -- in_progress -> completed, sets completedAt
+- [x] **P3-A9**: `reopenCheckIn` -- completed -> in_progress, clears completedAt
+- [x] **P3-A10**: `getCheckIn(id)` -- with questions/responses, privacy filtering by status
+- [x] **P3-A11**: `getCheckIns()` -- list for partnership, ordered by most recent
 
-- [x] **P3-S5**: `checkInResponses` table
-  - File: `src/db/schema.ts`
-  - Columns: `id` (text PK, UUID), `checkInQuestionId` (text FK, cascade delete), `userId` (text FK NOT NULL), `responseText` (text), `isDraft` (boolean default true), `createdAt` (timestamp), `updatedAt` (timestamp).
-  - Unique constraint: `(checkInQuestionId, userId)` -- one response per user per question.
+All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/check-ins/queries.ts`.
 
-### Server Actions
+### Supporting Code (Complete)
 
-- [x] **P3-A1**: `createCheckIn(data)` -- Creates a check-in from a template (required)
-  - File: `src/app/(app)/check-ins/actions.ts`
-  - Input: `{ templateId: string, title?: string, scheduledFor?: Date }`
-  - `templateId` is required: copies questions from the template into `checkInQuestions`. Title defaults to template name + date.
-  - Sets status to `draft` (or `scheduled` if `scheduledFor` is in the future).
-  - Authorization: user must have an active partnership. Check-in is created under that partnership.
+- [x] **P3-H1**: Shared partnership helpers in `src/lib/partnership.ts`
+- [x] **P3-H2**: Check-in types in `src/app/(app)/check-ins/types.ts`
+- [x] **P3-H3**: Check-in helpers in `src/app/(app)/check-ins/helpers.ts`
 
-- ~~**P3-A2**: `addQuestion`~~ -- Dropped. Questions are copied from templates and locked.
+### Integration Tests (Complete)
 
-- ~~**P3-A3**: `updateQuestion`~~ -- Dropped. Questions are copied from templates and locked.
-
-- ~~**P3-A4**: `removeQuestion`~~ -- Dropped. Questions are copied from templates and locked.
-
-- ~~**P3-A5**: `reorderQuestions`~~ -- Dropped. Questions are copied from templates and locked.
-
-- [x] **P3-A6**: `saveResponse(questionId, text)` -- Upserts a response (draft or active)
-  - File: `src/app/(app)/check-ins/actions.ts`
-  - Upserts on `(checkInQuestionId, userId)`. Sets `isDraft` based on check-in status.
-  - Response text max 5,000 chars.
-
-- [x] **P3-A7**: `startCheckIn(checkInId)` -- Transitions to `in_progress`
-  - File: `src/app/(app)/check-ins/actions.ts`
-  - Guard: check-in must be in `draft` or `scheduled` state.
-  - Side effects: set `startedAt = now()`, set all existing responses `isDraft = false`.
-
-- [x] **P3-A8**: `completeCheckIn(checkInId)` -- Transitions to `completed`
-  - File: `src/app/(app)/check-ins/actions.ts`
-  - Guard: check-in must be in `in_progress` state.
-  - Side effects: set `completedAt = now()`. Answers become read-only.
-
-- [x] **P3-A9**: `reopenCheckIn(checkInId)` -- Transitions back to `in_progress`
-  - File: `src/app/(app)/check-ins/actions.ts`
-  - Guard: check-in must be in `completed` state.
-  - Side effects: clear `completedAt`. Answers become editable again.
-
-- [x] **P3-A10**: `getCheckIn(id)` -- Gets a check-in with questions and responses
-  - File: `src/app/(app)/check-ins/queries.ts`
-  - Authorization: user must be a member of the check-in's partnership.
-  - Privacy: if check-in is `draft` or `scheduled`, only return the current user's responses (not partner's). If `in_progress` or `completed`, return both.
-
-- [x] **P3-A11**: `getCheckIns()` -- Lists check-ins for the user's active partnership
-  - File: `src/app/(app)/check-ins/queries.ts`
-  - Returns: id, title, status, scheduledFor, completedAt, question count. Ordered by most recent first.
+- [x] **P3-T1**: Test helpers in `src/__tests__/integration/helpers.ts`
+- [x] **P3-T2**: Action tests in `src/__tests__/integration/check-in-actions.test.ts`
+- [x] **P3-T3**: Query tests in `src/__tests__/integration/check-in-queries.test.ts`
+- [x] **P3-T4**: Helper unit tests in `src/app/(app)/check-ins/__tests__/helpers.test.ts`
 
 ### UI Components
 
@@ -484,43 +182,19 @@ All Phase 2 tasks are complete.
   - File: `src/app/(app)/check-ins/__tests__/helpers.test.ts`
   - Coverage: `guardDraftOrScheduled` (accepts draft/scheduled, rejects in_progress/completed), `guardCanRespond` (accepts draft/scheduled/in_progress, rejects completed), `guardInProgress` (accepts in_progress, rejects others), `guardCompleted` (accepts completed, rejects others), `validateTitle` (valid, boundary 200 chars, empty, whitespace, over limit, trimming), `validateResponseText` (empty, boundary 5000 chars, over limit).
 
-### Phase 3 Task Summary
+### Phase 3 Remaining Tasks
 
-| Task                         | Category | Effort | Dependencies        | Status  |
-| ---------------------------- | -------- | ------ | ------------------- | ------- |
-| P3-S1 checkInStatusEnum      | Schema   | Small  | --                  | Done    |
-| P3-S2 checkIns table         | Schema   | Small  | P3-S1               | Done    |
-| P3-S3 questionTypeEnum       | Schema   | Small  | --                  | Skipped |
-| P3-S4 checkInQuestions table | Schema   | Small  | P3-S2               | Done    |
-| P3-S5 checkInResponses table | Schema   | Small  | P3-S4               | Done    |
-| P3-H1 Shared partnership     | Support  | Small  | --                  | Done    |
-| P3-H2 Check-in types         | Support  | Small  | --                  | Done    |
-| P3-H3 Check-in helpers       | Support  | Small  | --                  | Done    |
-| P3-A1 createCheckIn          | Action   | Medium | P3-S2, P3-S4, P2-S2 | Done    |
-| ~~P3-A2 addQuestion~~        | Action   | --     | --                  | Dropped |
-| ~~P3-A3 updateQuestion~~     | Action   | --     | --                  | Dropped |
-| ~~P3-A4 removeQuestion~~     | Action   | --     | --                  | Dropped |
-| ~~P3-A5 reorderQuestions~~   | Action   | --     | --                  | Dropped |
-| P3-A6 saveResponse           | Action   | Medium | P3-S5               | Done    |
-| P3-A7 startCheckIn           | Action   | Medium | P3-S2, P3-S5        | Done    |
-| P3-A8 completeCheckIn        | Action   | Small  | P3-S2               | Done    |
-| P3-A9 reopenCheckIn          | Action   | Small  | P3-S2               | Done    |
-| P3-A10 getCheckIn            | Query    | Medium | P3-S2, P3-S4, P3-S5 | Done    |
-| P3-A11 getCheckIns           | Query    | Small  | P3-S2               | Done    |
-| P3-T1 Test helpers           | Test     | Small  | P3-S2, P3-S4, P3-S5 | Done    |
-| P3-T2 Action integration tests | Test   | Medium | P3-A1..A9, P3-T1    | Done    |
-| P3-T3 Query integration tests | Test    | Medium | P3-A10, P3-A11, P3-T1 | Done  |
-| P3-T4 Helper unit tests      | Test     | Small  | P3-H3               | Done    |
-| P3-U1 CreateCheckInForm      | UI       | Medium | P2-A5, P3-A1        |         |
-| P3-U2 CheckInDraftView       | UI       | Medium | P3-A6, P3-U7        |         |
-| ~~P3-U3 CheckInQuestionEditor~~ | UI    | --     | --                  | Dropped |
-| P3-U4 CheckInActiveView      | UI       | Large  | P3-A6, P3-U7        |         |
-| P3-U5 CheckInResultsView     | UI       | Medium | P3-A10              |         |
-| P3-U6 CheckInStatusBadge     | UI       | Small  | --                  |         |
-| P3-U7 ResponseInput          | UI       | Small  | --                  |         |
-| P3-P1 /check-ins page        | Page     | Small  | P3-A11, P3-U6       |         |
-| P3-P2 /check-ins/new page    | Page     | Small  | P3-U1               |         |
-| P3-P3 /check-ins/[id] page   | Page     | Medium | P3-U2, P3-U4, P3-U5 |         |
+| Task                         | Category | Effort | Dependencies        | Status |
+| ---------------------------- | -------- | ------ | ------------------- | ------ |
+| P3-U1 CreateCheckInForm      | UI       | Medium | P2-A5, P3-A1        |        |
+| P3-U2 CheckInDraftView       | UI       | Medium | P3-A6, P3-U7        |        |
+| P3-U4 CheckInActiveView      | UI       | Large  | P3-A6, P3-U7        |        |
+| P3-U5 CheckInResultsView     | UI       | Medium | P3-A10              |        |
+| P3-U6 CheckInStatusBadge     | UI       | Small  | --                  |        |
+| P3-U7 ResponseInput          | UI       | Small  | --                  |        |
+| P3-P1 /check-ins page        | Page     | Small  | P3-A11, P3-U6       |        |
+| P3-P2 /check-ins/new page    | Page     | Small  | P3-U1               |        |
+| P3-P3 /check-ins/[id] page   | Page     | Medium | P3-U2, P3-U4, P3-U5 |        |
 
 ---
 
@@ -798,50 +472,10 @@ All Phase 2 tasks are complete.
 
 ---
 
-## Cross-cutting: Navigation and Dashboard
+## Cross-cutting: Dashboard Redesign
 
-> The PRD specifies a persistent navigation bar and a redesigned dashboard.
-> These tasks span multiple phases and should be tackled alongside or after Phase 1 completion.
-
-### Navigation
-
-- [x] **NAV-1**: Persistent navigation bar
-  - File: `src/components/nav-bar.tsx`
-  - Desktop: fixed top bar with logo, centered nav links, user avatar + sign out.
-  - Mobile: fixed top bar (logo + avatar + sign out) + bottom tab bar.
-  - Items: Home (`/`), Check-ins (`/check-ins`), Templates (`/templates`), Settings (`/settings/profile`).
-  - Partner page accessible from dashboard, not a nav item.
-  - Active route highlighted via `isActive()` helper using `usePathname()`.
-
-- [x] **NAV-2**: Wire navigation into app layout
-  - File: `src/app/(app)/layout.tsx` (new route-group layout)
-  - `(app)` route group renders `NavBar` for authenticated users who have completed onboarding.
-  - Auth pages (`/login`, `/register`) live in `(auth)` group and do not render NavBar.
-  - `/onboarding` lives outside both groups and does not render NavBar.
-
-### Route Group Restructuring
-
-- [x] **ROUTE-1**: Introduce `(app)` route group for authenticated app pages
-  - Files moved: `src/app/page.tsx` -> `src/app/(app)/page.tsx`, `src/app/partner/` -> `src/app/(app)/partner/`
-  - New layout: `src/app/(app)/layout.tsx` -- server component that checks auth session + onboarding completion, redirects to `/login` or `/onboarding` as needed, renders `NavBar`, wraps children in centered `<main>` container.
-  - Eliminates per-page auth/onboarding guard boilerplate.
-
-- [x] **ROUTE-2**: Introduce `(auth)` route group for login/register pages
-  - Files moved: `src/app/login/` -> `src/app/(auth)/login/`, `src/app/register/` -> `src/app/(auth)/register/`
-  - Auth pages do not render the NavBar or app layout.
-
-- [x] **ROUTE-3**: Extract sign-out server action
-  - File: `src/lib/sign-out-action.ts`
-  - Calls `signOut({ redirectTo: '/login' })`. Used by NavBar sign-out button.
-  - Replaces inline sign-out form that was previously in the dashboard page.
-
-- [x] **ROUTE-4**: Placeholder route stubs for future feature pages
-  - `src/app/(app)/check-ins/page.tsx` -- "Coming soon" stub for check-in history page (P3-P1).
-  - `src/app/(app)/templates/page.tsx` -- "Coming soon" stub for template list page (P2-P1).
-  - `src/app/(app)/settings/profile/page.tsx` -- "Coming soon" stub for profile settings page (P7-P1).
-  - These stubs make nav links functional immediately; actual feature content will replace them.
-
-### Dashboard Redesign
+> Navigation and route groups are complete (see "Completed Phases" above).
+> Dashboard redesign depends on Phases 3 and 4 for data.
 
 - [ ] **DASH-1**: Unpartnered dashboard state
   - File: `src/app/(app)/page.tsx` (modify)
@@ -939,22 +573,14 @@ npx drizzle-kit migrate
 
 For each phase, work in this order: **Schema -> Seed -> Actions -> Components -> Pages -> Integration**.
 
-| Order | Tasks                                                                 | Phase             |
-| ----- | --------------------------------------------------------------------- | ----------------- |
-| ~~1~~ | ~~P1-A6, P1-U4, P1-U5 (finish Phase 1 gaps)~~                         | ~~1~~             |
-| ~~2~~ | ~~NAV-1, NAV-2, ROUTE-1 through ROUTE-4 (navigation + route groups)~~ | ~~Cross-cutting~~ |
-| ~~3~~ | ~~P7-R1, P7-A1, P7-U1, P7-P1 (profile editing, independent)~~         | ~~7~~             |
-| ~~4~~ | ~~P2-S1, P2-S2, P2-SEED (template schema + seed)~~                    | ~~2~~             |
-| ~~5~~ | ~~P2-A1 through P2-A6 (template actions + queries)~~                  | ~~2~~             |
-| ~~6~~ | ~~P2-U1 through P2-U5, P2-P1 through P2-P4 (template UI + pages)~~    | ~~2~~             |
-| ~~7~~ | ~~P3-S1 through P3-S5 (check-in schema)~~                              | ~~3~~             |
-| ~~8~~ | ~~P3-H1-H3, A1, A6-A11, T1-T4 (supporting code, actions, queries, tests; A2-A5 dropped)~~ | ~~3~~ |
-| 9     | P3-U6, P3-U7 (shared components)                                      | 3                 |
-| 10    | P3-U1, P3-U2, P3-U4, P3-U5, P3-P1 through P3-P3 (check-in UI + pages) | 3               |
-| 11    | P4-S1, P4-A1 through P4-A5 (action items schema + actions)            | 4                 |
-| 12    | P4-U1 through P4-U4, P4-INT1, P4-INT2 (action items UI + integration) | 4                 |
-| 13    | DASH-1, DASH-2 (dashboard redesign)                                   | Cross-cutting     |
-| 14    | P5-A1, P5-U1 through P5-U5 (history + search)                         | 5                 |
-| 15    | P6-S1, P6-DEP1, P6-A1, P6-A2 (AI schema + actions)                    | 6                 |
-| 16    | P6-U1 through P6-U3, P6-INT1 (AI UI + integration)                    | 6                 |
-| 17    | NF-1 through NF-8 (non-functional polish)                             | Cross-cutting     |
+| Order | Tasks                                                                   | Phase         |
+| ----- | ----------------------------------------------------------------------- | ------------- |
+| 1     | P3-U6, P3-U7 (shared components)                                       | 3             |
+| 2     | P3-U1, P3-U2, P3-U4, P3-U5, P3-P1 through P3-P3 (check-in UI + pages) | 3             |
+| 3     | P4-S1, P4-A1 through P4-A5 (action items schema + actions)             | 4             |
+| 4     | P4-U1 through P4-U4, P4-INT1, P4-INT2 (action items UI + integration)  | 4             |
+| 5     | DASH-1, DASH-2 (dashboard redesign)                                     | Cross-cutting |
+| 6     | P5-A1, P5-U1 through P5-U5 (history + search)                          | 5             |
+| 7     | P6-S1, P6-DEP1, P6-A1, P6-A2 (AI schema + actions)                     | 6             |
+| 8     | P6-U1 through P6-U3, P6-INT1 (AI UI + integration)                     | 6             |
+| 9     | NF-1 through NF-8 (non-functional polish)                               | Cross-cutting |
