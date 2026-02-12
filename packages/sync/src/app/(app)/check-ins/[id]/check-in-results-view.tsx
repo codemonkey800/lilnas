@@ -179,83 +179,92 @@ export function CheckInResultsView({
       <hr className="border-border-subtle" />
 
       {/* Questions with both partners' answers (read-only) */}
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-8">
         {checkIn.questions.map((q, index) => {
           const questionActionItems = actionItemsByQuestion[q.id] ?? []
 
           return (
-            <div
-              key={q.id}
-              className={cns(
-                'flex flex-col gap-4 rounded-md border border-border-subtle',
-                'bg-bg-raised p-4',
-              )}
-            >
-              {/* Question text */}
-              <div className="flex items-start gap-2">
-                <span className="mt-0.5 text-sm font-bold text-primary-400 tabular-nums">
-                  {index + 1}.
+            <div key={q.id} className="flex flex-col gap-3">
+              {/* Question heading (outside the card) */}
+              <div className="flex items-center gap-3">
+                <span
+                  className={cns(
+                    'flex h-7 w-7 shrink-0 items-center justify-center',
+                    'rounded-full bg-primary-500 text-sm font-bold text-text-inverse',
+                  )}
+                >
+                  {index + 1}
                 </span>
-                <p className="text-sm font-medium text-text">
+                <p className="text-2xl font-semibold text-text">
                   {q.questionText}
                 </p>
               </div>
 
-              {/* Your answer */}
-              <div className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-text-secondary">
-                  {userDisplayName}&apos;s answer
-                </span>
-                <div
-                  className={cns(
-                    'min-h-[80px] w-full rounded-sm border border-border',
-                    'bg-bg-surface px-3 py-2 text-sm text-text',
-                  )}
-                >
-                  {userResponses[q.id] ? (
-                    <p className="whitespace-pre-wrap">{userResponses[q.id]}</p>
-                  ) : (
-                    <p className="text-text-muted italic">No response</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Partner's answer */}
-              <div className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-text-secondary">
-                  {partnerDisplayName}&apos;s answer
-                </span>
-                <div
-                  className={cns(
-                    'min-h-[80px] w-full rounded-sm border border-border',
-                    'bg-bg-surface px-3 py-2 text-sm text-text',
-                  )}
-                >
-                  {partnerResponses[q.id] ? (
-                    <p className="whitespace-pre-wrap">
-                      {partnerResponses[q.id]}
-                    </p>
-                  ) : (
-                    <p className="text-text-muted italic">No response</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Action items for this question */}
-              {questionActionItems.length > 0 && (
-                <div className="flex flex-col gap-3">
-                  <hr className="border-border-subtle" />
+              {/* Response card */}
+              <div
+                className={cns(
+                  'flex flex-col gap-4 rounded-md border border-border-subtle',
+                  'bg-bg-raised p-4',
+                )}
+              >
+                {/* Your answer */}
+                <div className="flex flex-col gap-1.5">
                   <span className="text-xs font-medium text-text-secondary">
-                    Action items
+                    {userDisplayName}&apos;s answer
                   </span>
-                  <ActionItemList
-                    actionItems={questionActionItems}
-                    userId={userId}
-                    checkInStatus={checkIn.status}
-                    showEmpty
-                  />
+                  <div
+                    className={cns(
+                      'min-h-[80px] w-full rounded-sm border border-border',
+                      'bg-bg-surface px-3 py-2 text-sm text-text',
+                    )}
+                  >
+                    {userResponses[q.id] ? (
+                      <p className="whitespace-pre-wrap">
+                        {userResponses[q.id]}
+                      </p>
+                    ) : (
+                      <p className="text-text-muted italic">No response</p>
+                    )}
+                  </div>
                 </div>
-              )}
+
+                {/* Partner's answer */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-text-secondary">
+                    {partnerDisplayName}&apos;s answer
+                  </span>
+                  <div
+                    className={cns(
+                      'min-h-[80px] w-full rounded-sm border border-border',
+                      'bg-bg-surface px-3 py-2 text-sm text-text',
+                    )}
+                  >
+                    {partnerResponses[q.id] ? (
+                      <p className="whitespace-pre-wrap">
+                        {partnerResponses[q.id]}
+                      </p>
+                    ) : (
+                      <p className="text-text-muted italic">No response</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Action items for this question */}
+                {questionActionItems.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    <hr className="border-border-subtle" />
+                    <span className="text-xs font-medium text-text-secondary">
+                      Action items
+                    </span>
+                    <ActionItemList
+                      actionItems={questionActionItems}
+                      userId={userId}
+                      checkInStatus={checkIn.status}
+                      showEmpty
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           )
         })}

@@ -182,70 +182,77 @@ export function CheckInActiveView({
       )}
 
       {/* Questions with your answers only */}
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-8">
         {checkIn.questions.map((q, index) => {
           const questionActionItems = actionItemsByQuestion[q.id] ?? []
 
           return (
-            <div
-              key={q.id}
-              className={cns(
-                'flex flex-col gap-4 rounded-md border border-border-subtle',
-                'bg-bg-raised p-4',
-              )}
-            >
-              {/* Question text */}
-              <div className="flex items-start gap-2">
-                <span className="mt-0.5 text-sm font-bold text-primary-400 tabular-nums">
-                  {index + 1}.
+            <div key={q.id} className="flex flex-col gap-3">
+              {/* Question heading (outside the card) */}
+              <div className="flex items-center gap-3">
+                <span
+                  className={cns(
+                    'flex h-7 w-7 shrink-0 items-center justify-center',
+                    'rounded-full bg-primary-500 text-sm font-bold text-text-inverse',
+                  )}
+                >
+                  {index + 1}
                 </span>
-                <p className="text-sm font-medium text-text">
+                <p className="text-2xl font-semibold text-text">
                   {q.questionText}
                 </p>
               </div>
 
-              {/* Your answer (editable) */}
-              <ResponseInput
-                value={userResponses[q.id] ?? ''}
-                onValueChange={value => handleResponseChange(q.id, value)}
-                onAutoSave={value => handleAutoSave(q.id, value)}
-                placeholder="Write your answer..."
-              />
+              {/* Response card */}
+              <div
+                className={cns(
+                  'flex flex-col gap-4 rounded-md border border-border-subtle',
+                  'bg-bg-raised p-4',
+                )}
+              >
+                {/* Your answer (editable) */}
+                <ResponseInput
+                  value={userResponses[q.id] ?? ''}
+                  onValueChange={value => handleResponseChange(q.id, value)}
+                  onAutoSave={value => handleAutoSave(q.id, value)}
+                  placeholder="Write your answer..."
+                />
 
-              {/* Action items section */}
-              {(questionActionItems.length > 0 || partnerInfo) && (
-                <div className="flex flex-col gap-3">
-                  {questionActionItems.length > 0 && (
-                    <>
-                      <hr className="border-border-subtle" />
-                      <span className="text-xs font-medium text-text-secondary">
-                        Action items
-                      </span>
-                      <ActionItemList
-                        actionItems={questionActionItems}
-                        userId={userId}
-                        checkInStatus={checkIn.status}
-                      />
-                    </>
-                  )}
-
-                  {/* Add action item form */}
-                  {partnerInfo && (
-                    <>
-                      {questionActionItems.length === 0 && (
+                {/* Action items section */}
+                {(questionActionItems.length > 0 || partnerInfo) && (
+                  <div className="flex flex-col gap-3">
+                    {questionActionItems.length > 0 && (
+                      <>
                         <hr className="border-border-subtle" />
-                      )}
-                      <ActionItemForm
-                        checkInId={checkIn.id}
-                        questionId={q.id}
-                        userId={userId}
-                        partnerName={partnerInfo.displayName}
-                        partnerId={partnerInfo.id}
-                      />
-                    </>
-                  )}
-                </div>
-              )}
+                        <span className="text-xs font-medium text-text-secondary">
+                          Action items
+                        </span>
+                        <ActionItemList
+                          actionItems={questionActionItems}
+                          userId={userId}
+                          checkInStatus={checkIn.status}
+                        />
+                      </>
+                    )}
+
+                    {/* Add action item form */}
+                    {partnerInfo && (
+                      <>
+                        {questionActionItems.length === 0 && (
+                          <hr className="border-border-subtle" />
+                        )}
+                        <ActionItemForm
+                          checkInId={checkIn.id}
+                          questionId={q.id}
+                          userId={userId}
+                          partnerName={partnerInfo.displayName}
+                          partnerId={partnerInfo.id}
+                        />
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )
         })}
