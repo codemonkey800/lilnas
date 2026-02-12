@@ -23,6 +23,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "npx tsx --env-file=.env src/db/seed.ts",
+    "db:seed:check-ins": "npx tsx --env-file=.env src/db/seed-check-ins.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run -c vitest.config.integration.ts",
