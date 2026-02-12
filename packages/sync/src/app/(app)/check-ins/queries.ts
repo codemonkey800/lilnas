@@ -1,6 +1,6 @@
 'use server'
 
-import { and, asc, count, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 
 import { auth } from 'src/auth'
@@ -19,6 +19,7 @@ import type {
   ActionItem,
   CheckInDetail,
   CheckInListItem,
+  DashboardActionItem,
   PendingTransition,
 } from './types'
 
@@ -239,6 +240,57 @@ export async function getActionItemsForCheckIn(
     .orderBy(asc(actionItems.createdAt))
 
   // "both"-type items have no individual owner, so ownerDisplayName should be null
+  return rows.map(row => ({
+    ...row,
+    ownerDisplayName: row.ownerType === 'both' ? null : row.ownerDisplayName,
+  }))
+}
+
+// ---------------------------------------------------------------------------
+// P4-A5: Get all action items for the current user's active partnership
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetches all action items for the current user's active partnership.
+ * Includes all owner types (individual + both) and all statuses
+ * (open, in_progress, completed) to support client-side filtering.
+ *
+ * Sorted by due date (soonest first, nulls last), then by creation date.
+ */
+export async function getMyActionItems(): Promise<DashboardActionItem[]> {
+  const session = await auth()
+  if (!session?.user?.id) return []
+
+  const userId = session.user.id
+  const activePartnership = await getActivePartnership(userId)
+
+  if (!activePartnership) return []
+
+  const rows = await db
+    .select({
+      id: actionItems.id,
+      checkInId: actionItems.checkInId,
+      checkInQuestionId: actionItems.checkInQuestionId,
+      description: actionItems.description,
+      ownerType: actionItems.ownerType,
+      ownerId: actionItems.ownerId,
+      ownerDisplayName: profiles.displayName,
+      createdById: actionItems.createdById,
+      status: actionItems.status,
+      dueDate: actionItems.dueDate,
+      completedAt: actionItems.completedAt,
+      createdAt: actionItems.createdAt,
+      checkInTitle: checkIns.title,
+    })
+    .from(actionItems)
+    .innerJoin(checkIns, eq(checkIns.id, actionItems.checkInId))
+    .leftJoin(profiles, eq(profiles.userId, actionItems.ownerId))
+    .where(eq(checkIns.partnershipId, activePartnership.id))
+    .orderBy(
+      sql`${actionItems.dueDate} ASC NULLS LAST`,
+      asc(actionItems.createdAt),
+    )
+
   return rows.map(row => ({
     ...row,
     ownerDisplayName: row.ownerType === 'both' ? null : row.ownerDisplayName,

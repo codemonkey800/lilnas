@@ -256,3 +256,97 @@ test.describe('Action items', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Dashboard action items widget
+// ---------------------------------------------------------------------------
+
+test.describe('Dashboard action items', () => {
+  test.beforeEach(async () => {
+    await truncateAll()
+  })
+
+  test('dashboard shows open action items assigned to user', async ({
+    page,
+  }) => {
+    const { alice, checkIn, q1 } = await seedInProgressCheckIn()
+
+    await seedActionItem(checkIn.id, q1.id, alice.id, {
+      description: 'Review weekly goals',
+      ownerType: 'individual',
+      ownerId: alice.id,
+      status: 'open',
+    })
+
+    await loginAs(page, 'alice@e2e.test', PASSWORD)
+    await page.goto('/')
+
+    // Verify the "My Action Items" section and the item appear
+    await expect(page.getByText('My Action Items')).toBeVisible({
+      timeout: 10_000,
+    })
+    await expect(page.getByText('Review weekly goals')).toBeVisible()
+  })
+
+  test('dashboard shows shared (both) action items', async ({ page }) => {
+    const { alice, checkIn, q1 } = await seedInProgressCheckIn()
+
+    await seedActionItem(checkIn.id, q1.id, alice.id, {
+      description: 'Plan vacation together',
+      ownerType: 'both',
+      ownerId: null,
+      status: 'open',
+    })
+
+    await loginAs(page, 'alice@e2e.test', PASSWORD)
+    await page.goto('/')
+
+    await expect(page.getByText('Plan vacation together')).toBeVisible({
+      timeout: 10_000,
+    })
+    await expect(page.getByText('Both')).toBeVisible()
+  })
+
+  test('dashboard does not show completed action items', async ({ page }) => {
+    const { alice, checkIn, q1 } = await seedInProgressCheckIn()
+
+    // Only a completed action item — dashboard should show empty state
+    await seedActionItem(checkIn.id, q1.id, alice.id, {
+      description: 'Already done task',
+      ownerType: 'individual',
+      ownerId: alice.id,
+      status: 'completed',
+    })
+
+    await loginAs(page, 'alice@e2e.test', PASSWORD)
+    await page.goto('/')
+
+    await expect(page.getByText('My Action Items')).toBeVisible({
+      timeout: 10_000,
+    })
+    await expect(page.getByText('Already done task')).toBeHidden()
+    await expect(page.getByText('No open action items')).toBeVisible()
+  })
+
+  test('dashboard action item links to check-in', async ({ page }) => {
+    const { alice, checkIn, q1 } = await seedInProgressCheckIn()
+
+    await seedActionItem(checkIn.id, q1.id, alice.id, {
+      description: 'Follow up on feedback',
+      ownerType: 'individual',
+      ownerId: alice.id,
+      status: 'open',
+    })
+
+    await loginAs(page, 'alice@e2e.test', PASSWORD)
+    await page.goto('/')
+
+    // Click the action item link
+    await page.getByText('Follow up on feedback').click()
+
+    // Should navigate to the check-in detail page
+    await expect(page).toHaveURL(`/check-ins/${checkIn.id}`, {
+      timeout: 10_000,
+    })
+  })
+})

@@ -35,7 +35,7 @@ Extracted shared profile field components from onboarding wizard to `src/compone
 
 ### Cross-cutting: Dev Seed Data
 
-Dev seed script (`src/db/seed-dev.ts`, `pnpm db:seed:dev`) creates two test users (Jeremy, Monica), profiles, partnership, and templates. Idempotent with upsert logic. `db:seed` updated to load `.env`.
+Seed script (`src/db/seed.ts`, `pnpm db:seed`) creates two test users (Jeremy, Monica), profiles, partnership, system templates, and user-created templates. Idempotent with upsert logic. Loads `.env` automatically.
 
 ### Cross-cutting: Navigation & Route Groups
 
@@ -199,7 +199,7 @@ Check-in lifecycle actions in `src/app/(app)/check-ins/check-in.actions.ts`, act
 
 ---
 
-## Phase 4: Action Items (In Progress)
+## Phase 4: Action Items (Complete)
 
 > During an active check-in, partners can create action items tied to specific questions.
 > PRD reference: Section 3 -- Phase 4
@@ -234,11 +234,12 @@ Check-in lifecycle actions in `src/app/(app)/check-ins/check-in.actions.ts`, act
   - File: `src/app/(app)/check-ins/action-item.actions.ts`
   - Guard: only while check-in is `in_progress`.
 
-- [ ] **P4-A5**: `getMyActionItems()` -- Gets open action items assigned to the current user across all check-ins
-  - File: `src/app/(app)/check-ins/action-item.actions.ts`
+- [x] **P4-A5**: `getMyActionItems()` -- Gets open action items assigned to the current user across all check-ins
+  - File: `src/app/(app)/check-ins/queries.ts`
   - Used for the dashboard widget.
   - Query logic: returns items where (`ownerType = 'individual'` AND `ownerId = currentUserId`) OR (`ownerType = 'both'` AND the action item's check-in belongs to the user's active partnership).
-  - Sorted by due date (soonest first), then creation date.
+  - Sorted by due date (soonest first, nulls last), then creation date.
+  - Returns `DashboardActionItem` type (extends `ActionItem` with `checkInTitle`).
 
 ### UI Components
 
@@ -260,11 +261,23 @@ Check-in lifecycle actions in `src/app/(app)/check-ins/check-in.actions.ts`, act
   - Used in check-in active view and results view.
   - Optional `showEmpty` prop for "No action items yet" message.
 
-- [ ] **P4-U4**: `DashboardActionItems` -- Widget on main dashboard showing open items for the user
-  - File: `src/app/dashboard-action-items.tsx` (new) or inline in page.tsx
+- [x] **P4-U4**: `DashboardActionItems` -- Widget on main dashboard showing open items for the user
+  - Server component: `src/app/(app)/dashboard-action-items.tsx`
+  - Client component: `src/components/dashboard-action-item-card.tsx`
   - Shows open/in-progress action items assigned to the current user (individual) + shared items (both).
-  - Groups or allows filtering: "Mine" vs. "Shared".
+  - Each item shows description, check-in title, owner badge, and status toggle.
   - Links to the check-in detail page for each item.
+  - Unit tests: `src/components/__tests__/dashboard-action-item-card.test.tsx`
+
+- [x] **P4-U5**: `DashboardActionItemsList` -- Filterable action items list with owner and status filters (PRD A7)
+  - File: `src/components/dashboard-action-items-list.tsx`
+  - Client component that receives all partnership action items and userId from the server component.
+  - Owner filter pill bar: All, Mine, Partner's, Shared. Default: All.
+  - Status filter pill bar: Open (shows open + in_progress), Completed. Default: Open.
+  - Filter-aware empty state messages (e.g., "No open shared action items").
+  - Expanded `getMyActionItems` query to return all partnership items (all owners, all statuses) for client-side filtering.
+  - Filter types: `DashboardActionItemOwnerFilter`, `DashboardActionItemStatusFilter` in `types.ts`.
+  - Unit tests: `src/components/__tests__/dashboard-action-items-list.test.tsx` (17 tests).
 
 ### Integration Points
 
@@ -318,25 +331,26 @@ Check-in lifecycle actions in `src/app/(app)/check-ins/check-in.actions.ts`, act
 
 ### Phase 4 Task Summary
 
-| Task                           | Category    | Effort | Dependencies        | Status |
-| ------------------------------ | ----------- | ------ | ------------------- | ------ |
-| P4-S1 actionItems table        | Schema      | Small  | P3-S2, P3-S4        | Done   |
-| P4-A1 createActionItem         | Action      | Medium | P4-S1               | Done   |
-| P4-A2 updateActionItemStatus   | Action      | Small  | P4-S1               | Done   |
+| Task                           | Category    | Effort | Dependencies        | Status  |
+| ------------------------------ | ----------- | ------ | ------------------- | ------- |
+| P4-S1 actionItems table        | Schema      | Small  | P3-S2, P3-S4        | Done    |
+| P4-A1 createActionItem         | Action      | Medium | P4-S1               | Done    |
+| P4-A2 updateActionItemStatus   | Action      | Small  | P4-S1               | Done    |
 | ~~P4-A3 updateActionItem~~     | Action      | --     | --                  | Dropped |
-| P4-A4 deleteActionItem         | Action      | Small  | P4-S1               | Done   |
-| P4-A5 getMyActionItems         | Action      | Medium | P4-S1               |        |
-| P4-U1 ActionItemForm           | UI          | Medium | P4-A1               | Done   |
-| P4-U2 ActionItemCard           | UI          | Medium | P4-A2               | Done   |
-| P4-U3 ActionItemList           | UI          | Medium | P4-U2               | Done   |
-| P4-U4 DashboardActionItems     | UI          | Medium | P4-A5, P4-U3        |        |
-| P4-INT1 Wire into ActiveView   | Integration | Medium | P3-U4, P4-U1, P4-U3 | Done   |
-| P4-INT2 Wire into ResultsView  | Integration | Small  | P3-U5, P4-U3        | Done   |
-| P4-T1 Test helpers             | Test        | Small  | P4-S1               | Done   |
-| P4-T2 Action integration tests | Test        | Medium | P4-A1, P4-A2, P4-A4 | Done   |
-| P4-T3 ActionItemForm tests     | Test        | Small  | P4-U1               | Done   |
-| P4-T4 ActionItemCard tests     | Test        | Small  | P4-U2               | Done   |
-| P4-T5 Query integration tests  | Test        | Small  | P4-H3               | Done   |
+| P4-A4 deleteActionItem         | Action      | Small  | P4-S1               | Done    |
+| P4-A5 getMyActionItems         | Action      | Medium | P4-S1               | Done    |
+| P4-U1 ActionItemForm           | UI          | Medium | P4-A1               | Done    |
+| P4-U2 ActionItemCard           | UI          | Medium | P4-A2               | Done    |
+| P4-U3 ActionItemList           | UI          | Medium | P4-U2               | Done    |
+| P4-U4 DashboardActionItems     | UI          | Medium | P4-A5, P4-U3        | Done    |
+| P4-U5 DashboardActionItemsList | UI          | Medium | P4-U4, P4-A5        | Done    |
+| P4-INT1 Wire into ActiveView   | Integration | Medium | P3-U4, P4-U1, P4-U3 | Done    |
+| P4-INT2 Wire into ResultsView  | Integration | Small  | P3-U5, P4-U3        | Done    |
+| P4-T1 Test helpers             | Test        | Small  | P4-S1               | Done    |
+| P4-T2 Action integration tests | Test        | Medium | P4-A1, P4-A2, P4-A4 | Done    |
+| P4-T3 ActionItemForm tests     | Test        | Small  | P4-U1               | Done    |
+| P4-T4 ActionItemCard tests     | Test        | Small  | P4-U2               | Done    |
+| P4-T5 Query integration tests  | Test        | Small  | P4-H3               | Done    |
 
 ---
 
@@ -832,20 +846,20 @@ npx drizzle-kit migrate
 
 For each phase, work in this order: **Schema -> Seed -> Actions -> Components -> Pages -> Integration**.
 
-| Order | Tasks                                                                 | Phase         | Status      |
-| ----- | --------------------------------------------------------------------- | ------------- | ----------- |
-| 1     | P3-U6, P3-U7 (shared components)                                      | 3             | Done        |
-| 2     | P3-U1, P3-U2, P3-U4, P3-U5, P3-P1 through P3-P3 (check-in UI + pages) | 3             | Done        |
-| 3     | P4-S1, P4-A1 through P4-A5 (action items schema + actions + tests)    | 4             | In Progress |
-| 4     | P4-U1 through P4-U4, P4-INT1, P4-INT2 (action items UI + integration) | 4             | In Progress |
-| 4b    | REFACTOR-1 through REFACTOR-4 (code organization + partner tests)     | Cross-cutting | Done        |
-| 4c    | PC-S1, PC-T1, PC-H1, PC-H2, PC-Q1 (partner confirm schema + helpers)  | Cross-cutting | Done        |
-| 4d    | PC-A1 through PC-A5 (partner confirm actions)                         | Cross-cutting | Done        |
-| 4e    | PC-U1 through PC-U5, PC-P1 (partner confirm UI + page)                | Cross-cutting | Done        |
-| 4f    | PC-TEST1 through PC-TEST4 (partner confirm tests)                     | Cross-cutting | Done        |
-| 4g    | E2E-1, E2E-2 (E2E test infrastructure + specs)                        | Cross-cutting | Done        |
-| 5     | DASH-1, DASH-2 (dashboard redesign)                                   | Cross-cutting |             |
-| 6     | P5-A1, P5-U1 through P5-U5 (history + search)                         | 5             |             |
-| 7     | P6-S1, P6-DEP1, P6-A1, P6-A2 (AI schema + actions)                    | 6             |             |
-| 8     | P6-U1 through P6-U3, P6-INT1 (AI UI + integration)                    | 6             |             |
-| 9     | NF-1 through NF-8 (non-functional polish)                             | Cross-cutting |             |
+| Order | Tasks                                                                 | Phase         | Status |
+| ----- | --------------------------------------------------------------------- | ------------- | ------ |
+| 1     | P3-U6, P3-U7 (shared components)                                      | 3             | Done   |
+| 2     | P3-U1, P3-U2, P3-U4, P3-U5, P3-P1 through P3-P3 (check-in UI + pages) | 3             | Done   |
+| 3     | P4-S1, P4-A1 through P4-A5 (action items schema + actions + tests)    | 4             | Done   |
+| 4     | P4-U1 through P4-U4, P4-INT1, P4-INT2 (action items UI + integration) | 4             | Done   |
+| 4b    | REFACTOR-1 through REFACTOR-4 (code organization + partner tests)     | Cross-cutting | Done   |
+| 4c    | PC-S1, PC-T1, PC-H1, PC-H2, PC-Q1 (partner confirm schema + helpers)  | Cross-cutting | Done   |
+| 4d    | PC-A1 through PC-A5 (partner confirm actions)                         | Cross-cutting | Done   |
+| 4e    | PC-U1 through PC-U5, PC-P1 (partner confirm UI + page)                | Cross-cutting | Done   |
+| 4f    | PC-TEST1 through PC-TEST4 (partner confirm tests)                     | Cross-cutting | Done   |
+| 4g    | E2E-1, E2E-2 (E2E test infrastructure + specs)                        | Cross-cutting | Done   |
+| 5     | DASH-1, DASH-2 (dashboard redesign)                                   | Cross-cutting |        |
+| 6     | P5-A1, P5-U1 through P5-U5 (history + search)                         | 5             |        |
+| 7     | P6-S1, P6-DEP1, P6-A1, P6-A2 (AI schema + actions)                    | 6             |        |
+| 8     | P6-U1 through P6-U3, P6-INT1 (AI UI + integration)                    | 6             |        |
+| 9     | NF-1 through NF-8 (non-functional polish)                             | Cross-cutting |        |

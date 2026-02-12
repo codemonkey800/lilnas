@@ -27,6 +27,22 @@ export interface ActionItem {
   createdAt: Date | null
 }
 
+export interface DashboardActionItem extends ActionItem {
+  checkInTitle: string
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard action item filter types
+// ---------------------------------------------------------------------------
+
+export type DashboardActionItemOwnerFilter =
+  | 'all'
+  | 'mine'
+  | 'partner'
+  | 'shared'
+
+export type DashboardActionItemStatusFilter = 'open' | 'completed'
+
 export interface CreateActionItemInput {
   checkInId: string
   checkInQuestionId: string

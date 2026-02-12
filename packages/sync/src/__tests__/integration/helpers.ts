@@ -475,6 +475,7 @@ interface CreateActionItemOptions {
   ownerType?: 'individual' | 'both'
   ownerId?: string | null
   status?: 'open' | 'in_progress' | 'completed'
+  dueDate?: Date | null
   completedAt?: Date | null
 }
 
@@ -497,6 +498,7 @@ export async function createTestActionItem(
       ownerType: overrides.ownerType ?? 'individual',
       ownerId: 'ownerId' in overrides ? overrides.ownerId : createdById,
       status: overrides.status ?? 'open',
+      dueDate: overrides.dueDate ?? null,
       completedAt: overrides.completedAt ?? null,
     })
     .returning({ id: actionItems.id })

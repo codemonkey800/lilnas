@@ -18,9 +18,8 @@ vi.mock('src/auth', () => ({
 }))
 
 // Import queries under test (these resolve to the mocked db/auth)
-const { getCheckIn, getCheckIns, getActionItemsForCheckIn } = await import(
-  'src/app/(app)/check-ins/queries'
-)
+const { getCheckIn, getCheckIns, getActionItemsForCheckIn, getMyActionItems } =
+  await import('src/app/(app)/check-ins/queries')
 
 // ---------------------------------------------------------------------------
 // Test suite
@@ -566,6 +565,272 @@ describe('check-in queries', () => {
 
       expect(result).toHaveLength(1)
       expect(result[0]!.description).toBe('Item for CI1')
+    })
+  })
+
+  // -----------------------------------------------------------------------
+  // getMyActionItems
+  // -----------------------------------------------------------------------
+
+  describe('getMyActionItems', () => {
+    it('returns empty array for unauthenticated user', async () => {
+      await mockAuthAs(null)
+
+      const result = await getMyActionItems()
+
+      expect(result).toEqual([])
+    })
+
+    it('returns empty array when user has no active partnership', async () => {
+      const user = await createTestUser()
+      await mockAuthAs(user.id)
+
+      const result = await getMyActionItems()
+
+      expect(result).toEqual([])
+    })
+
+    it('returns individual items assigned to current user', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      await createTestProfile(alice.id, { displayName: 'Alice' })
+      await createTestProfile(bob.id, { displayName: 'Bob' })
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        title: 'Weekly Sync',
+        status: 'in_progress',
+        startedAt: new Date(),
+      })
+      const q = await createTestCheckInQuestion(ci.id)
+      await createTestActionItem(ci.id, q.id, alice.id, {
+        description: 'My task',
+        ownerType: 'individual',
+        ownerId: alice.id,
+        status: 'open',
+      })
+
+      await mockAuthAs(alice.id)
+      const result = await getMyActionItems()
+
+      expect(result).toHaveLength(1)
+      expect(result[0]!.description).toBe('My task')
+      expect(result[0]!.ownerType).toBe('individual')
+      expect(result[0]!.ownerId).toBe(alice.id)
+    })
+
+    it('returns shared (both) items for the active partnership', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      await createTestProfile(alice.id, { displayName: 'Alice' })
+      await createTestProfile(bob.id, { displayName: 'Bob' })
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        title: 'Weekly Sync',
+        status: 'in_progress',
+        startedAt: new Date(),
+      })
+      const q = await createTestCheckInQuestion(ci.id)
+      await createTestActionItem(ci.id, q.id, alice.id, {
+        description: 'Our shared task',
+        ownerType: 'both',
+        ownerId: null,
+        status: 'open',
+      })
+
+      await mockAuthAs(alice.id)
+      const result = await getMyActionItems()
+
+      expect(result).toHaveLength(1)
+      expect(result[0]!.description).toBe('Our shared task')
+      expect(result[0]!.ownerType).toBe('both')
+      expect(result[0]!.ownerDisplayName).toBeNull()
+    })
+
+    it('includes completed action items', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      await createTestProfile(alice.id, { displayName: 'Alice' })
+      await createTestProfile(bob.id, { displayName: 'Bob' })
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        title: 'Weekly Sync',
+        status: 'in_progress',
+        startedAt: new Date(),
+      })
+      const q = await createTestCheckInQuestion(ci.id)
+      await createTestActionItem(ci.id, q.id, alice.id, {
+        description: 'Done task',
+        ownerType: 'individual',
+        ownerId: alice.id,
+        status: 'completed',
+      })
+      await createTestActionItem(ci.id, q.id, alice.id, {
+        description: 'Open task',
+        ownerType: 'individual',
+        ownerId: alice.id,
+        status: 'open',
+      })
+
+      await mockAuthAs(alice.id)
+      const result = await getMyActionItems()
+
+      expect(result).toHaveLength(2)
+      const descriptions = result.map(r => r.description).sort()
+      expect(descriptions).toEqual(['Done task', 'Open task'])
+    })
+
+    it('includes individual items assigned to the partner', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      await createTestProfile(alice.id, { displayName: 'Alice' })
+      await createTestProfile(bob.id, { displayName: 'Bob' })
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        title: 'Weekly Sync',
+        status: 'in_progress',
+        startedAt: new Date(),
+      })
+      const q = await createTestCheckInQuestion(ci.id)
+      await createTestActionItem(ci.id, q.id, alice.id, {
+        description: "Bob's task",
+        ownerType: 'individual',
+        ownerId: bob.id,
+        status: 'open',
+      })
+
+      await mockAuthAs(alice.id)
+      const result = await getMyActionItems()
+
+      expect(result).toHaveLength(1)
+      expect(result[0]!.description).toBe("Bob's task")
+      expect(result[0]!.ownerId).toBe(bob.id)
+      expect(result[0]!.ownerDisplayName).toBe('Bob')
+    })
+
+    it('includes in_progress items (not just open)', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      await createTestProfile(alice.id, { displayName: 'Alice' })
+      await createTestProfile(bob.id, { displayName: 'Bob' })
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        title: 'Weekly Sync',
+        status: 'in_progress',
+        startedAt: new Date(),
+      })
+      const q = await createTestCheckInQuestion(ci.id)
+      await createTestActionItem(ci.id, q.id, alice.id, {
+        description: 'In progress task',
+        ownerType: 'individual',
+        ownerId: alice.id,
+        status: 'in_progress',
+      })
+
+      await mockAuthAs(alice.id)
+      const result = await getMyActionItems()
+
+      expect(result).toHaveLength(1)
+      expect(result[0]!.status).toBe('in_progress')
+    })
+
+    it('sorts by due date (soonest first), then creation date', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      await createTestProfile(alice.id, { displayName: 'Alice' })
+      await createTestProfile(bob.id, { displayName: 'Bob' })
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        title: 'Weekly Sync',
+        status: 'in_progress',
+        startedAt: new Date(),
+      })
+      const q = await createTestCheckInQuestion(ci.id)
+
+      // Item with no due date — should sort last
+      await createTestActionItem(ci.id, q.id, alice.id, {
+        description: 'No due date',
+        ownerType: 'individual',
+        ownerId: alice.id,
+        status: 'open',
+      })
+      // Item with a far-future due date
+      await createTestActionItem(ci.id, q.id, alice.id, {
+        description: 'Later due date',
+        ownerType: 'individual',
+        ownerId: alice.id,
+        status: 'open',
+        dueDate: new Date('2099-12-31'),
+      })
+      // Item with a near-future due date — should sort first
+      await createTestActionItem(ci.id, q.id, alice.id, {
+        description: 'Soonest due date',
+        ownerType: 'individual',
+        ownerId: alice.id,
+        status: 'open',
+        dueDate: new Date('2025-01-01'),
+      })
+
+      await mockAuthAs(alice.id)
+      const result = await getMyActionItems()
+
+      expect(result).toHaveLength(3)
+      expect(result[0]!.description).toBe('Soonest due date')
+      expect(result[1]!.description).toBe('Later due date')
+      expect(result[2]!.description).toBe('No due date')
+    })
+
+    it('includes checkInTitle in results', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      await createTestProfile(alice.id, { displayName: 'Alice' })
+      await createTestProfile(bob.id, { displayName: 'Bob' })
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        title: 'My Important Check-in',
+        status: 'in_progress',
+        startedAt: new Date(),
+      })
+      const q = await createTestCheckInQuestion(ci.id)
+      await createTestActionItem(ci.id, q.id, alice.id, {
+        description: 'Task with title',
+        ownerType: 'individual',
+        ownerId: alice.id,
+        status: 'open',
+      })
+
+      await mockAuthAs(alice.id)
+      const result = await getMyActionItems()
+
+      expect(result).toHaveLength(1)
+      expect(result[0]!.checkInTitle).toBe('My Important Check-in')
     })
   })
 })

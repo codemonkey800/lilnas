@@ -6,6 +6,7 @@ import { auth } from 'src/auth'
 import { db } from 'src/db'
 import { partnerships, profiles, users } from 'src/db/schema'
 
+import { DashboardActionItems } from './dashboard-action-items'
 import { PartnerCard } from './partner/partner-card'
 
 export default async function HomePage() {
@@ -81,6 +82,8 @@ export default async function HomePage() {
             : activePartnership.inviterEmail
         }
       />
+
+      <DashboardActionItems />
     </div>
   )
 }
