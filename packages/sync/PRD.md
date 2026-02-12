@@ -507,7 +507,7 @@ When `owner_type` is `individual`, the `owner_id` column identifies the assigned
 | A3  | As a user, I can set an optional due date for an action item                | Date picker input on the action item.                                                                            |
 | A4  | As a user, I can mark an action item as complete                            | Status changes to `completed`. Shown with strikethrough or checkmark.                                            |
 | A5  | As a user, I can view all my action items across check-ins                  | Action items dashboard/section on the main dashboard. Includes items assigned to me individually and shared items. |
-| A6  | As a user, I can edit or delete an action item                              | Only while the check-in is `in_progress`. In `completed` state, only status changes are allowed.                 |
+| A6  | As a user, I can delete an action item                                      | Only while the check-in is `in_progress`. In `completed` state, only status changes are allowed. To edit an action item, delete it and create a new one. |
 | A7  | As a user, I can filter action items by owner type on the dashboard         | Filter options: "All", "Mine", "Partner's", "Shared". Helps focus on personal vs. joint commitments.            |
 
 #### Action Item Lifecycle
@@ -557,7 +557,7 @@ Both sets are combined and sorted by due date (soonest first), then creation dat
 #### UI Components
 
 - **ActionItemForm**: Inline form under a question to add an action item (description, owner selector with "Me" / "Partner name" / "Both of us" options, optional due date).
-- **ActionItemCard**: Shows description, owner label (partner name or "Both of you"), status badge, due date. Click to toggle status. Shared items display a "Shared" badge or icon.
+- **ActionItemCard**: Shows description, owner label (partner name or "Both of you"), status badge, due date. Click status indicator to cycle status (open -> in_progress -> completed). Shared items display a "Shared" badge or icon. Delete button visible only when check-in is `in_progress`. To edit, users delete and recreate the action item.
 - **ActionItemList**: Aggregated view of all action items for a check-in or for a user. Supports filtering by owner type.
 - **DashboardActionItems**: Widget on the main dashboard showing open action items assigned to the current user (individual + shared). Grouped or filterable by "Mine" / "Shared".
 
@@ -793,7 +793,6 @@ All new tables follow the existing schema patterns in `src/db/schema.ts`:
 | ------------------------------------ | ------------------------------ | ---------------------------------------------- |
 | `createActionItem(data)`             | `src/app/check-ins/actions.ts` | Creates an action item for a question (individual or shared owner) |
 | `updateActionItemStatus(id, status)` | `src/app/check-ins/actions.ts` | Updates action item status                                        |
-| `updateActionItem(id, data)`         | `src/app/check-ins/actions.ts` | Edits action item description, owner type/id, due date            |
 | `deleteActionItem(id)`               | `src/app/check-ins/actions.ts` | Removes an action item                                            |
 
 ### Phase 5: Check-in History
@@ -980,5 +979,5 @@ The partner who initiated a pending transition can cancel it at any time. This c
 - Multiple choice options must have at least 2 items, each 1-200 characters.
 - Questions are copied from the template and locked for the lifetime of the check-in (no per-check-in editing).
 - Response text has no hard limit but is capped at 5,000 characters per response.
-- Action item descriptions are capped at 500 characters.
+- Action item descriptions are capped at 500 characters. To edit an action item, delete it and create a new one.
 - Action item `owner_type` must be `individual` or `both`. When `individual`, `owner_id` must reference a member of the partnership. When `both`, `owner_id` must be null.

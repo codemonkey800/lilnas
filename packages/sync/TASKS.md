@@ -228,10 +228,7 @@ Check-in lifecycle actions in `src/app/(app)/check-ins/check-in.actions.ts`, act
   - If status is `completed`, set `completedAt = now()`. Otherwise, clear `completedAt`.
   - For shared (`both`) action items, either partner can update the status.
 
-- [ ] **P4-A3**: `updateActionItem(id, data)` -- Edits description, owner type/id, due date
-  - File: `src/app/(app)/check-ins/action-item.actions.ts`
-  - Guard: only while check-in is `in_progress`. In `completed` state, only status changes are allowed (P4-A2).
-  - Supports changing owner type (e.g., individual -> both or vice versa). Validates ownership constraints.
+- ~~**P4-A3**: `updateActionItem(id, data)`~~ -- Dropped. Users delete and recreate action items instead of editing.
 
 - [x] **P4-A4**: `deleteActionItem(id)` -- Removes an action item
   - File: `src/app/(app)/check-ins/action-item.actions.ts`
@@ -256,6 +253,7 @@ Check-in lifecycle actions in `src/app/(app)/check-ins/check-in.actions.ts`, act
   - Shows: description, owner label (partner name for individual, "Both" for shared), status circle indicator.
   - Click status circle to cycle: open -> in_progress -> completed. Optimistic UI with revert on failure.
   - Delete button visible only when check-in is `in_progress`.
+  - ~~Inline editing~~ -- Dropped. Users delete and recreate action items instead of editing.
 
 - [x] **P4-U3**: `ActionItemList` -- Aggregated view of action items for a check-in
   - File: `src/components/action-item-list.tsx`
@@ -325,7 +323,7 @@ Check-in lifecycle actions in `src/app/(app)/check-ins/check-in.actions.ts`, act
 | P4-S1 actionItems table        | Schema      | Small  | P3-S2, P3-S4        | Done   |
 | P4-A1 createActionItem         | Action      | Medium | P4-S1               | Done   |
 | P4-A2 updateActionItemStatus   | Action      | Small  | P4-S1               | Done   |
-| P4-A3 updateActionItem         | Action      | Small  | P4-S1               |        |
+| ~~P4-A3 updateActionItem~~     | Action      | --     | --                  | Dropped |
 | P4-A4 deleteActionItem         | Action      | Small  | P4-S1               | Done   |
 | P4-A5 getMyActionItems         | Action      | Medium | P4-S1               |        |
 | P4-U1 ActionItemForm           | UI          | Medium | P4-A1               | Done   |
