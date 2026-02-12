@@ -18,8 +18,16 @@ const mockReopenCheckIn = vi.fn()
 const mockUpdateActionItemStatus = vi.fn()
 const mockDeleteActionItem = vi.fn()
 
-vi.mock('src/app/(app)/check-ins/actions', () => ({
+const mockConfirmTransition = vi.fn()
+const mockCancelTransition = vi.fn()
+
+vi.mock('src/app/(app)/check-ins/check-in.actions', () => ({
   reopenCheckIn: (...args: unknown[]) => mockReopenCheckIn(...args),
+  confirmTransition: (...args: unknown[]) => mockConfirmTransition(...args),
+  cancelTransition: (...args: unknown[]) => mockCancelTransition(...args),
+}))
+
+vi.mock('src/app/(app)/check-ins/action-item.actions', () => ({
   updateActionItemStatus: (...args: unknown[]) =>
     mockUpdateActionItemStatus(...args),
   deleteActionItem: (...args: unknown[]) => mockDeleteActionItem(...args),
@@ -47,9 +55,12 @@ function makeCompletedCheckIn(
     status: 'completed',
     templateId: 'tpl-1',
     partnershipId: 'p-1',
-    scheduledFor: null,
     startedAt: new Date('2025-06-01'),
     completedAt: new Date('2025-06-05'),
+    pendingTransition: null,
+    pendingTransitionById: null,
+    pendingTransitionByName: null,
+    partnerDisplayName: 'Bob',
     createdById: userId,
     createdAt: new Date('2025-05-30'),
     questions: [
@@ -147,19 +158,6 @@ describe('CheckInResultsView', () => {
     expect(screen.getByText('No response')).toBeInTheDocument()
   })
 
-  it('"Summarize with AI" button is disabled', () => {
-    render(
-      <CheckInResultsView
-        checkIn={makeCompletedCheckIn()}
-        userId={userId}
-        actionItems={[]}
-      />,
-    )
-    expect(
-      screen.getByRole('button', { name: /summarize with ai/i }),
-    ).toBeDisabled()
-  })
-
   it('opens re-open confirmation dialog on button click', async () => {
     const user = userEvent.setup()
     render(
@@ -224,5 +222,42 @@ describe('CheckInResultsView', () => {
     // Error may display in both the page and dialog
     const errors = await screen.findAllByText('This check-in is not completed.')
     expect(errors.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows initiator banner with partner name and disables re-open button when user initiated pending reopen', () => {
+    render(
+      <CheckInResultsView
+        checkIn={makeCompletedCheckIn({
+          pendingTransition: 'reopen',
+          pendingTransitionById: userId,
+          pendingTransitionByName: 'Alice',
+          partnerDisplayName: 'Bob',
+        })}
+        userId={userId}
+        actionItems={[]}
+      />,
+    )
+
+    expect(screen.getByText(/Waiting for Bob to confirm/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /re-open/i })).toBeDisabled()
+  })
+
+  it('shows partner banner when partner initiated pending reopen', () => {
+    render(
+      <CheckInResultsView
+        checkIn={makeCompletedCheckIn({
+          pendingTransition: 'reopen',
+          pendingTransitionById: partnerId,
+          pendingTransitionByName: 'Bob',
+        })}
+        userId={userId}
+        actionItems={[]}
+      />,
+    )
+
+    expect(
+      screen.getByText(/Bob wants to re-open this check-in/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
   })
 })

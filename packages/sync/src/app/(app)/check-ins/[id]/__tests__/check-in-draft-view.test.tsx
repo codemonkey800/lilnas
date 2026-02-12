@@ -16,10 +16,14 @@ vi.mock('next/navigation', () => ({
 
 const mockSaveResponse = vi.fn()
 const mockStartCheckIn = vi.fn()
+const mockConfirmTransition = vi.fn()
+const mockCancelTransition = vi.fn()
 
-vi.mock('src/app/(app)/check-ins/actions', () => ({
+vi.mock('src/app/(app)/check-ins/check-in.actions', () => ({
   saveResponse: (...args: unknown[]) => mockSaveResponse(...args),
   startCheckIn: (...args: unknown[]) => mockStartCheckIn(...args),
+  confirmTransition: (...args: unknown[]) => mockConfirmTransition(...args),
+  cancelTransition: (...args: unknown[]) => mockCancelTransition(...args),
 }))
 
 // ---------------------------------------------------------------------------
@@ -41,9 +45,12 @@ function makeDraftCheckIn(overrides?: Partial<CheckInDetail>): CheckInDetail {
     status: 'draft',
     templateId: 'tpl-1',
     partnershipId: 'p-1',
-    scheduledFor: null,
     startedAt: null,
     completedAt: null,
+    pendingTransition: null,
+    pendingTransitionById: null,
+    pendingTransitionByName: null,
+    partnerDisplayName: 'Bob',
     createdById: userId,
     createdAt: new Date('2025-06-01'),
     questions: [
@@ -88,16 +95,6 @@ describe('CheckInDraftView', () => {
     expect(screen.getByText('You: 1/2 answered')).toBeInTheDocument()
   })
 
-  it('shows "Scheduled for ..." text for scheduled check-ins', () => {
-    const checkIn = makeDraftCheckIn({
-      status: 'scheduled',
-      scheduledFor: new Date('2025-12-25'),
-    })
-    render(<CheckInDraftView checkIn={checkIn} userId={userId} />)
-    expect(screen.getByText(/Scheduled for/)).toBeInTheDocument()
-    expect(screen.getByText('Scheduled')).toBeInTheDocument()
-  })
-
   it('opens start confirmation dialog on button click', async () => {
     const user = userEvent.setup()
     render(<CheckInDraftView checkIn={makeDraftCheckIn()} userId={userId} />)
@@ -107,7 +104,7 @@ describe('CheckInDraftView', () => {
     expect(screen.getByText('Start check-in?')).toBeInTheDocument()
     expect(
       screen.getByText(
-        /Starting this check-in will make all drafted answers visible/,
+        /Starting this check-in will allow both partners to finalize/,
       ),
     ).toBeInTheDocument()
   })
@@ -139,5 +136,42 @@ describe('CheckInDraftView', () => {
       'This check-in can no longer be modified.',
     )
     expect(errors.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows initiator banner with partner name and disables start button when user initiated pending start', () => {
+    render(
+      <CheckInDraftView
+        checkIn={makeDraftCheckIn({
+          pendingTransition: 'start',
+          pendingTransitionById: userId,
+          pendingTransitionByName: 'Alice',
+          partnerDisplayName: 'Bob',
+        })}
+        userId={userId}
+      />,
+    )
+
+    expect(screen.getByText(/Waiting for Bob to confirm/)).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /start check-in/i }),
+    ).toBeDisabled()
+  })
+
+  it('shows partner banner when partner initiated pending start', () => {
+    render(
+      <CheckInDraftView
+        checkIn={makeDraftCheckIn({
+          pendingTransition: 'start',
+          pendingTransitionById: 'user-2',
+          pendingTransitionByName: 'Bob',
+        })}
+        userId={userId}
+      />,
+    )
+
+    expect(
+      screen.getByText(/Bob wants to start this check-in/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
   })
 })

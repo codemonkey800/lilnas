@@ -186,7 +186,6 @@ export const templateQuestions = pgTable('template_questions', {
 
 export const checkInStatusEnum = pgEnum('check_in_status', [
   'draft',
-  'scheduled',
   'in_progress',
   'completed',
 ])
@@ -209,9 +208,15 @@ export const checkIns = pgTable(
     title: text('title').notNull(),
     status: checkInStatusEnum('status').notNull().default('draft'),
 
-    scheduledFor: timestamp('scheduled_for', { mode: 'date' }),
     startedAt: timestamp('started_at', { mode: 'date' }),
     completedAt: timestamp('completed_at', { mode: 'date' }),
+
+    // Two-person confirmation: tracks pending transition requests
+    pendingTransition: text('pending_transition'), // 'start' | 'complete' | 'reopen' | null
+    pendingTransitionById: text('pending_transition_by_id').references(
+      () => users.id,
+      { onDelete: 'cascade' },
+    ),
 
     createdById: text('created_by_id')
       .notNull()
@@ -223,7 +228,6 @@ export const checkIns = pgTable(
   table => [
     index('check_ins_partnership_id_idx').on(table.partnershipId),
     index('check_ins_status_idx').on(table.status),
-    index('check_ins_scheduled_for_idx').on(table.scheduledFor),
   ],
 )
 

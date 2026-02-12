@@ -27,7 +27,9 @@ const {
   startCheckIn,
   completeCheckIn,
   reopenCheckIn,
-} = await import('src/app/(app)/check-ins/actions')
+  confirmTransition,
+  cancelTransition,
+} = await import('src/app/(app)/check-ins/check-in.actions')
 
 // ---------------------------------------------------------------------------
 // Test suite
@@ -142,36 +144,7 @@ describe('check-in actions', () => {
       }
     })
 
-    it('sets status to scheduled when scheduledFor is a future date', async () => {
-      const alice = await createTestUser()
-      const bob = await createTestUser()
-      const partnership = await createTestPartnership(
-        alice.id,
-        bob.id,
-        'accepted',
-      )
-      const template = await createTestTemplate(partnership.id, {
-        name: 'Template',
-        createdById: alice.id,
-      })
-      await createTestTemplateQuestion(template.id)
-      await mockAuthAs(alice.id)
-
-      const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-      const result = await createCheckIn({
-        templateId: template.id,
-        scheduledFor: futureDate,
-      })
-
-      expect(result.success).toBe(true)
-      if (result.success) {
-        const ci = await getCheckIn(result.checkInId!)
-        expect(ci!.status).toBe('scheduled')
-        expect(ci!.scheduledFor).toBeTruthy()
-      }
-    })
-
-    it('sets status to draft when no scheduledFor', async () => {
+    it('sets status to draft', async () => {
       const alice = await createTestUser()
       const bob = await createTestUser()
       const partnership = await createTestPartnership(
@@ -192,7 +165,6 @@ describe('check-in actions', () => {
       if (result.success) {
         const ci = await getCheckIn(result.checkInId!)
         expect(ci!.status).toBe('draft')
-        expect(ci!.scheduledFor).toBeNull()
       }
     })
 
@@ -280,6 +252,32 @@ describe('check-in actions', () => {
         error: 'Title must be between 1 and 200 characters.',
       })
     })
+
+    it('rejects whitespace-only title', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const template = await createTestTemplate(partnership.id, {
+        name: 'Template',
+        createdById: alice.id,
+      })
+      await createTestTemplateQuestion(template.id)
+      await mockAuthAs(alice.id)
+
+      const result = await createCheckIn({
+        templateId: template.id,
+        title: '   ',
+      })
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Title must be between 1 and 200 characters.',
+      })
+    })
   })
 
   // -----------------------------------------------------------------------
@@ -337,46 +335,6 @@ describe('check-in actions', () => {
       const responses = await getCheckInResponses(question.id)
       expect(responses).toHaveLength(1)
       expect(responses[0]!.responseText).toBe('Updated answer')
-    })
-
-    it('sets isDraft=true for draft check-in', async () => {
-      const alice = await createTestUser()
-      const bob = await createTestUser()
-      const partnership = await createTestPartnership(
-        alice.id,
-        bob.id,
-        'accepted',
-      )
-      const ci = await createTestCheckIn(partnership.id, alice.id, {
-        status: 'draft',
-      })
-      const question = await createTestCheckInQuestion(ci.id)
-      await mockAuthAs(alice.id)
-
-      await saveResponse(question.id, 'Draft answer')
-
-      const responses = await getCheckInResponses(question.id)
-      expect(responses[0]!.isDraft).toBe(true)
-    })
-
-    it('sets isDraft=true for scheduled check-in', async () => {
-      const alice = await createTestUser()
-      const bob = await createTestUser()
-      const partnership = await createTestPartnership(
-        alice.id,
-        bob.id,
-        'accepted',
-      )
-      const ci = await createTestCheckIn(partnership.id, alice.id, {
-        status: 'scheduled',
-      })
-      const question = await createTestCheckInQuestion(ci.id)
-      await mockAuthAs(alice.id)
-
-      await saveResponse(question.id, 'Scheduled answer')
-
-      const responses = await getCheckInResponses(question.id)
-      expect(responses[0]!.isDraft).toBe(true)
     })
 
     it('sets isDraft=false for in_progress check-in', async () => {
@@ -493,14 +451,48 @@ describe('check-in actions', () => {
         error: 'Response must be 5,000 characters or fewer.',
       })
     })
+
+    it('both partners can save responses to the same question independently', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        status: 'in_progress',
+        startedAt: new Date(),
+      })
+      const question = await createTestCheckInQuestion(ci.id)
+
+      // Alice saves
+      await mockAuthAs(alice.id)
+      const r1 = await saveResponse(question.id, "Alice's answer")
+      expect(r1).toEqual({ success: true })
+
+      // Bob saves
+      await mockAuthAs(bob.id)
+      const r2 = await saveResponse(question.id, "Bob's answer")
+      expect(r2).toEqual({ success: true })
+
+      // Both responses exist independently
+      const responses = await getCheckInResponses(question.id)
+      expect(responses).toHaveLength(2)
+
+      const aliceResp = responses.find(r => r.userId === alice.id)
+      const bobResp = responses.find(r => r.userId === bob.id)
+      expect(aliceResp!.responseText).toBe("Alice's answer")
+      expect(bobResp!.responseText).toBe("Bob's answer")
+    })
   })
 
   // -----------------------------------------------------------------------
-  // startCheckIn
+  // startCheckIn (creates pending request, does NOT transition immediately)
   // -----------------------------------------------------------------------
 
   describe('startCheckIn', () => {
-    it('transitions draft to in_progress and sets startedAt', async () => {
+    it('creates a pending start request without changing status', async () => {
       const alice = await createTestUser()
       const bob = await createTestUser()
       const partnership = await createTestPartnership(
@@ -521,42 +513,10 @@ describe('check-in actions', () => {
       )
 
       const updated = await getCheckIn(ci.id)
-      expect(updated!.status).toBe('in_progress')
-      expect(updated!.startedAt).toBeTruthy()
-    })
-
-    it('marks all draft responses as visible', async () => {
-      const alice = await createTestUser()
-      const bob = await createTestUser()
-      const partnership = await createTestPartnership(
-        alice.id,
-        bob.id,
-        'accepted',
-      )
-      const ci = await createTestCheckIn(partnership.id, alice.id, {
-        status: 'draft',
-      })
-      const q1 = await createTestCheckInQuestion(ci.id, { orderIndex: 0 })
-      const q2 = await createTestCheckInQuestion(ci.id, {
-        questionText: 'Q2?',
-        orderIndex: 1,
-      })
-      await createTestCheckInResponse(q1.id, alice.id, {
-        responseText: 'Answer 1',
-        isDraft: true,
-      })
-      await createTestCheckInResponse(q2.id, bob.id, {
-        responseText: 'Answer 2',
-        isDraft: true,
-      })
-      await mockAuthAs(alice.id)
-
-      await startCheckIn(ci.id)
-
-      const r1 = await getCheckInResponses(q1.id)
-      const r2 = await getCheckInResponses(q2.id)
-      expect(r1[0]!.isDraft).toBe(false)
-      expect(r2[0]!.isDraft).toBe(false)
+      expect(updated!.status).toBe('draft')
+      expect(updated!.startedAt).toBeNull()
+      expect(updated!.pendingTransition).toBe('start')
+      expect(updated!.pendingTransitionById).toBe(alice.id)
     })
 
     it('rejects unauthenticated user', async () => {
@@ -636,14 +596,37 @@ describe('check-in actions', () => {
         error: 'This check-in can no longer be modified.',
       })
     })
+
+    it('rejects if there is already a pending transition', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        status: 'draft',
+        pendingTransition: 'start',
+        pendingTransitionById: alice.id,
+      })
+      await mockAuthAs(bob.id)
+
+      const result = await startCheckIn(ci.id)
+
+      expect(result).toEqual({
+        success: false,
+        error: 'A transition request is already pending for this check-in.',
+      })
+    })
   })
 
   // -----------------------------------------------------------------------
-  // completeCheckIn
+  // completeCheckIn (creates pending request, does NOT transition immediately)
   // -----------------------------------------------------------------------
 
   describe('completeCheckIn', () => {
-    it('transitions in_progress to completed and sets completedAt', async () => {
+    it('creates a pending complete request without changing status', async () => {
       const alice = await createTestUser()
       const bob = await createTestUser()
       const partnership = await createTestPartnership(
@@ -664,8 +647,10 @@ describe('check-in actions', () => {
       )
 
       const updated = await getCheckIn(ci.id)
-      expect(updated!.status).toBe('completed')
-      expect(updated!.completedAt).toBeTruthy()
+      expect(updated!.status).toBe('in_progress')
+      expect(updated!.completedAt).toBeNull()
+      expect(updated!.pendingTransition).toBe('complete')
+      expect(updated!.pendingTransitionById).toBe(alice.id)
     })
 
     it('rejects unauthenticated user', async () => {
@@ -745,14 +730,38 @@ describe('check-in actions', () => {
         error: 'This check-in is not currently in progress.',
       })
     })
+
+    it('rejects if there is already a pending transition', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        status: 'in_progress',
+        startedAt: new Date(),
+        pendingTransition: 'complete',
+        pendingTransitionById: alice.id,
+      })
+      await mockAuthAs(bob.id)
+
+      const result = await completeCheckIn(ci.id)
+
+      expect(result).toEqual({
+        success: false,
+        error: 'A transition request is already pending for this check-in.',
+      })
+    })
   })
 
   // -----------------------------------------------------------------------
-  // reopenCheckIn
+  // reopenCheckIn (creates pending request, does NOT transition immediately)
   // -----------------------------------------------------------------------
 
   describe('reopenCheckIn', () => {
-    it('transitions completed back to in_progress and clears completedAt', async () => {
+    it('creates a pending reopen request without changing status', async () => {
       const alice = await createTestUser()
       const bob = await createTestUser()
       const partnership = await createTestPartnership(
@@ -774,8 +783,10 @@ describe('check-in actions', () => {
       )
 
       const updated = await getCheckIn(ci.id)
-      expect(updated!.status).toBe('in_progress')
-      expect(updated!.completedAt).toBeNull()
+      expect(updated!.status).toBe('completed')
+      expect(updated!.completedAt).toBeTruthy()
+      expect(updated!.pendingTransition).toBe('reopen')
+      expect(updated!.pendingTransitionById).toBe(alice.id)
     })
 
     it('rejects unauthenticated user', async () => {
@@ -853,6 +864,323 @@ describe('check-in actions', () => {
       expect(result).toEqual({
         success: false,
         error: 'This check-in is not completed.',
+      })
+    })
+
+    it('rejects if there is already a pending transition', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        status: 'completed',
+        startedAt: new Date(),
+        completedAt: new Date(),
+        pendingTransition: 'reopen',
+        pendingTransitionById: alice.id,
+      })
+      await mockAuthAs(bob.id)
+
+      const result = await reopenCheckIn(ci.id)
+
+      expect(result).toEqual({
+        success: false,
+        error: 'A transition request is already pending for this check-in.',
+      })
+    })
+  })
+
+  // -----------------------------------------------------------------------
+  // confirmTransition
+  // -----------------------------------------------------------------------
+
+  describe('confirmTransition', () => {
+    it('confirms start: transitions draft to in_progress, sets startedAt, marks drafts visible', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        status: 'draft',
+        pendingTransition: 'start',
+        pendingTransitionById: alice.id,
+      })
+      const q = await createTestCheckInQuestion(ci.id)
+      await createTestCheckInResponse(q.id, alice.id, {
+        responseText: 'Draft answer',
+        isDraft: true,
+      })
+      await mockAuthAs(bob.id) // Bob (partner) confirms
+
+      const result = await confirmTransition(ci.id)
+
+      expect(result).toEqual(
+        expect.objectContaining({ success: true, checkInId: ci.id }),
+      )
+
+      const updated = await getCheckIn(ci.id)
+      expect(updated!.status).toBe('in_progress')
+      expect(updated!.startedAt).toBeTruthy()
+      expect(updated!.pendingTransition).toBeNull()
+      expect(updated!.pendingTransitionById).toBeNull()
+
+      const responses = await getCheckInResponses(q.id)
+      expect(responses[0]!.isDraft).toBe(false)
+    })
+
+    it('confirms complete: transitions in_progress to completed, sets completedAt', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        status: 'in_progress',
+        startedAt: new Date(),
+        pendingTransition: 'complete',
+        pendingTransitionById: alice.id,
+      })
+      await mockAuthAs(bob.id) // Bob confirms
+
+      const result = await confirmTransition(ci.id)
+
+      expect(result).toEqual(
+        expect.objectContaining({ success: true, checkInId: ci.id }),
+      )
+
+      const updated = await getCheckIn(ci.id)
+      expect(updated!.status).toBe('completed')
+      expect(updated!.completedAt).toBeTruthy()
+      expect(updated!.pendingTransition).toBeNull()
+      expect(updated!.pendingTransitionById).toBeNull()
+    })
+
+    it('confirms reopen: transitions completed to in_progress, clears completedAt', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        status: 'completed',
+        startedAt: new Date(),
+        completedAt: new Date(),
+        pendingTransition: 'reopen',
+        pendingTransitionById: alice.id,
+      })
+      await mockAuthAs(bob.id) // Bob confirms
+
+      const result = await confirmTransition(ci.id)
+
+      expect(result).toEqual(
+        expect.objectContaining({ success: true, checkInId: ci.id }),
+      )
+
+      const updated = await getCheckIn(ci.id)
+      expect(updated!.status).toBe('in_progress')
+      expect(updated!.completedAt).toBeNull()
+      expect(updated!.pendingTransition).toBeNull()
+      expect(updated!.pendingTransitionById).toBeNull()
+    })
+
+    it('rejects unauthenticated user', async () => {
+      await mockAuthAs(null)
+
+      const result = await confirmTransition('some-id')
+
+      expect(result).toEqual({
+        success: false,
+        error: 'You must be logged in.',
+      })
+    })
+
+    it('rejects non-member', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const outsider = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        status: 'draft',
+        pendingTransition: 'start',
+        pendingTransitionById: alice.id,
+      })
+      await mockAuthAs(outsider.id)
+
+      const result = await confirmTransition(ci.id)
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Check-in not found.',
+      })
+    })
+
+    it('rejects if no pending transition', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        status: 'draft',
+      })
+      await mockAuthAs(bob.id)
+
+      const result = await confirmTransition(ci.id)
+
+      expect(result).toEqual({
+        success: false,
+        error: 'No pending transition to confirm.',
+      })
+    })
+
+    it('rejects if initiator tries to confirm own request', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        status: 'draft',
+        pendingTransition: 'start',
+        pendingTransitionById: alice.id,
+      })
+      await mockAuthAs(alice.id) // Alice initiated -- she cannot confirm
+
+      const result = await confirmTransition(ci.id)
+
+      expect(result).toEqual({
+        success: false,
+        error: 'You cannot confirm your own transition request.',
+      })
+    })
+  })
+
+  // -----------------------------------------------------------------------
+  // cancelTransition
+  // -----------------------------------------------------------------------
+
+  describe('cancelTransition', () => {
+    it('cancels a pending transition without changing status', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        status: 'draft',
+        pendingTransition: 'start',
+        pendingTransitionById: alice.id,
+      })
+      await mockAuthAs(alice.id) // Alice initiated -- she can cancel
+
+      const result = await cancelTransition(ci.id)
+
+      expect(result).toEqual(
+        expect.objectContaining({ success: true, checkInId: ci.id }),
+      )
+
+      const updated = await getCheckIn(ci.id)
+      expect(updated!.status).toBe('draft')
+      expect(updated!.pendingTransition).toBeNull()
+      expect(updated!.pendingTransitionById).toBeNull()
+    })
+
+    it('rejects unauthenticated user', async () => {
+      await mockAuthAs(null)
+
+      const result = await cancelTransition('some-id')
+
+      expect(result).toEqual({
+        success: false,
+        error: 'You must be logged in.',
+      })
+    })
+
+    it('rejects non-member', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const outsider = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        status: 'draft',
+        pendingTransition: 'start',
+        pendingTransitionById: alice.id,
+      })
+      await mockAuthAs(outsider.id)
+
+      const result = await cancelTransition(ci.id)
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Check-in not found.',
+      })
+    })
+
+    it('rejects if no pending transition', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        status: 'draft',
+      })
+      await mockAuthAs(alice.id)
+
+      const result = await cancelTransition(ci.id)
+
+      expect(result).toEqual({
+        success: false,
+        error: 'No pending transition to cancel.',
+      })
+    })
+
+    it('rejects if non-initiator tries to cancel', async () => {
+      const alice = await createTestUser()
+      const bob = await createTestUser()
+      const partnership = await createTestPartnership(
+        alice.id,
+        bob.id,
+        'accepted',
+      )
+      const ci = await createTestCheckIn(partnership.id, alice.id, {
+        status: 'draft',
+        pendingTransition: 'start',
+        pendingTransitionById: alice.id,
+      })
+      await mockAuthAs(bob.id) // Bob did not initiate -- he cannot cancel
+
+      const result = await cancelTransition(ci.id)
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Only the person who initiated the request can cancel it.',
       })
     })
   })

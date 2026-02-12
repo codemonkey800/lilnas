@@ -21,8 +21,9 @@ const {
   declineInvite,
   cancelInvite,
   dissolvePartnership,
-  getPartnershipStatus,
 } = await import('src/app/(app)/partner/actions')
+
+const { getPartnershipStatus } = await import('src/app/(app)/partner/queries')
 
 // ---------------------------------------------------------------------------
 // Test suite

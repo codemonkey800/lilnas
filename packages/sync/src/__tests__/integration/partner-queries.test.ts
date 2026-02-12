@@ -1,8 +1,12 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createTestProfile, createTestUser, truncateAll } from './helpers'
 
-// Setup file mocks src/db and next/cache
+// Mock auth before importing queries (setup file mocks src/db and next/cache)
+vi.mock('src/auth', () => ({
+  auth: vi.fn(),
+}))
+
 const { getPartnerInfo } = await import('src/app/(app)/partner/queries')
 
 // ---------------------------------------------------------------------------

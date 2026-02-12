@@ -23,7 +23,7 @@ Auth (registration, login, middleware), onboarding wizard, user/profile schema, 
 
 ### Phase 1: Partner Connection
 
-Partnership lifecycle with `partnerships` table (pgEnum: pending/accepted/declined/cancelled/dissolved), unique active pair index. Server actions in `src/app/(app)/partner/actions.ts`: invite, accept, decline, cancel, dissolve, get status. UI: invite form, pending/incoming views, partner card with unlink dialog. Page: `/partner`.
+Partnership lifecycle with `partnerships` table (pgEnum: pending/accepted/declined/cancelled/dissolved), unique active pair index. Server actions in `src/app/(app)/partner/actions.ts`: invite, accept, decline, cancel, dissolve. Queries in `src/app/(app)/partner/queries.ts`: getPartnershipStatus, getPartnerInfo. Types in `src/app/(app)/partner/types.ts`. UI: invite form (`invite-form-view.tsx`), pending outgoing view (`pending-outgoing-view.tsx`), incoming invite view (`incoming-invite-view.tsx`), partner card with unlink dialog. Page: `/partner`. Component tests in `src/app/(app)/partner/__tests__/`.
 
 ### Phase 2: Check-in Templates
 
@@ -51,8 +51,8 @@ Persistent nav bar (`src/components/nav-bar.tsx`) with desktop top bar and mobil
 
 ### Schema (Complete)
 
-- [x] **P3-S1**: `checkInStatusEnum` -- values: `draft`, `scheduled`, `in_progress`, `completed`
-- [x] **P3-S2**: `checkIns` table -- `id`, `partnershipId`, `templateId`, `title`, `status`, `scheduledFor`, `startedAt`, `completedAt`, `createdById`, timestamps. Indexes on partnershipId, status, scheduledFor.
+- [x] **P3-S1**: `checkInStatusEnum` -- values: `draft`, `in_progress`, `completed`
+- [x] **P3-S2**: `checkIns` table -- `id`, `partnershipId`, `templateId`, `title`, `status`, `startedAt`, `completedAt`, `createdById`, timestamps. Indexes on partnershipId, status.
 - [x] **P3-S3**: `questionTypeEnum` -- Skipped (all free text for now)
 - [x] **P3-S4**: `checkInQuestions` table -- copied from template at creation, immutable. Cascade delete from checkIn.
 - [x] **P3-S5**: `checkInResponses` table -- unique on `(checkInQuestionId, userId)`, `isDraft` flag.
@@ -61,16 +61,16 @@ All schema in `src/db/schema.ts`.
 
 ### Server Actions (Complete)
 
-- [x] **P3-A1**: `createCheckIn(data)` -- from template (required), copies questions, sets draft/scheduled
+- [x] **P3-A1**: `createCheckIn(data)` -- from template (required), copies questions, sets draft
 - ~~P3-A2 through P3-A5~~ -- Dropped (questions locked from template)
 - [x] **P3-A6**: `saveResponse(questionId, text)` -- upsert, isDraft by status, max 5k chars
-- [x] **P3-A7**: `startCheckIn` -- draft/scheduled -> in_progress, marks responses visible
-- [x] **P3-A8**: `completeCheckIn` -- in_progress -> completed, sets completedAt
-- [x] **P3-A9**: `reopenCheckIn` -- completed -> in_progress, clears completedAt
+- [x] **P3-A7**: `startCheckIn` -- creates pending start request (partner confirmation required, see PC-A1)
+- [x] **P3-A8**: `completeCheckIn` -- creates pending complete request (partner confirmation required, see PC-A2)
+- [x] **P3-A9**: `reopenCheckIn` -- creates pending reopen request (partner confirmation required, see PC-A3)
 - [x] **P3-A10**: `getCheckIn(id)` -- with questions/responses, privacy filtering by status
 - [x] **P3-A11**: `getCheckIns()` -- list for partnership, ordered by most recent
 
-All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/check-ins/queries.ts`.
+Check-in lifecycle actions in `src/app/(app)/check-ins/check-in.actions.ts`, action item actions in `src/app/(app)/check-ins/action-item.actions.ts`, queries in `src/app/(app)/check-ins/queries.ts`.
 
 ### Supporting Code (Complete)
 
@@ -87,11 +87,10 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 
 ### UI Components
 
-- [x] **P3-U1**: `CreateCheckInForm` -- Template selector (required), optional title override, optional schedule picker
+- [x] **P3-U1**: `CreateCheckInForm` -- Template selector (required), optional title override
   - File: `src/app/(app)/check-ins/new/create-check-in-form.tsx`
   - Lists available templates (system + custom). A template must be selected.
   - Title input (defaults to template name + date).
-  - Optional date/time picker for scheduling.
 
 - [x] **P3-U2**: `CheckInDraftView` -- Question list with answer inputs (questions are read-only)
   - File: `src/app/(app)/check-ins/[id]/check-in-draft-view.tsx`
@@ -123,7 +122,7 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 
 - [x] **P3-U6**: `CheckInStatusBadge` -- Visual indicator of check-in state
   - File: `src/components/check-in-status-badge.tsx`
-  - States: draft, scheduled, in progress, completed.
+  - States: draft, in progress, completed.
   - Uses both color and text (not color alone, per accessibility requirements).
   - Tests: `src/components/__tests__/check-in-status-badge.test.tsx`
 
@@ -147,7 +146,7 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 - [x] **P3-P3**: `/check-ins/[id]` -- Check-in detail page (adaptive view)
   - File: `src/app/(app)/check-ins/[id]/page.tsx`
   - Server component. Fetches check-in data. Renders the appropriate view based on status:
-    - `draft` or `scheduled` -> `CheckInDraftView`
+    - `draft` -> `CheckInDraftView`
     - `in_progress` -> `CheckInActiveView`
     - `completed` -> `CheckInResultsView`
 
@@ -163,7 +162,7 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 
 - [x] **P3-H3**: Check-in helpers
   - File: `src/app/(app)/check-ins/helpers.ts`
-  - Helpers: `getCheckInForUser()`, `guardDraftOrScheduled()`, `guardCanRespond()`, `guardInProgress()`, `guardCompleted()`, `validateTitle()`, `validateResponseText()`, `formatCheckInDate()`.
+  - Helpers: `getCheckInForUser()`, `guardDraft()`, `guardCanRespond()`, `guardInProgress()`, `guardCompleted()`, `validateTitle()`, `validateResponseText()`, `formatCheckInDate()`.
 
 ### Integration Tests
 
@@ -174,7 +173,7 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 
 - [x] **P3-T2**: Integration tests for check-in actions
   - File: `src/__tests__/integration/check-in-actions.test.ts`
-  - Coverage: `createCheckIn` (happy path, custom title, default title, scheduled status, draft status, auth, partnership, template not found, empty template, title validation), `saveResponse` (new response, upsert, isDraft by status, auth, question not found, membership, completed guard, response length), `startCheckIn` (draft->in_progress, marks drafts visible, auth, membership, already started, already completed), `completeCheckIn` (in_progress->completed, auth, membership, draft guard, completed guard), `reopenCheckIn` (completed->in_progress, clears completedAt, auth, membership, draft guard, in_progress guard).
+  - Coverage: `createCheckIn` (happy path, custom title, default title, draft status, auth, partnership, template not found, empty template, title validation), `saveResponse` (new response, upsert, isDraft by status, auth, question not found, membership, completed guard, response length), `startCheckIn` (draft->in_progress, marks drafts visible, auth, membership, already started, already completed), `completeCheckIn` (in_progress->completed, auth, membership, draft guard, completed guard), `reopenCheckIn` (completed->in_progress, clears completedAt, auth, membership, draft guard, in_progress guard).
 
 - [x] **P3-T3**: Integration tests for check-in queries
   - File: `src/__tests__/integration/check-in-queries.test.ts`
@@ -182,7 +181,7 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 
 - [x] **P3-T4**: Unit tests for check-in helpers
   - File: `src/app/(app)/check-ins/__tests__/helpers.test.ts`
-  - Coverage: `guardDraftOrScheduled` (accepts draft/scheduled, rejects in_progress/completed), `guardCanRespond` (accepts draft/scheduled/in_progress, rejects completed), `guardInProgress` (accepts in_progress, rejects others), `guardCompleted` (accepts completed, rejects others), `validateTitle` (valid, boundary 200 chars, empty, whitespace, over limit, trimming), `validateResponseText` (empty, boundary 5000 chars, over limit), `formatCheckInDate` (scheduled prefix, completed prefix, fallback to createdAt, null when no dates).
+  - Coverage: `guardDraft` (accepts draft, rejects in_progress/completed), `guardCanRespond` (accepts draft/in_progress, rejects completed), `guardInProgress` (accepts in_progress, rejects others), `guardCompleted` (accepts completed, rejects others), `validateTitle` (valid, boundary 200 chars, empty, whitespace, over limit, trimming), `validateResponseText` (empty, boundary 5000 chars, over limit), `formatCheckInDate` (completed prefix, fallback to createdAt, null when no dates).
 
 ### Phase 3 Remaining Tasks
 
@@ -218,28 +217,28 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 ### Server Actions
 
 - [x] **P4-A1**: `createActionItem(data)` -- Creates an action item for a question
-  - File: `src/app/(app)/check-ins/actions.ts`
+  - File: `src/app/(app)/check-ins/action-item.actions.ts`
   - Input: `{ checkInId, checkInQuestionId, description, ownerType, ownerId? }`
   - Guard: check-in must be `in_progress`.
   - Validation: description 1-500 chars via `validateActionItemDescription`. If `ownerType` is `individual`, `ownerId` is required and must be a member of the partnership. If `ownerType` is `both`, `ownerId` must be null/omitted.
 
 - [x] **P4-A2**: `updateActionItemStatus(id, status)` -- Updates action item status
-  - File: `src/app/(app)/check-ins/actions.ts`
+  - File: `src/app/(app)/check-ins/action-item.actions.ts`
   - Can be done regardless of check-in state (per PRD: "Status changes can happen at any time").
   - If status is `completed`, set `completedAt = now()`. Otherwise, clear `completedAt`.
   - For shared (`both`) action items, either partner can update the status.
 
 - [ ] **P4-A3**: `updateActionItem(id, data)` -- Edits description, owner type/id, due date
-  - File: `src/app/(app)/check-ins/actions.ts`
+  - File: `src/app/(app)/check-ins/action-item.actions.ts`
   - Guard: only while check-in is `in_progress`. In `completed` state, only status changes are allowed (P4-A2).
   - Supports changing owner type (e.g., individual -> both or vice versa). Validates ownership constraints.
 
 - [x] **P4-A4**: `deleteActionItem(id)` -- Removes an action item
-  - File: `src/app/(app)/check-ins/actions.ts`
+  - File: `src/app/(app)/check-ins/action-item.actions.ts`
   - Guard: only while check-in is `in_progress`.
 
 - [ ] **P4-A5**: `getMyActionItems()` -- Gets open action items assigned to the current user across all check-ins
-  - File: `src/app/(app)/check-ins/actions.ts`
+  - File: `src/app/(app)/check-ins/action-item.actions.ts`
   - Used for the dashboard widget.
   - Query logic: returns items where (`ownerType = 'individual'` AND `ownerId = currentUserId`) OR (`ownerType = 'both'` AND the action item's check-in belongs to the user's active partnership).
   - Sorted by due date (soonest first), then creation date.
@@ -297,22 +296,49 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
   - Fetches all action items for a check-in with owner display names resolved.
   - Returns items ordered by creation date (oldest first).
 
+### Integration Tests
+
+- [x] **P4-T1**: Integration test helpers for action items
+  - File: `src/__tests__/integration/helpers.ts`
+  - Added: `createTestActionItem()`, `getActionItem()` factory/assertion helpers.
+  - Added `actionItems` to `TABLES_IN_DELETE_ORDER`.
+  - `createTestCheckIn()` now auto-creates a template if none is provided.
+
+- [x] **P4-T2**: Integration tests for action item actions
+  - File: `src/__tests__/integration/action-item-actions.test.ts`
+  - Coverage: `createActionItem` (auth, draft guard, completed guard, empty description, long description, question not in check-in, individual owner requires ownerId, owner must be member, both rejects ownerId, success individual, success both, trims whitespace), `updateActionItemStatus` (auth, not found, non-member, completed sets completedAt, in_progress clears completedAt, works on completed check-in), `deleteActionItem` (auth, not found, completed guard, non-member, success removes row).
+
+- [x] **P4-T3**: Unit tests for `ActionItemForm` component
+  - File: `src/components/__tests__/action-item-form.test.tsx`
+
+- [x] **P4-T4**: Unit tests for `ActionItemCard` component
+  - File: `src/components/__tests__/action-item-card.test.tsx`
+
+- [x] **P4-T5**: Integration tests for `getActionItemsForCheckIn` query
+  - File: `src/__tests__/integration/check-in-queries.test.ts`
+  - Coverage: resolves owner display names, returns null ownerDisplayName for "both" items, unauthenticated returns empty, empty check-in returns empty, scoped to specific check-in.
+
 ### Phase 4 Task Summary
 
-| Task                          | Category    | Effort | Dependencies         | Status |
-| ----------------------------- | ----------- | ------ | -------------------- | ------ |
-| P4-S1 actionItems table       | Schema      | Small  | P3-S2, P3-S4         | Done   |
-| P4-A1 createActionItem        | Action      | Medium | P4-S1                | Done   |
-| P4-A2 updateActionItemStatus  | Action      | Small  | P4-S1                | Done   |
-| P4-A3 updateActionItem        | Action      | Small  | P4-S1                |        |
-| P4-A4 deleteActionItem        | Action      | Small  | P4-S1                | Done   |
-| P4-A5 getMyActionItems        | Action      | Medium | P4-S1                |        |
-| P4-U1 ActionItemForm          | UI          | Medium | P4-A1                | Done   |
-| P4-U2 ActionItemCard          | UI          | Medium | P4-A2                | Done   |
-| P4-U3 ActionItemList          | UI          | Medium | P4-U2                | Done   |
-| P4-U4 DashboardActionItems    | UI          | Medium | P4-A5, P4-U3         |        |
-| P4-INT1 Wire into ActiveView  | Integration | Medium | P3-U4, P4-U1, P4-U3  | Done   |
-| P4-INT2 Wire into ResultsView | Integration | Small  | P3-U5, P4-U3         | Done   |
+| Task                           | Category    | Effort | Dependencies        | Status |
+| ------------------------------ | ----------- | ------ | ------------------- | ------ |
+| P4-S1 actionItems table        | Schema      | Small  | P3-S2, P3-S4        | Done   |
+| P4-A1 createActionItem         | Action      | Medium | P4-S1               | Done   |
+| P4-A2 updateActionItemStatus   | Action      | Small  | P4-S1               | Done   |
+| P4-A3 updateActionItem         | Action      | Small  | P4-S1               |        |
+| P4-A4 deleteActionItem         | Action      | Small  | P4-S1               | Done   |
+| P4-A5 getMyActionItems         | Action      | Medium | P4-S1               |        |
+| P4-U1 ActionItemForm           | UI          | Medium | P4-A1               | Done   |
+| P4-U2 ActionItemCard           | UI          | Medium | P4-A2               | Done   |
+| P4-U3 ActionItemList           | UI          | Medium | P4-U2               | Done   |
+| P4-U4 DashboardActionItems     | UI          | Medium | P4-A5, P4-U3        |        |
+| P4-INT1 Wire into ActiveView   | Integration | Medium | P3-U4, P4-U1, P4-U3 | Done   |
+| P4-INT2 Wire into ResultsView  | Integration | Small  | P3-U5, P4-U3        | Done   |
+| P4-T1 Test helpers             | Test        | Small  | P4-S1               | Done   |
+| P4-T2 Action integration tests | Test        | Medium | P4-A1, P4-A2, P4-A4 | Done   |
+| P4-T3 ActionItemForm tests     | Test        | Small  | P4-U1               | Done   |
+| P4-T4 ActionItemCard tests     | Test        | Small  | P4-U2               | Done   |
+| P4-T5 Query integration tests  | Test        | Small  | P4-H3               | Done   |
 
 ---
 
@@ -340,7 +366,7 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 
 - [ ] **P5-U2**: `StatusFilter` -- Dropdown or pill toggle for filtering by status
   - File: `src/app/check-ins/status-filter.tsx` (new)
-  - Options: All, Draft, Scheduled, In Progress, Completed.
+  - Options: All, Draft, In Progress, Completed.
 
 - [ ] **P5-U3**: `DateRangeFilter` -- Two date inputs for start/end date range
   - File: `src/app/check-ins/date-range-filter.tsx` (new)
@@ -511,6 +537,34 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
 
 ---
 
+## Cross-cutting: Code Organization Refactoring
+
+- [x] **REFACTOR-1**: Split `check-ins/actions.ts` into domain-specific action files
+  - Deleted: `src/app/(app)/check-ins/actions.ts` (monolithic file)
+  - Created: `src/app/(app)/check-ins/check-in.actions.ts` -- check-in lifecycle actions (createCheckIn, saveResponse, startCheckIn, completeCheckIn, reopenCheckIn)
+  - Created: `src/app/(app)/check-ins/action-item.actions.ts` -- action item CRUD (createActionItem, updateActionItemStatus, deleteActionItem)
+  - All UI component imports and test mocks updated to reference the new file paths.
+
+- [x] **REFACTOR-2**: Extract partner view components from `partner-connection.tsx`
+  - Created: `src/app/(app)/partner/incoming-invite-view.tsx` -- IncomingInviteView component
+  - Created: `src/app/(app)/partner/invite-form-view.tsx` -- InviteFormView component
+  - Created: `src/app/(app)/partner/pending-outgoing-view.tsx` -- PendingOutgoingView component
+  - `partner-connection.tsx` now imports from the extracted files.
+
+- [x] **REFACTOR-3**: Separate partner types and queries from actions
+  - Created: `src/app/(app)/partner/types.ts` -- extracted ActionResult, IncomingInvite, OutgoingInvite, PartnershipStatus types
+  - Moved `getPartnershipStatus()` from `actions.ts` to `queries.ts` (query, not a server action)
+  - `actions.ts` now only contains mutation server actions (invite, accept, decline, cancel, dissolve)
+  - `page.tsx` updated to import `getPartnershipStatus` from `queries.ts`
+
+- [x] **REFACTOR-4**: Partner view component tests
+  - Created: `src/app/(app)/partner/__tests__/incoming-invite-view.test.tsx`
+  - Created: `src/app/(app)/partner/__tests__/invite-form-view.test.tsx`
+  - Created: `src/app/(app)/partner/__tests__/pending-outgoing-view.test.tsx`
+  - Created: `src/app/(app)/partner/__tests__/partner-connection.test.tsx`
+
+---
+
 ## Cross-cutting: UI Enhancements
 
 - [x] **UI-1**: `FormField` hint prop
@@ -522,6 +576,180 @@ All actions in `src/app/(app)/check-ins/actions.ts`, queries in `src/app/(app)/c
   - File: `src/app/(app)/check-ins/page.tsx`
   - Inline `CheckInCard` component with status badge, question count, and formatted date.
   - Uses `formatCheckInDate` helper for contextual date display (Scheduled/Completed prefix).
+
+---
+
+## Cross-cutting: Partner Confirmation Transitions (Complete)
+
+> All check-in state transitions (start, complete, reopen) require two-person confirmation.
+> When one partner initiates a transition, it creates a pending request. The other partner must confirm before the transition executes.
+> PRD reference: Section 3 -- Phase 3 (Starting/Completing/Re-opening), Section 7 (State Machine)
+
+### Schema (Complete)
+
+- [x] **PC-S1**: Add `pendingTransition` and `pendingTransitionById` columns to `checkIns` table
+  - File: `src/db/schema.ts`
+  - `pendingTransition`: nullable text, one of `start`, `complete`, `reopen`. Set when a partner requests a state change; null when no pending request.
+  - `pendingTransitionById`: nullable text FK to `users.id`. The user who initiated the pending transition request.
+
+### Types (Complete)
+
+- [x] **PC-T1**: Add `PendingTransition` type and update `CheckInDetail`
+  - File: `src/app/(app)/check-ins/types.ts`
+  - Added: `PendingTransition = 'start' | 'complete' | 'reopen'`
+  - Updated `CheckInDetail` to include `pendingTransition: PendingTransition | null`, `pendingTransitionById: string | null`, `pendingTransitionByName: string | null`, and `partnerDisplayName: string | null`.
+
+### Helpers (Complete)
+
+- [x] **PC-H1**: Update `getCheckInForUser` to return pending transition fields
+  - File: `src/app/(app)/check-ins/helpers.ts`
+  - Added `pendingTransition` and `pendingTransitionById` to the select and return type.
+
+- [x] **PC-H2**: Add `guardNoPendingTransition` helper
+  - File: `src/app/(app)/check-ins/helpers.ts`
+  - Returns an error string if there is already a pending transition (prevents double-requests).
+
+### Queries (Complete)
+
+- [x] **PC-Q1**: Update `getCheckIn` to include pending transition data
+  - File: `src/app/(app)/check-ins/queries.ts`
+  - Added `pendingTransition`, `pendingTransitionById`, and `pendingTransitionByName` to the returned `CheckInDetail`.
+  - Resolves the initiator's display name via a left join on profiles.
+  - Also added `partnerDisplayName` for use in UI banners.
+
+### Server Actions (Complete)
+
+All in `src/app/(app)/check-ins/check-in.actions.ts`:
+
+- [x] **PC-A1**: Modify `startCheckIn` -- create pending request instead of immediate transition
+  - Instead of immediately transitioning, sets `pendingTransition = 'start'` and `pendingTransitionById = userId`.
+  - Guard: check-in must be in `draft` state, no existing pending transition.
+
+- [x] **PC-A2**: Modify `completeCheckIn` -- create pending request instead of immediate transition
+  - Same pattern: sets `pendingTransition = 'complete'` and `pendingTransitionById = userId`.
+  - Guard: check-in must be in `in_progress` state, no existing pending transition.
+
+- [x] **PC-A3**: Modify `reopenCheckIn` -- create pending request instead of immediate transition
+  - Same pattern: sets `pendingTransition = 'reopen'` and `pendingTransitionById = userId`.
+  - Guard: check-in must be in `completed` state, no existing pending transition.
+
+- [x] **PC-A4**: New `confirmTransition(checkInId)` action
+  - Validates the caller is NOT the initiator (i.e., they are the partner).
+  - Validates a pending transition exists.
+  - Executes the actual state transition based on `pendingTransition` value:
+    - `start`: draft -> in_progress, set `startedAt`, mark draft responses visible.
+    - `complete`: in_progress -> completed, set `completedAt`.
+    - `reopen`: completed -> in_progress, clear `completedAt`.
+  - Clears `pendingTransition` and `pendingTransitionById`.
+
+- [x] **PC-A5**: New `cancelTransition(checkInId)` action
+  - Validates the caller IS the initiator.
+  - Validates a pending transition exists.
+  - Clears `pendingTransition` and `pendingTransitionById` without changing status.
+
+### UI Components (Complete)
+
+- [x] **PC-U1**: `PendingTransitionBanner` component
+  - File: `src/components/pending-transition-banner.tsx`
+  - Two variants based on whether the current user is the initiator:
+    - **Initiator view**: Card with `bg-bg-surface` and `border-primary-700`, showing "[icon] Waiting for [partner name] to confirm" with a "Cancel request" ghost button.
+    - **Partner view**: Card with `bg-primary-900` border and subtle `shadow-glow`, showing "[partner name] wants to [start/complete/reopen] this check-in" with a primary "Confirm" button and a ghost "Decline" button.
+  - Uses design system patterns: card (`rounded-md border bg-bg-surface p-4`), primary badge colors, buttons per design system.
+  - Animate entrance with `animate-fade-in`.
+  - Tests: `src/components/__tests__/pending-transition-banner.test.tsx`
+
+- [x] **PC-U2**: Update `CheckInDraftView` for pending start requests
+  - File: `src/app/(app)/check-ins/[id]/check-in-draft-view.tsx`
+  - When `pendingTransition === 'start'` and user is initiator: disable "Start Check-in" button, show initiator banner above button.
+  - When `pendingTransition === 'start'` and user is partner: show partner banner prominently near top of page (below header, above questions).
+
+- [x] **PC-U3**: Update `CheckInActiveView` for pending complete requests
+  - File: `src/app/(app)/check-ins/[id]/check-in-active-view.tsx`
+  - Same pattern for `pendingTransition === 'complete'`.
+  - Initiator: disable "Complete Check-in" button, show waiting banner.
+  - Partner: show confirmation banner near top.
+
+- [x] **PC-U4**: Update `CheckInResultsView` for pending reopen requests
+  - File: `src/app/(app)/check-ins/[id]/check-in-results-view.tsx`
+  - Same pattern for `pendingTransition === 'reopen'`.
+  - Initiator: disable "Re-open" button, show waiting banner.
+  - Partner: show confirmation banner near top.
+
+- [x] **PC-U5**: Update `CheckInStatusBadge` for pending transitions
+  - File: `src/components/check-in-status-badge.tsx`
+  - Added optional `pendingTransition` prop.
+  - When pending, shows additional "Pending" indicator using warning colors.
+
+### Page Updates (Complete)
+
+- [x] **PC-P1**: Update `/check-ins/[id]` page to pass pending transition data
+  - File: `src/app/(app)/check-ins/[id]/page.tsx`
+  - Passes `pendingTransition` and `pendingTransitionById` from `getCheckIn` result to the view components.
+  - Added `export const dynamic = 'force-dynamic'` to prevent caching (page depends on session/auth).
+
+### Integration Tests (Complete)
+
+- [x] **PC-TEST1**: Update existing action integration tests for new pending request behavior
+  - File: `src/__tests__/integration/check-in-actions.test.ts`
+  - `startCheckIn` now creates a pending request instead of immediate transition.
+  - `completeCheckIn` now creates a pending request instead of immediate transition.
+  - `reopenCheckIn` now creates a pending request instead of immediate transition.
+  - Verifies status does NOT change, `pendingTransition` and `pendingTransitionById` are set.
+  - Added tests for rejecting requests when a pending transition already exists.
+
+- [x] **PC-TEST2**: New integration tests for `confirmTransition` and `cancelTransition`
+  - File: `src/__tests__/integration/check-in-actions.test.ts`
+  - `confirmTransition`: auth, non-member rejection, no pending transition, initiator cannot confirm (must be partner), successful confirm for each transition type (start/complete/reopen) with correct side effects.
+  - `cancelTransition`: auth, non-member rejection, no pending transition, non-initiator cannot cancel, successful cancel clears fields.
+
+- [x] **PC-TEST3**: Update view component tests for pending transition banner
+  - Files: `src/app/(app)/check-ins/[id]/__tests__/check-in-draft-view.test.tsx`, `check-in-active-view.test.tsx`, `check-in-results-view.test.tsx`
+  - Verifies banner renders for initiator and partner perspectives.
+  - Verifies button is disabled when pending transition exists.
+
+- [x] **PC-TEST4**: Update helper unit tests for new guard
+  - File: `src/app/(app)/check-ins/__tests__/helpers.test.ts`
+  - Tests `guardNoPendingTransition`: null returns no error, non-null returns error.
+
+### Task Summary
+
+| Task                          | Category | Effort | Dependencies        | Status |
+| ----------------------------- | -------- | ------ | ------------------- | ------ |
+| PC-S1 Schema changes          | Schema   | Small  | --                  | Done   |
+| PC-T1 Type updates            | Types    | Small  | PC-S1               | Done   |
+| PC-H1 Helper updates          | Helpers  | Small  | PC-S1               | Done   |
+| PC-H2 New guard               | Helpers  | Small  | PC-S1               | Done   |
+| PC-Q1 Query updates           | Query    | Small  | PC-S1               | Done   |
+| PC-A1 Modify startCheckIn     | Action   | Medium | PC-S1, PC-H1, PC-H2 | Done   |
+| PC-A2 Modify completeCheckIn  | Action   | Medium | PC-S1, PC-H1, PC-H2 | Done   |
+| PC-A3 Modify reopenCheckIn    | Action   | Medium | PC-S1, PC-H1, PC-H2 | Done   |
+| PC-A4 confirmTransition       | Action   | Medium | PC-S1, PC-H1        | Done   |
+| PC-A5 cancelTransition        | Action   | Small  | PC-S1, PC-H1        | Done   |
+| PC-U1 PendingTransitionBanner | UI       | Medium | PC-A4, PC-A5        | Done   |
+| PC-U2 Update DraftView        | UI       | Small  | PC-U1               | Done   |
+| PC-U3 Update ActiveView       | UI       | Small  | PC-U1               | Done   |
+| PC-U4 Update ResultsView      | UI       | Small  | PC-U1               | Done   |
+| PC-U5 Update StatusBadge      | UI       | Small  | --                  | Done   |
+| PC-P1 Update page.tsx         | Page     | Small  | PC-Q1               | Done   |
+| PC-TEST1 Update action tests  | Test     | Medium | PC-A1-A3            | Done   |
+| PC-TEST2 New action tests     | Test     | Medium | PC-A4, PC-A5        | Done   |
+| PC-TEST3 View component tests | Test     | Medium | PC-U2-U4            | Done   |
+| PC-TEST4 Helper tests         | Test     | Small  | PC-H1, PC-H2        | Done   |
+
+---
+
+## Cross-cutting: E2E Test Infrastructure
+
+- [x] **E2E-1**: E2E database seed helpers
+  - File: `e2e/helpers/db.ts`
+  - Added: `seedTemplate()`, `seedTemplateQuestion()`, `seedCheckIn()`, `seedCheckInQuestion()`, `seedCheckInResponse()`, `seedActionItem()`.
+  - Updated `truncateAll()` to include check-in related tables (action_items, check_in_responses, check_in_questions, check_ins, template_questions, check_in_templates).
+  - `seedCheckIn` supports `pendingTransition` and `pendingTransitionById` fields.
+
+- [x] **E2E-2**: E2E test specs (scaffolded)
+  - Created: `e2e/partner-invite.spec.ts` -- partner invitation flow E2E test.
+  - Created: `e2e/check-in-lifecycle.spec.ts` -- check-in lifecycle E2E test.
+  - Created: `e2e/action-items.spec.ts` -- action items E2E test.
 
 ---
 
@@ -606,14 +834,20 @@ npx drizzle-kit migrate
 
 For each phase, work in this order: **Schema -> Seed -> Actions -> Components -> Pages -> Integration**.
 
-| Order | Tasks                                                                   | Phase         | Status      |
-| ----- | ----------------------------------------------------------------------- | ------------- | ----------- |
-| 1     | P3-U6, P3-U7 (shared components)                                       | 3             | Done        |
+| Order | Tasks                                                                 | Phase         | Status      |
+| ----- | --------------------------------------------------------------------- | ------------- | ----------- |
+| 1     | P3-U6, P3-U7 (shared components)                                      | 3             | Done        |
 | 2     | P3-U1, P3-U2, P3-U4, P3-U5, P3-P1 through P3-P3 (check-in UI + pages) | 3             | Done        |
-| 3     | P4-S1, P4-A1 through P4-A5 (action items schema + actions)             | 4             | In Progress |
-| 4     | P4-U1 through P4-U4, P4-INT1, P4-INT2 (action items UI + integration)  | 4             | In Progress |
-| 5     | DASH-1, DASH-2 (dashboard redesign)                                     | Cross-cutting |             |
-| 6     | P5-A1, P5-U1 through P5-U5 (history + search)                          | 5             |             |
-| 7     | P6-S1, P6-DEP1, P6-A1, P6-A2 (AI schema + actions)                     | 6             |             |
-| 8     | P6-U1 through P6-U3, P6-INT1 (AI UI + integration)                     | 6             |             |
-| 9     | NF-1 through NF-8 (non-functional polish)                               | Cross-cutting |             |
+| 3     | P4-S1, P4-A1 through P4-A5 (action items schema + actions + tests)    | 4             | In Progress |
+| 4     | P4-U1 through P4-U4, P4-INT1, P4-INT2 (action items UI + integration) | 4             | In Progress |
+| 4b    | REFACTOR-1 through REFACTOR-4 (code organization + partner tests)     | Cross-cutting | Done        |
+| 4c    | PC-S1, PC-T1, PC-H1, PC-H2, PC-Q1 (partner confirm schema + helpers)  | Cross-cutting | Done        |
+| 4d    | PC-A1 through PC-A5 (partner confirm actions)                         | Cross-cutting | Done        |
+| 4e    | PC-U1 through PC-U5, PC-P1 (partner confirm UI + page)                | Cross-cutting | Done        |
+| 4f    | PC-TEST1 through PC-TEST4 (partner confirm tests)                     | Cross-cutting | Done        |
+| 4g    | E2E-1, E2E-2 (E2E test infrastructure + specs)                        | Cross-cutting | Done        |
+| 5     | DASH-1, DASH-2 (dashboard redesign)                                   | Cross-cutting |             |
+| 6     | P5-A1, P5-U1 through P5-U5 (history + search)                         | 5             |             |
+| 7     | P6-S1, P6-DEP1, P6-A1, P6-A2 (AI schema + actions)                    | 6             |             |
+| 8     | P6-U1 through P6-U3, P6-INT1 (AI UI + integration)                    | 6             |             |
+| 9     | NF-1 through NF-8 (non-functional polish)                             | Cross-cutting |             |

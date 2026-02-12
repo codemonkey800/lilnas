@@ -4,14 +4,9 @@ import { cns } from '@lilnas/utils/cns'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { FormEvent, useCallback, useState } from 'react'
-import {
-  HiArrowLeft,
-  HiCheck,
-  HiClock,
-  HiRectangleStack,
-} from 'react-icons/hi2'
+import { HiArrowLeft, HiCheck, HiRectangleStack } from 'react-icons/hi2'
 
-import { createCheckIn } from 'src/app/(app)/check-ins/actions'
+import { createCheckIn } from 'src/app/(app)/check-ins/check-in.actions'
 import type { TemplateListItem } from 'src/app/(app)/templates/types'
 import { Badge } from 'src/components/ui/badge'
 import { Button } from 'src/components/ui/button'
@@ -37,7 +32,6 @@ export function CreateCheckInForm({ templates }: CreateCheckInFormProps) {
     null,
   )
   const [title, setTitle] = useState('')
-  const [scheduledFor, setScheduledFor] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -55,12 +49,9 @@ export function CreateCheckInForm({ templates }: CreateCheckInFormProps) {
 
       setLoading(true)
 
-      const scheduledDate = scheduledFor ? new Date(scheduledFor) : undefined
-
       const result = await createCheckIn({
         templateId: selectedTemplateId,
         title: title.trim() || undefined,
-        scheduledFor: scheduledDate,
       })
 
       if (result.success && result.checkInId) {
@@ -70,7 +61,7 @@ export function CreateCheckInForm({ templates }: CreateCheckInFormProps) {
         setLoading(false)
       }
     },
-    [selectedTemplateId, title, scheduledFor, router],
+    [selectedTemplateId, title, router],
   )
 
   return (
@@ -160,22 +151,6 @@ export function CreateCheckInForm({ templates }: CreateCheckInFormProps) {
           onChange={e => setTitle(e.target.value)}
           maxLength={200}
         />
-      </FormField>
-
-      {/* Schedule (optional) */}
-      <FormField
-        label="Schedule for later (optional)"
-        hint="Leave empty to start as a draft you can begin anytime."
-      >
-        <div className="relative">
-          <HiClock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-          <Input
-            type="datetime-local"
-            value={scheduledFor}
-            onChange={e => setScheduledFor(e.target.value)}
-            className="pl-9"
-          />
-        </div>
       </FormField>
 
       {/* Error */}

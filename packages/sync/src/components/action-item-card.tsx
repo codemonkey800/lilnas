@@ -7,7 +7,7 @@ import { HiCheck, HiClock, HiTrash } from 'react-icons/hi2'
 import {
   deleteActionItem,
   updateActionItemStatus,
-} from 'src/app/(app)/check-ins/actions'
+} from 'src/app/(app)/check-ins/action-item.actions'
 import type {
   ActionItem,
   ActionItemStatus,

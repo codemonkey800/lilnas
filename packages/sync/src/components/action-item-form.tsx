@@ -4,7 +4,7 @@ import { cns } from '@lilnas/utils/cns'
 import { useCallback, useMemo, useState, useTransition } from 'react'
 import { HiPlus } from 'react-icons/hi2'
 
-import { createActionItem } from 'src/app/(app)/check-ins/actions'
+import { createActionItem } from 'src/app/(app)/check-ins/action-item.actions'
 import type { ActionItemOwnerType } from 'src/app/(app)/check-ins/types'
 
 import { Button } from './ui/button'

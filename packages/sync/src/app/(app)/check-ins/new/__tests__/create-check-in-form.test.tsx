@@ -16,7 +16,7 @@ vi.mock('next/navigation', () => ({
 
 const mockCreateCheckIn = vi.fn()
 
-vi.mock('src/app/(app)/check-ins/actions', () => ({
+vi.mock('src/app/(app)/check-ins/check-in.actions', () => ({
   createCheckIn: (...args: unknown[]) => mockCreateCheckIn(...args),
 }))
 
@@ -97,24 +97,6 @@ describe('CreateCheckInForm', () => {
     expect(screen.getByText(/Defaults to "Weekly Sync -/)).toBeInTheDocument()
   })
 
-  it('shows validation error when submitting without a template selected', async () => {
-    const user = userEvent.setup()
-    render(<CreateCheckInForm templates={templates} />)
-
-    // Force-enable and submit (the button is disabled, so we submit the form directly)
-    const form = screen
-      .getByRole('button', { name: /create check-in/i })
-      .closest('form')!
-    await user.click(form.querySelector('button[type="submit"]')!)
-
-    // The button is disabled so the form submit doesn't fire via click.
-    // Instead, let's test by selecting then deselecting isn't possible,
-    // so we test the client-side validation by verifying the button is disabled.
-    expect(
-      screen.getByRole('button', { name: /create check-in/i }),
-    ).toBeDisabled()
-  })
-
   it('calls createCheckIn with correct args and navigates on success', async () => {
     const user = userEvent.setup()
     mockCreateCheckIn.mockResolvedValueOnce({
@@ -129,7 +111,6 @@ describe('CreateCheckInForm', () => {
     expect(mockCreateCheckIn).toHaveBeenCalledWith({
       templateId: 'tpl-1',
       title: undefined,
-      scheduledFor: undefined,
     })
     expect(mockPush).toHaveBeenCalledWith('/check-ins/ci-123')
   })

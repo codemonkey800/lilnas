@@ -6,10 +6,15 @@ import { useRouter } from 'next/navigation'
 import { useCallback, useMemo, useState } from 'react'
 import { HiArrowLeft, HiArrowPath, HiSparkles } from 'react-icons/hi2'
 
-import { reopenCheckIn } from 'src/app/(app)/check-ins/actions'
+import {
+  cancelTransition,
+  confirmTransition,
+  reopenCheckIn,
+} from 'src/app/(app)/check-ins/check-in.actions'
 import type { ActionItem, CheckInDetail } from 'src/app/(app)/check-ins/types'
 import { ActionItemList } from 'src/components/action-item-list'
 import { CheckInStatusBadge } from 'src/components/check-in-status-badge'
+import { PendingTransitionBanner } from 'src/components/pending-transition-banner'
 import { Button } from 'src/components/ui/button'
 import { Dialog } from 'src/components/ui/dialog'
 
@@ -33,6 +38,12 @@ export function CheckInResultsView({
   actionItems,
 }: CheckInResultsViewProps) {
   const router = useRouter()
+
+  // Pending transition state
+  const hasPendingReopen = checkIn.pendingTransition === 'reopen'
+  const isInitiator = checkIn.pendingTransitionById === userId
+  const pendingByName = checkIn.pendingTransitionByName ?? 'Partner'
+  const partnerName = checkIn.partnerDisplayName ?? 'Partner'
 
   // Derive display names for both partners
   const { userDisplayName, partnerDisplayName } = useMemo(() => {
@@ -109,7 +120,10 @@ export function CheckInResultsView({
           <h1 className="text-2xl font-bold tracking-tight text-text md:text-3xl">
             {checkIn.title}
           </h1>
-          <CheckInStatusBadge status={checkIn.status} />
+          <CheckInStatusBadge
+            status={checkIn.status}
+            pendingTransition={checkIn.pendingTransition}
+          />
         </div>
 
         {checkIn.completedAt && (
@@ -130,6 +144,7 @@ export function CheckInResultsView({
           variant="secondary"
           size="sm"
           onClick={() => setShowReopenDialog(true)}
+          disabled={hasPendingReopen}
         >
           <HiArrowPath className="h-4 w-4" />
           Re-open
@@ -140,6 +155,25 @@ export function CheckInResultsView({
           Summarize with AI
         </Button>
       </div>
+
+      {/* Pending transition banner */}
+      {hasPendingReopen && (
+        <PendingTransitionBanner
+          pendingTransition="reopen"
+          isInitiator={isInitiator}
+          partnerName={isInitiator ? partnerName : pendingByName}
+          onConfirm={async () => {
+            const result = await confirmTransition(checkIn.id)
+            if (result.success) router.refresh()
+            return result
+          }}
+          onCancel={async () => {
+            const result = await cancelTransition(checkIn.id)
+            if (result.success) router.refresh()
+            return result
+          }}
+        />
+      )}
 
       {/* Divider */}
       <hr className="border-border-subtle" />

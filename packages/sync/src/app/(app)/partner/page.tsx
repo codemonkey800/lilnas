@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 
-import { getPartnershipStatus } from './actions'
 import { PartnerConnection } from './partner-connection'
+import { getPartnershipStatus } from './queries'
 
 export default async function PartnerPage() {
   // If user already has an active partnership, send them home

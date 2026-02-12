@@ -67,7 +67,7 @@ Alex and Jordan have been together for two years. They communicate well day-to-d
 ### End-to-End Journey
 
 ```
-Register --> Onboarding --> Connect Partner --> Create/Pick Template --> Schedule Check-in
+Register --> Onboarding --> Connect Partner --> Create/Pick Template --> Create Check-in
     --> Draft Answers --> Start Check-in --> Review & Discuss --> Add Action Items
     --> Complete --> View Results --> AI Summary --> Track Action Items
 ```
@@ -77,9 +77,9 @@ Register --> Onboarding --> Connect Partner --> Create/Pick Template --> Schedul
 1. **Alex registers** with email and password, completes the 3-step onboarding (display name, love language, goals).
 2. **Alex invites Jordan** by entering Jordan's email on the dashboard.
 3. **Jordan logs in** (they must already have an account), sees a pending invite on their dashboard, and accepts.
-4. **Alex creates a check-in** from the "Weekly Check-in" default template, scheduled for Sunday at 7 PM.
-5. **Both partners draft answers** independently before Sunday. Neither can see the other's drafts.
-6. **Sunday arrives** -- Alex starts the check-in, transitioning it to "in progress."
+4. **Alex creates a check-in** from the "Weekly Check-in" default template.
+5. **Both partners draft answers** independently. Neither can see the other's drafts.
+6. **Alex starts the check-in**, transitioning it to "in progress."
 7. **During the check-in**, both partners can see each other's answers, edit their own, and fill in anything they skipped.
 8. **They add action items** for specific questions (e.g., "Plan a date night this week" assigned to Jordan, or "Research couples therapists" assigned to both of them).
 9. **Alex marks the check-in as complete.** Both partners see the full results: answers side by side plus action items.
@@ -311,48 +311,56 @@ See [Section 7: Check-in State Machine](#7-check-in-state-machine) for the full 
 | State         | Description                                                                                           |
 | ------------- | ----------------------------------------------------------------------------------------------------- |
 | `draft`       | Check-in created, questions defined. Partners can draft answers privately.                            |
-| `scheduled`   | Check-in has a future date/time. Behaves like `draft` until then.                                     |
 | `in_progress` | Check-in is active. Both partners can see each other's answers, edit their own, and add action items. |
 | `completed`   | Check-in is finished. Results view is available. Answers are read-only.                               |
 
 #### User Stories
 
-| ID  | Story                                                               | Acceptance Criteria                                                                                                                     |
-| --- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| C1  | As a user, I can create a check-in from a template                  | A template must be selected. Questions are copied and locked. Check-in starts in `draft` state.                                         |
-| C2  | As a user, I can schedule a check-in for a specific date and time   | Check-in enters `scheduled` state. Date/time is displayed on the dashboard.                                                             |
-| C3  | As a user, I can draft answers before the check-in starts           | In `draft` or `scheduled` state, I can write answers. My partner cannot see them yet.                                                   |
-| C4  | As a user, I can start a check-in                                   | Transitions from `draft` or `scheduled` to `in_progress`. Both partners' answers become visible.                                        |
-| C5  | As a user, I can answer questions during an active check-in         | In `in_progress` state, I can type or update my responses.                                                                              |
-| C6  | As a user, I can see my partner's answers during an active check-in | Both sets of answers are shown side by side per question.                                                                               |
-| C7  | As a user, I can complete a check-in                                | Transitions to `completed`. Results summary is shown.                                                                                   |
-| C8  | As a user, I can re-open a completed check-in                       | Transitions back to `in_progress`. Answers become editable again.                                                                       |
-| C9  | As a user, I can view the results of a completed check-in           | Shows all questions with both partners' answers and any action items.                                                                   |
+| ID   | Story                                                               | Acceptance Criteria                                                                                                                                            |
+| ---- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1   | As a user, I can create a check-in from a template                  | A template must be selected. Questions are copied and locked. Check-in starts in `draft` state.                                                                |
+| C3   | As a user, I can draft answers before the check-in starts           | In `draft` state, I can write answers. My partner cannot see them yet.                                                                                         |
+| C4   | As a user, I can request to start a check-in                        | Creates a pending start request. The check-in stays in `draft` until my partner confirms.                                                                      |
+| C5   | As a user, I can answer questions during an active check-in         | In `in_progress` state, I can type or update my responses.                                                                                                     |
+| C6   | As a user, I can see my partner's answers during an active check-in | Both sets of answers are shown side by side per question.                                                                                                      |
+| C7   | As a user, I can request to complete a check-in                     | Creates a pending complete request. The check-in stays `in_progress` until my partner confirms.                                                                |
+| C8   | As a user, I can request to re-open a completed check-in            | Creates a pending reopen request. The check-in stays `completed` until my partner confirms.                                                                    |
+| C9   | As a user, I can view the results of a completed check-in           | Shows all questions with both partners' answers and any action items.                                                                                          |
+| C10  | As a user, when I initiate a transition, I see a waiting indicator  | The check-in stays in its current state. I see a "Waiting for [partner] to confirm" banner. The transition button is disabled.                                 |
+| C11  | As a user, I can see when my partner has requested a transition     | A prominent banner appears on the check-in page showing what my partner wants to do (start, complete, or reopen), with a Confirm button.                      |
+| C12  | As a user, I can confirm my partner's transition request            | Clicking Confirm executes the transition. The check-in moves to the next state.                                                                                |
+| C13  | As a user, I can cancel a pending transition request I initiated    | Clicking Cancel clears the pending request. The check-in stays in its current state.                                                                           |
 
 #### Creating a Check-in
 
 1. User navigates to `/check-ins/new`.
 2. Selects a template from the list (a template is always required).
 3. Questions are **copied** from the template into the check-in and **locked** (so template changes don't affect existing check-ins, and questions cannot be modified per check-in).
-4. Optionally sets a scheduled date/time.
-5. Saves. Check-in enters `draft` (or `scheduled` if a date was provided).
+4. Saves. Check-in enters `draft` state.
 
 > **Note:** Per-check-in question editing (add, edit, remove, reorder) was removed to simplify the experience. Users who want different questions should create or duplicate a template instead.
 
 #### Drafting Answers
 
-- Available in `draft` and `scheduled` states.
+- Available in `draft` state.
 - Each partner can write answers to any question.
 - Drafts are saved automatically (debounced auto-save, 1 second after typing stops).
 - Drafts are **private** -- your partner cannot see your answers until the check-in transitions to `in_progress`.
 - A progress indicator shows how many questions each partner has answered (without revealing content). E.g., "You: 3/5 answered. Partner: 2/5 answered."
 
-#### Starting a Check-in
+#### Starting a Check-in (Two-Person Confirmation)
 
-- Either partner can transition the check-in to `in_progress`.
-- A confirmation dialog warns: "Starting this check-in will make all drafted answers visible to both partners. Continue?"
-- All existing draft responses are marked as visible.
-- A `started_at` timestamp is recorded.
+Starting a check-in is a two-person process that requires both partners to agree:
+
+1. Either partner clicks "Start Check-in." A confirmation dialog warns: "Starting this check-in will allow both partners to finalize answers and add action items. Answers will only be visible to both partners once the check-in is completed."
+2. On confirm, a **pending start request** is created (`pending_transition = 'start'`). The check-in remains in `draft` state.
+3. The initiator sees a banner: "Waiting for [partner name] to confirm." The "Start Check-in" button is disabled. The initiator may cancel the request.
+4. When the other partner opens the check-in page, they see a prominent banner: "[partner name] wants to start this check-in" with a **Confirm** button.
+5. On confirmation by the partner, the actual transition executes:
+   - Status changes to `in_progress`.
+   - All existing draft responses are marked as visible (`is_draft = false`).
+   - A `started_at` timestamp is recorded.
+   - The `pending_transition` and `pending_transition_by_id` fields are cleared.
 
 #### In-Progress Experience
 
@@ -364,19 +372,34 @@ See [Section 7: Check-in State Machine](#7-check-in-state-machine) for the full 
   - Add action items per question (see Phase 4).
 - Changes save automatically.
 
-#### Completing a Check-in
+#### Completing a Check-in (Two-Person Confirmation)
 
-- Either partner can mark the check-in as `completed`.
-- A `completed_at` timestamp is recorded.
-- Answers become read-only.
-- The results view is displayed.
+Completing a check-in follows the same two-person confirmation pattern:
 
-#### Re-opening a Check-in
+1. Either partner clicks "Complete Check-in." A confirmation dialog explains that answers will become read-only.
+2. On confirm, a **pending complete request** is created (`pending_transition = 'complete'`). The check-in remains `in_progress`.
+3. The initiator sees a waiting banner. The "Complete Check-in" button is disabled. The initiator may cancel the request.
+4. The other partner sees a confirmation banner: "[partner name] wants to complete this check-in" with a **Confirm** button.
+5. On confirmation by the partner:
+   - Status changes to `completed`.
+   - A `completed_at` timestamp is recorded.
+   - Answers become read-only.
+   - The results view is displayed.
+   - The `pending_transition` and `pending_transition_by_id` fields are cleared.
 
-- Either partner can re-open a `completed` check-in.
-- The check-in transitions back to `in_progress`.
-- Answers become editable again.
-- `completed_at` is cleared.
+#### Re-opening a Check-in (Two-Person Confirmation)
+
+Re-opening a check-in follows the same two-person confirmation pattern:
+
+1. Either partner clicks "Re-open." A confirmation dialog explains that answers will become editable again.
+2. On confirm, a **pending reopen request** is created (`pending_transition = 'reopen'`). The check-in remains `completed`.
+3. The initiator sees a waiting banner. The "Re-open" button is disabled. The initiator may cancel the request.
+4. The other partner sees a confirmation banner: "[partner name] wants to re-open this check-in" with a **Confirm** button.
+5. On confirmation by the partner:
+   - Status changes back to `in_progress`.
+   - `completed_at` is cleared.
+   - Answers become editable again.
+   - The `pending_transition` and `pending_transition_by_id` fields are cleared.
 
 #### Results View
 
@@ -393,25 +416,25 @@ Displayed when a check-in is in `completed` state (also accessible from history)
 
 #### Database: `check_ins` Table
 
-| Column           | Type          | Notes                                                                  |
-| ---------------- | ------------- | ---------------------------------------------------------------------- |
-| `id`             | `text` (UUID) | Primary key                                                            |
-| `partnership_id` | `text`        | FK to `partnerships.id`, NOT NULL                                      |
-| `template_id`    | `text`        | FK to `check_in_templates.id`, NOT NULL (a template is always required) |
-| `title`          | `text`        | NOT NULL. Defaults to template name + date.                            |
-| `status`         | `text`        | One of: `draft`, `scheduled`, `in_progress`, `completed`               |
-| `scheduled_for`  | `timestamp`   | Nullable. The date/time the check-in is planned for.                   |
-| `started_at`     | `timestamp`   | Nullable. When the check-in transitioned to `in_progress`.             |
-| `completed_at`   | `timestamp`   | Nullable. When the check-in was marked complete.                       |
-| `created_by_id`  | `text`        | FK to `users.id`, NOT NULL                                             |
-| `created_at`     | `timestamp`   | Default: now                                                           |
-| `updated_at`     | `timestamp`   | Default: now                                                           |
+| Column                     | Type          | Notes                                                                                          |
+| -------------------------- | ------------- | ---------------------------------------------------------------------------------------------- |
+| `id`                       | `text` (UUID) | Primary key                                                                                    |
+| `partnership_id`           | `text`        | FK to `partnerships.id`, NOT NULL                                                              |
+| `template_id`              | `text`        | FK to `check_in_templates.id`, NOT NULL (a template is always required)                        |
+| `title`                    | `text`        | NOT NULL. Defaults to template name + date.                                                    |
+| `status`                   | `text`        | One of: `draft`, `in_progress`, `completed`                                                    |
+| `started_at`               | `timestamp`   | Nullable. When the check-in transitioned to `in_progress`.                                     |
+| `completed_at`             | `timestamp`   | Nullable. When the check-in was marked complete.                                               |
+| `pending_transition`       | `text`        | Nullable. One of: `start`, `complete`, `reopen`. Set when a partner requests a state change.   |
+| `pending_transition_by_id` | `text`        | FK to `users.id`, nullable. The user who initiated the pending transition request.             |
+| `created_by_id`            | `text`        | FK to `users.id`, NOT NULL                                                                     |
+| `created_at`               | `timestamp`   | Default: now                                                                                   |
+| `updated_at`               | `timestamp`   | Default: now                                                                                   |
 
 **Indexes:**
 
 - Index on `partnership_id` for listing a partnership's check-ins.
 - Index on `status` for filtering.
-- Index on `scheduled_for` for upcoming check-ins queries.
 
 #### Database: `check_in_questions` Table
 
@@ -444,11 +467,12 @@ Questions are copied from the template when the check-in is created and are immu
 
 #### UI Components
 
-- **CreateCheckInForm**: Template selector (required), optional title override, optional schedule picker.
-- **CheckInDraftView**: Question list with answer inputs. Progress indicator. "Start Check-in" button. Questions are read-only (copied from template).
-- **CheckInActiveView**: Side-by-side answer display per question. Editable own answers. Action item controls.
-- **CheckInResultsView**: Read-only summary of all answers and action items. Re-open and AI summarize buttons.
-- **CheckInStatusBadge**: Visual indicator of check-in state (draft, scheduled, in progress, completed).
+- **CreateCheckInForm**: Template selector (required), optional title override.
+- **CheckInDraftView**: Question list with answer inputs. Progress indicator. "Start Check-in" button. Questions are read-only (copied from template). Shows pending transition banner when a start request is pending.
+- **CheckInActiveView**: Side-by-side answer display per question. Editable own answers. Action item controls. Shows pending transition banner when a complete request is pending.
+- **CheckInResultsView**: Read-only summary of all answers and action items. Re-open and AI summarize buttons. Shows pending transition banner when a reopen request is pending.
+- **CheckInStatusBadge**: Visual indicator of check-in state (draft, in progress, completed). Shows an optional pending indicator when a transition is pending.
+- **PendingTransitionBanner**: Shared component for displaying pending transition state. Two variants: initiator view (waiting message with cancel option) and partner view (confirmation prompt with confirm button).
 
 ---
 
@@ -551,7 +575,7 @@ Partners can browse their complete check-in history, search across check-in cont
 | --- | ----------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | H1  | As a user, I can view a chronological list of all check-ins | List shows title, date, status badge, and question count. Most recent first. |
 | H2  | As a user, I can search check-in history by keyword         | Searches across question text, responses, and action item descriptions.      |
-| H3  | As a user, I can filter check-ins by status                 | Dropdown or toggle for: all, draft, scheduled, in progress, completed.       |
+| H3  | As a user, I can filter check-ins by status                 | Dropdown or toggle for: all, draft, in progress, completed.                  |
 | H4  | As a user, I can filter check-ins by date range             | Date range picker filters the list.                                          |
 | H5  | As a user, I can click a check-in to view its details       | Navigates to the check-in detail page.                                       |
 
@@ -753,13 +777,15 @@ All new tables follow the existing schema patterns in `src/db/schema.ts`:
 
 ### Phase 3: Check-in Lifecycle
 
-| Action                           | File                           | Description                                              |
-| -------------------------------- | ------------------------------ | -------------------------------------------------------- |
-| `createCheckIn(data)`            | `src/app/check-ins/actions.ts` | Creates a check-in from a template (required)            |
-| `saveResponse(questionId, text)` | `src/app/check-ins/actions.ts` | Upserts a response (draft or active)                     |
-| `startCheckIn(checkInId)`        | `src/app/check-ins/actions.ts` | Transitions to `in_progress`                             |
-| `completeCheckIn(checkInId)`     | `src/app/check-ins/actions.ts` | Transitions to `completed`                               |
-| `reopenCheckIn(checkInId)`       | `src/app/check-ins/actions.ts` | Transitions back to `in_progress`                        |
+| Action                           | File                           | Description                                                                         |
+| -------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------- |
+| `createCheckIn(data)`            | `src/app/check-ins/actions.ts` | Creates a check-in from a template (required)                                       |
+| `saveResponse(questionId, text)` | `src/app/check-ins/actions.ts` | Upserts a response (draft or active)                                                |
+| `startCheckIn(checkInId)`        | `src/app/check-ins/actions.ts` | Creates a pending start request (partner confirmation required)                     |
+| `completeCheckIn(checkInId)`     | `src/app/check-ins/actions.ts` | Creates a pending complete request (partner confirmation required)                  |
+| `reopenCheckIn(checkInId)`       | `src/app/check-ins/actions.ts` | Creates a pending reopen request (partner confirmation required)                    |
+| `confirmTransition(checkInId)`   | `src/app/check-ins/actions.ts` | Confirms a pending transition request initiated by the partner                      |
+| `cancelTransition(checkInId)`    | `src/app/check-ins/actions.ts` | Cancels a pending transition request the current user initiated                     |
 
 ### Phase 4: Action Items
 
@@ -806,9 +832,9 @@ All new tables follow the existing schema patterns in `src/db/schema.ts`:
   - Partner info card (if partnered)
 
 /check-ins                  Check-in history list with search and filters
-/check-ins/new              Create a new check-in (template picker + schedule)
+/check-ins/new              Create a new check-in (template picker)
 /check-ins/[id]             Check-in detail (adapts view based on state)
-  - draft/scheduled: Draft answer view
+  - draft: Draft answer view
   - in_progress: Active check-in view with side-by-side answers
   - completed: Results view with action items and AI summary
 
@@ -844,7 +870,7 @@ The dashboard (`/`) adapts based on partnership status:
 **Partnered state:**
 
 - Welcome message with partner's display name.
-- **Upcoming check-ins** section: Shows scheduled or in-progress check-ins.
+- **Active check-ins** section: Shows draft or in-progress check-ins.
 - **My action items** section: Open action items assigned to the user.
 - **Recent check-ins** section: Last 3 completed check-ins.
 - **Quick actions**: "New check-in" button, "View history" link.
@@ -855,52 +881,57 @@ The dashboard (`/`) adapts based on partnership status:
 
 ### State Transition Diagram
 
+All state transitions require **two-person confirmation**. When one partner initiates a transition, it creates a pending request tracked via `pending_transition` and `pending_transition_by_id` columns on the `check_ins` table. The check-in remains in its current state until the other partner confirms.
+
 ```
-                  +-----------+
-                  |           |
-          +------>|   draft   |-------+
-          |       |           |       |
-          |       +-----------+       |
-          |             |             |
-          |             | schedule    | start
-          |             v             |
-          |       +-----------+       |
-          |       |           |       |
-          |       | scheduled |-------+
-          |       |           |       |
-          |       +-----------+       |
-          |                           |
-          |                           v
-          |                    +-----------+
-          |                    |           |
-          |  reopen            |in_progress|
-          +--------------------+           |
-                               +-----------+
-                                     |
-                                     | complete
-                                     v
-                               +-----------+
-                               |           |
-                               | completed |
-                               |           |
-                               +-----------+
+          +-----------+
+          |           |   request_start (sets pending_transition='start')
+  +------>|   draft   |-------.
+  |       |           |       |
+  |       +-----------+       |  partner confirms
+  |                           v
+  |                    +-----------+
+  |                    |           |   request_complete (sets pending_transition='complete')
+  |  partner confirms  |in_progress|-------.
+  |  reopen request    |           |       |
+  |       .------------+-----------+       |  partner confirms
+  |       |                                v
+  |       |                          +-----------+
+  |       |                          |           |
+  |       '--- request_reopen -------|  completed |
+  |            (sets pending_        |           |
+  |             transition=          +-----------+
+  |             'reopen')
+  +---- (state restored after
+         partner confirms reopen)
 ```
 
-### Transition Rules
+### Transition Request Rules
 
-| From          | To            | Trigger                                                | Guard                                 | Side Effects                                                         |
-| ------------- | ------------- | ------------------------------------------------------ | ------------------------------------- | -------------------------------------------------------------------- |
-| `draft`       | `scheduled`   | User sets a scheduled date/time                        | `scheduled_for` must be in the future | `scheduled_for` is saved                                             |
-| `draft`       | `in_progress` | User clicks "Start Check-in"                           | --                                    | `started_at` = now, all draft responses have `is_draft` set to false |
-| `scheduled`   | `in_progress` | User clicks "Start Check-in" or scheduled time arrives | --                                    | `started_at` = now, all draft responses have `is_draft` set to false |
-| `scheduled`   | `draft`       | User removes the scheduled date                        | --                                    | `scheduled_for` is cleared                                           |
-| `in_progress` | `completed`   | User clicks "Complete Check-in"                        | --                                    | `completed_at` = now                                                 |
-| `completed`   | `in_progress` | User clicks "Re-open"                                  | --                                    | `completed_at` is cleared                                            |
+| Current State | Request Action     | `pending_transition` Value | Next State (after partner confirms) |
+| ------------- | ------------------ | -------------------------- | ----------------------------------- |
+| `draft`       | Request start      | `start`                    | `in_progress`                       |
+| `in_progress` | Request complete   | `complete`                 | `completed`                         |
+| `completed`   | Request reopen     | `reopen`                   | `in_progress`                       |
+
+### Confirmation Side Effects
+
+| Transition Confirmed | Side Effects                                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `start`              | `started_at` = now, all draft responses have `is_draft` set to false, `pending_transition` cleared                  |
+| `complete`           | `completed_at` = now, `pending_transition` cleared                                                                  |
+| `reopen`             | `completed_at` is cleared, status set to `in_progress`, `pending_transition` cleared                                |
+
+### Cancellation
+
+The partner who initiated a pending transition can cancel it at any time. This clears `pending_transition` and `pending_transition_by_id` without changing the check-in status.
 
 ### Authorization
 
 - Only members of the partnership can view or interact with a check-in.
-- Either partner can trigger any state transition.
+- Either partner can **initiate** any state transition (creating a pending request).
+- Only the **other partner** (not the initiator) can confirm a pending transition.
+- Only the **initiator** can cancel a pending transition.
 - Either partner can create, answer, and manage action items.
 
 ---
@@ -909,7 +940,7 @@ The dashboard (`/`) adapts based on partnership status:
 
 ### Privacy
 
-- **Draft isolation**: A partner's draft responses are never visible to the other partner until the check-in moves to `in_progress`. This is enforced both at the query level (filtering by `is_draft`) and in the UI.
+- **Draft isolation**: A partner's draft responses are never visible to the other partner until the check-in moves from `draft` to `in_progress`. This is enforced both at the query level (filtering by `is_draft`) and in the UI.
 - **Partnership scoping**: All queries for check-ins, templates, responses, and action items are scoped to the user's active partnership. Users cannot access data from other partnerships.
 - **Dissolution data retention**: When a partnership is dissolved, check-in data is retained but becomes read-only. Neither partner can create new check-ins, but both can view historical data.
 

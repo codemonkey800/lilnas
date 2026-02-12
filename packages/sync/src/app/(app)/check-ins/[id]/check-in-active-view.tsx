@@ -6,11 +6,17 @@ import { useRouter } from 'next/navigation'
 import { useCallback, useMemo, useState } from 'react'
 import { HiArrowLeft, HiCheckCircle } from 'react-icons/hi2'
 
-import { completeCheckIn, saveResponse } from 'src/app/(app)/check-ins/actions'
+import {
+  cancelTransition,
+  completeCheckIn,
+  confirmTransition,
+  saveResponse,
+} from 'src/app/(app)/check-ins/check-in.actions'
 import type { ActionItem, CheckInDetail } from 'src/app/(app)/check-ins/types'
 import { ActionItemForm } from 'src/components/action-item-form'
 import { ActionItemList } from 'src/components/action-item-list'
 import { CheckInStatusBadge } from 'src/components/check-in-status-badge'
+import { PendingTransitionBanner } from 'src/components/pending-transition-banner'
 import { ResponseInput } from 'src/components/response-input'
 import { Button } from 'src/components/ui/button'
 import { Dialog } from 'src/components/ui/dialog'
@@ -35,6 +41,12 @@ export function CheckInActiveView({
   actionItems,
 }: CheckInActiveViewProps) {
   const router = useRouter()
+
+  // Pending transition state
+  const hasPendingComplete = checkIn.pendingTransition === 'complete'
+  const isInitiator = checkIn.pendingTransitionById === userId
+  const pendingByName = checkIn.pendingTransitionByName ?? 'Partner'
+  const partnerName = checkIn.partnerDisplayName ?? 'Partner'
 
   // Derive partner info from responses
   const partnerInfo = useMemo(() => {
@@ -96,6 +108,7 @@ export function CheckInActiveView({
     if (result.success) {
       setShowCompleteDialog(false)
       router.refresh()
+      window.scrollTo({ top: 0, behavior: 'smooth' })
     } else {
       setError(result.error)
       setCompleting(false)
@@ -125,7 +138,10 @@ export function CheckInActiveView({
           <h1 className="text-2xl font-bold tracking-tight text-text md:text-3xl">
             {checkIn.title}
           </h1>
-          <CheckInStatusBadge status={checkIn.status} />
+          <CheckInStatusBadge
+            status={checkIn.status}
+            pendingTransition={checkIn.pendingTransition}
+          />
         </div>
 
         {checkIn.startedAt && (
@@ -139,6 +155,31 @@ export function CheckInActiveView({
           </p>
         )}
       </div>
+
+      {/* Pending transition banner */}
+      {hasPendingComplete && (
+        <PendingTransitionBanner
+          pendingTransition="complete"
+          isInitiator={isInitiator}
+          partnerName={isInitiator ? partnerName : pendingByName}
+          onConfirm={async () => {
+            const result = await confirmTransition(checkIn.id)
+            if (result.success) {
+              router.refresh()
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }
+            return result
+          }}
+          onCancel={async () => {
+            const result = await cancelTransition(checkIn.id)
+            if (result.success) {
+              router.refresh()
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }
+            return result
+          }}
+        />
+      )}
 
       {/* Questions with your answers only */}
       <div className="flex flex-col gap-6">
@@ -219,6 +260,7 @@ export function CheckInActiveView({
         size="lg"
         className="w-full"
         onClick={() => setShowCompleteDialog(true)}
+        disabled={hasPendingComplete}
       >
         <HiCheckCircle className="h-4 w-4" />
         Complete Check-in

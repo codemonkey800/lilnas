@@ -11,6 +11,12 @@ import { CheckInDraftView } from './check-in-draft-view'
 import { CheckInResultsView } from './check-in-results-view'
 
 // ---------------------------------------------------------------------------
+// Dynamic rendering — this page depends on session/auth, never cache it
+// ---------------------------------------------------------------------------
+
+export const dynamic = 'force-dynamic'
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -55,7 +61,6 @@ export default async function CheckInDetailPage({
 
   switch (checkIn.status) {
     case 'draft':
-    case 'scheduled':
       return <CheckInDraftView checkIn={checkIn} userId={userId} />
 
     case 'in_progress':

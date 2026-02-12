@@ -6,12 +6,10 @@ import { revalidatePath } from 'next/cache'
 import { auth } from 'src/auth'
 import { db } from 'src/db'
 import {
-  actionItems,
   checkInQuestions,
   checkInResponses,
   checkIns,
   checkInTemplates,
-  partnerships,
   templateQuestions,
 } from 'src/db/schema'
 import { getActivePartnership } from 'src/services/partnership'
@@ -20,18 +18,13 @@ import {
   getCheckInForUser,
   guardCanRespond,
   guardCompleted,
-  guardDraftOrScheduled,
+  guardDraft,
   guardInProgress,
-  validateActionItemDescription,
+  guardNoPendingTransition,
   validateResponseText,
   validateTitle,
 } from './helpers'
-import type {
-  ActionItemStatus,
-  ActionResult,
-  CreateActionItemInput,
-  CreateCheckInInput,
-} from './types'
+import type { ActionResult, CreateCheckInInput } from './types'
 
 // ---------------------------------------------------------------------------
 // P3-A1: Create a check-in from a template
@@ -40,7 +33,7 @@ import type {
 /**
  * Creates a new check-in by copying questions from the given template.
  * Title defaults to "{templateName} - {formatted date}" if not provided.
- * Status is `scheduled` when `scheduledFor` is a future date, else `draft`.
+ * Status is always `draft`.
  */
 export async function createCheckIn(
   data: CreateCheckInInput,
@@ -91,20 +84,18 @@ export async function createCheckIn(
     }
   }
 
+  // Validate explicit title before falling back to default
+  if (data.title != null) {
+    const titleError = validateTitle(data.title)
+    if (titleError) {
+      return { success: false, error: titleError }
+    }
+  }
+
   // Determine title
   const title =
     data.title?.trim() ||
     `${template.name} - ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-
-  const titleError = validateTitle(title)
-  if (titleError) {
-    return { success: false, error: titleError }
-  }
-
-  // Determine initial status
-  const now = new Date()
-  const isScheduled = data.scheduledFor && data.scheduledFor > now
-  const status = isScheduled ? 'scheduled' : 'draft'
 
   try {
     const checkInId = await db.transaction(async tx => {
@@ -114,8 +105,7 @@ export async function createCheckIn(
           partnershipId: activePartnership.id,
           templateId: template.id,
           title,
-          status,
-          scheduledFor: isScheduled ? data.scheduledFor : null,
+          status: 'draft',
           createdById: userId,
         })
         .returning({ id: checkIns.id })
@@ -153,7 +143,7 @@ export async function createCheckIn(
 /**
  * Upserts a response for the current user on the given question.
  * Sets `isDraft` based on the check-in status:
- *   - draft/scheduled -> isDraft = true (private)
+ *   - draft -> isDraft = true (private)
  *   - in_progress -> isDraft = false (visible to partner)
  */
 export async function saveResponse(
@@ -198,7 +188,7 @@ export async function saveResponse(
     return { success: false, error: statusError }
   }
 
-  const isDraft = checkIn.status === 'draft' || checkIn.status === 'scheduled'
+  const isDraft = checkIn.status === 'draft'
 
   try {
     await db
@@ -231,12 +221,12 @@ export async function saveResponse(
 }
 
 // ---------------------------------------------------------------------------
-// P3-A7: Start a check-in (transition to in_progress)
+// P3-A7 / PC-A1: Request to start a check-in (pending transition)
 // ---------------------------------------------------------------------------
 
 /**
- * Transitions a check-in from draft/scheduled to in_progress.
- * Sets startedAt and marks all existing draft responses as visible.
+ * Creates a pending start request for a check-in.
+ * The check-in remains in `draft` state until the partner confirms.
  */
 export async function startCheckIn(checkInId: string): Promise<ActionResult> {
   const session = await auth()
@@ -249,45 +239,25 @@ export async function startCheckIn(checkInId: string): Promise<ActionResult> {
     return { success: false, error: 'Check-in not found.' }
   }
 
-  const statusError = guardDraftOrScheduled(checkIn.status)
+  const statusError = guardDraft(checkIn.status)
   if (statusError) {
     return { success: false, error: statusError }
   }
 
+  const pendingError = guardNoPendingTransition(checkIn.pendingTransition)
+  if (pendingError) {
+    return { success: false, error: pendingError }
+  }
+
   try {
-    await db.transaction(async tx => {
-      // Update check-in status
-      await tx
-        .update(checkIns)
-        .set({
-          status: 'in_progress',
-          startedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(checkIns.id, checkInId))
-
-      // Get all question IDs for this check-in
-      const questionIds = await tx
-        .select({ id: checkInQuestions.id })
-        .from(checkInQuestions)
-        .where(eq(checkInQuestions.checkInId, checkInId))
-
-      if (questionIds.length > 0) {
-        // Mark all draft responses as visible
-        await tx
-          .update(checkInResponses)
-          .set({ isDraft: false, updatedAt: new Date() })
-          .where(
-            and(
-              inArray(
-                checkInResponses.checkInQuestionId,
-                questionIds.map(q => q.id),
-              ),
-              eq(checkInResponses.isDraft, true),
-            ),
-          )
-      }
-    })
+    await db
+      .update(checkIns)
+      .set({
+        pendingTransition: 'start',
+        pendingTransitionById: session.user.id,
+        updatedAt: new Date(),
+      })
+      .where(eq(checkIns.id, checkInId))
 
     revalidatePath(`/check-ins/${checkInId}`)
     revalidatePath('/check-ins')
@@ -303,12 +273,12 @@ export async function startCheckIn(checkInId: string): Promise<ActionResult> {
 }
 
 // ---------------------------------------------------------------------------
-// P3-A8: Complete a check-in (transition to completed)
+// P3-A8 / PC-A2: Request to complete a check-in (pending transition)
 // ---------------------------------------------------------------------------
 
 /**
- * Transitions a check-in from in_progress to completed.
- * Sets completedAt timestamp.
+ * Creates a pending complete request for a check-in.
+ * The check-in remains in `in_progress` state until the partner confirms.
  */
 export async function completeCheckIn(
   checkInId: string,
@@ -328,12 +298,17 @@ export async function completeCheckIn(
     return { success: false, error: statusError }
   }
 
+  const pendingError = guardNoPendingTransition(checkIn.pendingTransition)
+  if (pendingError) {
+    return { success: false, error: pendingError }
+  }
+
   try {
     await db
       .update(checkIns)
       .set({
-        status: 'completed',
-        completedAt: new Date(),
+        pendingTransition: 'complete',
+        pendingTransitionById: session.user.id,
         updatedAt: new Date(),
       })
       .where(eq(checkIns.id, checkInId))
@@ -352,12 +327,12 @@ export async function completeCheckIn(
 }
 
 // ---------------------------------------------------------------------------
-// P3-A9: Re-open a check-in (transition back to in_progress)
+// P3-A9 / PC-A3: Request to re-open a check-in (pending transition)
 // ---------------------------------------------------------------------------
 
 /**
- * Transitions a completed check-in back to in_progress.
- * Clears completedAt so answers become editable again.
+ * Creates a pending reopen request for a check-in.
+ * The check-in remains in `completed` state until the partner confirms.
  */
 export async function reopenCheckIn(checkInId: string): Promise<ActionResult> {
   const session = await auth()
@@ -375,12 +350,17 @@ export async function reopenCheckIn(checkInId: string): Promise<ActionResult> {
     return { success: false, error: statusError }
   }
 
+  const pendingError = guardNoPendingTransition(checkIn.pendingTransition)
+  if (pendingError) {
+    return { success: false, error: pendingError }
+  }
+
   try {
     await db
       .update(checkIns)
       .set({
-        status: 'in_progress',
-        completedAt: null,
+        pendingTransition: 'reopen',
+        pendingTransitionById: session.user.id,
         updatedAt: new Date(),
       })
       .where(eq(checkIns.id, checkInId))
@@ -399,109 +379,110 @@ export async function reopenCheckIn(checkInId: string): Promise<ActionResult> {
 }
 
 // ---------------------------------------------------------------------------
-// P4-A1: Create an action item for a check-in question
+// PC-A4: Confirm a pending transition (partner confirmation)
 // ---------------------------------------------------------------------------
 
 /**
- * Creates an action item linked to a specific check-in question.
- * Guard: check-in must be in_progress.
- * ownerType 'individual' requires ownerId (must be a partnership member).
- * ownerType 'both' requires ownerId to be omitted.
+ * Confirms a pending transition request initiated by the partner.
+ * The caller must NOT be the initiator -- only the other partner can confirm.
+ * Executes the actual state transition and clears the pending fields.
  */
-export async function createActionItem(
-  data: CreateActionItemInput,
+export async function confirmTransition(
+  checkInId: string,
 ): Promise<ActionResult> {
   const session = await auth()
   if (!session?.user?.id) {
     return { success: false, error: 'You must be logged in.' }
   }
 
-  const userId = session.user.id
-
-  // Validate description
-  const descError = validateActionItemDescription(data.description)
-  if (descError) {
-    return { success: false, error: descError }
-  }
-
-  // Verify check-in access and status
-  const checkIn = await getCheckInForUser(data.checkInId, userId)
+  const checkIn = await getCheckInForUser(checkInId, session.user.id)
   if (!checkIn) {
     return { success: false, error: 'Check-in not found.' }
   }
 
-  const statusError = guardInProgress(checkIn.status)
-  if (statusError) {
-    return { success: false, error: statusError }
+  if (!checkIn.pendingTransition) {
+    return { success: false, error: 'No pending transition to confirm.' }
   }
 
-  // Verify the question belongs to this check-in
-  const [question] = await db
-    .select({ id: checkInQuestions.id })
-    .from(checkInQuestions)
-    .where(
-      and(
-        eq(checkInQuestions.id, data.checkInQuestionId),
-        eq(checkInQuestions.checkInId, data.checkInId),
-      ),
-    )
-    .limit(1)
-
-  if (!question) {
-    return { success: false, error: 'Question not found.' }
-  }
-
-  // Validate owner constraints
-  if (data.ownerType === 'individual') {
-    if (!data.ownerId) {
-      return {
-        success: false,
-        error: 'An owner must be specified for individual action items.',
-      }
-    }
-
-    // Verify the ownerId is a member of the partnership
-    const [partnership] = await db
-      .select({
-        inviterId: partnerships.inviterId,
-        inviteeId: partnerships.inviteeId,
-      })
-      .from(partnerships)
-      .where(eq(partnerships.id, checkIn.partnershipId))
-      .limit(1)
-
-    if (!partnership) {
-      return { success: false, error: 'Partnership not found.' }
-    }
-
-    const isMember =
-      data.ownerId === partnership.inviterId ||
-      data.ownerId === partnership.inviteeId
-    if (!isMember) {
-      return { success: false, error: 'Owner must be a partnership member.' }
-    }
-  } else if (data.ownerType === 'both' && data.ownerId) {
+  // Only the partner (not the initiator) can confirm
+  if (checkIn.pendingTransitionById === session.user.id) {
     return {
       success: false,
-      error: 'Shared action items should not have an individual owner.',
+      error: 'You cannot confirm your own transition request.',
     }
   }
 
   try {
-    await db.insert(actionItems).values({
-      checkInId: data.checkInId,
-      checkInQuestionId: data.checkInQuestionId,
-      description: data.description.trim(),
-      ownerType: data.ownerType,
-      ownerId: data.ownerType === 'individual' ? data.ownerId! : null,
-      createdById: userId,
-    })
+    const transition = checkIn.pendingTransition
 
-    revalidatePath(`/check-ins/${data.checkInId}`)
+    if (transition === 'start') {
+      await db.transaction(async tx => {
+        // Transition: draft -> in_progress
+        await tx
+          .update(checkIns)
+          .set({
+            status: 'in_progress',
+            startedAt: new Date(),
+            pendingTransition: null,
+            pendingTransitionById: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(checkIns.id, checkInId))
 
-    return { success: true }
+        // Get all question IDs for this check-in
+        const questionIds = await tx
+          .select({ id: checkInQuestions.id })
+          .from(checkInQuestions)
+          .where(eq(checkInQuestions.checkInId, checkInId))
+
+        if (questionIds.length > 0) {
+          // Mark all draft responses as visible
+          await tx
+            .update(checkInResponses)
+            .set({ isDraft: false, updatedAt: new Date() })
+            .where(
+              and(
+                inArray(
+                  checkInResponses.checkInQuestionId,
+                  questionIds.map(q => q.id),
+                ),
+                eq(checkInResponses.isDraft, true),
+              ),
+            )
+        }
+      })
+    } else if (transition === 'complete') {
+      // Transition: in_progress -> completed
+      await db
+        .update(checkIns)
+        .set({
+          status: 'completed',
+          completedAt: new Date(),
+          pendingTransition: null,
+          pendingTransitionById: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(checkIns.id, checkInId))
+    } else if (transition === 'reopen') {
+      // Transition: completed -> in_progress
+      await db
+        .update(checkIns)
+        .set({
+          status: 'in_progress',
+          completedAt: null,
+          pendingTransition: null,
+          pendingTransitionById: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(checkIns.id, checkInId))
+    }
+
+    revalidatePath(`/check-ins/${checkInId}`)
+    revalidatePath('/check-ins')
+
+    return { success: true, checkInId }
   } catch (error) {
-    console.error('[createActionItem]', error)
+    console.error('[confirmTransition]', error)
     return {
       success: false,
       error: 'Something went wrong. Please try again.',
@@ -510,118 +491,54 @@ export async function createActionItem(
 }
 
 // ---------------------------------------------------------------------------
-// P4-A2: Update action item status
+// PC-A5: Cancel a pending transition (initiator only)
 // ---------------------------------------------------------------------------
 
 /**
- * Updates the status of an action item.
- * Works regardless of check-in state (status changes can happen any time).
- * Sets/clears completedAt accordingly.
+ * Cancels a pending transition request. Only the user who initiated the
+ * request can cancel it. Clears the pending fields without changing status.
  */
-export async function updateActionItemStatus(
-  actionItemId: string,
-  status: ActionItemStatus,
+export async function cancelTransition(
+  checkInId: string,
 ): Promise<ActionResult> {
   const session = await auth()
   if (!session?.user?.id) {
     return { success: false, error: 'You must be logged in.' }
   }
 
-  const userId = session.user.id
-
-  // Fetch the action item with its check-in
-  const [item] = await db
-    .select({
-      id: actionItems.id,
-      checkInId: actionItems.checkInId,
-    })
-    .from(actionItems)
-    .where(eq(actionItems.id, actionItemId))
-    .limit(1)
-
-  if (!item) {
-    return { success: false, error: 'Action item not found.' }
-  }
-
-  // Verify membership
-  const checkIn = await getCheckInForUser(item.checkInId, userId)
+  const checkIn = await getCheckInForUser(checkInId, session.user.id)
   if (!checkIn) {
     return { success: false, error: 'Check-in not found.' }
+  }
+
+  if (!checkIn.pendingTransition) {
+    return { success: false, error: 'No pending transition to cancel.' }
+  }
+
+  // Only the initiator can cancel
+  if (checkIn.pendingTransitionById !== session.user.id) {
+    return {
+      success: false,
+      error: 'Only the person who initiated the request can cancel it.',
+    }
   }
 
   try {
     await db
-      .update(actionItems)
+      .update(checkIns)
       .set({
-        status,
-        completedAt: status === 'completed' ? new Date() : null,
+        pendingTransition: null,
+        pendingTransitionById: null,
         updatedAt: new Date(),
       })
-      .where(eq(actionItems.id, actionItemId))
+      .where(eq(checkIns.id, checkInId))
 
-    revalidatePath(`/check-ins/${item.checkInId}`)
+    revalidatePath(`/check-ins/${checkInId}`)
+    revalidatePath('/check-ins')
 
-    return { success: true }
+    return { success: true, checkInId }
   } catch (error) {
-    console.error('[updateActionItemStatus]', error)
-    return {
-      success: false,
-      error: 'Something went wrong. Please try again.',
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// P4-A4: Delete an action item
-// ---------------------------------------------------------------------------
-
-/**
- * Deletes an action item.
- * Guard: check-in must be in_progress.
- */
-export async function deleteActionItem(
-  actionItemId: string,
-): Promise<ActionResult> {
-  const session = await auth()
-  if (!session?.user?.id) {
-    return { success: false, error: 'You must be logged in.' }
-  }
-
-  const userId = session.user.id
-
-  // Fetch the action item with its check-in
-  const [item] = await db
-    .select({
-      id: actionItems.id,
-      checkInId: actionItems.checkInId,
-    })
-    .from(actionItems)
-    .where(eq(actionItems.id, actionItemId))
-    .limit(1)
-
-  if (!item) {
-    return { success: false, error: 'Action item not found.' }
-  }
-
-  // Verify membership and status
-  const checkIn = await getCheckInForUser(item.checkInId, userId)
-  if (!checkIn) {
-    return { success: false, error: 'Check-in not found.' }
-  }
-
-  const statusError = guardInProgress(checkIn.status)
-  if (statusError) {
-    return { success: false, error: statusError }
-  }
-
-  try {
-    await db.delete(actionItems).where(eq(actionItems.id, actionItemId))
-
-    revalidatePath(`/check-ins/${item.checkInId}`)
-
-    return { success: true }
-  } catch (error) {
-    console.error('[deleteActionItem]', error)
+    console.error('[cancelTransition]', error)
     return {
       success: false,
       error: 'Something went wrong. Please try again.',

@@ -3,6 +3,7 @@ import type { Mock } from 'vitest'
 
 import { testDb } from 'src/__tests__/integration-setup'
 import {
+  actionItems,
   checkInQuestions,
   checkInResponses,
   checkIns,
@@ -46,6 +47,7 @@ export async function mockAuthAs(userId: string | null): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const TABLES_IN_DELETE_ORDER = [
+  actionItems,
   checkInResponses,
   checkInQuestions,
   checkIns,
@@ -282,32 +284,43 @@ export async function getTemplateQuestions(templateId: string): Promise<
 
 interface CreateCheckInOptions {
   title?: string
-  templateId?: string | null
-  status?: 'draft' | 'scheduled' | 'in_progress' | 'completed'
-  scheduledFor?: Date | null
+  templateId?: string
+  status?: 'draft' | 'in_progress' | 'completed'
   startedAt?: Date | null
   completedAt?: Date | null
+  pendingTransition?: string | null
+  pendingTransitionById?: string | null
 }
 
 /**
  * Insert a check-in directly (for setting up test preconditions).
+ * Auto-creates a template if none is provided.
  */
 export async function createTestCheckIn(
   partnershipId: string,
   createdById: string,
   overrides: CreateCheckInOptions = {},
 ): Promise<{ id: string }> {
+  let templateId = overrides.templateId
+  if (!templateId) {
+    const tpl = await createTestTemplate(partnershipId, {
+      name: 'Auto Template',
+    })
+    templateId = tpl.id
+  }
+
   const rows = await testDb
     .insert(checkIns)
     .values({
       partnershipId,
       createdById,
       title: overrides.title ?? 'Test Check-in',
-      templateId: overrides.templateId ?? null,
+      templateId,
       status: overrides.status ?? 'draft',
-      scheduledFor: overrides.scheduledFor ?? null,
       startedAt: overrides.startedAt ?? null,
       completedAt: overrides.completedAt ?? null,
+      pendingTransition: overrides.pendingTransition ?? null,
+      pendingTransitionById: overrides.pendingTransitionById ?? null,
     })
     .returning({ id: checkIns.id })
 
@@ -325,9 +338,10 @@ export async function getCheckIn(id: string): Promise<
       partnershipId: string
       templateId: string | null
       createdById: string
-      scheduledFor: Date | null
       startedAt: Date | null
       completedAt: Date | null
+      pendingTransition: string | null
+      pendingTransitionById: string | null
     }
   | undefined
 > {
@@ -339,9 +353,10 @@ export async function getCheckIn(id: string): Promise<
       partnershipId: checkIns.partnershipId,
       templateId: checkIns.templateId,
       createdById: checkIns.createdById,
-      scheduledFor: checkIns.scheduledFor,
       startedAt: checkIns.startedAt,
       completedAt: checkIns.completedAt,
+      pendingTransition: checkIns.pendingTransition,
+      pendingTransitionById: checkIns.pendingTransitionById,
     })
     .from(checkIns)
     .where(eq(checkIns.id, id))
@@ -449,4 +464,78 @@ export async function getCheckInResponses(checkInQuestionId: string): Promise<
     })
     .from(checkInResponses)
     .where(eq(checkInResponses.checkInQuestionId, checkInQuestionId))
+}
+
+// ---------------------------------------------------------------------------
+// Action item factory helpers
+// ---------------------------------------------------------------------------
+
+interface CreateActionItemOptions {
+  description?: string
+  ownerType?: 'individual' | 'both'
+  ownerId?: string | null
+  status?: 'open' | 'in_progress' | 'completed'
+  completedAt?: Date | null
+}
+
+/**
+ * Insert an action item directly (for setting up test preconditions).
+ */
+export async function createTestActionItem(
+  checkInId: string,
+  checkInQuestionId: string,
+  createdById: string,
+  overrides: CreateActionItemOptions = {},
+): Promise<{ id: string }> {
+  const rows = await testDb
+    .insert(actionItems)
+    .values({
+      checkInId,
+      checkInQuestionId,
+      createdById,
+      description: overrides.description ?? 'Test action item',
+      ownerType: overrides.ownerType ?? 'individual',
+      ownerId: 'ownerId' in overrides ? overrides.ownerId : createdById,
+      status: overrides.status ?? 'open',
+      completedAt: overrides.completedAt ?? null,
+    })
+    .returning({ id: actionItems.id })
+
+  return rows[0]!
+}
+
+/**
+ * Read an action item row by id.
+ */
+export async function getActionItem(id: string): Promise<
+  | {
+      id: string
+      checkInId: string
+      checkInQuestionId: string
+      description: string
+      ownerType: string
+      ownerId: string | null
+      createdById: string
+      status: string
+      completedAt: Date | null
+    }
+  | undefined
+> {
+  const [row] = await testDb
+    .select({
+      id: actionItems.id,
+      checkInId: actionItems.checkInId,
+      checkInQuestionId: actionItems.checkInQuestionId,
+      description: actionItems.description,
+      ownerType: actionItems.ownerType,
+      ownerId: actionItems.ownerId,
+      createdById: actionItems.createdById,
+      status: actionItems.status,
+      completedAt: actionItems.completedAt,
+    })
+    .from(actionItems)
+    .where(eq(actionItems.id, id))
+    .limit(1)
+
+  return row
 }

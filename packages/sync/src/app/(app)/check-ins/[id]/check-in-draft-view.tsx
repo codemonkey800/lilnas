@@ -4,11 +4,17 @@ import { cns } from '@lilnas/utils/cns'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useState } from 'react'
-import { HiArrowLeft, HiCalendarDays, HiPlay } from 'react-icons/hi2'
+import { HiArrowLeft, HiPlay } from 'react-icons/hi2'
 
-import { saveResponse, startCheckIn } from 'src/app/(app)/check-ins/actions'
+import {
+  cancelTransition,
+  confirmTransition,
+  saveResponse,
+  startCheckIn,
+} from 'src/app/(app)/check-ins/check-in.actions'
 import type { CheckInDetail } from 'src/app/(app)/check-ins/types'
 import { CheckInStatusBadge } from 'src/components/check-in-status-badge'
+import { PendingTransitionBanner } from 'src/components/pending-transition-banner'
 import { ResponseInput } from 'src/components/response-input'
 import { Button } from 'src/components/ui/button'
 import { Dialog } from 'src/components/ui/dialog'
@@ -28,6 +34,12 @@ export interface CheckInDraftViewProps {
 
 export function CheckInDraftView({ checkIn, userId }: CheckInDraftViewProps) {
   const router = useRouter()
+
+  // Pending transition state
+  const hasPendingStart = checkIn.pendingTransition === 'start'
+  const isInitiator = checkIn.pendingTransitionById === userId
+  const pendingByName = checkIn.pendingTransitionByName ?? 'Partner'
+  const partnerName = checkIn.partnerDisplayName ?? 'Partner'
 
   // Build initial response state from server data
   const initialResponses: Record<string, string> = {}
@@ -72,6 +84,7 @@ export function CheckInDraftView({ checkIn, userId }: CheckInDraftViewProps) {
     if (result.success) {
       setShowStartDialog(false)
       router.refresh()
+      window.scrollTo({ top: 0, behavior: 'smooth' })
     } else {
       setError(result.error)
       setStarting(false)
@@ -101,21 +114,11 @@ export function CheckInDraftView({ checkIn, userId }: CheckInDraftViewProps) {
           <h1 className="text-2xl font-bold tracking-tight text-text md:text-3xl">
             {checkIn.title}
           </h1>
-          <CheckInStatusBadge status={checkIn.status} />
+          <CheckInStatusBadge
+            status={checkIn.status}
+            pendingTransition={checkIn.pendingTransition}
+          />
         </div>
-
-        {checkIn.status === 'scheduled' && checkIn.scheduledFor && (
-          <p className="inline-flex items-center gap-1.5 text-sm text-text-secondary">
-            <HiCalendarDays className="h-4 w-4" />
-            Scheduled for{' '}
-            {checkIn.scheduledFor.toLocaleDateString('en-US', {
-              weekday: 'long',
-              month: 'long',
-              day: 'numeric',
-              year: 'numeric',
-            })}
-          </p>
-        )}
       </div>
 
       {/* Progress indicator */}
@@ -124,6 +127,31 @@ export function CheckInDraftView({ checkIn, userId }: CheckInDraftViewProps) {
           You: {answeredCount}/{totalQuestions} answered
         </span>
       </div>
+
+      {/* Pending transition banner */}
+      {hasPendingStart && (
+        <PendingTransitionBanner
+          pendingTransition="start"
+          isInitiator={isInitiator}
+          partnerName={isInitiator ? partnerName : pendingByName}
+          onConfirm={async () => {
+            const result = await confirmTransition(checkIn.id)
+            if (result.success) {
+              router.refresh()
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }
+            return result
+          }}
+          onCancel={async () => {
+            const result = await cancelTransition(checkIn.id)
+            if (result.success) {
+              router.refresh()
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }
+            return result
+          }}
+        />
+      )}
 
       {/* Questions */}
       <div className="flex flex-col gap-4">
@@ -161,6 +189,7 @@ export function CheckInDraftView({ checkIn, userId }: CheckInDraftViewProps) {
         size="lg"
         className="w-full"
         onClick={() => setShowStartDialog(true)}
+        disabled={hasPendingStart}
       >
         <HiPlay className="h-4 w-4" />
         Start Check-in
@@ -188,8 +217,9 @@ export function CheckInDraftView({ checkIn, userId }: CheckInDraftViewProps) {
               </h2>
 
               <p className="text-sm text-text-secondary">
-                Starting this check-in will make all drafted answers visible to
-                both partners. You can still edit your answers afterward.
+                Starting this check-in will allow both partners to finalize
+                answers and add action items. Answers will only be visible to
+                both partners once the check-in is completed.
               </p>
             </div>
 

@@ -21,8 +21,10 @@ export async function getCheckInForUser(
 ): Promise<{
   id: string
   partnershipId: string
-  status: 'draft' | 'scheduled' | 'in_progress' | 'completed'
+  status: 'draft' | 'in_progress' | 'completed'
   title: string
+  pendingTransition: string | null
+  pendingTransitionById: string | null
 } | null> {
   const [row] = await db
     .select({
@@ -30,6 +32,8 @@ export async function getCheckInForUser(
       partnershipId: checkIns.partnershipId,
       status: checkIns.status,
       title: checkIns.title,
+      pendingTransition: checkIns.pendingTransition,
+      pendingTransitionById: checkIns.pendingTransitionById,
       inviterId: partnerships.inviterId,
       inviteeId: partnerships.inviteeId,
     })
@@ -54,6 +58,8 @@ export async function getCheckInForUser(
     partnershipId: row.partnershipId,
     status: row.status,
     title: row.title,
+    pendingTransition: row.pendingTransition,
+    pendingTransitionById: row.pendingTransitionById,
   }
 }
 
@@ -61,23 +67,22 @@ export async function getCheckInForUser(
 // State guards
 // ---------------------------------------------------------------------------
 
-type CheckInStatus = 'draft' | 'scheduled' | 'in_progress' | 'completed'
+type CheckInStatus = 'draft' | 'in_progress' | 'completed'
 
 /**
- * Returns an error message if the check-in is NOT in draft or scheduled state.
+ * Returns an error message if the check-in is NOT in draft state.
  */
-export function guardDraftOrScheduled(status: CheckInStatus): string | null {
-  if (status === 'draft' || status === 'scheduled') return null
+export function guardDraft(status: CheckInStatus): string | null {
+  if (status === 'draft') return null
   return 'This check-in can no longer be modified.'
 }
 
 /**
- * Returns an error message if the check-in is NOT in draft, scheduled, or
- * in_progress state (i.e. responses can still be saved).
+ * Returns an error message if the check-in is NOT in draft or in_progress
+ * state (i.e. responses can still be saved).
  */
 export function guardCanRespond(status: CheckInStatus): string | null {
-  if (status === 'draft' || status === 'scheduled' || status === 'in_progress')
-    return null
+  if (status === 'draft' || status === 'in_progress') return null
   return 'This check-in is completed. Re-open it to edit responses.'
 }
 
@@ -95,6 +100,16 @@ export function guardInProgress(status: CheckInStatus): string | null {
 export function guardCompleted(status: CheckInStatus): string | null {
   if (status === 'completed') return null
   return 'This check-in is not completed.'
+}
+
+/**
+ * Returns an error message if the check-in already has a pending transition.
+ */
+export function guardNoPendingTransition(
+  pendingTransition: string | null,
+): string | null {
+  if (!pendingTransition) return null
+  return 'A transition request is already pending for this check-in.'
 }
 
 // ---------------------------------------------------------------------------
@@ -144,12 +159,11 @@ export function validateActionItemDescription(
 
 /**
  * Format a display date string for a check-in list item.
- * Returns a prefixed string ("Scheduled: ...", "Completed: ...") or the
- * plain creation date, depending on the check-in status.
+ * Returns a prefixed string ("Completed: ...") or the plain creation date,
+ * depending on the check-in status.
  */
 export function formatCheckInDate(checkIn: {
-  status: 'draft' | 'scheduled' | 'in_progress' | 'completed'
-  scheduledFor: Date | null
+  status: 'draft' | 'in_progress' | 'completed'
   completedAt: Date | null
   createdAt: Date | null
 }): string | null {
@@ -157,10 +171,6 @@ export function formatCheckInDate(checkIn: {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
-  }
-
-  if (checkIn.status === 'scheduled' && checkIn.scheduledFor) {
-    return `Scheduled: ${checkIn.scheduledFor.toLocaleDateString('en-US', opts)}`
   }
 
   if (checkIn.status === 'completed' && checkIn.completedAt) {

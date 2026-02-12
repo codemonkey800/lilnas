@@ -2,7 +2,8 @@
 // Check-in types
 // ---------------------------------------------------------------------------
 
-export type CheckInStatus = 'draft' | 'scheduled' | 'in_progress' | 'completed'
+export type CheckInStatus = 'draft' | 'in_progress' | 'completed'
+export type PendingTransition = 'start' | 'complete' | 'reopen'
 
 // ---------------------------------------------------------------------------
 // Action item types
@@ -41,14 +42,12 @@ export type ActionResult =
 export interface CreateCheckInInput {
   templateId: string
   title?: string
-  scheduledFor?: Date
 }
 
 export interface CheckInListItem {
   id: string
   title: string
   status: CheckInStatus
-  scheduledFor: Date | null
   completedAt: Date | null
   createdAt: Date | null
   questionCount: number
@@ -74,9 +73,12 @@ export interface CheckInDetail {
   status: CheckInStatus
   templateId: string
   partnershipId: string
-  scheduledFor: Date | null
   startedAt: Date | null
   completedAt: Date | null
+  pendingTransition: PendingTransition | null
+  pendingTransitionById: string | null
+  pendingTransitionByName: string | null
+  partnerDisplayName: string | null
   createdById: string
   createdAt: Date | null
   questions: CheckInQuestion[]

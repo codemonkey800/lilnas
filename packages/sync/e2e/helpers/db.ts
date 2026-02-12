@@ -31,6 +31,14 @@ function getPool(): Pool {
 /** Delete all rows from every application table (order matters for FKs). */
 export async function truncateAll(): Promise<void> {
   const p = getPool()
+  // Check-in related tables (deepest children first)
+  await p.query('DELETE FROM action_items')
+  await p.query('DELETE FROM check_in_responses')
+  await p.query('DELETE FROM check_in_questions')
+  await p.query('DELETE FROM check_ins')
+  await p.query('DELETE FROM template_questions')
+  await p.query('DELETE FROM check_in_templates')
+  // Partnership & user tables
   await p.query('DELETE FROM partnerships')
   await p.query('DELETE FROM profiles')
   await p.query('DELETE FROM accounts')
@@ -40,7 +48,7 @@ export async function truncateAll(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Seed helpers
+// Seed helpers — Users, profiles, partnerships
 // ---------------------------------------------------------------------------
 
 interface SeedUserOptions {
@@ -139,6 +147,236 @@ export async function seedPartnership(
   await getPool().query(
     `INSERT INTO partnerships (id, inviter_id, invitee_id, status) VALUES ($1, $2, $3, $4)`,
     [id, inviterId, inviteeId, status],
+  )
+
+  return { id }
+}
+
+// ---------------------------------------------------------------------------
+// Seed helpers — Templates
+// ---------------------------------------------------------------------------
+
+interface SeedTemplateOptions {
+  name?: string
+  description?: string | null
+  isSystem?: boolean
+  createdById?: string | null
+}
+
+/**
+ * Insert a check-in template.
+ */
+export async function seedTemplate(
+  partnershipId: string | null,
+  opts: SeedTemplateOptions = {},
+): Promise<{ id: string }> {
+  const id = crypto.randomUUID()
+
+  await getPool().query(
+    `INSERT INTO check_in_templates
+       (id, partnership_id, created_by_id, name, description, is_system)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      id,
+      partnershipId,
+      opts.createdById ?? null,
+      opts.name ?? 'E2E Template',
+      opts.description ?? null,
+      opts.isSystem ?? false,
+    ],
+  )
+
+  return { id }
+}
+
+interface SeedTemplateQuestionOptions {
+  questionText?: string
+  isRequired?: boolean
+  orderIndex?: number
+}
+
+/**
+ * Insert a template question.
+ */
+export async function seedTemplateQuestion(
+  templateId: string,
+  opts: SeedTemplateQuestionOptions = {},
+): Promise<{ id: string }> {
+  const id = crypto.randomUUID()
+
+  await getPool().query(
+    `INSERT INTO template_questions
+       (id, template_id, question_text, is_required, order_index)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [
+      id,
+      templateId,
+      opts.questionText ?? 'E2E question?',
+      opts.isRequired ?? true,
+      opts.orderIndex ?? 0,
+    ],
+  )
+
+  return { id }
+}
+
+// ---------------------------------------------------------------------------
+// Seed helpers — Check-ins
+// ---------------------------------------------------------------------------
+
+interface SeedCheckInOptions {
+  title?: string
+  templateId?: string
+  status?: 'draft' | 'in_progress' | 'completed'
+  startedAt?: Date | null
+  completedAt?: Date | null
+  pendingTransition?: string | null
+  pendingTransitionById?: string | null
+}
+
+/**
+ * Insert a check-in directly (for pre-seeding test state).
+ * If no templateId is provided, one will be auto-created.
+ */
+export async function seedCheckIn(
+  partnershipId: string,
+  createdById: string,
+  opts: SeedCheckInOptions = {},
+): Promise<{ id: string; templateId: string }> {
+  let templateId = opts.templateId
+  if (!templateId) {
+    const tpl = await seedTemplate(partnershipId, {
+      name: 'Auto Template',
+      createdById,
+    })
+    templateId = tpl.id
+  }
+
+  const id = crypto.randomUUID()
+
+  await getPool().query(
+    `INSERT INTO check_ins
+       (id, partnership_id, template_id, title, status, started_at, completed_at,
+        pending_transition, pending_transition_by_id, created_by_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [
+      id,
+      partnershipId,
+      templateId,
+      opts.title ?? 'E2E Check-in',
+      opts.status ?? 'draft',
+      opts.startedAt ?? null,
+      opts.completedAt ?? null,
+      opts.pendingTransition ?? null,
+      opts.pendingTransitionById ?? null,
+      createdById,
+    ],
+  )
+
+  return { id, templateId }
+}
+
+interface SeedCheckInQuestionOptions {
+  questionText?: string
+  isRequired?: boolean
+  orderIndex?: number
+  createdById?: string | null
+}
+
+/**
+ * Insert a check-in question directly.
+ */
+export async function seedCheckInQuestion(
+  checkInId: string,
+  opts: SeedCheckInQuestionOptions = {},
+): Promise<{ id: string }> {
+  const id = crypto.randomUUID()
+
+  await getPool().query(
+    `INSERT INTO check_in_questions
+       (id, check_in_id, question_text, is_required, order_index, created_by_id)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      id,
+      checkInId,
+      opts.questionText ?? 'E2E check-in question?',
+      opts.isRequired ?? true,
+      opts.orderIndex ?? 0,
+      opts.createdById ?? null,
+    ],
+  )
+
+  return { id }
+}
+
+interface SeedCheckInResponseOptions {
+  responseText?: string | null
+  isDraft?: boolean
+}
+
+/**
+ * Insert a check-in response directly.
+ */
+export async function seedCheckInResponse(
+  checkInQuestionId: string,
+  userId: string,
+  opts: SeedCheckInResponseOptions = {},
+): Promise<{ id: string }> {
+  const id = crypto.randomUUID()
+
+  await getPool().query(
+    `INSERT INTO check_in_responses
+       (id, check_in_question_id, user_id, response_text, is_draft)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [
+      id,
+      checkInQuestionId,
+      userId,
+      opts.responseText ?? null,
+      opts.isDraft ?? true,
+    ],
+  )
+
+  return { id }
+}
+
+// ---------------------------------------------------------------------------
+// Seed helpers — Action items
+// ---------------------------------------------------------------------------
+
+interface SeedActionItemOptions {
+  description?: string
+  ownerType?: 'individual' | 'both'
+  ownerId?: string | null
+  status?: 'open' | 'in_progress' | 'completed'
+}
+
+/**
+ * Insert an action item directly.
+ */
+export async function seedActionItem(
+  checkInId: string,
+  checkInQuestionId: string,
+  createdById: string,
+  opts: SeedActionItemOptions = {},
+): Promise<{ id: string }> {
+  const id = crypto.randomUUID()
+
+  await getPool().query(
+    `INSERT INTO action_items
+       (id, check_in_id, check_in_question_id, created_by_id,
+        description, owner_type, owner_id, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      id,
+      checkInId,
+      checkInQuestionId,
+      createdById,
+      opts.description ?? 'E2E action item',
+      opts.ownerType ?? 'individual',
+      opts.ownerId ?? createdById,
+      opts.status ?? 'open',
+    ],
   )
 
   return { id }

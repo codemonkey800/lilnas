@@ -4,8 +4,9 @@ import {
   formatCheckInDate,
   guardCanRespond,
   guardCompleted,
-  guardDraftOrScheduled,
+  guardDraft,
   guardInProgress,
+  guardNoPendingTransition,
   validateResponseText,
   validateTitle,
 } from 'src/app/(app)/check-ins/helpers'
@@ -14,15 +15,15 @@ import {
 // State guards
 // ---------------------------------------------------------------------------
 
-describe('guardDraftOrScheduled', () => {
-  it.each(['draft', 'scheduled'] as const)('returns null for "%s"', status => {
-    expect(guardDraftOrScheduled(status)).toBeNull()
+describe('guardDraft', () => {
+  it('returns null for "draft"', () => {
+    expect(guardDraft('draft')).toBeNull()
   })
 
   it.each(['in_progress', 'completed'] as const)(
     'returns an error for "%s"',
     status => {
-      expect(guardDraftOrScheduled(status)).toBe(
+      expect(guardDraft(status)).toBe(
         'This check-in can no longer be modified.',
       )
     },
@@ -30,7 +31,7 @@ describe('guardDraftOrScheduled', () => {
 })
 
 describe('guardCanRespond', () => {
-  it.each(['draft', 'scheduled', 'in_progress'] as const)(
+  it.each(['draft', 'in_progress'] as const)(
     'returns null for "%s"',
     status => {
       expect(guardCanRespond(status)).toBeNull()
@@ -49,7 +50,7 @@ describe('guardInProgress', () => {
     expect(guardInProgress('in_progress')).toBeNull()
   })
 
-  it.each(['draft', 'scheduled', 'completed'] as const)(
+  it.each(['draft', 'completed'] as const)(
     'returns an error for "%s"',
     status => {
       expect(guardInProgress(status)).toBe(
@@ -64,10 +65,25 @@ describe('guardCompleted', () => {
     expect(guardCompleted('completed')).toBeNull()
   })
 
-  it.each(['draft', 'scheduled', 'in_progress'] as const)(
+  it.each(['draft', 'in_progress'] as const)(
     'returns an error for "%s"',
     status => {
       expect(guardCompleted(status)).toBe('This check-in is not completed.')
+    },
+  )
+})
+
+describe('guardNoPendingTransition', () => {
+  it('returns null when no pending transition', () => {
+    expect(guardNoPendingTransition(null)).toBeNull()
+  })
+
+  it.each(['start', 'complete', 'reopen'])(
+    'returns an error when pending transition is "%s"',
+    transition => {
+      expect(guardNoPendingTransition(transition)).toBe(
+        'A transition request is already pending for this check-in.',
+      )
     },
   )
 })
@@ -130,20 +146,9 @@ describe('validateResponseText', () => {
 // ---------------------------------------------------------------------------
 
 describe('formatCheckInDate', () => {
-  it('returns "Scheduled: ..." for a scheduled check-in with scheduledFor', () => {
-    const result = formatCheckInDate({
-      status: 'scheduled',
-      scheduledFor: new Date('2025-03-15T00:00:00'),
-      completedAt: null,
-      createdAt: new Date('2025-03-01T00:00:00'),
-    })
-    expect(result).toBe('Scheduled: Mar 15, 2025')
-  })
-
   it('returns "Completed: ..." for a completed check-in with completedAt', () => {
     const result = formatCheckInDate({
       status: 'completed',
-      scheduledFor: null,
       completedAt: new Date('2025-06-20T00:00:00'),
       createdAt: new Date('2025-06-10T00:00:00'),
     })
@@ -153,7 +158,6 @@ describe('formatCheckInDate', () => {
   it('falls back to createdAt for draft check-ins', () => {
     const result = formatCheckInDate({
       status: 'draft',
-      scheduledFor: null,
       completedAt: null,
       createdAt: new Date('2025-01-05T00:00:00'),
     })
@@ -163,7 +167,6 @@ describe('formatCheckInDate', () => {
   it('falls back to createdAt for in_progress check-ins', () => {
     const result = formatCheckInDate({
       status: 'in_progress',
-      scheduledFor: null,
       completedAt: null,
       createdAt: new Date('2025-09-30T00:00:00'),
     })
@@ -173,7 +176,6 @@ describe('formatCheckInDate', () => {
   it('returns null when all date fields are null', () => {
     const result = formatCheckInDate({
       status: 'draft',
-      scheduledFor: null,
       completedAt: null,
       createdAt: null,
     })

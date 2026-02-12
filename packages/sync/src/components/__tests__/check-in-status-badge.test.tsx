@@ -7,7 +7,6 @@ import { CheckInStatusBadge } from 'src/components/check-in-status-badge'
 describe('CheckInStatusBadge', () => {
   it.each([
     ['draft', 'Draft'],
-    ['scheduled', 'Scheduled'],
     ['in_progress', 'In Progress'],
     ['completed', 'Completed'],
   ] as const)('renders "%s" status with label "%s"', (status, label) => {
@@ -32,5 +31,17 @@ describe('CheckInStatusBadge', () => {
       <CheckInStatusBadge status="in_progress" data-testid="status-badge" />,
     )
     expect(screen.getByTestId('status-badge')).toBeInTheDocument()
+  })
+
+  it('shows "Pending" sub-badge when pendingTransition is set', () => {
+    render(<CheckInStatusBadge status="draft" pendingTransition="start" />)
+    expect(screen.getByText('Draft')).toBeInTheDocument()
+    expect(screen.getByText('Pending')).toBeInTheDocument()
+  })
+
+  it('does not show "Pending" sub-badge when pendingTransition is null', () => {
+    render(<CheckInStatusBadge status="draft" pendingTransition={null} />)
+    expect(screen.getByText('Draft')).toBeInTheDocument()
+    expect(screen.queryByText('Pending')).not.toBeInTheDocument()
   })
 })
