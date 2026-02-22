@@ -4,6 +4,11 @@ services:
       context: ../..
       dockerfile: packages/yoink/Dockerfile
     restart: unless-stopped
+    env_file:
+      - ../../infra/.env.yoink
+    depends_on:
+      yoink-db:
+        condition: service_healthy
     labels:
       - traefik.enable=true
       - traefik.http.routers.yoink.rule=Host(`yoink.lilnas.io`)
@@ -11,3 +16,19 @@ services:
       - traefik.http.routers.yoink.tls.certresolver=le
       - traefik.http.routers.yoink.middlewares=forward-auth
       - traefik.http.services.yoink.loadbalancer.server.port=8080
+
+  yoink-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file:
+      - ../../infra/.env.yoink
+    environment:
+      POSTGRES_USER: yoink
+      POSTGRES_DB: yoink
+    volumes:
+      - /storage/app-data/yoink:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U yoink
+      interval: 10s
+      timeout: 5s
+      retries: 5
