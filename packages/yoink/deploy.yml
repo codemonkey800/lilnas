@@ -1,0 +1,13 @@
+services:
+  yoink:
+    build:
+      context: ../..
+      dockerfile: packages/yoink/Dockerfile
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.yoink.rule=Host(`yoink.lilnas.io`)
+      - traefik.http.routers.yoink.entrypoints=websecure
+      - traefik.http.routers.yoink.tls.certresolver=le
+      - traefik.http.routers.yoink.middlewares=forward-auth
+      - traefik.http.services.yoink.loadbalancer.server.port=8080

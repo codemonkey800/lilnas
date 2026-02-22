@@ -1,0 +1,12 @@
+services:
+  yoink:
+    image: lilnas-dev
+    command: -c "pnpm --filter=yoink dev"
+    restart: unless-stopped
+    volumes:
+      - ../..:/source
+    working_dir: /source
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.yoink.rule=Host(`yoink.localhost`)
+      - traefik.http.services.yoink.loadbalancer.server.port=8080
