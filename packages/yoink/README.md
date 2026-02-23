@@ -4,6 +4,26 @@ Web app for managing movie and show downloads through the lilnas Radarr and Sona
 
 ## Features
 
+### Login
+
+- Google sign-in page — the only way to authenticate
+- After sign-in, the user is routed based on their account status:
+  - **Pending** — first-time sign-in; shows a waiting page explaining that an
+    admin needs to approve their account before they can continue
+  - **Denied** — admin rejected the request; shows a denied page with the
+    option to re-request access, which moves them back to pending
+  - **Approved** — full access; redirects to the dashboard
+
+### Admin
+
+- Only accessible to admin users (designated via `ADMIN_EMAIL` env var)
+- **Pending requests** — list of users awaiting approval, showing name, email,
+  avatar, and when they signed up; each entry has approve and deny actions
+- **Approved users** — list of all users with active access
+- Approving a request grants the user immediate access on their next page load
+- Denying a request removes it from the pending list; the user sees a denied
+  state with the option to re-request
+
 ### Dashboard
 
 - Shows all downloaded movies and shows with metadata
@@ -119,6 +139,7 @@ template.
 | `AUTH_SECRET`        | NextAuth secret key          | Yes             |
 | `AUTH_GOOGLE_ID`     | Google OAuth client ID       | Yes             |
 | `AUTH_GOOGLE_SECRET` | Google OAuth client secret   | Yes             |
+| `ADMIN_EMAIL`        | Email of the admin user      | Yes             |
 
 The dev script sets up all database variables automatically. You only need the
 `AUTH_*` variables if you want Google OAuth working locally.
