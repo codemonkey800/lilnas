@@ -17,7 +17,7 @@ interface CrumblSSRData {
     pageProps: {
       products: {
         rotatingMenu?: {
-          desserts: CrumblCookieProduct[]
+          items: { dessert: CrumblCookieProduct }[]
         }
       }
     }
@@ -32,7 +32,11 @@ async function getWeeklyCookies(): Promise<CrumblCookieProduct[]> {
     $('#__NEXT_DATA__').html() || 'null',
   ) as CrumblSSRData | null
 
-  return data?.props.pageProps.products.rotatingMenu?.desserts ?? []
+  return (
+    data?.props.pageProps.products.rotatingMenu?.items.map(
+      item => item.dessert,
+    ) ?? []
+  )
 }
 
 type WeeklyCookiesMessage = Pick<MessageCreateOptions, 'content' | 'embeds'>
