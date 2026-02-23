@@ -1,13 +1,12 @@
 services:
   yoink:
-    image: lilnas-dev
-    command: -c "pnpm --filter=yoink dev"
-    restart: unless-stopped
+    extends:
+      file: ../../infra/deploy.dev.base.yml
+      service: dev-base
     environment:
-      - DATABASE_URL=postgresql://yoink:yoink@yoink-db:5432/yoink
-    volumes:
-      - ../..:/source
-    working_dir: /source
+      PACKAGE_NAME: yoink
+    env_file:
+      - ../../infra/.env.yoink
     depends_on:
       yoink-db:
         condition: service_healthy
@@ -18,15 +17,13 @@ services:
 
   yoink-db:
     image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: yoink
-      POSTGRES_PASSWORD: yoink
-      POSTGRES_DB: yoink
+    env_file:
+      - ../../infra/.env.yoink
     volumes:
-      - ./data:/var/lib/postgresql/data
+      - ./data/yoink-db:/var/lib/postgresql/data
     healthcheck:
-      test: pg_isready -U yoink
+      test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
