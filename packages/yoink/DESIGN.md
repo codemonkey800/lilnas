@@ -2,7 +2,7 @@
 
 ## Philosophy & Aesthetic Direction
 
-Phosphor Terminal draws from the look and feel of vintage CRT phosphor-green monitors — refined for modern web UI. Deep charcoal surfaces, electric green accents, monospace-forward typography, and subtle glow effects create an interface that feels like a high-tech command console rather than a generic dashboard.
+Phosphor Terminal draws from the look and feel of vintage CRT phosphor-green monitors — refined for modern web UI. Deep charcoal surfaces, electric green accents, monospace-forward typography, and subtle glow effects create an interface that feels like a download operations console rather than a generic dashboard. Every screen — from the login gate to the storage overview — should read like a purpose-built terminal for managing media.
 
 **Core principles:**
 
@@ -74,6 +74,18 @@ Semantic status colors with a desaturated, terminal-appropriate feel.
 | `glow-dim` | `rgba(57, 255, 20, 0.15)` | Subtle background glow |
 | `scanline` | `rgba(57, 255, 20, 0.03)` | Scanline overlay       |
 
+### Domain Color Mapping
+
+How semantic colors map to Yoink concepts:
+
+| Color       | Account Status | Download Status         | Storage           |
+| ----------- | -------------- | ----------------------- | ----------------- |
+| `terminal`  | Approved       | Downloaded, Imported    | Healthy           |
+| `warning`   | Pending        | Queued, Upgrading       | Low free space    |
+| `error`     | Denied         | Failed                  | Critical space    |
+| `info`      | —              | Downloading, Grabbed    | —                 |
+| `secondary` | —              | Missing, Not monitored  | —                 |
+
 ---
 
 ## Typography
@@ -82,7 +94,7 @@ Semantic status colors with a desaturated, terminal-appropriate feel.
 
 | Role       | Family             | Weight        | Usage                              |
 | ---------- | ------------------ | ------------- | ---------------------------------- |
-| **Mono**   | JetBrains Mono     | 400, 500, 700 | Headings, data, code, KBD, nav     |
+| **Mono**   | JetBrains Mono     | 400, 500, 700 | Headings, data, code, nav          |
 | **Sans**   | Space Grotesk      | 400, 500, 600 | Body copy, descriptions, UI labels |
 | **System** | system-ui fallback | —             | Fallback only                      |
 
@@ -129,6 +141,7 @@ Built on a 1.25 ratio with monospace headings and sans body.
 - **Data values** (numbers, stats, IDs) use `font-mono tabular-nums`.
 - **Code** uses `font-mono text-sm` with a `phosphor-900` background.
 - **Labels / UI chrome** use `font-sans text-xs font-medium uppercase tracking-wider text-carbon-300`.
+- **Media metadata** (year, runtime, quality, file sizes) uses `font-mono tabular-nums text-sm text-carbon-300`.
 
 ---
 
@@ -149,22 +162,38 @@ All spacing derives from a **4px base unit** via Tailwind's default scale.
 | `12`  | 48px  | Page section gaps          |
 | `16`  | 64px  | Major layout divisions     |
 
-### Layout Patterns
+### App Shell Layout
 
 ```
-┌─────────────────────────────────────────────────┐
-│ Sidebar (w-64)  │  Main Content (flex-1)        │
-│ carbon-800      │  carbon-900                   │
-│                 │  ┌──────────────────────────┐  │
-│ Nav (font-mono) │  │ Content (max-w-5xl mx-a) │  │
-│                 │  └──────────────────────────┘  │
-└─────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│  Top Bar (h-14, carbon-800, border-b border-carbon-500)   │
+│  ┌──────────┐                            ┌──────────────┐ │
+│  │ Logo     │                            │ User / Admin │ │
+│  └──────────┘                            └──────────────┘ │
+├──────────────┬────────────────────────────────────────────┤
+│ Sidebar      │  Main Content (flex-1, overflow-y-auto)    │
+│ w-56         │                                            │
+│ carbon-800   │  ┌──────────────────────────────────────┐  │
+│              │  │  Page Content (max-w-6xl mx-auto p-6)│  │
+│ ┌──────────┐ │  │                                      │  │
+│ │Dashboard │ │  │                                      │  │
+│ │Search    │ │  │                                      │  │
+│ │Downloads │ │  │                                      │  │
+│ │History   │ │  │                                      │  │
+│ │Storage   │ │  │                                      │  │
+│ └──────────┘ │  └──────────────────────────────────────┘  │
+│              │                                            │
+│ font-mono    │  carbon-900                                │
+│ text-sm      │                                            │
+├──────────────┴────────────────────────────────────────────┤
 ```
 
-- **Max content width:** `max-w-5xl` (64rem) for readability
-- **Sidebar:** Fixed `w-64` (16rem) with `carbon-800` background
+- **Sidebar:** Fixed `w-56` (14rem) with `carbon-800` background, `border-r border-carbon-500`
+- **Top bar:** `h-14` with logo left, user menu right
+- **Max content width:** `max-w-6xl` (72rem) for media grids
 - **Page padding:** `p-6` on desktop, `p-4` on mobile
-- **Card grid:** `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4`
+- **Media card grid:** `grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4`
+- **Auth pages** (login, pending, denied): Full-screen centered, no sidebar or top bar
 
 ---
 
@@ -176,6 +205,12 @@ All components follow the monorepo convention established in `tdr-bot`:
 - `class-variance-authority` (CVA) for variant management
 - `@radix-ui/react-slot` for polymorphic `asChild` support
 - `forwardRef` for ref forwarding
+
+---
+
+## Primitive Components
+
+Small, stable building blocks with full implementation code.
 
 ### Button
 
@@ -398,9 +433,11 @@ const badgeVariants = cva(
       variant: {
         default: 'border-terminal/30 bg-terminal/10 text-terminal',
         secondary: 'border-carbon-500 bg-carbon-700 text-carbon-200',
+        success: 'border-terminal/30 bg-success-muted text-terminal',
         error: 'border-error/30 bg-error-muted text-error',
         warning: 'border-warning/30 bg-warning-muted text-warning',
         info: 'border-info/30 bg-info-muted text-info',
+        outline: 'border-carbon-400 bg-transparent text-carbon-200',
       },
     },
     defaultVariants: {
@@ -426,32 +463,6 @@ const Badge = forwardRef<HTMLDivElement, BadgeProps>(
 Badge.displayName = 'Badge'
 
 export { Badge, badgeVariants }
-```
-
-### Kbd (Keyboard Shortcut)
-
-```tsx
-import { cns } from '@lilnas/utils/cns'
-import { type HTMLAttributes, forwardRef } from 'react'
-
-const Kbd = forwardRef<HTMLElement, HTMLAttributes<HTMLElement>>(
-  ({ className, ...props }, ref) => (
-    <kbd
-      ref={ref}
-      className={cns(
-        'inline-flex h-5 items-center rounded border px-1.5',
-        'border-carbon-500 bg-carbon-700',
-        'font-mono text-[0.6875rem] font-medium text-carbon-300',
-        className,
-      )}
-      {...props}
-    />
-  ),
-)
-
-Kbd.displayName = 'Kbd'
-
-export { Kbd }
 ```
 
 ### Progress
@@ -490,49 +501,619 @@ Progress.displayName = 'Progress'
 export { Progress }
 ```
 
-### Code Block
+### EmptyState
+
+Centered placeholder for views with no content (empty dashboard, no search results, no active downloads).
+
+```tsx
+import { cns } from '@lilnas/utils/cns'
+import { type HTMLAttributes, type ReactNode, forwardRef } from 'react'
+
+export interface EmptyStateProps extends HTMLAttributes<HTMLDivElement> {
+  icon: ReactNode
+  title: string
+  description?: string
+  action?: ReactNode
+}
+
+const EmptyState = forwardRef<HTMLDivElement, EmptyStateProps>(
+  ({ className, icon, title, description, action, ...props }, ref) => (
+    <div
+      ref={ref}
+      className={cns(
+        'flex flex-col items-center justify-center gap-4 py-16 text-center',
+        className,
+      )}
+      {...props}
+    >
+      <div className="text-carbon-400 [&_svg]:size-12">{icon}</div>
+      <div className="space-y-1">
+        <h3 className="font-mono text-lg font-medium text-carbon-200">
+          {title}
+        </h3>
+        {description && (
+          <p className="max-w-sm text-sm text-carbon-400">{description}</p>
+        )}
+      </div>
+      {action && <div className="pt-2">{action}</div>}
+    </div>
+  ),
+)
+
+EmptyState.displayName = 'EmptyState'
+
+export { EmptyState }
+```
+
+### FilterToggle
+
+Three-button toggle for switching between Movies, Shows, and Both. Used in Dashboard, Search, and History.
 
 ```tsx
 import { cns } from '@lilnas/utils/cns'
 import { type HTMLAttributes, forwardRef } from 'react'
 
-export interface CodeBlockProps extends HTMLAttributes<HTMLPreElement> {
-  filename?: string
+type FilterValue = 'all' | 'movies' | 'shows'
+
+export interface FilterToggleProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> {
+  value: FilterValue
+  onChange: (value: FilterValue) => void
 }
 
-const CodeBlock = forwardRef<HTMLPreElement, CodeBlockProps>(
-  ({ className, filename, children, ...props }, ref) => (
-    <div className="overflow-hidden rounded-lg border border-carbon-500">
-      {filename && (
-        <div
+const options: { value: FilterValue; label: string }[] = [
+  { value: 'all', label: 'Both' },
+  { value: 'movies', label: 'Movies' },
+  { value: 'shows', label: 'Shows' },
+]
+
+const FilterToggle = forwardRef<HTMLDivElement, FilterToggleProps>(
+  ({ className, value, onChange, ...props }, ref) => (
+    <div
+      ref={ref}
+      role="radiogroup"
+      className={cns(
+        'inline-flex rounded-md border border-carbon-500 bg-carbon-800 p-0.5',
+        className,
+      )}
+      {...props}
+    >
+      {options.map((option) => (
+        <button
+          key={option.value}
+          role="radio"
+          aria-checked={value === option.value}
+          onClick={() => onChange(option.value)}
           className={cns(
-            'flex items-center gap-2 border-b border-carbon-500 px-4 py-2',
-            'bg-carbon-700 font-mono text-xs text-carbon-300',
+            'rounded-sm px-3 py-1 font-mono text-xs font-medium transition-all duration-150',
+            value === option.value
+              ? 'bg-terminal/15 text-terminal'
+              : 'text-carbon-400 hover:text-carbon-200',
           )}
         >
-          <span className="h-2 w-2 rounded-full bg-terminal/60" />
-          {filename}
-        </div>
-      )}
-      <pre
-        ref={ref}
-        className={cns(
-          'overflow-x-auto p-4',
-          'bg-carbon-900 font-mono text-sm leading-relaxed text-carbon-100',
-          className,
-        )}
-        {...props}
-      >
-        {children}
-      </pre>
+          {option.label}
+        </button>
+      ))}
     </div>
   ),
 )
 
-CodeBlock.displayName = 'CodeBlock'
+FilterToggle.displayName = 'FilterToggle'
 
-export { CodeBlock }
+export { FilterToggle }
+export type { FilterValue }
 ```
+
+---
+
+## Feature Components
+
+Larger composites built from primitives above. These specs define the props interface, class compositions, and layout — implementations will evolve alongside the API data model.
+
+### MediaCard
+
+Poster card for the dashboard and search grids. Displays a movie or show with its poster image, title, year, quality badge, and a status indicator dot.
+
+```ts
+interface MediaCardProps {
+  title: string
+  year: number
+  posterUrl: string | null
+  mediaType: 'movie' | 'show'
+  quality?: string // e.g. "Bluray-1080p"
+  status: 'downloaded' | 'downloading' | 'missing' | 'queued'
+  href: string
+}
+```
+
+**Layout:** Vertical card using `<Card variant="glow">`. Aspect-ratio poster (`aspect-[2/3]` with `object-cover`), bottom section with title (truncated, `font-mono text-sm text-carbon-100 line-clamp-1`), year (`font-mono tabular-nums text-xs text-carbon-400`), and a quality badge (`<Badge variant="outline" />`) when available. Status dot as a small `size-2 rounded-full` circle in the top-right corner of the poster, color-mapped per Domain Color Mapping. Hover lifts with `hover:-translate-y-0.5`. Missing poster shows a placeholder with `Film` or `Tv` icon centered on `carbon-700`.
+
+### StatusBadge
+
+Semantic wrapper around `<Badge>` that maps account and download states to the correct variant and label.
+
+```ts
+type AccountStatus = 'pending' | 'approved' | 'denied'
+type DownloadStatus =
+  | 'downloaded'
+  | 'downloading'
+  | 'queued'
+  | 'missing'
+  | 'failed'
+  | 'importing'
+  | 'upgrading'
+
+interface StatusBadgeProps {
+  status: AccountStatus | DownloadStatus
+}
+```
+
+**Mapping:**
+
+| Status        | Badge Variant | Label         |
+| ------------- | ------------- | ------------- |
+| `approved`    | `success`     | Approved      |
+| `pending`     | `warning`     | Pending       |
+| `denied`      | `error`       | Denied        |
+| `downloaded`  | `default`     | Downloaded    |
+| `downloading` | `info`        | Downloading   |
+| `queued`      | `warning`     | Queued        |
+| `missing`     | `secondary`   | Missing       |
+| `failed`      | `error`       | Failed        |
+| `importing`   | `info`        | Importing     |
+| `upgrading`   | `warning`     | Upgrading     |
+
+### DownloadProgress
+
+Rich progress display that composes `<Progress>` with metadata. Used in the Downloads page, Movie Detail inline, and Episode items.
+
+```ts
+interface DownloadProgressProps {
+  title: string
+  percent: number // 0-100
+  speed?: string // e.g. "12.4 MB/s"
+  eta?: string // e.g. "3m 22s"
+  sizeDownloaded?: string // e.g. "1.2 GB"
+  sizeTotal?: string // e.g. "4.8 GB"
+  status: 'downloading' | 'queued' | 'failed'
+  href?: string
+}
+```
+
+**Layout:** `<Card>` container. Top row: title (`font-mono text-sm text-carbon-100 truncate`) + `<StatusBadge>`. Middle: `<Progress>` bar — `bg-info` fill for downloading, `bg-warning` for queued, `bg-error` for failed. Bottom row: stats in `font-mono tabular-nums text-xs text-carbon-400` — percent left, speed center, ETA right. Size info as `sizeDownloaded / sizeTotal`. Failed status replaces stats with error message and a retry `<Button variant="outline" size="sm">`.
+
+### SearchBar
+
+Terminal-styled search input with icon prefix and integrated filter toggle.
+
+```ts
+interface SearchBarProps {
+  query: string
+  onQueryChange: (query: string) => void
+  filter: FilterValue
+  onFilterChange: (filter: FilterValue) => void
+  placeholder?: string
+}
+```
+
+**Layout:** Full-width flex row with `bg-carbon-800 border border-carbon-500 rounded-lg`. Left: `Search` icon in `text-carbon-400 size-4 ml-3`. Center: `<Input>` unstyled (no border/bg, inherits from container). Right: `<FilterToggle>` flush inside the bar. Keyboard shortcut hint `⌘K` as `<kbd>` element, `text-carbon-500 text-xs font-mono`, positioned at far right. Focus-within on the container applies `border-terminal/60 ring-2 ring-terminal/20`.
+
+### UserCard
+
+Admin panel row for approving/denying user access requests.
+
+```ts
+interface UserCardProps {
+  name: string
+  email: string
+  avatarUrl?: string
+  status: AccountStatus
+  requestedAt: Date
+  onApprove?: () => void
+  onDeny?: () => void
+}
+```
+
+**Layout:** Horizontal `<Card>` with `flex items-center gap-4 p-4`. Left: avatar (`size-10 rounded-full`, fallback to initials on `bg-carbon-600`). Center: name (`font-mono text-sm text-carbon-100`), email (`text-xs text-carbon-400`), timestamp (`text-xs text-carbon-500`, relative time). Right: `<StatusBadge>` + action buttons. Pending shows `<Button size="sm">Approve</Button>` and `<Button variant="ghost" size="sm">Deny</Button>`. Approved/denied show the badge only.
+
+### SeasonAccordion
+
+Expandable season container for the Show Detail page. Shows season number, episode count, download summary, and expands to reveal episode items.
+
+```ts
+interface SeasonAccordionProps {
+  seasonNumber: number
+  episodeCount: number
+  downloadedCount: number
+  children: ReactNode // EpisodeItem list
+  defaultOpen?: boolean
+}
+```
+
+**Layout:** `<Card variant="inset">` with a clickable header row. Header: `Season {n}` in `font-mono text-sm font-medium text-carbon-100`, episode count and download summary as `text-xs text-carbon-400` (`8/10 downloaded`), `<Progress>` mini-bar (`h-1 w-20`) showing downloaded ratio, `ChevronDown` icon that rotates on open (`transition-transform duration-200`). Body: vertical stack of `<EpisodeItem>` separated by `border-t border-carbon-600`. Uses `data-[state=open]` for open/close transitions (`animate-fade-in`).
+
+### EpisodeItem
+
+Single episode row within a `<SeasonAccordion>`. Shows episode number, title, quality, and optional inline download progress.
+
+```ts
+interface EpisodeItemProps {
+  episodeNumber: number
+  title: string
+  quality?: string
+  status: DownloadStatus
+  progress?: DownloadProgressProps
+  onDownload?: () => void
+  onDelete?: () => void
+}
+```
+
+**Layout:** Flex row `px-4 py-3 hover:bg-carbon-700/50`. Left: episode number as `font-mono tabular-nums text-xs text-carbon-400 w-8`. Center: title (`text-sm text-carbon-200 truncate`), quality badge if present (`<Badge variant="outline" />`). Right: `<StatusBadge>` + action icon button (`<Button variant="ghost" size="icon">`). When `status === 'downloading'`, a compact `<Progress>` bar spans below the row with speed/ETA in `text-xs text-carbon-400`.
+
+### StorageBar
+
+Visual disk usage bar for the Storage page. Shows used vs. free space with optional breakdown by library type.
+
+```ts
+interface StorageBarProps {
+  label: string // e.g. "/media/movies"
+  usedBytes: number
+  totalBytes: number
+  moviesBytes?: number
+  showsBytes?: number
+  warningThreshold?: number // 0-1, default 0.9
+}
+```
+
+**Layout:** Full-width card. Top: label (`font-mono text-sm text-carbon-200`) + used/total (`font-mono tabular-nums text-xs text-carbon-400`). Bar: `h-3 rounded-full bg-carbon-700 overflow-hidden`. Segmented fill — movies portion in `bg-info`, shows portion in `bg-phosphor-600`, remainder is the empty track. Below bar: legend dots with labels. When usage exceeds `warningThreshold`, bar border changes to `border-warning/40` and a warning icon appears. Above 95%, border becomes `border-error/40`.
+
+### EventItem
+
+Single history entry for the History page feed.
+
+```ts
+type EventType = 'grabbed' | 'imported' | 'upgraded' | 'deleted' | 'failed'
+
+interface EventItemProps {
+  eventType: EventType
+  title: string
+  quality?: string
+  timestamp: Date
+  href: string
+}
+```
+
+**Layout:** Flex row `py-3 border-b border-carbon-600/50 hover:bg-carbon-700/30`. Left: event type icon (`size-4`) — `Download` for grabbed, `CheckCircle` for imported, `ArrowUpCircle` for upgraded, `Trash2` for deleted, `XCircle` for failed. Color matches event type (info for grabbed/downloading, terminal for imported, warning for upgraded, error for deleted/failed). Center: title (`font-mono text-sm text-carbon-100 truncate`), quality badge. Right: relative timestamp (`text-xs text-carbon-400`). Entire row is a link to the detail page.
+
+### ActionMenu
+
+Pattern for download/delete/re-download actions on detail pages (Movie Detail, Show Detail).
+
+```ts
+interface ActionMenuProps {
+  status: DownloadStatus
+  onDownload?: () => void
+  onDelete?: () => void
+  onRedownload?: () => void
+}
+```
+
+**Patterns:**
+- **Missing:** Single `<Button>` with `Download` icon — `variant="default"`.
+- **Downloaded:** `<Button variant="secondary">` with `Trash2` icon for delete + `<Button variant="outline">` with `RefreshCw` icon for re-download.
+- **Downloading/Queued:** `<Button variant="ghost" disabled>` showing status text.
+- **Failed:** `<Button variant="outline">` with `RefreshCw` icon for retry + error `text-xs text-error` message.
+
+All destructive actions should trigger a confirmation dialog before executing.
+
+---
+
+## Page Layouts
+
+Wireframe compositions describing what components go where for each major view.
+
+### Login
+
+Full-screen centered layout, no sidebar or top bar.
+
+```
+┌───────────────────────────────────┐
+│                                   │
+│         ┌─────────────┐           │
+│         │  Logo/Title  │           │
+│         │  "yoink"     │           │
+│         │              │           │
+│         │ [Google SSO] │           │
+│         └─────────────┘           │
+│                                   │
+│         bg-carbon-950             │
+│         scanlines overlay         │
+└───────────────────────────────────┘
+```
+
+- Background: `bg-carbon-950` full viewport with `scanlines` overlay
+- Centered container: `max-w-sm` card with `border-terminal/20 glow-sm`
+- Logo: `font-mono text-3xl font-bold text-terminal text-glow`
+- Subtitle: `font-sans text-sm text-carbon-400`
+- Google button: `<Button variant="secondary" size="lg">` with Google icon
+
+### Pending State
+
+Full-screen centered, shown after first-time sign-in before admin approval.
+
+```
+┌───────────────────────────────────┐
+│                                   │
+│        ┌──────────────┐           │
+│        │ Clock icon   │           │
+│        │              │           │
+│        │ "Pending     │           │
+│        │  Approval"   │           │
+│        │              │           │
+│        │ Description  │           │
+│        └──────────────┘           │
+│                                   │
+└───────────────────────────────────┘
+```
+
+- Uses `<EmptyState>` pattern with `Clock` icon in `text-warning`
+- Title: "Pending Approval"
+- Description explains admin needs to approve, check back later
+- `<StatusBadge status="pending" />` below title
+
+### Denied State
+
+Full-screen centered, shown when admin has denied the access request.
+
+- Uses `<EmptyState>` pattern with `ShieldX` icon in `text-error`
+- Title: "Access Denied"
+- Description explains the request was denied
+- Action: `<Button variant="outline">Re-request Access</Button>` to move back to pending
+
+### App Shell
+
+Wraps all authenticated pages (Dashboard, Search, Downloads, History, Storage, Admin).
+
+- Layout: See **App Shell Layout** diagram in Spacing & Layout section
+- Sidebar nav items: `Dashboard`, `Search`, `Downloads`, `History`, `Storage` — each with icon + label
+- Active nav item: `bg-terminal/10 text-terminal border-l-2 border-terminal`
+- Inactive: `text-carbon-400 hover:text-carbon-200 hover:bg-carbon-700/50`
+- Admin link only visible for admin users, separated by a `border-t border-carbon-600` divider
+- Top bar right: user avatar + name, sign-out button
+
+### Dashboard
+
+```
+┌──────────────────────────────────────────┐
+│ App Shell                                │
+│ ┌──────────────────────────────────────┐ │
+│ │ H2: "Library"      [FilterToggle]    │ │
+│ │                                      │ │
+│ │ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ │ │
+│ │ │Media ││Media ││Media ││Media │ │ │
+│ │ │Card  ││Card  ││Card  ││Card  │ │ │
+│ │ │      ││      ││      ││      │ │ │
+│ │ └──────┘ └──────┘ └──────┘ └──────┘ │ │
+│ │ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ │ │
+│ │ │ ...  ││ ...  ││ ...  ││ ...  │ │ │
+│ │ └──────┘ └──────┘ └──────┘ └──────┘ │ │
+│ │                                      │ │
+│ │ (or <EmptyState> if no downloads)    │ │
+│ └──────────────────────────────────────┘ │
+└──────────────────────────────────────────┘
+```
+
+- Header row: `flex items-center justify-between` with page title and `<FilterToggle>`
+- Grid: responsive `<MediaCard>` grid per Spacing & Layout
+- Empty state: `<EmptyState icon={<Film />} title="No downloads yet" description="Search for movies and shows to get started." action={<Button asChild><Link href="/search">Browse</Link></Button>} />`
+
+### Search
+
+```
+┌──────────────────────────────────────────┐
+│ App Shell                                │
+│ ┌──────────────────────────────────────┐ │
+│ │ [SearchBar with FilterToggle]        │ │
+│ │                                      │ │
+│ │ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ │ │
+│ │ │Media ││Media ││Media ││Media │ │ │
+│ │ │Card  ││Card  ││Card  ││Card  │ │ │
+│ │ └──────┘ └──────┘ └──────┘ └──────┘ │ │
+│ │                                      │ │
+│ │ (or <EmptyState> when no results)    │ │
+│ └──────────────────────────────────────┘ │
+└──────────────────────────────────────────┘
+```
+
+- `<SearchBar>` at top, sticky below top bar (`sticky top-14 z-10 bg-carbon-900/95 backdrop-blur`)
+- Results in same `<MediaCard>` grid
+- Initial state before typing: `<EmptyState icon={<Search />} title="Search for media" description="Find movies and shows to add to your library." />`
+- No results: `<EmptyState icon={<SearchX />} title="No results" description="Try a different search term." />`
+
+### Movie Detail
+
+```
+┌──────────────────────────────────────────┐
+│ App Shell                                │
+│ ┌──────────────────────────────────────┐ │
+│ │ ┌────────┐  Title (H1)              │ │
+│ │ │Poster  │  Year · Runtime · Rating  │ │
+│ │ │        │  [Quality Badge]          │ │
+│ │ │        │  Overview paragraph       │ │
+│ │ │        │                           │ │
+│ │ │        │  [ActionMenu]             │ │
+│ │ └────────┘                           │ │
+│ │                                      │ │
+│ │ ┌──── Download Progress (if any) ──┐ │ │
+│ │ │ <DownloadProgress>               │ │ │
+│ │ └──────────────────────────────────┘ │ │
+│ │                                      │ │
+│ │ Files                                │ │
+│ │ ┌──────────────────────────────────┐ │ │
+│ │ │ filename.mkv  4.2 GB  1080p     │ │ │
+│ │ └──────────────────────────────────┘ │ │
+│ └──────────────────────────────────────┘ │
+└──────────────────────────────────────────┘
+```
+
+- Top section: poster (`w-48 aspect-[2/3] rounded-lg`) left, metadata right
+- Title: `font-mono text-3xl font-bold text-carbon-50`
+- Metadata row: `font-mono tabular-nums text-sm text-carbon-300` with `·` separators
+- Overview: `font-sans text-carbon-200 leading-relaxed max-w-prose`
+- `<ActionMenu>` below overview
+- `<DownloadProgress>` shown inline when actively downloading
+- Files section: `<Card variant="inset">` table with filename, size, quality columns
+
+### Show Detail
+
+```
+┌──────────────────────────────────────────┐
+│ App Shell                                │
+│ ┌──────────────────────────────────────┐ │
+│ │ ┌────────┐  Title (H1)              │ │
+│ │ │Poster  │  Year · Seasons · Rating  │ │
+│ │ │        │  [StatusBadge]            │ │
+│ │ │        │  Overview paragraph       │ │
+│ │ │        │                           │ │
+│ │ │        │  [ActionMenu (series)]    │ │
+│ │ └────────┘                           │ │
+│ │                                      │ │
+│ │ ┌──── Season 1 ───── 10/10 ── ▸ ──┐ │ │
+│ │ │ <SeasonAccordion>                │ │ │
+│ │ │   <EpisodeItem />                │ │ │
+│ │ │   <EpisodeItem />                │ │ │
+│ │ │   ...                            │ │ │
+│ │ └──────────────────────────────────┘ │ │
+│ │ ┌──── Season 2 ───── 8/12 ── ▾ ──┐ │ │
+│ │ │ (collapsed)                      │ │ │
+│ │ └──────────────────────────────────┘ │ │
+│ └──────────────────────────────────────┘ │
+└──────────────────────────────────────────┘
+```
+
+- Same top section as Movie Detail with show-specific metadata
+- Below: vertical stack of `<SeasonAccordion>` components, each containing `<EpisodeItem>` rows
+- `<ActionMenu>` available at series level (top) and individual episode level (inside each row)
+
+### Downloads
+
+```
+┌──────────────────────────────────────────┐
+│ App Shell                                │
+│ ┌──────────────────────────────────────┐ │
+│ │ H2: "Downloads"                      │ │
+│ │                                      │ │
+│ │ Active                               │ │
+│ │ ┌──────────────────────────────────┐ │ │
+│ │ │ <DownloadProgress status="dl">  │ │ │
+│ │ └──────────────────────────────────┘ │ │
+│ │ ┌──────────────────────────────────┐ │ │
+│ │ │ <DownloadProgress status="dl">  │ │ │
+│ │ └──────────────────────────────────┘ │ │
+│ │                                      │ │
+│ │ Queued                               │ │
+│ │ ┌──────────────────────────────────┐ │ │
+│ │ │ <DownloadProgress status="q">   │ │ │
+│ │ └──────────────────────────────────┘ │ │
+│ │                                      │ │
+│ │ Failed                               │ │
+│ │ ┌──────────────────────────────────┐ │ │
+│ │ │ <DownloadProgress status="fail">│ │ │
+│ │ └──────────────────────────────────┘ │ │
+│ │                                      │ │
+│ │ (or <EmptyState> when nothing)       │ │
+│ └──────────────────────────────────────┘ │
+└──────────────────────────────────────────┘
+```
+
+- Three sections: "Active", "Queued", "Failed" — each a labeled group with `H3` heading and count badge
+- Each item is a `<DownloadProgress>` card, clickable to navigate to the detail page
+- Sections only render when they have items
+- Empty state: `<EmptyState icon={<Download />} title="No active downloads" description="Everything is up to date." />`
+
+### History
+
+```
+┌──────────────────────────────────────────┐
+│ App Shell                                │
+│ ┌──────────────────────────────────────┐ │
+│ │ H2: "History"     [FilterToggle]     │ │
+│ │ [Event type filter chips]            │ │
+│ │                                      │ │
+│ │ <EventItem />                        │ │
+│ │ <EventItem />                        │ │
+│ │ <EventItem />                        │ │
+│ │ <EventItem />                        │ │
+│ │ ...                                  │ │
+│ │                                      │ │
+│ │ (loads more on scroll)               │ │
+│ └──────────────────────────────────────┘ │
+└──────────────────────────────────────────┘
+```
+
+- Header row: title + `<FilterToggle>` for movies/shows
+- Below header: horizontal row of event type filter chips (`grabbed`, `imported`, `upgraded`, `deleted`, `failed`) using `<Badge>` as toggleable buttons
+- Feed: vertical list of `<EventItem>` components
+- Infinite scroll: loads next page when scrolling near bottom
+- Empty state: `<EmptyState icon={<History />} title="No history yet" description="Events will appear here as downloads complete." />`
+
+### Storage
+
+```
+┌──────────────────────────────────────────┐
+│ App Shell                                │
+│ ┌──────────────────────────────────────┐ │
+│ │ H2: "Storage"                        │ │
+│ │                                      │ │
+│ │ ┌──── Warning Banner (if low) ─────┐ │ │
+│ │ │ ⚠ Low disk space on /media       │ │ │
+│ │ └──────────────────────────────────┘ │ │
+│ │                                      │ │
+│ │ ┌──── <StorageBar> /media/movies ──┐ │ │
+│ │ └──────────────────────────────────┘ │ │
+│ │ ┌──── <StorageBar> /media/shows ───┐ │ │
+│ │ └──────────────────────────────────┘ │ │
+│ │                                      │ │
+│ │ Largest Items                        │ │
+│ │ ┌──────────────────────────────────┐ │ │
+│ │ │ title        size   quality      │ │ │
+│ │ │ title        size   quality      │ │ │
+│ │ │ ...                              │ │ │
+│ │ └──────────────────────────────────┘ │ │
+│ └──────────────────────────────────────┘ │
+└──────────────────────────────────────────┘
+```
+
+- Warning banner: `<Card>` with `bg-warning-muted border-warning/30` when any root folder exceeds threshold — `AlertTriangle` icon + message
+- `<StorageBar>` for each root folder
+- "Largest Items" table in `<Card variant="inset">` — columns: title (linked), file size (`font-mono tabular-nums`), quality badge. Sorted by size descending. Top 20 items.
+
+### Admin
+
+```
+┌──────────────────────────────────────────┐
+│ App Shell                                │
+│ ┌──────────────────────────────────────┐ │
+│ │ H2: "Admin"                          │ │
+│ │                                      │ │
+│ │ Pending Requests (count)             │ │
+│ │ ┌──────────────────────────────────┐ │ │
+│ │ │ <UserCard status="pending" />    │ │ │
+│ │ │ <UserCard status="pending" />    │ │ │
+│ │ └──────────────────────────────────┘ │ │
+│ │                                      │ │
+│ │ Approved Users (count)               │ │
+│ │ ┌──────────────────────────────────┐ │ │
+│ │ │ <UserCard status="approved" />   │ │ │
+│ │ │ <UserCard status="approved" />   │ │ │
+│ │ └──────────────────────────────────┘ │ │
+│ └──────────────────────────────────────┘ │
+└──────────────────────────────────────────┘
+```
+
+- Two sections: "Pending Requests" and "Approved Users", each with count badge
+- `<UserCard>` rows with approve/deny actions for pending, badge-only for approved
+- Empty pending: `<EmptyState icon={<UserCheck />} title="No pending requests" description="All access requests have been handled." />`
 
 ---
 
@@ -554,6 +1135,14 @@ export { CodeBlock }
 | `ease-out`  | `cubic-bezier(0.16, 1, 0.3, 1)` | Default for entrances |
 | `ease-in`   | `cubic-bezier(0.7, 0, 0.84, 0)` | Exit animations       |
 | `ease-glow` | `cubic-bezier(0.4, 0, 0.2, 1)`  | Glow transitions      |
+
+### Domain Motion Patterns
+
+- **Download progress bars** transition width with `duration-500 ease-out` for smooth percent updates. Avoid per-frame jank by debouncing updates to ~1s intervals.
+- **Download queue entrance** uses `animate-fade-in` when new items appear. Completed items fade out with `opacity-0 transition-opacity duration-300` before removal.
+- **Media card grids** stagger entrance with incremental `animation-delay` (e.g. `style={{ animationDelay: '${index * 50}ms' }}`) using `animate-fade-in`.
+- **Season accordion** expand/collapse uses `grid-rows-[0fr]` to `grid-rows-[1fr]` with `transition-[grid-template-rows] duration-200` for smooth height animation.
+- **Search results** fade in as a group with `animate-fade-in` on the container, not individual cards.
 
 ### Reduced Motion
 
@@ -817,28 +1406,41 @@ All text/background combinations meet WCAG AA (4.5:1 for normal text, 3:1 for la
 
 Use [Lucide React](https://lucide.dev) (`lucide-react`), already used across the monorepo. Icons should be `16px` (default) in UI chrome and `20px` in feature areas.
 
+### Icon Mapping
+
+| Concept         | Icon             | Usage                                |
+| --------------- | ---------------- | ------------------------------------ |
+| Movies          | `Film`           | Sidebar nav, filter toggle, cards    |
+| Shows           | `Tv`             | Sidebar nav, filter toggle, cards    |
+| Downloads       | `Download`       | Sidebar nav, download actions        |
+| Storage         | `HardDrive`      | Sidebar nav, storage page            |
+| History         | `History`        | Sidebar nav, history page            |
+| Search          | `Search`         | Sidebar nav, search bar              |
+| Dashboard       | `LayoutGrid`     | Sidebar nav                          |
+| Admin           | `Shield`         | Sidebar nav (admin only)             |
+| Approve         | `UserCheck`      | Admin approve action                 |
+| Deny            | `UserX`          | Admin deny action                    |
+| Delete          | `Trash2`         | Destructive delete actions           |
+| Re-download     | `RefreshCw`      | Re-download / retry actions          |
+| Failed          | `XCircle`        | Failed download indicator            |
+| Imported        | `CheckCircle`    | Imported/completed event             |
+| Upgraded        | `ArrowUpCircle`  | Upgrade event                        |
+| Grabbed         | `Download`       | Grabbed event                        |
+| Warning         | `AlertTriangle`  | Low storage, warnings                |
+| Expand/Collapse | `ChevronDown`    | Season accordion toggle              |
+| Sign out        | `LogOut`         | User menu sign out                   |
+| Pending         | `Clock`          | Pending approval state               |
+| Denied          | `ShieldX`        | Access denied state                  |
+
 ```tsx
-import { Terminal, Zap, AlertTriangle } from 'lucide-react'
+import { Film, Tv, Download, HardDrive, History, Search } from 'lucide-react'
 
 // Default size in buttons/nav
-<Terminal className="size-4 text-terminal" />
+<Film className="size-4 text-terminal" />
 
 // Feature/hero size
-<Zap className="size-5 text-terminal" />
-```
+<Download className="size-5 text-terminal" />
 
----
-
-## Quick Reference
-
-```
-Background:   bg-carbon-900
-Surface:      bg-carbon-800
-Elevated:     bg-carbon-700
-Border:       border-carbon-500
-Text:         text-carbon-200
-Heading:      text-carbon-50 font-mono font-bold
-Accent:       text-terminal
-Glow:         shadow-[0_0_16px_rgba(57,255,20,0.3)]
-Focus:        focus-visible:ring-2 focus-visible:ring-terminal/50
+// Status indicator with semantic color
+<XCircle className="size-4 text-error" />
 ```
