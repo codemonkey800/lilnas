@@ -21,6 +21,8 @@ Web app for managing movie and show downloads through the lilnas Radarr and Sona
 
 - All metadata for the movie
 - Lists every file for the movie
+- If the movie is currently downloading, show a progress bar with ETA, speed,
+  and size info inline on the page
 - Actions:
   - Download if not already downloaded
   - Delete if already downloaded
@@ -30,9 +32,38 @@ Web app for managing movie and show downloads through the lilnas Radarr and Sona
 
 - All metadata for the show
 - Season cards with episode items inside each card
+- Episodes that are currently downloading show a progress bar with ETA, speed,
+  and size info inline on the episode item
 - Actions:
   - Download or delete at the series, season, or episode level
   - Re-download a different episode, overwriting the old one
+
+### Downloads
+
+- Live view of all active and queued downloads across Radarr and Sonarr
+- Each item shows title, progress bar, speed, size, and ETA
+- Items are grouped: actively downloading first, then queued
+- Click any item to jump to its movie or show details page
+- Failed downloads surface with the error reason and a retry action
+- Empty state when nothing is downloading
+
+### History
+
+- Reverse-chronological feed of completed events (grabs, imports, upgrades,
+  deletions, failures)
+- Each entry shows the title, event type, quality, and timestamp
+- Click any entry to jump to its movie or show details page
+- Filter by event type (grabbed, imported, upgraded, deleted, failed)
+- Filter toggle for movies, shows, or both (both by default)
+- Paginated — loads more entries on scroll
+
+### Storage
+
+- Overview of total, used, and free disk space for each root folder
+- Visual bar showing used vs. free per root folder
+- Breakdown of space by library (movies vs. shows)
+- List of the largest items by file size for quick cleanup
+- Warning indicator when free space drops below a configurable threshold
 
 ## Tech Stack
 
