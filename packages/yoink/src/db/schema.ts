@@ -18,6 +18,9 @@ export const users = pgTable('user', {
   email: text('email').unique(),
   emailVerified: timestamp('emailVerified', { mode: 'date' }),
   image: text('image'),
+  status: text('status', { enum: ['pending', 'approved', 'denied'] })
+    .notNull()
+    .default('pending'),
 })
 
 export const accounts = pgTable(
