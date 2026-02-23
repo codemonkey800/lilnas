@@ -4,19 +4,36 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Development server runner
 #
-# Spins up a disposable Postgres container, pushes the schema, then starts
-# the Next.js dev server. The container is torn down regardless of how the
-# process exits (success, failure, or Ctrl+C).
+# Loads environment from infra/.env.yoink (auth, admin config), spins up a
+# disposable Postgres container with dev-only credentials, pushes the schema,
+# then starts the Next.js dev server. The container is torn down regardless
+# of how the process exits (success, failure, or Ctrl+C).
 # ---------------------------------------------------------------------------
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+ENV_FILE="${ROOT_DIR}/infra/.env.yoink"
+
+# ---------------------------------------------------------------------------
+# Load environment from .env.yoink, then override DB vars for local dev
+# ---------------------------------------------------------------------------
+
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+else
+  echo "Warning: infra/.env.yoink not found — AUTH_* and ADMIN_EMAIL will be unset."
+fi
 
 CONTAINER_NAME="yoink-dev-db"
 POSTGRES_IMAGE="postgres:17-alpine"
 POSTGRES_PORT=5432
-POSTGRES_USER="yoink"
-POSTGRES_PASSWORD="yoink"
-POSTGRES_DB="yoink"
 
-DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
+# Build DATABASE_URL from components so special chars in the password are
+# properly percent-encoded (the raw value from .env.yoink is not URL-safe).
+ENCODED_PASSWORD=$(python3 -c "import urllib.parse, os; print(urllib.parse.quote(os.environ['POSTGRES_PASSWORD'], safe=''))")
+export DATABASE_URL="postgresql://${POSTGRES_USER}:${ENCODED_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
 
 # ---------------------------------------------------------------------------
 # Cleanup — always runs on exit (success, failure, or interrupt)
@@ -65,7 +82,7 @@ done
 # ---------------------------------------------------------------------------
 
 echo "Pushing schema to dev database..."
-DATABASE_URL="$DATABASE_URL" npx drizzle-kit push --force
+npx drizzle-kit push --force
 
 # ---------------------------------------------------------------------------
 # Start Next.js dev server
@@ -73,4 +90,4 @@ DATABASE_URL="$DATABASE_URL" npx drizzle-kit push --force
 
 echo ""
 echo "Starting Next.js dev server..."
-DATABASE_URL="$DATABASE_URL" npx next dev --turbopack -p 8080
+npx next dev --turbopack -p 8080
