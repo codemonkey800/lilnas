@@ -1,4 +1,5 @@
 import { DrizzleAdapter } from '@auth/drizzle-adapter'
+import { eq } from 'drizzle-orm'
 import NextAuth, { type NextAuthResult } from 'next-auth'
 
 import authConfig from 'src/auth.config'
@@ -13,6 +14,16 @@ const nextAuth: NextAuthResult = NextAuth({
     sessionsTable: sessions,
     verificationTokensTable: verificationTokens,
   }),
+  events: {
+    async createUser({ user }) {
+      if (process.env.ADMIN_EMAIL && user.email === process.env.ADMIN_EMAIL) {
+        await db
+          .update(users)
+          .set({ status: 'approved' })
+          .where(eq(users.id, user.id!))
+      }
+    },
+  },
 })
 
 export const handlers: NextAuthResult['handlers'] = nextAuth.handlers
