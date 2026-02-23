@@ -1,6 +1,15 @@
-import { signOutAction } from 'src/app/login/actions'
+import { redirect } from 'next/navigation'
 
-export default function Home() {
+import { signOutAction } from 'src/app/login/actions'
+import { getAuthenticatedUser } from 'src/lib/user-status'
+
+export default async function Home() {
+  const user = await getAuthenticatedUser()
+
+  if (!user) redirect('/login')
+  if (user.status === 'pending') redirect('/pending')
+  if (user.status === 'denied') redirect('/login')
+
   return (
     <main className="flex min-h-screen items-center justify-center gap-6">
       <h1 className="text-4xl font-bold">Yoink</h1>
