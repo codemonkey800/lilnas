@@ -16,7 +16,7 @@
     "clean": "rm -rf .next/ dist/ .turbo/",
     "deploy": "fly deploy",
     "dev": "run-p 'dev:!(graph-test)'",
-    "dev:backend": "nest start -w -b swc | pino-pretty",
+    "dev:backend": "./scripts/dev.sh",
     "dev:frontend": "next dev -p 8080 --turbopack",
     "dev:graph-test": "GRAPH_TEST=true pnpm dev:backend",
     "lint": "run-p -l 'lint:!(fix)'",
