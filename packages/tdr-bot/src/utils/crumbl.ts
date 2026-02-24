@@ -12,13 +12,24 @@ interface CrumblCookieProduct {
   }
 }
 
+interface CrumblMenuItem {
+  dessert: CrumblCookieProduct
+  highlightTag: string | null
+}
+
+interface CrumblMenuSection {
+  items: CrumblMenuItem[]
+  name: string
+  sectionHighlightTag: string | null
+  description: string | null
+}
+
 interface CrumblSSRData {
   props: {
     pageProps: {
       products: {
-        rotatingMenu?: {
-          items: { dessert: CrumblCookieProduct }[]
-        }
+        classicMenu?: CrumblMenuSection
+        rotatingMenu?: CrumblMenuSection
       }
     }
   }
@@ -32,11 +43,11 @@ async function getWeeklyCookies(): Promise<CrumblCookieProduct[]> {
     $('#__NEXT_DATA__').html() || 'null',
   ) as CrumblSSRData | null
 
-  return (
-    data?.props.pageProps.products.rotatingMenu?.items.map(
-      item => item.dessert,
-    ) ?? []
-  )
+  const products = data?.props.pageProps.products
+  const rotating = products?.rotatingMenu?.items ?? []
+  const classics = products?.classicMenu?.items ?? []
+
+  return [...rotating, ...classics].map(item => item.dessert)
 }
 
 type WeeklyCookiesMessage = Pick<MessageCreateOptions, 'content' | 'embeds'>
