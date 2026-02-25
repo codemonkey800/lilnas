@@ -1,0 +1,29 @@
+{
+  "name": "@lilnas/media",
+  "version": "0.2.0",
+  "private": true,
+  "packageManager": "pnpm@10.18.2",
+  "prettier": "@lilnas/prettier",
+  "exports": {
+    "./radarr": "./dist/radarr/index.js",
+    "./radarr-next": "./dist/radarr-next/index.js"
+  },
+  "scripts": {
+    "generate": "openapi-ts",
+    "build": "pnpm run generate && tsc -p .",
+    "clean": "rm -rf dist/ .turbo/",
+    "lint": "run-p -l 'lint:!(fix)'",
+    "lint:eslint": "eslint src",
+    "lint:prettier": "prettier -c src",
+    "lint:fix": "run-p -l lint:*:fix",
+    "lint:eslint:fix": "eslint --fix src",
+    "lint:prettier:fix": "prettier -w src",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "^0.93.0"
+  }
+}
