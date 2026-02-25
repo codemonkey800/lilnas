@@ -1,14 +1,14 @@
 import { redirect } from 'next/navigation'
 
-import { auth } from 'src/auth'
 import { Button } from 'src/components/button'
 import { Card, CardContent, CardHeader } from 'src/components/card'
+import { getAuthenticatedUser } from 'src/lib/user-status'
 
 import { signInWithGoogle } from './actions'
 
 export default async function LoginPage() {
-  const session = await auth()
-  if (session) redirect('/')
+  const user = await getAuthenticatedUser()
+  if (user?.status === 'approved') redirect('/')
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-carbon-950">

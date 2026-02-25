@@ -1,7 +1,7 @@
 import { Clock } from 'lucide-react'
 import { redirect } from 'next/navigation'
 
-import { signOutAction } from 'src/app/login/actions'
+import { signOutAction } from 'src/app/(auth)/login/actions'
 import { Button } from 'src/components/button'
 import { Card, CardContent } from 'src/components/card'
 import { EmptyState } from 'src/components/empty-state'
