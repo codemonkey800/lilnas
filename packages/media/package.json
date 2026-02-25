@@ -6,7 +6,9 @@
   "prettier": "@lilnas/prettier",
   "exports": {
     "./radarr": "./dist/radarr/index.js",
-    "./radarr-next": "./dist/radarr-next/index.js"
+    "./radarr-next": "./dist/radarr-next/index.js",
+    "./sonarr": "./dist/sonarr/index.js",
+    "./sonarr-next": "./dist/sonarr-next/index.js"
   },
   "scripts": {
     "generate": "openapi-ts",
