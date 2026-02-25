@@ -10,8 +10,23 @@ export async function getAuthenticatedUser() {
 
   const row = await db.query.users.findFirst({
     where: eq(users.email, session.user.email),
-    columns: { id: true, email: true, name: true, status: true },
+    columns: {
+      id: true,
+      email: true,
+      name: true,
+      image: true,
+      status: true,
+    },
   })
 
-  return row ?? null
+  if (!row) return null
+
+  return {
+    ...row,
+    isAdmin: row.email === process.env.ADMIN_EMAIL,
+  }
 }
+
+export type AuthenticatedUser = NonNullable<
+  Awaited<ReturnType<typeof getAuthenticatedUser>>
+>
