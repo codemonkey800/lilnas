@@ -7,7 +7,7 @@ import {
   forwardRef,
 } from 'react'
 
-import { cn } from 'src/lib/utils'
+import { cns } from '@lilnas/utils/cns'
 
 const Separator = forwardRef<
   ComponentRef<typeof SeparatorPrimitive.Root>,
@@ -21,7 +21,7 @@ const Separator = forwardRef<
       ref={ref}
       decorative={decorative}
       orientation={orientation}
-      className={cn(
+      className={cns(
         'shrink-0 bg-border',
         orientation === 'horizontal' ? 'h-[1px] w-full' : 'h-full w-[1px]',
         className,

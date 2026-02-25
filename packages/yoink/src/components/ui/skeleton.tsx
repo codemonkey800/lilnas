@@ -1,11 +1,11 @@
 import type { HTMLAttributes } from 'react'
 
-import { cn } from 'src/lib/utils'
+import { cns } from '@lilnas/utils/cns'
 
 function Skeleton({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('animate-pulse rounded-md bg-primary/10', className)}
+      className={cns('animate-pulse rounded-md bg-primary/10', className)}
       {...props}
     />
   )
