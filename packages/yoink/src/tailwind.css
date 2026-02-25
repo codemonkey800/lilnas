@@ -45,7 +45,8 @@
   --animate-glow-pulse: glow-pulse 2s ease-in-out infinite;
   --animate-terminal-blink: terminal-blink 1s step-end infinite;
   --animate-fade-in: fade-in 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  --animate-fade-in-glow: fade-in 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards,
+  --animate-fade-in-glow:
+    fade-in 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards,
     glow-pulse 2s ease-in-out infinite;
   --animate-slide-in-right: slide-in-right 200ms cubic-bezier(0.16, 1, 0.3, 1)
     forwards;
@@ -173,6 +174,17 @@
 
   ::-webkit-scrollbar-thumb:hover {
     background: #576462;
+  }
+  :root,
+  .dark {
+    --sidebar-background: #151917;
+    --sidebar-foreground: #a3b0ad;
+    --sidebar-primary: #39ff14;
+    --sidebar-primary-foreground: #08090a;
+    --sidebar-accent: rgba(57, 255, 20, 0.1);
+    --sidebar-accent-foreground: #39ff14;
+    --sidebar-border: #3b4744;
+    --sidebar-ring: rgba(57, 255, 20, 0.5);
   }
 }
 

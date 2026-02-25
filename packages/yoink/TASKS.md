@@ -11,10 +11,11 @@ Status overview of every feature defined in [README.md](README.md) and
 
 - [x] `package.json` with dependencies (Next.js 16, NextAuth v5, Drizzle, Tailwind v4, Radix, CVA, Lucide)
 - [x] `tsconfig.json` with path aliases
-- [x] `next.config.ts` with standalone output
-- [x] `tailwind.config.ts` content paths
+- [x] `next.config.ts` with standalone output and Google image remote patterns
+- [x] `tailwind.config.ts` content paths + sidebar color tokens
 - [x] `postcss.config.cjs`
 - [x] `eslint.config.cjs` shared monorepo config
+- [x] `components.json` shadcn/ui configuration (new-york style, RSC, path aliases)
 - [x] `drizzle.config.ts` for schema and migrations
 - [x] `scripts/dev.sh` disposable Postgres + dev server
 - [x] `Dockerfile` multi-stage production build
@@ -30,7 +31,13 @@ Status overview of every feature defined in [README.md](README.md) and
 - [x] Animation keyframes (glow-pulse, terminal-blink, fade-in, slide-in-right)
 - [x] Custom utilities (glow-sm/md/lg, text-glow, text-glow-sm, scanlines, cursor-blink)
 - [x] Base layer (dark color-scheme, body styles, heading styles, selection, scrollbar)
+- [x] Sidebar CSS variables (background, foreground, primary, accent, border, ring)
 - [ ] Reduced motion media query (`prefers-reduced-motion: reduce` global override from DESIGN.md)
+
+### Utilities & Hooks
+
+- [x] `cn()` class name utility (`src/lib/utils.ts`)
+- [x] `useIsMobile()` breakpoint detection hook (`src/hooks/use-is-mobile.tsx`)
 
 ### Database
 
@@ -45,8 +52,9 @@ Status overview of every feature defined in [README.md](README.md) and
 - [x] Middleware protecting authenticated routes (`src/middleware.ts`)
 - [x] NextAuth API route (`src/app/api/auth/[...nextauth]/route.ts`)
 - [x] Health check endpoint (`src/app/api/health/route.ts`)
-- [x] `getAuthenticatedUser()` helper (`src/lib/user-status.ts`)
-- [x] Server actions: `signInWithGoogle`, `signOutAction` (`src/app/login/actions.ts`)
+- [x] `getAuthenticatedUser()` helper with `image` and `isAdmin` (`src/lib/user-status.ts`)
+- [x] `AuthenticatedUser` type export (`src/lib/user-status.ts`)
+- [x] Server actions: `signInWithGoogle`, `signOutAction` (`src/app/(auth)/login/actions.ts`)
 
 ---
 
@@ -57,7 +65,12 @@ Status overview of every feature defined in [README.md](README.md) and
 - [x] **Badge** — variants (default, secondary, success, error, warning, info, outline) (`src/components/badge.tsx`)
 - [x] **EmptyState** — icon, title, description, action slot (`src/components/empty-state.tsx`)
 - [x] **StatusBadge** — account status mapping (pending/approved/denied) (`src/components/status-badge.tsx`)
-- [ ] **Input** — monospace styled input with terminal focus ring
+- [x] **Input** — styled input with focus ring (`src/components/ui/input.tsx`)
+- [x] **Separator** — horizontal/vertical divider (`src/components/ui/separator.tsx`)
+- [x] **Sheet** — slide-over panel with overlay, used for mobile sidebar (`src/components/ui/sheet.tsx`)
+- [x] **Sidebar** — collapsible sidebar system with provider, keyboard shortcut, cookie persistence (`src/components/ui/sidebar.tsx`)
+- [x] **Skeleton** — loading placeholder with pulse animation (`src/components/ui/skeleton.tsx`)
+- [x] **Tooltip** — hover tooltip with Radix UI (`src/components/ui/tooltip.tsx`)
 - [ ] **Progress** — phosphor green fill bar with glow, 0–100 value
 - [ ] **FilterToggle** — three-button radio group (Both / Movies / Shows)
 
@@ -82,13 +95,13 @@ Status overview of every feature defined in [README.md](README.md) and
 The authenticated layout wrapping Dashboard, Search, Downloads, History,
 Storage, and Admin pages.
 
-- [ ] **Shell layout** — sidebar (`w-56`, `carbon-800`) + main content area (`flex-1`, `overflow-y-auto`, `max-w-6xl`)
-- [ ] **Top bar** — `h-14`, logo left, user avatar + name + sign-out button right
-- [ ] **Sidebar navigation** — icon + label links for Dashboard, Search, Downloads, History, Storage
-  - [ ] Active state: `bg-terminal/10 text-terminal border-l-2 border-terminal`
-  - [ ] Inactive state: `text-carbon-400 hover:text-carbon-200 hover:bg-carbon-700/50`
-  - [ ] Admin link separated by divider, visible only for admin users
-- [ ] **Responsive behavior** — mobile sidebar collapse / drawer
+- [x] **Shell layout** — sidebar (`w-56`, `carbon-800`) + main content area (`flex-1`, `overflow-y-auto`, `max-w-6xl`)
+- [x] **Top bar** — `h-14`, logo left, user avatar + name + sign-out button right
+- [x] **Sidebar navigation** — icon + label links for Dashboard, Search, Downloads, History, Storage
+  - [x] Active state: `bg-terminal/10 text-terminal border-l-2 border-terminal`
+  - [x] Inactive state: `text-carbon-400 hover:text-carbon-200 hover:bg-carbon-700/50`
+  - [x] Admin link separated by divider, visible only for admin users
+- [x] **Responsive behavior** — mobile sidebar collapse / drawer
 
 ---
 
@@ -96,14 +109,15 @@ Storage, and Admin pages.
 
 ### Auth Pages
 
-- [x] **Login** — full-screen centered, scanlines overlay, Google SSO button (`src/app/login/page.tsx`)
-- [x] **Pending** — full-screen EmptyState with Clock icon and StatusBadge (`src/app/pending/page.tsx`)
+- [x] **Login** — full-screen centered, scanlines overlay, Google SSO button (`src/app/(auth)/login/page.tsx`)
+- [x] **Pending** — full-screen EmptyState with Clock icon and StatusBadge (`src/app/(auth)/pending/page.tsx`)
 - [ ] **Denied** — full-screen EmptyState with ShieldX icon, "Access Denied" message, re-request access button
   - Currently denied users redirect to `/login` instead of a dedicated denied page
 
 ### Dashboard (`/dashboard` or `/`)
 
-- [ ] Replace placeholder `src/app/page.tsx` with real dashboard
+- [x] Route group layout with auth guards (`src/app/(dashboard)/layout.tsx`)
+- [ ] Replace placeholder `src/app/(dashboard)/page.tsx` with real dashboard
 - [ ] Page header with "Library" title and FilterToggle
 - [ ] Responsive MediaCard grid (`grid-cols-2 sm:3 md:4 lg:5 xl:6 gap-4`)
 - [ ] Empty state when no downloads ("Search for movies and shows to get started" + link to Search)
