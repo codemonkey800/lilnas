@@ -199,306 +199,119 @@ All spacing derives from a **4px base unit** via Tailwind's default scale.
 
 ## Component Patterns
 
-All components follow the monorepo convention established in `tdr-bot`:
+All interactive UI components use **Material UI (MUI)**, themed via `createTheme()` in `src/theme.ts`:
 
-- `cns()` from `@lilnas/utils/cns` for class merging
-- `class-variance-authority` (CVA) for variant management
-- `@radix-ui/react-slot` for polymorphic `asChild` support
-- `forwardRef` for ref forwarding
+- **MUI components** (`@mui/material`) for buttons, cards, chips, drawers, text fields, tooltips, skeletons, dividers
+- **MUI Icons** (`@mui/icons-material`) for all icon usage
+- **Tailwind CSS** for layout, spacing, custom effects (glow, scanlines), and utility styling
+- **Semantic HTML** (`<header>`, `<nav>`, `<aside>`, `<main>`) for document structure
+- `cns()` from `@lilnas/utils/cns` for Tailwind class merging
+- `forwardRef` for ref forwarding on custom components
 
 ---
 
 ## Primitive Components
 
-Small, stable building blocks with full implementation code.
+All primitives are MUI components themed via `src/theme.ts`. Use them directly from `@mui/material`.
 
 ### Button
 
 ```tsx
-import { cns } from '@lilnas/utils/cns'
-import { Slot } from '@radix-ui/react-slot'
-import { cva, type VariantProps } from 'class-variance-authority'
-import { type ButtonHTMLAttributes, forwardRef } from 'react'
+import Button from '@mui/material/Button'
+import IconButton from '@mui/material/IconButton'
 
-const buttonVariants = cva(
-  cns(
-    'inline-flex items-center justify-center gap-2',
-    'whitespace-nowrap rounded-md font-mono text-sm font-medium',
-    'transition-all duration-150',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terminal/50 focus-visible:ring-offset-2 focus-visible:ring-offset-carbon-900',
-    'disabled:pointer-events-none disabled:opacity-40',
-    '[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
-  ),
-  {
-    variants: {
-      variant: {
-        default: cns(
-          'bg-terminal text-carbon-950',
-          'shadow-[0_0_12px_rgba(57,255,20,0.3)]',
-          'hover:bg-phosphor-300 hover:shadow-[0_0_20px_rgba(57,255,20,0.5)]',
-          'active:bg-phosphor-500',
-        ),
+// Primary action (terminal green, glow)
+<Button variant="contained" color="primary">Download</Button>
 
-        secondary: cns(
-          'bg-carbon-700 text-carbon-100',
-          'border border-carbon-500',
-          'hover:bg-carbon-600 hover:text-carbon-50',
-          'active:bg-carbon-600',
-        ),
+// Secondary action (carbon border)
+<Button variant="outlined" color="secondary">Sign out</Button>
 
-        outline: cns(
-          'border border-terminal/40 text-terminal',
-          'bg-transparent',
-          'hover:bg-terminal/10 hover:border-terminal',
-          'active:bg-terminal/15',
-        ),
+// Ghost / text action
+<Button variant="text">Cancel</Button>
 
-        ghost: cns(
-          'text-carbon-200',
-          'hover:bg-carbon-700 hover:text-carbon-50',
-          'active:bg-carbon-600',
-        ),
+// Icon-only
+<IconButton size="small"><LogoutIcon /></IconButton>
 
-        destructive: cns(
-          'bg-error text-carbon-50',
-          'shadow-[0_0_12px_rgba(255,68,68,0.3)]',
-          'hover:bg-error/90',
-          'active:bg-error/80',
-        ),
-
-        link: cns(
-          'text-terminal underline-offset-4',
-          'hover:underline hover:text-phosphor-300',
-        ),
-      },
-
-      size: {
-        default: 'h-9 px-4 py-2',
-        sm: 'h-8 rounded-md px-3 text-xs',
-        lg: 'h-10 rounded-md px-6 text-base',
-        icon: 'h-9 w-9',
-      },
-    },
-
-    defaultVariants: {
-      variant: 'default',
-      size: 'default',
-    },
-  },
-)
-
-export interface ButtonProps
-  extends ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {
-  asChild?: boolean
-}
-
-const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
-    const Comp = asChild ? Slot : 'button'
-    return (
-      <Comp
-        className={cns(buttonVariants({ variant, size, className }))}
-        ref={ref}
-        {...props}
-      />
-    )
-  },
-)
-
-Button.displayName = 'Button'
-
-export { Button, buttonVariants }
+// Destructive
+<Button variant="contained" color="error">Delete</Button>
 ```
+
+MUI variant mapping from old CVA variants:
+
+| Old variant    | MUI equivalent                            |
+| -------------- | ----------------------------------------- |
+| `default`      | `variant="contained" color="primary"`     |
+| `secondary`    | `variant="outlined" color="secondary"`    |
+| `outline`      | `variant="outlined" color="primary"`      |
+| `ghost`        | `variant="text"`                          |
+| `destructive`  | `variant="contained" color="error"`       |
+| `link`         | `variant="text" color="primary"`          |
 
 ### Card
 
 ```tsx
-import { cns } from '@lilnas/utils/cns'
-import { cva, type VariantProps } from 'class-variance-authority'
-import { type HTMLAttributes, forwardRef } from 'react'
+import Card from '@mui/material/Card'
+import CardContent from '@mui/material/CardContent'
+import CardHeader from '@mui/material/CardHeader'
 
-const cardVariants = cva(
-  cns(
-    'rounded-lg border border-carbon-500',
-    'bg-carbon-800 text-carbon-100',
-    'transition-all duration-200',
-  ),
-  {
-    variants: {
-      variant: {
-        default: '',
-        glow: cns(
-          'border-terminal/20',
-          'shadow-[0_0_16px_rgba(57,255,20,0.08)]',
-          'hover:shadow-[0_0_24px_rgba(57,255,20,0.15)]',
-          'hover:border-terminal/40',
-        ),
-        inset: 'bg-carbon-900 border-carbon-600',
-      },
-    },
-    defaultVariants: {
-      variant: 'default',
-    },
+// Default card (carbon-800 bg, carbon-500 border — via theme)
+<Card>
+  <CardContent>Content here</CardContent>
+</Card>
+
+// Glow variant (use sx prop)
+<Card sx={{
+  borderColor: 'rgba(57, 255, 20, 0.2)',
+  boxShadow: '0 0 16px rgba(57, 255, 20, 0.08)',
+  '&:hover': {
+    boxShadow: '0 0 24px rgba(57, 255, 20, 0.15)',
+    borderColor: 'rgba(57, 255, 20, 0.4)',
   },
-)
-
-export interface CardProps
-  extends HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof cardVariants> {}
-
-const Card = forwardRef<HTMLDivElement, CardProps>(
-  ({ className, variant, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cns(cardVariants({ variant, className }))}
-      {...props}
-    />
-  ),
-)
-
-Card.displayName = 'Card'
-
-const CardHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cns('flex flex-col gap-1.5 p-4', className)}
-      {...props}
-    />
-  ),
-)
-
-CardHeader.displayName = 'CardHeader'
-
-const CardContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
-    <div ref={ref} className={cns('p-4 pt-0', className)} {...props} />
-  ),
-)
-
-CardContent.displayName = 'CardContent'
-
-export { Card, CardHeader, CardContent, cardVariants }
+}}>
+  <CardContent>Glowing card</CardContent>
+</Card>
 ```
 
-### Input
+### TextField
 
 ```tsx
-import { cns } from '@lilnas/utils/cns'
-import { type InputHTMLAttributes, forwardRef } from 'react'
+import TextField from '@mui/material/TextField'
 
-export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {}
-
-const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, type, ...props }, ref) => (
-    <input
-      type={type}
-      ref={ref}
-      className={cns(
-        'flex h-9 w-full rounded-md px-3 py-1',
-        'bg-carbon-900 text-carbon-100 font-mono text-sm',
-        'border border-carbon-500',
-        'placeholder:text-carbon-400',
-        'transition-all duration-150',
-        'focus:border-terminal/60 focus:outline-none focus:ring-2 focus:ring-terminal/20',
-        'disabled:cursor-not-allowed disabled:opacity-40',
-        className,
-      )}
-      {...props}
-    />
-  ),
-)
-
-Input.displayName = 'Input'
-
-export { Input }
+// Themed dark input (via theme overrides)
+<TextField placeholder="Search..." fullWidth />
 ```
 
-### Badge
+### Chip (replaces Badge)
 
 ```tsx
-import { cns } from '@lilnas/utils/cns'
-import { cva, type VariantProps } from 'class-variance-authority'
-import { type HTMLAttributes, forwardRef } from 'react'
+import Chip from '@mui/material/Chip'
 
-const badgeVariants = cva(
-  cns(
-    'inline-flex items-center rounded-full px-2.5 py-0.5',
-    'font-mono text-xs font-medium',
-    'border transition-colors',
-  ),
-  {
-    variants: {
-      variant: {
-        default: 'border-terminal/30 bg-terminal/10 text-terminal',
-        secondary: 'border-carbon-500 bg-carbon-700 text-carbon-200',
-        success: 'border-terminal/30 bg-success-muted text-terminal',
-        error: 'border-error/30 bg-error-muted text-error',
-        warning: 'border-warning/30 bg-warning-muted text-warning',
-        info: 'border-info/30 bg-info-muted text-info',
-        outline: 'border-carbon-400 bg-transparent text-carbon-200',
-      },
-    },
-    defaultVariants: {
-      variant: 'default',
-    },
-  },
-)
-
-export interface BadgeProps
-  extends HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeVariants> {}
-
-const Badge = forwardRef<HTMLDivElement, BadgeProps>(
-  ({ className, variant, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cns(badgeVariants({ variant, className }))}
-      {...props}
-    />
-  ),
-)
-
-Badge.displayName = 'Badge'
-
-export { Badge, badgeVariants }
+// Semantic color variants (themed in src/theme.ts)
+<Chip label="Downloaded" color="primary" size="small" variant="outlined" />
+<Chip label="Pending" color="warning" size="small" variant="outlined" />
+<Chip label="Failed" color="error" size="small" variant="outlined" />
+<Chip label="Downloading" color="info" size="small" variant="outlined" />
+<Chip label="Approved" color="success" size="small" variant="outlined" />
+<Chip label="Missing" color="secondary" size="small" variant="outlined" />
 ```
+
+| Old Badge variant | MUI Chip equivalent                    |
+| ----------------- | -------------------------------------- |
+| `default`         | `color="primary" variant="outlined"`   |
+| `secondary`       | `color="secondary" variant="outlined"` |
+| `success`         | `color="success" variant="outlined"`   |
+| `error`           | `color="error" variant="outlined"`     |
+| `warning`         | `color="warning" variant="outlined"`   |
+| `info`            | `color="info" variant="outlined"`      |
+| `outline`         | `color="secondary" variant="outlined"` |
 
 ### Progress
 
 ```tsx
-import { cns } from '@lilnas/utils/cns'
-import { type HTMLAttributes, forwardRef } from 'react'
+import LinearProgress from '@mui/material/LinearProgress'
 
-export interface ProgressProps extends HTMLAttributes<HTMLDivElement> {
-  value: number // 0-100
-}
-
-const Progress = forwardRef<HTMLDivElement, ProgressProps>(
-  ({ className, value, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cns(
-        'h-2 w-full overflow-hidden rounded-full bg-carbon-700',
-        className,
-      )}
-      {...props}
-    >
-      <div
-        className={cns(
-          'h-full rounded-full bg-terminal transition-all duration-500 ease-out',
-          'shadow-[0_0_8px_rgba(57,255,20,0.4)]',
-        )}
-        style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
-      />
-    </div>
-  ),
-)
-
-Progress.displayName = 'Progress'
-
-export { Progress }
+// Phosphor green progress bar (themed)
+<LinearProgress variant="determinate" value={75} />
 ```
 
 ### EmptyState
@@ -547,61 +360,24 @@ export { EmptyState }
 
 ### FilterToggle
 
-Three-button toggle for switching between Movies, Shows, and Both. Used in Dashboard, Search, and History.
+Three-button toggle for switching between Movies, Shows, and Both. Uses MUI `ToggleButtonGroup`.
 
 ```tsx
-import { cns } from '@lilnas/utils/cns'
-import { type HTMLAttributes, forwardRef } from 'react'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 
 type FilterValue = 'all' | 'movies' | 'shows'
 
-export interface FilterToggleProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> {
-  value: FilterValue
-  onChange: (value: FilterValue) => void
-}
-
-const options: { value: FilterValue; label: string }[] = [
-  { value: 'all', label: 'Both' },
-  { value: 'movies', label: 'Movies' },
-  { value: 'shows', label: 'Shows' },
-]
-
-const FilterToggle = forwardRef<HTMLDivElement, FilterToggleProps>(
-  ({ className, value, onChange, ...props }, ref) => (
-    <div
-      ref={ref}
-      role="radiogroup"
-      className={cns(
-        'inline-flex rounded-md border border-carbon-500 bg-carbon-800 p-0.5',
-        className,
-      )}
-      {...props}
-    >
-      {options.map((option) => (
-        <button
-          key={option.value}
-          role="radio"
-          aria-checked={value === option.value}
-          onClick={() => onChange(option.value)}
-          className={cns(
-            'rounded-sm px-3 py-1 font-mono text-xs font-medium transition-all duration-150',
-            value === option.value
-              ? 'bg-terminal/15 text-terminal'
-              : 'text-carbon-400 hover:text-carbon-200',
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  ),
-)
-
-FilterToggle.displayName = 'FilterToggle'
-
-export { FilterToggle }
-export type { FilterValue }
+<ToggleButtonGroup
+  value={filter}
+  exclusive
+  onChange={(_, val) => val && setFilter(val)}
+  size="small"
+>
+  <ToggleButton value="all">Both</ToggleButton>
+  <ToggleButton value="movies">Movies</ToggleButton>
+  <ToggleButton value="shows">Shows</ToggleButton>
+</ToggleButtonGroup>
 ```
 
 ---
@@ -630,7 +406,7 @@ interface MediaCardProps {
 
 ### StatusBadge
 
-Semantic wrapper around `<Badge>` that maps account and download states to the correct variant and label.
+Semantic wrapper around MUI `<Chip>` that maps account and download states to the correct color and label.
 
 ```ts
 type AccountStatus = 'pending' | 'approved' | 'denied'
@@ -650,18 +426,18 @@ interface StatusBadgeProps {
 
 **Mapping:**
 
-| Status        | Badge Variant | Label         |
-| ------------- | ------------- | ------------- |
-| `approved`    | `success`     | Approved      |
-| `pending`     | `warning`     | Pending       |
-| `denied`      | `error`       | Denied        |
-| `downloaded`  | `default`     | Downloaded    |
-| `downloading` | `info`        | Downloading   |
-| `queued`      | `warning`     | Queued        |
-| `missing`     | `secondary`   | Missing       |
-| `failed`      | `error`       | Failed        |
-| `importing`   | `info`        | Importing     |
-| `upgrading`   | `warning`     | Upgrading     |
+| Status        | MUI Chip Color | Label         |
+| ------------- | -------------- | ------------- |
+| `approved`    | `success`      | Approved      |
+| `pending`     | `warning`      | Pending       |
+| `denied`      | `error`        | Denied        |
+| `downloaded`  | `primary`      | Downloaded    |
+| `downloading` | `info`         | Downloading   |
+| `queued`      | `warning`      | Queued        |
+| `missing`     | `secondary`    | Missing       |
+| `failed`      | `error`        | Failed        |
+| `importing`   | `info`         | Importing     |
+| `upgrading`   | `warning`      | Upgrading     |
 
 ### DownloadProgress
 
@@ -1404,43 +1180,47 @@ All text/background combinations meet WCAG AA (4.5:1 for normal text, 3:1 for la
 
 ## Icons
 
-Use [Lucide React](https://lucide.dev) (`lucide-react`), already used across the monorepo. Icons should be `16px` (default) in UI chrome and `20px` in feature areas.
+Use [MUI Icons](https://mui.com/material-ui/material-icons/) (`@mui/icons-material`). Icons should be `20px` (default `fontSize="small"`) in UI chrome and `24px` (default) in feature areas.
 
 ### Icon Mapping
 
-| Concept         | Icon             | Usage                                |
-| --------------- | ---------------- | ------------------------------------ |
-| Movies          | `Film`           | Sidebar nav, filter toggle, cards    |
-| Shows           | `Tv`             | Sidebar nav, filter toggle, cards    |
-| Downloads       | `Download`       | Sidebar nav, download actions        |
-| Storage         | `HardDrive`      | Sidebar nav, storage page            |
-| History         | `History`        | Sidebar nav, history page            |
-| Search          | `Search`         | Sidebar nav, search bar              |
-| Dashboard       | `LayoutGrid`     | Sidebar nav                          |
-| Admin           | `Shield`         | Sidebar nav (admin only)             |
-| Approve         | `UserCheck`      | Admin approve action                 |
-| Deny            | `UserX`          | Admin deny action                    |
-| Delete          | `Trash2`         | Destructive delete actions           |
-| Re-download     | `RefreshCw`      | Re-download / retry actions          |
-| Failed          | `XCircle`        | Failed download indicator            |
-| Imported        | `CheckCircle`    | Imported/completed event             |
-| Upgraded        | `ArrowUpCircle`  | Upgrade event                        |
-| Grabbed         | `Download`       | Grabbed event                        |
-| Warning         | `AlertTriangle`  | Low storage, warnings                |
-| Expand/Collapse | `ChevronDown`    | Season accordion toggle              |
-| Sign out        | `LogOut`         | User menu sign out                   |
-| Pending         | `Clock`          | Pending approval state               |
-| Denied          | `ShieldX`        | Access denied state                  |
+| Concept         | MUI Icon          | Usage                                |
+| --------------- | ----------------- | ------------------------------------ |
+| Movies          | `Movie`           | Sidebar nav, filter toggle, cards    |
+| Shows           | `Tv`              | Sidebar nav, filter toggle, cards    |
+| Downloads       | `Download`        | Sidebar nav, download actions        |
+| Storage         | `Storage`         | Sidebar nav, storage page            |
+| History         | `History`         | Sidebar nav, history page            |
+| Search          | `Search`          | Sidebar nav, search bar              |
+| Dashboard       | `GridView`        | Sidebar nav                          |
+| Admin           | `Shield`          | Sidebar nav (admin only)             |
+| Approve         | `PersonAdd`       | Admin approve action                 |
+| Deny            | `PersonRemove`    | Admin deny action                    |
+| Delete          | `Delete`          | Destructive delete actions           |
+| Re-download     | `Refresh`         | Re-download / retry actions          |
+| Failed          | `Cancel`          | Failed download indicator            |
+| Imported        | `CheckCircle`     | Imported/completed event             |
+| Upgraded        | `ArrowCircleUp`   | Upgrade event                        |
+| Grabbed         | `Download`        | Grabbed event                        |
+| Warning         | `Warning`         | Low storage, warnings                |
+| Expand/Collapse | `ExpandMore`      | Season accordion toggle              |
+| Sign out        | `Logout`          | User menu sign out                   |
+| Pending         | `Schedule`        | Pending approval state               |
+| Denied          | `GppBad`          | Access denied state                  |
+| Menu            | `Menu`            | Mobile sidebar toggle                |
+| Close           | `Close`           | Drawer / dialog close                |
 
 ```tsx
-import { Film, Tv, Download, HardDrive, History, Search } from 'lucide-react'
+import DownloadIcon from '@mui/icons-material/Download'
+import GridViewIcon from '@mui/icons-material/GridView'
+import StorageIcon from '@mui/icons-material/Storage'
 
-// Default size in buttons/nav
-<Film className="size-4 text-terminal" />
+// Default size in nav (small)
+<GridViewIcon fontSize="small" className="text-terminal" />
 
-// Feature/hero size
-<Download className="size-5 text-terminal" />
+// Feature/hero size (default 24px)
+<DownloadIcon className="text-terminal" />
 
 // Status indicator with semantic color
-<XCircle className="size-4 text-error" />
+<CancelIcon fontSize="small" className="text-error" />
 ```

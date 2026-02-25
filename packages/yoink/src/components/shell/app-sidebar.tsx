@@ -1,108 +1,149 @@
 'use client'
 
 import { cns } from '@lilnas/utils/cns'
-import {
-  Download,
-  HardDrive,
-  History,
-  LayoutGrid,
-  Search,
-  Shield,
-} from 'lucide-react'
+import DownloadIcon from '@mui/icons-material/Download'
+import GridViewIcon from '@mui/icons-material/GridView'
+import HistoryIcon from '@mui/icons-material/History'
+import ShieldIcon from '@mui/icons-material/Shield'
+import StorageIcon from '@mui/icons-material/Storage'
+import Divider from '@mui/material/Divider'
+import Drawer from '@mui/material/Drawer'
+import List from '@mui/material/List'
+import ListItemButton from '@mui/material/ListItemButton'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
+import { useTheme } from '@mui/material/styles'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import { YoinkLogo } from 'src/components/yoink-logo'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from 'src/components/ui/sidebar'
+import type { ComponentType } from 'react'
 
 const mainNav = [
-  { label: 'Dashboard', icon: LayoutGrid, href: '/' },
-  { label: 'Search', icon: Search, href: '/search' },
-  { label: 'Downloads', icon: Download, href: '/downloads' },
-  { label: 'History', icon: History, href: '/history' },
-  { label: 'Storage', icon: HardDrive, href: '/storage' },
+  { label: 'Dashboard', icon: GridViewIcon, href: '/' },
+  { label: 'Downloads', icon: DownloadIcon, href: '/downloads' },
+  { label: 'History', icon: HistoryIcon, href: '/history' },
+  { label: 'Storage', icon: StorageIcon, href: '/storage' },
 ] as const
 
-const adminNav = [{ label: 'Admin', icon: Shield, href: '/admin' }] as const
+const adminNav = [{ label: 'Admin', icon: ShieldIcon, href: '/admin' }] as const
 
 function isActive(pathname: string, href: string) {
   if (href === '/') return pathname === '/'
   return pathname.startsWith(href)
 }
 
-export function AppSidebar({ isAdmin }: { isAdmin: boolean }) {
+interface NavItemProps {
+  label: string
+  icon: ComponentType<{ className?: string }>
+  href: string
+  active: boolean
+}
+
+function NavItem({ label, icon: Icon, href, active }: NavItemProps) {
+  return (
+    <ListItemButton
+      component={Link}
+      href={href}
+      selected={active}
+      className={cns(
+        'border-l-2 border-transparent',
+        active && 'border-terminal',
+      )}
+    >
+      <ListItemIcon>
+        <Icon className="size-5" />
+      </ListItemIcon>
+      <ListItemText
+        primary={label}
+        primaryTypographyProps={{ variant: 'body2', fontFamily: 'inherit' }}
+      />
+    </ListItemButton>
+  )
+}
+
+interface AppSidebarProps {
+  isAdmin: boolean
+  mobileOpen: boolean
+  onMobileClose: () => void
+  width: number
+}
+
+export function AppSidebar({
+  isAdmin,
+  mobileOpen,
+  onMobileClose,
+  width,
+}: AppSidebarProps) {
   const pathname = usePathname()
+  const muiTheme = useTheme()
+  const isDesktop = useMediaQuery(muiTheme.breakpoints.up('md'))
+
+  const navItems = (
+    <List component="div" className="flex-1 px-2">
+      {mainNav.map(item => (
+        <NavItem
+          key={item.href}
+          label={item.label}
+          icon={item.icon}
+          href={item.href}
+          active={isActive(pathname, item.href)}
+        />
+      ))}
+
+      {isAdmin && (
+        <>
+          <Divider className="my-2" />
+          {adminNav.map(item => (
+            <NavItem
+              key={item.href}
+              label={item.label}
+              icon={item.icon}
+              href={item.href}
+              active={isActive(pathname, item.href)}
+            />
+          ))}
+        </>
+      )}
+    </List>
+  )
+
+  if (isDesktop) {
+    return (
+      <aside
+        className={cns(
+          'hidden shrink-0 border-r border-carbon-500 bg-carbon-800 md:block',
+        )}
+        style={{ width }}
+      >
+        <nav className="flex h-full flex-col pt-2">{navItems}</nav>
+      </aside>
+    )
+  }
 
   return (
-    <Sidebar>
-      <SidebarHeader className="px-4 py-4">
-        <span className="font-mono text-xl font-bold text-terminal text-glow">
-          yoink
-        </span>
-      </SidebarHeader>
-
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarMenu>
-            {mainNav.map(item => (
-              <SidebarMenuItem key={item.href}>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isActive(pathname, item.href)}
-                  tooltip={item.label}
-                >
-                  <Link
-                    href={item.href}
-                    className={cns(
-                      'border-l-2 border-transparent',
-                      isActive(pathname, item.href) && 'border-terminal',
-                    )}
-                  >
-                    <item.icon className="size-4" />
-                    <span>{item.label}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
-
-        {isAdmin && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Admin</SidebarGroupLabel>
-            <SidebarMenu>
-              {adminNav.map(item => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={isActive(pathname, item.href)}
-                    tooltip={item.label}
-                  >
-                    <Link
-                      href={item.href}
-                      className={cns(
-                        'border-l-2 border-transparent',
-                        isActive(pathname, item.href) && 'border-terminal',
-                      )}
-                    >
-                      <item.icon className="size-4" />
-                      <span>{item.label}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroup>
-        )}
-      </SidebarContent>
-    </Sidebar>
+    <Drawer
+      variant="temporary"
+      open={mobileOpen}
+      onClose={onMobileClose}
+      ModalProps={{ keepMounted: true }}
+      sx={{
+        '& .MuiDrawer-paper': { width },
+      }}
+    >
+      <nav className="flex h-full flex-col">
+        <Link
+          href="/"
+          onClick={onMobileClose}
+          className="flex items-center gap-2 px-4 py-4"
+        >
+          <YoinkLogo className="h-8 text-terminal" />
+          <span className="font-mono text-lg font-semibold text-terminal">
+            yoink
+          </span>
+        </Link>
+        {navItems}
+      </nav>
+    </Drawer>
   )
 }

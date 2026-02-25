@@ -9,13 +9,13 @@ Status overview of every feature defined in [README.md](README.md) and
 
 ### Infrastructure & Configuration
 
-- [x] `package.json` with dependencies (Next.js 16, NextAuth v5, Drizzle, Tailwind v4, Radix, CVA, Lucide)
+- [x] `package.json` with dependencies (Next.js 16, NextAuth v5, Drizzle, Tailwind v4, MUI, MUI Icons)
 - [x] `tsconfig.json` with path aliases
 - [x] `next.config.ts` with standalone output and Google image remote patterns
-- [x] `tailwind.config.ts` content paths + sidebar color tokens
+- [x] `tailwind.config.ts` content paths
 - [x] `postcss.config.cjs`
 - [x] `eslint.config.cjs` shared monorepo config
-- [x] `components.json` shadcn/ui configuration (new-york style, RSC, path aliases)
+- [x] `src/theme.ts` MUI theme with Phosphor Terminal tokens (palette, typography, component overrides)
 - [x] `drizzle.config.ts` for schema and migrations
 - [x] `scripts/dev.sh` disposable Postgres + dev server
 - [x] `Dockerfile` multi-stage production build
@@ -31,13 +31,12 @@ Status overview of every feature defined in [README.md](README.md) and
 - [x] Animation keyframes (glow-pulse, terminal-blink, fade-in, slide-in-right)
 - [x] Custom utilities (glow-sm/md/lg, text-glow, text-glow-sm, scanlines, cursor-blink)
 - [x] Base layer (dark color-scheme, body styles, heading styles, selection, scrollbar)
-- [x] Sidebar CSS variables (background, foreground, primary, accent, border, ring)
-- [ ] Reduced motion media query (`prefers-reduced-motion: reduce` global override from DESIGN.md)
+- [x] Reduced motion media query (`prefers-reduced-motion: reduce` global override)
 
 ### Utilities & Hooks
 
-- [x] `cn()` class name utility (`src/lib/utils.ts`)
-- [x] `useIsMobile()` breakpoint detection hook (`src/hooks/use-is-mobile.tsx`)
+- [x] `cns()` class name utility (`@lilnas/utils/cns`)
+- [x] `useMediaQuery()` from MUI for responsive breakpoints
 
 ### Database
 
@@ -58,21 +57,20 @@ Status overview of every feature defined in [README.md](README.md) and
 
 ---
 
-## Primitive Components
+## Primitive Components (MUI)
 
-- [x] **Button** — CVA variants (default, secondary, outline, ghost, destructive, link), sizes, asChild (`src/components/button.tsx`)
-- [x] **Card** — variants (default, glow, inset), CardHeader, CardContent (`src/components/card.tsx`)
-- [x] **Badge** — variants (default, secondary, success, error, warning, info, outline) (`src/components/badge.tsx`)
-- [x] **EmptyState** — icon, title, description, action slot (`src/components/empty-state.tsx`)
-- [x] **StatusBadge** — account status mapping (pending/approved/denied) (`src/components/status-badge.tsx`)
-- [x] **Input** — styled input with focus ring (`src/components/ui/input.tsx`)
-- [x] **Separator** — horizontal/vertical divider (`src/components/ui/separator.tsx`)
-- [x] **Sheet** — slide-over panel with overlay, used for mobile sidebar (`src/components/ui/sheet.tsx`)
-- [x] **Sidebar** — collapsible sidebar system with provider, keyboard shortcut, cookie persistence (`src/components/ui/sidebar.tsx`)
-- [x] **Skeleton** — loading placeholder with pulse animation (`src/components/ui/skeleton.tsx`)
-- [x] **Tooltip** — hover tooltip with Radix UI (`src/components/ui/tooltip.tsx`)
-- [ ] **Progress** — phosphor green fill bar with glow, 0–100 value
-- [ ] **FilterToggle** — three-button radio group (Both / Movies / Shows)
+- [x] **Button** — MUI `Button` / `IconButton` themed via `createTheme` overrides
+- [x] **Card** — MUI `Card` / `CardContent` / `CardHeader` themed to Phosphor Terminal
+- [x] **Chip** — MUI `Chip` with semantic color variants (replaces Badge)
+- [x] **EmptyState** — custom component with Tailwind classes (`src/components/empty-state.tsx`)
+- [x] **StatusBadge** — account status mapping using MUI `Chip` (`src/components/status-badge.tsx`)
+- [x] **TextField** — MUI `TextField` themed dark (`variant="outlined"`)
+- [x] **Divider** — MUI `Divider` (replaces Separator)
+- [x] **Drawer** — MUI `Drawer` (temporary for mobile sidebar, permanent for desktop)
+- [x] **Skeleton** — MUI `Skeleton` with phosphor green tint
+- [x] **Tooltip** — MUI `Tooltip` themed to Phosphor Terminal
+- [ ] **Progress** — MUI `LinearProgress` styled with phosphor green fill + glow
+- [ ] **FilterToggle** — MUI `ToggleButtonGroup` (Both / Movies / Shows)
 
 ---
 

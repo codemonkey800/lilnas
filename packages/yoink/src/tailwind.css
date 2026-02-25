@@ -175,17 +175,6 @@
   ::-webkit-scrollbar-thumb:hover {
     background: #576462;
   }
-  :root,
-  .dark {
-    --sidebar-background: #151917;
-    --sidebar-foreground: #a3b0ad;
-    --sidebar-primary: #39ff14;
-    --sidebar-primary-foreground: #08090a;
-    --sidebar-accent: rgba(57, 255, 20, 0.1);
-    --sidebar-accent-foreground: #39ff14;
-    --sidebar-border: #3b4744;
-    --sidebar-ring: rgba(57, 255, 20, 0.5);
-  }
 }
 
 /* ── Reduced Motion ── */

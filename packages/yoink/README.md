@@ -92,7 +92,7 @@ Web app for managing movie and show downloads through the lilnas Radarr and Sona
 | Framework  | Next.js 16 (standalone output, Turbopack dev)         |
 | Auth       | NextAuth v5 beta (Google OAuth) with Drizzle adapter  |
 | Database   | PostgreSQL 17 via Drizzle ORM                         |
-| UI         | Tailwind CSS v4, Radix UI, CVA, Lucide icons          |
+| UI         | Tailwind CSS v4, Material UI (MUI), MUI Icons          |
 | Design     | "Phosphor Terminal" CRT-inspired dark theme           |
 | Typography | JetBrains Mono (headings/data) + Space Grotesk (body) |
 
