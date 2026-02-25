@@ -90,4 +90,4 @@ npx drizzle-kit push --force
 
 echo ""
 echo "Starting Next.js dev server..."
-npx next dev --turbopack -p 8080
+npx next dev --turbopack -p "${PORT:-8080}"
