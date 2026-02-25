@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import type { ReactNode } from 'react'
 
 import { AppShell } from 'src/components/shell/app-shell'
 import { getAuthenticatedUser } from 'src/lib/user-status'
@@ -6,7 +7,7 @@ import { getAuthenticatedUser } from 'src/lib/user-status'
 export default async function DashboardLayout({
   children,
 }: {
-  children: React.ReactNode
+  children: ReactNode
 }) {
   const user = await getAuthenticatedUser()
 

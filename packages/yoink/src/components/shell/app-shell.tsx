@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import { signOutAction } from 'src/app/(auth)/login/actions'
 import { AppSidebar } from 'src/components/shell/app-sidebar'
 import { SiteHeader } from 'src/components/shell/site-header'
@@ -9,7 +11,7 @@ export function AppShell({
   children,
 }: {
   user: AuthenticatedUser
-  children: React.ReactNode
+  children: ReactNode
 }) {
   return (
     <SidebarProvider className="flex flex-col">

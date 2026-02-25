@@ -3,6 +3,7 @@ import 'src/tailwind.css'
 import { cns } from '@lilnas/utils/cns'
 import type { Metadata } from 'next'
 import { JetBrains_Mono, Space_Grotesk } from 'next/font/google'
+import type { ReactNode } from 'react'
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
@@ -24,7 +25,7 @@ export const metadata: Metadata = {
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode
+  children: ReactNode
 }>) {
   return (
     <html lang="en" className="dark">

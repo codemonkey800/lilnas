@@ -1,4 +1,4 @@
-import * as React from 'react'
+import { useEffect, useState } from 'react'
 
 function getBreakpointPx(name: string): number {
   const value = getComputedStyle(document.documentElement).getPropertyValue(
@@ -8,9 +8,9 @@ function getBreakpointPx(name: string): number {
 }
 
 export function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)
+  const [isMobile, setIsMobile] = useState<boolean | undefined>(undefined)
 
-  React.useEffect(() => {
+  useEffect(() => {
     const breakpoint = getBreakpointPx('md')
     const mql = window.matchMedia(`(max-width: ${breakpoint - 1}px)`)
 
@@ -19,7 +19,7 @@ export function useIsMobile() {
     }
 
     mql.addEventListener('change', onChange)
-    setIsMobile(window.innerWidth < breakpoint)
+    onChange()
 
     return () => mql.removeEventListener('change', onChange)
   }, [])
