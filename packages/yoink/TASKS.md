@@ -70,13 +70,13 @@ Status overview of every feature defined in [README.md](README.md) and
 - [x] **Skeleton** — MUI `Skeleton` with phosphor green tint
 - [x] **Tooltip** — MUI `Tooltip` themed to Phosphor Terminal
 - [ ] **Progress** — MUI `LinearProgress` styled with phosphor green fill + glow
-- [ ] **FilterToggle** — MUI `ToggleButtonGroup` (Both / Movies / Shows)
+- [x] **FilterToggle** — MUI `ToggleButtonGroup` (Both / Movies / Shows)
 
 ---
 
 ## Feature Components
 
-- [ ] **MediaCard** — poster card with title, year, quality badge, status dot, hover lift, missing-poster placeholder
+- [x] **MediaCard** — poster card with title, year, quality badge, status dot, hover lift, missing-poster placeholder
 - [ ] **DownloadProgress** — progress bar card with title, percent, speed, ETA, size info, status badge, retry button for failed
 - [ ] **SearchBar** — terminal-styled input with Search icon, integrated FilterToggle, `⌘K` hint, focus-within glow
 - [ ] **UserCard** — admin row with avatar (fallback initials), name, email, timestamp, status badge, approve/deny actions
@@ -115,12 +115,12 @@ Storage, and Admin pages.
 ### Library (`/`)
 
 - [x] Route group layout with auth guards (`src/app/(library)/layout.tsx`)
-- [ ] Replace placeholder `src/app/(library)/page.tsx` with real library page
-- [ ] Page header with "Library" title and FilterToggle
-- [ ] Responsive MediaCard grid (`grid-cols-2 sm:3 md:4 lg:5 xl:6 gap-4`)
-- [ ] Empty state when nothing is downloaded yet ("No movies or shows downloaded yet")
-- [ ] Fetch downloaded library data from Radarr (movies) and Sonarr (shows) APIs
-- [ ] Filter logic for movies / shows / both
+- [x] Replace placeholder `src/app/(library)/page.tsx` with real library page
+- [x] Page header with "Library" title and FilterToggle
+- [x] Responsive MediaCard grid (`grid-cols-2 sm:3 md:4 lg:5 xl:6 gap-4`)
+- [x] Empty state when nothing is downloaded yet ("No movies or shows downloaded yet")
+- [x] Fetch downloaded library data from Radarr (movies) and Sonarr (shows) APIs
+- [x] Filter logic for movies / shows / both
 
 ### Search (`/search`)
 
@@ -196,8 +196,8 @@ Storage, and Admin pages.
 
 ### Radarr Client
 
-- [ ] HTTP client for Radarr API (base URL + API key from env)
-- [ ] GET movies (library)
+- [x] HTTP client for Radarr API (base URL + API key from env)
+- [x] GET movies (library)
 - [ ] GET movie by ID (detail)
 - [ ] GET movie lookup (search)
 - [ ] GET queue (active/queued downloads)
@@ -209,8 +209,8 @@ Storage, and Admin pages.
 
 ### Sonarr Client
 
-- [ ] HTTP client for Sonarr API (base URL + API key from env)
-- [ ] GET series (library)
+- [x] HTTP client for Sonarr API (base URL + API key from env)
+- [x] GET series (library)
 - [ ] GET series by ID (detail)
 - [ ] GET series lookup (search)
 - [ ] GET episodes for series
@@ -224,11 +224,11 @@ Storage, and Admin pages.
 
 ### Environment Variables
 
-- [ ] `RADARR_URL` — Radarr API base URL
-- [ ] `RADARR_API_KEY` — Radarr API key
-- [ ] `SONARR_URL` — Sonarr API base URL
-- [ ] `SONARR_API_KEY` — Sonarr API key
-- [ ] Add to `infra/.env.yoink.example` and README env table
+- [x] `RADARR_URL` — Radarr API base URL
+- [x] `RADARR_API_KEY` — Radarr API key
+- [x] `SONARR_URL` — Sonarr API base URL
+- [x] `SONARR_API_KEY` — Sonarr API key
+- [x] Add to `infra/.env.yoink.example` and README env table
 
 ---
 
