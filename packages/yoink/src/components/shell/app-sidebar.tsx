@@ -2,22 +2,21 @@
 
 import { cns } from '@lilnas/utils/cns'
 import DownloadIcon from '@mui/icons-material/Download'
-import VideoLibraryIcon from '@mui/icons-material/VideoLibrary'
 import HistoryIcon from '@mui/icons-material/History'
 import ShieldIcon from '@mui/icons-material/Shield'
 import StorageIcon from '@mui/icons-material/Storage'
+import VideoLibraryIcon from '@mui/icons-material/VideoLibrary'
 import Divider from '@mui/material/Divider'
 import Drawer from '@mui/material/Drawer'
 import List from '@mui/material/List'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
-import { useTheme } from '@mui/material/styles'
-import useMediaQuery from '@mui/material/useMediaQuery'
-import { YoinkLogo } from 'src/components/yoink-logo'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { ComponentType } from 'react'
+
+import { YoinkLogo } from 'src/components/yoink-logo'
 
 const mainNav = [
   { label: 'Library', icon: VideoLibraryIcon, href: '/' },
@@ -76,8 +75,6 @@ export function AppSidebar({
   width,
 }: AppSidebarProps) {
   const pathname = usePathname()
-  const muiTheme = useTheme()
-  const isDesktop = useMediaQuery(muiTheme.breakpoints.up('md'))
 
   const navItems = (
     <List component="div" className="flex-1 px-2">
@@ -108,8 +105,8 @@ export function AppSidebar({
     </List>
   )
 
-  if (isDesktop) {
-    return (
+  return (
+    <>
       <aside
         className={cns(
           'hidden shrink-0 border-r border-carbon-500 bg-carbon-800 md:block',
@@ -118,32 +115,31 @@ export function AppSidebar({
       >
         <nav className="flex h-full flex-col pt-2">{navItems}</nav>
       </aside>
-    )
-  }
 
-  return (
-    <Drawer
-      variant="temporary"
-      open={mobileOpen}
-      onClose={onMobileClose}
-      ModalProps={{ keepMounted: true }}
-      sx={{
-        '& .MuiDrawer-paper': { width },
-      }}
-    >
-      <nav className="flex h-full flex-col">
-        <Link
-          href="/"
-          onClick={onMobileClose}
-          className="flex items-center gap-2 px-4 py-4"
-        >
-          <YoinkLogo className="h-8 text-terminal" />
-          <span className="font-mono text-lg font-semibold text-terminal">
-            yoink
-          </span>
-        </Link>
-        {navItems}
-      </nav>
-    </Drawer>
+      <Drawer
+        variant="temporary"
+        open={mobileOpen}
+        onClose={onMobileClose}
+        ModalProps={{ keepMounted: true }}
+        sx={{
+          display: { md: 'none' },
+          '& .MuiDrawer-paper': { width },
+        }}
+      >
+        <nav className="flex h-full flex-col">
+          <Link
+            href="/"
+            onClick={onMobileClose}
+            className="flex items-center gap-2 px-4 py-4"
+          >
+            <YoinkLogo className="h-8 text-terminal" />
+            <span className="font-mono text-lg font-semibold text-terminal">
+              yoink
+            </span>
+          </Link>
+          {navItems}
+        </nav>
+      </Drawer>
+    </>
   )
 }

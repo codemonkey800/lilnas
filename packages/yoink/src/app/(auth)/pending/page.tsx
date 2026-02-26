@@ -5,9 +5,9 @@ import CardContent from '@mui/material/CardContent'
 import { redirect } from 'next/navigation'
 
 import { signOutAction } from 'src/app/(auth)/login/actions'
-import { YoinkLogo } from 'src/components/yoink-logo'
 import { EmptyState } from 'src/components/empty-state'
 import { StatusBadge } from 'src/components/status-badge'
+import { YoinkLogo } from 'src/components/yoink-logo'
 import { getAuthenticatedUser } from 'src/lib/user-status'
 
 export default async function PendingPage() {

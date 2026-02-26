@@ -11,7 +11,7 @@ import InputBase from '@mui/material/InputBase'
 import Tooltip from '@mui/material/Tooltip'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useState, type FormEvent } from 'react'
+import { type FormEvent, useState } from 'react'
 
 import { YoinkLogo } from 'src/components/yoink-logo'
 import type { AuthenticatedUser } from 'src/lib/user-status'
@@ -134,10 +134,7 @@ export function SiteHeader({
           <div className="flex items-center gap-3">
             <div className="sm:hidden">
               <Tooltip title="Search">
-                <IconButton
-                  size="small"
-                  onClick={() => setSearchOpen(true)}
-                >
+                <IconButton size="small" onClick={() => setSearchOpen(true)}>
                   <SearchIcon className="size-4" />
                 </IconButton>
               </Tooltip>
