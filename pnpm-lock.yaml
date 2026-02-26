@@ -738,6 +738,9 @@ importers:
       '@tanstack/react-virtual':
         specifier: ^3.13.19
         version: 3.13.19(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      dayjs:
+        specifier: 1.11.18
+        version: 1.11.18
       drizzle-orm:
         specifier: ^0.45.1
         version: 0.45.1(@libsql/client@0.15.15)(@types/pg@8.16.0)(pg@8.18.0)

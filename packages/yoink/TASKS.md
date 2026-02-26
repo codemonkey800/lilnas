@@ -79,7 +79,7 @@ Status overview of every feature defined in [README.md](README.md) and
 - [x] **MediaCard** — poster card with title, year, quality badge, status dot, hover lift, missing-poster placeholder
 - [ ] **DownloadProgress** — progress bar card with title, percent, speed, ETA, size info, status badge, retry button for failed
 - [ ] **SearchBar** — terminal-styled input with Search icon, integrated FilterToggle, `⌘K` hint, focus-within glow
-- [ ] **UserCard** — admin row with avatar (fallback initials), name, email, timestamp, status badge, approve/deny actions
+- [x] **UserCard** — admin row with avatar (fallback initials), name, email, timestamp, status badge, approve/deny actions
 - [ ] **SeasonAccordion** — expandable season header with episode count, download ratio, mini progress bar, chevron rotation
 - [ ] **EpisodeItem** — episode row with number, title, quality badge, status badge, inline download progress, action buttons
 - [ ] **StorageBar** — segmented disk usage bar (movies/shows), label, used/total stats, warning/critical thresholds
@@ -109,8 +109,7 @@ Storage, and Admin pages.
 
 - [x] **Login** — full-screen centered, scanlines overlay, Google SSO button (`src/app/(auth)/login/page.tsx`)
 - [x] **Pending** — full-screen EmptyState with Clock icon and StatusBadge (`src/app/(auth)/pending/page.tsx`)
-- [ ] **Denied** — full-screen EmptyState with ShieldX icon, "Access Denied" message, re-request access button
-  - Currently denied users redirect to `/login` instead of a dedicated denied page
+- [~] **Denied** — ~~full-screen EmptyState with ShieldX icon~~ — "denied" status removed; non-approved users redirect to `/pending`
 
 ### Library (`/`)
 
@@ -183,12 +182,12 @@ Storage, and Admin pages.
 
 ### Admin (`/admin`)
 
-- [ ] Guard: only accessible to admin users, redirect non-admins
-- [ ] "Pending Requests" section with count badge and UserCard list
-- [ ] "Approved Users" section with count badge and UserCard list
-- [ ] Empty pending state ("No pending requests — all access requests have been handled")
-- [ ] Server actions: approve user, deny user (update status in database)
-- [ ] Optimistic UI updates on approve/deny
+- [x] Guard: only accessible to admin users, redirect non-admins
+- [x] "Pending Requests" section with count badge and UserCard list
+- [x] "Approved Users" section with count badge and UserCard list
+- [x] Empty pending state ("No pending requests — all access requests have been handled")
+- [x] Server actions: approve user, deny user (update status in database)
+- [x] Optimistic UI updates on approve/deny
 
 ---
 
@@ -241,5 +240,5 @@ Storage, and Admin pages.
 - [ ] Season accordion smooth height animation (`grid-rows-[0fr]` to `grid-rows-[1fr]`)
 - [ ] `⌘K` keyboard shortcut to focus search
 - [ ] Confirmation dialogs for destructive actions (delete movie/episode files)
-- [ ] Relative timestamp formatting (e.g. "3 hours ago") for history and admin
+- [x] Relative timestamp formatting (e.g. "3 hours ago") for history and admin
 - [ ] Metadata: page titles and descriptions per route

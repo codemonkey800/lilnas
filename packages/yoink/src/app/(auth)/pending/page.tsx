@@ -15,7 +15,6 @@ export default async function PendingPage() {
 
   if (!user) redirect('/login')
   if (user.status === 'approved') redirect('/')
-  if (user.status === 'denied') redirect('/login')
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-carbon-950">

@@ -34,6 +34,7 @@
     "@mui/material": "7.3.4",
     "@mui/material-nextjs": "7.3.3",
     "@tanstack/react-virtual": "^3.13.19",
+    "dayjs": "1.11.18",
     "drizzle-orm": "^0.45.1",
     "next": "16.1.6",
     "next-auth": "5.0.0-beta.30",

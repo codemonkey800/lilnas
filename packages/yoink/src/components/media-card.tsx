@@ -1,7 +1,5 @@
 'use client'
 
-import { useState } from 'react'
-
 import { cns } from '@lilnas/utils/cns'
 import MovieIcon from '@mui/icons-material/Movie'
 import TvIcon from '@mui/icons-material/Tv'
@@ -9,6 +7,8 @@ import Card from '@mui/material/Card'
 import Chip from '@mui/material/Chip'
 import Image from 'next/image'
 import Link from 'next/link'
+import { useState } from 'react'
+
 import type { LibraryItem } from 'src/lib/media'
 
 const statusDotColor: Record<LibraryItem['status'], string> = {

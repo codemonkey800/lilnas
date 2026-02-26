@@ -12,8 +12,7 @@ export default async function LibraryLayout({
   const user = await getAuthenticatedUser()
 
   if (!user) redirect('/login')
-  if (user.status === 'pending') redirect('/pending')
-  if (user.status === 'denied') redirect('/login')
+  if (user.status !== 'approved') redirect('/pending')
 
   return <AppShell user={user}>{children}</AppShell>
 }
