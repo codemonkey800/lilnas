@@ -26,10 +26,10 @@ Web app for managing movie and show downloads through the lilnas Radarr and Sona
 
 ### Library
 
-- Shows all downloaded movies and shows with metadata
+- Read-only view of all movies and shows that have already been downloaded
 - Toggle to show only movies or shows, default is both
 - Click into any title to see more details
-- Empty state graphic if nothing is downloaded
+- Empty state graphic if nothing is downloaded yet
 
 ### Search
 

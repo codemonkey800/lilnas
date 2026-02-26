@@ -118,8 +118,8 @@ Storage, and Admin pages.
 - [ ] Replace placeholder `src/app/(library)/page.tsx` with real library page
 - [ ] Page header with "Library" title and FilterToggle
 - [ ] Responsive MediaCard grid (`grid-cols-2 sm:3 md:4 lg:5 xl:6 gap-4`)
-- [ ] Empty state when no downloads ("Search for movies and shows to get started" + link to Search)
-- [ ] Fetch library data from Radarr (movies) and Sonarr (shows) APIs
+- [ ] Empty state when nothing is downloaded yet ("No movies or shows downloaded yet")
+- [ ] Fetch downloaded library data from Radarr (movies) and Sonarr (shows) APIs
 - [ ] Filter logic for movies / shows / both
 
 ### Search (`/search`)

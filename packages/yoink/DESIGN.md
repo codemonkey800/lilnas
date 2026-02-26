@@ -1192,7 +1192,7 @@ Use [MUI Icons](https://mui.com/material-ui/material-icons/) (`@mui/icons-materi
 | Storage         | `Storage`         | Sidebar nav, storage page            |
 | History         | `History`         | Sidebar nav, history page            |
 | Search          | `Search`          | Sidebar nav, search bar              |
-| Library         | `GridView`        | Sidebar nav                          |
+| Library         | `VideoLibrary`    | Sidebar nav                          |
 | Admin           | `Shield`          | Sidebar nav (admin only)             |
 | Approve         | `PersonAdd`       | Admin approve action                 |
 | Deny            | `PersonRemove`    | Admin deny action                    |
