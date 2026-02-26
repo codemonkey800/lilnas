@@ -12,7 +12,7 @@ Web app for managing movie and show downloads through the lilnas Radarr and Sona
     admin needs to approve their account before they can continue
   - **Denied** — admin rejected the request; shows a denied page with the
     option to re-request access, which moves them back to pending
-  - **Approved** — full access; redirects to the dashboard
+  - **Approved** — full access; redirects to the library
 
 ### Admin
 
@@ -24,7 +24,7 @@ Web app for managing movie and show downloads through the lilnas Radarr and Sona
 - Denying a request removes it from the pending list; the user sees a denied
   state with the option to re-request
 
-### Dashboard
+### Library
 
 - Shows all downloaded movies and shows with metadata
 - Toggle to show only movies or shows, default is both

@@ -2,7 +2,7 @@
 
 ## Philosophy & Aesthetic Direction
 
-Phosphor Terminal draws from the look and feel of vintage CRT phosphor-green monitors — refined for modern web UI. Deep charcoal surfaces, electric green accents, monospace-forward typography, and subtle glow effects create an interface that feels like a download operations console rather than a generic dashboard. Every screen — from the login gate to the storage overview — should read like a purpose-built terminal for managing media.
+Phosphor Terminal draws from the look and feel of vintage CRT phosphor-green monitors — refined for modern web UI. Deep charcoal surfaces, electric green accents, monospace-forward typography, and subtle glow effects create an interface that feels like a download operations console rather than a generic library view. Every screen — from the login gate to the storage overview — should read like a purpose-built terminal for managing media.
 
 **Core principles:**
 
@@ -176,7 +176,7 @@ All spacing derives from a **4px base unit** via Tailwind's default scale.
 │ carbon-800   │  ┌──────────────────────────────────────┐  │
 │              │  │  Page Content (max-w-6xl mx-auto p-6)│  │
 │ ┌──────────┐ │  │                                      │  │
-│ │Dashboard │ │  │                                      │  │
+│ │Library   │ │  │                                      │  │
 │ │Search    │ │  │                                      │  │
 │ │Downloads │ │  │                                      │  │
 │ │History   │ │  │                                      │  │
@@ -316,7 +316,7 @@ import LinearProgress from '@mui/material/LinearProgress'
 
 ### EmptyState
 
-Centered placeholder for views with no content (empty dashboard, no search results, no active downloads).
+Centered placeholder for views with no content (empty library, no search results, no active downloads).
 
 ```tsx
 import { cns } from '@lilnas/utils/cns'
@@ -388,7 +388,7 @@ Larger composites built from primitives above. These specs define the props inte
 
 ### MediaCard
 
-Poster card for the dashboard and search grids. Displays a movie or show with its poster image, title, year, quality badge, and a status indicator dot.
+Poster card for the library and search grids. Displays a movie or show with its poster image, title, year, quality badge, and a status indicator dot.
 
 ```ts
 interface MediaCardProps {
@@ -648,16 +648,16 @@ Full-screen centered, shown when admin has denied the access request.
 
 ### App Shell
 
-Wraps all authenticated pages (Dashboard, Search, Downloads, History, Storage, Admin).
+Wraps all authenticated pages (Library, Search, Downloads, History, Storage, Admin).
 
 - Layout: See **App Shell Layout** diagram in Spacing & Layout section
-- Sidebar nav items: `Dashboard`, `Search`, `Downloads`, `History`, `Storage` — each with icon + label
+- Sidebar nav items: `Library`, `Search`, `Downloads`, `History`, `Storage` — each with icon + label
 - Active nav item: `bg-terminal/10 text-terminal border-l-2 border-terminal`
 - Inactive: `text-carbon-400 hover:text-carbon-200 hover:bg-carbon-700/50`
 - Admin link only visible for admin users, separated by a `border-t border-carbon-600` divider
 - Top bar right: user avatar + name, sign-out button
 
-### Dashboard
+### Library
 
 ```
 ┌──────────────────────────────────────────┐
@@ -1192,7 +1192,7 @@ Use [MUI Icons](https://mui.com/material-ui/material-icons/) (`@mui/icons-materi
 | Storage         | `Storage`         | Sidebar nav, storage page            |
 | History         | `History`         | Sidebar nav, history page            |
 | Search          | `Search`          | Sidebar nav, search bar              |
-| Dashboard       | `GridView`        | Sidebar nav                          |
+| Library         | `GridView`        | Sidebar nav                          |
 | Admin           | `Shield`          | Sidebar nav (admin only)             |
 | Approve         | `PersonAdd`       | Admin approve action                 |
 | Deny            | `PersonRemove`    | Admin deny action                    |

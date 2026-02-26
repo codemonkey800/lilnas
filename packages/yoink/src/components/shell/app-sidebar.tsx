@@ -20,7 +20,7 @@ import { usePathname } from 'next/navigation'
 import type { ComponentType } from 'react'
 
 const mainNav = [
-  { label: 'Dashboard', icon: GridViewIcon, href: '/' },
+  { label: 'Library', icon: GridViewIcon, href: '/' },
   { label: 'Downloads', icon: DownloadIcon, href: '/downloads' },
   { label: 'History', icon: HistoryIcon, href: '/history' },
   { label: 'Storage', icon: StorageIcon, href: '/storage' },

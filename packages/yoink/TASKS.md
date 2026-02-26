@@ -90,12 +90,12 @@ Status overview of every feature defined in [README.md](README.md) and
 
 ## App Shell
 
-The authenticated layout wrapping Dashboard, Search, Downloads, History,
+The authenticated layout wrapping Library, Search, Downloads, History,
 Storage, and Admin pages.
 
 - [x] **Shell layout** — sidebar (`w-56`, `carbon-800`) + main content area (`flex-1`, `overflow-y-auto`, `max-w-6xl`)
 - [x] **Top bar** — `h-14`, logo left, user avatar + name + sign-out button right
-- [x] **Sidebar navigation** — icon + label links for Dashboard, Search, Downloads, History, Storage
+- [x] **Sidebar navigation** — icon + label links for Library, Search, Downloads, History, Storage
   - [x] Active state: `bg-terminal/10 text-terminal border-l-2 border-terminal`
   - [x] Inactive state: `text-carbon-400 hover:text-carbon-200 hover:bg-carbon-700/50`
   - [x] Admin link separated by divider, visible only for admin users
@@ -112,10 +112,10 @@ Storage, and Admin pages.
 - [ ] **Denied** — full-screen EmptyState with ShieldX icon, "Access Denied" message, re-request access button
   - Currently denied users redirect to `/login` instead of a dedicated denied page
 
-### Dashboard (`/dashboard` or `/`)
+### Library (`/`)
 
-- [x] Route group layout with auth guards (`src/app/(dashboard)/layout.tsx`)
-- [ ] Replace placeholder `src/app/(dashboard)/page.tsx` with real dashboard
+- [x] Route group layout with auth guards (`src/app/(library)/layout.tsx`)
+- [ ] Replace placeholder `src/app/(library)/page.tsx` with real library page
 - [ ] Page header with "Library" title and FilterToggle
 - [ ] Responsive MediaCard grid (`grid-cols-2 sm:3 md:4 lg:5 xl:6 gap-4`)
 - [ ] Empty state when no downloads ("Search for movies and shows to get started" + link to Search)
@@ -234,7 +234,7 @@ Storage, and Admin pages.
 
 ## Polish & Quality
 
-- [ ] Loading skeletons for data-fetching pages (dashboard grid, search results, detail pages)
+- [ ] Loading skeletons for data-fetching pages (library grid, search results, detail pages)
 - [ ] Error boundaries / error pages for API failures
 - [ ] Staggered entrance animations on MediaCard grids (`animationDelay: index * 50ms`)
 - [ ] Download queue entrance/exit animations (fade-in on add, fade-out on complete)

@@ -1,7 +1,7 @@
-export default function DashboardPage() {
+export default function LibraryPage() {
   return (
     <div>
-      <h1 className="text-2xl">Dashboard</h1>
+      <h1 className="text-2xl">Library</h1>
       <p className="mt-2 text-carbon-400">
         Your media library will appear here.
       </p>
