@@ -76,9 +76,9 @@ Status overview of every feature defined in [README.md](README.md) and
 
 ## Feature Components
 
-- [x] **MediaCard** — poster card with title, year, quality badge, status dot, hover lift, missing-poster placeholder
+- [x] **MediaCard** — poster card with title, year, quality badge, status dot, hover lift, missing-poster placeholder, optional media type chip
 - [ ] **DownloadProgress** — progress bar card with title, percent, speed, ETA, size info, status badge, retry button for failed
-- [ ] **SearchBar** — terminal-styled input with Search icon, integrated FilterToggle, `⌘K` hint, focus-within glow
+- [x] **SearchBar** — terminal-styled input with Search icon, focus-within glow (`src/components/search-bar.tsx`)
 - [x] **UserCard** — admin row with avatar (fallback initials), name, email, timestamp, status badge, approve/deny actions
 - [ ] **SeasonAccordion** — expandable season header with episode count, download ratio, mini progress bar, chevron rotation
 - [ ] **EpisodeItem** — episode row with number, title, quality badge, status badge, inline download progress, action buttons
@@ -94,8 +94,8 @@ The authenticated layout wrapping Library, Search, Downloads, History,
 Storage, and Admin pages.
 
 - [x] **Shell layout** — sidebar (`w-56`, `carbon-800`) + main content area (`flex-1`, `overflow-y-auto`, `max-w-6xl`)
-- [x] **Top bar** — `h-14`, logo left, user avatar + name + sign-out button right
-- [x] **Sidebar navigation** — icon + label links for Library, Search, Downloads, History, Storage
+- [x] **Top bar** — `h-14`, logo left, user avatar + name + sign-out button right (search input removed; search is now a full page)
+- [x] **Sidebar navigation** — icon + label links for Search, Library, Downloads, History, Storage (Search first)
   - [x] Active state: `bg-terminal/10 text-terminal border-l-2 border-terminal`
   - [x] Inactive state: `text-carbon-400 hover:text-carbon-200 hover:bg-carbon-700/50`
   - [x] Admin link separated by divider, visible only for admin users
@@ -111,24 +111,28 @@ Storage, and Admin pages.
 - [x] **Pending** — full-screen EmptyState with Clock icon and StatusBadge (`src/app/(auth)/pending/page.tsx`)
 - [~] **Denied** — ~~full-screen EmptyState with ShieldX icon~~ — "denied" status removed; non-approved users redirect to `/pending`
 
-### Library (`/`)
+### Search (Home — `/`)
+
+- [x] Route at `/` — landing page, first view after login (`src/app/(library)/page.tsx`)
+- [x] SearchBar sticky at top (`sticky top-0 z-10 bg-carbon-900/95 backdrop-blur-sm`)
+- [x] Search results in MediaCard grid with media type chip when filter is "all"
+- [x] Initial empty state ("Search for media")
+- [x] No-results empty state ("No results — try a different search term")
+- [x] Debounced search queries (400ms) to Radarr and Sonarr lookup APIs
+- [x] Filter toggle for movies / shows / both
+- [x] Sort select with relevance (default), title, date added, release date
+- [x] Server action for search (`src/app/(library)/search/actions.ts`)
+- [x] URL sync — query param `?q=` updated on search, restored on page load
+
+### Library (`/library`)
 
 - [x] Route group layout with auth guards (`src/app/(library)/layout.tsx`)
-- [x] Replace placeholder `src/app/(library)/page.tsx` with real library page
+- [x] Library page moved to `/library` (`src/app/(library)/library/page.tsx`)
 - [x] Page header with "Library" title and FilterToggle
 - [x] Responsive MediaCard grid (`grid-cols-2 sm:3 md:4 lg:5 xl:6 gap-4`)
 - [x] Empty state when nothing is downloaded yet ("No movies or shows downloaded yet")
 - [x] Fetch downloaded library data from Radarr (movies) and Sonarr (shows) APIs
 - [x] Filter logic for movies / shows / both
-
-### Search (`/search`)
-
-- [ ] SearchBar sticky below top bar (`sticky top-14 z-10 bg-carbon-900/95 backdrop-blur`)
-- [ ] Search results in MediaCard grid
-- [ ] Initial empty state ("Search for media")
-- [ ] No-results empty state ("No results — try a different search term")
-- [ ] Debounced search queries to Radarr and Sonarr lookup APIs
-- [ ] Filter toggle for movies / shows / both
 
 ### Movie Detail (`/movie/[id]`)
 
@@ -198,7 +202,7 @@ Storage, and Admin pages.
 - [x] HTTP client for Radarr API (base URL + API key from env)
 - [x] GET movies (library)
 - [ ] GET movie by ID (detail)
-- [ ] GET movie lookup (search)
+- [x] GET movie lookup (search)
 - [ ] GET queue (active/queued downloads)
 - [ ] GET history (events)
 - [ ] GET root folders (storage)
@@ -211,7 +215,7 @@ Storage, and Admin pages.
 - [x] HTTP client for Sonarr API (base URL + API key from env)
 - [x] GET series (library)
 - [ ] GET series by ID (detail)
-- [ ] GET series lookup (search)
+- [x] GET series lookup (search)
 - [ ] GET episodes for series
 - [ ] GET episode files for series
 - [ ] GET queue (active/queued downloads)

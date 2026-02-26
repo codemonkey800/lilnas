@@ -10,36 +10,12 @@ import { useLibrarySortFilter } from 'src/app/(library)/library-content'
 import { EmptyState } from 'src/components/empty-state'
 import { MediaCard } from 'src/components/media-card'
 import { useScrollContainer } from 'src/components/shell/scroll-container'
-import type { SortValue } from 'src/components/sort-select'
 import { useResponsiveColumns } from 'src/hooks/use-responsive-columns'
 import type { LibraryItem } from 'src/lib/media'
+import { sortItems } from 'src/lib/sort'
 
 const ESTIMATED_ROW_HEIGHT = 340
 const OVERSCAN = 3
-
-function compareDate(a: string | null, b: string | null): number {
-  const ta = a ? new Date(a).getTime() : 0
-  const tb = b ? new Date(b).getTime() : 0
-  return ta - tb
-}
-
-function sortItems(items: LibraryItem[], sort: SortValue): LibraryItem[] {
-  const sorted = [...items]
-  switch (sort) {
-    case 'title-asc':
-      return sorted.sort((a, b) => a.title.localeCompare(b.title))
-    case 'title-desc':
-      return sorted.sort((a, b) => b.title.localeCompare(a.title))
-    case 'added-desc':
-      return sorted.sort((a, b) => compareDate(b.addedAt, a.addedAt))
-    case 'added-asc':
-      return sorted.sort((a, b) => compareDate(a.addedAt, b.addedAt))
-    case 'release-desc':
-      return sorted.sort((a, b) => compareDate(b.releaseDate, a.releaseDate))
-    case 'release-asc':
-      return sorted.sort((a, b) => compareDate(a.releaseDate, b.releaseDate))
-  }
-}
 
 interface LibraryGridProps {
   items: LibraryItem[]
@@ -88,7 +64,7 @@ export function LibraryGrid({ items }: LibraryGridProps) {
         action={
           <Button
             component={Link}
-            href="/search"
+            href="/"
             variant="outlined"
             color="primary"
           >
@@ -127,7 +103,11 @@ export function LibraryGrid({ items }: LibraryGridProps) {
               className="grid grid-cols-2 gap-4 pb-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
             >
               {rowItems.map(item => (
-                <MediaCard key={`${item.mediaType}-${item.id}`} item={item} />
+                <MediaCard
+                  key={`${item.mediaType}-${item.id}`}
+                  item={item}
+                  showMediaType={filter === 'all'}
+                />
               ))}
             </div>
           )

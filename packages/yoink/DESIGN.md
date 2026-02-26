@@ -176,8 +176,8 @@ All spacing derives from a **4px base unit** via Tailwind's default scale.
 │ carbon-800   │  ┌──────────────────────────────────────┐  │
 │              │  │  Page Content (max-w-6xl mx-auto p-6)│  │
 │ ┌──────────┐ │  │                                      │  │
-│ │Library   │ │  │                                      │  │
 │ │Search    │ │  │                                      │  │
+│ │Library   │ │  │                                      │  │
 │ │Downloads │ │  │                                      │  │
 │ │History   │ │  │                                      │  │
 │ │Storage   │ │  │                                      │  │
@@ -651,7 +651,8 @@ Full-screen centered, shown when admin has denied the access request.
 Wraps all authenticated pages (Library, Search, Downloads, History, Storage, Admin).
 
 - Layout: See **App Shell Layout** diagram in Spacing & Layout section
-- Sidebar nav items: `Library`, `Search`, `Downloads`, `History`, `Storage` — each with icon + label
+- Sidebar nav items: `Search`, `Library`, `Downloads`, `History`, `Storage` — each with icon + label
+- Search (`/`) is the home/landing page
 - Active nav item: `bg-terminal/10 text-terminal border-l-2 border-terminal`
 - Inactive: `text-carbon-400 hover:text-carbon-200 hover:bg-carbon-700/50`
 - Admin link only visible for admin users, separated by a `border-t border-carbon-600` divider
@@ -681,9 +682,11 @@ Wraps all authenticated pages (Library, Search, Downloads, History, Storage, Adm
 
 - Header row: `flex items-center justify-between` with page title and `<FilterToggle>`
 - Grid: responsive `<MediaCard>` grid per Spacing & Layout
-- Empty state: `<EmptyState icon={<Film />} title="No downloads yet" description="Search for movies and shows to get started." action={<Button asChild><Link href="/search">Browse</Link></Button>} />`
+- Empty state: `<EmptyState icon={<Film />} title="No downloads yet" description="Search for movies and shows to get started." action={<Button asChild><Link href="/">Browse</Link></Button>} />`
 
-### Search
+### Search (Home — `/`)
+
+The landing page. This is the first view users see after login.
 
 ```
 ┌──────────────────────────────────────────┐

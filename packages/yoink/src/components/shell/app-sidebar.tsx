@@ -3,6 +3,7 @@
 import { cns } from '@lilnas/utils/cns'
 import DownloadIcon from '@mui/icons-material/Download'
 import HistoryIcon from '@mui/icons-material/History'
+import SearchIcon from '@mui/icons-material/Search'
 import ShieldIcon from '@mui/icons-material/Shield'
 import StorageIcon from '@mui/icons-material/Storage'
 import VideoLibraryIcon from '@mui/icons-material/VideoLibrary'
@@ -19,7 +20,8 @@ import type { ComponentType } from 'react'
 import { YoinkLogo } from 'src/components/yoink-logo'
 
 const mainNav = [
-  { label: 'Library', icon: VideoLibraryIcon, href: '/' },
+  { label: 'Search', icon: SearchIcon, href: '/' },
+  { label: 'Library', icon: VideoLibraryIcon, href: '/library' },
   { label: 'Downloads', icon: DownloadIcon, href: '/downloads' },
   { label: 'History', icon: HistoryIcon, href: '/history' },
   { label: 'Storage', icon: StorageIcon, href: '/storage' },

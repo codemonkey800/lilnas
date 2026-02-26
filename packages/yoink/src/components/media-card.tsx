@@ -18,9 +18,10 @@ const statusDotColor: Record<LibraryItem['status'], string> = {
 
 interface MediaCardProps {
   item: LibraryItem
+  showMediaType?: boolean
 }
 
-export function MediaCard({ item }: MediaCardProps) {
+export function MediaCard({ item, showMediaType }: MediaCardProps) {
   const [loaded, setLoaded] = useState(false)
   const PlaceholderIcon = item.mediaType === 'movie' ? MovieIcon : TvIcon
 
@@ -71,6 +72,32 @@ export function MediaCard({ item }: MediaCardProps) {
               statusDotColor[item.status],
             )}
           />
+
+          {showMediaType && (
+            <Chip
+              icon={
+                item.mediaType === 'movie' ? (
+                  <MovieIcon sx={{ fontSize: 12 }} />
+                ) : (
+                  <TvIcon sx={{ fontSize: 12 }} />
+                )
+              }
+              label={item.mediaType === 'movie' ? 'Movie' : 'Show'}
+              size="small"
+              sx={{
+                position: 'absolute',
+                left: 6,
+                bottom: 6,
+                height: 20,
+                fontSize: '0.625rem',
+                fontFamily: 'var(--font-mono)',
+                bgcolor: 'rgba(0, 0, 0, 0.7)',
+                backdropFilter: 'blur(4px)',
+                color: 'var(--color-carbon-200)',
+                '& .MuiChip-icon': { color: 'var(--color-carbon-300)' },
+              }}
+            />
+          )}
         </div>
 
         <div className="space-y-0.5 p-2">
