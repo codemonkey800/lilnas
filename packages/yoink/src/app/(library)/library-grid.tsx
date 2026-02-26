@@ -2,13 +2,14 @@
 
 import MovieIcon from '@mui/icons-material/Movie'
 import Button from '@mui/material/Button'
-import { useWindowVirtualizer } from '@tanstack/react-virtual'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import Link from 'next/link'
 import { useCallback, useMemo, useState } from 'react'
 
 import { useLibrarySortFilter } from 'src/app/(library)/library-content'
 import { EmptyState } from 'src/components/empty-state'
 import { MediaCard } from 'src/components/media-card'
+import { useScrollContainer } from 'src/components/shell/scroll-container'
 import type { SortValue } from 'src/components/sort-select'
 import { useResponsiveColumns } from 'src/hooks/use-responsive-columns'
 import type { LibraryItem } from 'src/lib/media'
@@ -44,8 +45,10 @@ interface LibraryGridProps {
   items: LibraryItem[]
 }
 
+// eslint-disable-next-line react-compiler/react-compiler -- useVirtualizer returns unstable references by design
 export function LibraryGrid({ items }: LibraryGridProps) {
   const { sort, filter } = useLibrarySortFilter()
+  const scrollEl = useScrollContainer()
   const [scrollMargin, setScrollMargin] = useState(0)
   const columns = useResponsiveColumns()
 
@@ -67,11 +70,12 @@ export function LibraryGrid({ items }: LibraryGridProps) {
 
   const rowCount = Math.ceil(filtered.length / columns)
 
-  const virtualizer = useWindowVirtualizer({
+  const virtualizer = useVirtualizer({
     count: rowCount,
     estimateSize: () => ESTIMATED_ROW_HEIGHT,
     overscan: OVERSCAN,
     scrollMargin,
+    getScrollElement: () => scrollEl,
   })
 
   if (filtered.length === 0) {
