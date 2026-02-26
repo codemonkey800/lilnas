@@ -2,7 +2,7 @@
 
 import { cns } from '@lilnas/utils/cns'
 import DownloadIcon from '@mui/icons-material/Download'
-import GridViewIcon from '@mui/icons-material/GridView'
+import VideoLibraryIcon from '@mui/icons-material/VideoLibrary'
 import HistoryIcon from '@mui/icons-material/History'
 import ShieldIcon from '@mui/icons-material/Shield'
 import StorageIcon from '@mui/icons-material/Storage'
@@ -20,7 +20,7 @@ import { usePathname } from 'next/navigation'
 import type { ComponentType } from 'react'
 
 const mainNav = [
-  { label: 'Library', icon: GridViewIcon, href: '/' },
+  { label: 'Library', icon: VideoLibraryIcon, href: '/' },
   { label: 'Downloads', icon: DownloadIcon, href: '/downloads' },
   { label: 'History', icon: HistoryIcon, href: '/history' },
   { label: 'Storage', icon: StorageIcon, href: '/storage' },
