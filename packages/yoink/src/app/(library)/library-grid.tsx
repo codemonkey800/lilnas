@@ -45,7 +45,6 @@ interface LibraryGridProps {
   items: LibraryItem[]
 }
 
-// eslint-disable-next-line react-compiler/react-compiler -- useVirtualizer returns unstable references by design
 export function LibraryGrid({ items }: LibraryGridProps) {
   const { sort, filter } = useLibrarySortFilter()
   const scrollEl = useScrollContainer()
@@ -70,6 +69,7 @@ export function LibraryGrid({ items }: LibraryGridProps) {
 
   const rowCount = Math.ceil(filtered.length / columns)
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- useVirtualizer returns unstable references by design
   const virtualizer = useVirtualizer({
     count: rowCount,
     estimateSize: () => ESTIMATED_ROW_HEIGHT,
@@ -127,10 +127,7 @@ export function LibraryGrid({ items }: LibraryGridProps) {
               className="grid grid-cols-2 gap-4 pb-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
             >
               {rowItems.map(item => (
-                <MediaCard
-                  key={`${item.mediaType}-${item.id}`}
-                  item={item}
-                />
+                <MediaCard key={`${item.mediaType}-${item.id}`} item={item} />
               ))}
             </div>
           )
