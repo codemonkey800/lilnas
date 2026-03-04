@@ -17,8 +17,11 @@ import {
 } from '@lilnas/media/radarr-next'
 import { revalidatePath } from 'next/cache'
 
-import { type MovieRelease, searchMovieReleases } from 'src/lib/media'
-import { getRadarrClient } from 'src/lib/media-clients'
+import {
+  getRadarrClient,
+  type MovieRelease,
+  searchMovieReleases,
+} from 'src/media'
 
 function moviesSearchBody(movieIds: number[]) {
   return { name: 'MoviesSearch', movieIds } as Record<string, unknown>

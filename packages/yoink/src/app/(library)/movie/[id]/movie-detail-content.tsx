@@ -7,7 +7,7 @@ import { useCallback, useState, useTransition } from 'react'
 import { ConfirmDialog } from 'src/components/confirm-dialog'
 import { useConfirmDialog } from 'src/hooks/use-confirm-dialog'
 import { useToast } from 'src/hooks/use-toast'
-import { type MovieDetail } from 'src/lib/media'
+import { type MovieDetail } from 'src/media'
 
 import {
   addMovieToLibrary,

@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { Suspense } from 'react'
 
-import { getMovie } from 'src/lib/media'
+import { getMovie } from 'src/media'
 
 import { MovieDetailContent } from './movie-detail-content'
 import { MovieDetailSkeleton } from './movie-detail-skeleton'

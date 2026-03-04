@@ -10,7 +10,7 @@ import {
   type SeriesResource,
 } from '@lilnas/media/sonarr'
 
-import { getRadarrClient, getSonarrClient } from 'src/lib/media-clients'
+import { getRadarrClient, getSonarrClient } from 'src/media/clients'
 
 export interface LibraryItem {
   id: number

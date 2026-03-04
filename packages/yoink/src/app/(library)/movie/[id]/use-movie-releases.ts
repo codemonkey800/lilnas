@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import type { MovieRelease } from 'src/lib/media'
+import type { MovieRelease } from 'src/media'
 
 import { grabRelease, searchReleases } from './actions'
 

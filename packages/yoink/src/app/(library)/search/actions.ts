@@ -4,7 +4,7 @@ import {
   type LibraryItem,
   type SearchFilter,
   searchMedia as searchMediaLib,
-} from 'src/lib/media'
+} from 'src/media'
 
 export async function searchMedia(
   term: string,

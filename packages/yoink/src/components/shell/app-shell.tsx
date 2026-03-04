@@ -3,12 +3,12 @@
 import { type ReactNode, useState } from 'react'
 
 import { signOutAction } from 'src/app/(auth)/login/actions'
+import type { AuthenticatedUser } from 'src/auth-user'
 import { QueryProvider } from 'src/components/query-provider'
 import { AppSidebar } from 'src/components/shell/app-sidebar'
 import { ScrollContainerProvider } from 'src/components/shell/scroll-container'
 import { SiteHeader } from 'src/components/shell/site-header'
 import { ToastProvider } from 'src/components/toast-provider'
-import type { AuthenticatedUser } from 'src/lib/user-status'
 
 const DRAWER_WIDTH = 224
 

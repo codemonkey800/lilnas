@@ -3,8 +3,8 @@ import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import { redirect } from 'next/navigation'
 
+import { getAuthenticatedUser } from 'src/auth-user'
 import { YoinkLogo } from 'src/components/yoink-logo'
-import { getAuthenticatedUser } from 'src/lib/user-status'
 
 import { signInWithGoogle } from './actions'
 

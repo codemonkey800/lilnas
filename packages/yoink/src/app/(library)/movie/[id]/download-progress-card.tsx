@@ -4,7 +4,7 @@ import Card from '@mui/material/Card'
 import Chip from '@mui/material/Chip'
 import LinearProgress from '@mui/material/LinearProgress'
 
-import { formatBytes, type MovieDownloadInfo } from 'src/lib/media'
+import { formatBytes, type MovieDownloadInfo } from 'src/media'
 
 interface DownloadProgressCardProps {
   liveDownload: MovieDownloadInfo | null

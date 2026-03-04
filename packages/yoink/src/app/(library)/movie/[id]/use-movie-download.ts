@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useToast } from 'src/hooks/use-toast'
-import type { MovieDetail, MovieDownloadInfo } from 'src/lib/media'
+import type { MovieDetail, MovieDownloadInfo } from 'src/media'
 
 import { setMovieMonitored } from './actions'
 

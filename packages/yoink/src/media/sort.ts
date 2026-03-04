@@ -1,5 +1,5 @@
 import type { SortValue } from 'src/components/sort-select'
-import type { LibraryItem } from 'src/lib/media'
+import type { LibraryItem } from 'src/media/library'
 
 function compareDate(a: string | null, b: string | null): number {
   const ta = a ? new Date(a).getTime() : 0

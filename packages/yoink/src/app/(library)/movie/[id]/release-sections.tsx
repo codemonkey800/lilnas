@@ -6,7 +6,7 @@ import Collapse from '@mui/material/Collapse'
 import { useMemo, useState } from 'react'
 
 import { Pagination } from 'src/components/pagination'
-import type { MovieRelease } from 'src/lib/media'
+import type { MovieRelease } from 'src/media'
 
 import { ReleaseCard } from './release-card'
 import { QualityBadge, type QualityTier } from './release-pills'

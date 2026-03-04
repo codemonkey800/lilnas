@@ -8,7 +8,7 @@ import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 
 import { StatusBadge } from 'src/components/status-badge'
-import dayjs from 'src/lib/dayjs'
+import dayjs from 'src/utils/dayjs'
 
 export interface AdminUser {
   id: string

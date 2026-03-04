@@ -17,7 +17,7 @@ import {
   formatRuntime,
   type MovieDetail,
   type MovieDownloadInfo,
-} from 'src/lib/media'
+} from 'src/media'
 
 import { DownloadButton } from './download-button'
 import { getQualityTier, QualityBadge } from './release-pills'

@@ -8,8 +8,7 @@ import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import { useMemo } from 'react'
 
-import { formatBytes, type MovieDetail } from 'src/lib/media'
-import { parseReleaseName } from 'src/lib/parse-release'
+import { formatBytes, type MovieDetail, parseReleaseName } from 'src/media'
 
 import { AttributePills, getQualityTier, QualityBadge } from './release-pills'
 

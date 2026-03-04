@@ -5,8 +5,11 @@ import {
 } from '@lilnas/media/radarr-next'
 import { type NextRequest, NextResponse } from 'next/server'
 
-import { type MovieDownloadInfo, queueToDownloadInfo } from 'src/lib/media'
-import { getRadarrClient } from 'src/lib/media-clients'
+import {
+  getRadarrClient,
+  type MovieDownloadInfo,
+  queueToDownloadInfo,
+} from 'src/media'
 
 export const dynamic = 'force-dynamic'
 

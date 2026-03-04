@@ -1,6 +1,6 @@
 import { cns } from '@lilnas/utils/cns'
 
-import { type ParsedRelease } from 'src/lib/parse-release'
+import { type ParsedRelease } from 'src/media'
 
 // ── Quality tier ──────────────────────────────────────────────────────────────
 

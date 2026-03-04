@@ -6,8 +6,7 @@ import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import { useMemo } from 'react'
 
-import { formatBytes, type MovieRelease } from 'src/lib/media'
-import { parseReleaseName } from 'src/lib/parse-release'
+import { formatBytes, type MovieRelease, parseReleaseName } from 'src/media'
 
 import { AttributePills } from './release-pills'
 

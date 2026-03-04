@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation'
 import type { ReactNode } from 'react'
 
+import { getAuthenticatedUser } from 'src/auth-user'
 import { AppShell } from 'src/components/shell/app-shell'
-import { getAuthenticatedUser } from 'src/lib/user-status'
 
 export default async function LibraryLayout({
   children,

@@ -8,8 +8,8 @@ import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import Link from 'next/link'
 
+import type { AuthenticatedUser } from 'src/auth-user'
 import { YoinkLogo } from 'src/components/yoink-logo'
-import type { AuthenticatedUser } from 'src/lib/user-status'
 
 export function SiteHeader({
   user,

@@ -9,7 +9,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { useState } from 'react'
 
-import type { LibraryItem } from 'src/lib/media'
+import type { LibraryItem } from 'src/media'
 
 const statusDotColor: Record<LibraryItem['status'], string> = {
   downloaded: 'bg-terminal',

@@ -3,9 +3,9 @@
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
+import { getAuthenticatedUser } from 'src/auth-user'
 import { db } from 'src/db'
 import { users } from 'src/db/schema'
-import { getAuthenticatedUser } from 'src/lib/user-status'
 
 async function requireAdmin() {
   const user = await getAuthenticatedUser()

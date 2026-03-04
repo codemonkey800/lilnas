@@ -11,8 +11,8 @@ import { EmptyState } from 'src/components/empty-state'
 import { MediaCard } from 'src/components/media-card'
 import { useScrollContainer } from 'src/components/shell/scroll-container'
 import { useResponsiveColumns } from 'src/hooks/use-responsive-columns'
-import type { LibraryItem } from 'src/lib/media'
-import { sortItems } from 'src/lib/sort'
+import type { LibraryItem } from 'src/media'
+import { sortItems } from 'src/media/sort'
 
 const ESTIMATED_ROW_HEIGHT = 340
 const OVERSCAN = 3

@@ -6,7 +6,7 @@ import Card from '@mui/material/Card'
 import CircularProgress from '@mui/material/CircularProgress'
 import { useMemo } from 'react'
 
-import type { MovieRelease } from 'src/lib/media'
+import type { MovieRelease } from 'src/media'
 
 import { getQualityTier, qualityTierOrder } from './release-pills'
 import { type ReleaseGroup, ReleaseSection } from './release-sections'

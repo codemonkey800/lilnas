@@ -11,7 +11,7 @@ import {
   type ReleaseResource,
 } from '@lilnas/media/radarr-next'
 
-import { getRadarrClient } from 'src/lib/media-clients'
+import { getRadarrClient } from 'src/media/clients'
 
 interface MovieFileInfo {
   id: number

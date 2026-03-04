@@ -13,8 +13,8 @@ import { FilterToggle, type FilterValue } from 'src/components/filter-toggle'
 import { MediaCard } from 'src/components/media-card'
 import { SearchBar } from 'src/components/search-bar'
 import { SortSelect, type SortValue } from 'src/components/sort-select'
-import type { LibraryItem } from 'src/lib/media'
-import { sortItems } from 'src/lib/sort'
+import type { LibraryItem } from 'src/media'
+import { sortItems } from 'src/media/sort'
 
 const DEBOUNCE_MS = 400
 

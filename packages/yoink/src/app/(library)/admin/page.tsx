@@ -2,9 +2,9 @@ import { asc } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 
 import { AdminContent } from 'src/app/(library)/admin/admin-content'
+import { getAuthenticatedUser } from 'src/auth-user'
 import { db } from 'src/db'
 import { users } from 'src/db/schema'
-import { getAuthenticatedUser } from 'src/lib/user-status'
 
 export default async function AdminPage() {
   const currentUser = await getAuthenticatedUser()
