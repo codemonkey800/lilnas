@@ -8,9 +8,17 @@ import { YoinkLogo } from 'src/components/yoink-logo'
 
 import { signInWithGoogle } from './actions'
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ return_to?: string }>
+}) {
+  const { return_to: rawReturnTo } = await searchParams
+  const returnTo =
+    rawReturnTo && rawReturnTo.startsWith('/') ? rawReturnTo : '/'
+
   const user = await getAuthenticatedUser()
-  if (user?.status === 'approved') redirect('/')
+  if (user?.status === 'approved') redirect(returnTo)
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-carbon-950">
@@ -36,7 +44,10 @@ export default async function LoginPage() {
             Media download manager
           </p>
 
-          <form action={signInWithGoogle} className="mt-4 w-full">
+          <form
+            action={signInWithGoogle.bind(null, returnTo)}
+            className="mt-4 w-full"
+          >
             <Button
               type="submit"
               variant="outlined"

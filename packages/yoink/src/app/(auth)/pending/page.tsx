@@ -2,18 +2,17 @@ import ScheduleIcon from '@mui/icons-material/Schedule'
 import Button from '@mui/material/Button'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
-import { redirect } from 'next/navigation'
-
 import { signOutAction } from 'src/app/(auth)/login/actions'
 import { getAuthenticatedUser } from 'src/auth-user'
 import { EmptyState } from 'src/components/empty-state'
 import { StatusBadge } from 'src/components/status-badge'
 import { YoinkLogo } from 'src/components/yoink-logo'
+import { redirectToLogin } from 'src/lib/redirect-to-login'
 
 export default async function PendingPage() {
   const user = await getAuthenticatedUser()
 
-  if (!user) redirect('/login')
+  if (!user) await redirectToLogin()
   if (user.status === 'approved') redirect('/')
 
   return (
