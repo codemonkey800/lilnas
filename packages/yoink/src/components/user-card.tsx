@@ -15,7 +15,7 @@ export interface AdminUser {
   name: string | null
   email: string | null
   image: string | null
-  status: 'pending' | 'approved'
+  status: 'pending' | 'approved' | 'denied'
   emailVerified: Date | null
 }
 

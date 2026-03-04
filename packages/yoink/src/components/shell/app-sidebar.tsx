@@ -15,7 +15,7 @@ import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import type { ComponentType } from 'react'
+import { type ComponentType, useEffect, useLayoutEffect, useRef } from 'react'
 
 import { YoinkLogo } from 'src/components/yoink-logo'
 
@@ -77,6 +77,15 @@ export function AppSidebar({
   width,
 }: AppSidebarProps) {
   const pathname = usePathname()
+  const onMobileCloseRef = useRef(onMobileClose)
+  useLayoutEffect(() => {
+    onMobileCloseRef.current = onMobileClose
+  })
+
+  useEffect(() => {
+    onMobileCloseRef.current()
+    // Only re-run when pathname changes, not when onMobileClose reference changes
+  }, [pathname])
 
   const navItems = (
     <List component="div" className="flex-1 px-2">

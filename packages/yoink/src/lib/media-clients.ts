@@ -1,4 +1,4 @@
-import { createClient as createRadarrClient } from '@lilnas/media/radarr/client'
+import { createClient as createRadarrClient } from '@lilnas/media/radarr-next/client'
 import { createClient as createSonarrClient } from '@lilnas/media/sonarr/client'
 
 export function getRadarrClient() {

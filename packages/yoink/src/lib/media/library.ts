@@ -3,7 +3,7 @@ import {
   getApiV3MovieLookup,
   type MediaCover,
   type MovieResource,
-} from '@lilnas/media/radarr'
+} from '@lilnas/media/radarr-next'
 import {
   getApiV3Series,
   getApiV3SeriesLookup,
@@ -39,7 +39,7 @@ function movieToLibraryItem(movie: MovieResource): LibraryItem {
     mediaType: 'movie',
     quality: movie.movieFile?.quality?.quality?.name ?? null,
     status: movie.hasFile ? 'downloaded' : 'missing',
-    href: `/movie/${movie.id}`,
+    href: `/movie/${movie.tmdbId}`,
     addedAt: movie.added ?? new Date(0).toISOString(),
     releaseDate:
       movie.releaseDate ?? movie.digitalRelease ?? movie.inCinemas ?? null,
@@ -64,13 +64,13 @@ function seriesToLibraryItem(series: SeriesResource): LibraryItem {
   }
 }
 
-export async function getLibraryMovies(): Promise<LibraryItem[]> {
+async function getLibraryMovies(): Promise<LibraryItem[]> {
   const result = await getApiV3Movie({ client: getRadarrClient() })
   const movies = (result.data ?? []) as MovieResource[]
   return movies.filter(m => m.hasFile).map(movieToLibraryItem)
 }
 
-export async function getLibrarySeries(): Promise<LibraryItem[]> {
+async function getLibrarySeries(): Promise<LibraryItem[]> {
   const result = await getApiV3Series({ client: getSonarrClient() })
   const series = (result.data ?? []) as SeriesResource[]
   return series
@@ -110,7 +110,7 @@ async function lookupMovies(term: string): Promise<LibraryItem[]> {
     return {
       ...movieToLibraryItem(movie),
       id: movie.tmdbId ?? 0,
-      href: `/movie/tmdb-${movie.tmdbId}`,
+      href: `/movie/${movie.tmdbId}`,
     }
   })
 }
@@ -140,6 +140,16 @@ async function lookupSeries(term: string): Promise<LibraryItem[]> {
   })
 }
 
+function interleave(a: LibraryItem[], b: LibraryItem[]): LibraryItem[] {
+  const result: LibraryItem[] = []
+  const len = Math.max(a.length, b.length)
+  for (let i = 0; i < len; i++) {
+    if (i < a.length) result.push(a[i]!)
+    if (i < b.length) result.push(b[i]!)
+  }
+  return result
+}
+
 export async function searchMedia(
   term: string,
   filter: SearchFilter = 'all',
@@ -152,14 +162,4 @@ export async function searchMedia(
     lookupSeries(term),
   ])
   return interleave(movies, series)
-}
-
-function interleave(a: LibraryItem[], b: LibraryItem[]): LibraryItem[] {
-  const result: LibraryItem[] = []
-  const len = Math.max(a.length, b.length)
-  for (let i = 0; i < len; i++) {
-    if (i < a.length) result.push(a[i])
-    if (i < b.length) result.push(b[i])
-  }
-  return result
 }

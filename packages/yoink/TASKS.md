@@ -69,7 +69,7 @@ Status overview of every feature defined in [README.md](README.md) and
 - [x] **Drawer** — MUI `Drawer` (temporary for mobile sidebar, permanent for desktop)
 - [x] **Skeleton** — MUI `Skeleton` with phosphor green tint
 - [x] **Tooltip** — MUI `Tooltip` themed to Phosphor Terminal
-- [ ] **Progress** — MUI `LinearProgress` styled with phosphor green fill + glow
+- [x] **Progress** — MUI `LinearProgress` styled with phosphor green fill + glow
 - [x] **FilterToggle** — MUI `ToggleButtonGroup` (Both / Movies / Shows)
 
 ---
@@ -77,14 +77,14 @@ Status overview of every feature defined in [README.md](README.md) and
 ## Feature Components
 
 - [x] **MediaCard** — poster card with title, year, quality badge, status dot, hover lift, missing-poster placeholder, optional media type chip
-- [ ] **DownloadProgress** — progress bar card with title, percent, speed, ETA, size info, status badge, retry button for failed
+- [x] **DownloadProgress** — progress bar card with title, percent, speed, ETA, size info, status badge, retry button for failed
 - [x] **SearchBar** — terminal-styled input with Search icon, focus-within glow (`src/components/search-bar.tsx`)
 - [x] **UserCard** — admin row with avatar (fallback initials), name, email, timestamp, status badge, approve/deny actions
 - [ ] **SeasonAccordion** — expandable season header with episode count, download ratio, mini progress bar, chevron rotation
 - [ ] **EpisodeItem** — episode row with number, title, quality badge, status badge, inline download progress, action buttons
 - [ ] **StorageBar** — segmented disk usage bar (movies/shows), label, used/total stats, warning/critical thresholds
 - [ ] **EventItem** — history feed row with event type icon + color, title, quality badge, relative timestamp, link to detail
-- [ ] **ActionMenu** — contextual download/delete/re-download/retry actions based on download status, confirmation dialogs
+- [x] **ActionMenu** — contextual download/delete/re-download/retry actions based on download status, confirmation dialogs
 
 ---
 
@@ -136,13 +136,13 @@ Storage, and Admin pages.
 
 ### Movie Detail (`/movie/[id]`)
 
-- [ ] Top section: poster (`w-48 aspect-[2/3]`) + metadata (title, year, runtime, rating, quality badge)
-- [ ] Overview paragraph (`font-sans text-carbon-200 leading-relaxed max-w-prose`)
-- [ ] ActionMenu (download / delete / re-download based on status)
-- [ ] Inline DownloadProgress when actively downloading
-- [ ] Files section: Card table with filename, size, quality columns
-- [ ] Fetch movie data from Radarr API
-- [ ] Server actions: trigger download, delete movie file, re-download
+- [x] Top section: poster (`w-48 aspect-[2/3]`) + metadata (title, year, runtime, rating, quality badge)
+- [x] Overview paragraph (`font-sans text-carbon-200 leading-relaxed max-w-prose`)
+- [x] ActionMenu (download / delete / re-download based on status)
+- [x] Inline DownloadProgress when actively downloading
+- [x] Files section: Card table with filename, size, quality columns
+- [x] Fetch movie data from Radarr API
+- [x] Server actions: trigger download, delete movie file, re-download
 
 ### Show Detail (`/show/[id]`)
 
@@ -201,14 +201,14 @@ Storage, and Admin pages.
 
 - [x] HTTP client for Radarr API (base URL + API key from env)
 - [x] GET movies (library)
-- [ ] GET movie by ID (detail)
+- [x] GET movie by ID (detail)
 - [x] GET movie lookup (search)
-- [ ] GET queue (active/queued downloads)
+- [x] GET queue (active/queued downloads)
 - [ ] GET history (events)
 - [ ] GET root folders (storage)
-- [ ] POST command: movie search (trigger download)
-- [ ] DELETE movie file
-- [ ] DELETE queue item (cancel download)
+- [x] POST command: movie search (trigger download)
+- [x] DELETE movie file
+- [x] DELETE queue item (cancel download)
 
 ### Sonarr Client
 
@@ -243,6 +243,6 @@ Storage, and Admin pages.
 - [ ] Download queue entrance/exit animations (fade-in on add, fade-out on complete)
 - [ ] Season accordion smooth height animation (`grid-rows-[0fr]` to `grid-rows-[1fr]`)
 - [ ] `⌘K` keyboard shortcut to focus search
-- [ ] Confirmation dialogs for destructive actions (delete movie/episode files)
+- [x] Confirmation dialogs for destructive actions (delete movie/episode files)
 - [x] Relative timestamp formatting (e.g. "3 hours ago") for history and admin
 - [ ] Metadata: page titles and descriptions per route

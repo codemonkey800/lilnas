@@ -1,13 +1,14 @@
 import Chip from '@mui/material/Chip'
 
-type AccountStatus = 'pending' | 'approved'
+type AccountStatus = 'pending' | 'approved' | 'denied'
 
 const statusConfig: Record<
   AccountStatus,
-  { color: 'warning' | 'success'; label: string }
+  { color: 'warning' | 'success' | 'error'; label: string }
 > = {
   pending: { color: 'warning', label: 'Pending' },
   approved: { color: 'success', label: 'Approved' },
+  denied: { color: 'error', label: 'Denied' },
 }
 
 interface StatusBadgeProps {

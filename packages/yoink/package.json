@@ -33,6 +33,7 @@
     "@mui/icons-material": "7.3.4",
     "@mui/material": "7.3.4",
     "@mui/material-nextjs": "7.3.3",
+    "@tanstack/react-query": "5.90.2",
     "@tanstack/react-virtual": "^3.13.19",
     "dayjs": "1.11.18",
     "drizzle-orm": "^0.45.1",
