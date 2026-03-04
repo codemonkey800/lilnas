@@ -80,9 +80,7 @@ export function AdminContent({
                 key={user.id}
                 user={user}
                 onApprove={handleApprove}
-                onRemove={
-                  user.id === currentUserId ? undefined : handleRemove
-                }
+                onRemove={user.id === currentUserId ? undefined : handleRemove}
               />
             ))}
           </div>
@@ -112,9 +110,7 @@ export function AdminContent({
               <UserCard
                 key={user.id}
                 user={user}
-                onRemove={
-                  user.id === currentUserId ? undefined : handleRemove
-                }
+                onRemove={user.id === currentUserId ? undefined : handleRemove}
               />
             ))}
           </div>

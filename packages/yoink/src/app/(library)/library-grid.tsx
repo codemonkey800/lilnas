@@ -62,12 +62,7 @@ export function LibraryGrid({ items }: LibraryGridProps) {
         title="No movies or shows downloaded yet"
         description="Search for media to start building your library."
         action={
-          <Button
-            component={Link}
-            href="/"
-            variant="outlined"
-            color="primary"
-          >
+          <Button component={Link} href="/" variant="outlined" color="primary">
             Browse
           </Button>
         }

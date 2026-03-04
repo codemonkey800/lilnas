@@ -63,10 +63,7 @@ export function SearchContent() {
     })
   }, [debouncedQuery, filter])
 
-  const sortedResults = useMemo(
-    () => sortItems(results, sort),
-    [results, sort],
-  )
+  const sortedResults = useMemo(() => sortItems(results, sort), [results, sort])
 
   function handleQueryChange(value: string) {
     setQuery(value)
@@ -89,16 +86,18 @@ export function SearchContent() {
     <>
       <div
         className={cns(
-          'sticky top-0 z-10 -mx-6 px-6 py-4',
+          'sticky top-0 z-10 -mx-4 px-4 py-4 md:-mx-6 md:px-6',
           'bg-carbon-900/95 backdrop-blur-sm',
         )}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1">
             <SearchBar query={query} onQueryChange={handleQueryChange} />
           </div>
-          <SortSelect value={sort} onChange={setSort} showRelevance />
-          <FilterToggle value={filter} onChange={handleFilterChange} />
+          <div className="flex items-center gap-3">
+            <SortSelect value={sort} onChange={setSort} showRelevance />
+            <FilterToggle value={filter} onChange={handleFilterChange} />
+          </div>
         </div>
       </div>
 

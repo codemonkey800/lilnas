@@ -22,9 +22,6 @@ export async function approveUser(userId: string) {
 export async function removeUser(userId: string) {
   const admin = await requireAdmin()
   if (userId === admin.id) throw new Error('Cannot remove yourself')
-  await db
-    .update(users)
-    .set({ status: 'pending' })
-    .where(eq(users.id, userId))
+  await db.update(users).set({ status: 'pending' }).where(eq(users.id, userId))
   revalidatePath('/admin')
 }

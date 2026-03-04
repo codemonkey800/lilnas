@@ -29,7 +29,7 @@ export function LibraryContent({ children }: LibraryContentProps) {
 
   return (
     <LibrarySortFilterContext.Provider value={{ sort, filter }}>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-3xl">Library</h2>
         <div className="flex items-center gap-2">
           <SortSelect value={sort} onChange={setSort} />
