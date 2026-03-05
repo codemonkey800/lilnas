@@ -107,9 +107,9 @@ echo "Pushing schema to dev database..."
 npx drizzle-kit push --force
 
 # ---------------------------------------------------------------------------
-# Start Next.js dev server
+# Start backend and frontend dev servers
 # ---------------------------------------------------------------------------
 
 echo ""
-echo "Starting Next.js dev server..."
-npx next dev --turbopack -p "${PORT:-8080}"
+echo "Starting backend and frontend dev servers..."
+pnpm run dev:servers
