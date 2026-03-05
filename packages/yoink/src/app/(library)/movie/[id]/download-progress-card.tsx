@@ -33,7 +33,7 @@ export function DownloadProgressCard({
     <Card className="space-y-3 p-4">
       <div className="flex items-center justify-between">
         <span className="line-clamp-1 font-mono text-sm text-carbon-100">
-          {liveDownload?.title ?? 'Initiating download...'}
+          {liveDownload?.title ?? 'Searching indexers...'}
         </span>
         <Chip
           label={chipLabel}

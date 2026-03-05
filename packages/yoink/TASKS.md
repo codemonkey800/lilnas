@@ -80,8 +80,8 @@ Status overview of every feature defined in [README.md](README.md) and
 - [x] **DownloadProgress** — progress bar card with title, percent, speed, ETA, size info, status badge, retry button for failed
 - [x] **SearchBar** — terminal-styled input with Search icon, focus-within glow (`src/components/search-bar.tsx`)
 - [x] **UserCard** — admin row with avatar (fallback initials), name, email, timestamp, status badge, approve/deny actions
-- [ ] **SeasonAccordion** — expandable season header with episode count, download ratio, mini progress bar, chevron rotation
-- [ ] **EpisodeItem** — episode row with number, title, quality badge, status badge, inline download progress, action buttons
+- [x] **SeasonAccordion** — expandable season header with episode count, download ratio, mini progress bar, chevron rotation
+- [x] **EpisodeItem** — episode row with number, title, quality badge, status badge, inline download progress, action buttons (download + releases dialog)
 - [ ] **StorageBar** — segmented disk usage bar (movies/shows), label, used/total stats, warning/critical thresholds
 - [ ] **EventItem** — history feed row with event type icon + color, title, quality badge, relative timestamp, link to detail
 - [x] **ActionMenu** — contextual download/delete/re-download/retry actions based on download status, confirmation dialogs
@@ -146,14 +146,14 @@ Storage, and Admin pages.
 
 ### Show Detail (`/show/[id]`)
 
-- [ ] Top section: poster + metadata (title, year, season count, rating, status badge)
-- [ ] Overview paragraph
-- [ ] Series-level ActionMenu
-- [ ] SeasonAccordion stack with EpisodeItem rows inside each
-- [ ] Per-episode inline DownloadProgress when downloading
-- [ ] Per-episode ActionMenu (download / delete / re-download)
-- [ ] Fetch show data from Sonarr API (series + episodes)
-- [ ] Server actions: trigger download, delete, re-download at series/season/episode level
+- [x] Top section: poster + metadata (title, year, season count, rating, status badge)
+- [x] Overview paragraph
+- [x] Series-level ActionMenu (add/remove library)
+- [x] SeasonAccordion stack with EpisodeItem rows inside each
+- [x] Per-episode inline DownloadProgress when downloading
+- [x] Per-episode actions: download, delete, browse releases (release list dialog)
+- [x] Fetch show data from Sonarr API (series + episodes)
+- [x] Server actions: trigger download, delete, re-download at series/episode level
 
 ### Downloads (`/downloads`)
 
@@ -214,16 +214,16 @@ Storage, and Admin pages.
 
 - [x] HTTP client for Sonarr API (base URL + API key from env)
 - [x] GET series (library)
-- [ ] GET series by ID (detail)
+- [x] GET series by ID (detail)
 - [x] GET series lookup (search)
-- [ ] GET episodes for series
-- [ ] GET episode files for series
-- [ ] GET queue (active/queued downloads)
+- [x] GET episodes for series
+- [x] GET episode files for series
+- [x] GET queue (active/queued downloads)
 - [ ] GET history (events)
 - [ ] GET root folders (storage)
-- [ ] POST command: episode search (trigger download)
-- [ ] DELETE episode file
-- [ ] DELETE queue item (cancel download)
+- [x] POST command: episode search (trigger download)
+- [x] DELETE episode file
+- [x] DELETE queue item (cancel download)
 
 ### Environment Variables
 

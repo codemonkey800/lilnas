@@ -58,7 +58,7 @@ function seriesToLibraryItem(series: SeriesResource): LibraryItem {
     quality: null,
     status:
       (series.statistics?.episodeFileCount ?? 0) > 0 ? 'downloaded' : 'missing',
-    href: `/show/${series.id}`,
+    href: `/show/${series.tvdbId}`,
     addedAt: series.added ?? new Date(0).toISOString(),
     releaseDate: series.firstAired ?? null,
   }
@@ -135,7 +135,7 @@ async function lookupSeries(term: string): Promise<LibraryItem[]> {
     return {
       ...seriesToLibraryItem(s),
       id: s.tvdbId ?? 0,
-      href: `/show/tvdb-${s.tvdbId}`,
+      href: `/show/${s.tvdbId}`,
     }
   })
 }

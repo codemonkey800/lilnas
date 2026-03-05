@@ -26,6 +26,16 @@ else
   echo "Warning: infra/.env.yoink not found — AUTH_* and ADMIN_EMAIL will be unset."
 fi
 
+# Load local dev overrides from .env.dev (gitignored). Values here take
+# precedence over infra/.env.yoink. Copy .env.dev.example to get started.
+LOCAL_ENV="${ROOT_DIR}/packages/yoink/.env.dev"
+if [ -f "$LOCAL_ENV" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$LOCAL_ENV"
+  set +a
+fi
+
 CONTAINER_NAME="yoink-dev-db"
 POSTGRES_IMAGE="postgres:17-alpine"
 POSTGRES_PORT=5432
@@ -55,13 +65,25 @@ trap 'exit 143' TERM         # kill    → triggers EXIT trap
 # ---------------------------------------------------------------------------
 
 echo "Starting ${CONTAINER_NAME} on port ${POSTGRES_PORT}..."
-docker run -d \
-  --name "$CONTAINER_NAME" \
-  -e "POSTGRES_USER=${POSTGRES_USER}" \
-  -e "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \
-  -e "POSTGRES_DB=${POSTGRES_DB}" \
-  -p "${POSTGRES_PORT}:5432" \
-  "$POSTGRES_IMAGE" > /dev/null
+
+# Build the docker run args; conditionally add a volume mount for persistence.
+DOCKER_RUN_ARGS=(
+  -d
+  --name "$CONTAINER_NAME"
+  -e "POSTGRES_USER=${POSTGRES_USER}"
+  -e "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}"
+  -e "POSTGRES_DB=${POSTGRES_DB}"
+  -p "${POSTGRES_PORT}:5432"
+)
+
+if [ -n "${DB_PATH:-}" ]; then
+  echo "Mounting persistent DB storage at ${DB_PATH}"
+  DOCKER_RUN_ARGS+=(-v "${DB_PATH}:/var/lib/postgresql/data")
+else
+  echo "No DB_PATH set — database will be ephemeral (set DB_PATH in .env.dev to persist data)."
+fi
+
+docker run "${DOCKER_RUN_ARGS[@]}" "$POSTGRES_IMAGE" > /dev/null
 
 # Wait for Postgres to accept connections
 echo "Waiting for Postgres to be ready..."

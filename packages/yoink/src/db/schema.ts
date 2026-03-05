@@ -7,6 +7,27 @@ import {
 } from 'drizzle-orm/pg-core'
 
 // ---------------------------------------------------------------------------
+// Download search result tracking — persists "not found" metadata across
+// page refreshes and library removal/re-addition. A row's existence means
+// the last search for that media returned no results. Rows are deleted when
+// a file is successfully downloaded.
+// ---------------------------------------------------------------------------
+
+export const downloadSearchResults = pgTable('download_search_result', {
+  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+  mediaType: text('media_type', { enum: ['movie', 'episode'] }).notNull(),
+  // Movies: keyed by tmdbId (stable across Radarr add/remove)
+  tmdbId: integer('tmdb_id'),
+  // Episodes: keyed by tvdbId + seasonNumber + episodeNumber (stable across Sonarr add/remove)
+  tvdbId: integer('tvdb_id'),
+  seasonNumber: integer('season_number'),
+  episodeNumber: integer('episode_number'),
+  lastSearchedAt: timestamp('last_searched_at', { mode: 'date' })
+    .notNull()
+    .defaultNow(),
+})
+
+// ---------------------------------------------------------------------------
 // Auth.js tables — https://authjs.dev/getting-started/adapters/drizzle
 // ---------------------------------------------------------------------------
 

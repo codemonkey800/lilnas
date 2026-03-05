@@ -22,6 +22,10 @@ import {
   type MovieRelease,
   searchMovieReleases,
 } from 'src/media'
+import {
+  clearMovieSearchResult,
+  recordMovieNotFound,
+} from 'src/media/search-results'
 
 function moviesSearchBody(movieIds: number[]) {
   return { name: 'MoviesSearch', movieIds } as Record<string, unknown>
@@ -116,6 +120,14 @@ export async function addMovieToLibrary(tmdbId: number): Promise<number> {
 
   const created = result.data as MovieResource
   return created.id ?? 0
+}
+
+export async function recordMovieSearchNotFound(tmdbId: number): Promise<void> {
+  await recordMovieNotFound(tmdbId)
+}
+
+export async function clearMovieSearchNotFound(tmdbId: number): Promise<void> {
+  await clearMovieSearchResult(tmdbId)
 }
 
 export async function removeMovieFromLibrary(

@@ -2,6 +2,7 @@ import ScheduleIcon from '@mui/icons-material/Schedule'
 import Button from '@mui/material/Button'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
+
 import { signOutAction } from 'src/app/(auth)/login/actions'
 import { getAuthenticatedUser } from 'src/auth-user'
 import { EmptyState } from 'src/components/empty-state'

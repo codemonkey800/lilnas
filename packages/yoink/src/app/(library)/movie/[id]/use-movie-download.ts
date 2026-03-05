@@ -7,7 +7,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useToast } from 'src/hooks/use-toast'
 import type { MovieDetail, MovieDownloadInfo } from 'src/media'
 
-import { setMovieMonitored } from './actions'
+import {
+  clearMovieSearchNotFound,
+  recordMovieSearchNotFound,
+  setMovieMonitored,
+} from './actions'
 
 const DOWNLOAD_POLL_INTERVAL_MS = 2000
 const SEARCH_POLL_INTERVAL_MS = 3000
@@ -64,6 +68,10 @@ export function useMovieDownload(
     let mounted = true
 
     if (liveDownload != null) {
+      // Download appeared — clear any prior "not found" record
+      if (movie.tmdbId != null) {
+        void clearMovieSearchNotFound(movie.tmdbId)
+      }
       handle = setTimeout(() => {
         setIsSearchingDownload(false)
         router.refresh()
@@ -71,11 +79,14 @@ export function useMovieDownload(
     } else {
       handle = setTimeout(async () => {
         if (!mounted) return
-        setIsSearchingDownload(false)
         if (movie.tmdbId != null) {
-          await setMovieMonitored(movie.id, false, movie.tmdbId)
+          await Promise.all([
+            setMovieMonitored(movie.id, false, movie.tmdbId),
+            recordMovieSearchNotFound(movie.tmdbId),
+          ])
         }
         if (!mounted) return
+        setIsSearchingDownload(false)
         showToast('No files were found for this movie', 'warning')
         router.refresh()
       }, SEARCH_TIMEOUT_MS)

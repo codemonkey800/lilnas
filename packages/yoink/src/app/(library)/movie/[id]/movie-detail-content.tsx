@@ -19,6 +19,7 @@ import {
 import { DownloadProgressCard } from './download-progress-card'
 import { FileList } from './file-list'
 import { MovieHero } from './movie-hero'
+import { NotFoundCard } from './not-found-card'
 import { ReleaseList } from './release-list'
 import { useMovieDownload } from './use-movie-download'
 
@@ -143,6 +144,13 @@ export function MovieDetailContent({ movie }: MovieDetailContentProps) {
     !isSearchingDownload &&
     !isDownloadInitiated
 
+  const showNotFound =
+    movie.lastSearchedAt != null &&
+    !optimisticIsDownloaded &&
+    !liveDownload &&
+    !isSearchingDownload &&
+    !isDownloadInitiated
+
   return (
     <div className="space-y-8">
       <MovieHero
@@ -159,6 +167,10 @@ export function MovieDetailContent({ movie }: MovieDetailContentProps) {
         onDownload={handleDownload}
         onRemoveFromLibrary={handleRemoveFromLibrary}
       />
+
+      {showNotFound && (
+        <NotFoundCard lastSearchedAt={movie.lastSearchedAt!} />
+      )}
 
       <DownloadProgressCard
         liveDownload={liveDownload}

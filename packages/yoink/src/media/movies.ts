@@ -1,8 +1,4 @@
 import {
-  getApiV3Movie,
-  getApiV3Moviefile,
-  getApiV3MovieLookupTmdb,
-  getApiV3QueueDetails,
   getApiV3Release,
   type MediaCover,
   type MovieFileResource,
@@ -49,6 +45,8 @@ export interface MovieDetail {
   sizeOnDisk: number | null
   files: MovieFileInfo[]
   download: MovieDownloadInfo | null
+  /** ISO timestamp of the last search that found no results. Null means never searched or was found. */
+  lastSearchedAt: string | null
 }
 
 export interface MovieRelease {
@@ -97,11 +95,12 @@ export function queueToDownloadInfo(q: QueueResource): MovieDownloadInfo {
   }
 }
 
-function movieResourceToDetail(
+export function movieResourceToDetail(
   movie: MovieResource,
   files: MovieFileResource[],
   queueItems: QueueResource[],
   isInLibrary: boolean,
+  lastSearchedAt: Date | null,
 ): MovieDetail {
   const activeDownload = queueItems.find(
     q =>
@@ -133,34 +132,8 @@ function movieResourceToDetail(
     sizeOnDisk: movie.sizeOnDisk ?? null,
     files: files.map(movieFileToInfo),
     download: activeDownload ? queueToDownloadInfo(activeDownload) : null,
+    lastSearchedAt: lastSearchedAt?.toISOString() ?? null,
   }
-}
-
-export async function getMovie(tmdbIdStr: string): Promise<MovieDetail> {
-  const client = getRadarrClient()
-  const tmdbId = Number(tmdbIdStr)
-
-  const libraryResult = await getApiV3Movie({ client, query: { tmdbId } })
-  const libraryMovies = (libraryResult.data ?? []) as MovieResource[]
-  const radarrMovie = libraryMovies[0]
-
-  if (radarrMovie?.id) {
-    const movieId = radarrMovie.id
-    const [filesResult, queueResult] = await Promise.all([
-      getApiV3Moviefile({ client, query: { movieId: [movieId] } }),
-      getApiV3QueueDetails({
-        client,
-        query: { movieId, includeMovie: false },
-      }),
-    ])
-    const files = (filesResult.data ?? []) as MovieFileResource[]
-    const queueItems = (queueResult.data ?? []) as QueueResource[]
-    return movieResourceToDetail(radarrMovie, files, queueItems, true)
-  }
-
-  const result = await getApiV3MovieLookupTmdb({ client, query: { tmdbId } })
-  const movie = result.data as MovieResource
-  return movieResourceToDetail(movie, [], [], false)
 }
 
 function releaseToMovieRelease(r: ReleaseResource): MovieRelease {
