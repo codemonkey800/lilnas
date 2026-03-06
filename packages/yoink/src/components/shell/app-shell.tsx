@@ -2,7 +2,6 @@
 
 import { type ReactNode, useState } from 'react'
 
-import { signOutAction } from 'src/app/(auth)/login/actions'
 import type { AuthenticatedUser } from 'src/auth-user'
 import { QueryProvider } from 'src/components/query-provider'
 import { AppSidebar } from 'src/components/shell/app-sidebar'
@@ -28,7 +27,6 @@ export function AppShell({
         <div className="flex h-dvh flex-col overflow-hidden">
           <SiteHeader
             user={user}
-            signOutAction={signOutAction}
             onMenuToggle={() => setMobileOpen(prev => !prev)}
           />
           <div className="flex min-h-0 flex-1 overflow-hidden">

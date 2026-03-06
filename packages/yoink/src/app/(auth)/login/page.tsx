@@ -6,8 +6,6 @@ import { redirect } from 'next/navigation'
 import { getAuthenticatedUser } from 'src/auth-user'
 import { YoinkLogo } from 'src/components/yoink-logo'
 
-import { signInWithGoogle } from './actions'
-
 export default async function LoginPage({
   searchParams,
 }: {
@@ -19,6 +17,8 @@ export default async function LoginPage({
 
   const user = await getAuthenticatedUser()
   if (user?.status === 'approved') redirect(returnTo)
+
+  const googleAuthUrl = `/api/auth/google?return_to=${encodeURIComponent(returnTo)}`
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-carbon-950">
@@ -44,12 +44,9 @@ export default async function LoginPage({
             Media download manager
           </p>
 
-          <form
-            action={signInWithGoogle.bind(null, returnTo)}
-            className="mt-4 w-full"
-          >
+          <a href={googleAuthUrl} className="mt-4 w-full">
             <Button
-              type="submit"
+              component="span"
               variant="outlined"
               color="secondary"
               size="large"
@@ -77,7 +74,7 @@ export default async function LoginPage({
             >
               Continue with Google
             </Button>
-          </form>
+          </a>
         </CardContent>
       </Card>
     </div>

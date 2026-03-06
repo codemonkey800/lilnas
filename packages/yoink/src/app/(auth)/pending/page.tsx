@@ -2,8 +2,8 @@ import ScheduleIcon from '@mui/icons-material/Schedule'
 import Button from '@mui/material/Button'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
+import { redirect } from 'next/navigation'
 
-import { signOutAction } from 'src/app/(auth)/login/actions'
 import { getAuthenticatedUser } from 'src/auth-user'
 import { EmptyState } from 'src/components/empty-state'
 import { StatusBadge } from 'src/components/status-badge'
@@ -14,7 +14,7 @@ export default async function PendingPage() {
   const user = await getAuthenticatedUser()
 
   if (!user) await redirectToLogin()
-  if (user.status === 'approved') redirect('/')
+  if (user!.status === 'approved') redirect('/')
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-carbon-950">
@@ -41,16 +41,15 @@ export default async function PendingPage() {
             action={
               <div className="flex flex-col items-center gap-4">
                 <StatusBadge status="pending" />
-                <form action={signOutAction}>
-                  <Button
-                    type="submit"
-                    variant="outlined"
-                    color="secondary"
-                    size="small"
-                  >
-                    Sign out
-                  </Button>
-                </form>
+                <Button
+                  component="a"
+                  href="/api/auth/logout"
+                  variant="outlined"
+                  color="secondary"
+                  size="small"
+                >
+                  Sign out
+                </Button>
               </div>
             }
           />

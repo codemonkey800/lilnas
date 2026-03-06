@@ -36,6 +36,10 @@ if [ -f "$LOCAL_ENV" ]; then
   set +a
 fi
 
+# Keep GOOGLE_CALLBACK_URL in sync with PORT for local dev so changing PORT
+# in .env.dev doesn't silently break the OAuth redirect.
+export GOOGLE_CALLBACK_URL="http://localhost:${PORT:-8080}/api/auth/google/callback"
+
 CONTAINER_NAME="yoink-dev-db"
 POSTGRES_IMAGE="postgres:17-alpine"
 POSTGRES_PORT=5432

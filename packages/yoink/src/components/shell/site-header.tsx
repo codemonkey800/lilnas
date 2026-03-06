@@ -13,11 +13,9 @@ import { YoinkLogo } from 'src/components/yoink-logo'
 
 export function SiteHeader({
   user,
-  signOutAction,
   onMenuToggle,
 }: {
   user: AuthenticatedUser
-  signOutAction: () => Promise<void>
   onMenuToggle: () => void
 }) {
   return (
@@ -57,13 +55,16 @@ export function SiteHeader({
         <span className="hidden text-sm text-carbon-200 sm:block">
           {user.name}
         </span>
-        <form action={signOutAction}>
-          <Tooltip title="Sign out">
-            <IconButton type="submit" size="small">
-              <LogoutIcon className="size-4" />
-            </IconButton>
-          </Tooltip>
-        </form>
+        <Tooltip title="Sign out">
+          <IconButton
+            component="a"
+            href="/api/auth/logout"
+            size="small"
+            aria-label="Sign out"
+          >
+            <LogoutIcon className="size-4" />
+          </IconButton>
+        </Tooltip>
       </div>
     </header>
   )

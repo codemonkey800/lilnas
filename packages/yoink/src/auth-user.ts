@@ -1,15 +1,35 @@
 import { eq } from 'drizzle-orm'
+import { jwtVerify } from 'jose'
+import { cookies } from 'next/headers'
 
-import { auth } from 'src/auth'
 import { db } from 'src/db'
 import { users } from 'src/db/schema'
 
+const AUTH_TOKEN_COOKIE = 'auth-token'
+
+interface JwtPayload {
+  sub: string
+  email: string
+}
+
 export async function getAuthenticatedUser() {
-  const session = await auth()
-  if (!session?.user?.email) return null
+  const cookieStore = await cookies()
+  const token = cookieStore.get(AUTH_TOKEN_COOKIE)?.value
+  if (!token) return null
+
+  const secret = new TextEncoder().encode(process.env.JWT_SECRET)
+  let payload: JwtPayload
+  try {
+    const { payload: p } = await jwtVerify(token, secret)
+    payload = p as unknown as JwtPayload
+  } catch {
+    return null
+  }
+
+  if (!payload.sub) return null
 
   const row = await db.query.users.findFirst({
-    where: eq(users.email, session.user.email),
+    where: eq(users.id, payload.sub),
     columns: {
       id: true,
       email: true,
