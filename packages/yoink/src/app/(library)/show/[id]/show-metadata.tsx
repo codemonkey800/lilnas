@@ -88,7 +88,10 @@ export function ShowMetadata({ show }: ShowMetadataProps) {
             'flex flex-col gap-1 px-4 py-3',
             'animate-fade-in opacity-0',
           )}
-          style={{ animationDelay: `${i * 40}ms`, animationFillMode: 'forwards' }}
+          style={{
+            animationDelay: `${i * 40}ms`,
+            animationFillMode: 'forwards',
+          }}
         >
           <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-carbon-500">
             {cell.label}

@@ -50,21 +50,25 @@ export function ShowDetailContent({
   const { showToast } = useToast()
   const [isPending, startTransition] = useTransition()
   const [isAddingToLibrary, setIsAddingToLibrary] = useState(false)
-  const [deletedEpisodeFileIds, setDeletedEpisodeFileIds] = useState<Set<number>>(new Set())
-  const [clientSearchingIds, setClientSearchingIds] = useState<Set<number>>(new Set())
-  const searchTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
+  const [deletedEpisodeFileIds, setDeletedEpisodeFileIds] = useState<
+    Set<number>
+  >(new Set())
+  // Raw set of episode IDs the user has triggered searches for.
+  // Cleared by 35s timeout or manually (e.g. cancel all). IDs that have
+  // appeared in downloadMap are excluded from clientSearchingIds during render.
+  const [pendingSearchIds, setPendingSearchIds] = useState<Set<number>>(
+    new Set(),
+  )
+  const searchTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  )
 
   const { searchingEpisodeIds, timedOutEpisodeIds, hasActiveSearches } =
     useSearchState(show.id, initialSearchState)
 
-  const effectiveSearchingIds = useMemo(() => {
-    if (clientSearchingIds.size === 0) return searchingEpisodeIds
-    const merged = new Set(searchingEpisodeIds)
-    clientSearchingIds.forEach(id => merged.add(id))
-    return merged
-  }, [searchingEpisodeIds, clientSearchingIds])
-
-  const effectiveHasActiveSearches = hasActiveSearches || clientSearchingIds.size > 0
+  // Keep polling while there are pending searches or active downloads
+  const effectiveHasActiveSearches =
+    hasActiveSearches || pendingSearchIds.size > 0
 
   const { dialogState, openDialog, closeDialog } = useConfirmDialog()
 
@@ -97,14 +101,24 @@ export function ShowDetailContent({
     effectiveHasActiveSearches,
   )
 
+  // Derive searching IDs by excluding those already confirmed in downloadMap
+  const clientSearchingIds = useMemo(
+    () => new Set([...pendingSearchIds].filter(id => !downloadMap.has(id))),
+    [pendingSearchIds, downloadMap],
+  )
+
+  const effectiveSearchingIds = useMemo(() => {
+    if (clientSearchingIds.size === 0) return searchingEpisodeIds
+    const merged = new Set(searchingEpisodeIds)
+    clientSearchingIds.forEach(id => merged.add(id))
+    return merged
+  }, [searchingEpisodeIds, clientSearchingIds])
+
+  // Clear timers for IDs that have appeared in downloadMap
   useEffect(() => {
-    if (clientSearchingIds.size === 0) return
-    let changed = false
-    const next = new Set(clientSearchingIds)
-    for (const id of clientSearchingIds) {
+    if (pendingSearchIds.size === 0) return
+    for (const id of pendingSearchIds) {
       if (downloadMap.has(id)) {
-        next.delete(id)
-        changed = true
         const timer = searchTimersRef.current.get(id)
         if (timer) {
           clearTimeout(timer)
@@ -112,8 +126,7 @@ export function ShowDetailContent({
         }
       }
     }
-    if (changed) setClientSearchingIds(next)
-  }, [downloadMap, clientSearchingIds])
+  }, [downloadMap, pendingSearchIds])
 
   useEffect(() => {
     const timers = searchTimersRef.current
@@ -137,28 +150,31 @@ export function ShowDetailContent({
     }, 0)
   }, [show.seasons])
 
-  const addSearchingEpisodes = useCallback((ids: number[]) => {
-    if (ids.length === 0) return
-    setClientSearchingIds(prev => {
-      const next = new Set(prev)
-      ids.forEach(id => next.add(id))
-      return next
-    })
-    for (const id of ids) {
-      const existing = searchTimersRef.current.get(id)
-      if (existing) clearTimeout(existing)
-      const timer = setTimeout(() => {
-        setClientSearchingIds(prev => {
-          const next = new Set(prev)
-          next.delete(id)
-          return next
-        })
-        searchTimersRef.current.delete(id)
-        router.refresh()
-      }, 35_000)
-      searchTimersRef.current.set(id, timer)
-    }
-  }, [router])
+  const addSearchingEpisodes = useCallback(
+    (ids: number[]) => {
+      if (ids.length === 0) return
+      setPendingSearchIds(prev => {
+        const next = new Set(prev)
+        ids.forEach(id => next.add(id))
+        return next
+      })
+      for (const id of ids) {
+        const existing = searchTimersRef.current.get(id)
+        if (existing) clearTimeout(existing)
+        const timer = setTimeout(() => {
+          setPendingSearchIds(prev => {
+            const next = new Set(prev)
+            next.delete(id)
+            return next
+          })
+          searchTimersRef.current.delete(id)
+          router.refresh()
+        }, 35_000)
+        searchTimersRef.current.set(id, timer)
+      }
+    },
+    [router],
+  )
 
   // True when every missing episode is being searched or actively downloading
   const allMissingCovered = useMemo(() => {
@@ -231,8 +247,9 @@ export function ShowDetailContent({
             clearShowSearches(show.id),
           ])
           queryClient.setQueryData(['show-download-status', show.id], [])
-          setClientSearchingIds(new Set())
-          for (const timer of searchTimersRef.current.values()) clearTimeout(timer)
+          setPendingSearchIds(new Set())
+          for (const timer of searchTimersRef.current.values())
+            clearTimeout(timer)
           searchTimersRef.current.clear()
           invalidateSearchState()
           router.refresh()
@@ -253,16 +270,15 @@ export function ShowDetailContent({
   const handleDownloadEpisode = useCallback(
     (episodeId: number) => {
       addSearchingEpisodes([episodeId])
-      triggerEpisodeDownload(episodeId, show.tvdbId!)
-        .catch((err: unknown) => {
-          console.error(err)
-          showToast('Failed to trigger download', 'error')
-          setClientSearchingIds(prev => {
-            const next = new Set(prev)
-            next.delete(episodeId)
-            return next
-          })
+      triggerEpisodeDownload(episodeId, show.tvdbId!).catch((err: unknown) => {
+        console.error(err)
+        showToast('Failed to trigger download', 'error')
+        setPendingSearchIds(prev => {
+          const next = new Set(prev)
+          next.delete(episodeId)
+          return next
         })
+      })
     },
     [show.tvdbId, showToast, addSearchingEpisodes],
   )
@@ -345,7 +361,16 @@ export function ShowDetailContent({
         },
       })
     },
-    [show.id, show.tvdbId, show.title, show.seasons, router, openDialog, closeDialog, showToast],
+    [
+      show.id,
+      show.tvdbId,
+      show.title,
+      show.seasons,
+      router,
+      openDialog,
+      closeDialog,
+      showToast,
+    ],
   )
 
   return (

@@ -336,7 +336,8 @@ export function EpisodeItem({
             }}
           />
         )}
-        {((isSearching && !episode.hasFile && !liveDownload) || isImportState) && (
+        {((isSearching && !episode.hasFile && !liveDownload) ||
+          isImportState) && (
           <LinearProgress
             variant="indeterminate"
             sx={{

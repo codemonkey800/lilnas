@@ -168,9 +168,7 @@ export function MovieDetailContent({ movie }: MovieDetailContentProps) {
         onRemoveFromLibrary={handleRemoveFromLibrary}
       />
 
-      {showNotFound && (
-        <NotFoundCard lastSearchedAt={movie.lastSearchedAt!} />
-      )}
+      {showNotFound && <NotFoundCard lastSearchedAt={movie.lastSearchedAt!} />}
 
       <DownloadProgressCard
         liveDownload={liveDownload}

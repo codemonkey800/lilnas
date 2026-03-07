@@ -10,8 +10,8 @@ import {
   getApiV3Episode,
   getApiV3EpisodeById,
   getApiV3Episodefile,
-  getApiV3QueueDetails,
   getApiV3Qualityprofile,
+  getApiV3QueueDetails,
   getApiV3Rootfolder,
   getApiV3SeriesLookup,
   postApiV3Command,
@@ -265,10 +265,7 @@ export async function cancelAllShowDownloads(
   return { cancelledEpisodeIds: episodeIds }
 }
 
-export async function deleteEpisodeFile(
-  episodeFileId: number,
-  tvdbId: number,
-) {
+export async function deleteEpisodeFile(episodeFileId: number, tvdbId: number) {
   const client = getSonarrClient()
 
   const episodesResult = await getApiV3Episode({

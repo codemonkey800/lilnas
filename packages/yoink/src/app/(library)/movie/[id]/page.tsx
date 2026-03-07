@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { Suspense } from 'react'
 
-import { getMovie } from 'src/media/movies.server'
+import { ApiClient } from 'src/media/api'
 
 import { MovieDetailContent } from './movie-detail-content'
 import { MovieDetailSkeleton } from './movie-detail-skeleton'
@@ -13,7 +13,8 @@ interface MoviePageProps {
 async function MovieData({ id }: { id: string }) {
   let movie
   try {
-    movie = await getMovie(id)
+    const api = new ApiClient()
+    movie = await api.getMovieById(id)
   } catch {
     notFound()
   }

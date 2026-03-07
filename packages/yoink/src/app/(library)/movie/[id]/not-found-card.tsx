@@ -33,9 +33,7 @@ export function NotFoundCard({ lastSearchedAt }: NotFoundCardProps) {
             border: '1px solid rgba(255,170,34,0.2)',
           }}
         >
-          <SearchOffIcon
-            sx={{ fontSize: 18, color: 'var(--color-warning)' }}
-          />
+          <SearchOffIcon sx={{ fontSize: 18, color: 'var(--color-warning)' }} />
         </div>
 
         <div className="min-w-0 flex-1 space-y-1">
@@ -44,10 +42,7 @@ export function NotFoundCard({ lastSearchedAt }: NotFoundCardProps) {
           </p>
           <p className="font-mono text-xs text-carbon-400">
             Last searched{' '}
-            <span
-              className="text-carbon-300"
-              title={absoluteLabel}
-            >
+            <span className="text-carbon-300" title={absoluteLabel}>
               {relativeLabel}
             </span>{' '}
             — no indexers returned results for this title

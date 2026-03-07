@@ -1,8 +1,8 @@
 import { notFound } from 'next/navigation'
 import { Suspense } from 'react'
 
+import { ApiClient } from 'src/media/api'
 import { getSearchState } from 'src/media/show-search-store'
-import { getShow } from 'src/media/shows.server'
 
 import { ShowDetailContent } from './show-detail-content'
 import { ShowDetailSkeleton } from './show-detail-skeleton'
@@ -14,7 +14,8 @@ interface ShowPageProps {
 async function ShowData({ id }: { id: string }) {
   let show
   try {
-    show = await getShow(id)
+    const api = new ApiClient()
+    show = await api.getShowById(id)
   } catch {
     notFound()
   }
@@ -23,7 +24,9 @@ async function ShowData({ id }: { id: string }) {
 
   const initialSearchState = getSearchState(show.id)
 
-  return <ShowDetailContent show={show} initialSearchState={initialSearchState} />
+  return (
+    <ShowDetailContent show={show} initialSearchState={initialSearchState} />
+  )
 }
 
 export default async function ShowPage({ params }: ShowPageProps) {

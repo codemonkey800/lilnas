@@ -64,7 +64,6 @@ function ScreenshotItem({ src, title, index }: ScreenshotItemProps) {
     >
       {/* 16:9 aspect ratio container */}
       <div className="relative aspect-video w-full overflow-hidden bg-carbon-800">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={src}
           alt={`${title} still ${index + 1}`}
