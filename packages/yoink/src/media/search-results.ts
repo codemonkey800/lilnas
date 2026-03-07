@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import { db } from 'src/db'
 import { downloadSearchResults } from 'src/db/schema'
@@ -182,9 +182,7 @@ export async function clearEpisodeSearchResultsBulk(
  * Delete all "not found" records for every episode of a show.
  * Call this when the series is removed from the library.
  */
-export async function clearAllShowSearchResults(
-  tvdbId: number,
-): Promise<void> {
+export async function clearAllShowSearchResults(tvdbId: number): Promise<void> {
   await db
     .delete(downloadSearchResults)
     .where(

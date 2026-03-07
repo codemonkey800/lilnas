@@ -47,6 +47,11 @@ interface QueueCache {
 const queueCache = new Map<number, QueueCache>()
 const QUEUE_CACHE_TTL_MS = 2_000
 
+/**
+ * Fetches episode IDs currently in the Sonarr queue for a series.
+ * Results are cached briefly to avoid hammering Sonarr when many
+ * per-episode timers fire in rapid succession.
+ */
 async function getQueuedEpisodeIds(seriesId: number): Promise<Set<number>> {
   const cached = queueCache.get(seriesId)
   if (cached && Date.now() < cached.expiresAt) return cached.data
@@ -62,7 +67,10 @@ async function getQueuedEpisodeIds(seriesId: number): Promise<Set<number>> {
     const ids = new Set(
       items.map(q => q.episodeId).filter((id): id is number => id != null),
     )
-    queueCache.set(seriesId, { data: ids, expiresAt: Date.now() + QUEUE_CACHE_TTL_MS })
+    queueCache.set(seriesId, {
+      data: ids,
+      expiresAt: Date.now() + QUEUE_CACHE_TTL_MS,
+    })
     return ids
   } catch {
     return new Set()
@@ -73,19 +81,22 @@ async function getQueuedEpisodeIds(seriesId: number): Promise<Set<number>> {
 // Timer handler
 // ---------------------------------------------------------------------------
 
+/**
+ * Called when an episode search timer expires. Checks whether the episode
+ * made it into the Sonarr queue; if not, records it as "not found" in the
+ * DB and moves it to the transient timed-out store for immediate UI feedback.
+ */
 async function handleTimeout(entry: EpisodeSearchEntry): Promise<void> {
-  // Always remove from the active search store
   searchStore.delete(entry.episodeId)
 
   try {
     const queuedIds = await getQueuedEpisodeIds(entry.seriesId)
 
     if (queuedIds.has(entry.episodeId)) {
-      // Episode made it into the download queue — nothing to record
       return
     }
 
-    // Episode was not found — persist to DB and unmonitor
+    // Episode was not found — persist to DB and unmonitor in parallel
     await Promise.all([
       recordEpisodesNotFound(entry.tvdbId, [
         {
@@ -106,14 +117,15 @@ async function handleTimeout(entry: EpisodeSearchEntry): Promise<void> {
       })(),
     ])
 
-    // Add to transient timed-out store so the UI can show it immediately
-    // without waiting for the next page load (which will read from DB)
+    // Add to transient timed-out store so the UI can show "not found"
+    // immediately, without waiting for the next full page load (DB read)
     if (!timedOutStore.has(entry.seriesId)) {
       timedOutStore.set(entry.seriesId, new Set())
     }
     timedOutStore.get(entry.seriesId)!.add(entry.episodeId)
 
-    // Auto-clear from transient store after TTL — DB row persists for future loads
+    // Auto-clear from transient store after TTL — the DB row persists
+    // for future page loads independent of this in-memory cache
     setTimeout(() => {
       const set = timedOutStore.get(entry.seriesId)
       if (set) {
@@ -135,9 +147,7 @@ async function handleTimeout(entry: EpisodeSearchEntry): Promise<void> {
  * Episodes already in the store (from a prior click) are skipped — their
  * original timer is preserved.
  */
-export function registerEpisodeSearches(
-  entries: EpisodeSearchEntry[],
-): void {
+export function registerEpisodeSearches(entries: EpisodeSearchEntry[]): void {
   for (const entry of entries) {
     if (searchStore.has(entry.episodeId)) continue
 
