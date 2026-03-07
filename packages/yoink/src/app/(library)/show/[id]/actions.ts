@@ -9,7 +9,6 @@ import {
   type EpisodeResource,
   getApiV3Episode,
   getApiV3EpisodeById,
-  getApiV3Episodefile,
   getApiV3Qualityprofile,
   getApiV3QueueDetails,
   getApiV3Rootfolder,
@@ -40,14 +39,20 @@ import {
   registerEpisodeSearches,
 } from 'src/media/show-search-store'
 
+/** Builds the Sonarr command body for searching specific episodes. */
 function episodeSearchBody(episodeIds: number[]) {
   return { name: 'EpisodeSearch', episodeIds } as Record<string, unknown>
 }
 
+/** Builds the Sonarr command body for searching an entire series. */
 function seriesSearchBody(seriesId: number) {
   return { name: 'SeriesSearch', seriesId } as Record<string, unknown>
 }
 
+/**
+ * Fetches the set of episode IDs currently queued for download in Sonarr.
+ * Returns an empty set on error to allow callers to proceed gracefully.
+ */
 async function getQueuedEpisodeIdsForSeries(
   seriesId: number,
 ): Promise<Set<number>> {
@@ -67,12 +72,17 @@ async function getQueuedEpisodeIdsForSeries(
   }
 }
 
+/**
+ * Monitors a single episode and triggers a Sonarr search for it.
+ * Registers the episode in the in-memory search store so the UI can
+ * track search progress and detect "not found" timeouts.
+ */
 export async function triggerEpisodeDownload(
   episodeId: number,
   tvdbId: number,
 ): Promise<void> {
   const client = getSonarrClient()
-  // Set monitored first so the search will work
+  // Sonarr ignores searches for unmonitored episodes, so enable first
   const epResult = await getApiV3EpisodeById({
     client,
     path: { id: episodeId },
@@ -103,6 +113,12 @@ export async function triggerEpisodeDownload(
   revalidatePath(`/show/${tvdbId}`)
 }
 
+/**
+ * Monitors and triggers a Sonarr search for all missing, aired episodes
+ * in a season. Skips episodes that already have a file, are queued, or
+ * are already being searched.
+ * @returns The list of episode IDs that were registered for search.
+ */
 export async function triggerSeasonDownload(
   seriesId: number,
   seasonNumber: number,
@@ -110,6 +126,7 @@ export async function triggerSeasonDownload(
 ): Promise<{ registeredEpisodeIds: number[] }> {
   const client = getSonarrClient()
 
+  // Fetch season episodes and current queue in parallel
   const [episodesResult, queuedIds] = await Promise.all([
     getApiV3Episode({ client, query: { seriesId, seasonNumber } }),
     getQueuedEpisodeIdsForSeries(seriesId),
@@ -158,6 +175,12 @@ export async function triggerSeasonDownload(
   return { registeredEpisodeIds: episodeIds }
 }
 
+/**
+ * Monitors all missing, aired episodes and issues a full SeriesSearch
+ * command in Sonarr. Unlike season download, this lets Sonarr decide
+ * which episodes to grab across all seasons.
+ * @returns The list of episode IDs that were registered for search.
+ */
 export async function triggerSeriesDownload(
   seriesId: number,
   tvdbId: number,
@@ -213,10 +236,12 @@ export async function triggerSeriesDownload(
   return { registeredEpisodeIds: episodeIds }
 }
 
+/** Clears all active in-memory search trackers for a series. */
 export async function clearShowSearches(seriesId: number): Promise<void> {
   clearSearches(seriesId)
 }
 
+/** Cancels a single queued download by removing it from the Sonarr queue. */
 export async function cancelDownload(queueId: number, tvdbId: number) {
   const client = getSonarrClient()
   await deleteApiV3QueueById({
@@ -227,6 +252,11 @@ export async function cancelDownload(queueId: number, tvdbId: number) {
   revalidatePath(`/show/${tvdbId}`)
 }
 
+/**
+ * Cancels every queued download for a series. Removes queue entries from
+ * the download client and unmonitors the corresponding episodes.
+ * @returns The list of episode IDs whose downloads were cancelled.
+ */
 export async function cancelAllShowDownloads(
   seriesId: number,
   tvdbId: number,
@@ -249,6 +279,7 @@ export async function cancelAllShowDownloads(
   const queueIds = activeItems.map(q => q.id!)
   const episodeIds = activeItems.map(q => q.episodeId!)
 
+  // Remove from download client and unmonitor in parallel
   await Promise.all([
     deleteApiV3QueueBulk({
       client,
@@ -265,9 +296,14 @@ export async function cancelAllShowDownloads(
   return { cancelledEpisodeIds: episodeIds }
 }
 
+/**
+ * Deletes a downloaded episode file and unmonitors the associated episode(s).
+ * A single episode file can back multiple episodes (e.g. multi-episode files).
+ */
 export async function deleteEpisodeFile(episodeFileId: number, tvdbId: number) {
   const client = getSonarrClient()
 
+  // Look up which episodes reference this file so we can unmonitor them
   const episodesResult = await getApiV3Episode({
     client,
     query: { episodeFileId },
@@ -275,6 +311,7 @@ export async function deleteEpisodeFile(episodeFileId: number, tvdbId: number) {
   const episodes = (episodesResult.data ?? []) as EpisodeResource[]
   const episodeIds = episodes.map(ep => ep.id ?? 0).filter(id => id > 0)
 
+  // Unmonitor and delete the file in parallel
   await Promise.all([
     episodeIds.length > 0
       ? putApiV3EpisodeMonitor({
@@ -288,6 +325,10 @@ export async function deleteEpisodeFile(episodeFileId: number, tvdbId: number) {
   revalidatePath(`/show/${tvdbId}`)
 }
 
+/**
+ * Deletes all downloaded files for a season and unmonitors the episodes.
+ * No-ops if the season has no downloaded files.
+ */
 export async function deleteSeasonFiles(
   seriesId: number,
   seasonNumber: number,
@@ -295,18 +336,18 @@ export async function deleteSeasonFiles(
 ): Promise<void> {
   const client = getSonarrClient()
 
-  const [filesResult, episodesResult] = await Promise.all([
-    getApiV3Episodefile({ client, query: { seriesId, seasonNumber } }),
-    getApiV3Episode({ client, query: { seriesId, seasonNumber } }),
-  ])
-
-  const files = (filesResult.data ?? []) as Array<{ id?: number }>
-  const episodeFileIds = files.map(f => f.id ?? 0).filter(id => id > 0)
-
-  if (episodeFileIds.length === 0) return
+  const episodesResult = await getApiV3Episode({
+    client,
+    query: { seriesId, seasonNumber },
+  })
 
   const episodes = (episodesResult.data ?? []) as EpisodeResource[]
   const episodeIds = episodes.map(ep => ep.id ?? 0).filter(id => id > 0)
+  const episodeFileIds = episodes
+    .map(ep => ep.episodeFileId ?? 0)
+    .filter(id => id > 0)
+
+  if (episodeFileIds.length === 0) return
 
   await Promise.all([
     episodeIds.length > 0
@@ -321,12 +362,14 @@ export async function deleteSeasonFiles(
   revalidatePath(`/show/${tvdbId}`)
 }
 
+/** Searches indexers for available releases matching the given episode. */
 export async function searchEpisodeReleases(
   episodeId: number,
 ): Promise<ShowRelease[]> {
   return searchShowReleases(episodeId)
 }
 
+/** Tells Sonarr to grab a specific release for download by its GUID. */
 export async function grabEpisodeRelease(
   guid: string,
   indexerId: number,
@@ -340,6 +383,7 @@ export async function grabEpisodeRelease(
   revalidatePath(`/show/${tvdbId}`)
 }
 
+/** Unmonitors a batch of episodes in Sonarr so they won't be auto-searched. */
 export async function unmonitorEpisodes(
   episodeIds: number[],
   tvdbId: number,
@@ -356,6 +400,7 @@ export async function unmonitorEpisodes(
   revalidatePath(`/show/${tvdbId}`)
 }
 
+/** Toggles the monitored flag on a single episode in Sonarr. */
 export async function setEpisodeMonitored(
   episodeId: number,
   monitored: boolean,
@@ -372,6 +417,7 @@ export async function setEpisodeMonitored(
   revalidatePath(`/show/${tvdbId}`)
 }
 
+/** Removes the persisted "not found" search result for a specific episode. */
 export async function clearShowEpisodeNotFound(
   tvdbId: number,
   seasonNumber: number,
@@ -380,9 +426,16 @@ export async function clearShowEpisodeNotFound(
   await clearEpisodeSearchResult(tvdbId, seasonNumber, episodeNumber)
 }
 
+/**
+ * Adds a show to the Sonarr library. Looks up the series by TVDB ID, then
+ * uses the first configured root folder and quality profile to create it.
+ * The show is added unmonitored to prevent automatic downloads.
+ * @returns The Sonarr series ID of the newly added show.
+ */
 export async function addShowToLibrary(tvdbId: number): Promise<number> {
   const client = getSonarrClient()
 
+  // Fetch series metadata, root folders, and quality profiles in parallel
   const [lookupResult, rootFolderResult, qualityProfileResult] =
     await Promise.all([
       getApiV3SeriesLookup({ client, query: { term: `tvdb:${tvdbId}` } }),
@@ -396,6 +449,7 @@ export async function addShowToLibrary(tvdbId: number): Promise<number> {
   const rootFolders = rootFolderResult.data as Array<{ path?: string | null }>
   const qualityProfiles = qualityProfileResult.data as Array<{ id?: number }>
 
+  // Default to first available root folder and quality profile
   const rootFolderPath = rootFolders[0]?.path ?? '/shows'
   const qualityProfileId = qualityProfiles[0]?.id ?? 1
 
@@ -414,6 +468,10 @@ export async function addShowToLibrary(tvdbId: number): Promise<number> {
   return created.id ?? 0
 }
 
+/**
+ * Removes a show from the Sonarr library, deleting its files from disk,
+ * and clears all persisted "not found" search results for its episodes.
+ */
 export async function removeShowFromLibrary(seriesId: number, tvdbId: number) {
   const client = getSonarrClient()
   await Promise.all([
