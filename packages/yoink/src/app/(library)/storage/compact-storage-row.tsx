@@ -14,35 +14,74 @@ export function CompactStorageRow({ folder }: { folder: RootFolderStorage }) {
   const isWarning = !isCritical && ratio >= WARNING_THRESHOLD
   const pct = Math.round(ratio * 100)
 
+  const barColor = isCritical
+    ? 'bg-error'
+    : isWarning
+      ? 'bg-warning'
+      : 'bg-carbon-500'
+
+  const sizeColor = isCritical
+    ? 'text-error'
+    : isWarning
+      ? 'text-warning'
+      : 'text-carbon-400'
+
+  const barWidth = `${Math.max(ratio * 100, ratio > 0 ? 0.5 : 0)}%`
+
   return (
-    <div className="flex items-center gap-3 py-2">
-      <span className="w-28 shrink-0 truncate font-mono text-xs text-carbon-300 sm:w-36">
-        {folder.path}
-      </span>
-      <div className="relative h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-carbon-700">
-        <div
-          className={cns(
-            'absolute left-0 top-0 h-full rounded-full transition-all duration-700',
-            isCritical ? 'bg-error' : isWarning ? 'bg-warning' : 'bg-carbon-500',
-          )}
-          style={{ width: `${Math.max(ratio * 100, ratio > 0 ? 0.5 : 0)}%` }}
-        />
+    <div className="py-2.5">
+      {/* Mobile layout */}
+      <div className="sm:hidden">
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-carbon-300">
+            {folder.path}
+          </span>
+          <span
+            className={cns(
+              'shrink-0 font-mono text-xs tabular-nums',
+              sizeColor,
+            )}
+          >
+            {formatBytes(used)} / {formatBytes(folder.totalSpace)}
+          </span>
+        </div>
+        <div className="relative h-2.5 overflow-hidden rounded-full bg-carbon-700">
+          <div
+            className={cns(
+              'absolute left-0 top-0 h-full rounded-full transition-all duration-700',
+              barColor,
+            )}
+            style={{ width: barWidth }}
+          />
+        </div>
       </div>
-      <span
-        className={cns(
-          'w-28 shrink-0 text-right font-mono text-xs tabular-nums sm:w-36',
-          isCritical
-            ? 'text-error'
-            : isWarning
-              ? 'text-warning'
-              : 'text-carbon-400',
-        )}
-      >
-        {formatBytes(used)} / {formatBytes(folder.totalSpace)}
-      </span>
-      <span className="hidden w-10 shrink-0 text-right font-mono text-xs tabular-nums text-carbon-600 sm:block">
-        {pct}%
-      </span>
+
+      {/* Desktop layout (sm+) */}
+      <div className="hidden sm:flex sm:items-center sm:gap-3">
+        <span className="w-36 shrink-0 truncate font-mono text-xs text-carbon-300">
+          {folder.path}
+        </span>
+        <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-carbon-700">
+          <div
+            className={cns(
+              'absolute left-0 top-0 h-full rounded-full transition-all duration-700',
+              barColor,
+            )}
+            style={{ width: barWidth }}
+          />
+        </div>
+        <span
+          className={cns(
+            'w-36 shrink-0 text-right font-mono text-xs tabular-nums',
+            sizeColor,
+          )}
+        >
+          {formatBytes(used)} / {formatBytes(folder.totalSpace)}
+        </span>
+        <span className="w-10 shrink-0 text-right font-mono text-xs tabular-nums text-carbon-600">
+          {pct}%
+        </span>
+      </div>
     </div>
   )
 }

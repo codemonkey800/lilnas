@@ -89,11 +89,14 @@ export function StorageSummary({
 
   return (
     <Card className="animate-fade-in p-5 sm:p-6">
-      <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
+      <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center">
         <DonutChart segments={segments} totalUsedPct={totalUsedPct} />
 
-        <div className="flex flex-1 flex-col gap-4">
-          <div className="animate-fade-in" style={{ animationDelay: '120ms' }}>
+        <div className="flex w-full flex-1 flex-col items-center gap-4 sm:items-start">
+          <div
+            className="animate-fade-in w-full text-center sm:text-left"
+            style={{ animationDelay: '120ms' }}
+          >
             <p className="font-mono text-xs uppercase tracking-widest text-carbon-500">
               Total storage
             </p>
@@ -110,13 +113,13 @@ export function StorageSummary({
           </div>
 
           <div
-            className="animate-fade-in flex flex-wrap gap-x-5 gap-y-2"
+            className="animate-fade-in grid w-full grid-cols-2 gap-x-5 gap-y-2 sm:flex sm:flex-wrap"
             style={{ animationDelay: '200ms' }}
           >
             {legendItems.map(item => (
               <div key={item.label} className="flex items-center gap-1.5">
                 <span
-                  className={cns('inline-block h-2 w-2 rounded-full', item.color)}
+                  className={cns('inline-block h-2 w-2 shrink-0 rounded-full', item.color)}
                 />
                 <span className="font-mono text-xs text-carbon-400">
                   {item.label}

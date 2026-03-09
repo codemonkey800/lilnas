@@ -49,12 +49,11 @@ export function DonutChart({
   const usedPct = Math.round(totalUsedPct)
 
   return (
-    <div className="relative shrink-0" style={{ width: size, height: size }}>
+    <div className="relative w-full max-w-[220px] shrink-0 sm:w-40 sm:max-w-none">
       <svg
-        width={size}
-        height={size}
         viewBox={`0 0 ${size} ${size}`}
-        className="overflow-visible"
+        className="w-full overflow-visible"
+        aria-hidden="true"
       >
         <circle
           cx={size / 2}
