@@ -1,10 +1,12 @@
 import {
+  getApiV3CommandById as radarrGetCommandById,
   getApiV3QueueDetails as radarrGetQueueDetails,
   postApiV3Command as radarrPostCommand,
   type QueueResource as RadarrQueueItem,
 } from '@lilnas/media/radarr-next'
 import {
   deleteApiV3QueueById as sonarrDeleteQueueById,
+  getApiV3CommandById as sonarrGetCommandById,
   getApiV3QueueDetails as sonarrGetQueueDetails,
   postApiV3Command as sonarrPostCommand,
   putApiV3EpisodeMonitor,
@@ -33,6 +35,15 @@ const SEARCH_TIMEOUT_MS = 30_000
 
 const FAILURE_STATES = new Set(['failed', 'failedPending', 'importFailed'])
 
+/** Command statuses that indicate the search has finished (successfully or not). */
+const TERMINAL_COMMAND_STATUSES = new Set([
+  'completed',
+  'failed',
+  'aborted',
+  'cancelled',
+  'orphaned',
+])
+
 /** Extracts the media-type discriminant and ID fields for event payloads from a tracked entry. */
 function eventIdsFromEntry(entry: TrackedDownload) {
   if (entry.kind === 'movie') {
@@ -60,6 +71,10 @@ export class DownloadPollerService {
    * Runs every {@link POLL_INTERVAL_MS}ms. Fetches current Radarr and Sonarr
    * queues and reconciles them against tracked downloads, emitting state
    * transition events (grabbing, progress, failed, completed) as needed.
+   *
+   * For entries still in the searching phase (no queue item yet), polls
+   * `/api/v3/command/{id}` to detect when the indexer search finishes rather
+   * than relying on the fixed {@link SEARCH_TIMEOUT_MS} fallback.
    */
   @Interval(POLL_INTERVAL_MS)
   async poll(): Promise<void> {
@@ -83,12 +98,42 @@ export class DownloadPollerService {
         if (item.episodeId != null) sonarrByEpisodeId.set(item.episodeId, item)
       }
 
+      // Collect command IDs that need status checks (still searching, no queue item)
+      const radarrCommandIds = new Set<number>()
+      const sonarrCommandIds = new Set<number>()
+      for (const entry of tracked.values()) {
+        if (entry.commandId == null || entry.queueId !== null) continue
+        const hasQueueItem =
+          entry.kind === 'movie'
+            ? radarrByMovieId.has(entry.radarrMovieId)
+            : sonarrByEpisodeId.has(entry.sonarrEpisodeId)
+        if (!hasQueueItem) {
+          if (entry.kind === 'movie') {
+            radarrCommandIds.add(entry.commandId)
+          } else {
+            sonarrCommandIds.add(entry.commandId)
+          }
+        }
+      }
+
+      // Fetch command statuses in parallel
+      const [radarrCommandStatuses, sonarrCommandStatuses] = await Promise.all([
+        this.fetchRadarrCommandStatuses(radarrCommandIds),
+        this.fetchSonarrCommandStatuses(sonarrCommandIds),
+      ])
+
       for (const [key, entry] of tracked) {
         const queueItem =
           entry.kind === 'movie'
             ? radarrByMovieId.get(entry.radarrMovieId)
             : sonarrByEpisodeId.get(entry.sonarrEpisodeId)
-        this.processEntry(key, entry, queueItem)
+        this.processEntry(
+          key,
+          entry,
+          queueItem,
+          radarrCommandStatuses,
+          sonarrCommandStatuses,
+        )
       }
 
       await this.processPendingCancels(sonarrByEpisodeId)
@@ -107,7 +152,8 @@ export class DownloadPollerService {
   /**
    * Unified state machine for any tracked download. Transitions:
    * - No queue item + had queueId -> completed (import finished)
-   * - No queue item + timed out -> failed (no releases found)
+   * - No queue item + commandId terminal -> failed (no releases found)
+   * - No queue item + no commandId + timed out -> failed (fallback for direct grabs)
    * - First appearance in queue -> grabbing
    * - Queue item in failure state -> failed
    * - Otherwise -> progress update (only emitted when values change)
@@ -116,6 +162,8 @@ export class DownloadPollerService {
     key: string,
     entry: TrackedDownload,
     queueItem: RadarrQueueItem | SonarrQueueItem | undefined,
+    radarrCommandStatuses: Map<number, string>,
+    sonarrCommandStatuses: Map<number, string>,
   ): void {
     const ids = eventIdsFromEntry(entry)
     const label = logLabel(entry)
@@ -128,8 +176,17 @@ export class DownloadPollerService {
         })
         this.downloadService.removeTracked(key)
         this.logger.log(`${label} download completed`)
+      } else if (entry.commandId != null) {
+        const statuses =
+          entry.kind === 'movie' ? radarrCommandStatuses : sonarrCommandStatuses
+        const commandStatus = statuses.get(entry.commandId)
+        if (commandStatus && TERMINAL_COMMAND_STATUSES.has(commandStatus)) {
+          this.handleSearchNotFound(key, entry)
+        }
+        // else: still searching or status fetch failed — wait for next poll
       } else if (Date.now() - entry.initiatedAt > SEARCH_TIMEOUT_MS) {
-        this.handleSearchTimeout(key, entry)
+        // Fallback for direct grabs (postApiV3Release) which have no commandId
+        this.handleSearchNotFound(key, entry)
       }
       return
     }
@@ -193,15 +250,15 @@ export class DownloadPollerService {
     }
   }
 
-  private handleSearchTimeout(key: string, entry: TrackedDownload): void {
+  private handleSearchNotFound(key: string, entry: TrackedDownload): void {
     if (entry.kind === 'movie') {
-      this.handleMovieSearchTimeout(key, entry)
+      this.handleMovieSearchNotFound(key, entry)
     } else {
-      this.handleEpisodeSearchTimeout(key, entry)
+      this.handleEpisodeSearchNotFound(key, entry)
     }
   }
 
-  private handleMovieSearchTimeout(
+  private handleMovieSearchNotFound(
     key: string,
     entry: TrackedMovieDownload,
   ): void {
@@ -212,14 +269,12 @@ export class DownloadPollerService {
       error: 'No releases found',
     })
     this.downloadService.removeTracked(key)
-    this.logger.warn(
-      `Movie search timed out (no releases) tmdbId=${entry.tmdbId}`,
-    )
+    this.logger.warn(`Movie search found no releases tmdbId=${entry.tmdbId}`)
 
     void recordMovieNotFound(entry.tmdbId).catch(() => {})
   }
 
-  private handleEpisodeSearchTimeout(
+  private handleEpisodeSearchNotFound(
     key: string,
     entry: TrackedEpisodeDownload,
   ): void {
@@ -232,7 +287,7 @@ export class DownloadPollerService {
     })
     this.downloadService.removeTracked(key)
     this.logger.warn(
-      `Episode search timed out (no releases) tvdbId=${entry.tvdbId} episodeId=${entry.sonarrEpisodeId}`,
+      `Episode search found no releases tvdbId=${entry.tvdbId} episodeId=${entry.sonarrEpisodeId}`,
     )
 
     void recordEpisodesNotFound(entry.tvdbId, [
@@ -286,6 +341,58 @@ export class DownloadPollerService {
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Fetches the status string for each Radarr command ID.
+   * Uses `Promise.allSettled` so a single failed lookup does not block others.
+   * Returns a map of commandId -> status string; missing entries mean the fetch failed.
+   */
+  private async fetchRadarrCommandStatuses(
+    commandIds: Set<number>,
+  ): Promise<Map<number, string>> {
+    if (commandIds.size === 0) return new Map()
+    const client = getRadarrClient()
+    const results = await Promise.allSettled(
+      Array.from(commandIds).map(async id => {
+        const result = await radarrGetCommandById({ client, path: { id } })
+        const status = (result.data as { status?: string } | null)?.status
+        return { id, status }
+      }),
+    )
+    return this.buildStatusMap(results)
+  }
+
+  /**
+   * Fetches the status string for each Sonarr command ID.
+   * Uses `Promise.allSettled` so a single failed lookup does not block others.
+   * Returns a map of commandId -> status string; missing entries mean the fetch failed.
+   */
+  private async fetchSonarrCommandStatuses(
+    commandIds: Set<number>,
+  ): Promise<Map<number, string>> {
+    if (commandIds.size === 0) return new Map()
+    const client = getSonarrClient()
+    const results = await Promise.allSettled(
+      Array.from(commandIds).map(async id => {
+        const result = await sonarrGetCommandById({ client, path: { id } })
+        const status = (result.data as { status?: string } | null)?.status
+        return { id, status }
+      }),
+    )
+    return this.buildStatusMap(results)
+  }
+
+  private buildStatusMap(
+    results: PromiseSettledResult<{ id: number; status: string | undefined }>[],
+  ): Map<number, string> {
+    const statuses = new Map<number, string>()
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value.status) {
+        statuses.set(result.value.id, result.value.status)
+      }
+    }
+    return statuses
+  }
 
   /** Checks whether a queue item is in any recognized failure state. */
   private isFailed(item: RadarrQueueItem | SonarrQueueItem): boolean {

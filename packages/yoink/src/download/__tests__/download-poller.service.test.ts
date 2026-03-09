@@ -1,9 +1,11 @@
 jest.mock('@lilnas/media/radarr-next', () => ({
+  getApiV3CommandById: jest.fn(),
   getApiV3QueueDetails: jest.fn(),
   postApiV3Command: jest.fn(),
 }))
 
 jest.mock('@lilnas/media/sonarr', () => ({
+  getApiV3CommandById: jest.fn(),
   getApiV3QueueDetails: jest.fn(),
   postApiV3Command: jest.fn(),
   deleteApiV3QueueById: jest.fn(),
@@ -11,10 +13,12 @@ jest.mock('@lilnas/media/sonarr', () => ({
 }))
 
 import {
+  getApiV3CommandById as radarrGetCommandById,
   getApiV3QueueDetails as radarrGetQueueDetails,
   postApiV3Command as radarrPostCommand,
 } from '@lilnas/media/radarr-next'
 import {
+  getApiV3CommandById as sonarrGetCommandById,
   deleteApiV3QueueById as sonarrDeleteQueueById,
   getApiV3QueueDetails as sonarrGetQueueDetails,
   postApiV3Command as sonarrPostCommand,
@@ -65,6 +69,12 @@ describe('DownloadPollerService.poll()', () => {
     ;(sonarrPostCommand as jest.Mock).mockResolvedValue({})
     ;(radarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })
     ;(sonarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })
+    ;(radarrGetCommandById as jest.Mock).mockResolvedValue({
+      data: { status: 'queued' },
+    })
+    ;(sonarrGetCommandById as jest.Mock).mockResolvedValue({
+      data: { status: 'queued' },
+    })
     ;(sonarrDeleteQueueById as jest.Mock).mockResolvedValue({})
     ;(putApiV3EpisodeMonitor as jest.Mock).mockResolvedValue({})
   })
@@ -112,10 +122,122 @@ describe('DownloadPollerService.poll()', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Search timeout: tracked without queueId beyond timeout
+  // Search not found: command-status-based detection
   // ---------------------------------------------------------------------------
 
-  it('emits FAILED and removes tracked when movie search times out', async () => {
+  it('emits FAILED and removes tracked when movie command completes with no queue item', async () => {
+    const entry = {
+      ...createTrackedMovie(456, 123, 42),
+      queueId: null,
+    }
+    mockService.getTracked.mockReturnValue(new Map([['movie:456', entry]]))
+    ;(radarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })
+    ;(radarrGetCommandById as jest.Mock).mockResolvedValue({
+      data: { status: 'completed' },
+    })
+
+    await poller.poll()
+
+    expect(radarrGetCommandById).toHaveBeenCalledWith(
+      expect.objectContaining({ path: { id: 42 } }),
+    )
+    expect(mockService.emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: DownloadEvents.FAILED,
+        tmdbId: 456,
+        error: 'No releases found',
+      }),
+    )
+    expect(mockService.removeTracked).toHaveBeenCalledWith('movie:456')
+  })
+
+  it('emits FAILED and removes tracked when episode command completes with no queue item', async () => {
+    const entry = {
+      ...createTrackedEpisode(
+        {
+          tvdbId: 789,
+          sonarrSeriesId: 20,
+          sonarrEpisodeId: 1,
+          seasonNumber: 1,
+          episodeNumber: 1,
+        },
+        55,
+      ),
+      queueId: null,
+    }
+    mockService.getTracked.mockReturnValue(new Map([['episode:1', entry]]))
+    ;(sonarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })
+    ;(sonarrGetCommandById as jest.Mock).mockResolvedValue({
+      data: { status: 'completed' },
+    })
+
+    await poller.poll()
+
+    expect(sonarrGetCommandById).toHaveBeenCalledWith(
+      expect.objectContaining({ path: { id: 55 } }),
+    )
+    expect(mockService.emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: DownloadEvents.FAILED,
+        tvdbId: 789,
+        episodeId: 1,
+        error: 'No releases found',
+      }),
+    )
+    expect(mockService.removeTracked).toHaveBeenCalledWith('episode:1')
+  })
+
+  it.each(['failed', 'aborted', 'cancelled', 'orphaned'])(
+    'emits FAILED when movie command status is "%s"',
+    async terminalStatus => {
+      const entry = { ...createTrackedMovie(456, 123, 42), queueId: null }
+      mockService.getTracked.mockReturnValue(new Map([['movie:456', entry]]))
+      ;(radarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })
+      ;(radarrGetCommandById as jest.Mock).mockResolvedValue({
+        data: { status: terminalStatus },
+      })
+
+      await poller.poll()
+
+      expect(mockService.emitEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ event: DownloadEvents.FAILED }),
+      )
+    },
+  )
+
+  it('does not emit any event when movie command is still searching (status: started)', async () => {
+    const entry = { ...createTrackedMovie(456, 123, 42), queueId: null }
+    mockService.getTracked.mockReturnValue(new Map([['movie:456', entry]]))
+    ;(radarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })
+    ;(radarrGetCommandById as jest.Mock).mockResolvedValue({
+      data: { status: 'started' },
+    })
+
+    await poller.poll()
+
+    expect(mockService.emitEvent).not.toHaveBeenCalled()
+    expect(mockService.removeTracked).not.toHaveBeenCalled()
+  })
+
+  it('does not emit any event when command status fetch fails', async () => {
+    const entry = { ...createTrackedMovie(456, 123, 42), queueId: null }
+    mockService.getTracked.mockReturnValue(new Map([['movie:456', entry]]))
+    ;(radarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })
+    ;(radarrGetCommandById as jest.Mock).mockRejectedValue(
+      new Error('API error'),
+    )
+
+    await poller.poll()
+
+    expect(mockService.emitEvent).not.toHaveBeenCalled()
+    expect(mockService.removeTracked).not.toHaveBeenCalled()
+  })
+
+  // ---------------------------------------------------------------------------
+  // Fallback timeout: entries without commandId (direct grabs via postApiV3Release)
+  // ---------------------------------------------------------------------------
+
+  it('emits FAILED via timeout fallback when no commandId and search exceeds timeout', async () => {
     const entry = {
       ...createTrackedMovie(456, 123),
       queueId: null,
@@ -136,39 +258,11 @@ describe('DownloadPollerService.poll()', () => {
     expect(mockService.removeTracked).toHaveBeenCalledWith('movie:456')
   })
 
-  it('emits FAILED and removes tracked when episode search times out', async () => {
-    const entry = {
-      ...createTrackedEpisode({
-        tvdbId: 789,
-        sonarrSeriesId: 20,
-        sonarrEpisodeId: 1,
-        seasonNumber: 1,
-        episodeNumber: 1,
-      }),
-      queueId: null,
-      initiatedAt: Date.now() - SEARCH_TIMEOUT_MS - 1000,
-    }
-    mockService.getTracked.mockReturnValue(new Map([['episode:1', entry]]))
-    ;(sonarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })
-
-    await poller.poll()
-
-    expect(mockService.emitEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: DownloadEvents.FAILED,
-        tvdbId: 789,
-        episodeId: 1,
-        error: 'No releases found',
-      }),
-    )
-    expect(mockService.removeTracked).toHaveBeenCalledWith('episode:1')
-  })
-
-  it('does not emit any event when no queue item and still within timeout', async () => {
+  it('does not emit any event when no commandId and still within timeout', async () => {
     const entry = {
       ...createTrackedMovie(456, 123),
       queueId: null,
-      initiatedAt: Date.now() - 5000, // within 30s timeout
+      initiatedAt: Date.now() - 5000,
     }
     mockService.getTracked.mockReturnValue(new Map([['movie:456', entry]]))
     ;(radarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })

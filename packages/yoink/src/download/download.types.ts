@@ -92,6 +92,8 @@ export interface TrackedMovieDownload {
   kind: 'movie'
   tmdbId: number
   radarrMovieId: number
+  /** Radarr command ID from the search command, used to poll /api/v3/command/{id} for completion. */
+  commandId: number | null
   queueId: number | null
   lastProgress: number | null
   lastStatus: string | null
@@ -113,6 +115,8 @@ export interface TrackedEpisodeDownload {
   sonarrEpisodeId: number
   seasonNumber: number
   episodeNumber: number
+  /** Sonarr command ID from the search command, used to poll /api/v3/command/{id} for completion. */
+  commandId: number | null
   queueId: number | null
   lastProgress: number | null
   lastStatus: string | null
@@ -126,6 +130,7 @@ export interface TrackedEpisodeDownload {
 export type TrackedDownload = TrackedMovieDownload | TrackedEpisodeDownload
 
 const NULL_PROGRESS_FIELDS = {
+  commandId: null,
   queueId: null,
   lastProgress: null,
   lastStatus: null,
@@ -139,12 +144,14 @@ const NULL_PROGRESS_FIELDS = {
 export function createTrackedMovie(
   tmdbId: number,
   radarrMovieId: number,
+  commandId: number | null = null,
 ): TrackedMovieDownload {
   return {
     kind: 'movie',
     tmdbId,
     radarrMovieId,
     ...NULL_PROGRESS_FIELDS,
+    commandId,
     initiatedAt: Date.now(),
   }
 }
@@ -160,11 +167,13 @@ export interface EpisodeIdentity {
 /** Creates a fresh {@link TrackedEpisodeDownload} with all progress fields null. */
 export function createTrackedEpisode(
   ep: EpisodeIdentity,
+  commandId: number | null = null,
 ): TrackedEpisodeDownload {
   return {
     kind: 'episode',
     ...ep,
     ...NULL_PROGRESS_FIELDS,
+    commandId,
     initiatedAt: Date.now(),
   }
 }

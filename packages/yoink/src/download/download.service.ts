@@ -1,4 +1,5 @@
 import {
+  type CommandResource as RadarrCommandResource,
   deleteApiV3QueueById,
   getApiV3Movie,
   getApiV3MovieById,
@@ -437,15 +438,19 @@ export class DownloadService {
       })
     }
 
-    await radarrPostCommand({
+    const commandResult = await radarrPostCommand({
       client,
       body: { name: 'MoviesSearch', movieIds: [movieId] } as Record<
         string,
         unknown
       >,
     })
+    const commandId = (commandResult.data as RadarrCommandResource)?.id ?? null
 
-    this.tracked.set(`movie:${tmdbId}`, createTrackedMovie(tmdbId, movieId))
+    this.tracked.set(
+      `movie:${tmdbId}`,
+      createTrackedMovie(tmdbId, movieId, commandId),
+    )
 
     this.emitEvent({
       event: DownloadEvents.INITIATED,
@@ -543,23 +548,28 @@ export class DownloadService {
       body: { ...episode, monitored: true },
     })
 
-    await sonarrPostCommand({
+    const commandResult = await sonarrPostCommand({
       client,
       body: { name: 'EpisodeSearch', episodeIds: [episodeId] } as Record<
         string,
         unknown
       >,
     })
+    const commandId =
+      (commandResult.data as { id?: number } | null)?.id ?? null
 
     this.tracked.set(
       `episode:${episodeId}`,
-      createTrackedEpisode({
-        tvdbId,
-        sonarrSeriesId: seriesId,
-        sonarrEpisodeId: episodeId,
-        seasonNumber: episode.seasonNumber ?? 0,
-        episodeNumber: episode.episodeNumber ?? 0,
-      }),
+      createTrackedEpisode(
+        {
+          tvdbId,
+          sonarrSeriesId: seriesId,
+          sonarrEpisodeId: episodeId,
+          seasonNumber: episode.seasonNumber ?? 0,
+          episodeNumber: episode.episodeNumber ?? 0,
+        },
+        commandId,
+      ),
     )
 
     this.emitEvent({
@@ -611,6 +621,8 @@ export class DownloadService {
     const episodeIds = eligible.map(ep => ep.id!)
     const series = seriesResult.data as SeriesResource
 
+    let commandId: number | null = null
+
     if (isSeason) {
       const seasonNeedsMonitoring = series.seasons?.some(
         s => s.seasonNumber === seasonNumber && !s.monitored,
@@ -635,10 +647,11 @@ export class DownloadService {
             })
           : Promise.resolve(),
       ])
-      await sonarrPostCommand({
+      const commandResult = await sonarrPostCommand({
         client,
         body: { name: 'EpisodeSearch', episodeIds } as Record<string, unknown>,
       })
+      commandId = (commandResult.data as { id?: number } | null)?.id ?? null
     } else {
       await Promise.all([
         episodeIds.length > 0
@@ -657,22 +670,26 @@ export class DownloadService {
           },
         }),
       ])
-      await sonarrPostCommand({
+      const commandResult = await sonarrPostCommand({
         client,
         body: { name: 'SeriesSearch', seriesId } as Record<string, unknown>,
       })
+      commandId = (commandResult.data as { id?: number } | null)?.id ?? null
     }
 
     for (const ep of eligible) {
       this.tracked.set(
         `episode:${ep.id!}`,
-        createTrackedEpisode({
-          tvdbId,
-          sonarrSeriesId: seriesId,
-          sonarrEpisodeId: ep.id!,
-          seasonNumber: ep.seasonNumber ?? 0,
-          episodeNumber: ep.episodeNumber ?? 0,
-        }),
+        createTrackedEpisode(
+          {
+            tvdbId,
+            sonarrSeriesId: seriesId,
+            sonarrEpisodeId: ep.id!,
+            seasonNumber: ep.seasonNumber ?? 0,
+            episodeNumber: ep.episodeNumber ?? 0,
+          },
+          commandId,
+        ),
       )
       this.emitEvent({
         event: DownloadEvents.INITIATED,
