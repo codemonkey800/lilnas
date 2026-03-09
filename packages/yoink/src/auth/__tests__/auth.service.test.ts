@@ -115,7 +115,7 @@ describe('AuthService', () => {
           status: 'pending',
         }
         ;(db.query.users.findFirst as jest.Mock).mockResolvedValue(existingUser)
-        const { mockOnConflict } = configureDbInsert([])
+        configureDbInsert([])
 
         const result = await service.findOrCreateUser(baseProfile as never)
 

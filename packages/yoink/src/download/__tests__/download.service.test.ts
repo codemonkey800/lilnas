@@ -654,7 +654,10 @@ describe('DownloadService', () => {
 
       expect(putApiV3EpisodeMonitor).toHaveBeenCalledWith(
         expect.objectContaining({
-          body: expect.objectContaining({ episodeIds: [999], monitored: false }),
+          body: expect.objectContaining({
+            episodeIds: [999],
+            monitored: false,
+          }),
         }),
       )
     })
@@ -691,7 +694,6 @@ describe('DownloadService', () => {
     it('cancels only episodes matching the target seasonNumber', async () => {
       await seedSeasonEpisodes(789, 1, [1, 2])
       await seedSeasonEpisodes(789, 2, [3])
-
       ;(sonarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })
 
       const result = await service.cancelSeasonDownloads(789, 20, 1)

@@ -9,6 +9,7 @@ import type {
 import type { LibraryItem, SearchFilter } from './library'
 import type { MovieDetail, MovieRelease } from './movies'
 import type { ShowDetail, ShowRelease } from './shows'
+import type { StorageOverview } from './storage.types'
 
 const BACKEND_URL = `http://localhost:${process.env.BACKEND_PORT ?? 8081}`
 
@@ -310,6 +311,10 @@ class ApiClient {
     await this.fetch(`/shows/library/${seriesId}?tvdbId=${tvdbId}`, {
       method: 'DELETE',
     })
+  }
+
+  async getStorageOverview(): Promise<StorageOverview> {
+    return this.fetch<StorageOverview>('/storage')
   }
 }
 

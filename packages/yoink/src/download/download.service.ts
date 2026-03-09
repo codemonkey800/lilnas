@@ -555,8 +555,7 @@ export class DownloadService {
         unknown
       >,
     })
-    const commandId =
-      (commandResult.data as { id?: number } | null)?.id ?? null
+    const commandId = (commandResult.data as { id?: number } | null)?.id ?? null
 
     this.tracked.set(
       `episode:${episodeId}`,

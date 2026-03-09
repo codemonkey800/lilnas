@@ -18,8 +18,8 @@ import {
   postApiV3Command as radarrPostCommand,
 } from '@lilnas/media/radarr-next'
 import {
-  getApiV3CommandById as sonarrGetCommandById,
   deleteApiV3QueueById as sonarrDeleteQueueById,
+  getApiV3CommandById as sonarrGetCommandById,
   getApiV3QueueDetails as sonarrGetQueueDetails,
   postApiV3Command as sonarrPostCommand,
   putApiV3EpisodeMonitor,

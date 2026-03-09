@@ -1,10 +1,9 @@
-export default function StoragePage() {
-  return (
-    <div>
-      <h1 className="text-2xl">Storage</h1>
-      <p className="mt-2 text-carbon-400">
-        Storage usage and management will appear here.
-      </p>
-    </div>
-  )
+import { api } from 'src/media/api.server'
+
+import { StorageContent } from './storage-content'
+
+export default async function StoragePage() {
+  const data = await api.getStorageOverview()
+
+  return <StorageContent data={data} />
 }

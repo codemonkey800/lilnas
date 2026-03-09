@@ -1,7 +1,10 @@
 import { JwtService } from '@nestjs/jwt'
 
 import { DownloadGateway } from 'src/download/download.gateway'
-import { DownloadEvents } from 'src/download/download.types'
+import {
+  DownloadEventPayload,
+  DownloadEvents,
+} from 'src/download/download.types'
 
 function makeSocket(cookieHeader?: string): {
   id: string
@@ -89,12 +92,18 @@ describe('DownloadGateway', () => {
       DownloadEvents.PROGRESS,
       DownloadEvents.COMPLETED,
       DownloadEvents.FAILED,
-    ])('emits %s event to all clients using eventName as the Socket.IO topic', eventName => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const payload = { event: eventName, mediaType: 'movie' as const, tmdbId: 1 } as any
-      gateway.handleDownloadEvent({ eventName, payload })
-      expect(mockServer.emit).toHaveBeenCalledWith(eventName, payload)
-    })
+    ])(
+      'emits %s event to all clients using eventName as the Socket.IO topic',
+      eventName => {
+        const payload = {
+          event: eventName,
+          mediaType: 'movie' as const,
+          tmdbId: 1,
+        } as DownloadEventPayload
+        gateway.handleDownloadEvent({ eventName, payload })
+        expect(mockServer.emit).toHaveBeenCalledWith(eventName, payload)
+      },
+    )
 
     it('passes payload through to clients by reference', () => {
       const payload = {
