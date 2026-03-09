@@ -59,11 +59,14 @@ const SEARCH_TIMEOUT_MS = 30_000
 describe('DownloadPollerService.poll()', () => {
   let poller: DownloadPollerService
   let mockService: ReturnType<typeof makeMockDownloadService>
+  let mockGateway: { hasConnectedClients: jest.Mock }
 
   beforeEach(() => {
     mockService = makeMockDownloadService()
+    mockGateway = { hasConnectedClients: jest.fn().mockReturnValue(true) }
     poller = new DownloadPollerService(
       mockService as unknown as DownloadService,
+      mockGateway as never,
     )
     ;(radarrPostCommand as jest.Mock).mockResolvedValue({})
     ;(sonarrPostCommand as jest.Mock).mockResolvedValue({})

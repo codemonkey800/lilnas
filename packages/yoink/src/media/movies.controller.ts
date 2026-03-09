@@ -31,6 +31,24 @@ const addToLibrarySchema = z.object({
   tmdbId: z.number().int().positive(),
 })
 
+function parseParam(value: string, name: string): number {
+  const result = numericIdSchema.safeParse(value)
+  if (!result.success) {
+    throw new BadRequestException(`${name} must be a positive integer`)
+  }
+  return result.data
+}
+
+function parseBody<T>(body: unknown, schema: z.ZodSchema<T>, message?: string): T {
+  const result = schema.safeParse(body)
+  if (!result.success) {
+    throw new BadRequestException(
+      message ?? result.error.issues[0]?.message ?? 'Invalid request body',
+    )
+  }
+  return result.data
+}
+
 @Controller('movies')
 @UseGuards(JwtAuthGuard)
 export class MoviesController {
@@ -38,33 +56,26 @@ export class MoviesController {
 
   @Post('library')
   async addToLibrary(@Body() body: unknown): Promise<{ movieId: number }> {
-    const result = addToLibrarySchema.safeParse(body)
-    if (!result.success) {
-      throw new BadRequestException(
-        'Body must include tmdbId as positive integer',
-      )
-    }
-    return this.moviesService.addToLibrary(result.data.tmdbId)
+    const { tmdbId } = parseBody(
+      body,
+      addToLibrarySchema,
+      'Body must include tmdbId as positive integer',
+    )
+    return this.moviesService.addToLibrary(tmdbId)
   }
 
   @Delete('library/:movieId')
   async removeFromLibrary(@Param('movieId') movieId: string): Promise<void> {
-    const result = numericIdSchema.safeParse(movieId)
-    if (!result.success) {
-      throw new BadRequestException('movieId must be a positive integer')
-    }
-    return this.moviesService.removeFromLibrary(result.data)
+    const id = parseParam(movieId, 'movieId')
+    return this.moviesService.removeFromLibrary(id)
   }
 
   @Get(':movieId/releases')
   async searchReleases(
     @Param('movieId') movieId: string,
   ): Promise<MovieRelease[]> {
-    const result = numericIdSchema.safeParse(movieId)
-    if (!result.success) {
-      throw new BadRequestException('movieId must be a positive integer')
-    }
-    return this.moviesService.searchReleases(result.data)
+    const id = parseParam(movieId, 'movieId')
+    return this.moviesService.searchReleases(id)
   }
 
   @Put(':movieId/monitored')
@@ -72,76 +83,64 @@ export class MoviesController {
     @Param('movieId') movieId: string,
     @Body() body: unknown,
   ): Promise<void> {
-    const idResult = numericIdSchema.safeParse(movieId)
-    if (!idResult.success) {
-      throw new BadRequestException('movieId must be a positive integer')
-    }
-    const bodyResult = monitoredSchema.safeParse(body)
-    if (!bodyResult.success) {
-      throw new BadRequestException('Body must include monitored as boolean')
-    }
-    return this.moviesService.setMonitored(
-      idResult.data,
-      bodyResult.data.monitored,
+    const id = parseParam(movieId, 'movieId')
+    const { monitored } = parseBody(
+      body,
+      monitoredSchema,
+      'Body must include monitored as boolean',
     )
+    return this.moviesService.setMonitored(id, monitored)
   }
 
   @Delete(':tmdbId/queue/:queueId')
-  async cancelDownload(@Param('queueId') queueId: string): Promise<void> {
-    const result = numericIdSchema.safeParse(queueId)
-    if (!result.success) {
-      throw new BadRequestException('queueId must be a positive integer')
-    }
-    return this.moviesService.cancelDownload(result.data)
+  async cancelDownload(
+    @Param('tmdbId') tmdbId: string,
+    @Param('queueId') queueId: string,
+  ): Promise<void> {
+    parseParam(tmdbId, 'tmdbId')
+    const qid = parseParam(queueId, 'queueId')
+    return this.moviesService.cancelDownload(qid)
   }
 
   @Delete(':tmdbId/files/:fileId')
-  async deleteMovieFile(@Param('fileId') fileId: string): Promise<void> {
-    const result = numericIdSchema.safeParse(fileId)
-    if (!result.success) {
-      throw new BadRequestException('fileId must be a positive integer')
-    }
-    return this.moviesService.deleteMovieFile(result.data)
+  async deleteMovieFile(
+    @Param('tmdbId') tmdbId: string,
+    @Param('fileId') fileId: string,
+  ): Promise<void> {
+    parseParam(tmdbId, 'tmdbId')
+    const fid = parseParam(fileId, 'fileId')
+    return this.moviesService.deleteMovieFile(fid)
   }
 
   @Post(':tmdbId/releases/grab')
-  async grabRelease(@Body() body: unknown): Promise<void> {
-    const result = grabReleaseSchema.safeParse(body)
-    if (!result.success) {
-      throw new BadRequestException(
-        'Body must include guid (string) and indexerId (positive integer)',
-      )
-    }
-    return this.moviesService.grabRelease(
-      result.data.guid,
-      result.data.indexerId,
+  async grabRelease(
+    @Param('tmdbId') tmdbId: string,
+    @Body() body: unknown,
+  ): Promise<void> {
+    parseParam(tmdbId, 'tmdbId')
+    const { guid, indexerId } = parseBody(
+      body,
+      grabReleaseSchema,
+      'Body must include guid (string) and indexerId (positive integer)',
     )
+    return this.moviesService.grabRelease(guid, indexerId)
   }
 
   @Post(':tmdbId/search-not-found')
   async recordSearchNotFound(@Param('tmdbId') tmdbId: string): Promise<void> {
-    const result = numericIdSchema.safeParse(tmdbId)
-    if (!result.success) {
-      throw new BadRequestException('tmdbId must be a positive integer')
-    }
-    return this.moviesService.recordSearchNotFound(result.data)
+    const id = parseParam(tmdbId, 'tmdbId')
+    return this.moviesService.recordSearchNotFound(id)
   }
 
   @Delete(':tmdbId/search-not-found')
   async clearSearchNotFound(@Param('tmdbId') tmdbId: string): Promise<void> {
-    const result = numericIdSchema.safeParse(tmdbId)
-    if (!result.success) {
-      throw new BadRequestException('tmdbId must be a positive integer')
-    }
-    return this.moviesService.clearSearchNotFound(result.data)
+    const id = parseParam(tmdbId, 'tmdbId')
+    return this.moviesService.clearSearchNotFound(id)
   }
 
   @Get(':tmdbId')
   async getMovie(@Param('tmdbId') tmdbId: string): Promise<MovieDetail> {
-    const result = numericIdSchema.safeParse(tmdbId)
-    if (!result.success) {
-      throw new BadRequestException('tmdbId must be a positive integer')
-    }
-    return this.moviesService.getMovie(result.data)
+    const id = parseParam(tmdbId, 'tmdbId')
+    return this.moviesService.getMovie(id)
   }
 }

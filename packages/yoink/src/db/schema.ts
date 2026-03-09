@@ -4,6 +4,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
 } from 'drizzle-orm/pg-core'
 
 // ---------------------------------------------------------------------------
@@ -13,19 +14,32 @@ import {
 // a file is successfully downloaded.
 // ---------------------------------------------------------------------------
 
-export const downloadSearchResults = pgTable('download_search_result', {
-  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-  mediaType: text('media_type', { enum: ['movie', 'episode'] }).notNull(),
-  // Movies: keyed by tmdbId (stable across Radarr add/remove)
-  tmdbId: integer('tmdb_id'),
-  // Episodes: keyed by tvdbId + seasonNumber + episodeNumber (stable across Sonarr add/remove)
-  tvdbId: integer('tvdb_id'),
-  seasonNumber: integer('season_number'),
-  episodeNumber: integer('episode_number'),
-  lastSearchedAt: timestamp('last_searched_at', { mode: 'date' })
-    .notNull()
-    .defaultNow(),
-})
+export const downloadSearchResults = pgTable(
+  'download_search_result',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    mediaType: text('media_type', { enum: ['movie', 'episode'] }).notNull(),
+    // Movies: keyed by tmdbId (stable across Radarr add/remove)
+    tmdbId: integer('tmdb_id'),
+    // Episodes: keyed by tvdbId + seasonNumber + episodeNumber (stable across Sonarr add/remove)
+    tvdbId: integer('tvdb_id'),
+    seasonNumber: integer('season_number'),
+    episodeNumber: integer('episode_number'),
+    lastSearchedAt: timestamp('last_searched_at', { mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  t => [
+    // Unique constraints to support upserts
+    unique('uq_dsr_movie').on(t.mediaType, t.tmdbId),
+    unique('uq_dsr_episode').on(
+      t.mediaType,
+      t.tvdbId,
+      t.seasonNumber,
+      t.episodeNumber,
+    ),
+  ],
+)
 
 // ---------------------------------------------------------------------------
 // Auth.js tables — https://authjs.dev/getting-started/adapters/drizzle

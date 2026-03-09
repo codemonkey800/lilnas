@@ -23,9 +23,7 @@ import { ReturnToMiddleware } from './return-to.middleware'
       useFactory: () => ({
         secret: process.env[EnvKeys.JWT_SECRET],
         signOptions: {
-          // Cast required: @nestjs/jwt expects StringValue (branded), not plain string
-          expiresIn: (process.env[EnvKeys.JWT_EXPIRATION] ??
-            '24h') as unknown as number,
+          expiresIn: process.env[EnvKeys.JWT_EXPIRATION] ?? '24h',
         },
       }),
     }),

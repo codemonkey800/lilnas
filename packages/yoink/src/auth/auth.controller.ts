@@ -1,3 +1,5 @@
+import { timingSafeEqual } from 'crypto'
+
 import {
   Controller,
   Get,
@@ -80,7 +82,14 @@ export class AuthController {
     const agentApiKey = process.env[EnvKeys.AGENT_API_KEY]
 
     if (!agentApiKey) throw new NotFoundException()
-    if (key !== agentApiKey) throw new UnauthorizedException()
+    if (!key) throw new UnauthorizedException()
+
+    const keyBuf = Buffer.from(key)
+    const expectedBuf = Buffer.from(agentApiKey)
+    const keysMatch =
+      keyBuf.length === expectedBuf.length &&
+      timingSafeEqual(keyBuf, expectedBuf)
+    if (!keysMatch) throw new UnauthorizedException()
 
     const user = await this.authService.findOrCreateAgentUser()
     const token = await this.authService.login({

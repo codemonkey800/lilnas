@@ -21,6 +21,7 @@ import {
 } from '@lilnas/media/sonarr'
 import {
   BadRequestException,
+  BadGatewayException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
@@ -33,9 +34,14 @@ import {
 import { searchShowReleases, type ShowDetail, type ShowRelease } from './shows'
 import { getShow } from './shows.server'
 
-function toHttpError(err: unknown): never {
+function toNotFound(err: unknown): never {
   const message = err instanceof Error ? err.message : String(err)
   throw new NotFoundException(message)
+}
+
+function toBadGateway(err: unknown): never {
+  const message = err instanceof Error ? err.message : String(err)
+  throw new BadGatewayException(`Upstream Sonarr error: ${message}`)
 }
 
 @Injectable()
@@ -44,7 +50,7 @@ export class ShowsService {
     try {
       return await getShow(tvdbId)
     } catch (err) {
-      toHttpError(err)
+      toNotFound(err)
     }
   }
 
@@ -57,7 +63,7 @@ export class ShowsService {
         query: { removeFromClient: true, blocklist: false },
       })
     } catch (err) {
-      toHttpError(err)
+      toBadGateway(err)
     }
   }
 
@@ -92,7 +98,7 @@ export class ShowsService {
       ])
       return { cancelledEpisodeIds: episodeIds }
     } catch (err) {
-      toHttpError(err)
+      toBadGateway(err)
     }
   }
 
@@ -119,7 +125,7 @@ export class ShowsService {
         deleteApiV3EpisodefileById({ client, path: { id: episodeFileId } }),
       ])
     } catch (err) {
-      toHttpError(err)
+      toBadGateway(err)
     }
   }
 
@@ -152,7 +158,7 @@ export class ShowsService {
         deleteApiV3EpisodefileBulk({ client, body: { episodeFileIds } }),
       ])
     } catch (err) {
-      toHttpError(err)
+      toBadGateway(err)
     }
   }
 
@@ -160,7 +166,7 @@ export class ShowsService {
     try {
       return await searchShowReleases(episodeId)
     } catch (err) {
-      toHttpError(err)
+      toBadGateway(err)
     }
   }
 
@@ -176,7 +182,7 @@ export class ShowsService {
         body: { guid, indexerId } as ReleaseResource,
       })
     } catch (err) {
-      toHttpError(err)
+      toBadGateway(err)
     }
   }
 
@@ -197,7 +203,7 @@ export class ShowsService {
         body: { ...episode, monitored },
       })
     } catch (err) {
-      toHttpError(err)
+      toBadGateway(err)
     }
   }
 
@@ -239,7 +245,7 @@ export class ShowsService {
       return { seriesId: created.id ?? 0 }
     } catch (err) {
       if (err instanceof BadRequestException) throw err
-      toHttpError(err)
+      toBadGateway(err)
     }
   }
 
@@ -255,7 +261,7 @@ export class ShowsService {
         clearAllShowSearchResults(tvdbId),
       ])
     } catch (err) {
-      toHttpError(err)
+      toBadGateway(err)
     }
   }
 

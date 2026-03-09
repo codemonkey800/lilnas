@@ -41,7 +41,11 @@ import {
   putApiV3EpisodeById,
   putApiV3EpisodeMonitor,
 } from '@lilnas/media/sonarr'
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common'
 
 import { clearAllShowSearchResults } from 'src/media/search-results'
 import { searchShowReleases } from 'src/media/shows'
@@ -119,12 +123,12 @@ describe('ShowsService', () => {
       )
     })
 
-    it('throws NotFoundException on API error', async () => {
+    it('throws BadGatewayException on API error', async () => {
       ;(deleteApiV3QueueById as jest.Mock).mockRejectedValue(
         new Error('Not found'),
       )
       await expect(service.cancelQueueItem(789, 50)).rejects.toThrow(
-        NotFoundException,
+        BadGatewayException,
       )
     })
   })
@@ -184,12 +188,12 @@ describe('ShowsService', () => {
       expect(result.cancelledEpisodeIds).toEqual([2])
     })
 
-    it('throws NotFoundException on API error', async () => {
+    it('throws BadGatewayException on API error', async () => {
       ;(getApiV3QueueDetails as jest.Mock).mockRejectedValue(
         new Error('Sonarr down'),
       )
       await expect(service.cancelAllQueueItems(789, 20)).rejects.toThrow(
-        NotFoundException,
+        BadGatewayException,
       )
     })
   })
@@ -224,12 +228,12 @@ describe('ShowsService', () => {
       expect(deleteApiV3EpisodefileById).toHaveBeenCalled()
     })
 
-    it('throws NotFoundException on API error', async () => {
+    it('throws BadGatewayException on API error', async () => {
       ;(getApiV3Episode as jest.Mock).mockRejectedValue(
         new Error('Sonarr error'),
       )
       await expect(service.deleteEpisodeFile(789, 5)).rejects.toThrow(
-        NotFoundException,
+        BadGatewayException,
       )
     })
   })
@@ -268,12 +272,12 @@ describe('ShowsService', () => {
       )
     })
 
-    it('throws NotFoundException on API error', async () => {
+    it('throws BadGatewayException on API error', async () => {
       ;(getApiV3Episode as jest.Mock).mockRejectedValue(
         new Error('Sonarr error'),
       )
       await expect(service.deleteSeasonFiles(789, 1, 20)).rejects.toThrow(
-        NotFoundException,
+        BadGatewayException,
       )
     })
   })
@@ -293,12 +297,12 @@ describe('ShowsService', () => {
       expect(result).toEqual(releases)
     })
 
-    it('throws NotFoundException on error', async () => {
+    it('throws BadGatewayException on error', async () => {
       ;(searchShowReleases as jest.Mock).mockRejectedValue(
         new Error('Sonarr error'),
       )
       await expect(service.searchEpisodeReleases(1)).rejects.toThrow(
-        NotFoundException,
+        BadGatewayException,
       )
     })
   })
@@ -317,12 +321,12 @@ describe('ShowsService', () => {
       )
     })
 
-    it('throws NotFoundException on API error', async () => {
+    it('throws BadGatewayException on API error', async () => {
       ;(postApiV3Release as jest.Mock).mockRejectedValue(
         new Error('Grab failed'),
       )
       await expect(service.grabRelease(789, 'xyz', 1)).rejects.toThrow(
-        NotFoundException,
+        BadGatewayException,
       )
     })
   })
@@ -344,12 +348,12 @@ describe('ShowsService', () => {
       )
     })
 
-    it('throws NotFoundException on API error', async () => {
+    it('throws BadGatewayException on API error', async () => {
       ;(getApiV3EpisodeById as jest.Mock).mockRejectedValue(
         new Error('Not found'),
       )
       await expect(service.setEpisodeMonitored(999, true)).rejects.toThrow(
-        NotFoundException,
+        BadGatewayException,
       )
     })
   })
@@ -394,12 +398,12 @@ describe('ShowsService', () => {
       )
     })
 
-    it('throws NotFoundException on generic API error', async () => {
+    it('throws BadGatewayException on generic API error', async () => {
       ;(postApiV3Series as jest.Mock).mockRejectedValue(
         new Error('Network error'),
       )
       await expect(service.addShowToLibrary(789)).rejects.toThrow(
-        NotFoundException,
+        BadGatewayException,
       )
     })
   })
@@ -420,12 +424,12 @@ describe('ShowsService', () => {
       expect(clearAllShowSearchResults).toHaveBeenCalledWith(789)
     })
 
-    it('throws NotFoundException on API error', async () => {
+    it('throws BadGatewayException on API error', async () => {
       ;(deleteApiV3SeriesById as jest.Mock).mockRejectedValue(
         new Error('Not found'),
       )
       await expect(service.removeShowFromLibrary(20, 789)).rejects.toThrow(
-        NotFoundException,
+        BadGatewayException,
       )
     })
   })

@@ -26,6 +26,17 @@ export function isImportStatus(
   return progress >= 100 || IMPORT_STATUSES.has(status ?? '')
 }
 
+/** Derives the display state for a tracked download from its current fields. */
+export function computeDownloadState(entry: {
+  queueId: number | null
+  lastProgress: number | null
+  lastStatus: string | null
+}): 'searching' | 'downloading' | 'importing' {
+  if (entry.queueId === null) return 'searching'
+  const progress = entry.lastProgress ?? 0
+  return isImportStatus(progress, entry.lastStatus) ? 'importing' : 'downloading'
+}
+
 // ---------------------------------------------------------------------------
 // Request schemas and DTOs
 // ---------------------------------------------------------------------------

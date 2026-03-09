@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 
 import { db } from 'src/db'
 import { downloadSearchResults } from 'src/db/schema'
@@ -20,9 +20,8 @@ export async function recordMovieNotFound(tmdbId: number): Promise<void> {
       lastSearchedAt: new Date(),
     })
     .onConflictDoUpdate({
-      target: [downloadSearchResults.tmdbId],
-      set: { lastSearchedAt: new Date() },
-      setWhere: eq(downloadSearchResults.mediaType, 'movie'),
+      target: [downloadSearchResults.mediaType, downloadSearchResults.tmdbId],
+      set: { lastSearchedAt: sql`excluded.last_searched_at` },
     })
 }
 
@@ -90,23 +89,18 @@ export async function recordEpisodesNotFound(
     lastSearchedAt: now,
   }))
 
-  // Drizzle doesn't support composite unique conflict targets via onConflictDoUpdate
-  // without a unique index, so we delete + insert to upsert.
-  // Each episode is uniquely identified by (tvdb_id, season_number, episode_number).
-  for (const ep of episodes) {
-    await db
-      .delete(downloadSearchResults)
-      .where(
-        and(
-          eq(downloadSearchResults.mediaType, 'episode'),
-          eq(downloadSearchResults.tvdbId, tvdbId),
-          eq(downloadSearchResults.seasonNumber, ep.seasonNumber),
-          eq(downloadSearchResults.episodeNumber, ep.episodeNumber),
-        ),
-      )
-  }
-
-  await db.insert(downloadSearchResults).values(values)
+  await db
+    .insert(downloadSearchResults)
+    .values(values)
+    .onConflictDoUpdate({
+      target: [
+        downloadSearchResults.mediaType,
+        downloadSearchResults.tvdbId,
+        downloadSearchResults.seasonNumber,
+        downloadSearchResults.episodeNumber,
+      ],
+      set: { lastSearchedAt: sql`excluded.last_searched_at` },
+    })
 }
 
 /**
@@ -171,11 +165,13 @@ export async function clearEpisodeSearchResultsBulk(
 ): Promise<void> {
   if (episodes.length === 0) return
 
-  // Delete all records for this show then re-check is expensive;
-  // instead delete each stale record individually.
-  for (const ep of episodes) {
-    await clearEpisodeSearchResult(tvdbId, ep.seasonNumber, ep.episodeNumber)
-  }
+  // Build a list of composite season+episode values to match against.
+  // We use inArray on a concatenated key column expression for a single query.
+  await Promise.all(
+    episodes.map(ep =>
+      clearEpisodeSearchResult(tvdbId, ep.seasonNumber, ep.episodeNumber),
+    ),
+  )
 }
 
 /**

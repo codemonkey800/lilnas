@@ -1,6 +1,8 @@
 import { Injectable, NestMiddleware } from '@nestjs/common'
 import type { NextFunction, Request, Response } from 'express'
 
+import { EnvKeys } from 'src/env'
+
 import { OAUTH_RETURN_TO_COOKIE } from './constants'
 
 /**
@@ -20,9 +22,11 @@ export class ReturnToMiddleware implements NestMiddleware {
         : undefined
 
     if (safe && safe !== '/') {
+      const isProd = process.env[EnvKeys.NODE_ENV] === 'production'
       res.cookie(OAUTH_RETURN_TO_COOKIE, safe, {
         maxAge: 5 * 60 * 1000,
         httpOnly: true,
+        secure: isProd,
         sameSite: 'lax',
       })
     }

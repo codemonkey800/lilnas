@@ -2,7 +2,7 @@ import { jwtVerify } from 'jose'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
-const AUTH_TOKEN_COOKIE = 'auth-token'
+import { AUTH_TOKEN_COOKIE } from 'src/auth/constants'
 
 export default async function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl

@@ -15,5 +15,6 @@ import { DownloadPollerService } from './download-poller.service'
     DownloadPollerService,
     JwtAuthGuard,
   ],
+  exports: [DownloadGateway],
 })
 export class DownloadModule {}

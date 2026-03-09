@@ -4,8 +4,8 @@ import { cookies } from 'next/headers'
 
 import { db } from 'src/db'
 import { users } from 'src/db/schema'
-
-const AUTH_TOKEN_COOKIE = 'auth-token'
+import { AUTH_TOKEN_COOKIE } from 'src/auth/constants'
+import { EnvKeys } from 'src/env'
 
 interface JwtPayload {
   sub: string
@@ -17,7 +17,7 @@ export async function getAuthenticatedUser() {
   const token = cookieStore.get(AUTH_TOKEN_COOKIE)?.value
   if (!token) return null
 
-  const secret = new TextEncoder().encode(process.env.JWT_SECRET)
+  const secret = new TextEncoder().encode(process.env[EnvKeys.JWT_SECRET])
   let payload: JwtPayload
   try {
     const { payload: p } = await jwtVerify(token, secret)
@@ -43,7 +43,7 @@ export async function getAuthenticatedUser() {
 
   return {
     ...row,
-    isAdmin: row.email === process.env.ADMIN_EMAIL,
+    isAdmin: row.email === process.env[EnvKeys.ADMIN_EMAIL],
   }
 }
 

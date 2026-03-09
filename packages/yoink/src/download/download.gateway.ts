@@ -58,6 +58,11 @@ export class DownloadGateway
     this.logger.debug(`Client disconnected: ${client.id}`)
   }
 
+  /** Returns true when at least one WebSocket client is connected. */
+  hasConnectedClients(): boolean {
+    return (this.server?.sockets?.size ?? 0) > 0
+  }
+
   /** Forwards internal download events to all connected WebSocket clients. */
   @OnEvent(INTERNAL_DOWNLOAD_EVENT)
   handleDownloadEvent(event: InternalDownloadEvent): void {

@@ -15,8 +15,23 @@ import { EnvKeys } from 'src/env'
 
 import { AUTH_TOKEN_COOKIE } from './constants'
 
+interface JwtPayload {
+  sub: string
+  email: string
+}
+
+interface CachedUser {
+  status: string
+  email: string | null
+  expiresAt: number
+}
+
+const USER_CACHE_TTL_MS = 60_000
+
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
+  private readonly userCache = new Map<string, CachedUser>()
+
   constructor(private jwtService: JwtService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -25,12 +40,21 @@ export class JwtAuthGuard implements CanActivate {
 
     if (!token) throw new UnauthorizedException()
 
-    let payload: { sub: string; email: string }
+    let payload: JwtPayload
     try {
-      payload = await this.jwtService.verifyAsync(token)
-      request['user'] = payload
+      payload = await this.jwtService.verifyAsync<JwtPayload>(token)
+      request.user = payload
     } catch {
       throw new UnauthorizedException()
+    }
+
+    const cached = this.userCache.get(payload.sub)
+    if (cached && Date.now() < cached.expiresAt) {
+      const isAdmin = cached.email === process.env[EnvKeys.ADMIN_EMAIL]
+      if (cached.status !== 'approved' && !isAdmin) {
+        throw new ForbiddenException()
+      }
+      return true
     }
 
     const user = await db.query.users.findFirst({
@@ -38,8 +62,16 @@ export class JwtAuthGuard implements CanActivate {
       columns: { status: true, email: true },
     })
 
-    const isAdmin = user?.email === process.env[EnvKeys.ADMIN_EMAIL]
-    if (!user || (user.status !== 'approved' && !isAdmin)) {
+    if (!user) throw new ForbiddenException()
+
+    this.userCache.set(payload.sub, {
+      status: user.status,
+      email: user.email ?? null,
+      expiresAt: Date.now() + USER_CACHE_TTL_MS,
+    })
+
+    const isAdmin = user.email === process.env[EnvKeys.ADMIN_EMAIL]
+    if (user.status !== 'approved' && !isAdmin) {
       throw new ForbiddenException()
     }
 

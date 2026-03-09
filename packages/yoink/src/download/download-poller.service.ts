@@ -21,6 +21,7 @@ import {
   recordMovieNotFound,
 } from 'src/media/search-results'
 
+import { DownloadGateway } from './download.gateway'
 import { DownloadService } from './download.service'
 import {
   computeProgress,
@@ -31,6 +32,7 @@ import {
 } from './download.types'
 
 const POLL_INTERVAL_MS = 3_000
+const REFRESH_INTERVAL_MS = 15_000
 const SEARCH_TIMEOUT_MS = 30_000
 
 const FAILURE_STATES = new Set(['failed', 'failedPending', 'importFailed'])
@@ -65,27 +67,47 @@ function logLabel(entry: TrackedDownload): string {
 export class DownloadPollerService {
   private readonly logger = new Logger(DownloadPollerService.name)
 
-  constructor(private readonly downloadService: DownloadService) {}
+  /** Timestamp of the last RefreshMonitoredDownloads command sent to Radarr/Sonarr. */
+  private lastRefreshAt = 0
+
+  constructor(
+    private readonly downloadService: DownloadService,
+    private readonly downloadGateway: DownloadGateway,
+  ) {}
 
   /**
-   * Runs every {@link POLL_INTERVAL_MS}ms. Fetches current Radarr and Sonarr
-   * queues and reconciles them against tracked downloads, emitting state
-   * transition events (grabbing, progress, failed, completed) as needed.
+   * Runs every {@link POLL_INTERVAL_MS}ms. Only proceeds when at least one
+   * WebSocket client is connected, or there are pending cancels that need
+   * processing regardless of UI presence.
    *
-   * For entries still in the searching phase (no queue item yet), polls
-   * `/api/v3/command/{id}` to detect when the indexer search finishes rather
-   * than relying on the fixed {@link SEARCH_TIMEOUT_MS} fallback.
+   * `RefreshMonitoredDownloads` is throttled to once per {@link REFRESH_INTERVAL_MS}
+   * to avoid hammering Radarr/Sonarr on every 3s tick.
    */
   @Interval(POLL_INTERVAL_MS)
   async poll(): Promise<void> {
     const tracked = this.downloadService.getTracked()
     const pendingCancels = this.downloadService.getPendingCancelEpisodes()
+
+    // Skip entirely when nothing to do and no clients are watching.
+    if (
+      tracked.size === 0 &&
+      pendingCancels.size === 0 &&
+      !this.downloadGateway.hasConnectedClients()
+    ) {
+      return
+    }
+
+    // If there are tracked downloads but no connected clients, we still need
+    // to advance state (e.g. detect completion), but skip when truly idle.
     if (tracked.size === 0 && pendingCancels.size === 0) return
 
     try {
+      const shouldRefresh = Date.now() - this.lastRefreshAt >= REFRESH_INTERVAL_MS
+      if (shouldRefresh) this.lastRefreshAt = Date.now()
+
       const [radarrQueue, sonarrQueue] = await Promise.all([
-        this.fetchRadarrQueue(),
-        this.fetchSonarrQueue(),
+        this.fetchRadarrQueue(shouldRefresh),
+        this.fetchSonarrQueue(shouldRefresh),
       ])
       // Index queue items by their media ID for O(1) lookup
       const radarrByMovieId = new Map<number, RadarrQueueItem>()
@@ -403,24 +425,34 @@ export class DownloadPollerService {
     )
   }
 
-  /** Tells Radarr to refresh its download client cache, then fetches the queue. */
-  private async fetchRadarrQueue(): Promise<RadarrQueueItem[]> {
+  /**
+   * Optionally triggers RefreshMonitoredDownloads, then fetches the Radarr queue.
+   * The caller determines whether to refresh based on the shared {@link lastRefreshAt} timestamp.
+   */
+  private async fetchRadarrQueue(refresh: boolean): Promise<RadarrQueueItem[]> {
     const client = getRadarrClient()
-    await radarrPostCommand({
-      client,
-      body: { name: 'RefreshMonitoredDownloads' } as Record<string, unknown>,
-    })
+    if (refresh) {
+      await radarrPostCommand({
+        client,
+        body: { name: 'RefreshMonitoredDownloads' } as Record<string, unknown>,
+      })
+    }
     const result = await radarrGetQueueDetails({ client })
     return (result.data ?? []) as RadarrQueueItem[]
   }
 
-  /** Tells Sonarr to refresh its download client cache, then fetches the queue. */
-  private async fetchSonarrQueue(): Promise<SonarrQueueItem[]> {
+  /**
+   * Optionally triggers RefreshMonitoredDownloads, then fetches the Sonarr queue.
+   * The caller determines whether to refresh based on the shared {@link lastRefreshAt} timestamp.
+   */
+  private async fetchSonarrQueue(refresh: boolean): Promise<SonarrQueueItem[]> {
     const client = getSonarrClient()
-    await sonarrPostCommand({
-      client,
-      body: { name: 'RefreshMonitoredDownloads' } as Record<string, unknown>,
-    })
+    if (refresh) {
+      await sonarrPostCommand({
+        client,
+        body: { name: 'RefreshMonitoredDownloads' } as Record<string, unknown>,
+      })
+    }
     const result = await sonarrGetQueueDetails({ client })
     return (result.data ?? []) as SonarrQueueItem[]
   }
