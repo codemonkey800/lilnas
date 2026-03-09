@@ -98,13 +98,12 @@ describe('DownloadGateway', () => {
 
     it('passes payload through to clients by reference', () => {
       const payload = {
-        event: DownloadEvents.FAILED,
+        event: DownloadEvents.CANCELLED,
         mediaType: 'movie' as const,
         tmdbId: 456,
-        error: 'Download cancelled',
       }
       gateway.handleDownloadEvent({
-        eventName: DownloadEvents.FAILED,
+        eventName: DownloadEvents.CANCELLED,
         payload,
       })
       const [, emittedPayload] = (mockServer.emit as jest.Mock).mock.calls[0]!

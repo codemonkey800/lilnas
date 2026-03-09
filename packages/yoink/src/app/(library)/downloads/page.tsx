@@ -1,10 +1,9 @@
-export default function DownloadsPage() {
-  return (
-    <div>
-      <h1 className="text-2xl">Downloads</h1>
-      <p className="mt-2 text-carbon-400">
-        Active and queued downloads will appear here.
-      </p>
-    </div>
-  )
+import { api } from 'src/media/api.server'
+
+import { DownloadsContent } from './downloads-content'
+
+export default async function DownloadsPage() {
+  const initialData = await api.getAllDownloads()
+
+  return <DownloadsContent initialData={initialData} />
 }

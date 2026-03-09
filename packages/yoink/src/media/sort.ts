@@ -27,5 +27,7 @@ export function sortItems(
       return sorted.sort((a, b) => compareDate(b.releaseDate, a.releaseDate))
     case 'release-asc':
       return sorted.sort((a, b) => compareDate(a.releaseDate, b.releaseDate))
+    default:
+      return items
   }
 }

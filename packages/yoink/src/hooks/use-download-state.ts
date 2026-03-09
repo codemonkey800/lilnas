@@ -161,6 +161,11 @@ export function useDownloadState(
       dispatch({ type: 'failed', error: payload.error })
     }
 
+    function onCancelled(payload: { tmdbId?: number }) {
+      if (payload.tmdbId !== tmdbId) return
+      dispatch({ type: 'reset' })
+    }
+
     function onCompleted(payload: { tmdbId?: number }) {
       if (payload.tmdbId !== tmdbId) return
       dispatch({ type: 'completed' })
@@ -170,6 +175,7 @@ export function useDownloadState(
     socket.on('download:grabbing', onGrabbing)
     socket.on('download:progress', onProgress)
     socket.on('download:failed', onFailed)
+    socket.on('download:cancelled', onCancelled)
     socket.on('download:completed', onCompleted)
 
     return () => {
@@ -177,6 +183,7 @@ export function useDownloadState(
       socket.off('download:grabbing', onGrabbing)
       socket.off('download:progress', onProgress)
       socket.off('download:failed', onFailed)
+      socket.off('download:cancelled', onCancelled)
       socket.off('download:completed', onCompleted)
     }
   }, [socket, tmdbId])

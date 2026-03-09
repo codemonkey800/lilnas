@@ -1,3 +1,5 @@
+import type { AllDownloadsResponse } from 'src/download/download.types'
+
 interface DownloadMovieOpts {
   releaseGuid?: string
   indexerId?: number
@@ -8,6 +10,14 @@ class ApiClient {
     const res = await fetch(`/api${path}`, init)
     if (!res.ok) throw new Error(`API ${path} returned ${res.status}`)
     return res.json() as Promise<T>
+  }
+
+  async getAllDownloads(): Promise<AllDownloadsResponse> {
+    try {
+      return await this.fetch<AllDownloadsResponse>('/downloads/all')
+    } catch {
+      return { movies: [], shows: [] }
+    }
   }
 
   async requestMovieDownload(
@@ -42,6 +52,45 @@ class ApiClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mediaType: 'show', tvdbId, scope, ...opts }),
     })
+  }
+
+  async cancelMovieDownload(tmdbId: number): Promise<void> {
+    await this.fetch(`/downloads/movie/${tmdbId}`, { method: 'DELETE' })
+  }
+
+  async cancelAllShowDownloads(
+    tvdbId: number,
+    seriesId: number,
+  ): Promise<{ cancelledEpisodeIds: number[] }> {
+    const result = await this.fetch<{ cancelledEpisodeIds: number[] }>(
+      `/downloads/show/${tvdbId}`,
+      {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seriesId }),
+      },
+    )
+    return result ?? { cancelledEpisodeIds: [] }
+  }
+
+  async cancelEpisodeDownload(episodeId: number): Promise<void> {
+    await this.fetch(`/downloads/episode/${episodeId}`, { method: 'DELETE' })
+  }
+
+  async cancelSeasonDownloads(
+    tvdbId: number,
+    seriesId: number,
+    seasonNumber: number,
+  ): Promise<{ cancelledEpisodeIds: number[] }> {
+    const result = await this.fetch<{ cancelledEpisodeIds: number[] }>(
+      `/downloads/show/${tvdbId}/season/${seasonNumber}`,
+      {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seriesId }),
+      },
+    )
+    return result ?? { cancelledEpisodeIds: [] }
   }
 }
 

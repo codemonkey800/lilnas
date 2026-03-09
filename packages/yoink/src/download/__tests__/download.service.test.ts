@@ -18,6 +18,7 @@ jest.mock('@lilnas/media/sonarr', () => ({
   putApiV3EpisodeMonitor: jest.fn(),
   putApiV3SeriesById: jest.fn(),
   deleteApiV3QueueBulk: jest.fn(),
+  deleteApiV3QueueById: jest.fn(),
 }))
 
 import {
@@ -29,6 +30,7 @@ import {
 } from '@lilnas/media/radarr-next'
 import {
   deleteApiV3QueueBulk,
+  deleteApiV3QueueById as sonarrDeleteQueueById,
   getApiV3Episode,
   getApiV3EpisodeById,
   getApiV3QueueDetails as sonarrGetQueueDetails,
@@ -89,6 +91,7 @@ describe('DownloadService', () => {
     })
     ;(putApiV3EpisodeMonitor as jest.Mock).mockResolvedValue({})
     ;(deleteApiV3QueueBulk as jest.Mock).mockResolvedValue({})
+    ;(sonarrDeleteQueueById as jest.Mock).mockResolvedValue({})
   })
 
   // ---------------------------------------------------------------------------
@@ -254,15 +257,14 @@ describe('DownloadService', () => {
       )
     })
 
-    it('emits FAILED event with "Download cancelled" message', async () => {
+    it('emits CANCELLED event when download is cancelled', async () => {
       await service.cancelMovieDownload(456)
       expect(events.emit).toHaveBeenCalledWith(
         INTERNAL_DOWNLOAD_EVENT,
         expect.objectContaining({
-          eventName: DownloadEvents.FAILED,
+          eventName: DownloadEvents.CANCELLED,
           payload: expect.objectContaining({
             tmdbId: 456,
-            error: 'Download cancelled',
           }),
         }),
       )
@@ -388,7 +390,7 @@ describe('DownloadService', () => {
       expect(result.cancelledEpisodeIds).toContain(2)
     })
 
-    it('emits FAILED event for each tracked episode', async () => {
+    it('emits CANCELLED event for each tracked episode', async () => {
       // Seed two tracked episodes via requestDownload
       ;(getApiV3EpisodeById as jest.Mock)
         .mockResolvedValueOnce({
@@ -415,10 +417,10 @@ describe('DownloadService', () => {
       await service.cancelShowDownloads(789, 20)
 
       const calls = (events.emit as jest.Mock).mock.calls
-      const failedEvents = calls.filter(
-        ([, env]) => env?.eventName === DownloadEvents.FAILED,
+      const cancelledEvents = calls.filter(
+        ([, env]) => env?.eventName === DownloadEvents.CANCELLED,
       )
-      expect(failedEvents).toHaveLength(2)
+      expect(cancelledEvents).toHaveLength(2)
     })
   })
 
@@ -578,6 +580,141 @@ describe('DownloadService', () => {
       await expect(service.cancelMovieDownload(456)).rejects.toThrow(
         'Queue delete failed',
       )
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // cancelEpisodeDownload
+  // ---------------------------------------------------------------------------
+
+  describe('cancelEpisodeDownload', () => {
+    async function seedEpisode(episodeId: number) {
+      ;(getApiV3EpisodeById as jest.Mock).mockResolvedValue({
+        data: {
+          id: episodeId,
+          seasonNumber: 1,
+          episodeNumber: episodeId,
+          monitored: false,
+        },
+      })
+      await service.requestDownload({
+        mediaType: 'show',
+        tvdbId: 789,
+        scope: 'episode',
+        episodeId,
+      })
+    }
+
+    it('removes tracked entry and emits CANCELLED', async () => {
+      await seedEpisode(1)
+      events.emit.mockClear()
+
+      await service.cancelEpisodeDownload(1)
+
+      expect(service.getTracked().has('episode:1')).toBe(false)
+      expect(events.emit).toHaveBeenCalledWith(
+        INTERNAL_DOWNLOAD_EVENT,
+        expect.objectContaining({
+          eventName: DownloadEvents.CANCELLED,
+          payload: expect.objectContaining({ episodeId: 1 }),
+        }),
+      )
+    })
+
+    it('deletes queue item when tracked entry has a queueId', async () => {
+      await seedEpisode(1)
+      service.updateTracked('episode:1', { queueId: 88 })
+
+      await service.cancelEpisodeDownload(1)
+
+      expect(sonarrDeleteQueueById).toHaveBeenCalledWith(
+        expect.objectContaining({ path: { id: 88 } }),
+      )
+      expect(sonarrGetQueueDetails).not.toHaveBeenCalled()
+    })
+
+    it('falls back to Sonarr queue lookup when tracked entry has no queueId', async () => {
+      await seedEpisode(1)
+      // Leave queueId as null (default after requestDownload)
+      ;(sonarrGetQueueDetails as jest.Mock).mockResolvedValue({
+        data: [{ id: 55, episodeId: 1 }],
+      })
+
+      await service.cancelEpisodeDownload(1)
+
+      expect(sonarrGetQueueDetails).toHaveBeenCalled()
+      expect(sonarrDeleteQueueById).toHaveBeenCalledWith(
+        expect.objectContaining({ path: { id: 55 } }),
+      )
+    })
+
+    it('unmonitors episode even when not in queue', async () => {
+      // Cancel a non-tracked episode not in any queue
+      await service.cancelEpisodeDownload(999)
+
+      expect(putApiV3EpisodeMonitor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({ episodeIds: [999], monitored: false }),
+        }),
+      )
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // cancelSeasonDownloads
+  // ---------------------------------------------------------------------------
+
+  describe('cancelSeasonDownloads', () => {
+    async function seedSeasonEpisodes(
+      tvdbId: number,
+      seasonNumber: number,
+      episodeIds: number[],
+    ) {
+      for (const id of episodeIds) {
+        ;(getApiV3EpisodeById as jest.Mock).mockResolvedValue({
+          data: { id, seasonNumber, episodeNumber: id, monitored: false },
+        })
+        await service.requestDownload({
+          mediaType: 'show',
+          tvdbId,
+          scope: 'episode',
+          episodeId: id,
+        })
+      }
+    }
+
+    it('returns empty when no tracked episodes match the season', async () => {
+      const result = await service.cancelSeasonDownloads(789, 20, 2)
+      expect(result.cancelledEpisodeIds).toEqual([])
+    })
+
+    it('cancels only episodes matching the target seasonNumber', async () => {
+      await seedSeasonEpisodes(789, 1, [1, 2])
+      await seedSeasonEpisodes(789, 2, [3])
+
+      ;(sonarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })
+
+      const result = await service.cancelSeasonDownloads(789, 20, 1)
+
+      expect(result.cancelledEpisodeIds).toContain(1)
+      expect(result.cancelledEpisodeIds).toContain(2)
+      expect(result.cancelledEpisodeIds).not.toContain(3)
+      // Season 2 episode should still be tracked
+      expect(service.getTracked().has('episode:3')).toBe(true)
+    })
+
+    it('emits CANCELLED event for each cancelled episode', async () => {
+      await seedSeasonEpisodes(789, 1, [1, 2])
+      ;(sonarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })
+
+      events.emit.mockClear()
+      await service.cancelSeasonDownloads(789, 20, 1)
+
+      const calls = (events.emit as jest.Mock).mock.calls
+      const cancelledEvents = calls.filter(
+        ([, env]) => env?.eventName === DownloadEvents.CANCELLED,
+      )
+      expect(cancelledEvents).toHaveLength(2)
     })
   })
 })

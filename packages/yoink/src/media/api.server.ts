@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 
 import type {
+  AllDownloadsResponse,
   MovieDownloadStatusResponse,
   ShowDownloadStatusResponse,
 } from 'src/download/download.types'
@@ -152,6 +153,14 @@ class ApiClient {
   }: SearchMediaParams): Promise<LibraryItem[]> {
     const params = new URLSearchParams({ term, filter })
     return this.fetch<LibraryItem[]>(`/library/search?${params.toString()}`)
+  }
+
+  async getAllDownloads(): Promise<AllDownloadsResponse> {
+    try {
+      return await this.fetch<AllDownloadsResponse>('/downloads/all')
+    } catch {
+      return { movies: [], shows: [] }
+    }
   }
 
   async cancelMovieDownload(tmdbId: number): Promise<void> {

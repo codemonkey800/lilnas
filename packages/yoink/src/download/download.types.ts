@@ -179,6 +179,7 @@ export const DownloadEvents = {
   GRABBING: 'download:grabbing',
   PROGRESS: 'download:progress',
   FAILED: 'download:failed',
+  CANCELLED: 'download:cancelled',
   COMPLETED: 'download:completed',
 } as const
 
@@ -230,6 +231,14 @@ export interface DownloadFailedPayload {
   error: string
 }
 
+export interface DownloadCancelledPayload {
+  event: 'download:cancelled'
+  mediaType: 'movie' | 'episode'
+  tmdbId?: number
+  tvdbId?: number
+  episodeId?: number
+}
+
 export interface DownloadCompletedPayload {
   event: 'download:completed'
   mediaType: 'movie' | 'episode'
@@ -243,6 +252,7 @@ export type DownloadEventPayload =
   | DownloadGrabbingPayload
   | DownloadProgressPayload
   | DownloadFailedPayload
+  | DownloadCancelledPayload
   | DownloadCompletedPayload
 
 // ---------------------------------------------------------------------------
@@ -287,3 +297,58 @@ export interface EpisodeDownloadStatusItem {
 
 /** Array of episode download snapshots, returned by GET /downloads/show/:tvdbId. */
 export type ShowDownloadStatusResponse = EpisodeDownloadStatusItem[]
+
+// ---------------------------------------------------------------------------
+// All-downloads response DTOs (rich metadata for the Downloads page)
+// ---------------------------------------------------------------------------
+
+/** A movie currently being downloaded, with rich metadata for display. */
+export interface MovieDownloadItem {
+  tmdbId: number
+  title: string
+  year: number
+  posterUrl: string | null
+  state: 'searching' | 'downloading' | 'importing'
+  releaseTitle: string | null
+  size: number
+  sizeleft: number
+  progress: number
+  eta: string | null
+  status: string | null
+}
+
+/** A single episode being downloaded, with season/episode metadata. */
+export interface EpisodeDownloadItem {
+  episodeId: number
+  seasonNumber: number
+  episodeNumber: number
+  state: 'searching' | 'downloading' | 'importing'
+  releaseTitle: string | null
+  size: number
+  sizeleft: number
+  progress: number
+  eta: string | null
+  status: string | null
+}
+
+/** All downloading episodes grouped by season number. */
+export interface SeasonDownloadGroup {
+  seasonNumber: number
+  episodes: EpisodeDownloadItem[]
+}
+
+/** A show with active downloads, with rich metadata and episodes grouped by season. */
+export interface ShowDownloadItem {
+  tvdbId: number
+  seriesId: number
+  title: string
+  year: number
+  posterUrl: string | null
+  seasons: SeasonDownloadGroup[]
+}
+
+/** Full snapshot of all active downloads, returned by GET /downloads/all. */
+export interface AllDownloadsResponse {
+  movies: MovieDownloadItem[]
+  shows: ShowDownloadItem[]
+}

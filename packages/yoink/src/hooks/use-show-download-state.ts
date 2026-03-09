@@ -211,6 +211,17 @@ export function useShowDownloadState(
       }
     }
 
+    function onCancelled(payload: {
+      tvdbId?: number
+      mediaType?: string
+      episodeId?: number
+    }) {
+      if (payload.tvdbId !== tvdbId || payload.mediaType !== 'episode') return
+      if (payload.episodeId != null) {
+        dispatch({ type: 'completed', episodeId: payload.episodeId })
+      }
+    }
+
     function onCompleted(payload: {
       tvdbId?: number
       mediaType?: string
@@ -226,6 +237,7 @@ export function useShowDownloadState(
     socket.on('download:grabbing', onGrabbing)
     socket.on('download:progress', onProgress)
     socket.on('download:failed', onFailed)
+    socket.on('download:cancelled', onCancelled)
     socket.on('download:completed', onCompleted)
 
     return () => {
@@ -233,6 +245,7 @@ export function useShowDownloadState(
       socket.off('download:grabbing', onGrabbing)
       socket.off('download:progress', onProgress)
       socket.off('download:failed', onFailed)
+      socket.off('download:cancelled', onCancelled)
       socket.off('download:completed', onCompleted)
     }
   }, [socket, tvdbId])

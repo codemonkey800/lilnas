@@ -13,3 +13,22 @@ export function formatRuntime(minutes: number): string {
   if (m === 0) return `${h}h`
   return `${h}h ${m}m`
 }
+
+/**
+ * Formats an ISO ETA timestamp as a relative duration string.
+ * e.g. "3m 22s", "1h 5m", "< 1m"
+ */
+export function formatEta(eta: string | null): string {
+  if (!eta) return ''
+  const target = new Date(eta).getTime()
+  const now = Date.now()
+  const diffMs = target - now
+  if (diffMs <= 0) return '< 1m'
+  const totalSeconds = Math.floor(diffMs / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m ${seconds}s`
+  return `${seconds}s`
+}

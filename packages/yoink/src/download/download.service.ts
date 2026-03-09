@@ -1,7 +1,9 @@
 import {
   deleteApiV3QueueById,
   getApiV3Movie,
+  getApiV3MovieById,
   getApiV3QueueDetails as radarrGetQueueDetails,
+  type MediaCover,
   type MovieResource,
   postApiV3Command as radarrPostCommand,
   postApiV3Release,
@@ -11,6 +13,7 @@ import {
 } from '@lilnas/media/radarr-next'
 import {
   deleteApiV3QueueBulk,
+  deleteApiV3QueueById as sonarrDeleteQueueById,
   type EpisodeResource,
   getApiV3Episode,
   getApiV3EpisodeById,
@@ -28,8 +31,10 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 
 import { getRadarrClient, getSonarrClient } from 'src/media/clients'
+import { getPosterUrl } from 'src/media/library'
 
 import {
+  type AllDownloadsResponse,
   computeProgress,
   createTrackedEpisode,
   createTrackedMovie,
@@ -38,12 +43,17 @@ import {
   type DownloadMovieRequest,
   type DownloadRequest,
   type DownloadShowRequest,
+  type EpisodeDownloadItem,
   type EpisodeDownloadStatusItem,
   INTERNAL_DOWNLOAD_EVENT,
   isImportStatus,
+  type MovieDownloadItem,
   type MovieDownloadStatusResponse,
+  type SeasonDownloadGroup,
+  type ShowDownloadItem,
   type ShowDownloadStatusResponse,
   type TrackedDownload,
+  type TrackedEpisodeDownload,
   type TrackedMovieDownload,
 } from './download.types'
 
@@ -153,10 +163,9 @@ export class DownloadService {
 
     this.removeTracked(key)
     this.emitEvent({
-      event: DownloadEvents.FAILED,
+      event: DownloadEvents.CANCELLED,
       mediaType: 'movie',
       tmdbId,
-      error: 'Download cancelled',
     })
     this.logger.log(`Movie download cancelled tmdbId=${tmdbId}`)
   }
@@ -311,18 +320,21 @@ export class DownloadService {
       await putApiV3EpisodeMonitor({
         client,
         body: { episodeIds: trackedOnlyIds, monitored: false },
-      }).catch(() => {})
+      }).catch(err =>
+        this.logger.warn(
+          `cancelShowDownloads unmonitor failed tvdbId=${tvdbId}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      )
     }
 
     const cancelledInQueue = new Set(activeItems.map(q => q.episodeId!))
     for (const { key, episodeId } of episodeKeys) {
       this.removeTracked(key)
       this.emitEvent({
-        event: DownloadEvents.FAILED,
+        event: DownloadEvents.CANCELLED,
         mediaType: 'episode',
         tvdbId,
         episodeId,
-        error: 'Download cancelled',
       })
       if (!cancelledInQueue.has(episodeId)) {
         this.pendingCancelEpisodes.set(episodeId, {
@@ -680,6 +692,343 @@ export class DownloadService {
         `Series download initiated tvdbId=${tvdbId} episodes=${episodeIds.length}`,
       )
     }
+  }
+
+  /**
+   * Returns a snapshot of ALL currently tracked downloads with rich metadata
+   * (title, year, poster) fetched from Radarr/Sonarr. Episodes are grouped
+   * by show, then by season, for display on the Downloads page.
+   */
+  async getAllDownloads(): Promise<AllDownloadsResponse> {
+    const movieEntries: TrackedMovieDownload[] = []
+    const episodeEntries: TrackedEpisodeDownload[] = []
+
+    for (const entry of this.tracked.values()) {
+      if (entry.kind === 'movie') {
+        movieEntries.push(entry)
+      } else {
+        episodeEntries.push(entry)
+      }
+    }
+
+    const [movies, shows] = await Promise.all([
+      this.buildMovieDownloadItems(movieEntries),
+      this.buildShowDownloadItems(episodeEntries),
+    ])
+
+    return { movies, shows }
+  }
+
+  private async buildMovieDownloadItems(
+    entries: TrackedMovieDownload[],
+  ): Promise<MovieDownloadItem[]> {
+    if (entries.length === 0) return []
+
+    const radarrClient = getRadarrClient()
+    const items = await Promise.all(
+      entries.map(async entry => {
+        let title = 'Unknown'
+        let year = 0
+        let posterUrl: string | null = null
+
+        try {
+          const result = await getApiV3MovieById({
+            client: radarrClient,
+            path: { id: entry.radarrMovieId },
+          })
+          const movie = result.data as MovieResource
+          title = movie.title ?? 'Unknown'
+          year = movie.year ?? 0
+          posterUrl = getPosterUrl(movie.images) ?? null
+        } catch {
+          // Fall back to tracked title if Radarr lookup fails
+          title = entry.lastTitle ?? 'Unknown'
+        }
+
+        const progress = entry.lastProgress ?? 0
+        const hasQueueData = entry.queueId !== null
+
+        return {
+          tmdbId: entry.tmdbId,
+          title,
+          year,
+          posterUrl,
+          state: !hasQueueData
+            ? ('searching' as const)
+            : isImportStatus(progress, entry.lastStatus)
+              ? ('importing' as const)
+              : ('downloading' as const),
+          releaseTitle: entry.lastTitle,
+          size: entry.lastSize ?? 0,
+          sizeleft: entry.lastSizeleft ?? 0,
+          progress,
+          eta: entry.lastEta,
+          status: entry.lastStatus,
+        } satisfies MovieDownloadItem
+      }),
+    )
+
+    return items
+  }
+
+  private async buildShowDownloadItems(
+    entries: TrackedEpisodeDownload[],
+  ): Promise<ShowDownloadItem[]> {
+    if (entries.length === 0) return []
+
+    // Group by tvdbId
+    const byShow = new Map<
+      number,
+      { seriesId: number; episodes: TrackedEpisodeDownload[] }
+    >()
+    for (const entry of entries) {
+      const existing = byShow.get(entry.tvdbId)
+      if (existing) {
+        existing.episodes.push(entry)
+      } else {
+        byShow.set(entry.tvdbId, {
+          seriesId: entry.sonarrSeriesId,
+          episodes: [entry],
+        })
+      }
+    }
+
+    const sonarrClient = getSonarrClient()
+
+    const showItems = await Promise.all(
+      Array.from(byShow.entries()).map(
+        async ([tvdbId, { seriesId, episodes }]) => {
+          let title = 'Unknown'
+          let year = 0
+          let posterUrl: string | null = null
+
+          try {
+            const result = await getApiV3SeriesById({
+              client: sonarrClient,
+              path: { id: seriesId },
+            })
+            const series = result.data as SeriesResource
+            title = series.title ?? 'Unknown'
+            year = series.year ?? 0
+            posterUrl =
+              getPosterUrl(
+                series.images as Array<MediaCover> | null | undefined,
+              ) ?? null
+          } catch {
+            // Leave defaults
+          }
+
+          // Group episodes by season
+          const bySeason = new Map<number, EpisodeDownloadItem[]>()
+          for (const ep of episodes) {
+            const progress = ep.lastProgress ?? 0
+            const hasQueueData = ep.queueId !== null
+
+            const item: EpisodeDownloadItem = {
+              episodeId: ep.sonarrEpisodeId,
+              seasonNumber: ep.seasonNumber,
+              episodeNumber: ep.episodeNumber,
+              state: !hasQueueData
+                ? 'searching'
+                : isImportStatus(progress, ep.lastStatus)
+                  ? 'importing'
+                  : 'downloading',
+              releaseTitle: ep.lastTitle,
+              size: ep.lastSize ?? 0,
+              sizeleft: ep.lastSizeleft ?? 0,
+              progress,
+              eta: ep.lastEta,
+              status: ep.lastStatus,
+            }
+
+            const existing = bySeason.get(ep.seasonNumber)
+            if (existing) {
+              existing.push(item)
+            } else {
+              bySeason.set(ep.seasonNumber, [item])
+            }
+          }
+
+          const seasons: SeasonDownloadGroup[] = Array.from(bySeason.entries())
+            .sort(([a], [b]) => a - b)
+            .map(([seasonNumber, eps]) => ({
+              seasonNumber,
+              episodes: eps.sort((a, b) => a.episodeNumber - b.episodeNumber),
+            }))
+
+          return {
+            tvdbId,
+            seriesId,
+            title,
+            year,
+            posterUrl,
+            seasons,
+          } satisfies ShowDownloadItem
+        },
+      ),
+    )
+
+    return showItems
+  }
+
+  /**
+   * Cancels a single episode download. Finds the Sonarr queue item, removes it,
+   * unmonitors the episode, cleans up tracking state, and emits a cancel event.
+   */
+  async cancelEpisodeDownload(episodeId: number): Promise<void> {
+    const key = `episode:${episodeId}`
+    const entry = this.tracked.get(key)
+    const tvdbId = entry?.kind === 'episode' ? entry.tvdbId : undefined
+
+    let queueId = entry?.kind === 'episode' ? entry.queueId : null
+
+    const client = getSonarrClient()
+
+    if (queueId == null) {
+      // Try to find in Sonarr queue
+      try {
+        const queueResult = await getApiV3QueueDetails({ client })
+        const items = (queueResult.data ?? []) as SonarrQueueResource[]
+        const queueItem = items.find(q => q.episodeId === episodeId)
+        queueId = queueItem?.id ?? null
+      } catch {
+        // Ignore lookup failure
+      }
+    }
+
+    if (queueId != null) {
+      await Promise.all([
+        sonarrDeleteQueueById({
+          client,
+          path: { id: queueId },
+          query: { removeFromClient: true, blocklist: false },
+        }),
+        putApiV3EpisodeMonitor({
+          client,
+          body: { episodeIds: [episodeId], monitored: false },
+        }),
+      ]).catch(err =>
+        this.logger.warn(
+          `cancelEpisodeDownload cleanup failed episodeId=${episodeId}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      )
+    } else {
+      // Still unmonitor even if not in queue
+      await putApiV3EpisodeMonitor({
+        client,
+        body: { episodeIds: [episodeId], monitored: false },
+      }).catch(err =>
+        this.logger.warn(
+          `cancelEpisodeDownload unmonitor failed episodeId=${episodeId}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      )
+    }
+
+    this.removeTracked(key)
+    this.emitEvent({
+      event: DownloadEvents.CANCELLED,
+      mediaType: 'episode',
+      tvdbId,
+      episodeId,
+    })
+    this.logger.log(`Episode download cancelled episodeId=${episodeId}`)
+  }
+
+  /**
+   * Cancels all tracked episode downloads for a specific season of a show.
+   * Mirrors cancelShowDownloads but scoped to a single season number.
+   */
+  async cancelSeasonDownloads(
+    tvdbId: number,
+    seriesId: number,
+    seasonNumber: number,
+  ): Promise<{ cancelledEpisodeIds: number[] }> {
+    const episodeKeys: { key: string; episodeId: number }[] = []
+    for (const [key, entry] of this.tracked) {
+      if (
+        entry.kind === 'episode' &&
+        entry.tvdbId === tvdbId &&
+        entry.seasonNumber === seasonNumber
+      ) {
+        episodeKeys.push({ key, episodeId: entry.sonarrEpisodeId })
+      }
+    }
+
+    const client = getSonarrClient()
+    const result = await getApiV3QueueDetails({
+      client,
+      query: { seriesId, includeEpisode: false },
+      cache: 'no-store',
+    })
+    const items = (result.data ?? []) as SonarrQueueResource[]
+    // Only cancel queue items belonging to the target season
+    const trackedEpisodeIds = new Set(episodeKeys.map(e => e.episodeId))
+    const activeItems = items.filter(
+      q =>
+        q.id != null &&
+        q.episodeId != null &&
+        trackedEpisodeIds.has(q.episodeId),
+    )
+
+    if (activeItems.length > 0) {
+      const queueIds = activeItems.map(q => q.id!)
+      const queueEpisodeIds = activeItems.map(q => q.episodeId!)
+      await Promise.all([
+        deleteApiV3QueueBulk({
+          client,
+          body: { ids: queueIds },
+          query: { removeFromClient: true, blocklist: false },
+        }),
+        putApiV3EpisodeMonitor({
+          client,
+          body: { episodeIds: queueEpisodeIds, monitored: false },
+        }),
+      ])
+    }
+
+    const allEpisodeIds = [
+      ...new Set([
+        ...episodeKeys.map(e => e.episodeId),
+        ...activeItems.map(q => q.episodeId!),
+      ]),
+    ]
+
+    const trackedOnlyIds = episodeKeys
+      .filter(e => !activeItems.some(q => q.episodeId === e.episodeId))
+      .map(e => e.episodeId)
+    if (trackedOnlyIds.length > 0) {
+      await putApiV3EpisodeMonitor({
+        client,
+        body: { episodeIds: trackedOnlyIds, monitored: false },
+      }).catch(err =>
+        this.logger.warn(
+          `cancelSeasonDownloads unmonitor failed tvdbId=${tvdbId} season=${seasonNumber}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      )
+    }
+
+    const cancelledInQueue = new Set(activeItems.map(q => q.episodeId!))
+    for (const { key, episodeId } of episodeKeys) {
+      this.removeTracked(key)
+      this.emitEvent({
+        event: DownloadEvents.CANCELLED,
+        mediaType: 'episode',
+        tvdbId,
+        episodeId,
+      })
+      if (!cancelledInQueue.has(episodeId)) {
+        this.pendingCancelEpisodes.set(episodeId, {
+          tvdbId,
+          seriesId,
+          cancelledAt: Date.now(),
+        })
+      }
+    }
+
+    this.logger.log(
+      `Season download cancelled tvdbId=${tvdbId} season=${seasonNumber} episodes=${allEpisodeIds.length}`,
+    )
+    return { cancelledEpisodeIds: allEpisodeIds }
   }
 
   // ---------------------------------------------------------------------------

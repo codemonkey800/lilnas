@@ -16,6 +16,7 @@ import { JwtAuthGuard } from 'src/auth/jwt-auth.guard'
 
 import { DownloadService } from './download.service'
 import {
+  type AllDownloadsResponse,
   type DownloadRequest,
   downloadRequestSchema,
   type MovieDownloadStatusResponse,
@@ -118,5 +119,61 @@ export class DownloadController {
       throw new BadRequestException('tvdbId must be a positive integer')
     }
     return this.downloadService.getShowStatus(result.data)
+  }
+
+  /**
+   * GET /downloads/all — Returns all currently tracked downloads with rich
+   * metadata (title, year, poster) from Radarr/Sonarr. Powers the Downloads page.
+   */
+  @Get('all')
+  async getAllDownloads(): Promise<AllDownloadsResponse> {
+    return this.downloadService.getAllDownloads()
+  }
+
+  /**
+   * DELETE /downloads/episode/:episodeId — Cancels a single episode download,
+   * removes it from the Sonarr queue, and cleans up tracking state.
+   */
+  @Delete('episode/:episodeId')
+  async cancelEpisodeDownload(
+    @Param('episodeId') episodeId: string,
+  ): Promise<void> {
+    const result = numericIdSchema.safeParse(episodeId)
+    if (!result.success) {
+      throw new BadRequestException('episodeId must be a positive integer')
+    }
+    return this.downloadService.cancelEpisodeDownload(result.data)
+  }
+
+  /**
+   * DELETE /downloads/show/:tvdbId/season/:seasonNumber — Cancels all episode
+   * downloads in a specific season. Requires seriesId in the request body.
+   */
+  @Delete('show/:tvdbId/season/:seasonNumber')
+  async cancelSeasonDownloads(
+    @Param('tvdbId') tvdbId: string,
+    @Param('seasonNumber') seasonNumber: string,
+    @Body() body: unknown,
+  ): Promise<{ cancelledEpisodeIds: number[] }> {
+    const tid = numericIdSchema.safeParse(tvdbId)
+    if (!tid.success) {
+      throw new BadRequestException('tvdbId must be a positive integer')
+    }
+    const sn = z.coerce.number().int().min(0).safeParse(seasonNumber)
+    if (!sn.success) {
+      throw new BadRequestException(
+        'seasonNumber must be a non-negative integer',
+      )
+    }
+    const bodySchema = z.object({ seriesId: z.number().int().positive() })
+    const parsed = bodySchema.safeParse(body)
+    if (!parsed.success) {
+      throw new BadRequestException('seriesId is required')
+    }
+    return this.downloadService.cancelSeasonDownloads(
+      tid.data,
+      parsed.data.seriesId,
+      sn.data,
+    )
   }
 }
