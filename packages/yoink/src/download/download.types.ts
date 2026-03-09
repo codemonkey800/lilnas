@@ -1,4 +1,32 @@
 // ---------------------------------------------------------------------------
+// Shared helpers (usable from both server and client modules)
+// ---------------------------------------------------------------------------
+
+/** Computes download completion as an integer percentage (0-100), or null if size data is unavailable. */
+export function computeProgress(
+  size: number | undefined,
+  sizeleft: number | undefined,
+): number | null {
+  if (size == null || sizeleft == null || size <= 0) return null
+  return Math.round(((size - sizeleft) / size) * 100)
+}
+
+export const IMPORT_STATUSES = new Set([
+  'importPending',
+  'importing',
+  'importBlocked',
+  'imported',
+])
+
+/** Returns true when the download has entered an import phase. */
+export function isImportStatus(
+  progress: number,
+  status: string | null | undefined,
+): boolean {
+  return progress >= 100 || IMPORT_STATUSES.has(status ?? '')
+}
+
+// ---------------------------------------------------------------------------
 // Request schemas and DTOs
 // ---------------------------------------------------------------------------
 
@@ -68,6 +96,10 @@ export interface TrackedMovieDownload {
   lastProgress: number | null
   lastStatus: string | null
   lastSizeleft: number | null
+  lastTitle: string | null
+  lastSize: number | null
+  lastEta: string | null
+  initiatedAt: number
 }
 
 /**
@@ -79,13 +111,63 @@ export interface TrackedEpisodeDownload {
   tvdbId: number
   sonarrSeriesId: number
   sonarrEpisodeId: number
+  seasonNumber: number
+  episodeNumber: number
   queueId: number | null
   lastProgress: number | null
   lastStatus: string | null
   lastSizeleft: number | null
+  lastTitle: string | null
+  lastSize: number | null
+  lastEta: string | null
+  initiatedAt: number
 }
 
 export type TrackedDownload = TrackedMovieDownload | TrackedEpisodeDownload
+
+const NULL_PROGRESS_FIELDS = {
+  queueId: null,
+  lastProgress: null,
+  lastStatus: null,
+  lastSizeleft: null,
+  lastTitle: null,
+  lastSize: null,
+  lastEta: null,
+} as const
+
+/** Creates a fresh {@link TrackedMovieDownload} with all progress fields null. */
+export function createTrackedMovie(
+  tmdbId: number,
+  radarrMovieId: number,
+): TrackedMovieDownload {
+  return {
+    kind: 'movie',
+    tmdbId,
+    radarrMovieId,
+    ...NULL_PROGRESS_FIELDS,
+    initiatedAt: Date.now(),
+  }
+}
+
+export interface EpisodeIdentity {
+  tvdbId: number
+  sonarrSeriesId: number
+  sonarrEpisodeId: number
+  seasonNumber: number
+  episodeNumber: number
+}
+
+/** Creates a fresh {@link TrackedEpisodeDownload} with all progress fields null. */
+export function createTrackedEpisode(
+  ep: EpisodeIdentity,
+): TrackedEpisodeDownload {
+  return {
+    kind: 'episode',
+    ...ep,
+    ...NULL_PROGRESS_FIELDS,
+    initiatedAt: Date.now(),
+  }
+}
 
 // ---------------------------------------------------------------------------
 // WebSocket event names
@@ -175,3 +257,33 @@ export interface InternalDownloadEvent {
   eventName: DownloadEventName
   payload: DownloadEventPayload
 }
+
+// ---------------------------------------------------------------------------
+// REST response DTOs
+// ---------------------------------------------------------------------------
+
+/** Snapshot of the current download state for a movie, returned by GET /downloads/movie/:tmdbId. */
+export interface MovieDownloadStatusResponse {
+  state: 'searching' | 'downloading' | 'importing'
+  title: string | null
+  size: number
+  sizeleft: number
+  progress: number
+  eta: string | null
+  status: string | null
+}
+
+/** Per-episode snapshot within a show download status response. */
+export interface EpisodeDownloadStatusItem {
+  episodeId: number
+  state: 'searching' | 'downloading' | 'importing'
+  title: string | null
+  size: number
+  sizeleft: number
+  progress: number
+  eta: string | null
+  status: string | null
+}
+
+/** Array of episode download snapshots, returned by GET /downloads/show/:tvdbId. */
+export type ShowDownloadStatusResponse = EpisodeDownloadStatusItem[]

@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { Suspense } from 'react'
 
-import { ApiClient } from 'src/media/api'
+import { api } from 'src/media/api.server'
 
 import { MovieDetailContent } from './movie-detail-content'
 import { MovieDetailSkeleton } from './movie-detail-skeleton'
@@ -13,14 +13,23 @@ interface MoviePageProps {
 async function MovieData({ id }: { id: string }) {
   let movie
   try {
-    const api = new ApiClient()
     movie = await api.getMovieById(id)
   } catch {
     notFound()
   }
 
   if (!movie.id && !movie.tmdbId) notFound()
-  return <MovieDetailContent movie={movie} />
+
+  const initialDownloadStatus = movie.tmdbId
+    ? await api.getMovieDownloadStatus(movie.tmdbId)
+    : null
+
+  return (
+    <MovieDetailContent
+      movie={movie}
+      initialDownloadStatus={initialDownloadStatus}
+    />
+  )
 }
 
 export default async function MoviePage({ params }: MoviePageProps) {

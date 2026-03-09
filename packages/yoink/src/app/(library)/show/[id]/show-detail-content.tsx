@@ -1,78 +1,48 @@
 'use client'
 
-import { useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from 'react'
+import { useCallback, useMemo, useState, useTransition } from 'react'
 
-import type { SearchStateResponse } from 'src/app/api/shows/search-state/route'
 import { ConfirmDialog } from 'src/components/confirm-dialog'
+import type { ShowDownloadStatusResponse } from 'src/download/download.types'
 import { useConfirmDialog } from 'src/hooks/use-confirm-dialog'
 import { useToast } from 'src/hooks/use-toast'
 import { type ShowDetail } from 'src/media'
+import { api } from 'src/media/api.client'
 
 import {
   addShowToLibrary,
   cancelAllShowDownloads,
-  clearShowSearches,
   deleteEpisodeFile,
   deleteSeasonFiles,
   removeShowFromLibrary,
-  triggerEpisodeDownload,
-  triggerSeasonDownload,
-  triggerSeriesDownload,
 } from './actions'
 import { SeasonAccordion } from './season-accordion'
 import { ShowExternalLinks } from './show-external-links'
 import { ShowHero } from './show-hero'
 import { ShowMetadata } from './show-metadata'
 import { ShowScreenshotGallery } from './show-screenshot-gallery'
-import { useSearchState } from './use-search-commands'
 import { useShowDownload } from './use-show-download'
 
 interface ShowDetailContentProps {
   show: ShowDetail
-  initialSearchState: SearchStateResponse
+  initialDownloadStatus?: ShowDownloadStatusResponse
 }
 
 export function ShowDetailContent({
   show,
-  initialSearchState,
+  initialDownloadStatus,
 }: ShowDetailContentProps) {
   const router = useRouter()
-  const queryClient = useQueryClient()
   const { showToast } = useToast()
   const [isPending, startTransition] = useTransition()
   const [isAddingToLibrary, setIsAddingToLibrary] = useState(false)
   const [deletedEpisodeFileIds, setDeletedEpisodeFileIds] = useState<
     Set<number>
   >(new Set())
-  // Raw set of episode IDs the user has triggered searches for.
-  // Cleared by 35s timeout or manually (e.g. cancel all). IDs that have
-  // appeared in downloadMap are excluded from clientSearchingIds during render.
-  const [pendingSearchIds, setPendingSearchIds] = useState<Set<number>>(
-    new Set(),
-  )
-  const searchTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(
-    new Map(),
-  )
-
-  const { searchingEpisodeIds, timedOutEpisodeIds, hasActiveSearches } =
-    useSearchState(show.id, initialSearchState)
-
-  // Keep polling while there are pending searches or active downloads
-  const effectiveHasActiveSearches =
-    hasActiveSearches || pendingSearchIds.size > 0
 
   const { dialogState, openDialog, closeDialog } = useConfirmDialog()
 
-  // Build initial downloads from server-rendered data
   const initialDownloads = useMemo(() => {
     const result: {
       episodeId: number
@@ -95,47 +65,18 @@ export function ShowDetailContent({
     )
   }, [show])
 
-  const { downloadMap, hasActiveDownloads } = useShowDownload(
+  const {
+    downloadMap,
+    hasActiveDownloads,
+    hasActiveSearches,
+    searchingEpisodeIds,
+  } = useShowDownload(
+    show.tvdbId ?? null,
     show.id,
     initialDownloads,
-    effectiveHasActiveSearches,
+    initialDownloadStatus,
   )
 
-  // Derive searching IDs by excluding those already confirmed in downloadMap
-  const clientSearchingIds = useMemo(
-    () => new Set([...pendingSearchIds].filter(id => !downloadMap.has(id))),
-    [pendingSearchIds, downloadMap],
-  )
-
-  const effectiveSearchingIds = useMemo(() => {
-    if (clientSearchingIds.size === 0) return searchingEpisodeIds
-    const merged = new Set(searchingEpisodeIds)
-    clientSearchingIds.forEach(id => merged.add(id))
-    return merged
-  }, [searchingEpisodeIds, clientSearchingIds])
-
-  // Clear timers for IDs that have appeared in downloadMap
-  useEffect(() => {
-    if (pendingSearchIds.size === 0) return
-    for (const id of pendingSearchIds) {
-      if (downloadMap.has(id)) {
-        const timer = searchTimersRef.current.get(id)
-        if (timer) {
-          clearTimeout(timer)
-          searchTimersRef.current.delete(id)
-        }
-      }
-    }
-  }, [downloadMap, pendingSearchIds])
-
-  useEffect(() => {
-    const timers = searchTimersRef.current
-    return () => {
-      for (const timer of timers.values()) clearTimeout(timer)
-    }
-  }, [])
-
-  // Compute missing episode count (aired, no file) for the hero button label
   const missingEpisodeCount = useMemo(() => {
     const now = new Date()
     return show.seasons.reduce((total, season) => {
@@ -150,33 +91,6 @@ export function ShowDetailContent({
     }, 0)
   }, [show.seasons])
 
-  const addSearchingEpisodes = useCallback(
-    (ids: number[]) => {
-      if (ids.length === 0) return
-      setPendingSearchIds(prev => {
-        const next = new Set(prev)
-        ids.forEach(id => next.add(id))
-        return next
-      })
-      for (const id of ids) {
-        const existing = searchTimersRef.current.get(id)
-        if (existing) clearTimeout(existing)
-        const timer = setTimeout(() => {
-          setPendingSearchIds(prev => {
-            const next = new Set(prev)
-            next.delete(id)
-            return next
-          })
-          searchTimersRef.current.delete(id)
-          router.refresh()
-        }, 35_000)
-        searchTimersRef.current.set(id, timer)
-      }
-    },
-    [router],
-  )
-
-  // True when every missing episode is being searched or actively downloading
   const allMissingCovered = useMemo(() => {
     const now = new Date()
     const missingEpisodes = show.seasons.flatMap(s =>
@@ -186,26 +100,18 @@ export function ShowDetailContent({
     )
     if (missingEpisodes.length === 0) return false
     return missingEpisodes.every(
-      ep => effectiveSearchingIds.has(ep.id) || downloadMap.has(ep.id),
+      ep => searchingEpisodeIds.has(ep.id) || downloadMap.has(ep.id),
     )
-  }, [show.seasons, effectiveSearchingIds, downloadMap])
+  }, [show.seasons, searchingEpisodeIds, downloadMap])
 
-  // Find the first season with missing episodes to default-expand
   const defaultOpenSeason = useMemo(() => {
     for (const season of show.seasons) {
       if (season.downloadedCount < season.episodeCount) {
         return season.seasonNumber
       }
     }
-    // All downloaded — open last season
     return show.seasons.at(-1)?.seasonNumber ?? null
   }, [show.seasons])
-
-  const invalidateSearchState = useCallback(() => {
-    void queryClient.invalidateQueries({
-      queryKey: ['show-search-state', show.id],
-    })
-  }, [queryClient, show.id])
 
   const handleAddToLibrary = useCallback(() => {
     if (!show.tvdbId) return
@@ -228,7 +134,10 @@ export function ShowDetailContent({
       onConfirm: () => {
         closeDialog()
         startTransition(async () => {
-          await removeShowFromLibrary(show.id, show.tvdbId!)
+          await removeShowFromLibrary({
+            seriesId: show.id,
+            tvdbId: show.tvdbId!,
+          })
           router.refresh()
         })
       },
@@ -242,71 +151,46 @@ export function ShowDetailContent({
       onConfirm: () => {
         closeDialog()
         startTransition(async () => {
-          await Promise.all([
-            cancelAllShowDownloads(show.id, show.tvdbId!),
-            clearShowSearches(show.id),
-          ])
-          queryClient.setQueryData(['show-download-status', show.id], [])
-          setPendingSearchIds(new Set())
-          for (const timer of searchTimersRef.current.values())
-            clearTimeout(timer)
-          searchTimersRef.current.clear()
-          invalidateSearchState()
+          await cancelAllShowDownloads({
+            seriesId: show.id,
+            tvdbId: show.tvdbId!,
+          })
           router.refresh()
         })
       },
     })
-  }, [
-    show.id,
-    show.tvdbId,
-    show.title,
-    router,
-    queryClient,
-    openDialog,
-    closeDialog,
-    invalidateSearchState,
-  ])
+  }, [show.id, show.tvdbId, show.title, router, openDialog, closeDialog])
 
   const handleDownloadEpisode = useCallback(
     (episodeId: number) => {
-      addSearchingEpisodes([episodeId])
-      triggerEpisodeDownload(episodeId, show.tvdbId!).catch((err: unknown) => {
-        console.error(err)
-        showToast('Failed to trigger download', 'error')
-        setPendingSearchIds(prev => {
-          const next = new Set(prev)
-          next.delete(episodeId)
-          return next
+      api
+        .requestShowDownload(show.tvdbId!, 'episode', { episodeId })
+        .catch((err: unknown) => {
+          console.error(err)
+          showToast('Failed to trigger download', 'error')
         })
-      })
     },
-    [show.tvdbId, showToast, addSearchingEpisodes],
+    [show.tvdbId, showToast],
   )
 
   const handleDownloadSeason = useCallback(
     (seasonNumber: number): Promise<void> => {
-      return triggerSeasonDownload(show.id, seasonNumber, show.tvdbId!)
-        .then(result => {
-          addSearchingEpisodes(result.registeredEpisodeIds)
-        })
+      return api
+        .requestShowDownload(show.tvdbId!, 'season', { seasonNumber })
         .catch((err: unknown) => {
           console.error(err)
           showToast('Failed to trigger season download', 'error')
         })
     },
-    [show.id, show.tvdbId, showToast, addSearchingEpisodes],
+    [show.tvdbId, showToast],
   )
 
   const handleDownloadSeries = useCallback(() => {
-    triggerSeriesDownload(show.id, show.tvdbId!)
-      .then(result => {
-        addSearchingEpisodes(result.registeredEpisodeIds)
-      })
-      .catch((err: unknown) => {
-        console.error(err)
-        showToast('Failed to trigger series download', 'error')
-      })
-  }, [show.id, show.tvdbId, showToast, addSearchingEpisodes])
+    api.requestShowDownload(show.tvdbId!, 'series').catch((err: unknown) => {
+      console.error(err)
+      showToast('Failed to trigger series download', 'error')
+    })
+  }, [show.tvdbId, showToast])
 
   const handleDeleteEpisodeFile = useCallback(
     (episodeFileId: number, episodeTitle: string | null) => {
@@ -316,7 +200,7 @@ export function ShowDetailContent({
         onConfirm: () => {
           closeDialog()
           setDeletedEpisodeFileIds(prev => new Set(prev).add(episodeFileId))
-          deleteEpisodeFile(episodeFileId, show.tvdbId!)
+          deleteEpisodeFile({ episodeFileId, tvdbId: show.tvdbId! })
             .then(() => router.refresh())
             .catch(() => {
               setDeletedEpisodeFileIds(prev => {
@@ -347,7 +231,11 @@ export function ShowDetailContent({
 
           setDeletedEpisodeFileIds(prev => new Set([...prev, ...fileIds]))
 
-          deleteSeasonFiles(show.id, seasonNumber, show.tvdbId!)
+          deleteSeasonFiles({
+            seriesId: show.id,
+            seasonNumber,
+            tvdbId: show.tvdbId!,
+          })
             .then(() => router.refresh())
             .catch(() => {
               setDeletedEpisodeFileIds(prev => {
@@ -379,7 +267,7 @@ export function ShowDetailContent({
         show={show}
         isAddingToLibrary={isAddingToLibrary}
         hasActiveDownload={hasActiveDownloads}
-        hasActiveSearches={effectiveHasActiveSearches}
+        hasActiveSearches={hasActiveSearches}
         isPending={isPending}
         missingEpisodeCount={missingEpisodeCount}
         isDownloadingSeries={allMissingCovered}
@@ -409,11 +297,11 @@ export function ShowDetailContent({
                 tvdbId={show.tvdbId!}
                 isInLibrary={show.isInLibrary}
                 downloadMap={downloadMap}
-                searchingEpisodeIds={effectiveSearchingIds}
-                timedOutEpisodeIds={timedOutEpisodeIds}
+                searchingEpisodeIds={searchingEpisodeIds}
+                timedOutEpisodeIds={new Set()}
                 isPending={isPending}
                 isSearchingSeason={season.episodes.some(ep =>
-                  effectiveSearchingIds.has(ep.id),
+                  searchingEpisodeIds.has(ep.id),
                 )}
                 defaultOpen={season.seasonNumber === defaultOpenSeason}
                 deletedEpisodeFileIds={deletedEpisodeFileIds}

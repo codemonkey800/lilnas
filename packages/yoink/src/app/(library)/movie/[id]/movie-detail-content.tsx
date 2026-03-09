@@ -5,16 +5,17 @@ import { useRouter } from 'next/navigation'
 import { useCallback, useState, useTransition } from 'react'
 
 import { ConfirmDialog } from 'src/components/confirm-dialog'
+import type { MovieDownloadStatusResponse } from 'src/download/download.types'
 import { useConfirmDialog } from 'src/hooks/use-confirm-dialog'
 import { useToast } from 'src/hooks/use-toast'
 import { type MovieDetail } from 'src/media'
+import { api } from 'src/media/api.client'
 
 import {
   addMovieToLibrary,
   cancelDownload,
   deleteMovieFile,
   removeMovieFromLibrary,
-  triggerMovieDownload,
 } from './actions'
 import { DownloadProgressCard } from './download-progress-card'
 import { FileList } from './file-list'
@@ -25,9 +26,13 @@ import { useMovieDownload } from './use-movie-download'
 
 interface MovieDetailContentProps {
   movie: MovieDetail
+  initialDownloadStatus?: MovieDownloadStatusResponse | null
 }
 
-export function MovieDetailContent({ movie }: MovieDetailContentProps) {
+export function MovieDetailContent({
+  movie,
+  initialDownloadStatus,
+}: MovieDetailContentProps) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const { showToast } = useToast()
@@ -37,22 +42,26 @@ export function MovieDetailContent({ movie }: MovieDetailContentProps) {
 
   const { dialogState, openDialog, closeDialog } = useConfirmDialog()
   const {
+    downloadState,
     liveDownload,
     isSearchingDownload,
-    setIsSearchingDownload,
     isDownloadInitiated,
     downloadPercent,
     isImportState,
     chipLabel,
     chipColor,
     progressBarColor,
-  } = useMovieDownload(movie)
+  } = useMovieDownload(movie, initialDownloadStatus)
 
-  const handleDownload = useCallback(() => {
+  const handleDownload = useCallback(async () => {
     if (!movie.tmdbId) return
-    setIsSearchingDownload(true)
-    triggerMovieDownload(movie.id, movie.tmdbId)
-  }, [movie.id, movie.tmdbId, setIsSearchingDownload])
+    try {
+      await api.requestMovieDownload(movie.tmdbId)
+    } catch (err) {
+      console.error(err)
+      showToast('Failed to start download', 'error')
+    }
+  }, [movie.tmdbId, showToast])
 
   const handleAddToLibrary = useCallback(() => {
     if (!movie.tmdbId) return
@@ -77,7 +86,7 @@ export function MovieDetailContent({ movie }: MovieDetailContentProps) {
       onConfirm: () => {
         closeDialog()
         startTransition(async () => {
-          await cancelDownload(liveDownload.id, tmdbId)
+          await cancelDownload(tmdbId)
           queryClient.setQueryData(['download-status', movie.id], null)
           router.refresh()
         })
@@ -95,7 +104,7 @@ export function MovieDetailContent({ movie }: MovieDetailContentProps) {
         onConfirm: () => {
           closeDialog()
           setDeletedFileIds(prev => new Set(prev).add(fileId))
-          deleteMovieFile(fileId, tmdbId)
+          deleteMovieFile({ movieFileId: fileId, tmdbId })
             .then(() => router.refresh())
             .catch(() => {
               setDeletedFileIds(prev => {
@@ -118,7 +127,10 @@ export function MovieDetailContent({ movie }: MovieDetailContentProps) {
       onConfirm: () => {
         closeDialog()
         startTransition(async () => {
-          await removeMovieFromLibrary(movie.id, movie.tmdbId)
+          await removeMovieFromLibrary({
+            movieId: movie.id,
+            tmdbId: movie.tmdbId,
+          })
           router.refresh()
         })
       },
@@ -136,20 +148,17 @@ export function MovieDetailContent({ movie }: MovieDetailContentProps) {
 
   const hasFiles = optimisticFiles.length > 0
   const optimisticIsDownloaded = hasFiles && movie.status === 'downloaded'
+  const isActive =
+    downloadState.state !== 'idle' && downloadState.state !== 'completed'
+
   const showReleases =
     movie.isInLibrary &&
     movie.tmdbId != null &&
     !optimisticIsDownloaded &&
-    !liveDownload &&
-    !isSearchingDownload &&
-    !isDownloadInitiated
+    !isActive
 
   const showNotFound =
-    movie.lastSearchedAt != null &&
-    !optimisticIsDownloaded &&
-    !liveDownload &&
-    !isSearchingDownload &&
-    !isDownloadInitiated
+    movie.lastSearchedAt != null && !optimisticIsDownloaded && !isActive
 
   return (
     <div className="space-y-8">
@@ -171,9 +180,8 @@ export function MovieDetailContent({ movie }: MovieDetailContentProps) {
       {showNotFound && <NotFoundCard lastSearchedAt={movie.lastSearchedAt!} />}
 
       <DownloadProgressCard
+        downloadState={downloadState.state}
         liveDownload={liveDownload}
-        isSearchingDownload={isSearchingDownload}
-        isDownloadInitiated={isDownloadInitiated}
         isImportState={isImportState}
         chipLabel={chipLabel}
         chipColor={chipColor}

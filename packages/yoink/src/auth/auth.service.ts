@@ -70,6 +70,23 @@ export class AuthService {
     return user
   }
 
+  async findOrCreateAgentUser() {
+    const email = 'agent@yoink.local'
+
+    const existing = await db.query.users.findFirst({
+      where: eq(users.email, email),
+    })
+
+    if (existing) return existing
+
+    const [created] = await db
+      .insert(users)
+      .values({ email, name: 'Agent', status: 'approved' })
+      .returning()
+
+    return created!
+  }
+
   async login(user: { id: string; email: string }) {
     const payload = { sub: user.id, email: user.email }
     return this.jwtService.signAsync(payload)

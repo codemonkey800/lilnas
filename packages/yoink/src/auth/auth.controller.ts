@@ -1,4 +1,13 @@
-import { Controller, Get, Req, Res, UseGuards } from '@nestjs/common'
+import {
+  Controller,
+  Get,
+  NotFoundException,
+  Query,
+  Req,
+  Res,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common'
 import { AuthGuard } from '@nestjs/passport'
 import type { Request, Response } from 'express'
 
@@ -60,6 +69,37 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   me(@Req() req: Request & { user?: Record<string, unknown> }) {
     return req.user
+  }
+
+  @Get('agent-login')
+  async agentLogin(
+    @Query('key') key: string | undefined,
+    @Query('return_to') returnTo: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    const agentApiKey = process.env[EnvKeys.AGENT_API_KEY]
+
+    if (!agentApiKey) throw new NotFoundException()
+    if (key !== agentApiKey) throw new UnauthorizedException()
+
+    const user = await this.authService.findOrCreateAgentUser()
+    const token = await this.authService.login({
+      id: user.id,
+      email: user.email!,
+    })
+
+    const isProd = process.env[EnvKeys.NODE_ENV] === 'production'
+
+    res.cookie(AUTH_TOKEN_COOKIE, token, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: 'lax',
+      maxAge: COOKIE_MAX_AGE_MS,
+      path: '/',
+    })
+
+    const destination = isRelativePath(returnTo) ? returnTo : '/'
+    res.redirect(destination)
   }
 
   @Get('logout')

@@ -1,10 +1,7 @@
 'use server'
 
-import {
-  type LibraryItem,
-  type SearchFilter,
-  searchMedia as searchMediaLib,
-} from 'src/media'
+import type { LibraryItem, SearchFilter } from 'src/media'
+import { api } from 'src/media/api.server'
 
 export async function searchMedia(
   term: string,
@@ -12,5 +9,5 @@ export async function searchMedia(
 ): Promise<LibraryItem[]> {
   const trimmed = term.trim()
   if (!trimmed) return []
-  return searchMediaLib(trimmed, filter)
+  return api.searchMedia({ term: trimmed, filter })
 }

@@ -1,26 +1,54 @@
 import {
   getApiV3QueueDetails as radarrGetQueueDetails,
+  postApiV3Command as radarrPostCommand,
   type QueueResource as RadarrQueueItem,
 } from '@lilnas/media/radarr-next'
 import {
+  deleteApiV3QueueById as sonarrDeleteQueueById,
   getApiV3QueueDetails as sonarrGetQueueDetails,
+  postApiV3Command as sonarrPostCommand,
+  putApiV3EpisodeMonitor,
   type QueueResource as SonarrQueueItem,
 } from '@lilnas/media/sonarr'
 import { Injectable, Logger } from '@nestjs/common'
 import { Interval } from '@nestjs/schedule'
 
 import { getRadarrClient, getSonarrClient } from 'src/media/clients'
+import {
+  recordEpisodesNotFound,
+  recordMovieNotFound,
+} from 'src/media/search-results'
 
 import { DownloadService } from './download.service'
 import {
+  computeProgress,
   DownloadEvents,
+  type TrackedDownload,
   type TrackedEpisodeDownload,
   type TrackedMovieDownload,
 } from './download.types'
 
 const POLL_INTERVAL_MS = 3_000
+const SEARCH_TIMEOUT_MS = 30_000
 
 const FAILURE_STATES = new Set(['failed', 'failedPending', 'importFailed'])
+
+/** Extracts the media-type discriminant and ID fields for event payloads from a tracked entry. */
+function eventIdsFromEntry(entry: TrackedDownload) {
+  if (entry.kind === 'movie') {
+    return { mediaType: 'movie' as const, tmdbId: entry.tmdbId }
+  }
+  return {
+    mediaType: 'episode' as const,
+    tvdbId: entry.tvdbId,
+    episodeId: entry.sonarrEpisodeId,
+  }
+}
+
+function logLabel(entry: TrackedDownload): string {
+  if (entry.kind === 'movie') return `Movie tmdbId=${entry.tmdbId}`
+  return `Episode tvdbId=${entry.tvdbId} episodeId=${entry.sonarrEpisodeId}`
+}
 
 @Injectable()
 export class DownloadPollerService {
@@ -36,14 +64,14 @@ export class DownloadPollerService {
   @Interval(POLL_INTERVAL_MS)
   async poll(): Promise<void> {
     const tracked = this.downloadService.getTracked()
-    if (tracked.size === 0) return
+    const pendingCancels = this.downloadService.getPendingCancelEpisodes()
+    if (tracked.size === 0 && pendingCancels.size === 0) return
 
     try {
       const [radarrQueue, sonarrQueue] = await Promise.all([
         this.fetchRadarrQueue(),
         this.fetchSonarrQueue(),
       ])
-
       // Index queue items by their media ID for O(1) lookup
       const radarrByMovieId = new Map<number, RadarrQueueItem>()
       for (const item of radarrQueue) {
@@ -56,20 +84,14 @@ export class DownloadPollerService {
       }
 
       for (const [key, entry] of tracked) {
-        if (entry.kind === 'movie') {
-          this.processMovieEntry(
-            key,
-            entry,
-            radarrByMovieId.get(entry.radarrMovieId),
-          )
-        } else {
-          this.processEpisodeEntry(
-            key,
-            entry,
-            sonarrByEpisodeId.get(entry.sonarrEpisodeId),
-          )
-        }
+        const queueItem =
+          entry.kind === 'movie'
+            ? radarrByMovieId.get(entry.radarrMovieId)
+            : sonarrByEpisodeId.get(entry.sonarrEpisodeId)
+        this.processEntry(key, entry, queueItem)
       }
+
+      await this.processPendingCancels(sonarrByEpisodeId)
     } catch (err) {
       this.logger.error(
         'Error during download poll',
@@ -83,27 +105,31 @@ export class DownloadPollerService {
   // ---------------------------------------------------------------------------
 
   /**
-   * State machine for a tracked movie download. Transitions:
+   * Unified state machine for any tracked download. Transitions:
    * - No queue item + had queueId -> completed (import finished)
+   * - No queue item + timed out -> failed (no releases found)
    * - First appearance in queue -> grabbing
    * - Queue item in failure state -> failed
    * - Otherwise -> progress update (only emitted when values change)
    */
-  private processMovieEntry(
+  private processEntry(
     key: string,
-    entry: TrackedMovieDownload,
-    queueItem: RadarrQueueItem | undefined,
+    entry: TrackedDownload,
+    queueItem: RadarrQueueItem | SonarrQueueItem | undefined,
   ): void {
+    const ids = eventIdsFromEntry(entry)
+    const label = logLabel(entry)
+
     if (!queueItem) {
       if (entry.queueId !== null) {
-        // Was in queue, now gone -> import completed
         this.downloadService.emitEvent({
           event: DownloadEvents.COMPLETED,
-          mediaType: 'movie',
-          tmdbId: entry.tmdbId,
+          ...ids,
         })
         this.downloadService.removeTracked(key)
-        this.logger.log(`Movie download completed tmdbId=${entry.tmdbId}`)
+        this.logger.log(`${label} download completed`)
+      } else if (Date.now() - entry.initiatedAt > SEARCH_TIMEOUT_MS) {
+        this.handleSearchTimeout(key, entry)
       }
       return
     }
@@ -112,32 +138,32 @@ export class DownloadPollerService {
 
     // First appearance in queue
     if (entry.queueId === null && queueId !== null) {
-      this.downloadService.updateTracked(key, { queueId })
+      this.downloadService.updateTracked(key, {
+        queueId,
+        lastTitle: queueItem.title ?? null,
+        lastSize: queueItem.size ?? null,
+      })
       this.downloadService.emitEvent({
         event: DownloadEvents.GRABBING,
-        mediaType: 'movie',
-        tmdbId: entry.tmdbId,
+        ...ids,
         title: queueItem.title ?? null,
         size: queueItem.size ?? 0,
       })
-      this.logger.log(
-        `Movie release grabbed tmdbId=${entry.tmdbId} title="${queueItem.title}"`,
-      )
+      this.logger.log(`${label} release grabbed title="${queueItem.title}"`)
     }
 
-    // Check for failure
+    // Failure check
     if (this.isFailed(queueItem)) {
       this.downloadService.emitEvent({
         event: DownloadEvents.FAILED,
-        mediaType: 'movie',
-        tmdbId: entry.tmdbId,
+        ...ids,
         error:
           queueItem.errorMessage ??
           queueItem.trackedDownloadStatus ??
           'Download failed',
       })
       this.downloadService.removeTracked(key)
-      this.logger.warn(`Movie download failed tmdbId=${entry.tmdbId}`)
+      this.logger.warn(`${label} download failed`)
       return
     }
 
@@ -152,11 +178,12 @@ export class DownloadPollerService {
         lastProgress: progress,
         lastSizeleft: queueItem.sizeleft ?? null,
         lastStatus: queueItem.status ?? null,
+        lastSize: queueItem.size ?? null,
+        lastEta: queueItem.estimatedCompletionTime ?? null,
       })
       this.downloadService.emitEvent({
         event: DownloadEvents.PROGRESS,
-        mediaType: 'movie',
-        tmdbId: entry.tmdbId,
+        ...ids,
         progress,
         size: queueItem.size ?? 0,
         sizeleft: queueItem.sizeleft ?? 0,
@@ -166,85 +193,93 @@ export class DownloadPollerService {
     }
   }
 
-  /** Same state machine as {@link processMovieEntry} but for Sonarr episodes. */
-  private processEpisodeEntry(
+  private handleSearchTimeout(key: string, entry: TrackedDownload): void {
+    if (entry.kind === 'movie') {
+      this.handleMovieSearchTimeout(key, entry)
+    } else {
+      this.handleEpisodeSearchTimeout(key, entry)
+    }
+  }
+
+  private handleMovieSearchTimeout(
+    key: string,
+    entry: TrackedMovieDownload,
+  ): void {
+    this.downloadService.emitEvent({
+      event: DownloadEvents.FAILED,
+      mediaType: 'movie',
+      tmdbId: entry.tmdbId,
+      error: 'No releases found',
+    })
+    this.downloadService.removeTracked(key)
+    this.logger.warn(
+      `Movie search timed out (no releases) tmdbId=${entry.tmdbId}`,
+    )
+
+    void recordMovieNotFound(entry.tmdbId).catch(() => {})
+  }
+
+  private handleEpisodeSearchTimeout(
     key: string,
     entry: TrackedEpisodeDownload,
-    queueItem: SonarrQueueItem | undefined,
   ): void {
-    if (!queueItem) {
-      if (entry.queueId !== null) {
-        this.downloadService.emitEvent({
-          event: DownloadEvents.COMPLETED,
-          mediaType: 'episode',
-          tvdbId: entry.tvdbId,
-          episodeId: entry.sonarrEpisodeId,
-        })
-        this.downloadService.removeTracked(key)
+    this.downloadService.emitEvent({
+      event: DownloadEvents.FAILED,
+      mediaType: 'episode',
+      tvdbId: entry.tvdbId,
+      episodeId: entry.sonarrEpisodeId,
+      error: 'No releases found',
+    })
+    this.downloadService.removeTracked(key)
+    this.logger.warn(
+      `Episode search timed out (no releases) tvdbId=${entry.tvdbId} episodeId=${entry.sonarrEpisodeId}`,
+    )
+
+    void recordEpisodesNotFound(entry.tvdbId, [
+      {
+        seasonNumber: entry.seasonNumber,
+        episodeNumber: entry.episodeNumber,
+      },
+    ]).catch(() => {})
+  }
+
+  /**
+   * Removes Sonarr queue items for episodes whose cancel was issued while
+   * a search was still in-flight. Expires stale entries after SEARCH_TIMEOUT_MS.
+   */
+  private async processPendingCancels(
+    sonarrByEpisodeId: Map<number, SonarrQueueItem>,
+  ): Promise<void> {
+    const pending = this.downloadService.getPendingCancelEpisodes()
+    if (pending.size === 0) return
+
+    const client = getSonarrClient()
+    for (const [episodeId, meta] of pending) {
+      const queueItem = sonarrByEpisodeId.get(episodeId)
+      if (queueItem?.id != null) {
+        try {
+          await sonarrDeleteQueueById({
+            client,
+            path: { id: queueItem.id },
+            query: { removeFromClient: true, blocklist: false },
+          })
+          await putApiV3EpisodeMonitor({
+            client,
+            body: { episodeIds: [episodeId], monitored: false },
+          })
+        } catch (err) {
+          this.logger.warn(
+            `Failed to cancel pending episode ${episodeId}`,
+            err instanceof Error ? err.message : String(err),
+          )
+        }
+        this.downloadService.removePendingCancel(episodeId)
         this.logger.log(
-          `Episode download completed tvdbId=${entry.tvdbId} episodeId=${entry.sonarrEpisodeId}`,
+          `Cancelled late queue item for episode ${episodeId} tvdbId=${meta.tvdbId}`,
         )
+      } else if (Date.now() - meta.cancelledAt > SEARCH_TIMEOUT_MS) {
+        this.downloadService.removePendingCancel(episodeId)
       }
-      return
-    }
-
-    const queueId = queueItem.id ?? null
-
-    if (entry.queueId === null && queueId !== null) {
-      this.downloadService.updateTracked(key, { queueId })
-      this.downloadService.emitEvent({
-        event: DownloadEvents.GRABBING,
-        mediaType: 'episode',
-        tvdbId: entry.tvdbId,
-        episodeId: entry.sonarrEpisodeId,
-        title: queueItem.title ?? null,
-        size: queueItem.size ?? 0,
-      })
-      this.logger.log(
-        `Episode release grabbed tvdbId=${entry.tvdbId} episodeId=${entry.sonarrEpisodeId} title="${queueItem.title}"`,
-      )
-    }
-
-    if (this.isFailed(queueItem)) {
-      this.downloadService.emitEvent({
-        event: DownloadEvents.FAILED,
-        mediaType: 'episode',
-        tvdbId: entry.tvdbId,
-        episodeId: entry.sonarrEpisodeId,
-        error:
-          queueItem.errorMessage ??
-          queueItem.trackedDownloadStatus ??
-          'Download failed',
-      })
-      this.downloadService.removeTracked(key)
-      this.logger.warn(
-        `Episode download failed tvdbId=${entry.tvdbId} episodeId=${entry.sonarrEpisodeId}`,
-      )
-      return
-    }
-
-    const progress = computeProgress(queueItem.size, queueItem.sizeleft)
-    if (
-      progress !== null &&
-      (progress !== entry.lastProgress ||
-        (queueItem.sizeleft ?? null) !== entry.lastSizeleft)
-    ) {
-      this.downloadService.updateTracked(key, {
-        lastProgress: progress,
-        lastSizeleft: queueItem.sizeleft ?? null,
-        lastStatus: queueItem.status ?? null,
-      })
-      this.downloadService.emitEvent({
-        event: DownloadEvents.PROGRESS,
-        mediaType: 'episode',
-        tvdbId: entry.tvdbId,
-        episodeId: entry.sonarrEpisodeId,
-        progress,
-        size: queueItem.size ?? 0,
-        sizeleft: queueItem.sizeleft ?? 0,
-        eta: queueItem.estimatedCompletionTime ?? null,
-        status: queueItem.status ?? 'queued',
-      })
     }
   }
 
@@ -261,26 +296,25 @@ export class DownloadPollerService {
     )
   }
 
-  /** Fetches all items from the Radarr download queue. */
+  /** Tells Radarr to refresh its download client cache, then fetches the queue. */
   private async fetchRadarrQueue(): Promise<RadarrQueueItem[]> {
     const client = getRadarrClient()
+    await radarrPostCommand({
+      client,
+      body: { name: 'RefreshMonitoredDownloads' } as Record<string, unknown>,
+    })
     const result = await radarrGetQueueDetails({ client })
     return (result.data ?? []) as RadarrQueueItem[]
   }
 
-  /** Fetches all items from the Sonarr download queue. */
+  /** Tells Sonarr to refresh its download client cache, then fetches the queue. */
   private async fetchSonarrQueue(): Promise<SonarrQueueItem[]> {
     const client = getSonarrClient()
+    await sonarrPostCommand({
+      client,
+      body: { name: 'RefreshMonitoredDownloads' } as Record<string, unknown>,
+    })
     const result = await sonarrGetQueueDetails({ client })
     return (result.data ?? []) as SonarrQueueItem[]
   }
-}
-
-/** Computes download completion as an integer percentage (0-100), or null if size data is unavailable. */
-function computeProgress(
-  size: number | undefined,
-  sizeleft: number | undefined,
-): number | null {
-  if (size == null || sizeleft == null || size <= 0) return null
-  return Math.round(((size - sizeleft) / size) * 100)
 }

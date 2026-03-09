@@ -17,7 +17,10 @@ import {
   type InternalDownloadEvent,
 } from './download.types'
 
-@WebSocketGateway({ namespace: '/downloads', cors: { origin: '*' } })
+@WebSocketGateway({
+  namespace: '/downloads',
+  cors: { origin: true, credentials: true },
+})
 export class DownloadGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {

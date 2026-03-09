@@ -52,7 +52,7 @@ export function useGrabEpisodeRelease(
   const queryClient = useQueryClient()
   const { mutate, isPending, variables } = useMutation({
     mutationFn: ({ guid, indexerId }: GrabVariables) =>
-      grabEpisodeRelease(guid, indexerId, tvdbId),
+      grabEpisodeRelease({ guid, indexerId, tvdbId }),
     onMutate: () => {
       queryClient.setQueryData(['episode-download-initiated', episodeId], true)
     },

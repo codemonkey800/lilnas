@@ -2,16 +2,27 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
+  Get,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
   UseGuards,
 } from '@nestjs/common'
+import { z } from 'zod'
 
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard'
 
 import { DownloadService } from './download.service'
-import { type DownloadRequest, downloadRequestSchema } from './download.types'
+import {
+  type DownloadRequest,
+  downloadRequestSchema,
+  type MovieDownloadStatusResponse,
+  type ShowDownloadStatusResponse,
+} from './download.types'
+
+const numericIdSchema = z.coerce.number().int().positive()
 
 /**
  * Validates and narrows a raw request body into a typed {@link DownloadRequest}.
@@ -42,5 +53,70 @@ export class DownloadController {
     const req = validateRequest(body)
     await this.downloadService.requestDownload(req)
     return { ok: true }
+  }
+
+  /**
+   * GET /downloads/movie/:tmdbId — Returns the current download status snapshot
+   * for a movie, or null if no download is in progress.
+   */
+  @Get('movie/:tmdbId')
+  async getMovieStatus(
+    @Param('tmdbId') tmdbId: string,
+  ): Promise<MovieDownloadStatusResponse | null> {
+    const result = numericIdSchema.safeParse(tmdbId)
+    if (!result.success) {
+      throw new BadRequestException('tmdbId must be a positive integer')
+    }
+    return this.downloadService.getMovieStatus(result.data)
+  }
+
+  /**
+   * DELETE /downloads/movie/:tmdbId — Cancels an active movie download,
+   * removes it from the Radarr queue, and cleans up tracking state.
+   */
+  @Delete('movie/:tmdbId')
+  async cancelMovieDownload(@Param('tmdbId') tmdbId: string): Promise<void> {
+    const result = numericIdSchema.safeParse(tmdbId)
+    if (!result.success) {
+      throw new BadRequestException('tmdbId must be a positive integer')
+    }
+    return this.downloadService.cancelMovieDownload(result.data)
+  }
+
+  /**
+   * DELETE /downloads/show/:tvdbId — Cancels all active episode downloads for
+   * a show, removes them from the Sonarr queue, and cleans up tracking state.
+   */
+  @Delete('show/:tvdbId')
+  async cancelShowDownloads(
+    @Param('tvdbId') tvdbId: string,
+    @Body() body: unknown,
+  ): Promise<{ cancelledEpisodeIds: number[] }> {
+    const tid = numericIdSchema.safeParse(tvdbId)
+    if (!tid.success) {
+      throw new BadRequestException('tvdbId must be a positive integer')
+    }
+    const bodySchema = z.object({ seriesId: z.number().int().positive() })
+    const parsed = bodySchema.safeParse(body)
+    if (!parsed.success) {
+      throw new BadRequestException('seriesId is required')
+    }
+    return this.downloadService.cancelShowDownloads(
+      tid.data,
+      parsed.data.seriesId,
+    )
+  }
+
+  /**
+   * GET /downloads/show/:tvdbId — Returns the current download status snapshots
+   * for all episodes of a show currently being tracked.
+   */
+  @Get('show/:tvdbId')
+  getShowStatus(@Param('tvdbId') tvdbId: string): ShowDownloadStatusResponse {
+    const result = numericIdSchema.safeParse(tvdbId)
+    if (!result.success) {
+      throw new BadRequestException('tvdbId must be a positive integer')
+    }
+    return this.downloadService.getShowStatus(result.data)
   }
 }

@@ -48,7 +48,7 @@ export function useGrabRelease(
   const queryClient = useQueryClient()
   const { mutate, isPending, variables } = useMutation({
     mutationFn: ({ guid, indexerId }: GrabVariables) =>
-      grabRelease(guid, indexerId, tmdbId),
+      grabRelease({ guid, indexerId, tmdbId }),
     onMutate: () => {
       queryClient.setQueryData(['download-initiated', movieId], true)
     },

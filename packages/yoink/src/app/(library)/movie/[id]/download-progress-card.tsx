@@ -4,12 +4,12 @@ import Card from '@mui/material/Card'
 import Chip from '@mui/material/Chip'
 import LinearProgress from '@mui/material/LinearProgress'
 
+import { type DownloadState } from 'src/hooks/use-download-state'
 import { formatBytes, type MovieDownloadInfo } from 'src/media'
 
 interface DownloadProgressCardProps {
+  downloadState: DownloadState
   liveDownload: MovieDownloadInfo | null
-  isSearchingDownload: boolean
-  isDownloadInitiated: boolean
   isImportState: boolean
   chipLabel: string
   chipColor: 'info' | 'warning' | 'success'
@@ -18,16 +18,17 @@ interface DownloadProgressCardProps {
 }
 
 export function DownloadProgressCard({
+  downloadState,
   liveDownload,
-  isSearchingDownload,
-  isDownloadInitiated,
   isImportState,
   chipLabel,
   chipColor,
   progressBarColor,
   downloadPercent,
 }: DownloadProgressCardProps) {
-  if (!liveDownload && !isSearchingDownload && !isDownloadInitiated) return null
+  if (downloadState === 'idle' || downloadState === 'completed') return null
+
+  const isIndeterminate = downloadState === 'searching' || isImportState
 
   return (
     <Card className="space-y-3 p-4">
@@ -44,10 +45,8 @@ export function DownloadProgressCard({
         />
       </div>
       <LinearProgress
-        variant={
-          !liveDownload || isImportState ? 'indeterminate' : 'determinate'
-        }
-        value={!liveDownload || isImportState ? undefined : downloadPercent}
+        variant={isIndeterminate ? 'indeterminate' : 'determinate'}
+        value={isIndeterminate ? undefined : downloadPercent}
         sx={{
           height: 6,
           borderRadius: 3,
@@ -58,19 +57,18 @@ export function DownloadProgressCard({
           },
         }}
       />
-      {liveDownload && (
+      {liveDownload && !isIndeterminate && (
         <div className="flex justify-between font-mono text-xs tabular-nums text-carbon-400">
-          {isImportState ? (
-            <span className="text-carbon-300">Importing to library...</span>
-          ) : (
-            <>
-              <span>{downloadPercent}%</span>
-              <span>
-                {formatBytes(liveDownload.size - liveDownload.sizeleft)} /{' '}
-                {formatBytes(liveDownload.size)}
-              </span>
-            </>
-          )}
+          <span>{downloadPercent}%</span>
+          <span>
+            {formatBytes(liveDownload.size - liveDownload.sizeleft)} /{' '}
+            {formatBytes(liveDownload.size)}
+          </span>
+        </div>
+      )}
+      {isImportState && (
+        <div className="font-mono text-xs text-carbon-300">
+          Importing to library...
         </div>
       )}
     </Card>
