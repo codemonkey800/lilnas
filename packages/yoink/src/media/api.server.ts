@@ -6,10 +6,39 @@ import type {
   ShowDownloadStatusResponse,
 } from 'src/download/download.types'
 
-import type { LibraryItem, SearchFilter } from './library'
+import type {
+  CancelAllShowDownloadsParams,
+  CancelShowQueueItemParams,
+  DeleteEpisodeFileParams,
+  DeleteMovieFileParams,
+  DeleteSeasonFilesParams,
+  GrabEpisodeReleaseParams,
+  GrabMovieReleaseParams,
+  RemoveMovieFromLibraryParams,
+  RemoveShowFromLibraryParams,
+  SearchMediaParams,
+  SetEpisodeMonitoredParams,
+  SetMovieMonitoredParams,
+} from './api.types'
+import type { LibraryItem } from './library'
 import type { MovieDetail, MovieRelease } from './movies'
 import type { ShowDetail, ShowRelease } from './shows'
 import type { StorageOverview } from './storage.types'
+
+export type {
+  CancelAllShowDownloadsParams,
+  CancelShowQueueItemParams,
+  DeleteEpisodeFileParams,
+  DeleteMovieFileParams,
+  DeleteSeasonFilesParams,
+  GrabEpisodeReleaseParams,
+  GrabMovieReleaseParams,
+  RemoveMovieFromLibraryParams,
+  RemoveShowFromLibraryParams,
+  SearchMediaParams,
+  SetEpisodeMonitoredParams,
+  SetMovieMonitoredParams,
+}
 
 const BACKEND_URL = `http://localhost:${process.env.BACKEND_PORT ?? 8081}`
 
@@ -40,71 +69,6 @@ async function backendFetch<T = unknown>(
     return res.json() as Promise<T>
   }
   return undefined as T
-}
-
-export interface DeleteMovieFileParams {
-  tmdbId: number
-  movieFileId: number
-}
-
-export interface GrabMovieReleaseParams {
-  tmdbId: number
-  guid: string
-  indexerId: number
-}
-
-export interface SetMovieMonitoredParams {
-  movieId: number
-  monitored: boolean
-  tmdbId: number
-}
-
-export interface RemoveMovieFromLibraryParams {
-  movieId: number
-  tmdbId?: number | null
-}
-
-export interface CancelShowQueueItemParams {
-  tvdbId: number
-  queueId: number
-}
-
-export interface CancelAllShowDownloadsParams {
-  tvdbId: number
-  seriesId: number
-}
-
-export interface DeleteEpisodeFileParams {
-  tvdbId: number
-  episodeFileId: number
-}
-
-export interface DeleteSeasonFilesParams {
-  tvdbId: number
-  seriesId: number
-  seasonNumber: number
-}
-
-export interface GrabEpisodeReleaseParams {
-  tvdbId: number
-  guid: string
-  indexerId: number
-}
-
-export interface SetEpisodeMonitoredParams {
-  episodeId: number
-  monitored: boolean
-  tvdbId: number
-}
-
-export interface RemoveShowFromLibraryParams {
-  tvdbId: number
-  seriesId: number
-}
-
-export interface SearchMediaParams {
-  term: string
-  filter?: SearchFilter
 }
 
 class ApiClient {

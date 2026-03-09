@@ -6,7 +6,7 @@ interface ConfirmDialogState {
   open: boolean
   title: string
   description: string
-  onConfirm: () => void
+  onConfirm?: (() => void) | (() => Promise<void>)
 }
 
 export function useConfirmDialog() {
@@ -14,7 +14,6 @@ export function useConfirmDialog() {
     open: false,
     title: '',
     description: '',
-    onConfirm: () => {},
   })
 
   const openDialog = useCallback((opts: Omit<ConfirmDialogState, 'open'>) => {

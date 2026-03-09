@@ -54,7 +54,7 @@ export function DownloadsContent({ initialData }: DownloadsContentProps) {
         onConfirm: async () => {
           closeDialog()
           try {
-            await api.cancelAllShowDownloads(tvdbId, seriesId)
+            await api.cancelAllShowDownloads({ tvdbId, seriesId })
             showToast('Show downloads cancelled', 'info')
           } catch {
             showToast('Failed to cancel downloads', 'error')

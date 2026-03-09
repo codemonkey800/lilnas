@@ -1,16 +1,23 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useReducer } from 'react'
+import { useCallback, useMemo, useReducer } from 'react'
 
-import { useSocket } from 'src/components/socket-provider'
 import {
+  isImportStatus,
   type AllDownloadsResponse,
-  IMPORT_STATUSES,
+  type DownloadCancelledPayload,
+  type DownloadCompletedPayload,
+  type DownloadFailedPayload,
+  type DownloadGrabbingPayload,
+  type DownloadInitiatedPayload,
+  type DownloadProgressPayload,
   type MovieDownloadItem,
   type SeasonDownloadGroup,
   type ShowDownloadItem,
 } from 'src/download/download.types'
 import { api } from 'src/media/api.client'
+
+import { useDownloadSocket } from './use-download-socket'
 
 // ---------------------------------------------------------------------------
 // State shape
@@ -96,13 +103,11 @@ function reducer(state: AllDownloadsState, action: Action): AllDownloadsState {
     }
 
     case 'movie:progress': {
-      const isImporting =
-        action.progress >= 100 || IMPORT_STATUSES.has(action.status)
       const movies = state.movies.map(m =>
         m.tmdbId === action.tmdbId
           ? {
               ...m,
-              state: isImporting
+              state: isImportStatus(action.progress, action.status)
                 ? ('importing' as const)
                 : ('downloading' as const),
               progress: action.progress,
@@ -144,8 +149,6 @@ function reducer(state: AllDownloadsState, action: Action): AllDownloadsState {
     }
 
     case 'episode:progress': {
-      const isImporting =
-        action.progress >= 100 || IMPORT_STATUSES.has(action.status)
       const shows = state.shows.map(show => ({
         ...show,
         seasons: show.seasons.map(season => ({
@@ -154,7 +157,7 @@ function reducer(state: AllDownloadsState, action: Action): AllDownloadsState {
             ep.episodeId === action.episodeId
               ? {
                   ...ep,
-                  state: isImporting
+                  state: isImportStatus(action.progress, action.status)
                     ? ('importing' as const)
                     : ('downloading' as const),
                   progress: action.progress,
@@ -202,7 +205,6 @@ export function useAllDownloadsState(initialData: AllDownloadsResponse): {
   hasAnyDownloads: boolean
   totalCount: number
 } {
-  const socket = useSocket()
   const [state, dispatch] = useReducer(reducer, initialData, fromResponse)
 
   const refetch = useCallback(async () => {
@@ -210,102 +212,71 @@ export function useAllDownloadsState(initialData: AllDownloadsResponse): {
     dispatch({ type: 'refetch', data })
   }, [])
 
-  useEffect(() => {
-    if (!socket) return
-
-    function onInitiated() {
-      // On any new download initiated, refetch to get rich metadata
+  const onInitiated = useCallback(
+    (_payload: DownloadInitiatedPayload) => {
       void refetch()
-    }
+    },
+    [refetch],
+  )
 
-    function onGrabbing(payload: {
-      mediaType?: string
-      tmdbId?: number
-      tvdbId?: number
-      episodeId?: number
-      title: string | null
-      size: number
-    }) {
-      if (payload.mediaType === 'movie' && payload.tmdbId != null) {
-        dispatch({
-          type: 'movie:grabbing',
-          tmdbId: payload.tmdbId,
-          title: payload.title,
-          size: payload.size,
-        })
-      } else if (payload.mediaType === 'episode' && payload.episodeId != null) {
-        dispatch({
-          type: 'episode:grabbing',
-          episodeId: payload.episodeId,
-          title: payload.title,
-          size: payload.size,
-        })
-      }
+  const onGrabbing = useCallback((payload: DownloadGrabbingPayload) => {
+    if (payload.mediaType === 'movie' && payload.tmdbId != null) {
+      dispatch({
+        type: 'movie:grabbing',
+        tmdbId: payload.tmdbId,
+        title: payload.title,
+        size: payload.size,
+      })
+    } else if (payload.mediaType === 'episode' && payload.episodeId != null) {
+      dispatch({
+        type: 'episode:grabbing',
+        episodeId: payload.episodeId,
+        title: payload.title,
+        size: payload.size,
+      })
     }
+  }, [])
 
-    function onProgress(payload: {
-      mediaType?: string
-      tmdbId?: number
-      tvdbId?: number
-      episodeId?: number
-      progress: number
-      size: number
-      sizeleft: number
-      eta: string | null
-      status: string
-    }) {
-      if (payload.mediaType === 'movie' && payload.tmdbId != null) {
-        dispatch({
-          type: 'movie:progress',
-          tmdbId: payload.tmdbId,
-          progress: payload.progress,
-          size: payload.size,
-          sizeleft: payload.sizeleft,
-          eta: payload.eta,
-          status: payload.status,
-        })
-      } else if (payload.mediaType === 'episode' && payload.episodeId != null) {
-        dispatch({
-          type: 'episode:progress',
-          episodeId: payload.episodeId,
-          progress: payload.progress,
-          size: payload.size,
-          sizeleft: payload.sizeleft,
-          eta: payload.eta,
-          status: payload.status,
-        })
-      }
+  const onProgress = useCallback((payload: DownloadProgressPayload) => {
+    if (payload.mediaType === 'movie' && payload.tmdbId != null) {
+      dispatch({
+        type: 'movie:progress',
+        tmdbId: payload.tmdbId,
+        progress: payload.progress,
+        size: payload.size,
+        sizeleft: payload.sizeleft,
+        eta: payload.eta,
+        status: payload.status,
+      })
+    } else if (payload.mediaType === 'episode' && payload.episodeId != null) {
+      dispatch({
+        type: 'episode:progress',
+        episodeId: payload.episodeId,
+        progress: payload.progress,
+        size: payload.size,
+        sizeleft: payload.sizeleft,
+        eta: payload.eta,
+        status: payload.status,
+      })
     }
+  }, [])
 
-    function onRemove(payload: {
-      mediaType?: string
-      tmdbId?: number
-      tvdbId?: number
-      episodeId?: number
-    }) {
-      if (payload.mediaType === 'movie' && payload.tmdbId != null) {
-        dispatch({ type: 'movie:remove', tmdbId: payload.tmdbId })
-      } else if (payload.mediaType === 'episode' && payload.episodeId != null) {
-        dispatch({ type: 'episode:remove', episodeId: payload.episodeId })
-      }
+  const onRemove = useCallback((payload: DownloadCancelledPayload | DownloadCompletedPayload | DownloadFailedPayload) => {
+    if (payload.mediaType === 'movie' && payload.tmdbId != null) {
+      dispatch({ type: 'movie:remove', tmdbId: payload.tmdbId })
+    } else if (payload.mediaType === 'episode' && payload.episodeId != null) {
+      dispatch({ type: 'episode:remove', episodeId: payload.episodeId })
     }
+  }, [])
 
-    socket.on('download:initiated', onInitiated)
-    socket.on('download:grabbing', onGrabbing)
-    socket.on('download:progress', onProgress)
-    socket.on('download:failed', onRemove)
-    socket.on('download:cancelled', onRemove)
-    socket.on('download:completed', onRemove)
-
-    return () => {
-      socket.off('download:initiated', onInitiated)
-      socket.off('download:grabbing', onGrabbing)
-      socket.off('download:progress', onProgress)
-      socket.off('download:failed', onRemove)
-      socket.off('download:cancelled', onRemove)
-      socket.off('download:completed', onRemove)
-    }
-  }, [socket, refetch])
+  useDownloadSocket({
+    onInitiated,
+    onGrabbing,
+    onProgress,
+    onFailed: onRemove,
+    onCancelled: onRemove,
+    onCompleted: onRemove,
+  })
 
   const { hasAnyDownloads, totalCount } = useMemo(() => {
     const movieCount = state.movies.length

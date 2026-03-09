@@ -11,7 +11,7 @@ interface ConfirmDialogProps {
   open: boolean
   title: string
   description: string
-  onConfirm: () => void
+  onConfirm?: (() => void) | (() => Promise<void>)
   onClose: () => void
 }
 
@@ -48,7 +48,7 @@ export function ConfirmDialog({
           Cancel
         </Button>
         <Button
-          onClick={onConfirm}
+          onClick={() => void onConfirm?.()}
           color="error"
           variant="contained"
           size="small"

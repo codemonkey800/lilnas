@@ -2,7 +2,6 @@
 
 import { cns } from '@lilnas/utils/cns'
 import Card from '@mui/material/Card'
-import { useState } from 'react'
 
 import { formatBytes } from 'src/media/format'
 
@@ -41,8 +40,6 @@ export function StorageBar({
   showsBytes = 0,
   warningThreshold = 0.9,
 }: StorageBarProps) {
-  const [hovered, setHovered] = useState(false)
-
   const usageRatio = totalBytes > 0 ? usedBytes / totalBytes : 0
   const moviesRatio = totalBytes > 0 ? moviesBytes / totalBytes : 0
   const showsRatio = totalBytes > 0 ? showsBytes / totalBytes : 0
@@ -56,7 +53,7 @@ export function StorageBar({
   return (
     <Card
       className={cns(
-        'p-4 transition-all duration-300',
+        'group p-4 transition-all duration-300',
         isCritical && 'border-error/40',
         isWarning && 'border-warning/40',
         isCritical && 'animate-pulse-border',
@@ -85,17 +82,15 @@ export function StorageBar({
           )}
         >
           {formatBytes(usedBytes)} / {formatBytes(totalBytes)}
-          {hovered && (
-            <span className="ml-1.5 text-carbon-500">({usagePercent}%)</span>
-          )}
+          <span className="ml-1.5 hidden text-carbon-500 group-hover:inline">
+            ({usagePercent}%)
+          </span>
         </span>
       </div>
 
       {/* Segmented bar */}
       <div
         className="relative h-4 overflow-hidden rounded-full bg-carbon-700"
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
         title={`${usagePercent}% used`}
       >
         {/* Noise texture overlay */}

@@ -63,18 +63,18 @@ export function MovieDetailContent({
     }
   }, [movie.tmdbId, showToast])
 
-  const handleAddToLibrary = useCallback(() => {
+  const handleAddToLibrary = useCallback(async () => {
     if (!movie.tmdbId) return
     setIsAddingToLibrary(true)
-    addMovieToLibrary(movie.tmdbId)
-      .then(() => {
-        router.refresh()
-      })
-      .catch((err: unknown) => {
-        console.error(err)
-        showToast('Failed to add movie to library', 'error')
-      })
-      .finally(() => setIsAddingToLibrary(false))
+    try {
+      await addMovieToLibrary(movie.tmdbId)
+      router.refresh()
+    } catch (err: unknown) {
+      console.error(err)
+      showToast('Failed to add movie to library', 'error')
+    } finally {
+      setIsAddingToLibrary(false)
+    }
   }, [movie.tmdbId, router, showToast])
 
   const handleCancelDownload = useCallback(() => {
@@ -101,19 +101,20 @@ export function MovieDetailContent({
       openDialog({
         title: 'Delete file',
         description: `Permanently delete "${fileName ?? 'this file'}"? This cannot be undone.`,
-        onConfirm: () => {
+        onConfirm: async () => {
           closeDialog()
           setDeletedFileIds(prev => new Set(prev).add(fileId))
-          deleteMovieFile({ movieFileId: fileId, tmdbId })
-            .then(() => router.refresh())
-            .catch(() => {
-              setDeletedFileIds(prev => {
-                const next = new Set(prev)
-                next.delete(fileId)
-                return next
-              })
-              showToast('Failed to delete file', 'error')
+          try {
+            await deleteMovieFile({ movieFileId: fileId, tmdbId })
+            router.refresh()
+          } catch {
+            setDeletedFileIds(prev => {
+              const next = new Set(prev)
+              next.delete(fileId)
+              return next
             })
+            showToast('Failed to delete file', 'error')
+          }
         },
       })
     },

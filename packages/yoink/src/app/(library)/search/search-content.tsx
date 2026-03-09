@@ -56,11 +56,20 @@ export function SearchContent() {
 
     const id = ++fetchIdRef.current
 
-    searchMedia(trimmed, filter).then(data => {
-      if (id !== fetchIdRef.current) return
-      setResults(data)
-      setLoading(false)
-    })
+    const run = async () => {
+      try {
+        const data = await searchMedia(trimmed, filter)
+        if (id !== fetchIdRef.current) return
+        setResults(data)
+      } catch {
+        if (id !== fetchIdRef.current) return
+        setResults([])
+      } finally {
+        if (id === fetchIdRef.current) setLoading(false)
+      }
+    }
+
+    void run()
   }, [debouncedQuery, filter])
 
   const sortedResults = useMemo(() => sortItems(results, sort), [results, sort])

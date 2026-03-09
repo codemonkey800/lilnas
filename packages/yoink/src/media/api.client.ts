@@ -1,5 +1,7 @@
 import type { AllDownloadsResponse } from 'src/download/download.types'
 
+import type { CancelAllShowDownloadsParams } from './api.types'
+
 interface DownloadMovieOpts {
   releaseGuid?: string
   indexerId?: number
@@ -58,10 +60,10 @@ class ApiClient {
     await this.fetch(`/downloads/movie/${tmdbId}`, { method: 'DELETE' })
   }
 
-  async cancelAllShowDownloads(
-    tvdbId: number,
-    seriesId: number,
-  ): Promise<{ cancelledEpisodeIds: number[] }> {
+  async cancelAllShowDownloads({
+    tvdbId,
+    seriesId,
+  }: CancelAllShowDownloadsParams): Promise<{ cancelledEpisodeIds: number[] }> {
     const result = await this.fetch<{ cancelledEpisodeIds: number[] }>(
       `/downloads/show/${tvdbId}`,
       {

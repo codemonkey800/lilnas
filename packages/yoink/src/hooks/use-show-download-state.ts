@@ -1,12 +1,19 @@
 'use client'
 
-import { useEffect, useMemo, useReducer } from 'react'
+import { useCallback, useMemo, useReducer, useRef } from 'react'
 
-import { useSocket } from 'src/components/socket-provider'
 import {
-  IMPORT_STATUSES,
+  isImportStatus,
+  type DownloadCancelledPayload,
+  type DownloadCompletedPayload,
+  type DownloadFailedPayload,
+  type DownloadGrabbingPayload,
+  type DownloadInitiatedPayload,
+  type DownloadProgressPayload,
   type ShowDownloadStatusResponse,
 } from 'src/download/download.types'
+
+import { useDownloadSocket } from './use-download-socket'
 
 export interface EpisodeDownloadStateData {
   state: 'searching' | 'downloading' | 'importing' | 'completed' | 'failed'
@@ -51,7 +58,7 @@ function episodeReducer(
     },
   ) {
     const prev = next.get(episodeId) ?? {
-      state: 'searching',
+      state: 'searching' as const,
       title: null,
       size: 0,
       sizeleft: 0,
@@ -76,18 +83,17 @@ function episodeReducer(
         error: null,
       })
       break
-    case 'progress': {
-      const isImporting =
-        action.progress >= 100 || IMPORT_STATUSES.has(action.status)
+    case 'progress':
       setEpisode(action.episodeId, {
-        state: isImporting ? 'importing' : 'downloading',
+        state: isImportStatus(action.progress, action.status)
+          ? 'importing'
+          : 'downloading',
         progress: action.progress,
         size: action.size,
         sizeleft: action.sizeleft,
         eta: action.eta,
       })
       break
-    }
     case 'failed':
       setEpisode(action.episodeId, {
         state: 'failed',
@@ -131,35 +137,25 @@ export function useShowDownloadState(
   hasActiveDownloads: boolean
   hasActiveSearches: boolean
 } {
-  const socket = useSocket()
-  const initialMap = useMemo(
-    () => toInitialEpisodeMap(initialStatus),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+  const initialRef = useRef(initialStatus)
+  const [episodeStates, dispatch] = useReducer(
+    episodeReducer,
+    initialRef.current,
+    toInitialEpisodeMap,
   )
-  const [episodeStates, dispatch] = useReducer(episodeReducer, initialMap)
 
-  useEffect(() => {
-    if (!socket || tvdbId == null) return
-
-    function onInitiated(payload: {
-      tvdbId?: number
-      mediaType?: string
-      episodeId?: number
-    }) {
+  const onInitiated = useCallback(
+    (payload: DownloadInitiatedPayload) => {
       if (payload.tvdbId !== tvdbId || payload.mediaType !== 'episode') return
       if (payload.episodeId != null) {
         dispatch({ type: 'initiated', episodeId: payload.episodeId })
       }
-    }
+    },
+    [tvdbId],
+  )
 
-    function onGrabbing(payload: {
-      tvdbId?: number
-      mediaType?: string
-      episodeId?: number
-      title: string | null
-      size: number
-    }) {
+  const onGrabbing = useCallback(
+    (payload: DownloadGrabbingPayload) => {
       if (payload.tvdbId !== tvdbId || payload.mediaType !== 'episode') return
       if (payload.episodeId != null) {
         dispatch({
@@ -169,18 +165,12 @@ export function useShowDownloadState(
           size: payload.size,
         })
       }
-    }
+    },
+    [tvdbId],
+  )
 
-    function onProgress(payload: {
-      tvdbId?: number
-      mediaType?: string
-      episodeId?: number
-      progress: number
-      size: number
-      sizeleft: number
-      eta: string | null
-      status: string
-    }) {
+  const onProgress = useCallback(
+    (payload: DownloadProgressPayload) => {
       if (payload.tvdbId !== tvdbId || payload.mediaType !== 'episode') return
       if (payload.episodeId != null) {
         dispatch({
@@ -193,14 +183,12 @@ export function useShowDownloadState(
           status: payload.status,
         })
       }
-    }
+    },
+    [tvdbId],
+  )
 
-    function onFailed(payload: {
-      tvdbId?: number
-      mediaType?: string
-      episodeId?: number
-      error: string
-    }) {
+  const onFailed = useCallback(
+    (payload: DownloadFailedPayload) => {
       if (payload.tvdbId !== tvdbId || payload.mediaType !== 'episode') return
       if (payload.episodeId != null) {
         dispatch({
@@ -209,46 +197,38 @@ export function useShowDownloadState(
           error: payload.error,
         })
       }
-    }
+    },
+    [tvdbId],
+  )
 
-    function onCancelled(payload: {
-      tvdbId?: number
-      mediaType?: string
-      episodeId?: number
-    }) {
+  const onCancelled = useCallback(
+    (payload: DownloadCancelledPayload) => {
       if (payload.tvdbId !== tvdbId || payload.mediaType !== 'episode') return
       if (payload.episodeId != null) {
         dispatch({ type: 'completed', episodeId: payload.episodeId })
       }
-    }
+    },
+    [tvdbId],
+  )
 
-    function onCompleted(payload: {
-      tvdbId?: number
-      mediaType?: string
-      episodeId?: number
-    }) {
+  const onCompleted = useCallback(
+    (payload: DownloadCompletedPayload) => {
       if (payload.tvdbId !== tvdbId || payload.mediaType !== 'episode') return
       if (payload.episodeId != null) {
         dispatch({ type: 'completed', episodeId: payload.episodeId })
       }
-    }
+    },
+    [tvdbId],
+  )
 
-    socket.on('download:initiated', onInitiated)
-    socket.on('download:grabbing', onGrabbing)
-    socket.on('download:progress', onProgress)
-    socket.on('download:failed', onFailed)
-    socket.on('download:cancelled', onCancelled)
-    socket.on('download:completed', onCompleted)
-
-    return () => {
-      socket.off('download:initiated', onInitiated)
-      socket.off('download:grabbing', onGrabbing)
-      socket.off('download:progress', onProgress)
-      socket.off('download:failed', onFailed)
-      socket.off('download:cancelled', onCancelled)
-      socket.off('download:completed', onCompleted)
-    }
-  }, [socket, tvdbId])
+  useDownloadSocket({
+    onInitiated: tvdbId != null ? onInitiated : undefined,
+    onGrabbing: tvdbId != null ? onGrabbing : undefined,
+    onProgress: tvdbId != null ? onProgress : undefined,
+    onFailed: tvdbId != null ? onFailed : undefined,
+    onCancelled: tvdbId != null ? onCancelled : undefined,
+    onCompleted: tvdbId != null ? onCompleted : undefined,
+  })
 
   const {
     searchingEpisodeIds,

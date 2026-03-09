@@ -3,6 +3,8 @@
 import { useRouter } from 'next/navigation'
 import { useCallback, useMemo, useState, useTransition } from 'react'
 
+const EMPTY_ID_SET = new Set<number>()
+
 import { ConfirmDialog } from 'src/components/confirm-dialog'
 import type { ShowDownloadStatusResponse } from 'src/download/download.types'
 import { useConfirmDialog } from 'src/hooks/use-confirm-dialog'
@@ -113,18 +115,18 @@ export function ShowDetailContent({
     return show.seasons.at(-1)?.seasonNumber ?? null
   }, [show.seasons])
 
-  const handleAddToLibrary = useCallback(() => {
+  const handleAddToLibrary = useCallback(async () => {
     if (!show.tvdbId) return
     setIsAddingToLibrary(true)
-    addShowToLibrary(show.tvdbId!)
-      .then(() => {
-        router.refresh()
-      })
-      .catch((err: unknown) => {
-        console.error(err)
-        showToast('Failed to add show to library', 'error')
-      })
-      .finally(() => setIsAddingToLibrary(false))
+    try {
+      await addShowToLibrary(show.tvdbId!)
+      router.refresh()
+    } catch (err: unknown) {
+      console.error(err)
+      showToast('Failed to add show to library', 'error')
+    } finally {
+      setIsAddingToLibrary(false)
+    }
   }, [show.tvdbId, router, showToast])
 
   const handleRemoveFromLibrary = useCallback(() => {
@@ -162,34 +164,36 @@ export function ShowDetailContent({
   }, [show.id, show.tvdbId, show.title, router, openDialog, closeDialog])
 
   const handleDownloadEpisode = useCallback(
-    (episodeId: number) => {
-      api
-        .requestShowDownload(show.tvdbId!, 'episode', { episodeId })
-        .catch((err: unknown) => {
-          console.error(err)
-          showToast('Failed to trigger download', 'error')
-        })
+    async (episodeId: number) => {
+      try {
+        await api.requestShowDownload(show.tvdbId!, 'episode', { episodeId })
+      } catch (err: unknown) {
+        console.error(err)
+        showToast('Failed to trigger download', 'error')
+      }
     },
     [show.tvdbId, showToast],
   )
 
   const handleDownloadSeason = useCallback(
-    (seasonNumber: number): Promise<void> => {
-      return api
-        .requestShowDownload(show.tvdbId!, 'season', { seasonNumber })
-        .catch((err: unknown) => {
-          console.error(err)
-          showToast('Failed to trigger season download', 'error')
-        })
+    async (seasonNumber: number): Promise<void> => {
+      try {
+        await api.requestShowDownload(show.tvdbId!, 'season', { seasonNumber })
+      } catch (err: unknown) {
+        console.error(err)
+        showToast('Failed to trigger season download', 'error')
+      }
     },
     [show.tvdbId, showToast],
   )
 
-  const handleDownloadSeries = useCallback(() => {
-    api.requestShowDownload(show.tvdbId!, 'series').catch((err: unknown) => {
+  const handleDownloadSeries = useCallback(async () => {
+    try {
+      await api.requestShowDownload(show.tvdbId!, 'series')
+    } catch (err: unknown) {
       console.error(err)
       showToast('Failed to trigger series download', 'error')
-    })
+    }
   }, [show.tvdbId, showToast])
 
   const handleDeleteEpisodeFile = useCallback(
@@ -197,19 +201,20 @@ export function ShowDetailContent({
       openDialog({
         title: 'Delete episode file',
         description: `Permanently delete "${episodeTitle ?? 'this episode'}"? This cannot be undone.`,
-        onConfirm: () => {
+        onConfirm: async () => {
           closeDialog()
           setDeletedEpisodeFileIds(prev => new Set(prev).add(episodeFileId))
-          deleteEpisodeFile({ episodeFileId, tvdbId: show.tvdbId! })
-            .then(() => router.refresh())
-            .catch(() => {
-              setDeletedEpisodeFileIds(prev => {
-                const next = new Set(prev)
-                next.delete(episodeFileId)
-                return next
-              })
-              showToast('Failed to delete episode file', 'error')
+          try {
+            await deleteEpisodeFile({ episodeFileId, tvdbId: show.tvdbId! })
+            router.refresh()
+          } catch {
+            setDeletedEpisodeFileIds(prev => {
+              const next = new Set(prev)
+              next.delete(episodeFileId)
+              return next
             })
+            showToast('Failed to delete episode file', 'error')
+          }
         },
       })
     },
@@ -221,7 +226,7 @@ export function ShowDetailContent({
       openDialog({
         title: `Delete Season ${seasonNumber}`,
         description: `Permanently delete all downloaded files for Season ${seasonNumber} of "${show.title}"? This cannot be undone.`,
-        onConfirm: () => {
+        onConfirm: async () => {
           closeDialog()
           const season = show.seasons.find(s => s.seasonNumber === seasonNumber)
           const fileIds =
@@ -231,21 +236,21 @@ export function ShowDetailContent({
 
           setDeletedEpisodeFileIds(prev => new Set([...prev, ...fileIds]))
 
-          deleteSeasonFiles({
-            seriesId: show.id,
-            seasonNumber,
-            tvdbId: show.tvdbId!,
-          })
-            .then(() => router.refresh())
-            .catch(() => {
-              setDeletedEpisodeFileIds(prev => {
-                const next = new Set(prev)
-                fileIds.forEach(id => next.delete(id))
-                return next
-              })
-
-              showToast('Failed to delete season files', 'error')
+          try {
+            await deleteSeasonFiles({
+              seriesId: show.id,
+              seasonNumber,
+              tvdbId: show.tvdbId!,
             })
+            router.refresh()
+          } catch {
+            setDeletedEpisodeFileIds(prev => {
+              const next = new Set(prev)
+              fileIds.forEach(id => next.delete(id))
+              return next
+            })
+            showToast('Failed to delete season files', 'error')
+          }
         },
       })
     },
@@ -298,7 +303,7 @@ export function ShowDetailContent({
                 isInLibrary={show.isInLibrary}
                 downloadMap={downloadMap}
                 searchingEpisodeIds={searchingEpisodeIds}
-                timedOutEpisodeIds={new Set()}
+                timedOutEpisodeIds={EMPTY_ID_SET}
                 isPending={isPending}
                 isSearchingSeason={season.episodes.some(ep =>
                   searchingEpisodeIds.has(ep.id),

@@ -1,12 +1,19 @@
 'use client'
 
-import { useEffect, useMemo, useReducer } from 'react'
+import { useCallback, useReducer, useRef } from 'react'
 
-import { useSocket } from 'src/components/socket-provider'
 import {
-  IMPORT_STATUSES,
+  isImportStatus,
+  type DownloadCancelledPayload,
+  type DownloadCompletedPayload,
+  type DownloadFailedPayload,
+  type DownloadGrabbingPayload,
+  type DownloadInitiatedPayload,
+  type DownloadProgressPayload,
   type MovieDownloadStatusResponse,
 } from 'src/download/download.types'
+
+import { useDownloadSocket } from './use-download-socket'
 
 export type DownloadState =
   | 'idle'
@@ -40,6 +47,16 @@ type Action =
   | { type: 'completed' }
   | { type: 'reset' }
 
+const INITIAL_STATE: DownloadStateData = {
+  state: 'idle',
+  title: null,
+  size: 0,
+  sizeleft: 0,
+  progress: 0,
+  eta: null,
+  error: null,
+}
+
 function reducer(state: DownloadStateData, action: Action): DownloadStateData {
   switch (action.type) {
     case 'initiated':
@@ -54,18 +71,17 @@ function reducer(state: DownloadStateData, action: Action): DownloadStateData {
         progress: 0,
         error: null,
       }
-    case 'progress': {
-      const isImporting =
-        action.progress >= 100 || IMPORT_STATUSES.has(action.status)
+    case 'progress':
       return {
         ...state,
-        state: isImporting ? 'importing' : 'downloading',
+        state: isImportStatus(action.progress, action.status)
+          ? 'importing'
+          : 'downloading',
         progress: action.progress,
         size: action.size,
         sizeleft: action.sizeleft,
         eta: action.eta,
       }
-    }
     case 'failed':
       return { ...INITIAL_STATE, error: action.error }
     case 'completed':
@@ -75,16 +91,6 @@ function reducer(state: DownloadStateData, action: Action): DownloadStateData {
     default:
       return state
   }
-}
-
-const INITIAL_STATE: DownloadStateData = {
-  state: 'idle',
-  title: null,
-  size: 0,
-  sizeleft: 0,
-  progress: 0,
-  eta: null,
-  error: null,
 }
 
 function toInitialState(
@@ -112,39 +118,31 @@ export function useDownloadState(
   tmdbId: number | null,
   initialStatus?: MovieDownloadStatusResponse | null,
 ): DownloadStateData {
-  const socket = useSocket()
-  const initialState = useMemo(
-    () => toInitialState(initialStatus),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+  const initialRef = useRef(initialStatus)
+  const [downloadState, dispatch] = useReducer(
+    reducer,
+    initialRef.current,
+    toInitialState,
   )
-  const [downloadState, dispatch] = useReducer(reducer, initialState)
 
-  useEffect(() => {
-    if (!socket || tmdbId == null) return
-
-    function onInitiated(payload: { tmdbId?: number }) {
+  const onInitiated = useCallback(
+    (payload: DownloadInitiatedPayload) => {
       if (payload.tmdbId !== tmdbId) return
       dispatch({ type: 'initiated' })
-    }
+    },
+    [tmdbId],
+  )
 
-    function onGrabbing(payload: {
-      tmdbId?: number
-      title: string | null
-      size: number
-    }) {
+  const onGrabbing = useCallback(
+    (payload: DownloadGrabbingPayload) => {
       if (payload.tmdbId !== tmdbId) return
       dispatch({ type: 'grabbing', title: payload.title, size: payload.size })
-    }
+    },
+    [tmdbId],
+  )
 
-    function onProgress(payload: {
-      tmdbId?: number
-      progress: number
-      size: number
-      sizeleft: number
-      eta: string | null
-      status: string
-    }) {
+  const onProgress = useCallback(
+    (payload: DownloadProgressPayload) => {
       if (payload.tmdbId !== tmdbId) return
       dispatch({
         type: 'progress',
@@ -154,39 +152,42 @@ export function useDownloadState(
         eta: payload.eta,
         status: payload.status,
       })
-    }
+    },
+    [tmdbId],
+  )
 
-    function onFailed(payload: { tmdbId?: number; error: string }) {
+  const onFailed = useCallback(
+    (payload: DownloadFailedPayload) => {
       if (payload.tmdbId !== tmdbId) return
       dispatch({ type: 'failed', error: payload.error })
-    }
+    },
+    [tmdbId],
+  )
 
-    function onCancelled(payload: { tmdbId?: number }) {
+  const onCancelled = useCallback(
+    (payload: DownloadCancelledPayload) => {
       if (payload.tmdbId !== tmdbId) return
       dispatch({ type: 'reset' })
-    }
+    },
+    [tmdbId],
+  )
 
-    function onCompleted(payload: { tmdbId?: number }) {
+  const onCompleted = useCallback(
+    (payload: DownloadCompletedPayload) => {
       if (payload.tmdbId !== tmdbId) return
       dispatch({ type: 'completed' })
-    }
+    },
+    [tmdbId],
+  )
 
-    socket.on('download:initiated', onInitiated)
-    socket.on('download:grabbing', onGrabbing)
-    socket.on('download:progress', onProgress)
-    socket.on('download:failed', onFailed)
-    socket.on('download:cancelled', onCancelled)
-    socket.on('download:completed', onCompleted)
-
-    return () => {
-      socket.off('download:initiated', onInitiated)
-      socket.off('download:grabbing', onGrabbing)
-      socket.off('download:progress', onProgress)
-      socket.off('download:failed', onFailed)
-      socket.off('download:cancelled', onCancelled)
-      socket.off('download:completed', onCompleted)
-    }
-  }, [socket, tmdbId])
+  useDownloadSocket({
+    onInitiated: tmdbId != null ? onInitiated : undefined,
+    onGrabbing: tmdbId != null ? onGrabbing : undefined,
+    onProgress: tmdbId != null ? onProgress : undefined,
+    onFailed: tmdbId != null ? onFailed : undefined,
+    onCancelled: tmdbId != null ? onCancelled : undefined,
+    onCompleted: tmdbId != null ? onCompleted : undefined,
+  })
 
   return downloadState
 }
