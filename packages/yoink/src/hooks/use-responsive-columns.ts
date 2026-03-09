@@ -16,13 +16,11 @@ function columnsForWidth(width: number): number {
 }
 
 export function useResponsiveColumns(): number {
-  const [columns, setColumns] = useState(() =>
-    typeof window !== 'undefined' ? columnsForWidth(window.innerWidth) : 2,
-  )
+  const [columns, setColumns] = useState(2)
 
   useEffect(() => {
     const onResize = () => setColumns(columnsForWidth(window.innerWidth))
-
+    onResize()
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])

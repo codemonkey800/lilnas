@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
@@ -57,10 +58,18 @@ export class JwtAuthGuard implements CanActivate {
       return true
     }
 
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, payload.sub),
-      columns: { status: true, email: true },
-    })
+    let user: { status: string; email: string | null } | undefined
+    try {
+      user = await db.query.users.findFirst({
+        where: eq(users.id, payload.sub),
+        columns: { status: true, email: true },
+      })
+    } catch (err) {
+      throw new InternalServerErrorException(
+        'Database unavailable',
+        err instanceof Error ? err.message : String(err),
+      )
+    }
 
     if (!user) throw new ForbiddenException()
 
