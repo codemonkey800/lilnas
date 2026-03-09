@@ -157,13 +157,14 @@ Storage, and Admin pages.
 
 ### Downloads (`/downloads`)
 
-- [ ] Three grouped sections: "Active", "Queued", "Failed" — each with H3 heading and count badge
-- [ ] DownloadProgress cards in each section, clickable to detail page
-- [ ] Sections only render when they have items
-- [ ] Failed downloads show error reason and retry action
-- [ ] Empty state ("No active downloads — everything is up to date")
-- [ ] Fetch queue data from Radarr and Sonarr APIs
-- [ ] Polling or real-time updates for progress/speed/ETA
+- [x] Page header with "Downloads" title and total count badge
+- [x] Movies section with count badge and `MovieDownloadCard` grid (progress bar, release title, size, ETA, cancel action)
+- [x] Shows section with `ShowDownloadGroup` cards, grouped by season (`SeasonDownloadGroup`) with per-episode rows (`EpisodeDownloadRow`)
+- [x] Sections only render when they have items
+- [x] Cancel actions at every level: movie, full show, season, individual episode — with confirmation dialogs
+- [x] Empty state ("No active downloads — Downloads will appear here as they start")
+- [x] Fetch queue data from Radarr and Sonarr APIs (via NestJS backend `DownloadService`)
+- [x] Real-time WebSocket updates for progress/speed/ETA via `DownloadGateway` + `DownloadPollerService` (3s polling interval)
 
 ### History (`/history`)
 
@@ -235,11 +236,71 @@ Storage, and Admin pages.
 
 ---
 
+## NestJS Backend
+
+### Server Infrastructure
+
+- [x] NestJS bootstrap with custom server (`src/bootstrap.ts`)
+- [x] App module wiring (`src/app.module.ts`)
+- [x] Environment configuration (`src/env.ts`)
+
+### Auth Module
+
+- [x] `AuthService` — JWT token issuance and NextAuth session cookie verification
+- [x] `AuthController` — `/api/auth/token` endpoint for JWT exchange
+- [x] `JwtAuthGuard` — protects backend API routes via JWT validation
+- [x] `AUTH_TOKEN_COOKIE` constant for cookie-based auth
+
+### Media Module
+
+- [x] `LibraryService` — fetches combined movie/show library from Radarr + Sonarr
+- [x] `LibraryController` — `/api/library` endpoint
+- [x] `MoviesService` — movie lookup, detail, download, release grab, file delete, queue cancel
+- [x] `MoviesController` — `/api/movies/*` endpoints (detail, search, download, releases, status, files, cancel)
+- [x] `ShowsService` — series lookup, detail, episode/season/series download, release grab, file delete, queue cancel
+- [x] `ShowsController` — `/api/shows/*` endpoints (detail, search, download, releases, status, episodes, cancel)
+- [x] Shared Radarr/Sonarr HTTP client helpers (`src/media/clients.ts`)
+- [x] Search result tracking (`src/media/search-results.ts`) — records "not found" results to avoid repeated failed searches
+
+### Download Module
+
+- [x] `DownloadService` — in-memory tracked download state, download orchestration (movie search, release grab, episode/season/series search), cancel at all levels, status snapshots, `getAllDownloads()` with rich metadata
+- [x] `DownloadPollerService` — 3s interval polling of Radarr/Sonarr queues, state machine (searching → grabbing → progress → completed/failed), command status polling for search completion detection, pending cancel cleanup
+- [x] `DownloadGateway` — WebSocket gateway (`/downloads` namespace) with JWT cookie auth, broadcasts download lifecycle events (initiated, grabbing, progress, completed, failed, cancelled)
+- [x] `DownloadController` — REST endpoints for download requests, status, cancel
+- [x] `DownloadTypes` — comprehensive type definitions (tracked downloads, event payloads, status responses, request types)
+
+### Frontend API Layer
+
+- [x] `api.server.ts` — server-side API client (direct NestJS service calls via fetch with auth cookie forwarding)
+- [x] `api.client.ts` — client-side API client (browser fetch to backend endpoints with credentials)
+- [x] `useDownloadState` / `useShowDownloadState` / `useAllDownloadsState` hooks — WebSocket-powered reactive download state for movie detail, show detail, and downloads page
+
+### Testing
+
+- [x] Jest configuration (`jest.config.js`) with TypeScript/SWC transform and path alias support
+- [x] Test setup (`src/__tests__/setup.ts`)
+- [x] `AuthService` unit tests (`src/auth/__tests__/auth.service.test.ts`)
+- [x] `JwtAuthGuard` unit tests (`src/auth/__tests__/jwt-auth.guard.test.ts`)
+- [x] `DownloadService` unit tests (`src/download/__tests__/download.service.test.ts`)
+- [x] `DownloadGateway` unit tests (`src/download/__tests__/download.gateway.test.ts`)
+- [x] `DownloadPollerService` unit tests (`src/download/__tests__/download-poller.service.test.ts`)
+- [x] `DownloadTypes` unit tests (`src/download/__tests__/download.types.test.ts`)
+- [x] `LibraryService` unit tests (`src/media/__tests__/library.service.test.ts`)
+- [x] `MoviesService` unit tests (`src/media/__tests__/movies.service.test.ts`)
+- [x] `ShowsService` unit tests (`src/media/__tests__/shows.service.test.ts`)
+- [x] Media format helpers unit tests (`src/media/__tests__/format.test.ts`)
+- [x] Sort helpers unit tests (`src/media/__tests__/sort.test.ts`)
+- [x] Release parsing unit tests (`src/media/__tests__/parse-release.test.ts`)
+- [x] Legacy library/movies/shows integration tests
+
+---
+
 ## Polish & Quality
 
 - [ ] Loading skeletons for data-fetching pages (library grid, search results, detail pages)
 - [ ] Error boundaries / error pages for API failures
-- [ ] Staggered entrance animations on MediaCard grids (`animationDelay: index * 50ms`)
+- [~] Staggered entrance animations — implemented on Downloads page (`animationDelay: index * 60ms`), not yet on MediaCard grids
 - [ ] Download queue entrance/exit animations (fade-in on add, fade-out on complete)
 - [ ] Season accordion smooth height animation (`grid-rows-[0fr]` to `grid-rows-[1fr]`)
 - [ ] `⌘K` keyboard shortcut to focus search
