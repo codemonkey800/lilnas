@@ -36,3 +36,7 @@ services:
       - traefik.http.routers.yoink.entrypoints=websecure
       - traefik.http.routers.yoink.tls.certresolver=le
       - traefik.http.services.yoink.loadbalancer.server.port=8080
+      - traefik.http.routers.yoink-ws.rule=Host(`yoink.lilnas.io`) && PathPrefix(`/socket.io`)
+      - traefik.http.routers.yoink-ws.entrypoints=websecure
+      - traefik.http.routers.yoink-ws.tls.certresolver=le
+      - traefik.http.services.yoink-ws.loadbalancer.server.port=8081

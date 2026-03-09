@@ -40,6 +40,10 @@ fi
 # in .env.dev doesn't silently break the OAuth redirect.
 export GOOGLE_CALLBACK_URL="http://localhost:${PORT:-8080}/api/auth/google/callback"
 
+# Derive WebSocket URL from BACKEND_PORT so the browser's Socket.IO client
+# connects to the correct backend port rather than the hardcoded default.
+export NEXT_PUBLIC_WS_URL="http://localhost:${BACKEND_PORT:-8081}"
+
 CONTAINER_NAME="yoink-dev-db"
 POSTGRES_IMAGE="postgres:17-alpine"
 POSTGRES_PORT=5432

@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:8081/:path*',
+        destination: `http://localhost:${process.env.BACKEND_PORT ?? '8081'}/:path*`,
       },
     ]
   },
