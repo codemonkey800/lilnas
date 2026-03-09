@@ -22,6 +22,9 @@
     "start": "run-p start:*",
     "start:backend": "node dist/main",
     "start:frontend": "NODE_ENV=production node server.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
     "type-check": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -73,10 +76,13 @@
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
+    "@types/jest": "^30.0.0",
     "@types/passport": "^1.0.17",
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/pg": "^8.16.0",
     "drizzle-kit": "^0.31.9",
-    "pino-pretty": "13.1.2"
+    "jest": "^30.2.0",
+    "pino-pretty": "13.1.2",
+    "ts-jest": "^29.4.5"
   }
 }
