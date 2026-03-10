@@ -3,6 +3,8 @@ services:
     image: lilnas-dev
     command: -c "pnpm --filter=yoink dev"
     restart: unless-stopped
+    environment:
+      POSTGRES_HOST: yoink-db
     env_file:
       - ../../infra/.env.yoink
     volumes:
