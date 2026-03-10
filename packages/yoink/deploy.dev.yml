@@ -1,20 +1,23 @@
 services:
   yoink:
-    extends:
-      file: ../../infra/deploy.dev.base.yml
-      service: dev-base
-    environment:
-      PACKAGE_NAME: yoink
+    image: lilnas-dev
+    command: -c "pnpm --filter=yoink dev"
+    restart: unless-stopped
     env_file:
       - ../../infra/.env.yoink
+    volumes:
+      - ../..:/source
+    working_dir: /source
     depends_on:
       yoink-db:
         condition: service_healthy
     labels:
       - traefik.enable=true
       - traefik.http.routers.yoink.rule=Host(`yoink.localhost`)
+      - traefik.http.routers.yoink.service=yoink
       - traefik.http.services.yoink.loadbalancer.server.port=8080
       - traefik.http.routers.yoink-ws.rule=Host(`yoink.localhost`) && PathPrefix(`/socket.io`)
+      - traefik.http.routers.yoink-ws.service=yoink-ws
       - traefik.http.services.yoink-ws.loadbalancer.server.port=8081
 
   yoink-db:

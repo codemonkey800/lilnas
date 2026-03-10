@@ -13,7 +13,10 @@ export default async function proxy(req: NextRequest) {
 
     if (!token) {
       const loginUrl = new URL('/login', req.nextUrl.origin)
-      loginUrl.searchParams.set('return_to', pathname + search)
+      const returnTo = pathname + search
+      if (returnTo !== '/') {
+        loginUrl.searchParams.set('return_to', returnTo)
+      }
       return Response.redirect(loginUrl)
     }
 
@@ -22,7 +25,10 @@ export default async function proxy(req: NextRequest) {
       await jwtVerify(token, secret)
     } catch {
       const loginUrl = new URL('/login', req.nextUrl.origin)
-      loginUrl.searchParams.set('return_to', pathname + search)
+      const returnTo = pathname + search
+      if (returnTo !== '/') {
+        loginUrl.searchParams.set('return_to', returnTo)
+      }
       return Response.redirect(loginUrl)
     }
   }

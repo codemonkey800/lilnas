@@ -4,5 +4,6 @@ import { redirect } from 'next/navigation'
 export async function redirectToLogin(): Promise<never> {
   const headersList = await headers()
   const pathname = headersList.get('x-pathname') ?? '/'
-  redirect(`/login?return_to=${encodeURIComponent(pathname)}`)
+  const params = pathname !== '/' ? `?return_to=${encodeURIComponent(pathname)}` : ''
+  redirect(`/login${params}`)
 }

@@ -4,7 +4,7 @@ import {
   NestModule,
   RequestMethod,
 } from '@nestjs/common'
-import { JwtModule } from '@nestjs/jwt'
+import { JwtModule, type JwtModuleOptions } from '@nestjs/jwt'
 import { PassportModule } from '@nestjs/passport'
 
 import { EnvKeys } from 'src/env'
@@ -20,12 +20,13 @@ import { ReturnToMiddleware } from './return-to.middleware'
     PassportModule,
     JwtModule.registerAsync({
       global: true,
-      useFactory: () => ({
-        secret: process.env[EnvKeys.JWT_SECRET],
-        signOptions: {
-          expiresIn: process.env[EnvKeys.JWT_EXPIRATION] ?? '24h',
-        },
-      }),
+      useFactory: () =>
+        ({
+          secret: process.env[EnvKeys.JWT_SECRET],
+          signOptions: {
+            expiresIn: process.env[EnvKeys.JWT_EXPIRATION] ?? '24h',
+          },
+        }) as JwtModuleOptions,
     }),
   ],
   controllers: [AuthController],

@@ -6,6 +6,7 @@ FROM lilnas-monorepo-builder AS deps
 # Copy package files for dependency caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/yoink/package.json packages/yoink/
+COPY packages/media/package.json packages/media/
 COPY packages/utils/package.json packages/utils/
 COPY packages/eslint-config-lilnas/package.json packages/eslint-config-lilnas/
 COPY packages/prettier-config-lilnas/package.json packages/prettier-config-lilnas/
@@ -20,10 +21,13 @@ FROM deps AS builder
 COPY . .
 
 # Build the yoink package
-RUN pnpm build --filter=@lilnas/yoink
+RUN pnpm exec turbo run build --filter=@lilnas/yoink
 
 # Deploy production dependencies
 RUN pnpm --filter=yoink --prod deploy /app
+
+# Copy Drizzle migration files so start:migrate can apply them at runtime
+RUN cp -r /source/packages/yoink/drizzle /app/drizzle
 
 # Copy the built Next.js application
 RUN cp -r /source/packages/yoink/.next /app/.next

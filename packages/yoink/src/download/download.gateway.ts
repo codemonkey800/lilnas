@@ -60,7 +60,7 @@ export class DownloadGateway
 
   /** Returns true when at least one WebSocket client is connected. */
   hasConnectedClients(): boolean {
-    return (this.server?.sockets?.size ?? 0) > 0
+    return (this.server?.sockets?.sockets?.size ?? 0) > 0
   }
 
   /** Forwards internal download events to all connected WebSocket clients. */

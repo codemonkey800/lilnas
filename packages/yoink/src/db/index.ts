@@ -1,10 +1,11 @@
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 
+import { getPoolConfig } from './pool-config'
 import * as schema from './schema'
 
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  ...getPoolConfig(),
   max: 10,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
