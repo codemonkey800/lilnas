@@ -11,7 +11,9 @@ class ApiClient {
   private async fetch<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(`/api${path}`, init)
     if (!res.ok) throw new Error(`API ${path} returned ${res.status}`)
-    return res.json() as Promise<T>
+    const text = await res.text()
+    if (!text) return undefined as T
+    return JSON.parse(text) as T
   }
 
   async getAllDownloads(): Promise<AllDownloadsResponse> {

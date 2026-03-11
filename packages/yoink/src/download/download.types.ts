@@ -113,6 +113,12 @@ export interface TrackedMovieDownload {
   lastSize: number | null
   lastEta: string | null
   initiatedAt: number
+  /**
+   * Timestamp when the Radarr search command first reached a terminal state with no queue item.
+   * Used to implement a grace period before declaring "no releases found", since Radarr may
+   * briefly lag between completing a search command and populating the download queue.
+   */
+  commandTerminalAt: number | null
 }
 
 /**
@@ -136,6 +142,12 @@ export interface TrackedEpisodeDownload {
   lastSize: number | null
   lastEta: string | null
   initiatedAt: number
+  /**
+   * Timestamp when the Sonarr search command first reached a terminal state with no queue item.
+   * Used to implement a grace period before declaring "no releases found", since Sonarr may
+   * briefly lag between completing a search command and populating the download queue.
+   */
+  commandTerminalAt: number | null
 }
 
 export type TrackedDownload = TrackedMovieDownload | TrackedEpisodeDownload
@@ -149,6 +161,7 @@ const NULL_PROGRESS_FIELDS = {
   lastTitle: null,
   lastSize: null,
   lastEta: null,
+  commandTerminalAt: null,
 } as const
 
 /** Creates a fresh {@link TrackedMovieDownload} with all progress fields null. */

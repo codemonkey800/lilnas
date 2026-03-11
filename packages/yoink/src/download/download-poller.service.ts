@@ -35,6 +35,13 @@ const POLL_INTERVAL_MS = 3_000
 const REFRESH_INTERVAL_MS = 15_000
 const SEARCH_TIMEOUT_MS = 30_000
 
+/**
+ * How long to wait after a search command reaches a terminal state before
+ * declaring "no releases found". Radarr/Sonarr may briefly lag between
+ * marking a search complete and adding the grabbed release to the queue.
+ */
+const COMMAND_TERMINAL_GRACE_MS = 15_000
+
 const FAILURE_STATES = new Set(['failed', 'failedPending', 'importFailed'])
 
 /** Command statuses that indicate the search has finished (successfully or not). */
@@ -203,7 +210,21 @@ export class DownloadPollerService {
           entry.kind === 'movie' ? radarrCommandStatuses : sonarrCommandStatuses
         const commandStatus = statuses.get(entry.commandId)
         if (commandStatus && TERMINAL_COMMAND_STATUSES.has(commandStatus)) {
-          this.handleSearchNotFound(key, entry)
+          if (entry.commandTerminalAt == null) {
+            // First poll where we see a terminal command with no queue item.
+            // Record the timestamp and wait — Radarr/Sonarr may lag before the
+            // grabbed release appears in the queue.
+            this.downloadService.updateTracked(key, {
+              commandTerminalAt: Date.now(),
+            })
+          } else if (
+            Date.now() - entry.commandTerminalAt >=
+            COMMAND_TERMINAL_GRACE_MS
+          ) {
+            // Grace period has elapsed with still no queue item — truly no releases.
+            this.handleSearchNotFound(key, entry)
+          }
+          // else: still within grace period — wait for next poll
         }
         // else: still searching or status fetch failed — wait for next poll
       } else if (Date.now() - entry.initiatedAt > SEARCH_TIMEOUT_MS) {
