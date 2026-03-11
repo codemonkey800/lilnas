@@ -4,7 +4,7 @@ import { cns } from '@lilnas/utils/cns'
 import CssBaseline from '@mui/material/CssBaseline'
 import { ThemeProvider } from '@mui/material/styles'
 import { AppRouterCacheProvider } from '@mui/material-nextjs/v15-appRouter'
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { JetBrains_Mono, Space_Grotesk } from 'next/font/google'
 import Script from 'next/script'
 import type { ReactNode } from 'react'
@@ -22,6 +22,13 @@ const spaceGrotesk = Space_Grotesk({
   variable: '--font-sans',
   display: 'swap',
 })
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+}
 
 export const metadata: Metadata = {
   title: 'Yoink',
