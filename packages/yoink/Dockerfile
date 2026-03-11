@@ -51,12 +51,19 @@ RUN test -f /app/server.js || (echo "ERROR: Standalone server not found" && exit
 # Runtime stage
 FROM lilnas-nextjs-runtime AS runtime
 
+# Install nginx for reverse proxying
+RUN apt-get update && apt-get install -y --no-install-recommends nginx && rm -rf /var/lib/apt/lists/*
+
 # Copy the built application
 COPY --from=builder /app /app
+
+# Copy nginx config and entrypoint
+COPY packages/yoink/nginx.conf /etc/nginx/nginx.conf
+COPY packages/yoink/docker-entrypoint.sh /docker-entrypoint.sh
 
 WORKDIR /app
 
 # Add OCI image source label
 LABEL org.opencontainers.image.source=https://github.com/codemonkey800/lilnas
 
-ENTRYPOINT ["pnpm", "start"]
+ENTRYPOINT ["/docker-entrypoint.sh"]

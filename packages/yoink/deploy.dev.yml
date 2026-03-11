@@ -18,9 +18,6 @@ services:
       - traefik.http.routers.yoink.rule=Host(`yoink.localhost`)
       - traefik.http.routers.yoink.service=yoink
       - traefik.http.services.yoink.loadbalancer.server.port=8080
-      - traefik.http.routers.yoink-ws.rule=Host(`yoink.localhost`) && PathPrefix(`/socket.io`)
-      - traefik.http.routers.yoink-ws.service=yoink-ws
-      - traefik.http.services.yoink-ws.loadbalancer.server.port=8081
 
   yoink-db:
     image: postgres:17-alpine
