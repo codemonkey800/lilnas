@@ -121,35 +121,6 @@ The `test.yml` workflow automatically:
 - Uploads test results and coverage reports
 - Uses pnpm caching for fast builds
 
-### Claude AI Integration
-
-Two Claude-specific workflows enhance development:
-
-**Issue/PR Assistance (`claude.yml`)**:
-- Trigger Claude Code by mentioning @claude in issues or PRs
-- Supports model selection based on complexity:
-  - claude-3-5-sonnet (default, fast)
-  - claude-3-5-opus (complex tasks)
-  - claude-3-5-haiku (simple tasks)
-- Includes MCP sequential thinking for problem solving
-
-**Automated Code Review (`claude-code-review.yml`)**:
-- Automatic PR reviews using Claude AI
-- Analyzes code changes and provides feedback
-- Suggests improvements and catches potential issues
-- Model selection based on PR size and complexity
-
-### Workflow Commands
-
-```bash
-# Trigger Claude in issues/PRs
-@claude <your request>
-
-# Select specific model
-@claude --model opus <complex request>
-@claude --model haiku <simple request>
-```
-
 ## Architecture Overview
 
 ### Monorepo Structure
