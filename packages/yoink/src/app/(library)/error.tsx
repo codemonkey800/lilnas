@@ -27,7 +27,12 @@ export default function LibraryError({ error, reset }: ErrorPageProps) {
           : 'An unexpected error occurred. Try refreshing or going back.'
       }
       action={
-        <Button variant="outlined" color="secondary" size="small" onClick={reset}>
+        <Button
+          variant="outlined"
+          color="secondary"
+          size="small"
+          onClick={reset}
+        >
           Try again
         </Button>
       }

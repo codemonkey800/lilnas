@@ -3,14 +3,13 @@
 import { useCallback, useMemo, useReducer } from 'react'
 
 import {
-  isImportStatus,
   type AllDownloadsResponse,
   type DownloadCancelledPayload,
   type DownloadCompletedPayload,
   type DownloadFailedPayload,
   type DownloadGrabbingPayload,
-  type DownloadInitiatedPayload,
   type DownloadProgressPayload,
+  isImportStatus,
   type MovieDownloadItem,
   type SeasonDownloadGroup,
   type ShowDownloadItem,
@@ -212,12 +211,9 @@ export function useAllDownloadsState(initialData: AllDownloadsResponse): {
     dispatch({ type: 'refetch', data })
   }, [])
 
-  const onInitiated = useCallback(
-    (_payload: DownloadInitiatedPayload) => {
-      void refetch()
-    },
-    [refetch],
-  )
+  const onInitiated = useCallback(() => {
+    void refetch()
+  }, [refetch])
 
   const onGrabbing = useCallback((payload: DownloadGrabbingPayload) => {
     if (payload.mediaType === 'movie' && payload.tmdbId != null) {
@@ -261,13 +257,21 @@ export function useAllDownloadsState(initialData: AllDownloadsResponse): {
     }
   }, [])
 
-  const onRemove = useCallback((payload: DownloadCancelledPayload | DownloadCompletedPayload | DownloadFailedPayload) => {
-    if (payload.mediaType === 'movie' && payload.tmdbId != null) {
-      dispatch({ type: 'movie:remove', tmdbId: payload.tmdbId })
-    } else if (payload.mediaType === 'episode' && payload.episodeId != null) {
-      dispatch({ type: 'episode:remove', episodeId: payload.episodeId })
-    }
-  }, [])
+  const onRemove = useCallback(
+    (
+      payload:
+        | DownloadCancelledPayload
+        | DownloadCompletedPayload
+        | DownloadFailedPayload,
+    ) => {
+      if (payload.mediaType === 'movie' && payload.tmdbId != null) {
+        dispatch({ type: 'movie:remove', tmdbId: payload.tmdbId })
+      } else if (payload.mediaType === 'episode' && payload.episodeId != null) {
+        dispatch({ type: 'episode:remove', episodeId: payload.episodeId })
+      }
+    },
+    [],
+  )
 
   useDownloadSocket({
     onInitiated,

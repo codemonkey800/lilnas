@@ -7,8 +7,8 @@ import type { StorageOverview } from 'src/media/storage.types'
 
 import { CompactStorageRow } from './compact-storage-row'
 import { LargestItemRow, PodiumCard } from './largest-items'
-import { StorageSummary } from './storage-summary'
 import { usageRatio, WARNING_THRESHOLD } from './storage.utils'
+import { StorageSummary } from './storage-summary'
 
 interface StorageContentProps {
   data: StorageOverview

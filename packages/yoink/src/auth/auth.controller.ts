@@ -1,5 +1,3 @@
-import { timingSafeEqual } from 'crypto'
-
 import {
   Controller,
   Get,
@@ -11,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import { AuthGuard } from '@nestjs/passport'
+import { timingSafeEqual } from 'crypto'
 import type { Request, Response } from 'express'
 
 import { EnvKeys } from 'src/env'

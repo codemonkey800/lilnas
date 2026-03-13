@@ -34,7 +34,9 @@ export function computeDownloadState(entry: {
 }): 'searching' | 'downloading' | 'importing' {
   if (entry.queueId === null) return 'searching'
   const progress = entry.lastProgress ?? 0
-  return isImportStatus(progress, entry.lastStatus) ? 'importing' : 'downloading'
+  return isImportStatus(progress, entry.lastStatus)
+    ? 'importing'
+    : 'downloading'
 }
 
 // ---------------------------------------------------------------------------

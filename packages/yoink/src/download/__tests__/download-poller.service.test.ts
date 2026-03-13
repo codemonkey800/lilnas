@@ -55,6 +55,7 @@ function makeMockDownloadService(): jest.Mocked<
 }
 
 const SEARCH_TIMEOUT_MS = 30_000
+const COMMAND_TERMINAL_GRACE_MS = 15_000
 
 describe('DownloadPollerService.poll()', () => {
   let poller: DownloadPollerService
@@ -132,6 +133,7 @@ describe('DownloadPollerService.poll()', () => {
     const entry = {
       ...createTrackedMovie(456, 123, 42),
       queueId: null,
+      commandTerminalAt: Date.now() - COMMAND_TERMINAL_GRACE_MS - 1000,
     }
     mockService.getTracked.mockReturnValue(new Map([['movie:456', entry]]))
     ;(radarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })
@@ -167,6 +169,7 @@ describe('DownloadPollerService.poll()', () => {
         55,
       ),
       queueId: null,
+      commandTerminalAt: Date.now() - COMMAND_TERMINAL_GRACE_MS - 1000,
     }
     mockService.getTracked.mockReturnValue(new Map([['episode:1', entry]]))
     ;(sonarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })
@@ -193,7 +196,11 @@ describe('DownloadPollerService.poll()', () => {
   it.each(['failed', 'aborted', 'cancelled', 'orphaned'])(
     'emits FAILED when movie command status is "%s"',
     async terminalStatus => {
-      const entry = { ...createTrackedMovie(456, 123, 42), queueId: null }
+      const entry = {
+        ...createTrackedMovie(456, 123, 42),
+        queueId: null,
+        commandTerminalAt: Date.now() - COMMAND_TERMINAL_GRACE_MS - 1000,
+      }
       mockService.getTracked.mockReturnValue(new Map([['movie:456', entry]]))
       ;(radarrGetQueueDetails as jest.Mock).mockResolvedValue({ data: [] })
       ;(radarrGetCommandById as jest.Mock).mockResolvedValue({

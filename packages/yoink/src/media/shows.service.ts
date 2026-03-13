@@ -20,8 +20,8 @@ import {
   type SeriesResource,
 } from '@lilnas/media/sonarr'
 import {
-  BadRequestException,
   BadGatewayException,
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'

@@ -1,15 +1,15 @@
 'use client'
 
-import { useCallback, useReducer, useRef } from 'react'
+import { useCallback, useReducer } from 'react'
 
 import {
-  isImportStatus,
   type DownloadCancelledPayload,
   type DownloadCompletedPayload,
   type DownloadFailedPayload,
   type DownloadGrabbingPayload,
   type DownloadInitiatedPayload,
   type DownloadProgressPayload,
+  isImportStatus,
   type MovieDownloadStatusResponse,
 } from 'src/download/download.types'
 
@@ -118,10 +118,9 @@ export function useDownloadState(
   tmdbId: number | null,
   initialStatus?: MovieDownloadStatusResponse | null,
 ): DownloadStateData {
-  const initialRef = useRef(initialStatus)
   const [downloadState, dispatch] = useReducer(
     reducer,
-    initialRef.current,
+    initialStatus,
     toInitialState,
   )
 

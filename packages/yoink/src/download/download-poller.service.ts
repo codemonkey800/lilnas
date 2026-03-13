@@ -109,7 +109,8 @@ export class DownloadPollerService {
     if (tracked.size === 0 && pendingCancels.size === 0) return
 
     try {
-      const shouldRefresh = Date.now() - this.lastRefreshAt >= REFRESH_INTERVAL_MS
+      const shouldRefresh =
+        Date.now() - this.lastRefreshAt >= REFRESH_INTERVAL_MS
       if (shouldRefresh) this.lastRefreshAt = Date.now()
 
       const [radarrQueue, sonarrQueue] = await Promise.all([

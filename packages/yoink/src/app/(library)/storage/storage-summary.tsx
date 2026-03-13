@@ -119,7 +119,10 @@ export function StorageSummary({
             {legendItems.map(item => (
               <div key={item.label} className="flex items-center gap-1.5">
                 <span
-                  className={cns('inline-block h-2 w-2 shrink-0 rounded-full', item.color)}
+                  className={cns(
+                    'inline-block h-2 w-2 shrink-0 rounded-full',
+                    item.color,
+                  )}
                 />
                 <span className="font-mono text-xs text-carbon-400">
                   {item.label}

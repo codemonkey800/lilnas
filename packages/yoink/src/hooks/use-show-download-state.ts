@@ -1,15 +1,15 @@
 'use client'
 
-import { useCallback, useMemo, useReducer, useRef } from 'react'
+import { useCallback, useMemo, useReducer } from 'react'
 
 import {
-  isImportStatus,
   type DownloadCancelledPayload,
   type DownloadCompletedPayload,
   type DownloadFailedPayload,
   type DownloadGrabbingPayload,
   type DownloadInitiatedPayload,
   type DownloadProgressPayload,
+  isImportStatus,
   type ShowDownloadStatusResponse,
 } from 'src/download/download.types'
 
@@ -137,10 +137,9 @@ export function useShowDownloadState(
   hasActiveDownloads: boolean
   hasActiveSearches: boolean
 } {
-  const initialRef = useRef(initialStatus)
   const [episodeStates, dispatch] = useReducer(
     episodeReducer,
-    initialRef.current,
+    initialStatus,
     toInitialEpisodeMap,
   )
 

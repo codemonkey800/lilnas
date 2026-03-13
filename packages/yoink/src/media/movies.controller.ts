@@ -39,7 +39,11 @@ function parseParam(value: string, name: string): number {
   return result.data
 }
 
-function parseBody<T>(body: unknown, schema: z.ZodSchema<T>, message?: string): T {
+function parseBody<T>(
+  body: unknown,
+  schema: z.ZodSchema<T>,
+  message?: string,
+): T {
   const result = schema.safeParse(body)
   if (!result.success) {
     throw new BadRequestException(

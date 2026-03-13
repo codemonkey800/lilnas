@@ -2,9 +2,9 @@ import { eq } from 'drizzle-orm'
 import { jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 
+import { AUTH_TOKEN_COOKIE } from 'src/auth/constants'
 import { db } from 'src/db'
 import { users } from 'src/db/schema'
-import { AUTH_TOKEN_COOKIE } from 'src/auth/constants'
 import { EnvKeys } from 'src/env'
 
 interface JwtPayload {
