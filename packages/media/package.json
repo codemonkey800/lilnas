@@ -15,7 +15,7 @@
   },
   "scripts": {
     "generate": "openapi-ts",
-    "build": "pnpm run generate && tsc -p .",
+    "build": "tsc -p .",
     "clean": "rm -rf dist/ .turbo/",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
