@@ -2,7 +2,7 @@ services:
   equations:
     build:
       context: ../../
-      dockerfile: packages/equations/Dockerfile
+      dockerfile: apps/equations/Dockerfile
     restart: unless-stopped
     env_file:
       - ../../infra/.env.equations

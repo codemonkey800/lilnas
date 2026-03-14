@@ -2,7 +2,7 @@ services:
   download:
     build:
       context: ../..
-      dockerfile: packages/download/Dockerfile
+      dockerfile: apps/download/Dockerfile
     restart: unless-stopped
     env_file:
       - ../../infra/.env.download

@@ -12,24 +12,21 @@ Create a git commit from the current changes in the lilnas monorepo.
 When creating a commit:
 
 1. **Analyze staged files** (smart detection):
-
    - Identify which files were modified
    - Determine file types (code vs. configuration)
    - Identify affected packages
    - Decide which checks are needed
 
 2. **Run pre-commit checks** (unless --no-verify is specified):
-
    - Only run checks for files that need them:
      - **TypeScript/JavaScript files**: lint, type-check, test, build
-     - **Infrastructure files** (k8s/, *.yaml, *.yml): No checks
-     - **Documentation** (*.md): No checks
-     - **Shell scripts** (*.sh): No checks
+     - **Infrastructure files** (k8s/, _.yaml, _.yml): No checks
+     - **Documentation** (\*.md): No checks
+     - **Shell scripts** (\*.sh): No checks
      - **Config files**: Minimal or no checks
    - Only test packages that have changes
 
 3. **Prepare the commit**:
-
    - If no files are staged, automatically stage all changes
    - Analyze the code changes to understand what was modified
    - Determine the appropriate commit type and scope
@@ -107,13 +104,16 @@ When creating a commit:
 
 Common scopes in the lilnas monorepo:
 
-- `apps` - Main Next.js dashboard
+- `portal` - Main Next.js dashboard
 - `tdr-bot` - Discord bot with AI
 - `download` - Video download service
 - `equations` - LaTeX rendering service
 - `me-token-tracker` - Crypto tracking bot
 - `dashcam` - Dashcam viewer
+- `macros` - Macros app
+- `yoink` - Media management app
 - `utils` - Shared utilities
+- `media` - Radarr/Sonarr API clients
 - `eslint` - ESLint configuration
 - `prettier` - Prettier configuration
 - `infra` - Infrastructure/Docker changes
@@ -123,14 +123,12 @@ Common scopes in the lilnas monorepo:
 ### Commit Message Guidelines
 
 1. **Subject line**:
-
    - Use present tense, imperative mood ("add feature" not "added feature")
    - Keep under 72 characters
    - Don't end with a period
    - Be specific and meaningful
 
 2. **Body** (when needed):
-
    - Explain the "why" behind the change
    - Reference issues or PRs if applicable
    - Include breaking changes with "BREAKING CHANGE:" prefix
@@ -187,9 +185,9 @@ Split into:
 
 ```
 🏗️ build(deps): add authentication dependencies
-✨ feat(apps): implement OAuth authentication flow
-💄 ui(apps): update login page design
-🧪 test(apps): add authentication integration tests
+✨ feat(portal): implement OAuth authentication flow
+💄 ui(portal): update login page design
+🧪 test(portal): add authentication integration tests
 ```
 
 ## Pre-commit Checks
@@ -206,28 +204,29 @@ Pre-commit checks are run intelligently based on the files being committed:
 
 2. **Check Requirements by File Type**:
 
-   | File Type | Lint | Type Check | Test | Build |
-   |-----------|------|------------|------|-------|
-   | TypeScript/JavaScript | ✅ | ✅ | ✅* | ✅ |
-   | YAML/YML files | ❌ | ❌ | ❌ | ❌ |
-   | Markdown (*.md) | ❌ | ❌ | ❌ | ❌ |
-   | Shell scripts (*.sh) | ❌ | ❌ | ❌ | ❌ |
-   | Kubernetes (k8s/) | ❌ | ❌ | ❌ | ❌ |
-   | Docker files | ❌ | ❌ | ❌ | ❌ |
-   | JSON (non-package.json) | ❌ | ❌ | ❌ | ❌ |
-   | package.json | ❌ | ❌ | ❌ | ✅ |
-   
-   *Tests only run for packages with changes
+   | File Type               | Lint | Type Check | Test | Build |
+   | ----------------------- | ---- | ---------- | ---- | ----- |
+   | TypeScript/JavaScript   | ✅   | ✅         | ✅\* | ✅    |
+   | YAML/YML files          | ❌   | ❌         | ❌   | ❌    |
+   | Markdown (\*.md)        | ❌   | ❌         | ❌   | ❌    |
+   | Shell scripts (\*.sh)   | ❌   | ❌         | ❌   | ❌    |
+   | Kubernetes (k8s/)       | ❌   | ❌         | ❌   | ❌    |
+   | Docker files            | ❌   | ❌         | ❌   | ❌    |
+   | JSON (non-package.json) | ❌   | ❌         | ❌   | ❌    |
+   | package.json            | ❌   | ❌         | ❌   | ✅    |
+
+   \*Tests only run for packages with changes
 
 3. **Package-Specific Testing**:
    - Tests only run for packages that have modified files
    - Example: Changes to `k8s/` won't trigger any tests
-   - Example: Changes to `packages/tdr-bot/` only run tdr-bot tests
+   - Example: Changes to `apps/tdr-bot/` only run tdr-bot tests
    - Currently testable packages: tdr-bot, utils
 
 ### Examples
 
 **Infrastructure commit (k8s files only)**:
+
 ```bash
 # No checks run - direct commit
 git add k8s/
@@ -235,16 +234,18 @@ git add k8s/
 ```
 
 **Single package TypeScript changes**:
+
 ```bash
 # Only runs checks for the tdr-bot package
-git add packages/tdr-bot/src/
+git add apps/tdr-bot/src/
 /commit  # Runs: lint (tdr-bot), type-check (tdr-bot), test (tdr-bot), build
 ```
 
 **Mixed commit (k8s + TypeScript)**:
+
 ```bash
-git add k8s/ packages/apps/
-/commit  # Only checks TypeScript files in apps package
+git add k8s/ apps/portal/
+/commit  # Only checks TypeScript files in portal package
 ```
 
 ### Manual Check Commands

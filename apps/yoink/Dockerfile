@@ -5,7 +5,7 @@ FROM lilnas-monorepo-builder AS deps
 
 # Copy package files for dependency caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY packages/yoink/package.json packages/yoink/
+COPY apps/yoink/package.json apps/yoink/
 COPY packages/media/package.json packages/media/
 COPY packages/utils/package.json packages/utils/
 COPY packages/eslint-config-lilnas/package.json packages/eslint-config-lilnas/
@@ -27,17 +27,17 @@ RUN pnpm exec turbo run build --filter=@lilnas/yoink
 RUN pnpm --filter=yoink --prod deploy /app
 
 # Copy Drizzle migration files so start:migrate can apply them at runtime
-RUN cp -r /source/packages/yoink/drizzle /app/drizzle
+RUN cp -r /source/apps/yoink/drizzle /app/drizzle
 
 # Copy the built Next.js application
-RUN cp -r /source/packages/yoink/.next /app/.next
+RUN cp -r /source/apps/yoink/.next /app/.next
 
 # Copy the standalone server to the correct location
-RUN cp /source/packages/yoink/.next/standalone/packages/yoink/server.js /app/server.js
+RUN cp /source/apps/yoink/.next/standalone/apps/yoink/server.js /app/server.js
 
 # Copy public directory if it exists
-RUN if [ -d /source/packages/yoink/public ]; then \
-      cp -r /source/packages/yoink/public /app/.next/standalone/; \
+RUN if [ -d /source/apps/yoink/public ]; then \
+      cp -r /source/apps/yoink/public /app/.next/standalone/; \
     fi
 
 # Copy static files to standalone directory
@@ -59,8 +59,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends nginx && rm -rf
 COPY --from=builder /app /app
 
 # Copy nginx config and entrypoint
-COPY packages/yoink/nginx.conf /etc/nginx/nginx.conf
-COPY packages/yoink/docker-entrypoint.sh /docker-entrypoint.sh
+COPY apps/yoink/nginx.conf /etc/nginx/nginx.conf
+COPY apps/yoink/docker-entrypoint.sh /docker-entrypoint.sh
 
 WORKDIR /app
 

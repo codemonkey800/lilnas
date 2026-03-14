@@ -20,10 +20,10 @@ RUN pnpm build --filter=@lilnas/macros
 FROM nginx:alpine AS macros
 
 # Copy built files from builder stage
-COPY --from=macros-builder /source/packages/macros/dist /usr/share/nginx/html
+COPY --from=macros-builder /source/apps/macros/dist /usr/share/nginx/html
 
 # Copy nginx configuration
-COPY packages/macros/nginx.conf /etc/nginx/conf.d/default.conf
+COPY apps/macros/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Expose port 80
 EXPOSE 80

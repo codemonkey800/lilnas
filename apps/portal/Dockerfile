@@ -1,11 +1,11 @@
-# Multi-stage Dockerfile for @lilnas/apps
+# Multi-stage Dockerfile for @lilnas/portal
 
 # Dependency caching stage
 FROM lilnas-monorepo-builder AS deps
 
 # Copy package files for dependency caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY packages/apps/package.json packages/apps/
+COPY apps/portal/package.json apps/portal/
 COPY packages/utils/package.json packages/utils/
 COPY packages/eslint-config-lilnas/package.json packages/eslint-config-lilnas/
 COPY packages/prettier-config-lilnas/package.json packages/prettier-config-lilnas/
@@ -19,21 +19,21 @@ FROM deps AS builder
 # Copy source code (this layer changes frequently)
 COPY . .
 
-# Build the apps package
-RUN pnpm build --filter=@lilnas/apps
+# Build the portal package
+RUN pnpm build --filter=@lilnas/portal
 
 # Deploy production dependencies
-RUN pnpm --filter=apps --prod deploy /app
+RUN pnpm --filter=portal --prod deploy /app
 
 # Copy the built Next.js application
-RUN cp -r /source/packages/apps/.next /app/.next
+RUN cp -r /source/apps/portal/.next /app/.next
 
 # Copy the standalone server to the correct location
-RUN cp /source/packages/apps/.next/standalone/packages/apps/server.js /app/server.js
+RUN cp /source/apps/portal/.next/standalone/apps/portal/server.js /app/server.js
 
 # Copy public directory if it exists
-RUN if [ -d /source/packages/apps/public ]; then \
-      cp -r /source/packages/apps/public /app/.next/standalone/; \
+RUN if [ -d /source/apps/portal/public ]; then \
+      cp -r /source/apps/portal/public /app/.next/standalone/; \
     fi
 
 # Copy static files to standalone directory

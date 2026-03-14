@@ -4,14 +4,14 @@ FROM node:25.0.0-bullseye AS base
 # Install pnpm
 RUN npm install -g pnpm@10.18.2
 
-# Build stage  
+# Build stage
 FROM base AS deps
 
 WORKDIR /source
 
 # Copy package files for dependency caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY packages/equations/package.json packages/equations/
+COPY apps/equations/package.json apps/equations/
 COPY packages/utils/package.json packages/utils/
 COPY packages/eslint-config-lilnas/package.json packages/eslint-config-lilnas/
 COPY packages/prettier-config-lilnas/package.json packages/prettier-config-lilnas/
@@ -58,7 +58,7 @@ RUN groupadd -r app && useradd -r -g app app
 COPY --from=build /app /app
 
 # Copy ImageMagick policy (optional)
-COPY --from=build /source/packages/equations/image-magick-policy.xml /etc/ImageMagick-6/policy.xml
+COPY --from=build /source/apps/equations/image-magick-policy.xml /etc/ImageMagick-6/policy.xml
 
 # Set ownership
 RUN chown -R app:app /app

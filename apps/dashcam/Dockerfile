@@ -20,10 +20,10 @@ RUN pnpm build --filter=@lilnas/dashcam
 FROM nginx:alpine AS dashcam
 
 # Copy built files from builder stage
-COPY --from=dashcam-builder /source/packages/dashcam/dist /usr/share/nginx/html
+COPY --from=dashcam-builder /source/apps/dashcam/dist /usr/share/nginx/html
 
 # Copy nginx configuration
-COPY packages/dashcam/nginx.conf /etc/nginx/conf.d/default.conf
+COPY apps/dashcam/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Expose port 80
 EXPOSE 80

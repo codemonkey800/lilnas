@@ -23,7 +23,7 @@ services:
   yoink:
     build:
       context: ../..
-      dockerfile: packages/yoink/Dockerfile
+      dockerfile: apps/yoink/Dockerfile
     restart: unless-stopped
     environment:
       POSTGRES_HOST: yoink-db

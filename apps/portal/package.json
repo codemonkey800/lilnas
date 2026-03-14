@@ -1,5 +1,5 @@
 {
-  "name": "@lilnas/apps",
+  "name": "@lilnas/portal",
   "version": "0.2.0",
   "private": true,
   "packageManager": "pnpm@10.18.2",

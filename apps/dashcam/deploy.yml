@@ -2,7 +2,7 @@ services:
   dashcam:
     build:
       context: ../..
-      dockerfile: packages/dashcam/Dockerfile
+      dockerfile: apps/dashcam/Dockerfile
     restart: unless-stopped
     labels:
       - traefik.enable=true

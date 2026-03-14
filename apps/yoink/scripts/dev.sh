@@ -28,7 +28,7 @@ fi
 
 # Load local dev overrides from .env.dev (gitignored). Values here take
 # precedence over infra/.env.yoink. Copy .env.dev.example to get started.
-LOCAL_ENV="${ROOT_DIR}/packages/yoink/.env.dev"
+LOCAL_ENV="${ROOT_DIR}/apps/yoink/.env.dev"
 if [ -f "$LOCAL_ENV" ]; then
   set -a
   # shellcheck disable=SC1090

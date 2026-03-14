@@ -2,12 +2,12 @@
   "files": [],
   "references": [
     { "path": "./packages/utils" },
-    { "path": "./packages/apps" },
-    { "path": "./packages/tdr-bot" },
-    { "path": "./packages/equations" },
-    { "path": "./packages/download" },
-    { "path": "./packages/dashcam" },
-    { "path": "./packages/me-token-tracker" },
-    { "path": "./packages/yoink" }
+    { "path": "./apps/portal" },
+    { "path": "./apps/tdr-bot" },
+    { "path": "./apps/equations" },
+    { "path": "./apps/download" },
+    { "path": "./apps/dashcam" },
+    { "path": "./apps/me-token-tracker" },
+    { "path": "./apps/yoink" }
   ]
 }

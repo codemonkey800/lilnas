@@ -79,7 +79,10 @@ docker-compose down [services...]       # Bring down services
 ### Individual Package Development
 
 ```bash
-# Work in specific package
+# Work in a specific app
+cd apps/<app-name>
+
+# Work in a specific library package
 cd packages/<package-name>
 
 # For NestJS backends (equations, me-token-tracker)
@@ -87,12 +90,12 @@ pnpm run dev      # Hot-reload development server
 pnpm run build    # Production build
 pnpm run start    # Run production build
 
-# For Next.js frontends (apps)
+# For Next.js frontends (portal)
 pnpm run dev      # Development server
 pnpm run build    # Production build
 pnpm run start    # Production server
 
-# For Vite-based frontends (dashcam)
+# For Vite-based frontends (dashcam, macros)
 pnpm run dev      # Development server (port 8080)
 pnpm run build    # Production build
 pnpm run preview  # Preview production build
@@ -115,6 +118,7 @@ The project uses GitHub Actions for continuous integration and AI-powered develo
 ### Automated Testing Workflow
 
 The `test.yml` workflow automatically:
+
 - Detects changed packages in PRs
 - Runs tests only for affected packages
 - Executes lint and type-check for changed code
@@ -127,22 +131,36 @@ The `test.yml` workflow automatically:
 
 lilnas is a TypeScript monorepo using pnpm workspaces with Turbo build orchestration. It's a self-hosted NAS system with multiple integrated services.
 
+The monorepo is split into two top-level directories:
+
+- `apps/` — Deployable applications (NestJS services, Next.js frontends, Vite apps, Discord bots)
+- `packages/` — Shared libraries consumed by apps
+
 ### Package Categories
 
-**Frontend Applications:**
-- `@lilnas/apps` - Next.js application portal/dashboard
-- `@lilnas/dashcam` - Vite+React dashcam video viewer (port 8080)
+**Applications (`apps/`):**
 
-**Full-Stack Applications (NestJS + Next.js):**
-- `@lilnas/tdr-bot` - Discord bot with AI (LangChain, OpenAI) + admin interface
-- `@lilnas/download` - Video download service with web UI (yt-dlp, ffmpeg)
+_Frontend Applications:_
 
-**Backend Services (NestJS):**
-- `@lilnas/equations` - LaTeX equation rendering with Docker sandbox security
-- `@lilnas/me-token-tracker` - Cryptocurrency tracking Discord bot
+- `@lilnas/portal` - Next.js application portal/dashboard (`apps/portal/`)
+- `@lilnas/dashcam` - Vite+React dashcam video viewer (`apps/dashcam/`)
+- `@lilnas/macros` - Vite+React macros app (`apps/macros/`)
 
-**Development Tools:**
+_Full-Stack Applications (NestJS + Next.js):_
+
+- `@lilnas/tdr-bot` - Discord bot with AI (LangChain, OpenAI) + admin interface (`apps/tdr-bot/`)
+- `@lilnas/download` - Video download service with web UI (yt-dlp, ffmpeg) (`apps/download/`)
+- `@lilnas/yoink` - Media management with OAuth (`apps/yoink/`)
+
+_Backend Services (NestJS):_
+
+- `@lilnas/equations` - LaTeX equation rendering with Docker sandbox security (`apps/equations/`)
+- `@lilnas/me-token-tracker` - Cryptocurrency tracking Discord bot (`apps/me-token-tracker/`)
+
+**Shared Libraries (`packages/`):**
+
 - `@lilnas/utils` - Shared utilities and types
+- `@lilnas/media` - Radarr/Sonarr API clients
 - `@lilnas/eslint` - Shared ESLint config
 - `@lilnas/prettier` - Shared Prettier config
 
@@ -157,6 +175,7 @@ lilnas is a TypeScript monorepo using pnpm workspaces with Turbo build orchestra
 ### Storage Architecture
 
 The server uses a semantic directory structure for organizing different types of data. See `docs/semantic-storage.md` for comprehensive documentation about:
+
 - Storage directory purposes and usage patterns
 - Volume mapping configurations
 - Backup tier strategy
@@ -165,9 +184,11 @@ The server uses a semantic directory structure for organizing different types of
 ### Key Docker Compose Files
 
 **Root-level orchestration:**
+
 - `docker-compose.yml` / `docker-compose.dev.yml` - Main orchestration files
 
 **Infrastructure services in `infra/`:**
+
 - `proxy.yml` / `proxy.dev.yml` - Traefik and authentication
 - `shared.yml` / `shared.dev.yml` - Storage and shared services
 - `media.yml` - Media stack (Sonarr, Radarr, Emby)
@@ -176,15 +197,17 @@ The server uses a semantic directory structure for organizing different types of
 - `minecraft.yml` - Minecraft server deployment
 - `palworld.yml` - Palworld game server deployment
 
-**Package-specific deployment:**
-- `packages/*/deploy.yml` - Production deployment for each service
-- `packages/*/deploy.dev.yml` - Development deployment for each service
+**App-specific deployment:**
+
+- `apps/*/deploy.yml` - Production deployment for each app
+- `apps/*/deploy.dev.yml` - Development deployment for each app
 
 ## Security Considerations
 
 ### LaTeX Equations Service Security
 
 The equations service implements comprehensive security measures:
+
 - **Input Validation:** Zod schemas block dangerous LaTeX commands
 - **Command Injection Prevention:** Uses secure spawn without shell
 - **Docker Sandbox:** Isolated LaTeX compilation with resource limits
@@ -192,10 +215,11 @@ The equations service implements comprehensive security measures:
 - **Resource Monitoring:** Memory, CPU, and file size limits
 
 Critical security files:
-- `packages/equations/src/validation/equation.schema.ts` - Input validation
-- `packages/equations/src/utils/secure-exec.ts` - Safe command execution
-- `packages/equations/latex-sandbox.dockerfile` - Docker sandbox
-- `packages/equations/SECURITY.md` - Complete security documentation
+
+- `apps/equations/src/validation/equation.schema.ts` - Input validation
+- `apps/equations/src/utils/secure-exec.ts` - Safe command execution
+- `apps/equations/latex-sandbox.dockerfile` - Docker sandbox
+- `apps/equations/SECURITY.md` - Complete security documentation
 
 ### Development vs Production
 
@@ -207,6 +231,7 @@ Critical security files:
 ### TDR-Bot Architecture
 
 The `@lilnas/tdr-bot` package includes sophisticated AI capabilities:
+
 - **LangChain Integration:** `@langchain/core`, `@langchain/openai`, `@langchain/langgraph`
 - **AI Workflows:** LangGraph for complex conversation flows
 - **Tool Integration:** Tavily search, Discord.js, Docker management
@@ -238,12 +263,14 @@ The `@lilnas/tdr-bot` package includes sophisticated AI capabilities:
 The project uses a layered Docker base image system for consistent environments:
 
 **Image Hierarchy:**
+
 - `lilnas-node-base` - Base Node.js environment with common dependencies
 - `lilnas-monorepo-builder` - Build environment with pnpm and turbo
 - `lilnas-node-runtime` - Lightweight runtime for Node.js services
 - `lilnas-nextjs-runtime` - Specialized runtime for Next.js applications
 
 **Building Base Images:**
+
 ```bash
 # Build all base images (run from project root)
 ./infra/base-images/build-base-images.sh
@@ -282,11 +309,13 @@ docker-compose up -d <service>
 Turbo (v2.5.4) provides intelligent build orchestration with caching:
 
 **Configuration (`turbo.json`):**
+
 - Build outputs: `.next/**` and `dist/**` directories
 - Dependency-aware builds: `dependsOn: ["^build"]` ensures dependencies build first
 - Automatic caching prevents unnecessary rebuilds
 
 **Cache Management:**
+
 ```bash
 # Clear turbo cache (included in pnpm run clean)
 rm -rf .turbo
@@ -310,15 +339,17 @@ pnpm run build --dry-run
 Each package includes production-ready deployment configuration:
 
 **Deployment Files:**
-- `packages/*/deploy.yml` - Production Docker Compose for each service
+
+- `apps/*/deploy.yml` - Production Docker Compose for each app
 - Uses `*.lilnas.io` domains with automatic SSL via Let's Encrypt
 - Traefik authentication middleware (`forward-auth@file`)
 - Restart policies: `unless-stopped` for reliability
 
 **Production Commands:**
+
 ```bash
-# Deploy a specific service
-cd packages/<service-name>
+# Deploy a specific app
+cd apps/<app-name>
 docker-compose -f deploy.yml up -d
 
 # View production logs
@@ -332,6 +363,7 @@ docker-compose -f deploy.yml up -d
 ### Environment Variables
 
 Environment configuration follows a secure pattern:
+
 - **Example files:** `deploy/.env.example` shows required variables
 - **Service-specific:** Each docker-compose file defines its own variables
 - **No centralized .env:** Intentional design for security isolation
@@ -359,5 +391,5 @@ Environment configuration follows a secure pattern:
 
 ### Local Development Domains
 
-- Local services will be located under the *.localhost subdomain. For example, traefik.localhost or storage.localhost.
+- Local services will be located under the \*.localhost subdomain. For example, traefik.localhost or storage.localhost.
 - always use cns() when combining class names or when you need to split up long class names on multiple lines
