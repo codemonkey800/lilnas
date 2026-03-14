@@ -6,12 +6,12 @@ include:
   - ./infra/proxy.yml
   - ./infra/shared.yml
 
-  # Package services
-  - ./packages/apps/deploy.yml
-  - ./packages/dashcam/deploy.yml
-  - ./packages/download/deploy.yml
-  - ./packages/equations/deploy.yml
-  - ./packages/macros/deploy.yml
-  - ./packages/me-token-tracker/deploy.yml
-  - ./packages/tdr-bot/deploy.yml
-  - ./packages/yoink/deploy.yml
+  # App services
+  - ./apps/portal/deploy.yml
+  - ./apps/dashcam/deploy.yml
+  - ./apps/download/deploy.yml
+  - ./apps/equations/deploy.yml
+  - ./apps/macros/deploy.yml
+  - ./apps/me-token-tracker/deploy.yml
+  - ./apps/tdr-bot/deploy.yml
+  - ./apps/yoink/deploy.yml

@@ -2,7 +2,7 @@ services:
   macros:
     build:
       context: ../..
-      dockerfile: packages/macros/Dockerfile
+      dockerfile: apps/macros/Dockerfile
     restart: unless-stopped
     labels:
       - traefik.enable=true

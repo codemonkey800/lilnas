@@ -39,34 +39,46 @@ jobs:
             echo "Workflow files changed - will test all packages"
           fi
 
-          # Extract package names from changed files
+          # Extract package paths (dir/name) from changed files
           PACKAGES=()
 
-          if [ "$WORKFLOW_CHANGED" = "true" ]; then
-            # If workflow changed, test all packages that have test scripts
-            for pkg in packages/*/; do
+          scan_dir() {
+            local base_dir=$1
+            for pkg in ${base_dir}/*/; do
               if [ -d "$pkg" ]; then
-                pkg_name=$(basename "$pkg")
+                pkg_path=$(echo "$pkg" | sed 's|/$||')
                 # Check if package has test script
-                if [ -f "packages/$pkg_name/package.json" ] && grep -q '"test"' "packages/$pkg_name/package.json"; then
-                  PACKAGES+=("$pkg_name")
+                if [ -f "${pkg_path}/package.json" ] && grep -q '"test"' "${pkg_path}/package.json"; then
+                  PACKAGES+=("$pkg_path")
                 fi
               fi
             done
-          else
-            # Check each package directory for changes
-            for pkg in packages/*/; do
+          }
+
+          check_dir() {
+            local base_dir=$1
+            for pkg in ${base_dir}/*/; do
               if [ -d "$pkg" ]; then
-                pkg_name=$(basename "$pkg")
+                pkg_path=$(echo "$pkg" | sed 's|/$||')
                 # Check if any files in this package changed
-                if echo "$CHANGED_FILES" | grep -q "^packages/$pkg_name/"; then
+                if echo "$CHANGED_FILES" | grep -q "^${pkg_path}/"; then
                   # Check if package has test script
-                  if [ -f "packages/$pkg_name/package.json" ] && grep -q '"test"' "packages/$pkg_name/package.json"; then
-                    PACKAGES+=("$pkg_name")
+                  if [ -f "${pkg_path}/package.json" ] && grep -q '"test"' "${pkg_path}/package.json"; then
+                    PACKAGES+=("$pkg_path")
                   fi
                 fi
               fi
             done
+          }
+
+          if [ "$WORKFLOW_CHANGED" = "true" ]; then
+            # If workflow changed, test all packages that have test scripts
+            scan_dir "apps"
+            scan_dir "packages"
+          else
+            # Check each package directory for changes
+            check_dir "apps"
+            check_dir "packages"
           fi
 
           # Convert array to JSON
@@ -132,7 +144,7 @@ jobs:
 
       - name: Run tests for ${{ matrix.package }}
         run: |
-          cd packages/${{ matrix.package }}
+          cd ${{ matrix.package }}
           pnpm test
         env:
           CI: true
@@ -143,8 +155,8 @@ jobs:
         with:
           name: test-results-${{ matrix.package }}
           path: |
-            packages/${{ matrix.package }}/coverage/
-            packages/${{ matrix.package }}/test-results.xml
+            ${{ matrix.package }}/coverage/
+            ${{ matrix.package }}/test-results.xml
           retention-days: 7
 
   test-summary:
@@ -212,7 +224,7 @@ jobs:
 
       - name: Run lint for ${{ matrix.package }}
         run: |
-          cd packages/${{ matrix.package }}
+          cd ${{ matrix.package }}
           if grep -q '"lint"' package.json; then
             pnpm lint
           else
@@ -221,7 +233,7 @@ jobs:
 
       - name: Run type-check for ${{ matrix.package }}
         run: |
-          cd packages/${{ matrix.package }}
+          cd ${{ matrix.package }}
           if grep -q '"type-check"' package.json; then
             pnpm type-check
           else

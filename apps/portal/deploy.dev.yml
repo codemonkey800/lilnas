@@ -1,7 +1,7 @@
 services:
-  apps:
+  portal:
     image: lilnas-dev
-    command: -c "pnpm --filter=apps dev"
+    command: -c "pnpm --filter=portal dev"
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -9,5 +9,5 @@ services:
     working_dir: /source
     labels:
       - traefik.enable=true
-      - traefik.http.routers.apps.rule=Host(`apps.localhost`)
-      - traefik.http.services.apps.loadbalancer.server.port=8080
+      - traefik.http.routers.portal.rule=Host(`portal.localhost`)
+      - traefik.http.services.portal.loadbalancer.server.port=8080

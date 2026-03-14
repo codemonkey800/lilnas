@@ -122,13 +122,16 @@ Follow the same commit conventions used in the lilnas monorepo:
 
 **Scopes** (lilnas packages):
 
-- `apps` - Main Next.js dashboard
+- `portal` - Main Next.js dashboard
 - `tdr-bot` - Discord bot with AI
 - `download` - Video download service
 - `equations` - LaTeX rendering service
 - `me-token-tracker` - Crypto tracking bot
 - `dashcam` - Dashcam viewer
+- `macros` - Macros app
+- `yoink` - Media management app
 - `utils` - Shared utilities
+- `media` - Radarr/Sonarr API clients
 - `infra` - Infrastructure/Docker changes
 - `*` - Changes affecting multiple packages
 
@@ -202,13 +205,16 @@ The command automatically detects affected packages by analyzing file paths:
 
 **Detection Rules**:
 
-- Files in `packages/apps/` → `@lilnas/apps`
-- Files in `packages/tdr-bot/` → `@lilnas/tdr-bot`
-- Files in `packages/download/` → `@lilnas/download`
-- Files in `packages/equations/` → `@lilnas/equations`
-- Files in `packages/me-token-tracker/` → `@lilnas/me-token-tracker`
-- Files in `packages/dashcam/` → `@lilnas/dashcam`
+- Files in `apps/portal/` → `@lilnas/portal`
+- Files in `apps/tdr-bot/` → `@lilnas/tdr-bot`
+- Files in `apps/download/` → `@lilnas/download`
+- Files in `apps/equations/` → `@lilnas/equations`
+- Files in `apps/me-token-tracker/` → `@lilnas/me-token-tracker`
+- Files in `apps/dashcam/` → `@lilnas/dashcam`
+- Files in `apps/macros/` → `@lilnas/macros`
+- Files in `apps/yoink/` → `@lilnas/yoink`
 - Files in `packages/utils/` → `@lilnas/utils`
+- Files in `packages/media/` → `@lilnas/media`
 - Files in `infra/` → Infrastructure changes
 - Files in root (package.json, etc.) → Monorepo configuration
 

@@ -3,7 +3,7 @@ FROM lilnas-monorepo-builder AS deps
 
 # Copy package files for dependency caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY packages/download/package.json packages/download/
+COPY apps/download/package.json apps/download/
 COPY packages/utils/package.json packages/utils/
 COPY packages/eslint-config-lilnas/package.json packages/eslint-config-lilnas/
 COPY packages/prettier-config-lilnas/package.json packages/prettier-config-lilnas/
@@ -24,14 +24,14 @@ RUN pnpm build --filter=@lilnas/download
 RUN pnpm --filter=download --prod deploy /app
 
 # Copy the built Next.js application
-RUN cp -r /source/packages/download/.next /app/.next
+RUN cp -r /source/apps/download/.next /app/.next
 
 # Copy the standalone server to the correct location
-RUN cp /source/packages/download/.next/standalone/packages/download/server.js /app/server.js
+RUN cp /source/apps/download/.next/standalone/apps/download/server.js /app/server.js
 
 # Copy public directory if it exists
-RUN if [ -d /source/packages/download/public ]; then \
-      cp -r /source/packages/download/public /app/.next/standalone/; \
+RUN if [ -d /source/apps/download/public ]; then \
+      cp -r /source/apps/download/public /app/.next/standalone/; \
     fi
 
 # Copy static files to standalone directory

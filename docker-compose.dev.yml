@@ -2,13 +2,13 @@ include:
   # Infrastructure services
   - ./infra/proxy.dev.yml
   - ./infra/shared.dev.yml
-  
-  # Package services
-  - ./packages/apps/deploy.dev.yml
-  - ./packages/dashcam/deploy.dev.yml
-  - ./packages/download/deploy.dev.yml
-  - ./packages/equations/deploy.dev.yml
-  - ./packages/macros/deploy.dev.yml
-  - ./packages/me-token-tracker/deploy.dev.yml
-  - ./packages/tdr-bot/deploy.dev.yml
-  - ./packages/yoink/deploy.dev.yml
+
+  # App services
+  - ./apps/portal/deploy.dev.yml
+  - ./apps/dashcam/deploy.dev.yml
+  - ./apps/download/deploy.dev.yml
+  - ./apps/equations/deploy.dev.yml
+  - ./apps/macros/deploy.dev.yml
+  - ./apps/me-token-tracker/deploy.dev.yml
+  - ./apps/tdr-bot/deploy.dev.yml
+  - ./apps/yoink/deploy.dev.yml

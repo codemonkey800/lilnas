@@ -2,7 +2,7 @@ services:
   tdr-bot:
     build:
       context: ../../
-      dockerfile: packages/tdr-bot/Dockerfile
+      dockerfile: apps/tdr-bot/Dockerfile
     restart: unless-stopped
     env_file:
       - ../../infra/.env.tdr-bot
