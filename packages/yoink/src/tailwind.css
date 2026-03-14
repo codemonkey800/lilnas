@@ -1,0 +1,190 @@
+@import 'tailwindcss';
+
+@theme {
+  /* ── Fonts ── */
+  --font-mono:
+    'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+  --font-sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+
+  /* ── Carbon Surfaces ── */
+  --color-carbon-950: #08090a;
+  --color-carbon-900: #0d0f0e;
+  --color-carbon-800: #151917;
+  --color-carbon-700: #1e2422;
+  --color-carbon-600: #2a322f;
+  --color-carbon-500: #3b4744;
+  --color-carbon-400: #576462;
+  --color-carbon-300: #7a8b88;
+  --color-carbon-200: #a3b0ad;
+  --color-carbon-100: #d0d8d6;
+  --color-carbon-50: #ecf0ef;
+
+  /* ── Phosphor Greens ── */
+  --color-phosphor-950: #052e05;
+  --color-phosphor-900: #0a4a0a;
+  --color-phosphor-800: #0f6b0f;
+  --color-phosphor-700: #168f16;
+  --color-phosphor-600: #1fbf1f;
+  --color-phosphor-500: #2bdf2b;
+  --color-terminal: #39ff14;
+  --color-phosphor-300: #6fff54;
+  --color-phosphor-200: #a5ff8a;
+  --color-phosphor-100: #d4ffc7;
+
+  /* ── Semantic Colors ── */
+  --color-error: #ff4444;
+  --color-error-muted: #3d1515;
+  --color-warning: #ffaa22;
+  --color-warning-muted: #3d2e0a;
+  --color-info: #44aaff;
+  --color-info-muted: #0a2a3d;
+  --color-success: #39ff14;
+  --color-success-muted: #0a3d05;
+
+  /* ── Animations ── */
+  --animate-glow-pulse: glow-pulse 2s ease-in-out infinite;
+  --animate-terminal-blink: terminal-blink 1s step-end infinite;
+  --animate-fade-in: fade-in 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-fade-in-glow:
+    fade-in 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards,
+    glow-pulse 2s ease-in-out infinite;
+  --animate-slide-in-right: slide-in-right 200ms cubic-bezier(0.16, 1, 0.3, 1)
+    forwards;
+}
+
+/* ── Keyframes ── */
+
+@keyframes glow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 8px rgba(57, 255, 20, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(57, 255, 20, 0.5);
+  }
+}
+
+@keyframes terminal-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ── Custom Utilities ── */
+
+@utility glow-sm {
+  box-shadow: 0 0 8px rgba(57, 255, 20, 0.2);
+}
+
+@utility glow-md {
+  box-shadow: 0 0 16px rgba(57, 255, 20, 0.3);
+}
+
+@utility glow-lg {
+  box-shadow: 0 0 32px rgba(57, 255, 20, 0.4);
+}
+
+@utility text-glow {
+  text-shadow: 0 0 8px rgba(57, 255, 20, 0.6);
+}
+
+@utility text-glow-sm {
+  text-shadow: 0 0 4px rgba(57, 255, 20, 0.4);
+}
+
+@utility scanlines {
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(57, 255, 20, 0.03) 0px,
+    rgba(57, 255, 20, 0.03) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+@utility cursor-blink {
+  animation: terminal-blink 1s step-end infinite;
+}
+
+/* ── Base Layer ── */
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-carbon-900 font-sans text-carbon-200 antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-mono font-bold tracking-tight text-carbon-50;
+  }
+
+  ::selection {
+    background-color: rgba(57, 255, 20, 0.25);
+    color: #ecf0ef;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #0d0f0e;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #3b4744;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #576462;
+  }
+}
+
+/* ── Reduced Motion ── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

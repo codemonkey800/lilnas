@@ -1,0 +1,41 @@
+services:
+  yoink-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    env_file:
+      - ../../infra/.env.yoink
+    volumes:
+      - /storage/app-data/yoink/db:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+      interval: 30s
+      start_interval: 10s
+      start_period: 30s
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - wal_compression=on
+    restart: unless-stopped
+
+  yoink:
+    build:
+      context: ../..
+      dockerfile: packages/yoink/Dockerfile
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: yoink-db
+    env_file:
+      - ../../infra/.env.yoink
+    depends_on:
+      yoink-db:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.yoink.rule=Host(`yoink.lilnas.io`)
+      - traefik.http.routers.yoink.entrypoints=websecure
+      - traefik.http.routers.yoink.tls.certresolver=le
+      - traefik.http.routers.yoink.service=yoink
+      - traefik.http.services.yoink.loadbalancer.server.port=8080
