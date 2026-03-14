@@ -1,3 +1,9 @@
+jest.mock('src/media/cache', () => ({
+  cached: jest.fn((_key: string, _ttl: number, fn: () => Promise<unknown>) =>
+    fn(),
+  ),
+}))
+
 jest.mock('@lilnas/media/radarr-next', () => ({
   getApiV3Diskspace: jest.fn(),
   getApiV3Movie: jest.fn(),

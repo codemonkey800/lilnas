@@ -23,7 +23,9 @@ jest.mock('src/db', () => ({
       values: jest.fn().mockReturnValue({
         returning: jest.fn().mockResolvedValue([]),
         onConflictDoNothing: jest.fn().mockResolvedValue(undefined),
-        onConflictDoUpdate: jest.fn().mockResolvedValue(undefined),
+        onConflictDoUpdate: jest.fn().mockReturnValue({
+          returning: jest.fn().mockResolvedValue([]),
+        }),
       }),
     }),
     delete: jest.fn().mockReturnValue({

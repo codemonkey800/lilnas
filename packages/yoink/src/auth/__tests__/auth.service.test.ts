@@ -17,14 +17,17 @@ function configureDbUpdate(returning: unknown[]) {
 // Helper to configure insert returning
 function configureDbInsert(returning: unknown[]) {
   const mockReturning = jest.fn().mockResolvedValue(returning)
-  const mockOnConflict = jest.fn().mockResolvedValue(undefined)
+  const mockOnConflictDoNothing = jest.fn().mockResolvedValue(undefined)
+  const mockOnConflictDoUpdate = jest.fn().mockReturnValue({
+    returning: mockReturning,
+  })
   const mockValues = jest.fn().mockReturnValue({
     returning: mockReturning,
-    onConflictDoNothing: mockOnConflict,
-    onConflictDoUpdate: mockOnConflict,
+    onConflictDoNothing: mockOnConflictDoNothing,
+    onConflictDoUpdate: mockOnConflictDoUpdate,
   })
   ;(db.insert as jest.Mock).mockReturnValue({ values: mockValues })
-  return { mockValues, mockReturning, mockOnConflict }
+  return { mockValues, mockReturning, mockOnConflictDoNothing }
 }
 
 describe('AuthService', () => {
@@ -114,8 +117,7 @@ describe('AuthService', () => {
           email: 'test@example.com',
           status: 'pending',
         }
-        ;(db.query.users.findFirst as jest.Mock).mockResolvedValue(existingUser)
-        configureDbInsert([])
+        configureDbInsert([existingUser])
 
         const result = await service.findOrCreateUser(baseProfile as never)
 
@@ -166,11 +168,10 @@ describe('AuthService', () => {
         email: 'agent@yoink.local',
         status: 'approved',
       }
-      ;(db.query.users.findFirst as jest.Mock).mockResolvedValue(existing)
+      configureDbInsert([existing])
 
       const result = await service.findOrCreateAgentUser()
 
-      expect(db.insert).not.toHaveBeenCalled()
       expect(result).toEqual(existing)
     })
 
