@@ -1,0 +1,33 @@
+services:
+  yoink:
+    image: lilnas-dev
+    command: -c "pnpm --filter=yoink dev"
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: yoink-db
+    env_file:
+      - ../../infra/.env.yoink
+    volumes:
+      - ../..:/source
+    working_dir: /source
+    depends_on:
+      yoink-db:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.yoink.rule=Host(`yoink.localhost`)
+      - traefik.http.routers.yoink.service=yoink
+      - traefik.http.services.yoink.loadbalancer.server.port=8080
+
+  yoink-db:
+    image: postgres:17-alpine
+    env_file:
+      - ../../infra/.env.yoink
+    volumes:
+      - ./data/yoink-db:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped

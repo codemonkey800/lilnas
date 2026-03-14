@@ -9,7 +9,7 @@ import {
   getProteinSizeLabel,
   NUTRITION_DATA,
   PROTEIN_SIZE_OPTIONS,
-} from 'src/data/nutritionData'
+} from 'src/constants/nutritionData'
 import type { CarbSize, ProteinSize } from 'src/types/nutrition'
 import { calculateMacrosWithBreakdown } from 'src/utils/calculations'
 
