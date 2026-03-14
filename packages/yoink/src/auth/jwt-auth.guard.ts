@@ -65,10 +65,11 @@ export class JwtAuthGuard implements CanActivate {
         columns: { status: true, email: true },
       })
     } catch (err) {
-      throw new InternalServerErrorException(
-        'Database unavailable',
-        err instanceof Error ? err.message : String(err),
+      console.error(
+        'Database unavailable during auth check',
+        err instanceof Error ? err.stack : String(err),
       )
+      throw new InternalServerErrorException('Database unavailable')
     }
 
     if (!user) throw new ForbiddenException()

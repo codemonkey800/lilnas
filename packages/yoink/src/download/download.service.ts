@@ -18,6 +18,7 @@ import {
   getApiV3Episode,
   getApiV3EpisodeById,
   getApiV3QueueDetails,
+  getApiV3Series,
   getApiV3SeriesById,
   getApiV3SeriesLookup,
   postApiV3Command as sonarrPostCommand,
@@ -30,6 +31,7 @@ import {
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 
+import { cached } from 'src/media/cache'
 import { getRadarrClient, getSonarrClient } from 'src/media/clients'
 import { getPosterUrl } from 'src/media/library'
 
@@ -653,11 +655,13 @@ export class DownloadService {
 
     const radarrClient = getRadarrClient()
 
-    // Single batch fetch instead of N parallel per-movie requests
     let allMovies: MovieResource[] = []
     try {
-      const result = await getApiV3Movie({ client: radarrClient })
-      allMovies = (result.data ?? []) as MovieResource[]
+      allMovies = await cached('radarr:movies', 60_000, () =>
+        getApiV3Movie({ client: radarrClient }).then(
+          r => (r.data ?? []) as MovieResource[],
+        ),
+      )
     } catch {
       // Fall through to defaults; per-entry fallback below will use tracked titles
     }
@@ -714,6 +718,22 @@ export class DownloadService {
 
     const sonarrClient = getSonarrClient()
 
+    // Single cached batch fetch instead of N per-show requests
+    let allSeries: SeriesResource[] = []
+    try {
+      allSeries = await cached('sonarr:series', 60_000, () =>
+        getApiV3Series({ client: sonarrClient }).then(
+          r => (r.data ?? []) as SeriesResource[],
+        ),
+      )
+    } catch {
+      // Leave defaults; shows will use fallback title 'Unknown'
+    }
+    const seriesById = new Map<number, SeriesResource>()
+    for (const s of allSeries) {
+      if (s.id != null) seriesById.set(s.id, s)
+    }
+
     const showItems = await Promise.all(
       Array.from(byShow.entries()).map(
         async ([tvdbId, { seriesId, episodes }]) => {
@@ -721,20 +741,14 @@ export class DownloadService {
           let year = 0
           let posterUrl: string | null = null
 
-          try {
-            const result = await getApiV3SeriesById({
-              client: sonarrClient,
-              path: { id: seriesId },
-            })
-            const series = result.data as SeriesResource
+          const series = seriesById.get(seriesId)
+          if (series) {
             title = series.title ?? 'Unknown'
             year = series.year ?? 0
             posterUrl =
               getPosterUrl(
                 series.images as Array<MediaCover> | null | undefined,
               ) ?? null
-          } catch {
-            // Leave defaults
           }
 
           // Group episodes by season

@@ -12,6 +12,7 @@ import {
 } from '@lilnas/media/sonarr'
 import { Injectable } from '@nestjs/common'
 
+import { cached } from './cache'
 import { getRadarrClient, getSonarrClient } from './clients'
 import type {
   LargestItem,
@@ -50,20 +51,26 @@ export class StorageService {
     const radarrClient = getRadarrClient()
     const sonarrClient = getSonarrClient()
 
-    const [radarrDiskResult, sonarrDiskResult, moviesResult, seriesResult] =
+    const [radarrDiskResult, sonarrDiskResult, movies, series] =
       await Promise.all([
         getRadarrDiskspace({ client: radarrClient }),
         getSonarrDiskspace({ client: sonarrClient }),
-        getApiV3Movie({ client: radarrClient }),
-        getApiV3Series({ client: sonarrClient }),
+        cached('radarr:movies', 60_000, () =>
+          getApiV3Movie({ client: radarrClient }).then(
+            r => (r.data ?? []) as MovieResource[],
+          ),
+        ),
+        cached('sonarr:series', 60_000, () =>
+          getApiV3Series({ client: sonarrClient }).then(
+            r => (r.data ?? []) as SeriesResource[],
+          ),
+        ),
       ])
 
     const radarrDisks = (radarrDiskResult.data ??
       []) as RadarrDiskSpaceResource[]
     const sonarrDisks = (sonarrDiskResult.data ??
       []) as SonarrDiskSpaceResource[]
-    const movies = (moviesResult.data ?? []) as MovieResource[]
-    const series = (seriesResult.data ?? []) as SeriesResource[]
 
     // Deduplicate disk entries by path — Radarr and Sonarr often report the
     // same physical disk. Keep the entry with the largest totalSpace in case

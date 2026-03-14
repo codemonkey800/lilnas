@@ -44,6 +44,7 @@ type EpisodeAction =
     }
   | { type: 'failed'; episodeId: number; error: string }
   | { type: 'completed'; episodeId: number }
+  | { type: 'remove'; episodeId: number }
 
 function episodeReducer(
   state: Map<number, EpisodeDownloadStateData>,
@@ -103,6 +104,9 @@ function episodeReducer(
     case 'completed':
       setEpisode(action.episodeId, { state: 'completed', progress: 100 })
       break
+    case 'remove':
+      next.delete(action.episodeId)
+      return next
   }
 
   return next
@@ -204,7 +208,7 @@ export function useShowDownloadState(
     (payload: DownloadCancelledPayload) => {
       if (payload.tvdbId !== tvdbId || payload.mediaType !== 'episode') return
       if (payload.episodeId != null) {
-        dispatch({ type: 'completed', episodeId: payload.episodeId })
+        dispatch({ type: 'remove', episodeId: payload.episodeId })
       }
     },
     [tvdbId],
@@ -214,7 +218,7 @@ export function useShowDownloadState(
     (payload: DownloadCompletedPayload) => {
       if (payload.tvdbId !== tvdbId || payload.mediaType !== 'episode') return
       if (payload.episodeId != null) {
-        dispatch({ type: 'completed', episodeId: payload.episodeId })
+        dispatch({ type: 'remove', episodeId: payload.episodeId })
       }
     },
     [tvdbId],

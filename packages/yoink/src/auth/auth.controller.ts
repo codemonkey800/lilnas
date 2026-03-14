@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   NotFoundException,
+  Post,
   Query,
   Req,
   Res,
@@ -21,7 +22,11 @@ import { JwtAuthGuard } from './jwt-auth.guard'
 const COOKIE_MAX_AGE_MS = 24 * 60 * 60 * 1000 // 24h
 
 function isRelativePath(value: unknown): value is string {
-  return typeof value === 'string' && value.startsWith('/')
+  return (
+    typeof value === 'string' &&
+    value.startsWith('/') &&
+    !value.startsWith('//')
+  )
 }
 
 @Controller('auth')
@@ -110,7 +115,7 @@ export class AuthController {
     res.redirect(destination)
   }
 
-  @Get('logout')
+  @Post('logout')
   logout(@Res() res: Response): void {
     res.clearCookie(AUTH_TOKEN_COOKIE, { path: '/' })
     res.redirect('/login')

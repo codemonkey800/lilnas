@@ -57,10 +57,13 @@ export function SiteHeader({
         </span>
         <Tooltip title="Sign out">
           <IconButton
-            component="a"
-            href="/api/auth/logout"
             size="small"
             aria-label="Sign out"
+            onClick={() => {
+              void fetch('/api/auth/logout', { method: 'POST' }).then(() => {
+                window.location.href = '/login'
+              })
+            }}
           >
             <LogoutIcon className="size-4" />
           </IconButton>

@@ -41,15 +41,16 @@ export default async function PendingPage() {
             action={
               <div className="flex flex-col items-center gap-4">
                 <StatusBadge status="pending" />
-                <Button
-                  component="a"
-                  href="/api/auth/logout"
-                  variant="outlined"
-                  color="secondary"
-                  size="small"
-                >
-                  Sign out
-                </Button>
+                <form action="/api/auth/logout" method="post">
+                  <Button
+                    type="submit"
+                    variant="outlined"
+                    color="secondary"
+                    size="small"
+                  >
+                    Sign out
+                  </Button>
+                </form>
               </div>
             }
           />

@@ -96,7 +96,7 @@ function FileRow({ file, index, isPending, onDelete }: FileRowProps) {
       </div>
 
       {/* Delete button */}
-      <div className="shrink-0 self-center opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="shrink-0 self-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100">
         <Tooltip title="Delete file" placement="left" arrow>
           <span>
             <IconButton

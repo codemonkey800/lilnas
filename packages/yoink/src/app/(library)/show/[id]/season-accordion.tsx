@@ -86,6 +86,8 @@ export function SeasonAccordion({
       <div
         role="button"
         tabIndex={0}
+        aria-expanded={open}
+        aria-controls={`season-${season.seasonNumber}-content`}
         onClick={() => setOpen(prev => !prev)}
         onKeyDown={e => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -237,7 +239,10 @@ export function SeasonAccordion({
 
       {/* Episode list */}
       <Collapse in={open} timeout={200}>
-        <div className="divide-y divide-carbon-700/60">
+        <div
+          id={`season-${season.seasonNumber}-content`}
+          className="divide-y divide-carbon-700/60"
+        >
           {season.episodes.map(episode => (
             <EpisodeItem
               key={episode.id}

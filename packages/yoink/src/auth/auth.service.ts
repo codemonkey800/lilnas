@@ -37,54 +37,53 @@ export class AuthService {
       return updatedUser
     }
 
-    // Find or create user by email
-    let user = await db.query.users.findFirst({
-      where: eq(users.email, email),
-    })
-
-    if (!user) {
-      const adminEmail = process.env[EnvKeys.ADMIN_EMAIL]
-      const [newUser] = await db
-        .insert(users)
-        .values({
-          email,
+    // Atomically find or create user by email to avoid race conditions
+    // on concurrent OAuth callbacks for the same email address.
+    const adminEmail = process.env[EnvKeys.ADMIN_EMAIL]
+    const [user] = await db
+      .insert(users)
+      .values({
+        email,
+        name: profile.displayName,
+        image: profile.photos?.[0]?.value ?? null,
+        status: email === adminEmail ? 'approved' : 'pending',
+      })
+      .onConflictDoUpdate({
+        target: users.email,
+        set: {
           name: profile.displayName,
           image: profile.photos?.[0]?.value ?? null,
-          status: email === adminEmail ? 'approved' : 'pending',
-        })
-        .returning()
-      user = newUser!
-    }
+        },
+      })
+      .returning()
 
     // Link the Google account
     await db
       .insert(accounts)
       .values({
-        userId: user.id,
+        userId: user!.id,
         type: 'oauth',
         provider: 'google',
         providerAccountId: googleId,
       })
       .onConflictDoNothing()
 
-    return user
+    return user!
   }
 
   async findOrCreateAgentUser() {
     const email = 'agent@yoink.local'
 
-    const existing = await db.query.users.findFirst({
-      where: eq(users.email, email),
-    })
-
-    if (existing) return existing
-
-    const [created] = await db
+    const [user] = await db
       .insert(users)
       .values({ email, name: 'Agent', status: 'approved' })
+      .onConflictDoUpdate({
+        target: users.email,
+        set: { name: 'Agent', status: 'approved' },
+      })
       .returning()
 
-    return created!
+    return user!
   }
 
   async login(user: { id: string; email: string }) {

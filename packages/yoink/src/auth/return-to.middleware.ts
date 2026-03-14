@@ -17,7 +17,9 @@ export class ReturnToMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction) {
     const returnTo = req.query.return_to as string | undefined
     const safe =
-      typeof returnTo === 'string' && returnTo.startsWith('/')
+      typeof returnTo === 'string' &&
+      returnTo.startsWith('/') &&
+      !returnTo.startsWith('//')
         ? returnTo
         : undefined
 

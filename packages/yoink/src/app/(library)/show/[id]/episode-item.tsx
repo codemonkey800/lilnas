@@ -295,7 +295,7 @@ export function EpisodeItem({
                         color: 'var(--color-carbon-500)',
                         opacity: 0,
                         transition: 'opacity 150ms',
-                        '.group:hover &': { opacity: 1 },
+                        '.group:hover &, &:focus-visible': { opacity: 1 },
                         '&:hover': {
                           color: 'var(--color-error)',
                           bgcolor: 'rgba(239, 68, 68, 0.08)',

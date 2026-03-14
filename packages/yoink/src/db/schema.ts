@@ -19,12 +19,12 @@ export const downloadSearchResults = pgTable(
   {
     id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
     mediaType: text('media_type', { enum: ['movie', 'episode'] }).notNull(),
-    // Movies: keyed by tmdbId (stable across Radarr add/remove)
-    tmdbId: integer('tmdb_id'),
-    // Episodes: keyed by tvdbId + seasonNumber + episodeNumber (stable across Sonarr add/remove)
-    tvdbId: integer('tvdb_id'),
-    seasonNumber: integer('season_number'),
-    episodeNumber: integer('episode_number'),
+    // Movies: keyed by tmdbId (stable across Radarr add/remove); 0 for episode rows.
+    tmdbId: integer('tmdb_id').notNull().default(0),
+    // Episodes: keyed by tvdbId + seasonNumber + episodeNumber (stable across Sonarr add/remove); 0 for movie rows.
+    tvdbId: integer('tvdb_id').notNull().default(0),
+    seasonNumber: integer('season_number').notNull().default(0),
+    episodeNumber: integer('episode_number').notNull().default(0),
     lastSearchedAt: timestamp('last_searched_at', { mode: 'date' })
       .notNull()
       .defaultNow(),

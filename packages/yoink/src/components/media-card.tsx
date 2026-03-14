@@ -67,6 +67,9 @@ export function MediaCard({ item, showMediaType }: MediaCardProps) {
           )}
 
           <div
+            role="status"
+            aria-label={item.status === 'downloaded' ? 'Downloaded' : 'Missing'}
+            title={item.status === 'downloaded' ? 'Downloaded' : 'Missing'}
             className={cns(
               'absolute right-2 top-2 size-2 rounded-full shadow-sm',
               statusDotColor[item.status],

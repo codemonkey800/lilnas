@@ -52,6 +52,8 @@ export function SeasonDownloadGroup({
       <div
         role="button"
         tabIndex={0}
+        aria-expanded={open}
+        aria-controls={`season-dl-${season.seasonNumber}-content`}
         onClick={() => setOpen(prev => !prev)}
         onKeyDown={e => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -146,7 +148,10 @@ export function SeasonDownloadGroup({
 
       {/* Episode rows */}
       <Collapse in={open} timeout={200}>
-        <div className="divide-y divide-carbon-700/50 bg-carbon-800/50">
+        <div
+          id={`season-dl-${season.seasonNumber}-content`}
+          className="divide-y divide-carbon-700/50 bg-carbon-800/50"
+        >
           {season.episodes.map(episode => (
             <EpisodeDownloadRow
               key={episode.episodeId}

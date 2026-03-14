@@ -19,7 +19,11 @@ import {
 
 @WebSocketGateway({
   namespace: '/downloads',
-  cors: { origin: true, credentials: true },
+  cors: {
+    origin:
+      process.env.NODE_ENV === 'production' ? 'https://yoink.lilnas.io' : true,
+    credentials: true,
+  },
 })
 export class DownloadGateway
   implements OnGatewayConnection, OnGatewayDisconnect

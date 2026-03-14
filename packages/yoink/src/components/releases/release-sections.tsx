@@ -45,6 +45,8 @@ function GroupHeader({
     <button
       type="button"
       onClick={onToggle}
+      aria-expanded={expanded}
+      aria-controls={`release-group-${quality}-content`}
       className={cns(
         'flex w-full items-center gap-3 px-4 py-2.5',
         'border-l-2 transition-colors',
@@ -110,7 +112,10 @@ export function ReleaseSection({
         onToggle={() => setExpanded(p => !p)}
       />
       <Collapse in={expanded} timeout={180}>
-        <div className="divide-y divide-carbon-600/30">
+        <div
+          id={`release-group-${group.quality}-content`}
+          className="divide-y divide-carbon-600/30"
+        >
           {visibleReleases.map((release, index) => (
             <ReleaseCard
               key={release.guid}

@@ -126,49 +126,73 @@ function reducer(state: AllDownloadsState, action: Action): AllDownloadsState {
     }
 
     case 'episode:grabbing': {
-      const shows = state.shows.map(show => ({
-        ...show,
-        seasons: show.seasons.map(season => ({
-          ...season,
-          episodes: season.episodes.map(ep =>
-            ep.episodeId === action.episodeId
-              ? {
-                  ...ep,
-                  state: 'downloading' as const,
-                  releaseTitle: action.title,
-                  size: action.size,
-                  sizeleft: action.size,
-                  progress: 0,
-                }
-              : ep,
-          ),
-        })),
-      }))
+      const shows = state.shows.map(show => {
+        const hasEpisode = show.seasons.some(s =>
+          s.episodes.some(ep => ep.episodeId === action.episodeId),
+        )
+        if (!hasEpisode) return show
+        return {
+          ...show,
+          seasons: show.seasons.map(season => {
+            const hasEp = season.episodes.some(
+              ep => ep.episodeId === action.episodeId,
+            )
+            if (!hasEp) return season
+            return {
+              ...season,
+              episodes: season.episodes.map(ep =>
+                ep.episodeId === action.episodeId
+                  ? {
+                      ...ep,
+                      state: 'downloading' as const,
+                      releaseTitle: action.title,
+                      size: action.size,
+                      sizeleft: action.size,
+                      progress: 0,
+                    }
+                  : ep,
+              ),
+            }
+          }),
+        }
+      })
       return { ...state, shows }
     }
 
     case 'episode:progress': {
-      const shows = state.shows.map(show => ({
-        ...show,
-        seasons: show.seasons.map(season => ({
-          ...season,
-          episodes: season.episodes.map(ep =>
-            ep.episodeId === action.episodeId
-              ? {
-                  ...ep,
-                  state: isImportStatus(action.progress, action.status)
-                    ? ('importing' as const)
-                    : ('downloading' as const),
-                  progress: action.progress,
-                  size: action.size,
-                  sizeleft: action.sizeleft,
-                  eta: action.eta,
-                  status: action.status,
-                }
-              : ep,
-          ),
-        })),
-      }))
+      const shows = state.shows.map(show => {
+        const hasEpisode = show.seasons.some(s =>
+          s.episodes.some(ep => ep.episodeId === action.episodeId),
+        )
+        if (!hasEpisode) return show
+        return {
+          ...show,
+          seasons: show.seasons.map(season => {
+            const hasEp = season.episodes.some(
+              ep => ep.episodeId === action.episodeId,
+            )
+            if (!hasEp) return season
+            return {
+              ...season,
+              episodes: season.episodes.map(ep =>
+                ep.episodeId === action.episodeId
+                  ? {
+                      ...ep,
+                      state: isImportStatus(action.progress, action.status)
+                        ? ('importing' as const)
+                        : ('downloading' as const),
+                      progress: action.progress,
+                      size: action.size,
+                      sizeleft: action.sizeleft,
+                      eta: action.eta,
+                      status: action.status,
+                    }
+                  : ep,
+              ),
+            }
+          }),
+        }
+      })
       return { ...state, shows }
     }
 

@@ -10,6 +10,7 @@ import {
 } from '@lilnas/media/sonarr'
 import { Injectable } from '@nestjs/common'
 
+import { cached } from './cache'
 import { getRadarrClient, getSonarrClient } from './clients'
 import {
   interleave,
@@ -18,6 +19,8 @@ import {
   type SearchFilter,
   seriesToLibraryItem,
 } from './library'
+
+const LIBRARY_CACHE_TTL_MS = 60_000
 
 @Injectable()
 export class LibraryService {
@@ -45,14 +48,15 @@ export class LibraryService {
 
   private async lookupMovies(term: string): Promise<LibraryItem[]> {
     const client = getRadarrClient()
-    const [lookupResult, libraryResult] = await Promise.all([
+    const [lookupResult, allMovies] = await Promise.all([
       getApiV3MovieLookup({ client, query: { term } }),
-      getApiV3Movie({ client }),
+      cached('radarr:movies', LIBRARY_CACHE_TTL_MS, () =>
+        getApiV3Movie({ client }).then(r => (r.data ?? []) as MovieResource[]),
+      ),
     ])
 
-    const libraryMovies = (libraryResult.data ?? []) as MovieResource[]
     const libraryByTmdbId = new Map<number, MovieResource>()
-    for (const m of libraryMovies) {
+    for (const m of allMovies) {
       if (m.tmdbId) libraryByTmdbId.set(m.tmdbId, m)
     }
 
@@ -72,14 +76,17 @@ export class LibraryService {
 
   private async lookupSeries(term: string): Promise<LibraryItem[]> {
     const client = getSonarrClient()
-    const [lookupResult, libraryResult] = await Promise.all([
+    const [lookupResult, allSeries] = await Promise.all([
       getApiV3SeriesLookup({ client, query: { term } }),
-      getApiV3Series({ client }),
+      cached('sonarr:series', LIBRARY_CACHE_TTL_MS, () =>
+        getApiV3Series({ client }).then(
+          r => (r.data ?? []) as SeriesResource[],
+        ),
+      ),
     ])
 
-    const librarySeries = (libraryResult.data ?? []) as SeriesResource[]
     const libraryByTvdbId = new Map<number, SeriesResource>()
-    for (const s of librarySeries) {
+    for (const s of allSeries) {
       if (s.tvdbId) libraryByTvdbId.set(s.tvdbId, s)
     }
 
