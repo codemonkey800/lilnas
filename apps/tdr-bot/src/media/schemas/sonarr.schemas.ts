@@ -1,22 +1,18 @@
 import { z } from 'zod'
 
 import {
+  OptionalSearchQuerySchema,
+  QualityProfileSchema,
+  RootFolderSchema,
+  SearchQuerySchema,
+  SystemStatusSchema,
+} from 'src/media/schemas/media.schemas'
+import {
   SonarrImageType,
   SonarrMonitorType,
   SonarrSeriesStatus,
   SonarrSeriesType,
 } from 'src/media/types/sonarr.types'
-
-/**
- * Search query input validation schema
- */
-export const SearchQuerySchema = z.object({
-  query: z
-    .string()
-    .trim()
-    .min(2, 'Search query must be at least 2 characters')
-    .max(200, 'Search query must be less than 200 characters'),
-})
 
 /**
  * Sonarr image schema
@@ -274,112 +270,19 @@ export const LibrarySearchResultSchema = SeriesSearchResultSchema.extend({
 export const LibrarySearchResultArraySchema = z.array(LibrarySearchResultSchema)
 
 /**
- * Optional search query schema for library search
+ * Sonarr system status schema (alias of shared SystemStatusSchema)
  */
-export const OptionalSearchQuerySchema = z.object({
-  query: z
-    .string()
-    .trim()
-    .min(2, 'Search query must be at least 2 characters')
-    .max(200, 'Search query must be less than 200 characters')
-    .optional(),
-})
+export const SonarrSystemStatusSchema = SystemStatusSchema
 
 /**
- * Sonarr system status schema
+ * Sonarr quality profile schema (alias of shared QualityProfileSchema)
  */
-export const SonarrSystemStatusSchema = z.object({
-  appName: z.string(),
-  version: z.string(),
-  buildTime: z.string().datetime(),
-  isDebug: z.boolean(),
-  isProduction: z.boolean(),
-  isAdmin: z.boolean(),
-  isUserInteractive: z.boolean(),
-  startupPath: z.string(),
-  appData: z.string(),
-  osName: z.string(),
-  osVersion: z.string(),
-  isMonoRuntime: z.boolean(),
-  isMono: z.boolean(),
-  isLinux: z.boolean(),
-  isOsx: z.boolean(),
-  isWindows: z.boolean(),
-  branch: z.string(),
-  authentication: z.string(),
-  sqliteVersion: z.string(),
-  migrationVersion: z.number().int().nonnegative(),
-  urlBase: z.string().optional(),
-  runtimeVersion: z.string(),
-  runtimeName: z.string(),
-  startTime: z.string().datetime(),
-  packageVersion: z.string().optional(),
-  packageAuthor: z.string().optional(),
-  packageUpdateMechanism: z.string().optional(),
-})
+export const SonarrQualityProfileSchema = QualityProfileSchema
 
 /**
- * Sonarr quality profile schema
+ * Sonarr root folder schema (alias of shared RootFolderSchema)
  */
-export const SonarrQualityProfileSchema = z.object({
-  id: z.number().int(),
-  name: z.string(),
-  upgradeAllowed: z.boolean(),
-  cutoff: z.number().int(),
-  items: z
-    .array(
-      z.object({
-        id: z.number().int(),
-        name: z.string(),
-        quality: z
-          .object({
-            id: z.number().int(),
-            name: z.string(),
-            source: z.string(),
-            resolution: z.number().int(),
-            modifier: z.string(),
-          })
-          .optional(),
-        items: z.array(z.unknown()).optional(),
-        allowed: z.boolean(),
-      }),
-    )
-    .optional(),
-  minFormatScore: z.number().int(),
-  cutoffFormatScore: z.number().int(),
-  formatItems: z
-    .array(
-      z.object({
-        format: z.object({
-          id: z.number().int(),
-          name: z.string(),
-        }),
-        score: z.number().int(),
-      }),
-    )
-    .optional(),
-  language: z.object({
-    id: z.number().int(),
-    name: z.string(),
-  }),
-})
-
-/**
- * Sonarr root folder schema
- */
-export const SonarrRootFolderSchema = z.object({
-  id: z.number().int(),
-  path: z.string(),
-  accessible: z.boolean(),
-  freeSpace: z.number().int(),
-  totalSpace: z.number().int(),
-  unmappedFolders: z.array(
-    z.object({
-      name: z.string(),
-      path: z.string(),
-    }),
-  ),
-})
+export const SonarrRootFolderSchema = RootFolderSchema
 
 /**
  * Add series request schema
@@ -520,7 +423,13 @@ export const MonitoringChangeSchema = z.object({
 export const UnmonitoringChangeSchema = z.object({
   season: z.number().int().nonnegative(),
   episodes: z.array(z.number().int().positive()).optional(),
-  action: z.enum(['unmonitored', 'deleted_series', 'deleted_episodes']),
+  action: z.enum([
+    'unmonitored',
+    'deleted_series',
+    'deleted_episodes',
+    'deleted_files',
+    'unmonitored_season',
+  ]),
 })
 
 /**
@@ -808,7 +717,6 @@ export const SonarrOutputSchemas = {
   seriesSearchResultArray: SeriesSearchResultArraySchema,
   librarySearchResult: LibrarySearchResultSchema,
   librarySearchResultArray: LibrarySearchResultArraySchema,
-  systemStatus: SonarrSystemStatusSchema,
   qualityProfile: SonarrQualityProfileSchema,
   qualityProfileArray: z.array(SonarrQualityProfileSchema),
   rootFolder: SonarrRootFolderSchema,
@@ -824,70 +732,15 @@ export const SonarrOutputSchemas = {
   downloadingSeriesArray: z.array(DownloadingSeriesSchema),
   monitorAndDownloadSeriesResult: MonitorAndDownloadSeriesResultSchema,
   unmonitorAndDeleteSeriesResult: UnmonitorAndDeleteSeriesResultSchema,
-  seriesDetails: SeriesDetailsSchema,
-  seasonDetails: SeasonDetailsSchema,
-  episodeDetails: EpisodeDetailsSchema,
 } as const
 
 /**
- * Type inference helpers
+ * Type inference helpers (only exported types with active consumers)
  */
-export type SearchQueryInput = z.infer<typeof SearchQuerySchema>
-export type AddSeriesRequestInput = z.infer<typeof AddSeriesRequestSchema>
-export type SonarrCommandRequestInput = z.infer<
-  typeof SonarrCommandRequestSchema
->
-export type SonarrSeriesOutput = z.infer<typeof SonarrSeriesSchema>
-export type SonarrSeriesArrayOutput = z.infer<typeof SonarrSeriesArraySchema>
-export type SonarrSeriesResourceOutput = z.infer<
-  typeof SonarrSeriesResourceSchema
->
-export type SeriesSearchResultOutput = z.infer<typeof SeriesSearchResultSchema>
-export type SonarrSystemStatusOutput = z.infer<typeof SonarrSystemStatusSchema>
-export type SonarrQualityProfileOutput = z.infer<
-  typeof SonarrQualityProfileSchema
->
-export type SonarrRootFolderOutput = z.infer<typeof SonarrRootFolderSchema>
-export type SonarrCommandResponseOutput = z.infer<
-  typeof SonarrCommandResponseSchema
->
-export type SonarrErrorResponseOutput = z.infer<
-  typeof SonarrErrorResponseSchema
->
-export type EpisodeResourceOutput = z.infer<typeof EpisodeResourceSchema>
-export type SeasonEpisodeSelectionInput = z.infer<
-  typeof SeasonEpisodeSelectionSchema
->
+export type { SearchQueryInput } from 'src/media/schemas/media.schemas'
 export type MonitorSeriesOptionsInput = z.infer<
   typeof MonitorSeriesOptionsSchema
->
-export type MonitoringChangeOutput = z.infer<typeof MonitoringChangeSchema>
-export type MonitorAndDownloadSeriesResultOutput = z.infer<
-  typeof MonitorAndDownloadSeriesResultSchema
->
-export type UpdateEpisodeRequestInput = z.infer<
-  typeof UpdateEpisodeRequestSchema
->
-export type BulkEpisodeUpdateRequestInput = z.infer<
-  typeof BulkEpisodeUpdateRequestSchema
->
-export type BulkEpisodeMonitorRequestInput = z.infer<
-  typeof BulkEpisodeMonitorRequestSchema
 >
 export type UnmonitorSeriesOptionsInput = z.infer<
   typeof UnmonitorSeriesOptionsSchema
 >
-export type UnmonitoringChangeOutput = z.infer<typeof UnmonitoringChangeSchema>
-export type UnmonitorAndDeleteSeriesResultOutput = z.infer<
-  typeof UnmonitorAndDeleteSeriesResultSchema
->
-export type SonarrQueueItemOutput = z.infer<typeof SonarrQueueItemSchema>
-export type DownloadingSeriesOutput = z.infer<typeof DownloadingSeriesSchema>
-export type DeleteSeriesRequestInput = z.infer<typeof DeleteSeriesRequestSchema>
-export type OptionalSearchQueryInput = z.infer<typeof OptionalSearchQuerySchema>
-export type LibrarySearchResultOutput = z.infer<
-  typeof LibrarySearchResultSchema
->
-export type SeriesDetailsOutput = z.infer<typeof SeriesDetailsSchema>
-export type SeasonDetailsOutput = z.infer<typeof SeasonDetailsSchema>
-export type EpisodeDetailsOutput = z.infer<typeof EpisodeDetailsSchema>

@@ -41,7 +41,7 @@ module.exports = {
   setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts'],
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
-    '^@lilnas/utils/(.*)$': '<rootDir>/../utils/src/$1',
+    '^@lilnas/utils/(.*)$': '<rootDir>/../../packages/utils/src/$1',
   },
   extensionsToTreatAsEsm: ['.ts'],
   resolver: undefined,

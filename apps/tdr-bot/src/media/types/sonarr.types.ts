@@ -238,15 +238,6 @@ export interface LibrarySearchResult extends SeriesSearchResult {
 }
 
 /**
- * Sonarr API error response
- */
-export interface SonarrErrorResponse {
-  message: string
-  description?: string
-  details?: string
-}
-
-/**
  * Sonarr quality profile
  */
 export interface SonarrQualityProfile {
@@ -380,56 +371,6 @@ export interface AddSeriesRequest {
 }
 
 /**
- * Add series response - same as SonarrSeries
- */
-export type AddSeriesResponse = SonarrSeries
-
-/**
- * Command request for triggering actions
- */
-export interface SonarrCommandRequest {
-  name: string
-  seriesIds?: number[]
-  seriesId?: number
-}
-
-/**
- * Command response
- */
-export interface SonarrCommandResponse {
-  id: number
-  name: string
-  commandName: string
-  message?: string
-  body: {
-    seriesIds?: number[]
-    seriesId?: number
-    sendUpdatesToClient: boolean
-    updateScheduledTask: boolean
-    completionMessage: string
-    requiresDiskAccess: boolean
-    isExclusive: boolean
-    isTypeExclusive: boolean
-    isLongRunning: boolean
-    name: string
-    trigger: string
-  }
-  priority: string
-  status: string
-  queued: string
-  started?: string
-  ended?: string
-  duration?: string
-  exception?: string
-  trigger: string
-  clientUserAgent?: string
-  stateChangeTime?: string
-  sendUpdatesToClient: boolean
-  updateScheduledTask: boolean
-  lastExecutionTime?: string
-}
-
-/**
  * Episode resource from Sonarr API
  */
 export interface EpisodeResource {
@@ -448,25 +389,17 @@ export interface EpisodeResource {
 }
 
 /**
- * Season/Episode selection for monitoring
- */
-export interface SeasonEpisodeSelection {
-  season: number
-  episodes?: number[] // If omitted, monitor entire season
-}
-
-/**
  * Options for monitoring and downloading series
  */
 export interface MonitorSeriesOptions {
-  selection?: SeasonEpisodeSelection[] // If omitted, monitor entire series
+  selection?: Array<{ season: number; episodes?: number[] }> // If omitted, monitor entire series
 }
 
 /**
  * Options for unmonitoring and deleting series
  */
 export interface UnmonitorSeriesOptions {
-  selection?: SeasonEpisodeSelection[] // If omitted, unmonitor entire series (delete)
+  selection?: Array<{ season: number; episodes?: number[] }> // If omitted, unmonitor entire series (delete)
   deleteFiles?: boolean // Whether to delete files (default: false for granular, true for full series)
 }
 
@@ -525,58 +458,6 @@ export interface UnmonitorAndDeleteSeriesResult {
 }
 
 /**
- * Update episode request
- */
-export interface UpdateEpisodeRequest {
-  monitored: boolean
-}
-
-/**
- * Bulk episode update request
- */
-export interface BulkEpisodeUpdateRequest {
-  episodeIds: number[]
-  monitored: boolean
-}
-
-/**
- * Sonarr queue item for tracking downloads
- */
-export interface SonarrQueueItem {
-  id: number
-  seriesId: number
-  episodeId?: number
-  title: string
-  series: {
-    id: number
-    title: string
-    tvdbId: number
-  }
-  episode?: {
-    id: number
-    episodeNumber: number
-    seasonNumber: number
-    title: string
-  }
-  status: string
-  trackedDownloadStatus: string
-  protocol: string
-  downloadClient: string
-  estimatedCompletionTime?: string
-  timeleft?: string
-  size: number
-  sizeleft: number
-}
-
-/**
- * Delete series request
- */
-export interface DeleteSeriesRequest {
-  deleteFiles?: boolean // Whether to delete files from disk
-  addImportListExclusion?: boolean // Whether to add to import list exclusion
-}
-
-/**
  * Episode file resource from Sonarr API
  */
 export interface EpisodeFileResource {
@@ -616,22 +497,6 @@ export interface EpisodeFileResource {
   sceneName?: string
   indexerFlags?: number
   languages: SonarrLanguage[]
-}
-
-/**
- * Get episode files request parameters
- */
-export interface GetEpisodeFilesRequest {
-  seriesId?: number
-  seasonNumber?: number
-  episodeFileIds?: number[]
-}
-
-/**
- * Delete episode file request parameters
- */
-export interface DeleteEpisodeFileRequest {
-  id: number
 }
 
 /**

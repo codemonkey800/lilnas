@@ -5,6 +5,8 @@ import {
   RawAxiosResponseHeaders,
 } from 'axios'
 
+import { MediaApiError } from 'src/media/errors/media-api.error'
+
 export interface ErrorClassification {
   isRetryable: boolean
   errorType: ErrorType
@@ -303,20 +305,25 @@ export class ErrorClassificationService {
   }
 
   /**
-   * Classify media API errors
+   * Classify media API errors (supports both MediaApiError and AxiosError)
    */
   private classifyMediaApiError(error: Error): ErrorClassification {
+    const isMediaApiError = error instanceof MediaApiError
+    const status = isMediaApiError
+      ? error.response.status
+      : (error as AxiosError).response?.status
+
     const axiosError = error as AxiosError
 
-    if (axiosError.response?.status) {
-      const status = axiosError.response.status
-
+    if (status) {
       switch (status) {
         case 429: // Rate limit
           return {
             isRetryable: true,
             errorType: ErrorType.RATE_LIMIT,
-            retryAfterMs: this.parseRetryAfter(axiosError.response.headers),
+            retryAfterMs: isMediaApiError
+              ? this.parseRetryAfter(error.response.headers)
+              : this.parseRetryAfter(axiosError.response?.headers),
             category: ErrorCategory.MEDIA_API,
             severity: ErrorSeverity.MEDIUM,
           }
@@ -473,20 +480,26 @@ export class ErrorClassificationService {
    * Handles both AxiosResponseHeaders (axios 1.8.4+) and legacy Record<string, string | string[]> types
    */
   private parseRetryAfter(
-    headers: RawAxiosResponseHeaders | AxiosResponseHeaders | undefined,
+    headers:
+      | RawAxiosResponseHeaders
+      | AxiosResponseHeaders
+      | Headers
+      | undefined,
   ): number | undefined {
     if (!headers) return undefined
 
-    // Handle AxiosResponseHeaders (axios 1.8.4+) - has .get() method
+    // Handle any headers object with a .get() method (AxiosResponseHeaders,
+    // native Headers, etc.) using duck-typing rather than casting to a specific type.
     if (
       typeof headers === 'object' &&
       'get' in headers &&
       typeof headers.get === 'function'
     ) {
-      const axiosHeaders = headers as AxiosResponseHeaders
-      // Try case-insensitive lookup using axios headers methods
+      const headersWithGet = headers as {
+        get(name: string): string | string[] | null
+      }
       const retryAfter =
-        axiosHeaders.get('retry-after') || axiosHeaders.get('Retry-After')
+        headersWithGet.get('retry-after') || headersWithGet.get('Retry-After')
       if (retryAfter) {
         const retryAfterValue = Array.isArray(retryAfter)
           ? retryAfter[0]

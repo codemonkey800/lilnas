@@ -39,6 +39,7 @@
     "@langchain/langgraph": "0.4.9",
     "@langchain/openai": "0.6.15",
     "@libsql/client": "0.15.15",
+    "@lilnas/media": "workspace:*",
     "@lilnas/utils": "workspace:*",
     "@nestjs/common": "11.1.6",
     "@nestjs/core": "11.1.6",
