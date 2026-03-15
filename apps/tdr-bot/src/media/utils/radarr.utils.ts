@@ -1,7 +1,17 @@
+import type { MovieResource, QueueResource } from '@lilnas/media/radarr'
+
+import {
+  DownloadingMovieSchema,
+  RadarrMovieResourceSchema,
+  RadarrMovieSchema,
+} from 'src/media/schemas/radarr.schemas'
 import type {
+  DownloadingMovie,
   MovieSearchResult,
+  RadarrMovie,
   RadarrMovieResource,
 } from 'src/media/types/radarr.types'
+import { stripNulls } from 'src/media/utils/media.utils'
 
 /**
  * Helper function to filter out empty URLs
@@ -26,6 +36,45 @@ const getImageUrl = (
  */
 const getValidYear = (year?: number): number | undefined => {
   return year && year >= 1900 && year <= 2100 ? year : undefined
+}
+
+/**
+ * Validates an SDK MovieResource as a RadarrMovieResource (lookup/search result)
+ * using the full Zod schema. Null values from the SDK are stripped to undefined
+ * before parsing so all required fields are properly validated.
+ *
+ * Throws a ZodError if any required field is missing or invalid.
+ */
+export function toRadarrMovieResource(r: MovieResource): RadarrMovieResource {
+  return RadarrMovieResourceSchema.parse(stripNulls(r)) as RadarrMovieResource
+}
+
+/**
+ * Validates an array of SDK MovieResource objects as RadarrMovieResources.
+ */
+export function toRadarrMovieResourceArray(
+  rs: MovieResource[],
+): RadarrMovieResource[] {
+  return rs.map(toRadarrMovieResource)
+}
+
+/**
+ * Validates an SDK MovieResource as a full RadarrMovie (library movie) using
+ * the full Zod schema. Null values from the SDK are stripped to undefined
+ * before parsing so all required fields (id, path, monitored, etc.) are
+ * properly validated.
+ *
+ * Throws a ZodError if any required field is missing or invalid.
+ */
+export function toRadarrMovie(r: MovieResource): RadarrMovie {
+  return RadarrMovieSchema.parse(stripNulls(r)) as RadarrMovie
+}
+
+/**
+ * Validates an array of SDK MovieResource objects as RadarrMovies.
+ */
+export function toRadarrMovieArray(rs: MovieResource[]): RadarrMovie[] {
+  return rs.map(toRadarrMovie)
 }
 
 /**
@@ -67,4 +116,44 @@ export function transformToSearchResults(
   movies: RadarrMovieResource[],
 ): MovieSearchResult[] {
   return movies.map(transformToSearchResult)
+}
+
+/**
+ * Maps a Radarr SDK QueueResource to a DownloadingMovie and validates via the
+ * Zod schema. Replaces scattered inline `as` casts so type mismatches surface
+ * at runtime through a ZodError rather than being silently ignored.
+ */
+export function toDownloadingMovie(item: QueueResource): DownloadingMovie {
+  const size = item.size ?? 0
+  const sizeleft = item.sizeleft ?? 0
+  const downloadedBytes = Math.max(0, size - sizeleft)
+  const progressPercent =
+    size > 0
+      ? Math.round(
+          Math.min(100, Math.max(0, (downloadedBytes / size) * 100)) * 100,
+        ) / 100
+      : 0
+
+  return DownloadingMovieSchema.parse({
+    id: item.id ?? 0,
+    movieId: item.movieId ?? undefined,
+    movieTitle: item.movie?.title || item.title || undefined,
+    movieYear: item.movie?.year,
+    size,
+    status: item.status,
+    trackedDownloadStatus: item.trackedDownloadStatus,
+    trackedDownloadState: item.trackedDownloadState,
+    statusMessages: item.statusMessages ?? undefined,
+    errorMessage: item.errorMessage ?? undefined,
+    downloadId: item.downloadId ?? undefined,
+    protocol: item.protocol,
+    downloadClient: item.downloadClient ?? undefined,
+    indexer: item.indexer ?? undefined,
+    outputPath: item.outputPath ?? undefined,
+    estimatedCompletionTime: item.estimatedCompletionTime ?? undefined,
+    added: item.added ?? undefined,
+    sizeleft,
+    progressPercent,
+    downloadedBytes,
+  }) as DownloadingMovie
 }

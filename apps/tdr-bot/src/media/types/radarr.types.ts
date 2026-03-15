@@ -273,15 +273,6 @@ export interface MovieLibrarySearchResult extends MovieSearchResult {
 }
 
 /**
- * Radarr API error response
- */
-export interface RadarrErrorResponse {
-  message: string
-  description?: string
-  details?: string
-}
-
-/**
  * Radarr quality profile
  */
 export interface RadarrQualityProfile {
@@ -377,56 +368,6 @@ export interface AddMovieRequest {
   website?: string
   youTubeTrailerId?: string
   tags?: number[]
-}
-
-/**
- * Add movie response - same as RadarrMovie
- */
-export type AddMovieResponse = RadarrMovie
-
-/**
- * Command request for triggering actions
- */
-export interface RadarrCommandRequest {
-  name: string
-  movieIds?: number[]
-  movieId?: number
-}
-
-/**
- * Command response
- */
-export interface RadarrCommandResponse {
-  id: number
-  name: string
-  commandName: string
-  message?: string
-  body: {
-    movieIds?: number[]
-    movieId?: number
-    sendUpdatesToClient: boolean
-    updateScheduledTask: boolean
-    completionMessage: string
-    requiresDiskAccess: boolean
-    isExclusive: boolean
-    isTypeExclusive: boolean
-    isLongRunning: boolean
-    name: string
-    trigger: string
-  }
-  priority: string
-  status: string
-  queued: string
-  started?: string
-  ended?: string
-  duration?: string
-  exception?: string
-  trigger: string
-  clientUserAgent?: string
-  stateChangeTime?: string
-  sendUpdatesToClient: boolean
-  updateScheduledTask: boolean
-  lastExecutionTime?: string
 }
 
 /**
@@ -555,47 +496,11 @@ export enum TrackedDownloadState {
 }
 
 /**
- * Tracked download status message
+ * Tracked download status message (internal – used by DownloadingMovie)
  */
-export interface TrackedDownloadStatusMessage {
+interface TrackedDownloadStatusMessage {
   title: string
   messages: string[]
-}
-
-/**
- * Radarr queue item from API
- */
-export interface RadarrQueueItem {
-  id: number
-  movieId?: number
-  movie?: RadarrMovie
-  title?: string
-  size: number
-  status: RadarrQueueStatus
-  trackedDownloadStatus?: TrackedDownloadStatus
-  trackedDownloadState?: TrackedDownloadState
-  statusMessages?: TrackedDownloadStatusMessage[]
-  errorMessage?: string
-  downloadId?: string
-  protocol: DownloadProtocol
-  downloadClient?: string
-  indexer?: string
-  outputPath?: string
-  estimatedCompletionTime?: string
-  added?: string
-  sizeleft?: number
-}
-
-/**
- * Radarr paginated response wrapper for queue endpoint
- */
-export interface RadarrQueuePaginatedResponse {
-  page: number
-  pageSize: number
-  sortKey: string
-  sortDirection: 'ascending' | 'descending'
-  totalRecords: number
-  records: RadarrQueueItem[]
 }
 
 /**

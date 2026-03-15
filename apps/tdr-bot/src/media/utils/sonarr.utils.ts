@@ -1,12 +1,126 @@
+import type {
+  EpisodeResource as SdkEpisodeResource,
+  QueueResource as SdkQueueResource,
+  SeriesResource,
+} from '@lilnas/media/sonarr'
+
 import {
+  DownloadingSeriesSchema,
+  EpisodeResourceSchema,
+  SonarrSeriesResourceSchema,
+  SonarrSeriesSchema,
+} from 'src/media/schemas/sonarr.schemas'
+import {
+  DownloadingSeries,
+  EpisodeResource,
   MonitorSeriesOptions,
   SeriesSearchResult,
   SonarrImageType,
   SonarrMonitorType,
   SonarrSeries,
   SonarrSeriesResource,
-  UnmonitorSeriesOptions,
 } from 'src/media/types/sonarr.types'
+import { generateTitleSlug, stripNulls } from 'src/media/utils/media.utils'
+
+/**
+ * Validates an SDK SeriesResource as a SonarrSeriesResource (lookup/search
+ * result) using the full Zod schema. Null values from the SDK are stripped to
+ * undefined before parsing so all required fields are properly validated.
+ *
+ * Throws a ZodError if any required field is missing or invalid.
+ */
+export function toSonarrSeriesResource(
+  r: SeriesResource,
+): SonarrSeriesResource {
+  return SonarrSeriesResourceSchema.parse(stripNulls(r)) as SonarrSeriesResource
+}
+
+/**
+ * Validates an array of SDK SeriesResource objects as SonarrSeriesResources.
+ */
+export function toSonarrSeriesResourceArray(
+  rs: SeriesResource[],
+): SonarrSeriesResource[] {
+  return rs.map(toSonarrSeriesResource)
+}
+
+/**
+ * Validates an SDK SeriesResource as a full SonarrSeries (library series)
+ * using the full Zod schema. Null values from the SDK are stripped to undefined
+ * before parsing so all required fields (id, path, monitored, etc.) are
+ * properly validated.
+ *
+ * Throws a ZodError if any required field is missing or invalid.
+ */
+export function toSonarrSeries(r: SeriesResource): SonarrSeries {
+  return SonarrSeriesSchema.parse(stripNulls(r)) as SonarrSeries
+}
+
+/**
+ * Validates an array of SDK SeriesResource objects as SonarrSeries.
+ */
+export function toSonarrSeriesArray(rs: SeriesResource[]): SonarrSeries[] {
+  return rs.map(toSonarrSeries)
+}
+
+/**
+ * Validates an SDK EpisodeResource as the internal EpisodeResource type using
+ * the full Zod schema. Null values from the SDK are stripped to undefined
+ * before parsing so all required fields are properly validated.
+ *
+ * Throws a ZodError if any required field is missing or invalid.
+ */
+export function toEpisodeResource(r: SdkEpisodeResource): EpisodeResource {
+  return EpisodeResourceSchema.parse(stripNulls(r)) as EpisodeResource
+}
+
+/**
+ * Validates an array of SDK EpisodeResource objects as internal EpisodeResources.
+ */
+export function toEpisodeResourceArray(
+  rs: SdkEpisodeResource[],
+): EpisodeResource[] {
+  return rs.map(toEpisodeResource)
+}
+
+/**
+ * Maps a Sonarr SDK QueueResource to a DownloadingSeries and validates via the
+ * Zod schema. Replaces scattered inline `as` casts so type mismatches surface
+ * at runtime through a ZodError rather than being silently ignored.
+ */
+export function toDownloadingSeries(item: SdkQueueResource): DownloadingSeries {
+  const size = item.size ?? 0
+  const sizeleft = item.sizeleft ?? 0
+  const downloadedBytes = Math.max(0, size - sizeleft)
+  const progressPercent =
+    size > 0 ? Math.min(100, Math.max(0, (downloadedBytes / size) * 100)) : 0
+  const status = item.status ?? ''
+  const isActive = ['downloading', 'queued'].includes(status.toLowerCase())
+
+  return DownloadingSeriesSchema.parse({
+    id: item.id ?? 0,
+    seriesId: item.seriesId ?? undefined,
+    episodeId: item.episodeId ?? undefined,
+    seriesTitle: item.series?.title || 'Unknown Series',
+    episodeTitle: item.episode?.title || item.title || undefined,
+    seasonNumber: item.episode?.seasonNumber,
+    episodeNumber: item.episode?.episodeNumber,
+    size,
+    sizeleft,
+    status,
+    trackedDownloadStatus: item.trackedDownloadStatus ?? undefined,
+    trackedDownloadState: undefined,
+    protocol: item.protocol ?? '',
+    downloadClient: item.downloadClient ?? undefined,
+    indexer: undefined,
+    estimatedCompletionTime: item.estimatedCompletionTime ?? undefined,
+    timeleft: item.timeleft ?? undefined,
+    added: undefined,
+    progressPercent,
+    downloadedBytes,
+    isActive,
+  }) as DownloadingSeries
+}
 
 /**
  * Sanitize year value for TV series data
@@ -83,91 +197,6 @@ export function transformToSearchResults(
 }
 
 /**
- * Extract series information for logging and display
- */
-export function extractSeriesInfo(
-  series: SonarrSeriesResource | SeriesSearchResult,
-) {
-  return {
-    title: series.title,
-    year: series.year,
-    tvdbId: series.tvdbId,
-    status: series.status,
-    network: series.network,
-    seasonCount: series.seasons?.length || 0,
-  }
-}
-
-/**
- * Validate series data for completeness
- */
-export function validateSeriesData(series: SonarrSeriesResource): {
-  isValid: boolean
-  missingFields: string[]
-} {
-  const missingFields: string[] = []
-
-  if (!series.title) missingFields.push('title')
-  if (!series.tvdbId) missingFields.push('tvdbId')
-  if (!series.status) missingFields.push('status')
-  if (!series.genres || series.genres.length === 0) missingFields.push('genres')
-  if (!series.seasons || series.seasons.length === 0)
-    missingFields.push('seasons')
-
-  return {
-    isValid: missingFields.length === 0,
-    missingFields,
-  }
-}
-
-/**
- * Generate a title slug for the series
- */
-export function generateTitleSlug(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
-    .replace(/\s+/g, '-') // Replace spaces with hyphens
-    .replace(/-+/g, '-') // Replace multiple hyphens with single
-    .replace(/^-|-$/g, '') // Remove leading/trailing hyphens
-}
-
-/**
- * Format series runtime for display
- */
-export function formatRuntime(runtime?: number): string {
-  if (!runtime) return 'Unknown'
-
-  const hours = Math.floor(runtime / 60)
-  const minutes = runtime % 60
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`
-  }
-  return `${minutes}m`
-}
-
-/**
- * Format series status for display
- */
-export function formatSeriesStatus(status: string, ended: boolean): string {
-  if (ended) return 'Ended'
-
-  switch (status.toLowerCase()) {
-    case 'continuing':
-      return 'Continuing'
-    case 'ended':
-      return 'Ended'
-    case 'upcoming':
-      return 'Upcoming'
-    case 'deleted':
-      return 'Deleted'
-    default:
-      return status
-  }
-}
-
-/**
  * Determine monitoring strategy based on selection
  */
 export function determineMonitoringStrategy(
@@ -199,164 +228,5 @@ export function determineMonitoringStrategy(
       )
       return { ...season, monitored: hasSelection }
     }),
-  }
-}
-
-/**
- * Check if selection has episode-specific selections
- */
-export function hasEpisodeSelections(
-  selection: Array<{ season: number; episodes?: number[] }>,
-): boolean {
-  return selection.some(sel => sel.episodes && sel.episodes.length > 0)
-}
-
-/**
- * Determine unmonitoring strategy based on selection
- */
-export function determineUnmonitoringStrategy(
-  options: UnmonitorSeriesOptions,
-): {
-  isFullSeriesDeletion: boolean
-  hasSeasonSelections: boolean
-  hasEpisodeSelections: boolean
-} {
-  if (!options.selection) {
-    // No selection means delete entire series
-    return {
-      isFullSeriesDeletion: true,
-      hasSeasonSelections: false,
-      hasEpisodeSelections: false,
-    }
-  }
-
-  const hasEpisodes = options.selection.some(
-    sel => sel.episodes && sel.episodes.length > 0,
-  )
-
-  return {
-    isFullSeriesDeletion: false,
-    hasSeasonSelections: !hasEpisodes,
-    hasEpisodeSelections: hasEpisodes,
-  }
-}
-
-/**
- * Check if a series has any monitored episodes remaining
- */
-export function hasRemainingMonitoredContent(
-  series: SonarrSeries,
-  episodesBySeasonMap: Map<number, Array<{ id: number; monitored: boolean }>>,
-): boolean {
-  // Check all seasons (excluding specials - season 0)
-  for (const season of series.seasons) {
-    if (season.seasonNumber === 0) continue // Skip specials
-
-    const episodes = episodesBySeasonMap.get(season.seasonNumber) || []
-    const monitoredEpisodes = episodes.filter(ep => ep.monitored)
-
-    if (monitoredEpisodes.length > 0) {
-      return true
-    }
-  }
-
-  return false
-}
-
-/**
- * Validate unmonitoring selection for consistency
- */
-export function validateUnmonitoringSelection(
-  selection: Array<{ season: number; episodes?: number[] }>,
-): { isValid: boolean; errors: string[] } {
-  const errors: string[] = []
-
-  // Check for duplicate seasons
-  const seasonNumbers = selection.map(sel => sel.season)
-  const duplicateSeasons = seasonNumbers.filter(
-    (season, index) => seasonNumbers.indexOf(season) !== index,
-  )
-
-  if (duplicateSeasons.length > 0) {
-    errors.push(`Duplicate seasons found: ${duplicateSeasons.join(', ')}`)
-  }
-
-  // Check for invalid season numbers
-  const invalidSeasons = seasonNumbers.filter(season => season < 0)
-  if (invalidSeasons.length > 0) {
-    errors.push(
-      `Invalid season numbers (must be >= 0): ${invalidSeasons.join(', ')}`,
-    )
-  }
-
-  // Check for invalid episode numbers
-  for (const sel of selection) {
-    if (sel.episodes) {
-      const invalidEpisodes = sel.episodes.filter(ep => ep <= 0)
-      if (invalidEpisodes.length > 0) {
-        errors.push(
-          `Invalid episode numbers in season ${sel.season} (must be > 0): ${invalidEpisodes.join(', ')}`,
-        )
-      }
-
-      // Check for duplicate episodes within a season
-      const duplicateEpisodes = sel.episodes.filter(
-        (ep, index) => sel.episodes!.indexOf(ep) !== index,
-      )
-      if (duplicateEpisodes.length > 0) {
-        errors.push(
-          `Duplicate episodes in season ${sel.season}: ${duplicateEpisodes.join(', ')}`,
-        )
-      }
-    }
-  }
-
-  return {
-    isValid: errors.length === 0,
-    errors,
-  }
-}
-
-/**
- * Extract unmonitoring operation summary for logging
- */
-export function extractUnmonitoringOperationSummary(
-  options: UnmonitorSeriesOptions,
-): {
-  operationType: 'full_series' | 'seasons' | 'episodes'
-  seasonCount: number
-  episodeCount: number
-  summary: string
-} {
-  if (!options.selection) {
-    return {
-      operationType: 'full_series',
-      seasonCount: 0,
-      episodeCount: 0,
-      summary: 'Delete entire series',
-    }
-  }
-
-  const totalEpisodes = options.selection.reduce(
-    (total, sel) => total + (sel.episodes?.length || 0),
-    0,
-  )
-
-  if (totalEpisodes === 0) {
-    // Season-level unmonitoring
-    return {
-      operationType: 'seasons',
-      seasonCount: options.selection.length,
-      episodeCount: 0,
-      summary: `Unmonitor ${options.selection.length} season(s): ${options.selection.map(s => s.season).join(', ')}`,
-    }
-  }
-
-  // Episode-level unmonitoring
-  return {
-    operationType: 'episodes',
-    seasonCount: options.selection.length,
-    episodeCount: totalEpisodes,
-    summary: `Unmonitor ${totalEpisodes} episode(s) across ${options.selection.length} season(s)`,
   }
 }

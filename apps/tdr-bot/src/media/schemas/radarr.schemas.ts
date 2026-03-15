@@ -1,6 +1,13 @@
 import { z } from 'zod'
 
 import {
+  OptionalSearchQuerySchema,
+  QualityProfileSchema,
+  RootFolderSchema,
+  SearchQuerySchema,
+  SystemStatusSchema,
+} from 'src/media/schemas/media.schemas'
+import {
   DownloadProtocol,
   RadarrImageType,
   RadarrMinimumAvailability,
@@ -10,29 +17,6 @@ import {
   TrackedDownloadState,
   TrackedDownloadStatus,
 } from 'src/media/types/radarr.types'
-
-/**
- * Search query input validation schema
- */
-export const SearchQuerySchema = z.object({
-  query: z
-    .string()
-    .trim()
-    .min(2, 'Search query must be at least 2 characters')
-    .max(200, 'Search query must be less than 200 characters'),
-})
-
-/**
- * Optional search query input validation schema for library search
- */
-export const OptionalSearchQuerySchema = z.object({
-  query: z
-    .string()
-    .trim()
-    .min(2, 'Search query must be at least 2 characters')
-    .max(200, 'Search query must be less than 200 characters')
-    .optional(),
-})
 
 /**
  * Radarr image schema
@@ -328,100 +312,19 @@ export const MovieLibrarySearchResultArraySchema = z.array(
 )
 
 /**
- * Radarr system status schema
+ * Radarr system status schema (alias of shared SystemStatusSchema)
  */
-export const RadarrSystemStatusSchema = z.object({
-  appName: z.string(),
-  version: z.string(),
-  buildTime: z.string().datetime(),
-  isDebug: z.boolean(),
-  isProduction: z.boolean(),
-  isAdmin: z.boolean(),
-  isUserInteractive: z.boolean(),
-  startupPath: z.string(),
-  appData: z.string(),
-  osName: z.string(),
-  osVersion: z.string(),
-  isMonoRuntime: z.boolean(),
-  isMono: z.boolean(),
-  isLinux: z.boolean(),
-  isOsx: z.boolean(),
-  isWindows: z.boolean(),
-  branch: z.string(),
-  authentication: z.string(),
-  sqliteVersion: z.string(),
-  migrationVersion: z.number().int().nonnegative(),
-  urlBase: z.string().optional(),
-  runtimeVersion: z.string(),
-  runtimeName: z.string(),
-  startTime: z.string().datetime(),
-  packageVersion: z.string().optional(),
-  packageAuthor: z.string().optional(),
-  packageUpdateMechanism: z.string().optional(),
-})
+export const RadarrSystemStatusSchema = SystemStatusSchema
 
 /**
- * Radarr quality profile schema
+ * Radarr quality profile schema (alias of shared QualityProfileSchema)
  */
-export const RadarrQualityProfileSchema = z.object({
-  id: z.number().int(),
-  name: z.string(),
-  upgradeAllowed: z.boolean(),
-  cutoff: z.number().int(),
-  items: z
-    .array(
-      z.object({
-        id: z.number().int(),
-        name: z.string(),
-        quality: z
-          .object({
-            id: z.number().int(),
-            name: z.string(),
-            source: z.string(),
-            resolution: z.number().int(),
-            modifier: z.string(),
-          })
-          .optional(),
-        items: z.array(z.unknown()).optional(),
-        allowed: z.boolean(),
-      }),
-    )
-    .optional(),
-  minFormatScore: z.number().int(),
-  cutoffFormatScore: z.number().int(),
-  formatItems: z
-    .array(
-      z.object({
-        format: z.object({
-          id: z.number().int(),
-          name: z.string(),
-        }),
-        score: z.number().int(),
-      }),
-    )
-    .optional(),
-  language: z.object({
-    id: z.number().int(),
-    name: z.string(),
-  }),
-})
+export const RadarrQualityProfileSchema = QualityProfileSchema
 
 /**
- * Radarr root folder schema
+ * Radarr root folder schema (alias of shared RootFolderSchema)
  */
-export const RadarrRootFolderSchema = z.object({
-  id: z.number().int(),
-  path: z.string(),
-  accessible: z.boolean(),
-  freeSpace: z.number().int(),
-  totalSpace: z.number().int(),
-  unmappedFolders: z.array(
-    z.object({
-      name: z.string(),
-      path: z.string(),
-    }),
-  ),
-})
+export const RadarrRootFolderSchema = RootFolderSchema
 
 /**
  * Add movie request schema
@@ -642,7 +545,6 @@ export const RadarrOutputSchemas = {
   movieSearchResultArray: MovieSearchResultArraySchema,
   movieLibrarySearchResult: MovieLibrarySearchResultSchema,
   movieLibrarySearchResultArray: MovieLibrarySearchResultArraySchema,
-  systemStatus: RadarrSystemStatusSchema,
   qualityProfile: RadarrQualityProfileSchema,
   qualityProfileArray: z.array(RadarrQualityProfileSchema),
   rootFolder: RadarrRootFolderSchema,
@@ -658,49 +560,3 @@ export const RadarrOutputSchemas = {
   downloadingMovieArray: z.array(DownloadingMovieSchema),
   errorResponse: RadarrErrorResponseSchema,
 } as const
-
-/**
- * Type inference helpers
- */
-export type SearchQueryInput = z.infer<typeof SearchQuerySchema>
-export type OptionalSearchQueryInput = z.infer<typeof OptionalSearchQuerySchema>
-export type AddMovieRequestInput = z.infer<typeof AddMovieRequestSchema>
-export type RadarrCommandRequestInput = z.infer<
-  typeof RadarrCommandRequestSchema
->
-export type MonitorMovieOptionsInput = z.infer<typeof MonitorMovieOptionsSchema>
-export type DeleteMovieOptionsInput = z.infer<typeof DeleteMovieOptionsSchema>
-export type RadarrMovieOutput = z.infer<typeof RadarrMovieSchema>
-export type RadarrMovieArrayOutput = z.infer<typeof RadarrMovieArraySchema>
-export type RadarrMovieResourceOutput = z.infer<
-  typeof RadarrMovieResourceSchema
->
-export type MovieSearchResultOutput = z.infer<typeof MovieSearchResultSchema>
-export type MovieLibrarySearchResultOutput = z.infer<
-  typeof MovieLibrarySearchResultSchema
->
-export type RadarrSystemStatusOutput = z.infer<typeof RadarrSystemStatusSchema>
-export type RadarrQualityProfileOutput = z.infer<
-  typeof RadarrQualityProfileSchema
->
-export type RadarrRootFolderOutput = z.infer<typeof RadarrRootFolderSchema>
-export type RadarrCommandResponseOutput = z.infer<
-  typeof RadarrCommandResponseSchema
->
-export type MonitorAndDownloadResultOutput = z.infer<
-  typeof MonitorAndDownloadResultSchema
->
-export type UnmonitorAndDeleteResultOutput = z.infer<
-  typeof UnmonitorAndDeleteResultSchema
->
-export type RadarrQueueItemOutput = z.infer<typeof RadarrQueueItemSchema>
-export type RadarrQueuePaginatedResponseOutput = z.infer<
-  typeof RadarrQueuePaginatedResponseSchema
->
-export type DownloadingMovieOutput = z.infer<typeof DownloadingMovieSchema>
-export type DownloadingMovieArrayOutput = z.infer<
-  typeof RadarrOutputSchemas.downloadingMovieArray
->
-export type RadarrErrorResponseOutput = z.infer<
-  typeof RadarrErrorResponseSchema
->

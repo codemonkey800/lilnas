@@ -1,62 +1,115 @@
-import { Injectable, Logger } from '@nestjs/common'
+import type {
+  CommandResource,
+  CommandResourceWritable,
+  EpisodeResource as SdkEpisodeResource,
+  QualityProfileResource,
+  QueueResource,
+  QueueResourcePagingResource,
+  RootFolderResource,
+  SeriesResource,
+  SeriesResourceWritable,
+} from '@lilnas/media/sonarr'
+import {
+  deleteApiV3EpisodefileById,
+  deleteApiV3QueueById,
+  deleteApiV3SeriesById,
+  getApiV3Episode,
+  getApiV3EpisodeById,
+  getApiV3Qualityprofile,
+  getApiV3Queue,
+  getApiV3Rootfolder,
+  getApiV3Series,
+  getApiV3SeriesById,
+  getApiV3SeriesLookup,
+  postApiV3Command,
+  postApiV3Series,
+  putApiV3EpisodeMonitor,
+  putApiV3SeriesById,
+} from '@lilnas/media/sonarr'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { nanoid } from 'nanoid'
 import { performance } from 'perf_hooks'
 
-import { SonarrClient } from 'src/media/clients/sonarr.client'
+/**
+ * Sonarr's SeriesSearch command accepts seriesId but the generated SDK type
+ * omits command-specific body parameters. We extend it locally so TypeScript
+ * validates the extra field rather than silently ignoring it via a raw `as`.
+ */
+type SeriesSearchCommand = CommandResourceWritable & { seriesId?: number }
+
+/**
+ * Polling config for checkIfSeriesShouldBeDeleted.
+ * After unmonitoring episodes Sonarr's state is eventually consistent, so we
+ * poll with exponential backoff until the expected state is observed.
+ */
+const CONSISTENCY_POLL_MAX_ATTEMPTS = 3
+const CONSISTENCY_POLL_BASE_DELAY_MS = 1000
+
+import { RetryConfigService } from 'src/config/retry.config'
+import type { SonarrMediaClient } from 'src/media/clients'
+import { SONARR_CLIENT } from 'src/media/clients'
+import { MediaApiError } from 'src/media/errors/media-api.error'
 import {
   MonitorSeriesOptionsInput,
-  OptionalSearchQueryInput,
-  SearchQueryInput,
   SonarrInputSchemas,
   SonarrOutputSchemas,
   UnmonitorSeriesOptionsInput,
 } from 'src/media/schemas/sonarr.schemas'
+import { BaseMediaService } from 'src/media/services/base-media.service'
 import {
   AddSeriesRequest,
   DownloadingSeries,
-  EpisodeDetails,
   EpisodeResource,
   LibrarySearchResult,
   MonitorAndDownloadSeriesResult,
   MonitoringChange,
   MonitorSeriesOptions,
-  SeasonDetails,
-  SeriesDetails,
   SeriesSearchResult,
   SonarrSeries,
   SonarrSeriesType,
-  SonarrSystemStatus,
   UnmonitorAndDeleteSeriesResult,
   UnmonitoringChange,
   UnmonitorSeriesOptions,
 } from 'src/media/types/sonarr.types'
+import { errorMessage, numericIdAsString } from 'src/media/utils/media.utils'
 import {
   determineMonitoringStrategy,
+  toDownloadingSeries,
+  toEpisodeResource,
+  toEpisodeResourceArray,
+  toSonarrSeries,
+  toSonarrSeriesArray,
+  toSonarrSeriesResourceArray,
   transformToSearchResults,
 } from 'src/media/utils/sonarr.utils'
-import { ErrorClassificationService } from 'src/utils/error-classifier'
-import { RetryService } from 'src/utils/retry.service'
+import { RetryConfig, RetryService } from 'src/utils/retry.service'
 
 @Injectable()
-export class SonarrService {
-  private readonly logger = new Logger(SonarrService.name)
+export class SonarrService extends BaseMediaService {
+  protected readonly logger = new Logger(SonarrService.name)
+  protected readonly serviceName = 'SonarrService'
+  protected readonly circuitBreakerKey = 'sonarr-api'
+  protected readonly retryConfig: RetryConfig
 
   constructor(
-    private readonly sonarrClient: SonarrClient,
-    private readonly retryService: RetryService,
-    private readonly errorClassifier: ErrorClassificationService,
-  ) {}
+    @Inject(SONARR_CLIENT) private readonly client: SonarrMediaClient,
+    protected readonly retryService: RetryService,
+    retryConfigService: RetryConfigService,
+  ) {
+    super()
+    this.retryConfig = retryConfigService.getSonarrConfig()
+  }
 
   /**
    * Search for TV series by title - Main public API method
-   * @param query - Search query (min 2 characters)
-   * @returns Array of series search results
    */
   async searchShows(query: string): Promise<SeriesSearchResult[]> {
     const id = nanoid()
 
-    // Input validation
-    const validatedInput = this.validateSearchQuery({ query })
+    const validatedInput = this.validateSearchQuery(
+      { query },
+      SonarrInputSchemas.searchQuery,
+    )
     const normalizedQuery = validatedInput.query
 
     this.logger.log({ id, query: normalizedQuery }, 'Starting series search')
@@ -66,14 +119,14 @@ export class SonarrService {
 
   /**
    * Get series in Sonarr library with optional search query
-   * @param query - Optional search query to filter library series (min 2 characters)
-   * @returns Array of library series (all if no query, filtered if query provided)
    */
   async getLibrarySeries(query?: string): Promise<LibrarySearchResult[]> {
     const id = nanoid()
 
-    // Validate input if query is provided
-    const validatedInput = this.validateOptionalSearchQuery({ query })
+    const validatedInput = this.validateOptionalSearchQuery(
+      { query },
+      SonarrInputSchemas.optionalSearchQuery,
+    )
     const normalizedQuery = validatedInput.query
 
     this.logger.log(
@@ -85,73 +138,7 @@ export class SonarrService {
   }
 
   /**
-   * Get Sonarr system status
-   * @returns System status information
-   */
-  async getSystemStatus(): Promise<SonarrSystemStatus> {
-    const id = nanoid()
-
-    this.logger.log({ id }, 'Getting Sonarr system status')
-
-    try {
-      const start = performance.now()
-      const status = await this.sonarrClient.getSystemStatus()
-      const duration = performance.now() - start
-
-      // Validate output
-      const validatedStatus = SonarrOutputSchemas.systemStatus.parse(status)
-
-      this.logger.log(
-        { id, version: validatedStatus.version, duration },
-        'Sonarr system status retrieved',
-      )
-
-      return validatedStatus
-    } catch (error) {
-      this.logger.error(
-        {
-          id,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        'Failed to get system status',
-      )
-      throw error
-    }
-  }
-
-  /**
-   * Check if Sonarr service is healthy
-   * @returns Boolean indicating health status
-   */
-  async checkHealth(): Promise<boolean> {
-    const id = nanoid()
-
-    this.logger.log({ id }, 'Checking Sonarr health')
-
-    try {
-      const isHealthy = await this.sonarrClient.checkHealth()
-
-      this.logger.log(
-        { id, isHealthy },
-        `Sonarr health check ${isHealthy ? 'passed' : 'failed'}`,
-      )
-
-      return isHealthy
-    } catch (error) {
-      this.logger.error(
-        {
-          id,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        'Sonarr health check failed with exception',
-      )
-      return false
-    }
-  }
-
-  /**
    * Get all currently downloading episodes from Sonarr
-   * @returns Array of episodes that are currently downloading
    */
   async getDownloadingEpisodes(): Promise<DownloadingSeries[]> {
     const id = nanoid()
@@ -161,12 +148,24 @@ export class SonarrService {
     try {
       const start = performance.now()
 
-      // Get all queue items from Sonarr
-      const allQueueItems = await this.sonarrClient.getQueue()
+      const queueResponse =
+        await this.executeWithRetry<QueueResourcePagingResource>(
+          () =>
+            getApiV3Queue({
+              client: this.client,
+              query: {
+                includeEpisode: true,
+                includeSeries: true,
+                pageSize: 1000,
+              },
+            }),
+          `${this.serviceName}-getQueue-${id}`,
+        )
 
-      // Filter to only include actively downloading/queued items
+      const allQueueItems: QueueResource[] = queueResponse.records ?? []
+
       const downloadingItems = allQueueItems.filter(item => {
-        const status = item.status.toLowerCase()
+        const status = (item.status ?? '').toLowerCase()
         return (
           status === 'downloading' ||
           status === 'queued' ||
@@ -175,51 +174,12 @@ export class SonarrService {
         )
       })
 
-      // Transform queue items to simplified downloading series format
-      const downloadingEpisodes: DownloadingSeries[] = downloadingItems.map(
-        item => {
-          // Calculate progress safely
-          const size = item.size || 0
-          const sizeleft = item.sizeleft || 0
-          const downloadedBytes = Math.max(0, size - sizeleft)
-          const progressPercent =
-            size > 0
-              ? Math.min(100, Math.max(0, (downloadedBytes / size) * 100))
-              : 0
-          const isActive = ['downloading', 'queued'].includes(
-            item.status.toLowerCase(),
-          )
-
-          return {
-            id: item.id,
-            seriesId: item.seriesId,
-            episodeId: item.episodeId,
-            seriesTitle: item.series?.title || 'Unknown Series',
-            episodeTitle: item.episode?.title || item.title,
-            seasonNumber: item.episode?.seasonNumber,
-            episodeNumber: item.episode?.episodeNumber,
-            size,
-            sizeleft,
-            status: item.status,
-            trackedDownloadStatus: item.trackedDownloadStatus,
-            trackedDownloadState: undefined, // Not available in SonarrQueueItem
-            protocol: item.protocol,
-            downloadClient: item.downloadClient,
-            indexer: undefined, // Not available in SonarrQueueItem
-            estimatedCompletionTime: item.estimatedCompletionTime,
-            timeleft: item.timeleft,
-            added: undefined, // Not available in SonarrQueueItem
-            // Calculated fields
-            progressPercent,
-            downloadedBytes,
-            isActive,
-          }
-        },
+      const downloadingEpisodes = downloadingItems.map(item =>
+        toDownloadingSeries(item),
       )
 
       const duration = performance.now() - start
 
-      // Validate output using downloading series array schema
       const validatedDownloads =
         SonarrOutputSchemas.downloadingSeriesArray.parse(downloadingEpisodes)
 
@@ -236,10 +196,7 @@ export class SonarrService {
       return validatedDownloads
     } catch (error) {
       this.logger.error(
-        {
-          id,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
+        { id, error: errorMessage(error) },
         'Failed to get downloading episodes from Sonarr',
       )
       throw error
@@ -247,219 +204,7 @@ export class SonarrService {
   }
 
   /**
-   * Private method to fetch library series with optional search
-   */
-  private async fetchLibrarySeries(
-    query: string | undefined,
-    operationId: string,
-  ): Promise<LibrarySearchResult[]> {
-    this.logger.log(
-      { id: operationId, query, hasQuery: !!query },
-      'Fetching library series from Sonarr API',
-    )
-    const start = performance.now()
-
-    try {
-      // Get all series from library
-      const allSeries = await this.sonarrClient.getLibrarySeries()
-      let filteredSeries = allSeries
-
-      // Filter if query is provided
-      if (query) {
-        filteredSeries = this.filterSeriesByQuery(allSeries, query)
-        this.logger.log(
-          {
-            id: operationId,
-            query,
-            totalSeries: allSeries.length,
-            filteredCount: filteredSeries.length,
-          },
-          'Filtered library series by query',
-        )
-      }
-
-      // Transform to library search results
-      const results = this.transformToLibraryResults(filteredSeries)
-      const duration = performance.now() - start
-
-      // Validate output
-      const validatedResults =
-        SonarrOutputSchemas.librarySearchResultArray.parse(results)
-
-      this.logger.log(
-        {
-          id: operationId,
-          query,
-          resultCount: validatedResults.length,
-          duration,
-        },
-        'Library series fetch completed',
-      )
-
-      return validatedResults
-    } catch (error) {
-      const duration = performance.now() - start
-
-      this.logger.error(
-        {
-          id: operationId,
-          query,
-          duration,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        'Failed to fetch library series',
-      )
-
-      throw error
-    }
-  }
-
-  /**
-   * Filter series array by search query
-   */
-  private filterSeriesByQuery(
-    series: SonarrSeries[],
-    query: string,
-  ): SonarrSeries[] {
-    const normalizedQuery = query.toLowerCase().trim()
-
-    return series.filter(s => {
-      // Search in title
-      if (s.title.toLowerCase().includes(normalizedQuery)) {
-        return true
-      }
-
-      // Search in alternate titles
-      if (
-        s.alternateTitles?.some(alt =>
-          alt.title.toLowerCase().includes(normalizedQuery),
-        )
-      ) {
-        return true
-      }
-
-      // Search in year
-      if (s.year?.toString().includes(normalizedQuery)) {
-        return true
-      }
-
-      // Search in network
-      if (s.network?.toLowerCase().includes(normalizedQuery)) {
-        return true
-      }
-
-      // Search in genres
-      if (
-        s.genres.some(genre => genre.toLowerCase().includes(normalizedQuery))
-      ) {
-        return true
-      }
-
-      // Search in overview
-      if (s.overview?.toLowerCase().includes(normalizedQuery)) {
-        return true
-      }
-
-      return false
-    })
-  }
-
-  /**
-   * Transform SonarrSeries to LibrarySearchResult
-   */
-  private transformToLibraryResults(
-    series: SonarrSeries[],
-  ): LibrarySearchResult[] {
-    return series.map(s => ({
-      // Base fields from SeriesSearchResult
-      tvdbId: s.tvdbId,
-      tmdbId: s.tmdbId,
-      imdbId: s.imdbId,
-      title: s.title,
-      titleSlug: s.titleSlug,
-      sortTitle: s.sortTitle,
-      year: s.year,
-      firstAired: s.firstAired,
-      lastAired: s.lastAired,
-      overview: s.overview,
-      runtime: s.runtime,
-      network: s.network,
-      status: s.status,
-      seriesType: s.seriesType,
-      seasons: s.seasons,
-      genres: s.genres,
-      rating: s.ratings.imdb?.value,
-      posterPath: s.images.find(img => img.coverType === 'poster')?.remoteUrl,
-      backdropPath: s.images.find(img => img.coverType === 'fanart')?.remoteUrl,
-      certification: s.certification,
-      ended: s.ended,
-      // Library-specific fields
-      id: s.id,
-      monitored: s.monitored,
-      path: s.path,
-      statistics: s.statistics,
-      added: s.added,
-    }))
-  }
-
-  /**
-   * Private method to fetch series search results
-   */
-  private async fetchSeriesSearch(
-    query: string,
-    operationId: string,
-  ): Promise<SeriesSearchResult[]> {
-    this.logger.log(
-      { id: operationId, query },
-      'Fetching series search from Sonarr API',
-    )
-    const start = performance.now()
-
-    try {
-      // Get raw results from client
-      const rawSeries = await this.sonarrClient.searchSeries(query)
-      const duration = performance.now() - start
-
-      // Transform to search results
-      const results = transformToSearchResults(rawSeries)
-
-      // Validate output
-      const validatedResults =
-        SonarrOutputSchemas.seriesSearchResultArray.parse(results)
-
-      this.logger.log(
-        {
-          id: operationId,
-          query,
-          resultCount: validatedResults.length,
-          duration,
-        },
-        'Series search fetch completed',
-      )
-
-      return validatedResults
-    } catch (error) {
-      const duration = performance.now() - start
-
-      this.logger.error(
-        {
-          id: operationId,
-          query,
-          duration,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        'Failed to fetch series search',
-      )
-
-      throw error
-    }
-  }
-
-  /**
    * Monitor and download a series with granular control over seasons/episodes
-   * @param tvdbId - TVDB ID of the series to monitor and download
-   * @param options - Monitoring options (optional)
-   * @returns Result of the monitoring operation
    */
   async monitorAndDownloadSeries(
     tvdbId: number,
@@ -471,18 +216,13 @@ export class SonarrService {
       const validatedOptions = this.validateMonitorSeriesOptions(options)
 
       this.logger.log(
-        {
-          id,
-          tvdbId,
-          options: validatedOptions,
-        },
+        { id, tvdbId, options: validatedOptions },
         'Starting monitor and download series operation',
       )
 
       const start = performance.now()
 
-      // Check if series already exists
-      const existingSeries = await this.sonarrClient.getSeriesByTvdbId(tvdbId)
+      const existingSeries = await this.getSeriesByTvdbId(tvdbId, id)
 
       let result: MonitorAndDownloadSeriesResult
 
@@ -497,13 +237,10 @@ export class SonarrService {
           id,
         )
       } else {
-        // Search for the series by TVDB ID since it's not in library
         let series: SeriesSearchResult
         try {
           const searchResults = await this.searchShows(tvdbId.toString())
-          const exactMatch = searchResults.find(
-            result => result.tvdbId === tvdbId,
-          )
+          const exactMatch = searchResults.find(r => r.tvdbId === tvdbId)
 
           if (!exactMatch) {
             this.logger.error(
@@ -560,11 +297,7 @@ export class SonarrService {
       return result
     } catch (error) {
       this.logger.error(
-        {
-          id,
-          tvdbId,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
+        { id, tvdbId, error: errorMessage(error) },
         'Failed to monitor and download series',
       )
 
@@ -574,556 +307,13 @@ export class SonarrService {
         seriesUpdated: false,
         searchTriggered: false,
         changes: [],
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage(error),
       }
-    }
-  }
-
-  /**
-   * Add a new series to Sonarr
-   */
-  private async addNewSeries(
-    series: SeriesSearchResult,
-    options: MonitorSeriesOptions,
-    operationId: string,
-  ): Promise<MonitorAndDownloadSeriesResult> {
-    this.logger.log(
-      { id: operationId, tvdbId: series.tvdbId },
-      'Getting series configuration',
-    )
-
-    // Get configuration
-    const config = await this.getSeriesConfiguration()
-
-    this.logger.log(
-      { id: operationId, config },
-      'Determining monitoring strategy',
-    )
-
-    // Determine monitoring strategy
-    const { monitorType, seasons } = determineMonitoringStrategy(
-      series.seasons,
-      options,
-    )
-
-    // Build add series request
-    const addRequest: AddSeriesRequest = {
-      tvdbId: series.tvdbId,
-      title: series.title,
-      titleSlug: series.titleSlug,
-      qualityProfileId: config.qualityProfileId,
-      rootFolderPath: config.rootFolderPath,
-      monitored: true,
-      monitor: monitorType,
-      seasonFolder: true,
-      useSceneNumbering: false,
-      seriesType: series.seriesType || SonarrSeriesType.STANDARD,
-      searchForMissingEpisodes: true,
-      searchForCutoffUnmetEpisodes: true,
-      seasons,
-      year: series.year,
-      firstAired: series.firstAired,
-      overview: series.overview,
-      network: series.network,
-      certification: series.certification,
-      genres: series.genres,
-    }
-
-    const addedSeries = await this.sonarrClient.addSeries(addRequest)
-
-    // Apply monitoring based on options
-    const changes: MonitoringChange[] = []
-    if (options.selection) {
-      // Apply custom episode-level monitoring
-      const episodeChanges = await this.applyEpisodeMonitoring(
-        addedSeries,
-        options.selection,
-        operationId,
-      )
-      changes.push(...episodeChanges)
-    } else {
-      // Monitor all episodes in monitored seasons (excluding specials)
-      const episodeChanges = await this.monitorAllEpisodesInMonitoredSeasons(
-        addedSeries,
-        operationId,
-      )
-      changes.push(...episodeChanges)
-    }
-
-    // Trigger search
-    const command = await this.sonarrClient.triggerSeriesSearch(addedSeries.id)
-
-    return {
-      success: true,
-      seriesAdded: true,
-      seriesUpdated: false,
-      searchTriggered: true,
-      changes,
-      series: addedSeries,
-      commandId: command.id,
-    }
-  }
-
-  /**
-   * Update monitoring for an existing series
-   */
-  private async updateExistingSeriesMonitoring(
-    existingSeries: SonarrSeries,
-    options: MonitorSeriesOptions,
-    operationId: string,
-  ): Promise<MonitorAndDownloadSeriesResult> {
-    this.logger.log(
-      { id: operationId, seriesId: existingSeries.id },
-      'Updating existing series monitoring',
-    )
-
-    const changes: MonitoringChange[] = []
-    let searchTriggered = false
-    let commandId: number | undefined
-
-    if (!options.selection) {
-      this.logger.log(
-        { id: operationId, seriesId: existingSeries.id },
-        'Monitoring entire series',
-      )
-
-      // Monitor entire series - update all seasons to monitored
-      const updatedSeasons = existingSeries.seasons.map(season => ({
-        ...season,
-        monitored: true,
-      }))
-
-      const updatedSeries = await this.sonarrClient.updateSeries(
-        existingSeries.id,
-        {
-          seasons: updatedSeasons,
-          monitored: true,
-        },
-      )
-
-      // Track changes for seasons
-      for (const season of existingSeries.seasons) {
-        if (!season.monitored && season.seasonNumber > 0) {
-          changes.push({
-            season: season.seasonNumber,
-            action: 'monitored',
-          })
-        }
-      }
-
-      // Monitor all episodes in the newly monitored seasons
-      const episodeChanges = await this.monitorAllEpisodesInMonitoredSeasons(
-        updatedSeries,
-        operationId,
-      )
-      changes.push(...episodeChanges)
-
-      // Trigger search if any changes were made
-      if (changes.length > 0) {
-        const command = await this.sonarrClient.triggerSeriesSearch(
-          existingSeries.id,
-        )
-        searchTriggered = true
-        commandId = command.id
-      }
-
-      return {
-        success: true,
-        seriesAdded: false,
-        seriesUpdated: true,
-        searchTriggered,
-        changes,
-        series: updatedSeries,
-        commandId,
-      }
-    }
-
-    // Custom selection - apply granular monitoring
-    const episodeChanges = await this.applyEpisodeMonitoring(
-      existingSeries,
-      options.selection,
-      operationId,
-    )
-    changes.push(...episodeChanges)
-
-    // Trigger search if any changes were made
-    if (changes.length > 0) {
-      const command = await this.sonarrClient.triggerSeriesSearch(
-        existingSeries.id,
-      )
-      searchTriggered = true
-      commandId = command.id
-    }
-
-    return {
-      success: true,
-      seriesAdded: false,
-      seriesUpdated: true,
-      searchTriggered,
-      changes,
-      series: existingSeries,
-      commandId,
-    }
-  }
-
-  /**
-   * Get series configuration (quality profile and root folder)
-   */
-  private async getSeriesConfiguration(): Promise<{
-    qualityProfileId: number
-    rootFolderPath: string
-  }> {
-    const [qualityProfiles, rootFolders] = await Promise.all([
-      this.sonarrClient.getQualityProfiles(),
-      this.sonarrClient.getRootFolders(),
-    ])
-
-    if (qualityProfiles.length === 0) {
-      throw new Error('No quality profiles found in Sonarr')
-    }
-
-    if (rootFolders.length === 0) {
-      throw new Error('No root folders found in Sonarr')
-    }
-
-    // Find the "Any" quality profile for more permissive downloading
-    const anyProfile = qualityProfiles.find(profile =>
-      profile.name.toLowerCase().includes('any'),
-    )
-
-    if (anyProfile) {
-      return {
-        qualityProfileId: anyProfile.id,
-        rootFolderPath: rootFolders[0].path,
-      }
-    }
-
-    // Fallback to first available profile if "Any" not found
-    const firstProfile = qualityProfiles[0]
-    this.logger.warn(
-      { availableProfiles: qualityProfiles.map(p => p.name) },
-      'No "Any" quality profile found, using first available profile',
-    )
-
-    return {
-      qualityProfileId: firstProfile.id,
-      rootFolderPath: rootFolders[0].path,
-    }
-  }
-
-  /**
-   * Apply episode-level monitoring based on selection
-   */
-  private async applyEpisodeMonitoring(
-    series: SonarrSeries,
-    selection: Array<{ season: number; episodes?: number[] }>,
-    operationId: string,
-  ): Promise<MonitoringChange[]> {
-    const changes: MonitoringChange[] = []
-
-    for (const sel of selection) {
-      // Get all episodes for this season with retry for newly added series
-      const episodes = await this.getEpisodesWithRetry(
-        series.id,
-        sel.season,
-        operationId,
-      )
-      this.logger.log(
-        { id: operationId, season: sel.season, episodeCount: episodes.length },
-        'Processing episode monitoring for season',
-      )
-
-      if (!sel.episodes || sel.episodes.length === 0) {
-        // Whole season selection - monitor all episodes
-        this.logger.log(
-          { id: operationId, season: sel.season },
-          'Monitoring entire season',
-        )
-
-        const allEpisodeIds = episodes.map(ep => ep.id)
-        if (allEpisodeIds.length > 0) {
-          await this.sonarrClient.updateEpisodesMonitoring({
-            episodeIds: allEpisodeIds,
-            monitored: true,
-          })
-
-          changes.push({
-            season: sel.season,
-            action: 'monitored',
-          })
-        }
-      } else {
-        // Partial season selection - monitor specified episodes, unmonitor others
-        this.logger.log(
-          {
-            id: operationId,
-            season: sel.season,
-            selectedEpisodes: sel.episodes,
-          },
-          'Monitoring specific episodes in season',
-        )
-
-        // Get episode IDs for selected episodes
-        const selectedEpisodeIds = episodes
-          .filter(ep => sel.episodes!.includes(ep.episodeNumber))
-          .map(ep => ep.id)
-
-        // Get episode IDs for unselected episodes
-        const unselectedEpisodeIds = episodes
-          .filter(ep => !sel.episodes!.includes(ep.episodeNumber))
-          .map(ep => ep.id)
-
-        // Bulk monitor selected episodes
-        if (selectedEpisodeIds.length > 0) {
-          await this.sonarrClient.updateEpisodesMonitoring({
-            episodeIds: selectedEpisodeIds,
-            monitored: true,
-          })
-
-          changes.push({
-            season: sel.season,
-            episodes: sel.episodes,
-            action: 'monitored',
-          })
-        }
-
-        // Bulk unmonitor unselected episodes
-        if (unselectedEpisodeIds.length > 0) {
-          await this.sonarrClient.updateEpisodesMonitoring({
-            episodeIds: unselectedEpisodeIds,
-            monitored: false,
-          })
-
-          const unmonitoredEpisodeNumbers = episodes
-            .filter(ep => !sel.episodes!.includes(ep.episodeNumber))
-            .map(ep => ep.episodeNumber)
-
-          if (unmonitoredEpisodeNumbers.length > 0) {
-            changes.push({
-              season: sel.season,
-              episodes: unmonitoredEpisodeNumbers,
-              action: 'unmonitored',
-            })
-          }
-        }
-      }
-    }
-
-    return changes
-  }
-
-  /**
-   * Get episodes for a season with retry mechanism for newly added series
-   * Sonarr may take time to populate episodes after adding a series
-   */
-  private async getEpisodesWithRetry(
-    seriesId: number,
-    seasonNumber: number,
-    operationId: string,
-    maxRetries: number = 3,
-  ): Promise<EpisodeResource[]> {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const episodes = await this.sonarrClient.getEpisodes(
-        seriesId,
-        seasonNumber,
-      )
-
-      if (episodes.length > 0) {
-        // Episodes found, return them
-        return episodes
-      }
-
-      if (attempt < maxRetries) {
-        const waitTime = attempt * 2 // 2s, 4s, 6s...
-        this.logger.log(
-          {
-            id: operationId,
-            seriesId,
-            seasonNumber,
-            attempt,
-            maxRetries,
-            waitTime,
-          },
-          `No episodes found for season ${seasonNumber}, retrying in ${waitTime}s (attempt ${attempt}/${maxRetries})`,
-        )
-
-        // Wait before retrying
-        await new Promise(resolve => setTimeout(resolve, waitTime * 1000))
-      }
-    }
-
-    // No episodes found after all retries
-    this.logger.warn(
-      { id: operationId, seriesId, seasonNumber, maxRetries },
-      `No episodes found for season ${seasonNumber} after ${maxRetries} attempts`,
-    )
-
-    return []
-  }
-
-  /**
-   * Monitor all episodes in monitored seasons (excluding specials)
-   */
-  private async monitorAllEpisodesInMonitoredSeasons(
-    series: SonarrSeries,
-    operationId: string,
-  ): Promise<MonitoringChange[]> {
-    const changes: MonitoringChange[] = []
-
-    // Get monitored seasons excluding specials (season 0)
-    const monitoredSeasons = series.seasons.filter(
-      season => season.monitored && season.seasonNumber > 0,
-    )
-
-    if (monitoredSeasons.length === 0) {
-      this.logger.log(
-        { id: operationId, seriesId: series.id },
-        'No monitored seasons found, skipping episode monitoring',
-      )
-      return changes
-    }
-
-    this.logger.log(
-      {
-        id: operationId,
-        seriesId: series.id,
-        monitoredSeasons: monitoredSeasons.map(s => s.seasonNumber),
-      },
-      'Monitoring all episodes in monitored seasons',
-    )
-
-    // Process each monitored season
-    for (const season of monitoredSeasons) {
-      try {
-        // Get all episodes for this season with retry
-        const episodes = await this.getEpisodesWithRetry(
-          series.id,
-          season.seasonNumber,
-          operationId,
-        )
-
-        if (episodes.length === 0) {
-          this.logger.warn(
-            {
-              id: operationId,
-              seriesId: series.id,
-              seasonNumber: season.seasonNumber,
-            },
-            'No episodes found for season, skipping',
-          )
-          continue
-        }
-
-        // Get all episode IDs for this season
-        const episodeIds = episodes.map(ep => ep.id)
-
-        // Bulk monitor all episodes in this season
-        await this.sonarrClient.updateEpisodesMonitoring({
-          episodeIds,
-          monitored: true,
-        })
-
-        this.logger.log(
-          {
-            id: operationId,
-            seriesId: series.id,
-            seasonNumber: season.seasonNumber,
-            episodeCount: episodeIds.length,
-          },
-          'Successfully monitored all episodes in season',
-        )
-
-        // Track the change
-        changes.push({
-          season: season.seasonNumber,
-          action: 'monitored',
-        })
-      } catch (error) {
-        this.logger.error(
-          {
-            id: operationId,
-            seriesId: series.id,
-            seasonNumber: season.seasonNumber,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          },
-          'Failed to monitor episodes in season',
-        )
-        // Continue with other seasons even if one fails
-      }
-    }
-
-    return changes
-  }
-
-  /**
-   * Validate monitor series options input
-   */
-  private validateMonitorSeriesOptions(
-    options: MonitorSeriesOptions,
-  ): MonitorSeriesOptionsInput {
-    try {
-      return SonarrInputSchemas.monitorSeriesOptions.parse(options)
-    } catch (error) {
-      this.logger.error(
-        {
-          options,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        'Invalid monitor series options input',
-      )
-      throw new Error(
-        `Invalid monitor series options: ${error instanceof Error ? error.message : 'Unknown validation error'}`,
-      )
-    }
-  }
-
-  /**
-   * Validate search query input
-   */
-  private validateSearchQuery(input: { query: string }): SearchQueryInput {
-    try {
-      return SonarrInputSchemas.searchQuery.parse(input)
-    } catch (error) {
-      this.logger.error(
-        {
-          input,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        'Invalid search query input',
-      )
-      throw new Error(
-        `Invalid search query: ${error instanceof Error ? error.message : 'Unknown validation error'}`,
-      )
-    }
-  }
-
-  /**
-   * Validate optional search query input
-   */
-  private validateOptionalSearchQuery(input: {
-    query?: string
-  }): OptionalSearchQueryInput {
-    try {
-      return SonarrInputSchemas.optionalSearchQuery.parse(input)
-    } catch (error) {
-      this.logger.error(
-        {
-          input,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        'Invalid optional search query input',
-      )
-      throw new Error(
-        `Invalid search query: ${error instanceof Error ? error.message : 'Unknown validation error'}`,
-      )
     }
   }
 
   /**
    * Unmonitor and delete series with granular control over seasons/episodes
-   * @param tvdbId - TVDB ID of the series to unmonitor and delete
-   * @param options - Unmonitoring options (optional)
-   * @returns Result of the unmonitoring operation
    */
   async unmonitorAndDeleteSeries(
     tvdbId: number,
@@ -1135,18 +325,13 @@ export class SonarrService {
       const validatedOptions = this.validateUnmonitorSeriesOptions(options)
 
       this.logger.log(
-        {
-          id,
-          tvdbId,
-          options: validatedOptions,
-        },
+        { id, tvdbId, options: validatedOptions },
         'Starting unmonitor and delete series operation',
       )
 
       const start = performance.now()
 
-      // Get existing series from Sonarr by TVDB ID
-      const existingSeries = await this.sonarrClient.getSeriesByTvdbId(tvdbId)
+      const existingSeries = await this.getSeriesByTvdbId(tvdbId, id)
 
       if (!existingSeries) {
         this.logger.warn({ id, tvdbId }, 'Series not found in Sonarr library')
@@ -1162,7 +347,6 @@ export class SonarrService {
         }
       }
 
-      // Check if we should delete entire series immediately
       if (!validatedOptions.selection) {
         this.logger.log(
           { id, seriesId: existingSeries.id },
@@ -1172,14 +356,11 @@ export class SonarrService {
         return await this.deleteEntireSeries(existingSeries, id)
       }
 
-      // When there is a selection, always use granular unmonitoring
-      // This preserves files and handles deletion differently if needed
       this.logger.log(
         { id, seriesId: existingSeries.id },
         'Applying granular unmonitoring (selection provided)',
       )
 
-      // Apply granular unmonitoring
       const result = await this.applyGranularUnmonitoring(
         existingSeries,
         validatedOptions,
@@ -1204,11 +385,7 @@ export class SonarrService {
       return result
     } catch (error) {
       this.logger.error(
-        {
-          id,
-          tvdbId,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
+        { id, tvdbId, error: errorMessage(error) },
         'Failed to unmonitor and delete series',
       )
 
@@ -1219,14 +396,765 @@ export class SonarrService {
         downloadsCancel: false,
         canceledDownloads: 0,
         changes: [],
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage(error),
       }
     }
   }
 
-  /**
-   * Cancel all downloads for a series
-   */
+  // ─── Private helpers ─────────────────────────────────────────────────────────
+
+  private async fetchSeriesSearch(
+    query: string,
+    operationId: string,
+  ): Promise<SeriesSearchResult[]> {
+    this.logger.log(
+      { id: operationId, query },
+      'Fetching series search from Sonarr API',
+    )
+    const start = performance.now()
+
+    try {
+      const rawSeries = await this.executeWithRetry<SeriesResource[]>(
+        () =>
+          getApiV3SeriesLookup({
+            client: this.client,
+            query: { term: query },
+          }),
+        `${this.serviceName}-searchSeries-${operationId}`,
+      )
+
+      const duration = performance.now() - start
+
+      const results = transformToSearchResults(
+        toSonarrSeriesResourceArray(rawSeries),
+      )
+      const validatedResults =
+        SonarrOutputSchemas.seriesSearchResultArray.parse(results)
+
+      this.logger.log(
+        {
+          id: operationId,
+          query,
+          resultCount: validatedResults.length,
+          duration,
+        },
+        'Series search fetch completed',
+      )
+
+      return validatedResults
+    } catch (error) {
+      const duration = performance.now() - start
+
+      this.logger.error(
+        { id: operationId, query, duration, error: errorMessage(error) },
+        'Failed to fetch series search',
+      )
+
+      throw error
+    }
+  }
+
+  private async fetchLibrarySeries(
+    query: string | undefined,
+    operationId: string,
+  ): Promise<LibrarySearchResult[]> {
+    this.logger.log(
+      { id: operationId, query, hasQuery: !!query },
+      'Fetching library series from Sonarr API',
+    )
+    const start = performance.now()
+
+    try {
+      const allSeries = toSonarrSeriesArray(
+        await this.executeWithRetry<SeriesResource[]>(
+          () => getApiV3Series({ client: this.client }),
+          `${this.serviceName}-getLibrarySeries-${operationId}`,
+        ),
+      )
+
+      let filteredSeries = allSeries
+
+      if (query) {
+        filteredSeries = this.filterSeriesByQuery(allSeries, query)
+        this.logger.log(
+          {
+            id: operationId,
+            query,
+            totalSeries: allSeries.length,
+            filteredCount: filteredSeries.length,
+          },
+          'Filtered library series by query',
+        )
+      }
+
+      const results = this.transformToLibraryResults(filteredSeries)
+      const duration = performance.now() - start
+
+      const validatedResults =
+        SonarrOutputSchemas.librarySearchResultArray.parse(results)
+
+      this.logger.log(
+        {
+          id: operationId,
+          query,
+          resultCount: validatedResults.length,
+          duration,
+        },
+        'Library series fetch completed',
+      )
+
+      return validatedResults
+    } catch (error) {
+      const duration = performance.now() - start
+
+      this.logger.error(
+        { id: operationId, query, duration, error: errorMessage(error) },
+        'Failed to fetch library series',
+      )
+
+      throw error
+    }
+  }
+
+  private async getSeriesByTvdbId(
+    tvdbId: number,
+    operationId: string,
+  ): Promise<SonarrSeries | null> {
+    const allSeries = toSonarrSeriesArray(
+      await this.executeWithRetry<SeriesResource[]>(
+        () => getApiV3Series({ client: this.client }),
+        `${this.serviceName}-getSeriesByTvdbId-${operationId}`,
+      ),
+    )
+
+    return allSeries.find(s => s.tvdbId === tvdbId) ?? null
+  }
+
+  private async getSeriesById(
+    seriesId: number,
+    operationId: string,
+  ): Promise<SonarrSeries | null> {
+    try {
+      const data = await this.executeWithRetry<SeriesResource | null>(
+        () =>
+          getApiV3SeriesById({
+            client: this.client,
+            path: { id: seriesId },
+          }),
+        `${this.serviceName}-getSeriesById-${operationId}`,
+      )
+      if (data == null) return null
+      return toSonarrSeries(data)
+    } catch (error) {
+      if (error instanceof MediaApiError && error.response.status === 404) {
+        return null
+      }
+      throw error
+    }
+  }
+
+  private async updateSeries(
+    seriesId: number,
+    updates: Partial<SonarrSeries>,
+    operationId: string,
+  ): Promise<SonarrSeries> {
+    const existing = toSonarrSeries(
+      await this.executeWithRetry<SeriesResource>(
+        () =>
+          getApiV3SeriesById({
+            client: this.client,
+            path: { id: seriesId },
+          }),
+        `${this.serviceName}-getSeriesForUpdate-${operationId}`,
+      ),
+    )
+
+    const merged = { ...existing, ...updates, id: seriesId }
+
+    return toSonarrSeries(
+      await this.executeWithRetry<SeriesResource>(
+        () =>
+          putApiV3SeriesById({
+            client: this.client,
+            path: { id: numericIdAsString(seriesId) },
+            // Domain SonarrRatings uses a local type; SDK expects Ratings.
+            // The shapes are compatible at runtime – only the type names differ.
+            body: merged as unknown as SeriesResourceWritable,
+          }),
+        `${this.serviceName}-updateSeries-${operationId}`,
+      ),
+    )
+  }
+
+  private async getEpisodes(
+    seriesId: number,
+    seasonNumber: number | undefined,
+    operationId: string,
+  ): Promise<EpisodeResource[]> {
+    return toEpisodeResourceArray(
+      await this.executeWithRetry<SdkEpisodeResource[]>(
+        () =>
+          getApiV3Episode({
+            client: this.client,
+            query: {
+              seriesId,
+              ...(seasonNumber !== undefined ? { seasonNumber } : {}),
+            },
+          }),
+        `${this.serviceName}-getEpisodes-${operationId}`,
+      ),
+    )
+  }
+
+  private async getEpisodeById(
+    episodeId: number,
+    operationId: string,
+  ): Promise<EpisodeResource | null> {
+    try {
+      const data = await this.executeWithRetry<SdkEpisodeResource | null>(
+        () =>
+          getApiV3EpisodeById({
+            client: this.client,
+            path: { id: episodeId },
+          }),
+        `${this.serviceName}-getEpisodeById-${operationId}`,
+      )
+      if (data == null) return null
+      return toEpisodeResource(data)
+    } catch (error) {
+      if (error instanceof MediaApiError && error.response.status === 404) {
+        return null
+      }
+      throw error
+    }
+  }
+
+  private async updateEpisodesMonitoring(
+    request: { episodeIds: number[]; monitored: boolean },
+    operationId: string,
+  ): Promise<void> {
+    await this.executeWithRetry(
+      () =>
+        putApiV3EpisodeMonitor({
+          client: this.client,
+          body: {
+            episodeIds: request.episodeIds,
+            monitored: request.monitored,
+          },
+        }),
+      `${this.serviceName}-updateEpisodesMonitoring-${operationId}`,
+    )
+  }
+
+  private async triggerSeriesSearch(
+    seriesId: number,
+    operationId: string,
+  ): Promise<CommandResource> {
+    const command: SeriesSearchCommand = { name: 'SeriesSearch', seriesId }
+    return this.executeWithRetry<CommandResource>(
+      () =>
+        postApiV3Command({
+          client: this.client,
+          body: command,
+        }),
+      `${this.serviceName}-triggerSeriesSearch-${operationId}`,
+    )
+  }
+
+  private async getQueue(operationId: string): Promise<QueueResource[]> {
+    const response = await this.executeWithRetry<QueueResourcePagingResource>(
+      () => getApiV3Queue({ client: this.client, query: { pageSize: 1000 } }),
+      `${this.serviceName}-getQueue-${operationId}`,
+    )
+
+    return response.records ?? []
+  }
+
+  private async removeQueueItem(
+    queueId: number,
+    operationId: string,
+  ): Promise<void> {
+    await this.executeWithRetry(
+      () =>
+        deleteApiV3QueueById({
+          client: this.client,
+          path: { id: queueId },
+          query: { removeFromClient: true },
+        }),
+      `${this.serviceName}-removeQueueItem-${queueId}-${operationId}`,
+    )
+  }
+
+  private async deleteSeries(
+    seriesId: number,
+    options: { deleteFiles?: boolean; addImportListExclusion?: boolean },
+    operationId: string,
+  ): Promise<void> {
+    await this.executeWithRetry(
+      () =>
+        deleteApiV3SeriesById({
+          client: this.client,
+          path: { id: seriesId },
+          query: {
+            deleteFiles: options.deleteFiles,
+            addImportListExclusion: options.addImportListExclusion,
+          },
+        }),
+      `${this.serviceName}-deleteSeries-${operationId}`,
+    )
+  }
+
+  private async deleteEpisodeFile(
+    episodeFileId: number,
+    operationId: string,
+  ): Promise<void> {
+    await this.executeWithRetry(
+      () =>
+        deleteApiV3EpisodefileById({
+          client: this.client,
+          path: { id: episodeFileId },
+        }),
+      `${this.serviceName}-deleteEpisodeFile-${episodeFileId}-${operationId}`,
+    )
+  }
+
+  private async getSeriesConfiguration(operationId: string): Promise<{
+    qualityProfileId: number
+    rootFolderPath: string
+  }> {
+    const [profiles, folders] = await Promise.all([
+      this.executeWithRetry<QualityProfileResource[]>(
+        () => getApiV3Qualityprofile({ client: this.client }),
+        `${this.serviceName}-getQualityProfiles-${operationId}`,
+      ),
+      this.executeWithRetry<RootFolderResource[]>(
+        () => getApiV3Rootfolder({ client: this.client }),
+        `${this.serviceName}-getRootFolders-${operationId}`,
+      ),
+    ])
+
+    if (profiles.length === 0) {
+      throw new Error('No quality profiles found in Sonarr')
+    }
+
+    if (folders.length === 0) {
+      throw new Error('No root folders found in Sonarr')
+    }
+
+    const folderPath = folders[0].path
+    if (folderPath == null) {
+      throw new Error('Root folder returned from Sonarr has no path')
+    }
+
+    const anyProfile = profiles.find(p =>
+      (p.name ?? '').toLowerCase().includes('any'),
+    )
+
+    if (anyProfile) {
+      if (anyProfile.id == null) {
+        throw new Error('"Any" quality profile returned from Sonarr has no ID')
+      }
+      return { qualityProfileId: anyProfile.id, rootFolderPath: folderPath }
+    }
+
+    const firstProfile = profiles[0]
+    if (firstProfile.id == null) {
+      throw new Error('Quality profile returned from Sonarr has no ID')
+    }
+
+    this.logger.warn(
+      { availableProfiles: profiles.map(p => p.name) },
+      'No "Any" quality profile found, using first available profile',
+    )
+
+    return { qualityProfileId: firstProfile.id, rootFolderPath: folderPath }
+  }
+
+  private async addNewSeries(
+    series: SeriesSearchResult,
+    options: MonitorSeriesOptions,
+    operationId: string,
+  ): Promise<MonitorAndDownloadSeriesResult> {
+    this.logger.log(
+      { id: operationId, tvdbId: series.tvdbId },
+      'Getting series configuration',
+    )
+
+    const config = await this.getSeriesConfiguration(operationId)
+
+    this.logger.log(
+      { id: operationId, config },
+      'Determining monitoring strategy',
+    )
+
+    const { monitorType, seasons } = determineMonitoringStrategy(
+      series.seasons,
+      options,
+    )
+
+    const addRequest: AddSeriesRequest = {
+      tvdbId: series.tvdbId,
+      title: series.title,
+      titleSlug: series.titleSlug,
+      qualityProfileId: config.qualityProfileId,
+      rootFolderPath: config.rootFolderPath,
+      monitored: true,
+      monitor: monitorType,
+      seasonFolder: true,
+      useSceneNumbering: false,
+      seriesType: series.seriesType || SonarrSeriesType.STANDARD,
+      searchForMissingEpisodes: true,
+      searchForCutoffUnmetEpisodes: true,
+      seasons,
+      year: series.year,
+      firstAired: series.firstAired,
+      overview: series.overview,
+      network: series.network,
+      certification: series.certification,
+      genres: series.genres,
+    }
+
+    const addedSeries = toSonarrSeries(
+      await this.executeWithRetry<SeriesResource>(
+        () =>
+          postApiV3Series({
+            client: this.client,
+            // Domain AddSeriesRequest uses local enum types; SDK expects SDK types.
+            // The shapes are compatible at runtime – only the enum types differ.
+            body: addRequest as unknown as SeriesResourceWritable,
+          }),
+        `${this.serviceName}-addSeries-${operationId}`,
+      ),
+    )
+
+    const changes: MonitoringChange[] = []
+    if (options.selection) {
+      const episodeChanges = await this.applyEpisodeMonitoring(
+        addedSeries,
+        options.selection,
+        operationId,
+      )
+      changes.push(...episodeChanges)
+    } else {
+      const episodeChanges = await this.monitorAllEpisodesInMonitoredSeasons(
+        addedSeries,
+        operationId,
+      )
+      changes.push(...episodeChanges)
+    }
+
+    const command = await this.triggerSeriesSearch(addedSeries.id, operationId)
+
+    return {
+      success: true,
+      seriesAdded: true,
+      seriesUpdated: false,
+      searchTriggered: true,
+      changes,
+      series: addedSeries,
+      commandId: command.id,
+    }
+  }
+
+  private async updateExistingSeriesMonitoring(
+    existingSeries: SonarrSeries,
+    options: MonitorSeriesOptions,
+    operationId: string,
+  ): Promise<MonitorAndDownloadSeriesResult> {
+    this.logger.log(
+      { id: operationId, seriesId: existingSeries.id },
+      'Updating existing series monitoring',
+    )
+
+    const changes: MonitoringChange[] = []
+    let searchTriggered = false
+    let commandId: number | undefined
+
+    if (!options.selection) {
+      this.logger.log(
+        { id: operationId, seriesId: existingSeries.id },
+        'Monitoring entire series',
+      )
+
+      const updatedSeasons = existingSeries.seasons.map(season => ({
+        ...season,
+        monitored: true,
+      }))
+
+      const updatedSeries = await this.updateSeries(
+        existingSeries.id,
+        { seasons: updatedSeasons, monitored: true },
+        operationId,
+      )
+
+      for (const season of existingSeries.seasons) {
+        if (!season.monitored && season.seasonNumber > 0) {
+          changes.push({ season: season.seasonNumber, action: 'monitored' })
+        }
+      }
+
+      const episodeChanges = await this.monitorAllEpisodesInMonitoredSeasons(
+        updatedSeries,
+        operationId,
+      )
+      changes.push(...episodeChanges)
+
+      if (changes.length > 0) {
+        const command = await this.triggerSeriesSearch(
+          existingSeries.id,
+          operationId,
+        )
+        searchTriggered = true
+        commandId = command.id
+      }
+
+      return {
+        success: true,
+        seriesAdded: false,
+        seriesUpdated: true,
+        searchTriggered,
+        changes,
+        series: updatedSeries,
+        commandId,
+      }
+    }
+
+    const episodeChanges = await this.applyEpisodeMonitoring(
+      existingSeries,
+      options.selection,
+      operationId,
+    )
+    changes.push(...episodeChanges)
+
+    if (changes.length > 0) {
+      const command = await this.triggerSeriesSearch(
+        existingSeries.id,
+        operationId,
+      )
+      searchTriggered = true
+      commandId = command.id
+    }
+
+    return {
+      success: true,
+      seriesAdded: false,
+      seriesUpdated: true,
+      searchTriggered,
+      changes,
+      series: existingSeries,
+      commandId,
+    }
+  }
+
+  private async applyEpisodeMonitoring(
+    series: SonarrSeries,
+    selection: Array<{ season: number; episodes?: number[] }>,
+    operationId: string,
+  ): Promise<MonitoringChange[]> {
+    const changes: MonitoringChange[] = []
+
+    for (const sel of selection) {
+      const episodes = await this.getEpisodesWithRetry(
+        series.id,
+        sel.season,
+        operationId,
+      )
+      this.logger.log(
+        { id: operationId, season: sel.season, episodeCount: episodes.length },
+        'Processing episode monitoring for season',
+      )
+
+      if (!sel.episodes || sel.episodes.length === 0) {
+        this.logger.log(
+          { id: operationId, season: sel.season },
+          'Monitoring entire season',
+        )
+
+        const allEpisodeIds = episodes.map(ep => ep.id)
+        if (allEpisodeIds.length > 0) {
+          await this.updateEpisodesMonitoring(
+            { episodeIds: allEpisodeIds, monitored: true },
+            operationId,
+          )
+          changes.push({ season: sel.season, action: 'monitored' })
+        }
+      } else {
+        this.logger.log(
+          {
+            id: operationId,
+            season: sel.season,
+            selectedEpisodes: sel.episodes,
+          },
+          'Monitoring specific episodes in season',
+        )
+
+        const selectedEpisodeIds = episodes
+          .filter(ep => sel.episodes!.includes(ep.episodeNumber))
+          .map(ep => ep.id)
+
+        const unselectedEpisodeIds = episodes
+          .filter(ep => !sel.episodes!.includes(ep.episodeNumber))
+          .map(ep => ep.id)
+
+        if (selectedEpisodeIds.length > 0) {
+          await this.updateEpisodesMonitoring(
+            { episodeIds: selectedEpisodeIds, monitored: true },
+            operationId,
+          )
+          changes.push({
+            season: sel.season,
+            episodes: sel.episodes,
+            action: 'monitored',
+          })
+        }
+
+        if (unselectedEpisodeIds.length > 0) {
+          await this.updateEpisodesMonitoring(
+            { episodeIds: unselectedEpisodeIds, monitored: false },
+            operationId,
+          )
+
+          const unmonitoredEpisodeNumbers = episodes
+            .filter(ep => !sel.episodes!.includes(ep.episodeNumber))
+            .map(ep => ep.episodeNumber)
+
+          if (unmonitoredEpisodeNumbers.length > 0) {
+            changes.push({
+              season: sel.season,
+              episodes: unmonitoredEpisodeNumbers,
+              action: 'unmonitored',
+            })
+          }
+        }
+      }
+    }
+
+    return changes
+  }
+
+  private async getEpisodesWithRetry(
+    seriesId: number,
+    seasonNumber: number,
+    operationId: string,
+    maxRetries = 3,
+  ): Promise<EpisodeResource[]> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const episodes = await this.getEpisodes(
+        seriesId,
+        seasonNumber,
+        operationId,
+      )
+
+      if (episodes.length > 0) {
+        return episodes
+      }
+
+      if (attempt < maxRetries) {
+        const waitTime = attempt * 2
+        this.logger.log(
+          {
+            id: operationId,
+            seriesId,
+            seasonNumber,
+            attempt,
+            maxRetries,
+            waitTime,
+          },
+          `No episodes found for season ${seasonNumber}, retrying in ${waitTime}s (attempt ${attempt}/${maxRetries})`,
+        )
+        await new Promise(resolve => setTimeout(resolve, waitTime * 1000))
+      }
+    }
+
+    this.logger.warn(
+      { id: operationId, seriesId, seasonNumber, maxRetries },
+      `No episodes found for season ${seasonNumber} after ${maxRetries} attempts`,
+    )
+
+    return []
+  }
+
+  private async monitorAllEpisodesInMonitoredSeasons(
+    series: SonarrSeries,
+    operationId: string,
+  ): Promise<MonitoringChange[]> {
+    const changes: MonitoringChange[] = []
+
+    const monitoredSeasons = series.seasons.filter(
+      season => season.monitored && season.seasonNumber > 0,
+    )
+
+    if (monitoredSeasons.length === 0) {
+      this.logger.log(
+        { id: operationId, seriesId: series.id },
+        'No monitored seasons found, skipping episode monitoring',
+      )
+      return changes
+    }
+
+    this.logger.log(
+      {
+        id: operationId,
+        seriesId: series.id,
+        monitoredSeasons: monitoredSeasons.map(s => s.seasonNumber),
+      },
+      'Monitoring all episodes in monitored seasons',
+    )
+
+    for (const season of monitoredSeasons) {
+      try {
+        const episodes = await this.getEpisodesWithRetry(
+          series.id,
+          season.seasonNumber,
+          operationId,
+        )
+
+        if (episodes.length === 0) {
+          this.logger.warn(
+            {
+              id: operationId,
+              seriesId: series.id,
+              seasonNumber: season.seasonNumber,
+            },
+            'No episodes found for season, skipping',
+          )
+          continue
+        }
+
+        const episodeIds = episodes.map(ep => ep.id)
+
+        await this.updateEpisodesMonitoring(
+          { episodeIds, monitored: true },
+          operationId,
+        )
+
+        this.logger.log(
+          {
+            id: operationId,
+            seriesId: series.id,
+            seasonNumber: season.seasonNumber,
+            episodeCount: episodeIds.length,
+          },
+          'Successfully monitored all episodes in season',
+        )
+
+        changes.push({ season: season.seasonNumber, action: 'monitored' })
+      } catch (error) {
+        this.logger.error(
+          {
+            id: operationId,
+            seriesId: series.id,
+            seasonNumber: season.seasonNumber,
+            error: errorMessage(error),
+          },
+          'Failed to monitor episodes in season',
+        )
+      }
+    }
+
+    return changes
+  }
+
   private async cancelDownloadsForSeries(
     seriesId: number,
     operationId: string,
@@ -1237,9 +1165,7 @@ export class SonarrService {
     )
 
     try {
-      const queue = await this.sonarrClient.getQueue()
-
-      // Find downloads for this series
+      const queue = await this.getQueue(operationId)
       const seriesDownloads = queue.filter(item => item.seriesId === seriesId)
 
       if (seriesDownloads.length === 0) {
@@ -1258,10 +1184,10 @@ export class SonarrService {
       const commandIds: number[] = []
       let canceled = 0
 
-      // Cancel each download
       for (const download of seriesDownloads) {
+        if (download.id == null) continue
         try {
-          await this.sonarrClient.removeQueueItem(download.id)
+          await this.removeQueueItem(download.id, operationId)
           commandIds.push(download.id)
           canceled++
 
@@ -1280,7 +1206,7 @@ export class SonarrService {
               id: operationId,
               seriesId,
               downloadId: download.id,
-              error: error instanceof Error ? error.message : 'Unknown error',
+              error: errorMessage(error),
             },
             'Failed to cancel download, continuing with others',
           )
@@ -1295,20 +1221,13 @@ export class SonarrService {
       return { canceled, commandIds }
     } catch (error) {
       this.logger.error(
-        {
-          id: operationId,
-          seriesId,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
+        { id: operationId, seriesId, error: errorMessage(error) },
         'Failed to get queue for series download cancellation',
       )
       return { canceled: 0, commandIds: [] }
     }
   }
 
-  /**
-   * Cancel downloads for specific episodes
-   */
   private async cancelDownloadsForEpisodes(
     episodeIds: number[],
     operationId: string,
@@ -1319,11 +1238,9 @@ export class SonarrService {
     )
 
     try {
-      const queue = await this.sonarrClient.getQueue()
-
-      // Find downloads for these episodes
+      const queue = await this.getQueue(operationId)
       const episodeDownloads = queue.filter(
-        item => item.episodeId && episodeIds.includes(item.episodeId),
+        item => item.episodeId != null && episodeIds.includes(item.episodeId),
       )
 
       if (episodeDownloads.length === 0) {
@@ -1346,10 +1263,10 @@ export class SonarrService {
       const commandIds: number[] = []
       let canceled = 0
 
-      // Cancel each download
       for (const download of episodeDownloads) {
+        if (download.id == null) continue
         try {
-          await this.sonarrClient.removeQueueItem(download.id)
+          await this.removeQueueItem(download.id, operationId)
           commandIds.push(download.id)
           canceled++
 
@@ -1368,7 +1285,7 @@ export class SonarrService {
               id: operationId,
               downloadId: download.id,
               episodeId: download.episodeId,
-              error: error instanceof Error ? error.message : 'Unknown error',
+              error: errorMessage(error),
             },
             'Failed to cancel episode download, continuing with others',
           )
@@ -1386,7 +1303,7 @@ export class SonarrService {
         {
           id: operationId,
           episodeCount: episodeIds.length,
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: errorMessage(error),
         },
         'Failed to get queue for episode download cancellation',
       )
@@ -1394,9 +1311,6 @@ export class SonarrService {
     }
   }
 
-  /**
-   * Delete entire series with download cancellation
-   */
   private async deleteEntireSeries(
     series: SonarrSeries,
     operationId: string,
@@ -1407,17 +1321,16 @@ export class SonarrService {
     )
 
     try {
-      // Cancel all downloads for the series first
       const downloadResult = await this.cancelDownloadsForSeries(
         series.id,
         operationId,
       )
 
-      // Delete the series
-      await this.sonarrClient.deleteSeries(series.id, {
-        deleteFiles: true, // Always delete files when removing entire series
-        addImportListExclusion: false, // Don't add to exclusion list
-      })
+      await this.deleteSeries(
+        series.id,
+        { deleteFiles: true, addImportListExclusion: false },
+        operationId,
+      )
 
       this.logger.log(
         {
@@ -1430,10 +1343,7 @@ export class SonarrService {
       )
 
       const changes: UnmonitoringChange[] = [
-        {
-          season: 0, // Indicates entire series
-          action: 'deleted_series',
-        },
+        { season: 0, action: 'deleted_series' },
       ]
 
       return {
@@ -1451,7 +1361,7 @@ export class SonarrService {
           id: operationId,
           seriesId: series.id,
           title: series.title,
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: errorMessage(error),
         },
         'Failed to delete entire series',
       )
@@ -1463,14 +1373,11 @@ export class SonarrService {
         downloadsCancel: false,
         canceledDownloads: 0,
         changes: [],
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage(error),
       }
     }
   }
 
-  /**
-   * Apply granular unmonitoring for specific seasons/episodes
-   */
   private async applyGranularUnmonitoring(
     series: SonarrSeries,
     options: UnmonitorSeriesOptionsInput,
@@ -1487,7 +1394,6 @@ export class SonarrService {
     let currentSeries = series
 
     try {
-      // Apply episode-level unmonitoring for each selection
       for (const selection of options.selection!) {
         const episodeChanges = await this.applyEpisodeUnmonitoring(
           currentSeries,
@@ -1498,18 +1404,11 @@ export class SonarrService {
         totalCanceledDownloads += episodeChanges.canceledDownloads
         allCommandIds.push(...episodeChanges.commandIds)
 
-        // Update current series if it was modified
         if (episodeChanges.updatedSeries) {
           currentSeries = episodeChanges.updatedSeries
         }
       }
 
-      // Note: We don't need explicit unmonitoring here since granular unmonitoring
-      // already handled the specific episodes that were requested to be unmonitored.
-      // Explicitly unmonitoring ALL episodes would incorrectly unmonitor episodes
-      // that should remain monitored.
-
-      // Check if any monitored episodes remain in the series
       const shouldDeleteSeries = await this.checkIfSeriesShouldBeDeleted(
         currentSeries.id,
         operationId,
@@ -1522,17 +1421,17 @@ export class SonarrService {
           'No monitored episodes remain, deleting series',
         )
 
-        // Delete the series - check if files should be deleted
-        await this.sonarrClient.deleteSeries(series.id, {
-          deleteFiles: options.deleteFiles ?? false, // Use option or default to false for granular unmonitoring
-          addImportListExclusion: false,
-        })
+        await this.deleteSeries(
+          series.id,
+          {
+            deleteFiles: options.deleteFiles ?? false,
+            addImportListExclusion: false,
+          },
+          operationId,
+        )
 
         seriesDeleted = true
-        changes.push({
-          season: 0, // Indicates entire series
-          action: 'deleted_series',
-        })
+        changes.push({ season: 0, action: 'deleted_series' })
       }
 
       this.logger.log(
@@ -1558,11 +1457,7 @@ export class SonarrService {
       }
     } catch (error) {
       this.logger.error(
-        {
-          id: operationId,
-          seriesId: series.id,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
+        { id: operationId, seriesId: series.id, error: errorMessage(error) },
         'Failed to apply granular unmonitoring',
       )
 
@@ -1573,14 +1468,11 @@ export class SonarrService {
         downloadsCancel: false,
         canceledDownloads: 0,
         changes,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage(error),
       }
     }
   }
 
-  /**
-   * Apply episode-level unmonitoring based on selection
-   */
   private async applyEpisodeUnmonitoring(
     series: SonarrSeries,
     selection: { season: number; episodes?: number[] },
@@ -1602,7 +1494,6 @@ export class SonarrService {
     )
 
     try {
-      // Get all episodes for this season
       const episodes = await this.getEpisodesWithRetry(
         series.id,
         selection.season,
@@ -1618,7 +1509,6 @@ export class SonarrService {
       }
 
       if (!selection.episodes || selection.episodes.length === 0) {
-        // Entire season unmonitoring - unmonitor all episodes in season + season itself
         this.logger.log(
           { id: operationId, season: selection.season },
           'Unmonitoring entire season',
@@ -1626,7 +1516,6 @@ export class SonarrService {
 
         const allEpisodeIds = episodes.map(ep => ep.id)
         if (allEpisodeIds.length > 0) {
-          // Cancel downloads for these episodes first
           const downloadResult = await this.cancelDownloadsForEpisodes(
             allEpisodeIds,
             operationId,
@@ -1634,19 +1523,16 @@ export class SonarrService {
           canceledDownloads += downloadResult.canceled
           commandIds.push(...downloadResult.commandIds)
 
-          // Delete episode files for episodes that have files
           const deletionResult = await this.deleteEpisodeFilesForEpisodes(
             episodes,
             operationId,
           )
 
-          // Unmonitor all episodes in the season
-          await this.sonarrClient.updateEpisodesMonitoring({
-            episodeIds: allEpisodeIds,
-            monitored: false,
-          })
+          await this.updateEpisodesMonitoring(
+            { episodeIds: allEpisodeIds, monitored: false },
+            operationId,
+          )
 
-          // Also unmonitor the season itself at the series level
           const updatedSeasons = currentSeries.seasons.map(season => {
             if (season.seasonNumber === selection.season) {
               return { ...season, monitored: false }
@@ -1654,32 +1540,23 @@ export class SonarrService {
             return season
           })
 
-          currentSeries = await this.sonarrClient.updateSeries(
+          currentSeries = await this.updateSeries(
             currentSeries.id,
-            {
-              seasons: updatedSeasons,
-            },
+            { seasons: updatedSeasons },
+            operationId,
           )
 
-          changes.push({
-            season: selection.season,
-            action: 'unmonitored',
-          })
-
+          changes.push({ season: selection.season, action: 'unmonitored' })
           changes.push({
             season: selection.season,
             action: 'unmonitored_season',
           })
 
           if (deletionResult.deletedFiles > 0) {
-            changes.push({
-              season: selection.season,
-              action: 'deleted_files',
-            })
+            changes.push({ season: selection.season, action: 'deleted_files' })
           }
         }
       } else {
-        // Specific episodes unmonitoring
         this.logger.log(
           {
             id: operationId,
@@ -1689,13 +1566,11 @@ export class SonarrService {
           'Unmonitoring specific episodes in season',
         )
 
-        // Get episode IDs for selected episodes
         const selectedEpisodeIds = episodes
           .filter(ep => selection.episodes!.includes(ep.episodeNumber))
           .map(ep => ep.id)
 
         if (selectedEpisodeIds.length > 0) {
-          // Cancel downloads for these episodes first
           const downloadResult = await this.cancelDownloadsForEpisodes(
             selectedEpisodeIds,
             operationId,
@@ -1703,7 +1578,6 @@ export class SonarrService {
           canceledDownloads += downloadResult.canceled
           commandIds.push(...downloadResult.commandIds)
 
-          // Delete episode files for selected episodes that have files
           const selectedEpisodes = episodes.filter(ep =>
             selection.episodes!.includes(ep.episodeNumber),
           )
@@ -1712,11 +1586,10 @@ export class SonarrService {
             operationId,
           )
 
-          // Unmonitor selected episodes
-          await this.sonarrClient.updateEpisodesMonitoring({
-            episodeIds: selectedEpisodeIds,
-            monitored: false,
-          })
+          await this.updateEpisodesMonitoring(
+            { episodeIds: selectedEpisodeIds, monitored: false },
+            operationId,
+          )
 
           changes.push({
             season: selection.season,
@@ -1732,7 +1605,6 @@ export class SonarrService {
             })
           }
 
-          // Check if this season should be automatically unmonitored (no monitored episodes remain)
           const seasonResult = await this.checkAndUnmonitorSeasonIfEmpty(
             currentSeries,
             selection.season,
@@ -1761,7 +1633,7 @@ export class SonarrService {
           id: operationId,
           seriesId: series.id,
           season: selection.season,
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: errorMessage(error),
         },
         'Failed to apply episode unmonitoring',
       )
@@ -1770,9 +1642,6 @@ export class SonarrService {
     }
   }
 
-  /**
-   * Check if a season should be unmonitored and update series if it has no monitored episodes
-   */
   private async checkAndUnmonitorSeasonIfEmpty(
     series: SonarrSeries,
     seasonNumber: number,
@@ -1784,12 +1653,11 @@ export class SonarrService {
     )
 
     try {
-      // Get all episodes for this season
       const episodes = await this.getEpisodesWithRetry(
         series.id,
         seasonNumber,
         operationId,
-        2, // Reduced retries for season check
+        2,
       )
 
       if (episodes.length === 0) {
@@ -1800,7 +1668,6 @@ export class SonarrService {
         return { seasonUnmonitored: false }
       }
 
-      // Check if any episodes in this season are still monitored
       const monitoredEpisodes = episodes.filter(ep => ep.monitored)
       if (monitoredEpisodes.length > 0) {
         this.logger.log(
@@ -1815,13 +1682,11 @@ export class SonarrService {
         return { seasonUnmonitored: false }
       }
 
-      // No monitored episodes remain, unmonitor the season
       this.logger.log(
         { id: operationId, seriesId: series.id, seasonNumber },
         'No monitored episodes remain in season, unmonitoring season',
       )
 
-      // Update the season to be unmonitored
       const updatedSeasons = series.seasons.map(season => {
         if (season.seasonNumber === seasonNumber) {
           return { ...season, monitored: false }
@@ -1829,10 +1694,11 @@ export class SonarrService {
         return season
       })
 
-      // Update the series in Sonarr
-      const updatedSeries = await this.sonarrClient.updateSeries(series.id, {
-        seasons: updatedSeasons,
-      })
+      const updatedSeries = await this.updateSeries(
+        series.id,
+        { seasons: updatedSeasons },
+        operationId,
+      )
 
       this.logger.log(
         { id: operationId, seriesId: series.id, seasonNumber },
@@ -1846,7 +1712,7 @@ export class SonarrService {
           id: operationId,
           seriesId: series.id,
           seasonNumber,
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: errorMessage(error),
         },
         'Failed to check if season should be unmonitored, assuming should not unmonitor',
       )
@@ -1855,417 +1721,104 @@ export class SonarrService {
   }
 
   /**
-   * Explicitly unmonitor ALL episodes in the entire series to ensure state consistency
-   * This addresses potential inconsistencies between season-level and episode-level monitoring
-   */
-  private async explicitlyUnmonitorAllEpisodesInSeries(
-    seriesId: number,
-    operationId: string,
-  ): Promise<void> {
-    this.logger.log(
-      { id: operationId, seriesId },
-      'EXPLICIT UNMONITOR: Starting to unmonitor all episodes in entire series',
-    )
-
-    try {
-      // Get the series to find all seasons
-      const series = await this.sonarrClient.getSeriesById(seriesId)
-      if (!series) {
-        this.logger.warn(
-          { id: operationId, seriesId },
-          'EXPLICIT UNMONITOR: Series not found, skipping explicit unmonitoring',
-        )
-        return
-      }
-
-      const allEpisodeIds: number[] = []
-
-      // Get all episodes from all seasons (excluding specials)
-      for (const season of series.seasons) {
-        if (season.seasonNumber === 0) continue // Skip specials
-
-        try {
-          const episodes = await this.getEpisodesWithRetry(
-            seriesId,
-            season.seasonNumber,
-            operationId,
-            2,
-          )
-
-          this.logger.log(
-            {
-              id: operationId,
-              seriesId,
-              season: season.seasonNumber,
-              totalEpisodes: episodes.length,
-              monitoredEpisodes: episodes.filter(ep => ep.monitored).length,
-            },
-            `EXPLICIT UNMONITOR: Found episodes in season ${season.seasonNumber}`,
-          )
-
-          // Collect all episode IDs
-          const seasonEpisodeIds = episodes.map(ep => ep.id)
-          allEpisodeIds.push(...seasonEpisodeIds)
-        } catch (error) {
-          this.logger.warn(
-            {
-              id: operationId,
-              seriesId,
-              season: season.seasonNumber,
-              error: error instanceof Error ? error.message : 'Unknown error',
-            },
-            'EXPLICIT UNMONITOR: Failed to get episodes for season, continuing with others',
-          )
-        }
-      }
-
-      if (allEpisodeIds.length === 0) {
-        this.logger.log(
-          { id: operationId, seriesId },
-          'EXPLICIT UNMONITOR: No episodes found in any season',
-        )
-        return
-      }
-
-      this.logger.log(
-        {
-          id: operationId,
-          seriesId,
-          totalEpisodeIds: allEpisodeIds.length,
-        },
-        'EXPLICIT UNMONITOR: Unmonitoring all episodes in series',
-      )
-
-      // Unmonitor ALL episodes in the series
-      await this.sonarrClient.updateEpisodesMonitoring({
-        episodeIds: allEpisodeIds,
-        monitored: false,
-      })
-
-      this.logger.log(
-        {
-          id: operationId,
-          seriesId,
-          totalEpisodesUnmonitored: allEpisodeIds.length,
-        },
-        'EXPLICIT UNMONITOR: Successfully unmonitored all episodes in series',
-      )
-
-      // Wait a moment and then verify the unmonitoring took effect
-      this.logger.log(
-        { id: operationId, seriesId },
-        'EXPLICIT UNMONITOR: Waiting 2 seconds and then verifying unmonitoring took effect',
-      )
-      await new Promise(resolve => setTimeout(resolve, 2000))
-
-      // Verify that episodes are actually unmonitored
-      let totalStillMonitored = 0
-      for (const season of series.seasons) {
-        if (season.seasonNumber === 0) continue // Skip specials
-
-        try {
-          const episodes = await this.getEpisodesWithRetry(
-            seriesId,
-            season.seasonNumber,
-            operationId,
-            2,
-          )
-
-          const stillMonitored = episodes.filter(ep => ep.monitored)
-          if (stillMonitored.length > 0) {
-            totalStillMonitored += stillMonitored.length
-            this.logger.warn(
-              {
-                id: operationId,
-                seriesId,
-                season: season.seasonNumber,
-                stillMonitoredCount: stillMonitored.length,
-                stillMonitoredEpisodes: stillMonitored.map(
-                  ep => ep.episodeNumber,
-                ),
-              },
-              'EXPLICIT UNMONITOR VERIFICATION: Found episodes still monitored after explicit unmonitoring',
-            )
-          } else {
-            this.logger.log(
-              {
-                id: operationId,
-                seriesId,
-                season: season.seasonNumber,
-                totalEpisodes: episodes.length,
-              },
-              'EXPLICIT UNMONITOR VERIFICATION: All episodes in season are properly unmonitored',
-            )
-          }
-        } catch (error) {
-          this.logger.warn(
-            {
-              id: operationId,
-              seriesId,
-              season: season.seasonNumber,
-              error: error instanceof Error ? error.message : 'Unknown error',
-            },
-            'EXPLICIT UNMONITOR VERIFICATION: Failed to verify season, continuing',
-          )
-        }
-      }
-
-      this.logger.log(
-        {
-          id: operationId,
-          seriesId,
-          totalStillMonitored,
-        },
-        `EXPLICIT UNMONITOR VERIFICATION: Found ${totalStillMonitored} episodes still monitored after explicit unmonitoring`,
-      )
-    } catch (error) {
-      this.logger.error(
-        {
-          id: operationId,
-          seriesId,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        'EXPLICIT UNMONITOR: Failed to explicitly unmonitor all episodes in series',
-      )
-      // Don't throw - we want to continue with deletion check even if this fails
-    }
-  }
-
-  /**
-   * Check if a series should be deleted (no monitored episodes remain)
-   * Enhanced with better retry logic and timing considerations
+   * Polls Sonarr until its episode-monitoring state has settled after a bulk
+   * unmonitor operation, then decides whether the series should be deleted.
+   *
+   * Sonarr's state is eventually consistent: a `putApiV3EpisodeMonitor` call
+   * may not be reflected immediately in subsequent `getApiV3Episode` responses.
+   * Instead of a fixed 5s sleep, we retry with exponential backoff
+   * (CONSISTENCY_POLL_BASE_DELAY_MS, 2×, 4×, …) up to
+   * CONSISTENCY_POLL_MAX_ATTEMPTS times. As soon as all non-specials report
+   * zero monitored episodes we return `true`; if monitored episodes persist
+   * after all attempts we return `false` (conservative).
    */
   private async checkIfSeriesShouldBeDeleted(
     seriesId: number,
     operationId: string,
   ): Promise<boolean> {
-    this.logger.log(
-      { id: operationId, seriesId },
-      'DELETION CHECK: Starting check if series should be deleted',
-    )
-
-    try {
-      // Wait longer for changes to propagate in Sonarr
-      this.logger.log(
-        { id: operationId, seriesId },
-        'DELETION CHECK: Waiting 5 seconds for Sonarr changes to propagate',
+    for (let attempt = 1; attempt <= CONSISTENCY_POLL_MAX_ATTEMPTS; attempt++) {
+      await new Promise(resolve =>
+        setTimeout(
+          resolve,
+          CONSISTENCY_POLL_BASE_DELAY_MS * Math.pow(2, attempt - 1),
+        ),
       )
-      await new Promise(resolve => setTimeout(resolve, 5000))
 
-      // Get the updated series information with retry
-      let series = null
-      this.logger.log(
-        { id: operationId, seriesId },
-        'DELETION CHECK: Retrieving updated series information',
-      )
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          series = await this.sonarrClient.getSeriesById(seriesId)
-          if (series) {
-            this.logger.log(
+      try {
+        const series = await this.getSeriesById(seriesId, operationId)
+        if (!series) {
+          this.logger.warn(
+            { id: operationId, seriesId, attempt },
+            'Series not found during deletion check',
+          )
+          return false
+        }
+
+        let totalMonitoredEpisodes = 0
+
+        for (const season of series.seasons) {
+          if (season.seasonNumber === 0) continue
+
+          try {
+            const episodes = await this.getEpisodesWithRetry(
+              seriesId,
+              season.seasonNumber,
+              operationId,
+              2,
+            )
+            totalMonitoredEpisodes += episodes.filter(ep => ep.monitored).length
+          } catch (error) {
+            this.logger.warn(
               {
                 id: operationId,
                 seriesId,
+                season: season.seasonNumber,
                 attempt,
-                seriesTitle: series.title,
-                totalSeasons: series.seasons.length,
+                error: errorMessage(error),
               },
-              'DELETION CHECK: Successfully retrieved series information',
+              'Failed to check episodes in season, assuming monitored (conservative approach)',
             )
-            break
+            return false
           }
-        } catch (error) {
-          this.logger.warn(
-            {
-              id: operationId,
-              seriesId,
-              attempt,
-              maxAttempts: 3,
-              error: error instanceof Error ? error.message : 'Unknown error',
-            },
-            'DELETION CHECK: Failed to retrieve series information, retrying',
-          )
-          if (attempt === 3) throw error
-          await new Promise(resolve => setTimeout(resolve, 1000 * attempt))
         }
-      }
 
-      if (!series) {
-        this.logger.warn(
-          { id: operationId, seriesId },
-          'DELETION CHECK: Series not found during deletion check',
-        )
-        return false
-      }
-
-      this.logger.log(
-        {
-          id: operationId,
-          seriesId,
-          seasonCount: series.seasons.length,
-          monitoredSeasonCount: series.seasons.filter(
-            s => s.monitored && s.seasonNumber > 0,
-          ).length,
-          allSeasons: series.seasons.map(s => ({
-            number: s.seasonNumber,
-            monitored: s.monitored,
-            episodeCount: s.statistics?.episodeCount,
-          })),
-        },
-        'DELETION CHECK: Analyzing series for deletion eligibility',
-      )
-
-      // Check all seasons (excluding specials - season 0)
-      let totalMonitoredEpisodes = 0
-      const seasonResults: Array<{
-        season: number
-        monitoredEpisodes: number
-        error?: string
-      }> = []
-
-      for (const season of series.seasons) {
-        if (season.seasonNumber === 0) continue // Skip specials
-
-        this.logger.log(
-          {
-            id: operationId,
-            seriesId,
-            season: season.seasonNumber,
-            seasonMonitored: season.monitored,
-            seasonEpisodeCount: season.statistics?.episodeCount,
-          },
-          'DELETION CHECK: Analyzing season for monitored episodes',
-        )
-
-        let seasonMonitoredCount = 0
-        let seasonError: string | undefined
-
-        try {
-          const episodes = await this.getEpisodesWithRetry(
-            seriesId,
-            season.seasonNumber,
-            operationId,
-            4, // Increased retries for better reliability
+        if (totalMonitoredEpisodes === 0) {
+          this.logger.log(
+            { id: operationId, seriesId, attempt },
+            'No monitored episodes remain — series will be deleted',
           )
+          return true
+        }
 
-          // Check if any episodes in this season are still monitored
-          const monitoredEpisodes = episodes.filter(ep => ep.monitored)
-          const unmonitoredEpisodes = episodes.filter(ep => !ep.monitored)
-          seasonMonitoredCount = monitoredEpisodes.length
-          totalMonitoredEpisodes += seasonMonitoredCount
-
+        if (attempt < CONSISTENCY_POLL_MAX_ATTEMPTS) {
           this.logger.log(
             {
               id: operationId,
               seriesId,
-              season: season.seasonNumber,
-              totalEpisodes: episodes.length,
-              monitoredEpisodes: seasonMonitoredCount,
-              unmonitoredEpisodes: unmonitoredEpisodes.length,
-              monitoredEpisodeNumbers: monitoredEpisodes.map(
-                ep => ep.episodeNumber,
-              ),
+              totalMonitoredEpisodes,
+              attempt,
+              maxAttempts: CONSISTENCY_POLL_MAX_ATTEMPTS,
             },
-            `DELETION CHECK: Season ${season.seasonNumber} episode analysis`,
+            'Monitored episodes still present, retrying consistency check',
           )
-
-          if (seasonMonitoredCount > 0) {
-            this.logger.log(
-              {
-                id: operationId,
-                seriesId,
-                season: season.seasonNumber,
-                monitoredCount: seasonMonitoredCount,
-                totalEpisodes: episodes.length,
-                monitoredEpisodeNumbers: monitoredEpisodes.map(
-                  ep => ep.episodeNumber,
-                ),
-              },
-              'DELETION CHECK: Found monitored episodes in season - series should NOT be deleted',
-            )
-          } else {
-            this.logger.log(
-              {
-                id: operationId,
-                seriesId,
-                season: season.seasonNumber,
-                totalEpisodes: episodes.length,
-              },
-              'DELETION CHECK: No monitored episodes found in season',
-            )
-          }
-        } catch (error) {
-          seasonError = error instanceof Error ? error.message : 'Unknown error'
-          this.logger.warn(
-            {
-              id: operationId,
-              seriesId,
-              season: season.seasonNumber,
-              error: seasonError,
-            },
-            'Failed to check episodes in season, assuming monitored (conservative approach)',
+        } else {
+          this.logger.log(
+            { id: operationId, seriesId, totalMonitoredEpisodes },
+            'Monitored episodes remain after all attempts — series will not be deleted',
           )
-          // If we can't check a season, assume it has monitored episodes (safer approach)
-          return false
         }
-
-        seasonResults.push({
-          season: season.seasonNumber,
-          monitoredEpisodes: seasonMonitoredCount,
-          error: seasonError,
-        })
-      }
-
-      this.logger.log(
-        {
-          id: operationId,
-          seriesId,
-          totalMonitoredEpisodes,
-          seasonResults,
-        },
-        'DELETION CHECK: Series deletion check completed - detailed results',
-      )
-
-      const shouldDelete = totalMonitoredEpisodes === 0
-      if (shouldDelete) {
-        this.logger.log(
-          {
-            id: operationId,
-            seriesId,
-            totalMonitoredEpisodes,
-            seasonResults,
-          },
-          'DELETION CHECK RESULT: No monitored episodes found, series SHOULD be deleted',
+      } catch (error) {
+        this.logger.error(
+          { id: operationId, seriesId, attempt, error: errorMessage(error) },
+          'Failed to check if series should be deleted, assuming should not delete',
         )
-      } else {
-        this.logger.log(
-          {
-            id: operationId,
-            seriesId,
-            totalMonitoredEpisodes,
-            seasonResults,
-          },
-          'DELETION CHECK RESULT: Monitored episodes remain, series should NOT be deleted',
-        )
+        return false
       }
-
-      return shouldDelete
-    } catch (error) {
-      this.logger.error(
-        {
-          id: operationId,
-          seriesId,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        'Failed to check if series should be deleted, assuming should not delete',
-      )
-      return false
     }
+
+    return false
   }
 
-  /**
-   * Delete episode files for episodes that have files
-   */
   private async deleteEpisodeFilesForEpisodes(
     episodes: EpisodeResource[],
     operationId: string,
@@ -2275,7 +1828,6 @@ export class SonarrService {
       'Deleting episode files for episodes',
     )
 
-    // Filter episodes that have files
     const episodesWithFiles = episodes.filter(
       ep => ep.hasFile && ep.episodeFileId,
     )
@@ -2300,12 +1852,11 @@ export class SonarrService {
     let deletedFiles = 0
     let failedDeletions = 0
 
-    // Delete each episode file
     for (const episode of episodesWithFiles) {
       if (!episode.episodeFileId) continue
 
       try {
-        await this.sonarrClient.deleteEpisodeFile(episode.episodeFileId)
+        await this.deleteEpisodeFile(episode.episodeFileId, operationId)
         deletedFiles++
 
         this.logger.log(
@@ -2327,7 +1878,7 @@ export class SonarrService {
             episodeFileId: episode.episodeFileId,
             seasonEpisode: `S${episode.seasonNumber.toString().padStart(2, '0')}E${episode.episodeNumber.toString().padStart(2, '0')}`,
             title: episode.title,
-            error: error instanceof Error ? error.message : 'Unknown error',
+            error: errorMessage(error),
           },
           'Failed to delete episode file, continuing with others',
         )
@@ -2348,615 +1899,78 @@ export class SonarrService {
     return { deletedFiles, failedDeletions }
   }
 
-  /**
-   * Check if the provided selection represents all currently monitored content in the series
-   */
-  private async doesSelectionRepresentAllMonitoredContent(
-    series: SonarrSeries,
-    selection: Array<{ season: number; episodes?: number[] }>,
-    operationId: string,
-  ): Promise<boolean> {
-    this.logger.log(
-      {
-        id: operationId,
-        seriesId: series.id,
-        selection,
-        allSeasons: series.seasons.map(s => ({
-          number: s.seasonNumber,
-          monitored: s.monitored,
-          episodeCount: s.statistics?.episodeCount,
-        })),
-      },
-      'Checking if selection represents all monitored content',
-    )
+  private filterSeriesByQuery(
+    series: SonarrSeries[],
+    query: string,
+  ): SonarrSeries[] {
+    const normalizedQuery = query.toLowerCase().trim()
 
-    try {
-      // Get all monitored seasons (excluding specials - season 0)
-      const monitoredSeasons = series.seasons.filter(
-        season => season.monitored && season.seasonNumber > 0,
-      )
-
-      this.logger.log(
-        {
-          id: operationId,
-          seriesId: series.id,
-          monitoredSeasonNumbers: monitoredSeasons.map(s => s.seasonNumber),
-          totalSeasonCount: series.seasons.length,
-        },
-        'Found monitored seasons in series',
-      )
-
-      if (monitoredSeasons.length === 0) {
-        this.logger.log(
-          { id: operationId, seriesId: series.id },
-          'No monitored seasons found in series - cannot determine if selection represents all content',
+    return series.filter(s => {
+      if (s.title.toLowerCase().includes(normalizedQuery)) return true
+      if (
+        s.alternateTitles?.some(alt =>
+          alt.title.toLowerCase().includes(normalizedQuery),
         )
-        return false
-      }
-
-      // Create a map of seasons in the selection for quick lookup
-      const selectionMap = new Map<number, number[] | undefined>()
-      for (const sel of selection) {
-        selectionMap.set(sel.season, sel.episodes)
-      }
-
-      // Check each monitored season
-      for (const monitoredSeason of monitoredSeasons) {
-        const seasonNumber = monitoredSeason.seasonNumber
-        const seasonInSelection = selectionMap.has(seasonNumber)
-        const episodeSelection = selectionMap.get(seasonNumber)
-
-        this.logger.log(
-          {
-            id: operationId,
-            seriesId: series.id,
-            seasonNumber,
-            seasonInSelection,
-            episodeSelection,
-            isEntireSeasonSelected:
-              seasonInSelection && episodeSelection === undefined,
-          },
-          'Checking monitored season against selection',
-        )
-
-        if (!seasonInSelection) {
-          // This monitored season is not in the selection at all
-          this.logger.log(
-            {
-              id: operationId,
-              seriesId: series.id,
-              seasonNumber,
-            },
-            'SELECTION CHECK FAILED: Monitored season not found in selection',
-          )
-          return false
-        }
-
-        if (episodeSelection && episodeSelection.length > 0) {
-          // Specific episodes are selected, need to verify all monitored episodes are included
-          try {
-            const episodes = await this.getEpisodesWithRetry(
-              series.id,
-              seasonNumber,
-              operationId,
-              2,
-            )
-
-            const monitoredEpisodes = episodes.filter(ep => ep.monitored)
-            const monitoredEpisodeNumbers = monitoredEpisodes.map(
-              ep => ep.episodeNumber,
-            )
-
-            this.logger.log(
-              {
-                id: operationId,
-                seriesId: series.id,
-                seasonNumber,
-                totalEpisodes: episodes.length,
-                monitoredEpisodeNumbers,
-                selectionEpisodeNumbers: episodeSelection,
-              },
-              'Comparing monitored episodes with episode selection',
-            )
-
-            // Check if all monitored episodes are in the selection
-            for (const monitoredEpisodeNum of monitoredEpisodeNumbers) {
-              if (!episodeSelection.includes(monitoredEpisodeNum)) {
-                this.logger.log(
-                  {
-                    id: operationId,
-                    seriesId: series.id,
-                    seasonNumber,
-                    missingEpisode: monitoredEpisodeNum,
-                    selectionEpisodeNumbers: episodeSelection,
-                  },
-                  'SELECTION CHECK FAILED: Monitored episode not found in selection',
-                )
-                return false
-              }
-            }
-          } catch (error) {
-            this.logger.warn(
-              {
-                id: operationId,
-                seriesId: series.id,
-                seasonNumber,
-                error: error instanceof Error ? error.message : 'Unknown error',
-              },
-              'Failed to check episodes for season, assuming not complete selection',
-            )
-            return false
-          }
-        }
-        // If episodeSelection is empty array or undefined, it means entire season is selected, which is fine
-      }
-
-      this.logger.log(
-        {
-          id: operationId,
-          seriesId: series.id,
-          monitoredSeasonCount: monitoredSeasons.length,
-          selectionSeasonCount: selection.length,
-        },
-        'SELECTION CHECK PASSED: Selection represents all monitored content in series',
       )
-      return true
-    } catch (error) {
-      this.logger.error(
-        {
-          id: operationId,
-          seriesId: series.id,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        'Failed to check if selection represents all monitored content',
-      )
+        return true
+      if (s.year?.toString().includes(normalizedQuery)) return true
+      if (s.network?.toLowerCase().includes(normalizedQuery)) return true
+      if (s.genres.some(genre => genre.toLowerCase().includes(normalizedQuery)))
+        return true
+      if (s.overview?.toLowerCase().includes(normalizedQuery)) return true
       return false
-    }
+    })
   }
 
-  /**
-   * Get comprehensive series details with enhanced statistics
-   * @param seriesId - Internal Sonarr series ID
-   * @returns Enhanced series information with calculated statistics
-   */
-  async getSeriesDetails(seriesId: number): Promise<SeriesDetails> {
-    const id = nanoid()
+  private transformToLibraryResults(
+    series: SonarrSeries[],
+  ): LibrarySearchResult[] {
+    return series.map(s => ({
+      tvdbId: s.tvdbId,
+      tmdbId: s.tmdbId,
+      imdbId: s.imdbId,
+      title: s.title,
+      titleSlug: s.titleSlug,
+      sortTitle: s.sortTitle,
+      year: s.year,
+      firstAired: s.firstAired,
+      lastAired: s.lastAired,
+      overview: s.overview,
+      runtime: s.runtime,
+      network: s.network,
+      status: s.status,
+      seriesType: s.seriesType,
+      seasons: s.seasons,
+      genres: s.genres,
+      rating: s.ratings.imdb?.value,
+      posterPath: s.images.find(img => img.coverType === 'poster')?.remoteUrl,
+      backdropPath: s.images.find(img => img.coverType === 'fanart')?.remoteUrl,
+      certification: s.certification,
+      ended: s.ended,
+      id: s.id,
+      monitored: s.monitored,
+      path: s.path,
+      statistics: s.statistics,
+      added: s.added,
+    }))
+  }
 
-    this.logger.log({ id, seriesId }, 'Getting series details')
-
+  private validateMonitorSeriesOptions(
+    options: MonitorSeriesOptions,
+  ): MonitorSeriesOptionsInput {
     try {
-      const start = performance.now()
-
-      // Get the series data
-      const series = await this.sonarrClient.getSeriesById(seriesId)
-      if (!series) {
-        throw new Error(`Series with ID ${seriesId} not found`)
-      }
-
-      // Get all episodes for the series to calculate statistics
-      const allEpisodes = await this.sonarrClient.getEpisodes(seriesId)
-
-      // Calculate enhanced statistics
-      const totalSeasons = series.seasons.filter(s => s.seasonNumber > 0).length
-      const monitoredSeasons = series.seasons.filter(
-        s => s.monitored && s.seasonNumber > 0,
-      ).length
-
-      const totalEpisodes = allEpisodes.filter(ep => ep.seasonNumber > 0).length
-      const availableEpisodes = allEpisodes.filter(
-        ep => ep.hasFile && ep.seasonNumber > 0,
-      ).length
-      const monitoredEpisodes = allEpisodes.filter(
-        ep => ep.monitored && ep.seasonNumber > 0,
-      ).length
-      const downloadedEpisodes = availableEpisodes
-      const missingEpisodes = monitoredEpisodes - downloadedEpisodes
-
-      // Calculate total size on disk
-      let totalSizeOnDisk = 0
-      if (series.statistics) {
-        totalSizeOnDisk = series.statistics.sizeOnDisk
-      }
-
-      // Calculate completion percentage
-      const completionPercentage =
-        totalEpisodes > 0 ? (downloadedEpisodes / totalEpisodes) * 100 : 0
-
-      // Determine completion status
-      const isCompleted = series.ended && completionPercentage === 100
-      const hasAllEpisodes = missingEpisodes === 0
-
-      const seriesDetails: SeriesDetails = {
-        id: series.id,
-        title: series.title,
-        titleSlug: series.titleSlug,
-        sortTitle: series.sortTitle,
-        overview: series.overview,
-        status: series.status,
-        ended: series.ended,
-        network: series.network,
-        airTime: series.airTime,
-        certification: series.certification,
-        genres: series.genres,
-        year: series.year,
-        firstAired: series.firstAired,
-        lastAired: series.lastAired,
-        runtime: series.runtime,
-        tvdbId: series.tvdbId,
-        tmdbId: series.tmdbId,
-        imdbId: series.imdbId,
-        seriesType: series.seriesType,
-        path: series.path,
-        monitored: series.monitored,
-        qualityProfileId: series.qualityProfileId,
-        seasonFolder: series.seasonFolder,
-        added: series.added,
-        images: series.images,
-        ratings: series.ratings,
-        // Enhanced statistics
-        totalSeasons,
-        monitoredSeasons,
-        totalEpisodes,
-        availableEpisodes,
-        monitoredEpisodes,
-        downloadedEpisodes,
-        missingEpisodes,
-        totalSizeOnDisk,
-        completionPercentage: Math.round(completionPercentage * 100) / 100,
-        seasons: series.seasons,
-        // Additional metadata
-        isCompleted,
-        hasAllEpisodes,
-      }
-
-      const duration = performance.now() - start
-
-      // Validate output
-      const validatedDetails =
-        SonarrOutputSchemas.seriesDetails.parse(seriesDetails)
-
-      this.logger.log(
-        {
-          id,
-          seriesId,
-          title: series.title,
-          totalEpisodes,
-          downloadedEpisodes,
-          completionPercentage: validatedDetails.completionPercentage,
-          duration,
-        },
-        'Series details retrieved successfully',
-      )
-
-      return validatedDetails
+      return SonarrInputSchemas.monitorSeriesOptions.parse(options)
     } catch (error) {
       this.logger.error(
-        {
-          id,
-          seriesId,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        'Failed to get series details',
+        { options, error: errorMessage(error) },
+        'Invalid monitor series options input',
       )
-      throw error
+      throw new Error(
+        `Invalid monitor series options: ${error instanceof Error ? error.message : 'Unknown validation error'}`,
+      )
     }
   }
 
-  /**
-   * Get comprehensive season details with episode information
-   * @param seriesId - Internal Sonarr series ID
-   * @param seasonNumber - Season number (0 for specials)
-   * @returns Enhanced season information with episode breakdown
-   */
-  async getSeasonDetails(
-    seriesId: number,
-    seasonNumber: number,
-  ): Promise<SeasonDetails> {
-    const id = nanoid()
-
-    this.logger.log({ id, seriesId, seasonNumber }, 'Getting season details')
-
-    try {
-      const start = performance.now()
-
-      // Get the series data to get series title and season info
-      const series = await this.sonarrClient.getSeriesById(seriesId)
-      if (!series) {
-        throw new Error(`Series with ID ${seriesId} not found`)
-      }
-
-      // Find the specific season
-      const season = series.seasons.find(s => s.seasonNumber === seasonNumber)
-      if (!season) {
-        throw new Error(
-          `Season ${seasonNumber} not found for series ${series.title}`,
-        )
-      }
-
-      // Get all episodes for this season
-      const episodes = await this.sonarrClient.getEpisodes(
-        seriesId,
-        seasonNumber,
-      )
-
-      // Get episode files for size calculation
-      const episodeFiles = await this.sonarrClient.getEpisodeFiles({
-        seriesId,
-        seasonNumber,
-      })
-
-      // Create episode file map for quick lookup
-      const episodeFileMap = new Map(episodeFiles.map(file => [file.id, file]))
-
-      // Calculate season statistics
-      const totalEpisodes = episodes.length
-      const availableEpisodes = episodes.filter(ep => ep.hasFile).length
-      const monitoredEpisodes = episodes.filter(ep => ep.monitored).length
-      const downloadedEpisodes = availableEpisodes
-      const missingEpisodes = monitoredEpisodes - downloadedEpisodes
-
-      // Calculate size on disk
-      const sizeOnDisk = episodeFiles.reduce(
-        (total, file) => total + file.size,
-        0,
-      )
-
-      // Calculate completion percentage
-      const completionPercentage =
-        totalEpisodes > 0 ? (downloadedEpisodes / totalEpisodes) * 100 : 0
-
-      // Determine completion status
-      const isCompleted = completionPercentage === 100
-      const hasAllEpisodes = missingEpisodes === 0
-
-      // Format episodes with additional details
-      const formattedEpisodes = episodes.map(episode => {
-        let fileSize: number | undefined
-        let quality: string | undefined
-
-        if (episode.episodeFileId) {
-          const episodeFile = episodeFileMap.get(episode.episodeFileId)
-          if (episodeFile) {
-            fileSize = episodeFile.size
-            quality = episodeFile.quality.quality.name
-          }
-        }
-
-        return {
-          id: episode.id,
-          episodeNumber: episode.episodeNumber,
-          title: episode.title,
-          monitored: episode.monitored,
-          hasFile: episode.hasFile,
-          airDate: episode.airDate,
-          overview: episode.overview,
-          runtime: episode.runtime,
-          episodeFileId: episode.episodeFileId,
-          fileSize,
-          quality,
-        }
-      })
-
-      const seasonDetails: SeasonDetails = {
-        seriesId,
-        seriesTitle: series.title,
-        seasonNumber,
-        monitored: season.monitored,
-        // Season statistics
-        totalEpisodes,
-        availableEpisodes,
-        downloadedEpisodes,
-        missingEpisodes,
-        monitoredEpisodes,
-        sizeOnDisk,
-        completionPercentage: Math.round(completionPercentage * 100) / 100,
-        // Episode breakdown
-        episodes: formattedEpisodes,
-        // Season metadata
-        isCompleted,
-        hasAllEpisodes,
-      }
-
-      const duration = performance.now() - start
-
-      // Validate output
-      const validatedDetails =
-        SonarrOutputSchemas.seasonDetails.parse(seasonDetails)
-
-      this.logger.log(
-        {
-          id,
-          seriesId,
-          seasonNumber,
-          seriesTitle: series.title,
-          totalEpisodes,
-          downloadedEpisodes,
-          completionPercentage: validatedDetails.completionPercentage,
-          duration,
-        },
-        'Season details retrieved successfully',
-      )
-
-      return validatedDetails
-    } catch (error) {
-      this.logger.error(
-        {
-          id,
-          seriesId,
-          seasonNumber,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        'Failed to get season details',
-      )
-      throw error
-    }
-  }
-
-  /**
-   * Get comprehensive episode details with file information
-   * @param episodeId - Internal Sonarr episode ID
-   * @returns Enhanced episode information with file details
-   */
-  async getEpisodeDetails(episodeId: number): Promise<EpisodeDetails> {
-    const id = nanoid()
-
-    this.logger.log({ id, episodeId }, 'Getting episode details')
-
-    try {
-      const start = performance.now()
-
-      // Get the episode data
-      const episode = await this.sonarrClient.getEpisodeById(episodeId)
-      if (!episode) {
-        throw new Error(`Episode with ID ${episodeId} not found`)
-      }
-
-      // Get the series data for series information
-      const series = await this.sonarrClient.getSeriesById(episode.seriesId)
-      if (!series) {
-        throw new Error(
-          `Series with ID ${episode.seriesId} not found for episode`,
-        )
-      }
-
-      // Get episode file information if episode has a file
-      let episodeFile: EpisodeDetails['episodeFile']
-      if (episode.hasFile && episode.episodeFileId) {
-        try {
-          const episodeFiles = await this.sonarrClient.getEpisodeFiles({
-            episodeFileIds: [episode.episodeFileId],
-          })
-
-          if (episodeFiles.length > 0) {
-            const file = episodeFiles[0]
-
-            // Format file size for display
-            const formatBytes = (bytes: number): string => {
-              if (bytes === 0) return '0 B'
-              const k = 1024
-              const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-              const i = Math.floor(Math.log(bytes) / Math.log(k))
-              return (
-                parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-              )
-            }
-
-            episodeFile = {
-              id: file.id,
-              relativePath: file.relativePath,
-              path: file.path,
-              size: file.size,
-              sizeFormatted: formatBytes(file.size),
-              dateAdded: file.dateAdded,
-              releaseGroup: file.releaseGroup,
-              quality: {
-                name: file.quality.quality.name,
-                source: file.quality.quality.source,
-                resolution: file.quality.quality.resolution,
-              },
-              mediaInfo:
-                file.mediaInfo &&
-                typeof file.mediaInfo.height === 'number' &&
-                typeof file.mediaInfo.width === 'number'
-                  ? {
-                      audioChannels: file.mediaInfo.audioChannels,
-                      audioCodec: file.mediaInfo.audioCodec,
-                      height: file.mediaInfo.height,
-                      width: file.mediaInfo.width,
-                      videoCodec: file.mediaInfo.videoCodec,
-                      subtitles: file.mediaInfo.subtitles
-                        ? Array.isArray(file.mediaInfo.subtitles)
-                          ? file.mediaInfo.subtitles
-                          : (file.mediaInfo.subtitles as unknown as string)
-                              .split(',')
-                              .map((s: string) => s.trim())
-                              .filter((s: string) => s.length > 0)
-                        : undefined,
-                    }
-                  : undefined,
-            }
-          }
-        } catch (error) {
-          this.logger.warn(
-            {
-              id,
-              episodeId,
-              episodeFileId: episode.episodeFileId,
-              error: error instanceof Error ? error.message : 'Unknown error',
-            },
-            'Failed to get episode file details, continuing without file info',
-          )
-        }
-      }
-
-      // Determine episode status
-      const isAvailable = episode.hasFile
-      const isMonitored = episode.monitored
-      const isDownloaded = episode.hasFile
-      const isMissing = episode.monitored && !episode.hasFile
-
-      const episodeDetails: EpisodeDetails = {
-        id: episode.id,
-        seriesId: episode.seriesId,
-        seasonNumber: episode.seasonNumber,
-        episodeNumber: episode.episodeNumber,
-        title: episode.title,
-        monitored: episode.monitored,
-        hasFile: episode.hasFile,
-        airDate: episode.airDate,
-        overview: episode.overview,
-        runtime: episode.runtime,
-        absoluteEpisodeNumber: episode.absoluteEpisodeNumber,
-        // Series information
-        seriesTitle: series.title,
-        seriesYear: series.year || 0,
-        seriesStatus: series.status,
-        // File information
-        episodeFile,
-        // Episode status
-        isAvailable,
-        isMonitored,
-        isDownloaded,
-        isMissing,
-      }
-
-      const duration = performance.now() - start
-
-      // Validate output
-      const validatedDetails =
-        SonarrOutputSchemas.episodeDetails.parse(episodeDetails)
-
-      this.logger.log(
-        {
-          id,
-          episodeId,
-          seriesTitle: series.title,
-          seasonEpisode: `S${episode.seasonNumber.toString().padStart(2, '0')}E${episode.episodeNumber.toString().padStart(2, '0')}`,
-          title: episode.title,
-          hasFile: episode.hasFile,
-          monitored: episode.monitored,
-          duration,
-        },
-        'Episode details retrieved successfully',
-      )
-
-      return validatedDetails as EpisodeDetails
-    } catch (error) {
-      this.logger.error(
-        {
-          id,
-          episodeId,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-        'Failed to get episode details',
-      )
-      throw error
-    }
-  }
-
-  /**
-   * Validate unmonitor series options input
-   */
   private validateUnmonitorSeriesOptions(
     options: UnmonitorSeriesOptions,
   ): UnmonitorSeriesOptionsInput {
@@ -2964,10 +1978,7 @@ export class SonarrService {
       return SonarrInputSchemas.unmonitorSeriesOptions.parse(options)
     } catch (error) {
       this.logger.error(
-        {
-          options,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
+        { options, error: errorMessage(error) },
         'Invalid unmonitor series options input',
       )
       throw new Error(
