@@ -33,8 +33,6 @@ import {
   deleteApiV3QueueById,
   deleteApiV3SeriesById,
   getApiV3Episode,
-  getApiV3EpisodeById,
-  getApiV3Episodefile,
   getApiV3Qualityprofile,
   getApiV3Queue,
   getApiV3Rootfolder,
@@ -74,8 +72,6 @@ const mockGetApiV3Rootfolder = getApiV3Rootfolder as jest.Mock
 const mockPostApiV3Series = postApiV3Series as jest.Mock
 const mockPutApiV3SeriesById = putApiV3SeriesById as jest.Mock
 const mockGetApiV3Episode = getApiV3Episode as jest.Mock
-const mockGetApiV3EpisodeById = getApiV3EpisodeById as jest.Mock
-const mockGetApiV3Episodefile = getApiV3Episodefile as jest.Mock
 const mockPutApiV3EpisodeMonitor = putApiV3EpisodeMonitor as jest.Mock
 const mockPostApiV3Command = postApiV3Command as jest.Mock
 const mockGetApiV3Queue = getApiV3Queue as jest.Mock

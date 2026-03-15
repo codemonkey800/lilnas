@@ -30,29 +30,15 @@ jest.mock('@lilnas/media/sonarr', () => ({
 }))
 
 import {
-  deleteApiV3QueueById,
-  deleteApiV3SeriesById,
-  getApiV3Episode,
-  getApiV3EpisodeById,
-  getApiV3Episodefile,
-  getApiV3Qualityprofile,
   getApiV3Queue,
-  getApiV3Rootfolder,
   getApiV3Series,
-  getApiV3SeriesById,
   getApiV3SeriesLookup,
-  postApiV3Command,
-  postApiV3Series,
-  putApiV3EpisodeMonitor,
-  putApiV3SeriesById,
 } from '@lilnas/media/sonarr'
 
 import { RetryConfigService } from 'src/config/retry.config'
 import { SONARR_CLIENT } from 'src/media/clients'
 import { SonarrService } from 'src/media/services/sonarr.service'
 import {
-  EpisodeFileResource,
-  EpisodeResource,
   SonarrImageType,
   SonarrSeason,
   SonarrSeries,
@@ -73,19 +59,7 @@ jest.mock('perf_hooks', () => ({
 // Shorthands
 const mockGetApiV3SeriesLookup = getApiV3SeriesLookup as jest.Mock
 const mockGetApiV3Series = getApiV3Series as jest.Mock
-const mockGetApiV3SeriesById = getApiV3SeriesById as jest.Mock
-const mockGetApiV3Qualityprofile = getApiV3Qualityprofile as jest.Mock
-const mockGetApiV3Rootfolder = getApiV3Rootfolder as jest.Mock
-const mockPostApiV3Series = postApiV3Series as jest.Mock
-const mockPutApiV3SeriesById = putApiV3SeriesById as jest.Mock
-const mockGetApiV3Episode = getApiV3Episode as jest.Mock
-const mockGetApiV3EpisodeById = getApiV3EpisodeById as jest.Mock
-const mockGetApiV3Episodefile = getApiV3Episodefile as jest.Mock
-const mockPutApiV3EpisodeMonitor = putApiV3EpisodeMonitor as jest.Mock
-const mockPostApiV3Command = postApiV3Command as jest.Mock
 const mockGetApiV3Queue = getApiV3Queue as jest.Mock
-const mockDeleteApiV3QueueById = deleteApiV3QueueById as jest.Mock
-const mockDeleteApiV3SeriesById = deleteApiV3SeriesById as jest.Mock
 
 // ─── Factories ────────────────────────────────────────────────────────────────
 
@@ -211,44 +185,6 @@ const createMockSeries = (
     sizeOnDisk: 50000000000,
     percentOfEpisodes: 100,
   },
-  ...overrides,
-})
-
-const createMockEpisode = (
-  overrides: Partial<EpisodeResource> = {},
-): EpisodeResource => ({
-  id: 1001,
-  seriesId: 1,
-  episodeFileId: 0,
-  seasonNumber: 1,
-  episodeNumber: 1,
-  title: 'Pilot',
-  airDate: '2008-01-20',
-  hasFile: false,
-  monitored: true,
-  ...overrides,
-})
-
-const createMockEpisodeFile = (
-  overrides: Partial<EpisodeFileResource> = {},
-): EpisodeFileResource => ({
-  id: 2001,
-  seriesId: 1,
-  seasonNumber: 1,
-  relativePath: 'Season 01/Breaking.Bad.S01E01.mkv',
-  path: '/tv/Breaking Bad/Season 01/Breaking.Bad.S01E01.mkv',
-  size: 1073741824,
-  dateAdded: '2023-01-01T00:00:00Z',
-  quality: {
-    quality: {
-      id: 7,
-      name: 'Bluray-1080p',
-      source: 'bluray',
-      resolution: 1080,
-    },
-    revision: { version: 1, real: 0, isRepack: false },
-  },
-  languages: [{ id: 1, name: 'English' }],
   ...overrides,
 })
 
