@@ -1,0 +1,47 @@
+{
+  "name": "@lilnas/cli",
+  "version": "0.2.0",
+  "description": "Lil Nas CLI for managing monorepo services",
+  "private": true,
+  "type": "commonjs",
+  "packageManager": "pnpm@10.18.2",
+  "prettier": "@lilnas/prettier",
+  "bin": {
+    "lilnas": "./bin/run.js"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "clean": "rm -rf dist/ .turbo/ tsconfig.tsbuildinfo",
+    "lint": "run-p -l 'lint:!(fix)'",
+    "lint:eslint": "eslint src",
+    "lint:prettier": "prettier -c src",
+    "lint:fix": "run-p -l lint:*:fix",
+    "lint:eslint:fix": "eslint --fix src",
+    "lint:prettier:fix": "prettier -w src",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@oclif/core": "^4.8.4",
+    "js-yaml": "^4.1.1"
+  },
+  "devDependencies": {
+    "@lilnas/eslint": "workspace:*",
+    "@lilnas/prettier": "workspace:*",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^24.7.2",
+    "npm-run-all": "4.1.5",
+    "typescript": "5.9.3"
+  },
+  "oclif": {
+    "bin": "lilnas",
+    "dirname": "lilnas",
+    "commands": {
+      "strategy": "pattern",
+      "target": "./dist/commands"
+    }
+  },
+  "files": [
+    "bin",
+    "dist"
+  ]
+}
