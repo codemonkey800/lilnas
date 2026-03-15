@@ -124,6 +124,7 @@ describe('RadarrOutputSchemas.movieSearchResultArray', () => {
   })
 
   it('should reject a result with a missing required tmdbId', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { tmdbId: _omitted, ...withoutTmdbId } = validMovieSearchResult
 
     expect(() =>
@@ -283,6 +284,7 @@ describe('SonarrOutputSchemas.seriesSearchResultArray', () => {
   })
 
   it('should reject a result missing required tvdbId', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { tvdbId: _omitted, ...withoutTvdbId } = validSeriesSearchResult
 
     expect(() =>
