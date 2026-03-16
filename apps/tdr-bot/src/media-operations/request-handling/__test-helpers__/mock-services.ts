@@ -1,3 +1,5 @@
+import { EMPTY } from 'rxjs'
+
 import { RadarrService } from 'src/media/services/radarr.service'
 import { SonarrService } from 'src/media/services/sonarr.service'
 import { DataFetchingUtilities } from 'src/media-operations/request-handling/utils/data-fetching.utils'
@@ -53,7 +55,9 @@ export function createMockStateService(
       prompt: '',
       ...stateOverrides,
     }),
-    getPrompt: jest.fn(),
+    select: jest.fn().mockReturnValue(EMPTY),
+    changes$: EMPTY,
+    onModuleDestroy: jest.fn(),
   } as unknown as jest.Mocked<StateService>
 }
 

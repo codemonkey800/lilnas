@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { ImageResponseSchema } from './graph'
+
 export const MessageResponseSchema = z.object({
   content: z
     .string()
@@ -8,12 +10,7 @@ export const MessageResponseSchema = z.object({
     ),
 
   images: z
-    .array(
-      z.object({
-        url: z.string().describe('The URL of the image'),
-        title: z.string().describe('The title of the image'),
-      }),
-    )
+    .array(ImageResponseSchema)
     .optional()
     .describe(
       'An array of images to display to the user if the user asks to generate an image using the DALLE tool.',

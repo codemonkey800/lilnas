@@ -2,3 +2,4 @@ export const DEFAULT_MAX_TOKENS = 50_000
 export const REASONING_TEMPERATURE = 0
 export const DEFAULT_CHAT_TEMPERATURE = 0
 export const MAX_SEARCH_RESULTS = 10
+export const MAX_GRAPH_HISTORY_SIZE = 200

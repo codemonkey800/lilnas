@@ -1,18 +1,12 @@
 import { Logger, Module } from '@nestjs/common'
-import { EventEmitterModule } from '@nestjs/event-emitter'
 import { LoggerModule } from 'nestjs-pino'
 
-import { LLMOrchestrationModule } from './message-handler/llm-orchestration.module'
-import { LLMOrchestrationService } from './message-handler/llm-orchestration.service'
+import { LLMModule } from './messages/llm/llm.module'
+import { LLMOrchestrationService } from './messages/llm/llm-orchestration.service'
 import { StateModule } from './state/state.module'
 
 @Module({
-  imports: [
-    EventEmitterModule.forRoot(),
-    LoggerModule.forRoot(),
-    StateModule,
-    LLMOrchestrationModule,
-  ],
+  imports: [LoggerModule.forRoot(), StateModule, LLMModule],
   providers: [],
 })
 export class GraphTestModule {

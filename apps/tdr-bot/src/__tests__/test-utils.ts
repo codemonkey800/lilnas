@@ -1,5 +1,4 @@
 import { DynamicModule, ForwardReference, Provider, Type } from '@nestjs/common'
-import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Test, TestingModule } from '@nestjs/testing'
 import {
   AxiosError,
@@ -15,15 +14,20 @@ import {
   TextChannel,
   User,
 } from 'discord.js'
+import { map, of } from 'rxjs'
 
-import { Message } from 'src/message-handler/types'
-import { OverallStateAnnotation, ResponseType } from 'src/schemas/graph'
+import { Message } from 'src/messages/types'
 import { StateService } from 'src/state/state.service'
-import { ErrorClassificationService } from 'src/utils/error-classifier'
+import {
+  ErrorCategory,
+  ErrorClassificationService,
+  ErrorSeverity,
+  ErrorType,
+} from 'src/utils/error-classifier'
 import { RetryService } from 'src/utils/retry.service'
 
-// Mock factories for Discord.js objects
-export function createMockUser(overrides: Partial<User> = {}): User {
+// Internal Discord.js mock factories
+function createMockUser(overrides: Partial<User> = {}): User {
   const user = {
     id: '123456789',
     username: 'testuser',
@@ -42,7 +46,7 @@ export function createMockUser(overrides: Partial<User> = {}): User {
   return user
 }
 
-export function createMockGuildMember(
+function createMockGuildMember(
   overrides: Partial<GuildMember> = {},
 ): GuildMember {
   const member = {
@@ -63,7 +67,7 @@ export function createMockGuildMember(
   return member
 }
 
-export function createMockGuild(overrides: Partial<Guild> = {}): Guild {
+function createMockGuild(overrides: Partial<Guild> = {}): Guild {
   const guild = {
     id: '987654321',
     name: 'Test Guild',
@@ -81,7 +85,7 @@ export function createMockGuild(overrides: Partial<Guild> = {}): Guild {
   return guild
 }
 
-export function createMockTextChannel(
+function createMockTextChannel(
   overrides: Partial<TextChannel> = {},
 ): TextChannel {
   const channel = {
@@ -101,9 +105,7 @@ export function createMockTextChannel(
   return channel
 }
 
-export function createMockDMChannel(
-  overrides: Partial<DMChannel> = {},
-): DMChannel {
+function createMockDMChannel(overrides: Partial<DMChannel> = {}): DMChannel {
   const channel = {
     id: '444555666',
     type: 1, // ChannelType.DM
@@ -132,6 +134,7 @@ export function createMockMessage(
       user: defaultAuthor,
     } as unknown as Partial<GuildMember>),
     channel: defaultChannel,
+    channelId: defaultChannel.id,
     guild: defaultChannel.guild,
     createdTimestamp: Date.now(),
     createdAt: new Date(),
@@ -154,22 +157,6 @@ export function createMockMessage(
   return message as unknown as Message
 }
 
-// LangGraph state factory
-export function createMockLangGraphState(
-  overrides: Partial<typeof OverallStateAnnotation.State> = {},
-): typeof OverallStateAnnotation.State {
-  return {
-    userInput: 'Test input',
-    messages: [],
-    responseType: ResponseType.Default,
-    images: [],
-    message:
-      null as unknown as (typeof OverallStateAnnotation.State)['message'],
-    userId: 'test-user-id',
-    ...overrides,
-  }
-}
-
 // NestJS testing utilities
 export async function createTestingModule(
   providers: Provider[],
@@ -178,25 +165,7 @@ export async function createTestingModule(
   > = [],
 ): Promise<TestingModule> {
   const module = await Test.createTestingModule({
-    imports: [
-      {
-        module: class TestEventEmitterModule {},
-        providers: [
-          {
-            provide: EventEmitter2,
-            useValue: {
-              emit: jest.fn(),
-              on: jest.fn(),
-              once: jest.fn(),
-              removeListener: jest.fn(),
-              removeAllListeners: jest.fn(),
-            },
-          },
-        ],
-        exports: [EventEmitter2],
-      },
-      ...imports,
-    ],
+    imports,
     providers,
   }).compile()
 
@@ -205,43 +174,27 @@ export async function createTestingModule(
 
 // Mock StateService factory
 export function createMockStateService(): jest.Mocked<StateService> {
+  const mockState = {
+    maxTokens: 1000,
+    temperature: 0.7,
+    chatModel: 'gpt-4-turbo' as const,
+    reasoningModel: 'gpt-4o-mini' as const,
+    prompt: 'Test system prompt',
+    graphHistory: [],
+  }
+
+  const state$ = of(mockState)
+
   return {
     setState: jest.fn(),
-    getState: jest.fn().mockReturnValue({
-      systemPrompt: 'Test system prompt',
-      llmModel: 'gpt-4',
-      maxTokens: 1000,
-      temperature: 0.7,
-      chatModel: 'gpt-4-turbo',
-      reasoningModel: 'gpt-4o-mini',
-      graphHistory: [],
-    }),
-    getPrompt: jest.fn().mockReturnValue('Generated prompt'),
-    onModuleInit: jest.fn(),
-    // Movie context methods
-    setUserMovieContext: jest.fn(),
-    clearUserMovieContext: jest.fn(),
-    getUserMovieContext: jest.fn().mockReturnValue(undefined),
-    isMovieContextExpired: jest.fn().mockReturnValue(false),
-    cleanupExpiredMovieContexts: jest.fn(),
-    // Movie delete context methods
-    setUserMovieDeleteContext: jest.fn(),
-    clearUserMovieDeleteContext: jest.fn(),
-    getUserMovieDeleteContext: jest.fn().mockReturnValue(undefined),
-    isMovieDeleteContextExpired: jest.fn().mockReturnValue(false),
-    cleanupExpiredMovieDeleteContexts: jest.fn(),
-    // TV show context methods
-    setUserTvShowContext: jest.fn(),
-    clearUserTvShowContext: jest.fn(),
-    getUserTvShowContext: jest.fn().mockReturnValue(undefined),
-    isTvShowContextExpired: jest.fn().mockReturnValue(false),
-    cleanupExpiredTvShowContexts: jest.fn(),
-    // TV show delete context methods
-    setUserTvShowDeleteContext: jest.fn(),
-    clearUserTvShowDeleteContext: jest.fn(),
-    getUserTvShowDeleteContext: jest.fn().mockReturnValue(undefined),
-    isTvShowDeleteContextExpired: jest.fn().mockReturnValue(false),
-    cleanupExpiredTvShowDeleteContexts: jest.fn(),
+    getState: jest.fn().mockReturnValue(mockState),
+    select: jest
+      .fn()
+      .mockImplementation((selector: (s: typeof mockState) => unknown) =>
+        state$.pipe(map(selector)),
+      ),
+    changes$: state$,
+    onModuleDestroy: jest.fn(),
   } as unknown as jest.Mocked<StateService>
 }
 
@@ -262,66 +215,13 @@ export function createMockErrorClassificationService(): jest.Mocked<ErrorClassif
   return {
     classifyError: jest.fn().mockReturnValue({
       isRetryable: false,
-      errorType: 'UNKNOWN_ERROR',
-      category: 'SYSTEM',
-      severity: 'HIGH',
+      errorType: ErrorType.UNKNOWN_ERROR,
+      category: ErrorCategory.SYSTEM,
+      severity: ErrorSeverity.HIGH,
     }),
     shouldRetry: jest.fn().mockReturnValue(false),
     getRetryDelay: jest.fn().mockReturnValue(undefined),
   } as unknown as jest.Mocked<ErrorClassificationService>
-}
-
-// LangChain mock utilities
-export function createMockChatOpenAI() {
-  const mock = {
-    invoke: jest.fn().mockResolvedValue({
-      content: 'Mock response',
-      additional_kwargs: {},
-    }),
-    bind: jest.fn().mockReturnThis(),
-    bindTools: jest.fn().mockReturnThis(),
-    withConfig: jest.fn().mockReturnThis(),
-    stream: jest.fn().mockImplementation(async function* () {
-      yield { content: 'Mock' }
-      yield { content: ' streaming' }
-      yield { content: ' response' }
-    }),
-  }
-  // Make bindTools return the mock itself
-  mock.bindTools.mockReturnValue(mock)
-  return mock
-}
-
-export function createMockStateGraph() {
-  const mockGraph = {
-    addNode: jest.fn().mockReturnThis(),
-    addEdge: jest.fn().mockReturnThis(),
-    addConditionalEdges: jest.fn().mockReturnThis(),
-    setEntryPoint: jest.fn().mockReturnThis(),
-    setFinishPoint: jest.fn().mockReturnThis(),
-    compile: jest.fn().mockReturnValue({
-      invoke: jest.fn().mockResolvedValue({
-        messages: [{ content: 'Mock response' }],
-      }),
-      stream: jest.fn().mockImplementation(async function* () {
-        yield { messages: [{ content: 'Mock streaming response' }] }
-      }),
-    }),
-  }
-  return mockGraph
-}
-
-export function createMockToolNode() {
-  return jest.fn().mockImplementation(() =>
-    jest.fn().mockResolvedValue({
-      messages: [
-        {
-          content: 'Tool response',
-          name: 'test_tool',
-        },
-      ],
-    }),
-  )
 }
 
 // Axios mock response factory
@@ -335,8 +235,8 @@ export function createMockAxiosResponse<T = unknown>(data: T, status = 200) {
   }
 }
 
-// Status text mapping for HTTP status codes
-export function getStatusText(status: number): string {
+// Internal status text mapping for HTTP status codes
+function getStatusText(status: number): string {
   const statusTexts: Record<number, string> = {
     200: 'OK',
     201: 'Created',
@@ -430,7 +330,9 @@ export class MessageBuilder {
   }
 
   inDM(): this {
-    this.messageData.channel = createMockDMChannel()
+    const channel = createMockDMChannel()
+    this.messageData.channel = channel
+    this.messageData.channelId = channel.id
     this.messageData.guild = null
     return this
   }
@@ -438,6 +340,7 @@ export class MessageBuilder {
   inGuild(): this {
     const channel = createMockTextChannel()
     this.messageData.channel = channel
+    this.messageData.channelId = channel.id
     this.messageData.guild = channel.guild
     return this
   }
@@ -486,22 +389,4 @@ export class MessageBuilder {
   build(): Message {
     return createMockMessage(this.messageData)
   }
-}
-
-// Wait utility for async tests
-export async function waitFor(
-  callback: () => boolean | Promise<boolean>,
-  timeout = 5000,
-  interval = 100,
-): Promise<void> {
-  const startTime = Date.now()
-
-  while (Date.now() - startTime < timeout) {
-    if (await callback()) {
-      return
-    }
-    await new Promise(resolve => setTimeout(resolve, interval))
-  }
-
-  throw new Error(`Timeout waiting for condition after ${timeout}ms`)
 }

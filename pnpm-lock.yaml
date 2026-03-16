@@ -474,6 +474,9 @@ importers:
       '@langchain/openai':
         specifier: 0.6.15
         version: 0.6.15(@langchain/core@0.3.78(openai@6.3.0(ws@8.19.0)(zod@4.1.12)))(ws@8.19.0)
+      '@langchain/tavily':
+        specifier: ^1.2.0
+        version: 1.2.0(@langchain/core@0.3.78(openai@6.3.0(ws@8.19.0)(zod@4.1.12)))
       '@libsql/client':
         specifier: 0.15.15
         version: 0.15.15
@@ -618,6 +621,9 @@ importers:
       remark:
         specifier: 15.0.1
         version: 15.0.1
+      rxjs:
+        specifier: 7.8.1
+        version: 7.8.1
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -2539,6 +2545,12 @@ packages:
     engines: {node: '>=18'}
     peerDependencies:
       '@langchain/core': '>=0.3.68 <0.4.0'
+
+  '@langchain/tavily@1.2.0':
+    resolution: {integrity: sha512-aPLPgtw8+b/Rnr3H+X8H8z98T/Y7JuCE4B5eqRDHoEWgZvMDUFF7divqwQqCTMq2deQttlVrm5bN5JbKaAR7/w==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@langchain/core': ^1.0.0
 
   '@langchain/textsplitters@0.1.0':
     resolution: {integrity: sha512-djI4uw9rlkAb5iMhtLED+xJebDdAG935AdP4eRTB02R7OB/act55Bj9wsskhZsvuyQRpO4O1wQOp85s6T6GWmw==}
@@ -10930,6 +10942,11 @@ snapshots:
       zod: 3.25.76
     transitivePeerDependencies:
       - ws
+
+  '@langchain/tavily@1.2.0(@langchain/core@0.3.78(openai@6.3.0(ws@8.19.0)(zod@4.1.12)))':
+    dependencies:
+      '@langchain/core': 0.3.78(openai@6.3.0(ws@8.19.0)(zod@4.1.12))
+      zod: 4.3.6
 
   '@langchain/textsplitters@0.1.0(@langchain/core@0.3.78(openai@6.3.0(ws@8.19.0)(zod@4.1.12)))':
     dependencies:
