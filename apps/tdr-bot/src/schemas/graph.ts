@@ -35,12 +35,14 @@ export enum SearchIntent {
   Delete = 'delete',
 }
 
-export const ImageQuerySchema = z.array(
-  z.object({
-    query: z.string(),
-    title: z.string(),
-  }),
-)
+export const ImageQuerySchema = z
+  .array(
+    z.object({
+      query: z.string(),
+      title: z.string(),
+    }),
+  )
+  .max(3)
 
 export const ImageResponseSchema = z.object({
   title: z.string(),

@@ -1,19 +1,10 @@
-import { BaseMessage, SystemMessage } from '@langchain/core/messages'
-import { Injectable, Logger } from '@nestjs/common'
-import { EventEmitter2 } from '@nestjs/event-emitter'
-import dedent from 'dedent'
-import _ from 'lodash'
+import { Injectable, OnModuleDestroy } from '@nestjs/common'
 import { ChatModel } from 'openai/resources/index'
+import { BehaviorSubject, distinctUntilChanged, map, Observable } from 'rxjs'
 
 import { DEFAULT_CHAT_TEMPERATURE, DEFAULT_MAX_TOKENS } from 'src/constants/llm'
 import { OutputStateAnnotation } from 'src/schemas/graph'
-import {
-  EMOJI_DICTIONARY,
-  INPUT_FORMAT,
-  KAWAII_PROMPT,
-  PROMPT_INTRO,
-  TDR_SYSTEM_PROMPT_ID,
-} from 'src/utils/prompts'
+import { KAWAII_PROMPT } from 'src/utils/prompts'
 
 export interface AppState {
   chatModel: ChatModel
@@ -24,58 +15,43 @@ export interface AppState {
   temperature: number
 }
 
-export class StateChangeEvent {
-  constructor(
-    public readonly prevState: AppState,
-    public readonly nextState: Partial<AppState>,
-  ) {}
+const DEFAULT_STATE: AppState = {
+  graphHistory: [],
+  maxTokens: DEFAULT_MAX_TOKENS,
+  chatModel: 'gpt-4-turbo',
+  reasoningModel: 'gpt-4o-mini',
+  prompt: KAWAII_PROMPT,
+  temperature: DEFAULT_CHAT_TEMPERATURE,
 }
 
 @Injectable()
-export class StateService {
-  private logger = new Logger(StateService.name)
+export class StateService implements OnModuleDestroy {
+  private readonly state$ = new BehaviorSubject<AppState>(DEFAULT_STATE)
 
-  constructor(private readonly eventEmitter: EventEmitter2) {}
-
-  private state: AppState = {
-    graphHistory: [],
-    maxTokens: DEFAULT_MAX_TOKENS,
-    chatModel: 'gpt-4-turbo',
-    reasoningModel: 'gpt-4o-mini',
-    prompt: KAWAII_PROMPT,
-    temperature: DEFAULT_CHAT_TEMPERATURE,
+  getState(): AppState {
+    return this.state$.getValue()
   }
 
   setState(
-    state: Partial<AppState> | ((state: AppState) => Partial<AppState>),
-  ) {
-    const prevState = this.state
-    const newState = typeof state === 'function' ? state(prevState) : state
-    const nextState = _.merge({}, prevState, newState)
-    this.state = nextState
-
-    this.eventEmitter.emit(
-      'state.change',
-      new StateChangeEvent(prevState, nextState),
-    )
+    update: Partial<AppState> | ((prev: AppState) => Partial<AppState>),
+  ): void {
+    const prev = this.state$.getValue()
+    const partial = typeof update === 'function' ? update(prev) : update
+    this.state$.next({ ...prev, ...partial })
   }
 
-  getState() {
-    return this.state
+  select<T>(
+    selector: (state: AppState) => T,
+    comparator?: (prev: T, curr: T) => boolean,
+  ): Observable<T> {
+    return this.state$.pipe(map(selector), distinctUntilChanged(comparator))
   }
 
-  getPrompt(): BaseMessage {
-    return new SystemMessage({
-      id: TDR_SYSTEM_PROMPT_ID,
-      content: dedent`
-        ${PROMPT_INTRO}
+  get changes$(): Observable<AppState> {
+    return this.state$.asObservable()
+  }
 
-        ${INPUT_FORMAT}
-
-        ${this.state.prompt}
-
-        ${EMOJI_DICTIONARY}
-      `,
-    })
+  onModuleDestroy() {
+    this.state$.complete()
   }
 }

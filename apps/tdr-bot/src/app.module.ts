@@ -1,6 +1,5 @@
 import { env } from '@lilnas/utils/env'
 import { Module } from '@nestjs/common'
-import { EventEmitterModule } from '@nestjs/event-emitter'
 import { ScheduleModule } from '@nestjs/schedule'
 import { IntentsBitField } from 'discord.js'
 import { NecordModule } from 'necord'
@@ -12,7 +11,7 @@ import { AppEventsService } from './app-events.service'
 import { CommandsModule } from './commands/commands.module'
 import { EnvKeys } from './env'
 import { MediaModule } from './media/media.module'
-import { MessageHandlerModule } from './message-handler/message-handler.module'
+import { MessagesModule } from './messages/messages.module'
 import { SchedulesModule } from './schedules/schedules.module'
 import { ServicesModule } from './services/services.module'
 import { StateModule } from './state/state.module'
@@ -22,7 +21,6 @@ import { StateModule } from './state/state.module'
     ApiModule,
     CommandsModule,
     MediaModule,
-    EventEmitterModule.forRoot(),
     LoggerModule.forRoot(
       (() => {
         const isProduction = env(EnvKeys.NODE_ENV) === 'production'
@@ -72,7 +70,7 @@ import { StateModule } from './state/state.module'
         }
       })(),
     ),
-    MessageHandlerModule,
+    MessagesModule,
     NestMinioModule.register({
       accessKey: env(EnvKeys.MINIO_ACCESS_KEY),
       endPoint: env(EnvKeys.MINIO_HOST),
