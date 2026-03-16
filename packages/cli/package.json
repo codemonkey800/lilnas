@@ -22,7 +22,8 @@
   },
   "dependencies": {
     "@oclif/core": "^4.8.4",
-    "js-yaml": "^4.1.1"
+    "js-yaml": "^4.1.1",
+    "tsx": "^4.20.6"
   },
   "devDependencies": {
     "@lilnas/eslint": "workspace:*",
@@ -37,7 +38,7 @@
     "dirname": "lilnas",
     "commands": {
       "strategy": "pattern",
-      "target": "./dist/commands"
+      "target": "./src/commands"
     }
   },
   "files": [
