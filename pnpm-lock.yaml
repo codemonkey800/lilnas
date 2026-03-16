@@ -9,9 +9,6 @@ importers:
 
   .:
     devDependencies:
-      '@lilnas/cli':
-        specifier: workspace:*
-        version: link:packages/cli
       '@lilnas/eslint':
         specifier: workspace:*
         version: file:packages/eslint-config-lilnas(@types/eslint@9.6.1)(jiti@2.6.1)(prettier@3.6.2)(typescript@5.9.3)
