@@ -10,6 +10,7 @@ export class Redeploy extends BaseServiceCommand {
     '<%= config.bin %> redeploy tdr-bot download',
   ]
 
+  static override strict = false
   static override flags = BaseServiceCommand.baseFlags
 
   async run(): Promise<void> {

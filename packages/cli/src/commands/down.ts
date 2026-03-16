@@ -11,6 +11,7 @@ export class Down extends BaseServiceCommand {
     '<%= config.bin %> down tdr-bot download',
   ]
 
+  static override strict = false
   static override flags = BaseServiceCommand.baseFlags
 
   async run(): Promise<void> {

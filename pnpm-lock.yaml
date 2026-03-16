@@ -815,6 +815,9 @@ importers:
       js-yaml:
         specifier: ^4.1.1
         version: 4.1.1
+      tsx:
+        specifier: ^4.20.6
+        version: 4.20.6
     devDependencies:
       '@lilnas/eslint':
         specifier: workspace:*

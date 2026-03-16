@@ -4,12 +4,15 @@ import { getMonorepoRoot } from '../utils/paths'
 import { listAppServices, listInfraServices } from '../utils/services'
 
 export class List extends Command {
+  static override aliases = ['ls']
+
   static override description = 'List all services in the monorepo'
 
   static override examples = [
     '<%= config.bin %> list',
     '<%= config.bin %> list --apps',
     '<%= config.bin %> list --services',
+    '<%= config.bin %> ls',
   ]
 
   static override flags = {

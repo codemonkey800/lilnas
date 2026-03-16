@@ -10,6 +10,7 @@ export class Build extends BaseServiceCommand {
     '<%= config.bin %> build tdr-bot download',
   ]
 
+  static override strict = false
   static override flags = BaseServiceCommand.baseFlags
 
   async run(): Promise<void> {
