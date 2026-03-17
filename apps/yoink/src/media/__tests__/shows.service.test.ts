@@ -51,12 +51,13 @@ import { clearAllShowSearchResults } from 'src/media/search-results'
 import { searchShowReleases } from 'src/media/shows'
 import { getShow } from 'src/media/shows.server'
 import { ShowsService } from 'src/media/shows.service'
+import { makeMetricsMock } from 'src/test-utils/metrics.mock'
 
 describe('ShowsService', () => {
   let service: ShowsService
 
   beforeEach(() => {
-    service = new ShowsService()
+    service = new ShowsService(makeMetricsMock())
     ;(getShow as jest.Mock).mockResolvedValue({
       id: 20,
       tvdbId: 789,

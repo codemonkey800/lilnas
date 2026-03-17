@@ -11,9 +11,12 @@ services:
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --entrypoints.websecure.address=:443
+      - --entrypoints.metrics.address=:8082
       - --certificatesresolvers.le.acme.tlschallenge=true
       - --certificatesresolvers.le.acme.email=jeremyasuncion808@gmail.com
       - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --metrics.prometheus=true
+      - --metrics.prometheus.entrypoint=metrics
     ports:
       - 80:80
       - 443:443

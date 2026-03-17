@@ -1,7 +1,10 @@
 import { env } from '@lilnas/utils/env'
+import { MetricsInterceptor } from '@lilnas/utils/metrics-interceptor'
 import { Module } from '@nestjs/common'
+import { APP_INTERCEPTOR } from '@nestjs/core'
 import { EventEmitterModule } from '@nestjs/event-emitter'
 import { ScheduleModule } from '@nestjs/schedule'
+import { PrometheusModule } from '@willsoto/nestjs-prometheus'
 import { IntentsBitField } from 'discord.js'
 import { NecordModule } from 'necord'
 import { LoggerModule } from 'nestjs-pino'
@@ -15,6 +18,7 @@ import { StatusService } from './services/status.service'
   imports: [
     EventEmitterModule.forRoot(),
     LoggerModule.forRoot(),
+    PrometheusModule.register({ defaultMetrics: { enabled: true } }),
     NecordModule.forRoot({
       development: [env(EnvKeys.DEV_GUILD_ID, '')],
       token: env(EnvKeys.API_TOKEN),
@@ -28,6 +32,11 @@ import { StatusService } from './services/status.service'
     ScheduleModule.forRoot(),
   ],
 
-  providers: [AppEventsService, StatusService, SchedulesService],
+  providers: [
+    AppEventsService,
+    StatusService,
+    SchedulesService,
+    { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
+  ],
 })
 export class AppModule {}

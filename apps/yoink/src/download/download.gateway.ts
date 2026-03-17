@@ -11,6 +11,7 @@ import { parse as parseCookies } from 'cookie'
 import { Server, Socket } from 'socket.io'
 
 import { AUTH_TOKEN_COOKIE } from 'src/auth/constants'
+import { YoinkMetricsService } from 'src/yoink-metrics.service'
 
 import {
   INTERNAL_DOWNLOAD_EVENT,
@@ -33,7 +34,10 @@ export class DownloadGateway
   @WebSocketServer()
   server!: Server
 
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly metrics: YoinkMetricsService,
+  ) {}
 
   /**
    * Authenticates incoming WebSocket connections by verifying the JWT
@@ -52,6 +56,9 @@ export class DownloadGateway
 
       await this.jwtService.verifyAsync(token)
       this.logger.debug(`Client connected: ${client.id}`)
+      this.metrics.setWebsocketConnections(
+        this.server?.sockets?.sockets?.size ?? 0,
+      )
     } catch {
       client.disconnect()
     }
@@ -60,6 +67,9 @@ export class DownloadGateway
   /** Logs client disconnections for debugging. */
   handleDisconnect(client: Socket): void {
     this.logger.debug(`Client disconnected: ${client.id}`)
+    this.metrics.setWebsocketConnections(
+      (this.server?.sockets?.sockets?.size ?? 1) - 1,
+    )
   }
 
   /** Returns true when at least one WebSocket client is connected. */

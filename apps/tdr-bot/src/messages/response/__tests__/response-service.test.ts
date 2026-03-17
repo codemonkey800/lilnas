@@ -2,6 +2,7 @@ import { AIMessage } from '@langchain/core/messages'
 
 import {
   createMockMessage,
+  createMockMetricsService,
   createMockRetryService,
   createTestingModule,
 } from 'src/__tests__/test-utils'
@@ -9,6 +10,7 @@ import { DISCORD_MAX_MESSAGE_LENGTH } from 'src/constants/chat'
 import { ModelFactoryService } from 'src/messages/llm/model-factory.service'
 import { ResponseService } from 'src/messages/response/response.service'
 import { ResponseSanitizer } from 'src/messages/response/response-sanitizer'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { RetryService } from 'src/utils/retry.service'
 
 function makeSanitizer(): jest.Mocked<ResponseSanitizer> {
@@ -47,6 +49,7 @@ describe('ResponseService', () => {
       { provide: RetryService, useValue: retryService },
       { provide: ModelFactoryService, useValue: modelFactory },
       { provide: ResponseSanitizer, useValue: sanitizer },
+      { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
     ])
 
     service = module.get(ResponseService)

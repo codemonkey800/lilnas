@@ -12,6 +12,7 @@ import { spawn } from 'child_process'
 import { ensureDir } from 'fs-extra'
 import { nanoid } from 'nanoid'
 
+import { DownloadMetricsService } from './download-metrics.service'
 import { DownloadSchedulerService } from './download-scheduler.service'
 import { DownloadStateService } from './download-state.service'
 
@@ -24,6 +25,7 @@ export class DownloadService {
   constructor(
     private readonly downloadScheduler: DownloadSchedulerService,
     private readonly downloadStateService: DownloadStateService,
+    private readonly metrics: DownloadMetricsService,
   ) {}
 
   async getVideoInfo(url: string): Promise<VideoInfo> {
@@ -240,6 +242,7 @@ export class DownloadService {
     )
 
     this.downloadScheduler.add(job)
+    this.metrics.jobCreated(url)
 
     this.logger.log(
       {
@@ -284,6 +287,7 @@ export class DownloadService {
     })
 
     job.proc.kill()
+    this.metrics.jobCompleted('cancelled')
 
     this.downloadScheduler.delete(id)
     return this.downloadStateService.updateJob(id, {

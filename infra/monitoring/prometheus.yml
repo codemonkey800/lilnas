@@ -1,0 +1,50 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: node-exporter
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+
+  - job_name: traefik
+    static_configs:
+      - targets: ['traefik:8082']
+
+  - job_name: minio
+    metrics_path: /minio/v2/metrics/cluster
+    static_configs:
+      - targets: ['storage:9000']
+
+  - job_name: tdr-bot
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['tdr-bot:8081']
+
+  - job_name: equations
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['equations:8080']
+
+  - job_name: download
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['download:8081']
+
+  - job_name: me-token-tracker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['me-token-tracker:8080']
+
+  - job_name: yoink
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['yoink:8081']

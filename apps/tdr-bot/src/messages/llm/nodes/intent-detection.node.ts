@@ -6,6 +6,7 @@ import { MediaRequestHandler } from 'src/media-operations/request-handling/media
 import { ModelFactoryService } from 'src/messages/llm/model-factory.service'
 import { OverallStateAnnotation, ResponseType } from 'src/schemas/graph'
 import { ResponseTypeContentSchema } from 'src/schemas/llm.schemas'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { GET_RESPONSE_TYPE_PROMPT } from 'src/utils/prompts'
 import { RetryService } from 'src/utils/retry.service'
 
@@ -17,6 +18,7 @@ export class IntentDetectionNode {
     private readonly modelFactory: ModelFactoryService,
     private readonly retryService: RetryService,
     private readonly mediaRequestHandler: MediaRequestHandler,
+    private readonly metrics: TdrBotMetricsService,
   ) {}
 
   async invoke({
@@ -37,6 +39,7 @@ export class IntentDetectionNode {
         { userId },
         'Active media context detected, skipping intent detection',
       )
+      this.metrics.intentDetected(ResponseType.Media)
       return { message, responseType: ResponseType.Media }
     }
 
@@ -55,6 +58,7 @@ export class IntentDetectionNode {
     const responseType = ResponseTypeContentSchema.parse(response.content)
     this.logger.log({ responseType }, 'Got response type')
 
+    this.metrics.intentDetected(responseType)
     return { message, responseType }
   }
 }

@@ -50,6 +50,46 @@ pnpm test:watch
 # Coverage reports are generated in coverage/ directories
 ```
 
+### Monitoring & Observability
+
+The monitoring stack (Prometheus, Grafana, Loki, Promtail, Node Exporter, cAdvisor) is defined in `infra/monitoring.yml` and deployed as part of the production `docker-compose.yml`.
+
+```bash
+# Start the monitoring stack
+docker-compose up -d prometheus grafana loki promtail node-exporter cadvisor
+
+# View Grafana dashboards (production)
+# https://grafana.lilnas.io
+
+# Check Prometheus targets and scrape status
+# https://prometheus.lilnas.io/targets
+
+# View logs for a specific service in Loki via Grafana Explore:
+# Data source: Loki, Label filter: service = <service-name>
+
+# Check Prometheus metrics directly (from within Docker network)
+curl http://prometheus:9090/api/v1/targets
+
+# Query logs from a running container
+docker-compose logs -f <service-name>
+
+# Check NestJS app metrics endpoint (production, internal only)
+# curl http://<service-name>:8080/metrics
+```
+
+**Grafana dashboard IDs to import:**
+
+- Node Exporter Full: `1860`
+- cAdvisor: `14282`
+- Traefik: `4475`
+- Loki Logs: built-in Explore view
+
+**Storage paths:**
+
+- Prometheus data: `/storage/app-data/prometheus`
+- Grafana data: `/storage/app-data/grafana`
+- Loki data: `/storage/app-data/loki`
+
 ### Service Management
 
 ```bash

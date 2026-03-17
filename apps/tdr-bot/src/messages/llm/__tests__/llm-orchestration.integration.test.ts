@@ -24,7 +24,10 @@ import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import { ChatOpenAI } from '@langchain/openai'
 import { Test, TestingModule } from '@nestjs/testing'
 
-import { createMockStateService } from 'src/__tests__/test-utils'
+import {
+  createMockMetricsService,
+  createMockStateService,
+} from 'src/__tests__/test-utils'
 import { MediaRequestHandler } from 'src/media-operations/request-handling/media-request-handler.service'
 import { LLMOrchestrationService } from 'src/messages/llm/llm-orchestration.service'
 import { ModelFactoryService } from 'src/messages/llm/model-factory.service'
@@ -37,6 +40,7 @@ import { PromptService } from 'src/messages/prompts/prompt.service'
 import { ResponseType } from 'src/schemas/graph'
 import { EquationImageService } from 'src/services/equation-image.service'
 import { StateService } from 'src/state/state.service'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { ErrorClassificationService } from 'src/utils/error-classifier'
 import { TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
 import { RetryService } from 'src/utils/retry.service'
@@ -122,6 +126,7 @@ describe('LLMOrchestrationService - Integration', () => {
           provide: ErrorClassificationService,
           useValue: { classifyError: jest.fn() },
         },
+        { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
       ],
     }).compile()
 
@@ -317,7 +322,11 @@ describe('LLMOrchestrationService - Integration', () => {
           maxTokens: 1000,
           prompt: 'prompt',
           graphHistory: [
-            { messages: [existingPrompt, human('prev msg')], images: [] },
+            {
+              messages: [existingPrompt, human('prev msg')],
+              images: [],
+              responseType: undefined,
+            },
           ],
         })
 
@@ -354,6 +363,7 @@ describe('LLMOrchestrationService - Integration', () => {
           (_, i) => ({
             messages: [ai(`msg-${i}`)],
             images: [],
+            responseType: undefined,
           }),
         )
         stateService.getState.mockReturnValue({

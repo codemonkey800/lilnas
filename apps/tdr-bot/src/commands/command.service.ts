@@ -10,6 +10,7 @@ import {
 } from 'necord'
 import { Docker } from 'node-docker-api'
 
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { getWeeklyCookiesMessage } from 'src/utils/crumbl'
 
 class ShowDetailsDto {
@@ -36,6 +37,8 @@ interface ContainerData {
 export class CommandsService {
   private readonly logger = new Logger(CommandsService.name)
 
+  constructor(private readonly metrics: TdrBotMetricsService) {}
+
   @SlashCommand({
     name: 'cookies',
     description: 'Show list of weekly crumbl cookies',
@@ -48,7 +51,7 @@ export class CommandsService {
       { command: '/cookies', user: interaction.user.username },
       'User used command',
     )
-
+    this.metrics.commandExecuted('cookies')
     await interaction.reply(
       await getWeeklyCookiesMessage({ showEmbeds: showDetails ?? true }),
     )
@@ -69,7 +72,7 @@ export class CommandsService {
       },
       'User used command',
     )
-
+    this.metrics.commandExecuted('flip-coin')
     await interaction.reply(`${result}`)
   }
 
@@ -93,7 +96,7 @@ export class CommandsService {
       },
       'User used command',
     )
-
+    this.metrics.commandExecuted('roll-dice')
     await interaction.reply(`Rolled a ${randomNum} from a d${roundedSides}`)
   }
 
@@ -109,6 +112,7 @@ export class CommandsService {
       },
       'User used command',
     )
+    this.metrics.commandExecuted('restart')
 
     const docker = new Docker({ socketPath: '/var/run/docker.sock' })
     const containers = await docker.container.list()

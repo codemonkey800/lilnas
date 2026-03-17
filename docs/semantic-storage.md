@@ -239,6 +239,10 @@ volumes:
 # Grafana
 volumes:
   - /storage/app-data/grafana:/var/lib/grafana
+
+# Loki (log aggregation)
+volumes:
+  - /storage/app-data/loki:/loki
 ```
 
 ### Game Servers

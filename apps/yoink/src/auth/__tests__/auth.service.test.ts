@@ -2,6 +2,7 @@ import { JwtService } from '@nestjs/jwt'
 
 import { AuthService } from 'src/auth/auth.service'
 import { db } from 'src/db'
+import { makeMetricsMock } from 'src/test-utils/metrics.mock'
 
 const ADMIN_EMAIL = 'admin@example.com'
 
@@ -38,7 +39,7 @@ describe('AuthService', () => {
     mockJwt = {
       signAsync: jest.fn().mockResolvedValue('jwt-token'),
     } as unknown as jest.Mocked<JwtService>
-    service = new AuthService(mockJwt)
+    service = new AuthService(mockJwt, makeMetricsMock())
     process.env.ADMIN_EMAIL = ADMIN_EMAIL
   })
 

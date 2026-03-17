@@ -1,16 +1,21 @@
 import { env } from '@lilnas/utils/env'
+import { MetricsInterceptor } from '@lilnas/utils/metrics-interceptor'
 import { Module } from '@nestjs/common'
+import { APP_INTERCEPTOR } from '@nestjs/core'
 import { ThrottlerModule } from '@nestjs/throttler'
+import { PrometheusModule } from '@willsoto/nestjs-prometheus'
 import { NestMinioModule } from 'nestjs-minio'
 import { LoggerModule } from 'nestjs-pino'
 
 import { EnvKeys } from './env'
 import { EquationsController } from './equations.controller'
+import { EquationsMetricsService } from './equations-metrics.service'
 import { HealthController } from './health.controller'
 
 @Module({
   imports: [
     LoggerModule.forRoot(),
+    PrometheusModule.register({ defaultMetrics: { enabled: true } }),
     ThrottlerModule.forRoot([
       {
         name: 'short',
@@ -38,5 +43,9 @@ import { HealthController } from './health.controller'
     }),
   ],
   controllers: [EquationsController, HealthController],
+  providers: [
+    { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
+    EquationsMetricsService,
+  ],
 })
 export class AppModule {}

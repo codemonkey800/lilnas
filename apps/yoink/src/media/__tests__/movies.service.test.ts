@@ -36,12 +36,13 @@ import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { searchMovieReleases } from 'src/media/movies'
 import { getMovie } from 'src/media/movies.server'
 import { MoviesService } from 'src/media/movies.service'
+import { makeMetricsMock } from 'src/test-utils/metrics.mock'
 
 describe('MoviesService', () => {
   let service: MoviesService
 
   beforeEach(() => {
-    service = new MoviesService()
+    service = new MoviesService(makeMetricsMock())
     ;(getMovie as jest.Mock).mockResolvedValue({
       id: 10,
       tmdbId: 456,

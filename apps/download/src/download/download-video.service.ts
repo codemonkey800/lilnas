@@ -14,6 +14,7 @@ import path from 'path'
 
 import { EnvKeys } from 'src/env'
 
+import { DownloadMetricsService } from './download-metrics.service'
 import { DownloadStateService } from './download-state.service'
 import { DownloadStepOptions } from './types'
 
@@ -36,6 +37,7 @@ export class DownloadVideoService {
   constructor(
     @Inject(MINIO_CONNECTION) private readonly minioClient: Client,
     private readonly downloadStateService: DownloadStateService,
+    private readonly metrics: DownloadMetricsService,
   ) {}
 
   private async getVideoInfo(url: string): Promise<VideoInfo> {
@@ -72,6 +74,7 @@ export class DownloadVideoService {
           'yt-dlp timed out, killing process',
         )
 
+        this.metrics.observeVideoInfo('timeout', duration)
         proc.kill()
         reject(new Error('yt-dlp timed out'))
       }, 60 * 1000)
@@ -112,6 +115,7 @@ export class DownloadVideoService {
           },
           'yt-dlp process error',
         )
+        this.metrics.observeVideoInfo('error', duration)
         reject(err)
       })
 
@@ -187,6 +191,7 @@ export class DownloadVideoService {
             'Video info extraction completed successfully',
           )
 
+          this.metrics.observeVideoInfo('success', duration)
           resolve(parsedInfo)
         } catch (err) {
           const duration = Date.now() - startTime
@@ -201,6 +206,7 @@ export class DownloadVideoService {
             'Failed to parse yt-dlp output',
           )
 
+          this.metrics.observeVideoInfo('error', duration)
           reject(new Error(`Failed to parse yt-dlp output: ${err}`))
         }
       })

@@ -26,6 +26,8 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 
+import { YoinkMetricsService } from 'src/yoink-metrics.service'
+
 import { getSonarrClient } from './clients'
 import {
   clearAllShowSearchResults,
@@ -46,6 +48,7 @@ function toBadGateway(err: unknown): never {
 
 @Injectable()
 export class ShowsService {
+  constructor(private readonly metrics: YoinkMetricsService) {}
   async getShow(tvdbId: number): Promise<ShowDetail> {
     try {
       return await getShow(tvdbId)
@@ -163,9 +166,11 @@ export class ShowsService {
   }
 
   async searchEpisodeReleases(episodeId: number): Promise<ShowRelease[]> {
+    this.metrics.search('release')
     try {
       return await searchShowReleases(episodeId)
     } catch (err) {
+      this.metrics.externalApiError('sonarr')
       toBadGateway(err)
     }
   }
@@ -242,9 +247,11 @@ export class ShowsService {
         } as SeriesResource,
       })
       const created = result.data as SeriesResource
+      this.metrics.libraryOperation('add', 'show')
       return { seriesId: created.id ?? 0 }
     } catch (err) {
       if (err instanceof BadRequestException) throw err
+      this.metrics.externalApiError('sonarr')
       toBadGateway(err)
     }
   }
@@ -260,7 +267,9 @@ export class ShowsService {
         }),
         clearAllShowSearchResults(tvdbId),
       ])
+      this.metrics.libraryOperation('remove', 'show')
     } catch (err) {
+      this.metrics.externalApiError('sonarr')
       toBadGateway(err)
     }
   }

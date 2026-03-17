@@ -5,6 +5,7 @@ import {
 } from '@langchain/core/messages'
 
 import {
+  createMockMetricsService,
   createMockStateService,
   createTestingModule,
 } from 'src/__tests__/test-utils'
@@ -17,6 +18,7 @@ import { MathResponseNode } from 'src/messages/llm/nodes/math-response.node'
 import { MediaResponseNode } from 'src/messages/llm/nodes/media-response.node'
 import { PromptService } from 'src/messages/prompts/prompt.service'
 import { StateService } from 'src/state/state.service'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
 
 jest.mock('@langchain/langgraph', () => ({
@@ -105,6 +107,7 @@ describe('LLMOrchestrationService', () => {
         provide: MediaResponseNode,
         useValue: nodeMock<MediaResponseNode>('media'),
       },
+      { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
     ])
 
     service = module.get(LLMOrchestrationService)
@@ -168,7 +171,7 @@ describe('LLMOrchestrationService', () => {
         chatModel: 'gpt-4-turbo',
         reasoningModel: 'gpt-4o-mini',
         prompt: 'prompt',
-        graphHistory: [{ messages: prev, images: [] }],
+        graphHistory: [{ messages: prev, images: [], responseType: undefined }],
       })
       compiledGraph.invoke.mockResolvedValue({
         messages: [makeAI('new')],
@@ -207,6 +210,7 @@ describe('LLMOrchestrationService', () => {
         (_, i) => ({
           messages: [makeAI(`msg-${i}`)],
           images: [],
+          responseType: undefined,
         }),
       )
       stateService.getState.mockReturnValue({

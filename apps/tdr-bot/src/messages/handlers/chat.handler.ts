@@ -6,6 +6,7 @@ import { LLMOrchestrationService } from 'src/messages/llm/llm-orchestration.serv
 import { ResponseService } from 'src/messages/response/response.service'
 import { TypingIndicatorService } from 'src/messages/response/typing-indicator.service'
 import { HandlerResult, Message, MessageContext } from 'src/messages/types'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import {
   ErrorCategory,
   ErrorClassificationService,
@@ -26,6 +27,7 @@ export class ChatHandler implements IMessageHandler {
     private readonly responseService: ResponseService,
     private readonly typingIndicator: TypingIndicatorService,
     private readonly errorClassifier: ErrorClassificationService,
+    private readonly metrics: TdrBotMetricsService,
   ) {}
 
   canHandle(message: Message): boolean {
@@ -77,6 +79,7 @@ export class ChatHandler implements IMessageHandler {
       )
 
       await this.responseService.sendReply(message, response)
+      this.metrics.messageHandled('chat', 'success')
       return { handled: true, response }
     } catch (error) {
       this.logger.error('Failed to process chat message', {
@@ -85,6 +88,8 @@ export class ChatHandler implements IMessageHandler {
         user: message.author.displayName,
         message: content,
       })
+
+      this.metrics.messageHandled('chat', 'error')
 
       const errorToClassify = isError(error)
         ? error

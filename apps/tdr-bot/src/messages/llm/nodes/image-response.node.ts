@@ -13,6 +13,7 @@ import {
   OverallStateAnnotation,
 } from 'src/schemas/graph'
 import { LLMStringContentSchema } from 'src/schemas/llm.schemas'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { EXTRACT_IMAGE_QUERIES_PROMPT, IMAGE_RESPONSE } from 'src/utils/prompts'
 import { RetryService } from 'src/utils/retry.service'
 
@@ -23,6 +24,7 @@ export class ImageResponseNode {
   constructor(
     private readonly modelFactory: ModelFactoryService,
     private readonly retryService: RetryService,
+    private readonly metrics: TdrBotMetricsService,
   ) {}
 
   async invoke({
@@ -104,6 +106,7 @@ export class ImageResponseNode {
         'OpenAI-getModelImageResponse-chat',
       )
 
+      this.metrics.imageGeneration('success')
       return {
         images: images.map(image => ({
           ...image,
@@ -121,6 +124,8 @@ export class ImageResponseNode {
         },
         'Failed to generate images - returning error message to user',
       )
+
+      this.metrics.imageGeneration('error')
 
       const errorMessage = new AIMessage({
         id: nanoid(),

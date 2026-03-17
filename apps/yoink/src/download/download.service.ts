@@ -34,6 +34,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter'
 import { cached } from 'src/media/cache'
 import { getRadarrClient, getSonarrClient } from 'src/media/clients'
 import { getPosterUrl } from 'src/media/library'
+import { YoinkMetricsService } from 'src/yoink-metrics.service'
 
 import {
   type AllDownloadsResponse,
@@ -75,7 +76,10 @@ export class DownloadService {
     { tvdbId: number; seriesId: number; cancelledAt: number }
   >()
 
-  constructor(private readonly events: EventEmitter2) {}
+  constructor(
+    private readonly events: EventEmitter2,
+    private readonly metrics: YoinkMetricsService,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -164,6 +168,7 @@ export class DownloadService {
     }
 
     this.removeTracked(key)
+    this.metrics.downloadCompleted('movie', 'cancelled')
     this.emitEvent({
       event: DownloadEvents.CANCELLED,
       mediaType: 'movie',
@@ -365,6 +370,7 @@ export class DownloadService {
       createTrackedMovie(tmdbId, movieId, commandId),
     )
 
+    this.metrics.downloadInitiated('movie')
     this.emitEvent({
       event: DownloadEvents.INITIATED,
       mediaType: 'movie',
@@ -398,6 +404,7 @@ export class DownloadService {
 
     this.tracked.set(`movie:${tmdbId}`, createTrackedMovie(tmdbId, movieId))
 
+    this.metrics.downloadInitiated('movie')
     this.emitEvent({
       event: DownloadEvents.INITIATED,
       mediaType: 'movie',
@@ -484,6 +491,7 @@ export class DownloadService {
       ),
     )
 
+    this.metrics.downloadInitiated('episode')
     this.emitEvent({
       event: DownloadEvents.INITIATED,
       mediaType: 'episode',
@@ -613,10 +621,12 @@ export class DownloadService {
     }
 
     if (isSeason) {
+      this.metrics.downloadInitiated('season')
       this.logger.log(
         `Season download initiated tvdbId=${tvdbId} season=${seasonNumber} episodes=${episodeIds.length}`,
       )
     } else {
+      this.metrics.downloadInitiated('series')
       this.logger.log(
         `Series download initiated tvdbId=${tvdbId} episodes=${episodeIds.length}`,
       )
@@ -851,6 +861,7 @@ export class DownloadService {
     }
 
     this.removeTracked(key)
+    this.metrics.downloadCompleted('episode', 'cancelled')
     this.emitEvent({
       event: DownloadEvents.CANCELLED,
       mediaType: 'episode',
@@ -966,6 +977,7 @@ export class DownloadService {
 
     for (const { key, episodeId } of episodeKeys) {
       this.removeTracked(key)
+      this.metrics.downloadCompleted('episode', 'cancelled')
       this.emitEvent({
         event: DownloadEvents.CANCELLED,
         mediaType: 'episode',

@@ -20,6 +20,7 @@ import {
   recordEpisodesNotFound,
   recordMovieNotFound,
 } from 'src/media/search-results'
+import { YoinkMetricsService } from 'src/yoink-metrics.service'
 
 import { DownloadGateway } from './download.gateway'
 import { DownloadService } from './download.service'
@@ -80,6 +81,7 @@ export class DownloadPollerService {
   constructor(
     private readonly downloadService: DownloadService,
     private readonly downloadGateway: DownloadGateway,
+    private readonly metrics: YoinkMetricsService,
   ) {}
 
   /**
@@ -108,6 +110,10 @@ export class DownloadPollerService {
     // to advance state (e.g. detect completion), but skip when truly idle.
     if (tracked.size === 0 && pendingCancels.size === 0) return
 
+    this.metrics.setActiveDownloads(tracked.size)
+    this.metrics.setPendingCancels(pendingCancels.size)
+
+    const endTimer = this.metrics.startPollTimer()
     try {
       const shouldRefresh =
         Date.now() - this.lastRefreshAt >= REFRESH_INTERVAL_MS
@@ -168,10 +174,13 @@ export class DownloadPollerService {
 
       await this.processPendingCancels(sonarrByEpisodeId)
     } catch (err) {
+      this.metrics.pollError()
       this.logger.error(
         'Error during download poll',
         err instanceof Error ? err.stack : String(err),
       )
+    } finally {
+      endTimer()
     }
   }
 
@@ -200,6 +209,10 @@ export class DownloadPollerService {
 
     if (!queueItem) {
       if (entry.queueId !== null) {
+        this.metrics.downloadCompleted(
+          entry.kind === 'movie' ? 'movie' : 'episode',
+          'completed',
+        )
         this.downloadService.emitEvent({
           event: DownloadEvents.COMPLETED,
           ...ids,
@@ -255,6 +268,10 @@ export class DownloadPollerService {
 
     // Failure check
     if (this.isFailed(queueItem)) {
+      this.metrics.downloadCompleted(
+        entry.kind === 'movie' ? 'movie' : 'episode',
+        'failed',
+      )
       this.downloadService.emitEvent({
         event: DownloadEvents.FAILED,
         ...ids,
@@ -306,6 +323,7 @@ export class DownloadPollerService {
     key: string,
     entry: TrackedMovieDownload,
   ): void {
+    this.metrics.downloadCompleted('movie', 'not_found')
     this.downloadService.emitEvent({
       event: DownloadEvents.FAILED,
       mediaType: 'movie',
@@ -322,6 +340,7 @@ export class DownloadPollerService {
     key: string,
     entry: TrackedEpisodeDownload,
   ): void {
+    this.metrics.downloadCompleted('episode', 'not_found')
     this.downloadService.emitEvent({
       event: DownloadEvents.FAILED,
       mediaType: 'episode',

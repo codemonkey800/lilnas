@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 
 import { HandlerResult, Message, MessageContext } from 'src/messages/types'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { RetryService } from 'src/utils/retry.service'
 
 import { IMessageHandler } from './handler.interface'
@@ -27,7 +28,10 @@ export class KeywordsHandler implements IMessageHandler {
 
   private readonly logger = new Logger(KeywordsHandler.name)
 
-  constructor(private readonly retryService: RetryService) {}
+  constructor(
+    private readonly retryService: RetryService,
+    private readonly metrics: TdrBotMetricsService,
+  ) {}
 
   canHandle(message: Message): boolean {
     if (message.content.trim().endsWith('?')) return false
@@ -58,12 +62,14 @@ export class KeywordsHandler implements IMessageHandler {
         { maxAttempts: 3, baseDelay: 1000, maxDelay: 5000 },
         `Discord-keyword-${matched.keyword}`,
       )
+      this.metrics.messageHandled('keywords', 'success')
       return { handled: true }
     } catch (error) {
       this.logger.error('Failed to send keyword response', {
         keyword: matched.keyword,
         error: error instanceof Error ? error.message : 'Unknown error',
       })
+      this.metrics.messageHandled('keywords', 'error')
       return { handled: false }
     }
   }

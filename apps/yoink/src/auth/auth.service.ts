@@ -6,10 +6,14 @@ import type { Profile } from 'passport-google-oauth20'
 import { db } from 'src/db'
 import { accounts, users } from 'src/db/schema'
 import { EnvKeys } from 'src/env'
+import { YoinkMetricsService } from 'src/yoink-metrics.service'
 
 @Injectable()
 export class AuthService {
-  constructor(private jwtService: JwtService) {}
+  constructor(
+    private jwtService: JwtService,
+    private readonly metrics: YoinkMetricsService,
+  ) {}
 
   async findOrCreateUser(profile: Profile) {
     const email = profile.emails?.[0]?.value
@@ -68,6 +72,7 @@ export class AuthService {
       })
       .onConflictDoNothing()
 
+    this.metrics.authLogin('google', 'success')
     return user!
   }
 
@@ -83,6 +88,7 @@ export class AuthService {
       })
       .returning()
 
+    this.metrics.authLogin('agent', 'success')
     return user!
   }
 
