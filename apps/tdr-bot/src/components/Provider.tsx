@@ -1,23 +1,23 @@
-// In Next.js, this file would be called: app/providers.tsx
 'use client'
 
-// Since QueryClientProvider relies on useContext under the hood, we have to put 'use client' on top
+import createCache from '@emotion/cache'
+import { CacheProvider } from '@emotion/react'
+import CssBaseline from '@mui/material/CssBaseline'
+import { ThemeProvider } from '@mui/material/styles'
 import {
   isServer,
   QueryClient,
   QueryClientProvider as BaseQueryClientProvider,
 } from '@tanstack/react-query'
-import { ThemeProvider } from 'next-themes'
-import { ReactNode } from 'react'
+import { useServerInsertedHTML } from 'next/navigation'
+import { ReactNode, useState } from 'react'
 
-import { Toaster } from './Sonner'
+import { theme } from 'src/theme'
 
 function makeQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        // With SSR, we usually want to set some default staleTime
-        // above 0 to avoid refetching immediately on the client
         staleTime: 60 * 1000,
       },
     },
@@ -28,25 +28,15 @@ let browserQueryClient: QueryClient | undefined = undefined
 
 function getQueryClient() {
   if (isServer) {
-    // Server: always make a new query client
     return makeQueryClient()
   } else {
-    // Browser: make a new query client if we don't already have one
-    // This is very important, so we don't re-make a new client if React
-    // suspends during the initial render. This may not be needed if we
-    // have a suspense boundary BELOW the creation of the query client
     if (!browserQueryClient) browserQueryClient = makeQueryClient()
     return browserQueryClient
   }
 }
 
 function QueryClientProvider({ children }: { children: ReactNode }) {
-  // NOTE: Avoid useState when initializing the query client if you don't
-  //       have a suspense boundary between this and the code that may
-  //       suspend because React will throw away the client on the initial
-  //       render if it suspends and there is no boundary
   const queryClient = getQueryClient()
-
   return (
     <BaseQueryClientProvider client={queryClient}>
       {children}
@@ -54,11 +44,55 @@ function QueryClientProvider({ children }: { children: ReactNode }) {
   )
 }
 
+function useEmotionCache() {
+  const [{ cache, flush }] = useState(() => {
+    const cache = createCache({ key: 'mui' })
+    cache.compat = true
+    const prevInsert = cache.insert
+    let inserted: string[] = []
+    cache.insert = (...args) => {
+      const serialized = args[1]
+      if (cache.inserted[serialized.name] === undefined) {
+        inserted.push(serialized.name)
+      }
+      return prevInsert(...args)
+    }
+    const flush = () => {
+      const prevInserted = inserted
+      inserted = []
+      return prevInserted
+    }
+    return { cache, flush }
+  })
+
+  useServerInsertedHTML(() => {
+    const names = flush()
+    if (names.length === 0) return null
+    let styles = ''
+    for (const name of names) {
+      styles += cache.inserted[name]
+    }
+    return (
+      <style
+        key={cache.key}
+        data-emotion={`${cache.key} ${names.join(' ')}`}
+        dangerouslySetInnerHTML={{ __html: styles }}
+      />
+    )
+  })
+
+  return cache
+}
+
 export default function Providers({ children }: { children: ReactNode }) {
+  const cache = useEmotionCache()
+
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-      <QueryClientProvider>{children}</QueryClientProvider>
-      <Toaster />
-    </ThemeProvider>
+    <CacheProvider value={cache}>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <QueryClientProvider>{children}</QueryClientProvider>
+      </ThemeProvider>
+    </CacheProvider>
   )
 }
