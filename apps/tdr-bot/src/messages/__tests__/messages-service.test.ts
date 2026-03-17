@@ -1,5 +1,6 @@
 import {
   createMockMessage,
+  createMockMetricsService,
   createTestingModule,
 } from 'src/__tests__/test-utils'
 import { IMessageHandler } from 'src/messages/handlers/handler.interface'
@@ -7,6 +8,7 @@ import { HandlerRegistry } from 'src/messages/handlers/handler.registry'
 import { MessagesService } from 'src/messages/messages.service'
 import { GuardMiddleware } from 'src/messages/middleware/guard.middleware'
 import { MessageContext } from 'src/messages/types'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 
 function makeHandler(
   canHandle: boolean | jest.Mock = false,
@@ -47,6 +49,7 @@ describe('MessagesService', () => {
       MessagesService,
       { provide: GuardMiddleware, useValue: guard },
       { provide: HandlerRegistry, useValue: registry },
+      { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
     ])
     return module.get(MessagesService)
   }

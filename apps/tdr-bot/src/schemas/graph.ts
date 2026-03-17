@@ -69,6 +69,7 @@ export const InputStateAnnotation = Annotation.Root({
 export const OutputStateAnnotation = Annotation.Root({
   images: Annotation<ImageResponse[]>,
   messages: Annotation<BaseMessage[]>,
+  responseType: Annotation<ResponseType | undefined>,
 })
 
 export const OverallStateAnnotation = Annotation.Root({

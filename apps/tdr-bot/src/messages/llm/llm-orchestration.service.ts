@@ -16,6 +16,7 @@ import {
 import { LLMStringContentSchema } from 'src/schemas/llm.schemas'
 import { MessageResponse } from 'src/schemas/messages'
 import { StateService } from 'src/state/state.service'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
 
 import { DefaultResponseNode } from './nodes/default-response.node'
@@ -52,6 +53,7 @@ export class LLMOrchestrationService implements OnModuleInit {
     private readonly imageResponse: ImageResponseNode,
     private readonly mathResponse: MathResponseNode,
     private readonly mediaResponse: MediaResponseNode,
+    private readonly metrics: TdrBotMetricsService,
   ) {}
 
   onModuleInit() {
@@ -176,37 +178,77 @@ export class LLMOrchestrationService implements OnModuleInit {
     )
 
     const currentState = this.state.getState()
-    const { images, messages } = await this.app.invoke({
-      userInput,
-      userId: finalUserId,
-      messages: currentState.graphHistory.at(-1)?.messages ?? [],
-    })
+    const startTime = Date.now()
 
-    this.state.setState(prev => {
-      const history = prev.graphHistory.concat({ images, messages })
-      return {
-        graphHistory:
-          history.length > MAX_GRAPH_HISTORY_SIZE
-            ? history.slice(-MAX_GRAPH_HISTORY_SIZE)
-            : history,
+    let responseType: ResponseType = ResponseType.Default
+    try {
+      const {
+        images,
+        messages,
+        responseType: detectedType,
+      } = await this.app.invoke({
+        userInput,
+        userId: finalUserId,
+        messages: currentState.graphHistory.at(-1)?.messages ?? [],
+      })
+
+      responseType = detectedType ?? ResponseType.Default
+      const durationMs = Date.now() - startTime
+
+      this.state.setState(prev => {
+        const history = prev.graphHistory.concat({
+          images,
+          messages,
+          responseType,
+        })
+        return {
+          graphHistory:
+            history.length > MAX_GRAPH_HISTORY_SIZE
+              ? history.slice(-MAX_GRAPH_HISTORY_SIZE)
+              : history,
+        }
+      })
+
+      const lastMessage = messages.at(-1)
+
+      if (!lastMessage) {
+        throw new Error('Did not receive a message')
       }
-    })
 
-    const lastMessage = messages.at(-1)
+      if (isAIMessage(lastMessage)) {
+        const tokenUsage = lastMessage.response_metadata?.tokenUsage as
+          | Record<string, number>
+          | undefined
 
-    if (!lastMessage) {
-      throw new Error('Did not receive a message')
+        this.logger.log(tokenUsage, 'Token count for last message')
+
+        if (tokenUsage) {
+          if (tokenUsage.promptTokens) {
+            this.metrics.llmTokens('prompt_tokens', tokenUsage.promptTokens)
+          }
+          if (tokenUsage.completionTokens) {
+            this.metrics.llmTokens(
+              'completion_tokens',
+              tokenUsage.completionTokens,
+            )
+          }
+          if (tokenUsage.totalTokens) {
+            this.metrics.llmTokens('total_tokens', tokenUsage.totalTokens)
+          }
+        }
+      }
+
+      this.metrics.llmRequest(responseType, 'success')
+      this.metrics.observeLlmDuration(responseType, durationMs)
+
+      const content = LLMStringContentSchema.parse(lastMessage.content)
+
+      return { images, content }
+    } catch (error) {
+      const durationMs = Date.now() - startTime
+      this.metrics.llmRequest(responseType, 'error')
+      this.metrics.observeLlmDuration(responseType, durationMs)
+      throw error
     }
-
-    if (isAIMessage(lastMessage)) {
-      this.logger.log(
-        lastMessage.response_metadata.tokenUsage,
-        'Token count for last message',
-      )
-    }
-
-    const content = LLMStringContentSchema.parse(lastMessage.content)
-
-    return { images, content }
   }
 }

@@ -32,6 +32,7 @@ import {
   DownloadEvents,
 } from 'src/download/download.types'
 import { DownloadPollerService } from 'src/download/download-poller.service'
+import { makeMetricsMock } from 'src/test-utils/metrics.mock'
 
 function makeMockDownloadService(): jest.Mocked<
   Pick<
@@ -68,6 +69,7 @@ describe('DownloadPollerService.poll()', () => {
     poller = new DownloadPollerService(
       mockService as unknown as DownloadService,
       mockGateway as never,
+      makeMetricsMock(),
     )
     ;(radarrPostCommand as jest.Mock).mockResolvedValue({})
     ;(sonarrPostCommand as jest.Mock).mockResolvedValue({})

@@ -10,6 +10,8 @@ import {
 } from '@lilnas/media/sonarr'
 import { Injectable } from '@nestjs/common'
 
+import { YoinkMetricsService } from 'src/yoink-metrics.service'
+
 import { cached } from './cache'
 import { getRadarrClient, getSonarrClient } from './clients'
 import {
@@ -24,6 +26,7 @@ const LIBRARY_CACHE_TTL_MS = 60_000
 
 @Injectable()
 export class LibraryService {
+  constructor(private readonly metrics: YoinkMetricsService) {}
   private async getLibraryMovies(): Promise<LibraryItem[]> {
     const result = await getApiV3Movie({ client: getRadarrClient() })
     const movies = (result.data ?? []) as MovieResource[]
@@ -106,6 +109,7 @@ export class LibraryService {
     term: string,
     filter: SearchFilter = 'all',
   ): Promise<LibraryItem[]> {
+    this.metrics.search('library')
     if (filter === 'movies') return this.lookupMovies(term)
     if (filter === 'shows') return this.lookupSeries(term)
 

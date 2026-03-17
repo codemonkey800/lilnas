@@ -10,6 +10,7 @@ import { match } from 'ts-pattern'
 
 import { EnvKeys } from 'src/env'
 
+import { DownloadMetricsService } from './download-metrics.service'
 import { DownloadStateService } from './download-state.service'
 import { DownloadVideoService } from './download-video.service'
 import { DownloadStepOptions } from './types'
@@ -21,6 +22,7 @@ export class DownloadSchedulerService {
   constructor(
     private readonly downloadVideoService: DownloadVideoService,
     private readonly downloadStateService: DownloadStateService,
+    private readonly metrics: DownloadMetricsService,
   ) {}
 
   add(job: DownloadJob) {
@@ -52,6 +54,7 @@ export class DownloadSchedulerService {
       'Job added to queue successfully',
     )
 
+    this.metrics.setQueueDepth(this.downloadStateService.queue.size())
     this.maybeProcessNextJob()
   }
 
@@ -98,6 +101,9 @@ export class DownloadSchedulerService {
   private async maybeProcessNextJob(): Promise<void> {
     const action = 'maybeProcessNextJob'
     const { inProgressJobs, jobs, queue } = this.downloadStateService
+
+    this.metrics.setInProgress(inProgressJobs.size)
+    this.metrics.setQueueDepth(queue.size())
 
     this.logger.debug(
       {
@@ -188,6 +194,7 @@ export class DownloadSchedulerService {
         },
         'Download phase completed',
       )
+      this.metrics.observePhase('download', downloadDuration)
 
       const convertStartTime = Date.now()
       await convert()
@@ -203,6 +210,7 @@ export class DownloadSchedulerService {
         },
         'Convert phase completed',
       )
+      this.metrics.observePhase('convert', convertDuration)
 
       const uploadStartTime = Date.now()
       await upload()
@@ -218,6 +226,7 @@ export class DownloadSchedulerService {
         },
         'Upload phase completed',
       )
+      this.metrics.observePhase('upload', uploadDuration)
 
       const cleanStartTime = Date.now()
       await clean()
@@ -233,12 +242,16 @@ export class DownloadSchedulerService {
         },
         'Clean phase completed',
       )
+      this.metrics.observePhase('clean', cleanDuration)
 
       const totalDuration = Date.now() - jobStartTime
 
       this.downloadStateService.updateJob(job.id, {
         status: DownloadJobStatus.Completed,
       })
+
+      this.metrics.observePhase('total', totalDuration)
+      this.metrics.jobCompleted('completed')
 
       this.logger.log(
         {
@@ -273,8 +286,13 @@ export class DownloadSchedulerService {
       this.downloadStateService.updateJob(job.id, {
         status: DownloadJobStatus.Failed,
       })
+
+      this.metrics.jobCompleted('failed')
     } finally {
       inProgressJobs.delete(job.id)
+
+      this.metrics.setInProgress(inProgressJobs.size)
+      this.metrics.setQueueDepth(queue.size())
 
       this.logger.log(
         {

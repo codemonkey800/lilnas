@@ -5,10 +5,20 @@
     "rootDir": "./src",
     "outDir": "./dist",
     "baseUrl": "./",
+    "module": "CommonJS",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "paths": {
       "src/*": ["src/*"]
     }
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["**/__tests__/**", "**/*.test.ts", "**/*.spec.ts", "jest.config.js", "dist", "node_modules"]
+  "exclude": [
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "jest.config.js",
+    "dist",
+    "node_modules"
+  ]
 }

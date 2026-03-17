@@ -3,6 +3,7 @@ import { ChannelType, Client } from 'discord.js'
 import {
   createMockErrorClassificationService,
   createMockMessage,
+  createMockMetricsService,
   createTestingModule,
   MessageBuilder,
 } from 'src/__tests__/test-utils'
@@ -12,6 +13,7 @@ import { LLMOrchestrationService } from 'src/messages/llm/llm-orchestration.serv
 import { ResponseService } from 'src/messages/response/response.service'
 import { TypingIndicatorService } from 'src/messages/response/typing-indicator.service'
 import { MessageContext } from 'src/messages/types'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import {
   ErrorCategory,
   ErrorClassificationService,
@@ -77,6 +79,7 @@ describe('ChatHandler', () => {
       { provide: ResponseService, useValue: responseService },
       { provide: TypingIndicatorService, useValue: typingIndicator },
       { provide: ErrorClassificationService, useValue: errorClassifier },
+      { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
     ])
 
     handler = module.get(ChatHandler)

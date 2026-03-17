@@ -18,6 +18,8 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 
+import { YoinkMetricsService } from 'src/yoink-metrics.service'
+
 import { getRadarrClient } from './clients'
 import {
   type MovieDetail,
@@ -29,6 +31,7 @@ import { clearMovieSearchResult, recordMovieNotFound } from './search-results'
 
 @Injectable()
 export class MoviesService {
+  constructor(private readonly metrics: YoinkMetricsService) {}
   async getMovie(tmdbId: number): Promise<MovieDetail> {
     try {
       return await getMovie(tmdbId)
@@ -63,9 +66,11 @@ export class MoviesService {
   }
 
   async searchReleases(movieId: number): Promise<MovieRelease[]> {
+    this.metrics.search('release')
     try {
       return await searchMovieReleases(movieId)
     } catch (err) {
+      this.metrics.externalApiError('radarr')
       const message = err instanceof Error ? err.message : String(err)
       throw new NotFoundException(`Releases not found: ${message}`)
     }
@@ -133,8 +138,10 @@ export class MoviesService {
       })
 
       const created = result.data as MovieResource
+      this.metrics.libraryOperation('add', 'movie')
       return { movieId: created.id ?? 0 }
     } catch (err) {
+      this.metrics.externalApiError('radarr')
       const message = err instanceof Error ? err.message : String(err)
       throw new BadRequestException(`Failed to add movie: ${message}`)
     }
@@ -148,7 +155,9 @@ export class MoviesService {
         path: { id: movieId },
         query: { deleteFiles: true, addImportExclusion: false },
       })
+      this.metrics.libraryOperation('remove', 'movie')
     } catch (err) {
+      this.metrics.externalApiError('radarr')
       const message = err instanceof Error ? err.message : String(err)
       throw new NotFoundException(`Movie not found: ${message}`)
     }

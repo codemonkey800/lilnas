@@ -1,10 +1,12 @@
 import {
   createMockMessage,
+  createMockMetricsService,
   createMockRetryService,
   createTestingModule,
 } from 'src/__tests__/test-utils'
 import { KeywordsHandler } from 'src/messages/handlers/keywords.handler'
 import { MessageContext } from 'src/messages/types'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { RetryService } from 'src/utils/retry.service'
 
 function makeContext(): MessageContext {
@@ -21,6 +23,7 @@ describe('KeywordsHandler', () => {
     const module = await createTestingModule([
       KeywordsHandler,
       { provide: RetryService, useValue: retryService },
+      { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
     ])
 
     handler = module.get(KeywordsHandler)

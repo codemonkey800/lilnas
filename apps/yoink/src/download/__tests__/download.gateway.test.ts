@@ -5,6 +5,7 @@ import {
   DownloadEventPayload,
   DownloadEvents,
 } from 'src/download/download.types'
+import { makeMetricsMock } from 'src/test-utils/metrics.mock'
 
 function makeSocket(cookieHeader?: string): {
   id: string
@@ -33,7 +34,7 @@ describe('DownloadGateway', () => {
         .fn()
         .mockResolvedValue({ sub: 'user-1', email: 'user@example.com' }),
     } as unknown as jest.Mocked<JwtService>
-    gateway = new DownloadGateway(mockJwt)
+    gateway = new DownloadGateway(mockJwt, makeMetricsMock())
     mockServer = makeMockServer()
     // Inject the mock Server directly onto the gateway instance
     gateway.server = mockServer as never

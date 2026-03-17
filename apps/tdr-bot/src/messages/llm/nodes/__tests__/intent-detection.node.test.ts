@@ -1,6 +1,7 @@
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 
 import {
+  createMockMetricsService,
   createMockRetryService,
   createTestingModule,
 } from 'src/__tests__/test-utils'
@@ -8,6 +9,7 @@ import { MediaRequestHandler } from 'src/media-operations/request-handling/media
 import { ModelFactoryService } from 'src/messages/llm/model-factory.service'
 import { IntentDetectionNode } from 'src/messages/llm/nodes/intent-detection.node'
 import { ResponseType } from 'src/schemas/graph'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { RetryService } from 'src/utils/retry.service'
 
 function makeModelFactory(response: AIMessage): {
@@ -56,6 +58,7 @@ describe('IntentDetectionNode', () => {
       { provide: ModelFactoryService, useValue: factory },
       { provide: RetryService, useValue: retryService },
       { provide: MediaRequestHandler, useValue: mediaHandler },
+      { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
     ])
     return module.get(IntentDetectionNode)
   }

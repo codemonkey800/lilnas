@@ -7,6 +7,7 @@ import { ModelFactoryService } from 'src/messages/llm/model-factory.service'
 import { Message } from 'src/messages/types'
 import { LLMStringContentSchema } from 'src/schemas/llm.schemas'
 import { MessageResponse } from 'src/schemas/messages'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { ErrorCategory } from 'src/utils/error-classifier'
 import { SHORTEN_RESPONSE_PROMPT } from 'src/utils/prompts'
 import { RetryService } from 'src/utils/retry.service'
@@ -21,10 +22,13 @@ export class ResponseService {
     private readonly retryService: RetryService,
     private readonly modelFactory: ModelFactoryService,
     private readonly sanitize: ResponseSanitizer,
+    private readonly metrics: TdrBotMetricsService,
   ) {}
 
   async sendReply(message: Message, response: MessageResponse): Promise<void> {
     let content = await this.sanitize.sanitizeResponse(response.content)
+    let responseStatus: Parameters<TdrBotMetricsService['responseSent']>[0] =
+      'success'
 
     if (content.length > DISCORD_MAX_MESSAGE_LENGTH) {
       this.logger.warn(
@@ -32,6 +36,7 @@ export class ResponseService {
         'Response exceeds Discord limit, attempting to shorten',
       )
       content = await this.shortenResponse(content)
+      responseStatus = 'shortened'
 
       if (content.length > DISCORD_MAX_MESSAGE_LENGTH) {
         this.logger.warn(
@@ -39,6 +44,7 @@ export class ResponseService {
           'Shortened response still exceeds Discord limit, truncating',
         )
         content = this.truncateAtNaturalBreak(content)
+        responseStatus = 'truncated'
       }
     }
 
@@ -64,6 +70,7 @@ export class ResponseService {
         'Discord-sendResponse',
         ErrorCategory.DISCORD_API,
       )
+      this.metrics.responseSent(responseStatus)
     } catch (error) {
       this.logger.error('Failed to send reply, sending fallback', {
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -74,6 +81,7 @@ export class ResponseService {
         await message.reply(
           "sorry, my response was too long and I couldn't shorten it <:Sadge:781403152258826281>",
         )
+        this.metrics.responseSent('fallback')
       } catch (fallbackError) {
         this.logger.error('Failed to send fallback message', {
           error:
@@ -82,6 +90,7 @@ export class ResponseService {
               : 'Unknown error',
           channelId: message.channelId,
         })
+        this.metrics.responseSent('error')
       }
     }
   }

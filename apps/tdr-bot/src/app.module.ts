@@ -1,6 +1,9 @@
 import { env } from '@lilnas/utils/env'
+import { MetricsInterceptor } from '@lilnas/utils/metrics-interceptor'
 import { Module } from '@nestjs/common'
+import { APP_INTERCEPTOR } from '@nestjs/core'
 import { ScheduleModule } from '@nestjs/schedule'
+import { PrometheusModule } from '@willsoto/nestjs-prometheus'
 import { IntentsBitField } from 'discord.js'
 import { NecordModule } from 'necord'
 import { NestMinioModule } from 'nestjs-minio'
@@ -21,6 +24,7 @@ import { StateModule } from './state/state.module'
     ApiModule,
     CommandsModule,
     MediaModule,
+    PrometheusModule.register({ defaultMetrics: { enabled: true } }),
     LoggerModule.forRoot(
       (() => {
         const isProduction = env(EnvKeys.NODE_ENV) === 'production'
@@ -99,6 +103,9 @@ import { StateModule } from './state/state.module'
     SchedulesModule,
   ],
 
-  providers: [AppEventsService],
+  providers: [
+    AppEventsService,
+    { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
+  ],
 })
 export class AppModule {}

@@ -19,6 +19,7 @@ import { MINIO_CONNECTION } from 'nestjs-minio'
 import path from 'path'
 
 import { EnvKeys } from './env'
+import { EquationsMetricsService } from './equations-metrics.service'
 // Note: We'll handle validation manually in the controller
 import { getLatexTemplate } from './utils/latex'
 import { SecureExecutor } from './utils/secure-exec'
@@ -39,7 +40,10 @@ export class EquationsController {
 
   private activJobs = new Set<string>()
 
-  constructor(@Inject(MINIO_CONNECTION) private readonly minioClient: Client) {}
+  constructor(
+    @Inject(MINIO_CONNECTION) private readonly minioClient: Client,
+    private readonly metrics: EquationsMetricsService,
+  ) {}
 
   private async logBadFile(file: string) {
     const baseDir =
@@ -82,6 +86,7 @@ export class EquationsController {
   private async checkResourceLimits(jobId: string): Promise<void> {
     // Check concurrent job limit
     if (this.activJobs.size >= EquationsController.MAX_CONCURRENT_JOBS) {
+      this.metrics.rateLimited()
       throw new HttpException(
         { info: 'Too many concurrent LaTeX jobs. Please try again later.' },
         HttpStatus.TOO_MANY_REQUESTS,
@@ -132,6 +137,7 @@ export class EquationsController {
 
     // Add job to active jobs
     this.activJobs.add(jobId)
+    this.metrics.setActiveJobs(this.activJobs.size)
 
     try {
       // Ensure directory exists with proper permissions
@@ -143,6 +149,7 @@ export class EquationsController {
       // Additional runtime safety validation
       const safetyCheck = validateLatexSafety(latex)
       if (!safetyCheck.isValid) {
+        this.metrics.validationFailure('safety')
         throw new HttpException(
           {
             info: 'LaTeX content failed safety checks',
@@ -159,12 +166,23 @@ export class EquationsController {
       await this.storeLatexFile(jobId, latexContent)
 
       // Compile PDF with secure execution
-      this.logger.log({ jobId, file: latexFile }, 'Compiling LaTeX to PDF')
+      this.logger.log(
+        { jobId, file: latexFile, phase: 'pdflatex' },
+        'Compiling LaTeX to PDF',
+      )
+      const pdflatexStart = Date.now()
       try {
         await this.secureExecutor.compilePdfLatex(latexFile, dir)
+        this.metrics.observePhase('pdflatex', Date.now() - pdflatexStart)
       } catch (err) {
+        this.metrics.observePhase('pdflatex', Date.now() - pdflatexStart)
         this.logger.error(
-          { jobId, file: latexFile, error: getErrorMessage(err) },
+          {
+            jobId,
+            file: latexFile,
+            phase: 'pdflatex',
+            error: getErrorMessage(err),
+          },
           'LaTeX compilation failed',
         )
         await this.logBadFile(latexFile)
@@ -190,12 +208,18 @@ export class EquationsController {
       await fs.rename(pngFile, pngTmpFile)
 
       // Process image with secure execution
-      this.logger.log({ jobId }, 'Processing image with ImageMagick')
+      this.logger.log(
+        { jobId, phase: 'imagemagick' },
+        'Processing image with ImageMagick',
+      )
+      const imageMagickStart = Date.now()
       try {
         await this.secureExecutor.convertImage(pngTmpFile, pngFile, dir)
+        this.metrics.observePhase('imagemagick', Date.now() - imageMagickStart)
       } catch (err) {
+        this.metrics.observePhase('imagemagick', Date.now() - imageMagickStart)
         this.logger.error(
-          { jobId, error: getErrorMessage(err) },
+          { jobId, phase: 'imagemagick', error: getErrorMessage(err) },
           'Image processing failed',
         )
         throw new HttpException(
@@ -211,6 +235,7 @@ export class EquationsController {
     } finally {
       // Always remove job from active jobs
       this.activJobs.delete(jobId)
+      this.metrics.setActiveJobs(this.activJobs.size)
     }
   }
 
@@ -226,6 +251,7 @@ export class EquationsController {
     // Validate input with Zod schema
     const validationResult = CreateEquationSchema.safeParse(body)
     if (!validationResult.success) {
+      this.metrics.validationFailure('schema')
       this.logger.warn(
         { errors: validationResult.error.issues },
         'Invalid input received',
@@ -242,6 +268,7 @@ export class EquationsController {
     const validatedBody = validationResult.data
     // Validate authentication
     if (validatedBody.token !== env(EnvKeys.API_TOKEN)) {
+      this.metrics.validationFailure('auth')
       this.logger.warn(
         { ip: 'unknown', timestamp: new Date().toISOString() },
         'Unauthorized equation creation attempt',
@@ -250,7 +277,10 @@ export class EquationsController {
     }
 
     const jobId = `eq_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-    const now = Date.now()
+    const totalStart = Date.now()
+
+    // Record latex input length
+    this.metrics.observeLatexLength(validatedBody.latex.length)
 
     // Use more secure directory structure
     const baseDir =
@@ -283,17 +313,22 @@ export class EquationsController {
 
       // Upload to MinIO with error handling
       const bucket = 'equations'
-      const filename = `${now}.png`
+      const filename = `${totalStart}.png`
 
+      const uploadStart = Date.now()
       try {
         await this.minioClient.fPutObject(bucket, filename, pngFile, {
           'Content-Type': 'image/png',
           'Cache-Control': 'public, max-age=31536000', // 1 year cache
           'X-Job-ID': jobId,
         })
+        this.metrics.observePhase('upload', Date.now() - uploadStart)
+        this.metrics.minioUpload('success')
       } catch (minioErr) {
+        this.metrics.observePhase('upload', Date.now() - uploadStart)
+        this.metrics.minioUpload('failed')
         this.logger.error(
-          { jobId, error: getErrorMessage(minioErr) },
+          { jobId, phase: 'upload', error: getErrorMessage(minioErr) },
           'Failed to upload to MinIO',
         )
         throw new HttpException(
@@ -302,8 +337,12 @@ export class EquationsController {
         )
       }
 
+      const totalDurationMs = Date.now() - totalStart
+      this.metrics.observePhase('total', totalDurationMs)
+      this.metrics.compilationCompleted('success')
+
       this.logger.log(
-        { jobId, bucket, filename },
+        { jobId, bucket, filename, durationMs: totalDurationMs },
         'Successfully stored equation image',
       )
 
@@ -325,6 +364,7 @@ export class EquationsController {
             error:
               typeof response === 'object' ? response : { message: response },
             latexPreview: validatedBody.latex.substring(0, 100),
+            durationMs: Date.now() - totalStart,
             timestamp: new Date().toISOString(),
           },
           'Equation creation failed (HttpException)',
@@ -335,10 +375,21 @@ export class EquationsController {
             jobId,
             error: getErrorMessage(err),
             latexPreview: validatedBody.latex.substring(0, 100),
+            durationMs: Date.now() - totalStart,
             timestamp: new Date().toISOString(),
           },
           'Equation creation failed (Unhandled Error)',
         )
+      }
+
+      // Record compilation failure for non-validation errors that reach here
+      if (
+        err instanceof HttpException &&
+        err.getStatus() >= HttpStatus.INTERNAL_SERVER_ERROR
+      ) {
+        this.metrics.compilationCompleted('failed')
+      } else if (!(err instanceof HttpException)) {
+        this.metrics.compilationCompleted('failed')
       }
 
       // Don't expose internal errors to client

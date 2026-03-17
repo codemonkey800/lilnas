@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common'
 import { nanoid } from 'nanoid'
 import { Context, type ContextOf, On } from 'necord'
 
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
+
 import { HandlerRegistry } from './handlers/handler.registry'
 import { GuardMiddleware } from './middleware/guard.middleware'
 import { Message, MessageContext } from './types'
@@ -13,6 +15,7 @@ export class MessagesService {
   constructor(
     private readonly guard: GuardMiddleware,
     private readonly registry: HandlerRegistry,
+    private readonly metrics: TdrBotMetricsService,
   ) {}
 
   @On('messageCreate')
@@ -41,6 +44,11 @@ export class MessagesService {
   ): Promise<void> {
     for (const handler of this.registry.getHandlers()) {
       if (await handler.canHandle(message)) {
+        this.metrics.messageReceived(
+          handler.name as Parameters<
+            TdrBotMetricsService['messageReceived']
+          >[0],
+        )
         const result = await handler.handle(message, context)
         if (result.handled) return
       }

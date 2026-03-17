@@ -47,6 +47,7 @@ import {
   DownloadEvents,
   INTERNAL_DOWNLOAD_EVENT,
 } from 'src/download/download.types'
+import { makeMetricsMock } from 'src/test-utils/metrics.mock'
 
 function makeEventEmitter(): jest.Mocked<EventEmitter2> {
   return { emit: jest.fn() } as unknown as jest.Mocked<EventEmitter2>
@@ -68,7 +69,7 @@ describe('DownloadService', () => {
 
   beforeEach(() => {
     events = makeEventEmitter()
-    service = new DownloadService(events)
+    service = new DownloadService(events, makeMetricsMock())
 
     // Default: all API calls succeed with minimal responses
     ;(getApiV3Movie as jest.Mock).mockResolvedValue(makeMovieApiResponse())

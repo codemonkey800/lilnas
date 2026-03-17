@@ -8,6 +8,7 @@ import { createWriteStream } from 'fs'
 import { chmod, copy, move, pathExists, remove } from 'fs-extra'
 import { gt } from 'semver'
 
+import { DownloadMetricsService } from 'src/download/download-metrics.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { EnvKeys } from 'src/env'
 
@@ -27,7 +28,10 @@ export class YtdlpUpdateService {
   private lastUpdateAttempt: Date | null = null
   private updateRetryCount = 0
 
-  constructor(private readonly downloadStateService: DownloadStateService) {}
+  constructor(
+    private readonly downloadStateService: DownloadStateService,
+    private readonly metrics: DownloadMetricsService,
+  ) {}
 
   @Cron(env(EnvKeys.YTDLP_UPDATE_CRON, CronExpression.EVERY_DAY_AT_3AM))
   async scheduledUpdateCheck(): Promise<void> {
@@ -282,6 +286,8 @@ export class YtdlpUpdateService {
         'yt-dlp update completed successfully',
       )
 
+      this.metrics.ytdlpUpdate('success')
+
       return {
         success: true,
         previousVersion: currentVersion,
@@ -300,9 +306,12 @@ export class YtdlpUpdateService {
         'Update failed, attempting rollback',
       )
 
+      this.metrics.ytdlpUpdate('failure')
+
       try {
         await this.rollback()
         this.logger.log({ action }, 'Rollback completed successfully')
+        this.metrics.ytdlpUpdate('rollback')
       } catch (rollbackErr) {
         const rollbackError = getErrorMessage(rollbackErr)
         this.logger.error(

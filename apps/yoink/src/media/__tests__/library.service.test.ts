@@ -12,6 +12,7 @@ import { getApiV3Movie, getApiV3MovieLookup } from '@lilnas/media/radarr-next'
 import { getApiV3Series, getApiV3SeriesLookup } from '@lilnas/media/sonarr'
 
 import { LibraryService } from 'src/media/library.service'
+import { makeMetricsMock } from 'src/test-utils/metrics.mock'
 
 const baseMovie = {
   id: 10,
@@ -43,7 +44,7 @@ describe('LibraryService', () => {
   let service: LibraryService
 
   beforeEach(() => {
-    service = new LibraryService()
+    service = new LibraryService(makeMetricsMock())
     ;(getApiV3Movie as jest.Mock).mockResolvedValue({ data: [baseMovie] })
     ;(getApiV3Series as jest.Mock).mockResolvedValue({ data: [baseSeries] })
     ;(getApiV3MovieLookup as jest.Mock).mockResolvedValue({ data: [] })

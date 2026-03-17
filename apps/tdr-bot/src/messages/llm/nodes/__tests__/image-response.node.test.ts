@@ -1,12 +1,14 @@
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 
 import {
+  createMockMetricsService,
   createMockRetryService,
   createTestingModule,
 } from 'src/__tests__/test-utils'
 import { ModelFactoryService } from 'src/messages/llm/model-factory.service'
 import { ImageResponseNode } from 'src/messages/llm/nodes/image-response.node'
 import { ResponseType } from 'src/schemas/graph'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { RetryService } from 'src/utils/retry.service'
 
 jest.mock('src/messages/llm/tools', () => ({
@@ -75,6 +77,7 @@ describe('ImageResponseNode', () => {
       ImageResponseNode,
       { provide: ModelFactoryService, useValue: modelFactory },
       { provide: RetryService, useValue: retryService },
+      { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
     ])
 
     node = module.get(ImageResponseNode)

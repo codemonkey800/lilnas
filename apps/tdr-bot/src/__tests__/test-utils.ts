@@ -18,6 +18,7 @@ import { map, of } from 'rxjs'
 
 import { Message } from 'src/messages/types'
 import { StateService } from 'src/state/state.service'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import {
   ErrorCategory,
   ErrorClassificationService,
@@ -389,4 +390,18 @@ export class MessageBuilder {
   build(): Message {
     return createMockMessage(this.messageData)
   }
+}
+
+export function createMockMetricsService(): jest.Mocked<TdrBotMetricsService> {
+  return {
+    messageReceived: jest.fn(),
+    messageHandled: jest.fn(),
+    llmRequest: jest.fn(),
+    observeLlmDuration: jest.fn(),
+    llmTokens: jest.fn(),
+    intentDetected: jest.fn(),
+    imageGeneration: jest.fn(),
+    responseSent: jest.fn(),
+    commandExecuted: jest.fn(),
+  } as unknown as jest.Mocked<TdrBotMetricsService>
 }
