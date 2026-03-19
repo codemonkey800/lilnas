@@ -331,7 +331,8 @@ export class PromptGenerationService {
               const show = context.shows[0]
               const year = show.year ? ` (${show.year})` : ''
               const rating = show.rating ? ` ⭐${show.rating?.toFixed(1)}` : ''
-              const seasons = show.seasons?.length || 0
+              const seasons =
+                show.seasons?.filter(s => s.seasonNumber > 0).length || 0
               const status = show.ended ? 'Ended' : 'Ongoing'
 
               // Check if this show was auto-selected
@@ -365,7 +366,8 @@ export class PromptGenerationService {
                   const rating = show.rating
                     ? ` ⭐${show.rating?.toFixed(1)}`
                     : ''
-                  const seasons = show.seasons?.length || 0
+                  const seasons =
+                    show.seasons?.filter(s => s.seasonNumber > 0).length || 0
                   const status = show.ended ? 'Ended' : 'Ongoing'
                   return `${index + 1}. ${show.title}${year} - ${status}, ${seasons} seasons${rating}`
                 })
@@ -382,7 +384,8 @@ export class PromptGenerationService {
           if (context?.selectedShow) {
             const show = context.selectedShow
             const year = show.year ? ` (${show.year})` : ''
-            const seasons = show.seasons?.length || 0
+            const seasons =
+              show.seasons?.filter(s => s.seasonNumber > 0).length || 0
             const status = show.ended ? 'Ended' : 'Ongoing'
             const rating = show.rating ? ` ⭐${show.rating?.toFixed(1)}` : ''
 
