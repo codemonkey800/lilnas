@@ -30,6 +30,9 @@ RUN pnpm --filter=@lilnas/tdr-bot --prod deploy /app
 # Copy the built Next.js application
 RUN cp -r /source/apps/tdr-bot/.next /app/.next
 
+# Copy Drizzle migration files
+RUN cp -r /source/apps/tdr-bot/drizzle /app/drizzle
+
 # Copy the standalone server to the correct location
 RUN cp /source/apps/tdr-bot/.next/standalone/apps/tdr-bot/server.js /app/server.js
 
