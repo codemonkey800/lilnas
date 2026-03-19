@@ -35,3 +35,35 @@ export function runSshCommand({
     throw new Error(`ssh command exited with status ${result.status ?? 1}`)
   }
 }
+
+/**
+ * Runs a command on the remote server via SSH and returns stdout as a string.
+ * When dryRun is true, prints the command that would be run and returns an empty string.
+ * Throws if the SSH command exits with a non-zero status.
+ */
+export function runSshCommandCapture({
+  command,
+  host = DEFAULT_HOST,
+  dryRun = false,
+}: SshOptions): string {
+  const remoteCmd = `cd ${REMOTE_DIR} && ${command}`
+
+  if (dryRun) {
+    console.log(`[dry-run] ssh ${host} '${remoteCmd}'`)
+    return ''
+  }
+
+  const result = spawnSync('ssh', [host, remoteCmd], {
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+
+  if (result.error) {
+    throw result.error
+  }
+  if (result.status !== 0) {
+    throw new Error(`ssh command exited with status ${result.status ?? 1}`)
+  }
+
+  return result.stdout ?? ''
+}
