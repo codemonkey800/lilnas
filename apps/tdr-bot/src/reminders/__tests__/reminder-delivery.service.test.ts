@@ -59,6 +59,7 @@ function createTestReminder(overrides: Partial<Reminder> = {}): Reminder {
     isRecurring: false,
     cronExpression: null,
     scheduledAt: new Date(Date.now() + 60_000),
+    channelId: null,
     dayDescription: 'tomorrow',
     timeDescription: '9:00 AM',
     actionType: 'default',
