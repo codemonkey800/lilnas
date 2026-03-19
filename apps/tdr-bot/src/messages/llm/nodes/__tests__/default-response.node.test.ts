@@ -52,6 +52,7 @@ describe('DefaultResponseNode', () => {
       message: newMsg,
       userInput: '',
       userId: 'u',
+      guildId: 'g',
       images: [],
       responseType: ResponseType.Default,
     }
@@ -67,6 +68,7 @@ describe('DefaultResponseNode', () => {
       message: makeHuman(),
       userInput: '',
       userId: 'u',
+      guildId: 'g',
       images: [],
       responseType: ResponseType.Default,
     }
@@ -86,6 +88,7 @@ describe('DefaultResponseNode', () => {
       message: userMsg,
       userInput: '',
       userId: 'u',
+      guildId: 'g',
       images: [],
       responseType: ResponseType.Default,
     }
@@ -101,6 +104,7 @@ describe('DefaultResponseNode', () => {
       message: makeHuman(),
       userInput: '',
       userId: 'u',
+      guildId: 'g',
       images: [],
       responseType: ResponseType.Default,
     }
@@ -127,6 +131,7 @@ describe('DefaultResponseNode', () => {
       message: makeHuman(),
       userInput: '',
       userId: 'u',
+      guildId: 'g',
       images: [],
       responseType: ResponseType.Default,
     }

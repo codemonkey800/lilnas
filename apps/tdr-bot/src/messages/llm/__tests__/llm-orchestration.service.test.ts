@@ -16,6 +16,7 @@ import { ImageResponseNode } from 'src/messages/llm/nodes/image-response.node'
 import { IntentDetectionNode } from 'src/messages/llm/nodes/intent-detection.node'
 import { MathResponseNode } from 'src/messages/llm/nodes/math-response.node'
 import { MediaResponseNode } from 'src/messages/llm/nodes/media-response.node'
+import { ReminderResponseNode } from 'src/messages/llm/nodes/reminder-response.node'
 import { PromptService } from 'src/messages/prompts/prompt.service'
 import { StateService } from 'src/state/state.service'
 import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
@@ -106,6 +107,10 @@ describe('LLMOrchestrationService', () => {
       {
         provide: MediaResponseNode,
         useValue: nodeMock<MediaResponseNode>('media'),
+      },
+      {
+        provide: ReminderResponseNode,
+        useValue: nodeMock<ReminderResponseNode>('reminder'),
       },
       { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
     ])

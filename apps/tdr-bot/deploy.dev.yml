@@ -3,8 +3,13 @@ services:
     image: lilnas-dev
     command: -c "pnpm --filter=tdr-bot dev"
     restart: unless-stopped
+    environment:
+      POSTGRES_HOST: tdr-bot-db
     env_file:
       - ../../infra/.env.tdr-bot
+    depends_on:
+      tdr-bot-db:
+        condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ../../:/source
@@ -12,3 +17,17 @@ services:
       - traefik.enable=true
       - traefik.http.routers.tdr.rule=Host(`tdr.localhost`)
       - traefik.http.services.tdr.loadbalancer.server.port=8080
+
+  tdr-bot-db:
+    image: postgres:17-alpine
+    env_file:
+      - ../../infra/.env.tdr-bot
+    volumes:
+      - ./data/tdr-bot-db:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped

@@ -40,6 +40,7 @@ function buildState(messages = [makeHuman()], message = makeHuman()) {
     message,
     userInput: '',
     userId: 'u',
+    guildId: 'g',
     images: [],
     responseType: ResponseType.Math,
   }

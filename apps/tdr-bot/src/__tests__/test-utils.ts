@@ -403,5 +403,10 @@ export function createMockMetricsService(): jest.Mocked<TdrBotMetricsService> {
     imageGeneration: jest.fn(),
     responseSent: jest.fn(),
     commandExecuted: jest.fn(),
+    reminderCreated: jest.fn(),
+    reminderDelivered: jest.fn(),
+    reminderCancelled: jest.fn(),
+    reminderFailed: jest.fn(),
+    reminderActiveDecrement: jest.fn(),
   } as unknown as jest.Mocked<TdrBotMetricsService>
 }

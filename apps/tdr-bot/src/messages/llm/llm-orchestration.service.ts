@@ -24,21 +24,36 @@ import { ImageResponseNode } from './nodes/image-response.node'
 import { IntentDetectionNode } from './nodes/intent-detection.node'
 import { MathResponseNode } from './nodes/math-response.node'
 import { MediaResponseNode } from './nodes/media-response.node'
+import { ReminderResponseNode } from './nodes/reminder-response.node'
 import { getTools } from './tools'
 
+/** Compiled LangGraph that accepts input state and returns output state. */
 interface CompiledLLMGraph {
   invoke(
     input: typeof InputStateAnnotation.State,
   ): Promise<typeof OutputStateAnnotation.State>
 }
 
+/** Maps each {@link ResponseType} to its corresponding graph node. */
 const RESPONSE_TYPE_GRAPH_NODE_MAP: Record<ResponseType, GraphNode> = {
   [ResponseType.Default]: GraphNode.GetModelDefaultResponse,
   [ResponseType.Math]: GraphNode.GetModelMathResponse,
   [ResponseType.Image]: GraphNode.GetModelImageResponse,
   [ResponseType.Media]: GraphNode.GetModelMediaResponse,
+  [ResponseType.Reminder]: GraphNode.GetModelReminderResponse,
 }
 
+/**
+ * Builds and owns the LangGraph state machine that processes
+ * every user message through the AI pipeline.
+ *
+ * The graph flow is:
+ *   Start → IntentDetection → TrimMessages → AddSystemPrompt
+ *         → (conditional) → ResponseNode → End
+ *
+ * The default response node supports tool calling (e.g. Tavily search)
+ * with a tool-call → tools → response loop.
+ */
 @Injectable()
 export class LLMOrchestrationService implements OnModuleInit {
   private readonly logger = new Logger(LLMOrchestrationService.name)
@@ -53,9 +68,11 @@ export class LLMOrchestrationService implements OnModuleInit {
     private readonly imageResponse: ImageResponseNode,
     private readonly mathResponse: MathResponseNode,
     private readonly mediaResponse: MediaResponseNode,
+    private readonly reminderResponse: ReminderResponseNode,
     private readonly metrics: TdrBotMetricsService,
   ) {}
 
+  /** Compiles the LangGraph state machine and wires all nodes and edges. */
   onModuleInit() {
     const tools = getTools()
     const toolNode = new ToolNode(tools)
@@ -94,6 +111,10 @@ export class LLMOrchestrationService implements OnModuleInit {
         GraphNode.GetModelMediaResponse,
         this.mediaResponse.invoke.bind(this.mediaResponse),
       )
+      .addNode(
+        GraphNode.GetModelReminderResponse,
+        this.reminderResponse.invoke.bind(this.reminderResponse),
+      )
       .addNode(GraphNode.Tools, toolNode)
       .addEdge(GraphNode.Start, GraphNode.CheckResponseType)
       .addEdge(GraphNode.CheckResponseType, GraphNode.TrimMessages)
@@ -102,6 +123,7 @@ export class LLMOrchestrationService implements OnModuleInit {
       .addEdge(GraphNode.GetModelImageResponse, GraphNode.End)
       .addEdge(GraphNode.GetModelMathResponse, GraphNode.End)
       .addEdge(GraphNode.GetModelMediaResponse, GraphNode.End)
+      .addEdge(GraphNode.GetModelReminderResponse, GraphNode.End)
       .addConditionalEdges(
         GraphNode.AddTdrSystemPrompt,
         state => RESPONSE_TYPE_GRAPH_NODE_MAP[state.responseType],
@@ -118,6 +140,7 @@ export class LLMOrchestrationService implements OnModuleInit {
     )
   }
 
+  /** Prepends the TDR Bot system prompt to the message list if not already present. */
   private addTdrSystemPrompt({
     messages,
   }: typeof OverallStateAnnotation.State) {
@@ -130,6 +153,7 @@ export class LLMOrchestrationService implements OnModuleInit {
     }
   }
 
+  /** Routes to the Tools node if the last AI message contains tool calls, otherwise ends. */
   private handleModelResponse({
     messages,
   }: typeof OverallStateAnnotation.State) {
@@ -147,6 +171,7 @@ export class LLMOrchestrationService implements OnModuleInit {
     return GraphNode.End
   }
 
+  /** Caps the conversation history to the most recent messages to control token usage. */
   private trimMessages({ messages }: typeof OverallStateAnnotation.State) {
     this.logger.log({ messageCount: messages.length }, 'Trimming messages')
 
@@ -160,14 +185,26 @@ export class LLMOrchestrationService implements OnModuleInit {
     return { messages: finalMessages }
   }
 
+  /**
+   * Public entry point: formats the user input, invokes the compiled
+   * LangGraph, records metrics, and returns the final response.
+   *
+   * @param params.message - Raw message content from the user.
+   * @param params.user - Display name of the message author.
+   * @param params.userId - Discord user ID (falls back to `user`).
+   * @param params.guildId - Discord guild ID for reminder delivery.
+   * @returns The AI-generated response text and any generated images.
+   */
   async sendMessage({
     message,
     user,
     userId,
+    guildId,
   }: {
     message: string
     user: string
     userId?: string
+    guildId?: string
   }): Promise<MessageResponse> {
     const userInput = `${user} said "${message}"`
     const finalUserId = userId || user
@@ -189,6 +226,7 @@ export class LLMOrchestrationService implements OnModuleInit {
       } = await this.app.invoke({
         userInput,
         userId: finalUserId,
+        guildId: guildId ?? '',
         messages: currentState.graphHistory.at(-1)?.messages ?? [],
       })
 
