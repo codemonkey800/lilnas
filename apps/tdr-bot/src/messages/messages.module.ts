@@ -9,6 +9,7 @@ import { IMessageHandler, MESSAGE_HANDLERS } from './handlers/handler.interface'
 import { HandlerRegistry } from './handlers/handler.registry'
 import { KeywordsHandler } from './handlers/keywords.handler'
 import { LLMModule } from './llm/llm.module'
+import { ModelFactoryModule } from './llm/model-factory.module'
 import { MessagesService } from './messages.service'
 import { GuardMiddleware } from './middleware/guard.middleware'
 import { ResponseService } from './response/response.service'
@@ -16,7 +17,7 @@ import { ResponseSanitizer } from './response/response-sanitizer'
 import { TypingIndicatorService } from './response/typing-indicator.service'
 
 @Module({
-  imports: [LLMModule, ServicesModule, StateModule],
+  imports: [LLMModule, ModelFactoryModule, ServicesModule, StateModule],
   providers: [
     MessagesService,
     GuardMiddleware,

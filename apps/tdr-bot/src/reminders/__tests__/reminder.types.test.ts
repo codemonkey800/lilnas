@@ -15,6 +15,7 @@ describe('ReminderExtractionSchema', () => {
         scheduledAt: '2026-03-18T09:00:00',
         cronExpression: null,
         reminderIdToCancel: null,
+        channelId: null,
       }
 
       const result = ReminderExtractionSchema.parse(input)
@@ -37,6 +38,7 @@ describe('ReminderExtractionSchema', () => {
         scheduledAt: null,
         cronExpression: '0 9 * * 2',
         reminderIdToCancel: null,
+        channelId: null,
       }
 
       const result = ReminderExtractionSchema.parse(input)
@@ -58,6 +60,7 @@ describe('ReminderExtractionSchema', () => {
         scheduledAt: null,
         cronExpression: null,
         reminderIdToCancel: null,
+        channelId: null,
       }
 
       expect(() => ReminderExtractionSchema.parse(input)).not.toThrow()
@@ -78,6 +81,7 @@ describe('ReminderExtractionSchema', () => {
         scheduledAt: null,
         cronExpression: null,
         reminderIdToCancel: null,
+        channelId: null,
       }
 
       const result = ReminderExtractionSchema.parse(input)
@@ -102,6 +106,7 @@ describe('ReminderExtractionSchema', () => {
         scheduledAt: null,
         cronExpression: null,
         reminderIdToCancel: null,
+        channelId: null,
       }
 
       const result = ReminderExtractionSchema.parse(input)
@@ -121,6 +126,7 @@ describe('ReminderExtractionSchema', () => {
         scheduledAt: null,
         cronExpression: null,
         reminderIdToCancel: 'reminder-abc-123',
+        channelId: null,
       }
 
       const result = ReminderExtractionSchema.parse(input)
@@ -143,6 +149,7 @@ describe('ReminderExtractionSchema', () => {
         scheduledAt: null,
         cronExpression: null,
         reminderIdToCancel: null,
+        channelId: null,
       }
 
       expect(() => ReminderExtractionSchema.parse(input)).toThrow()
@@ -158,6 +165,7 @@ describe('ReminderExtractionSchema', () => {
         scheduledAt: null,
         cronExpression: null,
         reminderIdToCancel: null,
+        channelId: null,
       }
 
       expect(() => ReminderExtractionSchema.parse(input)).toThrow()
@@ -174,6 +182,7 @@ describe('ReminderExtractionSchema', () => {
         scheduledAt: null,
         cronExpression: null,
         reminderIdToCancel: null,
+        channelId: null,
       }
 
       expect(() => ReminderExtractionSchema.parse(input)).toThrow()
@@ -190,6 +199,7 @@ describe('ReminderExtractionSchema', () => {
         scheduledAt: null,
         cronExpression: null,
         reminderIdToCancel: null,
+        channelId: null,
       }
 
       expect(() => ReminderExtractionSchema.parse(input)).toThrow()
@@ -210,6 +220,7 @@ describe('ReminderExtractionSchema', () => {
         scheduledAt: null,
         cronExpression: null,
         reminderIdToCancel: null,
+        channelId: null,
       }
 
       const result = ReminderExtractionSchema.safeParse(input)

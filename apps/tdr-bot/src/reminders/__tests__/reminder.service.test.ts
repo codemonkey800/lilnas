@@ -43,6 +43,7 @@ function createTestReminder(overrides: Partial<Reminder> = {}): Reminder {
     scheduledAt: new Date(Date.now() + 60_000),
     dayDescription: 'tomorrow',
     timeDescription: '9:00 AM',
+    channelId: null,
     actionType: 'default',
     createdAt: new Date(),
     ...overrides,
@@ -261,6 +262,24 @@ describe('ReminderService', () => {
       await service.create(reminder)
 
       expect(mockMetrics.reminderCreated).toHaveBeenCalledWith('recurring')
+    })
+
+    it('stores a reminder with a specific channelId', async () => {
+      const reminder = createTestReminder({ channelId: '987654321012345678' })
+      mockDb.insert.mockReturnValue(makeInsertChain([reminder]))
+
+      const result = await service.create(reminder)
+
+      expect(result.channelId).toBe('987654321012345678')
+    })
+
+    it('stores a reminder with channelId null when no channel is specified', async () => {
+      const reminder = createTestReminder({ channelId: null })
+      mockDb.insert.mockReturnValue(makeInsertChain([reminder]))
+
+      const result = await service.create(reminder)
+
+      expect(result.channelId).toBeNull()
     })
 
     it('throws when the user already has MAX_REMINDERS_PER_USER reminders', async () => {

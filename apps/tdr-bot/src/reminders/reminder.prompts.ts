@@ -60,7 +60,7 @@ export function buildExtractReminderPrompt(
     - Canceling a reminder (action: "cancel")
 
     For "create", extract all of these fields:
-    - what: what they want to be reminded about (string or null if not specified)
+    - what: what they want to be reminded about (string or null if not specified). IMPORTANT: strip any Discord channel mention (e.g. "<#123456789>") from the what field — it should describe only the reminder topic.
     - isRecurring: true if it repeats (e.g. "every week", "every Tuesday", "every X minutes"), false for one-time
     - day: human-readable day description (e.g. "tomorrow", "next Monday", "every Tuesday", or null if truly unspecified).
       Rules for setting day:
@@ -76,6 +76,7 @@ export function buildExtractReminderPrompt(
     - scheduledAt: for one-time reminders, the exact ISO 8601 datetime string computed from the current date and time. For relative times like "in 5 minutes", compute the exact time by adding to the current time (${nowIso}). If no time is given, default to 09:00. Set to null for recurring or if the day is missing.
     - cronExpression: for recurring reminders, the cron expression (e.g. "0 10 * * 2" for every Tuesday at 10am, "*/2 * * * *" for every 2 minutes). Cron format: minute hour day-of-month month day-of-week (0=Sun,1=Mon,...,6=Sat). If no time is given, default to "0 9 * * <dow>". Set to null for one-time or if day is missing.
     - reminderIdToCancel: null
+    - channelId: if the message contains a Discord channel mention in the format "<#CHANNEL_ID>" (e.g. "<#123456789012345678>"), extract just the numeric channel ID as a string. Discord automatically converts "#channel-name" to this format when the user types it. Return null if no channel is specified — the reminder will be delivered in the default bot channel.
     - actionType: the type of action to perform at delivery time. Use one of:
       * "search" — if the reminder involves fetching or looking up live information (weather, news, sports scores, stock prices, current events, any real-time data)
       * "image" — if the reminder involves generating or creating an image or picture
@@ -83,31 +84,33 @@ export function buildExtractReminderPrompt(
       * "default" — for all other reminders (standard text reminders)
 
     For "list":
-    - All other fields should be null
+    - All other fields should be null (including channelId)
     - actionType: "default"
 
     For "cancel":
     - what: description of what reminder to cancel (so we can match it)
-    - All other fields should be null
+    - All other fields should be null (including channelId)
     - actionType: "default"
 
     Examples:
-    - "remind me to pay back my friend tomorrow" → {"action":"create","what":"pay back my friend","isRecurring":false,"day":"tomorrow","time":null,"recurringPattern":null,"scheduledAt":"2026-03-18T09:00:00","cronExpression":null,"reminderIdToCancel":null,"actionType":"default"}
-    - "remind me for my appointment next Monday at 10am" → {"action":"create","what":"appointment","isRecurring":false,"day":"next Monday","time":"10:00 AM","recurringPattern":null,"scheduledAt":"2026-03-23T10:00:00","cronExpression":null,"reminderIdToCancel":null,"actionType":"default"}
-    - "remind me to take out the trash in 30 minutes" (current time: 2026-03-17T14:00:00) → {"action":"create","what":"take out the trash","isRecurring":false,"day":"today","time":"in 30 minutes","recurringPattern":null,"scheduledAt":"2026-03-17T14:30:00","cronExpression":null,"reminderIdToCancel":null,"actionType":"default"}
-    - "remind me to call mom in 2 hours" (current time: 2026-03-17T10:15:00) → {"action":"create","what":"call mom","isRecurring":false,"day":"today","time":"in 2 hours","recurringPattern":null,"scheduledAt":"2026-03-17T12:15:00","cronExpression":null,"reminderIdToCancel":null,"actionType":"default"}
-    - "remind me every week on Tuesday that I am a cool person" → {"action":"create","what":"I am a cool person","isRecurring":true,"day":"every Tuesday","time":null,"recurringPattern":"every week on Tuesday","scheduledAt":null,"cronExpression":"0 9 * * 2","reminderIdToCancel":null,"actionType":"default"}
-    - "remind me to buss on @Jambalaya Jesus every two minutes starting today" (today is Tuesday) → {"action":"create","what":"buss on @Jambalaya Jesus","isRecurring":true,"day":"today","time":null,"recurringPattern":"every 2 minutes starting today","scheduledAt":null,"cronExpression":"*/2 * * * *","reminderIdToCancel":null,"actionType":"default"}
-    - "remind me to exercise every day starting tomorrow" → {"action":"create","what":"exercise","isRecurring":true,"day":"tomorrow","time":null,"recurringPattern":"every day starting tomorrow","scheduledAt":null,"cronExpression":"0 9 * * *","reminderIdToCancel":null,"actionType":"default"}
-    - "remind me every Monday starting next week" (today is Tuesday) → {"action":"create","what":null,"isRecurring":true,"day":"next Monday","time":null,"recurringPattern":"every Monday starting next week","scheduledAt":null,"cronExpression":"0 9 * * 1","reminderIdToCancel":null,"actionType":"default"}
-    - "remind me every Tuesday starting next week" (today is Tuesday) → {"action":"create","what":null,"isRecurring":true,"day":"next Tuesday","time":null,"recurringPattern":"every Tuesday starting next week","scheduledAt":null,"cronExpression":"0 9 * * 2","reminderIdToCancel":null,"actionType":"default"}
-    - "remind me to call my mom starting next week Wednesday" (today is Tuesday) → {"action":"create","what":"call my mom","isRecurring":false,"day":"next Wednesday","time":null,"recurringPattern":null,"scheduledAt":"2026-03-25T09:00:00","cronExpression":null,"reminderIdToCancel":null,"actionType":"default"}
-    - "every 5 minutes tell me the weather in tokyo" → {"action":"create","what":"the weather in tokyo","isRecurring":true,"day":"today","time":null,"recurringPattern":"every 5 minutes","scheduledAt":null,"cronExpression":"*/5 * * * *","reminderIdToCancel":null,"actionType":"search"}
-    - "every morning give me the latest tech news" → {"action":"create","what":"the latest tech news","isRecurring":true,"day":"every day","time":"9:00 AM","recurringPattern":"every morning","scheduledAt":null,"cronExpression":"0 9 * * *","reminderIdToCancel":null,"actionType":"search"}
-    - "every 10 minutes generate a random image of a honda or porsche" → {"action":"create","what":"a random image of a honda or porsche","isRecurring":true,"day":"today","time":null,"recurringPattern":"every 10 minutes","scheduledAt":null,"cronExpression":"*/10 * * * *","reminderIdToCancel":null,"actionType":"image"}
-    - "every day show me a random calculus equation" → {"action":"create","what":"a random calculus equation","isRecurring":true,"day":"every day","time":null,"recurringPattern":"every day","scheduledAt":null,"cronExpression":"0 9 * * *","reminderIdToCancel":null,"actionType":"math"}
-    - "show me my reminders" → {"action":"list","what":null,"isRecurring":null,"day":null,"time":null,"recurringPattern":null,"scheduledAt":null,"cronExpression":null,"reminderIdToCancel":null,"actionType":"default"}
-    - "cancel my reminder about the dentist" → {"action":"cancel","what":"dentist","isRecurring":null,"day":null,"time":null,"recurringPattern":null,"scheduledAt":null,"cronExpression":null,"reminderIdToCancel":null,"actionType":"default"}
+    - "remind me to pay back my friend tomorrow" → {"action":"create","what":"pay back my friend","isRecurring":false,"day":"tomorrow","time":null,"recurringPattern":null,"scheduledAt":"2026-03-18T09:00:00","cronExpression":null,"reminderIdToCancel":null,"channelId":null,"actionType":"default"}
+    - "remind me for my appointment next Monday at 10am" → {"action":"create","what":"appointment","isRecurring":false,"day":"next Monday","time":"10:00 AM","recurringPattern":null,"scheduledAt":"2026-03-23T10:00:00","cronExpression":null,"reminderIdToCancel":null,"channelId":null,"actionType":"default"}
+    - "remind me to take out the trash in 30 minutes" (current time: 2026-03-17T14:00:00) → {"action":"create","what":"take out the trash","isRecurring":false,"day":"today","time":"in 30 minutes","recurringPattern":null,"scheduledAt":"2026-03-17T14:30:00","cronExpression":null,"reminderIdToCancel":null,"channelId":null,"actionType":"default"}
+    - "remind me to call mom in 2 hours" (current time: 2026-03-17T10:15:00) → {"action":"create","what":"call mom","isRecurring":false,"day":"today","time":"in 2 hours","recurringPattern":null,"scheduledAt":"2026-03-17T12:15:00","cronExpression":null,"reminderIdToCancel":null,"channelId":null,"actionType":"default"}
+    - "remind me every week on Tuesday that I am a cool person" → {"action":"create","what":"I am a cool person","isRecurring":true,"day":"every Tuesday","time":null,"recurringPattern":"every week on Tuesday","scheduledAt":null,"cronExpression":"0 9 * * 2","reminderIdToCancel":null,"channelId":null,"actionType":"default"}
+    - "remind me to buss on @Jambalaya Jesus every two minutes starting today" (today is Tuesday) → {"action":"create","what":"buss on @Jambalaya Jesus","isRecurring":true,"day":"today","time":null,"recurringPattern":"every 2 minutes starting today","scheduledAt":null,"cronExpression":"*/2 * * * *","reminderIdToCancel":null,"channelId":null,"actionType":"default"}
+    - "remind me to exercise every day starting tomorrow" → {"action":"create","what":"exercise","isRecurring":true,"day":"tomorrow","time":null,"recurringPattern":"every day starting tomorrow","scheduledAt":null,"cronExpression":"0 9 * * *","reminderIdToCancel":null,"channelId":null,"actionType":"default"}
+    - "remind me every Monday starting next week" (today is Tuesday) → {"action":"create","what":null,"isRecurring":true,"day":"next Monday","time":null,"recurringPattern":"every Monday starting next week","scheduledAt":null,"cronExpression":"0 9 * * 1","reminderIdToCancel":null,"channelId":null,"actionType":"default"}
+    - "remind me every Tuesday starting next week" (today is Tuesday) → {"action":"create","what":null,"isRecurring":true,"day":"next Tuesday","time":null,"recurringPattern":"every Tuesday starting next week","scheduledAt":null,"cronExpression":"0 9 * * 2","reminderIdToCancel":null,"channelId":null,"actionType":"default"}
+    - "remind me to call my mom starting next week Wednesday" (today is Tuesday) → {"action":"create","what":"call my mom","isRecurring":false,"day":"next Wednesday","time":null,"recurringPattern":null,"scheduledAt":"2026-03-25T09:00:00","cronExpression":null,"reminderIdToCancel":null,"channelId":null,"actionType":"default"}
+    - "every 5 minutes tell me the weather in tokyo" → {"action":"create","what":"the weather in tokyo","isRecurring":true,"day":"today","time":null,"recurringPattern":"every 5 minutes","scheduledAt":null,"cronExpression":"*/5 * * * *","reminderIdToCancel":null,"channelId":null,"actionType":"search"}
+    - "every morning give me the latest tech news" → {"action":"create","what":"the latest tech news","isRecurring":true,"day":"every day","time":"9:00 AM","recurringPattern":"every morning","scheduledAt":null,"cronExpression":"0 9 * * *","reminderIdToCancel":null,"channelId":null,"actionType":"search"}
+    - "every 10 minutes generate a random image of a honda or porsche" → {"action":"create","what":"a random image of a honda or porsche","isRecurring":true,"day":"today","time":null,"recurringPattern":"every 10 minutes","scheduledAt":null,"cronExpression":"*/10 * * * *","reminderIdToCancel":null,"channelId":null,"actionType":"image"}
+    - "every day show me a random calculus equation" → {"action":"create","what":"a random calculus equation","isRecurring":true,"day":"every day","time":null,"recurringPattern":"every day","scheduledAt":null,"cronExpression":"0 9 * * *","reminderIdToCancel":null,"channelId":null,"actionType":"math"}
+    - "remind me to buss all over @basuradavid in about 5 minutes in <#987654321012345678>" (current time: 2026-03-17T14:00:00) → {"action":"create","what":"buss all over @basuradavid","isRecurring":false,"day":"today","time":"in 5 minutes","recurringPattern":null,"scheduledAt":"2026-03-17T14:05:00","cronExpression":null,"reminderIdToCancel":null,"channelId":"987654321012345678","actionType":"default"}
+    - "every hour post the weather in <#111222333444555666>" → {"action":"create","what":"the weather","isRecurring":true,"day":"today","time":null,"recurringPattern":"every hour","scheduledAt":null,"cronExpression":"0 * * * *","reminderIdToCancel":null,"channelId":"111222333444555666","actionType":"search"}
+    - "show me my reminders" → {"action":"list","what":null,"isRecurring":null,"day":null,"time":null,"recurringPattern":null,"scheduledAt":null,"cronExpression":null,"reminderIdToCancel":null,"channelId":null,"actionType":"default"}
+    - "cancel my reminder about the dentist" → {"action":"cancel","what":"dentist","isRecurring":null,"day":null,"time":null,"recurringPattern":null,"scheduledAt":null,"cronExpression":null,"reminderIdToCancel":null,"channelId":null,"actionType":"default"}
 
     Return only valid JSON, no additional text.
   `)

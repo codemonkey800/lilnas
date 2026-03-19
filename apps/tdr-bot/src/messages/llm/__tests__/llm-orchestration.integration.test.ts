@@ -397,6 +397,7 @@ describe('LLMOrchestrationService - Integration', () => {
           scheduledAt: '2026-03-19T09:00:00',
           cronExpression: null,
           reminderIdToCancel: null,
+          channelId: null,
           actionType: 'default',
         })
 
@@ -410,6 +411,7 @@ describe('LLMOrchestrationService - Integration', () => {
           scheduledAt: new Date('2026-03-19T09:00:00'),
           dayDescription: 'tomorrow',
           timeDescription: '9:00 AM',
+          channelId: null,
           actionType: 'default',
           createdAt: new Date(),
         }
@@ -456,6 +458,7 @@ describe('LLMOrchestrationService - Integration', () => {
           scheduledAt: '2026-03-19T09:00:00',
           cronExpression: null,
           reminderIdToCancel: null,
+          channelId: null,
           actionType: 'default',
         })
 
@@ -469,6 +472,7 @@ describe('LLMOrchestrationService - Integration', () => {
           scheduledAt: new Date('2026-03-19T09:00:00'),
           dayDescription: 'tomorrow',
           timeDescription: '',
+          channelId: null,
           actionType: 'default',
           createdAt: new Date(),
         }

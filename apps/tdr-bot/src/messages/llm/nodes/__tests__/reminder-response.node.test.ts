@@ -43,6 +43,7 @@ function makeExtractionJson(overrides: Record<string, unknown> = {}): string {
     scheduledAt: '2026-03-18T09:00:00',
     cronExpression: null,
     reminderIdToCancel: null,
+    channelId: null,
     actionType: 'default',
   }
   return JSON.stringify({ ...base, ...overrides })
@@ -59,6 +60,7 @@ function makeListExtractionJson(): string {
     scheduledAt: null,
     cronExpression: null,
     reminderIdToCancel: null,
+    channelId: null,
     actionType: 'default',
   })
 }
@@ -74,6 +76,7 @@ function makeCancelExtractionJson(what: string): string {
     scheduledAt: null,
     cronExpression: null,
     reminderIdToCancel: null,
+    channelId: null,
     actionType: 'default',
   })
 }
@@ -89,6 +92,7 @@ function createTestReminder(overrides: Partial<Reminder> = {}): Reminder {
     scheduledAt: new Date('2026-03-18T09:00:00'),
     dayDescription: 'tomorrow',
     timeDescription: '9:00 AM',
+    channelId: null,
     actionType: 'default',
     createdAt: new Date(),
     ...overrides,
