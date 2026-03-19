@@ -40,7 +40,10 @@
     "commands": {
       "strategy": "pattern",
       "target": "./src/commands"
-    }
+    },
+    "additionalHelpFlags": [
+      "-h"
+    ]
   },
   "files": [
     "bin",
