@@ -1,14 +1,42 @@
 services:
+  tdr-bot-db:
+    image: postgres:17-alpine
+    shm_size: 256m
+    environment:
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    env_file:
+      - ../../infra/.env.tdr-bot
+    volumes:
+      - /storage/app-data/tdr-bot-db:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_interval: 10s
+      start_period: 30s
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - wal_compression=on
+    restart: unless-stopped
+
   tdr-bot:
     build:
       context: ../../
       dockerfile: apps/tdr-bot/Dockerfile
     restart: unless-stopped
+    environment:
+      POSTGRES_HOST: tdr-bot-db
     env_file:
       - ../../infra/.env.tdr-bot
+    depends_on:
+      tdr-bot-db:
+        condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /storage/app-data/tdr-bot:/mnt
     labels:
       - traefik.enable=true
       - traefik.http.routers.tdr.rule=Host(`tdr.lilnas.io`)

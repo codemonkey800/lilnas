@@ -29,6 +29,7 @@ import {
   createMockStateService,
 } from 'src/__tests__/test-utils'
 import { MediaRequestHandler } from 'src/media-operations/request-handling/media-request-handler.service'
+import { ContextManagementService } from 'src/message-handler/context/context-management.service'
 import { LLMOrchestrationService } from 'src/messages/llm/llm-orchestration.service'
 import { ModelFactoryService } from 'src/messages/llm/model-factory.service'
 import { DefaultResponseNode } from 'src/messages/llm/nodes/default-response.node'
@@ -36,7 +37,10 @@ import { ImageResponseNode } from 'src/messages/llm/nodes/image-response.node'
 import { IntentDetectionNode } from 'src/messages/llm/nodes/intent-detection.node'
 import { MathResponseNode } from 'src/messages/llm/nodes/math-response.node'
 import { MediaResponseNode } from 'src/messages/llm/nodes/media-response.node'
+import { ReminderResponseNode } from 'src/messages/llm/nodes/reminder-response.node'
 import { PromptService } from 'src/messages/prompts/prompt.service'
+import { ReminderService } from 'src/reminders/reminder.service'
+import { ReminderContext } from 'src/reminders/reminder.types'
 import { ResponseType } from 'src/schemas/graph'
 import { EquationImageService } from 'src/services/equation-image.service'
 import { StateService } from 'src/state/state.service'
@@ -62,6 +66,8 @@ describe('LLMOrchestrationService - Integration', () => {
   let equationImageService: jest.Mocked<EquationImageService>
   let mediaRequestHandler: jest.Mocked<MediaRequestHandler>
   let mockInvoke: jest.Mock
+  let mockContextService: jest.Mocked<ContextManagementService>
+  let mockReminderService: jest.Mocked<ReminderService>
 
   beforeEach(async () => {
     jest.clearAllMocks()
@@ -108,6 +114,25 @@ describe('LLMOrchestrationService - Integration', () => {
         .mockImplementation((fn: () => unknown) => fn()),
     } as unknown as jest.Mocked<RetryService>
 
+    mockContextService = {
+      getContextType: jest.fn().mockResolvedValue(null),
+      getContext: jest.fn().mockResolvedValue(null),
+      setContext: jest.fn().mockResolvedValue(undefined),
+      clearContext: jest.fn().mockResolvedValue(true),
+      hasContext: jest.fn().mockResolvedValue(false),
+    } as unknown as jest.Mocked<ContextManagementService>
+
+    mockReminderService = {
+      create: jest.fn(),
+      listForUser: jest.fn().mockResolvedValue([]),
+      cancel: jest.fn(),
+      setDeliveryFunction: jest.fn(),
+      recordDeliveryFailure: jest.fn(),
+      deleteAfterDelivery: jest.fn(),
+      scheduleReminder: jest.fn(),
+      onModuleInit: jest.fn(),
+    } as unknown as jest.Mocked<ReminderService>
+
     module = await Test.createTestingModule({
       providers: [
         LLMOrchestrationService,
@@ -118,6 +143,7 @@ describe('LLMOrchestrationService - Integration', () => {
         ImageResponseNode,
         MathResponseNode,
         MediaResponseNode,
+        ReminderResponseNode,
         { provide: StateService, useValue: stateService },
         { provide: EquationImageService, useValue: equationImageService },
         { provide: MediaRequestHandler, useValue: mediaRequestHandler },
@@ -126,6 +152,8 @@ describe('LLMOrchestrationService - Integration', () => {
           provide: ErrorClassificationService,
           useValue: { classifyError: jest.fn() },
         },
+        { provide: ContextManagementService, useValue: mockContextService },
+        { provide: ReminderService, useValue: mockReminderService },
         { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
       ],
     }).compile()
@@ -348,6 +376,122 @@ describe('LLMOrchestrationService - Integration', () => {
           (m: unknown) => (m as { id?: string }).id === TDR_SYSTEM_PROMPT_ID,
         ).length
         expect(systemPromptCount).toBe(1)
+      },
+      TEST_TIMEOUT,
+    )
+  })
+
+  describe('reminder response routing', () => {
+    it(
+      'routes to reminder node when intent detection returns "reminder" and returns a confirmation',
+      async () => {
+        const confirmationContent = 'Got it! Reminder set for tomorrow.'
+
+        const extractionJson = JSON.stringify({
+          action: 'create',
+          what: 'pay rent',
+          isRecurring: false,
+          day: 'tomorrow',
+          time: '9:00 AM',
+          recurringPattern: null,
+          scheduledAt: '2026-03-19T09:00:00',
+          cronExpression: null,
+          reminderIdToCancel: null,
+          actionType: 'default',
+        })
+
+        const createdReminder = {
+          id: 'rem-1',
+          userId: 'u-r1',
+          guildId: '',
+          what: 'pay rent',
+          isRecurring: false,
+          cronExpression: null,
+          scheduledAt: new Date('2026-03-19T09:00:00'),
+          dayDescription: 'tomorrow',
+          timeDescription: '9:00 AM',
+          actionType: 'default',
+          createdAt: new Date(),
+        }
+        mockReminderService.create.mockResolvedValue(createdReminder)
+
+        mockInvoke
+          .mockResolvedValueOnce(ai(ResponseType.Reminder)) // intent detection
+          .mockResolvedValueOnce(ai(extractionJson)) // reasoning model extracts reminder
+          .mockResolvedValueOnce(ai(confirmationContent)) // chat model confirms
+
+        const result = await service.sendMessage({
+          message: 'remind me to pay rent tomorrow',
+          user: 'Ivan',
+          userId: 'u-r1',
+        })
+
+        expect(mockReminderService.create).toHaveBeenCalledWith(
+          expect.objectContaining({ what: 'pay rent', userId: 'u-r1' }),
+        )
+        expect(result.content).toBe(confirmationContent)
+      },
+      TEST_TIMEOUT,
+    )
+
+    it(
+      'continues reminder flow when active reminder context exists and user provides follow-up',
+      async () => {
+        // Simulate an active reminder context (user was asked for missing "what")
+        mockContextService.getContextType.mockResolvedValue('reminder')
+        mockContextService.getContext.mockResolvedValue({
+          timestamp: Date.now(),
+          isActive: true,
+          partialExtraction: { day: 'tomorrow', isRecurring: false },
+        } as ReminderContext)
+
+        const confirmationContent = 'Reminder set for tomorrow!'
+        const extractionWithWhat = JSON.stringify({
+          action: 'create',
+          what: 'call mom',
+          isRecurring: false,
+          day: 'tomorrow',
+          time: null,
+          recurringPattern: null,
+          scheduledAt: '2026-03-19T09:00:00',
+          cronExpression: null,
+          reminderIdToCancel: null,
+          actionType: 'default',
+        })
+
+        const createdReminder = {
+          id: 'rem-2',
+          userId: 'u-r2',
+          guildId: '',
+          what: 'call mom',
+          isRecurring: false,
+          cronExpression: null,
+          scheduledAt: new Date('2026-03-19T09:00:00'),
+          dayDescription: 'tomorrow',
+          timeDescription: '',
+          actionType: 'default',
+          createdAt: new Date(),
+        }
+        mockReminderService.create.mockResolvedValue(createdReminder)
+
+        // With active reminder context: topic-switch check returns CONTINUE,
+        // so intent detection short-circuits to Reminder without another LLM call.
+        // Then the reasoning model extracts the merged reminder.
+        mockInvoke
+          .mockResolvedValueOnce(ai('CONTINUE')) // topic-switch detection
+          .mockResolvedValueOnce(ai(extractionWithWhat)) // reasoning extraction
+          .mockResolvedValueOnce(ai(confirmationContent)) // confirm message
+
+        const result = await service.sendMessage({
+          message: 'to call mom',
+          user: 'Jane',
+          userId: 'u-r2',
+        })
+
+        expect(mockReminderService.create).toHaveBeenCalledWith(
+          expect.objectContaining({ what: 'call mom', userId: 'u-r2' }),
+        )
+        expect(result.content).toBe(confirmationContent)
       },
       TEST_TIMEOUT,
     )

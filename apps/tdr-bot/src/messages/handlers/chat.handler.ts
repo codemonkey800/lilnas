@@ -15,6 +15,14 @@ import { isError } from 'src/utils/type-guards'
 
 import { IMessageHandler } from './handler.interface'
 
+/**
+ * Handles messages directed at TDR Bot — either via `@mention`
+ * or questions posted in the `tdr-bot-chat` channel.
+ *
+ * Delegates to {@link LLMOrchestrationService} for response
+ * generation and sends the reply back through
+ * {@link ResponseService}.
+ */
 @Injectable()
 export class ChatHandler implements IMessageHandler {
   readonly name = 'chat'
@@ -30,6 +38,7 @@ export class ChatHandler implements IMessageHandler {
     private readonly metrics: TdrBotMetricsService,
   ) {}
 
+  /** Returns `true` if the message mentions the bot or is a question in the chat channel. */
   canHandle(message: Message): boolean {
     const isBotMention = message.mentions.users.some(
       user => user.id === this.client.user?.id,
@@ -42,6 +51,11 @@ export class ChatHandler implements IMessageHandler {
     return isBotMention || (isTdrBotChannel && isQuestion)
   }
 
+  /**
+   * Processes a chat message through the LLM pipeline and sends the
+   * response back to Discord. Shows a typing indicator while waiting
+   * for the AI response.
+   */
   async handle(
     message: Message,
     context: MessageContext,
@@ -66,6 +80,7 @@ export class ChatHandler implements IMessageHandler {
         message: content,
         user: message.author.displayName,
         userId: context.userId,
+        guildId: message.guildId ?? '',
       })
 
       this.logger.log(
