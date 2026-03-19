@@ -97,8 +97,8 @@ export const SonarrSeriesStatisticsSchema = z.object({
  */
 export const SonarrAlternateTitleSchema = z.object({
   title: z.string(),
-  seasonNumber: z.number().int().nonnegative().optional(),
-  sceneSeasonNumber: z.number().int().nonnegative().optional(),
+  seasonNumber: z.number().int().optional(),
+  sceneSeasonNumber: z.number().int().optional(),
   sceneOrigin: z.string().optional(),
   comment: z.string().optional(),
 })
