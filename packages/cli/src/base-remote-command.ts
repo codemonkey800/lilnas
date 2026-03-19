@@ -1,5 +1,6 @@
 import { Command, Flags } from '@oclif/core'
 
+import { ensureRemoteSync } from './utils/git'
 import { runSshCommand } from './utils/ssh'
 
 export abstract class BaseRemoteCommand extends Command {
@@ -45,9 +46,10 @@ export abstract class BaseRemoteCommand extends Command {
     flags: { apps?: boolean; services?: boolean; 'dry-run'?: boolean },
     argv: string[],
   ): void {
-    const command = this.buildRemoteCommand(flags, argv)
     const dryRun = flags['dry-run']
     try {
+      ensureRemoteSync({ dryRun, log: msg => this.log(msg) })
+      const command = this.buildRemoteCommand(flags, argv)
       runSshCommand({ command, dryRun })
     } catch (err) {
       this.error(err instanceof Error ? err.message : String(err), { exit: 1 })
