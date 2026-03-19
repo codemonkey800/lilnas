@@ -95,7 +95,13 @@ export class ReminderDeliveryService implements OnModuleInit {
   /** Generates and sends a plain text reminder message. */
   private async deliverDefault(reminder: Reminder): Promise<void> {
     const message = await this.generateDefaultMessage(reminder)
-    await this.sendToChannel(reminder.guildId, reminder.userId, message)
+    await this.sendToChannel(
+      reminder.guildId,
+      reminder.userId,
+      message,
+      undefined,
+      reminder.channelId,
+    )
   }
 
   /** Runs a Tavily web search, summarises results, then sends the reminder. */
@@ -123,7 +129,13 @@ export class ReminderDeliveryService implements OnModuleInit {
       )
 
       const message = LLMStringContentSchema.parse(response.content)
-      await this.sendToChannel(reminder.guildId, reminder.userId, message)
+      await this.sendToChannel(
+        reminder.guildId,
+        reminder.userId,
+        message,
+        undefined,
+        reminder.channelId,
+      )
     } catch (err) {
       this.logger.error(
         { err, id: reminder.id },
@@ -167,9 +179,13 @@ export class ReminderDeliveryService implements OnModuleInit {
           : reminder.what
       const embed = new EmbedBuilder().setTitle(embedTitle).setImage(imageUrl)
 
-      await this.sendToChannel(reminder.guildId, reminder.userId, caption, [
-        embed,
-      ])
+      await this.sendToChannel(
+        reminder.guildId,
+        reminder.userId,
+        caption,
+        [embed],
+        reminder.channelId,
+      )
     } catch (err) {
       this.logger.error(
         { err, id: reminder.id },
@@ -227,11 +243,21 @@ export class ReminderDeliveryService implements OnModuleInit {
         const embed = new EmbedBuilder()
           .setTitle(embedTitle)
           .setImage(equationImageData.url)
-        await this.sendToChannel(reminder.guildId, reminder.userId, caption, [
-          embed,
-        ])
+        await this.sendToChannel(
+          reminder.guildId,
+          reminder.userId,
+          caption,
+          [embed],
+          reminder.channelId,
+        )
       } else {
-        await this.sendToChannel(reminder.guildId, reminder.userId, caption)
+        await this.sendToChannel(
+          reminder.guildId,
+          reminder.userId,
+          caption,
+          undefined,
+          reminder.channelId,
+        )
       }
     } catch (err) {
       this.logger.error(
@@ -269,8 +295,12 @@ export class ReminderDeliveryService implements OnModuleInit {
   }
 
   /**
-   * Sends a reminder message (with optional embeds) to the
-   * `tdr-bot-chat` text channel in the specified guild.
+   * Sends a reminder message (with optional embeds) to the specified guild channel.
+   *
+   * When `channelId` is provided the channel is resolved directly by ID.
+   * If that lookup fails (channel not found or not text-based), it falls back
+   * to the default `tdr-bot-chat` channel. When `channelId` is omitted the
+   * default channel is used directly.
    *
    * @throws If the guild or channel cannot be resolved, or the send fails.
    */
@@ -279,6 +309,7 @@ export class ReminderDeliveryService implements OnModuleInit {
     userId: string,
     message: string,
     embeds?: EmbedBuilder[],
+    channelId?: string | null,
   ): Promise<void> {
     if (!guildId) {
       this.logger.warn(
@@ -297,7 +328,24 @@ export class ReminderDeliveryService implements OnModuleInit {
       throw new Error(`Cannot deliver reminder: guild ${guildId} not found`)
     }
 
-    const channel = this.resolveTextChannel(guild)
+    let channel: GuildTextBasedChannel | undefined
+
+    if (channelId) {
+      const resolved = guild.channels.cache.get(channelId)
+      if (resolved?.isTextBased()) {
+        channel = resolved
+      } else {
+        this.logger.warn(
+          { guildId, channelId },
+          'Specified channel not found or not text-based, falling back to default',
+        )
+      }
+    }
+
+    if (!channel) {
+      channel = this.resolveTextChannel(guild)
+    }
+
     if (!channel) {
       this.logger.warn(
         { guildId, userId },
@@ -308,6 +356,8 @@ export class ReminderDeliveryService implements OnModuleInit {
       )
     }
 
+    const resolvedChannel = channel
+
     const content =
       message.length > DISCORD_MAX_MESSAGE_LENGTH
         ? message.slice(0, DISCORD_MAX_MESSAGE_LENGTH - 3) + '...'
@@ -316,7 +366,7 @@ export class ReminderDeliveryService implements OnModuleInit {
     try {
       await this.retryService.executeWithRetry(
         () =>
-          channel.send({
+          resolvedChannel.send({
             content,
             ...(embeds && embeds.length > 0 ? { embeds } : {}),
           }),
@@ -324,12 +374,12 @@ export class ReminderDeliveryService implements OnModuleInit {
         'Discord-reminderSend',
       )
       this.logger.log(
-        { channelId: channel.id, guildId },
+        { channelId: resolvedChannel.id, guildId },
         'Reminder sent to channel',
       )
     } catch (err) {
       this.logger.error(
-        { channelId: channel.id, guildId, err },
+        { channelId: resolvedChannel.id, guildId, err },
         'Failed to send reminder to channel',
       )
       this.reminderService.recordDeliveryFailure('send_error')

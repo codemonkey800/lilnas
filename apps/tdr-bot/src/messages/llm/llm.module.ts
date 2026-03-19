@@ -5,6 +5,7 @@ import { ContextModule } from 'src/message-handler/context/context.module'
 import { PromptsModule } from 'src/messages/prompts/prompts.module'
 import { RemindersModule } from 'src/reminders/reminders.module'
 import { ServicesModule } from 'src/services/services.module'
+import { StateModule } from 'src/state/state.module'
 
 import { LLMOrchestrationService } from './llm-orchestration.service'
 import { ModelFactoryModule } from './model-factory.module'
@@ -29,6 +30,7 @@ import { ReminderResponseNode } from './nodes/reminder-response.node'
     ServicesModule,
     RemindersModule,
     ContextModule,
+    StateModule,
   ],
   providers: [
     LLMOrchestrationService,

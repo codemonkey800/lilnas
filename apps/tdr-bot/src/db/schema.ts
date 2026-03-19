@@ -11,6 +11,7 @@ export const reminders = pgTable('reminder', {
   scheduledAt: timestamp('scheduled_at', { mode: 'date' }),
   dayDescription: text('day_description').notNull(),
   timeDescription: text('time_description').notNull(),
+  channelId: text('channel_id'),
   actionType: text('action_type').notNull().default('default'),
   createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
 })
