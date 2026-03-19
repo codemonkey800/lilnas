@@ -44,6 +44,7 @@ function createTestReminder(overrides: Partial<Reminder> = {}): Reminder {
     dayDescription: 'tomorrow',
     timeDescription: '9:00 AM',
     channelId: null,
+    targetUserId: null,
     actionType: 'default',
     createdAt: new Date(),
     ...overrides,

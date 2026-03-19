@@ -61,9 +61,72 @@ describe('ReminderExtractionSchema', () => {
         cronExpression: null,
         reminderIdToCancel: null,
         channelId: null,
+        targetUserId: null,
       }
 
       expect(() => ReminderExtractionSchema.parse(input)).not.toThrow()
+    })
+
+    it('parses a create extraction with a targetUserId string', () => {
+      const input = {
+        action: 'create',
+        what: 'the meeting starts now',
+        isRecurring: false,
+        day: 'today',
+        time: null,
+        recurringPattern: null,
+        scheduledAt: '2026-03-17T14:00:00',
+        cronExpression: null,
+        reminderIdToCancel: null,
+        channelId: null,
+        targetUserId: '123456789012345678',
+      }
+
+      const result = ReminderExtractionSchema.parse(input)
+
+      expect(result.targetUserId).toBe('123456789012345678')
+      expect(result.what).toBe('the meeting starts now')
+    })
+
+    it('parses a create extraction with targetUserId null', () => {
+      const input = {
+        action: 'create',
+        what: 'pay rent',
+        isRecurring: false,
+        day: 'tomorrow',
+        time: null,
+        recurringPattern: null,
+        scheduledAt: '2026-03-18T09:00:00',
+        cronExpression: null,
+        reminderIdToCancel: null,
+        channelId: null,
+        targetUserId: null,
+      }
+
+      const result = ReminderExtractionSchema.parse(input)
+
+      expect(result.targetUserId).toBeNull()
+    })
+
+    it('defaults actionType correctly when targetUserId is present', () => {
+      const input = {
+        action: 'create',
+        what: 'the meeting',
+        isRecurring: false,
+        day: 'today',
+        time: null,
+        recurringPattern: null,
+        scheduledAt: '2026-03-17T14:00:00',
+        cronExpression: null,
+        reminderIdToCancel: null,
+        channelId: null,
+        targetUserId: '111222333444555666',
+      }
+
+      const result = ReminderExtractionSchema.parse(input)
+
+      expect(result.actionType).toBe('default')
+      expect(result.targetUserId).toBe('111222333444555666')
     })
   })
 

@@ -84,6 +84,19 @@ describe('buildExtractReminderPrompt', () => {
     expect(result.content).toContain('starting next week')
   })
 
+  it('includes targetUserId field in the extraction instructions', () => {
+    const result = buildExtractReminderPrompt(nowIso, dayOfWeek)
+
+    expect(result.content).toContain('targetUserId')
+  })
+
+  it('includes instructions for extracting Discord user mentions', () => {
+    const result = buildExtractReminderPrompt(nowIso, dayOfWeek)
+    const content = result.content as string
+
+    expect(content).toContain('<@USER_ID>')
+  })
+
   it('generates different prompts for different timestamps', () => {
     const prompt1 = buildExtractReminderPrompt('2026-01-01T00:00:00', dayOfWeek)
     const prompt2 = buildExtractReminderPrompt('2026-12-31T23:59:59', dayOfWeek)

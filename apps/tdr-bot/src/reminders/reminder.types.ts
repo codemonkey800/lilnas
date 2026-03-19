@@ -32,6 +32,7 @@ export const ReminderExtractionSchema = z.object({
   cronExpression: z.string().nullable(),
   reminderIdToCancel: z.string().nullable(),
   channelId: z.string().nullable(),
+  targetUserId: z.string().nullable().default(null),
   actionType: z
     .nativeEnum(ReminderActionType)
     .default(ReminderActionType.Default),
