@@ -12,7 +12,8 @@
   "scripts": {
     "build": "nest build -b swc --type-check",
     "clean": "rm -rf dist/ .turbo/",
-    "dev": "nest start -w -b swc | pino-pretty",
+    "dev": "lilnas dev",
+    "dev:start": "nest start -w -b swc | pino-pretty",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
     "lint:prettier": "prettier -c src",
@@ -48,6 +49,7 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@lilnas/cli": "workspace:*",
     "@types/supertest": "^6.0.2",
     "supertest": "^7.0.0"
   }

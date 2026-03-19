@@ -150,6 +150,10 @@ importers:
       ts-pattern:
         specifier: 5.8.0
         version: 5.8.0
+    devDependencies:
+      '@lilnas/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
 
   apps/download:
     dependencies:
@@ -286,6 +290,9 @@ importers:
         specifier: 4.1.12
         version: 4.1.12
     devDependencies:
+      '@lilnas/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
       '@types/jest':
         specifier: 29.5.14
         version: 29.5.14
@@ -362,6 +369,9 @@ importers:
         specifier: ^4.1.12
         version: 4.3.6
     devDependencies:
+      '@lilnas/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
       '@types/supertest':
         specifier: ^6.0.2
         version: 6.0.3
@@ -395,6 +405,10 @@ importers:
       usehooks-ts:
         specifier: 3.1.1
         version: 3.1.1(react@19.2.0)
+    devDependencies:
+      '@lilnas/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
 
   apps/me-token-tracker:
     dependencies:
@@ -464,6 +478,10 @@ importers:
       ts-pattern:
         specifier: 5.8.0
         version: 5.8.0
+    devDependencies:
+      '@lilnas/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
 
   apps/portal:
     dependencies:
@@ -480,6 +498,9 @@ importers:
         specifier: 19.2.0
         version: 19.2.0(react@19.2.0)
     devDependencies:
+      '@lilnas/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
       yaml:
         specifier: ^2.8.2
         version: 2.8.2
@@ -670,6 +691,9 @@ importers:
         specifier: 4.1.12
         version: 4.1.12
     devDependencies:
+      '@lilnas/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
       '@tailwindcss/postcss':
         specifier: ^4.1.8
         version: 4.1.14
@@ -824,6 +848,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@lilnas/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
       '@types/cookie-parser':
         specifier: ^1.4.10
         version: 1.4.10(@types/express@5.0.3)
@@ -857,6 +884,9 @@ importers:
       '@oclif/core':
         specifier: ^4.8.4
         version: 4.9.0
+      dotenv:
+        specifier: ^16.0.0
+        version: 16.6.1
       js-yaml:
         specifier: ^4.1.1
         version: 4.1.1

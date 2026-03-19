@@ -15,9 +15,10 @@
     "build:frontend": "next build",
     "clean": "rm -rf .next/ dist/ .turbo/",
     "deploy": "fly deploy",
-    "dev": "run-p 'dev:*'",
+    "dev": "lilnas dev",
     "dev:backend": "nest start -w -b swc | pino-pretty",
     "dev:frontend": "next dev -p 8080",
+    "dev:start": "run-p dev:backend dev:frontend",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
     "lint:prettier": "prettier -c src",
@@ -80,6 +81,7 @@
     "zod": "4.1.12"
   },
   "devDependencies": {
+    "@lilnas/cli": "workspace:*",
     "@types/jest": "29.5.14",
     "jest": "29.7.0",
     "ts-jest": "29.2.6",

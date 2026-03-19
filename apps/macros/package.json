@@ -11,7 +11,8 @@
   "scripts": {
     "build": "tsc && vite build",
     "clean": "rm -rf dist/ .turbo/ tsconfig.tsbuildinfo",
-    "dev": "vite --port 8080 --host",
+    "dev": "lilnas dev",
+    "dev:start": "vite --port 8080 --host",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
     "lint:prettier": "prettier -c src",
@@ -20,6 +21,9 @@
     "lint:prettier:fix": "prettier -w src",
     "preview": "vite preview --port 8080",
     "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@lilnas/cli": "workspace:*"
   },
   "dependencies": {
     "@lilnas/utils": "workspace:*",
@@ -32,4 +36,3 @@
     "usehooks-ts": "3.1.1"
   }
 }
-
