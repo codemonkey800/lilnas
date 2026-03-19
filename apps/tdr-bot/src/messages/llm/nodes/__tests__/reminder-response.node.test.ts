@@ -44,6 +44,7 @@ function makeExtractionJson(overrides: Record<string, unknown> = {}): string {
     cronExpression: null,
     reminderIdToCancel: null,
     channelId: null,
+    targetUserId: null,
     actionType: 'default',
   }
   return JSON.stringify({ ...base, ...overrides })
@@ -61,6 +62,7 @@ function makeListExtractionJson(): string {
     cronExpression: null,
     reminderIdToCancel: null,
     channelId: null,
+    targetUserId: null,
     actionType: 'default',
   })
 }
@@ -77,6 +79,7 @@ function makeCancelExtractionJson(what: string): string {
     cronExpression: null,
     reminderIdToCancel: null,
     channelId: null,
+    targetUserId: null,
     actionType: 'default',
   })
 }
@@ -93,6 +96,7 @@ function createTestReminder(overrides: Partial<Reminder> = {}): Reminder {
     dayDescription: 'tomorrow',
     timeDescription: '9:00 AM',
     channelId: null,
+    targetUserId: null,
     actionType: 'default',
     createdAt: new Date(),
     ...overrides,
@@ -706,6 +710,188 @@ describe('ReminderResponseNode', () => {
       expect((result.messages![1] as AIMessage).content).toBe(
         'When should I remind you?',
       )
+    })
+  })
+
+  // ── reminding another user ────────────────────────────────────────────────
+
+  describe('when reminding another user', () => {
+    it('passes targetUserId to ReminderService.create when LLM extracts a target user', async () => {
+      const { factory, reasoningModel } = makeModelFactory('Done!')
+      reasoningModel.invoke.mockResolvedValue(
+        new AIMessage(
+          makeExtractionJson({
+            what: 'reminders are working now',
+            day: 'today',
+            scheduledAt: '2026-03-19T09:38:00',
+            targetUserId: 'target-user-123',
+          }),
+        ),
+      )
+      const reminderService = makeReminderService()
+      const node = await buildNode(
+        factory,
+        makeContextService(),
+        reminderService,
+      )
+
+      await node.invoke(
+        buildState(
+          'remind <@target-user-123> that reminders are working now today in 10 minutes',
+          'requestor-user-456',
+        ),
+      )
+
+      expect(reminderService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'requestor-user-456',
+          targetUserId: 'target-user-123',
+          what: 'reminders are working now',
+        }),
+      )
+    })
+
+    it('uses requestor userId and null targetUserId when no target user is mentioned', async () => {
+      const { factory, reasoningModel } = makeModelFactory('Done!')
+      reasoningModel.invoke.mockResolvedValue(
+        new AIMessage(
+          makeExtractionJson({
+            what: 'pay rent',
+            day: 'tomorrow',
+            scheduledAt: '2026-03-18T09:00:00',
+            targetUserId: null,
+          }),
+        ),
+      )
+      const reminderService = makeReminderService()
+      const node = await buildNode(
+        factory,
+        makeContextService(),
+        reminderService,
+      )
+
+      await node.invoke(
+        buildState('remind me to pay rent tomorrow', 'requestor-user-456'),
+      )
+
+      expect(reminderService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'requestor-user-456',
+          targetUserId: null,
+        }),
+      )
+    })
+
+    it('preserves targetUserId in partial context during multi-turn when day is missing', async () => {
+      const { factory, reasoningModel } = makeModelFactory(
+        'What day should I remind them?',
+      )
+      reasoningModel.invoke.mockResolvedValue(
+        new AIMessage(
+          makeExtractionJson({
+            what: 'reminders are working now',
+            day: null,
+            scheduledAt: null,
+            targetUserId: 'target-user-123',
+          }),
+        ),
+      )
+      const contextService = makeContextService()
+      const node = await buildNode(
+        factory,
+        contextService,
+        makeReminderService(),
+      )
+
+      await node.invoke(
+        buildState('remind <@target-user-123> that reminders are working now'),
+      )
+
+      expect(contextService.setContext).toHaveBeenCalledWith(
+        'user-1',
+        'reminder',
+        expect.objectContaining({
+          partialExtraction: expect.objectContaining({
+            targetUserId: 'target-user-123',
+            what: 'reminders are working now',
+          }),
+        }),
+      )
+    })
+
+    it('does not overwrite targetUserId from context with null on follow-up turn', async () => {
+      const { factory, reasoningModel } = makeModelFactory('Done!')
+      // Follow-up turn only provides the day; targetUserId is null in this extraction
+      reasoningModel.invoke.mockResolvedValue(
+        new AIMessage(
+          makeExtractionJson({
+            what: null,
+            day: 'today',
+            scheduledAt: '2026-03-19T09:38:00',
+            targetUserId: null,
+          }),
+        ),
+      )
+      // Existing context has the targetUserId and what from the first turn
+      const contextService = makeContextService('reminder', {
+        timestamp: Date.now(),
+        isActive: true,
+        partialExtraction: {
+          what: 'reminders are working now',
+          targetUserId: 'target-user-123',
+        },
+      })
+      const reminderService = makeReminderService()
+      const node = await buildNode(factory, contextService, reminderService)
+
+      await node.invoke(buildState('today in 10 minutes', 'requestor-user-456'))
+
+      // The merge should preserve targetUserId from context since the follow-up returned null
+      expect(reminderService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetUserId: 'target-user-123',
+          what: 'reminders are working now',
+        }),
+      )
+    })
+
+    it('includes target user mention in confirmation prompt when targetUserId is set', async () => {
+      const { factory, reasoningModel, chatModel } = makeModelFactory(
+        "Got it! I'll remind them.",
+      )
+      reasoningModel.invoke.mockResolvedValue(
+        new AIMessage(
+          makeExtractionJson({
+            what: 'reminders are working now',
+            day: 'today',
+            scheduledAt: '2026-03-19T09:38:00',
+            targetUserId: 'target-user-123',
+          }),
+        ),
+      )
+      const reminderService = makeReminderService(
+        [],
+        createTestReminder({ targetUserId: 'target-user-123' }),
+      )
+      const node = await buildNode(
+        factory,
+        makeContextService(),
+        reminderService,
+      )
+
+      await node.invoke(
+        buildState(
+          'remind <@target-user-123> that reminders are working now today',
+        ),
+      )
+
+      const calls = chatModel.invoke.mock.calls[0][0] as Array<{
+        content: string
+      }>
+      const hasTargetMention = calls.some(m =>
+        m.content.includes('<@target-user-123>'),
+      )
+      expect(hasTargetMention).toBe(true)
     })
   })
 

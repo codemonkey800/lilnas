@@ -43,6 +43,7 @@ jest.mock('prom-client', () => ({
   Gauge: jest
     .fn()
     .mockImplementation(() => ({ inc: jest.fn(), dec: jest.fn() })),
+  Histogram: jest.fn().mockImplementation(() => ({ observe: jest.fn() })),
   register: {
     getSingleMetric: jest.fn().mockReturnValue(undefined),
   },
@@ -60,6 +61,7 @@ function createTestReminder(overrides: Partial<Reminder> = {}): Reminder {
     cronExpression: null,
     scheduledAt: new Date(Date.now() + 60_000),
     channelId: null,
+    targetUserId: null,
     dayDescription: 'tomorrow',
     timeDescription: '9:00 AM',
     actionType: 'default',
@@ -342,6 +344,95 @@ describe('ReminderDeliveryService', () => {
       expect(sendFn).toHaveBeenCalledWith(
         expect.objectContaining({
           content: expect.stringContaining('<@user-42>'),
+        }),
+      )
+    })
+  })
+
+  // ── deliver to target user ───────────────────────────────────────────────
+
+  describe('deliver to target user', () => {
+    it('includes the targetUserId mention in the LLM prompt when targetUserId is set', async () => {
+      const client = makeDiscordClient([makeMockTextChannel()])
+      const { factory, mockChatModel } = makeModelFactory(
+        'Reminder for target!',
+      )
+      service = await buildService(client, factory)
+
+      await service.deliver(
+        createTestReminder({
+          userId: 'creator-user',
+          targetUserId: 'target-99',
+        }),
+      )
+
+      const calls = mockChatModel.invoke.mock.calls[0][0] as Array<{
+        content: string
+      }>
+      const targetMentionPrompt = calls.find(m =>
+        m.content.includes('<@target-99>'),
+      )
+      expect(targetMentionPrompt).toBeDefined()
+    })
+
+    it('falls back to userId mention when targetUserId is null', async () => {
+      const client = makeDiscordClient([makeMockTextChannel()])
+      const { factory, mockChatModel } = makeModelFactory('Reminder!')
+      service = await buildService(client, factory)
+
+      await service.deliver(
+        createTestReminder({ userId: 'user-42', targetUserId: null }),
+      )
+
+      const calls = mockChatModel.invoke.mock.calls[0][0] as Array<{
+        content: string
+      }>
+      const userMentionPrompt = calls.find(m =>
+        m.content.includes('<@user-42>'),
+      )
+      expect(userMentionPrompt).toBeDefined()
+    })
+
+    it('uses targetUserId in the fallback plain string message when LLM fails', async () => {
+      const sendFn = jest.fn().mockResolvedValue({})
+      const client = makeDiscordClient([
+        makeMockTextChannel('tdr-bot-chat', sendFn),
+      ])
+      const { factory } = makeModelFactory()
+      const fallbackRetry = createMockRetryService()
+      fallbackRetry.executeWithRetry
+        .mockRejectedValueOnce(new Error('LLM unavailable'))
+        .mockImplementation(operation => operation())
+      service = await createTestingModule([
+        ReminderDeliveryService,
+        { provide: Client, useValue: client },
+        { provide: ModelFactoryService, useValue: factory },
+        { provide: RetryService, useValue: fallbackRetry },
+        { provide: ReminderService, useValue: makeReminderServiceMock() },
+        {
+          provide: EquationImageService,
+          useValue: makeEquationImageServiceMock(),
+        },
+        {
+          provide: TAVILY_SEARCH_TOKEN,
+          useValue: { invoke: mockTavilyInvoke },
+        },
+        {
+          provide: DALLE_WRAPPER_TOKEN,
+          useValue: { invoke: mockDalleInvoke },
+        },
+      ]).then(m => m.get(ReminderDeliveryService))
+
+      await service.deliver(
+        createTestReminder({
+          userId: 'creator-user',
+          targetUserId: 'target-99',
+        }),
+      )
+
+      expect(sendFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringContaining('<@target-99>'),
         }),
       )
     })

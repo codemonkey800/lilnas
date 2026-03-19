@@ -1,0 +1,1 @@
+ALTER TABLE "reminder" ADD COLUMN "target_user_id" text;

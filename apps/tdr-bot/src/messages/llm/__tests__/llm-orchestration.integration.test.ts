@@ -398,13 +398,14 @@ describe('LLMOrchestrationService - Integration', () => {
           cronExpression: null,
           reminderIdToCancel: null,
           channelId: null,
+          targetUserId: null,
           actionType: 'default',
         })
 
         const createdReminder = {
           id: 'rem-1',
           userId: 'u-r1',
-          guildId: '',
+          guildId: 'guild-1',
           what: 'pay rent',
           isRecurring: false,
           cronExpression: null,
@@ -412,6 +413,7 @@ describe('LLMOrchestrationService - Integration', () => {
           dayDescription: 'tomorrow',
           timeDescription: '9:00 AM',
           channelId: null,
+          targetUserId: null,
           actionType: 'default',
           createdAt: new Date(),
         }
@@ -426,6 +428,7 @@ describe('LLMOrchestrationService - Integration', () => {
           message: 'remind me to pay rent tomorrow',
           user: 'Ivan',
           userId: 'u-r1',
+          guildId: 'guild-1',
         })
 
         expect(mockReminderService.create).toHaveBeenCalledWith(
@@ -459,13 +462,14 @@ describe('LLMOrchestrationService - Integration', () => {
           cronExpression: null,
           reminderIdToCancel: null,
           channelId: null,
+          targetUserId: null,
           actionType: 'default',
         })
 
         const createdReminder = {
           id: 'rem-2',
           userId: 'u-r2',
-          guildId: '',
+          guildId: 'guild-1',
           what: 'call mom',
           isRecurring: false,
           cronExpression: null,
@@ -473,6 +477,7 @@ describe('LLMOrchestrationService - Integration', () => {
           dayDescription: 'tomorrow',
           timeDescription: '',
           channelId: null,
+          targetUserId: null,
           actionType: 'default',
           createdAt: new Date(),
         }
@@ -490,6 +495,7 @@ describe('LLMOrchestrationService - Integration', () => {
           message: 'to call mom',
           user: 'Jane',
           userId: 'u-r2',
+          guildId: 'guild-1',
         })
 
         expect(mockReminderService.create).toHaveBeenCalledWith(
