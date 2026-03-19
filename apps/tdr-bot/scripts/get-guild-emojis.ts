@@ -17,7 +17,7 @@ async function main() {
     intents: [IntentsBitField.Flags.Guilds],
   })
 
-  client.login(process.env.DISCORD_API_TOKEN)
+  client.login(process.env.DISCORD_SCRIPTS_PROD_TOKEN)
 
   await new Promise(resolve => client.once('ready', resolve))
 
