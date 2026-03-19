@@ -6,6 +6,7 @@ FROM lilnas-monorepo-builder AS deps
 # Copy package files for dependency caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/yoink/package.json apps/yoink/
+COPY packages/cli/package.json packages/cli/
 COPY packages/media/package.json packages/media/
 COPY packages/utils/package.json packages/utils/
 COPY packages/eslint-config-lilnas/package.json packages/eslint-config-lilnas/

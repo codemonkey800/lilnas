@@ -1,4 +1,5 @@
 export { Build } from './commands/build.js'
+export { Dev } from './commands/dev.js'
 export { Down } from './commands/down.js'
 export { List } from './commands/list.js'
 export { Redeploy } from './commands/redeploy.js'

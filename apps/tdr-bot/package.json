@@ -15,11 +15,11 @@
     "build:frontend": "next build",
     "clean": "rm -rf .next/ dist/ .turbo/",
     "deploy": "fly deploy",
-    "dev": "./scripts/dev.sh",
+    "dev": "lilnas dev",
     "dev:backend": "nest start -w -b swc | pino-pretty",
     "dev:frontend": "next dev -p ${PORT:-8080} --turbopack",
-    "dev:servers": "run-p dev:backend dev:frontend",
-    "dev:graph-test": "GRAPH_TEST=true ./scripts/dev.sh backend",
+    "dev:start": "run-p dev:backend dev:frontend",
+    "dev:graph-test": "GRAPH_TEST=true lilnas dev",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
     "lint:prettier": "prettier -c src",
@@ -104,6 +104,7 @@
     "zod": "4.1.12"
   },
   "devDependencies": {
+    "@lilnas/cli": "workspace:*",
     "@tailwindcss/postcss": "^4.1.8",
     "@types/cron": "^2.4.3",
     "@types/pg": "^8.16.0",

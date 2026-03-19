@@ -7,8 +7,9 @@
   "scripts": {
     "build": "next build",
     "clean": "rm -rf .next/ *.tsbuildinfo .turbo/",
-    "dev": "next dev --turbopack -p 3000",
+    "dev": "lilnas dev",
     "dev:prod": "run-s -l build start",
+    "dev:start": "next dev --turbopack -p 3000",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
     "lint:prettier": "prettier -c src",
@@ -25,6 +26,7 @@
     "react-dom": "19.2.0"
   },
   "devDependencies": {
+    "@lilnas/cli": "workspace:*",
     "yaml": "^2.8.2"
   }
 }

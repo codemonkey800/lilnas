@@ -9,10 +9,10 @@
     "build:backend": "nest build -b swc --type-check",
     "build:frontend": "next build --webpack",
     "clean": "rm -rf .next/ dist/ *.tsbuildinfo .turbo/",
-    "dev": "./scripts/dev.sh",
+    "dev": "lilnas dev",
     "dev:backend": "nest start -w -b swc | pino-pretty",
     "dev:frontend": "next dev --turbopack -p ${PORT:-8080}",
-    "dev:servers": "run-p dev:backend dev:frontend",
+    "dev:start": "run-p dev:backend dev:frontend",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
     "lint:prettier": "prettier -c src",
@@ -80,6 +80,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@lilnas/cli": "workspace:*",
     "@types/cookie-parser": "^1.4.10",
     "@types/jest": "^30.0.0",
     "@types/passport": "^1.0.17",
