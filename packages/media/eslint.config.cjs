@@ -2,4 +2,14 @@
 
 const { base } = require('@lilnas/eslint')
 
-module.exports = [{ ignores: ['src/radarr/**', 'src/radarr-next/**'] }, ...base]
+module.exports = [
+  {
+    ignores: [
+      'src/radarr/**',
+      'src/radarr-next/**',
+      'src/sonarr/**',
+      'src/sonarr-next/**',
+    ],
+  },
+  ...base,
+]
