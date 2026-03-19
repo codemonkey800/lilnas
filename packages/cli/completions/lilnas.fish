@@ -31,7 +31,7 @@ function __lilnas_no_subcommand
 end
 
 # All remote subcommands
-set -l remote_subcommands build down logs ps redeploy up update
+set -l remote_subcommands build down logs ps redeploy up update mounts
 
 # True when we're completing a remote subcommand (i.e. "remote" was seen but no
 # remote subcommand has been seen yet)
@@ -75,6 +75,7 @@ complete -c lilnas -n __lilnas_completing_remote_sub -a ps       -d "Show servic
 complete -c lilnas -n __lilnas_completing_remote_sub -a redeploy -d "Redeploy services on the remote server"
 complete -c lilnas -n __lilnas_completing_remote_sub -a up       -d "Bring up services on the remote server"
 complete -c lilnas -n __lilnas_completing_remote_sub -a update   -d "Pull latest git changes on the remote server"
+complete -c lilnas -n __lilnas_completing_remote_sub -a mounts   -d "List or manage storage mounts on the remote server"
 
 # ---------------------------------------------------------------------------
 # Flags: service commands (build, down, logs, ps, redeploy, up)
@@ -106,6 +107,17 @@ complete -c lilnas -n __lilnas_in_remote_service_cmd \
 
 complete -c lilnas -n "__fish_seen_subcommand_from remote; and __fish_seen_subcommand_from update" \
     -l dry-run -d "Print the SSH command without executing it"
+
+# ---------------------------------------------------------------------------
+# Flags: remote mounts
+# ---------------------------------------------------------------------------
+
+complete -c lilnas -n "__fish_seen_subcommand_from remote; and __fish_seen_subcommand_from mounts" \
+    -l delete -d "Host path of the mount directory to delete on the remote server" -r
+complete -c lilnas -n "__fish_seen_subcommand_from remote; and __fish_seen_subcommand_from mounts" \
+    -l yes -s y -d "Skip confirmation prompt when deleting"
+complete -c lilnas -n "__fish_seen_subcommand_from remote; and __fish_seen_subcommand_from mounts" \
+    -l dry-run -d "Print the SSH commands without executing them"
 
 # ---------------------------------------------------------------------------
 # Flags: list / ls
