@@ -1,9 +1,10 @@
+#!/usr/bin/env tsx
 import { Client, IntentsBitField } from 'discord.js'
 import * as dotenv from 'dotenv'
 import fs from 'fs/promises'
 import path from 'path'
 
-dotenv.config({ path: path.resolve(__dirname, '.env') })
+dotenv.config({ path: path.resolve(__dirname, '../.env.dev') })
 
 interface Emoji {
   id: string
@@ -16,7 +17,7 @@ async function main() {
     intents: [IntentsBitField.Flags.Guilds],
   })
 
-  client.login(process.env.API_TOKEN)
+  client.login(process.env.DISCORD_API_TOKEN)
 
   await new Promise(resolve => client.once('ready', resolve))
 
