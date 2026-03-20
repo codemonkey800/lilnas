@@ -90,6 +90,7 @@ function renderTable(mounts: MountWithExists[]): void {
 }
 
 // Characters that must never appear in a storage path sent to a remote shell.
+// eslint-disable-next-line no-control-regex
 const DANGEROUS_CHARS = /[\x00\n\r`$|;&><(){}!'"\s]/
 
 /**
