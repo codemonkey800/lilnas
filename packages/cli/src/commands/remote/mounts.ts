@@ -1,8 +1,9 @@
 import { Command, Flags } from '@oclif/core'
+import * as path from 'path'
 import * as readline from 'readline'
 
 import { getStorageMounts, StorageMount } from '../../utils/compose'
-import { runSshCommand, runSshCommandCapture } from '../../utils/ssh'
+import { runSshCommandCapture, runSshCommandWithStdin } from '../../utils/ssh'
 
 interface MountWithExists extends StorageMount {
   exists: boolean
@@ -88,6 +89,49 @@ function renderTable(mounts: MountWithExists[]): void {
   }
 }
 
+// Characters that must never appear in a storage path sent to a remote shell.
+const DANGEROUS_CHARS = /[\x00\n\r`$|;&><(){}!'"\s]/
+
+/**
+ * Validates that `input` is a safe, absolute path rooted under /storage/ with
+ * at least one subdirectory level. Throws with a descriptive message otherwise.
+ *
+ * Security checks performed:
+ *   1. Reject dangerous shell characters (injection / control chars)
+ *   2. POSIX-normalize to collapse any .. or . traversal segments
+ *   3. Verify the normalized path starts with /storage/
+ *   4. Require at least 3 path segments (/storage/<category>/<name>) to
+ *      prevent accidentally wiping a top-level storage category
+ */
+function validateStoragePath(input: string): string {
+  if (DANGEROUS_CHARS.test(input)) {
+    throw new Error(
+      `Unsafe path rejected: "${input}" contains shell-unsafe characters.`,
+    )
+  }
+
+  const normalized = path.posix.normalize(input)
+
+  if (!normalized.startsWith('/storage/')) {
+    throw new Error(
+      `Path "${input}" is not under /storage/ (normalized: "${normalized}"). ` +
+        'Only /storage/ paths are permitted.',
+    )
+  }
+
+  // Segments after splitting: ['', 'storage', '<category>', '<name>', ...]
+  // We require at least 3 segments beyond the leading empty string.
+  const segments = normalized.split('/').filter(Boolean)
+  if (segments.length < 3) {
+    throw new Error(
+      `Path "${normalized}" is too shallow. ` +
+        'At least three path components are required (e.g. /storage/app-data/service).',
+    )
+  }
+
+  return normalized
+}
+
 async function confirm(question: string): Promise<boolean> {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -98,6 +142,50 @@ async function confirm(question: string): Promise<boolean> {
       rl.close()
       resolve(answer.trim().toLowerCase() === 'y')
     })
+  })
+}
+
+/**
+ * Prompts the user for a sudo password without echoing the input.
+ * Returns the entered password string.
+ */
+async function promptPassword(prompt: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!process.stdin.isTTY) {
+      reject(new Error('Cannot prompt for password: stdin is not a TTY.'))
+      return
+    }
+
+    process.stdout.write(prompt)
+    process.stdin.setRawMode(true)
+    process.stdin.resume()
+    process.stdin.setEncoding('utf8')
+
+    let password = ''
+
+    const onData = (char: string) => {
+      if (char === '\r' || char === '\n') {
+        process.stdin.setRawMode(false)
+        process.stdin.pause()
+        process.stdin.removeListener('data', onData)
+        process.stdout.write('\n')
+        resolve(password)
+      } else if (char === '\u0003') {
+        // Ctrl-C
+        process.stdin.setRawMode(false)
+        process.stdin.pause()
+        process.stdin.removeListener('data', onData)
+        process.stdout.write('\n')
+        reject(new Error('Password prompt cancelled.'))
+      } else if (char === '\u007f' || char === '\b') {
+        // Backspace
+        password = password.slice(0, -1)
+      } else {
+        password += char
+      }
+    }
+
+    process.stdin.on('data', onData)
   })
 }
 
@@ -191,17 +279,19 @@ export class RemoteMounts extends Command {
     deletePath: string,
     { dryRun, yes }: { dryRun: boolean; yes: boolean },
   ): Promise<void> {
-    const matchingMounts = mounts.filter(m => m.hostPath === deletePath)
+    const validatedPath = validateStoragePath(deletePath)
+
+    const matchingMounts = mounts.filter(m => m.hostPath === validatedPath)
 
     if (matchingMounts.length === 0) {
       this.error(
-        `Path "${deletePath}" is not a known storage mount. Run without --delete to see all known mounts.`,
+        `Path "${validatedPath}" is not a known storage mount. Run without --delete to see all known mounts.`,
         { exit: 1 },
       )
     }
 
     const services = [...new Set(matchingMounts.map(m => m.service))]
-    this.log(`Path: ${deletePath}`)
+    this.log(`Path: ${validatedPath}`)
     this.log(`Used by service(s): ${services.join(', ')}`)
 
     if (services.length > 1) {
@@ -213,7 +303,7 @@ export class RemoteMounts extends Command {
 
     if (!yes && !dryRun) {
       const confirmed = await confirm(
-        `Are you sure you want to permanently delete "${deletePath}" on the remote server?`,
+        `Are you sure you want to permanently delete "${validatedPath}" on the remote server?`,
       )
       if (!confirmed) {
         this.log('Aborted.')
@@ -221,8 +311,17 @@ export class RemoteMounts extends Command {
       }
     }
 
-    this.log(`\nDeleting ${deletePath} on remote...`)
-    runSshCommand({ command: `rm -rf "${deletePath}"`, dryRun })
+    let password = ''
+    if (!dryRun) {
+      password = await promptPassword(`[sudo] password for remote server: `)
+    }
+
+    this.log(`\nDeleting ${validatedPath} on remote...`)
+    runSshCommandWithStdin({
+      command: `sudo -S rm -rf "${validatedPath}"`,
+      stdin: `${password}\n`,
+      dryRun,
+    })
     this.log('Done.')
   }
 }
