@@ -21,6 +21,7 @@ import {
   createTrackedEpisode,
   DownloadEvents,
   INTERNAL_DOWNLOAD_EVENT,
+  type TrackedEpisodeDownload,
 } from 'src/downloads/downloads.types'
 import { ShowDownloaderService } from 'src/downloads/show-downloader.service'
 import { SONARR_CLIENT } from 'src/media/clients'
@@ -157,7 +158,9 @@ describe('ShowDownloaderService', () => {
         }),
       )
 
-      const entry = stateService.getTracked().get('episode:50')
+      const entry = stateService.getTracked().get('episode:50') as
+        | TrackedEpisodeDownload
+        | undefined
       expect(entry?.kind).toBe('episode')
       expect(entry?.commandId).toBe(77)
       expect(entry?.seasonNumber).toBe(2)

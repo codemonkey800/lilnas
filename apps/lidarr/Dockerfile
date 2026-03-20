@@ -5,6 +5,7 @@ FROM lilnas-monorepo-builder AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/lidarr/package.json apps/lidarr/
 COPY packages/cli/package.json packages/cli/
+COPY packages/lidarr-client/package.json packages/lidarr-client/
 COPY packages/media/package.json packages/media/
 COPY packages/token-client/package.json packages/token-client/
 COPY packages/utils/package.json packages/utils/
