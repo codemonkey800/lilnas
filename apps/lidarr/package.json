@@ -35,7 +35,7 @@
     "@nestjs/event-emitter": "3.0.1",
     "@nestjs/platform-express": "11.1.6",
     "@nestjs/platform-socket.io": "11.1.6",
-    "@nestjs/schedule": "6.0.1",
+    "@nestjs/schedule": "6.1.1",
     "@nestjs/websockets": "11.1.6",
     "@willsoto/nestjs-prometheus": "^6.0.2",
     "dotenv": "17.2.3",
