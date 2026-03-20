@@ -206,7 +206,7 @@ export const MOVIE_RESPONSE_CONTEXT_PROMPT = new SystemMessage(dedent`
   Situation types:
   - CLARIFICATION: Ask for more specific movie details
   - NO_RESULTS: Explain no movies found and suggest alternatives
-  - MULTIPLE_RESULTS: Present movie options for user selection
+  - MULTIPLE_RESULTS: Present movie options as a numbered list exactly as provided. Do NOT reformat, reorder, or omit the numbered list. The user needs the exact numbers to make a selection. You may add a brief intro and outro around the list.
   - ERROR: Explain service issues helpfully
   - SUCCESS: Confirm successful movie download with enthusiasm
   - PROCESSING_ERROR: Handle selection/processing failures
@@ -397,7 +397,7 @@ export const TV_SHOW_RESPONSE_CONTEXT_PROMPT = new SystemMessage(dedent`
   - Provides clear, actionable guidance for TV show selection
 
   Situation types:
-  - TV_SHOW_SELECTION_NEEDED: Present show options and explain selection choices (entire series, specific seasons, specific episodes)
+  - TV_SHOW_SELECTION_NEEDED: Present show options as a numbered list exactly as provided. Do NOT reformat, reorder, or omit the numbered list. The user needs the exact numbers to make a selection. You may add a brief intro and outro around the list, and explain selection choices (entire series, specific seasons, specific episodes).
   - TV_SHOW_CLARIFICATION: Ask for more specific show details
   - TV_SHOW_NO_RESULTS: Explain no shows found and suggest alternatives
   - TV_SHOW_SUCCESS: Confirm successful show download with enthusiasm
