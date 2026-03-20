@@ -7,6 +7,7 @@ import { LoggerModule } from 'nestjs-pino'
 
 import { AppsModule } from './apps/apps.module'
 import { EnvKeys } from './env'
+import { HealthModule } from './health/health.module'
 import { PublicModule } from './public/public.module'
 import { TokenModule } from './token/token.module'
 
@@ -53,6 +54,7 @@ import { TokenModule } from './token/token.module'
     AppsModule,
     TokenModule,
     PublicModule,
+    HealthModule,
   ],
   providers: [{ provide: APP_INTERCEPTOR, useClass: MetricsInterceptor }],
 })
