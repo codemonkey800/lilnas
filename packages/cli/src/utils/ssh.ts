@@ -11,6 +11,12 @@ export interface SshOptions {
 
 export interface SshOptionsWithStdin extends SshOptions {
   stdin: string
+  capture?: boolean
+}
+
+export interface SshStdinResult {
+  stdout: string
+  stderr: string
 }
 
 /**
@@ -44,31 +50,50 @@ export function runSshCommand({
  * Runs a command on the remote server via SSH, streaming output to the terminal,
  * and pipes the provided stdin string to the remote process (e.g. for sudo -S).
  * When dryRun is true, prints the command that would be run without executing it.
- * Throws if the SSH command exits with a non-zero status.
+ * When capture is true, suppresses terminal output and returns captured stdout/stderr instead.
+ * Throws if the SSH command exits with a non-zero status (includes stderr in error when capturing).
  */
+export function runSshCommandWithStdin(
+  options: SshOptionsWithStdin & { capture: true },
+): SshStdinResult
+export function runSshCommandWithStdin(
+  options: SshOptionsWithStdin & { capture?: false },
+): void
 export function runSshCommandWithStdin({
   command,
   host = DEFAULT_HOST,
   dryRun = false,
   stdin,
-}: SshOptionsWithStdin): void {
+  capture = false,
+}: SshOptionsWithStdin): SshStdinResult | void {
   const remoteCmd = `cd ${REMOTE_DIR} && ${command}`
 
   if (dryRun) {
     console.log(`[dry-run] ssh ${host} '${remoteCmd}'`)
-    return
+    return capture ? { stdout: '', stderr: '' } : undefined
   }
 
   const result = spawnSync('ssh', [host, remoteCmd], {
     input: stdin,
-    stdio: ['pipe', 'inherit', 'inherit'],
+    stdio: capture ? ['pipe', 'pipe', 'pipe'] : ['pipe', 'inherit', 'inherit'],
+    encoding: capture ? 'utf8' : undefined,
   })
 
   if (result.error) {
     throw result.error
   }
   if (result.status !== 0) {
-    throw new Error(`ssh command exited with status ${result.status ?? 1}`)
+    const detail = capture && result.stderr ? `\n${result.stderr}` : ''
+    throw new Error(
+      `ssh command exited with status ${result.status ?? 1}${detail}`,
+    )
+  }
+
+  if (capture) {
+    return {
+      stdout: String(result.stdout ?? ''),
+      stderr: String(result.stderr ?? ''),
+    }
   }
 }
 
