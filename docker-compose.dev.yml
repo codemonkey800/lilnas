@@ -11,4 +11,5 @@ include:
   - ./apps/macros/deploy.dev.yml
   - ./apps/me-token-tracker/deploy.dev.yml
   - ./apps/tdr-bot/deploy.dev.yml
+  - ./apps/token/deploy.dev.yml
   - ./apps/yoink/deploy.dev.yml
