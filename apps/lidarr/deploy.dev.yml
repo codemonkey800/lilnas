@@ -1,0 +1,14 @@
+services:
+  lidarr:
+    image: lilnas-dev
+    command: -c "pnpm --filter=lidarr dev"
+    restart: unless-stopped
+    env_file:
+      - ../../infra/.env.lidarr
+    volumes:
+      - ../../:/source
+    working_dir: /source
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.lidarr.rule=Host(`lidarr.localhost`)
+      - traefik.http.services.lidarr.loadbalancer.server.port=8080

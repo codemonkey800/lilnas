@@ -1,0 +1,14 @@
+services:
+  lidarr:
+    build:
+      context: ../..
+      dockerfile: apps/lidarr/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../../infra/.env.lidarr
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.lidarr.rule=Host(`lidarr.lilnas.io`)
+      - traefik.http.routers.lidarr.entrypoints=websecure
+      - traefik.http.routers.lidarr.tls.certresolver=le
+      - traefik.http.services.lidarr.loadbalancer.server.port=8080

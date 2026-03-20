@@ -1,0 +1,34 @@
+# Dependency caching stage
+FROM lilnas-monorepo-builder AS deps
+
+# Copy package files for dependency caching
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/lidarr/package.json apps/lidarr/
+COPY packages/cli/package.json packages/cli/
+COPY packages/media/package.json packages/media/
+COPY packages/token-client/package.json packages/token-client/
+COPY packages/utils/package.json packages/utils/
+COPY packages/eslint-config-lilnas/package.json packages/eslint-config-lilnas/
+COPY packages/prettier-config-lilnas/package.json packages/prettier-config-lilnas/
+
+# Install dependencies (this layer gets cached)
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install
+
+# Build stage
+FROM deps AS builder
+
+# Copy source code (this layer changes frequently)
+COPY . .
+
+# Build the lidarr package and its dependencies
+RUN pnpm build --filter=@lilnas/lidarr
+RUN pnpm --filter=lidarr --prod deploy /app
+
+# Runtime stage
+FROM lilnas-node-runtime AS runtime
+COPY --from=builder /app /app
+
+# Add OCI image source label
+LABEL org.opencontainers.image.source=https://github.com/codemonkey800/lilnas
+
+ENTRYPOINT ["pnpm", "start"]
