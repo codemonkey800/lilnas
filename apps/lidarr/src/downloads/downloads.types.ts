@@ -4,13 +4,17 @@
 
 import { z } from 'zod'
 
-/** Computes download completion as an integer percentage (0-100), or null if size data is unavailable. */
+/**
+ * Computes download completion as an integer percentage clamped to [0, 100],
+ * or null if size data is unavailable. Negative values (sizeleft > size) are
+ * clamped to 0 to handle transient reporting anomalies from Radarr/Sonarr.
+ */
 export function computeProgress(
   size: number | undefined,
   sizeleft: number | undefined,
 ): number | null {
   if (size == null || sizeleft == null || size <= 0) return null
-  return Math.round(((size - sizeleft) / size) * 100)
+  return Math.max(0, Math.round(((size - sizeleft) / size) * 100))
 }
 
 export const IMPORT_STATUSES = new Set([
@@ -178,170 +182,37 @@ export function createTrackedEpisode(
 }
 
 // ---------------------------------------------------------------------------
-// WebSocket event names
-// ---------------------------------------------------------------------------
-
-export const DownloadEvents = {
-  INITIATED: 'download:initiated',
-  GRABBING: 'download:grabbing',
-  PROGRESS: 'download:progress',
-  FAILED: 'download:failed',
-  CANCELLED: 'download:cancelled',
-  COMPLETED: 'download:completed',
-} as const
-
-export type DownloadEventName =
-  (typeof DownloadEvents)[keyof typeof DownloadEvents]
-
-// ---------------------------------------------------------------------------
-// WebSocket event payloads
-// ---------------------------------------------------------------------------
-
-export interface DownloadInitiatedPayload {
-  event: 'download:initiated'
-  mediaType: 'movie' | 'episode'
-  tmdbId?: number
-  tvdbId?: number
-  episodeId?: number
-  scope?: 'series' | 'season' | 'episode'
-}
-
-export interface DownloadGrabbingPayload {
-  event: 'download:grabbing'
-  mediaType: 'movie' | 'episode'
-  tmdbId?: number
-  tvdbId?: number
-  episodeId?: number
-  title: string | null
-  size: number
-}
-
-export interface DownloadProgressPayload {
-  event: 'download:progress'
-  mediaType: 'movie' | 'episode'
-  tmdbId?: number
-  tvdbId?: number
-  episodeId?: number
-  progress: number
-  size: number
-  sizeleft: number
-  eta: string | null
-  status: string
-}
-
-export interface DownloadFailedPayload {
-  event: 'download:failed'
-  mediaType: 'movie' | 'episode'
-  tmdbId?: number
-  tvdbId?: number
-  episodeId?: number
-  error: string
-}
-
-export interface DownloadCancelledPayload {
-  event: 'download:cancelled'
-  mediaType: 'movie' | 'episode'
-  tmdbId?: number
-  tvdbId?: number
-  episodeId?: number
-}
-
-export interface DownloadCompletedPayload {
-  event: 'download:completed'
-  mediaType: 'movie' | 'episode'
-  tmdbId?: number
-  tvdbId?: number
-  episodeId?: number
-}
-
-export type DownloadEventPayload =
-  | DownloadInitiatedPayload
-  | DownloadGrabbingPayload
-  | DownloadProgressPayload
-  | DownloadFailedPayload
-  | DownloadCancelledPayload
-  | DownloadCompletedPayload
-
-// ---------------------------------------------------------------------------
 // Internal EventEmitter2 event (Service/Poller -> Gateway)
 // ---------------------------------------------------------------------------
 
 export const INTERNAL_DOWNLOAD_EVENT = 'download.internal'
 
-export interface InternalDownloadEvent {
-  eventName: DownloadEventName
-  payload: DownloadEventPayload
-}
-
 // ---------------------------------------------------------------------------
-// REST response DTOs
+// Re-exports from @lilnas/lidarr-client (single source of truth for wire types)
 // ---------------------------------------------------------------------------
 
-export interface MovieDownloadStatusResponse {
-  state: 'searching' | 'downloading' | 'importing'
-  title: string | null
-  size: number
-  sizeleft: number
-  progress: number
-  eta: string | null
-  status: string | null
-}
+export type {
+  AllDownloadsResponse,
+  DownloadCancelledPayload,
+  DownloadCompletedPayload,
+  DownloadEventMap,
+  DownloadEventName,
+  DownloadEventPayload,
+  DownloadFailedPayload,
+  DownloadGrabbingPayload,
+  DownloadInitiatedPayload,
+  DownloadProgressPayload,
+  EpisodeDownloadItem,
+  EpisodeDownloadStatusItem,
+  MovieDownloadItem,
+  MovieDownloadStatusResponse,
+  SeasonDownloadGroup,
+  ShowDownloadItem,
+  ShowDownloadStatusResponse,
+} from '@lilnas/lidarr-client'
+export { DownloadEvents } from '@lilnas/lidarr-client'
 
-export interface EpisodeDownloadStatusItem {
-  episodeId: number
-  state: 'searching' | 'downloading' | 'importing'
-  title: string | null
-  size: number
-  sizeleft: number
-  progress: number
-  eta: string | null
-  status: string | null
-}
-
-export type ShowDownloadStatusResponse = EpisodeDownloadStatusItem[]
-
-export interface MovieDownloadItem {
-  tmdbId: number
-  title: string
-  year: number
-  posterUrl: string | null
-  state: 'searching' | 'downloading' | 'importing'
-  releaseTitle: string | null
-  size: number
-  sizeleft: number
-  progress: number
-  eta: string | null
-  status: string | null
-}
-
-export interface EpisodeDownloadItem {
-  episodeId: number
-  seasonNumber: number
-  episodeNumber: number
-  state: 'searching' | 'downloading' | 'importing'
-  releaseTitle: string | null
-  size: number
-  sizeleft: number
-  progress: number
-  eta: string | null
-  status: string | null
-}
-
-export interface SeasonDownloadGroup {
-  seasonNumber: number
-  episodes: EpisodeDownloadItem[]
-}
-
-export interface ShowDownloadItem {
-  tvdbId: number
-  seriesId: number
-  title: string
-  year: number
-  posterUrl: string | null
-  seasons: SeasonDownloadGroup[]
-}
-
-export interface AllDownloadsResponse {
-  movies: MovieDownloadItem[]
-  shows: ShowDownloadItem[]
+export type InternalDownloadEvent = {
+  eventName: import('@lilnas/lidarr-client').DownloadEventName
+  payload: import('@lilnas/lidarr-client').DownloadEventPayload
 }

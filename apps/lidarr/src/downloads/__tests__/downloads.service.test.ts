@@ -23,6 +23,7 @@ import { NotFoundException } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { DownloadStateService } from 'src/downloads/download-state.service'
 import { DownloadsService } from 'src/downloads/downloads.service'
 import {
   DownloadEvents,
@@ -30,6 +31,8 @@ import {
   type TrackedEpisodeDownload,
   type TrackedMovieDownload,
 } from 'src/downloads/downloads.types'
+import { MovieDownloaderService } from 'src/downloads/movie-downloader.service'
+import { ShowDownloaderService } from 'src/downloads/show-downloader.service'
 import { RADARR_CLIENT, SONARR_CLIENT } from 'src/media/clients'
 
 // All @lilnas/media/* functions are mocked globally in setup.ts
@@ -85,12 +88,21 @@ const mockSonarrDeleteQueueById = sonarrDeleteQueueById as jest.MockedFunction<
   typeof sonarrDeleteQueueById
 >
 
-// Mock cached() so it doesn't interfere with TTL state across tests
+// Mock cached() so it doesn't interfere with TTL state across tests.
+// Each test that needs cache-passthrough behavior uses the default implementation.
 jest.mock('src/media/cache', () => ({
   cached: jest.fn((_key: string, _ttl: number, fn: () => Promise<unknown>) =>
     fn(),
   ),
 }))
+
+// Test-only helper: provides typed data shape to mockResolvedValue calls
+// without needing to match the full generated API response type (which
+// includes Response objects not available in the test environment).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function apiOk<T>(data: T): any {
+  return { data }
+}
 
 function makeMovieResource(overrides = {}) {
   return {
@@ -152,6 +164,9 @@ describe('DownloadsService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        DownloadStateService,
+        MovieDownloaderService,
+        ShowDownloaderService,
         DownloadsService,
         { provide: RADARR_CLIENT, useValue: {} },
         { provide: SONARR_CLIENT, useValue: {} },
@@ -168,10 +183,8 @@ describe('DownloadsService', () => {
 
   describe('requestDownload (movie)', () => {
     it('creates tracked entry with commandId and emits INITIATED', async () => {
-      mockGetApiV3Movie.mockResolvedValue({
-        data: [makeMovieResource()],
-      } as never)
-      mockRadarrPostCommand.mockResolvedValue({ data: { id: 99 } } as never)
+      mockGetApiV3Movie.mockResolvedValue(apiOk([makeMovieResource()]))
+      mockRadarrPostCommand.mockResolvedValue(apiOk({ id: 99 }))
 
       await service.requestDownload({ mediaType: 'movie', tmdbId: 100 })
 
@@ -189,18 +202,18 @@ describe('DownloadsService', () => {
     })
 
     it('throws NotFoundException when movie not found in Radarr', async () => {
-      mockGetApiV3Movie.mockResolvedValue({ data: [] } as never)
+      mockGetApiV3Movie.mockResolvedValue(apiOk([]))
       await expect(
         service.requestDownload({ mediaType: 'movie', tmdbId: 999 }),
       ).rejects.toThrow(NotFoundException)
     })
 
     it('enables monitoring when movie is unmonitored before searching', async () => {
-      mockGetApiV3Movie.mockResolvedValue({
-        data: [makeMovieResource({ monitored: false })],
-      } as never)
-      mockRadarrPostCommand.mockResolvedValue({ data: { id: 10 } } as never)
-      mockPutApiV3MovieById.mockResolvedValue({} as never)
+      mockGetApiV3Movie.mockResolvedValue(
+        apiOk([makeMovieResource({ monitored: false })]),
+      )
+      mockRadarrPostCommand.mockResolvedValue(apiOk({ id: 10 }))
+      mockPutApiV3MovieById.mockResolvedValue(apiOk({}))
 
       await service.requestDownload({ mediaType: 'movie', tmdbId: 100 })
       expect(mockPutApiV3MovieById).toHaveBeenCalledWith(
@@ -211,20 +224,18 @@ describe('DownloadsService', () => {
     })
 
     it('skips monitoring update when movie is already monitored', async () => {
-      mockGetApiV3Movie.mockResolvedValue({
-        data: [makeMovieResource({ monitored: true })],
-      } as never)
-      mockRadarrPostCommand.mockResolvedValue({ data: { id: 10 } } as never)
+      mockGetApiV3Movie.mockResolvedValue(
+        apiOk([makeMovieResource({ monitored: true })]),
+      )
+      mockRadarrPostCommand.mockResolvedValue(apiOk({ id: 10 }))
 
       await service.requestDownload({ mediaType: 'movie', tmdbId: 100 })
       expect(mockPutApiV3MovieById).not.toHaveBeenCalled()
     })
 
     it('grabs a specific release when releaseGuid and indexerId are provided', async () => {
-      mockGetApiV3Movie.mockResolvedValue({
-        data: [makeMovieResource()],
-      } as never)
-      mockPostApiV3Release.mockResolvedValue({} as never)
+      mockGetApiV3Movie.mockResolvedValue(apiOk([makeMovieResource()]))
+      mockPostApiV3Release.mockResolvedValue(apiOk({}))
 
       await service.requestDownload({
         mediaType: 'movie',
@@ -254,18 +265,18 @@ describe('DownloadsService', () => {
 
   describe('requestDownload (episode)', () => {
     it('monitors episode, issues search command, and creates tracked entry', async () => {
-      mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [makeSeriesResource()],
-      } as never)
-      mockGetApiV3EpisodeById.mockResolvedValue({
-        data: makeEpisodeResource({
-          id: 50,
-          seasonNumber: 2,
-          episodeNumber: 3,
-        }),
-      } as never)
-      mockPutApiV3EpisodeById.mockResolvedValue({} as never)
-      mockSonarrPostCommand.mockResolvedValue({ data: { id: 77 } } as never)
+      mockGetApiV3SeriesLookup.mockResolvedValue(apiOk([makeSeriesResource()]))
+      mockGetApiV3EpisodeById.mockResolvedValue(
+        apiOk(
+          makeEpisodeResource({
+            id: 50,
+            seasonNumber: 2,
+            episodeNumber: 3,
+          }),
+        ),
+      )
+      mockPutApiV3EpisodeById.mockResolvedValue(apiOk({}))
+      mockSonarrPostCommand.mockResolvedValue(apiOk({ id: 77 }))
 
       await service.requestDownload({
         mediaType: 'show',
@@ -291,7 +302,7 @@ describe('DownloadsService', () => {
     })
 
     it('throws NotFoundException when show not found in Sonarr', async () => {
-      mockGetApiV3SeriesLookup.mockResolvedValue({ data: [] } as never)
+      mockGetApiV3SeriesLookup.mockResolvedValue(apiOk([]))
       await expect(
         service.requestDownload({
           mediaType: 'show',
@@ -311,22 +322,24 @@ describe('DownloadsService', () => {
     function setupSeasonDownload(
       episodes: ReturnType<typeof makeEpisodeResource>[],
     ) {
-      mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [
+      mockGetApiV3SeriesLookup.mockResolvedValue(
+        apiOk([
           makeSeriesResource({
             seasons: [{ seasonNumber: 1, monitored: true }],
           }),
-        ],
-      } as never)
-      mockGetApiV3Episode.mockResolvedValue({ data: episodes } as never)
-      mockGetApiV3QueueDetails.mockResolvedValue({ data: [] } as never)
-      mockGetApiV3SeriesById.mockResolvedValue({
-        data: makeSeriesResource({
-          seasons: [{ seasonNumber: 1, monitored: true }],
-        }),
-      } as never)
-      mockPutApiV3EpisodeMonitor.mockResolvedValue({} as never)
-      mockSonarrPostCommand.mockResolvedValue({ data: { id: 1 } } as never)
+        ]),
+      )
+      mockGetApiV3Episode.mockResolvedValue(apiOk(episodes))
+      mockGetApiV3QueueDetails.mockResolvedValue(apiOk([]))
+      mockGetApiV3SeriesById.mockResolvedValue(
+        apiOk(
+          makeSeriesResource({
+            seasons: [{ seasonNumber: 1, monitored: true }],
+          }),
+        ),
+      )
+      mockPutApiV3EpisodeMonitor.mockResolvedValue(apiOk({}))
+      mockSonarrPostCommand.mockResolvedValue(apiOk({ id: 1 }))
     }
 
     it('skips episodes that already have a file', async () => {
@@ -358,26 +371,28 @@ describe('DownloadsService', () => {
     })
 
     it('skips episodes already in the Sonarr queue', async () => {
-      mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [
+      mockGetApiV3SeriesLookup.mockResolvedValue(
+        apiOk([
           makeSeriesResource({
             seasons: [{ seasonNumber: 1, monitored: true }],
           }),
-        ],
-      } as never)
-      mockGetApiV3Episode.mockResolvedValue({
-        data: [makeEpisodeResource({ id: 3, hasFile: false })],
-      } as never)
-      mockGetApiV3QueueDetails.mockResolvedValue({
-        data: [{ episodeId: 3, id: 100 }],
-      } as never)
-      mockGetApiV3SeriesById.mockResolvedValue({
-        data: makeSeriesResource({
-          seasons: [{ seasonNumber: 1, monitored: true }],
-        }),
-      } as never)
-      mockPutApiV3EpisodeMonitor.mockResolvedValue({} as never)
-      mockSonarrPostCommand.mockResolvedValue({ data: { id: 1 } } as never)
+        ]),
+      )
+      mockGetApiV3Episode.mockResolvedValue(
+        apiOk([makeEpisodeResource({ id: 3, hasFile: false })]),
+      )
+      mockGetApiV3QueueDetails.mockResolvedValue(
+        apiOk([{ episodeId: 3, id: 100 }]),
+      )
+      mockGetApiV3SeriesById.mockResolvedValue(
+        apiOk(
+          makeSeriesResource({
+            seasons: [{ seasonNumber: 1, monitored: true }],
+          }),
+        ),
+      )
+      mockPutApiV3EpisodeMonitor.mockResolvedValue(apiOk({}))
+      mockSonarrPostCommand.mockResolvedValue(apiOk({ id: 1 }))
 
       await service.requestDownload({
         mediaType: 'show',
@@ -390,14 +405,12 @@ describe('DownloadsService', () => {
 
     it('skips episodes already tracked in memory', async () => {
       // Pre-populate the tracked map
-      mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [makeSeriesResource()],
-      } as never)
-      mockGetApiV3EpisodeById.mockResolvedValue({
-        data: makeEpisodeResource({ id: 4 }),
-      } as never)
-      mockPutApiV3EpisodeById.mockResolvedValue({} as never)
-      mockSonarrPostCommand.mockResolvedValue({ data: { id: 1 } } as never)
+      mockGetApiV3SeriesLookup.mockResolvedValue(apiOk([makeSeriesResource()]))
+      mockGetApiV3EpisodeById.mockResolvedValue(
+        apiOk(makeEpisodeResource({ id: 4 })),
+      )
+      mockPutApiV3EpisodeById.mockResolvedValue(apiOk({}))
+      mockSonarrPostCommand.mockResolvedValue(apiOk({ id: 1 }))
       await service.requestDownload({
         mediaType: 'show',
         tvdbId: 2000,
@@ -406,22 +419,24 @@ describe('DownloadsService', () => {
       })
 
       // Now attempt a season download that includes the same episode
-      mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [
+      mockGetApiV3SeriesLookup.mockResolvedValue(
+        apiOk([
           makeSeriesResource({
             seasons: [{ seasonNumber: 1, monitored: true }],
           }),
-        ],
-      } as never)
-      mockGetApiV3Episode.mockResolvedValue({
-        data: [makeEpisodeResource({ id: 4 })],
-      } as never)
-      mockGetApiV3QueueDetails.mockResolvedValue({ data: [] } as never)
-      mockGetApiV3SeriesById.mockResolvedValue({
-        data: makeSeriesResource({
-          seasons: [{ seasonNumber: 1, monitored: true }],
-        }),
-      } as never)
+        ]),
+      )
+      mockGetApiV3Episode.mockResolvedValue(
+        apiOk([makeEpisodeResource({ id: 4 })]),
+      )
+      mockGetApiV3QueueDetails.mockResolvedValue(apiOk([]))
+      mockGetApiV3SeriesById.mockResolvedValue(
+        apiOk(
+          makeSeriesResource({
+            seasons: [{ seasonNumber: 1, monitored: true }],
+          }),
+        ),
+      )
 
       const sizeBefore = service.getTracked().size
       await service.requestDownload({
@@ -457,22 +472,12 @@ describe('DownloadsService', () => {
 
   describe('cancelMovieDownload', () => {
     it('removes queue item and emits CANCELLED when tracked entry has queueId', async () => {
-      // Seed a tracked movie with queueId already set
-      service.updateTracked('movie:100', {})
-      // Manually set via internal; instead seed tracked entry first
-      await service
-        .requestDownload({ mediaType: 'movie', tmdbId: 100 })
-        .catch(() => null)
-      // Simplified: just test cancel via the public updateTracked + cancel path
-      // Set up fresh
-      mockGetApiV3Movie.mockResolvedValue({
-        data: [makeMovieResource()],
-      } as never)
-      mockRadarrPostCommand.mockResolvedValue({ data: { id: 1 } } as never)
+      mockGetApiV3Movie.mockResolvedValue(apiOk([makeMovieResource()]))
+      mockRadarrPostCommand.mockResolvedValue(apiOk({ id: 1 }))
       await service.requestDownload({ mediaType: 'movie', tmdbId: 100 })
       service.updateTracked('movie:100', { queueId: 200 })
 
-      mockDeleteApiV3QueueById.mockResolvedValue({} as never)
+      mockDeleteApiV3QueueById.mockResolvedValue(apiOk({}))
       await service.cancelMovieDownload(100)
 
       expect(mockDeleteApiV3QueueById).toHaveBeenCalledWith(
@@ -486,13 +491,11 @@ describe('DownloadsService', () => {
     })
 
     it('falls back to live Radarr queue lookup when tracked entry has no queueId', async () => {
-      mockGetApiV3Movie.mockResolvedValue({
-        data: [makeMovieResource({ id: 1 })],
-      } as never)
-      mockRadarrGetQueueDetails.mockResolvedValue({
-        data: [makeQueueItem({ movieId: 1, id: 300 })],
-      } as never)
-      mockDeleteApiV3QueueById.mockResolvedValue({} as never)
+      mockGetApiV3Movie.mockResolvedValue(apiOk([makeMovieResource({ id: 1 })]))
+      mockRadarrGetQueueDetails.mockResolvedValue(
+        apiOk([makeQueueItem({ movieId: 1, id: 300 })]),
+      )
+      mockDeleteApiV3QueueById.mockResolvedValue(apiOk({}))
 
       await service.cancelMovieDownload(100)
 
@@ -502,13 +505,11 @@ describe('DownloadsService', () => {
     })
 
     it('still emits CANCELLED and removes tracked entry even when no queue item exists', async () => {
-      mockGetApiV3Movie.mockResolvedValue({
-        data: [makeMovieResource()],
-      } as never)
-      mockRadarrGetQueueDetails.mockResolvedValue({ data: [] } as never)
+      mockGetApiV3Movie.mockResolvedValue(apiOk([makeMovieResource()]))
+      mockRadarrGetQueueDetails.mockResolvedValue(apiOk([]))
 
       // Seed tracked with no queueId
-      mockRadarrPostCommand.mockResolvedValue({ data: { id: 1 } } as never)
+      mockRadarrPostCommand.mockResolvedValue(apiOk({ id: 1 }))
       await service.requestDownload({ mediaType: 'movie', tmdbId: 100 })
 
       await service.cancelMovieDownload(100)
@@ -528,14 +529,12 @@ describe('DownloadsService', () => {
   describe('cancelEpisodeDownload', () => {
     it('removes from queue and unmonitors when queueId is tracked', async () => {
       // Seed tracked episode with queueId
-      mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [makeSeriesResource()],
-      } as never)
-      mockGetApiV3EpisodeById.mockResolvedValue({
-        data: makeEpisodeResource({ id: 50 }),
-      } as never)
-      mockPutApiV3EpisodeById.mockResolvedValue({} as never)
-      mockSonarrPostCommand.mockResolvedValue({ data: { id: 1 } } as never)
+      mockGetApiV3SeriesLookup.mockResolvedValue(apiOk([makeSeriesResource()]))
+      mockGetApiV3EpisodeById.mockResolvedValue(
+        apiOk(makeEpisodeResource({ id: 50 })),
+      )
+      mockPutApiV3EpisodeById.mockResolvedValue(apiOk({}))
+      mockSonarrPostCommand.mockResolvedValue(apiOk({ id: 1 }))
       await service.requestDownload({
         mediaType: 'show',
         tvdbId: 2000,
@@ -544,8 +543,8 @@ describe('DownloadsService', () => {
       })
       service.updateTracked('episode:50', { queueId: 400 })
 
-      mockSonarrDeleteQueueById.mockResolvedValue({} as never)
-      mockPutApiV3EpisodeMonitor.mockResolvedValue({} as never)
+      mockSonarrDeleteQueueById.mockResolvedValue(apiOk({}))
+      mockPutApiV3EpisodeMonitor.mockResolvedValue(apiOk({}))
 
       await service.cancelEpisodeDownload(50)
 
@@ -561,8 +560,8 @@ describe('DownloadsService', () => {
     })
 
     it('only unmonitors when no queueId is found', async () => {
-      mockGetApiV3QueueDetails.mockResolvedValue({ data: [] } as never)
-      mockPutApiV3EpisodeMonitor.mockResolvedValue({} as never)
+      mockGetApiV3QueueDetails.mockResolvedValue(apiOk([]))
+      mockPutApiV3EpisodeMonitor.mockResolvedValue(apiOk({}))
 
       await service.cancelEpisodeDownload(50)
 
@@ -575,13 +574,13 @@ describe('DownloadsService', () => {
     })
 
     it('does not throw when cleanup API calls fail', async () => {
-      mockGetApiV3QueueDetails.mockResolvedValue({
-        data: [{ id: 500, episodeId: 50 }],
-      } as never)
+      mockGetApiV3QueueDetails.mockResolvedValue(
+        apiOk([{ id: 500, episodeId: 50 }]),
+      )
       mockSonarrDeleteQueueById.mockRejectedValue(
         new Error('Sonarr unavailable'),
       )
-      mockPutApiV3EpisodeMonitor.mockResolvedValue({} as never)
+      mockPutApiV3EpisodeMonitor.mockResolvedValue(apiOk({}))
 
       // Should not throw
       await expect(service.cancelEpisodeDownload(50)).resolves.toBeUndefined()
@@ -599,22 +598,24 @@ describe('DownloadsService', () => {
   describe('cancelSeasonDownloads', () => {
     it('bulk deletes queue items for tracked season episodes and emits CANCELLED per episode', async () => {
       // Seed two tracked episodes in season 1
-      mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [makeSeriesResource()],
-      } as never)
+      mockGetApiV3SeriesLookup.mockResolvedValue(
+        apiOk([makeSeriesResource({ id: 10 })]),
+      )
       mockGetApiV3EpisodeById
-        .mockResolvedValueOnce({
-          data: makeEpisodeResource({ id: 10, seasonNumber: 1 }),
-        } as never)
-        .mockResolvedValueOnce({
-          data: makeEpisodeResource({
-            id: 11,
-            seasonNumber: 1,
-            episodeNumber: 2,
-          }),
-        } as never)
-      mockPutApiV3EpisodeById.mockResolvedValue({} as never)
-      mockSonarrPostCommand.mockResolvedValue({ data: { id: 1 } } as never)
+        .mockResolvedValueOnce(
+          apiOk(makeEpisodeResource({ id: 10, seasonNumber: 1 })),
+        )
+        .mockResolvedValueOnce(
+          apiOk(
+            makeEpisodeResource({
+              id: 11,
+              seasonNumber: 1,
+              episodeNumber: 2,
+            }),
+          ),
+        )
+      mockPutApiV3EpisodeById.mockResolvedValue(apiOk({}))
+      mockSonarrPostCommand.mockResolvedValue(apiOk({ id: 1 }))
       await service.requestDownload({
         mediaType: 'show',
         tvdbId: 2000,
@@ -628,16 +629,16 @@ describe('DownloadsService', () => {
         episodeId: 11,
       })
 
-      mockGetApiV3QueueDetails.mockResolvedValue({
-        data: [
+      mockGetApiV3QueueDetails.mockResolvedValue(
+        apiOk([
           { id: 600, episodeId: 10 },
           { id: 601, episodeId: 11 },
-        ],
-      } as never)
-      mockDeleteApiV3QueueBulk.mockResolvedValue({} as never)
-      mockPutApiV3EpisodeMonitor.mockResolvedValue({} as never)
+        ]),
+      )
+      mockDeleteApiV3QueueBulk.mockResolvedValue(apiOk({}))
+      mockPutApiV3EpisodeMonitor.mockResolvedValue(apiOk({}))
 
-      const result = await service.cancelSeasonDownloads(2000, 10, 1)
+      const result = await service.cancelSeasonDownloads(2000, 1)
 
       expect(mockDeleteApiV3QueueBulk).toHaveBeenCalled()
       expect(result.cancelledEpisodeIds).toEqual(
@@ -654,14 +655,14 @@ describe('DownloadsService', () => {
 
     it('adds episodes not yet in queue to pendingCancelEpisodes', async () => {
       // Seed tracked episode but queue is empty for it
-      mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [makeSeriesResource()],
-      } as never)
-      mockGetApiV3EpisodeById.mockResolvedValue({
-        data: makeEpisodeResource({ id: 20, seasonNumber: 1 }),
-      } as never)
-      mockPutApiV3EpisodeById.mockResolvedValue({} as never)
-      mockSonarrPostCommand.mockResolvedValue({ data: { id: 1 } } as never)
+      mockGetApiV3SeriesLookup.mockResolvedValue(
+        apiOk([makeSeriesResource({ id: 10 })]),
+      )
+      mockGetApiV3EpisodeById.mockResolvedValue(
+        apiOk(makeEpisodeResource({ id: 20, seasonNumber: 1 })),
+      )
+      mockPutApiV3EpisodeById.mockResolvedValue(apiOk({}))
+      mockSonarrPostCommand.mockResolvedValue(apiOk({ id: 1 }))
       await service.requestDownload({
         mediaType: 'show',
         tvdbId: 2000,
@@ -669,12 +670,19 @@ describe('DownloadsService', () => {
         episodeId: 20,
       })
 
-      mockGetApiV3QueueDetails.mockResolvedValue({ data: [] } as never)
-      mockPutApiV3EpisodeMonitor.mockResolvedValue({} as never)
+      mockGetApiV3QueueDetails.mockResolvedValue(apiOk([]))
+      mockPutApiV3EpisodeMonitor.mockResolvedValue(apiOk({}))
 
-      await service.cancelSeasonDownloads(2000, 10, 1)
+      await service.cancelSeasonDownloads(2000, 1)
 
       expect(service.getPendingCancelEpisodes().has(20)).toBe(true)
+    })
+
+    it('throws NotFoundException when show not found during cancel', async () => {
+      mockGetApiV3SeriesLookup.mockResolvedValue(apiOk([]))
+      await expect(service.cancelSeasonDownloads(9999, 1)).rejects.toThrow(
+        NotFoundException,
+      )
     })
   })
 
@@ -684,10 +692,8 @@ describe('DownloadsService', () => {
 
   describe('getMovieStatus', () => {
     it('returns status from tracked map when entry exists', async () => {
-      mockGetApiV3Movie.mockResolvedValue({
-        data: [makeMovieResource()],
-      } as never)
-      mockRadarrPostCommand.mockResolvedValue({ data: { id: 1 } } as never)
+      mockGetApiV3Movie.mockResolvedValue(apiOk([makeMovieResource()]))
+      mockRadarrPostCommand.mockResolvedValue(apiOk({ id: 1 }))
       await service.requestDownload({ mediaType: 'movie', tmdbId: 100 })
       service.updateTracked('movie:100', {
         queueId: 5,
@@ -705,11 +711,9 @@ describe('DownloadsService', () => {
     })
 
     it('recovers from Radarr queue when tracked map has no entry for the tmdbId', async () => {
-      mockGetApiV3Movie.mockResolvedValue({
-        data: [makeMovieResource({ id: 1 })],
-      } as never)
-      mockRadarrGetQueueDetails.mockResolvedValue({
-        data: [
+      mockGetApiV3Movie.mockResolvedValue(apiOk([makeMovieResource({ id: 1 })]))
+      mockRadarrGetQueueDetails.mockResolvedValue(
+        apiOk([
           makeQueueItem({
             movieId: 1,
             id: 700,
@@ -718,8 +722,8 @@ describe('DownloadsService', () => {
             status: 'downloading',
             title: 'Recovered Movie',
           }),
-        ],
-      } as never)
+        ]),
+      )
 
       const status = await service.getMovieStatus(100)
       expect(status).not.toBeNull()
@@ -730,17 +734,15 @@ describe('DownloadsService', () => {
     })
 
     it('returns null when movie not found during queue recovery', async () => {
-      mockGetApiV3Movie.mockResolvedValue({ data: [] } as never)
-      mockRadarrGetQueueDetails.mockResolvedValue({ data: [] } as never)
+      mockGetApiV3Movie.mockResolvedValue(apiOk([]))
+      mockRadarrGetQueueDetails.mockResolvedValue(apiOk([]))
       const status = await service.getMovieStatus(999)
       expect(status).toBeNull()
     })
 
     it('returns null when movie is in library but not in queue', async () => {
-      mockGetApiV3Movie.mockResolvedValue({
-        data: [makeMovieResource({ id: 1 })],
-      } as never)
-      mockRadarrGetQueueDetails.mockResolvedValue({ data: [] } as never)
+      mockGetApiV3Movie.mockResolvedValue(apiOk([makeMovieResource({ id: 1 })]))
+      mockRadarrGetQueueDetails.mockResolvedValue(apiOk([]))
       const status = await service.getMovieStatus(100)
       expect(status).toBeNull()
     })
@@ -756,14 +758,12 @@ describe('DownloadsService', () => {
     })
 
     it('returns status items for tracked episodes matching tvdbId', async () => {
-      mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [makeSeriesResource()],
-      } as never)
-      mockGetApiV3EpisodeById.mockResolvedValue({
-        data: makeEpisodeResource({ id: 50 }),
-      } as never)
-      mockPutApiV3EpisodeById.mockResolvedValue({} as never)
-      mockSonarrPostCommand.mockResolvedValue({ data: { id: 1 } } as never)
+      mockGetApiV3SeriesLookup.mockResolvedValue(apiOk([makeSeriesResource()]))
+      mockGetApiV3EpisodeById.mockResolvedValue(
+        apiOk(makeEpisodeResource({ id: 50 })),
+      )
+      mockPutApiV3EpisodeById.mockResolvedValue(apiOk({}))
+      mockSonarrPostCommand.mockResolvedValue(apiOk({ id: 1 }))
       await service.requestDownload({
         mediaType: 'show',
         tvdbId: 2000,
@@ -778,14 +778,14 @@ describe('DownloadsService', () => {
     })
 
     it('excludes episodes from a different tvdbId', async () => {
-      mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [makeSeriesResource({ tvdbId: 3000, id: 20 })],
-      } as never)
-      mockGetApiV3EpisodeById.mockResolvedValue({
-        data: makeEpisodeResource({ id: 60, seriesId: 20 }),
-      } as never)
-      mockPutApiV3EpisodeById.mockResolvedValue({} as never)
-      mockSonarrPostCommand.mockResolvedValue({ data: { id: 1 } } as never)
+      mockGetApiV3SeriesLookup.mockResolvedValue(
+        apiOk([makeSeriesResource({ tvdbId: 3000, id: 20 })]),
+      )
+      mockGetApiV3EpisodeById.mockResolvedValue(
+        apiOk(makeEpisodeResource({ id: 60, seriesId: 20 })),
+      )
+      mockPutApiV3EpisodeById.mockResolvedValue(apiOk({}))
+      mockSonarrPostCommand.mockResolvedValue(apiOk({ id: 1 }))
       await service.requestDownload({
         mediaType: 'show',
         tvdbId: 3000,
@@ -808,30 +808,30 @@ describe('DownloadsService', () => {
     })
 
     it('builds movie items with metadata from cached Radarr movie list', async () => {
-      mockGetApiV3Movie.mockResolvedValue({
-        data: [
+      mockGetApiV3Movie.mockResolvedValue(
+        apiOk([
           makeMovieResource({
             id: 1,
             title: 'Interstellar',
             year: 2014,
             images: [],
           }),
-        ],
-      } as never)
-      mockRadarrPostCommand.mockResolvedValue({ data: { id: 1 } } as never)
+        ]),
+      )
+      mockRadarrPostCommand.mockResolvedValue(apiOk({ id: 1 }))
       await service.requestDownload({ mediaType: 'movie', tmdbId: 100 })
 
       // For getAllDownloads, cached() passes through to getApiV3Movie (all movies)
-      mockGetApiV3Movie.mockResolvedValue({
-        data: [
+      mockGetApiV3Movie.mockResolvedValue(
+        apiOk([
           makeMovieResource({
             id: 1,
             title: 'Interstellar',
             year: 2014,
             images: [],
           }),
-        ],
-      } as never)
+        ]),
+      )
 
       const result = await service.getAllDownloads()
       expect(result.movies).toHaveLength(1)
@@ -841,26 +841,28 @@ describe('DownloadsService', () => {
     })
 
     it('groups show episodes by show and season', async () => {
-      mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [makeSeriesResource()],
-      } as never)
+      mockGetApiV3SeriesLookup.mockResolvedValue(apiOk([makeSeriesResource()]))
       mockGetApiV3EpisodeById
-        .mockResolvedValueOnce({
-          data: makeEpisodeResource({
-            id: 50,
-            seasonNumber: 1,
-            episodeNumber: 1,
-          }),
-        } as never)
-        .mockResolvedValueOnce({
-          data: makeEpisodeResource({
-            id: 51,
-            seasonNumber: 1,
-            episodeNumber: 2,
-          }),
-        } as never)
-      mockPutApiV3EpisodeById.mockResolvedValue({} as never)
-      mockSonarrPostCommand.mockResolvedValue({ data: { id: 1 } } as never)
+        .mockResolvedValueOnce(
+          apiOk(
+            makeEpisodeResource({
+              id: 50,
+              seasonNumber: 1,
+              episodeNumber: 1,
+            }),
+          ),
+        )
+        .mockResolvedValueOnce(
+          apiOk(
+            makeEpisodeResource({
+              id: 51,
+              seasonNumber: 1,
+              episodeNumber: 2,
+            }),
+          ),
+        )
+      mockPutApiV3EpisodeById.mockResolvedValue(apiOk({}))
+      mockSonarrPostCommand.mockResolvedValue(apiOk({ id: 1 }))
       await service.requestDownload({
         mediaType: 'show',
         tvdbId: 2000,
@@ -874,15 +876,36 @@ describe('DownloadsService', () => {
         episodeId: 51,
       })
 
-      mockGetApiV3Series.mockResolvedValue({
-        data: [makeSeriesResource({ title: 'Breaking Bad', year: 2008 })],
-      } as never)
+      mockGetApiV3Series.mockResolvedValue(
+        apiOk([makeSeriesResource({ title: 'Breaking Bad', year: 2008 })]),
+      )
 
       const result = await service.getAllDownloads()
       expect(result.shows).toHaveLength(1)
       expect(result.shows[0]?.title).toBe('Breaking Bad')
       expect(result.shows[0]?.seasons).toHaveLength(1)
       expect(result.shows[0]?.seasons[0]?.episodes).toHaveLength(2)
+    })
+
+    it('calls cached() with the correct keys and TTL for movie and series lists', async () => {
+      const cachedMod = jest.requireMock('src/media/cache') as {
+        cached: jest.Mock
+      }
+      cachedMod.cached.mockClear()
+
+      // Seed a tracked movie so getAllDownloads actually queries
+      mockGetApiV3Movie.mockResolvedValue(apiOk([makeMovieResource()]))
+      mockRadarrPostCommand.mockResolvedValue(apiOk({ id: 1 }))
+      await service.requestDownload({ mediaType: 'movie', tmdbId: 100 })
+
+      mockGetApiV3Movie.mockResolvedValue(apiOk([makeMovieResource()]))
+      await service.getAllDownloads()
+
+      expect(cachedMod.cached).toHaveBeenCalledWith(
+        'radarr:movies',
+        expect.any(Number),
+        expect.any(Function),
+      )
     })
   })
 })

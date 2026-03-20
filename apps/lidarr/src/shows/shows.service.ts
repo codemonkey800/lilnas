@@ -8,7 +8,7 @@ import {
   getApiV3SeriesLookup,
   type SeriesResource,
 } from '@lilnas/media/sonarr'
-import { Inject, Injectable, NotFoundException } from '@nestjs/common'
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common'
 
 import { SONARR_CLIENT, type SonarrMediaClient } from 'src/media/clients'
 
@@ -16,6 +16,8 @@ import { buildShowDetail, type ShowDetail } from './shows.types'
 
 @Injectable()
 export class ShowsService {
+  private readonly logger = new Logger(ShowsService.name)
+
   constructor(
     @Inject(SONARR_CLIENT) private readonly sonarr: SonarrMediaClient,
   ) {}
@@ -63,22 +65,50 @@ export class ShowsService {
       )
     }
 
+    const filesResult = await getApiV3Episodefile({
+      client: this.sonarr,
+      query: { seriesId: series.id },
+    })
+    const seriesFiles = (filesResult.data ?? []) as EpisodeFileResource[]
+    const allowedFileIds = new Set(
+      seriesFiles.map(f => f.id).filter((id): id is number => id != null),
+    )
+    if (!allowedFileIds.has(episodeFileId)) {
+      throw new NotFoundException('Episode file not found')
+    }
+
     try {
       await deleteApiV3EpisodefileById({
         client: this.sonarr,
         path: { id: episodeFileId },
       })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      throw new NotFoundException(`Episode file not found: ${message}`)
+      this.logger.warn(
+        `Failed to delete episode file ${episodeFileId} for tvdbId=${tvdbId}`,
+        err instanceof Error ? err.stack : String(err),
+      )
+      throw new NotFoundException('Episode file not found')
     }
   }
 
   async deleteSeasonFiles(
     tvdbId: number,
     seasonNumber: number,
-    seriesId: number,
   ): Promise<{ deletedFileIds: number[] }> {
+    const lookupResult = await getApiV3SeriesLookup({
+      client: this.sonarr,
+      query: { term: `tvdb:${tvdbId}` },
+    })
+    const series = ((lookupResult.data ?? []) as SeriesResource[])[0]
+
+    if (!series?.id) {
+      throw new NotFoundException(
+        `Show with tvdbId ${tvdbId} not found in Sonarr library`,
+      )
+    }
+
+    const seriesId = series.id
+
     const filesResult = await getApiV3Episodefile({
       client: this.sonarr,
       query: { seriesId },
@@ -111,7 +141,6 @@ export class ShowsService {
       body: { episodeFileIds: ids } as Record<string, unknown>,
     })
 
-    void tvdbId
     return { deletedFileIds: ids }
   }
 }

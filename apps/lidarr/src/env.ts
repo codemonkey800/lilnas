@@ -1,5 +1,6 @@
 export const EnvKeys = {
   NODE_ENV: 'NODE_ENV',
+  PORT: 'PORT',
   RADARR_URL: 'RADARR_URL',
   RADARR_API_KEY: 'RADARR_API_KEY',
   SONARR_URL: 'SONARR_URL',

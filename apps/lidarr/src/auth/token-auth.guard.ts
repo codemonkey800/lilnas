@@ -4,6 +4,7 @@ import {
   ExecutionContext,
   Inject,
   Injectable,
+  UnauthorizedException,
 } from '@nestjs/common'
 
 import { TOKEN_CLIENT } from './auth.constants'
@@ -14,11 +15,14 @@ export class TokenAuthGuard implements CanActivate {
     @Inject(TOKEN_CLIENT) private readonly tokenClient: TokenClient,
   ) {}
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  async canActivate(context: ExecutionContext): Promise<true> {
     const req = context.switchToHttp().getRequest<Record<string, unknown>>()
     const headers = req['headers'] as Record<string, string | undefined>
     const tokenValue = headers['x-token-value']
-    if (!tokenValue) return false
-    return this.tokenClient.validate('lidarr', tokenValue)
+    if (!tokenValue)
+      throw new UnauthorizedException('Missing authentication token')
+    const valid = await this.tokenClient.validate('lidarr', tokenValue)
+    if (!valid) throw new UnauthorizedException('Invalid authentication token')
+    return true
   }
 }

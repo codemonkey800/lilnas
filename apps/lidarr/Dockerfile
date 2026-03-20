@@ -22,7 +22,7 @@ COPY . .
 
 # Build the lidarr package and its dependencies
 RUN pnpm build --filter=@lilnas/lidarr
-RUN pnpm --filter=lidarr --prod deploy /app
+RUN pnpm --filter=@lilnas/lidarr --prod deploy /app
 
 # Runtime stage
 FROM lilnas-node-runtime AS runtime

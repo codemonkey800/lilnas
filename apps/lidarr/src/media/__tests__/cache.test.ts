@@ -52,13 +52,11 @@ describe('cached', () => {
     expect(fnA).toHaveBeenCalledTimes(1)
     expect(fnB).toHaveBeenCalledTimes(1)
 
-    // Expire key A only
+    // Both keys expired at 5001ms — verify re-fetch happened for each independently
     jest.advanceTimersByTime(5001)
     await cached('cache-test-key-a', 5000, fnA)
     expect(fnA).toHaveBeenCalledTimes(2)
 
-    // Key B should still be fresh since we use a shorter TTL for it in second call
-    // Actually both expired at 5001ms — just verify they remain independent
     await cached('cache-test-key-b', 5000, fnB)
     expect(fnB).toHaveBeenCalledTimes(2)
   })

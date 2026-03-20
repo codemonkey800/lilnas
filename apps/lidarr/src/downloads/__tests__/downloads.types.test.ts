@@ -2,6 +2,8 @@ import {
   computeDownloadState,
   computeProgress,
   downloadMovieSchema,
+  downloadRequestSchema,
+  downloadShowSchema,
   isImportStatus,
 } from 'src/downloads/downloads.types'
 
@@ -24,6 +26,11 @@ describe('computeProgress', () => {
 
   it('returns null when size is negative', () => {
     expect(computeProgress(-1, 0)).toBeNull()
+  })
+
+  it('clamps to 0 when sizeleft exceeds size (transient reporting anomaly)', () => {
+    expect(computeProgress(1000, 2000)).toBe(0)
+    expect(computeProgress(500, 501)).toBe(0)
   })
 
   it('returns 0 when no bytes downloaded yet', () => {
@@ -197,5 +204,109 @@ describe('downloadMovieSchema refine constraint', () => {
       indexerId: 5,
     })
     expect(result.success).toBe(true)
+  })
+})
+
+describe('downloadShowSchema', () => {
+  it('accepts a series-scope request', () => {
+    const result = downloadShowSchema.safeParse({
+      mediaType: 'show',
+      tvdbId: 456,
+      scope: 'series',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a season-scope request with seasonNumber', () => {
+    const result = downloadShowSchema.safeParse({
+      mediaType: 'show',
+      tvdbId: 456,
+      scope: 'season',
+      seasonNumber: 2,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts an episode-scope request with episodeId', () => {
+    const result = downloadShowSchema.safeParse({
+      mediaType: 'show',
+      tvdbId: 456,
+      scope: 'episode',
+      episodeId: 789,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects season-scope request without seasonNumber', () => {
+    const result = downloadShowSchema.safeParse({
+      mediaType: 'show',
+      tvdbId: 456,
+      scope: 'season',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects episode-scope request without episodeId', () => {
+    const result = downloadShowSchema.safeParse({
+      mediaType: 'show',
+      tvdbId: 456,
+      scope: 'episode',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects an unknown scope', () => {
+    const result = downloadShowSchema.safeParse({
+      mediaType: 'show',
+      tvdbId: 456,
+      scope: 'invalid',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects missing tvdbId', () => {
+    const result = downloadShowSchema.safeParse({
+      mediaType: 'show',
+      scope: 'series',
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('downloadRequestSchema', () => {
+  it('accepts a valid movie request', () => {
+    const result = downloadRequestSchema.safeParse({
+      mediaType: 'movie',
+      tmdbId: 123,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.mediaType).toBe('movie')
+    }
+  })
+
+  it('accepts a valid show request', () => {
+    const result = downloadRequestSchema.safeParse({
+      mediaType: 'show',
+      tvdbId: 456,
+      scope: 'series',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.mediaType).toBe('show')
+    }
+  })
+
+  it('rejects an unknown mediaType', () => {
+    const result = downloadRequestSchema.safeParse({
+      mediaType: 'audio',
+      id: 1,
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects empty object', () => {
+    const result = downloadRequestSchema.safeParse({})
+    expect(result.success).toBe(false)
   })
 })
