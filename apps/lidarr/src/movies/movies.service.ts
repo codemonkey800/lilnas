@@ -5,7 +5,7 @@ import {
   type MovieFileResource,
   type MovieResource,
 } from '@lilnas/media/radarr-next'
-import { Inject, Injectable, NotFoundException } from '@nestjs/common'
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common'
 
 import { RADARR_CLIENT, type RadarrMediaClient } from 'src/media/clients'
 
@@ -13,6 +13,8 @@ import { type MovieDetail, movieResourceToDetail } from './movies.types'
 
 @Injectable()
 export class MoviesService {
+  private readonly logger = new Logger(MoviesService.name)
+
   constructor(
     @Inject(RADARR_CLIENT) private readonly radarr: RadarrMediaClient,
   ) {}
@@ -50,10 +52,23 @@ export class MoviesService {
       query: { tmdbId },
     })
     const movies = (libraryResult.data ?? []) as MovieResource[]
-    if (!movies[0]) {
+    const movie = movies[0]
+    if (!movie?.id) {
       throw new NotFoundException(
         `Movie with tmdbId ${tmdbId} not found in Radarr library`,
       )
+    }
+
+    const filesResult = await getApiV3Moviefile({
+      client: this.radarr,
+      query: { movieId: [movie.id] },
+    })
+    const movieFiles = (filesResult.data ?? []) as MovieFileResource[]
+    const allowedFileIds = new Set(
+      movieFiles.map(f => f.id).filter((id): id is number => id != null),
+    )
+    if (!allowedFileIds.has(fileId)) {
+      throw new NotFoundException('Movie file not found')
     }
 
     try {
@@ -62,8 +77,11 @@ export class MoviesService {
         path: { id: fileId },
       })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      throw new NotFoundException(`Movie file not found: ${message}`)
+      this.logger.warn(
+        `Failed to delete movie file ${fileId} for tmdbId=${tmdbId}`,
+        err instanceof Error ? err.stack : String(err),
+      )
+      throw new NotFoundException('Movie file not found')
     }
   }
 }

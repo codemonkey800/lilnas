@@ -3,8 +3,9 @@ import { IoAdapter } from '@nestjs/platform-socket.io'
 import { Logger } from 'nestjs-pino'
 
 import { AppModule } from './app.module'
+import { EnvKeys } from './env'
 
-const PORT = 8080
+const DEFAULT_PORT = 8080
 
 export async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true })
@@ -12,7 +13,8 @@ export async function bootstrap() {
   app.useWebSocketAdapter(new IoAdapter(app))
   app.enableShutdownHooks()
 
-  await app.listen(PORT)
+  const port = parseInt(process.env[EnvKeys.PORT] ?? String(DEFAULT_PORT), 10)
+  await app.listen(port)
 
-  console.log(`Started backend server at http://localhost:${PORT}`)
+  console.log(`Started backend server at http://localhost:${port}`)
 }

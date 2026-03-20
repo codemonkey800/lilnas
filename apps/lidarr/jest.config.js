@@ -32,6 +32,8 @@ module.exports = {
   setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts'],
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
+    '^@lilnas/lidarr-client$':
+      '<rootDir>/../../packages/lidarr-client/src/index.ts',
     '^@lilnas/utils/(.*)$': '<rootDir>/../../packages/utils/src/$1',
     '^@lilnas/media/radarr-next/client$':
       '<rootDir>/../../packages/media/src/radarr-next/client/index.ts',

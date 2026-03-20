@@ -381,6 +381,9 @@ importers:
 
   apps/lidarr:
     dependencies:
+      '@lilnas/lidarr-client':
+        specifier: workspace:*
+        version: file:packages/lidarr-client(react@19.2.4)
       '@lilnas/media':
         specifier: workspace:*
         version: link:../../packages/media
@@ -3044,6 +3047,14 @@ packages:
 
   '@lilnas/eslint@file:packages/eslint-config-lilnas':
     resolution: {directory: packages/eslint-config-lilnas, type: directory}
+
+  '@lilnas/lidarr-client@file:packages/lidarr-client':
+    resolution: {directory: packages/lidarr-client, type: directory}
+    peerDependencies:
+      react: '>=18'
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@lukeed/csprng@1.1.0':
     resolution: {integrity: sha512-Z7C/xXCiGWsg0KuKsHTKJxbWhpI3Vs5GwLfOean7MGyVFGqdRgBbAjOCh6u4bbjPc/8MJ2pZmK/0DLdCbivLDA==}
@@ -12087,6 +12098,16 @@ snapshots:
       - prettier
       - supports-color
       - typescript
+
+  '@lilnas/lidarr-client@file:packages/lidarr-client(react@19.2.4)':
+    dependencies:
+      socket.io-client: 4.8.3
+    optionalDependencies:
+      react: 19.2.4
+    transitivePeerDependencies:
+      - bufferutil
+      - supports-color
+      - utf-8-validate
 
   '@lukeed/csprng@1.1.0': {}
 

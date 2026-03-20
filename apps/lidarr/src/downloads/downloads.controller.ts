@@ -84,15 +84,9 @@ export class DownloadsController {
   @Delete('show/:tvdbId')
   async cancelShowDownloads(
     @Param('tvdbId') tvdbId: string,
-    @Body() body: unknown,
   ): Promise<{ cancelledEpisodeIds: number[] }> {
     const tid = parseParam(tvdbId, 'tvdbId')
-    const bodySchema = z.object({ seriesId: z.number().int().positive() })
-    const parsed = bodySchema.safeParse(body)
-    if (!parsed.success) {
-      throw new BadRequestException('seriesId is required')
-    }
-    return this.downloadsService.cancelShowDownloads(tid, parsed.data.seriesId)
+    return this.downloadsService.cancelShowDownloads(tid)
   }
 
   @Delete('episode/:episodeId')
@@ -107,7 +101,6 @@ export class DownloadsController {
   async cancelSeasonDownloads(
     @Param('tvdbId') tvdbId: string,
     @Param('seasonNumber') seasonNumber: string,
-    @Body() body: unknown,
   ): Promise<{ cancelledEpisodeIds: number[] }> {
     const tid = parseParam(tvdbId, 'tvdbId')
     const sn = z.coerce.number().int().min(0).safeParse(seasonNumber)
@@ -116,15 +109,6 @@ export class DownloadsController {
         'seasonNumber must be a non-negative integer',
       )
     }
-    const bodySchema = z.object({ seriesId: z.number().int().positive() })
-    const parsed = bodySchema.safeParse(body)
-    if (!parsed.success) {
-      throw new BadRequestException('seriesId is required')
-    }
-    return this.downloadsService.cancelSeasonDownloads(
-      tid,
-      parsed.data.seriesId,
-      sn.data,
-    )
+    return this.downloadsService.cancelSeasonDownloads(tid, sn.data)
   }
 }

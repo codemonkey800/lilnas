@@ -98,13 +98,12 @@ class ShowsClient {
   deleteSeasonFiles(
     tvdbId: number,
     seasonNumber: number,
-    body: { seriesId: number },
   ): Promise<{ deletedFileIds: number[] }> {
     return request<{ deletedFileIds: number[] }>(
       this.baseUrl,
       this.token,
       `/shows/${tvdbId}/seasons/${seasonNumber}/files`,
-      { method: 'DELETE', body: JSON.stringify(body) },
+      { method: 'DELETE' },
     )
   }
 }
@@ -169,15 +168,12 @@ class DownloadsClient {
   }
 
   /** Cancels all active downloads for a show. Returns the cancelled episode IDs. */
-  cancelShow(
-    tvdbId: number,
-    body: { seriesId: number },
-  ): Promise<{ cancelledEpisodeIds: number[] }> {
+  cancelShow(tvdbId: number): Promise<{ cancelledEpisodeIds: number[] }> {
     return request<{ cancelledEpisodeIds: number[] }>(
       this.baseUrl,
       this.token,
       `/downloads/show/${tvdbId}`,
-      { method: 'DELETE', body: JSON.stringify(body) },
+      { method: 'DELETE' },
     )
   }
 
@@ -195,13 +191,12 @@ class DownloadsClient {
   cancelSeason(
     tvdbId: number,
     seasonNumber: number,
-    body: { seriesId: number },
   ): Promise<{ cancelledEpisodeIds: number[] }> {
     return request<{ cancelledEpisodeIds: number[] }>(
       this.baseUrl,
       this.token,
       `/downloads/show/${tvdbId}/season/${seasonNumber}`,
-      { method: 'DELETE', body: JSON.stringify(body) },
+      { method: 'DELETE' },
     )
   }
 

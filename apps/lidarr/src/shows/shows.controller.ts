@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  Body,
   Controller,
   Delete,
   Get,
@@ -20,16 +19,6 @@ function parseParam(value: string, name: string): number {
   const result = numericIdSchema.safeParse(value)
   if (!result.success) {
     throw new BadRequestException(`${name} must be a positive integer`)
-  }
-  return result.data
-}
-
-function parseBody<T>(body: unknown, schema: z.ZodSchema<T>): T {
-  const result = schema.safeParse(body)
-  if (!result.success) {
-    throw new BadRequestException(
-      result.error.issues[0]?.message ?? 'Invalid request body',
-    )
   }
   return result.data
 }
@@ -59,7 +48,6 @@ export class ShowsController {
   async deleteSeasonFiles(
     @Param('tvdbId') tvdbId: string,
     @Param('seasonNumber') seasonNumber: string,
-    @Body() body: unknown,
   ): Promise<{ deletedFileIds: number[] }> {
     const tid = parseParam(tvdbId, 'tvdbId')
     const sn = z.coerce.number().int().min(0).safeParse(seasonNumber)
@@ -68,10 +56,6 @@ export class ShowsController {
         'seasonNumber must be a non-negative integer',
       )
     }
-    const { seriesId } = parseBody(
-      body,
-      z.object({ seriesId: z.number().int().positive() }),
-    )
-    return this.showsService.deleteSeasonFiles(tid, sn.data, seriesId)
+    return this.showsService.deleteSeasonFiles(tid, sn.data)
   }
 }
