@@ -317,11 +317,19 @@ export class RemoteMounts extends Command {
     }
 
     this.log(`\nDeleting ${validatedPath} on remote...`)
-    runSshCommandWithStdin({
-      command: `sudo -S rm -rf "${validatedPath}"`,
-      stdin: `${password}\n`,
-      dryRun,
-    })
+    try {
+      runSshCommandWithStdin({
+        command: `sudo -S rm -rf "${validatedPath}"`,
+        stdin: `${password}\n`,
+        dryRun,
+        capture: true,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.error(`Failed to delete "${validatedPath}":\n${message}`, {
+        exit: 1,
+      })
+    }
     this.log('Done.')
   }
 }
