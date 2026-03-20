@@ -34,7 +34,9 @@ RUN pnpm --filter=@lilnas/token --prod deploy /app
 RUN cp -r /source/apps/token/.next /app/.next
 
 # Copy Drizzle migration files
-RUN cp -r /source/apps/token/drizzle /app/drizzle
+RUN if [ -d /source/apps/token/drizzle ]; then \
+      cp -r /source/apps/token/drizzle /app/drizzle; \
+    fi
 
 # Copy the standalone server to the correct location
 RUN cp /source/apps/token/.next/standalone/apps/token/server.js /app/server.js
