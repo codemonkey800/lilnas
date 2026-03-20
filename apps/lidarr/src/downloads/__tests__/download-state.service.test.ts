@@ -10,6 +10,7 @@ import {
   createTrackedMovie,
   DownloadEvents,
   INTERNAL_DOWNLOAD_EVENT,
+  type TrackedMovieDownload,
 } from 'src/downloads/downloads.types'
 
 describe('DownloadStateService', () => {
@@ -51,7 +52,13 @@ describe('DownloadStateService', () => {
       const second = createTrackedMovie(100, 2)
       service.setTracked('movie:100', first)
       service.setTracked('movie:100', second)
-      expect(service.getTracked().get('movie:100')?.radarrMovieId).toBe(2)
+      expect(
+        (
+          service.getTracked().get('movie:100') as
+            | TrackedMovieDownload
+            | undefined
+        )?.radarrMovieId,
+      ).toBe(2)
     })
   })
 
