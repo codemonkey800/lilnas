@@ -131,44 +131,55 @@ export class TokenService {
     return Object.fromEntries(rows.map(r => [r.appSlug, r.count]))
   }
 
-  async validateToken(
-    appSlug: string,
-    tokenId: string,
-    value: string,
-  ): Promise<boolean> {
+  async validateToken(appSlug: string, value: string): Promise<boolean> {
     const start = Date.now()
+    const tokenPrefix = value.slice(0, TOKEN_DISPLAY_PREFIX_LENGTH)
     try {
-      const [token] = await this.db
+      const candidates = await this.db
         .select({ tokenHash: tokens.tokenHash })
         .from(tokens)
-        .where(and(eq(tokens.appSlug, appSlug), eq(tokens.id, tokenId)))
+        .where(
+          and(eq(tokens.appSlug, appSlug), eq(tokens.tokenPrefix, tokenPrefix)),
+        )
 
-      if (!token) {
+      if (candidates.length === 0) {
         const durationMs = Date.now() - start
         this.metrics.tokenValidated(appSlug, 'invalid')
         this.metrics.observeValidationDuration(appSlug, durationMs)
         this.logger.log(
-          { appSlug, tokenId, valid: false, durationMs },
+          { appSlug, tokenPrefix, valid: false, durationMs },
           'Token validation result',
         )
         return false
       }
 
-      const valid = await bcrypt.compare(value, token.tokenHash)
+      for (const candidate of candidates) {
+        if (await bcrypt.compare(value, candidate.tokenHash)) {
+          const durationMs = Date.now() - start
+          this.metrics.tokenValidated(appSlug, 'valid')
+          this.metrics.observeValidationDuration(appSlug, durationMs)
+          this.logger.log(
+            { appSlug, tokenPrefix, valid: true, durationMs },
+            'Token validation result',
+          )
+          return true
+        }
+      }
+
       const durationMs = Date.now() - start
-      this.metrics.tokenValidated(appSlug, valid ? 'valid' : 'invalid')
+      this.metrics.tokenValidated(appSlug, 'invalid')
       this.metrics.observeValidationDuration(appSlug, durationMs)
       this.logger.log(
-        { appSlug, tokenId, valid, durationMs },
+        { appSlug, tokenPrefix, valid: false, durationMs },
         'Token validation result',
       )
-      return valid
+      return false
     } catch (err) {
       const durationMs = Date.now() - start
       this.metrics.tokenValidated(appSlug, 'error')
       this.metrics.observeValidationDuration(appSlug, durationMs)
       this.logger.error(
-        { err, appSlug, tokenId, durationMs },
+        { err, appSlug, tokenPrefix, durationMs },
         'Error validating token',
       )
       return false

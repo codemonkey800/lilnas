@@ -5,7 +5,6 @@ export interface TokenClientOptions {
 
 export interface ValidateTokenRequest {
   appSlug: string
-  tokenId: string
   value: string
 }
 

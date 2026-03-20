@@ -12,11 +12,7 @@ export class PublicController {
   async validateToken(@Body() body: unknown): Promise<{ valid: boolean }> {
     const dto = ValidateTokenSchema.parse(body)
 
-    const valid = await this.tokenService.validateToken(
-      dto.appSlug,
-      dto.tokenId,
-      dto.value,
-    )
+    const valid = await this.tokenService.validateToken(dto.appSlug, dto.value)
 
     return { valid }
   }

@@ -9,7 +9,6 @@ export type CreateTokenDto = z.infer<typeof CreateTokenSchema>
 
 export const ValidateTokenSchema = z.object({
   appSlug: z.string().min(1),
-  tokenId: z.string().min(1),
   value: z.string().min(1),
 })
 
