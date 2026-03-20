@@ -10,6 +10,7 @@ include:
   - ./apps/portal/deploy.yml
   - ./apps/dashcam/deploy.yml
   - ./apps/download/deploy.yml
+  - ./apps/lidarr/deploy.yml
   - ./apps/equations/deploy.yml
   - ./apps/macros/deploy.yml
   - ./apps/me-token-tracker/deploy.yml
