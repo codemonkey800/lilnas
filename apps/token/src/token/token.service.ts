@@ -12,6 +12,7 @@ import { DrizzleService } from 'src/db/drizzle.service'
 import { type Token, tokens } from 'src/db/schema'
 
 import { CreateTokenDto } from './token.dto'
+import { TokenMetricsService } from './token-metrics.service'
 
 const BCRYPT_ROUNDS = 10
 const TOKEN_PREFIX = 'tok_'
@@ -38,7 +39,10 @@ export interface TokenSummary {
 export class TokenService {
   private readonly logger = new Logger(TokenService.name)
 
-  constructor(private readonly drizzle: DrizzleService) {}
+  constructor(
+    private readonly drizzle: DrizzleService,
+    private readonly metrics: TokenMetricsService,
+  ) {}
 
   private get db() {
     return this.drizzle.db
@@ -69,7 +73,8 @@ export class TokenService {
       throw new UnprocessableEntityException('Failed to create token')
     }
 
-    this.logger.log(`Created token ${id} for app ${appSlug}`)
+    this.logger.log({ appSlug, tokenId: id, tokenPrefix }, 'Created token')
+    this.metrics.tokenCreated(appSlug)
 
     return {
       id: created.id,
@@ -113,7 +118,8 @@ export class TokenService {
       throw new NotFoundException(`Token ${id} not found for app ${appSlug}`)
     }
 
-    this.logger.log(`Deleted token ${id} for app ${appSlug}`)
+    this.logger.log({ appSlug, tokenId: id }, 'Deleted token')
+    this.metrics.tokenDeleted(appSlug)
   }
 
   async getTokenCountsByApp(): Promise<Record<string, number>> {
@@ -130,17 +136,41 @@ export class TokenService {
     tokenId: string,
     value: string,
   ): Promise<boolean> {
+    const start = Date.now()
     try {
       const [token] = await this.db
         .select({ tokenHash: tokens.tokenHash })
         .from(tokens)
         .where(and(eq(tokens.appSlug, appSlug), eq(tokens.id, tokenId)))
 
-      if (!token) return false
+      if (!token) {
+        const durationMs = Date.now() - start
+        this.metrics.tokenValidated(appSlug, 'invalid')
+        this.metrics.observeValidationDuration(appSlug, durationMs)
+        this.logger.log(
+          { appSlug, tokenId, valid: false, durationMs },
+          'Token validation result',
+        )
+        return false
+      }
 
-      return bcrypt.compare(value, token.tokenHash)
+      const valid = await bcrypt.compare(value, token.tokenHash)
+      const durationMs = Date.now() - start
+      this.metrics.tokenValidated(appSlug, valid ? 'valid' : 'invalid')
+      this.metrics.observeValidationDuration(appSlug, durationMs)
+      this.logger.log(
+        { appSlug, tokenId, valid, durationMs },
+        'Token validation result',
+      )
+      return valid
     } catch (err) {
-      this.logger.error({ err }, 'Error validating token')
+      const durationMs = Date.now() - start
+      this.metrics.tokenValidated(appSlug, 'error')
+      this.metrics.observeValidationDuration(appSlug, durationMs)
+      this.logger.error(
+        { err, appSlug, tokenId, durationMs },
+        'Error validating token',
+      )
       return false
     }
   }

@@ -48,3 +48,8 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ['yoink:8081']
+
+  - job_name: token
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['token:8081']
