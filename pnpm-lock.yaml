@@ -1051,9 +1051,15 @@ importers:
       pino-pretty:
         specifier: 13.1.2
         version: 13.1.2
+      sharp:
+        specifier: ^0.34.1
+        version: 0.34.4
       ts-jest:
         specifier: ^29.4.5
         version: 29.4.5(@babel/core@7.28.0)(@jest/transform@30.3.0)(@jest/types@30.3.0)(babel-jest@30.3.0(@babel/core@7.28.0))(esbuild@0.25.8)(jest-util@30.3.0)(jest@30.2.0(@types/node@24.7.2)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.25.8)))(typescript@5.9.3)
+      tsx:
+        specifier: ^4.20.6
+        version: 4.20.6
 
   packages/cli:
     dependencies:
@@ -11075,8 +11081,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@img/colour@1.0.0':
-    optional: true
+  '@img/colour@1.0.0': {}
 
   '@img/sharp-darwin-arm64@0.34.4':
     optionalDependencies:
@@ -12502,7 +12507,7 @@ snapshots:
   '@nestjs/platform-express@11.1.6(@nestjs/common@11.1.6(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.1.6)':
     dependencies:
       '@nestjs/common': 11.1.6(reflect-metadata@0.2.2)(rxjs@7.8.1)
-      '@nestjs/core': 11.1.6(@nestjs/common@11.1.6(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/platform-express@11.1.6)(@nestjs/websockets@11.1.6)(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      '@nestjs/core': 11.1.6(@nestjs/common@11.1.6(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/platform-express@11.1.6)(@nestjs/websockets@11.1.16)(reflect-metadata@0.2.2)(rxjs@7.8.1)
       cors: 2.8.5
       express: 5.1.0
       multer: 2.0.2
@@ -19209,7 +19214,6 @@ snapshots:
       '@img/sharp-win32-arm64': 0.34.4
       '@img/sharp-win32-ia32': 0.34.4
       '@img/sharp-win32-x64': 0.34.4
-    optional: true
 
   shebang-command@1.2.0:
     dependencies:
