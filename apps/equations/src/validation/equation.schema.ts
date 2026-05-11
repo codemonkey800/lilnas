@@ -87,12 +87,6 @@ export const validateLatexSafety = (
     errors.push('Excessive repetition detected')
   }
 
-  // Check for very long lines (potential memory issues)
-  const lines = latex.split('\n')
-  if (lines.some(line => line.length > 200)) {
-    errors.push('Line too long (max 200 characters per line)')
-  }
-
   return {
     isValid: errors.length === 0,
     errors,
