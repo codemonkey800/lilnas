@@ -53,3 +53,8 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ['token:8081']
+
+  - job_name: swole
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['swole:8080']

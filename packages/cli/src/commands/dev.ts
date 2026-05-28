@@ -48,13 +48,24 @@ export class Dev extends Command {
     loadEnvFile(path.join(root, 'infra', `.env.${appName}`))
     loadEnvFile(path.join(appDir, '.env.dev'))
 
-    // Auto-detect Drizzle by presence of drizzle.config.ts in the app root
-    const hasDrizzle = fs.existsSync(path.join(appDir, 'drizzle.config.ts'))
+    // Auto-detect Drizzle by presence of drizzle.config.ts in the app root,
+    // then read the dialect to decide whether a database container is needed.
+    // SQLite apps don't need Postgres (or Docker) — the schema is a file on
+    // disk and migrations are applied by the app itself at boot.
+    const drizzleConfigPath = path.join(appDir, 'drizzle.config.ts')
+    const drizzleDialect = readDrizzleDialect(drizzleConfigPath)
+    const needsPostgres = drizzleDialect === 'postgresql'
 
     let containerName: string | null = null
     let cleaned = false
 
-    if (hasDrizzle) {
+    if (drizzleDialect === 'sqlite') {
+      this.log(
+        'Detected SQLite Drizzle config — skipping Postgres container (DB is a file on disk).',
+      )
+    }
+
+    if (needsPostgres) {
       const user = process.env.POSTGRES_USER ?? 'postgres'
       const password = process.env.POSTGRES_PASSWORD ?? 'postgres'
       const db = process.env.POSTGRES_DB ?? appName
@@ -158,4 +169,15 @@ export class Dev extends Command {
       })
     })
   }
+}
+
+// Returns the Drizzle dialect declared in `drizzle.config.ts`, or null if the
+// config doesn't exist. Reads the file as text and matches the `dialect: '...'`
+// literal rather than importing the module — importing would execute the
+// config's side effects (env reads, etc.) just to discover one string.
+function readDrizzleDialect(configPath: string): string | null {
+  if (!fs.existsSync(configPath)) return null
+  const source = fs.readFileSync(configPath, 'utf8')
+  const match = source.match(/dialect:\s*['"]([^'"]+)['"]/)
+  return match?.[1] ?? null
 }

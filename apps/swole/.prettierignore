@@ -1,0 +1,4 @@
+# Generated Drizzle migration metadata — never hand-edited; prettier sometimes
+# fights drizzle-kit's chosen formatting and the diff is meaningless.
+src/db/migrations/meta/
+src/db/migrations/*.sql

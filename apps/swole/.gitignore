@@ -1,0 +1,5 @@
+# SQLite database file (dev default — production lives at /data/swole.db inside the container)
+swole.db
+swole.db-journal
+swole.db-wal
+swole.db-shm
