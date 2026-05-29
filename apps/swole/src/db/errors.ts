@@ -3,9 +3,10 @@
 // circular imports between mutation files that surface the same error from
 // different code paths.
 //
-// Every error extends `DataLayerError` and carries a `kind` discriminator so
-// consumers can exhaustively switch on `err.kind` to map to HTTP responses,
-// log levels, or user-facing messages without writing `instanceof` chains.
+// Every error extends `DataLayerError` and carries a `kind` discriminator.
+// Server actions serialize it into a `{ ok: false; kind; code }` result
+// envelope so the discriminant survives the RSC serialization boundary.
+// Within the server, `instanceof` remains the primary dispatch mechanism.
 
 export type DataLayerErrorKind =
   | 'validation'

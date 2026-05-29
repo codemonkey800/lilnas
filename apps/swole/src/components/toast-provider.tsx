@@ -7,10 +7,12 @@ import {
   type ReactNode,
   useCallback,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 
 interface Toast {
+  id: number
   message: string
   severity: AlertColor
 }
@@ -23,10 +25,11 @@ export const ToastContext = createContext<ToastContextValue | null>(null)
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<Toast | null>(null)
+  const nextId = useRef(0)
 
   const showToast = useCallback(
     (message: string, severity: AlertColor = 'info') => {
-      setToast({ message, severity })
+      setToast({ id: nextId.current++, message, severity })
     },
     [],
   )
@@ -45,6 +48,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={value}>
       {children}
       <Snackbar
+        key={toast?.id}
         open={toast !== null}
         autoHideDuration={5000}
         onClose={handleClose}

@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { z } from 'zod'
 
 import { db } from 'src/db/client'
 import {
@@ -13,13 +14,49 @@ import { exercises, progressions, sessions } from 'src/db/schema'
 import type { ExerciseRow } from 'src/db/types'
 import { logger } from 'src/lib/logger'
 
+const positiveInt = z.number().int().min(1)
+
+const createExerciseSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('weighted'),
+    sets: positiveInt,
+    targetReps: positiveInt,
+    startingWeight: positiveInt,
+    increment: positiveInt,
+  }),
+  z.object({
+    type: z.literal('bodyweight'),
+    sets: positiveInt,
+    targetReps: positiveInt,
+  }),
+  z.object({
+    type: z.literal('time-based'),
+    sets: positiveInt,
+    durationSeconds: positiveInt,
+  }),
+  z.object({
+    type: z.literal('cardio'),
+    sets: z.literal(1),
+    durationSeconds: positiveInt,
+  }),
+])
+
+const updateExerciseNumericSchema = z.object({
+  sets: positiveInt.optional(),
+  targetReps: positiveInt.optional(),
+  startingWeight: positiveInt.optional(),
+  increment: positiveInt.optional(),
+  durationSeconds: positiveInt.optional(),
+})
+
 // Internal helper invoked both from the outer `db` and inside a transaction
 // callback. Parameterized as `unknown`-typed `executor` so it works with
-// either handle — at runtime both expose the same `.select()` chain. Keeps
-// the duplicated count-via-tx pattern in archiveRoutine / archiveExercise /
-// reorderExercises in one place (#12).
+// either handle — at runtime both expose the same chains. Keeps the duplicated
+// count-via-tx pattern in archiveRoutine / archiveExercise / reorderExercises
+// in one place (#12).
 type Executor = {
   select: typeof db.select
+  insert: typeof db.insert
 }
 
 export function activeSessionCountForRoutine(
@@ -143,35 +180,46 @@ function exerciseValues(args: CreateExerciseArgs) {
   }
 }
 
+// Inserts one exercise + its initial progression (for weighted) using the
+// provided executor. Callable with both the outer `db` and a tx handle.
+// All callers that build a new exercise inside a transaction must use this
+// helper so the weighted→initial-progression rule (R16) stays in one place.
+export function insertExerciseWithInitialProgression(
+  executor: Executor,
+  args: CreateExerciseArgs,
+): ExerciseRow {
+  const inserted = executor
+    .insert(exercises)
+    .values(exerciseValues(args))
+    .returning()
+    .get()
+  if (args.type === 'weighted') {
+    executor
+      .insert(progressions)
+      .values({
+        exerciseId: inserted.id,
+        startingWeight: args.startingWeight,
+        reason: 'initial',
+      })
+      .run()
+  }
+  return inserted
+}
+
 export async function createExercise(
   args: CreateExerciseArgs,
 ): Promise<ExerciseRow> {
   if (args.name.trim() === '') {
     throw new ValidationError('exercise name must be non-empty')
   }
+  const parsed = createExerciseSchema.safeParse(args)
+  if (!parsed.success) throw new ValidationError('invalid exercise args')
   // All DB calls inside the callback MUST use `tx`, never the outer `db`.
   // A stray `db.*` inside this callback would commit unconditionally even
   // if the tx rolls back — silent footgun.
   try {
     return db.transaction(
-      tx => {
-        const inserted = tx
-          .insert(exercises)
-          .values(exerciseValues(args))
-          .returning()
-          .get()
-        if (args.type === 'weighted') {
-          // Initial progression row for charting / audit trail (R20).
-          tx.insert(progressions)
-            .values({
-              exerciseId: inserted.id,
-              startingWeight: args.startingWeight,
-              reason: 'initial',
-            })
-            .run()
-        }
-        return inserted
-      },
+      tx => insertExerciseWithInitialProgression(tx, args),
       { behavior: 'immediate' },
     )
   } catch (err) {
@@ -197,6 +245,8 @@ export async function updateExercise(
   if (args.name !== undefined && args.name.trim() === '') {
     throw new ValidationError('exercise name must be non-empty')
   }
+  const parsed = updateExerciseNumericSchema.safeParse(args)
+  if (!parsed.success) throw new ValidationError('invalid exercise update args')
   try {
     return db.transaction(
       tx => {

@@ -6,12 +6,7 @@
 // will not break this code, but will silently return the wrong day on UTC.
 
 import type { Exercise, NextTarget } from 'src/core/session-machine'
-import {
-  ArchiveBlockedByActiveSession,
-  DataLayerError,
-  RoutineAlreadyHasActiveSession,
-  RoutineArchived,
-} from 'src/db/errors'
+import type { DataLayerErrorKind } from 'src/db/errors'
 import { type DayCode } from 'src/db/schema'
 
 const DAY_INDEX_TO_CODE: readonly DayCode[] = [
@@ -24,7 +19,7 @@ const DAY_INDEX_TO_CODE: readonly DayCode[] = [
   'sat',
 ]
 
-const DAY_LABELS: Record<DayCode, string> = {
+export const DAY_LABELS: Record<DayCode, string> = {
   mon: 'Mon',
   tue: 'Tue',
   wed: 'Wed',
@@ -117,28 +112,28 @@ export type ErrorToast = {
   severity: 'warning' | 'error'
 }
 
-export function mapStartSessionError(err: unknown): ErrorToast {
-  if (err instanceof DataLayerError) {
-    if (err instanceof RoutineAlreadyHasActiveSession) {
-      return {
-        message:
-          'A session is already in progress for this routine — tap Resume above to continue.',
-        severity: 'warning',
-      }
+type ActionError = { ok: false; kind: DataLayerErrorKind; code: string }
+
+export function mapStartSessionError(result: ActionError): ErrorToast {
+  if (result.code === 'RoutineAlreadyHasActiveSession') {
+    return {
+      message:
+        'A session is already in progress for this routine — tap Resume above to continue.',
+      severity: 'warning',
     }
-    if (err instanceof RoutineArchived) {
-      return {
-        message:
-          'This routine has been archived — restore it to start a session.',
-        severity: 'error',
-      }
+  }
+  if (result.code === 'RoutineArchived') {
+    return {
+      message:
+        'This routine has been archived — restore it to start a session.',
+      severity: 'error',
     }
   }
   return { message: 'Could not start session. Try again.', severity: 'error' }
 }
 
-export function mapArchiveRoutineError(err: unknown): ErrorToast {
-  if (err instanceof ArchiveBlockedByActiveSession) {
+export function mapArchiveRoutineError(result: ActionError): ErrorToast {
+  if (result.code === 'ArchiveBlockedByActiveSession') {
     return {
       message:
         "Can't archive this routine — a session is in progress. Resume and finish it first.",
@@ -146,4 +141,14 @@ export function mapArchiveRoutineError(err: unknown): ErrorToast {
     }
   }
   return { message: 'Could not archive routine. Try again.', severity: 'error' }
+}
+
+export function mapCreateRoutineError(result: ActionError): ErrorToast {
+  if (result.code === 'ValidationError') {
+    return {
+      message: 'Check the highlighted fields and try again.',
+      severity: 'error',
+    }
+  }
+  return { message: 'Could not create routine. Try again.', severity: 'error' }
 }

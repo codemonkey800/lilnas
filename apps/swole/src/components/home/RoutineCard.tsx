@@ -53,7 +53,9 @@ export function RoutineCard({
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
   const [menuExiting, setMenuExiting] = useState(false)
-  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>()
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  )
 
   useEffect(() => () => clearTimeout(exitTimerRef.current), [])
 
@@ -69,13 +71,13 @@ export function RoutineCard({
 
   const handleStartSession = useCallback(() => {
     startSessionTransition(async () => {
-      try {
-        const session = await startSession({ routineId: routine.id })
-        router.push(`/session/${session.id}`)
-      } catch (err) {
-        const { message, severity } = mapStartSessionError(err)
+      const result = await startSession({ routineId: routine.id })
+      if (!result.ok) {
+        const { message, severity } = mapStartSessionError(result)
         showToast(message, severity)
+        return
       }
+      router.push(`/session/${result.row.id}`)
     })
   }, [routine.id, router, showToast])
 
@@ -90,13 +92,13 @@ export function RoutineCard({
 
   const handleConfirmArchive = useCallback(() => {
     startArchiveTransition(async () => {
-      try {
-        await archiveRoutine({ id: routine.id })
-        setArchiveDialogOpen(false)
-      } catch (err) {
-        const { message, severity } = mapArchiveRoutineError(err)
+      const result = await archiveRoutine({ id: routine.id })
+      if (!result.ok) {
+        const { message, severity } = mapArchiveRoutineError(result)
         showToast(message, severity)
+        return
       }
+      setArchiveDialogOpen(false)
     })
   }, [routine.id, showToast])
 

@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
+import { z } from 'zod'
 
 import { db } from 'src/db/client'
 import {
@@ -10,6 +11,7 @@ import {
   SessionAlreadyCompleted,
   UndoBlockedByCommittedProgression,
   UndoBlockedBySessionCompleted,
+  ValidationError,
 } from 'src/db/errors'
 import {
   progressions,
@@ -19,6 +21,20 @@ import {
 } from 'src/db/schema'
 import type { SetLogRow } from 'src/db/types'
 import { logger } from 'src/lib/logger'
+
+const positiveInt = z.number().int().min(1)
+
+const appendSetLogSchema = z.object({
+  sessionId: positiveInt,
+  exerciseId: positiveInt,
+  setNumber: positiveInt,
+  weight: positiveInt.optional(),
+  targetReps: positiveInt.optional(),
+  actualReps: z.number().int().min(0).optional(),
+  durationSeconds: positiveInt.optional(),
+  actualDurationSeconds: z.number().int().min(0).optional(),
+  action: z.enum(setLogActionEnum),
+})
 
 // Action labels persistable to the DB. Single source of truth: the schema's
 // enum tuple drives both the column constraint and this type. Excludes
@@ -56,6 +72,8 @@ export type AppendSetLogArgs = {
 }
 
 export async function appendSetLog(args: AppendSetLogArgs): Promise<SetLogRow> {
+  const parsed = appendSetLogSchema.safeParse(args)
+  if (!parsed.success) throw new ValidationError('invalid set log args')
   try {
     return db.transaction(
       tx => {

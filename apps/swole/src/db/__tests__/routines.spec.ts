@@ -8,17 +8,22 @@ jest.mock('src/db/client', () => ({
   },
 }))
 
+import { asc, eq } from 'drizzle-orm'
+
+import * as exercisesModule from 'src/db/exercises'
 import {
   archiveRoutine,
   createRoutine,
+  createRoutineWithExercises,
   getRoutine,
   getRoutineWithExercises,
   listRoutines,
   listRoutinesForHome,
   updateRoutine,
 } from 'src/db/routines'
-import { exercises, routines, sessions } from 'src/db/schema'
+import { exercises, progressions, routines, sessions } from 'src/db/schema'
 import { createTestDb, type TestDb } from 'src/db/test-db'
+import type { ExerciseDraft } from 'src/lib/routine-form'
 
 let testDb: TestDb
 
@@ -330,5 +335,248 @@ describe('listRoutinesForHome', () => {
     const [entry] = await listRoutinesForHome()
     expect(entry?.firstExercise?.name).toBe('Survivor')
     expect(entry?.firstExercise?.orderInRoutine).toBe(5)
+  })
+})
+
+describe('createRoutineWithExercises', () => {
+  const threeExercises: ExerciseDraft[] = [
+    {
+      type: 'weighted',
+      name: 'Bench',
+      sets: 3,
+      targetReps: 10,
+      startingWeight: 105,
+      increment: 5,
+    },
+    {
+      type: 'weighted',
+      name: 'OHP',
+      sets: 4,
+      targetReps: 8,
+      startingWeight: 65,
+      increment: 5,
+    },
+    { type: 'cardio', name: 'Treadmill', sets: 1, durationSeconds: 1800 },
+  ]
+
+  it('inserts one routine, N exercises with orderInRoutine 0..N-1, and initial progressions for weighted (AE4)', async () => {
+    const routine = await createRoutineWithExercises({
+      name: 'Push Day',
+      days: ['mon', 'wed', 'fri'],
+      exercises: threeExercises,
+    })
+
+    expect(routine.name).toBe('Push Day')
+    expect(routine.days).toEqual(['mon', 'wed', 'fri'])
+
+    const exerciseRows = testDb.db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.routineId, routine.id))
+      .orderBy(asc(exercises.orderInRoutine))
+      .all()
+
+    expect(exerciseRows).toHaveLength(3)
+    expect(exerciseRows.map(e => e.orderInRoutine)).toEqual([0, 1, 2])
+    expect(exerciseRows.map(e => e.name)).toEqual(['Bench', 'OHP', 'Treadmill'])
+    expect(exerciseRows[2]?.sets).toBe(1)
+
+    const progRows = testDb.db.select().from(progressions).all()
+    expect(progRows).toHaveLength(2)
+    expect(progRows.every(p => p.reason === 'initial')).toBe(true)
+  })
+
+  it('persists exercises with contiguous orderInRoutine from submit-time positions (M6 / R17)', async () => {
+    const routine = await createRoutineWithExercises({
+      name: 'Arms',
+      days: ['tue'],
+      exercises: [
+        {
+          type: 'bodyweight' as const,
+          name: 'Pushups',
+          sets: 3,
+          targetReps: 20,
+        },
+        {
+          type: 'bodyweight' as const,
+          name: 'Pullups',
+          sets: 3,
+          targetReps: 10,
+        },
+      ],
+    })
+
+    const exerciseRows = testDb.db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.routineId, routine.id))
+      .orderBy(asc(exercises.orderInRoutine))
+      .all()
+
+    expect(exerciseRows.map(e => e.orderInRoutine)).toEqual([0, 1])
+  })
+
+  it('rolls back all inserts when a mid-transaction throw occurs (AE6 / R15)', async () => {
+    const original = exercisesModule.insertExerciseWithInitialProgression
+    let callCount = 0
+    const spy = jest
+      .spyOn(exercisesModule, 'insertExerciseWithInitialProgression')
+      .mockImplementation((tx, args) => {
+        callCount++
+        if (callCount === 3) throw new Error('injected failure on 3rd exercise')
+        return original(tx, args)
+      })
+
+    try {
+      await expect(
+        createRoutineWithExercises({
+          name: 'Legs',
+          days: ['thu'],
+          exercises: [
+            {
+              type: 'bodyweight' as const,
+              name: 'Squat',
+              sets: 3,
+              targetReps: 10,
+            },
+            {
+              type: 'bodyweight' as const,
+              name: 'Lunge',
+              sets: 3,
+              targetReps: 12,
+            },
+            {
+              type: 'cardio' as const,
+              name: 'Bike',
+              sets: 1,
+              durationSeconds: 1200,
+            },
+          ],
+        }),
+      ).rejects.toThrow(/injected failure/)
+
+      // Nothing persisted — all-or-nothing (R15)
+      expect(testDb.db.select().from(routines).all()).toHaveLength(0)
+      expect(testDb.db.select().from(exercises).all()).toHaveLength(0)
+      expect(testDb.db.select().from(progressions).all()).toHaveLength(0)
+    } finally {
+      spy.mockRestore()
+      callCount = 0
+    }
+  })
+
+  it('rejects whitespace-only name with ValidationError (R5 / M8)', async () => {
+    await expect(
+      createRoutineWithExercises({
+        name: '   ',
+        days: [],
+        exercises: [
+          {
+            type: 'bodyweight' as const,
+            name: 'Pushups',
+            sets: 3,
+            targetReps: 15,
+          },
+        ],
+      }),
+    ).rejects.toThrow(/ValidationError|non-empty|Invalid/)
+    expect(testDb.db.select().from(routines).all()).toHaveLength(0)
+  })
+
+  it('rejects empty exercises array with ValidationError', async () => {
+    await expect(
+      createRoutineWithExercises({ name: 'Push', days: [], exercises: [] }),
+    ).rejects.toThrow(/ValidationError|Invalid/)
+    expect(testDb.db.select().from(routines).all()).toHaveLength(0)
+  })
+
+  it('persists routine with zero days (AE7 / R6)', async () => {
+    const routine = await createRoutineWithExercises({
+      name: 'Flex Day',
+      days: [],
+      exercises: [
+        {
+          type: 'bodyweight' as const,
+          name: 'Stretching',
+          sets: 1,
+          targetReps: 1,
+        },
+      ],
+    })
+    expect(routine.days).toEqual([])
+  })
+
+  it('trims the stored name (M8)', async () => {
+    const routine = await createRoutineWithExercises({
+      name: '  Push Day  ',
+      days: [],
+      exercises: [
+        {
+          type: 'bodyweight' as const,
+          name: 'Pushups',
+          sets: 3,
+          targetReps: 15,
+        },
+      ],
+    })
+    expect(routine.name).toBe('Push Day')
+  })
+
+  it('each type persists correct type-specific columns (R11 / R14)', async () => {
+    await createRoutineWithExercises({
+      name: 'All Types',
+      days: [],
+      exercises: [
+        {
+          type: 'weighted' as const,
+          name: 'Bench',
+          sets: 3,
+          targetReps: 10,
+          startingWeight: 100,
+          increment: 5,
+        },
+        {
+          type: 'bodyweight' as const,
+          name: 'Pushups',
+          sets: 3,
+          targetReps: 15,
+        },
+        {
+          type: 'time-based' as const,
+          name: 'Plank',
+          sets: 3,
+          durationSeconds: 60,
+        },
+        {
+          type: 'cardio' as const,
+          name: 'Run',
+          sets: 1,
+          durationSeconds: 1800,
+        },
+      ],
+    })
+
+    const allExercises = testDb.db
+      .select()
+      .from(exercises)
+      .orderBy(asc(exercises.orderInRoutine))
+      .all()
+
+    expect(allExercises[0]?.type).toBe('weighted')
+    expect(allExercises[0]?.startingWeight).toBe(100)
+    expect(allExercises[0]?.targetReps).toBe(10)
+    expect(allExercises[0]?.durationSeconds).toBeNull()
+
+    expect(allExercises[1]?.type).toBe('bodyweight')
+    expect(allExercises[1]?.startingWeight).toBeNull()
+    expect(allExercises[1]?.targetReps).toBe(15)
+
+    expect(allExercises[2]?.type).toBe('time-based')
+    expect(allExercises[2]?.durationSeconds).toBe(60)
+    expect(allExercises[2]?.targetReps).toBeNull()
+
+    expect(allExercises[3]?.type).toBe('cardio')
+    expect(allExercises[3]?.sets).toBe(1)
+    expect(allExercises[3]?.durationSeconds).toBe(1800)
   })
 })

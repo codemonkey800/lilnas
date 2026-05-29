@@ -1,10 +1,5 @@
 import type { Exercise, NextTarget } from 'src/core/session-machine'
 import {
-  ArchiveBlockedByActiveSession,
-  RoutineAlreadyHasActiveSession,
-  RoutineArchived,
-} from 'src/db/errors'
-import {
   formatBannerSubtitle,
   formatCardioDuration,
   formatDayCodes,
@@ -13,6 +8,7 @@ import {
   formatTimeBasedDuration,
   getCurrentDayCode,
   mapArchiveRoutineError,
+  mapCreateRoutineError,
   mapStartSessionError,
 } from 'src/lib/format'
 
@@ -207,49 +203,77 @@ describe('formatRecentSessionDate', () => {
 })
 
 describe('mapStartSessionError', () => {
-  it('maps RoutineAlreadyHasActiveSession to a warning toast', () => {
-    const result = mapStartSessionError(new RoutineAlreadyHasActiveSession(7))
+  it('maps RoutineAlreadyHasActiveSession code to a warning toast', () => {
+    const result = mapStartSessionError({
+      ok: false,
+      kind: 'conflict',
+      code: 'RoutineAlreadyHasActiveSession',
+    })
     expect(result.severity).toBe('warning')
     expect(result.message).toMatch(/already in progress/)
   })
 
-  it('maps RoutineArchived to an error toast mentioning archived', () => {
-    const result = mapStartSessionError(new RoutineArchived(7))
+  it('maps RoutineArchived code to an error toast mentioning archived', () => {
+    const result = mapStartSessionError({
+      ok: false,
+      kind: 'forbidden_transition',
+      code: 'RoutineArchived',
+    })
     expect(result.severity).toBe('error')
     expect(result.message).toMatch(/archived/)
   })
 
-  it('falls back to the generic message for unknown Error instances', () => {
-    const result = mapStartSessionError(new Error('boom'))
-    expect(result.severity).toBe('error')
-    expect(result.message).toMatch(/Could not start session/)
-  })
-
-  it('falls back gracefully for null', () => {
-    const result = mapStartSessionError(null)
-    expect(result.severity).toBe('error')
-    expect(result.message).toMatch(/Could not start session/)
-  })
-
-  it('falls back gracefully for undefined', () => {
-    const result = mapStartSessionError(undefined)
+  it('falls back to the generic message for an unknown code', () => {
+    const result = mapStartSessionError({
+      ok: false,
+      kind: 'conflict',
+      code: 'UnknownError',
+    })
     expect(result.severity).toBe('error')
     expect(result.message).toMatch(/Could not start session/)
   })
 })
 
 describe('mapArchiveRoutineError', () => {
-  it('maps ArchiveBlockedByActiveSession to a warning toast', () => {
-    const result = mapArchiveRoutineError(
-      new ArchiveBlockedByActiveSession('Routine', 7),
-    )
+  it('maps ArchiveBlockedByActiveSession code to a warning toast', () => {
+    const result = mapArchiveRoutineError({
+      ok: false,
+      kind: 'forbidden_transition',
+      code: 'ArchiveBlockedByActiveSession',
+    })
     expect(result.severity).toBe('warning')
     expect(result.message).toMatch(/session is in progress/)
   })
 
-  it('falls back to the generic message for unknown Error instances', () => {
-    const result = mapArchiveRoutineError(new Error('boom'))
+  it('falls back to the generic message for an unknown code', () => {
+    const result = mapArchiveRoutineError({
+      ok: false,
+      kind: 'conflict',
+      code: 'UnknownError',
+    })
     expect(result.severity).toBe('error')
     expect(result.message).toMatch(/Could not archive routine/)
+  })
+})
+
+describe('mapCreateRoutineError', () => {
+  it('maps ValidationError code to a "check highlighted fields" message', () => {
+    const result = mapCreateRoutineError({
+      ok: false,
+      kind: 'validation',
+      code: 'ValidationError',
+    })
+    expect(result.severity).toBe('error')
+    expect(result.message).toMatch(/check the highlighted fields/i)
+  })
+
+  it('falls back to the generic message for an unknown code', () => {
+    const result = mapCreateRoutineError({
+      ok: false,
+      kind: 'conflict',
+      code: 'UnknownError',
+    })
+    expect(result.severity).toBe('error')
+    expect(result.message).toMatch(/Could not create routine/)
   })
 })

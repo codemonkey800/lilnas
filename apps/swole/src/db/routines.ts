@@ -8,9 +8,15 @@ import {
   NotFoundError,
   ValidationError,
 } from 'src/db/errors'
+import { insertExerciseWithInitialProgression } from 'src/db/exercises'
 import { type DayCode, exercises, routines, sessions } from 'src/db/schema'
 import type { ExerciseRow, RoutineRow } from 'src/db/types'
 import { logger } from 'src/lib/logger'
+import {
+  routineFormSchema,
+  type RoutineFormValues,
+  toCreateExerciseArgs,
+} from 'src/lib/routine-form'
 
 // ─── Reads ──────────────────────────────────────────────────────────────────
 
@@ -152,6 +158,47 @@ export async function createRoutine(
     .values({ name: args.name, days: args.days })
     .returning()
     .get()
+}
+
+// Creates a routine + its exercises + initial progressions in one atomic
+// BEGIN IMMEDIATE transaction. Server-side safeParse re-enforces validation
+// (the CHECK doesn't bound numeric positivity — zod is the sole guard, R14).
+export async function createRoutineWithExercises(
+  args: RoutineFormValues,
+): Promise<RoutineRow> {
+  const parseResult = routineFormSchema.safeParse(args)
+  if (!parseResult.success) {
+    throw new ValidationError(
+      'Invalid routine data: check the highlighted fields',
+    )
+  }
+
+  const { name, days, exercises: drafts } = parseResult.data
+
+  try {
+    return db.transaction(
+      tx => {
+        const routine = tx
+          .insert(routines)
+          .values({ name, days })
+          .returning()
+          .get()
+
+        for (let i = 0; i < drafts.length; i++) {
+          insertExerciseWithInitialProgression(
+            tx,
+            toCreateExerciseArgs(drafts[i]!, routine.id, i),
+          )
+        }
+
+        return routine
+      },
+      { behavior: 'immediate' },
+    )
+  } catch (err) {
+    logMutationError('createRoutineWithExercises', args, err)
+    throw err
+  }
 }
 
 export type UpdateRoutineArgs = {

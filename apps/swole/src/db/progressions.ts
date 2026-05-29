@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { asc, eq } from 'drizzle-orm'
+import { z } from 'zod'
 
 import { db } from 'src/db/client'
 import {
@@ -11,6 +12,12 @@ import {
 import { exercises, progressions, sessions } from 'src/db/schema'
 import type { ProgressionRow } from 'src/db/types'
 import { logger } from 'src/lib/logger'
+
+const commitProgressionSchema = z.object({
+  sessionId: z.number().int().min(1),
+  exerciseId: z.number().int().min(1),
+  chosenStartingWeight: z.number().int().min(1),
+})
 
 // ─── Reads ──────────────────────────────────────────────────────────────────
 
@@ -60,6 +67,8 @@ export type CommitProgressionDecisionArgs = {
 export async function commitProgressionDecision(
   args: CommitProgressionDecisionArgs,
 ): Promise<ProgressionRow> {
+  const parsed = commitProgressionSchema.safeParse(args)
+  if (!parsed.success) throw new ValidationError('invalid progression args')
   try {
     return db.transaction(
       tx => {

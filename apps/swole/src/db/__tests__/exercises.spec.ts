@@ -13,6 +13,7 @@ import { eq } from 'drizzle-orm'
 import {
   archiveExercise,
   createExercise,
+  insertExerciseWithInitialProgression,
   listExercisesForRoutine,
   reorderExercises,
   updateExercise,
@@ -420,5 +421,88 @@ describe('atomicity', () => {
     expect(list).toEqual([])
     const allProgressions = testDb.db.select().from(progressions).all()
     expect(allProgressions).toEqual([])
+  })
+})
+
+describe('insertExerciseWithInitialProgression', () => {
+  it('inserts a weighted exercise and exactly one initial progression with matching startingWeight', () => {
+    testDb.db.transaction(
+      tx => {
+        const ex = insertExerciseWithInitialProgression(tx, {
+          routineId,
+          type: 'weighted',
+          name: 'Squat',
+          orderInRoutine: 0,
+          sets: 4,
+          targetReps: 5,
+          startingWeight: 135,
+          increment: 10,
+        })
+        const progs = tx
+          .select()
+          .from(progressions)
+          .where(eq(progressions.exerciseId, ex.id))
+          .all()
+        expect(progs).toHaveLength(1)
+        expect(progs[0]?.reason).toBe('initial')
+        expect(progs[0]?.startingWeight).toBe(135)
+        expect(progs[0]?.sessionId).toBeNull()
+      },
+      { behavior: 'immediate' },
+    )
+  })
+
+  it('inserts a non-weighted exercise and no progression rows', () => {
+    testDb.db.transaction(
+      tx => {
+        const ex = insertExerciseWithInitialProgression(tx, {
+          routineId,
+          type: 'bodyweight',
+          name: 'Pushups',
+          orderInRoutine: 0,
+          sets: 3,
+          targetReps: 15,
+        })
+        const progs = tx
+          .select()
+          .from(progressions)
+          .where(eq(progressions.exerciseId, ex.id))
+          .all()
+        expect(progs).toEqual([])
+      },
+      { behavior: 'immediate' },
+    )
+  })
+
+  it('rolls back exercise and progressions when the CHECK constraint fires (AE6 seam)', () => {
+    // Drive a real CHECK violation inside the helper by forcing a
+    // weighted row missing startingWeight — verifies the constraint fires
+    // and rolls back both inserts. Uses `as never` per the existing
+    // exercises.spec.ts CHECK-violation precedent.
+    expect(() =>
+      testDb.db.transaction(
+        tx => {
+          insertExerciseWithInitialProgression(tx, {
+            routineId,
+            type: 'weighted',
+            name: 'Bad',
+            orderInRoutine: 0,
+            sets: 3,
+            targetReps: 10,
+            startingWeight: null as never,
+            increment: 5,
+          })
+        },
+        { behavior: 'immediate' },
+      ),
+    ).toThrow(/CHECK/)
+
+    const allExercises = testDb.db
+      .select()
+      .from(exercisesTable)
+      .where(eq(exercisesTable.routineId, routineId))
+      .all()
+    expect(allExercises).toEqual([])
+    expect(testDb.db.select().from(progressions).all()).toEqual([])
   })
 })
