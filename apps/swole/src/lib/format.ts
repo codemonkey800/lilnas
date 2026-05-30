@@ -6,8 +6,9 @@
 // will not break this code, but will silently return the wrong day on UTC.
 
 import type { Exercise, NextTarget } from 'src/core/session-machine'
-import type { DataLayerErrorKind } from 'src/db/errors'
+import { type DataLayerErrorKind } from 'src/db/errors'
 import { type DayCode } from 'src/db/schema'
+import type { PreviousSetPeek } from 'src/lib/runner'
 
 const DAY_INDEX_TO_CODE: readonly DayCode[] = [
   'sun',
@@ -151,4 +152,125 @@ export function mapCreateRoutineError(result: ActionError): ErrorToast {
     }
   }
   return { message: 'Could not create routine. Try again.', severity: 'error' }
+}
+
+// ─── Runner formatters ────────────────────────────────────────────────────────
+
+// Big card target string for the current set.
+export function formatRunnerTarget(
+  exercise: Exercise,
+  target: NextTarget,
+): string {
+  switch (exercise.type) {
+    case 'weighted':
+      return `${target.weight} lb × ${target.reps}`
+    case 'bodyweight':
+      return `${target.reps} reps`
+    case 'time-based':
+      return formatTimeBasedDuration(target.duration as number)
+    case 'cardio':
+      return formatCardioDuration(target.duration as number)
+  }
+}
+
+// Formats the numeric next-weight computed by deriveButtonConfig into "→105".
+export function formatWeightPreview(nextWeight: number): string {
+  return `→${nextWeight}`
+}
+
+// Formats the previous-set peek struct into a display string.
+export function formatPreviousSetPeek(
+  peek: PreviousSetPeek,
+  exercise: Exercise,
+): string {
+  switch (peek.kind) {
+    case 'none':
+      return ''
+    case 'start':
+      return `starting weight ${peek.startingWeight} lb`
+    case 'log': {
+      const actionLabel = peek.action.type
+      switch (exercise.type) {
+        case 'weighted':
+          return `${peek.weight} lb × ${peek.actualReps ?? peek.reps} · ${actionLabel}`
+        case 'bodyweight':
+          return `${peek.actualReps ?? peek.reps} reps · ${actionLabel}`
+        case 'time-based': {
+          const dur = peek.actualDuration ?? peek.duration
+          return `${formatTimeBasedDuration(dur as number)} · ${actionLabel}`
+        }
+        case 'cardio':
+          return `${formatCardioDuration(peek.duration as number)} · ${actionLabel}`
+      }
+    }
+  }
+}
+
+// ─── Reconciliation mappers ───────────────────────────────────────────────────
+
+export type Reconciliation = {
+  kind: 'rollback' | 'rehydrate' | 'halt'
+  toast: ErrorToast
+}
+
+// Maps an appendSetLog result envelope to a reconciliation directive (R21).
+export function mapSetLogError(result: ActionError): Reconciliation {
+  if (result.code === 'DuplicateSetLog') {
+    return {
+      kind: 'rehydrate',
+      toast: {
+        message: 'Synced with your other tab.',
+        severity: 'warning',
+      },
+    }
+  }
+  if (result.code === 'SessionAlreadyCompleted') {
+    return {
+      kind: 'halt',
+      toast: {
+        message: 'This session was completed elsewhere.',
+        severity: 'warning',
+      },
+    }
+  }
+  return {
+    kind: 'rollback',
+    toast: {
+      message: "Couldn't save that set. Try again.",
+      severity: 'error',
+    },
+  }
+}
+
+// Maps an undoLastSetLog result envelope to a reconciliation directive.
+export function mapUndoError(result: ActionError): Reconciliation {
+  if (
+    result.code === 'UndoBlockedBySessionCompleted' ||
+    result.code === 'SessionAlreadyCompleted'
+  ) {
+    return {
+      kind: 'halt',
+      toast: {
+        message: 'This session was completed elsewhere.',
+        severity: 'warning',
+      },
+    }
+  }
+  if (result.code === 'UndoBlockedByCommittedProgression') {
+    // Defensive — unreachable before F3, but classifiable rather than swallowed.
+    return {
+      kind: 'rollback',
+      toast: {
+        message: "Couldn't undo — a progression decision has been committed.",
+        severity: 'error',
+      },
+    }
+  }
+  return {
+    kind: 'rollback',
+    toast: {
+      message: "Couldn't undo that set. Try again.",
+      severity: 'error',
+    },
+  }
 }

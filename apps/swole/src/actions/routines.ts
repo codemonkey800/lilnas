@@ -7,9 +7,8 @@
 
 import { revalidatePath } from 'next/cache'
 
-import {
-  DataLayerError,
-} from 'src/db/errors'
+import type { ActionResult } from 'src/actions/sessions'
+import { DataLayerError } from 'src/db/errors'
 import {
   archiveRoutine as dbArchiveRoutine,
   type ArchiveRoutineArgs,
@@ -21,7 +20,6 @@ import {
 } from 'src/db/routines'
 import type { RoutineRow } from 'src/db/types'
 import type { RoutineFormValues } from 'src/lib/routine-form'
-import type { ActionResult } from 'src/actions/sessions'
 
 export async function createRoutine(
   args: CreateRoutineArgs,

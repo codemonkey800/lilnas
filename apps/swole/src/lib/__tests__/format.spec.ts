@@ -4,13 +4,19 @@ import {
   formatCardioDuration,
   formatDayCodes,
   formatNextUpLine,
+  formatPreviousSetPeek,
   formatRecentSessionDate,
+  formatRunnerTarget,
   formatTimeBasedDuration,
+  formatWeightPreview,
   getCurrentDayCode,
   mapArchiveRoutineError,
   mapCreateRoutineError,
+  mapSetLogError,
   mapStartSessionError,
+  mapUndoError,
 } from 'src/lib/format'
+import type { PreviousSetPeek } from 'src/lib/runner'
 
 // All test dates are pinned to specific instants so the suite passes
 // regardless of the runtime TZ (CI runs UTC; the dev container runs PT).
@@ -275,5 +281,249 @@ describe('mapCreateRoutineError', () => {
     })
     expect(result.severity).toBe('error')
     expect(result.message).toMatch(/Could not create routine/)
+  })
+})
+
+// ─── formatRunnerTarget ───────────────────────────────────────────────────────
+
+describe('formatRunnerTarget', () => {
+  it('weighted: weight lb × reps', () => {
+    const ex: Exercise = {
+      name: 'Bench',
+      type: 'weighted',
+      sets: 3,
+      targetReps: 10,
+      startingWeight: 100,
+      increment: 5,
+    }
+    const target: NextTarget = {
+      weight: 105,
+      reps: 10,
+      exerciseIdx: 0,
+      setIdx: 1,
+    }
+    expect(formatRunnerTarget(ex, target)).toBe('105 lb × 10')
+  })
+
+  it('bodyweight: reps reps', () => {
+    const ex: Exercise = {
+      name: 'Pushups',
+      type: 'bodyweight',
+      sets: 3,
+      targetReps: 15,
+    }
+    const target: NextTarget = { reps: 15, exerciseIdx: 0, setIdx: 0 }
+    expect(formatRunnerTarget(ex, target)).toBe('15 reps')
+  })
+
+  it('time-based: duration in seconds', () => {
+    const ex: Exercise = {
+      name: 'Plank',
+      type: 'time-based',
+      sets: 2,
+      durationSeconds: 30,
+    }
+    const target: NextTarget = { duration: 30, exerciseIdx: 0, setIdx: 0 }
+    expect(formatRunnerTarget(ex, target)).toBe('30s')
+  })
+
+  it('cardio: duration in minutes', () => {
+    const ex: Exercise = {
+      name: 'Run',
+      type: 'cardio',
+      sets: 1,
+      durationSeconds: 1800,
+    }
+    const target: NextTarget = { duration: 1800, exerciseIdx: 0, setIdx: 0 }
+    expect(formatRunnerTarget(ex, target)).toBe('30 min')
+  })
+})
+
+// ─── formatWeightPreview ──────────────────────────────────────────────────────
+
+describe('formatWeightPreview', () => {
+  it('formats as →N', () => {
+    expect(formatWeightPreview(105)).toBe('→105')
+    expect(formatWeightPreview(95)).toBe('→95')
+    expect(formatWeightPreview(0)).toBe('→0')
+  })
+})
+
+// ─── formatPreviousSetPeek ────────────────────────────────────────────────────
+
+describe('formatPreviousSetPeek', () => {
+  const weightedEx: Exercise = {
+    name: 'Bench',
+    type: 'weighted',
+    sets: 3,
+    targetReps: 10,
+    startingWeight: 100,
+    increment: 5,
+  }
+  const bwEx: Exercise = {
+    name: 'Pushups',
+    type: 'bodyweight',
+    sets: 3,
+    targetReps: 15,
+  }
+  const tbEx: Exercise = {
+    name: 'Plank',
+    type: 'time-based',
+    sets: 2,
+    durationSeconds: 30,
+  }
+  const cardioEx: Exercise = {
+    name: 'Run',
+    type: 'cardio',
+    sets: 1,
+    durationSeconds: 1800,
+  }
+
+  it('none → empty string', () => {
+    const peek: PreviousSetPeek = { kind: 'none' }
+    expect(formatPreviousSetPeek(peek, weightedEx)).toBe('')
+    expect(formatPreviousSetPeek(peek, bwEx)).toBe('')
+  })
+
+  it('start → starting weight N lb', () => {
+    const peek: PreviousSetPeek = { kind: 'start', startingWeight: 100 }
+    expect(formatPreviousSetPeek(peek, weightedEx)).toBe(
+      'starting weight 100 lb',
+    )
+  })
+
+  it('log (weighted): weight lb × actualReps · actionType', () => {
+    const peek: PreviousSetPeek = {
+      kind: 'log',
+      weight: 105,
+      reps: 10,
+      actualReps: 10,
+      action: { type: 'Increment' },
+    }
+    expect(formatPreviousSetPeek(peek, weightedEx)).toBe(
+      '105 lb × 10 · Increment',
+    )
+  })
+
+  it('log (weighted Failed): shows actualReps not target reps', () => {
+    const peek: PreviousSetPeek = {
+      kind: 'log',
+      weight: 100,
+      reps: 10,
+      actualReps: 7,
+      action: { type: 'Failed', actualReps: 7 },
+    }
+    expect(formatPreviousSetPeek(peek, weightedEx)).toBe('100 lb × 7 · Failed')
+  })
+
+  it('log (bodyweight Failed): shows actualReps', () => {
+    const peek: PreviousSetPeek = {
+      kind: 'log',
+      reps: 15,
+      actualReps: 12,
+      action: { type: 'Failed', actualReps: 12 },
+    }
+    expect(formatPreviousSetPeek(peek, bwEx)).toBe('12 reps · Failed')
+  })
+
+  it('log (time-based Hold): shows target duration', () => {
+    const peek: PreviousSetPeek = {
+      kind: 'log',
+      duration: 30,
+      action: { type: 'Hold' },
+    }
+    expect(formatPreviousSetPeek(peek, tbEx)).toBe('30s · Hold')
+  })
+
+  it('log (time-based Failed): shows actualDuration', () => {
+    const peek: PreviousSetPeek = {
+      kind: 'log',
+      duration: 30,
+      actualDuration: 15,
+      action: { type: 'Failed', actualDuration: 15 },
+    }
+    expect(formatPreviousSetPeek(peek, tbEx)).toBe('15s · Failed')
+  })
+
+  it('log (cardio Done): shows formatted duration', () => {
+    const peek: PreviousSetPeek = {
+      kind: 'log',
+      duration: 1800,
+      action: { type: 'Done' },
+    }
+    expect(formatPreviousSetPeek(peek, cardioEx)).toBe('30 min · Done')
+  })
+})
+
+// ─── mapSetLogError ───────────────────────────────────────────────────────────
+
+describe('mapSetLogError', () => {
+  it('AE7: SessionAlreadyCompleted code → halt + warning', () => {
+    const result = mapSetLogError({
+      ok: false,
+      kind: 'forbidden_transition',
+      code: 'SessionAlreadyCompleted',
+    })
+    expect(result.kind).toBe('halt')
+    expect(result.toast.severity).toBe('warning')
+  })
+
+  it('DuplicateSetLog code → rehydrate', () => {
+    const result = mapSetLogError({
+      ok: false,
+      kind: 'conflict',
+      code: 'DuplicateSetLog',
+    })
+    expect(result.kind).toBe('rehydrate')
+  })
+
+  it('unknown code → rollback + error severity', () => {
+    const result = mapSetLogError({
+      ok: false,
+      kind: 'conflict',
+      code: 'UnknownError',
+    })
+    expect(result.kind).toBe('rollback')
+    expect(result.toast.severity).toBe('error')
+  })
+})
+
+// ─── mapUndoError ─────────────────────────────────────────────────────────────
+
+describe('mapUndoError', () => {
+  it('UndoBlockedBySessionCompleted code → halt', () => {
+    const result = mapUndoError({
+      ok: false,
+      kind: 'forbidden_transition',
+      code: 'UndoBlockedBySessionCompleted',
+    })
+    expect(result.kind).toBe('halt')
+  })
+
+  it('SessionAlreadyCompleted code → halt', () => {
+    const result = mapUndoError({
+      ok: false,
+      kind: 'forbidden_transition',
+      code: 'SessionAlreadyCompleted',
+    })
+    expect(result.kind).toBe('halt')
+  })
+
+  it('UndoBlockedByCommittedProgression code → rollback (defensive)', () => {
+    const result = mapUndoError({
+      ok: false,
+      kind: 'forbidden_transition',
+      code: 'UndoBlockedByCommittedProgression',
+    })
+    expect(result.kind).toBe('rollback')
+  })
+
+  it('unknown code → rollback', () => {
+    const result = mapUndoError({
+      ok: false,
+      kind: 'conflict',
+      code: 'UnknownError',
+    })
+    expect(result.kind).toBe('rollback')
   })
 })

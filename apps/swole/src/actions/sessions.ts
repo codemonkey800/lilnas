@@ -2,16 +2,13 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { DataLayerError, type DataLayerErrorKind } from 'src/db/errors'
 import {
   completeSession as dbCompleteSession,
   type CompleteSessionArgs,
   startSession as dbStartSession,
   type StartSessionArgs,
 } from 'src/db/sessions'
-import {
-  DataLayerError,
-  type DataLayerErrorKind,
-} from 'src/db/errors'
 import type { SessionRow } from 'src/db/types'
 
 export type ActionResult<T> =
