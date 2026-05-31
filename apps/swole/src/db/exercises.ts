@@ -10,8 +10,8 @@ import {
   ReorderBlockedByActiveSession,
   ValidationError,
 } from 'src/db/errors'
-import { exercises, progressions, sessions } from 'src/db/schema'
-import type { ExerciseRow } from 'src/db/types'
+import { exercises, progressions, routines, sessions } from 'src/db/schema'
+import type { ExerciseRow, RoutineRow } from 'src/db/types'
 import { logger } from 'src/lib/logger'
 
 const positiveInt = z.number().int().min(1)
@@ -76,6 +76,26 @@ export function activeSessionCountForRoutine(
 export type ListExercisesArgs = {
   routineId: number
   includeArchived?: boolean
+}
+
+export type GetExerciseWithRoutineArgs = {
+  exerciseId: number
+  includeArchived?: boolean
+}
+
+export async function getExerciseWithRoutine(
+  args: GetExerciseWithRoutineArgs,
+): Promise<{ exercise: ExerciseRow; routine: RoutineRow } | null> {
+  const whereClause = args.includeArchived
+    ? eq(exercises.id, args.exerciseId)
+    : and(eq(exercises.id, args.exerciseId), isNull(exercises.archivedAt))
+  const row = db
+    .select({ exercise: exercises, routine: routines })
+    .from(exercises)
+    .innerJoin(routines, eq(exercises.routineId, routines.id))
+    .where(whereClause)
+    .get()
+  return row ?? null
 }
 
 export async function listExercisesForRoutine(

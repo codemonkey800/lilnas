@@ -2,6 +2,7 @@ import 'src/tailwind.css'
 
 import { cns } from '@lilnas/utils/cns'
 import { Roboto } from 'next/font/google'
+import Link from 'next/link'
 import { ReactNode } from 'react'
 
 import Providers from 'src/components/Provider'
@@ -33,13 +34,19 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <Providers>
           <div className="flex flex-col min-h-screen w-full">
             <nav className="sticky top-0 z-20 border-b border-neutral-800/80 bg-black/70 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-black/50 sm:px-6">
-              <div className="mx-auto flex w-full max-w-3xl items-center">
+              <div className="mx-auto flex w-full max-w-3xl items-center justify-between">
                 <a
                   className="text-2xl font-bold tracking-tight transition-colors hover:text-orange-500 active:text-orange-500"
                   href="/"
                 >
                   Swole
                 </a>
+                <Link
+                  href="/stats"
+                  className="text-sm font-medium text-neutral-300 transition-colors hover:text-orange-500 active:text-orange-500"
+                >
+                  Stats
+                </Link>
               </div>
             </nav>
 

@@ -1,13 +1,23 @@
 import type { Exercise, NextTarget } from 'src/core/session-machine'
 import {
+  ArchiveBlockedByActiveSession,
+  RoutineAlreadyHasActiveSession,
+  RoutineArchived,
+} from 'src/db/errors'
+import type { ExerciseRow, SetLogRow } from 'src/db/types'
+import {
   formatBannerSubtitle,
   formatCardioDuration,
   formatDayCodes,
+  formatJournalSessionDate,
   formatNextUpLine,
   formatPreviousSetPeek,
   formatRecentSessionDate,
+  formatRelativeDay,
   formatRunnerTarget,
+  formatSetRow,
   formatTimeBasedDuration,
+  formatWeight,
   formatWeightPreview,
   getCurrentDayCode,
   mapArchiveRoutineError,
@@ -525,5 +535,301 @@ describe('mapUndoError', () => {
       code: 'UnknownError',
     })
     expect(result.kind).toBe('rollback')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Helpers for the new formatter tests
+// ---------------------------------------------------------------------------
+
+function makeSetLog(
+  overrides: Partial<SetLogRow> & { action: SetLogRow['action'] },
+): SetLogRow {
+  return {
+    id: 1,
+    sessionId: 1,
+    exerciseId: 1,
+    setNumber: 1,
+    weight: null,
+    targetReps: null,
+    actualReps: null,
+    durationSeconds: null,
+    actualDurationSeconds: null,
+    loggedAt: new Date('2026-01-01T00:00:00Z'),
+    ...overrides,
+  }
+}
+
+function makeExercise(
+  type: ExerciseRow['type'],
+  overrides: Partial<ExerciseRow> = {},
+): ExerciseRow {
+  return {
+    id: 1,
+    routineId: 1,
+    name: 'Test Exercise',
+    type,
+    orderInRoutine: 1,
+    sets: 3,
+    targetReps: type === 'weighted' || type === 'bodyweight' ? 10 : null,
+    startingWeight: type === 'weighted' ? 100 : null,
+    increment: type === 'weighted' ? 5 : null,
+    durationSeconds: type === 'time-based' || type === 'cardio' ? 1800 : null,
+    archivedAt: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// formatWeight
+// ---------------------------------------------------------------------------
+
+describe('formatWeight', () => {
+  it('formats an integer weight with lb suffix', () => {
+    expect(formatWeight(105)).toBe('105 lb')
+  })
+
+  it('formats zero', () => {
+    expect(formatWeight(0)).toBe('0 lb')
+  })
+
+  it('formats a larger weight', () => {
+    expect(formatWeight(225)).toBe('225 lb')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatJournalSessionDate
+// ---------------------------------------------------------------------------
+
+describe('formatJournalSessionDate', () => {
+  // Pin to a mid-UTC-day instant to avoid tz-induced day-flip in CI.
+  it('omits year for current-year dates', () => {
+    // 2026-05-27 is a Wednesday; current year (per test suite) is 2026
+    const at = new Date('2026-05-27T12:00:00Z')
+    const result = formatJournalSessionDate(at)
+    expect(result).toBe('Wed, May 27')
+  })
+
+  it('includes year for prior-year dates', () => {
+    const at = new Date('2025-05-27T12:00:00Z')
+    const result = formatJournalSessionDate(at)
+    expect(result).toBe('Tue, May 27, 2025')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatSetRow — weighted
+// ---------------------------------------------------------------------------
+
+describe('formatSetRow — weighted', () => {
+  it('returns plain text for Increment action', () => {
+    const setLog = makeSetLog({
+      setNumber: 1,
+      weight: 105,
+      actualReps: 10,
+      targetReps: 10,
+      action: 'Increment',
+    })
+    const exercise = makeExercise('weighted')
+    expect(formatSetRow(setLog, exercise)).toEqual({
+      kind: 'plain',
+      text: 'Set 1 — 105 × 10 · Increment',
+    })
+  })
+
+  it('returns plain text for Complete action', () => {
+    const setLog = makeSetLog({
+      setNumber: 2,
+      weight: 110,
+      actualReps: 10,
+      targetReps: 10,
+      action: 'Complete',
+    })
+    const exercise = makeExercise('weighted')
+    expect(formatSetRow(setLog, exercise)).toEqual({
+      kind: 'plain',
+      text: 'Set 2 — 110 × 10 · Complete',
+    })
+  })
+
+  it('returns shortfall for Failed with actualReps < targetReps', () => {
+    const setLog = makeSetLog({
+      setNumber: 1,
+      weight: 105,
+      actualReps: 8,
+      targetReps: 10,
+      action: 'Failed',
+    })
+    const exercise = makeExercise('weighted')
+    expect(formatSetRow(setLog, exercise)).toEqual({
+      kind: 'shortfall',
+      pre: 'Set 1 — ',
+      fraction: '8/10',
+      post: ' · Failed',
+    })
+  })
+
+  it('returns plain for Failed when actualReps equals targetReps', () => {
+    const setLog = makeSetLog({
+      setNumber: 1,
+      weight: 105,
+      actualReps: 10,
+      targetReps: 10,
+      action: 'Failed',
+    })
+    const exercise = makeExercise('weighted')
+    expect(formatSetRow(setLog, exercise)).toEqual({
+      kind: 'plain',
+      text: 'Set 1 — 105 × 10 · Failed',
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatSetRow — bodyweight
+// ---------------------------------------------------------------------------
+
+describe('formatSetRow — bodyweight', () => {
+  it('returns plain text for Complete action', () => {
+    const setLog = makeSetLog({
+      setNumber: 1,
+      actualReps: 15,
+      targetReps: 15,
+      action: 'Complete',
+    })
+    const exercise = makeExercise('bodyweight')
+    expect(formatSetRow(setLog, exercise)).toEqual({
+      kind: 'plain',
+      text: 'Set 1 — 15/15 · Complete',
+    })
+  })
+
+  it('returns plain (NOT shortfall) for Failed', () => {
+    const setLog = makeSetLog({
+      setNumber: 1,
+      actualReps: 12,
+      targetReps: 15,
+      action: 'Failed',
+    })
+    const exercise = makeExercise('bodyweight')
+    expect(formatSetRow(setLog, exercise)).toEqual({
+      kind: 'plain',
+      text: 'Set 1 — 12/15 · Failed',
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatSetRow — time-based
+// ---------------------------------------------------------------------------
+
+describe('formatSetRow — time-based', () => {
+  it('AE4: returns plain for Hold using durationSeconds', () => {
+    const setLog = makeSetLog({
+      setNumber: 1,
+      durationSeconds: 45,
+      action: 'Hold',
+    })
+    const exercise = makeExercise('time-based', { durationSeconds: 45 })
+    expect(formatSetRow(setLog, exercise)).toEqual({
+      kind: 'plain',
+      text: 'Set 1 — 45s · Hold',
+    })
+  })
+
+  it('uses actualDurationSeconds when action is Failed', () => {
+    const setLog = makeSetLog({
+      setNumber: 1,
+      durationSeconds: 45,
+      actualDurationSeconds: 30,
+      action: 'Failed',
+    })
+    const exercise = makeExercise('time-based', { durationSeconds: 45 })
+    expect(formatSetRow(setLog, exercise)).toEqual({
+      kind: 'plain',
+      text: 'Set 1 — 30s · Failed',
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatSetRow — cardio
+// ---------------------------------------------------------------------------
+
+describe('formatSetRow — cardio', () => {
+  it('formats Done cardio', () => {
+    const setLog = makeSetLog({
+      setNumber: 1,
+      durationSeconds: 1800,
+      action: 'Done',
+    })
+    const exercise = makeExercise('cardio', { durationSeconds: 1800 })
+    expect(formatSetRow(setLog, exercise)).toEqual({
+      kind: 'plain',
+      text: '30 min · Done',
+    })
+  })
+
+  it('formats Skipped cardio', () => {
+    const setLog = makeSetLog({
+      setNumber: 1,
+      durationSeconds: 1800,
+      action: 'Skipped',
+    })
+    const exercise = makeExercise('cardio', { durationSeconds: 1800 })
+    expect(formatSetRow(setLog, exercise)).toEqual({
+      kind: 'plain',
+      text: '30 min · Skipped',
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// U4: formatRelativeDay
+// ---------------------------------------------------------------------------
+
+describe('formatRelativeDay', () => {
+  // Pinned mid-day instants (PT noon) for TZ stability in CI (UTC) and dev (PT).
+  // 2026-05-29T12:00:00-07:00 = 2026-05-29T19:00:00Z — all tests relative to this.
+  const NOW = new Date('2026-05-29T19:00:00Z')
+
+  it('same local calendar day → "Today"', () => {
+    const earlier = new Date('2026-05-29T10:00:00-07:00') // same PT day, earlier
+    expect(formatRelativeDay(earlier, NOW)).toBe('Today')
+  })
+
+  it('1 day ago → "Yesterday"', () => {
+    const yesterday = new Date('2026-05-28T12:00:00-07:00')
+    expect(formatRelativeDay(yesterday, NOW)).toBe('Yesterday')
+  })
+
+  it('3 days ago → "3d ago"', () => {
+    const threeDays = new Date('2026-05-26T12:00:00-07:00')
+    expect(formatRelativeDay(threeDays, NOW)).toBe('3d ago')
+  })
+
+  it('13 days ago → "13d ago" (boundary: still Nd)', () => {
+    const thirteenDays = new Date('2026-05-16T12:00:00-07:00')
+    expect(formatRelativeDay(thirteenDays, NOW)).toBe('13d ago')
+  })
+
+  it('14 days ago → "2w ago" (boundary: switches to Nw)', () => {
+    const fourteenDays = new Date('2026-05-15T12:00:00-07:00')
+    expect(formatRelativeDay(fourteenDays, NOW)).toBe('2w ago')
+  })
+
+  it('16 days ago → "2w ago"', () => {
+    const sixteenDays = new Date('2026-05-13T12:00:00-07:00')
+    expect(formatRelativeDay(sixteenDays, NOW)).toBe('2w ago')
+  })
+
+  it('60 days ago → a date string (not Nw ago)', () => {
+    const sixtyDays = new Date('2026-03-30T12:00:00-07:00')
+    const result = formatRelativeDay(sixtyDays, NOW)
+    expect(result).not.toMatch(/ago/)
+    expect(result.length).toBeGreaterThan(2) // some real date string
   })
 })

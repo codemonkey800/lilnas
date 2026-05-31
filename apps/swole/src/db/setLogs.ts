@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { and, asc, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { db } from 'src/db/client'
@@ -19,7 +19,7 @@ import {
   setLogActionEnum,
   setLogs,
 } from 'src/db/schema'
-import type { SetLogRow } from 'src/db/types'
+import type { SessionRow, SetLogRow } from 'src/db/types'
 import { logger } from 'src/lib/logger'
 
 const positiveInt = z.number().int().min(1)
@@ -55,6 +55,36 @@ export async function getSetLogsForSession(
     .where(eq(setLogs.sessionId, args.sessionId))
     .orderBy(asc(setLogs.loggedAt), asc(setLogs.id))
     .all()
+}
+
+export type GetSetLogsForExerciseArgs = { exerciseId: number }
+
+// isNotNull(sessions.completedAt) in the query guarantees non-null completedAt.
+export type CompletedSessionLogEntry = {
+  setLog: SetLogRow
+  session: SessionRow & { completedAt: Date }
+}
+
+export async function getSetLogsForExercise(
+  args: GetSetLogsForExerciseArgs,
+): Promise<CompletedSessionLogEntry[]> {
+  const rows = db
+    .select({ setLog: setLogs, session: sessions })
+    .from(setLogs)
+    .innerJoin(sessions, eq(setLogs.sessionId, sessions.id))
+    .where(
+      and(
+        eq(setLogs.exerciseId, args.exerciseId),
+        isNotNull(sessions.completedAt),
+      ),
+    )
+    .orderBy(
+      desc(sessions.completedAt),
+      desc(sessions.id),
+      asc(setLogs.setNumber),
+    )
+    .all()
+  return rows as CompletedSessionLogEntry[]
 }
 
 // ─── Writes ─────────────────────────────────────────────────────────────────

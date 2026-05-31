@@ -19,6 +19,7 @@ import {
 } from 'src/db/schema'
 import {
   appendSetLog,
+  getSetLogsForExercise,
   getSetLogsForSession,
   undoLastSetLog,
 } from 'src/db/setLogs'
@@ -372,5 +373,146 @@ describe('undoLastSetLog', () => {
     await expect(undoLastSetLog({ sessionId: 99999 })).rejects.toThrow(
       /Session not found/,
     )
+  })
+})
+
+// ─── getSetLogsForExercise ───────────────────────────────────────────────────
+
+describe('getSetLogsForExercise', () => {
+  // Seed helpers scoped to this describe. `routineId` comes from the outer
+  // beforeEach which inserts the routine used by the default `sessionId`.
+
+  const seedCompletedSession = (completedAt: Date) =>
+    testDb.db
+      .insert(sessions)
+      .values({
+        routineId: testDb.db
+          .select({ routineId: sessions.routineId })
+          .from(sessions)
+          .where(eq(sessions.id, sessionId))
+          .get()!.routineId,
+        completedAt,
+      })
+      .returning()
+      .get()
+
+  const seedLog = (
+    sid: number,
+    setNumber: number,
+    overrides: Partial<typeof setLogs.$inferInsert> = {},
+  ) =>
+    testDb.db
+      .insert(setLogs)
+      .values({
+        sessionId: sid,
+        exerciseId,
+        setNumber,
+        weight: 100,
+        targetReps: 10,
+        actualReps: 10,
+        action: 'Stay' as const,
+        ...overrides,
+      })
+      .returning()
+      .get()
+
+  it('happy path: returns all logs across two completed sessions, newest session first, sets ascending within each session', async () => {
+    const t1 = new Date('2026-05-27T09:00:00Z')
+    const t2 = new Date('2026-05-27T10:00:00Z')
+    const older = seedCompletedSession(t1)
+    const newer = seedCompletedSession(t2)
+
+    seedLog(older.id, 1)
+    seedLog(older.id, 2)
+    seedLog(newer.id, 1)
+    seedLog(newer.id, 2)
+    seedLog(newer.id, 3)
+
+    const rows = await getSetLogsForExercise({ exerciseId })
+    expect(rows).toHaveLength(5)
+    // First three rows belong to the newer session
+    expect(rows[0]?.session.id).toBe(newer.id)
+    expect(rows[1]?.session.id).toBe(newer.id)
+    expect(rows[2]?.session.id).toBe(newer.id)
+    // Set numbers within the newer session are ascending
+    expect(rows.slice(0, 3).map(r => r.setLog.setNumber)).toEqual([1, 2, 3])
+    // Last two rows belong to the older session
+    expect(rows[3]?.session.id).toBe(older.id)
+    expect(rows[4]?.session.id).toBe(older.id)
+    expect(rows.slice(3).map(r => r.setLog.setNumber)).toEqual([1, 2])
+  })
+
+  it('edge case: exercise with no set logs returns []', async () => {
+    const rows = await getSetLogsForExercise({ exerciseId })
+    expect(rows).toEqual([])
+  })
+
+  it('KEY: logs in an active (completedAt IS NULL) session are excluded', async () => {
+    // The outer beforeEach sessionId is active (no completedAt).
+    // Seed a log into it — it must NOT appear in results.
+    seedLog(sessionId, 1)
+
+    // Also seed a log in a completed session — it MUST appear.
+    const done = seedCompletedSession(new Date('2026-05-27T10:00:00Z'))
+    seedLog(done.id, 1)
+
+    const rows = await getSetLogsForExercise({ exerciseId })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.session.id).toBe(done.id)
+  })
+
+  it('tiebreak: two completed sessions with identical completedAt tiebreak by session.id DESC', async () => {
+    const sameTime = new Date('2026-05-27T10:00:00Z')
+    const first = seedCompletedSession(sameTime)
+    const second = seedCompletedSession(sameTime)
+
+    seedLog(first.id, 1)
+    seedLog(second.id, 1)
+
+    const rows = await getSetLogsForExercise({ exerciseId })
+    // Higher id session comes first
+    expect(rows[0]?.session.id).toBeGreaterThan(rows[1]?.session.id ?? 0)
+  })
+
+  it('AE6: cardio Skipped log in a completed session appears; exercise skipped entirely (no row) in another session does not appear', async () => {
+    const cardioExerciseId = testDb.db
+      .insert(exercises)
+      .values({
+        routineId: testDb.db
+          .select({ routineId: sessions.routineId })
+          .from(sessions)
+          .where(eq(sessions.id, sessionId))
+          .get()!.routineId,
+        name: 'Treadmill',
+        type: 'cardio',
+        orderInRoutine: 1,
+        sets: 1,
+        durationSeconds: 600,
+      })
+      .returning()
+      .get().id
+
+    const sessionWithSkip = seedCompletedSession(
+      new Date('2026-05-27T10:00:00Z'),
+    )
+    // Skipped action recorded in completed session — must appear
+    testDb.db
+      .insert(setLogs)
+      .values({
+        sessionId: sessionWithSkip.id,
+        exerciseId: cardioExerciseId,
+        setNumber: 1,
+        action: 'Skipped' as const,
+        durationSeconds: 600,
+      })
+      .run()
+
+    // Another completed session where the cardio exercise has no row at all
+    seedCompletedSession(new Date('2026-05-27T11:00:00Z'))
+
+    const rows = await getSetLogsForExercise({ exerciseId: cardioExerciseId })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.setLog.action).toBe('Skipped')
+    expect(rows[0]?.session.id).toBe(sessionWithSkip.id)
   })
 })

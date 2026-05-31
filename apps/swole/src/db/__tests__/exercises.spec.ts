@@ -13,6 +13,7 @@ import { eq } from 'drizzle-orm'
 import {
   archiveExercise,
   createExercise,
+  getExerciseWithRoutine,
   insertExerciseWithInitialProgression,
   listExercisesForRoutine,
   reorderExercises,
@@ -397,6 +398,40 @@ describe('reorderExercises', () => {
     await expect(
       reorderExercises({ routineId, orderedIds: [] }),
     ).rejects.toThrow(/must be non-empty/)
+  })
+})
+
+describe('getExerciseWithRoutine', () => {
+  it('happy path: returns { exercise, routine } with the correct parent routine', async () => {
+    const ex = seedExercise({ name: 'Squat' })
+    const result = await getExerciseWithRoutine({ exerciseId: ex.id })
+    expect(result).not.toBeNull()
+    expect(result?.exercise.id).toBe(ex.id)
+    expect(result?.exercise.name).toBe('Squat')
+    expect(result?.routine.id).toBe(routineId)
+    expect(result?.routine.name).toBe('Push')
+  })
+
+  it('unknown exerciseId returns null', async () => {
+    const result = await getExerciseWithRoutine({ exerciseId: 99999 })
+    expect(result).toBeNull()
+  })
+
+  it('AE7: archived exercise returns null with includeArchived: false (default)', async () => {
+    const ex = seedExercise({ name: 'OHP', archivedAt: new Date() })
+    const result = await getExerciseWithRoutine({ exerciseId: ex.id })
+    expect(result).toBeNull()
+  })
+
+  it('AE7: archived exercise is returned when includeArchived: true', async () => {
+    const ex = seedExercise({ name: 'OHP', archivedAt: new Date() })
+    const result = await getExerciseWithRoutine({
+      exerciseId: ex.id,
+      includeArchived: true,
+    })
+    expect(result).not.toBeNull()
+    expect(result?.exercise.id).toBe(ex.id)
+    expect(result?.routine.id).toBe(routineId)
   })
 })
 

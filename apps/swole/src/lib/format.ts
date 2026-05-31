@@ -1,5 +1,5 @@
-// Pure display-formatting helpers for the home page. No side effects, no
-// `'use client'` or `'server-only'` — these are consumable from anywhere.
+// Pure display-formatting helpers. No side effects, no `'use client'` or
+// `'server-only'` — these are consumable from anywhere.
 //
 // `getCurrentDayCode` relies on the container's `TZ` env var (set in
 // `infra/.env.swole`) for the right local day-of-week. A missing-TZ regression
@@ -8,6 +8,7 @@
 import type { Exercise, NextTarget } from 'src/core/session-machine'
 import { type DataLayerErrorKind } from 'src/db/errors'
 import { type DayCode } from 'src/db/schema'
+import type { ExerciseRow, SetLogRow } from 'src/db/types'
 import type { PreviousSetPeek } from 'src/lib/runner'
 
 const DAY_INDEX_TO_CODE: readonly DayCode[] = [
@@ -272,5 +273,151 @@ export function mapUndoError(result: ActionError): Reconciliation {
       message: "Couldn't undo that set. Try again.",
       severity: 'error',
     },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stats-page formatters (R9, R18, R19)
+// ---------------------------------------------------------------------------
+
+/**
+ * R9 / tile display — formats a weight value with the "lb" unit suffix.
+ * e.g. formatWeight(105) → "105 lb"
+ */
+export function formatWeight(w: number): string {
+  return `${w} lb`
+}
+
+// Threshold for switching from "Nw ago" to a calendar date string.
+const EIGHT_WEEKS_DAYS = 56
+
+/**
+ * R16: Row recency label. Compares local calendar days (not rolling ms) so
+ * "Today" and "Yesterday" align with the user's clock.
+ *
+ * - Same local calendar day → "Today"
+ * - 1 day ago → "Yesterday"
+ * - 2–13 days → "Nd ago"
+ * - 14–55 days → "Nw ago" (floored weeks)
+ * - ≥56 days → short date string ("May 19")
+ *
+ * Never-logged "—" is the caller's concern (pass a real Date or handle null
+ * before calling this function).
+ */
+export function formatRelativeDay(at: Date, now: Date): string {
+  // Compare local calendar days by constructing midnight-local of each date.
+  const nowMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const atMidnight = new Date(at.getFullYear(), at.getMonth(), at.getDate())
+  const dayDiff = Math.round(
+    (nowMidnight.getTime() - atMidnight.getTime()) / (24 * 60 * 60 * 1000),
+  )
+
+  if (dayDiff <= 0) return 'Today'
+  if (dayDiff === 1) return 'Yesterday'
+  if (dayDiff < 14) return `${dayDiff}d ago`
+  if (dayDiff < EIGHT_WEEKS_DAYS) return `${Math.floor(dayDiff / 7)}w ago`
+
+  return MONTH_DAY_FMT.format(at)
+}
+
+const JOURNAL_FMT = new Intl.DateTimeFormat('en-US', {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+})
+
+const JOURNAL_FMT_WITH_YEAR = new Intl.DateTimeFormat('en-US', {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+})
+
+/**
+ * R18: Journal group header date.
+ * Renders "Wed, May 27" for current-year dates; appends the year for past
+ * (or future) years, e.g. "Tue, May 27, 2025".
+ */
+export function formatJournalSessionDate(at: Date): string {
+  const currentYear = new Date().getFullYear()
+  if (at.getFullYear() !== currentYear) {
+    return JOURNAL_FMT_WITH_YEAR.format(at)
+  }
+  return JOURNAL_FMT.format(at)
+}
+
+/**
+ * R19: Discriminated union enabling the journal component to render the
+ * shortfall fraction in a different colour without component-level logic.
+ */
+export type SetRowParts =
+  | { kind: 'plain'; text: string }
+  | { kind: 'shortfall'; pre: string; fraction: string; post: string }
+
+/**
+ * R19: Formats a single set-log row for display in the history journal.
+ *
+ * - Weighted: "Set N — W × reps · action"
+ *     Special case: Failed AND actualReps < targetReps → shortfall parts
+ * - Bodyweight: "Set N — actual/target · action" (always plain)
+ * - Time-based: "Set N — duration · action"
+ *     Uses actualDurationSeconds when action is Failed
+ * - Cardio: "duration · action" (no set number prefix)
+ */
+export function formatSetRow(
+  setLog: SetLogRow,
+  exercise: ExerciseRow,
+): SetRowParts {
+  const { setNumber, weight, actualReps, targetReps, action } = setLog
+
+  switch (exercise.type) {
+    case 'weighted': {
+      const isFailed = action === 'Failed'
+      const hasShortfall =
+        isFailed &&
+        actualReps !== null &&
+        targetReps !== null &&
+        actualReps < targetReps
+
+      if (hasShortfall) {
+        return {
+          kind: 'shortfall',
+          pre: `Set ${setNumber} — `,
+          fraction: `${actualReps}/${targetReps}`,
+          post: ` · ${action}`,
+        }
+      }
+
+      return {
+        kind: 'plain',
+        text: `Set ${setNumber} — ${weight} × ${actualReps} · ${action}`,
+      }
+    }
+
+    case 'bodyweight': {
+      return {
+        kind: 'plain',
+        text: `Set ${setNumber} — ${actualReps}/${targetReps} · ${action}`,
+      }
+    }
+
+    case 'time-based': {
+      const usedSeconds =
+        action === 'Failed' && setLog.actualDurationSeconds !== null
+          ? setLog.actualDurationSeconds
+          : (setLog.durationSeconds ?? 0)
+      return {
+        kind: 'plain',
+        text: `Set ${setNumber} — ${formatTimeBasedDuration(usedSeconds)} · ${action}`,
+      }
+    }
+
+    case 'cardio': {
+      const seconds = setLog.durationSeconds ?? 0
+      return {
+        kind: 'plain',
+        text: `${formatCardioDuration(seconds)} · ${action}`,
+      }
+    }
   }
 }
