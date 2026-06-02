@@ -4,6 +4,7 @@ import { cns } from '@lilnas/utils/cns'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import FitnessCenterIcon from '@mui/icons-material/FitnessCenter'
 import UndoIcon from '@mui/icons-material/Undo'
+import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
 
@@ -13,18 +14,22 @@ export type TopBarProps = {
   routineName: string
   progress: ProgressData
   canUndo: boolean
+  canFinish: boolean
   onUndo: () => void
   onOpenDrawer: () => void
   onExit: () => void
+  onRequestFinish: () => void
 }
 
 export function TopBar({
   routineName,
   progress,
   canUndo,
+  canFinish,
   onUndo,
   onOpenDrawer,
   onExit,
+  onRequestFinish,
 }: TopBarProps) {
   const { activeExerciseIdx, exerciseCount, loggedSets, totalSets } = progress
   const pct = totalSets > 0 ? (loggedSets / totalSets) * 100 : 0
@@ -82,6 +87,21 @@ export function TopBar({
         >
           <FitnessCenterIcon fontSize="small" />
         </IconButton>
+
+        <Button
+          size="small"
+          disabled={!canFinish}
+          onClick={onRequestFinish}
+          title={canFinish ? undefined : 'Log a set to finish early'}
+          className={cns(
+            'hover:!bg-transparent',
+            canFinish
+              ? '!text-neutral-400 hover:!text-white'
+              : '!text-neutral-700',
+          )}
+        >
+          Finish
+        </Button>
       </div>
 
       {/* Thin progress bar */}

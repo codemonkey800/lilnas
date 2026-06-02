@@ -80,26 +80,15 @@ export type NextTarget = {
   setIdx: number
 }
 
-export type PostSessionPrompt =
-  | {
-      case: 'A'
-      exerciseIdx: number
-      originalStartingWeight: number
-      lowest: number
-      highest: number
-      ending: number
-      stayOption: number
-      rollUpOption: number
-    }
-  | {
-      case: 'B'
-      exerciseIdx: number
-      originalStartingWeight: number
-      lowest: number
-      highest: number
-      ending: number
-      newStartingWeight: number
-    }
+export type PostSessionPrompt = {
+  case: 'B'
+  exerciseIdx: number
+  originalStartingWeight: number
+  lowest: number
+  highest: number
+  ending: number
+  newStartingWeight: number
+}
 
 export function initialState(): SessionState {
   return { setLogs: [] }
@@ -403,29 +392,18 @@ export function classifyPostSession(
     const ending = weights[weights.length - 1] as number
 
     const originalStartingWeight = exercise.startingWeight
+    const lastLog = logs[logs.length - 1]
+    const lastActionFailed = lastLog?.action.type === 'Failed'
 
-    if (lowest >= originalStartingWeight) {
-      prompts.push({
-        case: 'A',
-        exerciseIdx,
-        originalStartingWeight,
-        lowest,
-        highest,
-        ending,
-        stayOption: originalStartingWeight,
-        rollUpOption: originalStartingWeight + exercise.increment,
-      })
-    } else {
-      prompts.push({
-        case: 'B',
-        exerciseIdx,
-        originalStartingWeight,
-        lowest,
-        highest,
-        ending,
-        newStartingWeight: lowest,
-      })
-    }
+    prompts.push({
+      case: 'B',
+      exerciseIdx,
+      originalStartingWeight,
+      lowest,
+      highest,
+      ending,
+      newStartingWeight: lastActionFailed ? originalStartingWeight : ending,
+    })
   }
 
   return prompts

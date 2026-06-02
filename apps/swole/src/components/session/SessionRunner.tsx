@@ -14,6 +14,7 @@ import { CurrentSetCard } from 'src/components/session/CurrentSetCard'
 import { DegradedStrip } from 'src/components/session/DegradedStrip'
 import { ExercisesDrawer } from 'src/components/session/ExercisesDrawer'
 import { FailedSheet } from 'src/components/session/FailedSheet'
+import { FinishEarlySheet } from 'src/components/session/FinishEarlySheet'
 import { ReviewCard } from 'src/components/session/ReviewCard'
 import { TerminalCard } from 'src/components/session/TerminalCard'
 import { TopBar } from 'src/components/session/TopBar'
@@ -26,6 +27,7 @@ import { useToast } from 'src/hooks/use-toast'
 import { mapSetLogError, mapUndoError } from 'src/lib/format'
 import {
   deriveButtonConfig,
+  deriveEarlyFinishSummary,
   deriveExerciseList,
   derivePreviousSetPeek,
   deriveProgress,
@@ -71,6 +73,7 @@ export function SessionRunner({
   const inFlightRef = useRef(false)
   const [dismissedDegraded, setDismissedDegraded] = useState(false)
   const [failedSheetOpen, setFailedSheetOpen] = useState(false)
+  const [finishSheetOpen, setFinishSheetOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   // Stale-override guard: a cursorOverride pointing at a full exercise is
@@ -199,7 +202,7 @@ export function SessionRunner({
 
   const onBack = useCallback(() => setReviewExerciseIdx(null), [])
   const onExit = useCallback(() => router.push('/'), [router])
-  const onFinish = useCallback(
+  const goToComplete = useCallback(
     () => router.push(`/session/${session.id}/complete`),
     [router, session.id],
   )
@@ -221,6 +224,8 @@ export function SessionRunner({
       : { kind: 'none' as const }
 
   const canUndo = optimistic.setLogs.length > 0 && !isPending
+  const canFinish = optimistic.setLogs.length > 0 && !isPending && target !== null
+  const finishSummary = deriveEarlyFinishSummary(effectiveState, routine)
 
   // ─── Failed sheet mode ────────────────────────────────────────────────────
 
@@ -254,9 +259,11 @@ export function SessionRunner({
         routineName={routineName}
         progress={progress}
         canUndo={canUndo}
+        canFinish={canFinish}
         onUndo={onUndo}
         onOpenDrawer={() => setDrawerOpen(true)}
         onExit={onExit}
+        onRequestFinish={() => setFinishSheetOpen(true)}
       />
 
       {failedSetLogIds.length > 0 && !dismissedDegraded && (
@@ -273,7 +280,7 @@ export function SessionRunner({
         ) : target === null ? (
           <TerminalCard
             summary={deriveSessionSummary(effectiveState, routine)}
-            onFinish={onFinish}
+            onFinish={goToComplete}
           />
         ) : (
           activeExercise && (
@@ -297,6 +304,18 @@ export function SessionRunner({
         isPending={isPending}
         onConfirm={onFailedConfirm}
         onCancel={() => setFailedSheetOpen(false)}
+      />
+
+      <FinishEarlySheet
+        open={finishSheetOpen}
+        trainedCount={finishSummary.trainedCount}
+        totalSetsLogged={finishSummary.totalSetsLogged}
+        isPending={isPending}
+        onCancel={() => setFinishSheetOpen(false)}
+        onConfirm={() => {
+          setFinishSheetOpen(false)
+          goToComplete()
+        }}
       />
 
       <ExercisesDrawer

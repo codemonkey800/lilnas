@@ -191,6 +191,17 @@ describe('applyAction', () => {
       })
     })
 
+    it('prior Failed (100, inc 5), current Increment → weight=100, action=Increment', () => {
+      const state = applyAction(
+        initialState(),
+        { type: 'Failed', actualReps: 5 },
+        weightedRoutine,
+      )
+      const result = applyAction(state, { type: 'Increment' }, weightedRoutine)
+      expect(result.setLogs.at(-1)?.weight).toBe(100)
+      expect(result.setLogs.at(-1)?.action).toEqual({ type: 'Increment' })
+    })
+
     it('prior Stay (100), current Stay → weight=100', () => {
       const state = applyAction(
         initialState(),
@@ -231,17 +242,6 @@ describe('applyAction', () => {
       )
       const result = applyAction(state, { type: 'Stay' }, weightedRoutine)
       expect(result.setLogs.at(-1)?.weight).toBe(105)
-    })
-
-    it('prior Failed (100, inc 5), current Increment → weight=100, action=Increment', () => {
-      const state = applyAction(
-        initialState(),
-        { type: 'Failed', actualReps: 5 },
-        weightedRoutine,
-      )
-      const result = applyAction(state, { type: 'Increment' }, weightedRoutine)
-      expect(result.setLogs.at(-1)?.weight).toBe(100)
-      expect(result.setLogs.at(-1)?.action).toEqual({ type: 'Increment' })
     })
 
     it('prior Failed (100, inc 5), current Decrement → weight=100, action=Decrement', () => {
@@ -300,27 +300,21 @@ describe('applyAction', () => {
   })
 
   describe('weighted exercise, last set', () => {
-    it('prior Stay (100), current Complete on last set → weight=100, action=Complete', () => {
-      const state = dispatch(
-        initialState(),
-        [{ type: 'Stay' }, { type: 'Stay' }],
-        weightedRoutine,
-      )
-      const result = applyAction(state, { type: 'Complete' }, weightedRoutine)
-      expect(result.setLogs.at(-1)).toEqual({
-        exerciseIdx: 0,
-        setIdx: 2,
-        weight: 100,
-        reps: 10,
-        actualReps: 10,
-        action: { type: 'Complete' },
-      })
-    })
-
     it('prior Increment (100, inc 5), current Complete on last set → weight=105', () => {
       const state = dispatch(
         initialState(),
-        [{ type: 'Stay' }, { type: 'Increment' }],
+        [{ type: 'Increment' }, { type: 'Increment' }],
+        weightedRoutine,
+      )
+      const result = applyAction(state, { type: 'Complete' }, weightedRoutine)
+      expect(result.setLogs.at(-1)?.weight).toBe(110)
+      expect(result.setLogs.at(-1)?.action).toEqual({ type: 'Complete' })
+    })
+
+    it('prior Failed (100), current Complete on last set → weight=100', () => {
+      const state = dispatch(
+        initialState(),
+        [{ type: 'Increment' }, { type: 'Failed', actualReps: 8 }],
         weightedRoutine,
       )
       const result = applyAction(state, { type: 'Complete' }, weightedRoutine)
@@ -353,22 +347,10 @@ describe('applyAction', () => {
       expect(result.setLogs.at(-1)?.action).toEqual({ type: 'Decrement' })
     })
 
-    it('Decrement on last set with prior Decrement → weight=95 (prior Decrement → -inc)', () => {
-      const state = dispatch(
-        initialState(),
-        [{ type: 'Stay' }, { type: 'Decrement' }],
-        weightedRoutine,
-      )
-      const result = applyAction(state, { type: 'Decrement' }, weightedRoutine)
-      // Prior log (set 1) had action=Decrement, weight=100. New log: 100 - 5 = 95.
-      expect(result.setLogs.at(-1)?.weight).toBe(95)
-      expect(result.setLogs.at(-1)?.action).toEqual({ type: 'Decrement' })
-    })
-
     it('Failed with actualReps=6 on last set → weight=prior, actualReps=6', () => {
       const state = dispatch(
         initialState(),
-        [{ type: 'Stay' }, { type: 'Stay' }],
+        [{ type: 'Increment' }, { type: 'Increment' }],
         weightedRoutine,
       )
       const result = applyAction(
@@ -379,7 +361,7 @@ describe('applyAction', () => {
       expect(result.setLogs.at(-1)).toEqual({
         exerciseIdx: 0,
         setIdx: 2,
-        weight: 100,
+        weight: 110,
         reps: 10,
         actualReps: 6,
         action: { type: 'Failed', actualReps: 6 },
@@ -389,7 +371,7 @@ describe('applyAction', () => {
     it('Increment on last set → throws (Complete replaces Increment)', () => {
       const state = dispatch(
         initialState(),
-        [{ type: 'Stay' }, { type: 'Stay' }],
+        [{ type: 'Increment' }, { type: 'Increment' }],
         weightedRoutine,
       )
       expect(() =>
@@ -399,7 +381,7 @@ describe('applyAction', () => {
   })
 
   describe('weighted exercise, edge cases', () => {
-    it('Decrement past zero is not clamped (5 - 10 = -5)', () => {
+    it('Increment: SW=5 inc=10 → set1=5, set2=15', () => {
       const routine: Routine = {
         exercises: [
           {
@@ -412,21 +394,21 @@ describe('applyAction', () => {
           },
         ],
       }
-      const state = applyAction(initialState(), { type: 'Decrement' }, routine)
-      const result = applyAction(state, { type: 'Decrement' }, routine)
-      expect(result.setLogs.at(-1)?.weight).toBe(-5)
+      const state = applyAction(initialState(), { type: 'Increment' }, routine)
+      const result = applyAction(state, { type: 'Increment' }, routine)
+      expect(result.setLogs.at(-1)?.weight).toBe(15)
     })
 
-    it('Decrement from zero is not clamped (0 - 5 = -5)', () => {
+    it('Decrement past zero is not clamped (5 - 10 = -5)', () => {
       const routine: Routine = {
         exercises: [
           {
-            name: 'Zero SW',
+            name: 'Edge',
             type: 'weighted',
             sets: 3,
             targetReps: 5,
-            startingWeight: 0,
-            increment: 5,
+            startingWeight: 5,
+            increment: 10,
           },
         ],
       }
@@ -447,16 +429,17 @@ describe('applyAction', () => {
       expect(result.setLogs.at(-1)?.action).toEqual({ type: 'Complete' })
     })
 
-    it('Stay on the single set → weight=200', () => {
+    it('Stay on the single set → records weight=SW=200, action=Stay', () => {
       const result = applyAction(
         initialState(),
         { type: 'Stay' },
         weightedSingleSetRoutine,
       )
       expect(result.setLogs.at(-1)?.weight).toBe(200)
+      expect(result.setLogs.at(-1)?.action).toEqual({ type: 'Stay' })
     })
 
-    it('Decrement on the single set → weight=200 (first-set Decrement records SW)', () => {
+    it('Decrement on the single set → records weight=SW=200, action=Decrement', () => {
       const result = applyAction(
         initialState(),
         { type: 'Decrement' },
@@ -671,7 +654,7 @@ describe('applyAction', () => {
     it('after completing weighted exercise 0, exercise 1 uses its own SW (not last weight of ex0)', () => {
       const state = dispatch(
         initialState(),
-        [{ type: 'Increment' }, { type: 'Stay' }, { type: 'Complete' }],
+        [{ type: 'Increment' }, { type: 'Increment' }, { type: 'Complete' }],
         twoWeightedRoutine,
       )
       // exercise 0 fully complete. Now dispatch Increment on exercise 1.
@@ -683,32 +666,28 @@ describe('applyAction', () => {
       const newLog = result.setLogs.at(-1)!
       expect(newLog.exerciseIdx).toBe(1)
       expect(newLog.setIdx).toBe(0)
-      expect(newLog.weight).toBe(200) // squat SW, not bench's last (105)
+      expect(newLog.weight).toBe(200) // squat SW, not bench's last (110)
       expect(newLog.action).toEqual({ type: 'Increment' })
     })
 
     it('applyAction on a fully-complete session → throws "session is complete"', () => {
       const state = dispatch(
         initialState(),
-        [{ type: 'Stay' }, { type: 'Stay' }, { type: 'Complete' }],
+        [{ type: 'Increment' }, { type: 'Increment' }, { type: 'Complete' }],
         weightedRoutine,
       )
-      // weightedRoutine has one exercise with 3 sets, now all 3 logged.
-      // No more positions to write.
       expect(() =>
-        applyAction(state, { type: 'Stay' }, weightedRoutine),
+        applyAction(state, { type: 'Increment' }, weightedRoutine),
       ).toThrow(/session is complete/)
     })
 
     it('applyAction with hand-constructed out-of-range cursorOverride → throws "session is complete"', () => {
-      // JumpTo validates the index, but a hand-constructed state could carry an invalid override.
-      // findActivePosition treats this as no-position and applyAction reports session complete.
       const state: SessionState = {
         setLogs: [],
         cursorOverride: 5,
       }
       expect(() =>
-        applyAction(state, { type: 'Stay' }, weightedRoutine),
+        applyAction(state, { type: 'Increment' }, weightedRoutine),
       ).toThrow(/session is complete/)
     })
   })
@@ -717,19 +696,19 @@ describe('applyAction', () => {
     it('applyAction does not mutate state.setLogs (length unchanged after dispatch)', () => {
       const before = initialState()
       const beforeLen = before.setLogs.length
-      applyAction(before, { type: 'Stay' }, weightedRoutine)
+      applyAction(before, { type: 'Increment' }, weightedRoutine)
       expect(before.setLogs.length).toBe(beforeLen)
     })
 
     it('returned state.setLogs is a new reference', () => {
       const before = initialState()
-      const after = applyAction(before, { type: 'Stay' }, weightedRoutine)
+      const after = applyAction(before, { type: 'Increment' }, weightedRoutine)
       expect(after.setLogs).not.toBe(before.setLogs)
     })
 
     it('returned state is a new object', () => {
       const before = initialState()
-      const after = applyAction(before, { type: 'Stay' }, weightedRoutine)
+      const after = applyAction(before, { type: 'Increment' }, weightedRoutine)
       expect(after).not.toBe(before)
     })
   })
@@ -748,7 +727,7 @@ describe('applyAction', () => {
     it('JumpTo on state with existing logs → setLogs reference unchanged, cursorOverride set', () => {
       const state = applyAction(
         initialState(),
-        { type: 'Stay' },
+        { type: 'Increment' },
         twoWeightedRoutine,
       )
       const result = applyAction(
@@ -789,7 +768,7 @@ describe('applyAction', () => {
         initialState(),
         [
           { type: 'JumpTo', exerciseIdx: 1 },
-          { type: 'Stay' }, // log on exercise 1
+          { type: 'Increment' }, // log on exercise 1
         ],
         twoWeightedRoutine,
       )
@@ -806,7 +785,7 @@ describe('applyAction', () => {
       expect(result.setLogs.at(-1)).toEqual({
         exerciseIdx: 1,
         setIdx: 1,
-        weight: 200, // prior Stay → unchanged from SW
+        weight: 210, // prior Increment → SW(200) + inc(10)
         reps: 5,
         actualReps: 5,
         action: { type: 'Increment' },
@@ -814,10 +793,9 @@ describe('applyAction', () => {
     })
 
     it('JumpTo back to fully-completed exercise → next applyAction throws (no slot)', () => {
-      // Complete all 3 sets of exercise 0
       const state = dispatch(
         initialState(),
-        [{ type: 'Stay' }, { type: 'Stay' }, { type: 'Complete' }],
+        [{ type: 'Increment' }, { type: 'Increment' }, { type: 'Complete' }],
         twoWeightedRoutine,
       )
       const jumped = applyAction(
@@ -826,7 +804,7 @@ describe('applyAction', () => {
         twoWeightedRoutine,
       )
       expect(() =>
-        applyAction(jumped, { type: 'Stay' }, twoWeightedRoutine),
+        applyAction(jumped, { type: 'Increment' }, twoWeightedRoutine),
       ).toThrow(/exercise 0 has 3 sets; cannot write setIdx 3/)
     })
 
@@ -846,14 +824,17 @@ describe('applyAction', () => {
     })
 
     it('JumpTo into currently-active exercise → no-op effect, next action proceeds normally', () => {
-      // Active exercise is exercise 0 (no logs). JumpTo 0 should match the normal walk.
       const jumped = applyAction(
         initialState(),
         { type: 'JumpTo', exerciseIdx: 0 },
         twoWeightedRoutine,
       )
       expect(jumped.cursorOverride).toBe(0)
-      const result = applyAction(jumped, { type: 'Stay' }, twoWeightedRoutine)
+      const result = applyAction(
+        jumped,
+        { type: 'Increment' },
+        twoWeightedRoutine,
+      )
       expect(result.setLogs.at(-1)?.exerciseIdx).toBe(0)
       expect(result.setLogs.at(-1)?.setIdx).toBe(0)
       expect(result.cursorOverride).toBeUndefined()
@@ -900,26 +881,25 @@ describe('applyAction', () => {
     })
 
     it('applyAction with non-JumpTo when override points at completed exercise → throws', () => {
-      // Complete exercise 0, then JumpTo back to it, then try to dispatch
       const state = dispatch(
         initialState(),
         [
-          { type: 'Stay' },
-          { type: 'Stay' },
+          { type: 'Increment' },
+          { type: 'Increment' },
           { type: 'Complete' },
           { type: 'JumpTo', exerciseIdx: 0 },
         ],
         twoWeightedRoutine,
       )
       expect(() =>
-        applyAction(state, { type: 'Stay' }, twoWeightedRoutine),
+        applyAction(state, { type: 'Increment' }, twoWeightedRoutine),
       ).toThrow(/exercise 0 has 3 sets; cannot write setIdx 3/)
     })
 
     it('JumpTo preserves setLogs reference (same array, not a copy)', () => {
       const state = applyAction(
         initialState(),
-        { type: 'Stay' },
+        { type: 'Increment' },
         twoWeightedRoutine,
       )
       const after = applyAction(
@@ -934,7 +914,11 @@ describe('applyAction', () => {
 
 describe('undo', () => {
   it('dispatch one action then undo → state equals initialState()', () => {
-    const after = applyAction(initialState(), { type: 'Stay' }, weightedRoutine)
+    const after = applyAction(
+      initialState(),
+      { type: 'Increment' },
+      weightedRoutine,
+    )
     expect(undo(after)).toEqual(initialState())
   })
 
@@ -944,7 +928,11 @@ describe('undo', () => {
       { type: 'Increment' },
       weightedRoutine,
     )
-    const afterTwo = applyAction(afterOne, { type: 'Stay' }, weightedRoutine)
+    const afterTwo = applyAction(
+      afterOne,
+      { type: 'Increment' },
+      weightedRoutine,
+    )
     const result = undo(afterTwo)
     expect(result.setLogs).toHaveLength(1)
     expect(result.setLogs).toEqual(afterOne.setLogs)
@@ -956,12 +944,11 @@ describe('undo', () => {
   })
 
   it('undo across exercise boundary → removes only the most recent log; cursor points back to un-done set', () => {
-    // Complete exercise 0 (3 sets), then write 1 set on exercise 1.
     const state = dispatch(
       initialState(),
       [
-        { type: 'Stay' }, // ex0 set 0
-        { type: 'Stay' }, // ex0 set 1
+        { type: 'Increment' }, // ex0 set 0
+        { type: 'Increment' }, // ex0 set 1
         { type: 'Complete' }, // ex0 set 2
         { type: 'Increment' }, // ex1 set 0 (only log on ex1)
       ],
@@ -969,19 +956,16 @@ describe('undo', () => {
     )
     const undone = undo(state)
     expect(undone.setLogs).toHaveLength(3)
-    // ex1 should be empty after undo
     expect(undone.setLogs.filter(l => l.exerciseIdx === 1)).toEqual([])
-    // ex0 still has 3 logs
     expect(undone.setLogs.filter(l => l.exerciseIdx === 0)).toHaveLength(3)
-    // A subsequent applyAction writes to exercise 1, setIdx 0 again
-    const next = applyAction(undone, { type: 'Stay' }, twoWeightedRoutine)
+    const next = applyAction(undone, { type: 'Increment' }, twoWeightedRoutine)
     const lastLog = next.setLogs.at(-1)!
     expect(lastLog.exerciseIdx).toBe(1)
     expect(lastLog.setIdx).toBe(0)
   })
 
   it.each<[string, Action, Routine]>([
-    ['weighted first set Stay', { type: 'Stay' }, weightedRoutine],
+    ['weighted first set Increment', { type: 'Increment' }, weightedRoutine],
     [
       'weighted with prior log + Increment',
       { type: 'Increment' },
@@ -991,17 +975,21 @@ describe('undo', () => {
     ['time-based Hold', { type: 'Hold' }, timeBasedRoutine],
     ['cardio Done', { type: 'Done' }, cardioRoutine],
   ])('round-trip property: %s', (_label, action, routine) => {
-    // For weighted-with-prior, dispatch one Stay first so there's a prior log.
+    // For weighted-with-prior, dispatch one Increment first so there's a prior log.
     const initial =
       _label === 'weighted with prior log + Increment'
-        ? applyAction(initialState(), { type: 'Stay' }, routine)
+        ? applyAction(initialState(), { type: 'Increment' }, routine)
         : initialState()
     const after = applyAction(initial, action, routine)
     expect(undo(after)).toEqual(initial)
   })
 
   it('undo twice on a state with one log → second undo is no-op', () => {
-    const after = applyAction(initialState(), { type: 'Stay' }, weightedRoutine)
+    const after = applyAction(
+      initialState(),
+      { type: 'Increment' },
+      weightedRoutine,
+    )
     const once = undo(after)
     const twice = undo(once)
     expect(twice).toEqual(initialState())
@@ -1010,7 +998,7 @@ describe('undo', () => {
   it('undo on state with cursorOverride + logs → removes last log AND clears override', () => {
     const state = applyAction(
       initialState(),
-      { type: 'Stay' },
+      { type: 'Increment' },
       twoWeightedRoutine,
     )
     const withOverride = applyAction(
@@ -1027,7 +1015,7 @@ describe('undo', () => {
   it('undo after JumpTo with no subsequent write → setLogs unchanged, override cleared', () => {
     const state = applyAction(
       initialState(),
-      { type: 'Stay' },
+      { type: 'Increment' },
       twoWeightedRoutine,
     )
     const withOverride = applyAction(
@@ -1082,34 +1070,20 @@ describe('nextTarget', () => {
     })
   })
 
-  it('after one Stay log → weight = SW, setIdx = 1', () => {
-    const state = applyAction(initialState(), { type: 'Stay' }, weightedRoutine)
-    expect(nextTarget(state, weightedRoutine)?.weight).toBe(100)
-    expect(nextTarget(state, weightedRoutine)?.setIdx).toBe(1)
-  })
-
-  it('after one Decrement log → weight = SW − inc, setIdx = 1', () => {
-    const state = applyAction(
-      initialState(),
-      { type: 'Decrement' },
-      weightedRoutine,
-    )
-    expect(nextTarget(state, weightedRoutine)?.weight).toBe(95)
-  })
-
-  it('after one Failed log → weight = SW (R8: Failed → Stay-equivalent)', () => {
+  it('after one Failed log → weight = SW (Failed → stay-equivalent)', () => {
     const state = applyAction(
       initialState(),
       { type: 'Failed', actualReps: 5 },
       weightedRoutine,
     )
     expect(nextTarget(state, weightedRoutine)?.weight).toBe(100)
+    expect(nextTarget(state, weightedRoutine)?.setIdx).toBe(1)
   })
 
   it('after exercise.sets logs on ex 0 → advance to ex 1, setIdx = 0', () => {
     const state = dispatch(
       initialState(),
-      [{ type: 'Stay' }, { type: 'Stay' }, { type: 'Complete' }],
+      [{ type: 'Increment' }, { type: 'Increment' }, { type: 'Complete' }],
       twoWeightedRoutine,
     )
     expect(nextTarget(state, twoWeightedRoutine)).toEqual({
@@ -1124,10 +1098,10 @@ describe('nextTarget', () => {
     const state = dispatch(
       initialState(),
       [
-        { type: 'Stay' }, // ex0 set 0
-        { type: 'Stay' }, // ex0 set 1
+        { type: 'Increment' }, // ex0 set 0
+        { type: 'Increment' }, // ex0 set 1
         { type: 'Complete' }, // ex0 set 2
-        { type: 'Stay' }, // ex1 set 0
+        { type: 'Increment' }, // ex1 set 0
       ],
       twoWeightedRoutine,
     )
@@ -1223,14 +1197,14 @@ describe('nextTarget', () => {
     // Complete bench's 3 sets
     let state = dispatch(
       initialState(),
-      [{ type: 'Stay' }, { type: 'Stay' }, { type: 'Complete' }],
+      [{ type: 'Increment' }, { type: 'Increment' }, { type: 'Complete' }],
       routine,
     )
     // Next is cardio
     expect(nextTarget(state, routine)?.exerciseIdx).toBe(1)
     // Done cardio
     state = applyAction(state, { type: 'Done' }, routine)
-    // Next is squat, setIdx 0 with squat SW (not bench's last 100)
+    // Next is squat, setIdx 0 with squat SW (not bench's last weight)
     expect(nextTarget(state, routine)).toEqual({
       weight: 200,
       reps: 5,
@@ -1240,7 +1214,7 @@ describe('nextTarget', () => {
     // Walk squat
     state = dispatch(
       state,
-      [{ type: 'Stay' }, { type: 'Stay' }, { type: 'Complete' }],
+      [{ type: 'Increment' }, { type: 'Increment' }, { type: 'Complete' }],
       routine,
     )
     expect(nextTarget(state, routine)).toBeNull()
@@ -1249,7 +1223,7 @@ describe('nextTarget', () => {
   it('full routine completed → returns null', () => {
     const state = dispatch(
       initialState(),
-      [{ type: 'Stay' }, { type: 'Stay' }, { type: 'Complete' }],
+      [{ type: 'Increment' }, { type: 'Increment' }, { type: 'Complete' }],
       weightedRoutine,
     )
     expect(nextTarget(state, weightedRoutine)).toBeNull()
@@ -1273,24 +1247,37 @@ describe('nextTarget', () => {
     expect(nextTarget(state, twoWeightedRoutine)?.exerciseIdx).toBe(1)
   })
 
-  it('agreement: nextTarget(s, r).weight === applyAction(s, Stay, r).setLogs.at(-1).weight', () => {
+  it('agreement: nextTarget(s, r).weight matches the weight applyAction records', () => {
     // Pin that deriveNextWeight is the shared source of weight derivation.
-    const states: SessionState[] = [
+    // For non-last sets, use Increment; for last set, use Complete.
+    // Each should log the same weight as nextTarget previews.
+    const nonLastStates: SessionState[] = [
       initialState(),
       applyAction(initialState(), { type: 'Increment' }, weightedRoutine),
-      applyAction(initialState(), { type: 'Stay' }, weightedRoutine),
-      applyAction(initialState(), { type: 'Decrement' }, weightedRoutine),
-      dispatch(
+      applyAction(
         initialState(),
-        [{ type: 'Increment' }, { type: 'Stay' }],
+        { type: 'Failed', actualReps: 5 },
         weightedRoutine,
       ),
     ]
-    for (const s of states) {
+    for (const s of nonLastStates) {
       const preview = nextTarget(s, weightedRoutine)
-      const applied = applyAction(s, { type: 'Stay' }, weightedRoutine)
+      const applied = applyAction(s, { type: 'Increment' }, weightedRoutine)
       expect(preview?.weight).toBe(applied.setLogs.at(-1)?.weight)
     }
+    // Last-set state: 2 Increments done, on set 3 of 3
+    const lastSetState = dispatch(
+      initialState(),
+      [{ type: 'Increment' }, { type: 'Increment' }],
+      weightedRoutine,
+    )
+    const lastPreview = nextTarget(lastSetState, weightedRoutine)
+    const lastApplied = applyAction(
+      lastSetState,
+      { type: 'Complete' },
+      weightedRoutine,
+    )
+    expect(lastPreview?.weight).toBe(lastApplied.setLogs.at(-1)?.weight)
   })
 
   it('after JumpTo to exercise 2 on empty state → returns exercise 2 first-set target', () => {
@@ -1339,8 +1326,8 @@ describe('nextTarget', () => {
     const state = dispatch(
       initialState(),
       [
-        { type: 'Stay' }, // ex0 set 0
-        { type: 'Stay' }, // ex0 set 1
+        { type: 'Increment' }, // ex0 set 0
+        { type: 'Increment' }, // ex0 set 1
         { type: 'Complete' }, // ex0 set 2
         { type: 'JumpTo', exerciseIdx: 0 }, // jump back to completed ex0
       ],
@@ -1353,113 +1340,64 @@ describe('nextTarget', () => {
 })
 
 describe('classifyPostSession', () => {
-  // Hand-construct logs for classification tests. classifyPostSession only reads
-  // log.weight and log.exerciseIdx; action values are placeholders.
+  // Hand-construct logs for classification tests.
   function weightedLog(
     exerciseIdx: number,
     setIdx: number,
     weight: number,
+    action: Action = { type: 'Increment' },
   ): SetLog {
-    return {
-      exerciseIdx,
-      setIdx,
-      weight,
-      reps: 10,
-      actualReps: 10,
-      action: { type: 'Stay' },
-    }
+    return { exerciseIdx, setIdx, weight, reps: 10, actualReps: 10, action }
   }
 
-  it('AE F3-A: Bench Press SW=100 inc=5, logs 100/105/110 → Case A', () => {
+  it('logs 100/105/110 (all successful) → Case B with newStartingWeight=110 (ending)', () => {
     const state: SessionState = {
       setLogs: [
         weightedLog(0, 0, 100),
         weightedLog(0, 1, 105),
-        weightedLog(0, 2, 110),
+        weightedLog(0, 2, 110, { type: 'Complete' }),
       ],
     }
     expect(classifyPostSession(state, weightedRoutine)).toEqual([
       {
-        case: 'A',
+        case: 'B',
         exerciseIdx: 0,
         originalStartingWeight: 100,
         lowest: 100,
         highest: 110,
         ending: 110,
-        stayOption: 100,
-        rollUpOption: 105,
+        newStartingWeight: 110,
       },
     ])
   })
 
-  it('All sets at SW → Case A with lowest=100, ending=100', () => {
+  it('all sets at SW (100/100/100), last Complete → newStartingWeight=100', () => {
     const state: SessionState = {
       setLogs: [
         weightedLog(0, 0, 100),
         weightedLog(0, 1, 100),
-        weightedLog(0, 2, 100),
+        weightedLog(0, 2, 100, { type: 'Complete' }),
       ],
     }
     expect(classifyPostSession(state, weightedRoutine)).toEqual([
       {
-        case: 'A',
+        case: 'B',
         exerciseIdx: 0,
         originalStartingWeight: 100,
         lowest: 100,
         highest: 100,
         ending: 100,
-        stayOption: 100,
-        rollUpOption: 105,
+        newStartingWeight: 100,
       },
     ])
   })
 
-  it('AE F3-B: Bench Press SW=100, logs 100/95 (dropped at set 2) → Case B', () => {
-    const state: SessionState = {
-      setLogs: [weightedLog(0, 0, 100), weightedLog(0, 1, 95)],
-    }
-    expect(classifyPostSession(state, weightedRoutine)).toEqual([
-      {
-        case: 'B',
-        exerciseIdx: 0,
-        originalStartingWeight: 100,
-        lowest: 95,
-        highest: 100,
-        ending: 95,
-        newStartingWeight: 95,
-      },
-    ])
-  })
-
-  it('Bench Press SW=100, logs 100/95/95/95 → Case B with newStartingWeight=95', () => {
-    const state: SessionState = {
-      setLogs: [
-        weightedLog(0, 0, 100),
-        weightedLog(0, 1, 95),
-        weightedLog(0, 2, 95),
-        weightedLog(0, 3, 95),
-      ],
-    }
-    expect(classifyPostSession(state, weightedRoutine)).toEqual([
-      {
-        case: 'B',
-        exerciseIdx: 0,
-        originalStartingWeight: 100,
-        lowest: 95,
-        highest: 100,
-        ending: 95,
-        newStartingWeight: 95,
-      },
-    ])
-  })
-
-  it('Bench Press SW=100, logs 100/105/100/95 → Case B with lowest=95 highest=105 ending=95', () => {
+  it('last set Failed → newStartingWeight = originalStartingWeight (no update)', () => {
     const state: SessionState = {
       setLogs: [
         weightedLog(0, 0, 100),
         weightedLog(0, 1, 105),
-        weightedLog(0, 2, 100),
-        weightedLog(0, 3, 95),
+        weightedLog(0, 2, 105, { type: 'Failed', actualReps: 6 }),
       ],
     }
     expect(classifyPostSession(state, weightedRoutine)).toEqual([
@@ -1467,15 +1405,35 @@ describe('classifyPostSession', () => {
         case: 'B',
         exerciseIdx: 0,
         originalStartingWeight: 100,
-        lowest: 95,
+        lowest: 100,
         highest: 105,
-        ending: 95,
-        newStartingWeight: 95,
+        ending: 105,
+        newStartingWeight: 100,
       },
     ])
   })
 
-  it('Routine = Bench + Pushups + Plank, logs for all → only Bench Press emits', () => {
+  it('partial session ending in Failed → no update', () => {
+    const state: SessionState = {
+      setLogs: [
+        weightedLog(0, 0, 100),
+        weightedLog(0, 1, 100, { type: 'Failed', actualReps: 7 }),
+      ],
+    }
+    expect(classifyPostSession(state, weightedRoutine)).toEqual([
+      {
+        case: 'B',
+        exerciseIdx: 0,
+        originalStartingWeight: 100,
+        lowest: 100,
+        highest: 100,
+        ending: 100,
+        newStartingWeight: 100,
+      },
+    ])
+  })
+
+  it('Routine = Bench + Pushups + Plank, logs for all → only Bench emits', () => {
     const routine: Routine = {
       exercises: [
         {
@@ -1486,25 +1444,15 @@ describe('classifyPostSession', () => {
           startingWeight: 100,
           increment: 5,
         },
-        {
-          name: 'Pushups',
-          type: 'bodyweight',
-          sets: 3,
-          targetReps: 15,
-        },
-        {
-          name: 'Plank',
-          type: 'time-based',
-          sets: 3,
-          durationSeconds: 30,
-        },
+        { name: 'Pushups', type: 'bodyweight', sets: 3, targetReps: 15 },
+        { name: 'Plank', type: 'time-based', sets: 3, durationSeconds: 30 },
       ],
     }
     const state: SessionState = {
       setLogs: [
         weightedLog(0, 0, 100),
         weightedLog(0, 1, 100),
-        weightedLog(0, 2, 100),
+        weightedLog(0, 2, 100, { type: 'Complete' }),
         {
           exerciseIdx: 1,
           setIdx: 0,
@@ -1512,44 +1460,38 @@ describe('classifyPostSession', () => {
           actualReps: 15,
           action: { type: 'Complete' },
         },
-        {
-          exerciseIdx: 2,
-          setIdx: 0,
-          duration: 30,
-          action: { type: 'Hold' },
-        },
+        { exerciseIdx: 2, setIdx: 0, duration: 30, action: { type: 'Hold' } },
       ],
     }
     const result = classifyPostSession(state, routine)
     expect(result).toHaveLength(1)
     expect(result[0]?.exerciseIdx).toBe(0)
-    expect(result[0]?.case).toBe('A')
+    expect(result[0]?.case).toBe('B')
   })
 
-  it('Two weighted exercises with logs → two prompts in routine order', () => {
+  it('two weighted exercises → two prompts in routine order, both Case B', () => {
     const state: SessionState = {
       setLogs: [
         weightedLog(0, 0, 100),
         weightedLog(0, 1, 100),
-        weightedLog(0, 2, 100),
+        weightedLog(0, 2, 100, { type: 'Complete' }),
         weightedLog(1, 0, 200),
         weightedLog(1, 1, 200),
-        weightedLog(1, 2, 200),
+        weightedLog(1, 2, 200, { type: 'Complete' }),
       ],
     }
     const result = classifyPostSession(state, twoWeightedRoutine)
     expect(result).toHaveLength(2)
     expect(result[0]?.exerciseIdx).toBe(0)
     expect(result[1]?.exerciseIdx).toBe(1)
-    expect(result[0]?.case).toBe('A')
-    expect(result[1]?.case).toBe('A')
+    expect(result[0]?.case).toBe('B')
+    expect(result[1]?.case).toBe('B')
   })
 
-  it('weighted exercise with no logs (session abandoned before) → no prompt', () => {
+  it('only one of two exercises has logs → one prompt', () => {
     const state: SessionState = {
       setLogs: [weightedLog(0, 0, 100)],
     }
-    // twoWeightedRoutine has Bench (idx 0) and Squat (idx 1). Only Bench has logs.
     const result = classifyPostSession(state, twoWeightedRoutine)
     expect(result).toHaveLength(1)
     expect(result[0]?.exerciseIdx).toBe(0)
@@ -1562,54 +1504,32 @@ describe('classifyPostSession', () => {
   it('all-cardio routine → empty array', () => {
     const routine: Routine = {
       exercises: [
-        {
-          name: 'Treadmill',
-          type: 'cardio',
-          sets: 1,
-          durationSeconds: 600,
-        },
+        { name: 'Treadmill', type: 'cardio', sets: 1, durationSeconds: 600 },
       ],
     }
     const state: SessionState = {
       setLogs: [
-        {
-          exerciseIdx: 0,
-          setIdx: 0,
-          duration: 600,
-          action: { type: 'Done' },
-        },
+        { exerciseIdx: 0, setIdx: 0, duration: 600, action: { type: 'Done' } },
       ],
     }
     expect(classifyPostSession(state, routine)).toEqual([])
   })
 
-  it('Single set at 95 (below SW) → Case B with newStartingWeight=95', () => {
+  it('single log at SW (not Failed) → newStartingWeight = ending = SW', () => {
     const state: SessionState = {
-      setLogs: [weightedLog(0, 0, 95)],
+      setLogs: [weightedLog(0, 0, 100, { type: 'Complete' })],
     }
     expect(classifyPostSession(state, weightedRoutine)).toEqual([
       {
         case: 'B',
         exerciseIdx: 0,
         originalStartingWeight: 100,
-        lowest: 95,
-        highest: 95,
-        ending: 95,
-        newStartingWeight: 95,
+        lowest: 100,
+        highest: 100,
+        ending: 100,
+        newStartingWeight: 100,
       },
     ])
-  })
-
-  it('Boundary: lowest exactly equals SW (100/100/100) → Case A', () => {
-    const state: SessionState = {
-      setLogs: [
-        weightedLog(0, 0, 100),
-        weightedLog(0, 1, 100),
-        weightedLog(0, 2, 100),
-      ],
-    }
-    const result = classifyPostSession(state, weightedRoutine)
-    expect(result[0]?.case).toBe('A')
   })
 })
 
@@ -1624,26 +1544,16 @@ describe('PRD fixtures', () => {
         startingWeight: 100,
         increment: 5,
       },
-      {
-        name: 'Pushups',
-        type: 'bodyweight',
-        sets: 3,
-        targetReps: 15,
-      },
-      {
-        name: 'Plank',
-        type: 'time-based',
-        sets: 3,
-        durationSeconds: 30,
-      },
+      { name: 'Pushups', type: 'bodyweight', sets: 3, targetReps: 15 },
+      { name: 'Plank', type: 'time-based', sets: 3, durationSeconds: 30 },
     ],
   }
 
-  it('F2: Push Day walkthrough → final setLogs exactly match expected 9-entry array', () => {
+  it('F2: Push Day walkthrough → final setLogs match expected 9-entry array', () => {
     const actions: Action[] = [
-      // Bench Press 3 sets
+      // Bench Press 3 sets: Increment, Increment, Complete
       { type: 'Increment' },
-      { type: 'Stay' },
+      { type: 'Increment' },
       { type: 'Complete' },
       // Pushups 3 sets
       { type: 'Failed', actualReps: 12 },
@@ -1670,12 +1580,12 @@ describe('PRD fixtures', () => {
         weight: 105,
         reps: 10,
         actualReps: 10,
-        action: { type: 'Stay' },
+        action: { type: 'Increment' },
       },
       {
         exerciseIdx: 0,
         setIdx: 2,
-        weight: 105,
+        weight: 110,
         reps: 10,
         actualReps: 10,
         action: { type: 'Complete' },
@@ -1701,44 +1611,26 @@ describe('PRD fixtures', () => {
         actualReps: 15,
         action: { type: 'Complete' },
       },
-      {
-        exerciseIdx: 2,
-        setIdx: 0,
-        duration: 30,
-        action: { type: 'Hold' },
-      },
-      {
-        exerciseIdx: 2,
-        setIdx: 1,
-        duration: 30,
-        action: { type: 'Hold' },
-      },
-      {
-        exerciseIdx: 2,
-        setIdx: 2,
-        duration: 30,
-        action: { type: 'Hold' },
-      },
+      { exerciseIdx: 2, setIdx: 0, duration: 30, action: { type: 'Hold' } },
+      { exerciseIdx: 2, setIdx: 1, duration: 30, action: { type: 'Hold' } },
+      { exerciseIdx: 2, setIdx: 2, duration: 30, action: { type: 'Hold' } },
     ])
-    // After the full session: nextTarget returns null (session complete)
     expect(nextTarget(final, pushDay)).toBeNull()
-    // classifyPostSession emits one Case A prompt for Bench Press only
+    // classifyPostSession auto-commits Bench Press with ending weight (110)
     expect(classifyPostSession(final, pushDay)).toEqual([
       {
-        case: 'A',
+        case: 'B',
         exerciseIdx: 0,
         originalStartingWeight: 100,
         lowest: 100,
-        highest: 105,
-        ending: 105,
-        stayOption: 100,
-        rollUpOption: 105,
+        highest: 110,
+        ending: 110,
+        newStartingWeight: 110,
       },
     ])
   })
 
-  it('F3 Case A: Bench Press at 100/105/110 → Stay@100 or Roll up to 105', () => {
-    // Produced via [Increment, Increment, Complete] on Bench Press
+  it('F3: Bench Press at 100/105/110 → auto-commits newStartingWeight=110', () => {
     const benchOnly: Routine = {
       exercises: [
         {
@@ -1758,21 +1650,18 @@ describe('PRD fixtures', () => {
     )
     expect(classifyPostSession(state, benchOnly)).toEqual([
       {
-        case: 'A',
+        case: 'B',
         exerciseIdx: 0,
         originalStartingWeight: 100,
         lowest: 100,
         highest: 110,
         ending: 110,
-        stayOption: 100,
-        rollUpOption: 105,
+        newStartingWeight: 110,
       },
     ])
   })
 
-  it('F3 Case B: Bench Press at 100/100/95/95 → informational, new SW = 95', () => {
-    // Hand-constructed state: 4 logs for a 3-set routine (not producible via applyAction;
-    // demonstrates the classification operates over arbitrary log arrays).
+  it('F3 last set Failed: Bench Press at 100/105/Failed → newStartingWeight stays at 100', () => {
     const benchOnly: Routine = {
       exercises: [
         {
@@ -1785,51 +1674,24 @@ describe('PRD fixtures', () => {
         },
       ],
     }
-    const state: SessionState = {
-      setLogs: [
-        {
-          exerciseIdx: 0,
-          setIdx: 0,
-          weight: 100,
-          reps: 10,
-          actualReps: 10,
-          action: { type: 'Stay' },
-        },
-        {
-          exerciseIdx: 0,
-          setIdx: 1,
-          weight: 100,
-          reps: 10,
-          actualReps: 10,
-          action: { type: 'Stay' },
-        },
-        {
-          exerciseIdx: 0,
-          setIdx: 2,
-          weight: 95,
-          reps: 10,
-          actualReps: 10,
-          action: { type: 'Stay' },
-        },
-        {
-          exerciseIdx: 0,
-          setIdx: 3,
-          weight: 95,
-          reps: 10,
-          actualReps: 10,
-          action: { type: 'Stay' },
-        },
+    const state = dispatch(
+      initialState(),
+      [
+        { type: 'Increment' },
+        { type: 'Increment' },
+        { type: 'Failed', actualReps: 6 },
       ],
-    }
+      benchOnly,
+    )
     expect(classifyPostSession(state, benchOnly)).toEqual([
       {
         case: 'B',
         exerciseIdx: 0,
         originalStartingWeight: 100,
-        lowest: 95,
-        highest: 100,
-        ending: 95,
-        newStartingWeight: 95,
+        lowest: 100,
+        highest: 110,
+        ending: 110,
+        newStartingWeight: 100,
       },
     ])
   })

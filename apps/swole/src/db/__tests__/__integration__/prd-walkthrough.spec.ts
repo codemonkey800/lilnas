@@ -140,13 +140,11 @@ describe('PRD F2/F3 walkthrough', () => {
       ],
     }
 
-    // (5) Run the F2 action sequence through the FSM. The pattern is chosen
-    //     to land Case A (lowest >= originalStartingWeight) for bench so the
-    //     post-session prompt is "Roll up".
+    // (5) Run the F2 action sequence through the FSM.
     let state: SessionState = { setLogs: [] }
-    // Bench: Increment, Stay, Complete → weights [100, 105, 105]
+    // Bench: Increment, Increment, Complete → weights [100, 105, 110]
     state = applyAction(state, { type: 'Increment' }, fsmRoutine)
-    state = applyAction(state, { type: 'Stay' }, fsmRoutine)
+    state = applyAction(state, { type: 'Increment' }, fsmRoutine)
     state = applyAction(state, { type: 'Complete' }, fsmRoutine)
     // Pushups: Complete x3
     state = applyAction(state, { type: 'Complete' }, fsmRoutine)
@@ -178,9 +176,9 @@ describe('PRD F2/F3 walkthrough', () => {
       .orderBy(setLogs.loggedAt, setLogs.id)
       .all()
     expect(rawActions).toEqual([
-      // Bench: Increment, Stay, Complete
+      // Bench: Increment, Increment, Complete
       { action: 'Increment', exerciseId: bench.id, setNumber: 1 },
-      { action: 'Stay', exerciseId: bench.id, setNumber: 2 },
+      { action: 'Increment', exerciseId: bench.id, setNumber: 2 },
       { action: 'Complete', exerciseId: bench.id, setNumber: 3 },
       // Pushups: Complete x3
       { action: 'Complete', exerciseId: pushups.id, setNumber: 1 },
@@ -197,24 +195,22 @@ describe('PRD F2/F3 walkthrough', () => {
     expect(hydrated).not.toBeNull()
     expect(hydrated!.sessionState.setLogs).toEqual(state.setLogs)
 
-    // (8) Compute the post-session prompt set.
+    // (8) Compute the post-session prompt set — auto-commit with ending weight.
     const prompts = classifyPostSession(state, fsmRoutine)
     expect(prompts).toHaveLength(1)
     const benchPrompt = prompts[0]
-    expect(benchPrompt?.case).toBe('A')
+    expect(benchPrompt?.case).toBe('B')
     expect(benchPrompt?.exerciseIdx).toBe(0)
-    if (benchPrompt?.case !== 'A') throw new Error('expected Case A')
-    expect(benchPrompt.lowest).toBe(100)
-    expect(benchPrompt.highest).toBe(105)
-    expect(benchPrompt.ending).toBe(105)
-    expect(benchPrompt.stayOption).toBe(100)
-    expect(benchPrompt.rollUpOption).toBe(105)
+    expect(benchPrompt?.lowest).toBe(100)
+    expect(benchPrompt?.highest).toBe(110)
+    expect(benchPrompt?.ending).toBe(110)
+    expect(benchPrompt?.newStartingWeight).toBe(110)
 
-    // (9) User taps "Roll up" — commit chosenStartingWeight = rollUpOption.
+    // (9) Auto-commit chosenStartingWeight = newStartingWeight.
     await commitProgressionDecision({
       sessionId: session.id,
       exerciseId: bench.id,
-      chosenStartingWeight: benchPrompt.rollUpOption,
+      chosenStartingWeight: benchPrompt!.newStartingWeight,
     })
 
     // (10) Bench's canonical starting_weight is now 105; two progression
@@ -233,7 +229,7 @@ describe('PRD F2/F3 walkthrough', () => {
       'initial',
       'session_progression',
     ])
-    expect(benchProgs[1]?.startingWeight).toBe(105)
+    expect(benchProgs[1]?.startingWeight).toBe(110)
     expect(benchProgs[1]?.sessionId).toBe(session.id)
 
     // (10a) Pushups and Plank starting_weights unchanged (they're non-weighted).

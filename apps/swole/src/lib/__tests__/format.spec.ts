@@ -1,9 +1,4 @@
 import type { Exercise, NextTarget } from 'src/core/session-machine'
-import {
-  ArchiveBlockedByActiveSession,
-  RoutineAlreadyHasActiveSession,
-  RoutineArchived,
-} from 'src/db/errors'
 import type { ExerciseRow, SetLogRow } from 'src/db/types'
 import {
   formatBannerSubtitle,

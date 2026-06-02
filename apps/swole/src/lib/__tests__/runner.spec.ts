@@ -12,6 +12,7 @@ import { applyAction, nextTarget, undo } from 'src/core/session-machine'
 import {
   countLogsForExercise,
   deriveButtonConfig,
+  deriveEarlyFinishSummary,
   deriveExerciseList,
   derivePreviousSetPeek,
   deriveProgress,
@@ -180,6 +181,7 @@ describe('deriveButtonConfig — happy paths', () => {
     const state = stateWith(2, 0, routine)
     const target = nextTarget(state, routine)!
     const buttons = deriveButtonConfig(bench, true, target)
+    expect(buttons).toHaveLength(4)
     expect(buttons[0]).toMatchObject({
       slot: 1,
       actionType: 'Complete',
@@ -531,9 +533,9 @@ describe('derivePreviousSetPeek', () => {
 
   it('peek reflects the LAST log for the exercise', () => {
     let state = applyAction(empty, { type: 'Increment' }, routine) // set 1
-    state = applyAction(state, { type: 'Stay' }, routine) // set 2
+    state = applyAction(state, { type: 'Increment' }, routine) // set 2
     const peek = derivePreviousSetPeek(state, routine, 0)
-    expect(peek).toMatchObject({ kind: 'log', action: { type: 'Stay' } })
+    expect(peek).toMatchObject({ kind: 'log', action: { type: 'Increment' } })
   })
 })
 
@@ -554,6 +556,70 @@ describe('deriveSessionSummary', () => {
   it('empty session → totalSetsLogged:0', () => {
     const summary = deriveSessionSummary(empty, routine)
     expect(summary).toEqual({ exerciseCount: 3, totalSetsLogged: 0 })
+  })
+})
+
+// ─── deriveEarlyFinishSummary ─────────────────────────────────────────────────
+
+describe('deriveEarlyFinishSummary', () => {
+  it('AE3: partial mixed session — 3 trained / 7 logged → {trainedCount:3, totalSetsLogged:7}', () => {
+    // bench 3 sets + pushups 3 sets + plank 1 of 2 = 7 total, all 3 exercises touched
+    let state = stateWith(3, 0, routine)
+    state = applyAction(state, { type: 'Complete' }, routine)
+    state = applyAction(state, { type: 'Complete' }, routine)
+    state = applyAction(state, { type: 'Complete' }, routine)
+    state = applyAction(state, { type: 'Hold' }, routine)
+    const summary = deriveEarlyFinishSummary(state, routine)
+    expect(summary).toEqual({ trainedCount: 3, totalSetsLogged: 7 })
+  })
+
+  it('all exercises trained → trainedCount equals routine exercise count', () => {
+    // bench 3 + pushups 3 + plank 2 = 8 sets, all 3 exercises
+    let state = stateWith(3, 0, routine)
+    state = applyAction(state, { type: 'Complete' }, routine)
+    state = applyAction(state, { type: 'Complete' }, routine)
+    state = applyAction(state, { type: 'Complete' }, routine)
+    state = applyAction(state, { type: 'Hold' }, routine)
+    state = applyAction(state, { type: 'Hold' }, routine)
+    const summary = deriveEarlyFinishSummary(state, routine)
+    expect(summary).toEqual({
+      trainedCount: routine.exercises.length,
+      totalSetsLogged: 8,
+    })
+  })
+
+  it('single set logged → {trainedCount:1, totalSetsLogged:1}', () => {
+    const state = stateWith(1, 0, routine)
+    const summary = deriveEarlyFinishSummary(state, routine)
+    expect(summary).toEqual({ trainedCount: 1, totalSetsLogged: 1 })
+  })
+
+  it('zero logs → {trainedCount:0, totalSetsLogged:0}', () => {
+    const summary = deriveEarlyFinishSummary(empty, routine)
+    expect(summary).toEqual({ trainedCount: 0, totalSetsLogged: 0 })
+  })
+
+  it('non-contiguous trained — idx 0 and 2 but not 1 → trainedCount:2', () => {
+    const state: SessionState = {
+      setLogs: [
+        { exerciseIdx: 0, setIdx: 0, action: { type: 'Increment' } },
+        { exerciseIdx: 2, setIdx: 0, action: { type: 'Hold' } },
+      ],
+    }
+    const summary = deriveEarlyFinishSummary(state, routine)
+    expect(summary).toEqual({ trainedCount: 2, totalSetsLogged: 2 })
+  })
+
+  it('mixed exercise types — bodyweight and cardio count toward trainedCount', () => {
+    const mixedRoutine: Routine = { exercises: [pushups, run] }
+    const state: SessionState = {
+      setLogs: [
+        { exerciseIdx: 0, setIdx: 0, action: { type: 'Complete' } },
+        { exerciseIdx: 1, setIdx: 0, action: { type: 'Done' } },
+      ],
+    }
+    const summary = deriveEarlyFinishSummary(state, mixedRoutine)
+    expect(summary).toEqual({ trainedCount: 2, totalSetsLogged: 2 })
   })
 })
 

@@ -356,3 +356,21 @@ export function deriveSessionSummary(
     totalSetsLogged: effectiveState.setLogs.length,
   }
 }
+
+// ─── Early-finish summary ──────────────────────────────────────────────────
+
+export type EarlyFinishSummary = {
+  trainedCount: number
+  totalSetsLogged: number
+}
+
+export function deriveEarlyFinishSummary(
+  effectiveState: SessionState,
+  routine: Routine,
+): EarlyFinishSummary {
+  let trainedCount = 0
+  for (let idx = 0; idx < routine.exercises.length; idx++) {
+    if (countLogsForExercise(effectiveState.setLogs, idx) > 0) trainedCount++
+  }
+  return { trainedCount, totalSetsLogged: effectiveState.setLogs.length }
+}
