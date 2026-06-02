@@ -7,6 +7,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import Autocomplete from '@mui/material/Autocomplete'
 import FormControl from '@mui/material/FormControl'
+import FormHelperText from '@mui/material/FormHelperText'
 import IconButton from '@mui/material/IconButton'
 import InputLabel from '@mui/material/InputLabel'
 import MenuItem from '@mui/material/MenuItem'
@@ -32,6 +33,8 @@ export type ExerciseCardProps = {
   onRemove: () => void
   // Callback ref so the parent can move focus to the name field on add
   nameInputRef?: (el: HTMLInputElement | null) => void
+  // When true the type selector is disabled — existing exercises can't change type
+  typeLocked?: boolean
 }
 
 type ExerciseType = ExerciseCardState['type']
@@ -60,6 +63,7 @@ export function ExerciseCard({
   onTypeChange,
   onRemove,
   nameInputRef,
+  typeLocked = false,
 }: ExerciseCardProps) {
   const {
     attributes,
@@ -89,7 +93,7 @@ export function ExerciseCard({
       className="rounded-xl border border-neutral-800 bg-neutral-900/80 p-4"
     >
       {/* Card header: drag handle + type selector + remove control */}
-      <div className="mb-3 flex items-center gap-2">
+      <div className={cns('flex items-center gap-2', !typeLocked && 'mb-3')}>
         <IconButton
           ref={setActivatorNodeRef}
           size="small"
@@ -108,6 +112,7 @@ export function ExerciseCard({
             value={card.type}
             label="Type"
             onChange={e => onTypeChange(e.target.value as ExerciseType)}
+            disabled={typeLocked}
             className="!text-neutral-200"
             sx={{
               ...OUTLINED_INPUT_SX,
@@ -131,14 +136,23 @@ export function ExerciseCard({
           <DeleteOutlineIcon fontSize="small" />
         </IconButton>
       </div>
+      {typeLocked && (
+        <FormHelperText className="mb-3 mt-0.5 !text-neutral-500">
+          Remove &amp; re-add to change type
+        </FormHelperText>
+      )}
 
       {/* Common fields */}
       <div className="flex flex-col gap-3">
-        <Autocomplete<CatalogEntry, false, false, false>
+        <Autocomplete<CatalogEntry, false, false, true>
           options={options}
+          freeSolo
           value={selectedValue}
-          getOptionLabel={o => o.name}
-          isOptionEqualToValue={(o, v) => o.name === v.name}
+          inputValue={card.name}
+          getOptionLabel={o => (typeof o === 'string' ? o : o.name)}
+          isOptionEqualToValue={(o, v) =>
+            o.name === (typeof v === 'string' ? v : v.name)
+          }
           groupBy={card.type !== 'cardio' ? o => o.muscleGroup! : undefined}
           renderGroup={params => (
             <li key={params.key}>
@@ -162,7 +176,16 @@ export function ExerciseCard({
             </li>
           )}
           noOptionsText="No matching exercise — add it to the catalog."
-          onChange={(_, entry) => onChange(buildSelectionPatch(card, entry))}
+          onChange={(_, entry) => {
+            if (entry !== null && typeof entry !== 'string') {
+              onChange(buildSelectionPatch(card, entry))
+            } else if (entry === null) {
+              onChange({ name: '' })
+            }
+          }}
+          onInputChange={(_, value, reason) => {
+            if (reason === 'input') onChange({ name: value })
+          }}
           renderInput={params => (
             <TextField
               {...params}

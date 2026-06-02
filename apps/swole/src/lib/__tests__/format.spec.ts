@@ -25,6 +25,7 @@ import {
   mapSetLogError,
   mapStartSessionError,
   mapUndoError,
+  mapUpdateRoutineError,
 } from 'src/lib/format'
 import type { PreviousSetPeek } from 'src/lib/runner'
 
@@ -535,6 +536,50 @@ describe('mapUndoError', () => {
       code: 'UnknownError',
     })
     expect(result.kind).toBe('rollback')
+  })
+})
+
+// ─── mapUpdateRoutineError ────────────────────────────────────────────────────
+
+describe('mapUpdateRoutineError', () => {
+  it('ValidationError → error toast about checking fields', () => {
+    const result = mapUpdateRoutineError({
+      ok: false,
+      kind: 'validation',
+      code: 'ValidationError',
+    })
+    expect(result.severity).toBe('error')
+    expect(result.message).toMatch(/Check the highlighted/)
+  })
+
+  it('EditBlockedByActiveSession → warning toast about active workout', () => {
+    const result = mapUpdateRoutineError({
+      ok: false,
+      kind: 'forbidden_transition',
+      code: 'EditBlockedByActiveSession',
+    })
+    expect(result.severity).toBe('warning')
+    expect(result.message).toMatch(/workout in progress/)
+  })
+
+  it('NotFoundError → warning toast about routine not existing', () => {
+    const result = mapUpdateRoutineError({
+      ok: false,
+      kind: 'not_found',
+      code: 'NotFoundError',
+    })
+    expect(result.severity).toBe('warning')
+    expect(result.message).toMatch(/no longer exists/)
+  })
+
+  it('unknown code → generic error fallback', () => {
+    const result = mapUpdateRoutineError({
+      ok: false,
+      kind: 'conflict',
+      code: 'SomethingElse',
+    })
+    expect(result.severity).toBe('error')
+    expect(result.message).toMatch(/Could not save changes/)
   })
 })
 

@@ -5,14 +5,21 @@ import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db } from 'src/db/client'
 import {
   ArchiveBlockedByActiveSession,
+  EditBlockedByActiveSession,
   NotFoundError,
   ValidationError,
 } from 'src/db/errors'
-import { insertExerciseWithInitialProgression } from 'src/db/exercises'
+import {
+  activeSessionCountForRoutine,
+  applyExerciseUpdate,
+  insertExerciseWithInitialProgression,
+  type UpdateExerciseArgs,
+} from 'src/db/exercises'
 import { type DayCode, exercises, routines, sessions } from 'src/db/schema'
 import type { ExerciseRow, RoutineRow } from 'src/db/types'
 import { logger } from 'src/lib/logger'
 import {
+  type ExerciseDraft,
   routineFormSchema,
   type RoutineFormValues,
   toCreateExerciseArgs,
@@ -284,6 +291,162 @@ export async function archiveRoutine(
     )
   } catch (err) {
     logMutationError('archiveRoutine', args, err)
+    throw err
+  }
+}
+
+export type UpdateRoutineWithExercisesArgs = {
+  routineId: number
+  values: RoutineFormValues
+  cardIds: ReadonlyArray<number | null>
+}
+
+// Maps an ExerciseDraft to UpdateExerciseArgs for an existing card.
+// Type is intentionally absent — type is immutable in place (R8).
+function draftToUpdateArgs(
+  draft: ExerciseDraft,
+  id: number,
+  orderInRoutine: number,
+): UpdateExerciseArgs {
+  const base = { id, orderInRoutine, name: draft.name }
+  switch (draft.type) {
+    case 'weighted':
+      return {
+        ...base,
+        sets: draft.sets,
+        targetReps: draft.targetReps,
+        startingWeight: draft.startingWeight,
+        increment: draft.increment,
+      }
+    case 'bodyweight':
+      return { ...base, sets: draft.sets, targetReps: draft.targetReps }
+    case 'time-based':
+      return {
+        ...base,
+        sets: draft.sets,
+        durationSeconds: draft.durationSeconds,
+      }
+    case 'cardio':
+      return {
+        ...base,
+        sets: draft.sets,
+        durationSeconds: draft.durationSeconds,
+      }
+  }
+}
+
+// Applies the loaded-vs-submitted diff in one BEGIN IMMEDIATE transaction.
+// Reuses the weighted→progression rules via applyExerciseUpdate and the
+// initial-progression rule via insertExerciseWithInitialProgression.
+// Guards against a mid-flight startSession via an in-tx active-session check (R16).
+export async function updateRoutineWithExercises(
+  args: UpdateRoutineWithExercisesArgs,
+): Promise<RoutineRow> {
+  const parseResult = routineFormSchema.safeParse(args.values)
+  if (!parseResult.success) {
+    throw new ValidationError(
+      'Invalid routine data: check the highlighted fields',
+    )
+  }
+
+  if (args.cardIds.length !== args.values.exercises.length) {
+    throw new ValidationError('cardIds length must match exercises length')
+  }
+
+  const { name, days, exercises: drafts } = parseResult.data
+  const { routineId, cardIds } = args
+
+  try {
+    return db.transaction(
+      tx => {
+        // All DB access inside this callback MUST go through `tx`, never `db`.
+        if (activeSessionCountForRoutine(tx, routineId) > 0) {
+          throw new EditBlockedByActiveSession(routineId)
+        }
+
+        const existing = tx
+          .select()
+          .from(routines)
+          .where(eq(routines.id, routineId))
+          .get()
+        if (!existing) throw new NotFoundError('Routine', routineId)
+
+        const currentExercises = tx
+          .select()
+          .from(exercises)
+          .where(
+            and(
+              eq(exercises.routineId, routineId),
+              isNull(exercises.archivedAt),
+            ),
+          )
+          .orderBy(asc(exercises.orderInRoutine))
+          .all()
+
+        const currentIds = new Set(currentExercises.map(e => e.id))
+        for (const cardId of cardIds) {
+          if (cardId !== null && !currentIds.has(cardId)) {
+            throw new ValidationError(
+              `Exercise ${cardId} is not a current non-archived exercise of routine ${routineId}`,
+            )
+          }
+        }
+
+        const nonNull = cardIds.filter((id): id is number => id !== null)
+        if (new Set(nonNull).size !== nonNull.length) {
+          throw new ValidationError('cardIds must be distinct')
+        }
+
+        const byId = new Map(currentExercises.map(e => [e.id, e]))
+
+        tx.update(routines)
+          .set({ name, days, updatedAt: new Date() })
+          .where(eq(routines.id, routineId))
+          .run()
+
+        const submittedIds = new Set(
+          cardIds.filter((id): id is number => id !== null),
+        )
+
+        for (let i = 0; i < drafts.length; i++) {
+          const draft = drafts[i]!
+          const cardId = cardIds[i] ?? null
+          if (cardId === null) {
+            insertExerciseWithInitialProgression(
+              tx,
+              toCreateExerciseArgs(draft, routineId, i),
+            )
+          } else {
+            const existing = byId.get(cardId)
+            if (existing && existing.type !== draft.type) {
+              throw new ValidationError(
+                `Exercise ${cardId} type is immutable (was '${existing.type}', got '${draft.type}')`,
+              )
+            }
+            applyExerciseUpdate(tx, draftToUpdateArgs(draft, cardId, i))
+          }
+        }
+
+        const now = new Date()
+        for (const ex of currentExercises) {
+          if (!submittedIds.has(ex.id)) {
+            tx.update(exercises)
+              .set({ archivedAt: now, updatedAt: now })
+              .where(eq(exercises.id, ex.id))
+              .run()
+          }
+        }
+
+        return tx
+          .select()
+          .from(routines)
+          .where(eq(routines.id, routineId))
+          .get()!
+      },
+      { behavior: 'immediate' },
+    )
+  } catch (err) {
+    logMutationError('updateRoutineWithExercises', { routineId }, err)
     throw err
   }
 }

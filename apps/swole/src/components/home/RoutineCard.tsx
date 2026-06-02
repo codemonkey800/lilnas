@@ -194,7 +194,12 @@ export function RoutineCard({
       </Button>
 
       <Menu anchorEl={menuAnchor} open={menuOpen} onClose={closeMenu}>
-        <MenuItem href={`/routines/${routine.id}`} onClick={closeMenu}>
+        <MenuItem
+          onClick={() => {
+            closeMenu()
+            router.push(`/routines/${routine.id}`)
+          }}
+        >
           Edit
         </MenuItem>
         <MenuItem onClick={openArchiveDialog}>Archive…</MenuItem>

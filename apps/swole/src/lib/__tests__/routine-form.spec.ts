@@ -1,12 +1,15 @@
+import type { ExerciseRow } from 'src/db/types'
 import {
   applyTypeSwitch,
   canonicalizeDays,
+  createEmptyCard,
   type ExerciseCardState,
   exerciseDraftSchema,
   isRoutineFormValid,
   normalizeCard,
   routineFormSchema,
   toCreateExerciseArgs,
+  toExerciseCardState,
 } from 'src/lib/routine-form'
 
 // ─── exerciseDraftSchema ─────────────────────────────────────────────────────
@@ -394,6 +397,11 @@ describe('applyTypeSwitch', () => {
     expect(result.sets).toBe('1')
     expect(result.duration).toBe('45')
   })
+
+  it('switching a loaded card drops dbId, routing it to the insert path not an in-place update', () => {
+    const loaded = { ...weighted, dbId: 7 }
+    expect(applyTypeSwitch(loaded, 'time-based').dbId).toBeUndefined()
+  })
 })
 
 // ─── isRoutineFormValid ───────────────────────────────────────────────────────
@@ -533,6 +541,130 @@ describe('routineFormSchema', () => {
     expect(
       routineFormSchema.safeParse({ ...validValues, name: '  ' }).success,
     ).toBe(false)
+  })
+})
+
+// ─── toExerciseCardState ──────────────────────────────────────────────────────
+
+const baseRow: ExerciseRow = {
+  id: 7,
+  routineId: 1,
+  name: 'Bench Press',
+  type: 'weighted',
+  orderInRoutine: 0,
+  sets: 3,
+  targetReps: 10,
+  startingWeight: 100,
+  increment: 5,
+  durationSeconds: null,
+  archivedAt: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+}
+
+describe('toExerciseCardState', () => {
+  it('weighted row → card with dbId, stringified numeric fields', () => {
+    const card = toExerciseCardState(baseRow)
+    expect(card.dbId).toBe(7)
+    expect(card.type).toBe('weighted')
+    expect(card.name).toBe('Bench Press')
+    expect(card.sets).toBe('3')
+    expect(card.targetReps).toBe('10')
+    expect(card.startingWeight).toBe('100')
+    expect(card.increment).toBe('5')
+    expect(card.duration).toBe('')
+    expect(typeof card.id).toBe('string')
+  })
+
+  it('weighted card normalizes back to draft equal to original values', () => {
+    const card = toExerciseCardState(baseRow)
+    const r = normalizeCard(card)
+    expect(r.ok).toBe(true)
+    if (r.ok && r.draft.type === 'weighted') {
+      expect(r.draft.sets).toBe(baseRow.sets)
+      expect(r.draft.targetReps).toBe(baseRow.targetReps)
+      expect(r.draft.startingWeight).toBe(baseRow.startingWeight)
+      expect(r.draft.increment).toBe(baseRow.increment)
+    }
+  })
+
+  it('bodyweight row round-trips', () => {
+    const row: ExerciseRow = {
+      ...baseRow,
+      id: 8,
+      type: 'bodyweight',
+      startingWeight: null,
+      increment: null,
+      durationSeconds: null,
+    }
+    const card = toExerciseCardState(row)
+    expect(card.type).toBe('bodyweight')
+    expect(card.dbId).toBe(8)
+    expect(card.startingWeight).toBe('')
+    const r = normalizeCard(card)
+    expect(r.ok).toBe(true)
+  })
+
+  it('time-based row: duration = seconds string', () => {
+    const row: ExerciseRow = {
+      ...baseRow,
+      id: 9,
+      type: 'time-based',
+      targetReps: null,
+      startingWeight: null,
+      increment: null,
+      durationSeconds: 45,
+    }
+    const card = toExerciseCardState(row)
+    expect(card.type).toBe('time-based')
+    expect(card.duration).toBe('45')
+    const r = normalizeCard(card)
+    expect(r.ok).toBe(true)
+    if (r.ok && r.draft.type === 'time-based') {
+      expect(r.draft.durationSeconds).toBe(45)
+    }
+  })
+
+  it('covers AE8: cardio durationSeconds=1800 → duration="30", normalizes back to 1800', () => {
+    const row: ExerciseRow = {
+      ...baseRow,
+      id: 10,
+      type: 'cardio',
+      sets: 1,
+      targetReps: null,
+      startingWeight: null,
+      increment: null,
+      durationSeconds: 1800,
+    }
+    const card = toExerciseCardState(row)
+    expect(card.duration).toBe('30')
+    const r = normalizeCard(card)
+    expect(r.ok).toBe(true)
+    if (r.ok && r.draft.type === 'cardio') {
+      expect(r.draft.durationSeconds).toBe(1800)
+    }
+  })
+
+  it('legacy cardio durationSeconds=1810 → Math.round gives "30"', () => {
+    const row: ExerciseRow = {
+      ...baseRow,
+      id: 11,
+      type: 'cardio',
+      sets: 1,
+      targetReps: null,
+      startingWeight: null,
+      increment: null,
+      durationSeconds: 1810,
+    }
+    const card = toExerciseCardState(row)
+    expect(card.duration).toBe('30')
+  })
+
+  it('createEmptyCard has dbId undefined; toExerciseCardState always sets a numeric dbId', () => {
+    const empty = createEmptyCard()
+    expect(empty.dbId).toBeUndefined()
+    const loaded = toExerciseCardState(baseRow)
+    expect(typeof loaded.dbId).toBe('number')
   })
 })
 

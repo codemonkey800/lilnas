@@ -403,6 +403,8 @@ describe('deriveProgress', () => {
     // stale-override guard is tested via the integration path.
     expect(result.exerciseCount).toBe(3)
     expect(result.totalSets).toBe(8)
+    expect(result.loggedSets).toBe(3)
+    expect(result.activeExerciseIdx).toBe(0)
   })
 })
 

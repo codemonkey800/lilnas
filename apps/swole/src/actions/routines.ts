@@ -17,6 +17,7 @@ import {
   createRoutineWithExercises as dbCreateRoutineWithExercises,
   updateRoutine as dbUpdateRoutine,
   type UpdateRoutineArgs,
+  updateRoutineWithExercises as dbUpdateRoutineWithExercises,
 } from 'src/db/routines'
 import type { RoutineRow } from 'src/db/types'
 import type { RoutineFormValues } from 'src/lib/routine-form'
@@ -50,6 +51,27 @@ export async function updateRoutine(
   revalidatePath('/')
   revalidatePath(`/routines/${args.id}`)
   return row
+}
+
+export async function updateRoutineWithExercises(
+  routineId: number,
+  values: RoutineFormValues,
+  cardIds?: ReadonlyArray<number | null>,
+): Promise<ActionResult<RoutineRow>> {
+  try {
+    const row = await dbUpdateRoutineWithExercises({
+      routineId,
+      values,
+      cardIds: cardIds ?? [],
+    })
+    revalidatePath('/')
+    revalidatePath(`/routines/${routineId}`)
+    return { ok: true, row }
+  } catch (err) {
+    if (err instanceof DataLayerError)
+      return { ok: false, kind: err.kind, code: err.constructor.name }
+    throw err
+  }
 }
 
 export async function archiveRoutine(

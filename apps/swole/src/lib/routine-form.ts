@@ -7,14 +7,18 @@ import { z } from 'zod'
 
 import type { CreateExerciseArgs } from 'src/db/exercises'
 import { type DayCode, dayCodes } from 'src/db/schema'
+import type { ExerciseRow } from 'src/db/types'
 
 // ─── Data shapes ─────────────────────────────────────────────────────────────
 
 // Raw string state held by each controlled exercise card in the form.
 // All numeric fields are strings to support controlled inputs.
 // `duration` is shared: time-based interprets it as seconds, cardio as minutes.
+// `dbId` is set when the card was loaded from the DB (edit flow); absent on
+// newly-added cards. Identity drives the save diff in updateRoutineWithExercises.
 export type ExerciseCardState = {
   id: string
+  dbId?: number
   type: 'weighted' | 'bodyweight' | 'time-based' | 'cardio'
   name: string
   sets: string
@@ -254,6 +258,58 @@ export function isRoutineFormValid({
 // Returns days sorted Mon-first by filtering dayCodes in schema order.
 export function canonicalizeDays(selected: Set<DayCode>): DayCode[] {
   return dayCodes.filter(d => selected.has(d)) as DayCode[]
+}
+
+// ─── Row → ExerciseCardState (inverse of normalizeCard + toCreateExerciseArgs) ──
+
+// Maps a DB exercise row back to a form card. The resulting card round-trips
+// losslessly for create-authored rows. Legacy cardio rows with durationSeconds
+// not divisible by 60 (impossible via create) re-save to the nearest minute.
+export function toExerciseCardState(row: ExerciseRow): ExerciseCardState {
+  const base = {
+    id: crypto.randomUUID(),
+    dbId: row.id,
+    name: row.name,
+    sets: String(row.sets),
+  }
+  switch (row.type) {
+    case 'weighted':
+      return {
+        ...base,
+        type: 'weighted',
+        targetReps: String(row.targetReps ?? ''),
+        startingWeight: String(row.startingWeight ?? ''),
+        increment: String(row.increment ?? ''),
+        duration: '',
+      }
+    case 'bodyweight':
+      return {
+        ...base,
+        type: 'bodyweight',
+        targetReps: String(row.targetReps ?? ''),
+        startingWeight: '',
+        increment: '',
+        duration: '',
+      }
+    case 'time-based':
+      return {
+        ...base,
+        type: 'time-based',
+        targetReps: '',
+        startingWeight: '',
+        increment: '',
+        duration: String(row.durationSeconds ?? ''),
+      }
+    case 'cardio':
+      return {
+        ...base,
+        type: 'cardio',
+        targetReps: '',
+        startingWeight: '',
+        increment: '',
+        duration: String(Math.round((row.durationSeconds ?? 0) / 60)),
+      }
+  }
 }
 
 // ─── Draft → CreateExerciseArgs ───────────────────────────────────────────────

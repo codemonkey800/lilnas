@@ -114,7 +114,7 @@ export type ErrorToast = {
   severity: 'warning' | 'error'
 }
 
-type ActionError = { ok: false; kind: DataLayerErrorKind; code: string }
+export type ActionError = { ok: false; kind: DataLayerErrorKind; code: string }
 
 export function mapStartSessionError(result: ActionError): ErrorToast {
   if (result.code === 'RoutineAlreadyHasActiveSession') {
@@ -153,6 +153,29 @@ export function mapCreateRoutineError(result: ActionError): ErrorToast {
     }
   }
   return { message: 'Could not create routine. Try again.', severity: 'error' }
+}
+
+export function mapUpdateRoutineError(result: ActionError): ErrorToast {
+  if (result.code === 'ValidationError') {
+    return {
+      message: 'Check the highlighted fields and try again.',
+      severity: 'error',
+    }
+  }
+  if (result.code === 'EditBlockedByActiveSession') {
+    return {
+      message:
+        'This routine has a workout in progress — finish or abandon it first.',
+      severity: 'warning',
+    }
+  }
+  if (result.code === 'NotFoundError') {
+    return {
+      message: 'This routine no longer exists.',
+      severity: 'warning',
+    }
+  }
+  return { message: 'Could not save changes. Try again.', severity: 'error' }
 }
 
 // ─── Runner formatters ────────────────────────────────────────────────────────

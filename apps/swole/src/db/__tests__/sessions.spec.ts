@@ -14,6 +14,7 @@ import { routines, sessions } from 'src/db/schema'
 import {
   completeSession,
   getActiveSession,
+  getActiveSessionForRoutine,
   getMostRecentActiveSession,
   getSession,
   listRecentCompletedSessions,
@@ -353,5 +354,35 @@ describe('completeSession', () => {
     await expect(completeSession({ sessionId: 99999 })).rejects.toThrow(
       /Session not found/,
     )
+  })
+})
+
+// ─── getActiveSessionForRoutine ───────────────────────────────────────────────
+
+describe('getActiveSessionForRoutine', () => {
+  it('returns the active session for the given routine', async () => {
+    const activeSession = seedSession()
+    const result = await getActiveSessionForRoutine(routineId)
+    expect(result?.id).toBe(activeSession.id)
+  })
+
+  it('returns null when the routine has no active session', async () => {
+    seedSession({ completedAt: new Date() })
+    expect(await getActiveSessionForRoutine(routineId)).toBeNull()
+  })
+
+  it('returns null when the routine has no sessions at all', async () => {
+    expect(await getActiveSessionForRoutine(routineId)).toBeNull()
+  })
+
+  it('does NOT return the active session of a different routine', async () => {
+    const otherRoutineId = testDb.db
+      .insert(routines)
+      .values({ name: 'Pull', days: ['tue'] })
+      .returning()
+      .get().id
+    // Other routine has an active session; our routine does not
+    testDb.db.insert(sessions).values({ routineId: otherRoutineId }).run()
+    expect(await getActiveSessionForRoutine(routineId)).toBeNull()
   })
 })

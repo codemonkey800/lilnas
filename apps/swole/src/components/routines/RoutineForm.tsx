@@ -18,6 +18,11 @@ import {
 import { cns } from '@lilnas/utils/cns'
 import AddIcon from '@mui/icons-material/Add'
 import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogContentText from '@mui/material/DialogContentText'
+import DialogTitle from '@mui/material/DialogTitle'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import { useRouter } from 'next/navigation'
@@ -27,7 +32,12 @@ import type { ActionResult } from 'src/actions/sessions'
 import { type DayCode } from 'src/db/schema'
 import type { RoutineRow } from 'src/db/types'
 import { useToast } from 'src/hooks/use-toast'
-import { mapCreateRoutineError } from 'src/lib/format'
+import {
+  buildFormSnapshot,
+  isFormDirty,
+  useUnsavedChangesGuard,
+} from 'src/hooks/use-unsaved-changes-guard'
+import { mapCreateRoutineError, mapUpdateRoutineError } from 'src/lib/format'
 import {
   applyTypeSwitch,
   canonicalizeDays,
@@ -47,16 +57,27 @@ export type RoutineFormProps = {
     days: DayCode[]
     cards: ExerciseCardState[]
   }
-  submitAction: (values: RoutineFormValues) => Promise<ActionResult<RoutineRow>>
+  submitAction: (
+    values: RoutineFormValues,
+    cardIds?: ReadonlyArray<number | null>,
+  ) => Promise<ActionResult<RoutineRow>>
   // Defaults to 'Create routine' so the edit page can pass 'Save changes'
   submitLabel?: string
+  // When true, warns before discarding unsaved changes (edit flow only)
+  guardUnsavedChanges?: boolean
+  // Controls the form header title: 'create' → "New routine", 'edit' → "Edit routine"
+  mode?: 'create' | 'edit'
 }
 
 export function RoutineForm({
   initialValues,
   submitAction,
   submitLabel = 'Create routine',
+  guardUnsavedChanges = false,
+  mode = 'create',
 }: RoutineFormProps) {
+  const mapError =
+    mode === 'edit' ? mapUpdateRoutineError : mapCreateRoutineError
   const router = useRouter()
   const { showToast } = useToast()
   const [isPending, startTransition] = useTransition()
@@ -67,6 +88,27 @@ export function RoutineForm({
   )
   const [cards, setCards] = useState<ExerciseCardState[]>(initialValues.cards)
   const [submitAttempted, setSubmitAttempted] = useState(false)
+  const [discardDialogOpen, setDiscardDialogOpen] = useState(false)
+
+  // Unsaved-changes guard — snapshot is frozen on mount, only used when guard is on.
+  // useState lazy init captures it once; setSnapshot is called on successful save
+  // (defensive: clears dirty before the success navigation).
+  const [snapshot, setSnapshot] = useState(() =>
+    buildFormSnapshot(
+      initialValues.name,
+      initialValues.days,
+      initialValues.cards,
+    ),
+  )
+  const isDirty =
+    guardUnsavedChanges &&
+    isFormDirty(snapshot, {
+      name,
+      days: Array.from(selectedDays),
+      cards,
+    })
+
+  useUnsavedChangesGuard({ isDirty, enabled: guardUnsavedChanges })
 
   // Tracks which card fields have been blurred so we only show errors there
   // until a submit attempt, after which all errors show.
@@ -169,37 +211,64 @@ export function RoutineForm({
 
   // ─── Submit ────────────────────────────────────────────────────────────────
 
+  const submittingRef = useRef(false)
   const handleSubmit = useCallback(() => {
     setSubmitAttempted(true)
-    if (!canSubmit) return
+    if (!canSubmit || submittingRef.current) return
+    submittingRef.current = true
 
     startTransition(async () => {
-      // Build validated exercises from cards
-      const exercises = cards.map(c => {
-        const r = normalizeCard(c)
-        if (!r.ok) throw new Error('invalid card state')
-        return r.draft
-      })
+      try {
+        // Build validated exercises from cards
+        const exercises = cards.map(c => {
+          const r = normalizeCard(c)
+          if (!r.ok) throw new Error('invalid card state')
+          return r.draft
+        })
 
-      const values: RoutineFormValues = {
-        name: name.trim(),
-        days: canonicalizeDays(selectedDays),
-        exercises,
-      }
+        const values: RoutineFormValues = {
+          name: name.trim(),
+          days: canonicalizeDays(selectedDays),
+          exercises,
+        }
 
-      const result = await submitAction(values)
-      if (!result.ok) {
-        const { message, severity } = mapCreateRoutineError(result)
-        showToast(message, severity)
-        return
+        const cardIds: ReadonlyArray<number | null> = cards.map(
+          c => c.dbId ?? null,
+        )
+
+        const result = await submitAction(values, cardIds)
+        if (!result.ok) {
+          const { message, severity } = mapError(result)
+          showToast(message, severity)
+          return
+        }
+        // Clear dirty state before navigating so the beforeunload guard stays silent
+        setSnapshot(buildFormSnapshot(values.name, values.days, cards))
+        router.push('/')
+      } catch {
+        showToast('Could not save changes. Please try again.', 'error')
+      } finally {
+        submittingRef.current = false
       }
-      router.push('/')
     })
-  }, [canSubmit, cards, name, selectedDays, submitAction, router, showToast])
+  }, [
+    canSubmit,
+    cards,
+    name,
+    selectedDays,
+    submitAction,
+    mapError,
+    router,
+    showToast,
+  ])
 
   const handleCancel = useCallback(() => {
-    router.push('/')
-  }, [router])
+    if (guardUnsavedChanges && isDirty) {
+      setDiscardDialogOpen(true)
+    } else {
+      router.push('/')
+    }
+  }, [guardUnsavedChanges, isDirty, router])
 
   // ─── Derived error state ───────────────────────────────────────────────────
 
@@ -222,7 +291,7 @@ export function RoutineForm({
       {/* Form header */}
       <div className="flex items-center justify-between">
         <Typography variant="h6" component="h1" className="!font-bold">
-          {submitLabel === 'Create routine' ? 'New routine' : 'Edit routine'}
+          {mode === 'create' ? 'New routine' : 'Edit routine'}
         </Typography>
         <Button
           variant="text"
@@ -304,6 +373,7 @@ export function RoutineForm({
                 onTypeChange={type => handleTypeChange(card.id, type)}
                 onRemove={() => handleRemoveCard(card.id)}
                 nameInputRef={registerNameInput(card.id)}
+                typeLocked={card.dbId != null}
               />
             ))}
           </SortableContext>
@@ -331,6 +401,37 @@ export function RoutineForm({
       >
         {submitLabel}
       </Button>
+
+      {/* Discard-changes confirm dialog (only rendered when guard is on) */}
+      <Dialog
+        open={discardDialogOpen}
+        onClose={() => setDiscardDialogOpen(false)}
+        PaperProps={{ className: '!bg-neutral-900 !text-neutral-100' }}
+      >
+        <DialogTitle>Discard changes?</DialogTitle>
+        <DialogContent>
+          <DialogContentText className="!text-neutral-300">
+            Your changes will be lost.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setDiscardDialogOpen(false)}
+            className="!text-neutral-300"
+          >
+            Keep editing
+          </Button>
+          <Button
+            onClick={() => {
+              setDiscardDialogOpen(false)
+              router.push('/')
+            }}
+            color="error"
+          >
+            Discard
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   )
 }

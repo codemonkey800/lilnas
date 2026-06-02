@@ -56,6 +56,7 @@ const updateExerciseNumericSchema = z.object({
 // in one place (#12).
 type Executor = {
   select: typeof db.select
+  update: typeof db.update
   insert: typeof db.insert
 }
 
@@ -259,6 +260,55 @@ export type UpdateExerciseArgs = {
   durationSeconds?: number
 }
 
+// Core update logic, callable both from the outer db and inside a transaction.
+// Does NOT open a transaction — callers are responsible for that.
+// Reads existing INSIDE the caller's transaction so the starting_weight
+// comparison can't race with a concurrent commitProgressionDecision.
+export function applyExerciseUpdate(
+  tx: Executor,
+  args: UpdateExerciseArgs,
+): ExerciseRow {
+  const existing = tx
+    .select()
+    .from(exercises)
+    .where(eq(exercises.id, args.id))
+    .get()
+  if (!existing) throw new NotFoundError('Exercise', args.id)
+  const patch: Omit<UpdateExerciseArgs, 'id'> = {}
+  if (args.name !== undefined) patch.name = args.name
+  if (args.orderInRoutine !== undefined)
+    patch.orderInRoutine = args.orderInRoutine
+  if (args.sets !== undefined) patch.sets = args.sets
+  if (args.targetReps !== undefined) patch.targetReps = args.targetReps
+  if (args.startingWeight !== undefined)
+    patch.startingWeight = args.startingWeight
+  if (args.increment !== undefined) patch.increment = args.increment
+  if (args.durationSeconds !== undefined)
+    patch.durationSeconds = args.durationSeconds
+  const updated = tx
+    .update(exercises)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(eq(exercises.id, args.id))
+    .returning()
+    .get()
+  // Record a manual_edit progression row when the canonical
+  // starting_weight changes on a weighted exercise (R19).
+  if (
+    existing.type === 'weighted' &&
+    args.startingWeight !== undefined &&
+    args.startingWeight !== existing.startingWeight
+  ) {
+    tx.insert(progressions)
+      .values({
+        exerciseId: args.id,
+        startingWeight: args.startingWeight,
+        reason: 'manual_edit',
+      })
+      .run()
+  }
+  return updated
+}
+
 export async function updateExercise(
   args: UpdateExerciseArgs,
 ): Promise<ExerciseRow> {
@@ -268,53 +318,9 @@ export async function updateExercise(
   const parsed = updateExerciseNumericSchema.safeParse(args)
   if (!parsed.success) throw new ValidationError('invalid exercise update args')
   try {
-    return db.transaction(
-      tx => {
-        // Read existing INSIDE the transaction so the "did starting_weight
-        // change?" comparison can't race with a concurrent
-        // commitProgressionDecision in another tab.
-        const existing = tx
-          .select()
-          .from(exercises)
-          .where(eq(exercises.id, args.id))
-          .get()
-        if (!existing) throw new NotFoundError('Exercise', args.id)
-        const patch: Omit<UpdateExerciseArgs, 'id'> = {}
-        if (args.name !== undefined) patch.name = args.name
-        if (args.orderInRoutine !== undefined)
-          patch.orderInRoutine = args.orderInRoutine
-        if (args.sets !== undefined) patch.sets = args.sets
-        if (args.targetReps !== undefined) patch.targetReps = args.targetReps
-        if (args.startingWeight !== undefined)
-          patch.startingWeight = args.startingWeight
-        if (args.increment !== undefined) patch.increment = args.increment
-        if (args.durationSeconds !== undefined)
-          patch.durationSeconds = args.durationSeconds
-        const updated = tx
-          .update(exercises)
-          .set({ ...patch, updatedAt: new Date() })
-          .where(eq(exercises.id, args.id))
-          .returning()
-          .get()
-        // Record a manual_edit progression row when the canonical
-        // starting_weight changes on a weighted exercise (R19).
-        if (
-          existing.type === 'weighted' &&
-          args.startingWeight !== undefined &&
-          args.startingWeight !== existing.startingWeight
-        ) {
-          tx.insert(progressions)
-            .values({
-              exerciseId: args.id,
-              startingWeight: args.startingWeight,
-              reason: 'manual_edit',
-            })
-            .run()
-        }
-        return updated
-      },
-      { behavior: 'immediate' },
-    )
+    return db.transaction(tx => applyExerciseUpdate(tx, args), {
+      behavior: 'immediate',
+    })
   } catch (err) {
     logMutationError('updateExercise', args, err)
     throw err

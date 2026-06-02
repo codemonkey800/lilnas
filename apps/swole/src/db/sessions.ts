@@ -54,6 +54,22 @@ export async function getActiveSession(
   return row ?? null
 }
 
+// Returns the active (incomplete) session for a specific routine, or null if none.
+// Used by the edit page (R15) — the global getMostRecentActiveSession() is
+// argument-less and would falsely block on another routine's active session.
+// The partial unique index `one_active_session_per_routine` DB-enforces ≤1 active
+// session per routine, so at most one row is returned.
+export async function getActiveSessionForRoutine(
+  routineId: number,
+): Promise<SessionRow | null> {
+  const row = db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.routineId, routineId), isNull(sessions.completedAt)))
+    .get()
+  return row ?? null
+}
+
 // The single most-recently-started incomplete session across all routines.
 // Used by the home page resume banner — R16 explicitly shows one even when
 // multiple active sessions exist. Ties on startedAt fall to higher id.

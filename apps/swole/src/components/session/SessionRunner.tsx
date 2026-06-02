@@ -1,7 +1,13 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useCallback, useOptimistic, useState, useTransition } from 'react'
+import {
+  useCallback,
+  useOptimistic,
+  useRef,
+  useState,
+  useTransition,
+} from 'react'
 
 import { appendSetLog, undoLastSetLog } from 'src/actions/setLogs'
 import { CurrentSetCard } from 'src/components/session/CurrentSetCard'
@@ -62,6 +68,7 @@ export function SessionRunner({
     null,
   )
   const [halted, setHalted] = useState(false)
+  const inFlightRef = useRef(false)
   const [dismissedDegraded, setDismissedDegraded] = useState(false)
   const [failedSheetOpen, setFailedSheetOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -90,7 +97,7 @@ export function SessionRunner({
 
   const onAction = useCallback(
     (action: Action) => {
-      if (isPending || halted) return
+      if (inFlightRef.current || halted) return
 
       const override = resolveActiveOverride(
         optimistic.setLogs,
@@ -106,28 +113,32 @@ export function SessionRunner({
       const newLog = next.setLogs[next.setLogs.length - 1]!
       const args = toSetLogArgs(newLog, session.id, routine)
 
+      inFlightRef.current = true
       startTransition(async () => {
-        addOptimistic({ kind: 'action', action, cursorOverride: override })
-        const result = await appendSetLog(args)
-        if (result.ok) {
-          setCursorOverride(undefined) // R15 — clear jump only on success
-        } else {
-          const { kind, toast } = mapSetLogError(result)
-          showToast(toast.message, toast.severity)
-          if (kind === 'rehydrate') {
-            setCursorOverride(undefined)
-            setReviewExerciseIdx(null)
-            router.refresh()
-          } else if (kind === 'halt') {
-            setHalted(true)
-            router.push('/')
+        try {
+          addOptimistic({ kind: 'action', action, cursorOverride: override })
+          const result = await appendSetLog(args)
+          if (result.ok) {
+            setCursorOverride(undefined) // R15 — clear jump only on success
+          } else {
+            const { kind, toast } = mapSetLogError(result)
+            showToast(toast.message, toast.severity)
+            if (kind === 'rehydrate') {
+              setCursorOverride(undefined)
+              setReviewExerciseIdx(null)
+              router.refresh()
+            } else if (kind === 'halt') {
+              setHalted(true)
+              router.push('/')
+            }
+            // 'rollback': optimistic auto-reverts when transition ends
           }
-          // 'rollback': optimistic auto-reverts when transition ends
+        } finally {
+          inFlightRef.current = false
         }
       })
     },
     [
-      isPending,
       halted,
       cursorOverride,
       optimistic.setLogs,
@@ -154,30 +165,27 @@ export function SessionRunner({
   )
 
   const onUndo = useCallback(() => {
-    if (isPending || halted) return
+    if (inFlightRef.current || halted) return
+    inFlightRef.current = true
     startTransition(async () => {
-      setCursorOverride(undefined) // R17 — undo steps back across exercise boundaries
-      addOptimistic({ kind: 'undo' })
-      const result = await undoLastSetLog({ sessionId: session.id })
-      if (!result.ok) {
-        const { kind, toast } = mapUndoError(result)
-        showToast(toast.message, toast.severity)
-        if (kind === 'halt') {
-          setHalted(true)
-          router.push('/')
+      try {
+        setCursorOverride(undefined) // R17 — undo steps back across exercise boundaries
+        addOptimistic({ kind: 'undo' })
+        const result = await undoLastSetLog({ sessionId: session.id })
+        if (!result.ok) {
+          const { kind, toast } = mapUndoError(result)
+          showToast(toast.message, toast.severity)
+          if (kind === 'halt') {
+            setHalted(true)
+            router.push('/')
+          }
+          // 'rollback': optimistic auto-reverts when transition ends
         }
-        // 'rollback': optimistic auto-reverts when transition ends
+      } finally {
+        inFlightRef.current = false
       }
     })
-  }, [
-    isPending,
-    halted,
-    session.id,
-    startTransition,
-    addOptimistic,
-    showToast,
-    router,
-  ])
+  }, [halted, session.id, startTransition, addOptimistic, showToast, router])
 
   const onJump = useCallback((idx: number) => {
     setCursorOverride(idx)

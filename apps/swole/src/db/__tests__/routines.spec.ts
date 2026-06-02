@@ -8,8 +8,9 @@ jest.mock('src/db/client', () => ({
   },
 }))
 
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq, isNull } from 'drizzle-orm'
 
+import { EditBlockedByActiveSession, ValidationError } from 'src/db/errors'
 import * as exercisesModule from 'src/db/exercises'
 import {
   archiveRoutine,
@@ -20,6 +21,7 @@ import {
   listRoutines,
   listRoutinesForHome,
   updateRoutine,
+  updateRoutineWithExercises,
 } from 'src/db/routines'
 import { exercises, progressions, routines, sessions } from 'src/db/schema'
 import { createTestDb, type TestDb } from 'src/db/test-db'
@@ -578,5 +580,524 @@ describe('createRoutineWithExercises', () => {
     expect(allExercises[3]?.type).toBe('cardio')
     expect(allExercises[3]?.sets).toBe(1)
     expect(allExercises[3]?.durationSeconds).toBe(1800)
+  })
+})
+
+// ─── updateRoutineWithExercises ───────────────────────────────────────────────
+
+describe('updateRoutineWithExercises', () => {
+  // Seed helpers local to this describe block
+  const seedWeighted = (
+    routineId: number,
+    overrides: Partial<typeof exercises.$inferInsert> = {},
+  ) =>
+    testDb.db
+      .insert(exercises)
+      .values({
+        routineId,
+        name: 'Bench',
+        type: 'weighted',
+        orderInRoutine: 0,
+        sets: 3,
+        targetReps: 10,
+        startingWeight: 100,
+        increment: 5,
+        ...overrides,
+      })
+      .returning()
+      .get()
+
+  const seedBodyweight = (
+    routineId: number,
+    overrides: Partial<typeof exercises.$inferInsert> = {},
+  ) =>
+    testDb.db
+      .insert(exercises)
+      .values({
+        routineId,
+        name: 'Pushups',
+        type: 'bodyweight',
+        orderInRoutine: 1,
+        sets: 3,
+        targetReps: 15,
+        startingWeight: null,
+        increment: null,
+        ...overrides,
+      })
+      .returning()
+      .get()
+
+  const seedCardio = (
+    routineId: number,
+    overrides: Partial<typeof exercises.$inferInsert> = {},
+  ) =>
+    testDb.db
+      .insert(exercises)
+      .values({
+        routineId,
+        name: 'Treadmill',
+        type: 'cardio',
+        orderInRoutine: 2,
+        sets: 1,
+        durationSeconds: 1800,
+        startingWeight: null,
+        increment: null,
+        targetReps: null,
+        ...overrides,
+      })
+      .returning()
+      .get()
+
+  // AE1: full diff — rename + field update + remove + add + reorder
+  it('AE1: applies full diff atomically (rename, update, archive, insert, reorder)', async () => {
+    const r = seedRoutine({ name: 'Push Day' })
+    const bench = seedWeighted(r.id, {
+      name: 'Bench',
+      orderInRoutine: 0,
+      sets: 3,
+    })
+    const pushups = seedBodyweight(r.id, { name: 'Pushups', orderInRoutine: 1 })
+    const treadmill = seedCardio(r.id, { name: 'Treadmill', orderInRoutine: 2 })
+
+    // Submit: rename, change Bench sets 3→4, remove Pushups, add Plank (time-based), reorder Treadmill first
+    await updateRoutineWithExercises({
+      routineId: r.id,
+      values: {
+        name: 'Updated Push',
+        days: ['tue'],
+        exercises: [
+          { type: 'cardio', name: 'Treadmill', sets: 1, durationSeconds: 1800 },
+          {
+            type: 'weighted',
+            name: 'Bench',
+            sets: 4,
+            targetReps: 10,
+            startingWeight: 100,
+            increment: 5,
+          },
+          { type: 'time-based', name: 'Plank', sets: 3, durationSeconds: 60 },
+        ],
+      },
+      cardIds: [treadmill.id, bench.id, null],
+    })
+
+    // Routine name + days updated
+    const updatedRoutine = testDb.db
+      .select()
+      .from(routines)
+      .where(eq(routines.id, r.id))
+      .get()
+    expect(updatedRoutine?.name).toBe('Updated Push')
+    expect(updatedRoutine?.days).toEqual(['tue'])
+
+    // Bench: sets updated
+    const updatedBench = testDb.db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, bench.id))
+      .get()
+    expect(updatedBench?.sets).toBe(4)
+
+    // Pushups: archived
+    const archivedPushups = testDb.db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, pushups.id))
+      .get()
+    expect(archivedPushups?.archivedAt).toBeInstanceOf(Date)
+
+    // Plank: inserted
+    const allNonArchived = testDb.db
+      .select()
+      .from(exercises)
+      .where(and(eq(exercises.routineId, r.id), isNull(exercises.archivedAt)))
+      .orderBy(asc(exercises.orderInRoutine))
+      .all()
+    expect(allNonArchived).toHaveLength(3)
+    expect(allNonArchived.map(e => e.name)).toEqual([
+      'Treadmill',
+      'Bench',
+      'Plank',
+    ])
+    expect(allNonArchived.map(e => e.orderInRoutine)).toEqual([0, 1, 2])
+  })
+
+  // AE2/R11: weight change → manual_edit; no change → no progression
+  it('AE2/R11: weight change → one manual_edit progression; same-weight save → none', async () => {
+    const r = seedRoutine()
+    const bench = seedWeighted(r.id, { startingWeight: 100 })
+    // Seed the initial progression
+    testDb.db
+      .insert(progressions)
+      .values({ exerciseId: bench.id, startingWeight: 100, reason: 'initial' })
+      .run()
+
+    // Change weight 100 → 110
+    await updateRoutineWithExercises({
+      routineId: r.id,
+      values: {
+        name: r.name,
+        days: r.days,
+        exercises: [
+          {
+            type: 'weighted',
+            name: 'Bench',
+            sets: 3,
+            targetReps: 10,
+            startingWeight: 110,
+            increment: 5,
+          },
+        ],
+      },
+      cardIds: [bench.id],
+    })
+
+    const progs = testDb.db
+      .select()
+      .from(progressions)
+      .where(eq(progressions.exerciseId, bench.id))
+      .all()
+    expect(progs).toHaveLength(2)
+    expect(progs[1]?.reason).toBe('manual_edit')
+    expect(progs[1]?.startingWeight).toBe(110)
+
+    // Also: exercise row matches new weight
+    const ex = testDb.db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, bench.id))
+      .get()
+    expect(ex?.startingWeight).toBe(110)
+
+    // Same-weight save: no new progression
+    await updateRoutineWithExercises({
+      routineId: r.id,
+      values: {
+        name: r.name,
+        days: r.days,
+        exercises: [
+          {
+            type: 'weighted',
+            name: 'Bench',
+            sets: 3,
+            targetReps: 10,
+            startingWeight: 110,
+            increment: 5,
+          },
+        ],
+      },
+      cardIds: [bench.id],
+    })
+    const progsAfter = testDb.db
+      .select()
+      .from(progressions)
+      .where(eq(progressions.exerciseId, bench.id))
+      .all()
+    expect(progsAfter).toHaveLength(2)
+  })
+
+  // AE4/R9: archive existing vs drop added
+  it('AE4/R9: removing an existing exercise archives it; history is intact', async () => {
+    const r = seedRoutine()
+    const bench = seedWeighted(r.id)
+    // Simulate a set_log so history exists (foreign key is restrict, not cascade)
+    const sess = testDb.db
+      .insert(sessions)
+      .values({ routineId: r.id, completedAt: new Date() })
+      .returning()
+      .get()
+    testDb.db
+      .insert(progressions)
+      .values({
+        exerciseId: bench.id,
+        startingWeight: 100,
+        reason: 'initial',
+        sessionId: sess.id,
+      })
+      .run()
+
+    await updateRoutineWithExercises({
+      routineId: r.id,
+      values: {
+        name: r.name,
+        days: r.days,
+        exercises: [
+          { type: 'bodyweight', name: 'Pushups', sets: 3, targetReps: 15 },
+        ],
+      },
+      cardIds: [null], // added card only — bench removed by omission
+    })
+
+    // Bench archived, history intact
+    const archivedBench = testDb.db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, bench.id))
+      .get()
+    expect(archivedBench?.archivedAt).toBeInstanceOf(Date)
+    const progs = testDb.db
+      .select()
+      .from(progressions)
+      .where(eq(progressions.exerciseId, bench.id))
+      .all()
+    expect(progs.length).toBeGreaterThan(0)
+  })
+
+  // AE7/R12: rollback on failure — all-or-nothing
+  it('AE7: rolls back all changes on mid-tx failure', async () => {
+    const r = seedRoutine({ name: 'Original' })
+    const bench = seedWeighted(r.id, { name: 'Bench', sets: 3 })
+    testDb.db
+      .insert(progressions)
+      .values({ exerciseId: bench.id, startingWeight: 100, reason: 'initial' })
+      .run()
+
+    const spy = jest
+      .spyOn(exercisesModule, 'insertExerciseWithInitialProgression')
+      .mockImplementation(() => {
+        throw new Error('injected failure')
+      })
+
+    try {
+      await expect(
+        updateRoutineWithExercises({
+          routineId: r.id,
+          values: {
+            name: 'Changed',
+            days: ['mon'],
+            exercises: [
+              {
+                type: 'weighted',
+                name: 'Bench',
+                sets: 3,
+                targetReps: 10,
+                startingWeight: 100,
+                increment: 5,
+              },
+              { type: 'bodyweight', name: 'Pushups', sets: 3, targetReps: 15 },
+            ],
+          },
+          cardIds: [bench.id, null],
+        }),
+      ).rejects.toThrow(/injected failure/)
+
+      // Routine name unchanged
+      const rRow = testDb.db
+        .select()
+        .from(routines)
+        .where(eq(routines.id, r.id))
+        .get()
+      expect(rRow?.name).toBe('Original')
+
+      // Bench unchanged
+      const benchRow = testDb.db
+        .select()
+        .from(exercises)
+        .where(eq(exercises.id, bench.id))
+        .get()
+      expect(benchRow?.sets).toBe(3)
+      expect(benchRow?.archivedAt).toBeNull()
+
+      // No new progressions
+      const progs = testDb.db
+        .select()
+        .from(progressions)
+        .where(eq(progressions.exerciseId, bench.id))
+        .all()
+      expect(progs).toHaveLength(1)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  // R16: active session blocks the edit inside the tx
+  it('R16: throws EditBlockedByActiveSession when an active session exists', async () => {
+    const r = seedRoutine()
+    const bench = seedWeighted(r.id)
+    testDb.db.insert(sessions).values({ routineId: r.id }).run()
+
+    await expect(
+      updateRoutineWithExercises({
+        routineId: r.id,
+        values: {
+          name: r.name,
+          days: r.days,
+          exercises: [
+            {
+              type: 'weighted',
+              name: 'Bench',
+              sets: 3,
+              targetReps: 10,
+              startingWeight: 100,
+              increment: 5,
+            },
+          ],
+        },
+        cardIds: [bench.id],
+      }),
+    ).rejects.toThrow(EditBlockedByActiveSession)
+
+    // Nothing written
+    const rRow = testDb.db
+      .select()
+      .from(routines)
+      .where(eq(routines.id, r.id))
+      .get()
+    expect(rRow?.name).toBe(r.name)
+  })
+
+  // R13: validation errors — empty name, zero exercises
+  it('R13: throws ValidationError for empty name', async () => {
+    const r = seedRoutine()
+    const bench = seedWeighted(r.id)
+
+    await expect(
+      updateRoutineWithExercises({
+        routineId: r.id,
+        values: {
+          name: '',
+          days: r.days,
+          exercises: [
+            {
+              type: 'weighted',
+              name: 'Bench',
+              sets: 3,
+              targetReps: 10,
+              startingWeight: 100,
+              increment: 5,
+            },
+          ],
+        },
+        cardIds: [bench.id],
+      }),
+    ).rejects.toThrow(ValidationError)
+
+    const rRow = testDb.db
+      .select()
+      .from(routines)
+      .where(eq(routines.id, r.id))
+      .get()
+    expect(rRow?.name).toBe(r.name)
+  })
+
+  it('R13: throws ValidationError for zero exercises', async () => {
+    const r = seedRoutine()
+    await expect(
+      updateRoutineWithExercises({
+        routineId: r.id,
+        values: { name: r.name, days: r.days, exercises: [] },
+        cardIds: [],
+      }),
+    ).rejects.toThrow(ValidationError)
+  })
+
+  it('R13: throws ValidationError when cardIds length mismatches exercises length', async () => {
+    const r = seedRoutine()
+    const bench = seedWeighted(r.id)
+    await expect(
+      updateRoutineWithExercises({
+        routineId: r.id,
+        values: {
+          name: r.name,
+          days: r.days,
+          exercises: [
+            {
+              type: 'weighted',
+              name: 'Bench',
+              sets: 3,
+              targetReps: 10,
+              startingWeight: 100,
+              increment: 5,
+            },
+          ],
+        },
+        cardIds: [bench.id, null], // 2 ids for 1 exercise
+      }),
+    ).rejects.toThrow(ValidationError)
+  })
+
+  // Stale cardId — concurrent archive between load and save
+  it('throws ValidationError when a submitted cardId is not in current non-archived set', async () => {
+    const r = seedRoutine()
+    const bench = seedWeighted(r.id)
+    // Archive bench between load and save (simulated concurrent archive)
+    testDb.db
+      .update(exercises)
+      .set({ archivedAt: new Date() })
+      .where(eq(exercises.id, bench.id))
+      .run()
+
+    await expect(
+      updateRoutineWithExercises({
+        routineId: r.id,
+        values: {
+          name: r.name,
+          days: r.days,
+          exercises: [
+            {
+              type: 'weighted',
+              name: 'Bench',
+              sets: 3,
+              targetReps: 10,
+              startingWeight: 100,
+              increment: 5,
+            },
+          ],
+        },
+        cardIds: [bench.id],
+      }),
+    ).rejects.toThrow(ValidationError)
+  })
+
+  // Integration: re-read after edit respects order and invariant
+  it('integration: re-read returns surviving + new exercises in submitted order; weight invariant holds', async () => {
+    const r = seedRoutine()
+    const bench = seedWeighted(r.id, { startingWeight: 100, orderInRoutine: 0 })
+    testDb.db
+      .insert(progressions)
+      .values({ exerciseId: bench.id, startingWeight: 100, reason: 'initial' })
+      .run()
+    const pushups = seedBodyweight(r.id, { orderInRoutine: 1 })
+
+    await updateRoutineWithExercises({
+      routineId: r.id,
+      values: {
+        name: 'New Name',
+        days: ['fri'],
+        exercises: [
+          {
+            type: 'weighted',
+            name: 'Bench',
+            sets: 4,
+            targetReps: 10,
+            startingWeight: 120,
+            increment: 5,
+          },
+          { type: 'bodyweight', name: 'Pushups', sets: 3, targetReps: 15 },
+          { type: 'time-based', name: 'Plank', sets: 3, durationSeconds: 30 },
+        ],
+      },
+      cardIds: [bench.id, pushups.id, null],
+    })
+
+    const result = await getRoutineWithExercises({ id: r.id })
+    expect(result?.exercises.map(e => e.name)).toEqual([
+      'Bench',
+      'Pushups',
+      'Plank',
+    ])
+    expect(result?.exercises.map(e => e.orderInRoutine)).toEqual([0, 1, 2])
+
+    // Invariant: exercises.startingWeight == latest progression for Bench
+    const benchRow = result?.exercises.find(e => e.name === 'Bench')
+    const latestProg = testDb.db
+      .select()
+      .from(progressions)
+      .where(eq(progressions.exerciseId, bench.id))
+      .orderBy(asc(progressions.id))
+      .all()
+      .at(-1)
+    expect(latestProg?.startingWeight).toBe(benchRow?.startingWeight)
+    expect(benchRow?.startingWeight).toBe(120)
   })
 })

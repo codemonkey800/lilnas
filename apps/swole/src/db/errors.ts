@@ -86,6 +86,17 @@ export class ReorderBlockedByActiveSession extends DataLayerError {
   }
 }
 
+export class EditBlockedByActiveSession extends DataLayerError {
+  readonly kind = 'forbidden_transition' as const
+  readonly routineId: number
+  constructor(routineId: number) {
+    super(
+      `Cannot edit routine ${routineId} while an active session is in progress`,
+    )
+    this.routineId = routineId
+  }
+}
+
 export class UndoBlockedByCommittedProgression extends DataLayerError {
   readonly kind = 'forbidden_transition' as const
   readonly sessionId: number
