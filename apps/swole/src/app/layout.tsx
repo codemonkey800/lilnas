@@ -2,6 +2,7 @@ import 'src/tailwind.css'
 
 import { cns } from '@lilnas/utils/cns'
 import { Roboto } from 'next/font/google'
+import { Viewport } from 'next'
 import Link from 'next/link'
 import { ReactNode } from 'react'
 
@@ -17,6 +18,12 @@ const roboto = Roboto({
 export const metadata = {
   title: 'Swole',
   description: 'Workout tracker',
+}
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 }
 
 // Layout (nav + page chrome) inlined here — the previous extraction to
