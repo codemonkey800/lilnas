@@ -1,4 +1,5 @@
 import Button from '@mui/material/Button'
+import Link from 'next/link'
 
 import { EmptyState } from 'src/components/home/EmptyState'
 import { RecentSessionsStrip } from 'src/components/home/RecentSessionsStrip'
@@ -8,13 +9,28 @@ import type { Exercise, NextTarget } from 'src/core/session-machine'
 import { nextTarget } from 'src/core/session-machine'
 import { buildSessionState } from 'src/db/hydration'
 import { toExercise } from 'src/db/mappers'
-import { getRoutine, listRoutinesForHome } from 'src/db/routines'
+import {
+  countArchivedRoutines,
+  getRoutine,
+  listRoutinesForHome,
+} from 'src/db/routines'
 import {
   getMostRecentActiveSession,
   listRecentCompletedSessions,
 } from 'src/db/sessions'
 import { getCurrentDayCode } from 'src/lib/format'
 import { logger } from 'src/lib/logger'
+
+function ArchivedRoutinesLink({ count }: { count: number }) {
+  return (
+    <Link
+      href="/routines/archived"
+      className="text-center text-sm text-[var(--mui-palette-text-secondary)] underline-offset-2 hover:underline"
+    >
+      Archived routines ({count})
+    </Link>
+  )
+}
 
 // Force dynamic so each visit re-queries SQLite. Existing actions call
 // `revalidatePath('/')` already; `force-dynamic` is the belt-and-suspenders
@@ -69,18 +85,20 @@ export default async function RootPage() {
   const now = new Date()
   const todayCode = getCurrentDayCode(now)
 
-  const [routines, activeSession, completedSessions] = await Promise.all([
-    listRoutinesForHome(),
-    getMostRecentActiveSession(),
-    listRecentCompletedSessions({ limit: 5 }),
-  ])
+  const [routines, activeSession, completedSessions, archivedCount] =
+    await Promise.all([
+      listRoutinesForHome(),
+      getMostRecentActiveSession(),
+      listRecentCompletedSessions({ limit: 5 }),
+      countArchivedRoutines(),
+    ])
 
   const banner = activeSession
     ? await deriveBannerData(activeSession.id, activeSession.routineId)
     : null
 
   if (routines.length === 0 && !banner) {
-    return <EmptyState />
+    return <EmptyState archivedCount={archivedCount} />
   }
 
   return (
@@ -116,6 +134,7 @@ export default async function RootPage() {
           >
             + New Routine
           </Button>
+          {archivedCount > 0 && <ArchivedRoutinesLink count={archivedCount} />}
         </div>
       )}
 
