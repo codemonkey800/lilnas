@@ -1,0 +1,15 @@
+services:
+  swole:
+    image: lilnas-dev
+    command: -c "pnpm --filter=swole dev"
+    restart: unless-stopped
+    env_file:
+      - ../../infra/.env.swole
+    environment:
+      - DATABASE_PATH=/source/apps/swole/swole.db
+    volumes:
+      - ../..:/source
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.swole.rule=Host(`swole.localhost`)
+      - traefik.http.services.swole.loadbalancer.server.port=8080

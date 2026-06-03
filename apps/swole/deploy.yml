@@ -1,0 +1,50 @@
+services:
+  swole:
+    build:
+      context: ../..
+      dockerfile: apps/swole/Dockerfile
+    restart: unless-stopped
+    # Give the process up to 30s to flush in-flight writes and close the
+    # SQLite handle on `docker-compose down` / rolling restart before SIGKILL.
+    # The instrumentation.ts SIGTERM handler runs inside this window.
+    stop_grace_period: 30s
+    env_file:
+      - ../../infra/.env.swole
+    environment:
+      - DATABASE_PATH=/data/swole.db
+    volumes:
+      # Host directory must be owned by UID 1000 (the `node` user inside the
+      # container). On a fresh host run:
+      #   sudo chown 1000:1000 /storage/app-data/swole
+      # Without this, better-sqlite3 throws SQLITE_CANTOPEN on first boot and
+      # the container restarts forever. The friendlier diagnostic in
+      # src/db/client.ts catches the underlying error and prints this command.
+      - /storage/app-data/swole:/data
+    # End-to-end liveness probe. Hits the in-process SELECT 1 health endpoint
+    # so a wedged Node process (event-loop blocked, FD exhaustion, deadlock
+    # past busy_timeout) is detected even when the process is still bound to
+    # port 8080.
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:8080/api/health || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    labels:
+      - traefik.enable=true
+      # Internal router — UI and API, protected by forward-auth
+      - traefik.http.routers.swole.rule=Host(`swole.lilnas.io`)
+      - traefik.http.routers.swole.entrypoints=websecure
+      - traefik.http.routers.swole.tls.certresolver=le
+      - traefik.http.routers.swole.middlewares=forward-auth
+      - traefik.http.services.swole.loadbalancer.server.port=8080
+      # Metrics-deny router — block external /metrics access at Traefik
+      # (Prometheus scrapes via Docker network). Priority must exceed the
+      # base router so the longer-rule preference doesn't bypass the IP
+      # allowlist (#6). Verified: from a non-loopback IP, /metrics returns 403.
+      - traefik.http.routers.swole-metrics-deny.rule=Host(`swole.lilnas.io`) && PathPrefix(`/metrics`)
+      - traefik.http.routers.swole-metrics-deny.entrypoints=websecure
+      - traefik.http.routers.swole-metrics-deny.tls.certresolver=le
+      - traefik.http.routers.swole-metrics-deny.priority=1000
+      - traefik.http.routers.swole-metrics-deny.middlewares=swole-metrics-deny
+      - traefik.http.middlewares.swole-metrics-deny.ipallowlist.sourcerange=127.0.0.1/32
