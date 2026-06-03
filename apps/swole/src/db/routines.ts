@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 
 import { db } from 'src/db/client'
 import {
@@ -141,6 +141,108 @@ export async function listRoutinesForHome(): Promise<RoutineForHome[]> {
       firstExercise: group[0] ?? null,
     }
   })
+}
+
+// ─── Archived management reads ───────────────────────────────────────────────
+
+// archivedAt is guaranteed non-null for rows returned by listArchivedRoutinesForManagement,
+// so the type bakes that in rather than forcing callers to use `archivedAt!`.
+export type ArchivedRoutineSummary = {
+  routine: RoutineRow & { archivedAt: Date }
+  exerciseCount: number
+  lastTrained: Date | null
+  hasHistory: boolean
+}
+
+export async function listArchivedRoutinesForManagement(): Promise<
+  ArchivedRoutineSummary[]
+> {
+  const routineList = db
+    .select()
+    .from(routines)
+    .where(isNotNull(routines.archivedAt))
+    .all() as Array<RoutineRow & { archivedAt: Date }>
+
+  if (routineList.length === 0) return []
+
+  const routineIds = routineList.map(r => r.id)
+
+  const exerciseList = db
+    .select()
+    .from(exercises)
+    .where(
+      and(inArray(exercises.routineId, routineIds), isNull(exercises.archivedAt)),
+    )
+    .all()
+
+  const exerciseCountByRoutine = new Map<number, number>()
+  for (const ex of exerciseList) {
+    exerciseCountByRoutine.set(
+      ex.routineId,
+      (exerciseCountByRoutine.get(ex.routineId) ?? 0) + 1,
+    )
+  }
+
+  const historyRows = db
+    .select({
+      routineId: sessions.routineId,
+      lastTrainedMs: sql<number | null>`max(${sessions.completedAt})`.as(
+        'last_trained_ms',
+      ),
+    })
+    .from(sessions)
+    .where(
+      and(
+        inArray(sessions.routineId, routineIds),
+        isNotNull(sessions.completedAt),
+      ),
+    )
+    .groupBy(sessions.routineId)
+    .all()
+
+  const lastTrainedByRoutine = new Map<number, Date>()
+  for (const row of historyRows) {
+    if (row.lastTrainedMs !== null) {
+      lastTrainedByRoutine.set(row.routineId, new Date(row.lastTrainedMs))
+    }
+  }
+
+  return routineList.map(routine => {
+    const lastTrained = lastTrainedByRoutine.get(routine.id) ?? null
+    return {
+      routine,
+      exerciseCount: exerciseCountByRoutine.get(routine.id) ?? 0,
+      lastTrained,
+      hasHistory: lastTrained !== null,
+    }
+  })
+}
+
+export async function countArchivedRoutines(): Promise<number> {
+  const result = db
+    .select({ n: count() })
+    .from(routines)
+    .where(isNotNull(routines.archivedAt))
+    .get()
+  return result?.n ?? 0
+}
+
+export type ExistsCompletedSessionArgs = { id: number }
+
+export async function existsCompletedSessionForRoutine(
+  args: ExistsCompletedSessionArgs,
+): Promise<boolean> {
+  const result = db
+    .select({ n: sql<number>`count(*)`.as('n') })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.routineId, args.id),
+        isNotNull(sessions.completedAt),
+      ),
+    )
+    .get()
+  return (result?.n ?? 0) > 0
 }
 
 // ─── Writes ─────────────────────────────────────────────────────────────────

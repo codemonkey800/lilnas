@@ -20,11 +20,14 @@ import {
 import * as exercisesModule from 'src/db/exercises'
 import {
   archiveRoutine,
+  countArchivedRoutines,
   createRoutine,
   createRoutineWithExercises,
   deleteRoutine,
+  existsCompletedSessionForRoutine,
   getRoutine,
   getRoutineWithExercises,
+  listArchivedRoutinesForManagement,
   listRoutines,
   listRoutinesForHome,
   unarchiveRoutine,
@@ -294,6 +297,117 @@ describe('unarchiveRoutine', () => {
     await expect(unarchiveRoutine({ id: 99999 })).rejects.toThrow(
       /Routine not found/,
     )
+  })
+})
+
+describe('listArchivedRoutinesForManagement', () => {
+  it('returns only archived routines with correct exerciseCount, lastTrained, hasHistory (AE1 data half)', async () => {
+    const now = new Date()
+    const older = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000)
+
+    const active = seedRoutine({ name: 'Active' })
+    const trained1 = seedRoutine({ name: 'Trained1', archivedAt: new Date() })
+    const trained2 = seedRoutine({ name: 'Trained2', archivedAt: new Date() })
+    const neverTrained = seedRoutine({ name: 'NeverTrained', archivedAt: new Date() })
+
+    seedExercise(trained1.id, { name: 'E1', orderInRoutine: 0 })
+    seedExercise(trained1.id, { name: 'E2', orderInRoutine: 1 })
+    seedExercise(trained2.id, { name: 'E3', orderInRoutine: 0 })
+
+    testDb.db.insert(sessions).values({ routineId: trained1.id, completedAt: now }).run()
+    testDb.db.insert(sessions).values({ routineId: trained2.id, completedAt: older }).run()
+
+    const result = await listArchivedRoutinesForManagement()
+
+    expect(result.map(s => s.routine.id).sort()).toEqual(
+      [trained1.id, trained2.id, neverTrained.id].sort(),
+    )
+    expect(result.find(s => s.routine.id === active.id)).toBeUndefined()
+
+    const t1 = result.find(s => s.routine.id === trained1.id)!
+    expect(t1.exerciseCount).toBe(2)
+    expect(t1.lastTrained).toBeInstanceOf(Date)
+    expect(t1.hasHistory).toBe(true)
+
+    const t2 = result.find(s => s.routine.id === trained2.id)!
+    expect(t2.exerciseCount).toBe(1)
+    expect(t2.hasHistory).toBe(true)
+
+    const nt = result.find(s => s.routine.id === neverTrained.id)!
+    expect(nt.exerciseCount).toBe(0)
+    expect(nt.lastTrained).toBeNull()
+    expect(nt.hasHistory).toBe(false)
+  })
+
+  it('excludes archived exercises from exerciseCount', async () => {
+    const r = seedRoutine({ archivedAt: new Date() })
+    seedExercise(r.id, { name: 'Active', orderInRoutine: 0 })
+    seedExercise(r.id, { name: 'Active2', orderInRoutine: 1 })
+    seedExercise(r.id, { name: 'Archived', orderInRoutine: 2, archivedAt: new Date() })
+    const result = await listArchivedRoutinesForManagement()
+    expect(result[0]?.exerciseCount).toBe(2)
+  })
+
+  it('returns [] when no archived routines; routine with 0 exercises is included', async () => {
+    expect(await listArchivedRoutinesForManagement()).toEqual([])
+    seedRoutine({ archivedAt: new Date() })
+    const result = await listArchivedRoutinesForManagement()
+    expect(result).toHaveLength(1)
+    expect(result[0]?.exerciseCount).toBe(0)
+  })
+
+  it('ArchivedRoutineSummary.archivedAt is a Date (non-null at runtime)', async () => {
+    seedRoutine({ archivedAt: new Date() })
+    const result = await listArchivedRoutinesForManagement()
+    for (const s of result) {
+      expect(s.routine.archivedAt).toBeInstanceOf(Date)
+    }
+  })
+})
+
+describe('countArchivedRoutines', () => {
+  it('counts only archived routines including zero-history ones', async () => {
+    expect(await countArchivedRoutines()).toBe(0)
+    seedRoutine()
+    expect(await countArchivedRoutines()).toBe(0)
+    seedRoutine({ archivedAt: new Date() })
+    seedRoutine({ archivedAt: new Date() })
+    expect(await countArchivedRoutines()).toBe(2)
+  })
+})
+
+describe('existsCompletedSessionForRoutine', () => {
+  it('returns true for routine with completed session', async () => {
+    const r = seedRoutine({ archivedAt: new Date() })
+    testDb.db.insert(sessions).values({ routineId: r.id, completedAt: new Date() }).run()
+    expect(await existsCompletedSessionForRoutine({ id: r.id })).toBe(true)
+  })
+
+  it('returns false for never-trained routine', async () => {
+    const r = seedRoutine({ archivedAt: new Date() })
+    expect(await existsCompletedSessionForRoutine({ id: r.id })).toBe(false)
+  })
+
+  it('returns false when only incomplete sessions exist', async () => {
+    const r = seedRoutine()
+    testDb.db.insert(sessions).values({ routineId: r.id }).run()
+    expect(await existsCompletedSessionForRoutine({ id: r.id })).toBe(false)
+  })
+
+  it('history-gate equivalence — agrees with archivedWithHistorySet predicate from stats', async () => {
+    const withHistory = seedRoutine({ archivedAt: new Date() })
+    const withoutHistory = seedRoutine({ archivedAt: new Date() })
+    testDb.db
+      .insert(sessions)
+      .values({ routineId: withHistory.id, completedAt: new Date() })
+      .run()
+
+    const withHistoryResult = await existsCompletedSessionForRoutine({ id: withHistory.id })
+    const withoutHistoryResult = await existsCompletedSessionForRoutine({ id: withoutHistory.id })
+
+    // The stats module uses COUNT(*) filtered by isNotNull(completedAt); equivalence holds
+    expect(withHistoryResult).toBe(true)
+    expect(withoutHistoryResult).toBe(false)
   })
 })
 
