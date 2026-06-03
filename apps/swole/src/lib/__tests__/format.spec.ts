@@ -18,9 +18,11 @@ import {
   getCurrentDayCode,
   mapArchiveRoutineError,
   mapCreateRoutineError,
+  mapDeleteRoutineError,
   mapSetLogError,
   mapStartSessionError,
   mapUndoError,
+  mapUnarchiveRoutineError,
   mapUpdateRoutineError,
 } from 'src/lib/format'
 import type { PreviousSetPeek } from 'src/lib/runner'
@@ -928,5 +930,67 @@ describe('formatRelativeDay', () => {
     const result = formatRelativeDay(sixtyDays, NOW)
     expect(result).not.toMatch(/ago/)
     expect(result.length).toBeGreaterThan(2) // some real date string
+  })
+})
+
+describe('mapDeleteRoutineError', () => {
+  it('RoutineHasHistory → error with history message', () => {
+    const result = mapDeleteRoutineError({
+      ok: false,
+      kind: 'forbidden_transition',
+      code: 'RoutineHasHistory',
+    })
+    expect(result.severity).toBe('error')
+    expect(result.message).toMatch(/history/)
+  })
+
+  it('RoutineNotArchived → error with defensive message', () => {
+    const result = mapDeleteRoutineError({
+      ok: false,
+      kind: 'forbidden_transition',
+      code: 'RoutineNotArchived',
+    })
+    expect(result.severity).toBe('error')
+    expect(result.message).toMatch(/archived/)
+  })
+
+  it('NotFoundError → benign warning (already deleted)', () => {
+    const result = mapDeleteRoutineError({
+      ok: false,
+      kind: 'not_found',
+      code: 'NotFoundError',
+    })
+    expect(result.severity).toBe('warning')
+  })
+
+  it('unknown code → generic fallback error', () => {
+    const result = mapDeleteRoutineError({
+      ok: false,
+      kind: 'forbidden_transition',
+      code: 'SomethingElse',
+    })
+    expect(result.severity).toBe('error')
+    expect(result.message).toMatch(/Try again/)
+  })
+})
+
+describe('mapUnarchiveRoutineError', () => {
+  it('NotFoundError → benign warning (already gone)', () => {
+    const result = mapUnarchiveRoutineError({
+      ok: false,
+      kind: 'not_found',
+      code: 'NotFoundError',
+    })
+    expect(result.severity).toBe('warning')
+  })
+
+  it('unknown code → generic fallback error', () => {
+    const result = mapUnarchiveRoutineError({
+      ok: false,
+      kind: 'forbidden_transition',
+      code: 'SomethingUnexpected',
+    })
+    expect(result.severity).toBe('error')
+    expect(result.message).toMatch(/Try again/)
   })
 })

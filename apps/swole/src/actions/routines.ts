@@ -15,6 +15,10 @@ import {
   createRoutine as dbCreateRoutine,
   type CreateRoutineArgs,
   createRoutineWithExercises as dbCreateRoutineWithExercises,
+  deleteRoutine as dbDeleteRoutine,
+  type DeleteRoutineArgs,
+  unarchiveRoutine as dbUnarchiveRoutine,
+  type UnarchiveRoutineArgs,
   updateRoutine as dbUpdateRoutine,
   type UpdateRoutineArgs,
   updateRoutineWithExercises as dbUpdateRoutineWithExercises,
@@ -82,6 +86,38 @@ export async function archiveRoutine(
     revalidatePath('/')
     revalidatePath(`/routines/${args.id}`)
     return { ok: true, row }
+  } catch (err) {
+    if (err instanceof DataLayerError)
+      return { ok: false, kind: err.kind, code: err.constructor.name }
+    throw err
+  }
+}
+
+export async function unarchiveRoutine(
+  args: UnarchiveRoutineArgs,
+): Promise<ActionResult<RoutineRow>> {
+  try {
+    const row = await dbUnarchiveRoutine(args)
+    revalidatePath('/')
+    revalidatePath(`/routines/${args.id}`)
+    revalidatePath('/routines/archived')
+    return { ok: true, row }
+  } catch (err) {
+    if (err instanceof DataLayerError)
+      return { ok: false, kind: err.kind, code: err.constructor.name }
+    throw err
+  }
+}
+
+export async function deleteRoutine(
+  args: DeleteRoutineArgs,
+): Promise<ActionResult<undefined>> {
+  try {
+    await dbDeleteRoutine(args)
+    revalidatePath('/')
+    revalidatePath(`/routines/${args.id}`)
+    revalidatePath('/routines/archived')
+    return { ok: true, row: undefined }
   } catch (err) {
     if (err instanceof DataLayerError)
       return { ok: false, kind: err.kind, code: err.constructor.name }

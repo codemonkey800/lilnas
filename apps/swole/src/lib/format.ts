@@ -158,6 +158,35 @@ export function mapArchiveRoutineError(result: ActionError): ErrorToast {
   return { message: 'Could not archive routine. Try again.', severity: 'error' }
 }
 
+export function mapDeleteRoutineError(result: ActionError): ErrorToast {
+  if (result.code === 'RoutineHasHistory') {
+    return {
+      message: "Routines with logged history can't be deleted.",
+      severity: 'error',
+    }
+  }
+  if (result.code === 'RoutineNotArchived') {
+    return {
+      message: "Can't delete a routine that isn't archived.",
+      severity: 'error',
+    }
+  }
+  if (result.code === 'NotFoundError') {
+    return { message: 'Routine already deleted.', severity: 'warning' }
+  }
+  return { message: 'Could not delete routine. Try again.', severity: 'error' }
+}
+
+export function mapUnarchiveRoutineError(result: ActionError): ErrorToast {
+  if (result.code === 'NotFoundError') {
+    return { message: 'Routine already removed.', severity: 'warning' }
+  }
+  return {
+    message: 'Could not restore routine. Try again.',
+    severity: 'error',
+  }
+}
+
 export function mapCreateRoutineError(result: ActionError): ErrorToast {
   if (result.code === 'ValidationError') {
     return {
