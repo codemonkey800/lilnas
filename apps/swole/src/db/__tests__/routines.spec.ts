@@ -20,6 +20,7 @@ import {
   getRoutineWithExercises,
   listRoutines,
   listRoutinesForHome,
+  unarchiveRoutine,
   updateRoutine,
   updateRoutineWithExercises,
 } from 'src/db/routines'
@@ -245,6 +246,45 @@ describe('archiveRoutine', () => {
 
   it('throws NotFoundError for nonexistent id', async () => {
     await expect(archiveRoutine({ id: 99999 })).rejects.toThrow(
+      /Routine not found/,
+    )
+  })
+})
+
+describe('unarchiveRoutine', () => {
+  it('clears archivedAt and the routine reappears in active queries', async () => {
+    const r = seedRoutine({ archivedAt: new Date() })
+    const result = await unarchiveRoutine({ id: r.id })
+    expect(result.archivedAt).toBeNull()
+    const active = await listRoutines()
+    expect(active.some(row => row.id === r.id)).toBe(true)
+    const home = await listRoutinesForHome()
+    expect(home.some(entry => entry.routine.id === r.id)).toBe(true)
+  })
+
+  it('is idempotent — already-active routine returns unchanged, no write', async () => {
+    const r = await createRoutine({ name: 'Active', days: ['mon'] })
+    const before = r.updatedAt.getTime()
+    await new Promise(res => setTimeout(res, 10))
+    const result = await unarchiveRoutine({ id: r.id })
+    expect(result.archivedAt).toBeNull()
+    expect(result.updatedAt.getTime()).toBe(before)
+  })
+
+  it('R11 — edit-archived exercise stays archived after routine restore', async () => {
+    const r = seedRoutine({ archivedAt: new Date() })
+    const ex = seedExercise(r.id, { archivedAt: new Date() })
+    await unarchiveRoutine({ id: r.id })
+    const exRow = testDb.db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, ex.id))
+      .get()
+    expect(exRow?.archivedAt).toBeInstanceOf(Date)
+  })
+
+  it('throws NotFoundError for a nonexistent id', async () => {
+    await expect(unarchiveRoutine({ id: 99999 })).rejects.toThrow(
       /Routine not found/,
     )
   })

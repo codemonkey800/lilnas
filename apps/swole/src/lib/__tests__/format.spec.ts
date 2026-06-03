@@ -4,6 +4,7 @@ import {
   formatBannerSubtitle,
   formatCardioDuration,
   formatDayCodes,
+  formatExerciseConfig,
   formatJournalSessionDate,
   formatNextUpLine,
   formatPreviousSetPeek,
@@ -135,6 +136,62 @@ describe('formatNextUpLine', () => {
       durationSeconds: 1800,
     }
     expect(formatNextUpLine(ex)).toBe('Run · 30 min')
+  })
+})
+
+describe('formatExerciseConfig', () => {
+  it('weighted → sets×reps @ weight lb (+increment)', () => {
+    const ex: Exercise = {
+      name: 'Bench Press',
+      type: 'weighted',
+      sets: 3,
+      targetReps: 5,
+      startingWeight: 135,
+      increment: 5,
+    }
+    expect(formatExerciseConfig(ex)).toBe('3×5 @ 135 lb (+5)')
+  })
+
+  it('bodyweight → sets×reps (no name prefix)', () => {
+    const ex: Exercise = {
+      name: 'Pushups',
+      type: 'bodyweight',
+      sets: 3,
+      targetReps: 15,
+    }
+    expect(formatExerciseConfig(ex)).toBe('3×15')
+  })
+
+  it('time-based → sets×Xs', () => {
+    const ex: Exercise = {
+      name: 'Plank',
+      type: 'time-based',
+      sets: 3,
+      durationSeconds: 60,
+    }
+    expect(formatExerciseConfig(ex)).toBe('3×60s')
+  })
+
+  it('cardio → N min (no sets prefix)', () => {
+    const ex: Exercise = {
+      name: 'Run',
+      type: 'cardio',
+      sets: 1,
+      durationSeconds: 1800,
+    }
+    expect(formatExerciseConfig(ex)).toBe('30 min')
+  })
+
+  it('no leading name in any case', () => {
+    const ex: Exercise = {
+      name: 'Bench Press',
+      type: 'weighted',
+      sets: 3,
+      targetReps: 5,
+      startingWeight: 135,
+      increment: 5,
+    }
+    expect(formatExerciseConfig(ex)).not.toContain('Bench Press')
   })
 })
 

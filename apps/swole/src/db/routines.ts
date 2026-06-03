@@ -295,6 +295,36 @@ export async function archiveRoutine(
   }
 }
 
+export type UnarchiveRoutineArgs = { id: number }
+
+export async function unarchiveRoutine(
+  args: UnarchiveRoutineArgs,
+): Promise<RoutineRow> {
+  try {
+    return db.transaction(
+      tx => {
+        const existing = tx
+          .select()
+          .from(routines)
+          .where(eq(routines.id, args.id))
+          .get()
+        if (!existing) throw new NotFoundError('Routine', args.id)
+        if (existing.archivedAt == null) return existing
+        return tx
+          .update(routines)
+          .set({ archivedAt: null, updatedAt: new Date() })
+          .where(eq(routines.id, args.id))
+          .returning()
+          .get()
+      },
+      { behavior: 'immediate' },
+    )
+  } catch (err) {
+    logMutationError('unarchiveRoutine', args, err)
+    throw err
+  }
+}
+
 export type UpdateRoutineWithExercisesArgs = {
   routineId: number
   values: RoutineFormValues

@@ -65,6 +65,19 @@ export function formatCardioDuration(seconds: number): string {
   return `${Math.round(seconds / 60)} min`
 }
 
+export function formatExerciseConfig(exercise: Exercise): string {
+  switch (exercise.type) {
+    case 'weighted':
+      return `${exercise.sets}×${exercise.targetReps} @ ${exercise.startingWeight} lb (+${exercise.increment})`
+    case 'bodyweight':
+      return `${exercise.sets}×${exercise.targetReps}`
+    case 'time-based':
+      return `${exercise.sets}×${formatTimeBasedDuration(exercise.durationSeconds)}`
+    case 'cardio':
+      return formatCardioDuration(exercise.durationSeconds)
+  }
+}
+
 export function formatNextUpLine(exercise: Exercise): string {
   switch (exercise.type) {
     case 'weighted':
