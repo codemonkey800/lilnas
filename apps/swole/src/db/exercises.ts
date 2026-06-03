@@ -78,10 +78,7 @@ export function deleteRoutineChildren(
     .delete(progressions)
     .where(inArray(progressions.exerciseId, exerciseIds))
     .run()
-  executor
-    .delete(exercises)
-    .where(eq(exercises.routineId, routineId))
-    .run()
+  executor.delete(exercises).where(eq(exercises.routineId, routineId)).run()
 }
 
 export function activeSessionCountForRoutine(

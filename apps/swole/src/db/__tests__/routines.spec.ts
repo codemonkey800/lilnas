@@ -308,14 +308,23 @@ describe('listArchivedRoutinesForManagement', () => {
     const active = seedRoutine({ name: 'Active' })
     const trained1 = seedRoutine({ name: 'Trained1', archivedAt: new Date() })
     const trained2 = seedRoutine({ name: 'Trained2', archivedAt: new Date() })
-    const neverTrained = seedRoutine({ name: 'NeverTrained', archivedAt: new Date() })
+    const neverTrained = seedRoutine({
+      name: 'NeverTrained',
+      archivedAt: new Date(),
+    })
 
     seedExercise(trained1.id, { name: 'E1', orderInRoutine: 0 })
     seedExercise(trained1.id, { name: 'E2', orderInRoutine: 1 })
     seedExercise(trained2.id, { name: 'E3', orderInRoutine: 0 })
 
-    testDb.db.insert(sessions).values({ routineId: trained1.id, completedAt: now }).run()
-    testDb.db.insert(sessions).values({ routineId: trained2.id, completedAt: older }).run()
+    testDb.db
+      .insert(sessions)
+      .values({ routineId: trained1.id, completedAt: now })
+      .run()
+    testDb.db
+      .insert(sessions)
+      .values({ routineId: trained2.id, completedAt: older })
+      .run()
 
     const result = await listArchivedRoutinesForManagement()
 
@@ -343,7 +352,11 @@ describe('listArchivedRoutinesForManagement', () => {
     const r = seedRoutine({ archivedAt: new Date() })
     seedExercise(r.id, { name: 'Active', orderInRoutine: 0 })
     seedExercise(r.id, { name: 'Active2', orderInRoutine: 1 })
-    seedExercise(r.id, { name: 'Archived', orderInRoutine: 2, archivedAt: new Date() })
+    seedExercise(r.id, {
+      name: 'Archived',
+      orderInRoutine: 2,
+      archivedAt: new Date(),
+    })
     const result = await listArchivedRoutinesForManagement()
     expect(result[0]?.exerciseCount).toBe(2)
   })
@@ -379,7 +392,10 @@ describe('countArchivedRoutines', () => {
 describe('existsCompletedSessionForRoutine', () => {
   it('returns true for routine with completed session', async () => {
     const r = seedRoutine({ archivedAt: new Date() })
-    testDb.db.insert(sessions).values({ routineId: r.id, completedAt: new Date() }).run()
+    testDb.db
+      .insert(sessions)
+      .values({ routineId: r.id, completedAt: new Date() })
+      .run()
     expect(await existsCompletedSessionForRoutine({ id: r.id })).toBe(true)
   })
 
@@ -402,8 +418,12 @@ describe('existsCompletedSessionForRoutine', () => {
       .values({ routineId: withHistory.id, completedAt: new Date() })
       .run()
 
-    const withHistoryResult = await existsCompletedSessionForRoutine({ id: withHistory.id })
-    const withoutHistoryResult = await existsCompletedSessionForRoutine({ id: withoutHistory.id })
+    const withHistoryResult = await existsCompletedSessionForRoutine({
+      id: withHistory.id,
+    })
+    const withoutHistoryResult = await existsCompletedSessionForRoutine({
+      id: withoutHistory.id,
+    })
 
     // The stats module uses COUNT(*) filtered by isNotNull(completedAt); equivalence holds
     expect(withHistoryResult).toBe(true)
@@ -466,7 +486,9 @@ describe('deleteRoutine', () => {
 
   it('critical data-loss guard — throws RoutineNotArchived for a non-archived zero-session routine', async () => {
     const r = await createRoutine({ name: 'Fresh', days: ['mon'] })
-    await expect(deleteRoutine({ id: r.id })).rejects.toThrow(RoutineNotArchived)
+    await expect(deleteRoutine({ id: r.id })).rejects.toThrow(
+      RoutineNotArchived,
+    )
     expect(await getRoutine({ id: r.id })).not.toBeNull()
   })
 
@@ -518,10 +540,7 @@ describe('deleteRoutine', () => {
       .values({ routineId: r.id, completedAt: new Date() })
       .run()
     expect(() =>
-      testDb.db
-        .delete(routines)
-        .where(eq(routines.id, r.id))
-        .run(),
+      testDb.db.delete(routines).where(eq(routines.id, r.id)).run(),
     ).toThrow()
     expect(testDb.db.select().from(routines).all()).toHaveLength(1)
   })

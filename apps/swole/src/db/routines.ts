@@ -1,6 +1,15 @@
 import 'server-only'
 
-import { and, asc, count, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  count,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  sql,
+} from 'drizzle-orm'
 
 import { db } from 'src/db/client'
 import {
@@ -171,7 +180,10 @@ export async function listArchivedRoutinesForManagement(): Promise<
     .select()
     .from(exercises)
     .where(
-      and(inArray(exercises.routineId, routineIds), isNull(exercises.archivedAt)),
+      and(
+        inArray(exercises.routineId, routineIds),
+        isNull(exercises.archivedAt),
+      ),
     )
     .all()
 
@@ -236,10 +248,7 @@ export async function existsCompletedSessionForRoutine(
     .select({ n: sql<number>`count(*)`.as('n') })
     .from(sessions)
     .where(
-      and(
-        eq(sessions.routineId, args.id),
-        isNotNull(sessions.completedAt),
-      ),
+      and(eq(sessions.routineId, args.id), isNotNull(sessions.completedAt)),
     )
     .get()
   return (result?.n ?? 0) > 0
@@ -410,9 +419,7 @@ export type DeleteRoutineArgs = { id: number }
 //   2. All-sessions count → RoutineHasHistory: proves the sessions → routines
 //      FK subtree is empty so the final DELETE routines won't FK-abort.
 // Delete order: progressions → exercises → routines (leaf-first for restrict FKs).
-export async function deleteRoutine(
-  args: DeleteRoutineArgs,
-): Promise<void> {
+export async function deleteRoutine(args: DeleteRoutineArgs): Promise<void> {
   try {
     return db.transaction(
       tx => {

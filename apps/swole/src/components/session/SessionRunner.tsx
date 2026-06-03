@@ -224,7 +224,8 @@ export function SessionRunner({
       : { kind: 'none' as const }
 
   const canUndo = optimistic.setLogs.length > 0 && !isPending
-  const canFinish = optimistic.setLogs.length > 0 && !isPending && target !== null
+  const canFinish =
+    optimistic.setLogs.length > 0 && !isPending && target !== null
   const finishSummary = deriveEarlyFinishSummary(effectiveState, routine)
 
   // ─── Failed sheet mode ────────────────────────────────────────────────────
