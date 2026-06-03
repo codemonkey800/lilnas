@@ -16,14 +16,19 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import BetterSqlite3 from 'better-sqlite3'
+import { drizzle } from 'drizzle-orm/better-sqlite3'
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DB_PATH =
-  process.env.DATABASE_PATH ?? path.resolve(__dirname, '..', 'swole.db')
+  process.env.DATABASE_PATH ?? path.resolve(__dirname, '..', 'data', 'swole.db')
+const MIGRATIONS_FOLDER = path.resolve(__dirname, '..', 'src', 'db', 'migrations')
 
 const db = new BetterSqlite3(DB_PATH)
 db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')
+
+migrate(drizzle(db), { migrationsFolder: MIGRATIONS_FOLDER })
 
 const now = Date.now()
 const dayMs = 24 * 60 * 60 * 1000
