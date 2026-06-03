@@ -7,11 +7,14 @@ import {
   ArchiveBlockedByActiveSession,
   EditBlockedByActiveSession,
   NotFoundError,
+  RoutineHasHistory,
+  RoutineNotArchived,
   ValidationError,
 } from 'src/db/errors'
 import {
   activeSessionCountForRoutine,
   applyExerciseUpdate,
+  deleteRoutineChildren,
   insertExerciseWithInitialProgression,
   type UpdateExerciseArgs,
 } from 'src/db/exercises'
@@ -291,6 +294,55 @@ export async function archiveRoutine(
     )
   } catch (err) {
     logMutationError('archiveRoutine', args, err)
+    throw err
+  }
+}
+
+export type DeleteRoutineArgs = { id: number }
+
+// Permanently deletes an archived, zero-session routine and all its children
+// in one BEGIN IMMEDIATE transaction. Two guards are load-bearing:
+//   1. archivedAt guard → RoutineNotArchived: prevents deleting a live routine
+//      (a fresh routine also has zero sessions, so the session gate alone would
+//      not protect against data loss).
+//   2. All-sessions count → RoutineHasHistory: proves the sessions → routines
+//      FK subtree is empty so the final DELETE routines won't FK-abort.
+// Delete order: progressions → exercises → routines (leaf-first for restrict FKs).
+export async function deleteRoutine(
+  args: DeleteRoutineArgs,
+): Promise<void> {
+  try {
+    return db.transaction(
+      tx => {
+        const existing = tx
+          .select()
+          .from(routines)
+          .where(eq(routines.id, args.id))
+          .get()
+        if (!existing) throw new NotFoundError('Routine', args.id)
+        if (existing.archivedAt == null) throw new RoutineNotArchived(args.id)
+
+        const sessionCount = tx
+          .select({ n: sql<number>`count(*)`.as('n') })
+          .from(sessions)
+          .where(eq(sessions.routineId, args.id))
+          .get()
+        if ((sessionCount?.n ?? 0) > 0) throw new RoutineHasHistory(args.id)
+
+        const exerciseIds = tx
+          .select({ id: exercises.id })
+          .from(exercises)
+          .where(eq(exercises.routineId, args.id))
+          .all()
+          .map(e => e.id)
+
+        deleteRoutineChildren(tx, args.id, exerciseIds)
+        tx.delete(routines).where(eq(routines.id, args.id)).run()
+      },
+      { behavior: 'immediate' },
+    )
+  } catch (err) {
+    logMutationError('deleteRoutine', args, err)
     throw err
   }
 }

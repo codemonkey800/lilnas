@@ -147,6 +147,24 @@ export class HydrationError extends DataLayerError {
   }
 }
 
+export class RoutineNotArchived extends DataLayerError {
+  readonly kind = 'forbidden_transition' as const
+  readonly routineId: number
+  constructor(routineId: number) {
+    super(`Routine ${routineId} is not archived and cannot be deleted`)
+    this.routineId = routineId
+  }
+}
+
+export class RoutineHasHistory extends DataLayerError {
+  readonly kind = 'forbidden_transition' as const
+  readonly routineId: number
+  constructor(routineId: number) {
+    super(`Routine ${routineId} has sessions and cannot be deleted`)
+    this.routineId = routineId
+  }
+}
+
 // Better-sqlite3's error shape — we read `code` off it to translate constraint
 // violations into the tagged classes above.
 export type MaybeSqliteError = Error & { code?: string }

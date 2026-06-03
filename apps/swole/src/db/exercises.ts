@@ -60,6 +60,30 @@ type Executor = {
   insert: typeof db.insert
 }
 
+type DeleteExecutor = {
+  delete: typeof db.delete
+}
+
+// Deletes all exercises and their progressions for a routine inside an
+// existing transaction. Extracted as a named export so rollback tests can
+// spy on it (matching the insertExerciseWithInitialProgression pattern).
+// Caller is responsible for verifying no sessions exist before calling.
+export function deleteRoutineChildren(
+  executor: DeleteExecutor,
+  routineId: number,
+  exerciseIds: number[],
+): void {
+  if (exerciseIds.length === 0) return
+  executor
+    .delete(progressions)
+    .where(inArray(progressions.exerciseId, exerciseIds))
+    .run()
+  executor
+    .delete(exercises)
+    .where(eq(exercises.routineId, routineId))
+    .run()
+}
+
 export function activeSessionCountForRoutine(
   executor: Executor,
   routineId: number,

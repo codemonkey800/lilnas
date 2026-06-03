@@ -10,12 +10,19 @@ jest.mock('src/db/client', () => ({
 
 import { and, asc, eq, isNull } from 'drizzle-orm'
 
-import { EditBlockedByActiveSession, ValidationError } from 'src/db/errors'
+import {
+  EditBlockedByActiveSession,
+  NotFoundError,
+  RoutineHasHistory,
+  RoutineNotArchived,
+  ValidationError,
+} from 'src/db/errors'
 import * as exercisesModule from 'src/db/exercises'
 import {
   archiveRoutine,
   createRoutine,
   createRoutineWithExercises,
+  deleteRoutine,
   getRoutine,
   getRoutineWithExercises,
   listRoutines,
@@ -287,6 +294,165 @@ describe('unarchiveRoutine', () => {
     await expect(unarchiveRoutine({ id: 99999 })).rejects.toThrow(
       /Routine not found/,
     )
+  })
+})
+
+describe('deleteRoutine', () => {
+  const seedWeightedWithProgressions = (
+    routineId: number,
+    progressionCount = 1,
+  ) => {
+    const ex = testDb.db
+      .insert(exercises)
+      .values({
+        routineId,
+        name: 'Bench Press',
+        type: 'weighted',
+        orderInRoutine: 0,
+        sets: 3,
+        targetReps: 5,
+        startingWeight: 135,
+        increment: 5,
+      })
+      .returning()
+      .get()
+    for (let i = 0; i < progressionCount; i++) {
+      testDb.db
+        .insert(progressions)
+        .values({
+          exerciseId: ex.id,
+          startingWeight: 135,
+          reason: i === 0 ? 'initial' : 'manual_edit',
+        })
+        .run()
+    }
+    return ex
+  }
+
+  it('happy path — deletes archived zero-session routine with exercises and all progressions', async () => {
+    const r = seedRoutine({ archivedAt: new Date() })
+    seedWeightedWithProgressions(r.id, 2)
+    seedExercise(r.id, {
+      name: 'Run',
+      type: 'cardio',
+      sets: 1,
+      durationSeconds: 1800,
+      startingWeight: null,
+      increment: null,
+      targetReps: null,
+      orderInRoutine: 1,
+    })
+    await deleteRoutine({ id: r.id })
+    expect(await getRoutine({ id: r.id })).toBeNull()
+    const allRoutines = await listRoutines({ includeArchived: true })
+    expect(allRoutines.some(row => row.id === r.id)).toBe(false)
+    expect(testDb.db.select().from(exercises).all()).toHaveLength(0)
+    expect(testDb.db.select().from(progressions).all()).toHaveLength(0)
+  })
+
+  it('critical data-loss guard — throws RoutineNotArchived for a non-archived zero-session routine', async () => {
+    const r = await createRoutine({ name: 'Fresh', days: ['mon'] })
+    await expect(deleteRoutine({ id: r.id })).rejects.toThrow(RoutineNotArchived)
+    expect(await getRoutine({ id: r.id })).not.toBeNull()
+  })
+
+  it('deletes soft-archived (edit-dropped) exercises too', async () => {
+    const r = seedRoutine({ archivedAt: new Date() })
+    seedExercise(r.id, { name: 'Archived Ex', archivedAt: new Date() })
+    await deleteRoutine({ id: r.id })
+    expect(testDb.db.select().from(exercises).all()).toHaveLength(0)
+  })
+
+  it('mixed types — weighted with progressions and cardio (no progressions) both deleted', async () => {
+    const r = seedRoutine({ archivedAt: new Date() })
+    seedWeightedWithProgressions(r.id)
+    seedExercise(r.id, {
+      name: 'Run',
+      type: 'cardio',
+      sets: 1,
+      durationSeconds: 1800,
+      startingWeight: null,
+      increment: null,
+      targetReps: null,
+      orderInRoutine: 1,
+    })
+    await deleteRoutine({ id: r.id })
+    expect(testDb.db.select().from(exercises).all()).toHaveLength(0)
+    expect(testDb.db.select().from(progressions).all()).toHaveLength(0)
+  })
+
+  it('no exercises — deletes just the routine', async () => {
+    const r = seedRoutine({ archivedAt: new Date() })
+    await deleteRoutine({ id: r.id })
+    expect(await getRoutine({ id: r.id })).toBeNull()
+  })
+
+  it('throws RoutineHasHistory for archived routine with completed session', async () => {
+    const r = seedRoutine({ archivedAt: new Date() })
+    testDb.db
+      .insert(sessions)
+      .values({ routineId: r.id, completedAt: new Date() })
+      .run()
+    await expect(deleteRoutine({ id: r.id })).rejects.toThrow(RoutineHasHistory)
+    expect(await getRoutine({ id: r.id })).not.toBeNull()
+  })
+
+  it('FK backstop — sessions→routines restrict edge aborts direct delete', () => {
+    const r = seedRoutine({ archivedAt: new Date() })
+    testDb.db
+      .insert(sessions)
+      .values({ routineId: r.id, completedAt: new Date() })
+      .run()
+    expect(() =>
+      testDb.db
+        .delete(routines)
+        .where(eq(routines.id, r.id))
+        .run(),
+    ).toThrow()
+    expect(testDb.db.select().from(routines).all()).toHaveLength(1)
+  })
+
+  it('throws NotFoundError for a nonexistent id', async () => {
+    await expect(deleteRoutine({ id: 99999 })).rejects.toThrow(NotFoundError)
+  })
+
+  it('atomicity — mid-tx failure rolls back; routine and children remain', async () => {
+    const r = seedRoutine({ archivedAt: new Date() })
+    seedWeightedWithProgressions(r.id)
+    const spy = jest
+      .spyOn(exercisesModule, 'deleteRoutineChildren')
+      .mockImplementation(() => {
+        throw new Error('injected mid-tx failure')
+      })
+    try {
+      await expect(deleteRoutine({ id: r.id })).rejects.toThrow(
+        /injected mid-tx failure/,
+      )
+      expect(await getRoutine({ id: r.id })).not.toBeNull()
+      expect(testDb.db.select().from(exercises).all()).toHaveLength(1)
+      expect(testDb.db.select().from(progressions).all()).toHaveLength(1)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('sibling isolation — deleting routine A leaves routine B intact', async () => {
+    const a = seedRoutine({ name: 'A', archivedAt: new Date() })
+    const b = seedRoutine({ name: 'B', archivedAt: new Date() })
+    const bEx = seedWeightedWithProgressions(b.id)
+    const bProgsBefore = testDb.db
+      .select()
+      .from(progressions)
+      .where(eq(progressions.exerciseId, bEx.id))
+      .all()
+    await deleteRoutine({ id: a.id })
+    expect(await getRoutine({ id: b.id })).not.toBeNull()
+    const bProgsAfter = testDb.db
+      .select()
+      .from(progressions)
+      .where(eq(progressions.exerciseId, bEx.id))
+      .all()
+    expect(bProgsAfter).toEqual(bProgsBefore)
   })
 })
 
