@@ -221,6 +221,10 @@ The server uses a semantic directory structure for organizing different types of
 - Backup tier strategy
 - Best practices for storage planning
 
+### Documented Solutions
+
+`docs/solutions/` — documented solutions to past problems (bugs, best practices, workflow patterns, architecture decisions), organized by category with YAML frontmatter (`module`, `tags`, `problem_type`, `component`). Relevant when implementing or debugging in documented areas.
+
 ### Key Docker Compose Files
 
 **Root-level orchestration:**
