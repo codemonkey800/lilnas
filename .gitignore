@@ -15,6 +15,7 @@ dist/
 infra/dev.yml
 logs/
 node_modules/
+REVIEW.md
 truereflection-dev/
 
 # Helm chart dependencies

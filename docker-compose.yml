@@ -14,6 +14,7 @@ include:
   - ./apps/equations/deploy.yml
   - ./apps/macros/deploy.yml
   - ./apps/me-token-tracker/deploy.yml
+  - ./apps/swole/deploy.yml
   - ./apps/tdr-bot/deploy.yml
   - ./apps/token/deploy.yml
   - ./apps/yoink/deploy.yml

@@ -1,0 +1,10 @@
+@import 'tailwindcss';
+
+/* Reserve scrollbar space so MUI's Modal scroll lock (used by Menu/Dialog)
+ * can't change the viewport width and flip Tailwind's `sm:` breakpoint
+ * mid-interaction. Prevents layout shift when opening menus/dialogs. */
+@layer base {
+  html {
+    scrollbar-gutter: stable;
+  }
+}
