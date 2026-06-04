@@ -29,6 +29,13 @@ RUN pnpm --filter=swole --prod deploy /app
 # Copy the built Next.js application
 RUN cp -r /source/apps/swole/.next /app/.next
 
+# Turbopack (Next.js 16) emits hashed module IDs in the externals chunk, e.g.
+# require("better-sqlite3-cf218e5bd1d5f04c") instead of require("better-sqlite3").
+# This is a known Turbopack bug where serverExternalPackages doesn't fix the
+# generated require string. Create a proxy package for each hashed ID so Node.js
+# can resolve it at runtime.
+RUN node -e "const fs=require('fs'),path=require('path'),chunksDir='/source/apps/swole/.next/server/chunks/',appMod='/app/node_modules/',files=fs.readdirSync(chunksDir).filter(f=>/^\[externals\]/.test(f)&&f.endsWith('.js')),seen=new Set();files.forEach(file=>{const src=fs.readFileSync(path.join(chunksDir,file),'utf8'),re=/require\(\"([^\"]+)\"\)/g;let m;while((m=re.exec(src))){const id=m[1];if(seen.has(id))continue;seen.add(id);const hm=id.match(/^(.+)-([0-9a-f]{16})$/);if(!hm)continue;const real=hm[1],dir=path.join(appMod,id);fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'package.json'),JSON.stringify({name:id,version:'0.0.1',main:'index.js'}));fs.writeFileSync(path.join(dir,'index.js'),'module.exports=require('+JSON.stringify(real)+');');console.log('turbopack-proxy:',id,'->',real);}});"
+
 # Copy the standalone server to the correct location
 RUN cp /source/apps/swole/.next/standalone/apps/swole/server.js /app/server.js
 
