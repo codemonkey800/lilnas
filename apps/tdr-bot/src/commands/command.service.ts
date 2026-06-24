@@ -11,7 +11,7 @@ import {
 import { Docker } from 'node-docker-api'
 
 import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
-import { getWeeklyCookiesMessage } from 'src/utils/crumbl'
+import { getWeeklyCookiesMessages } from 'src/utils/crumbl'
 
 class ShowDetailsDto {
   @BooleanOption({
@@ -52,9 +52,14 @@ export class CommandsService {
       'User used command',
     )
     this.metrics.commandExecuted('cookies')
-    await interaction.reply(
-      await getWeeklyCookiesMessage({ showEmbeds: showDetails ?? true }),
-    )
+    const messages = await getWeeklyCookiesMessages({
+      showEmbeds: showDetails ?? true,
+    })
+    const [first, ...rest] = messages
+    await interaction.reply(first)
+    for (const message of rest) {
+      await interaction.followUp(message)
+    }
   }
 
   @SlashCommand({
