@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { Client } from 'discord.js'
 
-import { getWeeklyCookiesMessage } from 'src/utils/crumbl'
+import { getWeeklyCookiesMessages } from 'src/utils/crumbl'
 
 @Injectable()
 export class SchedulesService {
@@ -40,7 +40,10 @@ export class SchedulesService {
             name: channel.guild.name,
           },
         })
-        await channel.send(await getWeeklyCookiesMessage({ showEmbeds: true }))
+        const messages = await getWeeklyCookiesMessages({ showEmbeds: true })
+        for (const message of messages) {
+          await channel.send(message)
+        }
       }),
     )
   }

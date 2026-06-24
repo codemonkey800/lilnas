@@ -50,44 +50,66 @@ async function getWeeklyCookies(): Promise<CrumblCookieProduct[]> {
   return [...rotating, ...classics].map(item => item.dessert)
 }
 
+const DISCORD_MAX_EMBEDS = 10
+
 type WeeklyCookiesMessage = Pick<MessageCreateOptions, 'content' | 'embeds'>
 
+export async function getWeeklyCookiesMessages({
+  showEmbeds,
+}: {
+  showEmbeds?: boolean
+} = {}): Promise<WeeklyCookiesMessage[]> {
+  const cookies = await getWeeklyCookies()
+
+  if (!showEmbeds) {
+    const content = ['Weekly Crumbl Cookies']
+    for (const cookie of cookies) {
+      content.push(`  - ${cookie.name}`)
+    }
+    return [{ content: content.join('\n') }]
+  }
+
+  const allEmbeds = cookies.map(cookie => {
+    let embed = new EmbedBuilder()
+      .setTitle(cookie.name)
+      .setImage(cookie.aerialImage)
+      .setThumbnail(cookie.newAerialImage)
+      .setDescription(cookie.description)
+
+    if (cookie.calorieInformation.perServing !== null) {
+      embed = embed.addFields({
+        name: 'Calories',
+        value: cookie.calorieInformation.perServing,
+      })
+    }
+
+    return embed
+  })
+
+  const totalParts = Math.ceil(allEmbeds.length / DISCORD_MAX_EMBEDS)
+  const paginated = totalParts > 1
+
+  const messages: WeeklyCookiesMessage[] = []
+  for (let i = 0; i < allEmbeds.length; i += DISCORD_MAX_EMBEDS) {
+    const part = Math.floor(i / DISCORD_MAX_EMBEDS) + 1
+    const chunk = allEmbeds.slice(i, i + DISCORD_MAX_EMBEDS)
+    messages.push({
+      content: paginated
+        ? `Weekly Crumbl Cookies (Part ${part} of ${totalParts})`
+        : 'Weekly Crumbl Cookies',
+      embeds: chunk,
+    })
+  }
+
+  return messages
+}
+
+/** @deprecated Use getWeeklyCookiesMessages instead */
 export async function getWeeklyCookiesMessage({
   showEmbeds,
 }: {
   showEmbeds?: boolean
 } = {}): Promise<WeeklyCookiesMessage> {
-  const cookies = await getWeeklyCookies()
-
-  const embeds = showEmbeds
-    ? cookies.map(cookie => {
-        let embed = new EmbedBuilder()
-          .setTitle(cookie.name)
-          .setImage(cookie.aerialImage)
-          .setThumbnail(cookie.newAerialImage)
-          .setDescription(cookie.description)
-
-        if (cookie.calorieInformation.perServing !== null) {
-          embed = embed.addFields({
-            name: 'Calories',
-            value: cookie.calorieInformation.perServing,
-          })
-        }
-
-        return embed
-      })
-    : undefined
-
-  const content = ['Weekly Crumbl Cookies']
-
-  if (!showEmbeds) {
-    for (const cookie of cookies) {
-      content.push(`  - ${cookie.name}`)
-    }
-  }
-
-  return {
-    content: content.join('\n'),
-    embeds,
-  }
+  const [first] = await getWeeklyCookiesMessages({ showEmbeds })
+  return first
 }
