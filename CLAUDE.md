@@ -246,6 +246,17 @@ The server uses a semantic directory structure for organizing different types of
 - `apps/*/deploy.yml` - Production deployment for each app
 - `apps/*/deploy.dev.yml` - Development deployment for each app
 
+### Exposing External Dev Services
+
+To expose a Docker Compose project running outside this repo at `https://<name>.dev.lilnas.io`:
+
+- **Guided path:** `/lilnas:expose` — the `lilnas` plugin skill walks through the convention, safety guards, and HMR config. Install once per machine: `/plugin marketplace add ~/dev/lilnas` then `/plugin install lilnas@lilnas-marketplace`.
+- **Manual path + full docs:** `docs/lilnas-expose.md`
+- **Runnable example:** `plugins/lilnas/skills/expose/examples/docker-compose.yml`
+- **Convention reference:** `plugins/lilnas/skills/expose/reference/`
+
+The production Traefik (`infra/proxy.yml`) is already attached to the `lilnas-proxy` external network. The one-time host setup is `docker network create lilnas-proxy`.
+
 ## Security Considerations
 
 ### LaTeX Equations Service Security

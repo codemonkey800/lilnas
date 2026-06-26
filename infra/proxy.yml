@@ -1,7 +1,14 @@
+networks:
+  lilnas-proxy:
+    external: true
+
 services:
   traefik:
     image: traefik
     restart: unless-stopped
+    networks:
+      - default
+      - lilnas-proxy
     command:
       - --api=true
       - --providers.docker=true

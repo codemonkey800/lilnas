@@ -1,0 +1,10 @@
+{
+  "name": "lilnas",
+  "description": "LilNAS platform skills — expose dev services, review code, and manage your self-hosted NAS.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Jeremy Asuncion"
+  },
+  "homepage": "https://github.com/jeremyasuncion/lilnas",
+  "license": "MIT"
+}
