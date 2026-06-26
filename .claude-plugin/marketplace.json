@@ -1,0 +1,28 @@
+{
+  "name": "lilnas-marketplace",
+  "owner": {
+    "name": "Jeremy Asuncion"
+  },
+  "metadata": {
+    "description": "LilNAS plugin marketplace — skills for your self-hosted NAS platform.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "lilnas",
+      "description": "LilNAS platform skills: expose dev services via the shared lilnas-proxy network, review code, and manage your self-hosted NAS.",
+      "author": {
+        "name": "Jeremy Asuncion"
+      },
+      "tags": [
+        "lilnas",
+        "homelab",
+        "docker",
+        "traefik",
+        "dev-server",
+        "expose"
+      ],
+      "source": "./plugins/lilnas"
+    }
+  ]
+}

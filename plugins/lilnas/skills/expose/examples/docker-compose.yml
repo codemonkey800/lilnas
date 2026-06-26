@@ -1,0 +1,70 @@
+# Example: expose a dev service at https://whoami.dev.lilnas.io
+#
+# Prerequisites:
+#   1. docker network create lilnas-proxy   (one-time platform setup)
+#   2. /plugin install lilnas@lilnas-marketplace (or use /lilnas:expose to generate this)
+#
+# Usage:
+#   docker compose up -d      → route goes live within ~1s
+#   docker compose down       → route removed within ~1s (no cleanup needed)
+
+networks:
+  # Must pre-exist: docker network create lilnas-proxy
+  lilnas-proxy:
+    external: true
+
+services:
+  whoami:
+    image: traefik/whoami
+    # No `ports:` — Traefik reaches this container over lilnas-proxy
+    networks:
+      - default        # reach sibling services within this project
+      - lilnas-proxy   # be discovered and routed by the production Traefik
+    labels:
+      # Enable Traefik discovery
+      - traefik.enable=true
+
+      # REQUIRED: pin the routing network to avoid non-deterministic 502s
+      # (Traefik v3 picks randomly when a container is on 2+ networks)
+      - traefik.docker.network=lilnas-proxy
+
+      # Router — use dev- prefix to avoid conflicting with production routers
+      - traefik.http.routers.dev-whoami.rule=Host(`whoami.dev.lilnas.io`)
+      - traefik.http.routers.dev-whoami.entrypoints=websecure
+      - traefik.http.routers.dev-whoami.tls.certresolver=le
+
+      # Service — internal port of the whoami container
+      - traefik.http.services.dev-whoami.loadbalancer.server.port=80
+
+      # Access control — REMOVE this label to make the route public.
+      # Shipped active by default: an authenticated user must log in via OAuth
+      # before reaching this service. Removal is the deliberate opt-out.
+      - traefik.http.routers.dev-whoami.middlewares=forward-auth
+
+  # --- Vite dev server example (uncomment and adjust) ---
+  # vite-app:
+  #   image: node:22-alpine
+  #   working_dir: /app
+  #   volumes:
+  #     - ./:/app
+  #   command: npx vite --host 0.0.0.0
+  #   networks:
+  #     - default
+  #     - lilnas-proxy
+  #   labels:
+  #     - traefik.enable=true
+  #     - traefik.docker.network=lilnas-proxy
+  #     - traefik.http.routers.dev-vite-app.rule=Host(`vite-app.dev.lilnas.io`)
+  #     - traefik.http.routers.dev-vite-app.entrypoints=websecure
+  #     - traefik.http.routers.dev-vite-app.tls.certresolver=le
+  #     - traefik.http.services.dev-vite-app.loadbalancer.server.port=5173
+  #     - traefik.http.routers.dev-vite-app.middlewares=forward-auth
+  #
+  # Add to vite.config.ts (v7):
+  #   server:
+  #     host: '0.0.0.0'
+  #     allowedHosts: ['.dev.lilnas.io']
+  #     hmr:
+  #       protocol: 'wss'
+  #       host: 'vite-app.dev.lilnas.io'
+  #       clientPort: 443
