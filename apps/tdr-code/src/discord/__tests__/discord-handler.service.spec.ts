@@ -267,6 +267,110 @@ function makeMentionMessage(
   })
 }
 
+describe('DiscordHandlerService — onAgentMessageImage / outbound images (U5)', () => {
+  it('flushes buffered text before sending the image (R14, AE6)', async () => {
+    const calls: string[] = []
+    const sentMessages: unknown[] = []
+    const existingPlaceholder = createMockMessage({ id: 'placeholder' })
+    ;(existingPlaceholder.delete as jest.Mock).mockImplementation(async () => {
+      calls.push('delete-placeholder')
+    })
+
+    const channel = createMockTextChannel({
+      send: jest.fn().mockImplementation(async (arg: unknown) => {
+        const isFile = typeof arg === 'object' && arg !== null && 'files' in arg
+        calls.push(isFile ? 'send-image' : 'send-text')
+        sentMessages.push(arg)
+        return createMockMessage()
+      }),
+    })
+
+    const service = await createService(
+      createMockClient(new Map([['ch1', channel]])),
+    )
+
+    // Pre-populate channel state with buffered text and a reply placeholder
+    const states = (service as unknown as { channelStates: Map<string, unknown> }).channelStates
+    states.set('ch1', {
+      toolStates: new Map(),
+      toolSummaryMessage: null,
+      toolSummaryCreating: false,
+      pendingDiffs: new Map(),
+      replyBuffer: 'buffered text',
+      replyMessage: existingPlaceholder,
+      flushTimer: null,
+      workingMessage: null,
+      workingMessageCreating: false,
+      currentTurnId: 1,
+    })
+
+    service.onAgentMessageImage('ch1', Buffer.from('png').toString('base64'), 'image/png')
+    await new Promise(r => setImmediate(r))
+    await new Promise(r => setImmediate(r))
+
+    // Text must be sent before image
+    expect(calls).toContain('send-text')
+    expect(calls).toContain('send-image')
+    const textIdx = calls.indexOf('send-text')
+    const imageIdx = calls.indexOf('send-image')
+    expect(textIdx).toBeLessThan(imageIdx)
+  })
+
+  it('derives file extension from mimeType (image/jpeg → image.jpeg)', async () => {
+    const { AttachmentBuilder } = jest.requireMock('discord.js') as {
+      AttachmentBuilder: jest.Mock
+    }
+    const channel = createMockTextChannel()
+    const service = await createService(
+      createMockClient(new Map([['ch1', channel]])),
+    )
+
+    service.onAgentMessageImage('ch1', Buffer.from('jpg').toString('base64'), 'image/jpeg')
+    await new Promise(r => setImmediate(r))
+    await new Promise(r => setImmediate(r))
+
+    expect(AttachmentBuilder).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      expect.objectContaining({ name: 'image.jpeg' }),
+    )
+  })
+
+  it('falls back to image.png for unknown mimeType', async () => {
+    const { AttachmentBuilder } = jest.requireMock('discord.js') as {
+      AttachmentBuilder: jest.Mock
+    }
+    const channel = createMockTextChannel()
+    const service = await createService(
+      createMockClient(new Map([['ch1', channel]])),
+    )
+
+    service.onAgentMessageImage('ch1', Buffer.from('x').toString('base64'), 'application/octet-stream')
+    await new Promise(r => setImmediate(r))
+    await new Promise(r => setImmediate(r))
+
+    expect(AttachmentBuilder).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      expect.objectContaining({ name: 'image.octet-stream' }),
+    )
+  })
+
+  it('does not throw when channel.send rejects (graceful failure)', async () => {
+    const channel = createMockTextChannel({
+      send: jest.fn().mockRejectedValue(new Error('too large')),
+    })
+    const service = await createService(
+      createMockClient(new Map([['ch1', channel]])),
+    )
+
+    // Should not throw
+    expect(() => {
+      service.onAgentMessageImage('ch1', Buffer.from('x').toString('base64'), 'image/png')
+    }).not.toThrow()
+    await new Promise(r => setImmediate(r))
+    await new Promise(r => setImmediate(r))
+  })
+})
+
 describe('DiscordHandlerService — onMessage / inbound images (U4)', () => {
   beforeEach(() => {
     // Default: no images extracted

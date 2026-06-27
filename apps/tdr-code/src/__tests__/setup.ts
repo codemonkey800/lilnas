@@ -58,6 +58,10 @@ jest.mock('discord.js', () => ({
   ActionRowBuilder: jest.fn().mockImplementation(() => ({
     addComponents: jest.fn().mockReturnThis(),
   })),
+  AttachmentBuilder: jest.fn().mockImplementation((buffer, opts) => ({
+    buffer,
+    name: opts?.name ?? 'file',
+  })),
   ButtonStyle: { Danger: 4 },
   MessageFlags: { Ephemeral: 64 },
 }))

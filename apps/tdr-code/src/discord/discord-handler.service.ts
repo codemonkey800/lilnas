@@ -2,6 +2,7 @@ import { Inject, Injectable, OnApplicationShutdown } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import {
   ActionRowBuilder,
+  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   Client,
@@ -109,6 +110,10 @@ export class DiscordHandlerService
     if (!state) return
     state.replyBuffer += text
     this.scheduleFlushReply(channelId, state)
+  }
+
+  onAgentMessageImage(channelId: string, data: string, mimeType: string): void {
+    void this.sendAgentImage(channelId, data, mimeType)
   }
 
   onPromptStart(channelId: string, turnId: number): void {
@@ -532,6 +537,24 @@ export class DiscordHandlerService
     for (const chunk of chunks) {
       await channel.send(chunk)
     }
+  }
+
+  private async sendAgentImage(
+    channelId: string,
+    data: string,
+    mimeType: string,
+  ): Promise<void> {
+    // Flush buffered text first so the image appears in order (R14)
+    await this.flushReply(channelId, true)
+
+    const channel = await this.fetchChannel(channelId)
+    if (!channel) return
+
+    const ext = mimeType.split('/')[1] ?? 'png'
+    const attachment = new AttachmentBuilder(Buffer.from(data, 'base64'), {
+      name: `image.${ext}`,
+    })
+    await channel.send({ files: [attachment] }).catch(() => {})
   }
 
   private async fetchChannel(channelId: string): Promise<TextChannel | null> {

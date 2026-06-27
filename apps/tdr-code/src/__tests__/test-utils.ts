@@ -15,6 +15,7 @@ export function createMockTextChannel(
     name: 'test-channel',
     type: 0,
     send: jest.fn().mockResolvedValue(createMockMessage()),
+    sendTyping: jest.fn().mockResolvedValue(undefined),
     isTextBased: jest.fn().mockReturnValue(true),
     ...overrides,
   } as unknown as TextChannel

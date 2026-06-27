@@ -30,6 +30,12 @@ export function createAcpClient(
         case 'agent_message_chunk': {
           if (update.content.type === 'text') {
             handlers.onAgentMessageChunk(channelId, update.content.text)
+          } else if (update.content.type === 'image') {
+            handlers.onAgentMessageImage(
+              channelId,
+              update.content.data,
+              update.content.mimeType,
+            )
           }
           break
         }

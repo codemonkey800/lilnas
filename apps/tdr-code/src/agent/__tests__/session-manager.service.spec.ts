@@ -10,6 +10,7 @@ function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
     onToolCall: jest.fn(),
     onToolCallUpdate: jest.fn(),
     onAgentMessageChunk: jest.fn(),
+    onAgentMessageImage: jest.fn(),
     onPromptStart: jest.fn(),
     onPromptComplete: jest.fn(),
   }
