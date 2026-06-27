@@ -28,11 +28,11 @@ Traefik silently resolves `Host()` conflicts — no warning is emitted. See `nam
 
 ---
 
-## Per-host certificates, not wildcard
+## Use `tls=true`, not `tls.certresolver=le`
 
-Each `<name>.dev.lilnas.io` gets its own cert from Let's Encrypt on first request. There is no wildcard `*.dev.lilnas.io` cert in this setup (wildcard requires DNS-01, which is a future upgrade path).
+All `*.dev.lilnas.io` routes share the wildcard certificate managed by the production Traefik. Router labels must use `tls=true` — do **not** set `tls.certresolver=le`.
 
-**Rate limit:** Let's Encrypt issues ~50 new certs/week per registered domain (`lilnas.io`). Reusing the same `<name>` reuses the stored cert and does not count against this limit.
+Setting `certresolver` causes Traefik to issue a new per-host cert for the exact subdomain instead of using the wildcard, which wastes Let's Encrypt quota (~50 new certs/week per registered domain) and bypasses the wildcard entirely.
 
 ---
 

@@ -21,6 +21,7 @@ function extractHostsFromLabels(labels: string[]): string[] {
     .filter(
       (host: string) => !HOST_BLOCKLIST.has(host.replace('.lilnas.io', '')),
     )
+    .filter((host: string) => !host.endsWith('.dev.lilnas.io'))
 }
 
 async function getHostsFromDocker(): Promise<string[]> {

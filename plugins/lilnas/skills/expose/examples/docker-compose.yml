@@ -31,7 +31,7 @@ services:
       # Router — use dev- prefix to avoid conflicting with production routers
       - traefik.http.routers.dev-whoami.rule=Host(`whoami.dev.lilnas.io`)
       - traefik.http.routers.dev-whoami.entrypoints=websecure
-      - traefik.http.routers.dev-whoami.tls.certresolver=le
+      - traefik.http.routers.dev-whoami.tls=true
 
       # Service — internal port of the whoami container
       - traefik.http.services.dev-whoami.loadbalancer.server.port=80
@@ -56,7 +56,7 @@ services:
   #     - traefik.docker.network=lilnas-proxy
   #     - traefik.http.routers.dev-vite-app.rule=Host(`vite-app.dev.lilnas.io`)
   #     - traefik.http.routers.dev-vite-app.entrypoints=websecure
-  #     - traefik.http.routers.dev-vite-app.tls.certresolver=le
+  #     - traefik.http.routers.dev-vite-app.tls=true
   #     - traefik.http.services.dev-vite-app.loadbalancer.server.port=5173
   #     - traefik.http.routers.dev-vite-app.middlewares=forward-auth
   #
