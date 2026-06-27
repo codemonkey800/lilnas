@@ -19,7 +19,9 @@ services:
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --entrypoints.websecure.address=:443
       - --entrypoints.metrics.address=:8082
-      - --certificatesresolvers.le.acme.tlschallenge=true
+      - --certificatesresolvers.le.acme.dnschallenge=true
+      - --certificatesresolvers.le.acme.dnschallenge.provider=namecheap
+      - --certificatesresolvers.le.acme.dnschallenge.resolvers=1.1.1.1:53,8.8.8.8:53
       - --certificatesresolvers.le.acme.email=jeremyasuncion808@gmail.com
       - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
       - --metrics.prometheus=true
@@ -27,6 +29,8 @@ services:
     ports:
       - 80:80
       - 443:443
+    env_file:
+      - .env.traefik
     volumes:
       - /storage/app-data/letsencrypt:/letsencrypt
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -37,6 +41,9 @@ services:
       - traefik.http.routers.traefik.rule=Host(`traefik.lilnas.io`)
       - traefik.http.routers.traefik.service=api@internal
       - traefik.http.routers.traefik.tls.certresolver=le
+      - traefik.http.routers.traefik.tls.domains[0].main=*.lilnas.io
+      - traefik.http.routers.traefik.tls.domains[1].main=lilnas.io
+      - traefik.http.routers.traefik.tls.domains[2].main=*.dev.lilnas.io
       - traefik.http.routers.traefik.entrypoints=websecure
       - traefik.http.routers.traefik.middlewares=forward-auth
 
