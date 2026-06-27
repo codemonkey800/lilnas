@@ -8,6 +8,7 @@ services:
       - 'host.docker.internal:host-gateway'
     volumes:
       - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/unreachable.html:/usr/share/nginx/html/unreachable.html:ro
     labels:
       - traefik.enable=true
       - traefik.http.routers.tdr-code.rule=Host(`tdr-code.lilnas.io`)
