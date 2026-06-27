@@ -44,7 +44,7 @@ services:
       # production routers (see naming-safety.md).
       - traefik.http.routers.dev-<name>.rule=Host(`<name>.dev.lilnas.io`)
       - traefik.http.routers.dev-<name>.entrypoints=websecure
-      - traefik.http.routers.dev-<name>.tls.certresolver=le
+      - traefik.http.routers.dev-<name>.tls=true
 
       # Service: the container-internal port your app listens on
       - traefik.http.services.dev-<name>.loadbalancer.server.port=<port>
@@ -72,6 +72,6 @@ When a container joins two networks (its own project `default` + `lilnas-proxy`)
 
 ## TLS / Certificates (R10)
 
-Routes are served over **HTTPS** using the `le` (TLS-ALPN-01) resolver. Traefik issues a per-host certificate on the **first HTTPS request** to the hostname — no DNS challenge, no wildcard.
+Routes are served over **HTTPS** using the `*.dev.lilnas.io` wildcard certificate managed by the production Traefik. Use `tls=true` on the router — do **not** set `tls.certresolver=le`. Setting `certresolver` causes Traefik to request a new per-host certificate for the specific subdomain instead of using the wildcard, consuming Let's Encrypt quota unnecessarily.
 
-**Let's Encrypt rate limits:** ~50 new certificates per week per registered domain. Reusing the same `<name>` hostname reuses its existing cert and does not count against the limit.
+**Let's Encrypt rate limits:** ~50 new certificates per week per registered domain. The wildcard cert is renewed once and shared across all `*.dev.lilnas.io` routes.
