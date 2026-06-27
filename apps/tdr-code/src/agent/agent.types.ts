@@ -4,6 +4,11 @@ export interface DiffContent {
   newText: string
 }
 
+export interface ImageAttachment {
+  data: string
+  mimeType: string
+}
+
 export type ToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
 
 export interface AcpEventHandlers {
