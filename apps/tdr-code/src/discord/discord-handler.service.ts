@@ -23,6 +23,7 @@ import {
   splitMessage,
 } from 'src/agent/message-bridge'
 import { SessionManagerService } from 'src/agent/session-manager.service'
+import { extractImages } from 'src/discord/image-attachments'
 
 interface ChannelState {
   toolStates: Map<
@@ -165,8 +166,10 @@ export class DiscordHandlerService
     if (!isMention) return
 
     const text = message.content.replace(/<@!?\d+>/g, '').trim()
-    if (!text) {
-      await message.reply('Please provide a message.')
+    const images = await extractImages(message.attachments.values())
+
+    if (!text && images.length === 0) {
+      await message.reply('Please provide a message or image.')
       return
     }
 
@@ -179,9 +182,25 @@ export class DiscordHandlerService
       await message.reply('⏳ Agent is working. Your message has been queued.')
     }
 
+    this.startTyping(channelId)
+
     try {
-      await sessionManager.prompt(channelId, text, message.author.id)
+      const result = await sessionManager.prompt(
+        channelId,
+        text,
+        message.author.id,
+        images,
+      )
+      if (result === 'no_image_support') {
+        this.stopTyping(channelId)
+        await message
+          .reply(
+            'This agent cannot read images, and no text was provided. Please include a text message.',
+          )
+          .catch(() => {})
+      }
     } catch (err) {
+      this.stopTyping(channelId)
       const errMsg = err instanceof Error ? err.message : String(err)
       if (errMsg.includes('sessions are busy')) {
         await message

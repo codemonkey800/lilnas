@@ -6,8 +6,18 @@ import {
   createMockMessage,
   createMockTextChannel,
 } from 'src/__tests__/test-utils'
+import { extractImages } from 'src/discord/image-attachments'
 
 import { DiscordHandlerService } from '../discord-handler.service'
+
+// Mock extractImages so onMessage tests don't do real network calls
+jest.mock('src/discord/image-attachments', () => ({
+  extractImages: jest.fn().mockResolvedValue([]),
+  MAX_IMAGE_BYTES: 10 * 1024 * 1024,
+  MAX_IMAGES_PER_MESSAGE: 4,
+}))
+
+const mockExtractImages = extractImages as jest.Mock
 
 // Expose private typing internals for inspection
 function typingIntervals(
@@ -206,5 +216,155 @@ describe('DiscordHandlerService — typing indicator (U1)', () => {
 
       expect(typingIntervals(service).size).toBe(0)
     })
+  })
+})
+
+// Helper: create a service wired to a mock SessionManagerService
+import { SessionManagerService } from 'src/agent/session-manager.service'
+
+async function createServiceWithSessionMgr(
+  promptResult: string | Promise<string> = 'end_turn',
+  clientOverrides = {},
+) {
+  const mockPrompt = jest.fn().mockResolvedValue(promptResult)
+  const mockIsPrompting = jest.fn().mockReturnValue(false)
+  const mockSessionManager = {
+    prompt: mockPrompt,
+    isPrompting: mockIsPrompting,
+  }
+
+  const mockClient = { ...createMockClient(), ...clientOverrides }
+  const mockModuleRef = {
+    get: jest.fn().mockReturnValue(mockSessionManager),
+  }
+
+  const module = await createTestingModule([
+    DiscordHandlerService,
+    { provide: Client, useValue: mockClient },
+    { provide: ModuleRef, useValue: mockModuleRef },
+    { provide: SessionManagerService, useValue: mockSessionManager },
+  ])
+
+  return {
+    service: module.get(DiscordHandlerService),
+    mockPrompt,
+    mockIsPrompting,
+    mockSessionManager,
+  }
+}
+
+function makeMentionMessage(
+  content = '',
+  overrides: Record<string, unknown> = {},
+) {
+  return createMockMessage({
+    content,
+    mentions: { has: jest.fn().mockReturnValue(true) },
+    attachments: { values: jest.fn().mockReturnValue([]) },
+    channelId: 'ch1',
+    author: { id: 'user-1', bot: false },
+    ...overrides,
+  })
+}
+
+describe('DiscordHandlerService — onMessage / inbound images (U4)', () => {
+  beforeEach(() => {
+    // Default: no images extracted
+    mockExtractImages.mockResolvedValue([])
+  })
+
+  it('accepts @mention with text and no image, calls prompt with text + [] (regression)', async () => {
+    const { service, mockPrompt } = await createServiceWithSessionMgr()
+    const message = makeMentionMessage('hello world')
+
+    await service.onMessage([message] as never)
+
+    expect(mockPrompt).toHaveBeenCalledWith('ch1', 'hello world', 'user-1', [])
+  })
+
+  it('accepts @mention with image and no text (R7, AE3)', async () => {
+    const fakeImage = { data: 'abc', mimeType: 'image/png' }
+    mockExtractImages.mockResolvedValue([fakeImage])
+
+    const { service, mockPrompt } = await createServiceWithSessionMgr()
+    const message = makeMentionMessage('')
+
+    await service.onMessage([message] as never)
+
+    expect(mockPrompt).toHaveBeenCalledWith('ch1', '', 'user-1', [fakeImage])
+  })
+
+  it('accepts @mention with text + image (R6)', async () => {
+    const fakeImage = { data: 'xyz', mimeType: 'image/jpeg' }
+    mockExtractImages.mockResolvedValue([fakeImage])
+
+    const { service, mockPrompt } = await createServiceWithSessionMgr()
+    const message = makeMentionMessage('fix this')
+
+    await service.onMessage([message] as never)
+
+    expect(mockPrompt).toHaveBeenCalledWith(
+      'ch1',
+      'fix this',
+      'user-1',
+      [fakeImage],
+    )
+  })
+
+  it('rejects @mention with neither text nor usable images (R7, R10)', async () => {
+    mockExtractImages.mockResolvedValue([]) // junk-only attachment → no images
+
+    const { service, mockPrompt } = await createServiceWithSessionMgr()
+    const message = makeMentionMessage('')
+
+    await service.onMessage([message] as never)
+
+    expect(mockPrompt).not.toHaveBeenCalled()
+    expect(message.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Please provide'),
+    )
+  })
+
+  it('replies with images-unsupported note when prompt returns no_image_support (R10)', async () => {
+    const fakeImage = { data: 'abc', mimeType: 'image/png' }
+    mockExtractImages.mockResolvedValue([fakeImage])
+
+    const { service } = await createServiceWithSessionMgr('no_image_support')
+    const message = makeMentionMessage('')
+
+    await service.onMessage([message] as never)
+
+    expect(message.reply).toHaveBeenCalledWith(
+      expect.stringContaining('cannot read images'),
+    )
+  })
+
+  it('starts typing before awaiting prompt and stops on error', async () => {
+    const sendTyping = jest.fn().mockResolvedValue(undefined)
+    const channel = createMockTextChannel({ sendTyping })
+    const mockPrompt = jest.fn().mockRejectedValue(new Error('boom'))
+    const mockModuleRef = {
+      get: jest.fn().mockReturnValue({
+        prompt: mockPrompt,
+        isPrompting: jest.fn().mockReturnValue(false),
+      }),
+    }
+    const mockClient = createMockClient(new Map([['ch1', channel]]))
+
+    const module = await createTestingModule([
+      DiscordHandlerService,
+      { provide: Client, useValue: mockClient },
+      { provide: ModuleRef, useValue: mockModuleRef },
+    ])
+    const service = module.get(DiscordHandlerService)
+
+    const message = makeMentionMessage('hello')
+    await service.onMessage([message] as never)
+    await new Promise(r => setImmediate(r))
+
+    // sendTyping was fired (typing started)
+    expect(sendTyping).toHaveBeenCalledTimes(1)
+    // After catch, typing interval was cleaned up
+    expect(typingIntervals(service).size).toBe(0)
   })
 })
