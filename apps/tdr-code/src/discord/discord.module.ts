@@ -4,6 +4,7 @@ import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 
 import { DiscordHandlerService } from './discord-handler.service'
+import { StopButtonService } from './stop-button.service'
 
 @Module({
   providers: [
@@ -13,6 +14,7 @@ import { DiscordHandlerService } from './discord-handler.service'
       useExisting: DiscordHandlerService,
     },
     SessionManagerService,
+    StopButtonService,
   ],
 })
 export class DiscordModule {}
