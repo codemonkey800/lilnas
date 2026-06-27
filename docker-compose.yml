@@ -16,5 +16,6 @@ include:
   - ./apps/me-token-tracker/deploy.yml
   - ./apps/swole/deploy.yml
   - ./apps/tdr-bot/deploy.yml
+  - ./apps/tdr-code/deploy.yml
   - ./apps/token/deploy.yml
   - ./apps/yoink/deploy.yml

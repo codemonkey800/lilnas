@@ -1,0 +1,21 @@
+services:
+  tdr-code:
+    image: nginx:alpine
+    restart: unless-stopped
+    networks:
+      - lilnas-proxy
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.tdr-code.rule=Host(`tdr-code.lilnas.io`)
+      - traefik.http.routers.tdr-code.entrypoints=websecure
+      - traefik.http.routers.tdr-code.tls.certresolver=le
+      - traefik.http.routers.tdr-code.middlewares=forward-auth
+      - traefik.http.services.tdr-code.loadbalancer.server.port=80
+
+networks:
+  lilnas-proxy:
+    external: true
