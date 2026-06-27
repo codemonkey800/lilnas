@@ -23,6 +23,7 @@ interface ManagedSession {
   lastActivity: number
   idleTimer: NodeJS.Timeout
   prompting: boolean
+  currentTurnId: number
   queue: Array<{ text: string; userId: string }>
   activeUserId: string
 }
@@ -34,6 +35,9 @@ export class SessionManagerService implements OnApplicationShutdown {
   private readonly idleTimeoutSec: number
   private readonly claudeCommand: string
   private readonly claudeCwd: string
+  // C4: Service-global counter — never resets on session teardown/recreate, so
+  // stale turn ids from old sessions cannot match new sessions (see plan Decision #3).
+  private turnCounter = 0
 
   constructor(
     @Inject(ACP_EVENT_HANDLERS) private readonly handlers: AcpEventHandlers,
@@ -67,11 +71,16 @@ export class SessionManagerService implements OnApplicationShutdown {
     return this.executePrompt(session, text, userId)
   }
 
-  cancel(channelId: string): void {
+  // C2: Await-free ordered guard — all reads + queue clear are synchronous so
+  // nothing can mutate prompting/currentTurnId between the checks and the clear.
+  cancel(channelId: string, turnId?: number): boolean {
     const session = this.sessions.get(channelId)
-    if (session) {
-      session.connection.cancel({ sessionId: session.sessionId })
-    }
+    if (!session) return false
+    if (!session.prompting) return false
+    if (turnId !== undefined && turnId !== session.currentTurnId) return false
+    session.queue = []
+    void session.connection.cancel({ sessionId: session.sessionId })
+    return true
   }
 
   teardown(channelId: string): void {
@@ -97,8 +106,15 @@ export class SessionManagerService implements OnApplicationShutdown {
     text: string,
     userId: string,
   ): Promise<string> {
+    // C3: Mint turn id at the top of executePrompt, before the await, so each
+    // queued drain auto-mints a fresh id for the next turn.
+    const turnId = ++this.turnCounter
+    session.currentTurnId = turnId
     session.prompting = true
     session.activeUserId = userId
+    this.handlers.onPromptStart(session.channelId, turnId)
+    // C1: Do not add any `await` between here and the finally-drain.
+    // Stop-cancel race safety depends on this synchronous span (see plan Decision #2 / C1).
     try {
       const result = await session.connection.prompt({
         sessionId: session.sessionId,
@@ -239,6 +255,7 @@ export class SessionManagerService implements OnApplicationShutdown {
       lastActivity: Date.now(),
       idleTimer: this.startIdleTimer(channelId),
       prompting: false,
+      currentTurnId: 0,
       queue: [],
       activeUserId: userId,
     }

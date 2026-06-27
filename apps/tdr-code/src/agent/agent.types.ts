@@ -24,5 +24,6 @@ export interface AcpEventHandlers {
     rawInput?: Record<string, unknown>,
   ): void
   onAgentMessageChunk(channelId: string, text: string): void
+  onPromptStart(channelId: string, turnId: number): void
   onPromptComplete(channelId: string, stopReason: string): void
 }

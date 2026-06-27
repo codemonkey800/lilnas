@@ -87,7 +87,10 @@ export class DiscordHandlerService implements AcpEventHandlers {
     this.scheduleFlushReply(channelId, state)
   }
 
-  onPromptComplete(channelId: string): void {
+  // TODO(U2): real impl posts the working-status message + Stop button
+  onPromptStart(_channelId: string, _turnId: number): void {}
+
+  onPromptComplete(channelId: string, _stopReason: string): void {
     const state = this.channelStates.get(channelId)
     if (!state) return
 

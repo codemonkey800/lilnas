@@ -13,6 +13,7 @@ module.exports = {
     '!**/__tests__/helpers/*.ts',
     '!**/__tests__/fixtures/*.ts',
   ],
+  setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts'],
   transform: {
     '^.+\\.ts$': [
       'ts-jest',
