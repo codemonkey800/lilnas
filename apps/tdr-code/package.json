@@ -18,7 +18,7 @@
     "db:push": "drizzle-kit push",
     "dev": "run-p dev:backend dev:frontend",
     "dev:backend": "nest start -w -b swc | pino-pretty",
-    "dev:frontend": "next dev -p ${PORT:-8083} --turbopack",
+    "dev:frontend": "next dev -p ${PORT:-8080} --turbopack",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
     "lint:prettier": "prettier -c src",

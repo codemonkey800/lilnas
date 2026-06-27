@@ -6,6 +6,7 @@ import { NecordModule } from 'necord'
 import { LoggerModule } from 'nestjs-pino'
 
 import { DatabaseModule } from './db/database.module'
+import { DiscordModule } from './discord/discord.module'
 import { EnvKeys } from './env'
 
 @Module({
@@ -40,6 +41,7 @@ import { EnvKeys } from './env'
       ],
     }),
     ScheduleModule.forRoot(),
+    DiscordModule,
   ],
 })
 export class AppModule {}
