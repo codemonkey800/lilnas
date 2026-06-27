@@ -101,6 +101,14 @@ export class SessionManagerService implements OnApplicationShutdown {
     const session = this.sessions.get(channelId)
     if (!session) return
     clearTimeout(session.idleTimer)
+    // A force-killed process orphans the in-flight connection.prompt — it never
+    // settles, so onPromptComplete never fires via the normal path. Signal it
+    // explicitly so the handler can stop typing and finalize the turn. The
+    // executePrompt error path sets session.prompting = false before calling
+    // teardown, ensuring this fires exactly once.
+    if (session.prompting) {
+      this.handlers.onPromptComplete(channelId, 'aborted')
+    }
     this.killProcessTree(session.process)
     this.sessions.delete(channelId)
   }

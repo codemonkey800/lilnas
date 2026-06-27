@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common'
+import { Inject, Injectable, OnApplicationShutdown } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import {
   ActionRowBuilder,
@@ -41,12 +41,15 @@ interface ChannelState {
 }
 
 @Injectable()
-export class DiscordHandlerService implements AcpEventHandlers {
+export class DiscordHandlerService
+  implements AcpEventHandlers, OnApplicationShutdown
+{
   private readonly channelStates = new Map<string, ChannelState>()
   // Cleared-channel guard: channelId → expiry timestamp. Blocks late ACP events
   // from resurrecting state in a just-cleared channel (see plan Decision #5).
   private readonly clearedChannels = new Map<string, number>()
   private static readonly CLEARED_GUARD_MS = 5000
+  private readonly typingIntervals = new Map<string, NodeJS.Timeout>()
 
   constructor(
     @Inject(Client) private readonly client: Client,
@@ -64,6 +67,7 @@ export class DiscordHandlerService implements AcpEventHandlers {
     diffs: DiffContent[],
     rawInput?: Record<string, unknown>,
   ): void {
+    this.startTyping(channelId)
     const state = this.getOrCreateChannelState(channelId)
     if (!state) return
     state.toolStates.set(toolCallId, {
@@ -85,6 +89,7 @@ export class DiscordHandlerService implements AcpEventHandlers {
     diffs: DiffContent[],
     rawInput?: Record<string, unknown>,
   ): void {
+    this.startTyping(channelId)
     const state = this.channelStates.get(channelId)
     const tool = state?.toolStates.get(toolCallId)
     if (!tool || !state) return
@@ -98,6 +103,7 @@ export class DiscordHandlerService implements AcpEventHandlers {
   }
 
   onAgentMessageChunk(channelId: string, text: string): void {
+    this.startTyping(channelId)
     const state = this.getOrCreateChannelState(channelId)
     if (!state) return
     state.replyBuffer += text
@@ -120,6 +126,7 @@ export class DiscordHandlerService implements AcpEventHandlers {
   // executePrompt finally-drain runs synchronously after this call; introducing
   // an await would reopen the cancel-vs-drain race (plan Decision #2 / C1).
   onPromptComplete(channelId: string, stopReason: string): void {
+    this.stopTyping(channelId)
     const state = this.channelStates.get(channelId)
     if (!state) return
 
@@ -190,6 +197,14 @@ export class DiscordHandlerService implements AcpEventHandlers {
     }
   }
 
+  // --- OnApplicationShutdown ---
+
+  onApplicationShutdown(): void {
+    for (const channelId of Array.from(this.typingIntervals.keys())) {
+      this.stopTyping(channelId)
+    }
+  }
+
   // --- Public interface for /clear (U4) ---
 
   resetChannel(channelId: string): void {
@@ -212,6 +227,50 @@ export class DiscordHandlerService implements AcpEventHandlers {
   }
 
   // --- Private helpers ---
+
+  private startTyping(channelId: string): void {
+    if (this.typingIntervals.has(channelId)) return
+    // Reserve the slot synchronously with a placeholder so concurrent calls
+    // see `has(channelId) === true` and short-circuit (R5 dedupe).
+    const placeholder = setTimeout(() => {}, 0)
+    this.typingIntervals.set(channelId, placeholder)
+
+    void this.fetchChannel(channelId)
+      .then(channel => {
+        if (!channel) {
+          // fetchChannel returned null — clean up only if we still own the slot
+          if (this.typingIntervals.get(channelId) === placeholder) {
+            this.typingIntervals.delete(channelId)
+          }
+          return
+        }
+        // Identity check: if stop+start interleaved across the await, our
+        // placeholder was replaced — don't overwrite the new call's handle.
+        channel.sendTyping().catch(() => {})
+        const interval = setInterval(() => {
+          channel.sendTyping().catch(() => {})
+        }, 8000)
+        if (this.typingIntervals.get(channelId) !== placeholder) {
+          // Slot was taken by another call — discard the interval we just created
+          clearInterval(interval)
+          return
+        }
+        this.typingIntervals.set(channelId, interval)
+      })
+      .catch(() => {
+        if (this.typingIntervals.get(channelId) === placeholder) {
+          this.typingIntervals.delete(channelId)
+        }
+      })
+  }
+
+  private stopTyping(channelId: string): void {
+    const interval = this.typingIntervals.get(channelId)
+    if (interval !== undefined) {
+      clearInterval(interval)
+      this.typingIntervals.delete(channelId)
+    }
+  }
 
   private getOrCreateChannelState(channelId: string): ChannelState | null {
     // Refuse to resurrect state for a recently-cleared channel (late ACP event guard)
