@@ -1,7 +1,7 @@
 ---
 title: "feat: tdr-code Stop control & /clear command"
 type: feat
-status: active
+status: completed
 date: 2026-06-27
 origin: docs/brainstorms/2026-06-27-tdr-code-stop-clear-requirements.md
 deepened: 2026-06-27
