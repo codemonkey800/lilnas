@@ -13,8 +13,9 @@ interface TestSession {
   lastActivity: number
   idleTimer: NodeJS.Timeout
   prompting: boolean
+  imageCapable: boolean
   currentTurnId: number
-  queue: Array<{ text: string; userId: string }>
+  queue: Array<{ text: string; userId: string; images: never[] }>
   activeUserId: string
 }
 
@@ -27,7 +28,7 @@ interface TestConnection {
 
 interface ServiceInternals {
   sessions: Map<string, TestSession>
-  executePrompt: (session: TestSession, text: string, userId: string) => Promise<string>
+  executePrompt: (session: TestSession, text: string, userId: string, images?: never[]) => Promise<string>
 }
 
 function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
@@ -98,6 +99,7 @@ function injectSession(
     lastActivity: Date.now(),
     idleTimer: setTimeout(() => {}, 99999),
     prompting: false,
+    imageCapable: false,
     currentTurnId: 0,
     queue: [],
     activeUserId: 'user-1',
@@ -153,7 +155,7 @@ describe('SessionManagerService', () => {
 
       session.prompting = true
       session.currentTurnId = 5
-      session.queue = [{ text: 'queued', userId: 'user-1' }]
+      session.queue = [{ text: 'queued', userId: 'user-1', images: [] }]
 
       const result = service.cancel('ch1', 5)
 
@@ -170,7 +172,7 @@ describe('SessionManagerService', () => {
 
       session.prompting = true
       session.currentTurnId = 5
-      session.queue = [{ text: 'queued', userId: 'user-1' }]
+      session.queue = [{ text: 'queued', userId: 'user-1', images: [] }]
 
       const result = service.cancel('ch1', 3)
 
@@ -250,7 +252,7 @@ describe('SessionManagerService', () => {
         // Inject cancel inside the contended window — while prompt is in flight
         session.currentTurnId = 1
         session.prompting = true
-        session.queue.push({ text: 'queued-item', userId: 'user-1' })
+        session.queue.push({ text: 'queued-item', userId: 'user-1', images: [] })
         cancelCalled = true
         service.cancel('ch1', 1)
         return { stopReason: 'cancelled' }

@@ -1,6 +1,19 @@
+import type { ContentBlock } from '@agentclientprotocol/sdk'
 import { createTwoFilesPatch } from 'diff'
 
-import type { DiffContent } from './agent.types'
+import type { DiffContent, ImageAttachment } from './agent.types'
+
+export function buildPromptBlocks(
+  text: string,
+  images: ImageAttachment[],
+): ContentBlock[] {
+  const blocks: ContentBlock[] = []
+  if (text) blocks.push({ type: 'text', text })
+  for (const img of images) {
+    blocks.push({ type: 'image', data: img.data, mimeType: img.mimeType })
+  }
+  return blocks
+}
 
 const DISCORD_MAX_LENGTH = 2000
 const MAX_DIFF_LINES = 150

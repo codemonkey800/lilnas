@@ -13,7 +13,8 @@ import { EnvKeys } from 'src/env'
 
 import { createAcpClient } from './acp-client'
 import { ACP_EVENT_HANDLERS } from './agent.module'
-import type { AcpEventHandlers } from './agent.types'
+import type { AcpEventHandlers, ImageAttachment } from './agent.types'
+import { buildPromptBlocks } from './message-bridge'
 
 interface ManagedSession {
   channelId: string
@@ -23,8 +24,9 @@ interface ManagedSession {
   lastActivity: number
   idleTimer: NodeJS.Timeout
   prompting: boolean
+  imageCapable: boolean
   currentTurnId: number
-  queue: Array<{ text: string; userId: string }>
+  queue: Array<{ text: string; userId: string; images: ImageAttachment[] }>
   activeUserId: string
 }
 
@@ -58,17 +60,29 @@ export class SessionManagerService implements OnApplicationShutdown {
     channelId: string,
     text: string,
     userId: string,
+    images: ImageAttachment[] = [],
   ): Promise<string> {
     const session = await this.getOrCreate(channelId, userId)
     session.lastActivity = Date.now()
     this.resetIdleTimer(session)
 
+    const usableImages = session.imageCapable ? images : []
+    if (images.length > 0 && usableImages.length === 0) {
+      console.log(
+        `[session-manager] channel=${channelId}: dropping ${images.length} image(s) — agent not image-capable`,
+      )
+    }
+
+    if (!text && usableImages.length === 0) {
+      return 'no_image_support'
+    }
+
     if (session.prompting) {
-      session.queue.push({ text, userId })
+      session.queue.push({ text, userId, images: usableImages })
       return 'queued'
     }
 
-    return this.executePrompt(session, text, userId)
+    return this.executePrompt(session, text, userId, usableImages)
   }
 
   // C2: Await-free ordered guard — all reads + queue clear are synchronous so
@@ -105,6 +119,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     session: ManagedSession,
     text: string,
     userId: string,
+    images: ImageAttachment[] = [],
   ): Promise<string> {
     // C3: Mint turn id at the top of executePrompt, before the await, so each
     // queued drain auto-mints a fresh id for the next turn.
@@ -118,7 +133,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     try {
       const result = await session.connection.prompt({
         sessionId: session.sessionId,
-        prompt: [{ type: 'text', text }],
+        prompt: buildPromptBlocks(text, images),
       })
       this.handlers.onPromptComplete(session.channelId, result.stopReason)
       return result.stopReason
@@ -128,6 +143,9 @@ export class SessionManagerService implements OnApplicationShutdown {
         err,
       )
       this.handlers.onPromptComplete(session.channelId, 'error')
+      // Mark no-longer-prompting before teardown so teardown's abort signal
+      // fires exactly once (teardown checks prompting to decide whether to signal).
+      session.prompting = false
       this.teardown(session.channelId)
       throw err
     } finally {
@@ -135,12 +153,14 @@ export class SessionManagerService implements OnApplicationShutdown {
       if (this.sessions.has(session.channelId)) {
         const next = session.queue.shift()
         if (next) {
-          this.executePrompt(session, next.text, next.userId).catch(err => {
-            console.error(
-              `Queued prompt failed for channel ${session.channelId}:`,
-              err,
-            )
-          })
+          this.executePrompt(session, next.text, next.userId, next.images).catch(
+            err => {
+              console.error(
+                `Queued prompt failed for channel ${session.channelId}:`,
+                err,
+              )
+            },
+          )
         }
       }
     }
@@ -215,6 +235,7 @@ export class SessionManagerService implements OnApplicationShutdown {
 
     let connection: ClientSideConnection
     let sessionId: string
+    let imageCapable = false
     try {
       const stream = ndJsonStream(
         Writable.toWeb(proc.stdin!) as WritableStream<Uint8Array>,
@@ -224,7 +245,7 @@ export class SessionManagerService implements OnApplicationShutdown {
       const client = createAcpClient(channelId, this.handlers)
       connection = new ClientSideConnection(() => client, stream)
 
-      await connection.initialize({
+      const initResult = await connection.initialize({
         protocolVersion: PROTOCOL_VERSION,
         clientCapabilities: {
           fs: { readTextFile: true, writeTextFile: true },
@@ -236,6 +257,11 @@ export class SessionManagerService implements OnApplicationShutdown {
           version: '0.1.0',
         },
       })
+      imageCapable =
+        initResult.agentCapabilities?.promptCapabilities?.image ?? false
+      console.log(
+        `[session-manager] channel=${channelId}: imageCapable=${imageCapable}`,
+      )
 
       const result = await connection.newSession({
         cwd: this.claudeCwd,
@@ -255,6 +281,7 @@ export class SessionManagerService implements OnApplicationShutdown {
       lastActivity: Date.now(),
       idleTimer: this.startIdleTimer(channelId),
       prompting: false,
+      imageCapable,
       currentTurnId: 0,
       queue: [],
       activeUserId: userId,

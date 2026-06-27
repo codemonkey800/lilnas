@@ -21,7 +21,7 @@ const makeAtt = (
 
 // Slice to the exact bytes so the Buffer pool doesn't bleed extra bytes.
 function bufToAb(buf: Buffer): ArrayBuffer {
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
 }
 
 function mockFetch(buf: Buffer, ok = true): jest.SpyInstance {
