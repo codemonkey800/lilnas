@@ -1,6 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
-import { Client, Events, type Message, type TextChannel } from 'discord.js'
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  Client,
+  Events,
+  type Message,
+  type TextChannel,
+} from 'discord.js'
 import { Context, type ContextOf, On } from 'necord'
 
 import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
@@ -27,11 +35,18 @@ interface ChannelState {
   replyBuffer: string
   replyMessage: Message | null
   flushTimer: NodeJS.Timeout | null
+  workingMessage: Message | null
+  workingMessageCreating: boolean
+  currentTurnId: number
 }
 
 @Injectable()
 export class DiscordHandlerService implements AcpEventHandlers {
   private readonly channelStates = new Map<string, ChannelState>()
+  // Cleared-channel guard: channelId → expiry timestamp. Blocks late ACP events
+  // from resurrecting state in a just-cleared channel (see plan Decision #5).
+  private readonly clearedChannels = new Map<string, number>()
+  private static readonly CLEARED_GUARD_MS = 5000
 
   constructor(
     @Inject(Client) private readonly client: Client,
@@ -50,6 +65,7 @@ export class DiscordHandlerService implements AcpEventHandlers {
     rawInput?: Record<string, unknown>,
   ): void {
     const state = this.getOrCreateChannelState(channelId)
+    if (!state) return
     state.toolStates.set(toolCallId, {
       title,
       status: status as ToolStatus,
@@ -83,14 +99,27 @@ export class DiscordHandlerService implements AcpEventHandlers {
 
   onAgentMessageChunk(channelId: string, text: string): void {
     const state = this.getOrCreateChannelState(channelId)
+    if (!state) return
     state.replyBuffer += text
     this.scheduleFlushReply(channelId, state)
   }
 
-  // TODO(U2): real impl posts the working-status message + Stop button
-  onPromptStart(_channelId: string, _turnId: number): void {}
+  onPromptStart(channelId: string, turnId: number): void {
+    const state = this.getOrCreateChannelState(channelId)
+    if (!state) return
+    state.currentTurnId = turnId
 
-  onPromptComplete(channelId: string, _stopReason: string): void {
+    if (state.workingMessageCreating) return
+    state.workingMessageCreating = true
+
+    void this.sendWorkingMessage(channelId, turnId)
+  }
+
+  // C1: onPromptComplete must stay synchronous — it fires void finalizeTurn()
+  // and returns. Do NOT make this async or await finalizeTurn here. The
+  // executePrompt finally-drain runs synchronously after this call; introducing
+  // an await would reopen the cancel-vs-drain race (plan Decision #2 / C1).
+  onPromptComplete(channelId: string, stopReason: string): void {
     const state = this.channelStates.get(channelId)
     if (!state) return
 
@@ -103,10 +132,18 @@ export class DiscordHandlerService implements AcpEventHandlers {
     const buffer = state.replyBuffer
     const replyMsg = state.replyMessage
     const toolSummaryMsg = state.toolSummaryMessage
+    const workingMsg = state.workingMessage
 
     this.channelStates.delete(channelId)
 
-    void this.finalizeTurn(channelId, buffer, replyMsg, toolSummaryMsg)
+    void this.finalizeTurn(
+      channelId,
+      buffer,
+      replyMsg,
+      toolSummaryMsg,
+      workingMsg,
+      stopReason,
+    )
   }
 
   // --- Discord event handlers ---
@@ -153,9 +190,37 @@ export class DiscordHandlerService implements AcpEventHandlers {
     }
   }
 
+  // --- Public interface for /clear (U4) ---
+
+  resetChannel(channelId: string): void {
+    const state = this.channelStates.get(channelId)
+    if (state) {
+      if (state.flushTimer) clearTimeout(state.flushTimer)
+      // Best-effort strip the live Stop button so it becomes a visible no-op
+      if (state.workingMessage) {
+        void state.workingMessage
+          .edit({ components: [], allowedMentions: { parse: [] } })
+          .catch(() => {})
+      }
+      this.channelStates.delete(channelId)
+    }
+    // Set cleared-channel guard so late ACP events cannot resurrect state
+    this.clearedChannels.set(
+      channelId,
+      Date.now() + DiscordHandlerService.CLEARED_GUARD_MS,
+    )
+  }
+
   // --- Private helpers ---
 
-  private getOrCreateChannelState(channelId: string): ChannelState {
+  private getOrCreateChannelState(channelId: string): ChannelState | null {
+    // Refuse to resurrect state for a recently-cleared channel (late ACP event guard)
+    const expiry = this.clearedChannels.get(channelId)
+    if (expiry !== undefined) {
+      if (Date.now() < expiry) return null
+      this.clearedChannels.delete(channelId)
+    }
+
     let state = this.channelStates.get(channelId)
     if (!state) {
       state = {
@@ -166,10 +231,53 @@ export class DiscordHandlerService implements AcpEventHandlers {
         replyBuffer: '',
         replyMessage: null,
         flushTimer: null,
+        workingMessage: null,
+        workingMessageCreating: false,
+        currentTurnId: 0,
       }
       this.channelStates.set(channelId, state)
     }
     return state
+  }
+
+  private async sendWorkingMessage(
+    channelId: string,
+    turnId: number,
+  ): Promise<void> {
+    const channel = await this.fetchChannel(channelId)
+    if (!channel) {
+      const s = this.channelStates.get(channelId)
+      if (s) s.workingMessageCreating = false
+      return
+    }
+
+    const stopButton = new ButtonBuilder()
+      .setCustomId(`stop/${channelId}/${turnId}`)
+      .setLabel('⏹ Stop')
+      .setStyle(ButtonStyle.Danger)
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(stopButton)
+
+    const msg = await channel
+      .send({
+        content: '🔄 Working…',
+        components: [row],
+        allowedMentions: { parse: [] },
+      })
+      .catch(() => null)
+
+    // Post-send re-check: if turn already ended while send was in flight, clean up
+    const currentState = this.channelStates.get(channelId)
+    if (!currentState || currentState.currentTurnId !== turnId) {
+      // Turn already finalized — strip the button so it doesn't linger
+      if (msg) {
+        void msg.edit({ components: [], allowedMentions: { parse: [] } }).catch(() => {})
+      }
+      return
+    }
+
+    currentState.workingMessage = msg
+    currentState.workingMessageCreating = false
   }
 
   private accumulateDiffs(
@@ -301,11 +409,36 @@ export class DiscordHandlerService implements AcpEventHandlers {
     buffer: string,
     replyMsg: Message | null,
     toolSummaryMsg: Message | null,
+    workingMsg: Message | null,
+    stopReason: string,
   ): Promise<void> {
-    // Remove components from tool summary (no stop button in this impl)
+    const noMentions = { parse: [] as const }
+
+    if (stopReason === 'cancelled') {
+      // Edit working message to "⏹ Stopped" with button removed (R6, R7)
+      if (workingMsg) {
+        await workingMsg
+          .edit({ content: '⏹ Stopped', components: [], allowedMentions: noMentions })
+          .catch(() => {})
+      }
+    } else if (stopReason === 'error') {
+      // Edit working message to "⚠ Error" (R7) — human-readable before teardown
+      if (workingMsg) {
+        await workingMsg
+          .edit({ content: '⚠ Error', components: [], allowedMentions: noMentions })
+          .catch(() => {})
+      }
+    } else {
+      // Normal completion — delete working message (R7)
+      if (workingMsg) {
+        await workingMsg.delete().catch(() => {})
+      }
+    }
+
+    // Strip components from tool summary (button was on working message, not here)
     if (toolSummaryMsg) {
       await toolSummaryMsg
-        .edit({ components: [], allowedMentions: { parse: [] } })
+        .edit({ components: [], allowedMentions: noMentions })
         .catch(() => {})
     }
 

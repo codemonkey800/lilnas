@@ -8,7 +8,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { Message, TextChannel } from 'discord.js'
 
 export function createMockTextChannel(
-  overrides: Partial<TextChannel> = {},
+  overrides: Record<string, unknown> = {},
 ): TextChannel {
   return {
     id: '111222333',

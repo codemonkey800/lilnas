@@ -31,6 +31,10 @@ jest.mock('discord.js', () => ({
     MessageContent: 3,
     DirectMessages: 4,
   },
+  Events: {
+    MessageCreate: 'messageCreate',
+    InteractionCreate: 'interactionCreate',
+  },
   ChannelType: { GuildText: 0, DM: 1, GuildVoice: 2 },
   Collection: class Collection extends Map {
     some(fn: (value: unknown, key: unknown, col: Map<unknown, unknown>) => boolean): boolean {
@@ -56,6 +60,20 @@ jest.mock('discord.js', () => ({
   })),
   ButtonStyle: { Danger: 4 },
   MessageFlags: { Ephemeral: 64 },
+}))
+
+jest.mock('@agentclientprotocol/sdk', () => ({
+  ndJsonStream: jest.fn().mockReturnValue({}),
+  PROTOCOL_VERSION: '1.0',
+  ClientSideConnection: jest.fn(),
+}))
+
+jest.mock('node:child_process', () => ({
+  spawn: jest.fn(),
+}))
+
+jest.mock('src/agent/acp-client', () => ({
+  createAcpClient: jest.fn(),
 }))
 
 jest.mock('necord', () => ({
