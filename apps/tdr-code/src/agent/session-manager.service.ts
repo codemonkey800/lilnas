@@ -161,14 +161,17 @@ export class SessionManagerService implements OnApplicationShutdown {
       if (this.sessions.has(session.channelId)) {
         const next = session.queue.shift()
         if (next) {
-          this.executePrompt(session, next.text, next.userId, next.images).catch(
-            err => {
-              console.error(
-                `Queued prompt failed for channel ${session.channelId}:`,
-                err,
-              )
-            },
-          )
+          this.executePrompt(
+            session,
+            next.text,
+            next.userId,
+            next.images,
+          ).catch(err => {
+            console.error(
+              `Queued prompt failed for channel ${session.channelId}:`,
+              err,
+            )
+          })
         }
       }
     }

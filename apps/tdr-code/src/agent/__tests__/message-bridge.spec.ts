@@ -1,5 +1,5 @@
-import { buildPromptBlocks } from '../message-bridge'
-import type { ImageAttachment } from '../agent.types'
+import type { ImageAttachment } from 'src/agent/agent.types'
+import { buildPromptBlocks } from 'src/agent/message-bridge'
 
 const img = (n: number): ImageAttachment => ({
   data: `data${n}`,
@@ -14,7 +14,9 @@ describe('buildPromptBlocks', () => {
 
   it('empty text + one image → [{type:image,...}] (AE3, R11)', () => {
     const blocks = buildPromptBlocks('', [img(1)])
-    expect(blocks).toEqual([{ type: 'image', data: 'data1', mimeType: 'image/type1' }])
+    expect(blocks).toEqual([
+      { type: 'image', data: 'data1', mimeType: 'image/type1' },
+    ])
   })
 
   it('text + two images → [text, image, image] in order (R11)', () => {

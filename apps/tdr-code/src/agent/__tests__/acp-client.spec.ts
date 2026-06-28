@@ -1,7 +1,9 @@
-import type { AcpEventHandlers } from '../agent.types'
+import type { AcpEventHandlers } from 'src/agent/agent.types'
 
 // setup.ts mocks 'src/agent/acp-client' globally; use requireActual to test the real implementation
-const { createAcpClient } = jest.requireActual('../acp-client') as typeof import('../acp-client')
+const { createAcpClient } = jest.requireActual(
+  '../acp-client',
+) as typeof import('../acp-client')
 
 function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
   return {

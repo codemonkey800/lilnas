@@ -27,7 +27,9 @@ export async function extractImages(
   const kept = imageAttachments.slice(0, MAX_IMAGES_PER_MESSAGE)
   const dropped = imageAttachments.length - kept.length
   if (dropped > 0) {
-    console.log(`Dropping ${dropped} image attachment(s) over the per-message cap`)
+    console.log(
+      `Dropping ${dropped} image attachment(s) over the per-message cap`,
+    )
   }
 
   const results: ImageAttachment[] = []

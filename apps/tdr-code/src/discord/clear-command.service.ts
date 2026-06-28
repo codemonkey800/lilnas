@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { Context, type SlashCommandContext, SlashCommand } from 'necord'
+import { Context, SlashCommand, type SlashCommandContext } from 'necord'
 
 import { SessionManagerService } from 'src/agent/session-manager.service'
 
@@ -14,7 +14,8 @@ export class ClearCommandService {
 
   @SlashCommand({
     name: 'clear',
-    description: 'Force-stop the agent and reset this channel to a clean slate.',
+    description:
+      'Force-stop the agent and reset this channel to a clean slate.',
   })
   async onClear(@Context() [interaction]: SlashCommandContext): Promise<void> {
     const channelId = interaction.channelId
@@ -24,8 +25,6 @@ export class ClearCommandService {
     this.sessionManager.teardown(channelId)
     this.discordHandler.resetChannel(channelId)
 
-    await interaction.reply(
-      'Session cleared — next @mention starts fresh.',
-    )
+    await interaction.reply('Session cleared — next @mention starts fresh.')
   }
 }

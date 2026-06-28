@@ -2,7 +2,7 @@ import {
   extractImages,
   MAX_IMAGE_BYTES,
   MAX_IMAGES_PER_MESSAGE,
-} from '../image-attachments'
+} from 'src/discord/image-attachments'
 
 const makeAtt = (
   overrides: Partial<{
@@ -21,7 +21,10 @@ const makeAtt = (
 
 // Slice to the exact bytes so the Buffer pool doesn't bleed extra bytes.
 function bufToAb(buf: Buffer): ArrayBuffer {
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+  return buf.buffer.slice(
+    buf.byteOffset,
+    buf.byteOffset + buf.byteLength,
+  ) as ArrayBuffer
 }
 
 function mockFetch(buf: Buffer, ok = true): jest.SpyInstance {
@@ -57,28 +60,38 @@ describe('extractImages', () => {
   })
 
   it('skips text/plain attachments without calling fetch', async () => {
-    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({} as Response)
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue({} as Response)
     const result = await extractImages([makeAtt({ contentType: 'text/plain' })])
     expect(result).toHaveLength(0)
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('skips application/pdf attachments', async () => {
-    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({} as Response)
-    const result = await extractImages([makeAtt({ contentType: 'application/pdf' })])
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue({} as Response)
+    const result = await extractImages([
+      makeAtt({ contentType: 'application/pdf' }),
+    ])
     expect(result).toHaveLength(0)
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('skips attachments with null contentType', async () => {
-    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({} as Response)
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue({} as Response)
     const result = await extractImages([makeAtt({ contentType: null })])
     expect(result).toHaveLength(0)
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('skips attachment whose size exceeds cap before fetching', async () => {
-    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({} as Response)
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue({} as Response)
 
     const result = await extractImages([makeAtt({ size: MAX_IMAGE_BYTES + 1 })])
 
@@ -175,7 +188,9 @@ describe('extractImages', () => {
   })
 
   it('returns [] when only image is oversized and other is text/plain (AE4)', async () => {
-    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({} as Response)
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue({} as Response)
 
     const result = await extractImages([
       makeAtt({ name: 'big.png', size: MAX_IMAGE_BYTES + 1 }),
@@ -188,14 +203,12 @@ describe('extractImages', () => {
 
   it(`returns only the first ${MAX_IMAGES_PER_MESSAGE} images when more are provided`, async () => {
     const count = MAX_IMAGES_PER_MESSAGE + 2
-    const fetchSpy = jest
-      .spyOn(global, 'fetch')
-      .mockResolvedValue({
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        arrayBuffer: async () => bufToAb(Buffer.from('x')),
-      } as unknown as Response)
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      arrayBuffer: async () => bufToAb(Buffer.from('x')),
+    } as unknown as Response)
 
     const atts = Array.from({ length: count }, (_, i) =>
       makeAtt({ name: `img${i}.png` }),

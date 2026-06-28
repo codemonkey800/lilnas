@@ -1,9 +1,4 @@
-import {
-  DynamicModule,
-  ForwardReference,
-  Provider,
-  Type,
-} from '@nestjs/common'
+import { DynamicModule, ForwardReference, Provider, Type } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { Message, TextChannel } from 'discord.js'
 

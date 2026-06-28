@@ -3,12 +3,13 @@ import { MessageFlags } from 'discord.js'
 import { Button, type ButtonContext, ComponentParam, Context } from 'necord'
 
 import { SessionManagerService } from 'src/agent/session-manager.service'
+import { STOP_ID_PREFIX } from 'src/discord/stop-button-id'
 
 @Injectable()
 export class StopButtonService {
   constructor(private readonly sessionManager: SessionManagerService) {}
 
-  @Button('stop/:channelId/:turnId')
+  @Button(`${STOP_ID_PREFIX}/:channelId/:turnId`)
   async onStop(
     @Context() [interaction]: ButtonContext,
     @ComponentParam('channelId') rawChannelId: string,

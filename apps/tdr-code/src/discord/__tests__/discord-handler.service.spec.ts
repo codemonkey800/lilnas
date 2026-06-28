@@ -1,14 +1,13 @@
-import { Client } from 'discord.js'
 import { ModuleRef } from '@nestjs/core'
+import { Client } from 'discord.js'
 
 import {
-  createTestingModule,
   createMockMessage,
   createMockTextChannel,
+  createTestingModule,
 } from 'src/__tests__/test-utils'
+import { DiscordHandlerService } from 'src/discord/discord-handler.service'
 import { extractImages } from 'src/discord/image-attachments'
-
-import { DiscordHandlerService } from '../discord-handler.service'
 
 // Mock extractImages so onMessage tests don't do real network calls
 jest.mock('src/discord/image-attachments', () => ({
@@ -166,7 +165,9 @@ describe('DiscordHandlerService — typing indicator (U1)', () => {
 
     it('start → stop before fetchChannel resolves leaves zero intervals (async-gap race, R5)', async () => {
       let resolveChannel!: (ch: unknown) => void
-      const channelPromise = new Promise(r => { resolveChannel = r })
+      const channelPromise = new Promise(r => {
+        resolveChannel = r
+      })
 
       const mockClient = {
         user: { id: 'bot-id' },
@@ -290,7 +291,9 @@ describe('DiscordHandlerService — onAgentMessageImage / outbound images (U5)',
     )
 
     // Pre-populate channel state with buffered text and a reply placeholder
-    const states = (service as unknown as { channelStates: Map<string, unknown> }).channelStates
+    const states = (
+      service as unknown as { channelStates: Map<string, unknown> }
+    ).channelStates
     states.set('ch1', {
       toolStates: new Map(),
       toolSummaryMessage: null,
@@ -304,7 +307,11 @@ describe('DiscordHandlerService — onAgentMessageImage / outbound images (U5)',
       currentTurnId: 1,
     })
 
-    service.onAgentMessageImage('ch1', Buffer.from('png').toString('base64'), 'image/png')
+    service.onAgentMessageImage(
+      'ch1',
+      Buffer.from('png').toString('base64'),
+      'image/png',
+    )
     await new Promise(r => setImmediate(r))
     await new Promise(r => setImmediate(r))
 
@@ -325,7 +332,11 @@ describe('DiscordHandlerService — onAgentMessageImage / outbound images (U5)',
       createMockClient(new Map([['ch1', channel]])),
     )
 
-    service.onAgentMessageImage('ch1', Buffer.from('jpg').toString('base64'), 'image/jpeg')
+    service.onAgentMessageImage(
+      'ch1',
+      Buffer.from('jpg').toString('base64'),
+      'image/jpeg',
+    )
     await new Promise(r => setImmediate(r))
     await new Promise(r => setImmediate(r))
 
@@ -344,7 +355,11 @@ describe('DiscordHandlerService — onAgentMessageImage / outbound images (U5)',
       createMockClient(new Map([['ch1', channel]])),
     )
 
-    service.onAgentMessageImage('ch1', Buffer.from('x').toString('base64'), 'application/octet-stream')
+    service.onAgentMessageImage(
+      'ch1',
+      Buffer.from('x').toString('base64'),
+      'application/octet-stream',
+    )
     await new Promise(r => setImmediate(r))
     await new Promise(r => setImmediate(r))
 
@@ -364,7 +379,11 @@ describe('DiscordHandlerService — onAgentMessageImage / outbound images (U5)',
 
     // Should not throw
     expect(() => {
-      service.onAgentMessageImage('ch1', Buffer.from('x').toString('base64'), 'image/png')
+      service.onAgentMessageImage(
+        'ch1',
+        Buffer.from('x').toString('base64'),
+        'image/png',
+      )
     }).not.toThrow()
     await new Promise(r => setImmediate(r))
     await new Promise(r => setImmediate(r))
@@ -407,12 +426,9 @@ describe('DiscordHandlerService — onMessage / inbound images (U4)', () => {
 
     await service.onMessage([message] as never)
 
-    expect(mockPrompt).toHaveBeenCalledWith(
-      'ch1',
-      'fix this',
-      'user-1',
-      [fakeImage],
-    )
+    expect(mockPrompt).toHaveBeenCalledWith('ch1', 'fix this', 'user-1', [
+      fakeImage,
+    ])
   })
 
   it('rejects @mention with neither text nor usable images (R7, R10)', async () => {

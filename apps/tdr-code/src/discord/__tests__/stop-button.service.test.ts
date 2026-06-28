@@ -2,8 +2,7 @@ import { MessageFlags } from 'discord.js'
 
 import { createTestingModule } from 'src/__tests__/test-utils'
 import { SessionManagerService } from 'src/agent/session-manager.service'
-
-import { StopButtonService } from '../stop-button.service'
+import { StopButtonService } from 'src/discord/stop-button.service'
 
 function createMockSessionManager(cancelResult = true) {
   return {

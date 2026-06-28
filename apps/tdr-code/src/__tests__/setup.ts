@@ -37,7 +37,9 @@ jest.mock('discord.js', () => ({
   },
   ChannelType: { GuildText: 0, DM: 1, GuildVoice: 2 },
   Collection: class Collection extends Map {
-    some(fn: (value: unknown, key: unknown, col: Map<unknown, unknown>) => boolean): boolean {
+    some(
+      fn: (value: unknown, key: unknown, col: Map<unknown, unknown>) => boolean,
+    ): boolean {
       for (const [key, value] of this) {
         if (fn(value, key, this)) return true
       }
@@ -83,28 +85,61 @@ jest.mock('src/agent/acp-client', () => ({
 jest.mock('necord', () => ({
   Injectable: jest.fn(() => (_target: unknown) => _target),
   Context: jest.fn(
-    () =>
-      (_target: unknown, _propertyKey: string, _parameterIndex: number) => {},
+    () => (_target: unknown, _propertyKey: string, _parameterIndex: number) => {
+      void _target
+      void _propertyKey
+      void _parameterIndex
+    },
   ),
   On: jest.fn(
     () =>
-      (_target: unknown, _propertyKey: string, _descriptor: PropertyDescriptor) => {},
+      (
+        _target: unknown,
+        _propertyKey: string,
+        _descriptor: PropertyDescriptor,
+      ) => {
+        void _target
+        void _propertyKey
+        void _descriptor
+      },
   ),
   SlashCommand: jest.fn(
     () =>
-      (_target: unknown, _propertyKey: string, _descriptor: PropertyDescriptor) => {},
+      (
+        _target: unknown,
+        _propertyKey: string,
+        _descriptor: PropertyDescriptor,
+      ) => {
+        void _target
+        void _propertyKey
+        void _descriptor
+      },
   ),
   SlashCommandContext: jest.fn(
-    () =>
-      (_target: unknown, _propertyKey: string, _parameterIndex: number) => {},
+    () => (_target: unknown, _propertyKey: string, _parameterIndex: number) => {
+      void _target
+      void _propertyKey
+      void _parameterIndex
+    },
   ),
   Button: jest.fn(
     () =>
-      (_target: unknown, _propertyKey: string, _descriptor: PropertyDescriptor) => {},
+      (
+        _target: unknown,
+        _propertyKey: string,
+        _descriptor: PropertyDescriptor,
+      ) => {
+        void _target
+        void _propertyKey
+        void _descriptor
+      },
   ),
   ComponentParam: jest.fn(
-    () =>
-      (_target: unknown, _propertyKey: string, _parameterIndex: number) => {},
+    () => (_target: unknown, _propertyKey: string, _parameterIndex: number) => {
+      void _target
+      void _propertyKey
+      void _parameterIndex
+    },
   ),
   NecordModule: class NecordModule {},
 }))

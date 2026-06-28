@@ -2,8 +2,7 @@ import { Test } from '@nestjs/testing'
 
 import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
 import type { AcpEventHandlers } from 'src/agent/agent.types'
-
-import { SessionManagerService } from '../session-manager.service'
+import { SessionManagerService } from 'src/agent/session-manager.service'
 
 function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
   return {
@@ -16,19 +15,12 @@ function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
   }
 }
 
-async function createService(handlers: AcpEventHandlers) {
-  const module = await Test.createTestingModule({
-    providers: [
-      SessionManagerService,
-      { provide: ACP_EVENT_HANDLERS, useValue: handlers },
-    ],
-  }).compile()
-  return module.get(SessionManagerService)
-}
-
 function sessions(
   service: SessionManagerService,
-): Map<string, { prompting: boolean; idleTimer: NodeJS.Timeout; process: unknown }> {
+): Map<
+  string,
+  { prompting: boolean; idleTimer: NodeJS.Timeout; process: unknown }
+> {
   return (
     service as unknown as {
       sessions: Map<
@@ -39,7 +31,10 @@ function sessions(
   ).sessions
 }
 
-function injectPromptingSession(service: SessionManagerService, channelId: string) {
+function injectPromptingSession(
+  service: SessionManagerService,
+  channelId: string,
+) {
   const mockProc = { pid: 1234, kill: jest.fn(), on: jest.fn() }
   const session = {
     channelId,

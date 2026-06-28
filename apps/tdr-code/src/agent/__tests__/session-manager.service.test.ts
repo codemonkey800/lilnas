@@ -2,8 +2,7 @@ import { Test } from '@nestjs/testing'
 
 import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
 import type { AcpEventHandlers } from 'src/agent/agent.types'
-
-import { SessionManagerService } from '../session-manager.service'
+import { SessionManagerService } from 'src/agent/session-manager.service'
 
 interface TestSession {
   channelId: string
@@ -28,7 +27,12 @@ interface TestConnection {
 
 interface ServiceInternals {
   sessions: Map<string, TestSession>
-  executePrompt: (session: TestSession, text: string, userId: string, images?: never[]) => Promise<string>
+  executePrompt: (
+    session: TestSession,
+    text: string,
+    userId: string,
+    images?: never[],
+  ) => Promise<string>
 }
 
 function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
@@ -219,53 +223,57 @@ describe('SessionManagerService', () => {
   })
 
   describe('C4 — turn ids are monotonic across teardown/recreate', () => {
-    it('stale turn id from old session does not match new session after teardown', async () => {
+    it('turnCounter survives teardown — new session gets a higher id than old session', async () => {
       const handlers = createMockHandlers()
       const service = await createService(handlers)
-      const connection = createMockConnection()
+      const conn = createMockConnection()
 
-      const oldSession = injectSession(service, 'ch1', connection)
-      oldSession.prompting = true
-      oldSession.currentTurnId = 1
+      // First session: let executePrompt mint a real turn id via turnCounter
+      const s1 = injectSession(service, 'ch1', conn)
+      await internals(service).executePrompt(s1, 'a', 'u')
+      const idN = handlers.onPromptStart.mock.calls.at(-1)![1] as number
 
       service.teardown('ch1')
 
-      // Recreate session with new (higher) turn id
-      const newSession = injectSession(service, 'ch1', connection)
-      newSession.prompting = true
-      newSession.currentTurnId = 2
+      // Second session: if teardown reset turnCounter the new id would collide with idN
+      const s2 = injectSession(service, 'ch1', conn)
+      await internals(service).executePrompt(s2, 'b', 'u')
+      const idAfter = handlers.onPromptStart.mock.calls.at(-1)![1] as number
 
-      // Stale old button click with turn id 1 must not cancel new turn 2
-      const result = service.cancel('ch1', 1)
-      expect(result).toBe(false)
+      expect(idAfter).toBeGreaterThan(idN)
+
+      // A stale stop click for the old turn must not cancel the new session
+      expect(service.cancel('ch1', idN)).toBe(false)
     })
   })
 
   describe('cancel vs drain race (R3 / AE1 — integration)', () => {
-    it('does not re-invoke executePrompt for a queued item after cancel clears the queue', async () => {
+    it('does not re-invoke executePrompt for a queued item when cancel arrives from a separate task while prompt is pending', async () => {
       const handlers = createMockHandlers()
       const service = await createService(handlers)
       const connection = createMockConnection()
       const session = injectSession(service, 'ch1', connection)
 
-      let cancelCalled = false
-      connection.prompt.mockImplementationOnce(async () => {
-        // Inject cancel inside the contended window — while prompt is in flight
-        session.currentTurnId = 1
-        session.prompting = true
-        session.queue.push({ text: 'queued-item', userId: 'user-1', images: [] })
-        cancelCalled = true
-        service.cancel('ch1', 1)
-        return { stopReason: 'cancelled' }
-      })
+      // Drive cancel from a real separate microtask while the prompt is genuinely
+      // pending (not synchronously inside the mock), so the cancel lands in the
+      // post-resolution → finally-drain window that C1 protects.
+      let resolvePrompt!: (v: { stopReason: string }) => void
+      connection.prompt.mockReturnValueOnce(
+        new Promise(r => {
+          resolvePrompt = r
+        }),
+      )
 
-      session.prompting = true
-      session.currentTurnId = 1
+      const p = internals(service).executePrompt(session, 'first', 'user-1')
+      // Queue an item while the prompt is in flight
+      session.queue.push({ text: 'queued-item', userId: 'user-1', images: [] })
+      // Cancel from a separate microtask — arrives before the finally-drain runs
+      queueMicrotask(() => service.cancel('ch1', session.currentTurnId))
+      resolvePrompt({ stopReason: 'cancelled' })
 
-      await internals(service).executePrompt(session, 'first', 'user-1')
+      await p
 
-      expect(cancelCalled).toBe(true)
-      // Queue must be empty after cancel — drain should not have re-run
+      // Drain must NOT have re-run: cancel cleared the queue before the finally drain
       expect(connection.prompt).toHaveBeenCalledTimes(1)
     })
   })

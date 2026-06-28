@@ -25,6 +25,7 @@ import {
 } from 'src/agent/message-bridge'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { extractImages } from 'src/discord/image-attachments'
+import { stopButtonId } from 'src/discord/stop-button-id'
 
 interface ChannelState {
   toolStates: Map<
@@ -47,10 +48,10 @@ export class DiscordHandlerService
   implements AcpEventHandlers, OnApplicationShutdown
 {
   private readonly channelStates = new Map<string, ChannelState>()
-  // Cleared-channel guard: channelId → expiry timestamp. Blocks late ACP events
-  // from resurrecting state in a just-cleared channel (see plan Decision #5).
-  private readonly clearedChannels = new Map<string, number>()
-  private static readonly CLEARED_GUARD_MS = 5000
+  // Cleared-channel guard: channelId → cleared turnId watermark. Blocks late ACP
+  // events from the killed turn from resurrecting state. Cleared when a new turn
+  // starts via onPromptStart (see plan Decision #5).
+  private readonly clearedTurnId = new Map<string, number>()
   private readonly typingIntervals = new Map<string, NodeJS.Timeout>()
 
   constructor(
@@ -117,6 +118,12 @@ export class DiscordHandlerService
   }
 
   onPromptStart(channelId: string, turnId: number): void {
+    // A new turn starting means the old cleared session's events are moot —
+    // clear the watermark so the new turn can create state.
+    const clearedAt = this.clearedTurnId.get(channelId)
+    if (clearedAt !== undefined && turnId > clearedAt) {
+      this.clearedTurnId.delete(channelId)
+    }
     const state = this.getOrCreateChannelState(channelId)
     if (!state) return
     state.currentTurnId = turnId
@@ -243,11 +250,12 @@ export class DiscordHandlerService
       }
       this.channelStates.delete(channelId)
     }
-    // Set cleared-channel guard so late ACP events cannot resurrect state
-    this.clearedChannels.set(
-      channelId,
-      Date.now() + DiscordHandlerService.CLEARED_GUARD_MS,
-    )
+    // Stamp watermark: block late ACP events from this turn (or 0 if no active
+    // state — teardown already deleted it). Cleared on the next onPromptStart.
+    this.clearedTurnId.set(channelId, state?.currentTurnId ?? 0)
+    // Safety cleanup for channels that are never mentioned again
+    const t = setTimeout(() => this.clearedTurnId.delete(channelId), 60_000)
+    t.unref()
   }
 
   // --- Private helpers ---
@@ -297,12 +305,9 @@ export class DiscordHandlerService
   }
 
   private getOrCreateChannelState(channelId: string): ChannelState | null {
-    // Refuse to resurrect state for a recently-cleared channel (late ACP event guard)
-    const expiry = this.clearedChannels.get(channelId)
-    if (expiry !== undefined) {
-      if (Date.now() < expiry) return null
-      this.clearedChannels.delete(channelId)
-    }
+    // Refuse to create state while the watermark is set (late ACP event guard).
+    // The watermark is cleared in onPromptStart when a new turn begins.
+    if (this.clearedTurnId.has(channelId)) return null
 
     let state = this.channelStates.get(channelId)
     if (!state) {
@@ -335,7 +340,7 @@ export class DiscordHandlerService
     }
 
     const stopButton = new ButtonBuilder()
-      .setCustomId(`stop/${channelId}/${turnId}`)
+      .setCustomId(stopButtonId(channelId, turnId))
       .setLabel('⏹ Stop')
       .setStyle(ButtonStyle.Danger)
 
@@ -352,10 +357,8 @@ export class DiscordHandlerService
     // Post-send re-check: if turn already ended while send was in flight, clean up
     const currentState = this.channelStates.get(channelId)
     if (!currentState || currentState.currentTurnId !== turnId) {
-      // Turn already finalized — strip the button so it doesn't linger
-      if (msg) {
-        void msg.edit({ components: [], allowedMentions: { parse: [] } }).catch(() => {})
-      }
+      // Turn already finalized — delete the orphan so "🔄 Working…" doesn't linger
+      if (msg) void msg.delete().catch(() => {})
       return
     }
 
@@ -501,14 +504,22 @@ export class DiscordHandlerService
       // Edit working message to "⏹ Stopped" with button removed (R6, R7)
       if (workingMsg) {
         await workingMsg
-          .edit({ content: '⏹ Stopped', components: [], allowedMentions: noMentions })
+          .edit({
+            content: '⏹ Stopped',
+            components: [],
+            allowedMentions: noMentions,
+          })
           .catch(() => {})
       }
     } else if (stopReason === 'error') {
       // Edit working message to "⚠ Error" (R7) — human-readable before teardown
       if (workingMsg) {
         await workingMsg
-          .edit({ content: '⚠ Error', components: [], allowedMentions: noMentions })
+          .edit({
+            content: '⚠ Error',
+            components: [],
+            allowedMentions: noMentions,
+          })
           .catch(() => {})
       }
     } else {

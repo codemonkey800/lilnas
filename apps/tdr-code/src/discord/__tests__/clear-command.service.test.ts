@@ -1,8 +1,7 @@
 import { createTestingModule } from 'src/__tests__/test-utils'
 import { SessionManagerService } from 'src/agent/session-manager.service'
-
-import { ClearCommandService } from '../clear-command.service'
-import { DiscordHandlerService } from '../discord-handler.service'
+import { ClearCommandService } from 'src/discord/clear-command.service'
+import { DiscordHandlerService } from 'src/discord/discord-handler.service'
 
 function createMockSessionManager() {
   return {
@@ -69,8 +68,12 @@ describe('ClearCommandService', () => {
       const interaction = createMockInteraction('ch-clear')
 
       const order: string[] = []
-      mockHandler.resetChannel.mockImplementation(() => order.push('resetChannel'))
-      interaction.reply = jest.fn().mockImplementation(async () => order.push('reply'))
+      mockHandler.resetChannel.mockImplementation(() =>
+        order.push('resetChannel'),
+      )
+      interaction.reply = jest
+        .fn()
+        .mockImplementation(async () => order.push('reply'))
 
       await service.onClear([interaction] as never)
 
@@ -85,7 +88,9 @@ describe('ClearCommandService', () => {
       const interaction = createMockInteraction('ch-empty')
 
       // teardown and resetChannel are no-ops when no session exists
-      await expect(service.onClear([interaction] as never)).resolves.not.toThrow()
+      await expect(
+        service.onClear([interaction] as never),
+      ).resolves.not.toThrow()
       expect(interaction.reply).toHaveBeenCalled()
     })
   })
@@ -98,7 +103,9 @@ describe('ClearCommandService', () => {
       await service.onClear([interaction] as never)
 
       // Simulate the killed process's error-path callback reaching the handler
-      expect(() => mockHandler.onPromptComplete('ch-clear', 'error')).not.toThrow()
+      expect(() =>
+        mockHandler.onPromptComplete('ch-clear', 'error'),
+      ).not.toThrow()
     })
   })
 

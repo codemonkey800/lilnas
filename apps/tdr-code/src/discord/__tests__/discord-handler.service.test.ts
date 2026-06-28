@@ -1,9 +1,13 @@
-import { Client } from 'discord.js'
 import { ModuleRef } from '@nestjs/core'
+import { Client } from 'discord.js'
 
-import { createTestingModule, createMockMessage, createMockTextChannel } from 'src/__tests__/test-utils'
-
-import { DiscordHandlerService } from '../discord-handler.service'
+import {
+  createMockMessage,
+  createMockTextChannel,
+  createTestingModule,
+} from 'src/__tests__/test-utils'
+import { DiscordHandlerService } from 'src/discord/discord-handler.service'
+import { stopButtonId } from 'src/discord/stop-button-id'
 
 function createMockClient() {
   return {
@@ -36,11 +40,13 @@ async function createService(clientOverrides = {}) {
 }
 
 function channelStates(service: DiscordHandlerService): Map<string, unknown> {
-  return (service as unknown as { channelStates: Map<string, unknown> }).channelStates
+  return (service as unknown as { channelStates: Map<string, unknown> })
+    .channelStates
 }
 
-function clearedChannels(service: DiscordHandlerService): Map<string, number> {
-  return (service as unknown as { clearedChannels: Map<string, number> }).clearedChannels
+function clearedTurnId(service: DiscordHandlerService): Map<string, number> {
+  return (service as unknown as { clearedTurnId: Map<string, number> })
+    .clearedTurnId
 }
 
 describe('DiscordHandlerService — onPromptStart', () => {
@@ -59,7 +65,10 @@ describe('DiscordHandlerService — onPromptStart', () => {
     await new Promise(r => setImmediate(r))
 
     expect(channel.send).toHaveBeenCalledTimes(1)
-    const call = (channel.send as jest.Mock).mock.calls[0][0] as Record<string, unknown>
+    const call = (channel.send as jest.Mock).mock.calls[0][0] as Record<
+      string,
+      unknown
+    >
     expect(call.content).toBe('🔄 Working…')
     expect(call.components).toBeDefined()
   })
@@ -93,7 +102,11 @@ describe('DiscordHandlerService — onPromptStart', () => {
     const setCustomId = jest.fn().mockReturnThis()
     const setLabel = jest.fn().mockReturnThis()
     const setStyle = jest.fn().mockReturnThis()
-    ButtonBuilder.mockImplementation(() => ({ setCustomId, setLabel, setStyle }))
+    ButtonBuilder.mockImplementation(() => ({
+      setCustomId,
+      setLabel,
+      setStyle,
+    }))
 
     const workingMsg = createMockMessage({ id: 'working-3' })
     const channel = createMockTextChannel({
@@ -108,7 +121,7 @@ describe('DiscordHandlerService — onPromptStart', () => {
     service.onPromptStart('ch-123', 42)
     await new Promise(r => setImmediate(r))
 
-    expect(setCustomId).toHaveBeenCalledWith('stop/ch-123/42')
+    expect(setCustomId).toHaveBeenCalledWith(stopButtonId('ch-123', 42))
   })
 })
 
@@ -252,10 +265,10 @@ describe('DiscordHandlerService — resetChannel', () => {
     service.resetChannel('ch1')
 
     expect(states.has('ch1')).toBe(false)
-    // Guard is set
-    const guard = clearedChannels(service)
+    // Watermark is set to the cleared turn's id
+    const guard = clearedTurnId(service)
     expect(guard.has('ch1')).toBe(true)
-    expect(guard.get('ch1')!).toBeGreaterThan(Date.now())
+    expect(guard.get('ch1')).toBe(1)
   })
 
   it('late ACP chunk after resetChannel does not resurrect channelStates (late event guard)', async () => {
@@ -282,11 +295,13 @@ describe('DiscordHandlerService — resetChannel', () => {
 })
 
 describe('DiscordHandlerService — race: fast turn before working message send resolves', () => {
-  it('strips button if turn already finalized before send completes', async () => {
+  it('deletes orphaned working message if turn already finalized before send completes', async () => {
     const workingMsg = createMockMessage({ id: 'w-race' })
 
     let resolveSend: (msg: unknown) => void
-    const sendPromise = new Promise(r => { resolveSend = r })
+    const sendPromise = new Promise(r => {
+      resolveSend = r
+    })
 
     const channel = createMockTextChannel({
       send: jest.fn().mockReturnValue(sendPromise),
@@ -306,9 +321,7 @@ describe('DiscordHandlerService — race: fast turn before working message send 
     await new Promise(r => setImmediate(r))
     await new Promise(r => setImmediate(r))
 
-    // State was deleted — working message should have had components stripped
-    expect(workingMsg.edit).toHaveBeenCalledWith(
-      expect.objectContaining({ components: [] }),
-    )
+    // State was deleted — orphaned message must be deleted, not left as "🔄 Working…"
+    expect(workingMsg.delete).toHaveBeenCalled()
   })
 })
