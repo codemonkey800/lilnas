@@ -20,10 +20,11 @@ export class ClearCommandService {
   async onClear(@Context() [interaction]: SlashCommandContext): Promise<void> {
     const channelId = interaction.channelId
 
-    // Order matters: resetChannel deletes channelStates synchronously so the
-    // killed process's error-path onPromptComplete finds no state (Decision #5).
-    this.sessionManager.teardown(channelId)
+    // Order matters: resetChannel deletes channelStates + arms the cleared-channel
+    // guard BEFORE teardown fires the synchronous onPromptComplete('aborted'), so
+    // the abort finds no state and cannot flush a partial reply (Decision #5).
     this.discordHandler.resetChannel(channelId)
+    this.sessionManager.teardown(channelId)
 
     await interaction.reply('Session cleared — next @mention starts fresh.')
   }

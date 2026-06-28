@@ -1,3 +1,8 @@
+export type PromptOutcome =
+  | { kind: 'completed'; stopReason: string }
+  | { kind: 'queued' }
+  | { kind: 'no_image_support' }
+
 export interface DiffContent {
   path: string
   oldText?: string | null

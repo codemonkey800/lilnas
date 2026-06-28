@@ -6,6 +6,7 @@ import {
   createMockTextChannel,
   createTestingModule,
 } from 'src/__tests__/test-utils'
+import type { PromptOutcome } from 'src/agent/agent.types'
 import { DiscordHandlerService } from 'src/discord/discord-handler.service'
 import { extractImages } from 'src/discord/image-attachments'
 
@@ -129,6 +130,22 @@ describe('DiscordHandlerService — typing indicator (U1)', () => {
       expect(typingIntervals(service).size).toBe(0)
     })
 
+    it('clears interval on onPromptComplete("aborted") (U1, R4)', async () => {
+      const sendTyping = jest.fn().mockResolvedValue(undefined)
+      const channel = createMockTextChannel({ sendTyping })
+      const service = await createService(
+        createMockClient(new Map([['ch1', channel]])),
+      )
+
+      service.onAgentMessageChunk('ch1', 'text')
+      await new Promise(r => setImmediate(r))
+
+      expect(typingIntervals(service).size).toBe(1)
+      service.onPromptComplete('ch1', 'aborted')
+
+      expect(typingIntervals(service).size).toBe(0)
+    })
+
     it('re-arms on onToolCall without creating a second interval (R3)', async () => {
       const sendTyping = jest.fn().mockResolvedValue(undefined)
       const channel = createMockTextChannel({ sendTyping })
@@ -193,6 +210,35 @@ describe('DiscordHandlerService — typing indicator (U1)', () => {
     })
   })
 
+  describe('interval re-fire (U1)', () => {
+    beforeEach(() => jest.useFakeTimers())
+    afterEach(() => jest.useRealTimers())
+
+    it('re-sends typing every 8s and stops after onPromptComplete', async () => {
+      const sendTyping = jest.fn().mockResolvedValue(undefined)
+      const channel = createMockTextChannel({ sendTyping })
+      const service = await createService(
+        createMockClient(new Map([['ch1', channel]])),
+      )
+
+      service.onAgentMessageChunk('ch1', 'text')
+      // Drain microtasks — fetchChannel resolves from cache, sendTyping fires once,
+      // setInterval is installed.
+      await Promise.resolve()
+
+      expect(sendTyping).toHaveBeenCalledTimes(1)
+
+      jest.advanceTimersByTime(8000)
+      expect(sendTyping).toHaveBeenCalledTimes(2)
+
+      service.onPromptComplete('ch1', 'end_turn')
+
+      jest.advanceTimersByTime(8000)
+      // Interval was cleared — no more fires
+      expect(sendTyping).toHaveBeenCalledTimes(2)
+    })
+  })
+
   describe('teardown abort — orphaned prompt (R4)', () => {
     it('onApplicationShutdown clears all active typing intervals', async () => {
       const sendTyping = jest.fn().mockResolvedValue(undefined)
@@ -224,7 +270,10 @@ describe('DiscordHandlerService — typing indicator (U1)', () => {
 import { SessionManagerService } from 'src/agent/session-manager.service'
 
 async function createServiceWithSessionMgr(
-  promptResult: string | Promise<string> = 'end_turn',
+  promptResult: PromptOutcome | Promise<PromptOutcome> = {
+    kind: 'completed',
+    stopReason: 'end_turn',
+  },
   clientOverrides = {},
 ) {
   const mockPrompt = jest.fn().mockResolvedValue(promptResult)
@@ -388,6 +437,25 @@ describe('DiscordHandlerService — onAgentMessageImage / outbound images (U5)',
     await new Promise(r => setImmediate(r))
     await new Promise(r => setImmediate(r))
   })
+
+  it('does not send image to a cleared channel (cleared-channel guard, Decision #5)', async () => {
+    const channel = createMockTextChannel()
+    const service = await createService(
+      createMockClient(new Map([['ch1', channel]])),
+    )
+
+    // Arm the cleared-channel guard before the image event arrives
+    service.resetChannel('ch1')
+    service.onAgentMessageImage(
+      'ch1',
+      Buffer.from('x').toString('base64'),
+      'image/png',
+    )
+    await new Promise(r => setImmediate(r))
+    await new Promise(r => setImmediate(r))
+
+    expect(channel.send).not.toHaveBeenCalled()
+  })
 })
 
 describe('DiscordHandlerService — onMessage / inbound images (U4)', () => {
@@ -449,7 +517,9 @@ describe('DiscordHandlerService — onMessage / inbound images (U4)', () => {
     const fakeImage = { data: 'abc', mimeType: 'image/png' }
     mockExtractImages.mockResolvedValue([fakeImage])
 
-    const { service } = await createServiceWithSessionMgr('no_image_support')
+    const { service } = await createServiceWithSessionMgr({
+      kind: 'no_image_support',
+    })
     const message = makeMentionMessage('')
 
     await service.onMessage([message] as never)

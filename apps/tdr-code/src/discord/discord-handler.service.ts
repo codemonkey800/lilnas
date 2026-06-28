@@ -53,6 +53,9 @@ export class DiscordHandlerService
   // starts via onPromptStart (see plan Decision #5).
   private readonly clearedTurnId = new Map<string, number>()
   private readonly typingIntervals = new Map<string, NodeJS.Timeout>()
+  // Per-channel outbound send chain: serializes image sends (and any other tasks
+  // enqueued via enqueueSend) to prevent out-of-order delivery and text-loss races.
+  private readonly sendChains = new Map<string, Promise<void>>()
 
   constructor(
     @Inject(Client) private readonly client: Client,
@@ -114,7 +117,9 @@ export class DiscordHandlerService
   }
 
   onAgentMessageImage(channelId: string, data: string, mimeType: string): void {
-    void this.sendAgentImage(channelId, data, mimeType)
+    this.enqueueSend(channelId, () =>
+      this.sendAgentImage(channelId, data, mimeType),
+    )
   }
 
   onPromptStart(channelId: string, turnId: number): void {
@@ -203,7 +208,7 @@ export class DiscordHandlerService
         message.author.id,
         images,
       )
-      if (result === 'no_image_support') {
+      if (result.kind === 'no_image_support') {
         this.stopTyping(channelId)
         await message
           .reply(
@@ -256,6 +261,9 @@ export class DiscordHandlerService
     // Safety cleanup for channels that are never mentioned again
     const t = setTimeout(() => this.clearedTurnId.delete(channelId), 60_000)
     t.unref()
+    // Drop the stale send-chain tail — in-flight tasks still check the guard and
+    // return early, so they won't post into the cleared channel.
+    this.sendChains.delete(channelId)
   }
 
   // --- Private helpers ---
@@ -265,6 +273,7 @@ export class DiscordHandlerService
     // Reserve the slot synchronously with a placeholder so concurrent calls
     // see `has(channelId) === true` and short-circuit (R5 dedupe).
     const placeholder = setTimeout(() => {}, 0)
+    placeholder.unref()
     this.typingIntervals.set(channelId, placeholder)
 
     void this.fetchChannel(channelId)
@@ -282,6 +291,7 @@ export class DiscordHandlerService
         const interval = setInterval(() => {
           channel.sendTyping().catch(() => {})
         }, 8000)
+        interval.unref()
         if (this.typingIntervals.get(channelId) !== placeholder) {
           // Slot was taken by another call — discard the interval we just created
           clearInterval(interval)
@@ -465,12 +475,14 @@ export class DiscordHandlerService
       const currentState = this.channelStates.get(channelId)
       if (currentState) {
         currentState.replyMessage = null
-        currentState.replyBuffer = ''
+        // Slice off only the prefix we captured — any text appended to replyBuffer
+        // during the awaits above is preserved for the next flush.
+        currentState.replyBuffer = currentState.replyBuffer.slice(buffer.length)
       }
 
       const chunks = splitMessage(buffer)
       for (const chunk of chunks) {
-        await channel.send(chunk)
+        await channel.send(chunk).catch(() => {})
       }
     } else {
       const truncated =
@@ -550,11 +562,19 @@ export class DiscordHandlerService
     }
   }
 
+  private enqueueSend(channelId: string, task: () => Promise<void>): void {
+    const prev = this.sendChains.get(channelId) ?? Promise.resolve()
+    const next = prev.then(task, task).catch(() => {})
+    this.sendChains.set(channelId, next)
+  }
+
   private async sendAgentImage(
     channelId: string,
     data: string,
     mimeType: string,
   ): Promise<void> {
+    // Honor cleared-channel guard so a late image can't resurrect output (Decision #5)
+    if (this.clearedTurnId.has(channelId)) return
     // Flush buffered text first so the image appears in order (R14)
     await this.flushReply(channelId, true)
 

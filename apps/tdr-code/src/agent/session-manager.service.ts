@@ -13,7 +13,11 @@ import { EnvKeys } from 'src/env'
 
 import { createAcpClient } from './acp-client'
 import { ACP_EVENT_HANDLERS } from './agent.module'
-import type { AcpEventHandlers, ImageAttachment } from './agent.types'
+import type {
+  AcpEventHandlers,
+  ImageAttachment,
+  PromptOutcome,
+} from './agent.types'
 import { buildPromptBlocks } from './message-bridge'
 
 interface ManagedSession {
@@ -61,7 +65,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     text: string,
     userId: string,
     images: ImageAttachment[] = [],
-  ): Promise<string> {
+  ): Promise<PromptOutcome> {
     const session = await this.getOrCreate(channelId, userId)
     session.lastActivity = Date.now()
     this.resetIdleTimer(session)
@@ -74,12 +78,16 @@ export class SessionManagerService implements OnApplicationShutdown {
     }
 
     if (!text && usableImages.length === 0) {
-      return 'no_image_support'
+      // Reclaim process + eviction slot if session was never used (just spawned)
+      if (session.currentTurnId === 0 && session.queue.length === 0) {
+        this.teardown(channelId)
+      }
+      return { kind: 'no_image_support' }
     }
 
     if (session.prompting) {
       session.queue.push({ text, userId, images: usableImages })
-      return 'queued'
+      return { kind: 'queued' }
     }
 
     return this.executePrompt(session, text, userId, usableImages)
@@ -128,7 +136,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     text: string,
     userId: string,
     images: ImageAttachment[] = [],
-  ): Promise<string> {
+  ): Promise<PromptOutcome> {
     // C3: Mint turn id at the top of executePrompt, before the await, so each
     // queued drain auto-mints a fresh id for the next turn.
     const turnId = ++this.turnCounter
@@ -144,7 +152,7 @@ export class SessionManagerService implements OnApplicationShutdown {
         prompt: buildPromptBlocks(text, images),
       })
       this.handlers.onPromptComplete(session.channelId, result.stopReason)
-      return result.stopReason
+      return { kind: 'completed', stopReason: result.stopReason }
     } catch (err) {
       console.error(
         `Prompt error for channel ${session.channelId}, tearing down session:`,
