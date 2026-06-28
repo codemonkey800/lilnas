@@ -208,6 +208,49 @@ describe('DiscordHandlerService — typing indicator (U1)', () => {
       // No interval should have been installed (placeholder was cleared)
       expect(typingIntervals(service).size).toBe(0)
     })
+
+    it('start → stop → start discards the first interval and keeps only the second (R5)', async () => {
+      let resolveFirst!: (ch: unknown) => void
+      let resolveSecond!: (ch: unknown) => void
+      let callCount = 0
+
+      const mockClient = {
+        user: { id: 'bot-id' },
+        channels: {
+          cache: new Map(),
+          fetch: jest.fn().mockImplementation(() => {
+            callCount++
+            if (callCount === 1)
+              return new Promise(r => {
+                resolveFirst = r
+              })
+            return new Promise(r => {
+              resolveSecond = r
+            })
+          }),
+        },
+      }
+      const service = await createService(mockClient)
+      const sendTyping = jest.fn().mockResolvedValue(undefined)
+      const channel = createMockTextChannel({ sendTyping })
+
+      // First start — placeholder A inserted, fetch #1 in flight
+      service.onAgentMessageChunk('ch1', 'first')
+      // Stop — clears placeholder A
+      service.onPromptComplete('ch1', 'end_turn')
+      // Second start — placeholder B inserted, fetch #2 in flight
+      service.onAgentMessageChunk('ch1', 'second')
+
+      // Resolve fetch #1 — placeholder A is gone, discard branch fires
+      resolveFirst(channel)
+      await new Promise(r => setImmediate(r))
+
+      // Resolve fetch #2 — placeholder B is current, interval installed
+      resolveSecond(channel)
+      await new Promise(r => setImmediate(r))
+
+      expect(typingIntervals(service).size).toBe(1)
+    })
   })
 
   describe('interval re-fire (U1)', () => {
@@ -320,17 +363,11 @@ function makeMentionMessage(
 describe('DiscordHandlerService — onAgentMessageImage / outbound images (U5)', () => {
   it('flushes buffered text before sending the image (R14, AE6)', async () => {
     const calls: string[] = []
-    const sentMessages: unknown[] = []
-    const existingPlaceholder = createMockMessage({ id: 'placeholder' })
-    ;(existingPlaceholder.delete as jest.Mock).mockImplementation(async () => {
-      calls.push('delete-placeholder')
-    })
 
     const channel = createMockTextChannel({
       send: jest.fn().mockImplementation(async (arg: unknown) => {
         const isFile = typeof arg === 'object' && arg !== null && 'files' in arg
         calls.push(isFile ? 'send-image' : 'send-text')
-        sentMessages.push(arg)
         return createMockMessage()
       }),
     })
@@ -339,22 +376,9 @@ describe('DiscordHandlerService — onAgentMessageImage / outbound images (U5)',
       createMockClient(new Map([['ch1', channel]])),
     )
 
-    // Pre-populate channel state with buffered text and a reply placeholder
-    const states = (
-      service as unknown as { channelStates: Map<string, unknown> }
-    ).channelStates
-    states.set('ch1', {
-      toolStates: new Map(),
-      toolSummaryMessage: null,
-      toolSummaryCreating: false,
-      pendingDiffs: new Map(),
-      replyBuffer: 'buffered text',
-      replyMessage: existingPlaceholder,
-      flushTimer: null,
-      workingMessage: null,
-      workingMessageCreating: false,
-      currentTurnId: 1,
-    })
+    // Seed buffer through public API — the 500ms flush timer won't have fired by the
+    // time sendAgentImage calls flushReply(final=true), so text arrives first.
+    service.onAgentMessageChunk('ch1', 'buffered text')
 
     service.onAgentMessageImage(
       'ch1',
@@ -529,6 +553,19 @@ describe('DiscordHandlerService — onMessage / inbound images (U4)', () => {
     )
   })
 
+  it('replies with queued note when prompt returns queued (no double-reply, R10)', async () => {
+    const { service } = await createServiceWithSessionMgr({ kind: 'queued' })
+    const message = makeMentionMessage('hello')
+
+    await service.onMessage([message] as never)
+
+    expect(message.reply).toHaveBeenCalledWith(
+      expect.stringContaining('queued'),
+    )
+    // Only one reply — no spurious "cannot read images" reply
+    expect((message.reply as jest.Mock).mock.calls).toHaveLength(1)
+  })
+
   it('starts typing before awaiting prompt and stops on error', async () => {
     const sendTyping = jest.fn().mockResolvedValue(undefined)
     const channel = createMockTextChannel({ sendTyping })
@@ -536,7 +573,6 @@ describe('DiscordHandlerService — onMessage / inbound images (U4)', () => {
     const mockModuleRef = {
       get: jest.fn().mockReturnValue({
         prompt: mockPrompt,
-        isPrompting: jest.fn().mockReturnValue(false),
       }),
     }
     const mockClient = createMockClient(new Map([['ch1', channel]]))

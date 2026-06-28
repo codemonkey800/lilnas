@@ -24,7 +24,7 @@ import {
   splitMessage,
 } from 'src/agent/message-bridge'
 import { SessionManagerService } from 'src/agent/session-manager.service'
-import { extractImages } from 'src/discord/image-attachments'
+import { extractImages, MAX_IMAGE_BYTES } from 'src/discord/image-attachments'
 import { stopButtonId } from 'src/discord/stop-button-id'
 
 interface ChannelState {
@@ -195,10 +195,6 @@ export class DiscordHandlerService
       strict: false,
     })
 
-    if (sessionManager.isPrompting(channelId)) {
-      await message.reply('⏳ Agent is working. Your message has been queued.')
-    }
-
     this.startTyping(channelId)
 
     try {
@@ -208,7 +204,11 @@ export class DiscordHandlerService
         message.author.id,
         images,
       )
-      if (result.kind === 'no_image_support') {
+      if (result.kind === 'queued') {
+        await message
+          .reply('⏳ Agent is working. Your message has been queued.')
+          .catch(() => {})
+      } else if (result.kind === 'no_image_support') {
         this.stopTyping(channelId)
         await message
           .reply(
@@ -581,8 +581,15 @@ export class DiscordHandlerService
     const channel = await this.fetchChannel(channelId)
     if (!channel) return
 
+    const buf = Buffer.from(data, 'base64')
+    if (buf.byteLength > MAX_IMAGE_BYTES) {
+      console.warn(
+        `[discord] channel=${channelId}: dropping outbound image (${buf.byteLength} bytes > cap)`,
+      )
+      return
+    }
     const ext = mimeType.split('/')[1] ?? 'png'
-    const attachment = new AttachmentBuilder(Buffer.from(data, 'base64'), {
+    const attachment = new AttachmentBuilder(buf, {
       name: `image.${ext}`,
     })
     await channel.send({ files: [attachment] }).catch(() => {})

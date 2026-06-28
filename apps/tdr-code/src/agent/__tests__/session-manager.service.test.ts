@@ -278,6 +278,49 @@ describe('SessionManagerService', () => {
     })
   })
 
+  describe('image-capability gate (U4)', () => {
+    const img = { data: 'abc', mimeType: 'image/png' }
+
+    it('returns no_image_support for image-only message when agent not image-capable', async () => {
+      const handlers = createMockHandlers()
+      const service = await createService(handlers)
+      const conn = createMockConnection()
+      injectSession(service, 'ch1', conn) // imageCapable defaults to false
+
+      const result = await service.prompt('ch1', '', 'user-1', [img])
+      expect(result).toEqual({ kind: 'no_image_support' })
+      expect(conn.prompt).not.toHaveBeenCalled()
+    })
+
+    it('drops images but proceeds when text is present and agent not image-capable', async () => {
+      const handlers = createMockHandlers()
+      const service = await createService(handlers)
+      const conn = createMockConnection()
+      injectSession(service, 'ch1', conn)
+
+      const result = await service.prompt('ch1', 'hi', 'user-1', [img])
+      expect(result).toEqual({ kind: 'completed', stopReason: 'end_turn' })
+      const { prompt: blocks } = conn.prompt.mock.calls[0][0] as {
+        prompt: Array<{ type: string }>
+      }
+      expect(blocks.every(b => b.type !== 'image')).toBe(true)
+    })
+
+    it('passes images through when agent is image-capable', async () => {
+      const handlers = createMockHandlers()
+      const service = await createService(handlers)
+      const conn = createMockConnection()
+      const session = injectSession(service, 'ch1', conn)
+      session.imageCapable = true
+
+      await service.prompt('ch1', 'hi', 'user-1', [img])
+      const { prompt: blocks } = conn.prompt.mock.calls[0][0] as {
+        prompt: Array<{ type: string }>
+      }
+      expect(blocks.some(b => b.type === 'image')).toBe(true)
+    })
+  })
+
   describe('onPromptComplete regression', () => {
     it('receives stopReason from normal completion', async () => {
       const handlers = createMockHandlers()
