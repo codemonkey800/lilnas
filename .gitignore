@@ -16,6 +16,9 @@ infra/dev.yml
 logs/
 node_modules/
 REVIEW.md
+*.db
+*.db-shm
+*.db-wal
 truereflection-dev/
 
 # Helm chart dependencies
