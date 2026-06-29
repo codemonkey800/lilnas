@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing'
 import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
 import type { AcpEventHandlers } from 'src/agent/agent.types'
 import { SessionManagerService } from 'src/agent/session-manager.service'
+import { DB } from 'src/db/database.module'
 
 function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
   return {
@@ -95,6 +96,10 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
       providers: [
         SessionManagerService,
         { provide: ACP_EVENT_HANDLERS, useValue: handlers },
+        {
+          provide: DB,
+          useValue: { insert: jest.fn(), update: jest.fn(), select: jest.fn() },
+        },
       ],
     }).compile()
     const service = module.get(SessionManagerService)

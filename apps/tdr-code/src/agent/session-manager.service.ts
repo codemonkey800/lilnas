@@ -9,6 +9,9 @@ import {
 import { env } from '@lilnas/utils/env'
 import { Inject, Injectable, OnApplicationShutdown } from '@nestjs/common'
 
+import { markExited, recordSpawn } from 'src/db/claude-process.repo'
+import type { Db } from 'src/db/database.module'
+import { DB } from 'src/db/database.module'
 import { EnvKeys } from 'src/env'
 
 import { createAcpClient } from './acp-client'
@@ -45,8 +48,11 @@ export class SessionManagerService implements OnApplicationShutdown {
   // stale turn ids from old sessions cannot match new sessions (see plan Decision #3).
   private turnCounter = 0
 
+  private readonly generationId: number | null
+
   constructor(
     @Inject(ACP_EVENT_HANDLERS) private readonly handlers: AcpEventHandlers,
+    @Inject(DB) private readonly db: Db,
   ) {
     this.claudeCommand = env(EnvKeys.CLAUDE_COMMAND, 'claude')
     this.claudeCwd = env(EnvKeys.CLAUDE_CWD)
@@ -58,6 +64,8 @@ export class SessionManagerService implements OnApplicationShutdown {
       env(EnvKeys.AGENT_MAX_SESSIONS, '5'),
       10,
     )
+    const genIdStr = process.env[EnvKeys.BOT_GENERATION_ID]
+    this.generationId = genIdStr ? parseInt(genIdStr, 10) : null
   }
 
   async prompt(
@@ -226,6 +234,18 @@ export class SessionManagerService implements OnApplicationShutdown {
       detached: true,
     })
 
+    // Record PGID synchronously with no await between spawn() and INSERT
+    // so a bot SIGKILLed in this window still has its PGID persisted.
+    // better-sqlite3 is synchronous, so this is a plain sequential call.
+    if (this.generationId != null && proc.pid != null) {
+      recordSpawn(this.db, {
+        generationId: this.generationId,
+        pgid: proc.pid,
+        channelId,
+        spawnedAt: new Date(),
+      })
+    }
+
     proc.on('error', err => {
       const e = err as NodeJS.ErrnoException
       console.error(
@@ -249,6 +269,13 @@ export class SessionManagerService implements OnApplicationShutdown {
             `Agent process for channel ${channelId} exited with code ${code}`,
           )
         }
+      }
+      if (this.generationId != null && proc.pid != null) {
+        markExited(this.db, {
+          pgid: proc.pid,
+          generationId: this.generationId,
+          exitedAt: new Date(),
+        })
       }
     })
 

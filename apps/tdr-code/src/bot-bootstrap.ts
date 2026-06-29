@@ -1,22 +1,36 @@
 import { NestFactory } from '@nestjs/core'
 import { Logger } from 'nestjs-pino'
 
+import { SessionManagerService } from './agent/session-manager.service'
 import { BotModule } from './bot.module'
+import { BotLifecycleService } from './discord/bot-lifecycle.service'
 
 export async function bootstrapBot() {
-  // Bot has no HTTP server — createApplicationContext gives full DI + lifecycle
-  // hooks (onModuleInit, onApplicationShutdown) without binding a port.
-  // If Necord requires a full HTTP app, fall back to NestFactory.create(BotModule)
-  // without app.listen() (deferred check in U3 per the plan).
   const app = await NestFactory.createApplicationContext(BotModule, {
     bufferLogs: true,
   })
   app.useLogger(app.get(Logger))
   app.enableShutdownHooks()
 
+  // Single ordered shutdown sequence — this is the sole authority for ordering.
+  // NestJS onApplicationShutdown on SessionManagerService is idempotent so
+  // the concurrent lifecycle hook cannot race this explicit sequence.
   const shutdown = () => {
     const forceExit = setTimeout(() => process.exit(1), 8_000)
     forceExit.unref()
+
+    const lifecycle = app.get(BotLifecycleService)
+    const sessionManager = app.get(SessionManagerService)
+
+    // 1. Mark shutdown so ready/heartbeat events are no-ops.
+    lifecycle.markShutdownRequested()
+
+    // 2. Tear down all sessions (kills claude process trees).
+    sessionManager.onApplicationShutdown()
+
+    // 3. Finalize the generation row.
+    lifecycle.finalizeGeneration(0)
+
     void app
       .close()
       .then(() => process.exit(0))
