@@ -8,6 +8,11 @@ import { AppModule } from './app.module'
 import { EnvKeys } from './env'
 
 export async function bootstrapApp() {
+  // Restrict file creation permissions before opening the SQLite WAL — so the
+  // DB files (data.db / -wal / -shm) are not world-readable on a shared host.
+  // Phase C will store SSH key ciphertext in the same file.
+  process.umask(0o077)
+
   const app = await NestFactory.create(AppModule, { bufferLogs: true })
   app.useLogger(app.get(Logger))
   app.use(helmet())
