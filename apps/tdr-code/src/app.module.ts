@@ -2,6 +2,9 @@ import { env } from '@lilnas/utils/env'
 import { Module } from '@nestjs/common'
 import { LoggerModule } from 'nestjs-pino'
 
+import { BotStatusController } from './bot/bot-status.controller'
+import { BotStatusService } from './bot/bot-status.service'
+import { HealthController } from './bot/health.controller'
 import { DatabaseModule } from './db/database.module'
 import { EnvKeys } from './env'
 import { SupervisorModule } from './supervisor/supervisor.module'
@@ -27,5 +30,7 @@ function buildLoggerOptions() {
     LoggerModule.forRoot(buildLoggerOptions()),
     SupervisorModule,
   ],
+  controllers: [BotStatusController, HealthController],
+  providers: [BotStatusService],
 })
 export class AppModule {}
