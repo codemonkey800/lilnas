@@ -3,8 +3,10 @@ import { PinoLogger } from 'nestjs-pino'
 
 import {
   finalize,
+  generationById,
   insertGeneration,
   markRunning,
+  markStopping,
 } from 'src/db/bot-generation.repo'
 import { DB } from 'src/db/database.module'
 import { createTestDb } from 'src/db/test-db'
@@ -50,6 +52,18 @@ describe('BotLifecycleService', () => {
     await expect(svc.onModuleInit()).resolves.not.toThrow()
   })
 
+  it('BOT_GENERATION_ID is not a valid integer → process.exit(1)', async () => {
+    process.env[EnvKeys.BOT_GENERATION_ID] = 'abc'
+
+    const svc = await buildService(testDb.db)
+    const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called')
+    })
+
+    await expect(svc.onModuleInit()).rejects.toThrow('process.exit called')
+    mockExit.mockRestore()
+  })
+
   it('onReady marks generation running and arms heartbeat', async () => {
     const gen = insertGeneration(testDb.db, { startedAt: new Date() })
     process.env[EnvKeys.BOT_GENERATION_ID] = String(gen.id)
@@ -64,8 +78,10 @@ describe('BotLifecycleService', () => {
     // Give heartbeat time to fire.
     await new Promise(r => setTimeout(r, 100))
 
-    const { generationById } = await import('src/db/bot-generation.repo')
-    const row = generationById(testDb.db, gen.id)!
+    const { generationById: getById } = await import(
+      'src/db/bot-generation.repo'
+    )
+    const row = getById(testDb.db, gen.id)!
     expect(row.status).toBe('running')
     expect(row.lastHeartbeatAt).not.toBeNull()
 
@@ -81,10 +97,32 @@ describe('BotLifecycleService', () => {
     svc.markShutdownRequested()
     svc.onReady()
 
-    const { generationById } = await import('src/db/bot-generation.repo')
-    const row = generationById(testDb.db, gen.id)!
+    const { generationById: getById } = await import(
+      'src/db/bot-generation.repo'
+    )
+    const row = getById(testDb.db, gen.id)!
     // Should still be 'starting' — markRunning was not called.
     expect(row.status).toBe('starting')
+  })
+
+  it('onReady when generation is in stopping state → sends self SIGTERM (markRunning returns 0)', async () => {
+    const gen = insertGeneration(testDb.db, { startedAt: new Date() })
+    // Transition to stopping — markRunning will return 0 since status != 'starting'.
+    markStopping(testDb.db, gen.id)
+    process.env[EnvKeys.BOT_GENERATION_ID] = String(gen.id)
+
+    const svc = await buildService(testDb.db)
+    await svc.onModuleInit()
+
+    const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => true)
+    svc.onReady()
+
+    expect(killSpy).toHaveBeenCalledWith(process.pid, 'SIGTERM')
+    killSpy.mockRestore()
+
+    // Row should still be stopping — markRunning was a no-op.
+    const row = generationById(testDb.db, gen.id)!
+    expect(row.status).toBe('stopping')
   })
 
   it('heartbeat stops when supervisor finalizes generation (0 changes)', async () => {
@@ -105,8 +143,10 @@ describe('BotLifecycleService', () => {
     // Wait for next heartbeat tick — it should stop.
     await new Promise(r => setTimeout(r, 80))
 
-    const { generationById } = await import('src/db/bot-generation.repo')
-    const row = generationById(testDb.db, gen.id)!
+    const { generationById: getById } = await import(
+      'src/db/bot-generation.repo'
+    )
+    const row = getById(testDb.db, gen.id)!
     expect(row.status).toBe('stopped')
     // No more heartbeat updates after finalize.
     svc.onModuleDestroy()
@@ -120,8 +160,10 @@ describe('BotLifecycleService', () => {
     await svc.onModuleInit()
     svc.finalizeGeneration(0)
 
-    const { generationById } = await import('src/db/bot-generation.repo')
-    const row = generationById(testDb.db, gen.id)!
+    const { generationById: getById } = await import(
+      'src/db/bot-generation.repo'
+    )
+    const row = getById(testDb.db, gen.id)!
     expect(row.status).toBe('stopped')
     expect(row.endedAt).not.toBeNull()
   })

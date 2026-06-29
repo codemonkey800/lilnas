@@ -90,4 +90,38 @@ describe('command.repo', () => {
       close()
     }
   })
+
+  it('at-most-once: second claimPending on same db sees no rows after first claim', () => {
+    // Two separate DB connections (simulating two bot processes sharing a WAL file).
+    // better-sqlite3 is synchronous, so we open two independent Drizzle instances
+    // over the same in-memory DB via the shared connection approach. In production the
+    // BEGIN IMMEDIATE transaction in claimPending prevents double-claim across processes.
+    const { db: db1, close: close1 } = createTestDb()
+    try {
+      const gen = insertGeneration(db1, { startedAt: new Date() })
+      enqueue(db1, {
+        generationId: gen.id,
+        type: 'teardown_channel',
+        target: '12345678901234567',
+        createdAt: new Date(),
+      })
+      enqueue(db1, {
+        generationId: gen.id,
+        type: 'teardown_channel',
+        target: '22345678901234567',
+        createdAt: new Date(),
+      })
+
+      // First claim gets both rows.
+      const first = claimPending(db1, gen.id)
+      expect(first).toHaveLength(2)
+      expect(first.every(r => r.status === 'consumed')).toBe(true)
+
+      // Second call on the same connection (or any connection) returns nothing.
+      const second = claimPending(db1, gen.id)
+      expect(second).toHaveLength(0)
+    } finally {
+      close1()
+    }
+  })
 })

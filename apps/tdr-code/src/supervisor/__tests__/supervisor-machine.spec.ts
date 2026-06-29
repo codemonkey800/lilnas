@@ -35,6 +35,7 @@ describe('initialState', () => {
       attempt: 0,
       lastStableAt: null,
       expectedStop: false,
+      pendingRestart: false,
     })
   })
 })
@@ -74,7 +75,7 @@ describe('StartRequested', () => {
 })
 
 describe('Ready', () => {
-  it('Starting → Running, cancels start-deadline', () => {
+  it('Starting → Running, cancels start-deadline, arms stable-window', () => {
     const now = Date.now()
     const { state: s, effects } = applyEvent(
       state({ phase: 'Starting' }),
@@ -84,6 +85,7 @@ describe('Ready', () => {
     expect(s.phase).toBe('Running')
     expect(s.lastStableAt).toBe(now)
     expect(effects.map(e => e.kind)).toContain('cancelStartDeadline')
+    expect(effects.map(e => e.kind)).toContain('armStableWindow')
   })
 
   it('ignored in Running', () => {
@@ -123,7 +125,10 @@ describe('ExitObserved (Running)', () => {
     )
     expect(s.phase).toBe('Backoff')
     expect(s.attempt).toBe(1)
-    expect(effects.find(e => e.kind === 'finalize')).toMatchObject({
+    // Only one finalize effect — no double-finalize bug
+    const finalizeEffects = effects.filter(e => e.kind === 'finalize')
+    expect(finalizeEffects).toHaveLength(1)
+    expect(finalizeEffects[0]).toMatchObject({
       kind: 'finalize',
       status: 'crashed',
     })
@@ -163,6 +168,17 @@ describe('ExitObserved (Running)', () => {
     }
 
     expect(s.phase).toBe('Failed')
+    // On the 3rd exit, only one finalize effect with status 'failed'
+    const lastResult = applyEvent(
+      { ...state({ phase: 'Running' }), attempt: 2 },
+      { type: 'ExitObserved', code: 1, expected: false, now: base + 3_000 },
+      { ...c, unexpectedExitHistory: [base, base + 1_000, base + 2_000] },
+    )
+    const finalizeEffects = lastResult.effects.filter(
+      e => e.kind === 'finalize',
+    )
+    expect(finalizeEffects).toHaveLength(1)
+    expect(finalizeEffects[0]).toMatchObject({ status: 'failed' })
   })
 
   it('exits spaced beyond window do not trip the breaker', () => {
@@ -197,6 +213,23 @@ describe('ExitObserved (Starting)', () => {
     expect(effects.map(e => e.kind)).toContain('finalize')
     expect(effects.map(e => e.kind)).toContain('reap')
     expect(effects.map(e => e.kind)).toContain('scheduleBackoff')
+    // Only one finalize effect
+    expect(effects.filter(e => e.kind === 'finalize')).toHaveLength(1)
+  })
+
+  it('expected in Starting → Stopped with finalize(stopped), no backoff', () => {
+    const { state: s, effects } = applyEvent(
+      state({ phase: 'Starting' }),
+      { type: 'ExitObserved', code: 0, expected: true, now: 1000 },
+      ctx(),
+    )
+    expect(s.phase).toBe('Stopped')
+    expect(effects.find(e => e.kind === 'finalize')).toMatchObject({
+      kind: 'finalize',
+      status: 'stopped',
+    })
+    expect(effects.map(e => e.kind)).toContain('cancelStartDeadline')
+    expect(effects.map(e => e.kind)).not.toContain('scheduleBackoff')
   })
 })
 
@@ -213,6 +246,22 @@ describe('ExitObserved (Stopping)', () => {
     })
     expect(effects.map(e => e.kind)).toContain('cancelGraceTimeout')
     expect(effects.map(e => e.kind)).not.toContain('scheduleBackoff')
+  })
+
+  it('expected in Stopping with pendingRestart → immediately re-starts', () => {
+    const { state: s, effects } = applyEvent(
+      state({ phase: 'Stopping', expectedStop: true, pendingRestart: true }),
+      { type: 'ExitObserved', code: 0, expected: true, now: 1000 },
+      ctx(),
+    )
+    expect(s.phase).toBe('Starting')
+    expect(s.pendingRestart).toBe(false)
+    expect(effects.map(e => e.kind)).toContain('cancelGraceTimeout')
+    expect(effects.map(e => e.kind)).toContain('finalize')
+    expect(effects.map(e => e.kind)).toContain('reap')
+    expect(effects.map(e => e.kind)).toContain('insertGeneration')
+    expect(effects.map(e => e.kind)).toContain('spawn')
+    expect(effects.map(e => e.kind)).toContain('armStartDeadline')
   })
 
   it('unexpected in Stopping → Stopped (crash, no infinite backoff loop)', () => {
@@ -239,12 +288,28 @@ describe('StartTimeout', () => {
     expect(effects.map(e => e.kind)).toContain('armGraceTimeout')
   })
 
-  it('repeated start-timeouts count toward crash-loop breaker', () => {
+  it('crash-loop via start-timeouts: sets expectedStop:false so ExitObserved evaluates breaker', () => {
+    const c = ctx({ crashLoopThreshold: 3, crashLoopWindowMs: 60_000 })
+    const history = [1_000, 2_000]
+
+    // Third timeout — crash-loop threshold reached.
+    const { state: s } = applyEvent(
+      state({ phase: 'Starting', attempt: 2 }),
+      { type: 'StartTimeout', now: 3_000 },
+      { ...c, unexpectedExitHistory: history },
+    )
+
+    // expectedStop is false so the subsequent ExitObserved(Stopping) falls
+    // into the unexpected branch, which evaluates isCrashLoop and → Failed.
+    expect(s.phase).toBe('Stopping')
+    expect(s.expectedStop).toBe(false)
+  })
+
+  it('repeated start-timeouts + exits → Failed after threshold', () => {
     const c = ctx({ crashLoopThreshold: 3, crashLoopWindowMs: 60_000 })
     let s = state({ phase: 'Starting' })
     let history: number[] = []
 
-    // Simulate N start-timeouts followed by exit events.
     for (let i = 0; i < 3; i++) {
       const now = i * 1_000
       // StartTimeout → Stopping
@@ -256,10 +321,10 @@ describe('StartTimeout', () => {
       s = r1.state
       history = r1.unexpectedExitHistory
 
-      // ExitObserved(expected:true) → Stopped/Backoff/Failed
+      // ExitObserved with expected matching state.expectedStop
       const r2 = applyEvent(
         s,
-        { type: 'ExitObserved', code: null, expected: true, now },
+        { type: 'ExitObserved', code: null, expected: s.expectedStop, now },
         { ...c, unexpectedExitHistory: history },
       )
       s = r2.state
@@ -276,12 +341,11 @@ describe('StartTimeout', () => {
       }
     }
 
-    // After 3 timeout+exit cycles the history should be length 3 — breaker trips
-    expect(history.length).toBeGreaterThanOrEqual(3)
+    expect(s.phase).toBe('Failed')
   })
 })
 
-describe('StopRequested / RestartRequested', () => {
+describe('StopRequested', () => {
   it('Running + StopRequested → Stopping with SIGTERM + markStopping', () => {
     const { state: s, effects } = applyEvent(
       state({ phase: 'Running' }),
@@ -295,23 +359,65 @@ describe('StopRequested / RestartRequested', () => {
     expect(effects.map(e => e.kind)).toContain('armGraceTimeout')
   })
 
-  it('Running + RestartRequested → Stopping + scheduleBackoff(0) for re-start', () => {
-    const { effects } = applyEvent(
-      state({ phase: 'Running' }),
-      { type: 'RestartRequested' },
-      ctx(),
-    )
-    const backoff = effects.find(e => e.kind === 'scheduleBackoff')
-    expect(backoff).toMatchObject({ kind: 'scheduleBackoff', ms: 0 })
-  })
-
-  it('Starting + StopRequested → Stopping', () => {
-    const { state: s } = applyEvent(
+  it('Starting + StopRequested → Stopping with cancelStartDeadline', () => {
+    const { state: s, effects } = applyEvent(
       state({ phase: 'Starting' }),
       { type: 'StopRequested' },
       ctx(),
     )
     expect(s.phase).toBe('Stopping')
+    expect(effects.map(e => e.kind)).toContain('cancelStartDeadline')
+  })
+
+  it('Backoff + StopRequested → Stopped, cancels backoff', () => {
+    const { state: s, effects } = applyEvent(
+      state({ phase: 'Backoff' }),
+      { type: 'StopRequested' },
+      ctx(),
+    )
+    expect(s.phase).toBe('Stopped')
+    expect(effects.map(e => e.kind)).toContain('cancelBackoff')
+  })
+})
+
+describe('RestartRequested', () => {
+  it('Running + RestartRequested → Stopping with pendingRestart:true', () => {
+    const { state: s, effects } = applyEvent(
+      state({ phase: 'Running' }),
+      { type: 'RestartRequested' },
+      ctx(),
+    )
+    expect(s.phase).toBe('Stopping')
+    expect(s.pendingRestart).toBe(true)
+    expect(s.expectedStop).toBe(true)
+    expect(effects.map(e => e.kind)).toContain('markStopping')
+    expect(effects.map(e => e.kind)).toContain('sendSigterm')
+    // No scheduleBackoff(ms:0) — restart is handled by pendingRestart flag
+    expect(effects.map(e => e.kind)).not.toContain('scheduleBackoff')
+  })
+
+  it('Starting + RestartRequested → Stopping with cancelStartDeadline + pendingRestart', () => {
+    const { state: s, effects } = applyEvent(
+      state({ phase: 'Starting' }),
+      { type: 'RestartRequested' },
+      ctx(),
+    )
+    expect(s.phase).toBe('Stopping')
+    expect(s.pendingRestart).toBe(true)
+    expect(effects.map(e => e.kind)).toContain('cancelStartDeadline')
+  })
+
+  it('Backoff + RestartRequested → Starting immediately (no wait)', () => {
+    const { state: s, effects } = applyEvent(
+      state({ phase: 'Backoff' }),
+      { type: 'RestartRequested' },
+      ctx(),
+    )
+    expect(s.phase).toBe('Starting')
+    expect(s.pendingRestart).toBe(false)
+    expect(effects.map(e => e.kind)).toContain('cancelBackoff')
+    expect(effects.map(e => e.kind)).toContain('insertGeneration')
+    expect(effects.map(e => e.kind)).toContain('spawn')
   })
 })
 

@@ -26,10 +26,14 @@ export async function bootstrapBot() {
     lifecycle.markShutdownRequested()
 
     // 2. Tear down all sessions (kills claude process trees).
-    sessionManager.onApplicationShutdown()
-
-    // 3. Finalize the generation row.
-    lifecycle.finalizeGeneration(0)
+    try {
+      sessionManager.onApplicationShutdown()
+    } catch (err) {
+      app.get(Logger).error({ err }, 'Session teardown error during shutdown')
+    } finally {
+      // 3. Finalize the generation row — runs even if step 2 throws.
+      lifecycle.finalizeGeneration(0)
+    }
 
     void app
       .close()

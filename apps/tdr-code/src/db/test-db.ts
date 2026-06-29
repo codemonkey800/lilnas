@@ -1,23 +1,16 @@
-import path from 'node:path'
-
 import BetterSqlite3 from 'better-sqlite3'
 import { type BetterSQLite3Database, drizzle } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 
+import {
+  resolveMigrationsFolder,
+  type WithSqliteClient,
+} from './database.module'
 import * as schema from './schema'
 
 export type TestDb = {
   db: BetterSQLite3Database<typeof schema>
   close: () => void
-}
-
-type WithSqliteClient = { $client: { pragma: (s: string) => void } }
-
-function resolveMigrationsFolder(): string {
-  return (
-    process.env.MIGRATIONS_FOLDER ??
-    path.resolve(process.cwd(), 'src/db/migrations')
-  )
 }
 
 // Build a fresh in-memory Drizzle/better-sqlite3 instance with PRAGMAs set

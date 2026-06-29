@@ -19,8 +19,11 @@ export type SupervisorState = {
   attempt: number
   // When the bot last became stably Running (used for stable-window reset).
   lastStableAt: number | null
-  // True when SIGTERM was sent deliberately (stop/restart/timeout).
+  // True when SIGTERM was sent deliberately (stop/timeout).
   expectedStop: boolean
+  // True when a RestartRequested was the reason for stopping — triggers
+  // immediate restart when ExitObserved(Stopping, expected) fires.
+  pendingRestart: boolean
 }
 
 // ── Effects (returned as data) ───────────────────────────────────────────────
@@ -40,6 +43,7 @@ export type Effect =
   | { kind: 'reap'; generationId?: number }
   | { kind: 'markStopping' }
   | { kind: 'resetAttempt' }
+  | { kind: 'armStableWindow'; ms: number }
 
 // ── Events ───────────────────────────────────────────────────────────────────
 
@@ -143,7 +147,10 @@ export function applyEvent(
     case 'Ready': {
       if (phase === 'Starting') {
         s = { ...s, phase: 'Running', lastStableAt: event.now }
-        effects.push({ kind: 'cancelStartDeadline' })
+        effects.push(
+          { kind: 'cancelStartDeadline' },
+          { kind: 'armStableWindow', ms: ctx.stableWindowMs },
+        )
       }
       break
     }
@@ -172,14 +179,12 @@ export function applyEvent(
         } else {
           history.push(event.now)
           s = { ...s, attempt: s.attempt + 1, expectedStop: false }
-          effects.push(
-            { kind: 'cancelStartDeadline' },
-            { kind: 'finalize', status: 'crashed' },
-            { kind: 'reap' },
-          )
-          if (isCrashLoop(history, event.now, ctx)) {
+          // Compute the final status once — only one finalize effect is emitted.
+          const finalStatus = isCrashLoop(history, event.now, ctx)
+            ? 'failed'
+            : 'crashed'
+          if (finalStatus === 'failed') {
             s = { ...s, phase: 'Failed' }
-            effects.push({ kind: 'finalize', status: 'failed' })
           } else {
             s = { ...s, phase: 'Backoff' }
             effects.push({
@@ -187,6 +192,11 @@ export function applyEvent(
               ms: backoffDelay(s.attempt - 1, ctx, event.now),
             })
           }
+          effects.push(
+            { kind: 'cancelStartDeadline' },
+            { kind: 'finalize', status: finalStatus },
+            { kind: 'reap' },
+          )
         }
       } else if (phase === 'Running') {
         if (event.expected) {
@@ -199,13 +209,12 @@ export function applyEvent(
         } else {
           history.push(event.now)
           s = { ...s, attempt: s.attempt + 1, expectedStop: false }
-          effects.push(
-            { kind: 'finalize', status: 'crashed' },
-            { kind: 'reap' },
-          )
-          if (isCrashLoop(history, event.now, ctx)) {
+          // Compute the final status once — only one finalize effect is emitted.
+          const finalStatus = isCrashLoop(history, event.now, ctx)
+            ? 'failed'
+            : 'crashed'
+          if (finalStatus === 'failed') {
             s = { ...s, phase: 'Failed' }
-            effects.push({ kind: 'finalize', status: 'failed' })
           } else {
             s = { ...s, phase: 'Backoff' }
             effects.push({
@@ -213,27 +222,48 @@ export function applyEvent(
               ms: backoffDelay(s.attempt - 1, ctx, event.now),
             })
           }
+          effects.push(
+            { kind: 'finalize', status: finalStatus },
+            { kind: 'reap' },
+          )
         }
       } else if (phase === 'Stopping') {
         if (event.expected) {
-          s = { ...s, phase: 'Stopped', expectedStop: false }
-          effects.push(
-            { kind: 'cancelGraceTimeout' },
-            { kind: 'finalize', status: 'stopped' },
-            { kind: 'reap' },
-          )
-        } else {
-          // Crashed during graceful shutdown — treat as crash (unexpected).
-          history.push(event.now)
-          s = {
-            ...s,
-            phase: 'Stopped',
-            attempt: s.attempt + 1,
-            expectedStop: false,
+          if (s.pendingRestart) {
+            // RestartRequested was the reason for stopping — restart immediately.
+            s = {
+              ...s,
+              phase: 'Starting',
+              pendingRestart: false,
+              expectedStop: false,
+            }
+            effects.push(
+              { kind: 'cancelGraceTimeout' },
+              { kind: 'finalize', status: 'stopped' },
+              { kind: 'reap' },
+              { kind: 'insertGeneration' },
+              { kind: 'spawn' },
+              { kind: 'armStartDeadline', ms: ctx.startTimeoutMs },
+            )
+          } else {
+            s = { ...s, phase: 'Stopped', expectedStop: false }
+            effects.push(
+              { kind: 'cancelGraceTimeout' },
+              { kind: 'finalize', status: 'stopped' },
+              { kind: 'reap' },
+            )
           }
+        } else {
+          // Crashed during graceful shutdown — evaluate crash-loop and finalize.
+          history.push(event.now)
+          s = { ...s, attempt: s.attempt + 1, expectedStop: false }
+          const finalStatus = isCrashLoop(history, event.now, ctx)
+            ? 'failed'
+            : 'crashed'
+          s = { ...s, phase: finalStatus === 'failed' ? 'Failed' : 'Stopped' }
           effects.push(
             { kind: 'cancelGraceTimeout' },
-            { kind: 'finalize', status: 'crashed' },
+            { kind: 'finalize', status: finalStatus },
             { kind: 'reap' },
           )
         }
@@ -257,21 +287,18 @@ export function applyEvent(
           { kind: 'sendSigterm' },
           { kind: 'armGraceTimeout', ms: ctx.sigkillGraceMs },
         )
-        // The exit will come in as ExitObserved(expected:true from expectedStop)
-        // and move to Stopped/Backoff via that path.
-        // Pre-evaluate crash loop here to propagate to Failed after the exit.
         if (isCrashLoop(history, event.now, ctx)) {
-          // Mark that the next exit from this timeout should trip the breaker.
-          // We embed this decision in the state so ExitObserved sees it.
-          s = { ...s, phase: 'Stopping' }
+          // Set expectedStop: false so ExitObserved(Stopping) falls into the
+          // unexpected branch, which evaluates isCrashLoop again and transitions
+          // to Failed.
+          s = { ...s, expectedStop: false }
         }
       }
       break
     }
 
-    // ── StopRequested / RestartRequested ─────────────────────────────────────
-    case 'StopRequested':
-    case 'RestartRequested': {
+    // ── StopRequested ────────────────────────────────────────────────────────
+    case 'StopRequested': {
       if (phase === 'Running' || phase === 'Starting') {
         s = { ...s, phase: 'Stopping', expectedStop: true }
         effects.push(
@@ -279,10 +306,51 @@ export function applyEvent(
           { kind: 'sendSigterm' },
           { kind: 'armGraceTimeout', ms: ctx.sigkillGraceMs },
         )
-        if (event.type === 'RestartRequested') {
-          // Signal to the shell to re-StartRequested after Stopped.
-          effects.push({ kind: 'scheduleBackoff', ms: 0 })
+        if (phase === 'Starting') {
+          // Cancel the start deadline and liveness poll.
+          effects.push({ kind: 'cancelStartDeadline' })
         }
+      } else if (phase === 'Backoff') {
+        // Cancel pending backoff and stop.
+        s = { ...s, phase: 'Stopped', expectedStop: false }
+        effects.push({ kind: 'cancelBackoff' })
+      }
+      break
+    }
+
+    // ── RestartRequested ─────────────────────────────────────────────────────
+    case 'RestartRequested': {
+      if (phase === 'Running' || phase === 'Starting') {
+        // Signal the pending restart; ExitObserved(Stopping, expected) will
+        // re-start the bot once the child exits cleanly.
+        s = {
+          ...s,
+          phase: 'Stopping',
+          expectedStop: true,
+          pendingRestart: true,
+        }
+        effects.push(
+          { kind: 'markStopping' },
+          { kind: 'sendSigterm' },
+          { kind: 'armGraceTimeout', ms: ctx.sigkillGraceMs },
+        )
+        if (phase === 'Starting') {
+          effects.push({ kind: 'cancelStartDeadline' })
+        }
+      } else if (phase === 'Backoff') {
+        // Immediately restart from Backoff — cancel the backoff timer.
+        s = {
+          ...s,
+          phase: 'Starting',
+          expectedStop: false,
+          pendingRestart: false,
+        }
+        effects.push(
+          { kind: 'cancelBackoff' },
+          { kind: 'insertGeneration' },
+          { kind: 'spawn' },
+          { kind: 'armStartDeadline', ms: ctx.startTimeoutMs },
+        )
       }
       break
     }
@@ -319,5 +387,6 @@ export function initialState(): SupervisorState {
     attempt: 0,
     lastStableAt: null,
     expectedStop: false,
+    pendingRestart: false,
   }
 }

@@ -8,19 +8,7 @@ import { LoggerModule } from 'nestjs-pino'
 import { DatabaseModule } from './db/database.module'
 import { DiscordModule } from './discord/discord.module'
 import { EnvKeys } from './env'
-
-function buildLoggerOptions() {
-  const isProduction = env(EnvKeys.NODE_ENV, 'development') === 'production'
-  if (isProduction) {
-    return { pinoHttp: { level: 'info' } }
-  }
-  return {
-    pinoHttp: {
-      transport: { target: 'pino-pretty' },
-      level: 'debug',
-    },
-  }
-}
+import { buildLoggerOptions } from './logger'
 
 // Bot process module: Discord gateway, session manager, claude agents.
 // Does NOT run migrations (main server migrates before spawning the bot).

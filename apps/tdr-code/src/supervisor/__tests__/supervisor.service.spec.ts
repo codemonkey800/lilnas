@@ -32,7 +32,8 @@ class FakeClock {
   }
 
   setTimeout(fn: () => void, ms: number): NodeJS.Timeout {
-    const id = ++this.idCounter as unknown as NodeJS.Timeout
+    // Use an object brand so any `.ref()`/`.unref()` calls fail loudly.
+    const id = { id: ++this.idCounter } as unknown as NodeJS.Timeout
     this.timers.set(id, { fn, fireAt: this._now + ms })
     return id
   }
@@ -96,7 +97,7 @@ function makeLogger() {
 async function buildService(
   db: Db,
   clock: FakeClock,
-  spawnFn: () => ChildProcess,
+  spawnFn: (env: NodeJS.ProcessEnv) => ChildProcess,
   supervise = true,
 ) {
   process.env.SUPERVISE_BOT = supervise ? 'true' : 'false'
@@ -224,7 +225,10 @@ describe('SupervisorService', () => {
   it('env allowlist: spawned env does not include parent secrets', async () => {
     process.env.MAIN_SERVER_SECRET = 'DO_NOT_LEAK'
     const capturedEnv: NodeJS.ProcessEnv[] = []
-    const svc = await buildService(db, clock, () => {
+
+    // Use the spawnFn directly to capture the env — no private-field cast needed.
+    const svc = await buildService(db, clock, (env: NodeJS.ProcessEnv) => {
+      capturedEnv.push(env)
       return {
         pid: 500,
         on: jest.fn(),
@@ -234,21 +238,6 @@ describe('SupervisorService', () => {
       } as unknown as ChildProcess
     })
 
-    // Intercept spawn to capture env.
-    const origSpawn = (
-      svc as unknown as {
-        spawnFactory: { spawnBot: (e: NodeJS.ProcessEnv) => ChildProcess }
-      }
-    ).spawnFactory.spawnBot
-    ;(
-      svc as unknown as {
-        spawnFactory: { spawnBot: (e: NodeJS.ProcessEnv) => ChildProcess }
-      }
-    ).spawnFactory.spawnBot = e => {
-      capturedEnv.push(e)
-      return origSpawn(e)
-    }
-
     await svc.onModuleInit()
     await flushPromises()
 
@@ -257,7 +246,7 @@ describe('SupervisorService', () => {
     delete process.env.MAIN_SERVER_SECRET
   })
 
-  it('onModuleDestroy sends SIGTERM to child and finalizes generation', async () => {
+  it('onModuleDestroy sends SIGTERM to child (no direct finalize)', async () => {
     const children: FakeChild[] = []
     const svc = await buildService(db, clock, () => {
       const c = new FakeChild(600)
@@ -270,11 +259,17 @@ describe('SupervisorService', () => {
     const gen = liveGenerations(db)[0]!
 
     svc.onModuleDestroy()
-    await flushPromises()
-
+    // SIGTERM is sent but finalize is NOT called directly from onModuleDestroy.
     expect(children[0]!.killed).toBe(true)
+
+    // The generation row is NOT yet finalized (ExitObserved handles that).
     const row = generationById(db, gen.id)!
-    expect(row.endedAt).not.toBeNull()
+    expect(row.endedAt).toBeNull()
+
+    // When the child exits, ExitObserved finalizes with the real exit code.
+    await flushPromises()
+    const rowAfterExit = generationById(db, gen.id)!
+    expect(rowAfterExit.endedAt).not.toBeNull()
   })
 
   it('SUPERVISE_BOT=false: does not spawn', async () => {

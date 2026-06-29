@@ -1,9 +1,16 @@
+import { spawn } from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import { Readable, Writable } from 'node:stream'
+
+import { ClientSideConnection } from '@agentclientprotocol/sdk'
 import { Test } from '@nestjs/testing'
 
 import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
 import type { AcpEventHandlers } from 'src/agent/agent.types'
 import { SessionManagerService } from 'src/agent/session-manager.service'
+import * as claudeProcessRepo from 'src/db/claude-process.repo'
 import { DB } from 'src/db/database.module'
+import { EnvKeys } from 'src/env'
 
 interface TestSession {
   channelId: string
@@ -349,6 +356,136 @@ describe('SessionManagerService', () => {
         internals(service).executePrompt(session, 'hello', 'user-1'),
       ).rejects.toThrow('oops')
       expect(handlers.onPromptComplete).toHaveBeenCalledWith('ch1', 'error')
+    })
+  })
+
+  describe('DB recording — recordSpawn + markExited (#23)', () => {
+    let recordSpawnSpy: jest.SpyInstance
+    let markExitedSpy: jest.SpyInstance
+
+    beforeEach(() => {
+      // Intercept repo calls before they hit the mock DB.
+      recordSpawnSpy = jest
+        .spyOn(claudeProcessRepo, 'recordSpawn')
+        .mockReturnValue({} as ReturnType<typeof claudeProcessRepo.recordSpawn>)
+      markExitedSpy = jest
+        .spyOn(claudeProcessRepo, 'markExited')
+        .mockReturnValue(1)
+      process.env[EnvKeys.BOT_GENERATION_ID] = '42'
+    })
+
+    afterEach(() => {
+      recordSpawnSpy.mockRestore()
+      markExitedSpy.mockRestore()
+      delete process.env[EnvKeys.BOT_GENERATION_ID]
+    })
+
+    it('recordSpawn is called on session creation when generationId is set', async () => {
+      const mockProc = new EventEmitter() as EventEmitter & {
+        pid: number
+        stdin: unknown
+        stdout: EventEmitter
+        kill: jest.Mock
+      }
+      mockProc.pid = 9999
+      mockProc.stdin = new Writable({ write: (_c, _e, cb) => cb() })
+      mockProc.stdout = new Readable({ read: () => {} })
+      mockProc.kill = jest.fn()
+
+      jest.mocked(spawn).mockReturnValue(mockProc as never)
+      ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
+        initialize: jest
+          .fn()
+          .mockResolvedValue({ agentCapabilities: { promptCapabilities: {} } }),
+        newSession: jest.fn().mockResolvedValue({ sessionId: 'test-session' }),
+        prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+      }))
+
+      const handlers = createMockHandlers()
+      const service = await createService(handlers)
+
+      await service.prompt('channel-1', 'hello', 'user-1')
+
+      expect(recordSpawnSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          pgid: 9999,
+          generationId: 42,
+          channelId: 'channel-1',
+        }),
+      )
+    })
+
+    it('markExited is called when the process exits with a generationId set', async () => {
+      const mockProc = new EventEmitter() as EventEmitter & {
+        pid: number
+        stdin: unknown
+        stdout: EventEmitter
+        kill: jest.Mock
+      }
+      mockProc.pid = 8888
+      mockProc.stdin = new Writable({ write: (_c, _e, cb) => cb() })
+      mockProc.stdout = new Readable({ read: () => {} })
+      mockProc.kill = jest.fn()
+
+      jest.mocked(spawn).mockReturnValue(mockProc as never)
+      ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
+        initialize: jest
+          .fn()
+          .mockResolvedValue({ agentCapabilities: { promptCapabilities: {} } }),
+        newSession: jest
+          .fn()
+          .mockResolvedValue({ sessionId: 'test-session-2' }),
+        prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+      }))
+
+      const handlers = createMockHandlers()
+      const service = await createService(handlers)
+
+      await service.prompt('channel-2', 'hello', 'user-1')
+      // Simulate process exit.
+      mockProc.emit('exit', 0)
+
+      expect(markExitedSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          pgid: 8888,
+          generationId: 42,
+        }),
+      )
+    })
+
+    it('recordSpawn is not called when generationId is null (no BOT_GENERATION_ID)', async () => {
+      delete process.env[EnvKeys.BOT_GENERATION_ID]
+
+      const mockProc = new EventEmitter() as EventEmitter & {
+        pid: number
+        stdin: unknown
+        stdout: EventEmitter
+        kill: jest.Mock
+      }
+      mockProc.pid = 7777
+      mockProc.stdin = new Writable({ write: (_c, _e, cb) => cb() })
+      mockProc.stdout = new Readable({ read: () => {} })
+      mockProc.kill = jest.fn()
+
+      jest.mocked(spawn).mockReturnValue(mockProc as never)
+      ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
+        initialize: jest
+          .fn()
+          .mockResolvedValue({ agentCapabilities: { promptCapabilities: {} } }),
+        newSession: jest
+          .fn()
+          .mockResolvedValue({ sessionId: 'test-session-3' }),
+        prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+      }))
+
+      const handlers = createMockHandlers()
+      const service = await createService(handlers)
+
+      await service.prompt('channel-3', 'hello', 'user-1')
+
+      expect(recordSpawnSpy).not.toHaveBeenCalled()
     })
   })
 })

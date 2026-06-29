@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common'
 
 import {
+  defaultClock,
+  defaultSpawn,
   SUPERVISOR_CLOCK,
   SUPERVISOR_SPAWN,
   SupervisorService,
@@ -9,8 +11,8 @@ import {
 @Module({
   providers: [
     SupervisorService,
-    { provide: SUPERVISOR_CLOCK, useValue: null },
-    { provide: SUPERVISOR_SPAWN, useValue: null },
+    { provide: SUPERVISOR_CLOCK, useFactory: () => defaultClock() },
+    { provide: SUPERVISOR_SPAWN, useFactory: () => defaultSpawn() },
   ],
   exports: [SupervisorService],
 })

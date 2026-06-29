@@ -10,6 +10,9 @@ import * as schema from './schema'
 export const DB = 'DB' as const
 export type Db = BetterSQLite3Database<typeof schema>
 
+// Exported for use in test helpers — centralises the Drizzle $client escape hatch.
+export type WithSqliteClient = { $client: { pragma: (s: string) => void } }
+
 function applyPragmas(sqlite: BetterSqlite3.Database): void {
   sqlite.pragma('journal_mode = WAL')
   sqlite.pragma('synchronous = NORMAL')
@@ -17,14 +20,12 @@ function applyPragmas(sqlite: BetterSqlite3.Database): void {
   sqlite.pragma('busy_timeout = 5000')
 }
 
-function resolveMigrationsFolder(): string {
+export function resolveMigrationsFolder(): string {
   return (
     process.env.MIGRATIONS_FOLDER ??
     path.resolve(process.cwd(), 'src/db/migrations')
   )
 }
-
-type WithSqliteClient = { $client: { pragma: (s: string) => void } }
 
 function runMigrations(db: Db): void {
   migrate(db, { migrationsFolder: resolveMigrationsFolder() })
@@ -38,6 +39,8 @@ export interface DatabaseModuleOptions {
   migrate: boolean
 }
 
+// Always use DatabaseModule.forRoot(options) to obtain the DB provider.
+// A bare-class import produces no providers.
 @Global()
 @Module({})
 export class DatabaseModule {

@@ -1,6 +1,6 @@
-import { type ChildProcess, spawn } from 'node:child_process'
-import { execFileSync } from 'node:child_process'
+import { type ChildProcess, execFile, spawn } from 'node:child_process'
 import path from 'node:path'
+import { promisify } from 'node:util'
 
 import { env } from '@lilnas/utils/env'
 import {
@@ -33,6 +33,8 @@ import {
   type TransitionResult,
 } from './supervisor-machine'
 
+const execFileAsync = promisify(execFile)
+
 // Injected for testing (allows clock/spawn overrides).
 export const SUPERVISOR_CLOCK = 'SUPERVISOR_CLOCK' as const
 export const SUPERVISOR_SPAWN = 'SUPERVISOR_SPAWN' as const
@@ -47,7 +49,7 @@ export interface SupervisorSpawn {
   spawnBot(env: NodeJS.ProcessEnv): ChildProcess
 }
 
-function defaultClock(): SupervisorClock {
+export function defaultClock(): SupervisorClock {
   return {
     now: () => Date.now(),
     setTimeout: (fn, ms) => setTimeout(fn, ms),
@@ -55,7 +57,7 @@ function defaultClock(): SupervisorClock {
   }
 }
 
-function defaultSpawn(): SupervisorSpawn {
+export function defaultSpawn(): SupervisorSpawn {
   return {
     spawnBot: (spawnEnv: NodeJS.ProcessEnv) => {
       const botEntry = path.resolve(process.cwd(), 'dist/bot-main.js')
@@ -81,6 +83,8 @@ function buildBotEnv(generationId: number): NodeJS.ProcessEnv {
     CLAUDE_CWD: process.env[EnvKeys.CLAUDE_CWD],
     NODE_ENV: process.env[EnvKeys.NODE_ENV],
     PATH: process.env.PATH,
+    HOME: process.env.HOME,
+    TMPDIR: process.env.TMPDIR ?? '/tmp',
     // Bot timing knobs
     BOT_HEARTBEAT_MS: process.env[EnvKeys.BOT_HEARTBEAT_MS],
     BOT_COMMAND_POLL_MS: process.env[EnvKeys.BOT_COMMAND_POLL_MS],
@@ -95,41 +99,6 @@ function buildBotEnv(generationId: number): NodeJS.ProcessEnv {
     if (v !== undefined) envObj[k] = v
   }
   return envObj as NodeJS.ProcessEnv
-}
-
-function buildCtx(
-  unexpectedExitHistory: number[],
-  overrides: Partial<SupervisorCtx> = {},
-): SupervisorCtx {
-  return {
-    startTimeoutMs: parseInt(
-      env(EnvKeys.SUPERVISOR_START_TIMEOUT_MS, '30000'),
-      10,
-    ),
-    sigkillGraceMs: parseInt(
-      env(EnvKeys.SUPERVISOR_SIGKILL_GRACE_MS, '10000'),
-      10,
-    ),
-    stableWindowMs: parseInt(
-      env(EnvKeys.SUPERVISOR_STABLE_WINDOW_MS, '30000'),
-      10,
-    ),
-    backoffBaseMs: parseInt(
-      env(EnvKeys.SUPERVISOR_BACKOFF_BASE_MS, '1000'),
-      10,
-    ),
-    backoffMaxMs: parseInt(env(EnvKeys.SUPERVISOR_BACKOFF_MAX_MS, '60000'), 10),
-    crashLoopWindowMs: parseInt(
-      env(EnvKeys.SUPERVISOR_CRASH_LOOP_WINDOW_MS, '120000'),
-      10,
-    ),
-    crashLoopThreshold: parseInt(
-      env(EnvKeys.SUPERVISOR_CRASH_LOOP_THRESHOLD, '3'),
-      10,
-    ),
-    unexpectedExitHistory,
-    ...overrides,
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -152,15 +121,53 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
   private readonly clock: SupervisorClock
   private readonly spawnFactory: SupervisorSpawn
 
+  // Cached static ctx config — env vars are read once at construction time.
+  private readonly ctxConfig: Omit<SupervisorCtx, 'unexpectedExitHistory'>
+  private readonly livenessPollMs: number
+
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly logger: PinoLogger,
-    @Inject(SUPERVISOR_CLOCK) clock: SupervisorClock | null,
-    @Inject(SUPERVISOR_SPAWN) spawnFn: SupervisorSpawn | null,
+    @Inject(SUPERVISOR_CLOCK) clock: SupervisorClock,
+    @Inject(SUPERVISOR_SPAWN) spawnFn: SupervisorSpawn,
   ) {
     this.supervise = env(EnvKeys.SUPERVISE_BOT, 'true') === 'true'
-    this.clock = clock ?? defaultClock()
-    this.spawnFactory = spawnFn ?? defaultSpawn()
+    this.clock = clock
+    this.spawnFactory = spawnFn
+    this.ctxConfig = {
+      startTimeoutMs: parseInt(
+        env(EnvKeys.SUPERVISOR_START_TIMEOUT_MS, '30000'),
+        10,
+      ),
+      sigkillGraceMs: parseInt(
+        env(EnvKeys.SUPERVISOR_SIGKILL_GRACE_MS, '10000'),
+        10,
+      ),
+      stableWindowMs: parseInt(
+        env(EnvKeys.SUPERVISOR_STABLE_WINDOW_MS, '30000'),
+        10,
+      ),
+      backoffBaseMs: parseInt(
+        env(EnvKeys.SUPERVISOR_BACKOFF_BASE_MS, '1000'),
+        10,
+      ),
+      backoffMaxMs: parseInt(
+        env(EnvKeys.SUPERVISOR_BACKOFF_MAX_MS, '60000'),
+        10,
+      ),
+      crashLoopWindowMs: parseInt(
+        env(EnvKeys.SUPERVISOR_CRASH_LOOP_WINDOW_MS, '120000'),
+        10,
+      ),
+      crashLoopThreshold: parseInt(
+        env(EnvKeys.SUPERVISOR_CRASH_LOOP_THRESHOLD, '3'),
+        10,
+      ),
+    }
+    this.livenessPollMs = parseInt(
+      env(EnvKeys.SUPERVISOR_LIVENESS_POLL_MS, '2000'),
+      10,
+    )
   }
 
   async onModuleInit(): Promise<void> {
@@ -176,14 +183,16 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
     this.clearAllTimers()
     if (this.currentChild && this.currentGenerationId != null) {
       this.logger.info('Main server shutting down — stopping bot child')
-      const genId = this.currentGenerationId
       this.fsmState = { ...this.fsmState, expectedStop: true }
       try {
         this.currentChild.kill('SIGTERM')
       } catch {
         /* already gone */
       }
-      finalize(this.db, genId, 'stopped', null, new Date())
+      // Do NOT finalize here — the ExitObserved handler runs when the child
+      // actually exits and records the real exit code. The main server process
+      // may exit before that happens; reconcileOnBoot on next start handles any
+      // leftover live generation row.
     }
   }
 
@@ -202,7 +211,7 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
         continue
       }
       // PID is alive — verify identity before signaling.
-      const confirmed = verifyPidIdentity(row.pid, row.startedAt)
+      const confirmed = await verifyPidIdentity(row.pid, row.startedAt)
       if (!confirmed) {
         // A recycled PID: finalize without signaling.
         finalize(this.db, row.id, 'crashed', null, new Date())
@@ -235,7 +244,10 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
   // ── FSM dispatch ──────────────────────────────────────────────────────────
 
   private dispatch(event: SupervisorEvent): void {
-    const ctx = buildCtx(this.unexpectedExitHistory)
+    const ctx: SupervisorCtx = {
+      ...this.ctxConfig,
+      unexpectedExitHistory: this.unexpectedExitHistory,
+    }
     const result = applyEvent(this.fsmState, event, ctx)
     this.fsmState = result.state
     this.unexpectedExitHistory = result.unexpectedExitHistory
@@ -319,6 +331,8 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
 
       case 'cancelStartDeadline': {
         this.clearTimer('startDeadline')
+        // Also cancel the liveness poll that was armed alongside the start deadline.
+        this.clearLivenessPoll()
         break
       }
 
@@ -341,11 +355,6 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
 
       case 'scheduleBackoff': {
         this.clearTimer('backoff')
-        if (effect.ms === 0) {
-          // Restart immediately (restart command).
-          this.dispatch({ type: 'BackoffElapsed' })
-          return
-        }
         this.backoffTimer = this.clock.setTimeout(() => {
           this.dispatch({ type: 'BackoffElapsed' })
         }, effect.ms)
@@ -427,6 +436,14 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
         )
         break
       }
+
+      case 'armStableWindow': {
+        this.clearTimer('stableWindow')
+        this.stableWindowTimer = this.clock.setTimeout(() => {
+          this.dispatch({ type: 'StableWindowElapsed', now: this.clock.now() })
+        }, effect.ms)
+        break
+      }
     }
   }
 
@@ -434,10 +451,7 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
 
   private armLivenessPoll(): void {
     this.clearLivenessPoll()
-    const intervalMs = parseInt(
-      env(EnvKeys.SUPERVISOR_LIVENESS_POLL_MS, '2000'),
-      10,
-    )
+    const intervalMs = this.livenessPollMs
     const poll = () => {
       if (
         this.fsmState.phase !== 'Starting' &&
@@ -455,10 +469,8 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
         row.status === 'running' &&
         row.lastHeartbeatAt != null
       ) {
-        // Bot is ready — fire Ready event.
+        // Bot is ready — fire Ready event (armStableWindow effect is emitted by the FSM).
         this.dispatch({ type: 'Ready', now: this.clock.now() })
-        // Arm stable-window timer.
-        this.armStableWindowTimer()
         this.clearLivenessPoll()
         return
       }
@@ -470,17 +482,6 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
 
   private clearLivenessPoll(): void {
     this.clearTimer('livenessPoll')
-  }
-
-  private armStableWindowTimer(): void {
-    this.clearTimer('stableWindow')
-    const windowMs = parseInt(
-      env(EnvKeys.SUPERVISOR_STABLE_WINDOW_MS, '30000'),
-      10,
-    )
-    this.stableWindowTimer = this.clock.setTimeout(() => {
-      this.dispatch({ type: 'StableWindowElapsed', now: this.clock.now() })
-    }, windowMs)
   }
 
   // ── Timer management ──────────────────────────────────────────────────────
@@ -541,18 +542,26 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
-function verifyPidIdentity(pid: number, startedAt: Date): boolean {
+async function verifyPidIdentity(
+  pid: number,
+  startedAt: Date,
+): Promise<boolean> {
   try {
     // Compare the process start time from the OS against the generation's
     // started_at to guard against PID recycling.
     // On macOS/Linux, `ps -o lstart= -p <pid>` gives the process start time.
-    const output = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
-      encoding: 'utf-8',
-      timeout: 1000,
-    }).trim()
+    const { stdout } = await execFileAsync(
+      'ps',
+      ['-o', 'lstart=', '-p', String(pid)],
+      { encoding: 'utf-8', timeout: 1000 },
+    )
+    const output = stdout.trim()
     if (!output) return false
     const osStart = new Date(output)
-    if (isNaN(osStart.getTime())) return true // can't parse — assume ok
+    // On non-en_US containers, ps -o lstart= may produce an unparseable locale-
+    // specific string. Return false (cannot confirm identity) rather than
+    // treating an unverifiable PID as safe.
+    if (isNaN(osStart.getTime())) return false
     // Allow 5 second slack for clock precision.
     return Math.abs(osStart.getTime() - startedAt.getTime()) < 5_000
   } catch {

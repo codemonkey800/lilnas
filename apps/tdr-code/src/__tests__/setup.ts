@@ -76,6 +76,7 @@ jest.mock('@agentclientprotocol/sdk', () => ({
 
 jest.mock('node:child_process', () => ({
   spawn: jest.fn(),
+  execFile: jest.fn(),
 }))
 
 jest.mock('src/agent/acp-client', () => ({

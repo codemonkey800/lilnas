@@ -102,10 +102,16 @@ export class BotLifecycleService implements OnModuleInit, OnModuleDestroy {
 
     const changes = markRunning(this.db, id, process.pid, new Date())
     if (changes === 0) {
+      // The supervisor already moved on (e.g. StartTimeout fired before Discord
+      // connected). Self-signal SIGTERM to trigger the ordered shutdown sequence
+      // in bot-bootstrap, preventing a headless bot without a heartbeat.
+      const row = generationById(this.db, id)
+      const reason = row?.status ?? 'row not found'
       this.logger.warn(
-        { generationId: id },
-        'markRunning affected 0 rows — generation already stopped/finalized',
+        { generationId: id, rowStatus: reason },
+        'markRunning=0: generation no longer starting — initiating self-shutdown',
       )
+      process.kill(process.pid, 'SIGTERM')
       return
     }
     this.logger.info(
