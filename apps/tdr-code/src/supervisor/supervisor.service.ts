@@ -22,6 +22,7 @@ import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
 import { EnvKeys } from 'src/env'
 
+import { reapGeneration } from './reaper'
 import {
   applyEvent,
   type Effect,
@@ -406,10 +407,16 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
       }
 
       case 'reap': {
-        // Reap is handled by the Reaper — called from supervisor.service after
-        // effects run. Here we just clear timers.
         this.clearLivenessPoll()
         this.clearTimer('stableWindow')
+        const genIdToReap = this.currentGenerationId
+        if (genIdToReap != null) {
+          try {
+            reapGeneration(this.db, genIdToReap)
+          } catch (err) {
+            this.logger.warn({ err, generationId: genIdToReap }, 'Reaper error')
+          }
+        }
         break
       }
 
