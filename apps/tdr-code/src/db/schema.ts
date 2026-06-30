@@ -5,21 +5,34 @@ import {
   integer,
   sqliteTable,
   text,
+  uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Phase A: bot_generation · commands · claude_process
+// Cross-phase schema map:
 //
-// Cross-phase schema map (create only A-phase tables now):
-//
-// Phase A:
+// Phase A (locked):
 //   bot_generation — supervisor-stamped lifecycle rows (write-once terminal)
 //   commands       — polled control→bot transport (at-most-once)
 //   claude_process — per-channel claude PGID tracking (child table)
 //
-// Phase B: sessions, turns, turn_content, events, live_status
-// Phase C: config, git_identity
-// Phase D: user, session, account, verification (Better Auth)
+// Phase B (locked — B1):
+//   sessions     — per-channel agent session records (R6/R7)
+//   turns        — per-session turn records (R6)
+//   turn_content — ordered per-turn content blocks (R6: prompts, agent text, tool calls, diffs)
+//   events       — structured event/error feed (R9/R10)
+//   live_status  — poll-fresh channel activity snapshot (R5)
+//
+// Phase C (anticipated, not yet created):
+//   config       — per-channel/global operator config
+//   git_identity — Discord snowflake → git author mapping
+//
+// Phase D (anticipated, not yet created — Better Auth):
+//   user, session, account, verification
+//
+// Forward-compatibility notes:
+//   sessions.triggering_user_id and turns.user_id are raw Discord snowflakes (no FK) so
+//   Phase C git_identity and Phase D account can attach without migration churn.
 // ──────────────────────────────────────────────────────────────────────────────
 
 export const BOT_GENERATION_STATUSES = [
@@ -138,3 +151,333 @@ export const claudeProcess = sqliteTable(
 )
 
 export type ClaudeProcessRow = typeof claudeProcess.$inferSelect
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Phase B — U1: sessions · turns · turn_content
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const SESSION_END_REASONS = [
+  'evicted',
+  'teardown',
+  'interrupted',
+] as const
+export type SessionEndReason = (typeof SESSION_END_REASONS)[number]
+
+export const sessions = sqliteTable(
+  'sessions',
+  {
+    id: integer().primaryKey(),
+    channelId: text('channel_id').notNull(),
+    generationId: integer('generation_id')
+      .notNull()
+      .references(() => botGeneration.id, { onDelete: 'restrict' }),
+    // Raw Discord snowflake — no FK; Phase D account attaches without migration churn.
+    triggeringUserId: text('triggering_user_id').notNull(),
+    // R8 linkage columns: nullable acp_session_id + cwd for future JSONL reconciliation.
+    acpSessionId: text('acp_session_id'),
+    cwd: text('cwd').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
+    endReason: text('end_reason', { enum: SESSION_END_REASONS }),
+  },
+  t => [
+    check(
+      'sessions_end_reason_check',
+      sql`${t.endReason} IN ('evicted','teardown','interrupted')`,
+    ),
+    // Correlation: ended_at and end_reason must both be null or both be set.
+    check(
+      'sessions_ended_correlation_check',
+      sql`(${t.endedAt} IS NULL) = (${t.endReason} IS NULL)`,
+    ),
+    // Browse by channel + time (R7 affordance).
+    index('sessions_channel_created_idx').on(t.channelId, t.createdAt),
+    // Reconciliation sweep: find sessions from a prior generation.
+    index('sessions_generation_idx').on(t.generationId),
+    // Active-session lookup: newest-open session per channel. Non-unique so a crash
+    // doesn't wedge the channel (Decision 8 — unique hardening deferred to reconciliation unit).
+    index('sessions_active_lookup_idx')
+      .on(t.channelId, t.createdAt)
+      .where(sql`${t.endedAt} IS NULL`),
+  ],
+)
+
+export type SessionRow = typeof sessions.$inferSelect
+
+export type ActiveSession = SessionRow & { endedAt: null; endReason: null }
+export type EndedSession = SessionRow & {
+  endedAt: Date
+  endReason: SessionEndReason
+}
+
+export function isActiveSession(row: SessionRow): row is ActiveSession {
+  return row.endedAt === null
+}
+
+export function isEndedSession(row: SessionRow): row is EndedSession {
+  return row.endedAt !== null
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const TURN_STATUSES = [
+  'running',
+  'completed',
+  'cancelled',
+  'errored',
+  'interrupted',
+] as const
+export type TurnStatus = (typeof TURN_STATUSES)[number]
+
+export const turns = sqliteTable(
+  'turns',
+  {
+    id: integer().primaryKey(),
+    sessionId: integer('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    // Stamped directly: the generation that RAN this turn (not the session's birth generation).
+    generationId: integer('generation_id')
+      .notNull()
+      .references(() => botGeneration.id, { onDelete: 'restrict' }),
+    // 1-based per-session display ordinal; supplied by the writer from an in-memory counter.
+    turnIndex: integer('turn_index').notNull(),
+    // Raw Discord snowflake; nullable — reconciliation-closed turns have no live driver.
+    userId: text('user_id'),
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+    endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
+    // ACP-reported descriptive stop reason — free text, not CHECK-constrained (distinct from status).
+    stopReason: text('stop_reason'),
+    status: text('status', { enum: TURN_STATUSES }).notNull(),
+  },
+  t => [
+    check(
+      'turns_status_check',
+      sql`${t.status} IN ('running','completed','cancelled','errored','interrupted')`,
+    ),
+    // Correlation: status='running' iff ended_at IS NULL (makes type guards sound).
+    check(
+      'turns_status_ended_correlation_check',
+      sql`(${t.status} = 'running') = (${t.endedAt} IS NULL)`,
+    ),
+    check('turns_turn_index_positive_check', sql`${t.turnIndex} >= 1`),
+    // One row per (session, ordinal).
+    uniqueIndex('turns_session_turn_index_unique_idx').on(
+      t.sessionId,
+      t.turnIndex,
+    ),
+    // Dangling-turn sweep: find running turns from a prior generation (direct indexed predicate).
+    index('turns_dangling_sweep_idx')
+      .on(t.generationId)
+      .where(sql`${t.endedAt} IS NULL`),
+  ],
+)
+
+export type TurnRow = typeof turns.$inferSelect
+
+export type RunningTurn = TurnRow & { status: 'running'; endedAt: null }
+export type TerminalTurn = TurnRow & {
+  endedAt: Date
+  status: 'completed' | 'cancelled' | 'errored' | 'interrupted'
+}
+
+export function isRunningTurn(row: TurnRow): row is RunningTurn {
+  return row.status === 'running'
+}
+
+export function isTerminalTurn(row: TurnRow): row is TerminalTurn {
+  return row.endedAt !== null
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const TURN_CONTENT_KINDS = [
+  'prompt',
+  'agent_text',
+  'tool_call',
+  'diff',
+] as const
+export type TurnContentKind = (typeof TURN_CONTENT_KINDS)[number]
+
+// Per-kind payload shapes — exact fields for prompt/diff finalized in B3 from ACP event types.
+export type PromptPayload = {
+  kind: 'prompt'
+  text: string
+  images?: Array<{ data: string; mimeType: string }>
+}
+
+export type AgentTextPayload = {
+  kind: 'agent_text'
+  text: string
+}
+
+export type ToolCallPayload = {
+  kind: 'tool_call'
+  title: string
+  toolKind: string
+  status: string
+}
+
+export type DiffPayload = {
+  kind: 'diff'
+  path: string
+  oldText?: string | null
+  newText: string
+}
+
+export type TurnContentPayload =
+  | PromptPayload
+  | AgentTextPayload
+  | ToolCallPayload
+  | DiffPayload
+
+// Compile-time exhaustiveness pin: bidirectional coverage check ties the TURN_CONTENT_KINDS
+// tuple to TurnContentPayload discriminants. Adding a kind to one without the other fails here.
+export const turnContentKindEnum = TURN_CONTENT_KINDS
+type _ExhaustiveTurnContentKinds = [TurnContentKind] extends [
+  TurnContentPayload['kind'],
+]
+  ? [TurnContentPayload['kind']] extends [TurnContentKind]
+    ? true
+    : never
+  : never
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _turnContentKindPin: _ExhaustiveTurnContentKinds = true
+
+// A validating narrower keyed on kind — returns null for unrecognized/old shapes
+// rather than throwing (one bad row must not break a transcript view).
+export function narrowTurnContentPayload(
+  payload: unknown,
+): TurnContentPayload | null {
+  if (typeof payload !== 'object' || payload === null) return null
+  const kind = (payload as Record<string, unknown>)['kind']
+  if (!(TURN_CONTENT_KINDS as readonly string[]).includes(kind as string))
+    return null
+  return payload as TurnContentPayload
+}
+
+export const turnContent = sqliteTable(
+  'turn_content',
+  {
+    id: integer().primaryKey(),
+    turnId: integer('turn_id')
+      .notNull()
+      .references(() => turns.id, { onDelete: 'cascade' }),
+    // ACP toolCallId — null for prompt/agent_text/diff; identifies the tool call for in-place update.
+    ref: text('ref'),
+    kind: text('kind', { enum: TURN_CONTENT_KINDS }).notNull(),
+    payload: text('payload', { mode: 'json' })
+      .$type<TurnContentPayload>()
+      .notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  t => [
+    check(
+      'turn_content_kind_check',
+      sql`${t.kind} IN ('prompt','agent_text','tool_call','diff')`,
+    ),
+    // One row per tool call per turn — indexed for the create-then-update ACP stream (Decision 9).
+    uniqueIndex('turn_content_ref_unique_idx')
+      .on(t.turnId, t.ref)
+      .where(sql`${t.ref} IS NOT NULL`),
+    // Read all blocks for a turn in insertion (id) order.
+    index('turn_content_turn_idx').on(t.turnId),
+  ],
+)
+
+export type TurnContentRow = typeof turnContent.$inferSelect
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Phase B — U2: events · live_status
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Closed enum — grows per phase. Add a value + migration each time. A sanctioned
+// relaxation (drop the CHECK, keep the TS enum) applies if churn proves painful or
+// a third phase must add types (Decision 6). Seed includes deferred Phase A producers
+// (bot_restart, command_anomaly) and the reconciliation type (turn_interrupted) so
+// wiring those sinks later needs no migration.
+export const EVENT_TYPES = [
+  'session_created',
+  'session_evicted',
+  'turn_started',
+  'turn_completed',
+  'turn_cancelled',
+  'turn_errored',
+  'turn_interrupted',
+  'bot_restart',
+  'command_anomaly',
+] as const
+export type EventType = (typeof EVENT_TYPES)[number]
+
+export const EVENT_LEVELS = ['info', 'warn', 'error'] as const
+export type EventLevel = (typeof EVENT_LEVELS)[number]
+
+// Structured context bag — per-event-type field shapes finalized by the writer units.
+export type EventContext = Record<string, unknown>
+
+export const events = sqliteTable(
+  'events',
+  {
+    id: integer().primaryKey(),
+    generationId: integer('generation_id')
+      .notNull()
+      .references(() => botGeneration.id, { onDelete: 'restrict' }),
+    // Nullable + SET NULL: an event outlives a pruned session, retaining channel_id for context.
+    // A bot-global event (bot_restart, command_anomaly) has both session_id and channel_id null.
+    sessionId: integer('session_id').references(() => sessions.id, {
+      onDelete: 'set null',
+    }),
+    // Denormalized from the session — writer invariant: when session_id is non-null,
+    // channel_id must equal that session's channel_id. SQLite can't CHECK a subquery.
+    channelId: text('channel_id'),
+    type: text('type', { enum: EVENT_TYPES }).notNull(),
+    level: text('level', { enum: EVENT_LEVELS }).notNull(),
+    context: text('context', { mode: 'json' }).$type<EventContext>().notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  t => [
+    check(
+      'events_type_check',
+      sql`${t.type} IN ('session_created','session_evicted','turn_started','turn_completed','turn_cancelled','turn_errored','turn_interrupted','bot_restart','command_anomaly')`,
+    ),
+    check('events_level_check', sql`${t.level} IN ('info','warn','error')`),
+    // Feed filters (R10 affordance).
+    index('events_created_at_idx').on(t.createdAt),
+    index('events_channel_created_idx').on(t.channelId, t.createdAt),
+    index('events_session_idx').on(t.sessionId),
+    index('events_type_idx').on(t.type),
+  ],
+)
+
+export type EventRow = typeof events.$inferSelect
+
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const liveStatus = sqliteTable(
+  'live_status',
+  {
+    // PK is the channel snowflake — one row per active channel; upsert target for B5.
+    channelId: text('channel_id').primaryKey(),
+    generationId: integer('generation_id')
+      .notNull()
+      .references(() => botGeneration.id, { onDelete: 'restrict' }),
+    triggeringUserId: text('triggering_user_id'),
+    // Stored as integer 0/1; all mutations are generation-guarded (Decision 10).
+    prompting: integer('prompting', { mode: 'boolean' }).notNull(),
+    queueDepth: integer('queue_depth').notNull(),
+    lastActivityAt: integer('last_activity_at', {
+      mode: 'timestamp_ms',
+    }).notNull(),
+    lastHeartbeatAt: integer('last_heartbeat_at', {
+      mode: 'timestamp_ms',
+    }).notNull(),
+  },
+  t => [
+    check('live_status_prompting_check', sql`${t.prompting} IN (0,1)`),
+    check('live_status_queue_depth_check', sql`${t.queueDepth} >= 0`),
+    // Reconciliation: clear stale prior-generation rows.
+    index('live_status_generation_idx').on(t.generationId),
+  ],
+)
+
+export type LiveStatusRow = typeof liveStatus.$inferSelect
