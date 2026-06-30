@@ -167,8 +167,8 @@ Design the whole shape up front even though phases populate it incrementally. An
 | `bot_generation` | A | Supervisor-stamped epoch: `id`, `started_at`, `status`, `last_heartbeat_at`. The primitive behind crash reconciliation, turn identity, readiness. |
 | `commands` | A | Control→bot command queue: `id`, `type` (`teardown_channel` …), `target`, `created_at`, `consumed_at`, `status`. (Pending [Decision 1](#decision-1--commandsignaling-transport).) |
 | `sessions` | B | Per-channel agent session: `id`, `channel_id`, `generation_id`, `triggering_user_id`, `acp_session_id`, `cwd`, `created_at`, `ended_at`, `end_reason`. |
-| `turns` | B | Per-turn: `id` (DB-assigned), `session_id`, `turn_index`, `user_id`, `started_at`, `ended_at`, `stop_reason`, `status` (`completed`/`cancelled`/`errored`/`interrupted`). |
-| `turn_content` | B | Transcript blocks: `id`, `turn_id`, `seq`, `kind` (`prompt`/`agent_text`/`tool_call`/`diff`), `payload` (json), `created_at`. Written incrementally. |
+| `turns` | B | Per-turn: `id` (DB-assigned), `session_id`, `generation_id` (locked by B1 — the gen that ran the turn), `turn_index`, `user_id` (nullable), `started_at`, `ended_at`, `stop_reason`, `status` (`running`/`completed`/`cancelled`/`errored`/`interrupted`). |
+| `turn_content` | B | Transcript blocks: `id`, `turn_id`, `ref` (ACP `toolCallId`, locked by B1; replaces `seq` — order by monotonic `id`), `kind` (`prompt`/`agent_text`/`tool_call`/`diff`), `payload` (json), `created_at`. Written incrementally. |
 | `events` | B | Structured feed: `id`, `generation_id`, `session_id?`, `channel_id?`, `type`, `level`, `context` (json), `created_at`. |
 | `live_status` | B | Poll-fresh snapshot: `channel_id` (pk), `generation_id`, `triggering_user_id`, `prompting`, `queue_depth`, `last_activity_at`, `last_heartbeat_at`. |
 | `config` | C | Editable global settings: cwd, idle timeout, max sessions, claude command/args. Single typed row or key/value. |
