@@ -406,6 +406,7 @@ export const EVENT_TYPES = [
   'turn_interrupted',
   'bot_restart',
   'command_anomaly',
+  'transcript_write_failed',
 ] as const
 export type EventType = (typeof EVENT_TYPES)[number]
 
@@ -438,7 +439,7 @@ export const events = sqliteTable(
   t => [
     check(
       'events_type_check',
-      sql`${t.type} IN ('session_created','session_evicted','turn_started','turn_completed','turn_cancelled','turn_errored','turn_interrupted','bot_restart','command_anomaly')`,
+      sql`${t.type} IN ('session_created','session_evicted','turn_started','turn_completed','turn_cancelled','turn_errored','turn_interrupted','bot_restart','command_anomaly','transcript_write_failed')`,
     ),
     check('events_level_check', sql`${t.level} IN ('info','warn','error')`),
     // Feed filters (R10 affordance).

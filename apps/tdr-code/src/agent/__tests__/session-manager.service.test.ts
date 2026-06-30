@@ -17,6 +17,7 @@ interface TestSession {
   process: unknown
   connection: TestConnection
   sessionId: string
+  sessionRowId: number | null
   lastActivity: number
   idleTimer: NodeJS.Timeout
   prompting: boolean
@@ -77,15 +78,48 @@ jest.mock('src/agent/acp-client', () => ({
   createAcpClient: jest.fn(),
 }))
 
+function createMockDb() {
+  // Chainable query builder — terminal methods return appropriate values.
+  const chain: Record<string, jest.Mock> = {
+    values: jest.fn(),
+    set: jest.fn(),
+    where: jest.fn(),
+    returning: jest.fn(),
+    orderBy: jest.fn(),
+    limit: jest.fn(),
+    onConflictDoUpdate: jest.fn(),
+    from: jest.fn(),
+    get: jest.fn().mockReturnValue({ id: 1 }),
+    all: jest.fn().mockReturnValue([]),
+    run: jest.fn().mockReturnValue({ changes: 0 }),
+  }
+  for (const k of [
+    'values',
+    'set',
+    'where',
+    'returning',
+    'orderBy',
+    'limit',
+    'onConflictDoUpdate',
+    'from',
+  ]) {
+    chain[k]!.mockReturnValue(chain)
+  }
+  return {
+    insert: jest.fn().mockReturnValue(chain),
+    update: jest.fn().mockReturnValue(chain),
+    select: jest.fn().mockReturnValue(chain),
+    delete: jest.fn().mockReturnValue(chain),
+    transaction: jest.fn().mockImplementation((cb: () => unknown) => cb()),
+  }
+}
+
 async function createService(handlers: AcpEventHandlers) {
   const module = await Test.createTestingModule({
     providers: [
       SessionManagerService,
       { provide: ACP_EVENT_HANDLERS, useValue: handlers },
-      {
-        provide: DB,
-        useValue: { insert: jest.fn(), update: jest.fn(), select: jest.fn() },
-      },
+      { provide: DB, useValue: createMockDb() },
     ],
   }).compile()
   return module.get(SessionManagerService)
@@ -113,6 +147,7 @@ function injectSession(
     process: mockProc,
     connection,
     sessionId: 'session-1',
+    sessionRowId: null,
     lastActivity: Date.now(),
     idleTimer: setTimeout(() => {}, 99999),
     prompting: false,
@@ -143,7 +178,11 @@ describe('SessionManagerService', () => {
       await internals(service).executePrompt(session, 'hello', 'user-1')
 
       expect(handlers.onPromptStart).toHaveBeenCalledTimes(1)
-      expect(handlers.onPromptStart).toHaveBeenCalledWith('ch1', 1)
+      expect(handlers.onPromptStart).toHaveBeenCalledWith(
+        'ch1',
+        1,
+        expect.objectContaining({ prompt: expect.any(Object) }),
+      )
       expect(startCalledBeforeResolve).toBe(true)
     })
 

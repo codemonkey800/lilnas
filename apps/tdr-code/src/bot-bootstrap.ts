@@ -25,7 +25,12 @@ export async function bootstrapBot() {
     // 1. Mark shutdown so ready/heartbeat events are no-ops.
     lifecycle.markShutdownRequested()
 
-    // 2. Tear down all sessions (kills claude process trees).
+    // 2a. Stop the live_status heartbeat BEFORE finalizeGeneration (Decision 8c).
+    // If cleared in onModuleDestroy (during app.close()) instead, one more beat
+    // fires after finalize and stamps a fresh last_heartbeat_at on a dead generation.
+    sessionManager.stopLiveStatusHeartbeat()
+
+    // 2b. Tear down all sessions (kills claude process trees).
     try {
       sessionManager.onApplicationShutdown()
     } catch (err) {

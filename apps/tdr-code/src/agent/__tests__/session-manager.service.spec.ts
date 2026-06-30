@@ -47,6 +47,7 @@ function injectPromptingSession(
       newSession: jest.fn(),
     },
     sessionId: 'session-x',
+    sessionRowId: null,
     lastActivity: Date.now(),
     idleTimer: setTimeout(() => {}, 99999),
     prompting: true,
@@ -98,7 +99,39 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
         { provide: ACP_EVENT_HANDLERS, useValue: handlers },
         {
           provide: DB,
-          useValue: { insert: jest.fn(), update: jest.fn(), select: jest.fn() },
+          useValue: (() => {
+            const chain: Record<string, jest.Mock> = {
+              values: jest.fn(),
+              set: jest.fn(),
+              where: jest.fn(),
+              returning: jest.fn(),
+              orderBy: jest.fn(),
+              limit: jest.fn(),
+              onConflictDoUpdate: jest.fn(),
+              from: jest.fn(),
+              get: jest.fn().mockReturnValue({ id: 1 }),
+              all: jest.fn().mockReturnValue([]),
+              run: jest.fn().mockReturnValue({ changes: 0 }),
+            }
+            for (const k of [
+              'values',
+              'set',
+              'where',
+              'returning',
+              'orderBy',
+              'limit',
+              'onConflictDoUpdate',
+              'from',
+            ]) {
+              chain[k]!.mockReturnValue(chain)
+            }
+            return {
+              insert: jest.fn().mockReturnValue(chain),
+              update: jest.fn().mockReturnValue(chain),
+              select: jest.fn().mockReturnValue(chain),
+              delete: jest.fn().mockReturnValue(chain),
+            }
+          })(),
         },
       ],
     }).compile()

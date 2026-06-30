@@ -20,6 +20,7 @@ import {
 } from 'src/db/bot-generation.repo'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
+import { insertEvent } from 'src/db/events.repo'
 import { EnvKeys } from 'src/env'
 
 import { reapGeneration } from './reaper'
@@ -109,6 +110,8 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
   private unexpectedExitHistory: number[] = []
   private currentChild: ChildProcess | null = null
   private currentGenerationId: number | null = null
+  // Tracks total spawn count — used to discriminate initial boot vs restart (U1/R9).
+  private spawnCount = 0
 
   // Timers — each is keyed per-spawn; re-armed only via the FSM effects.
   private startDeadlineTimer: NodeJS.Timeout | null = null
@@ -274,6 +277,23 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
         if (genId == null) {
           this.logger.error('spawn effect without a generation id')
           return
+        }
+        // Emit bot_restart on non-initial spawns (U1/R9). Initial boot
+        // (spawnCount=0) does not emit — only restarts after a crash/stop.
+        const isRestart = this.spawnCount > 0
+        this.spawnCount++
+        if (isRestart) {
+          try {
+            insertEvent(this.db, {
+              generationId: genId,
+              type: 'bot_restart',
+              level: 'info',
+              context: { attempt: this.fsmState.attempt },
+              createdAt: new Date(),
+            })
+          } catch (err) {
+            this.logger.warn({ err }, 'Failed to write bot_restart event')
+          }
         }
         try {
           const child = this.spawnFactory.spawnBot(buildBotEnv(genId))

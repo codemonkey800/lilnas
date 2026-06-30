@@ -16,6 +16,7 @@ import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
 import type {
   AcpEventHandlers,
   DiffContent,
+  PromptStartContext,
   ToolStatus,
 } from 'src/agent/agent.types'
 import {
@@ -122,7 +123,13 @@ export class DiscordHandlerService
     )
   }
 
-  onPromptStart(channelId: string, turnId: number): void {
+  // context is used by SqliteWriterService; accepted here to match the interface.
+  onPromptStart(
+    channelId: string,
+    turnId: number,
+    _context: PromptStartContext,
+  ): void {
+    void _context
     // A new turn starting means the old cleared session's events are moot —
     // clear the watermark so the new turn can create state.
     const clearedAt = this.clearedTurnId.get(channelId)

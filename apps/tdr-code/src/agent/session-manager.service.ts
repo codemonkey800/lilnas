@@ -12,6 +12,13 @@ import { Inject, Injectable, OnApplicationShutdown } from '@nestjs/common'
 import { markExited, recordSpawn } from 'src/db/claude-process.repo'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
+import { insertEvent } from 'src/db/events.repo'
+import {
+  heartbeatLiveStatus,
+  removeLiveStatus,
+  upsertLiveStatus,
+} from 'src/db/live-status.repo'
+import { closeSession, insertSession } from 'src/db/sessions.repo'
 import { EnvKeys } from 'src/env'
 
 import { createAcpClient } from './acp-client'
@@ -28,6 +35,8 @@ interface ManagedSession {
   process: ChildProcess
   connection: ClientSideConnection
   sessionId: string
+  // DB sessions.id — null when generationId is null (Decision 4b).
+  sessionRowId: number | null
   lastActivity: number
   idleTimer: NodeJS.Timeout
   prompting: boolean
@@ -49,6 +58,10 @@ export class SessionManagerService implements OnApplicationShutdown {
   private turnCounter = 0
 
   private readonly generationId: number | null
+
+  // U5: live_status heartbeat — one timer per bot lifetime, cleared by shutdown
+  // authority before finalizeGeneration (Decision 8c).
+  private liveStatusTimer: NodeJS.Timeout | null = null
 
   constructor(
     @Inject(ACP_EVENT_HANDLERS) private readonly handlers: AcpEventHandlers,
@@ -88,13 +101,14 @@ export class SessionManagerService implements OnApplicationShutdown {
     if (!text && usableImages.length === 0) {
       // Reclaim process + eviction slot if session was never used (just spawned)
       if (session.currentTurnId === 0 && session.queue.length === 0) {
-        this.teardown(channelId)
+        this.teardown(channelId, 'teardown')
       }
       return { kind: 'no_image_support' }
     }
 
     if (session.prompting) {
       session.queue.push({ text, userId, images: usableImages })
+      this.syncLiveStatus(session)
       return { kind: 'queued' }
     }
 
@@ -109,11 +123,15 @@ export class SessionManagerService implements OnApplicationShutdown {
     if (!session.prompting) return false
     if (turnId !== undefined && turnId !== session.currentTurnId) return false
     session.queue = []
+    this.syncLiveStatus(session)
     void session.connection.cancel({ sessionId: session.sessionId })
     return true
   }
 
-  teardown(channelId: string): void {
+  teardown(
+    channelId: string,
+    endReason: 'evicted' | 'teardown' | 'interrupted' = 'teardown',
+  ): void {
     const session = this.sessions.get(channelId)
     if (!session) return
     clearTimeout(session.idleTimer)
@@ -127,6 +145,30 @@ export class SessionManagerService implements OnApplicationShutdown {
     }
     this.killProcessTree(session.process)
     this.sessions.delete(channelId)
+
+    // U2: close sessions row.
+    if (this.generationId != null && session.sessionRowId != null) {
+      closeSession(this.db, {
+        id: session.sessionRowId,
+        endedAt: new Date(),
+        endReason,
+      })
+      insertEvent(this.db, {
+        generationId: this.generationId,
+        sessionId: session.sessionRowId,
+        channelId,
+        type: 'session_evicted',
+        level: 'info',
+        context: { endReason },
+        createdAt: new Date(),
+      })
+    }
+
+    // U5: remove live_status row (bot is still alive — channel no longer active).
+    // Guard matches the U2 guard — only write when we have a valid generation.
+    if (this.generationId != null) {
+      removeLiveStatus(this.db, channelId)
+    }
   }
 
   isPrompting(channelId: string): boolean {
@@ -135,7 +177,16 @@ export class SessionManagerService implements OnApplicationShutdown {
 
   onApplicationShutdown(): void {
     for (const channelId of Array.from(this.sessions.keys())) {
-      this.teardown(channelId)
+      this.teardown(channelId, 'teardown')
+    }
+  }
+
+  // U5: clear the live_status heartbeat timer — called by bot-bootstrap SIGTERM
+  // authority BEFORE finalizeGeneration (Decision 8c).
+  stopLiveStatusHeartbeat(): void {
+    if (this.liveStatusTimer) {
+      clearTimeout(this.liveStatusTimer)
+      this.liveStatusTimer = null
     }
   }
 
@@ -151,7 +202,12 @@ export class SessionManagerService implements OnApplicationShutdown {
     session.currentTurnId = turnId
     session.prompting = true
     session.activeUserId = userId
-    this.handlers.onPromptStart(session.channelId, turnId)
+    // U5: sync live_status before the await (prompting=true transition).
+    this.syncLiveStatus(session)
+    this.handlers.onPromptStart(session.channelId, turnId, {
+      sessionRowId: session.sessionRowId,
+      prompt: { text, images },
+    })
     // C1: Do not add any `await` between here and the finally-drain.
     // Stop-cancel race safety depends on this synchronous span (see plan Decision #2 / C1).
     try {
@@ -170,13 +226,17 @@ export class SessionManagerService implements OnApplicationShutdown {
       // Mark no-longer-prompting before teardown so teardown's abort signal
       // fires exactly once (teardown checks prompting to decide whether to signal).
       session.prompting = false
-      this.teardown(session.channelId)
+      this.teardown(session.channelId, 'teardown')
       throw err
     } finally {
       session.prompting = false
+      // U5: sync live_status after prompting=false (drain transition).
       if (this.sessions.has(session.channelId)) {
+        this.syncLiveStatus(session)
         const next = session.queue.shift()
         if (next) {
+          // U5: sync live_status after drain shift.
+          this.syncLiveStatus(session)
           this.executePrompt(
             session,
             next.text,
@@ -219,7 +279,7 @@ export class SessionManagerService implements OnApplicationShutdown {
           'All agent sessions are busy. Please wait for the current task to finish.',
         )
       }
-      this.teardown(oldest.channelId)
+      this.teardown(oldest.channelId, 'evicted')
     }
   }
 
@@ -256,6 +316,14 @@ export class SessionManagerService implements OnApplicationShutdown {
       if (session?.process === proc) {
         clearTimeout(session.idleTimer)
         this.sessions.delete(channelId)
+        // U2: close session row with 'interrupted' (proc crash bypasses teardown).
+        if (this.generationId != null && session.sessionRowId != null) {
+          closeSession(this.db, {
+            id: session.sessionRowId,
+            endedAt: new Date(),
+            endReason: 'interrupted',
+          })
+        }
       }
     })
 
@@ -268,6 +336,14 @@ export class SessionManagerService implements OnApplicationShutdown {
           console.warn(
             `Agent process for channel ${channelId} exited with code ${code}`,
           )
+        }
+        // U2: close session row with 'interrupted' (proc exit bypasses teardown).
+        if (this.generationId != null && session.sessionRowId != null) {
+          closeSession(this.db, {
+            id: session.sessionRowId,
+            endedAt: new Date(),
+            endReason: 'interrupted',
+          })
         }
       }
       if (this.generationId != null && proc.pid != null) {
@@ -319,11 +395,38 @@ export class SessionManagerService implements OnApplicationShutdown {
       throw err
     }
 
+    // U2: Insert sessions row AFTER newSession resolves so acp_session_id
+    // and cwd land in the initial INSERT (no backfill UPDATE needed).
+    // Guard on generationId — FK is NOT NULL (Decision 4b).
+    let sessionRowId: number | null = null
+    if (this.generationId != null) {
+      const row = insertSession(this.db, {
+        channelId,
+        generationId: this.generationId,
+        triggeringUserId: userId,
+        acpSessionId: sessionId,
+        cwd: this.claudeCwd,
+        createdAt: new Date(),
+      })
+      sessionRowId = row.id
+
+      insertEvent(this.db, {
+        generationId: this.generationId,
+        sessionId: row.id,
+        channelId,
+        type: 'session_created',
+        level: 'info',
+        context: { acpSessionId: sessionId, cwd: this.claudeCwd },
+        createdAt: new Date(),
+      })
+    }
+
     const managed: ManagedSession = {
       channelId,
       process: proc,
       connection,
       sessionId,
+      sessionRowId,
       lastActivity: Date.now(),
       idleTimer: this.startIdleTimer(channelId),
       prompting: false,
@@ -334,12 +437,17 @@ export class SessionManagerService implements OnApplicationShutdown {
     }
 
     this.sessions.set(channelId, managed)
+
+    // U5: upsert live_status immediately and ensure heartbeat is running.
+    this.syncLiveStatus(managed)
+    this.ensureLiveStatusHeartbeat()
+
     return managed
   }
 
   private startIdleTimer(channelId: string): NodeJS.Timeout {
     return setTimeout(
-      () => this.teardown(channelId),
+      () => this.teardown(channelId, 'evicted'),
       this.idleTimeoutSec * 1000,
     )
   }
@@ -347,6 +455,54 @@ export class SessionManagerService implements OnApplicationShutdown {
   private resetIdleTimer(session: ManagedSession): void {
     clearTimeout(session.idleTimer)
     session.idleTimer = this.startIdleTimer(session.channelId)
+  }
+
+  // U5: Single generation-guarded upsert helper (Decision 8).
+  // Called at every live_status state-change transition; null-guarded on generationId.
+  private syncLiveStatus(session: ManagedSession): void {
+    const genId = this.generationId
+    if (genId == null) return
+    try {
+      upsertLiveStatus(this.db, {
+        channelId: session.channelId,
+        generationId: genId,
+        triggeringUserId: session.activeUserId,
+        prompting: session.prompting,
+        queueDepth: session.queue.length,
+        lastActivityAt: new Date(session.lastActivity),
+        lastHeartbeatAt: new Date(),
+      })
+    } catch (err) {
+      console.warn(
+        `[session-manager] syncLiveStatus failed channel=${session.channelId}:`,
+        err instanceof Error ? err.message : String(err),
+      )
+    }
+  }
+
+  // U5: Arm the live_status heartbeat (one per bot lifetime, Decision 8c).
+  private ensureLiveStatusHeartbeat(): void {
+    if (this.liveStatusTimer != null) return
+    this.armLiveStatusHeartbeat()
+  }
+
+  private armLiveStatusHeartbeat(): void {
+    const intervalMs = parseInt(
+      process.env[EnvKeys.BOT_HEARTBEAT_MS] ?? '5000',
+      10,
+    )
+    const beat = () => {
+      const genId = this.generationId
+      if (genId == null) return
+      const changes = heartbeatLiveStatus(this.db, genId, new Date())
+      if (changes === 0) {
+        // No active rows — stop heartbeating. Will re-arm on next syncLiveStatus.
+        this.liveStatusTimer = null
+        return
+      }
+      this.liveStatusTimer = setTimeout(beat, intervalMs)
+    }
+    this.liveStatusTimer = setTimeout(beat, intervalMs)
   }
 
   private killProcessTree(proc: ChildProcess): void {

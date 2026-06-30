@@ -61,7 +61,10 @@ describe('DiscordHandlerService — onPromptStart', () => {
     }
     const { service } = await createService(mockClient)
 
-    service.onPromptStart('ch1', 7)
+    service.onPromptStart('ch1', 7, {
+      sessionRowId: null,
+      prompt: { text: '', images: [] },
+    })
     await new Promise(r => setImmediate(r))
 
     expect(channel.send).toHaveBeenCalledTimes(1)
@@ -84,7 +87,10 @@ describe('DiscordHandlerService — onPromptStart', () => {
     }
     const { service } = await createService(mockClient)
 
-    service.onPromptStart('ch1', 1)
+    service.onPromptStart('ch1', 1, {
+      sessionRowId: null,
+      prompt: { text: '', images: [] },
+    })
     await new Promise(r => setImmediate(r))
 
     const states = channelStates(service)
@@ -118,7 +124,10 @@ describe('DiscordHandlerService — onPromptStart', () => {
     }
     const { service } = await createService(mockClient)
 
-    service.onPromptStart('ch-123', 42)
+    service.onPromptStart('ch-123', 42, {
+      sessionRowId: null,
+      prompt: { text: '', images: [] },
+    })
     await new Promise(r => setImmediate(r))
 
     expect(setCustomId).toHaveBeenCalledWith(stopButtonId('ch-123', 42))
@@ -312,7 +321,10 @@ describe('DiscordHandlerService — race: fast turn before working message send 
     }
     const { service } = await createService(mockClient)
 
-    service.onPromptStart('ch-race', 1)
+    service.onPromptStart('ch-race', 1, {
+      sessionRowId: null,
+      prompt: { text: '', images: [] },
+    })
     // Finalize the turn before send resolves
     service.onPromptComplete('ch-race', 'end_turn')
 

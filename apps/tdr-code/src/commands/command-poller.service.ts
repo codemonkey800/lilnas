@@ -12,6 +12,7 @@ import { SessionManagerService } from 'src/agent/session-manager.service'
 import { claimPending } from 'src/db/command.repo'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
+import { insertEvent } from 'src/db/events.repo'
 import { EnvKeys } from 'src/env'
 
 // Discord snowflake: 17–20 digit numeric string.
@@ -97,6 +98,24 @@ export class CommandPollerService implements OnModuleInit, OnModuleDestroy {
         },
         'Command validation anomaly — deny-by-default, not dispatched',
       )
+      const genId = this.generationId
+      if (genId != null) {
+        try {
+          insertEvent(this.db, {
+            generationId: genId,
+            type: 'command_anomaly',
+            level: 'warn',
+            context: {
+              commandId: row.id,
+              type: row.type,
+              reason: result.reason,
+            },
+            createdAt: new Date(),
+          })
+        } catch (err) {
+          this.logger.warn({ err }, 'Failed to write command_anomaly event')
+        }
+      }
       return
     }
     switch (result.command.type) {

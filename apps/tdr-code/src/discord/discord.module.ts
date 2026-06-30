@@ -6,7 +6,9 @@ import { CommandPollerService } from 'src/commands/command-poller.service'
 
 import { BotLifecycleService } from './bot-lifecycle.service'
 import { ClearCommandService } from './clear-command.service'
+import { CompositeAcpHandler } from './composite-acp-handler'
 import { DiscordHandlerService } from './discord-handler.service'
+import { SqliteWriterService } from './sqlite-writer.service'
 import { StopButtonService } from './stop-button.service'
 
 @Module({
@@ -14,9 +16,11 @@ import { StopButtonService } from './stop-button.service'
     BotLifecycleService,
     CommandPollerService,
     DiscordHandlerService,
+    SqliteWriterService,
+    CompositeAcpHandler,
     {
       provide: ACP_EVENT_HANDLERS,
-      useExisting: DiscordHandlerService,
+      useExisting: CompositeAcpHandler,
     },
     SessionManagerService,
     StopButtonService,
