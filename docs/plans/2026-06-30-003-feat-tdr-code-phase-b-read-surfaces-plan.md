@@ -1,7 +1,7 @@
 ---
 title: 'feat: tdr-code Phase B read & recover surfaces (B6–B12)'
 type: feat
-status: active
+status: completed
 date: 2026-06-30
 deepened: 2026-06-30
 origin: docs/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md
