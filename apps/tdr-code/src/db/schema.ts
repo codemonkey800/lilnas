@@ -333,7 +333,6 @@ export type TurnContentPayload =
 
 // Compile-time exhaustiveness pin: bidirectional coverage check ties the TURN_CONTENT_KINDS
 // tuple to TurnContentPayload discriminants. Adding a kind to one without the other fails here.
-export const turnContentKindEnum = TURN_CONTENT_KINDS
 type _ExhaustiveTurnContentKinds = [TurnContentKind] extends [
   TurnContentPayload['kind'],
 ]
@@ -346,14 +345,31 @@ const _turnContentKindPin: _ExhaustiveTurnContentKinds = true
 
 // A validating narrower keyed on kind — returns null for unrecognized/old shapes
 // rather than throwing (one bad row must not break a transcript view).
+// columnKind: when provided, rejects rows where payload.kind diverges from the column value.
 export function narrowTurnContentPayload(
   payload: unknown,
+  columnKind?: TurnContentKind,
 ): TurnContentPayload | null {
   if (typeof payload !== 'object' || payload === null) return null
-  const kind = (payload as Record<string, unknown>)['kind']
-  if (!(TURN_CONTENT_KINDS as readonly string[]).includes(kind as string))
-    return null
-  return payload as TurnContentPayload
+  const o = payload as Record<string, unknown>
+  if (columnKind !== undefined && o.kind !== columnKind) return null
+  switch (o.kind) {
+    case 'prompt':
+    case 'agent_text':
+      return typeof o.text === 'string' ? (payload as TurnContentPayload) : null
+    case 'tool_call':
+      return typeof o.title === 'string' &&
+        typeof o.toolKind === 'string' &&
+        typeof o.status === 'string'
+        ? (payload as ToolCallPayload)
+        : null
+    case 'diff':
+      return typeof o.path === 'string' && typeof o.newText === 'string'
+        ? (payload as DiffPayload)
+        : null
+    default:
+      return null
+  }
 }
 
 export const turnContent = sqliteTable(

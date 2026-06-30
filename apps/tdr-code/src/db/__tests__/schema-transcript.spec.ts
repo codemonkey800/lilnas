@@ -860,6 +860,51 @@ describe('schema-transcript (U1): sessions · turns · turn_content', () => {
         close()
       }
     })
+
+    it('narrowTurnContentPayload: non-object / null / missing kind → null', () => {
+      expect(narrowTurnContentPayload(null)).toBeNull()
+      expect(narrowTurnContentPayload(42)).toBeNull()
+      expect(narrowTurnContentPayload('agent_text')).toBeNull()
+      expect(narrowTurnContentPayload({})).toBeNull()
+      expect(narrowTurnContentPayload({ kind: undefined })).toBeNull()
+    })
+
+    it('narrowTurnContentPayload: known kind with missing required field → null', () => {
+      expect(narrowTurnContentPayload({ kind: 'prompt' })).toBeNull()
+      expect(narrowTurnContentPayload({ kind: 'agent_text' })).toBeNull()
+      expect(
+        narrowTurnContentPayload({ kind: 'tool_call', title: 't' }),
+      ).toBeNull()
+      expect(
+        narrowTurnContentPayload({ kind: 'diff', path: 'a.ts' }),
+      ).toBeNull()
+    })
+
+    it('narrowTurnContentPayload: column-vs-payload kind divergence → null', () => {
+      const payload = { kind: 'prompt', text: 'hi' }
+      // payload.kind is 'prompt' but column says 'agent_text'
+      expect(narrowTurnContentPayload(payload, 'agent_text')).toBeNull()
+    })
+
+    it('narrowTurnContentPayload: valid payloads pass per-kind validation', () => {
+      expect(
+        narrowTurnContentPayload({ kind: 'prompt', text: 'hi' }),
+      ).not.toBeNull()
+      expect(
+        narrowTurnContentPayload({ kind: 'agent_text', text: 'hi' }),
+      ).not.toBeNull()
+      expect(
+        narrowTurnContentPayload({
+          kind: 'tool_call',
+          title: 'T',
+          toolKind: 'bash',
+          status: 'running',
+        }),
+      ).not.toBeNull()
+      expect(
+        narrowTurnContentPayload({ kind: 'diff', path: 'a.ts', newText: '+1' }),
+      ).not.toBeNull()
+    })
   })
 
   describe('verification', () => {

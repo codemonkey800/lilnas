@@ -149,14 +149,14 @@ describe('schema-observability (U2): events · live_status', () => {
       }
     })
 
-    it('live_status.prompting round-trips as a boolean', () => {
+    it('live_status.prompting round-trips as a boolean (true and false)', () => {
       const { db, close } = createTestDb()
       try {
         const gen = insertGeneration(db, { startedAt: new Date() })
 
         db.insert(liveStatus)
           .values({
-            channelId: 'ch-prompt',
+            channelId: 'ch-prompt-true',
             generationId: gen.id,
             triggeringUserId: null,
             prompting: true,
@@ -166,13 +166,33 @@ describe('schema-observability (U2): events · live_status', () => {
           })
           .run()
 
-        const row = db
+        db.insert(liveStatus)
+          .values({
+            channelId: 'ch-prompt-false',
+            generationId: gen.id,
+            triggeringUserId: null,
+            prompting: false,
+            queueDepth: 0,
+            lastActivityAt: new Date(),
+            lastHeartbeatAt: new Date(),
+          })
+          .run()
+
+        const trueRow = db
           .select()
           .from(liveStatus)
-          .where(eq(liveStatus.channelId, 'ch-prompt'))
+          .where(eq(liveStatus.channelId, 'ch-prompt-true'))
           .get()!
-        expect(row.prompting).toBe(true)
-        expect(typeof row.prompting).toBe('boolean')
+        expect(trueRow.prompting).toBe(true)
+        expect(typeof trueRow.prompting).toBe('boolean')
+
+        const falseRow = db
+          .select()
+          .from(liveStatus)
+          .where(eq(liveStatus.channelId, 'ch-prompt-false'))
+          .get()!
+        expect(falseRow.prompting).toBe(false)
+        expect(typeof falseRow.prompting).toBe('boolean')
       } finally {
         close()
       }
