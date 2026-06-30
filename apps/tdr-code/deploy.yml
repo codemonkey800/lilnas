@@ -18,13 +18,15 @@ services:
       #   sudo chmod 700 /storage/app-data/tdr-code
       # Without chown the process can't open the DB on first boot.
       - /storage/app-data/tdr-code:/data
-    # End-to-end liveness probe hitting the main server's SELECT 1 health
-    # endpoint — detects a wedged event loop even if the process is bound.
+    # Liveness probe via Next (:8080) → /api/health rewrite → main server.
+    # main server now binds 127.0.0.1:8082 (loopback-only); the container
+    # cannot reach it directly. Route through Next (:8080), which rewrites
+    # /api/* → localhost:8082 — still exercises the main-server event loop.
     healthcheck:
       test:
         [
           'CMD-SHELL',
-          "node -e \"const h=require('http');h.get('http://host.docker.internal:8082/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\"",
+          "node -e \"const h=require('http');h.get('http://host.docker.internal:8080/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\"",
         ]
       interval: 30s
       timeout: 5s

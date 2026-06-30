@@ -78,3 +78,13 @@ export function findDanglingTurns(db: Db, liveGenerationId: number): TurnRow[] {
     )
     .all()
 }
+
+// All turns for a session, ordered by turn_index (display order).
+export function listTurnsBySession(db: Db, sessionId: number): TurnRow[] {
+  return db
+    .select()
+    .from(turns)
+    .where(sql`${turns.sessionId} = ${sessionId}`)
+    .orderBy(sql`${turns.turnIndex} ASC`)
+    .all()
+}

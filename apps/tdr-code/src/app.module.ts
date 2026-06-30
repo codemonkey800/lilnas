@@ -4,6 +4,7 @@ import { LoggerModule } from 'nestjs-pino'
 import { BotStatusController } from './bot/bot-status.controller'
 import { BotStatusService } from './bot/bot-status.service'
 import { HealthController } from './bot/health.controller'
+import { ConsoleModule } from './console/console.module'
 import { DatabaseModule } from './db/database.module'
 import { buildLoggerOptions } from './logger'
 import { SupervisorModule } from './supervisor/supervisor.module'
@@ -15,6 +16,7 @@ import { SupervisorModule } from './supervisor/supervisor.module'
     DatabaseModule.forRoot({ migrate: true }),
     LoggerModule.forRoot(buildLoggerOptions()),
     SupervisorModule,
+    ConsoleModule,
   ],
   controllers: [BotStatusController, HealthController],
   providers: [BotStatusService],

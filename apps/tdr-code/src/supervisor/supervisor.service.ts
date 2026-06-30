@@ -30,6 +30,7 @@ import {
   initialState,
   type SupervisorCtx,
   type SupervisorEvent,
+  type SupervisorPhase,
   type SupervisorState,
   type TransitionResult,
 } from './supervisor-machine'
@@ -544,10 +545,31 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
     this.clearTimer('stableWindow')
   }
 
-  // ── Public API (for testing + future REST controller) ─────────────────────
+  // ── Public API (for testing + REST controller) ────────────────────────────
 
   getPhase() {
     return this.fsmState.phase
+  }
+
+  // Returns the new phase after dispatching. Throws a structured error object
+  // for the two non-dispatchable cases; caller maps them to 409.
+  requestRestart(): { phase: SupervisorPhase } | { error: string } {
+    if (!this.supervise) {
+      return { error: 'not-supervised' }
+    }
+    const phase = this.fsmState.phase
+    if (phase === 'Stopping') {
+      // The FSM drops RestartRequested while Stopping; returning 409 surfaces
+      // the operator's intent rather than silently losing it.
+      return { error: 'transition-in-progress' }
+    }
+    if (phase === 'Running' || phase === 'Starting' || phase === 'Backoff') {
+      this.dispatch({ type: 'RestartRequested' })
+    } else {
+      // Stopped or Failed — bring the bot back, resetting crash-loop accounting.
+      this.dispatch({ type: 'StartRequested' })
+    }
+    return { phase: this.fsmState.phase }
   }
 }
 

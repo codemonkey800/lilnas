@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 import type { Db } from './database.module'
 import {
@@ -51,6 +51,38 @@ export function closeSession(
     .where(sql`${sessions.id} = ${opts.id} AND ${sessions.endedAt} IS NULL`)
     .run()
   return result.changes
+}
+
+// Keyset-paginated session list — ordered by id DESC (newest first).
+// Optional channel filter uses sessions_channel_created_idx.
+// Caller fetches limit+1 and passes to paginate() to compute nextCursor.
+export function listSessions(
+  db: Db,
+  opts: { channelId?: string; cursor?: number; limit: number },
+): SessionRow[] {
+  const conditions = []
+  if (opts.channelId !== undefined) {
+    conditions.push(sql`${sessions.channelId} = ${opts.channelId}`)
+  }
+  if (opts.cursor !== undefined) {
+    conditions.push(sql`${sessions.id} < ${opts.cursor}`)
+  }
+  const where =
+    conditions.length > 0
+      ? sql.join(conditions, sql` AND `)
+      : sql`1=1`
+
+  return db
+    .select()
+    .from(sessions)
+    .where(where)
+    .orderBy(sql`${sessions.id} DESC`)
+    .limit(opts.limit + 1)
+    .all()
+}
+
+export function getSessionById(db: Db, id: number): SessionRow | undefined {
+  return db.select().from(sessions).where(eq(sessions.id, id)).get()
 }
 
 // Newest open session for a channel via the partial index. Tolerates >1 open

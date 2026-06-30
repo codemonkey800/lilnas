@@ -93,6 +93,17 @@ export function clearStaleByGeneration(
   return result.changes
 }
 
+// Read all live_status rows for a specific generation id.
+// Used by B8 live view: online path passes the running generation id;
+// offline path passes the latest (ended) generation id to return last-known rows.
+export function listLive(db: Db, generationId: number): LiveStatusRow[] {
+  return db
+    .select()
+    .from(liveStatus)
+    .where(sql`${liveStatus.generationId} = ${generationId}`)
+    .all()
+}
+
 // Read all rows — for tests only.
 export function allLiveStatus(db: Db): LiveStatusRow[] {
   return db.select().from(liveStatus).all()

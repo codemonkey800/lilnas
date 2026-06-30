@@ -32,5 +32,8 @@ export async function bootstrapApp() {
   process.on('SIGINT', shutdown)
 
   const port = +env(EnvKeys.BACKEND_PORT, '8082')
-  await app.listen(port)
+  // Bind to loopback only: browser→Traefik→nginx→localhost:8082 is unchanged;
+  // this removes the host's non-loopback interfaces from the attack surface now
+  // that mutating endpoints (restart/teardown) and raw-transcript reads ship.
+  await app.listen(port, '127.0.0.1')
 }
