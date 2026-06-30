@@ -1,6 +1,9 @@
 import { BadRequestException, Controller, Get, Param } from '@nestjs/common'
 
-import type { JsonlStatusResponseDto, ReconcileResponseDto } from './reconcile.dto'
+import type {
+  JsonlStatusResponseDto,
+  ReconcileResponseDto,
+} from './reconcile.dto'
 import { ReconcileService } from './reconcile.service'
 
 // Trust boundary: see bot-status.controller.ts.

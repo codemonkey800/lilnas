@@ -4,7 +4,6 @@ import {
   Controller,
   HttpCode,
   Inject,
-  NotFoundException,
   Param,
   Post,
 } from '@nestjs/common'
@@ -49,7 +48,9 @@ export class LifecycleController {
   teardown(@Param('channelId') channelId: string): TeardownResponseDto {
     const parsed = DiscordSnowflakeSchema.safeParse(channelId)
     if (!parsed.success) {
-      throw new BadRequestException(parsed.error.issues[0]?.message ?? 'Invalid channelId')
+      throw new BadRequestException(
+        parsed.error.issues[0]?.message ?? 'Invalid channelId',
+      )
     }
 
     const gen = latestGeneration(this.db)

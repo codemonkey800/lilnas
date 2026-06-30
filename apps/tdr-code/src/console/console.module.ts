@@ -26,6 +26,12 @@ import { SessionsService } from './sessions.service'
     EventsController,
     ReconcileController,
   ],
-  providers: [LiveService, SessionsService, EventsService, ReconcileService, BotStatusService],
+  providers: [
+    LiveService,
+    SessionsService,
+    EventsService,
+    ReconcileService,
+    BotStatusService,
+  ],
 })
 export class ConsoleModule {}

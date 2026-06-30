@@ -31,7 +31,9 @@ export function parseQuery<T>(
 ): T {
   const result = schema.safeParse(raw)
   if (!result.success) {
-    throw new BadRequestException(result.error.issues[0]?.message ?? 'Invalid query parameters')
+    throw new BadRequestException(
+      result.error.issues[0]?.message ?? 'Invalid query parameters',
+    )
   }
   return result.data
 }

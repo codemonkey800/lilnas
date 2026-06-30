@@ -92,10 +92,7 @@ export function blocksByTurn(db: Db, turnId: number): TurnContentRow[] {
 
 // Batch reader: all blocks for a set of turn ids, ordered by id (insertion order).
 // Delegates to blocksByTurn for the single-turn case so both paths stay in sync.
-export function listBlocksByTurns(
-  db: Db,
-  turnIds: number[],
-): TurnContentRow[] {
+export function listBlocksByTurns(db: Db, turnIds: number[]): TurnContentRow[] {
   if (turnIds.length === 0) return []
   if (turnIds.length === 1) return blocksByTurn(db, turnIds[0]!)
   return db

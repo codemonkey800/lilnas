@@ -1,11 +1,11 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common'
+import { Controller, Get, Query } from '@nestjs/common'
 import { z } from 'zod'
 
 import { EVENT_LEVELS, EVENT_TYPES } from 'src/db/schema'
 
 import type { EventListResponseDto } from './events.dto'
 import { EventsService } from './events.service'
-import { parseQuery, PaginationSchema } from './query-params'
+import { PaginationSchema, parseQuery } from './query-params'
 
 const EventListQuerySchema = PaginationSchema.extend({
   type: z

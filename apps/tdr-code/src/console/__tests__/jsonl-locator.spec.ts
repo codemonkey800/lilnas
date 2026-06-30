@@ -11,7 +11,9 @@ describe('jsonlPath', () => {
     const result = jsonlPath('/home/testuser/work', 'abc-123')
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.resolvedPath).toBe(`${HOME}/.claude/projects/-home-testuser-work/abc-123.jsonl`)
+      expect(result.resolvedPath).toBe(
+        `${HOME}/.claude/projects/-home-testuser-work/abc-123.jsonl`,
+      )
     }
   })
 

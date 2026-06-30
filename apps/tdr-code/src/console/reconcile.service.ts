@@ -4,15 +4,18 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 
-import { listBlocksByTurns } from 'src/db/turn-content.repo'
-import { listTurnsBySession } from 'src/db/turns.repo'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
-import { getSessionById } from 'src/db/sessions.repo'
 import { narrowTurnContentPayload } from 'src/db/schema'
+import { getSessionById } from 'src/db/sessions.repo'
+import { listBlocksByTurns } from 'src/db/turn-content.repo'
+import { listTurnsBySession } from 'src/db/turns.repo'
 
 import { jsonlPath } from './jsonl-locator'
-import type { JsonlStatusResponseDto, ReconcileResponseDto } from './reconcile.dto'
+import type {
+  JsonlStatusResponseDto,
+  ReconcileResponseDto,
+} from './reconcile.dto'
 
 // Bounded read: skip files larger than this.
 const MAX_JSONL_BYTES = 10 * 1024 * 1024 // 10 MiB
@@ -111,7 +114,8 @@ export class ReconcileService {
     }
 
     // Parse JSONL line-by-line, skip malformed lines.
-    const jsonlBlocks: Array<{ kind: string; text?: string; title?: string }> = []
+    const jsonlBlocks: Array<{ kind: string; text?: string; title?: string }> =
+      []
     let skippedJsonlLines = 0
     for (const line of content.split('\n')) {
       const trimmed = line.trim()
@@ -131,10 +135,12 @@ export class ReconcileService {
       const r = record.data
       // Map JSONL records to a comparable shape.
       if (r.role === 'user' && r.content) {
-        const text = typeof r.content === 'string' ? r.content : JSON.stringify(r.content)
+        const text =
+          typeof r.content === 'string' ? r.content : JSON.stringify(r.content)
         jsonlBlocks.push({ kind: 'prompt', text })
       } else if (r.role === 'assistant' && r.content) {
-        const text = typeof r.content === 'string' ? r.content : JSON.stringify(r.content)
+        const text =
+          typeof r.content === 'string' ? r.content : JSON.stringify(r.content)
         jsonlBlocks.push({ kind: 'agent_text', text })
       } else if (r.type) {
         jsonlBlocks.push({ kind: r.type })
@@ -149,7 +155,11 @@ export class ReconcileService {
       .map(b => {
         const n = narrowTurnContentPayload(b.payload, b.kind)
         if (!n) return null
-        return { kind: n.kind, text: 'text' in n ? n.text : undefined, title: 'title' in n ? (n as { title?: string }).title : undefined }
+        return {
+          kind: n.kind,
+          text: 'text' in n ? n.text : undefined,
+          title: 'title' in n ? (n as { title?: string }).title : undefined,
+        }
       })
       .filter((b): b is NonNullable<typeof b> => b !== null)
 
@@ -158,7 +168,11 @@ export class ReconcileService {
     let matched = 0
     const missingInDb: typeof jsonlBlocks = []
     const extraInDb: typeof dbBlocks = []
-    const mismatched: Array<{ kind: string; jsonlText?: string; dbText?: string }> = []
+    const mismatched: Array<{
+      kind: string
+      jsonlText?: string
+      dbText?: string
+    }> = []
 
     for (let i = 0; i < maxLen; i++) {
       const jBlock = jsonlBlocks[i]

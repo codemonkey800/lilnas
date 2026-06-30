@@ -68,9 +68,7 @@ export function listSessions(
     conditions.push(sql`${sessions.id} < ${opts.cursor}`)
   }
   const where =
-    conditions.length > 0
-      ? sql.join(conditions, sql` AND `)
-      : sql`1=1`
+    conditions.length > 0 ? sql.join(conditions, sql` AND `) : sql`1=1`
 
   return db
     .select()

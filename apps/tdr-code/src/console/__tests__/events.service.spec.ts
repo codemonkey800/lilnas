@@ -1,9 +1,7 @@
-import { BadRequestException } from '@nestjs/common'
-
+import { EventsService } from 'src/console/events.service'
 import { insertGeneration } from 'src/db/bot-generation.repo'
 import { insertEvent } from 'src/db/events.repo'
 import { createTestDb } from 'src/db/test-db'
-import { EventsService } from 'src/console/events.service'
 
 function buildService(db: ReturnType<typeof createTestDb>['db']) {
   return new EventsService(db)
@@ -20,7 +18,10 @@ describe('EventsService.listEvents', () => {
     testDb.close()
   })
 
-  function seedEvents(db: ReturnType<typeof createTestDb>['db'], count: number) {
+  function seedEvents(
+    db: ReturnType<typeof createTestDb>['db'],
+    count: number,
+  ) {
     const gen = insertGeneration(db, { startedAt: new Date() })
     for (let i = 0; i < count; i++) {
       insertEvent(db, {
@@ -69,7 +70,13 @@ describe('EventsService.listEvents', () => {
     const gen = insertGeneration(testDb.db, { startedAt: new Date() })
     const ts = new Date()
     for (let i = 0; i < 4; i++) {
-      insertEvent(testDb.db, { generationId: gen.id, type: 'bot_restart', level: 'info', context: {}, createdAt: ts })
+      insertEvent(testDb.db, {
+        generationId: gen.id,
+        type: 'bot_restart',
+        level: 'info',
+        context: {},
+        createdAt: ts,
+      })
     }
     const svc = buildService(testDb.db)
     const page1 = svc.listEvents({ limit: 2 })
@@ -83,7 +90,13 @@ describe('EventsService.listEvents', () => {
 
   it('event with null sessionId → DTO has null sessionId', () => {
     const gen = insertGeneration(testDb.db, { startedAt: new Date() })
-    insertEvent(testDb.db, { generationId: gen.id, type: 'bot_restart', level: 'info', context: {}, createdAt: new Date() })
+    insertEvent(testDb.db, {
+      generationId: gen.id,
+      type: 'bot_restart',
+      level: 'info',
+      context: {},
+      createdAt: new Date(),
+    })
     const svc = buildService(testDb.db)
     const result = svc.listEvents({ limit: 10 })
     expect(result.items[0]!.sessionId).toBeNull()

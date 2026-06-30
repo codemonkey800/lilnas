@@ -1,12 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common'
 
-import { listEvents } from 'src/db/events.repo'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
+import { listEvents } from 'src/db/events.repo'
 import type { EventLevel, EventType } from 'src/db/schema'
 
-import { paginate, type Paginated } from './pagination'
 import type { EventItemDto } from './events.dto'
+import { paginate, type Paginated } from './pagination'
 
 @Injectable()
 export class EventsService {

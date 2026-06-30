@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common'
 
-import { parseQuery, PaginationSchema } from 'src/console/query-params'
+import { PaginationSchema, parseQuery } from 'src/console/query-params'
 
 describe('parseQuery — PaginationSchema', () => {
   it('missing cursor + limit → first page defaults', () => {

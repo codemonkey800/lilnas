@@ -21,7 +21,8 @@ export class LiveService {
 
   getLive(now: Date = new Date()): LiveResponseDto {
     const status = this.botStatus.getStatus(now)
-    const botOffline = status.status !== 'online' && status.status !== 'starting'
+    const botOffline =
+      status.status !== 'online' && status.status !== 'starting'
 
     const latestGen = latestGeneration(this.db)
     if (!latestGen) {

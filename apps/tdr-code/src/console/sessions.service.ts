@@ -1,12 +1,12 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 
-import { listBlocksByTurns } from 'src/db/turn-content.repo'
-import { listTurnsBySession } from 'src/db/turns.repo'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
-import { getSessionById, listSessions } from 'src/db/sessions.repo'
 import { narrowTurnContentPayload } from 'src/db/schema'
+import { getSessionById, listSessions } from 'src/db/sessions.repo'
+import { listBlocksByTurns } from 'src/db/turn-content.repo'
+import { listTurnsBySession } from 'src/db/turns.repo'
 
 import { paginate, type Paginated } from './pagination'
 import type {
@@ -117,7 +117,10 @@ export class SessionsService {
     }
   }
 
-  private mapBlock(id: number, payload: ReturnType<typeof narrowTurnContentPayload>): TurnContentBlockDto {
+  private mapBlock(
+    id: number,
+    payload: ReturnType<typeof narrowTurnContentPayload>,
+  ): TurnContentBlockDto {
     if (!payload) throw new Error('mapBlock called with null payload')
     switch (payload.kind) {
       case 'prompt':

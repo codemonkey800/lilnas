@@ -1,15 +1,19 @@
 import { NotFoundException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 
-import { insertGeneration } from 'src/db/bot-generation.repo'
-import { insertSession, closeSession } from 'src/db/sessions.repo'
-import { insertTurn, closeTurn } from 'src/db/turns.repo'
-import { appendBlock } from 'src/db/turn-content.repo'
-import { createTestDb } from 'src/db/test-db'
 import { SessionsService } from 'src/console/sessions.service'
+import { insertGeneration } from 'src/db/bot-generation.repo'
+import { insertSession } from 'src/db/sessions.repo'
+import { createTestDb } from 'src/db/test-db'
+import { appendBlock } from 'src/db/turn-content.repo'
+import { insertTurn } from 'src/db/turns.repo'
 
 function fakeLogger(): PinoLogger {
-  return { warn: jest.fn(), error: jest.fn(), info: jest.fn() } as unknown as PinoLogger
+  return {
+    warn: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+  } as unknown as PinoLogger
 }
 
 function buildService(db: ReturnType<typeof createTestDb>['db']) {
@@ -58,8 +62,22 @@ describe('SessionsService', () => {
 
     it('channel filter returns only matching sessions', () => {
       const gen = insertGeneration(testDb.db, { startedAt: new Date() })
-      insertSession(testDb.db, { channelId: 'ch1', generationId: gen.id, triggeringUserId: 'u1', acpSessionId: null, cwd: '/cwd', createdAt: new Date() })
-      insertSession(testDb.db, { channelId: 'ch2', generationId: gen.id, triggeringUserId: 'u1', acpSessionId: null, cwd: '/cwd', createdAt: new Date() })
+      insertSession(testDb.db, {
+        channelId: 'ch1',
+        generationId: gen.id,
+        triggeringUserId: 'u1',
+        acpSessionId: null,
+        cwd: '/cwd',
+        createdAt: new Date(),
+      })
+      insertSession(testDb.db, {
+        channelId: 'ch2',
+        generationId: gen.id,
+        triggeringUserId: 'u1',
+        acpSessionId: null,
+        cwd: '/cwd',
+        createdAt: new Date(),
+      })
       const svc = buildService(testDb.db)
       const result = svc.listSessions({ channelId: 'ch1', limit: 10 })
       expect(result.items).toHaveLength(1)
@@ -110,10 +128,32 @@ describe('SessionsService', () => {
         cwd: '/cwd',
         createdAt: new Date(),
       })
-      const turn1 = insertTurn(testDb.db, { sessionId: session.id, generationId: gen.id, turnIndex: 1, userId: 'u1', startedAt: new Date() })
-      const turn2 = insertTurn(testDb.db, { sessionId: session.id, generationId: gen.id, turnIndex: 2, userId: 'u1', startedAt: new Date() })
-      appendBlock(testDb.db, { turnId: turn1.id, kind: 'prompt', payload: { kind: 'prompt', text: 'hello' }, createdAt: new Date() })
-      appendBlock(testDb.db, { turnId: turn2.id, kind: 'agent_text', payload: { kind: 'agent_text', text: 'hi' }, createdAt: new Date() })
+      const turn1 = insertTurn(testDb.db, {
+        sessionId: session.id,
+        generationId: gen.id,
+        turnIndex: 1,
+        userId: 'u1',
+        startedAt: new Date(),
+      })
+      const turn2 = insertTurn(testDb.db, {
+        sessionId: session.id,
+        generationId: gen.id,
+        turnIndex: 2,
+        userId: 'u1',
+        startedAt: new Date(),
+      })
+      appendBlock(testDb.db, {
+        turnId: turn1.id,
+        kind: 'prompt',
+        payload: { kind: 'prompt', text: 'hello' },
+        createdAt: new Date(),
+      })
+      appendBlock(testDb.db, {
+        turnId: turn2.id,
+        kind: 'agent_text',
+        payload: { kind: 'agent_text', text: 'hi' },
+        createdAt: new Date(),
+      })
 
       const svc = buildService(testDb.db)
       const result = svc.getSessionTranscript(session.id)
@@ -126,15 +166,41 @@ describe('SessionsService', () => {
 
     it('malformed block payload → dropped and counted', () => {
       const gen = insertGeneration(testDb.db, { startedAt: new Date() })
-      const session = insertSession(testDb.db, { channelId: 'ch1', generationId: gen.id, triggeringUserId: 'u1', acpSessionId: null, cwd: '/cwd', createdAt: new Date() })
-      const turn = insertTurn(testDb.db, { sessionId: session.id, generationId: gen.id, turnIndex: 1, userId: null, startedAt: new Date() })
+      const session = insertSession(testDb.db, {
+        channelId: 'ch1',
+        generationId: gen.id,
+        triggeringUserId: 'u1',
+        acpSessionId: null,
+        cwd: '/cwd',
+        createdAt: new Date(),
+      })
+      const turn = insertTurn(testDb.db, {
+        sessionId: session.id,
+        generationId: gen.id,
+        turnIndex: 1,
+        userId: null,
+        startedAt: new Date(),
+      })
       // Insert a block with a bad payload (missing 'text' field for prompt).
-      appendBlock(testDb.db, { turnId: turn.id, kind: 'prompt', payload: { kind: 'prompt', text: '' }, createdAt: new Date() })
+      appendBlock(testDb.db, {
+        turnId: turn.id,
+        kind: 'prompt',
+        payload: { kind: 'prompt', text: '' },
+        createdAt: new Date(),
+      })
       // Insert another with correct payload.
-      appendBlock(testDb.db, { turnId: turn.id, kind: 'agent_text', payload: { kind: 'agent_text', text: 'ok' }, createdAt: new Date() })
+      appendBlock(testDb.db, {
+        turnId: turn.id,
+        kind: 'agent_text',
+        payload: { kind: 'agent_text', text: 'ok' },
+        createdAt: new Date(),
+      })
       // Manually corrupt one block via raw SQL to simulate a malformed row.
-      testDb.db.$client.exec(
-        `UPDATE turn_content SET payload = '{"kind":"unknown_kind"}' WHERE id = (SELECT MIN(id) FROM turn_content WHERE turn_id = ${turn.id})`
+      const client = (
+        testDb.db as unknown as { $client: { exec: (sql: string) => void } }
+      ).$client
+      client.exec(
+        `UPDATE turn_content SET payload = '{"kind":"unknown_kind"}' WHERE id = (SELECT MIN(id) FROM turn_content WHERE turn_id = ${turn.id})`,
       )
 
       const svc = buildService(testDb.db)

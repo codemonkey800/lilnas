@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common'
 import { z } from 'zod'
 
-import { parseQuery, PaginationSchema } from './query-params'
+import { PaginationSchema, parseQuery } from './query-params'
 import type {
   SessionDetailResponseDto,
   SessionListResponseDto,

@@ -1,13 +1,21 @@
 import { PinoLogger } from 'nestjs-pino'
 
 import { BotStatusService } from 'src/bot/bot-status.service'
-import { insertGeneration, markRunning } from 'src/db/bot-generation.repo'
+import { LiveService } from 'src/console/live.service'
+import {
+  finalize,
+  insertGeneration,
+  markRunning,
+} from 'src/db/bot-generation.repo'
 import { upsertLiveStatus } from 'src/db/live-status.repo'
 import { createTestDb } from 'src/db/test-db'
-import { LiveService } from 'src/console/live.service'
 
 function fakeLogger(): PinoLogger {
-  return { warn: jest.fn(), error: jest.fn(), info: jest.fn() } as unknown as PinoLogger
+  return {
+    warn: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+  } as unknown as PinoLogger
 }
 
 function buildService(db: ReturnType<typeof createTestDb>['db']) {
@@ -113,7 +121,6 @@ describe('LiveService.getLive', () => {
       lastHeartbeatAt: now,
     })
     // Finalize the generation to simulate bot offline (BotStatusService returns offline).
-    const { finalize } = require('src/db/bot-generation.repo')
     finalize(testDb.db, gen.id, 'stopped', 0, now)
     const svc = buildService(testDb.db)
     const result = svc.getLive(now)
@@ -148,7 +155,6 @@ describe('LiveService.getLive', () => {
       lastHeartbeatAt: now,
     })
     // Finalize gen1, start gen2.
-    const { finalize } = require('src/db/bot-generation.repo')
     finalize(testDb.db, gen1.id, 'stopped', 0, now)
     const gen2 = insertGeneration(testDb.db, { startedAt: now })
     markRunning(testDb.db, gen2.id, 2222, now)

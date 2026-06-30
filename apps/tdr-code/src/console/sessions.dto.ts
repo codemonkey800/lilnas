@@ -22,9 +22,7 @@ export const TurnContentBlockSchema = z.discriminatedUnion('kind', [
     id: z.number().int(),
     kind: z.literal('prompt'),
     text: z.string(),
-    images: z
-      .array(z.object({ mimeType: z.string() }))
-      .optional(),
+    images: z.array(z.object({ mimeType: z.string() })).optional(),
   }),
   z.object({
     id: z.number().int(),
@@ -52,7 +50,13 @@ export const TurnDetailSchema = z.object({
   id: z.number().int(),
   turnIndex: z.number().int(),
   userId: z.string().nullable(),
-  status: z.enum(['running', 'completed', 'cancelled', 'errored', 'interrupted']),
+  status: z.enum([
+    'running',
+    'completed',
+    'cancelled',
+    'errored',
+    'interrupted',
+  ]),
   startedAt: z.string().datetime(),
   endedAt: z.string().datetime().nullable(),
   stopReason: z.string().nullable(),
@@ -65,4 +69,6 @@ export const SessionDetailResponseSchema = z.object({
   turns: z.array(TurnDetailSchema),
   droppedBlocks: z.number().int(),
 })
-export type SessionDetailResponseDto = z.infer<typeof SessionDetailResponseSchema>
+export type SessionDetailResponseDto = z.infer<
+  typeof SessionDetailResponseSchema
+>
