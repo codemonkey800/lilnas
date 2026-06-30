@@ -66,9 +66,17 @@ export function heartbeatLiveStatus(
   return result.changes
 }
 
-export function removeLiveStatus(db: Db, channelId: string): void {
+// Generation-guarded delete — only removes the caller's own/older row so a
+// dying generation can't delete a newer one's live row during restart overlap.
+export function removeLiveStatus(
+  db: Db,
+  channelId: string,
+  generationId: number,
+): void {
   db.delete(liveStatus)
-    .where(sql`${liveStatus.channelId} = ${channelId}`)
+    .where(
+      sql`${liveStatus.channelId} = ${channelId} AND ${liveStatus.generationId} <= ${generationId}`,
+    )
     .run()
 }
 

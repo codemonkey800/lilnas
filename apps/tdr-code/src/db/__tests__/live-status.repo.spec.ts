@@ -157,8 +157,31 @@ describe('live-status.repo', () => {
         lastActivityAt: new Date(),
         lastHeartbeatAt: new Date(),
       })
-      removeLiveStatus(db, 'ch-remove')
+      removeLiveStatus(db, 'ch-remove', gen.id)
       expect(allLiveStatus(db)).toHaveLength(0)
+    } finally {
+      close()
+    }
+  })
+
+  it('removeLiveStatus with stale generationId does NOT delete a newer generation row', () => {
+    const { db, close } = createTestDb()
+    try {
+      const gen1 = insertGeneration(db, { startedAt: new Date() })
+      const gen2 = insertGeneration(db, { startedAt: new Date() })
+      // Live row owned by gen2.
+      upsertLiveStatus(db, {
+        channelId: 'ch-guard',
+        generationId: gen2.id,
+        triggeringUserId: null,
+        prompting: false,
+        queueDepth: 0,
+        lastActivityAt: new Date(),
+        lastHeartbeatAt: new Date(),
+      })
+      // Old gen1 tries to remove the row — should be a no-op (gen2 > gen1).
+      removeLiveStatus(db, 'ch-guard', gen1.id)
+      expect(allLiveStatus(db)).toHaveLength(1)
     } finally {
       close()
     }

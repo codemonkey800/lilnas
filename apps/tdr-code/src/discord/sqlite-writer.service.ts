@@ -12,7 +12,7 @@ import { insertEvent } from 'src/db/events.repo'
 import {
   appendBlock,
   insertToolCall,
-  updateToolCall,
+  updateToolCallStatus,
 } from 'src/db/turn-content.repo'
 import { closeTurn, insertTurn, maxTurnIndex } from 'src/db/turns.repo'
 import { EnvKeys } from 'src/env'
@@ -89,15 +89,16 @@ export class SqliteWriterService implements AcpEventHandlers {
     const state = this.channelState.get(channelId)
     if (!state?.currentTurnRowId) return
 
-    const changes = updateToolCall(this.db, {
+    const changes = updateToolCallStatus(this.db, {
       turnId: state.currentTurnRowId,
       ref: toolCallId,
-      payload: { kind: 'tool_call', title: '', toolKind: '', status },
+      status,
     })
     if (changes === 0) {
       console.warn(
         `[sqlite-writer] onToolCallUpdate: 0 rows updated channel=${channelId} ref=${toolCallId} (late/cross-turn, skipping)`,
       )
+      return
     }
 
     // Append diffs from the update.
@@ -247,10 +248,5 @@ export class SqliteWriterService implements AcpEventHandlers {
       ...state,
       currentTurnRowId: null,
     })
-  }
-
-  // Called by session-manager on session teardown to clean up channel state.
-  clearChannelState(channelId: string): void {
-    this.channelState.delete(channelId)
   }
 }

@@ -57,19 +57,22 @@ export function insertToolCall(
     .get()!
 }
 
-// Guarded UPDATE — returns rows changed (0 = late/cross-turn, log and skip).
+// Guarded status-only UPDATE via json_set — preserves title/kind from onToolCall.
+// Returns rows changed (0 = late/cross-turn, log and skip).
 // Indexed by the UNIQUE(turn_id, ref) partial index (WHERE ref IS NOT NULL).
-export function updateToolCall(
+export function updateToolCallStatus(
   db: Db,
   opts: {
     turnId: number
     ref: string
-    payload: TurnContentPayload
+    status: string
   },
 ): number {
   const result = db
     .update(turnContent)
-    .set({ payload: opts.payload })
+    .set({
+      payload: sql`json_set(${turnContent.payload}, '$.status', ${opts.status})`,
+    })
     .where(
       sql`${turnContent.turnId} = ${opts.turnId} AND ${turnContent.ref} = ${opts.ref}`,
     )

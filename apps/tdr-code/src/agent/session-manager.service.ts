@@ -62,6 +62,9 @@ export class SessionManagerService implements OnApplicationShutdown {
   // U5: live_status heartbeat — one timer per bot lifetime, cleared by shutdown
   // authority before finalizeGeneration (Decision 8c).
   private liveStatusTimer: NodeJS.Timeout | null = null
+  // Set alongside stopLiveStatusHeartbeat() to gate prompt() and
+  // ensureLiveStatusHeartbeat() during the shutdown window (Decision 8c).
+  private shutdownRequested = false
 
   constructor(
     @Inject(ACP_EVENT_HANDLERS) private readonly handlers: AcpEventHandlers,
@@ -87,6 +90,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     userId: string,
     images: ImageAttachment[] = [],
   ): Promise<PromptOutcome> {
+    if (this.shutdownRequested) return { kind: 'shutting_down' }
     const session = await this.getOrCreate(channelId, userId)
     session.lastActivity = Date.now()
     this.resetIdleTimer(session)
@@ -146,28 +150,33 @@ export class SessionManagerService implements OnApplicationShutdown {
     this.killProcessTree(session.process)
     this.sessions.delete(channelId)
 
-    // U2: close sessions row.
-    if (this.generationId != null && session.sessionRowId != null) {
-      closeSession(this.db, {
-        id: session.sessionRowId,
-        endedAt: new Date(),
-        endReason,
-      })
-      insertEvent(this.db, {
-        generationId: this.generationId,
-        sessionId: session.sessionRowId,
-        channelId,
-        type: 'session_evicted',
-        level: 'info',
-        context: { endReason },
-        createdAt: new Date(),
-      })
-    }
-
-    // U5: remove live_status row (bot is still alive — channel no longer active).
-    // Guard matches the U2 guard — only write when we have a valid generation.
+    // U2 + U5: best-effort DB bookkeeping — mirror syncLiveStatus try/catch so a
+    // transient SQLITE_BUSY inside a setTimeout callback cannot crash the process.
     if (this.generationId != null) {
-      removeLiveStatus(this.db, channelId)
+      try {
+        if (session.sessionRowId != null) {
+          closeSession(this.db, {
+            id: session.sessionRowId,
+            endedAt: new Date(),
+            endReason,
+          })
+          insertEvent(this.db, {
+            generationId: this.generationId,
+            sessionId: session.sessionRowId,
+            channelId,
+            type: 'session_evicted',
+            level: 'info',
+            context: { endReason },
+            createdAt: new Date(),
+          })
+        }
+        removeLiveStatus(this.db, channelId, this.generationId)
+      } catch (err) {
+        console.warn(
+          `[session-manager] teardown bookkeeping failed channel=${channelId}:`,
+          err instanceof Error ? err.message : String(err),
+        )
+      }
     }
   }
 
@@ -184,6 +193,7 @@ export class SessionManagerService implements OnApplicationShutdown {
   // U5: clear the live_status heartbeat timer — called by bot-bootstrap SIGTERM
   // authority BEFORE finalizeGeneration (Decision 8c).
   stopLiveStatusHeartbeat(): void {
+    this.shutdownRequested = true
     if (this.liveStatusTimer) {
       clearTimeout(this.liveStatusTimer)
       this.liveStatusTimer = null
@@ -316,13 +326,22 @@ export class SessionManagerService implements OnApplicationShutdown {
       if (session?.process === proc) {
         clearTimeout(session.idleTimer)
         this.sessions.delete(channelId)
-        // U2: close session row with 'interrupted' (proc crash bypasses teardown).
-        if (this.generationId != null && session.sessionRowId != null) {
-          closeSession(this.db, {
-            id: session.sessionRowId,
-            endedAt: new Date(),
-            endReason: 'interrupted',
-          })
+        if (this.generationId != null) {
+          try {
+            if (session.sessionRowId != null) {
+              closeSession(this.db, {
+                id: session.sessionRowId,
+                endedAt: new Date(),
+                endReason: 'interrupted',
+              })
+            }
+            removeLiveStatus(this.db, channelId, this.generationId)
+          } catch (dbErr) {
+            console.warn(
+              `[session-manager] proc-error bookkeeping failed channel=${channelId}:`,
+              dbErr instanceof Error ? dbErr.message : String(dbErr),
+            )
+          }
         }
       }
     })
@@ -337,13 +356,22 @@ export class SessionManagerService implements OnApplicationShutdown {
             `Agent process for channel ${channelId} exited with code ${code}`,
           )
         }
-        // U2: close session row with 'interrupted' (proc exit bypasses teardown).
-        if (this.generationId != null && session.sessionRowId != null) {
-          closeSession(this.db, {
-            id: session.sessionRowId,
-            endedAt: new Date(),
-            endReason: 'interrupted',
-          })
+        if (this.generationId != null) {
+          try {
+            if (session.sessionRowId != null) {
+              closeSession(this.db, {
+                id: session.sessionRowId,
+                endedAt: new Date(),
+                endReason: 'interrupted',
+              })
+            }
+            removeLiveStatus(this.db, channelId, this.generationId)
+          } catch (dbErr) {
+            console.warn(
+              `[session-manager] proc-exit bookkeeping failed channel=${channelId}:`,
+              dbErr instanceof Error ? dbErr.message : String(dbErr),
+            )
+          }
         }
       }
       if (this.generationId != null && proc.pid != null) {
@@ -398,27 +426,36 @@ export class SessionManagerService implements OnApplicationShutdown {
     // U2: Insert sessions row AFTER newSession resolves so acp_session_id
     // and cwd land in the initial INSERT (no backfill UPDATE needed).
     // Guard on generationId — FK is NOT NULL (Decision 4b).
+    // Try/catch: a throw here must not orphan the already-spawned proc; on
+    // failure we fall through with sessionRowId=null (in-memory session only).
     let sessionRowId: number | null = null
     if (this.generationId != null) {
-      const row = insertSession(this.db, {
-        channelId,
-        generationId: this.generationId,
-        triggeringUserId: userId,
-        acpSessionId: sessionId,
-        cwd: this.claudeCwd,
-        createdAt: new Date(),
-      })
-      sessionRowId = row.id
-
-      insertEvent(this.db, {
-        generationId: this.generationId,
-        sessionId: row.id,
-        channelId,
-        type: 'session_created',
-        level: 'info',
-        context: { acpSessionId: sessionId, cwd: this.claudeCwd },
-        createdAt: new Date(),
-      })
+      try {
+        const row = insertSession(this.db, {
+          channelId,
+          generationId: this.generationId,
+          triggeringUserId: userId,
+          acpSessionId: sessionId,
+          cwd: this.claudeCwd,
+          createdAt: new Date(),
+        })
+        sessionRowId = row.id
+        insertEvent(this.db, {
+          generationId: this.generationId,
+          sessionId: row.id,
+          channelId,
+          type: 'session_created',
+          level: 'info',
+          context: { acpSessionId: sessionId, cwd: this.claudeCwd },
+          createdAt: new Date(),
+        })
+      } catch (err) {
+        console.error(
+          `[session-manager] session-row insert failed channel=${channelId}:`,
+          err instanceof Error ? err.message : String(err),
+        )
+        sessionRowId = null
+      }
     }
 
     const managed: ManagedSession = {
@@ -482,6 +519,7 @@ export class SessionManagerService implements OnApplicationShutdown {
 
   // U5: Arm the live_status heartbeat (one per bot lifetime, Decision 8c).
   private ensureLiveStatusHeartbeat(): void {
+    if (this.shutdownRequested) return
     if (this.liveStatusTimer != null) return
     this.armLiveStatusHeartbeat()
   }
@@ -492,6 +530,7 @@ export class SessionManagerService implements OnApplicationShutdown {
       10,
     )
     const beat = () => {
+      if (this.shutdownRequested) return
       const genId = this.generationId
       if (genId == null) return
       const changes = heartbeatLiveStatus(this.db, genId, new Date())
@@ -500,9 +539,9 @@ export class SessionManagerService implements OnApplicationShutdown {
         this.liveStatusTimer = null
         return
       }
-      this.liveStatusTimer = setTimeout(beat, intervalMs)
+      this.liveStatusTimer = setTimeout(beat, intervalMs).unref()
     }
-    this.liveStatusTimer = setTimeout(beat, intervalMs)
+    this.liveStatusTimer = setTimeout(beat, intervalMs).unref()
   }
 
   private killProcessTree(proc: ChildProcess): void {

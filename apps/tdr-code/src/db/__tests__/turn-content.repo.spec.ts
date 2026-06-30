@@ -5,7 +5,7 @@ import {
   appendBlock,
   blocksByTurn,
   insertToolCall,
-  updateToolCall,
+  updateToolCallStatus,
 } from 'src/db/turn-content.repo'
 import { insertTurn } from 'src/db/turns.repo'
 
@@ -130,15 +130,10 @@ describe('turn-content.repo', () => {
         },
         createdAt: new Date(),
       })
-      const changes = updateToolCall(db, {
+      const changes = updateToolCallStatus(db, {
         turnId: turn.id,
         ref: 'tool-2',
-        payload: {
-          kind: 'tool_call',
-          title: 'write',
-          toolKind: 'fs',
-          status: 'completed',
-        },
+        status: 'completed',
       })
       expect(changes).toBe(1)
       const blocks = blocksByTurn(db, turn.id)
@@ -146,24 +141,22 @@ describe('turn-content.repo', () => {
       expect((blocks[0]!.payload as { status: string }).status).toBe(
         'completed',
       )
+      // title/kind must be preserved (not wiped by the json_set update).
+      expect((blocks[0]!.payload as { title: string }).title).toBe('write')
+      expect((blocks[0]!.payload as { toolKind: string }).toolKind).toBe('fs')
     } finally {
       close()
     }
   })
 
-  it('updateToolCall on non-existent (turn_id, ref) returns 0 (late/cross-turn guard)', () => {
+  it('updateToolCallStatus on non-existent (turn_id, ref) returns 0 (late/cross-turn guard)', () => {
     const { db, close } = createTestDb()
     try {
       const turn = seedTurn(db)
-      const changes = updateToolCall(db, {
+      const changes = updateToolCallStatus(db, {
         turnId: turn.id,
         ref: 'no-such-ref',
-        payload: {
-          kind: 'tool_call',
-          title: '',
-          toolKind: '',
-          status: 'completed',
-        },
+        status: 'completed',
       })
       expect(changes).toBe(0)
     } finally {

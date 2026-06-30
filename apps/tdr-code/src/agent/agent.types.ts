@@ -2,6 +2,7 @@ export type PromptOutcome =
   | { kind: 'completed'; stopReason: string }
   | { kind: 'queued' }
   | { kind: 'no_image_support' }
+  | { kind: 'shutting_down' }
 
 export interface DiffContent {
   path: string

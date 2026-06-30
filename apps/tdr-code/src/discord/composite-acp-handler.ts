@@ -83,7 +83,7 @@ export class CompositeAcpHandler implements AcpEventHandlers {
         rawInput,
       )
     } catch (err) {
-      this.handleWriterError(err, 'onToolCall', channelId, null)
+      this.handleWriterError(err, 'onToolCall', channelId)
     }
   }
 
@@ -117,7 +117,7 @@ export class CompositeAcpHandler implements AcpEventHandlers {
         rawInput,
       )
     } catch (err) {
-      this.handleWriterError(err, 'onToolCallUpdate', channelId, null)
+      this.handleWriterError(err, 'onToolCallUpdate', channelId)
     }
   }
 
@@ -133,7 +133,7 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     try {
       this.writer.onAgentMessageChunk(channelId, text)
     } catch (err) {
-      this.handleWriterError(err, 'onAgentMessageChunk', channelId, null)
+      this.handleWriterError(err, 'onAgentMessageChunk', channelId)
     }
   }
 
@@ -149,7 +149,7 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     try {
       this.writer.onAgentMessageImage(channelId, data, mimeType)
     } catch (err) {
-      this.handleWriterError(err, 'onAgentMessageImage', channelId, null)
+      this.handleWriterError(err, 'onAgentMessageImage', channelId)
     }
   }
 
@@ -169,7 +169,7 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     try {
       this.writer.onPromptStart(channelId, turnId, context)
     } catch (err) {
-      this.handleWriterError(err, 'onPromptStart', channelId, null)
+      this.handleWriterError(err, 'onPromptStart', channelId)
     }
   }
 
@@ -186,18 +186,13 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     try {
       this.writer.onPromptComplete(channelId, stopReason)
     } catch (err) {
-      this.handleWriterError(err, 'onPromptComplete', channelId, null)
+      this.handleWriterError(err, 'onPromptComplete', channelId)
     }
   }
 
   // Emit a transcript_write_failed event for operator-visibility (Decision 2b).
   // context carries only safe identifiers — never the raw error message (F10).
-  private handleWriterError(
-    err: unknown,
-    op: string,
-    channelId: string,
-    turnId: number | null,
-  ): void {
+  private handleWriterError(err: unknown, op: string, channelId: string): void {
     const errorCode =
       err instanceof Error
         ? ((err as NodeJS.ErrnoException).code ?? err.name)
@@ -216,7 +211,7 @@ export class CompositeAcpHandler implements AcpEventHandlers {
         channelId,
         type: 'transcript_write_failed',
         level: 'error',
-        context: { op, channelId, turnId, errorCode },
+        context: { op, channelId, errorCode },
         createdAt: new Date(),
       })
     } catch (innerErr) {

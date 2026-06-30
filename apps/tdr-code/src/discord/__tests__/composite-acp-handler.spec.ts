@@ -3,6 +3,7 @@ import type {
   PromptStartContext,
 } from 'src/agent/agent.types'
 import { CompositeAcpHandler } from 'src/discord/composite-acp-handler'
+import { EnvKeys } from 'src/env'
 
 // Minimal mocks for DiscordHandlerService and SqliteWriterService.
 function makeDiscordMock(): jest.Mocked<AcpEventHandlers> {
@@ -61,16 +62,21 @@ function makeDbMock() {
   }
 }
 
-// Build a CompositeAcpHandler with injected mocks (bypasses NestJS DI).
+type CompositeCtor = {
+  new (
+    discord: AcpEventHandlers,
+    writer: AcpEventHandlers,
+    db: unknown,
+  ): CompositeAcpHandler
+}
+
 function makeComposite(discord: AcpEventHandlers, writer: AcpEventHandlers) {
   const db = makeDbMock()
-  const composite = new (CompositeAcpHandler as unknown as {
-    new (
-      discord: AcpEventHandlers,
-      writer: AcpEventHandlers,
-      db: unknown,
-    ): CompositeAcpHandler
-  })(discord, writer, db)
+  const composite = new (CompositeAcpHandler as unknown as CompositeCtor)(
+    discord,
+    writer,
+    db,
+  )
   return composite
 }
 
@@ -80,6 +86,14 @@ const ctx: PromptStartContext = {
 }
 
 describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
+  // Set generationId so handleWriterError reaches insertEvent in all error-path tests.
+  beforeEach(() => {
+    process.env[EnvKeys.BOT_GENERATION_ID] = '1'
+  })
+  afterEach(() => {
+    delete process.env[EnvKeys.BOT_GENERATION_ID]
+  })
+
   describe('Happy path: fan-out dispatches to both children in Discord-first order', () => {
     it('onToolCall calls discord then writer synchronously', () => {
       const discord = makeDiscordMock()
@@ -160,23 +174,31 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
       expect(writer.onAgentMessageChunk).toHaveBeenCalledWith('ch1', 'text')
     })
 
-    it('double-fault (writer + event write fail) degrades to log-only, no throw', () => {
+    it('double-fault (writer throw + event INSERT throw) degrades to log-only, no rethrow', () => {
       const discord = makeDiscordMock()
       const writer = makeWriterMock()
       writer.onPromptStart.mockImplementation(() => {
         throw new Error('DB locked')
       })
-      const composite = makeComposite(discord, writer)
+      const db = makeDbMock()
+      // Make the inner insertEvent also throw to exercise the double-fault catch.
+      db.insert.mockImplementation(() => {
+        throw new Error('also locked')
+      })
+      const composite = new (CompositeAcpHandler as unknown as CompositeCtor)(
+        discord,
+        writer,
+        db,
+      )
 
-      // Should not throw even when both the writer and the event INSERT fail.
       expect(() => composite.onPromptStart('ch1', 1, ctx)).not.toThrow()
     })
   })
 
   describe('Error path: transcript_write_failed event scrub (F10)', () => {
     it('handleWriterError emits context with errorCode, not the raw error message', () => {
-      // The composite tries to write a transcript_write_failed event.
-      // The event INSERT uses db.insert; we check that context doesn't include the payload text.
+      expect.assertions(3)
+
       const discord = makeDiscordMock()
       const writer = makeWriterMock()
       const db = makeDbMock()
@@ -188,32 +210,24 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
         throw err
       })
 
-      const composite = new (CompositeAcpHandler as unknown as {
-        new (
-          d: AcpEventHandlers,
-          w: AcpEventHandlers,
-          db: unknown,
-        ): CompositeAcpHandler
-      })(discord, writer, db)
+      const composite = new (CompositeAcpHandler as unknown as CompositeCtor)(
+        discord,
+        writer,
+        db,
+      )
 
-      // Get the values call to inspect context.
       composite.onPromptStart('ch1', 1, {
         sessionRowId: 1,
         prompt: { text: 'secret', images: [] },
       })
 
-      // Check that insert was called (for transcript_write_failed).
-      // The event context should not contain 'secret'.
-      if (db.insert.mock.calls.length > 0) {
-        const valuesCall = (
-          db.insert.mock.results[0]?.value as Record<string, jest.Mock>
-        ).values?.mock?.calls?.[0]?.[0]
-        if (valuesCall?.context) {
-          const ctxStr = JSON.stringify(valuesCall.context)
-          expect(ctxStr).not.toContain('payload text that should not appear')
-          expect(ctxStr).not.toContain('secret prompt content')
-        }
-      }
+      expect(db.insert).toHaveBeenCalled()
+      const valuesCall = (
+        db.insert.mock.results[0]?.value as Record<string, jest.Mock>
+      ).values?.mock?.calls?.[0]?.[0]
+      const ctxStr = JSON.stringify(valuesCall.context)
+      expect(ctxStr).not.toContain('payload text that should not appear')
+      expect(ctxStr).not.toContain('secret prompt content')
     })
   })
 })
