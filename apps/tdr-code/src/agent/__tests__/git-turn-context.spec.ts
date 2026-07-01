@@ -1,6 +1,3 @@
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import crypto from 'node:crypto'
 
 import { GitTurnContext } from 'src/agent/git-turn-context'
@@ -32,12 +29,12 @@ jest.mock('node:child_process', () => ({
   spawn: jest.fn(),
 }))
 
-import { resolveIdentity, isConfigured } from 'src/crypto/identity-resolution'
-import { getIdentity } from 'src/db/git-identity.repo'
+import { isConfigured, resolveIdentity } from 'src/crypto/identity-resolution'
 import { insertEvent } from 'src/db/events.repo'
 
-function makeDb() {
-  return {} as any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeDb(): any {
+  return {}
 }
 
 function makeHandlers() {
@@ -124,7 +121,9 @@ describe('GitTurnContext', () => {
       // After abort, a second channel should be able to acquire the lock
       const release2 = await Promise.race([
         globalGitWriteLock.acquire('ch2'),
-        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('deadlock')), 100)),
+        new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error('deadlock')), 100),
+        ),
       ])
       release2()
 
@@ -147,7 +146,9 @@ describe('GitTurnContext', () => {
 
   describe('unconfigured user → blocking wrapper + git_push_blocked event', () => {
     it('emits git_push_blocked event for unconfigured user', async () => {
-      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({ kind: 'unconfigured' })
+      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
+        kind: 'unconfigured',
+      })
       ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(false)
 
       const ctx = new GitTurnContext({
@@ -165,7 +166,9 @@ describe('GitTurnContext', () => {
         expect.objectContaining({
           type: 'git_push_blocked',
           level: 'warn',
-          context: expect.objectContaining({ discordUserId: '123456789012345678' }),
+          context: expect.objectContaining({
+            discordUserId: '123456789012345678',
+          }),
         }),
       )
     })
@@ -196,7 +199,9 @@ describe('GitTurnContext', () => {
     })
 
     it('event context never contains key material', async () => {
-      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({ kind: 'unconfigured' })
+      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
+        kind: 'unconfigured',
+      })
       ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(false)
 
       const ctx = new GitTurnContext({

@@ -1,4 +1,4 @@
-import sshpk from 'sshpk'
+import { KeyEncryptedError, parsePrivateKey, PrivateKey } from 'sshpk'
 
 // Maximum allowed size for a PEM/OpenSSH key blob (DoS guard applied before parse).
 const MAX_KEY_BYTES = 32_768 // 32 KiB
@@ -27,24 +27,26 @@ export function validateAndFingerprint(pem: string | Buffer): SshKeyValidation {
     )
   }
 
-  let key: sshpk.PrivateKey
+  let key: PrivateKey
   try {
     // Never pass a passphrase — we want passphrase-protected keys to throw
     // KeyEncryptedError so they are explicitly rejected (R10).
-    const parsed = sshpk.parsePrivateKey(buf, 'auto')
+    const parsed = parsePrivateKey(buf, 'auto')
     key = parsed
   } catch (err) {
-    if (err instanceof sshpk.KeyEncryptedError) {
+    if (err instanceof KeyEncryptedError) {
       throw new Error(
         'Passphrase-protected SSH keys are not supported — provide an unencrypted key',
       )
     }
     // KeyParseError, TypeError, or anything else — invalid / not a private key
-    throw new Error(`Invalid SSH private key: ${(err as Error).message ?? String(err)}`)
+    throw new Error(
+      `Invalid SSH private key: ${(err as Error).message ?? String(err)}`,
+    )
   }
 
   // Ensure we got a private key, not a public key accidentally parsed.
-  if (!(key instanceof sshpk.PrivateKey)) {
+  if (!(key instanceof PrivateKey)) {
     throw new Error('Provided key is not an SSH private key')
   }
 

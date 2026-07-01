@@ -528,10 +528,7 @@ export const config = sqliteTable(
   t => [
     check('config_single_row_check', sql`${t.id} = 1`),
     check('config_idle_timeout_check', sql`${t.idleTimeoutSec} > 0`),
-    check(
-      'config_max_sessions_check',
-      sql`${t.maxConcurrentSessions} >= 1`,
-    ),
+    check('config_max_sessions_check', sql`${t.maxConcurrentSessions} >= 1`),
   ],
 )
 

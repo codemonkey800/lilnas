@@ -3,9 +3,12 @@ import fs from 'node:fs'
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
 
 import { ConfigController } from 'src/console/config.controller'
+import type {
+  ConfigResponseDto,
+  UpdateConfigBodyDto,
+} from 'src/console/config.dto'
 import { ConfigService } from 'src/console/config.service'
 import type { Db } from 'src/db/database.module'
-import type { ConfigResponseDto, UpdateConfigBodyDto } from 'src/console/config.dto'
 
 const ALLOWED =
   process.env.ALLOWED_CONSOLE_ORIGIN ?? 'https://tdr-code.lilnas.io'
@@ -26,7 +29,9 @@ const MOCK_RESPONSE: ConfigResponseDto = {
   maxConcurrentSessions: 5,
 }
 
-function makeService(response: ConfigResponseDto = MOCK_RESPONSE): jest.Mocked<ConfigService> {
+function makeService(
+  response: ConfigResponseDto = MOCK_RESPONSE,
+): jest.Mocked<ConfigService> {
   return {
     getConfig: jest.fn().mockReturnValue(response),
     updateConfig: jest.fn().mockReturnValue(response),
@@ -56,16 +61,18 @@ describe('ConfigController', () => {
     it('cross-origin request → ForbiddenException', () => {
       const svc = makeService()
       const ctrl = new ConfigController(svc)
-      expect(() => ctrl.updateConfig('https://evil.example.com', VALID_BODY)).toThrow(
-        ForbiddenException,
-      )
+      expect(() =>
+        ctrl.updateConfig('https://evil.example.com', VALID_BODY),
+      ).toThrow(ForbiddenException)
       expect(svc.updateConfig).not.toHaveBeenCalled()
     })
 
     it('absent origin → ForbiddenException', () => {
       const svc = makeService()
       const ctrl = new ConfigController(svc)
-      expect(() => ctrl.updateConfig(undefined, VALID_BODY)).toThrow(ForbiddenException)
+      expect(() => ctrl.updateConfig(undefined, VALID_BODY)).toThrow(
+        ForbiddenException,
+      )
     })
 
     it('maxConcurrentSessions = 1 (minimum) is accepted', () => {
@@ -118,7 +125,10 @@ describe('ConfigController', () => {
         const svc = makeService()
         const ctrl = new ConfigController(svc)
         expect(() =>
-          ctrl.updateConfig(ALLOWED, { ...VALID_BODY, claudeCommand: `claude${char}evil` }),
+          ctrl.updateConfig(ALLOWED, {
+            ...VALID_BODY,
+            claudeCommand: `claude${char}evil`,
+          }),
         ).toThrow(BadRequestException)
         expect(svc.updateConfig).not.toHaveBeenCalled()
       },
@@ -128,7 +138,10 @@ describe('ConfigController', () => {
       const svc = makeService()
       const ctrl = new ConfigController(svc)
       expect(() =>
-        ctrl.updateConfig(ALLOWED, { ...VALID_BODY, claudeArgs: 'not-array' as unknown as string[] }),
+        ctrl.updateConfig(ALLOWED, {
+          ...VALID_BODY,
+          claudeArgs: 'not-array' as unknown as string[],
+        }),
       ).toThrow(BadRequestException)
       expect(svc.updateConfig).not.toHaveBeenCalled()
     })
@@ -137,7 +150,10 @@ describe('ConfigController', () => {
       const svc = makeService()
       const ctrl = new ConfigController(svc)
       expect(() =>
-        ctrl.updateConfig(ALLOWED, { ...VALID_BODY, claudeArgs: new Array(65).fill('--arg') }),
+        ctrl.updateConfig(ALLOWED, {
+          ...VALID_BODY,
+          claudeArgs: new Array(65).fill('--arg'),
+        }),
       ).toThrow(BadRequestException)
       expect(svc.updateConfig).not.toHaveBeenCalled()
     })
@@ -146,7 +162,10 @@ describe('ConfigController', () => {
       const svc = makeService()
       const ctrl = new ConfigController(svc)
       expect(() =>
-        ctrl.updateConfig(ALLOWED, { ...VALID_BODY, claudeArgs: ['--arg\0injection'] }),
+        ctrl.updateConfig(ALLOWED, {
+          ...VALID_BODY,
+          claudeArgs: ['--arg\0injection'],
+        }),
       ).toThrow(BadRequestException)
       expect(svc.updateConfig).not.toHaveBeenCalled()
     })
@@ -182,22 +201,32 @@ function makeChain(configRow = MOCK_CONFIG_ROW) {
     run: jest.fn().mockReturnValue({ changes: 1 }),
   }
   for (const k of [
-    'values', 'set', 'where', 'returning', 'orderBy', 'limit',
-    'onConflictDoUpdate', 'from',
+    'values',
+    'set',
+    'where',
+    'returning',
+    'orderBy',
+    'limit',
+    'onConflictDoUpdate',
+    'from',
   ]) {
     chain[k]!.mockReturnValue(chain)
   }
   return chain
 }
 
-function makeServiceDb(configRow = MOCK_CONFIG_ROW, genRow: unknown = undefined) {
+function makeServiceDb(
+  configRow = MOCK_CONFIG_ROW,
+  genRow: unknown = undefined,
+) {
   const chain = makeChain(configRow)
   const db = {
     insert: jest.fn().mockReturnValue(chain),
     update: jest.fn().mockReturnValue(chain),
     select: jest.fn().mockReturnValue(chain),
     delete: jest.fn().mockReturnValue(chain),
-    transaction: jest.fn().mockImplementation((cb: () => unknown) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    transaction: jest.fn().mockImplementation((_cb: () => unknown) => {
       // updateConfig uses transaction — return the updated config row
       return configRow
     }),
@@ -205,9 +234,9 @@ function makeServiceDb(configRow = MOCK_CONFIG_ROW, genRow: unknown = undefined)
   // latestGeneration calls db.select().from(botGeneration).orderBy(...).limit(1).get()
   // Return genRow for this call
   chain.get
-    .mockReturnValueOnce(configRow)  // getConfig
-    .mockReturnValueOnce(configRow)  // updateConfig inside transaction
-    .mockReturnValue(genRow)         // latestGeneration
+    .mockReturnValueOnce(configRow) // getConfig
+    .mockReturnValueOnce(configRow) // updateConfig inside transaction
+    .mockReturnValue(genRow) // latestGeneration
   return { db, chain }
 }
 
@@ -221,9 +250,9 @@ describe('ConfigService', () => {
         throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
       })
 
-      expect(() => svc.updateConfig({ ...VALID_BODY, cwd: '/no/such/path' })).toThrow(
-        BadRequestException,
-      )
+      expect(() =>
+        svc.updateConfig({ ...VALID_BODY, cwd: '/no/such/path' }),
+      ).toThrow(BadRequestException)
       // updateConfig (DB write) should not have been called
       expect(db.transaction).not.toHaveBeenCalled()
     })
@@ -236,9 +265,9 @@ describe('ConfigService', () => {
         isDirectory: () => false,
       } as unknown as fs.Stats)
 
-      expect(() => svc.updateConfig({ ...VALID_BODY, cwd: '/tmp/somefile' })).toThrow(
-        BadRequestException,
-      )
+      expect(() =>
+        svc.updateConfig({ ...VALID_BODY, cwd: '/tmp/somefile' }),
+      ).toThrow(BadRequestException)
     })
 
     it('valid cwd persists config and returns DTO', () => {
@@ -278,7 +307,9 @@ describe('ConfigService', () => {
         .mockReturnValueOnce(MOCK_CONFIG_ROW)
         .mockReturnValueOnce(runningGen)
 
-      jest.spyOn(fs, 'statSync').mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats)
+      jest
+        .spyOn(fs, 'statSync')
+        .mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats)
 
       const svc = new ConfigService(db as unknown as Db)
       svc.updateConfig(VALID_BODY)
@@ -296,11 +327,11 @@ describe('ConfigService', () => {
         transaction: jest.fn().mockReturnValue(MOCK_CONFIG_ROW),
       }
       // getConfig → MOCK_CONFIG_ROW; latestGeneration → null (offline)
-      chain.get
-        .mockReturnValueOnce(MOCK_CONFIG_ROW)
-        .mockReturnValueOnce(null)
+      chain.get.mockReturnValueOnce(MOCK_CONFIG_ROW).mockReturnValueOnce(null)
 
-      jest.spyOn(fs, 'statSync').mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats)
+      jest
+        .spyOn(fs, 'statSync')
+        .mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats)
 
       const svc = new ConfigService(db as unknown as Db)
       expect(() => svc.updateConfig(VALID_BODY)).not.toThrow()

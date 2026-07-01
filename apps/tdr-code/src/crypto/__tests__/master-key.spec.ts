@@ -1,7 +1,7 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import crypto from 'node:crypto'
 
 import { loadMasterKey } from 'src/crypto/master-key'
 import { EnvKeys } from 'src/env'
@@ -26,7 +26,6 @@ function writeKeyFile(
 
 describe('loadMasterKey', () => {
   let tmpDir: string
-  const originalUid = process.getuid?.() ?? 0
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tdr-masterkey-test-'))
@@ -37,7 +36,9 @@ describe('loadMasterKey', () => {
     // Restore dir mode so cleanup can succeed
     try {
       fs.chmodSync(tmpDir, 0o700)
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     fs.rmSync(tmpDir, { recursive: true, force: true })
     delete process.env[EnvKeys.TDR_CODE_MASTER_KEY_FILE]
   })
@@ -51,7 +52,10 @@ describe('loadMasterKey', () => {
   })
 
   it('throws when the file is missing', () => {
-    process.env[EnvKeys.TDR_CODE_MASTER_KEY_FILE] = path.join(tmpDir, 'nonexistent.key')
+    process.env[EnvKeys.TDR_CODE_MASTER_KEY_FILE] = path.join(
+      tmpDir,
+      'nonexistent.key',
+    )
     expect(() => loadMasterKey()).toThrow()
   })
 

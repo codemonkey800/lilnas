@@ -1,5 +1,5 @@
-import { SessionManagerService } from 'src/agent/session-manager.service'
 import type { AcpEventHandlers } from 'src/agent/agent.types'
+import { SessionManagerService } from 'src/agent/session-manager.service'
 import { EnvKeys } from 'src/env'
 
 function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
@@ -14,13 +14,15 @@ function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
   }
 }
 
-function makeConfigRow(overrides?: Partial<{
-  cwd: string
-  claudeCommand: string
-  claudeArgs: string[]
-  idleTimeoutSec: number
-  maxConcurrentSessions: number
-}>) {
+function makeConfigRow(
+  overrides?: Partial<{
+    cwd: string
+    claudeCommand: string
+    claudeArgs: string[]
+    idleTimeoutSec: number
+    maxConcurrentSessions: number
+  }>,
+) {
   return {
     id: 1,
     cwd: overrides?.cwd ?? '/tmp',
@@ -128,8 +130,14 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
       run: jest.fn().mockReturnValue({ changes: 0 }),
     }
     for (const k of [
-      'values', 'set', 'where', 'returning', 'orderBy', 'limit',
-      'onConflictDoUpdate', 'from',
+      'values',
+      'set',
+      'where',
+      'returning',
+      'orderBy',
+      'limit',
+      'onConflictDoUpdate',
+      'from',
     ]) {
       chain[k]!.mockReturnValue(chain)
     }
@@ -142,14 +150,16 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
     }
 
     expect(
-      () =>
-        new (SessionManagerService as unknown as CtorWith2)(handlers, db),
+      () => new (SessionManagerService as unknown as CtorWith2)(handlers, db),
     ).toThrow(/config row missing/)
   })
 
   it('rereadConfig updates all four mutable fields from DB', () => {
     const handlers = createMockHandlers()
-    const initial = makeConfigRow({ idleTimeoutSec: 300, maxConcurrentSessions: 5 })
+    const initial = makeConfigRow({
+      idleTimeoutSec: 300,
+      maxConcurrentSessions: 5,
+    })
     const db = makeDbMockWithConfig(initial)
 
     const service = new (SessionManagerService as unknown as CtorWith2)(
@@ -160,7 +170,10 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
     expect(internals.idleTimeoutSec).toBe(300)
 
     // Swap the config row returned by getConfig
-    const updated = makeConfigRow({ idleTimeoutSec: 600, maxConcurrentSessions: 10 })
+    const updated = makeConfigRow({
+      idleTimeoutSec: 600,
+      maxConcurrentSessions: 10,
+    })
     db._chain.get.mockReturnValue(updated)
 
     service.rereadConfig()

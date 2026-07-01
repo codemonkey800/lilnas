@@ -35,7 +35,10 @@ export interface UpsertIdentityInput {
 }
 
 // Insert or overwrite — bumps keyVersion on conflict (R12).
-export function upsertIdentity(db: Db, input: UpsertIdentityInput): GitIdentityRow {
+export function upsertIdentity(
+  db: Db,
+  input: UpsertIdentityInput,
+): GitIdentityRow {
   const now = new Date()
   return db
     .insert(gitIdentity)

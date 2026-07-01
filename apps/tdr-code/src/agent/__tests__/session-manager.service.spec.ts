@@ -134,7 +134,6 @@ function injectSessionWithRowId(
   return session
 }
 
-type CtorWith1 = { new (h: AcpEventHandlers): SessionManagerService }
 type CtorWith2 = {
   new (h: AcpEventHandlers, db: unknown): SessionManagerService
 }

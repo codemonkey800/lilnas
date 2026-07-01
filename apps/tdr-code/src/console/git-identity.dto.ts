@@ -13,7 +13,9 @@ export const UpsertGitIdentityBodySchema = z.object({
   // Never echoed back in any response (R9, write-only contract).
   privateKey: z.string().min(1, 'privateKey must not be empty'),
 })
-export type UpsertGitIdentityBodyDto = z.infer<typeof UpsertGitIdentityBodySchema>
+export type UpsertGitIdentityBodyDto = z.infer<
+  typeof UpsertGitIdentityBodySchema
+>
 
 // Identity list item — never includes the private key.
 export const GitIdentityItemSchema = z.object({

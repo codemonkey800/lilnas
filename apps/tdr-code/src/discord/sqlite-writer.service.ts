@@ -252,5 +252,6 @@ export class SqliteWriterService implements AcpEventHandlers {
 
   // The writer has no Discord channel access; the DB event is emitted by
   // GitTurnContext.begin(). This is a required no-op to satisfy AcpEventHandlers.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onGitPushBlocked(_channelId: string, _reason: string): void {}
 }

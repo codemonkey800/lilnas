@@ -10,9 +10,11 @@ import {
   Param,
   Post,
 } from '@nestjs/common'
-import { z } from 'zod'
 
-import { DiscordSnowflakeSchema, UpsertGitIdentityBodySchema } from './git-identity.dto'
+import {
+  DiscordSnowflakeSchema,
+  UpsertGitIdentityBodySchema,
+} from './git-identity.dto'
 import { GitIdentityService } from './git-identity.service'
 
 // Allowed origin for mutating routes.

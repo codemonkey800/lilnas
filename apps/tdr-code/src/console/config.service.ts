@@ -2,11 +2,11 @@ import fs from 'node:fs'
 
 import { BadRequestException, Inject, Injectable } from '@nestjs/common'
 
+import { latestGeneration } from 'src/db/bot-generation.repo'
 import { enqueue } from 'src/db/command.repo'
-import { getConfig, updateConfig, type ConfigPatch } from 'src/db/config.repo'
+import { type ConfigPatch, getConfig, updateConfig } from 'src/db/config.repo'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
-import { latestGeneration } from 'src/db/bot-generation.repo'
 import { isRunningGeneration } from 'src/db/schema'
 
 import type { ConfigResponseDto, UpdateConfigBodyDto } from './config.dto'
@@ -66,7 +66,9 @@ export class ConfigService {
       }
     } catch (err) {
       if (err instanceof BadRequestException) throw err
-      throw new BadRequestException(`cwd does not exist or is not accessible: ${cwd}`)
+      throw new BadRequestException(
+        `cwd does not exist or is not accessible: ${cwd}`,
+      )
     }
   }
 

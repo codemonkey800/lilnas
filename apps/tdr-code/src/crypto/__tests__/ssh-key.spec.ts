@@ -53,9 +53,9 @@ describe('ssh-key — validateAndFingerprint', () => {
 
   it('rejects a Proc-Type: 4,ENCRYPTED classic PEM key with passphrase message', () => {
     // sshpk sees Proc-Type: 4,ENCRYPTED and throws KeyEncryptedError
-    expect(() => validateAndFingerprint(PASSPHRASE_ENCRYPTED_CLASSIC_PEM)).toThrow(
-      /[Pp]assphrase/,
-    )
+    expect(() =>
+      validateAndFingerprint(PASSPHRASE_ENCRYPTED_CLASSIC_PEM),
+    ).toThrow(/[Pp]assphrase/)
   })
 
   it('rejects OpenSSH encrypted key (bcrypt KDF) with passphrase message', () => {

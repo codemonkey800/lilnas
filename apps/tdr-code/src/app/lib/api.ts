@@ -1,4 +1,7 @@
-import type { ConfigResponseDto, UpdateConfigBodyDto } from 'src/console/config.dto'
+import type {
+  ConfigResponseDto,
+  UpdateConfigBodyDto,
+} from 'src/console/config.dto'
 import type { EventListResponseDto } from 'src/console/events.dto'
 import type {
   GitIdentityListResponseDto,
@@ -114,5 +117,7 @@ export const api = {
   upsertGitIdentity: (body: UpsertGitIdentityBodyDto) =>
     postJsonBody<UpsertGitIdentityResponseDto>('/git-identity', body),
   deleteGitIdentity: (discordUserId: string) =>
-    deleteJson<{ accepted: true }>(`/git-identity/${encodeURIComponent(discordUserId)}`),
+    deleteJson<{ accepted: true }>(
+      `/git-identity/${encodeURIComponent(discordUserId)}`,
+    ),
 }

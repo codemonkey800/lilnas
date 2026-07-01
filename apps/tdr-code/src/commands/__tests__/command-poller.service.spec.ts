@@ -156,7 +156,9 @@ describe('CommandPollerService', () => {
 // mismatch that makes createTestDb() fail in this Node environment.
 // ──────────────────────────────────────────────────────────────────────────────
 
-function makeMockDb(commands: Array<{ id: number; type: string; target: string | null }>) {
+function makeMockDb(
+  commands: Array<{ id: number; type: string; target: string | null }>,
+) {
   let callCount = 0
   const claimResult = commands.map(c => ({
     ...c,
@@ -178,7 +180,16 @@ function makeMockDb(commands: Array<{ id: number; type: string; target: string |
     all: jest.fn().mockReturnValue([]),
     run: jest.fn().mockReturnValue({ changes: 1 }),
   }
-  for (const k of ['values', 'set', 'where', 'returning', 'orderBy', 'limit', 'onConflictDoUpdate', 'from']) {
+  for (const k of [
+    'values',
+    'set',
+    'where',
+    'returning',
+    'orderBy',
+    'limit',
+    'onConflictDoUpdate',
+    'from',
+  ]) {
     chain[k]!.mockReturnValue(chain)
   }
   return {
@@ -186,11 +197,11 @@ function makeMockDb(commands: Array<{ id: number; type: string; target: string |
     update: jest.fn().mockReturnValue(chain),
     select: jest.fn().mockReturnValue(chain),
     delete: jest.fn().mockReturnValue(chain),
-    transaction: jest.fn().mockImplementation((cb: () => unknown) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    transaction: jest.fn().mockImplementation((_cb: () => unknown) => {
       // First call to transaction = claimPending → returns the test commands once
       const result = callCount === 0 ? claimResult : []
       callCount++
-      void cb
       return result
     }),
   }
@@ -214,7 +225,15 @@ describe('CommandPollerService — reread_config (U2)', () => {
         CommandPollerService,
         { provide: DB, useValue: db },
         { provide: SessionManagerService, useValue: sessionManager },
-        { provide: PinoLogger, useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), assign: jest.fn() } },
+        {
+          provide: PinoLogger,
+          useValue: {
+            info: jest.fn(),
+            warn: jest.fn(),
+            error: jest.fn(),
+            assign: jest.fn(),
+          },
+        },
       ],
     }).compile()
     const svc = module.get(CommandPollerService)
@@ -229,12 +248,19 @@ describe('CommandPollerService — reread_config (U2)', () => {
   it('reread_config with non-null target → anomaly, no rereadConfig dispatch', async () => {
     const sessionManager = makeSessionManager()
     // target should be null for reread_config; non-null is invalid
-    const db = makeMockDb([{ id: 11, type: 'reread_config', target: '123456789012345678' }])
+    const db = makeMockDb([
+      { id: 11, type: 'reread_config', target: '123456789012345678' },
+    ])
 
     process.env[EnvKeys.BOT_GENERATION_ID] = '1'
     process.env[EnvKeys.BOT_COMMAND_POLL_MS] = '50'
 
-    const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), assign: jest.fn() }
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      assign: jest.fn(),
+    }
     const module = await Test.createTestingModule({
       providers: [
         CommandPollerService,

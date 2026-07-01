@@ -9,8 +9,14 @@ export const UpdateConfigBodySchema = z.object({
   claudeCommand: z
     .string()
     .min(1, 'claudeCommand must not be empty')
-    .refine(v => v.trim().length > 0, 'claudeCommand must not be whitespace-only')
-    .refine(v => !SHELL_META.test(v), 'claudeCommand must not contain shell metacharacters'),
+    .refine(
+      v => v.trim().length > 0,
+      'claudeCommand must not be whitespace-only',
+    )
+    .refine(
+      v => !SHELL_META.test(v),
+      'claudeCommand must not contain shell metacharacters',
+    ),
   claudeArgs: z
     .array(z.string())
     .max(64, 'claudeArgs must have at most 64 elements')
@@ -18,10 +24,7 @@ export const UpdateConfigBodySchema = z.object({
       args => args.every(a => !a.includes('\0')),
       'claudeArgs must not contain NUL bytes',
     ),
-  idleTimeoutSec: z
-    .number()
-    .int()
-    .min(1, 'idleTimeoutSec must be at least 1'),
+  idleTimeoutSec: z.number().int().min(1, 'idleTimeoutSec must be at least 1'),
   maxConcurrentSessions: z
     .number()
     .int()

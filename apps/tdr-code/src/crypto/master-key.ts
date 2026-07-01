@@ -24,9 +24,7 @@ export function loadMasterKey(): Buffer {
   }
 
   if (!stat.isFile()) {
-    throw new Error(
-      `[master-key] key path is not a regular file: ${keyPath}`,
-    )
+    throw new Error(`[master-key] key path is not a regular file: ${keyPath}`)
   }
 
   const mode = stat.mode & 0o777
@@ -48,9 +46,7 @@ export function loadMasterKey(): Buffer {
   try {
     parentStat = fs.statSync(parentDir)
   } catch {
-    throw new Error(
-      `[master-key] cannot stat parent directory: ${parentDir}`,
-    )
+    throw new Error(`[master-key] cannot stat parent directory: ${parentDir}`)
   }
 
   const parentMode = parentStat.mode & 0o777

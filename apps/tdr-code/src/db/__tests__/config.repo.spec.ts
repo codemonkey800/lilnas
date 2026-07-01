@@ -1,10 +1,6 @@
+import { getConfig, getOrSeedConfig, updateConfig } from 'src/db/config.repo'
 import { config } from 'src/db/schema'
 import { createTestDb } from 'src/db/test-db'
-import {
-  getConfig,
-  getOrSeedConfig,
-  updateConfig,
-} from 'src/db/config.repo'
 
 describe('config.repo', () => {
   it('getOrSeedConfig inserts env-derived defaults on empty DB', () => {

@@ -4,8 +4,8 @@ import cookieParser from 'cookie-parser'
 import helmet from 'helmet'
 import { Logger } from 'nestjs-pino'
 
-import { loadMasterKey } from './crypto/master-key'
 import { AppModule } from './app.module'
+import { loadMasterKey } from './crypto/master-key'
 import { EnvKeys } from './env'
 
 export async function bootstrapApp() {

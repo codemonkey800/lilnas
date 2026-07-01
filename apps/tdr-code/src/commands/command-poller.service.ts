@@ -138,11 +138,7 @@ export class CommandPollerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private validate(row: {
-    type: string
-    target: string | null
-    id: number
-  }):
+  private validate(row: { type: string; target: string | null; id: number }):
     | {
         ok: true
         command:

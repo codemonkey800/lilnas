@@ -1,12 +1,12 @@
 import crypto from 'node:crypto'
 
-import { encryptKey } from 'src/crypto/key-cipher'
 import {
   isConfigured,
   isDecryptFailed,
   isUnconfigured,
   resolveIdentity,
 } from 'src/crypto/identity-resolution'
+import { encryptKey } from 'src/crypto/key-cipher'
 
 const MASTER_KEY = crypto.randomBytes(32)
 const OTHER_MASTER_KEY = crypto.randomBytes(32)
@@ -24,7 +24,11 @@ lYu8/Zyg8ts89VypYsWpAAAAKWplcmVteWFzdW5jaW9ubmV0ZmxpeC5jb21AamVyZW15LW
 
 function makeRow(discordUserId = DISCORD_USER_ID) {
   const plaintext = Buffer.from(TEST_KEY_PEM, 'utf8')
-  const encrypted = encryptKey(Buffer.from(plaintext), discordUserId, MASTER_KEY)
+  const encrypted = encryptKey(
+    Buffer.from(plaintext),
+    discordUserId,
+    MASTER_KEY,
+  )
   return {
     discordUserId,
     name: 'Test User',

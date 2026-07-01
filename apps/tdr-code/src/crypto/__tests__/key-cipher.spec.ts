@@ -7,7 +7,9 @@ function makeKey() {
 }
 
 function makePlaintext() {
-  return Buffer.from('-----BEGIN OPENSSH PRIVATE KEY-----\nfakekeymaterial\n-----END OPENSSH PRIVATE KEY-----\n')
+  return Buffer.from(
+    '-----BEGIN OPENSSH PRIVATE KEY-----\nfakekeymaterial\n-----END OPENSSH PRIVATE KEY-----\n',
+  )
 }
 
 describe('key-cipher', () => {
@@ -17,7 +19,11 @@ describe('key-cipher', () => {
       const plaintext = makePlaintext()
       const original = Buffer.from(plaintext) // copy before encryption zeroizes it
 
-      const encrypted = encryptKey(Buffer.from(plaintext), 'discord-user-123', masterKey)
+      const encrypted = encryptKey(
+        Buffer.from(plaintext),
+        'discord-user-123',
+        masterKey,
+      )
       const decrypted = decryptKey(encrypted, 'discord-user-123', masterKey)
 
       expect(decrypted).toEqual(original)

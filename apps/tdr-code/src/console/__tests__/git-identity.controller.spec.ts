@@ -1,12 +1,16 @@
 import crypto from 'node:crypto'
+
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
 
 import { GitIdentityController } from 'src/console/git-identity.controller'
-import { GitIdentityService } from 'src/console/git-identity.service'
 import type {
-  UpsertGitIdentityResponseDto,
   GitIdentityListResponseDto,
+  UpsertGitIdentityResponseDto,
 } from 'src/console/git-identity.dto'
+import {
+  GitIdentityService,
+  GitIdentityService as SvcClass,
+} from 'src/console/git-identity.service'
 
 const ALLOWED =
   process.env.ALLOWED_CONSOLE_ORIGIN ?? 'https://tdr-code.lilnas.io'
@@ -144,9 +148,9 @@ describe('GitIdentityController', () => {
     it('cross-origin → ForbiddenException', () => {
       const svc = makeService()
       const ctrl = new GitIdentityController(svc)
-      expect(() => ctrl.deleteIdentity('https://evil.com', VALID_SNOWFLAKE)).toThrow(
-        ForbiddenException,
-      )
+      expect(() =>
+        ctrl.deleteIdentity('https://evil.com', VALID_SNOWFLAKE),
+      ).toThrow(ForbiddenException)
       expect(svc.deleteIdentity).not.toHaveBeenCalled()
     })
 
@@ -164,12 +168,8 @@ describe('GitIdentityController', () => {
 // GitIdentityService — write-only + key rejection
 // ──────────────────────────────────────────────────────────────────────────────
 
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { GitIdentityService as SvcClass } from 'src/console/git-identity.service'
-import type { Db } from 'src/db/database.module'
 import { loadMasterKey } from 'src/crypto/master-key'
+import type { Db } from 'src/db/database.module'
 
 // Mock loadMasterKey to avoid needing a real key file in tests
 jest.mock('src/crypto/master-key', () => ({
@@ -178,13 +178,29 @@ jest.mock('src/crypto/master-key', () => ({
 
 function makeDbMock() {
   const chain: Record<string, jest.Mock> = {
-    values: jest.fn(), set: jest.fn(), where: jest.fn(), returning: jest.fn(),
-    orderBy: jest.fn(), limit: jest.fn(), onConflictDoUpdate: jest.fn(), from: jest.fn(),
+    values: jest.fn(),
+    set: jest.fn(),
+    where: jest.fn(),
+    returning: jest.fn(),
+    orderBy: jest.fn(),
+    limit: jest.fn(),
+    onConflictDoUpdate: jest.fn(),
+    from: jest.fn(),
     get: jest.fn().mockReturnValue(undefined),
     all: jest.fn().mockReturnValue([]),
     run: jest.fn().mockReturnValue({ changes: 1 }),
   }
-  for (const k of ['values', 'set', 'where', 'returning', 'orderBy', 'limit', 'onConflictDoUpdate', 'from', 'onConflictDoUpdate']) {
+  for (const k of [
+    'values',
+    'set',
+    'where',
+    'returning',
+    'orderBy',
+    'limit',
+    'onConflictDoUpdate',
+    'from',
+    'onConflictDoUpdate',
+  ]) {
     chain[k]!.mockReturnValue(chain)
   }
   return {
@@ -274,7 +290,7 @@ Rb9dUOLCAAAAoH2+z8Q1oXFqaIf3rGcJkzHMvQ==
         discordUserId: VALID_SNOWFLAKE,
         name: 'Test',
         email: 'test@x.com',
-        keyCiphertext: Buffer.alloc(32, 0xAB),
+        keyCiphertext: Buffer.alloc(32, 0xab),
         keyIv: Buffer.alloc(12),
         keyAuthTag: Buffer.alloc(16),
         keyFingerprint: 'SHA256:stored-fingerprint',

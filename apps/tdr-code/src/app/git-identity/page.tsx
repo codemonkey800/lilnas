@@ -4,12 +4,11 @@ import { cns } from '@lilnas/utils/cns'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
+import { EmptyState } from 'src/app/components/empty-state'
+import { ErrorState } from 'src/app/components/error-state'
+import { LoadingState } from 'src/app/components/loading-state'
+import { api, queryKeys } from 'src/app/lib/api'
 import type { GitIdentityItemDto } from 'src/console/git-identity.dto'
-
-import { api, queryKeys } from '../lib/api'
-import { EmptyState } from '../components/empty-state'
-import { ErrorState } from '../components/error-state'
-import { LoadingState } from '../components/loading-state'
 
 type StatusBadge = 'configured' | 'decrypt_failed'
 
@@ -154,11 +153,14 @@ export default function GitIdentityPage() {
           Add or replace identity
         </h2>
         <p className="text-xs text-gray-500">
-          Admin-managed by Discord ID. Phase D will source the snowflake from the
-          session automatically.
+          Admin-managed by Discord ID. Phase D will source the snowflake from
+          the session automatically.
         </p>
 
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <form
+          onSubmit={handleSubmit}
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2"
+        >
           <div className="space-y-1">
             <label className="block text-xs font-medium text-gray-300">
               Discord user ID (snowflake)
@@ -225,9 +227,7 @@ export default function GitIdentityPage() {
               {upsertMutation.isPending ? 'Saving…' : 'Save identity'}
             </button>
 
-            {saved && (
-              <span className="text-xs text-green-400">Saved</span>
-            )}
+            {saved && <span className="text-xs text-green-400">Saved</span>}
             {upsertMutation.isError && !saved && (
               <span className="text-xs text-red-400">
                 {(upsertMutation.error as Error).message}
@@ -239,9 +239,11 @@ export default function GitIdentityPage() {
 
       {/* Identity list */}
       <div className="space-y-3">
-        <h2 className="text-sm font-medium text-gray-300">Configured identities</h2>
+        <h2 className="text-sm font-medium text-gray-300">
+          Configured identities
+        </h2>
 
-        {(!data || data.length === 0) ? (
+        {!data || data.length === 0 ? (
           <EmptyState message="No git identities configured — use the form above to add one." />
         ) : (
           <>
@@ -251,10 +253,18 @@ export default function GitIdentityPage() {
                   <th className="pb-2 pr-4 text-xs font-medium text-gray-500">
                     Discord ID
                   </th>
-                  <th className="pb-2 pr-4 text-xs font-medium text-gray-500">Name</th>
-                  <th className="pb-2 pr-4 text-xs font-medium text-gray-500">Email</th>
-                  <th className="pb-2 pr-4 text-xs font-medium text-gray-500">Status</th>
-                  <th className="pb-2 pr-4 text-xs font-medium text-gray-500">Fingerprint</th>
+                  <th className="pb-2 pr-4 text-xs font-medium text-gray-500">
+                    Name
+                  </th>
+                  <th className="pb-2 pr-4 text-xs font-medium text-gray-500">
+                    Email
+                  </th>
+                  <th className="pb-2 pr-4 text-xs font-medium text-gray-500">
+                    Status
+                  </th>
+                  <th className="pb-2 pr-4 text-xs font-medium text-gray-500">
+                    Fingerprint
+                  </th>
                   <th className="pb-2 text-xs font-medium text-gray-500" />
                 </tr>
               </thead>

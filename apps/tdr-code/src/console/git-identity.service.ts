@@ -1,17 +1,17 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common'
 
+import { isConfigured, resolveIdentity } from 'src/crypto/identity-resolution'
 import { encryptKey } from 'src/crypto/key-cipher'
 import { loadMasterKey } from 'src/crypto/master-key'
-import { resolveIdentity, isConfigured } from 'src/crypto/identity-resolution'
 import { validateAndFingerprint } from 'src/crypto/ssh-key'
+import type { Db } from 'src/db/database.module'
+import { DB } from 'src/db/database.module'
 import {
   deleteIdentity,
   getIdentity,
   listIdentities,
   upsertIdentity,
 } from 'src/db/git-identity.repo'
-import type { Db } from 'src/db/database.module'
-import { DB } from 'src/db/database.module'
 
 import type {
   GitIdentityItemDto,
@@ -94,7 +94,9 @@ export class GitIdentityService {
   }
 
   // Health-check for a single identity (used for status badge in list view).
-  getStatus(discordUserId: string): 'configured' | 'decrypt_failed' | 'not_configured' {
+  getStatus(
+    discordUserId: string,
+  ): 'configured' | 'decrypt_failed' | 'not_configured' {
     const masterKey = loadMasterKey()
     const row = getIdentity(this.db, discordUserId)
     if (!row) return 'not_configured'

@@ -1,15 +1,14 @@
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
 
-import { resolveIdentity, isConfigured } from 'src/crypto/identity-resolution'
+import { isConfigured, resolveIdentity } from 'src/crypto/identity-resolution'
 import { loadMasterKey } from 'src/crypto/master-key'
-import { getIdentity } from 'src/db/git-identity.repo'
 import type { Db } from 'src/db/database.module'
 import { insertEvent } from 'src/db/events.repo'
-import type { AcpEventHandlers } from './agent.types'
+import { getIdentity } from 'src/db/git-identity.repo'
 
+import type { AcpEventHandlers } from './agent.types'
 import { globalGitWriteLock } from './git-write-lock'
 
 // Tmpfs directory for per-turn key files (Decision #6).
@@ -23,11 +22,6 @@ const WRAPPER_SCRIPT = path.resolve(
   '../../scripts/git-ssh-wrapper.sh',
 )
 
-// Path to the shared workspace .git config (written per-turn under the lock).
-function gitConfigPath(cwd: string): string {
-  return path.join(cwd, '.git', 'config')
-}
-
 // ──────────────────────────────────────────────────────────────────────────────
 // Per-turn identity context — one instance shared across all channels.
 // ──────────────────────────────────────────────────────────────────────────────
@@ -37,7 +31,6 @@ export interface GitTurnContextOptions {
   generationId: number | null
   cwd: string
   handlers: AcpEventHandlers
-  onGitPushBlocked?: (channelId: string, reason: string) => void
 }
 
 // State per channel's active turn (cleared at turn end).
@@ -136,6 +129,10 @@ export class GitTurnContext {
           // Best-effort — never fail the turn for a logging error
         }
       }
+
+      // R17: fire Discord notice synchronously (fire-and-forget the channel.send
+      // inside handlers.onGitPushBlocked — C1 constraint on DiscordHandlerService).
+      this.opts.handlers.onGitPushBlocked(channelId, reason)
     }
   }
 
@@ -179,7 +176,9 @@ export class GitTurnContext {
         state.keyPath = null
         try {
           fs.rmSync(kp, { force: true })
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     }
     globalGitWriteLock.releaseIfHeldBy(channelId)
@@ -195,10 +194,14 @@ export class GitTurnContext {
         if (file.endsWith('.key')) {
           try {
             fs.rmSync(path.join(KEYS_DIR, file), { force: true })
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 }
 

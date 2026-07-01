@@ -4,13 +4,11 @@ import { cns } from '@lilnas/utils/cns'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
-import { fetchJson, queryKeys } from 'src/app/lib/api'
-import { api } from 'src/app/lib/api'
+import { ErrorState } from 'src/app/components/error-state'
+import { LoadingState } from 'src/app/components/loading-state'
+import { api, fetchJson, queryKeys } from 'src/app/lib/api'
 import type { BotStatusDto } from 'src/bot/bot-status.dto'
 import type { UpdateConfigBodyDto } from 'src/console/config.dto'
-
-import { ErrorState } from '../components/error-state'
-import { LoadingState } from '../components/loading-state'
 
 function FieldLabel({
   label,
@@ -57,6 +55,8 @@ export default function ConfigPage() {
   const [argsError, setArgsError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
+  // Sync server-fetched data into editable form state when the query resolves.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (data) {
       setCwd(data.cwd)
@@ -65,6 +65,7 @@ export default function ConfigPage() {
       setIdleTimeoutSec(String(data.idleTimeoutSec))
       setMaxConcurrentSessions(String(data.maxConcurrentSessions))
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [data])
 
   const mutation = useMutation({
@@ -83,10 +84,7 @@ export default function ConfigPage() {
     let parsedArgs: string[]
     try {
       const parsed = JSON.parse(claudeArgsJson)
-      if (
-        !Array.isArray(parsed) ||
-        parsed.some(a => typeof a !== 'string')
-      ) {
+      if (!Array.isArray(parsed) || parsed.some(a => typeof a !== 'string')) {
         setArgsError('Must be a JSON array of strings, e.g. ["--flag"]')
         return
       }
@@ -121,7 +119,10 @@ export default function ConfigPage() {
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="space-y-1">
-          <FieldLabel label="Working directory (cwd)" effectLabel="new sessions only" />
+          <FieldLabel
+            label="Working directory (cwd)"
+            effectLabel="new sessions only"
+          />
           <input
             type="text"
             value={cwd}
@@ -141,7 +142,10 @@ export default function ConfigPage() {
         </div>
 
         <div className="space-y-1">
-          <FieldLabel label="Claude args (JSON array)" effectLabel="new sessions only" />
+          <FieldLabel
+            label="Claude args (JSON array)"
+            effectLabel="new sessions only"
+          />
           <textarea
             value={claudeArgsJson}
             onChange={e => {
@@ -151,16 +155,19 @@ export default function ConfigPage() {
             rows={2}
             className={cns(
               'w-full rounded border bg-gray-900 px-3 py-2 font-mono text-sm text-gray-100 focus:outline-none',
-              argsError ? 'border-red-700 focus:border-red-500' : 'border-gray-700 focus:border-gray-500',
+              argsError
+                ? 'border-red-700 focus:border-red-500'
+                : 'border-gray-700 focus:border-gray-500',
             )}
           />
-          {argsError && (
-            <p className="text-xs text-red-400">{argsError}</p>
-          )}
+          {argsError && <p className="text-xs text-red-400">{argsError}</p>}
         </div>
 
         <div className="space-y-1">
-          <FieldLabel label="Idle timeout (seconds)" effectLabel="next idle-timer reset" />
+          <FieldLabel
+            label="Idle timeout (seconds)"
+            effectLabel="next idle-timer reset"
+          />
           <input
             type="number"
             min={1}
@@ -171,7 +178,10 @@ export default function ConfigPage() {
         </div>
 
         <div className="space-y-1">
-          <FieldLabel label="Max concurrent sessions" effectLabel="next create (no eviction)" />
+          <FieldLabel
+            label="Max concurrent sessions"
+            effectLabel="next create (no eviction)"
+          />
           <input
             type="number"
             min={1}
@@ -195,9 +205,7 @@ export default function ConfigPage() {
             {mutation.isPending ? 'Saving…' : 'Save'}
           </button>
 
-          {saved && (
-            <span className="text-xs text-green-400">Saved</span>
-          )}
+          {saved && <span className="text-xs text-green-400">Saved</span>}
 
           {mutation.isError && !saved && (
             <span className="text-xs text-red-400">
