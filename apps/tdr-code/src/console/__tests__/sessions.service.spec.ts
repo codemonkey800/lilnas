@@ -181,21 +181,21 @@ describe('SessionsService', () => {
         userId: null,
         startedAt: new Date(),
       })
-      // Insert a block with a bad payload (missing 'text' field for prompt).
+      // prompt with empty text — valid, narrowTurnContentPayload accepts empty strings.
       appendBlock(testDb.db, {
         turnId: turn.id,
         kind: 'prompt',
         payload: { kind: 'prompt', text: '' },
         createdAt: new Date(),
       })
-      // Insert another with correct payload.
+      // agent_text with real text — valid.
       appendBlock(testDb.db, {
         turnId: turn.id,
         kind: 'agent_text',
         payload: { kind: 'agent_text', text: 'ok' },
         createdAt: new Date(),
       })
-      // Manually corrupt one block via raw SQL to simulate a malformed row.
+      // Corrupt the first block via raw SQL to an unknown kind — this is the one that gets dropped.
       const client = (
         testDb.db as unknown as { $client: { exec: (sql: string) => void } }
       ).$client
@@ -205,8 +205,10 @@ describe('SessionsService', () => {
 
       const svc = buildService(testDb.db)
       const result = svc.getSessionTranscript(session.id)
+      // The corrupted block is dropped; the agent_text block survives.
       expect(result.droppedBlocks).toBe(1)
       expect(result.turns[0]!.content).toHaveLength(1)
+      expect(result.turns[0]!.content[0]!.kind).toBe('agent_text')
     })
   })
 })

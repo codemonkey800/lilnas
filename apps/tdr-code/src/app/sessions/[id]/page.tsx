@@ -3,7 +3,7 @@
 import { cns } from '@lilnas/utils/cns'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { notFound, useParams } from 'next/navigation'
 import { useState } from 'react'
 
 import { EmptyState } from 'src/app/components/empty-state'
@@ -63,6 +63,9 @@ function ContentBlock({ block }: { block: TurnContentBlockDto }) {
           </pre>
         </div>
       )
+    default:
+      block satisfies never
+      return null
   }
 }
 
@@ -201,7 +204,8 @@ function ReconcilePanel({ sessionId }: { sessionId: number }) {
 
 export default function SessionDetailPage() {
   const params = useParams<{ id: string }>()
-  const sessionId = parseInt(params.id, 10)
+  const sessionId = Number(params.id)
+  if (!Number.isInteger(sessionId) || sessionId <= 0) notFound()
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: queryKeys.session(sessionId),

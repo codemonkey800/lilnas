@@ -91,19 +91,26 @@ export class ReconcileService {
     if (stat.size > MAX_JSONL_BYTES) {
       cappedAt = MAX_JSONL_BYTES
       const buf = Buffer.alloc(MAX_JSONL_BYTES)
-      let fd: number
+      let fd: number | undefined
       try {
         fd = fs.openSync(filePath, 'r')
-        fs.readSync(fd, buf, 0, MAX_JSONL_BYTES, 0)
-        fs.closeSync(fd)
+        const bytesRead = fs.readSync(fd, buf, 0, MAX_JSONL_BYTES, 0)
+        // Trim to last newline to avoid a truncated JSON line.
+        const raw = buf.subarray(0, bytesRead).toString('utf8')
+        const lastNl = raw.lastIndexOf('\n')
+        content = lastNl >= 0 ? raw.slice(0, lastNl + 1) : raw
       } catch (err) {
         this.logger.error({ err, sessionId }, 'reconcile: read failed')
         return { verdict: 'cannot-reconcile', reason: 'parse-error' }
+      } finally {
+        if (fd !== undefined) {
+          try {
+            fs.closeSync(fd)
+          } catch {
+            // already closed or never opened cleanly
+          }
+        }
       }
-      // Trim to last newline to avoid a truncated JSON line.
-      const raw = buf.toString('utf8')
-      const lastNl = raw.lastIndexOf('\n')
-      content = lastNl >= 0 ? raw.slice(0, lastNl + 1) : raw
     } else {
       try {
         content = fs.readFileSync(filePath, 'utf8')
@@ -133,14 +140,39 @@ export class ReconcileService {
         continue
       }
       const r = record.data
-      // Map JSONL records to a comparable shape.
-      if (r.role === 'user' && r.content) {
+      // Claude nests role/content under a `message` object; fall back to top-level
+      // for older or non-message records.
+      const msg =
+        r.message && typeof r.message === 'object'
+          ? (r.message as { role?: string; content?: unknown })
+          : undefined
+      const role = msg?.role ?? r.role
+      const rawContent = msg?.content ?? r.content
+      if (role === 'user' && rawContent) {
         const text =
-          typeof r.content === 'string' ? r.content : JSON.stringify(r.content)
+          typeof rawContent === 'string'
+            ? rawContent
+            : JSON.stringify(rawContent)
         jsonlBlocks.push({ kind: 'prompt', text })
-      } else if (r.role === 'assistant' && r.content) {
-        const text =
-          typeof r.content === 'string' ? r.content : JSON.stringify(r.content)
+      } else if (role === 'assistant' && rawContent) {
+        // Assistant content is typically an array of typed blocks; extract text parts.
+        let text: string
+        if (typeof rawContent === 'string') {
+          text = rawContent
+        } else if (Array.isArray(rawContent)) {
+          const parts = rawContent
+            .filter(
+              (b): b is { type: string; text: string } =>
+                typeof b === 'object' &&
+                b !== null &&
+                (b as Record<string, unknown>).type === 'text' &&
+                typeof (b as Record<string, unknown>).text === 'string',
+            )
+            .map(b => b.text)
+          text = parts.length > 0 ? parts.join('') : JSON.stringify(rawContent)
+        } else {
+          text = JSON.stringify(rawContent)
+        }
         jsonlBlocks.push({ kind: 'agent_text', text })
       } else if (r.type) {
         jsonlBlocks.push({ kind: r.type })

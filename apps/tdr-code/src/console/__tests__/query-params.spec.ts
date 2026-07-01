@@ -1,6 +1,28 @@
 import { BadRequestException } from '@nestjs/common'
+import { z } from 'zod'
 
 import { PaginationSchema, parseQuery } from 'src/console/query-params'
+import { EVENT_LEVELS, EVENT_TYPES } from 'src/db/schema'
+
+const EventListQuerySchema = PaginationSchema.extend({
+  type: z
+    .string()
+    .optional()
+    .refine(
+      v => v === undefined || (EVENT_TYPES as readonly string[]).includes(v),
+      { message: `type must be one of: ${EVENT_TYPES.join(', ')}` },
+    )
+    .transform(v => v as (typeof EVENT_TYPES)[number] | undefined),
+  level: z
+    .string()
+    .optional()
+    .refine(
+      v => v === undefined || (EVENT_LEVELS as readonly string[]).includes(v),
+      { message: `level must be one of: ${EVENT_LEVELS.join(', ')}` },
+    )
+    .transform(v => v as (typeof EVENT_LEVELS)[number] | undefined),
+  channel: z.string().optional(),
+})
 
 describe('parseQuery — PaginationSchema', () => {
   it('missing cursor + limit → first page defaults', () => {
@@ -51,5 +73,35 @@ describe('parseQuery — PaginationSchema', () => {
     expect(() => parseQuery(PaginationSchema, { cursor: 'abc' })).toThrow(
       BadRequestException,
     )
+  })
+})
+
+describe('parseQuery — EventListQuerySchema', () => {
+  it('valid type → accepted', () => {
+    const result = parseQuery(EventListQuerySchema, { type: 'session_created' })
+    expect(result.type).toBe('session_created')
+  })
+
+  it('valid level → accepted', () => {
+    const result = parseQuery(EventListQuerySchema, { level: 'warn' })
+    expect(result.level).toBe('warn')
+  })
+
+  it('absent type/level → undefined (no filter)', () => {
+    const result = parseQuery(EventListQuerySchema, {})
+    expect(result.type).toBeUndefined()
+    expect(result.level).toBeUndefined()
+  })
+
+  it('invalid type → 400', () => {
+    expect(() => parseQuery(EventListQuerySchema, { type: 'bogus' })).toThrow(
+      BadRequestException,
+    )
+  })
+
+  it('invalid level → 400', () => {
+    expect(() =>
+      parseQuery(EventListQuerySchema, { level: 'critical' }),
+    ).toThrow(BadRequestException)
   })
 })

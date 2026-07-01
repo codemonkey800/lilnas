@@ -3,19 +3,12 @@
 import { cns } from '@lilnas/utils/cns'
 import { useQuery } from '@tanstack/react-query'
 
-import { queryKeys } from 'src/app/lib/api'
+import { fetchJson, queryKeys } from 'src/app/lib/api'
 import type { BotStatusDto } from 'src/bot/bot-status.dto'
 
 import { StatusDot } from './status-dot'
 
 type ClientStatus = 'loading' | 'unknown' | BotStatusDto['status']
-
-function fetchBotStatus(): Promise<BotStatusDto> {
-  return fetch('/api/bot/status').then(r => {
-    if (!r.ok) throw new Error(`HTTP ${r.status}`)
-    return r.json() as Promise<BotStatusDto>
-  })
-}
 
 const STATUS_LABELS: Record<ClientStatus, string> = {
   loading: 'Checking…',
@@ -37,7 +30,7 @@ function statusVariant(s: ClientStatus): 'green' | 'yellow' | 'red' | 'gray' {
 export function BotStatusWidget() {
   const { data, isLoading, isError } = useQuery({
     queryKey: queryKeys.botStatus,
-    queryFn: fetchBotStatus,
+    queryFn: () => fetchJson<BotStatusDto>('/bot/status'),
     refetchInterval: 5_000,
     retry: false,
   })

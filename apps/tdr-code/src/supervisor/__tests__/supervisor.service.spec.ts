@@ -293,6 +293,111 @@ describe('SupervisorService', () => {
     expect(svc.getPhase()).toBe('Stopped')
   })
 
+  describe('requestRestart', () => {
+    it('supervise=false → requestRestart → error not-supervised regardless of phase', async () => {
+      const svc = await buildService(
+        db,
+        clock,
+        () =>
+          ({
+            pid: 800,
+            once: jest.fn(),
+            kill: jest.fn(),
+            exitCode: null,
+          }) as unknown as ChildProcess,
+        false,
+      )
+      await svc.onModuleInit()
+      expect(svc.getPhase()).toBe('Stopped')
+      const result = svc.requestRestart()
+      expect(result).toEqual({ error: 'not-supervised' })
+    })
+
+    it('Starting → requestRestart → dispatches RestartRequested → phase becomes Stopping', async () => {
+      const children: FakeChild[] = []
+      const svc = await buildService(db, clock, () => {
+        const c = new FakeChild(900 + children.length)
+        children.push(c)
+        return c as unknown as ChildProcess
+      })
+      await svc.onModuleInit()
+      expect(svc.getPhase()).toBe('Starting')
+
+      const result = svc.requestRestart()
+      expect('phase' in result).toBe(true)
+      if ('phase' in result) expect(result.phase).toBe('Stopping')
+      expect(svc.getPhase()).toBe('Stopping')
+      // Flush the SIGTERM-triggered setImmediate exit before afterEach closes the DB.
+      await flushPromises()
+    })
+
+    it('Running → requestRestart → dispatches RestartRequested → phase becomes Stopping', async () => {
+      const children: FakeChild[] = []
+      const svc = await buildService(db, clock, () => {
+        const c = new FakeChild(950 + children.length)
+        children.push(c)
+        return c as unknown as ChildProcess
+      })
+      await svc.onModuleInit()
+      const gen = liveGenerations(db)[0]!
+      markRunning(db, gen.id, 950, new Date())
+      clock.advance(200)
+      await flushPromises()
+      expect(svc.getPhase()).toBe('Running')
+
+      const result = svc.requestRestart()
+      expect('phase' in result).toBe(true)
+      if ('phase' in result) expect(result.phase).toBe('Stopping')
+      expect(svc.getPhase()).toBe('Stopping')
+      // Flush the SIGTERM-triggered setImmediate exit before afterEach closes the DB.
+      await flushPromises()
+    })
+
+    it('Backoff → requestRestart → dispatches RestartRequested → phase becomes Starting', async () => {
+      const children: FakeChild[] = []
+      const svc = await buildService(db, clock, () => {
+        const c = new FakeChild(980 + children.length)
+        children.push(c)
+        return c as unknown as ChildProcess
+      })
+      await svc.onModuleInit()
+      await flushPromises()
+      // Trigger unexpected exit → Backoff
+      children[0]!.exitCode = 1
+      children[0]!.emit('exit', 1)
+      await flushPromises()
+      expect(svc.getPhase()).toBe('Backoff')
+
+      const result = svc.requestRestart()
+      expect('phase' in result).toBe(true)
+      if ('phase' in result) expect(result.phase).toBe('Starting')
+      expect(svc.getPhase()).toBe('Starting')
+    })
+
+    it('Stopping → requestRestart → error transition-in-progress', async () => {
+      const children: FakeChild[] = []
+      const svc = await buildService(db, clock, () => {
+        const c = new FakeChild(990 + children.length)
+        children.push(c)
+        return c as unknown as ChildProcess
+      })
+      await svc.onModuleInit()
+      const gen = liveGenerations(db)[0]!
+      markRunning(db, gen.id, 990, new Date())
+      clock.advance(200)
+      await flushPromises()
+      // Move to Stopping first.
+      svc.requestRestart()
+      expect(svc.getPhase()).toBe('Stopping')
+
+      // Second requestRestart while already Stopping.
+      const result = svc.requestRestart()
+      expect(result).toEqual({ error: 'transition-in-progress' })
+      // Flush the SIGTERM-triggered setImmediate exit before afterEach closes the DB.
+      await flushPromises()
+    })
+  })
+
   it('liveness-aware reconciliation: prior running generation with dead pid → finalize crashed', async () => {
     // Insert a "live" generation with a pid that does not exist.
     const gen = insertGeneration(db, { startedAt: new Date() })

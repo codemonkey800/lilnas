@@ -12,7 +12,6 @@ export const LiveChannelItemSchema = z.object({
   channelId: z.string(),
   triggeringUserId: z.string().nullable(),
   state: LiveChannelStateSchema,
-  prompting: z.boolean(),
   queueDepth: z.number().int(),
   lastActivityAt: z.string().datetime(),
   lastHeartbeatAt: z.string().datetime(),

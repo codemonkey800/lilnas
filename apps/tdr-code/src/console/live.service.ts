@@ -24,13 +24,23 @@ export class LiveService {
     const botOffline =
       status.status !== 'online' && status.status !== 'starting'
 
-    const latestGen = latestGeneration(this.db)
-    if (!latestGen) {
+    // Read latestGeneration + listLive in one DEFERRED snapshot so the bot cannot
+    // commit a generation transition between the two reads (same pattern as getSessionTranscript).
+    const snapshot = this.db.transaction(
+      () => {
+        const gen = latestGeneration(this.db)
+        if (!gen) return null
+        return { gen, rows: listLive(this.db, gen.id) }
+      },
+      { behavior: 'deferred' },
+    )
+
+    if (!snapshot) {
       return { botOffline: true, globalStatus: 'never-seen', items: [] }
     }
 
+    const { gen: latestGen, rows } = snapshot
     const isRunning = isRunningGeneration(latestGen)
-    const rows = listLive(this.db, latestGen.id)
     const threshold = staleThresholdMs()
 
     const items: LiveChannelItemDto[] = rows.map(row => {
@@ -54,7 +64,6 @@ export class LiveService {
         channelId: row.channelId,
         triggeringUserId: row.triggeringUserId ?? null,
         state,
-        prompting: row.prompting,
         queueDepth: row.queueDepth,
         lastActivityAt: row.lastActivityAt.toISOString(),
         lastHeartbeatAt: row.lastHeartbeatAt.toISOString(),

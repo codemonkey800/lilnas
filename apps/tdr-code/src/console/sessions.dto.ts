@@ -7,7 +7,6 @@ export const SessionListItemSchema = z.object({
   createdAt: z.string().datetime(),
   endedAt: z.string().datetime().nullable(),
   endReason: z.enum(['evicted', 'teardown', 'interrupted']).nullable(),
-  turnCount: z.number().int().optional(),
 })
 export type SessionListItemDto = z.infer<typeof SessionListItemSchema>
 

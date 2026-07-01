@@ -3,7 +3,7 @@ import { PinoLogger } from 'nestjs-pino'
 
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
-import { narrowTurnContentPayload } from 'src/db/schema'
+import { narrowTurnContentPayload, type SessionRow } from 'src/db/schema'
 import { getSessionById, listSessions } from 'src/db/sessions.repo'
 import { listBlocksByTurns } from 'src/db/turn-content.repo'
 import { listTurnsBySession } from 'src/db/turns.repo'
@@ -99,21 +99,24 @@ export class SessionsService {
     }
   }
 
-  private mapSessionItem(row: {
-    id: number
-    channelId: string
-    triggeringUserId: string
-    createdAt: Date
-    endedAt: Date | null
-    endReason: string | null
-  }): SessionListItemDto {
+  private mapSessionItem(
+    row: Pick<
+      SessionRow,
+      | 'id'
+      | 'channelId'
+      | 'triggeringUserId'
+      | 'createdAt'
+      | 'endedAt'
+      | 'endReason'
+    >,
+  ): SessionListItemDto {
     return {
       id: row.id,
       channelId: row.channelId,
       triggeringUserId: row.triggeringUserId,
       createdAt: row.createdAt.toISOString(),
       endedAt: row.endedAt?.toISOString() ?? null,
-      endReason: (row.endReason as SessionListItemDto['endReason']) ?? null,
+      endReason: row.endReason ?? null,
     }
   }
 

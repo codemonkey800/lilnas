@@ -2,9 +2,9 @@
 
 import { cns } from '@lilnas/utils/cns'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 
-import type { LiveChannelItemDto } from 'src/console/live.dto'
+import type { LiveChannelItemDto, LiveResponseDto } from 'src/console/live.dto'
 
 import { BotStatusWidget } from './components/bot-status-widget'
 import { EmptyState } from './components/empty-state'
@@ -130,6 +130,12 @@ export default function DashboardPage() {
 
   const teardownMutation = useMutation({
     mutationFn: (channelId: string) => api.teardown(channelId),
+    onMutate: channelId =>
+      void queryClient.setQueryData<LiveResponseDto>(queryKeys.live, old =>
+        old
+          ? { ...old, items: old.items.filter(i => i.channelId !== channelId) }
+          : old,
+      ),
     onSuccess: (_data, channelId) => {
       setTeardownErrors(prev => {
         const next = { ...prev }
@@ -239,23 +245,25 @@ export default function DashboardPage() {
                 </thead>
                 <tbody>
                   {data.items.map(item => (
-                    <>
+                    <Fragment key={item.channelId}>
                       <LiveRow
-                        key={item.channelId}
                         item={item}
                         onTeardown={channelId =>
                           teardownMutation.mutate(channelId)
                         }
-                        teardownPending={teardownMutation.isPending}
+                        teardownPending={
+                          teardownMutation.isPending &&
+                          teardownMutation.variables === item.channelId
+                        }
                       />
                       {teardownErrors[item.channelId] && (
-                        <tr key={`${item.channelId}-err`}>
+                        <tr>
                           <td colSpan={6} className="pb-2 text-xs text-red-400">
                             {teardownErrors[item.channelId]}
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

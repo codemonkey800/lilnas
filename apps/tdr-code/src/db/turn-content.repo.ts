@@ -80,7 +80,7 @@ export function updateToolCallStatus(
   return result.changes
 }
 
-// Read all blocks for a turn ordered by insertion (id) — for tests only.
+// Read all blocks for a turn ordered by insertion (id). Also used by listBlocksByTurns for the single-turn fast path.
 export function blocksByTurn(db: Db, turnId: number): TurnContentRow[] {
   return db
     .select()

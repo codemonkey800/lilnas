@@ -2,6 +2,8 @@ import {
   BadRequestException,
   ConflictException,
   Controller,
+  ForbiddenException,
+  Headers,
   HttpCode,
   Inject,
   Param,
@@ -23,6 +25,19 @@ const DiscordSnowflakeSchema = z
   .string()
   .regex(/^\d{17,20}$/, 'Must be a Discord snowflake (17–20 digits)')
 
+// Allowed origin for mutating POST routes. The forward-auth cookie is an ambient
+// credential; without an Origin check, any *.lilnas.io page can forge these requests.
+// Set ALLOWED_CONSOLE_ORIGIN to the dev origin (e.g. http://tdr-code.localhost) when
+// running locally.
+const ALLOWED_ORIGIN =
+  process.env.ALLOWED_CONSOLE_ORIGIN ?? 'https://tdr-code.lilnas.io'
+
+function requireSameOrigin(origin: string | undefined): void {
+  if (origin !== ALLOWED_ORIGIN) {
+    throw new ForbiddenException('cross-origin request rejected')
+  }
+}
+
 // Trust boundary: see bot-status.controller.ts.
 // Phase D (D6) must enumerate these routes for deny-by-default guards.
 // /bot/restart and /channels/:id/teardown are mutating — treat as sensitive.
@@ -35,7 +50,8 @@ export class LifecycleController {
 
   @Post('bot/restart')
   @HttpCode(202)
-  restart(): RestartResponseDto {
+  restart(@Headers('origin') origin: string | undefined): RestartResponseDto {
+    requireSameOrigin(origin)
     const result = this.supervisor.requestRestart()
     if ('error' in result) {
       throw new ConflictException(result.error)
@@ -45,7 +61,11 @@ export class LifecycleController {
 
   @Post('channels/:channelId/teardown')
   @HttpCode(202)
-  teardown(@Param('channelId') channelId: string): TeardownResponseDto {
+  teardown(
+    @Headers('origin') origin: string | undefined,
+    @Param('channelId') channelId: string,
+  ): TeardownResponseDto {
+    requireSameOrigin(origin)
     const parsed = DiscordSnowflakeSchema.safeParse(channelId)
     if (!parsed.success) {
       throw new BadRequestException(

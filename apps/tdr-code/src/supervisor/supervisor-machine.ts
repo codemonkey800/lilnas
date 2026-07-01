@@ -5,13 +5,16 @@
 // Effects are returned as data; the SupervisorService interprets them.
 // ──────────────────────────────────────────────────────────────────────────────
 
-export type SupervisorPhase =
-  | 'Stopped'
-  | 'Starting'
-  | 'Running'
-  | 'Stopping'
-  | 'Backoff'
-  | 'Failed'
+export const SUPERVISOR_PHASES = [
+  'Stopped',
+  'Starting',
+  'Running',
+  'Stopping',
+  'Backoff',
+  'Failed',
+] as const
+
+export type SupervisorPhase = (typeof SUPERVISOR_PHASES)[number]
 
 export type SupervisorState = {
   phase: SupervisorPhase

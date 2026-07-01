@@ -1,11 +1,14 @@
 import { z } from 'zod'
 
-import type { SupervisorPhase } from 'src/supervisor/supervisor-machine'
+import { SUPERVISOR_PHASES } from 'src/supervisor/supervisor-machine'
 
 export const RestartResponseSchema = z.object({
-  phase: z.string() as z.ZodType<SupervisorPhase>,
+  phase: z.enum(SUPERVISOR_PHASES),
 })
 export type RestartResponseDto = z.infer<typeof RestartResponseSchema>
+
+// accepted: true means the teardown command was enqueued, not that the session ended.
+// The bot processes it asynchronously; a no-live-session target is a silent no-op.
 
 export const TeardownResponseSchema = z.object({
   accepted: z.literal(true),
