@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common'
 import { BotStatusService } from 'src/bot/bot-status.service'
 import { SupervisorModule } from 'src/supervisor/supervisor.module'
 
+import { ConfigController } from './config.controller'
+import { ConfigService } from './config.service'
 import { EventsController } from './events.controller'
 import { EventsService } from './events.service'
 import { LifecycleController } from './lifecycle.controller'
@@ -25,6 +27,7 @@ import { SessionsService } from './sessions.service'
     SessionsController,
     EventsController,
     ReconcileController,
+    ConfigController,
   ],
   providers: [
     LiveService,
@@ -32,6 +35,7 @@ import { SessionsService } from './sessions.service'
     EventsService,
     ReconcileService,
     BotStatusService,
+    ConfigService,
   ],
 })
 export class ConsoleModule {}
