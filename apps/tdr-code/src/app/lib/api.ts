@@ -1,6 +1,11 @@
 import type { ConfigResponseDto, UpdateConfigBodyDto } from 'src/console/config.dto'
 import type { EventListResponseDto } from 'src/console/events.dto'
 import type {
+  GitIdentityListResponseDto,
+  UpsertGitIdentityBodyDto,
+  UpsertGitIdentityResponseDto,
+} from 'src/console/git-identity.dto'
+import type {
   RestartResponseDto,
   TeardownResponseDto,
 } from 'src/console/lifecycle.dto'
@@ -104,4 +109,10 @@ export const api = {
   getConfig: () => fetchJson<ConfigResponseDto>('/config'),
   updateConfig: (body: UpdateConfigBodyDto) =>
     putJsonBody<ConfigResponseDto>('/config', body),
+  listGitIdentities: () =>
+    fetchJson<GitIdentityListResponseDto>('/git-identity'),
+  upsertGitIdentity: (body: UpsertGitIdentityBodyDto) =>
+    postJsonBody<UpsertGitIdentityResponseDto>('/git-identity', body),
+  deleteGitIdentity: (discordUserId: string) =>
+    deleteJson<{ accepted: true }>(`/git-identity/${encodeURIComponent(discordUserId)}`),
 }
