@@ -17,6 +17,16 @@ function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
   }
 }
 
+const MOCK_CONFIG_ROW = {
+  id: 1,
+  cwd: '/tmp',
+  claudeCommand: 'claude',
+  claudeArgs: ['--dangerously-skip-permissions'],
+  idleTimeoutSec: 300,
+  maxConcurrentSessions: 5,
+  updatedAt: new Date(),
+}
+
 function makeDbMock(runChanges = 0) {
   const chain: Record<string, jest.Mock> = {
     values: jest.fn(),
@@ -27,7 +37,8 @@ function makeDbMock(runChanges = 0) {
     limit: jest.fn(),
     onConflictDoUpdate: jest.fn(),
     from: jest.fn(),
-    get: jest.fn().mockReturnValue({ id: 1 }),
+    // Return a config row by default — getConfig() in the constructor reads this.
+    get: jest.fn().mockReturnValue(MOCK_CONFIG_ROW),
     all: jest.fn().mockReturnValue([]),
     run: jest.fn().mockReturnValue({ changes: runChanges }),
   }
@@ -48,6 +59,7 @@ function makeDbMock(runChanges = 0) {
     update: jest.fn().mockReturnValue(chain),
     select: jest.fn().mockReturnValue(chain),
     delete: jest.fn().mockReturnValue(chain),
+    transaction: jest.fn().mockImplementation((cb: () => unknown) => cb()),
   }
 }
 
@@ -129,9 +141,11 @@ type CtorWith2 = {
 describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
   it('fires onPromptComplete("aborted") when tearing down a prompting session', () => {
     const handlers = createMockHandlers()
+    const db = makeDbMock()
 
-    const service = new (SessionManagerService as unknown as CtorWith1)(
+    const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      db,
     )
 
     injectPromptingSession(service, 'ch1')
@@ -143,9 +157,11 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
 
   it('does NOT fire onPromptComplete when tearing down a non-prompting session', () => {
     const handlers = createMockHandlers()
+    const db = makeDbMock()
 
-    const service = new (SessionManagerService as unknown as CtorWith1)(
+    const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      db,
     )
 
     const session = injectPromptingSession(service, 'ch1')

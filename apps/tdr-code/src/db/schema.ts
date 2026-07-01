@@ -100,7 +100,7 @@ export function isEndedGeneration(
 
 // ──────────────────────────────────────────────────────────────────────────────
 
-export const COMMAND_TYPES = ['teardown_channel'] as const
+export const COMMAND_TYPES = ['teardown_channel', 'reread_config'] as const
 export type CommandType = (typeof COMMAND_TYPES)[number]
 
 export const COMMAND_STATUSES = ['pending', 'consumed'] as const
@@ -123,7 +123,10 @@ export const commands = sqliteTable(
     consumedAt: integer('consumed_at', { mode: 'timestamp_ms' }),
   },
   t => [
-    check('commands_type_check', sql`${t.type} IN ('teardown_channel')`),
+    check(
+      'commands_type_check',
+      sql`${t.type} IN ('teardown_channel','reread_config')`,
+    ),
     check('commands_status_check', sql`${t.status} IN ('pending','consumed')`),
     index('commands_generation_status_idx').on(t.generationId, t.status),
   ],

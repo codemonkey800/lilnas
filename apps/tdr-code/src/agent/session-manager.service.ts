@@ -6,10 +6,10 @@ import {
   ndJsonStream,
   PROTOCOL_VERSION,
 } from '@agentclientprotocol/sdk'
-import { env } from '@lilnas/utils/env'
 import { Inject, Injectable, OnApplicationShutdown } from '@nestjs/common'
 
 import { markExited, recordSpawn } from 'src/db/claude-process.repo'
+import { getConfig } from 'src/db/config.repo'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
 import { insertEvent } from 'src/db/events.repo'
@@ -49,10 +49,12 @@ interface ManagedSession {
 @Injectable()
 export class SessionManagerService implements OnApplicationShutdown {
   private readonly sessions = new Map<string, ManagedSession>()
-  private readonly maxConcurrentSessions: number
-  private readonly idleTimeoutSec: number
-  private readonly claudeCommand: string
-  private readonly claudeCwd: string
+  // Mutable — rereadConfig() replaces these at runtime without re-spawning.
+  private maxConcurrentSessions: number
+  private idleTimeoutSec: number
+  private claudeCommand: string
+  private claudeCwd: string
+  private claudeArgs: string[]
   // C4: Service-global counter — never resets on session teardown/recreate, so
   // stale turn ids from old sessions cannot match new sessions (see plan Decision #3).
   private turnCounter = 0
@@ -70,18 +72,34 @@ export class SessionManagerService implements OnApplicationShutdown {
     @Inject(ACP_EVENT_HANDLERS) private readonly handlers: AcpEventHandlers,
     @Inject(DB) private readonly db: Db,
   ) {
-    this.claudeCommand = env(EnvKeys.CLAUDE_COMMAND, 'claude')
-    this.claudeCwd = env(EnvKeys.CLAUDE_CWD)
-    this.idleTimeoutSec = parseInt(
-      env(EnvKeys.AGENT_IDLE_TIMEOUT_SECONDS, '300'),
-      10,
-    )
-    this.maxConcurrentSessions = parseInt(
-      env(EnvKeys.AGENT_MAX_SESSIONS, '5'),
-      10,
-    )
+    const cfg = getConfig(db)
+    if (!cfg) {
+      // Main must seed the config row before spawning the bot (Decision #1).
+      throw new Error(
+        '[session-manager] config row missing — main server did not seed before bot start',
+      )
+    }
+    this.claudeCommand = cfg.claudeCommand
+    this.claudeCwd = cfg.cwd
+    this.claudeArgs = cfg.claudeArgs
+    this.idleTimeoutSec = cfg.idleTimeoutSec
+    this.maxConcurrentSessions = cfg.maxConcurrentSessions
     const genIdStr = process.env[EnvKeys.BOT_GENERATION_ID]
     this.generationId = genIdStr ? parseInt(genIdStr, 10) : null
+  }
+
+  // Called by the command poller when a reread_config command arrives.
+  // Replaces the four mutable config fields; existing sessions are unaffected
+  // (R3: cwd/command/args → new sessions only; idleTimeout → next reset;
+  // maxSessions → next create).
+  rereadConfig(): void {
+    const cfg = getConfig(this.db)
+    if (!cfg) return
+    this.claudeCommand = cfg.claudeCommand
+    this.claudeCwd = cfg.cwd
+    this.claudeArgs = cfg.claudeArgs
+    this.idleTimeoutSec = cfg.idleTimeoutSec
+    this.maxConcurrentSessions = cfg.maxConcurrentSessions
   }
 
   async prompt(
@@ -297,8 +315,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     channelId: string,
     userId: string,
   ): Promise<ManagedSession> {
-    const args = ['--dangerously-skip-permissions']
-    const proc = spawn(this.claudeCommand, args, {
+    const proc = spawn(this.claudeCommand, this.claudeArgs, {
       stdio: ['pipe', 'pipe', 'inherit'],
       cwd: this.claudeCwd,
       detached: true,

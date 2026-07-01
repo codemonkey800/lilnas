@@ -27,6 +27,11 @@ const TeardownChannelSchema = z.object({
   target: DiscordSnowflakeSchema,
 })
 
+const RereadConfigSchema = z.object({
+  type: z.literal('reread_config'),
+  target: z.null(),
+})
+
 // ──────────────────────────────────────────────────────────────────────────────
 
 @Injectable()
@@ -126,6 +131,10 @@ export class CommandPollerService implements OnModuleInit, OnModuleDestroy {
           'Dispatched teardown_channel',
         )
         break
+      case 'reread_config':
+        this.sessionManager.rereadConfig()
+        this.logger.info({ commandId: row.id }, 'Dispatched reread_config')
+        break
     }
   }
 
@@ -134,10 +143,28 @@ export class CommandPollerService implements OnModuleInit, OnModuleDestroy {
     target: string | null
     id: number
   }):
-    | { ok: true; command: z.infer<typeof TeardownChannelSchema> }
+    | {
+        ok: true
+        command:
+          | z.infer<typeof TeardownChannelSchema>
+          | z.infer<typeof RereadConfigSchema>
+      }
     | { ok: false; reason: string } {
     if (row.type === 'teardown_channel') {
       const parsed = TeardownChannelSchema.safeParse({
+        type: row.type,
+        target: row.target,
+      })
+      if (parsed.success) {
+        return { ok: true, command: parsed.data }
+      }
+      return {
+        ok: false,
+        reason: parsed.error.issues.map(i => i.message).join('; '),
+      }
+    }
+    if (row.type === 'reread_config') {
+      const parsed = RereadConfigSchema.safeParse({
         type: row.type,
         target: row.target,
       })
