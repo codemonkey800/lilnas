@@ -5,6 +5,7 @@ import BetterSqlite3 from 'better-sqlite3'
 import { type BetterSQLite3Database, drizzle } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 
+import { getOrSeedConfig } from './config.repo'
 import * as schema from './schema'
 
 export const DB = 'DB' as const
@@ -57,6 +58,11 @@ export class DatabaseModule {
             const db = drizzle(sqlite, { schema })
             if (options.migrate) {
               runMigrations(db)
+              // Seed config row from env defaults — main-only, runs before any
+              // onModuleInit so it completes before SupervisorService spawns the
+              // bot (Decision #1). The bot's getConfig treats a missing row as a
+              // hard boot error; main must always seed first.
+              getOrSeedConfig(db)
             }
             return db
           },

@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import {
+  blob,
   check,
   index,
   integer,
@@ -23,8 +24,8 @@ import {
 //   events       — structured event/error feed (R9/R10)
 //   live_status  — poll-fresh channel activity snapshot (R5)
 //
-// Phase C (anticipated, not yet created):
-//   config       — per-channel/global operator config
+// Phase C (locked — C1):
+//   config       — global operator config (single-row, seeded from env)
 //   git_identity — Discord snowflake → git author mapping
 //
 // Phase D (anticipated, not yet created — Better Auth):
@@ -498,3 +499,57 @@ export const liveStatus = sqliteTable(
 )
 
 export type LiveStatusRow = typeof liveStatus.$inferSelect
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Phase C — global config (single-row, id=1 enforced by CHECK)
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const config = sqliteTable(
+  'config',
+  {
+    // Always id=1; CHECK prevents a second row being inserted.
+    id: integer().primaryKey(),
+    cwd: text('cwd').notNull(),
+    claudeCommand: text('claude_command').notNull(),
+    // JSON-serialised string[]; default ['--dangerously-skip-permissions'].
+    claudeArgs: text('claude_args', { mode: 'json' })
+      .$type<string[]>()
+      .notNull(),
+    idleTimeoutSec: integer('idle_timeout_sec').notNull(),
+    maxConcurrentSessions: integer('max_concurrent_sessions').notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  t => [
+    check('config_single_row_check', sql`${t.id} = 1`),
+    check('config_idle_timeout_check', sql`${t.idleTimeoutSec} > 0`),
+    check(
+      'config_max_sessions_check',
+      sql`${t.maxConcurrentSessions} >= 1`,
+    ),
+  ],
+)
+
+export type ConfigRow = typeof config.$inferSelect
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Phase C — git_identity (Discord snowflake → encrypted git author)
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const gitIdentity = sqliteTable('git_identity', {
+  discordUserId: text('discord_user_id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull(),
+  // AES-256-GCM blobs — all three required for decryption (Decision #8).
+  keyCiphertext: blob('key_ciphertext', { mode: 'buffer' }).notNull(),
+  keyIv: blob('key_iv', { mode: 'buffer' }).notNull(),
+  keyAuthTag: blob('key_auth_tag', { mode: 'buffer' }).notNull(),
+  keyFingerprint: text('key_fingerprint').notNull(),
+  // Per-row overwrite counter (bumped on each upsert) — NOT a master-key
+  // version identifier.
+  keyVersion: integer('key_version').notNull().default(1),
+  // Which master key encrypted this row; seeded to 1, never incremented this
+  // phase — reserved for rotation tooling.
+  masterKeyVersion: integer('master_key_version').notNull().default(1),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
