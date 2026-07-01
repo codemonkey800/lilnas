@@ -1,7 +1,7 @@
 ---
 title: "feat: tdr-code Phase C — Global Config & Per-User Git Identity"
 type: feat
-status: active
+status: completed
 date: 2026-07-01
 deepened: 2026-07-01
 origin: docs/brainstorms/2026-07-01-tdr-code-phase-c-config-git-identity-requirements.md
