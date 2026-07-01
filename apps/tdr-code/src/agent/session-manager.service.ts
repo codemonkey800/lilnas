@@ -28,6 +28,7 @@ import type {
   ImageAttachment,
   PromptOutcome,
 } from './agent.types'
+import { GitTurnContext } from './git-turn-context'
 import { globalGitWriteLock } from './git-write-lock'
 import { buildPromptBlocks } from './message-bridge'
 
@@ -73,6 +74,9 @@ export class SessionManagerService implements OnApplicationShutdown {
   // ensureLiveStatusHeartbeat() during the shutdown window (Decision 8c).
   private shutdownRequested = false
 
+  // U9: per-turn identity application context (shared across all channels).
+  private gitTurnContext: GitTurnContext
+
   constructor(
     @Inject(ACP_EVENT_HANDLERS) private readonly handlers: AcpEventHandlers,
     @Inject(DB) private readonly db: Db,
@@ -91,6 +95,16 @@ export class SessionManagerService implements OnApplicationShutdown {
     this.maxConcurrentSessions = cfg.maxConcurrentSessions
     const genIdStr = process.env[EnvKeys.BOT_GENERATION_ID]
     this.generationId = genIdStr ? parseInt(genIdStr, 10) : null
+
+    this.gitTurnContext = new GitTurnContext({
+      db,
+      generationId: this.generationId,
+      cwd: this.claudeCwd,
+      handlers,
+    })
+
+    // Boot-time sweep of any orphaned tmpfs key files from a previous crash.
+    GitTurnContext.sweep()
   }
 
   // Called by the command poller when a reread_config command arrives.
@@ -176,6 +190,9 @@ export class SessionManagerService implements OnApplicationShutdown {
     }
     this.killProcessTree(session.process)
     this.sessions.delete(channelId)
+    // U9: belt-and-suspenders abort — removes tmpfs key and releases lock if
+    // this channel holds it. Idempotent with executePrompt's finally.
+    this.gitTurnContext.abort(channelId)
 
     // U2 + U5: best-effort DB bookkeeping — mirror syncLiveStatus try/catch so a
     // transient SQLITE_BUSY inside a setTimeout callback cannot crash the process.
@@ -215,6 +232,8 @@ export class SessionManagerService implements OnApplicationShutdown {
     for (const channelId of Array.from(this.sessions.keys())) {
       this.teardown(channelId, 'teardown')
     }
+    // U9: Shutdown sweep of any remaining tmpfs key files.
+    GitTurnContext.sweep()
   }
 
   // U5: clear the live_status heartbeat timer — called by bot-bootstrap SIGTERM
@@ -255,9 +274,20 @@ export class SessionManagerService implements OnApplicationShutdown {
     // turn because the agent runs git at arbitrary, undetectable points
     // (Decision #4). Release is unconditionally at the top of the finally block
     // — see the release placement comment below.
-    let gitRelease: (() => void) | null = null
+    let gitBegun = false
     try {
-      gitRelease = await globalGitWriteLock.acquire(session.channelId)
+      const gitRelease = await globalGitWriteLock.acquire(session.channelId)
+
+      // U9: Apply per-turn identity under the lock. This writes .git/config
+      // and (for configured users) decrypts the key to a chmod-600 tmpfs file.
+      // The gitRelease fn is passed through so gitTurnContext.end() can release
+      // the lock first, then remove the tmpfs key (ordering matters — Decision #4).
+      await this.gitTurnContext.begin(
+        session.channelId,
+        session.activeUserId,
+        gitRelease,
+      )
+      gitBegun = true
 
       // U8: Single cancelRequested check immediately before connection.prompt —
       // the latest possible point. Narrows the stop-cancel window opened by the
@@ -286,16 +316,18 @@ export class SessionManagerService implements OnApplicationShutdown {
       this.teardown(session.channelId, 'teardown')
       throw err
     } finally {
-      // U8: Release the git-write lock UNCONDITIONALLY at the top of the finally
-      // block, BEFORE the sessions.has drain guard. This placement is load-
-      // bearing: on the error/teardown path teardown() deletes the session from
-      // the map before finally runs, so a release nested inside the drain guard
-      // would be skipped → permanent cross-channel deadlock (Decision #4).
-      // Releasing here also precedes the recursive drain so the queued turn
-      // re-acquires cleanly.
-      if (gitRelease) {
-        gitRelease()
-        gitRelease = null
+      // U8/U9: Release the git-write lock and remove the tmpfs key UNCONDITIONALLY
+      // at the top of the finally block, BEFORE the sessions.has drain guard.
+      // Load-bearing: on the error/teardown path teardown() deletes the session
+      // from the map before finally runs, so a release nested inside the drain
+      // guard would be skipped → permanent deadlock (Decision #4).
+      // gitTurnContext.end() releases the lock first, then removes the key.
+      if (gitBegun) {
+        this.gitTurnContext.end(session.channelId)
+      } else {
+        // Lock was acquired but begin() threw before gitBegun=true —
+        // belt-and-suspenders release via the lock directly.
+        globalGitWriteLock.releaseIfHeldBy(session.channelId)
       }
 
       session.prompting = false
@@ -384,11 +416,9 @@ export class SessionManagerService implements OnApplicationShutdown {
       if (session?.process === proc) {
         clearTimeout(session.idleTimer)
         this.sessions.delete(channelId)
-        // U8: The process died before connection.prompt was called (or during
-        // the lock-acquire window) — executePrompt's finally may not have run
-        // yet. Release the lock if this channel holds it so the next channel
-        // is not permanently wedged (Decision #4, belt-and-suspenders).
-        globalGitWriteLock.releaseIfHeldBy(channelId)
+        // U9: The process died — executePrompt's finally may not have run yet.
+        // abort() releases the lock AND removes the tmpfs key (belt-and-suspenders).
+        this.gitTurnContext.abort(channelId)
         if (this.generationId != null) {
           try {
             if (session.sessionRowId != null) {
@@ -414,8 +444,8 @@ export class SessionManagerService implements OnApplicationShutdown {
       if (session?.process === proc) {
         clearTimeout(session.idleTimer)
         this.sessions.delete(channelId)
-        // U8: Belt-and-suspenders lock release (same reasoning as proc.on('error')).
-        globalGitWriteLock.releaseIfHeldBy(channelId)
+        // U9: Belt-and-suspenders abort (same as proc.on('error')).
+        this.gitTurnContext.abort(channelId)
         if (code !== 0 && code !== null) {
           console.warn(
             `Agent process for channel ${channelId} exited with code ${code}`,
