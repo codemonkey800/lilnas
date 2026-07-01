@@ -9,6 +9,8 @@ const NAV_LINKS = [
   { href: '/', label: 'Live' },
   { href: '/sessions', label: 'Sessions' },
   { href: '/events', label: 'Events' },
+  { href: '/config', label: 'Config' },
+  { href: '/git-identity', label: 'Git identity' },
 ]
 
 export function NavShell({ children }: { children: ReactNode }) {

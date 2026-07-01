@@ -1,3 +1,4 @@
+import type { ConfigResponseDto, UpdateConfigBodyDto } from 'src/console/config.dto'
 import type { EventListResponseDto } from 'src/console/events.dto'
 import type {
   RestartResponseDto,
@@ -29,6 +30,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const fetchJson = <T>(path: string) => request<T>(path)
 export const postJson = <T>(path: string) =>
   request<T>(path, { method: 'POST' })
+export const putJsonBody = <T>(path: string, body: unknown) =>
+  request<T>(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+export const postJsonBody = <T>(path: string, body: unknown) =>
+  request<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+export const deleteJson = <T>(path: string) =>
+  request<T>(path, { method: 'DELETE' })
 
 // Query-key constants.
 export const queryKeys = {
@@ -44,6 +59,8 @@ export const queryKeys = {
   }) => ['events', params] as const,
   botStatus: ['bot-status'] as const,
   reconcile: (sessionId: number) => ['reconcile', sessionId] as const,
+  config: ['config'] as const,
+  gitIdentity: ['git-identity'] as const,
 }
 
 // Typed API functions.
@@ -84,4 +101,7 @@ export const api = {
   },
   reconcile: (sessionId: number) =>
     fetchJson<ReconcileResponseDto>(`/sessions/${sessionId}/reconcile`),
+  getConfig: () => fetchJson<ConfigResponseDto>('/config'),
+  updateConfig: (body: UpdateConfigBodyDto) =>
+    putJsonBody<ConfigResponseDto>('/config', body),
 }
