@@ -6,6 +6,8 @@ import { SupervisorModule } from 'src/supervisor/supervisor.module'
 import { ConfigController } from './config.controller'
 import { ConfigService } from './config.service'
 import { EventsController } from './events.controller'
+import { GitIdentityController } from './git-identity.controller'
+import { GitIdentityService } from './git-identity.service'
 import { EventsService } from './events.service'
 import { LifecycleController } from './lifecycle.controller'
 import { LiveController } from './live.controller'
@@ -28,6 +30,7 @@ import { SessionsService } from './sessions.service'
     EventsController,
     ReconcileController,
     ConfigController,
+    GitIdentityController,
   ],
   providers: [
     LiveService,
@@ -36,6 +39,7 @@ import { SessionsService } from './sessions.service'
     ReconcileService,
     BotStatusService,
     ConfigService,
+    GitIdentityService,
   ],
 })
 export class ConsoleModule {}
