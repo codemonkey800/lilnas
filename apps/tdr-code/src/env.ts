@@ -1,5 +1,8 @@
 export const EnvKeys = {
   BACKEND_PORT: 'BACKEND_PORT',
+  // Phase C: path to the 32-byte AES-256-GCM master key file (chmod 600,
+  // outside the Tier-1 backup tree).
+  TDR_CODE_MASTER_KEY_FILE: 'TDR_CODE_MASTER_KEY_FILE',
   DISCORD_API_TOKEN: 'DISCORD_API_TOKEN',
   DISCORD_GUILD_ID: 'DISCORD_GUILD_ID',
   NODE_ENV: 'NODE_ENV',

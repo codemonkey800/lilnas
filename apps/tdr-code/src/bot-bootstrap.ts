@@ -3,9 +3,19 @@ import { Logger } from 'nestjs-pino'
 
 import { SessionManagerService } from './agent/session-manager.service'
 import { BotModule } from './bot.module'
+import { loadMasterKey } from './crypto/master-key'
 import { BotLifecycleService } from './discord/bot-lifecycle.service'
 
 export async function bootstrapBot() {
+  // Mirror bootstrap.ts umask so tmpfs key files (U9) are not world-readable
+  // before their chmod 600 (Decision #7 TOCTOU mitigation).
+  process.umask(0o077)
+
+  // Fail fast if the master key is missing — never boot into a silent
+  // fleet-wide decrypt_failed state (Decision #7). Must run before any module
+  // init so a crash here is clearly the key-provisioning issue.
+  loadMasterKey()
+
   const app = await NestFactory.createApplicationContext(BotModule, {
     bufferLogs: true,
   })

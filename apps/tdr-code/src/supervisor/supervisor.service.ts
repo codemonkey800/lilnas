@@ -74,8 +74,12 @@ export function defaultSpawn(): SupervisorSpawn {
 
 function buildBotEnv(generationId: number): NodeJS.ProcessEnv {
   // Explicit allowlist — never inherit the full process.env so that
-  // main-server-only secrets (and future Phase-C keys) cannot reach the
-  // skip-permissions agent tree.
+  // main-server-only secrets cannot reach the skip-permissions agent tree.
+  // NOTE: TDR_CODE_MASTER_KEY_FILE passes the *path* (not the bytes) to the
+  // bot so it can load the key at startup. This is consistent with the honest
+  // threat model (Decision #10a: same-uid agent can read the key regardless);
+  // it does relax the original "no Phase-C keys reach the agent tree" comment,
+  // but the bot — unlike the agent subprocess it spawns — is trusted code.
   const allow: Record<string, string | undefined> = {
     BOT_GENERATION_ID: String(generationId),
     DATABASE_PATH: process.env[EnvKeys.DATABASE_PATH],
@@ -94,6 +98,8 @@ function buildBotEnv(generationId: number): NodeJS.ProcessEnv {
       process.env[EnvKeys.BOT_HEARTBEAT_STALE_THRESHOLD_MS],
     AGENT_IDLE_TIMEOUT_SECONDS: process.env[EnvKeys.AGENT_IDLE_TIMEOUT_SECONDS],
     AGENT_MAX_SESSIONS: process.env[EnvKeys.AGENT_MAX_SESSIONS],
+    // Phase C: master key file path needed by the bot's loadMasterKey() at boot.
+    TDR_CODE_MASTER_KEY_FILE: process.env[EnvKeys.TDR_CODE_MASTER_KEY_FILE],
   }
   // Strip undefined values.
   const envObj: Record<string, string> = {}
