@@ -28,6 +28,7 @@ import type {
   ImageAttachment,
   PromptOutcome,
 } from './agent.types'
+import { globalGitWriteLock } from './git-write-lock'
 import { buildPromptBlocks } from './message-bridge'
 
 interface ManagedSession {
@@ -44,6 +45,10 @@ interface ManagedSession {
   currentTurnId: number
   queue: Array<{ text: string; userId: string; images: ImageAttachment[] }>
   activeUserId: string
+  // C1/U8: set synchronously by cancel() during the lock-acquire window so the
+  // turn can short-circuit before connection.prompt (Decision #5). Reset at
+  // the top of executePrompt's synchronous prologue alongside C3 turnId mint.
+  cancelRequested: boolean
 }
 
 @Injectable()
@@ -145,6 +150,10 @@ export class SessionManagerService implements OnApplicationShutdown {
     if (!session.prompting) return false
     if (turnId !== undefined && turnId !== session.currentTurnId) return false
     session.queue = []
+    // U8: signal the lock-acquire/identity-application window to abort before
+    // connection.prompt (Decision #5). The flag is reset synchronously at the
+    // start of the next executePrompt prologue so a drained turn is unaffected.
+    session.cancelRequested = true
     this.syncLiveStatus(session)
     void session.connection.cancel({ sessionId: session.sessionId })
     return true
@@ -226,8 +235,12 @@ export class SessionManagerService implements OnApplicationShutdown {
   ): Promise<PromptOutcome> {
     // C3: Mint turn id at the top of executePrompt, before the await, so each
     // queued drain auto-mints a fresh id for the next turn.
+    // U8: Reset cancelRequested here in the same synchronous span as the C3
+    // turnId mint so a drained turn's flag is cleared before prompting=true
+    // (Decision #5 — a Stop for the previous turn cannot cancel the next turn).
     const turnId = ++this.turnCounter
     session.currentTurnId = turnId
+    session.cancelRequested = false
     session.prompting = true
     session.activeUserId = userId
     // U5: sync live_status before the await (prompting=true transition).
@@ -236,9 +249,25 @@ export class SessionManagerService implements OnApplicationShutdown {
       sessionRowId: session.sessionRowId,
       prompt: { text, images },
     })
-    // C1: Do not add any `await` between here and the finally-drain.
-    // Stop-cancel race safety depends on this synchronous span (see plan Decision #2 / C1).
+
+    // U8: Acquire the global git-write lock AFTER the synchronous prologue
+    // (preserves C1's guarantee up to the lock await). The lock spans the entire
+    // turn because the agent runs git at arbitrary, undetectable points
+    // (Decision #4). Release is unconditionally at the top of the finally block
+    // — see the release placement comment below.
+    let gitRelease: (() => void) | null = null
     try {
+      gitRelease = await globalGitWriteLock.acquire(session.channelId)
+
+      // U8: Single cancelRequested check immediately before connection.prompt —
+      // the latest possible point. Narrows the stop-cancel window opened by the
+      // lock-acquire await (Decision #5). A cancel that lands in the residual
+      // check→prompt tick still relies on the existing ACP cancel tolerance.
+      if (session.cancelRequested) {
+        this.handlers.onPromptComplete(session.channelId, 'cancelled')
+        return { kind: 'queued' } // treated as a queued-then-cancelled turn
+      }
+
       const result = await session.connection.prompt({
         sessionId: session.sessionId,
         prompt: buildPromptBlocks(text, images),
@@ -257,6 +286,18 @@ export class SessionManagerService implements OnApplicationShutdown {
       this.teardown(session.channelId, 'teardown')
       throw err
     } finally {
+      // U8: Release the git-write lock UNCONDITIONALLY at the top of the finally
+      // block, BEFORE the sessions.has drain guard. This placement is load-
+      // bearing: on the error/teardown path teardown() deletes the session from
+      // the map before finally runs, so a release nested inside the drain guard
+      // would be skipped → permanent cross-channel deadlock (Decision #4).
+      // Releasing here also precedes the recursive drain so the queued turn
+      // re-acquires cleanly.
+      if (gitRelease) {
+        gitRelease()
+        gitRelease = null
+      }
+
       session.prompting = false
       // U5: sync live_status after prompting=false (drain transition).
       if (this.sessions.has(session.channelId)) {
@@ -343,6 +384,11 @@ export class SessionManagerService implements OnApplicationShutdown {
       if (session?.process === proc) {
         clearTimeout(session.idleTimer)
         this.sessions.delete(channelId)
+        // U8: The process died before connection.prompt was called (or during
+        // the lock-acquire window) — executePrompt's finally may not have run
+        // yet. Release the lock if this channel holds it so the next channel
+        // is not permanently wedged (Decision #4, belt-and-suspenders).
+        globalGitWriteLock.releaseIfHeldBy(channelId)
         if (this.generationId != null) {
           try {
             if (session.sessionRowId != null) {
@@ -368,6 +414,8 @@ export class SessionManagerService implements OnApplicationShutdown {
       if (session?.process === proc) {
         clearTimeout(session.idleTimer)
         this.sessions.delete(channelId)
+        // U8: Belt-and-suspenders lock release (same reasoning as proc.on('error')).
+        globalGitWriteLock.releaseIfHeldBy(channelId)
         if (code !== 0 && code !== null) {
           console.warn(
             `Agent process for channel ${channelId} exited with code ${code}`,
@@ -488,6 +536,7 @@ export class SessionManagerService implements OnApplicationShutdown {
       currentTurnId: 0,
       queue: [],
       activeUserId: userId,
+      cancelRequested: false,
     }
 
     this.sessions.set(channelId, managed)
