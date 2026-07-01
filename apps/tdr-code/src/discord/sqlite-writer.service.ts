@@ -249,4 +249,8 @@ export class SqliteWriterService implements AcpEventHandlers {
       currentTurnRowId: null,
     })
   }
+
+  // The writer has no Discord channel access; the DB event is emitted by
+  // GitTurnContext.begin(). This is a required no-op to satisfy AcpEventHandlers.
+  onGitPushBlocked(_channelId: string, _reason: string): void {}
 }
