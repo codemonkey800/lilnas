@@ -33,6 +33,7 @@ export function createMockThreadChannel(
     isTextBased: jest.fn().mockReturnValue(true),
     isThread: jest.fn().mockReturnValue(true),
     isDMBased: jest.fn().mockReturnValue(false),
+    setName: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   }
 }

@@ -5,6 +5,7 @@ import {
   AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
+  type Channel,
   ChannelType,
   Client,
   Events,
@@ -37,6 +38,14 @@ const FALLBACK_THREAD_NAME = 'New session'
 // 24 hours — chosen default autoArchiveDuration (in minutes) for created
 // threads (plan Decision, U2).
 const THREAD_AUTO_ARCHIVE_MINUTES = 1440
+// Discord documents ~2 thread renames per 10 minutes, per thread. Throttling
+// to one rename per 5 minutes keeps us comfortably under that limit even
+// with imprecise timing (U6, R12).
+const THREAD_RENAME_THROTTLE_MS = 5 * 60 * 1000
+// A rate-limited ThreadChannel.setName() can silently hang forever (never
+// resolve or reject) — race it against this timeout so our bookkeeping
+// always proceeds promptly regardless of Discord's behavior (U6).
+const THREAD_RENAME_TIMEOUT_MS = 10_000
 // Guild channel types that support message.startThread(); GuildForum uses a
 // separate thread-creation flow and isn't posted to directly, so it's
 // intentionally excluded (treated as non-threadable → inline fallback).
@@ -60,6 +69,15 @@ function truncateAtWordBoundary(text: string, maxLength: number): string {
 function buildThreadName(strippedText: string): string {
   const truncated = truncateAtWordBoundary(strippedText, THREAD_NAME_MAX_LENGTH)
   return truncated.length > 0 ? truncated : FALLBACK_THREAD_NAME
+}
+
+// Per-channel thread-rename tracking (U6): the last title we applied (for
+// dedupe), when we last attempted a rename (for throttling), and whether
+// we've ever attempted one (the first rename is exempt from the throttle).
+interface ThreadRenameState {
+  lastAppliedTitle: string
+  lastRenameAt: number
+  hasRenamedOnce: boolean
 }
 
 interface ChannelState {
@@ -92,6 +110,8 @@ export class DiscordHandlerService
   // Per-channel outbound send chain: serializes image sends (and any other tasks
   // enqueued via enqueueSend) to prevent out-of-order delivery and text-loss races.
   private readonly sendChains = new Map<string, Promise<void>>()
+  // Per-channel thread-rename dedupe/throttle state (U6). See ThreadRenameState.
+  private readonly threadRenameStates = new Map<string, ThreadRenameState>()
 
   constructor(
     @Inject(Client) private readonly client: Client,
@@ -200,11 +220,14 @@ export class DiscordHandlerService
     void this.finalizeTurn(channelId, state, stopReason)
   }
 
-  // Stub for now — the real implementation (fetch thread, rename with dedupe +
-  // rate-limit handling) lands in a later unit (U6).
-  onSessionInfoUpdate(_channelId: string, _title: string): void {
-    void _channelId
-    void _title
+  // Renames the channel's Discord thread to the agent-reported session title
+  // (U6, R12). Callers (the ACP dispatcher, via CompositeAcpHandler) always
+  // pass a real, non-empty title — see agent.types.ts. Stays synchronous per
+  // the C1 discipline every handler here follows; the actual fetch+rename is
+  // fire-and-forget and must never block or wedge turn processing even if
+  // Discord silently hangs the rename (rate-limit failure mode).
+  onSessionInfoUpdate(channelId: string, title: string): void {
+    void this.renameThread(channelId, title)
   }
 
   // U5: fired by SessionManagerService.reactivateSession on a genuine
@@ -727,6 +750,66 @@ export class DiscordHandlerService
       name: `image.${ext}`,
     })
     await channel.send({ files: [attachment] }).catch(() => {})
+  }
+
+  // Fetches the channel, confirms it's an actual thread (a title update for
+  // an inline/DM session is a no-op), and applies dedupe + throttle before
+  // issuing a fire-and-forget, timeout-guarded rename (U6, R12).
+  //
+  // fetchChannel() is typed as TextChannel for its other (majority) callers,
+  // but TextChannel and ThreadChannel are unrelated sibling classes in
+  // discord.js, so TextChannel['isThread'] statically narrows to `never` —
+  // it can never actually be a thread per the type system, even though at
+  // runtime the cache/fetch can return one. Re-view the result as the real
+  // discord.js Channel union (which does include thread channel types) so
+  // isThread() narrows to an actual renameable ThreadChannel.
+  private async renameThread(channelId: string, title: string): Promise<void> {
+    const fetched = await this.fetchChannel(channelId)
+    const channel = fetched as unknown as Channel | null
+    if (!channel || !channel.isThread()) return
+
+    const state = this.threadRenameStates.get(channelId) ?? {
+      lastAppliedTitle: '',
+      lastRenameAt: 0,
+      hasRenamedOnce: false,
+    }
+
+    if (title === state.lastAppliedTitle) return
+
+    const now = Date.now()
+    const isFirstRename = !state.hasRenamedOnce
+    if (
+      !isFirstRename &&
+      now - state.lastRenameAt < THREAD_RENAME_THROTTLE_MS
+    ) {
+      // Within the throttle window and not the exempt first rename — drop
+      // this title change. Accepted UX lag: the thread keeps its earlier
+      // name until the next allowed slot (plan Decision, U6).
+      return
+    }
+
+    // Update bookkeeping before the rename settles — we're not waiting on
+    // confirmation anyway (fire-and-forget), and a hung/rate-limited
+    // setName() must not block bookkeeping for the *next* rename attempt.
+    state.lastAppliedTitle = title
+    state.lastRenameAt = now
+    state.hasRenamedOnce = true
+    this.threadRenameStates.set(channelId, state)
+
+    // Race against a timeout so a silently-hung setName() (Discord's
+    // documented rate-limit failure mode) can never leak — and swallow
+    // genuine rejections (e.g. missing Manage Threads permission).
+    void Promise.race([
+      channel.setName(title),
+      this.timeoutPromise(THREAD_RENAME_TIMEOUT_MS),
+    ]).catch(() => {})
+  }
+
+  private timeoutPromise(ms: number): Promise<void> {
+    return new Promise(resolve => {
+      const t = setTimeout(resolve, ms)
+      t.unref()
+    })
   }
 
   private async fetchChannel(channelId: string): Promise<TextChannel | null> {

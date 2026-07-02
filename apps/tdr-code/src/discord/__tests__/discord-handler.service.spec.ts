@@ -969,3 +969,159 @@ describe('DiscordHandlerService — thread-aware routing (U2)', () => {
     expect(typingIntervals(service).size).toBe(0)
   })
 })
+
+describe('DiscordHandlerService — onSessionInfoUpdate / thread rename (U6)', () => {
+  beforeEach(() => jest.useFakeTimers())
+  afterEach(() => jest.useRealTimers())
+
+  it('renames the thread on the happy path (R12)', async () => {
+    const setName = jest.fn().mockResolvedValue(undefined)
+    const thread = createMockThreadChannel({ id: 'thread-1', setName })
+    const service = await createService(
+      createMockClient(new Map([['thread-1', thread]])),
+    )
+
+    service.onSessionInfoUpdate('thread-1', 'Refactor auth module')
+    await jest.advanceTimersByTimeAsync(0)
+
+    expect(setName).toHaveBeenCalledTimes(1)
+    expect(setName).toHaveBeenCalledWith('Refactor auth module')
+  })
+
+  it('does not re-issue a rename for the same title (dedupe)', async () => {
+    const setName = jest.fn().mockResolvedValue(undefined)
+    const thread = createMockThreadChannel({ id: 'thread-1', setName })
+    const service = await createService(
+      createMockClient(new Map([['thread-1', thread]])),
+    )
+
+    service.onSessionInfoUpdate('thread-1', 'Refactor auth module')
+    await jest.advanceTimersByTimeAsync(0)
+    service.onSessionInfoUpdate('thread-1', 'Refactor auth module')
+    await jest.advanceTimersByTimeAsync(0)
+
+    expect(setName).toHaveBeenCalledTimes(1)
+  })
+
+  it('throttles distinct titles within the window, then applies the latest on the next allowed slot', async () => {
+    const setName = jest.fn().mockResolvedValue(undefined)
+    const thread = createMockThreadChannel({ id: 'thread-1', setName })
+    const service = await createService(
+      createMockClient(new Map([['thread-1', thread]])),
+    )
+
+    // First rename — exempt from the throttle, always goes through.
+    service.onSessionInfoUpdate('thread-1', 'Title A')
+    await jest.advanceTimersByTimeAsync(0)
+    expect(setName).toHaveBeenCalledTimes(1)
+    expect(setName).toHaveBeenLastCalledWith('Title A')
+
+    // A second, distinct title arrives inside the throttle window — dropped.
+    jest.advanceTimersByTime(60_000)
+    service.onSessionInfoUpdate('thread-1', 'Title B')
+    await jest.advanceTimersByTimeAsync(0)
+    expect(setName).toHaveBeenCalledTimes(1)
+
+    // A third, distinct title arrives, still inside the window — also dropped.
+    jest.advanceTimersByTime(60_000)
+    service.onSessionInfoUpdate('thread-1', 'Title C')
+    await jest.advanceTimersByTimeAsync(0)
+    expect(setName).toHaveBeenCalledTimes(1)
+
+    // Advance past the throttle window (5 min from the first rename) and send
+    // a fourth title — the next allowed slot applies the *latest* title, not
+    // the one that arrived mid-window (last-write-wins).
+    jest.advanceTimersByTime(5 * 60 * 1000)
+    service.onSessionInfoUpdate('thread-1', 'Title D')
+    await jest.advanceTimersByTimeAsync(0)
+    expect(setName).toHaveBeenCalledTimes(2)
+    expect(setName).toHaveBeenLastCalledWith('Title D')
+  })
+
+  it('a hung setName() does not block bookkeeping or later renames on other channels or after the throttle window', async () => {
+    // setName() that never settles — simulates Discord's silent rate-limit hang.
+    const hungSetName = jest.fn().mockReturnValue(new Promise(() => {}))
+    const hungThread = createMockThreadChannel({
+      id: 'thread-hung',
+      setName: hungSetName,
+    })
+    const otherSetName = jest.fn().mockResolvedValue(undefined)
+    const otherThread = createMockThreadChannel({
+      id: 'thread-other',
+      setName: otherSetName,
+    })
+    const service = await createService(
+      createMockClient(
+        new Map([
+          ['thread-hung', hungThread],
+          ['thread-other', otherThread],
+        ]),
+      ),
+    )
+
+    // onSessionInfoUpdate itself must return synchronously without throwing,
+    // even though the underlying setName() never resolves or rejects.
+    expect(() => {
+      service.onSessionInfoUpdate('thread-hung', 'Title A')
+    }).not.toThrow()
+    await jest.advanceTimersByTimeAsync(0)
+    expect(hungSetName).toHaveBeenCalledTimes(1)
+
+    // A different channel's rename is unaffected by the hung promise.
+    service.onSessionInfoUpdate('thread-other', 'Unrelated title')
+    await jest.advanceTimersByTimeAsync(0)
+    expect(otherSetName).toHaveBeenCalledTimes(1)
+
+    // After the throttle window elapses, the hung channel accepts a new
+    // rename attempt — bookkeeping was updated even though the original
+    // setName() call is still (and will forever be) unsettled.
+    jest.advanceTimersByTime(5 * 60 * 1000)
+    service.onSessionInfoUpdate('thread-hung', 'Title B')
+    await jest.advanceTimersByTimeAsync(0)
+    expect(hungSetName).toHaveBeenCalledTimes(2)
+    expect(hungSetName).toHaveBeenLastCalledWith('Title B')
+  })
+
+  it('never calls setName for a non-thread channel (DM/inline)', async () => {
+    const setName = jest.fn()
+    const channel = createMockTextChannel({ id: 'ch1', setName })
+    const service = await createService(
+      createMockClient(new Map([['ch1', channel]])),
+    )
+
+    service.onSessionInfoUpdate('ch1', 'Some title')
+    await jest.advanceTimersByTimeAsync(0)
+
+    expect(setName).not.toHaveBeenCalled()
+  })
+
+  it('swallows a setName() rejection (e.g. missing Manage Threads permission) without throwing', async () => {
+    const setName = jest
+      .fn()
+      .mockRejectedValue(new Error('Missing Permissions'))
+    const thread = createMockThreadChannel({ id: 'thread-1', setName })
+    const service = await createService(
+      createMockClient(new Map([['thread-1', thread]])),
+    )
+
+    expect(() => {
+      service.onSessionInfoUpdate('thread-1', 'Refactor auth module')
+    }).not.toThrow()
+    await jest.advanceTimersByTimeAsync(0)
+
+    expect(setName).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not crash when the channel cannot be fetched (fetchChannel resolves null)', async () => {
+    const mockClient = createMockClient()
+    ;(mockClient.channels.fetch as jest.Mock).mockRejectedValue(
+      new Error('Unknown Channel'),
+    )
+    const service = await createService(mockClient)
+
+    expect(() => {
+      service.onSessionInfoUpdate('thread-missing', 'Some title')
+    }).not.toThrow()
+    await jest.advanceTimersByTimeAsync(0)
+  })
+})
