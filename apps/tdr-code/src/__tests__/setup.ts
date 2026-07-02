@@ -35,7 +35,20 @@ jest.mock('discord.js', () => ({
     MessageCreate: 'messageCreate',
     InteractionCreate: 'interactionCreate',
   },
-  ChannelType: { GuildText: 0, DM: 1, GuildVoice: 2 },
+  ChannelType: {
+    GuildText: 0,
+    DM: 1,
+    GuildVoice: 2,
+    GuildAnnouncement: 5,
+    AnnouncementThread: 10,
+    PublicThread: 11,
+    PrivateThread: 12,
+    GuildForum: 15,
+  },
+  PermissionFlagsBits: {
+    CreatePublicThreads: 1n,
+    SendMessagesInThreads: 2n,
+  },
   Collection: class Collection extends Map {
     some(
       fn: (value: unknown, key: unknown, col: Map<unknown, unknown>) => boolean,

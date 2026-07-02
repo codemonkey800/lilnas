@@ -4,6 +4,7 @@ import { Client } from 'discord.js'
 import {
   createMockMessage,
   createMockTextChannel,
+  createMockThreadChannel,
   createTestingModule,
 } from 'src/__tests__/test-utils'
 import type { PromptOutcome } from 'src/agent/agent.types'
@@ -591,6 +592,331 @@ describe('DiscordHandlerService — onMessage / inbound images (U4)', () => {
     // sendTyping was fired (typing started)
     expect(sendTyping).toHaveBeenCalledTimes(1)
     // After catch, typing interval was cleaned up
+    expect(typingIntervals(service).size).toBe(0)
+  })
+})
+
+describe('DiscordHandlerService — thread-aware routing (U2)', () => {
+  beforeEach(() => {
+    // Default: no images extracted (some tests below override per-case).
+    mockExtractImages.mockResolvedValue([])
+  })
+
+  // Full permission grant: bot has CreatePublicThreads + SendMessagesInThreads.
+  function allowThreadCreation() {
+    return {
+      guild: {
+        members: { me: { id: 'bot-member' } },
+      },
+      channel: {
+        type: 0 /* GuildText */,
+        isThread: jest.fn().mockReturnValue(false),
+        isDMBased: jest.fn().mockReturnValue(false),
+        permissionsFor: jest.fn().mockReturnValue({
+          has: jest.fn().mockReturnValue(true),
+        }),
+      },
+    }
+  }
+
+  it('top-level mention in a GuildText channel creates a thread and prompts with the thread id (AE1, R1/R2)', async () => {
+    const threadChannel = createMockThreadChannel({ id: 'thread-abc' })
+    const startThread = jest.fn().mockResolvedValue(threadChannel)
+    const { service, mockPrompt } = await createServiceWithSessionMgr()
+    const message = makeMentionMessage('please help me with this task', {
+      ...allowThreadCreation(),
+      startThread,
+    })
+
+    await service.onMessage([message] as never)
+
+    expect(startThread).toHaveBeenCalledTimes(1)
+    const call = startThread.mock.calls[0][0] as {
+      name: string
+      autoArchiveDuration: number
+    }
+    expect(call.name).toBe('please help me with this task')
+    expect(call.name.length).toBeLessThanOrEqual(100)
+    expect(call.autoArchiveDuration).toBe(1440)
+
+    expect(mockPrompt).toHaveBeenCalledWith(
+      'thread-abc',
+      'please help me with this task',
+      'user-1',
+      [],
+    )
+  })
+
+  it('truncates a long prompt at a word boundary for the thread name (<=100 chars)', async () => {
+    const longText =
+      'this is a very long message that should definitely exceed the ninety character budget we reserve for thread names before Discord rejects it outright'
+    const threadChannel = createMockThreadChannel({ id: 'thread-long' })
+    const startThread = jest.fn().mockResolvedValue(threadChannel)
+    const { service } = await createServiceWithSessionMgr()
+    const message = makeMentionMessage(longText, {
+      ...allowThreadCreation(),
+      startThread,
+    })
+
+    await service.onMessage([message] as never)
+
+    const call = startThread.mock.calls[0][0] as { name: string }
+    expect(call.name.length).toBeLessThanOrEqual(100)
+    expect(call.name.endsWith('…')).toBe(true)
+    // Truncated at a word boundary — no cut mid-word before the ellipsis.
+    expect(longText.startsWith(call.name.slice(0, -1))).toBe(true)
+  })
+
+  it('mention with an image but empty text in a threadable channel uses the "New session" fallback name', async () => {
+    const fakeImage = { data: 'abc', mimeType: 'image/png' }
+    mockExtractImages.mockResolvedValue([fakeImage])
+
+    const threadChannel = createMockThreadChannel({ id: 'thread-bare' })
+    const startThread = jest.fn().mockResolvedValue(threadChannel)
+    const { service, mockPrompt } = await createServiceWithSessionMgr()
+    const message = makeMentionMessage('', {
+      ...allowThreadCreation(),
+      startThread,
+      attachments: { values: jest.fn().mockReturnValue(['fake-attachment']) },
+    })
+
+    await service.onMessage([message] as never)
+
+    expect(startThread).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'New session' }),
+    )
+    expect(mockPrompt).toHaveBeenCalledWith('thread-bare', '', 'user-1', [
+      fakeImage,
+    ])
+  })
+
+  it('mention inside an existing thread continues that thread — no startThread, prompt uses the thread id (R3)', async () => {
+    const startThread = jest.fn()
+    const { service, mockPrompt } = await createServiceWithSessionMgr()
+    const message = makeMentionMessage('continue please', {
+      channelId: 'thread-existing',
+      channel: {
+        type: 11 /* PublicThread */,
+        id: 'thread-existing',
+        isThread: jest.fn().mockReturnValue(true),
+        isDMBased: jest.fn().mockReturnValue(false),
+      },
+      startThread,
+    })
+
+    await service.onMessage([message] as never)
+
+    expect(startThread).not.toHaveBeenCalled()
+    expect(mockPrompt).toHaveBeenCalledWith(
+      'thread-existing',
+      'continue please',
+      'user-1',
+      [],
+    )
+  })
+
+  it('mention in a DM never creates a thread — prompt uses the DM channel id (AE6, R4)', async () => {
+    const startThread = jest.fn()
+    const { service, mockPrompt } = await createServiceWithSessionMgr()
+    const message = makeMentionMessage('hello from dm', {
+      channelId: 'dm-channel-1',
+      channel: {
+        type: 1 /* DM */,
+        isThread: jest.fn().mockReturnValue(false),
+        isDMBased: jest.fn().mockReturnValue(true),
+      },
+      startThread,
+    })
+
+    await service.onMessage([message] as never)
+
+    expect(startThread).not.toHaveBeenCalled()
+    expect(mockPrompt).toHaveBeenCalledWith(
+      'dm-channel-1',
+      'hello from dm',
+      'user-1',
+      [],
+    )
+  })
+
+  it('two top-level mentions on two different messages in the same channel create two distinct threads (AE5, R5)', async () => {
+    const threadA = createMockThreadChannel({ id: 'thread-a' })
+    const threadB = createMockThreadChannel({ id: 'thread-b' })
+    const startThreadA = jest.fn().mockResolvedValue(threadA)
+    const startThreadB = jest.fn().mockResolvedValue(threadB)
+    const { service, mockPrompt } = await createServiceWithSessionMgr()
+
+    const messageA = makeMentionMessage('first conversation', {
+      ...allowThreadCreation(),
+      startThread: startThreadA,
+    })
+    const messageB = makeMentionMessage('second conversation', {
+      ...allowThreadCreation(),
+      startThread: startThreadB,
+    })
+
+    await service.onMessage([messageA] as never)
+    await service.onMessage([messageB] as never)
+
+    expect(startThreadA).toHaveBeenCalledTimes(1)
+    expect(startThreadB).toHaveBeenCalledTimes(1)
+    expect(mockPrompt).toHaveBeenNthCalledWith(
+      1,
+      'thread-a',
+      'first conversation',
+      'user-1',
+      [],
+    )
+    expect(mockPrompt).toHaveBeenNthCalledWith(
+      2,
+      'thread-b',
+      'second conversation',
+      'user-1',
+      [],
+    )
+  })
+
+  it('non-threadable guild channel (GuildVoice) never calls startThread — inline fallback with the channel id', async () => {
+    const startThread = jest.fn()
+    const { service, mockPrompt } = await createServiceWithSessionMgr()
+    const message = makeMentionMessage('voice channel mention', {
+      guild: { members: { me: { id: 'bot-member' } } },
+      channel: {
+        type: 2 /* GuildVoice */,
+        isThread: jest.fn().mockReturnValue(false),
+        isDMBased: jest.fn().mockReturnValue(false),
+        permissionsFor: jest.fn().mockReturnValue({
+          has: jest.fn().mockReturnValue(true),
+        }),
+      },
+      startThread,
+    })
+
+    await service.onMessage([message] as never)
+
+    expect(startThread).not.toHaveBeenCalled()
+    expect(mockPrompt).toHaveBeenCalledWith(
+      'ch1',
+      'voice channel mention',
+      'user-1',
+      [],
+    )
+  })
+
+  it('bot lacking CreatePublicThreads permission never calls startThread — inline fallback', async () => {
+    const startThread = jest.fn()
+    const { service, mockPrompt } = await createServiceWithSessionMgr()
+    const message = makeMentionMessage('no perms here', {
+      guild: { members: { me: { id: 'bot-member' } } },
+      channel: {
+        type: 0 /* GuildText */,
+        isThread: jest.fn().mockReturnValue(false),
+        isDMBased: jest.fn().mockReturnValue(false),
+        permissionsFor: jest.fn().mockReturnValue({
+          // Missing CreatePublicThreads (and SendMessagesInThreads)
+          has: jest.fn().mockReturnValue(false),
+        }),
+      },
+      startThread,
+    })
+
+    await service.onMessage([message] as never)
+
+    expect(startThread).not.toHaveBeenCalled()
+    expect(mockPrompt).toHaveBeenCalledWith(
+      'ch1',
+      'no perms here',
+      'user-1',
+      [],
+    )
+  })
+
+  it('startThread rejecting falls back to inline routing — the turn is still submitted (error path)', async () => {
+    const startThread = jest.fn().mockRejectedValue(new Error('rate limited'))
+    const { service, mockPrompt } = await createServiceWithSessionMgr()
+    const message = makeMentionMessage('this should still go through', {
+      ...allowThreadCreation(),
+      startThread,
+    })
+
+    await service.onMessage([message] as never)
+
+    expect(startThread).toHaveBeenCalledTimes(1)
+    expect(mockPrompt).toHaveBeenCalledWith(
+      'ch1',
+      'this should still go through',
+      'user-1',
+      [],
+    )
+  })
+
+  it('a non-mention message inside a thread never triggers a turn (AE2, R6)', async () => {
+    const startThread = jest.fn()
+    const { service, mockPrompt } = await createServiceWithSessionMgr()
+    const message = makeMentionMessage('just chatting, no mention', {
+      channelId: 'thread-existing',
+      channel: {
+        type: 11 /* PublicThread */,
+        isThread: jest.fn().mockReturnValue(true),
+        isDMBased: jest.fn().mockReturnValue(false),
+      },
+      mentions: { has: jest.fn().mockReturnValue(false) },
+      startThread,
+    })
+
+    await service.onMessage([message] as never)
+
+    expect(startThread).not.toHaveBeenCalled()
+    expect(mockPrompt).not.toHaveBeenCalled()
+  })
+
+  it('leaves no lingering typing interval on the parent channel once a thread turn completes (typing symmetry)', async () => {
+    const parentSendTyping = jest.fn().mockResolvedValue(undefined)
+    const threadSendTyping = jest.fn().mockResolvedValue(undefined)
+    const parentChannel = createMockTextChannel({
+      id: 'ch1',
+      sendTyping: parentSendTyping,
+    })
+    const threadChannel = createMockThreadChannel({
+      id: 'thread-typing',
+      sendTyping: threadSendTyping,
+    })
+    const startThread = jest.fn().mockResolvedValue(threadChannel)
+
+    const { service, mockSessionManager } = await createServiceWithSessionMgr(
+      { kind: 'completed', stopReason: 'end_turn' },
+      {
+        channels: {
+          cache: new Map([
+            ['ch1', parentChannel],
+            ['thread-typing', threadChannel],
+          ]),
+          fetch: jest.fn(),
+        },
+      },
+    )
+    const message = makeMentionMessage('start a thread please', {
+      ...allowThreadCreation(),
+      startThread,
+    })
+
+    await service.onMessage([message] as never)
+    await new Promise(r => setImmediate(r))
+
+    // Typing was started on the thread, not the parent channel.
+    expect(threadSendTyping).toHaveBeenCalled()
+    expect(parentSendTyping).not.toHaveBeenCalled()
+    expect(typingIntervals(service).has('thread-typing')).toBe(true)
+    expect(typingIntervals(service).has('ch1')).toBe(false)
+
+    // Simulate the turn completing — onPromptComplete is keyed on the
+    // resolved thread id (mirrors what SessionManagerService would call).
+    void mockSessionManager
+    service.onPromptComplete('thread-typing', 'end_turn')
+
+    // No lingering interval anywhere — especially not on the parent channel.
+    expect(typingIntervals(service).has('thread-typing')).toBe(false)
+    expect(typingIntervals(service).has('ch1')).toBe(false)
     expect(typingIntervals(service).size).toBe(0)
   })
 })

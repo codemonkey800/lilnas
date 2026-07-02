@@ -5,9 +5,11 @@ import {
   AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelType,
   Client,
   Events,
   type Message,
+  PermissionFlagsBits,
   type TextChannel,
 } from 'discord.js'
 import { Context, type ContextOf, On } from 'necord'
@@ -27,6 +29,38 @@ import {
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { extractImages, MAX_IMAGE_BYTES } from 'src/discord/image-attachments'
 import { stopButtonId } from 'src/discord/stop-button-id'
+
+// Discord's hard limit on thread names is 100 chars; seed shorter to leave
+// headroom for the eventual title-based rename (U6).
+const THREAD_NAME_MAX_LENGTH = 90
+const FALLBACK_THREAD_NAME = 'New session'
+// 24 hours — chosen default autoArchiveDuration (in minutes) for created
+// threads (plan Decision, U2).
+const THREAD_AUTO_ARCHIVE_MINUTES = 1440
+// Guild channel types that support message.startThread(); GuildForum uses a
+// separate thread-creation flow and isn't posted to directly, so it's
+// intentionally excluded (treated as non-threadable → inline fallback).
+const THREADABLE_CHANNEL_TYPES: ReadonlySet<ChannelType> = new Set([
+  ChannelType.GuildText,
+  ChannelType.GuildAnnouncement,
+])
+
+// Truncate `text` to at most `maxLength` chars, preferring to break at a
+// word boundary and appending an ellipsis when truncated. Used to seed a
+// Discord thread name from the (already mention-stripped) prompt text.
+function truncateAtWordBoundary(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text
+  const budget = maxLength - 1 // reserve room for the ellipsis char
+  const slice = text.slice(0, budget)
+  const lastSpace = slice.lastIndexOf(' ')
+  const base = lastSpace > budget * 0.5 ? slice.slice(0, lastSpace) : slice
+  return base.trimEnd() + '…'
+}
+
+function buildThreadName(strippedText: string): string {
+  const truncated = truncateAtWordBoundary(strippedText, THREAD_NAME_MAX_LENGTH)
+  return truncated.length > 0 ? truncated : FALLBACK_THREAD_NAME
+}
 
 interface ChannelState {
   toolStates: Map<
@@ -192,16 +226,16 @@ export class DiscordHandlerService
       return
     }
 
-    const channelId = message.channelId
+    const key = await this.resolveSessionKey(message, text)
     const sessionManager = this.moduleRef.get(SessionManagerService, {
       strict: false,
     })
 
-    this.startTyping(channelId)
+    this.startTyping(key)
 
     try {
       const result = await sessionManager.prompt(
-        channelId,
+        key,
         text,
         message.author.id,
         images,
@@ -211,7 +245,7 @@ export class DiscordHandlerService
           .reply('⏳ Agent is working. Your message has been queued.')
           .catch(() => {})
       } else if (result.kind === 'no_image_support') {
-        this.stopTyping(channelId)
+        this.stopTyping(key)
         await message
           .reply(
             'This agent cannot read images, and no text was provided. Please include a text message.',
@@ -219,7 +253,7 @@ export class DiscordHandlerService
           .catch(() => {})
       }
     } catch (err) {
-      this.stopTyping(channelId)
+      this.stopTyping(key)
       const errMsg = err instanceof Error ? err.message : String(err)
       if (errMsg.includes('sessions are busy')) {
         await message
@@ -233,6 +267,64 @@ export class DiscordHandlerService
           .catch(() => {})
       }
     }
+  }
+
+  // --- Thread-aware routing (U2) ---
+
+  // Resolves the session key for an incoming mention: continue an existing
+  // thread, stay inline in a DM, create a new thread for a top-level mention
+  // in a threadable channel, or fall back to inline for anything else
+  // (non-threadable channel, missing perms, or a startThread failure). The
+  // caller's turn is never dropped — every branch resolves to a usable key.
+  private async resolveSessionKey(
+    message: Message,
+    strippedText: string,
+  ): Promise<string> {
+    const channel = message.channel
+
+    if (channel.isThread()) {
+      // R3: continue the existing thread's session.
+      return channel.id
+    }
+
+    if (channel.isDMBased()) {
+      // R4: DMs don't support threads — run inline keyed by the DM channel.
+      return message.channelId
+    }
+
+    if (this.canCreateThread(message)) {
+      try {
+        const thread = await message.startThread({
+          name: buildThreadName(strippedText),
+          autoArchiveDuration: THREAD_AUTO_ARCHIVE_MINUTES,
+        })
+        return thread.id
+      } catch {
+        // Resilience: never drop the user's turn because thread creation
+        // failed — fall through to the inline fallback below.
+      }
+    }
+
+    // Non-threadable channel type, missing perms, or a failed startThread.
+    return message.channelId
+  }
+
+  // Whether this message's channel is a type that supports startThread() and
+  // the bot has the permissions required to create + post in a public thread.
+  private canCreateThread(message: Message): boolean {
+    const channel = message.channel
+    if (!THREADABLE_CHANNEL_TYPES.has(channel.type)) return false
+
+    const me = message.guild?.members.me
+    if (!me || !('permissionsFor' in channel)) return false
+
+    const perms = channel.permissionsFor(me)
+    if (!perms) return false
+
+    return (
+      perms.has(PermissionFlagsBits.CreatePublicThreads) &&
+      perms.has(PermissionFlagsBits.SendMessagesInThreads)
+    )
   }
 
   // --- OnApplicationShutdown ---

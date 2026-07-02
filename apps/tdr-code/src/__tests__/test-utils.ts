@@ -12,8 +12,29 @@ export function createMockTextChannel(
     send: jest.fn().mockResolvedValue(createMockMessage()),
     sendTyping: jest.fn().mockResolvedValue(undefined),
     isTextBased: jest.fn().mockReturnValue(true),
+    isThread: jest.fn().mockReturnValue(false),
+    isDMBased: jest.fn().mockReturnValue(false),
     ...overrides,
   } as unknown as TextChannel
+}
+
+export function createMockThreadChannel(
+  overrides: Record<string, unknown> = {},
+): unknown {
+  return {
+    id: '444555666',
+    name: 'test-thread',
+    type: 11 /* PublicThread */,
+    // NOTE: resolves to a plain message literal (not createMockMessage())
+    // to avoid createMockMessage <-> createMockThreadChannel mutual
+    // recursion via their respective startThread/send defaults.
+    send: jest.fn().mockResolvedValue({ id: 'thread-sent-message' }),
+    sendTyping: jest.fn().mockResolvedValue(undefined),
+    isTextBased: jest.fn().mockReturnValue(true),
+    isThread: jest.fn().mockReturnValue(true),
+    isDMBased: jest.fn().mockReturnValue(false),
+    ...overrides,
+  }
 }
 
 export function createMockMessage(
@@ -24,10 +45,16 @@ export function createMockMessage(
     content: 'Test message',
     author: { id: 'user-123', bot: false },
     channelId: '111222333',
+    channel: {
+      type: 0,
+      isThread: jest.fn().mockReturnValue(false),
+      isDMBased: jest.fn().mockReturnValue(false),
+    },
     edit: jest.fn().mockResolvedValue({}),
     delete: jest.fn().mockResolvedValue({}),
     reply: jest.fn().mockResolvedValue({}),
     mentions: { has: jest.fn().mockReturnValue(false) },
+    startThread: jest.fn().mockResolvedValue(createMockThreadChannel()),
     ...overrides,
   } as unknown as Message
 }
