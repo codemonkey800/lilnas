@@ -76,7 +76,10 @@
     "zod": "4.1.12"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@babel/preset-env": "^7.29.7",
     "@lilnas/eslint": "workspace:*",
+    "@nestjs/testing": "11.1.6",
     "@tailwindcss/postcss": "^4.1.8",
     "@types/better-sqlite3": "^7.6.13",
     "@types/cookie-parser": "^1.4.9",
@@ -84,6 +87,7 @@
     "@types/node": "^22.0.0",
     "@types/sshpk": "^1.17.5",
     "autoprefixer": "^10.4.21",
+    "babel-jest": "^30.4.1",
     "drizzle-kit": "^0.31.9",
     "tailwindcss": "^4.1.8",
     "ts-jest": "^29.3.4"

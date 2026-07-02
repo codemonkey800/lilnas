@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { LoggerModule } from 'nestjs-pino'
 
+import { AuthModule } from './auth/auth.module'
 import { BotStatusController } from './bot/bot-status.controller'
 import { BotStatusService } from './bot/bot-status.service'
 import { HealthController } from './bot/health.controller'
@@ -17,6 +18,7 @@ import { SupervisorModule } from './supervisor/supervisor.module'
     LoggerModule.forRoot(buildLoggerOptions()),
     SupervisorModule,
     ConsoleModule,
+    AuthModule,
   ],
   controllers: [BotStatusController, HealthController],
   providers: [BotStatusService],

@@ -18,7 +18,20 @@ export async function bootstrapApp() {
   // a silent fleet-wide decrypt_failed state (Decision #7).
   loadMasterKey()
 
-  const app = await NestFactory.create(AppModule, { bufferLogs: true })
+  // bodyParser: false disables Nest's built-in body parser entirely.
+  // @thallesp/nestjs-better-auth's SkipBodyParsingMiddleware (wired via
+  // AuthModule in auth.module.ts) re-adds express.json()/urlencoded() for
+  // every route except the Better Auth mount's basePath ('/auth' — see
+  // auth.ts), so the console controllers' @Body() (PUT /config,
+  // POST /git-identity, etc.) still receive parsed JSON — see
+  // auth-mount.spec.ts for the regression guard. helmet()/cookieParser()
+  // below run as raw app.use() middleware ahead of any router-level body
+  // parsing either way, so this ordering is unaffected by the change: they
+  // read headers/cookies, not the body, and never consume it.
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: true,
+    bodyParser: false,
+  })
   app.useLogger(app.get(Logger))
   app.use(helmet())
   app.use(cookieParser())
