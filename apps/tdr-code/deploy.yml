@@ -38,8 +38,6 @@ services:
       - traefik.http.routers.tdr-code.rule=Host(`tdr-code.lilnas.io`)
       - traefik.http.routers.tdr-code.entrypoints=websecure
       - traefik.http.routers.tdr-code.tls.certresolver=le
-      # forward-auth stays until Phase D (Better Auth + guard cutover).
-      - traefik.http.routers.tdr-code.middlewares=forward-auth
       - traefik.http.services.tdr-code.loadbalancer.server.port=80
 
 networks:
