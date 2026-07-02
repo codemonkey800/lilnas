@@ -12,4 +12,35 @@ module.exports = {
       },
     ]
   },
+
+  // Frame protection for every Next-served page (login + the full console).
+  // U2's `helmet()` wraps ONLY the Nest app (:8082, reached exclusively
+  // through the '/api' rewrite) — it never sees a request for a page route,
+  // so without this, everything Next serves on :8080 (login, live, sessions,
+  // config, git-identity, events) is embeddable in a third-party iframe with
+  // zero clickjacking defense. `X-Frame-Options: DENY` is the legacy/
+  // broadly-supported header; `frame-ancestors 'none'` (via CSP) is the
+  // modern equivalent recommended alongside it (per Next's own docs: "CSP's
+  // frame-ancestors is a more modern alternative", kept as a supplement here
+  // rather than a replacement for maximum browser coverage). Neither header
+  // restricts what THIS page can navigate TO or embed ITSELF — only whether
+  // ANOTHER page can embed this one — so the Discord OAuth top-level
+  // redirect (this app -> Discord -> back) is unaffected.
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'X-Frame-Options',
+            value: 'DENY',
+          },
+          {
+            key: 'Content-Security-Policy',
+            value: "frame-ancestors 'none'",
+          },
+        ],
+      },
+    ]
+  },
 }

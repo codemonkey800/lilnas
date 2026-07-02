@@ -19,9 +19,54 @@ import type {
   SessionListResponseDto,
 } from 'src/console/sessions.dto'
 
+// Module-scoped flag collapsing a 401 STORM into a single redirect. This
+// file's request() is called from up to four concurrent
+// `refetchInterval: 5_000` polls (app/page.tsx, app/config/page.tsx,
+// app/components/bot-status-widget.tsx, app/sessions/[id]/page.tsx) — once a
+// session expires, all four (and any other in-flight requests) will 401
+// within the same tick or the next 5s window. Without this guard each of
+// those would independently call redirectToLogin(), which in a real browser
+// only ever navigates once anyway (the first navigation tears down the
+// page), but under test (jsdom, where `window.location.href =` is an
+// observable assignment rather than an actual navigation) and in any
+// future non-navigating caller, an unguarded handler would issue N
+// redirects for N concurrent 401s. Set once, on the FIRST 401 seen, and
+// never reset — a redirect that's already underway supersedes anything
+// else this page would otherwise do.
+let hasRedirectedForSessionExpiry = false
+
+function redirectToLogin() {
+  if (hasRedirectedForSessionExpiry) return
+  hasRedirectedForSessionExpiry = true
+  window.location.href = '/login?error=session_expired'
+}
+
 // Base request helper with /api prefix. Throws on non-2xx.
+//
+// 401 handling (this is the redirect-on-401 half of the plan's "three
+// cooperating gates" — middleware.ts's cookie-presence check is the other
+// page-level gate; the NestJS guard is the authoritative one): a 401
+// specifically means "the session that got this page rendered is no longer
+// valid" — either it expired, or it was revoked, or a stale-but-cookie-
+// present request slipped past middleware.ts's cheap presence check. On a
+// 401 this redirects to /login?error=session_expired and NEVER resolves or
+// rejects the underlying promise (the redirect is about to tear down the
+// page anyway, so there is nothing useful a caller could do with a settled
+// promise) — this is the one deliberate exception to "throws on non-2xx"
+// below. Every OTHER non-2xx status still throws exactly as before, so the
+// existing inline error UI (ErrorState / ad-hoc `text-red-400` blocks) that
+// depends on that throw keeps working completely unchanged.
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, init)
+  if (res.status === 401) {
+    redirectToLogin()
+    // Deliberately never settles — see the comment above. A rejected
+    // promise here would still reach each of the four polling call sites'
+    // `isError` state right as the page is about to be replaced by the
+    // /login navigation, which is pure wasted/misleading render work
+    // (`ErrorState` flashing "HTTP 401" for a frame right before redirect).
+    return new Promise<T>(() => {})
+  }
   if (!res.ok) {
     let message = `HTTP ${res.status}`
     try {
