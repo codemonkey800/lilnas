@@ -103,3 +103,40 @@ export function getActiveSession(
   if (row.endedAt !== null) return undefined
   return row as ActiveSession
 }
+
+// Newest session row for a channel regardless of endedAt — the reactivation
+// lookup (U1/U4). Unlike getActiveSession this deliberately returns closed
+// rows too, so the caller can read acpSessionId/cwd off a dormant session.
+export function getLatestSessionForChannel(
+  db: Db,
+  channelId: string,
+): SessionRow | undefined {
+  return db
+    .select()
+    .from(sessions)
+    .where(sql`${sessions.channelId} = ${channelId}`)
+    .orderBy(sql`${sessions.createdAt} DESC, ${sessions.id} DESC`)
+    .limit(1)
+    .get()
+}
+
+// Blind guarded UPDATE — nulls acp_session_id on the channel's single latest
+// row (by createdAt/id), live or dormant, so /clear severs resume regardless
+// of whether a live session exists. Targets only the latest row via a
+// subquery — every other row for the channel (and every row for other
+// channels) is left untouched. No-op (0 changes) when the channel has no rows.
+export function clearAcpSessionId(db: Db, channelId: string): number {
+  const result = db
+    .update(sessions)
+    .set({ acpSessionId: null })
+    .where(
+      sql`${sessions.id} = (
+        SELECT id FROM sessions
+        WHERE channel_id = ${channelId}
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+      )`,
+    )
+    .run()
+  return result.changes
+}

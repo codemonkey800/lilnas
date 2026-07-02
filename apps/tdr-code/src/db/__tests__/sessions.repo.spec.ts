@@ -1,7 +1,10 @@
 import { insertGeneration } from 'src/db/bot-generation.repo'
 import {
+  clearAcpSessionId,
   closeSession,
   getActiveSession,
+  getLatestSessionForChannel,
+  getSessionById,
   insertSession,
 } from 'src/db/sessions.repo'
 import { createTestDb } from 'src/db/test-db'
@@ -154,5 +157,211 @@ describe('sessions.repo', () => {
     } finally {
       close()
     }
+  })
+
+  describe('getLatestSessionForChannel', () => {
+    it('returns the newest row even when its endedAt is set (no endedAt filter)', () => {
+      const { db, close } = createTestDb()
+      try {
+        const gen = seed(db)
+        const row = insertSession(db, {
+          channelId: 'ch-dormant',
+          generationId: gen.id,
+          triggeringUserId: 'u1',
+          acpSessionId: 'acp-dormant',
+          cwd: '/cwd',
+          createdAt: new Date(),
+        })
+        closeSession(db, {
+          id: row.id,
+          endedAt: new Date(),
+          endReason: 'teardown',
+        })
+
+        const latest = getLatestSessionForChannel(db, 'ch-dormant')
+        expect(latest?.id).toBe(row.id)
+        expect(latest?.endedAt).not.toBeNull()
+        expect(latest?.acpSessionId).toBe('acp-dormant')
+      } finally {
+        close()
+      }
+    })
+
+    it('returns the row with the greatest createdAt/id among two closed rows + one open row', () => {
+      const { db, close } = createTestDb()
+      try {
+        const gen = seed(db)
+        const oldest = insertSession(db, {
+          channelId: 'ch-multi',
+          generationId: gen.id,
+          triggeringUserId: 'u1',
+          acpSessionId: 'acp-1',
+          cwd: '/cwd',
+          createdAt: new Date(Date.now() - 20_000),
+        })
+        closeSession(db, {
+          id: oldest.id,
+          endedAt: new Date(),
+          endReason: 'evicted',
+        })
+        const middle = insertSession(db, {
+          channelId: 'ch-multi',
+          generationId: gen.id,
+          triggeringUserId: 'u1',
+          acpSessionId: 'acp-2',
+          cwd: '/cwd',
+          createdAt: new Date(Date.now() - 10_000),
+        })
+        closeSession(db, {
+          id: middle.id,
+          endedAt: new Date(),
+          endReason: 'evicted',
+        })
+        const newest = insertSession(db, {
+          channelId: 'ch-multi',
+          generationId: gen.id,
+          triggeringUserId: 'u1',
+          acpSessionId: 'acp-3',
+          cwd: '/cwd',
+          createdAt: new Date(),
+        })
+
+        const latest = getLatestSessionForChannel(db, 'ch-multi')
+        expect(latest?.id).toBe(newest.id)
+        expect(latest?.endedAt).toBeNull()
+      } finally {
+        close()
+      }
+    })
+
+    it('returns undefined when no session row exists for the channel', () => {
+      const { db, close } = createTestDb()
+      try {
+        expect(getLatestSessionForChannel(db, 'ch-nonexistent')).toBeUndefined()
+      } finally {
+        close()
+      }
+    })
+  })
+
+  describe('clearAcpSessionId', () => {
+    it('nulls acp_session_id on the channel latest row (visible via getLatestSessionForChannel)', () => {
+      const { db, close } = createTestDb()
+      try {
+        const gen = seed(db)
+        insertSession(db, {
+          channelId: 'ch-live',
+          generationId: gen.id,
+          triggeringUserId: 'u1',
+          acpSessionId: 'acp-live',
+          cwd: '/cwd',
+          createdAt: new Date(),
+        })
+
+        const changes = clearAcpSessionId(db, 'ch-live')
+
+        expect(changes).toBe(1)
+        const latest = getLatestSessionForChannel(db, 'ch-live')
+        expect(latest?.acpSessionId).toBeNull()
+      } finally {
+        close()
+      }
+    })
+
+    it('nulls acpSessionId on a dormant (ended) latest row', () => {
+      const { db, close } = createTestDb()
+      try {
+        const gen = seed(db)
+        const row = insertSession(db, {
+          channelId: 'ch-dormant-clear',
+          generationId: gen.id,
+          triggeringUserId: 'u1',
+          acpSessionId: 'acp-dormant-clear',
+          cwd: '/cwd',
+          createdAt: new Date(),
+        })
+        closeSession(db, {
+          id: row.id,
+          endedAt: new Date(),
+          endReason: 'teardown',
+        })
+
+        const changes = clearAcpSessionId(db, 'ch-dormant-clear')
+
+        expect(changes).toBe(1)
+        const latest = getLatestSessionForChannel(db, 'ch-dormant-clear')
+        expect(latest?.acpSessionId).toBeNull()
+        expect(latest?.endedAt).not.toBeNull()
+      } finally {
+        close()
+      }
+    })
+
+    it('is a no-op (0 changes, no throw) when the channel has no session row', () => {
+      const { db, close } = createTestDb()
+      try {
+        let changes = -1
+        expect(() => {
+          changes = clearAcpSessionId(db, 'ch-never-existed')
+        }).not.toThrow()
+        expect(changes).toBe(0)
+      } finally {
+        close()
+      }
+    })
+
+    it('only nulls the latest row for the target channel, leaving other channels untouched', () => {
+      const { db, close } = createTestDb()
+      try {
+        const gen = seed(db)
+        const older = insertSession(db, {
+          channelId: 'ch-a',
+          generationId: gen.id,
+          triggeringUserId: 'u1',
+          acpSessionId: 'acp-a-old',
+          cwd: '/cwd',
+          createdAt: new Date(Date.now() - 10_000),
+        })
+        closeSession(db, {
+          id: older.id,
+          endedAt: new Date(),
+          endReason: 'evicted',
+        })
+        const newer = insertSession(db, {
+          channelId: 'ch-a',
+          generationId: gen.id,
+          triggeringUserId: 'u1',
+          acpSessionId: 'acp-a-new',
+          cwd: '/cwd',
+          createdAt: new Date(),
+        })
+        const other = insertSession(db, {
+          channelId: 'ch-b',
+          generationId: gen.id,
+          triggeringUserId: 'u1',
+          acpSessionId: 'acp-b',
+          cwd: '/cwd',
+          createdAt: new Date(),
+        })
+
+        const changes = clearAcpSessionId(db, 'ch-a')
+
+        expect(changes).toBe(1)
+        // Only the latest ch-a row (newer) is nulled — the older closed row
+        // for ch-a keeps its acpSessionId, and channel ch-b is untouched.
+        const latestA = getLatestSessionForChannel(db, 'ch-a')
+        expect(latestA?.id).toBe(newer.id)
+        expect(latestA?.acpSessionId).toBeNull()
+
+        const olderRow = getSessionById(db, older.id)
+        expect(olderRow?.acpSessionId).toBe('acp-a-old')
+
+        const latestB = getLatestSessionForChannel(db, 'ch-b')
+        expect(latestB?.id).toBe(other.id)
+        expect(latestB?.acpSessionId).toBe('acp-b')
+      } finally {
+        close()
+      }
+    })
   })
 })
