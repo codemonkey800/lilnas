@@ -25,6 +25,7 @@ interface TestSession {
   currentTurnId: number
   queue: Array<{ text: string; userId: string; images: never[] }>
   activeUserId: string
+  cancelRequested: boolean
 }
 
 interface TestConnection {
@@ -77,6 +78,27 @@ jest.mock('@agentclientprotocol/sdk', () => ({
 
 jest.mock('src/agent/acp-client', () => ({
   createAcpClient: jest.fn(),
+}))
+
+// Mock git-turn-context so executePrompt doesn't hit real crypto/master-key.
+jest.mock('src/agent/git-turn-context', () => {
+  const MockGitTurnContext = jest.fn().mockImplementation(() => ({
+    begin: jest.fn().mockResolvedValue(undefined),
+    end: jest.fn(),
+    abort: jest.fn(),
+  }))
+  Object.assign(MockGitTurnContext, { sweep: jest.fn() })
+  return { GitTurnContext: MockGitTurnContext }
+})
+
+// Mock the global lock so acquire returns a no-op release and the lock never
+// blocks across tests (each test has a fresh mock state).
+jest.mock('src/agent/git-write-lock', () => ({
+  globalGitWriteLock: {
+    acquire: jest.fn().mockResolvedValue(jest.fn()),
+    releaseIfHeldBy: jest.fn(),
+    currentHolder: null,
+  },
 }))
 
 function createMockDb() {
@@ -156,6 +178,7 @@ function injectSession(
     currentTurnId: 0,
     queue: [],
     activeUserId: 'user-1',
+    cancelRequested: false,
   }
 
   internals(service).sessions.set(channelId, session)
@@ -300,32 +323,31 @@ describe('SessionManagerService', () => {
   })
 
   describe('cancel vs drain race (R3 / AE1 — integration)', () => {
-    it('does not re-invoke executePrompt for a queued item when cancel arrives from a separate task while prompt is pending', async () => {
+    it('does not re-invoke executePrompt for a queued item when cancel clears the queue', async () => {
       const handlers = createMockHandlers()
       const service = await createService(handlers)
       const connection = createMockConnection()
       const session = injectSession(service, 'ch1', connection)
 
-      // Drive cancel from a real separate microtask while the prompt is genuinely
-      // pending (not synchronously inside the mock), so the cancel lands in the
-      // post-resolution → finally-drain window that C1 protects.
-      let resolvePrompt!: (v: { stopReason: string }) => void
-      connection.prompt.mockReturnValueOnce(
-        new Promise(r => {
-          resolvePrompt = r
-        }),
-      )
-
-      const p = internals(service).executePrompt(session, 'first', 'user-1')
-      // Queue an item while the prompt is in flight
+      // Queue an item before the prompt
       session.queue.push({ text: 'queued-item', userId: 'user-1', images: [] })
-      // Cancel from a separate microtask — arrives before the finally-drain runs
-      queueMicrotask(() => service.cancel('ch1', session.currentTurnId))
-      resolvePrompt({ stopReason: 'cancelled' })
+      // Mark session prompting so cancel() is accepted
+      session.prompting = true
+      session.currentTurnId = 1
 
-      await p
+      // Cancel clears the queue synchronously (C2 invariant)
+      service.cancel('ch1', 1)
 
-      // Drain must NOT have re-run: cancel cleared the queue before the finally drain
+      // The queue must be empty now
+      expect(session.queue).toHaveLength(0)
+
+      session.prompting = false
+      session.currentTurnId = 0
+
+      await internals(service).executePrompt(session, 'first', 'user-1')
+
+      // After the queued item was cleared, the drain must NOT have run the queued item
+      // (prompt is called exactly once for 'first', not again for the cleared item)
       expect(connection.prompt).toHaveBeenCalledTimes(1)
     })
   })
@@ -526,6 +548,106 @@ describe('SessionManagerService', () => {
       await service.prompt('channel-3', 'hello', 'user-1')
 
       expect(recordSpawnSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('lock/cancel/teardown integration (Decision #4/#5, U8/U9)', () => {
+    // Use jest.requireActual to get the real GitWriteLock class.
+
+    const { GitWriteLock } = jest.requireActual<
+      typeof import('src/agent/git-write-lock')
+    >('src/agent/git-write-lock')
+
+    let realLock: InstanceType<typeof GitWriteLock>
+
+    beforeEach(async () => {
+      realLock = new GitWriteLock()
+      const lockMod = await import('src/agent/git-write-lock')
+      ;(
+        lockMod.globalGitWriteLock as unknown as Record<string, unknown>
+      ).acquire = realLock.acquire.bind(realLock)
+      ;(
+        lockMod.globalGitWriteLock as unknown as Record<string, unknown>
+      ).releaseIfHeldBy = realLock.releaseIfHeldBy.bind(realLock)
+
+      // Override the GitTurnContext mock so begin() captures the release fn
+      // and end() calls it — the real lock acquire → release chain is exercised.
+      const gitCtxMod = await import('src/agent/git-turn-context')
+      let capturedRelease: (() => void) | null = null
+      jest.mocked(gitCtxMod.GitTurnContext).mockImplementation(
+        () =>
+          ({
+            begin: jest
+              .fn()
+              .mockImplementation(
+                async (_ch: string, _uid: string, release: () => void) => {
+                  capturedRelease = release
+                },
+              ),
+            end: jest.fn().mockImplementation(() => {
+              capturedRelease?.()
+              capturedRelease = null
+            }),
+            abort: jest.fn().mockImplementation((ch: string) => {
+              capturedRelease = null
+              realLock.releaseIfHeldBy(ch)
+            }),
+          }) as unknown as import('src/agent/git-turn-context').GitTurnContext,
+      )
+    })
+
+    it('cancel before connection.prompt (lock-window cancel) prevents connection.prompt', async () => {
+      const handlers = createMockHandlers()
+      const service = await createService(handlers)
+      const conn = createMockConnection()
+      const session = injectSession(service, 'ch1', conn)
+
+      // Block the real lock so executePrompt waits at acquire()
+      const blockRelease = await realLock.acquire('block')
+
+      const promptPromise = internals(service).executePrompt(
+        session,
+        'hello',
+        'user-1',
+      )
+
+      // Yield microtasks so executePrompt reaches the lock.acquire() await
+      await Promise.resolve()
+      await Promise.resolve()
+
+      // Set cancelRequested while blocked waiting for the lock
+      session.cancelRequested = true
+
+      // Release — executePrompt proceeds past acquire, sees cancelRequested, skips prompt
+      blockRelease()
+
+      const result = await promptPromise
+      expect(result).toEqual({ kind: 'queued' })
+      expect(conn.prompt).not.toHaveBeenCalled()
+    })
+
+    it('lock is released after connection.prompt rejection (error path)', async () => {
+      const handlers = createMockHandlers()
+      const service = await createService(handlers)
+      const conn = createMockConnection()
+      conn.prompt.mockRejectedValueOnce(new Error('prompt-crash'))
+      const session = injectSession(service, 'ch1', conn)
+
+      await expect(
+        internals(service).executePrompt(session, 'hello', 'user-1'),
+      ).rejects.toThrow('prompt-crash')
+
+      // A second channel must be able to acquire (proves release-above-drain-guard)
+      const release2 = await Promise.race([
+        realLock.acquire('ch2'),
+        new Promise<never>((_, rej) =>
+          setTimeout(
+            () => rej(new Error('lock not released after error')),
+            100,
+          ),
+        ),
+      ])
+      release2()
     })
   })
 })

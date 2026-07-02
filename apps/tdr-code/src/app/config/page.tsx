@@ -2,7 +2,7 @@
 
 import { cns } from '@lilnas/utils/cns'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { ErrorState } from 'src/app/components/error-state'
 import { LoadingState } from 'src/app/components/loading-state'
@@ -54,6 +54,7 @@ export default function ConfigPage() {
   const [maxConcurrentSessions, setMaxConcurrentSessions] = useState('')
   const [argsError, setArgsError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Sync server-fetched data into editable form state when the query resolves.
   /* eslint-disable react-hooks/set-state-in-effect */
@@ -68,12 +69,26 @@ export default function ConfigPage() {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [data])
 
+  // Clear timer on unmount so a stale callback doesn't setState on a dead component.
+  useEffect(
+    () => () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+    },
+    [],
+  )
+
   const mutation = useMutation({
     mutationFn: (body: UpdateConfigBodyDto) => api.updateConfig(body),
-    onSuccess: () => {
+    onSuccess: response => {
       setSaved(true)
-      setTimeout(() => setSaved(false), 2500)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.config })
+      // Cancel any prior "saved" dismiss timer before arming a new one to
+      // prevent banner flicker on rapid re-saves.
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+      savedTimerRef.current = setTimeout(() => setSaved(false), 2500)
+      // Write the server's echoed config directly into the cache — no refetch
+      // needed and avoids the post-save invalidateQueries → useEffect re-seed
+      // clobbering in-flight operator edits.
+      queryClient.setQueryData(queryKeys.config, response)
     },
   })
 

@@ -93,4 +93,66 @@ describe('loadMasterKey', () => {
     process.env[EnvKeys.TDR_CODE_MASTER_KEY_FILE] = keyPath
     expect(() => loadMasterKey()).toThrow(/parent directory/)
   })
+
+  it('throws when the key file is owned by a different uid', () => {
+    const keyPath = writeKeyFile(tmpDir)
+    process.env[EnvKeys.TDR_CODE_MASTER_KEY_FILE] = keyPath
+    const realStatSync = fs.statSync.bind(fs)
+    const statSpy = jest
+      .spyOn(fs, 'statSync')
+      .mockImplementation(
+        (p: fs.PathLike | number, opts?: { bigint?: boolean }): fs.Stats => {
+          const stat = realStatSync(
+            p,
+            opts as Parameters<typeof fs.statSync>[1],
+          )
+          if (p === keyPath) {
+            return Object.assign(
+              Object.create(Object.getPrototypeOf(stat)) as fs.Stats,
+              stat,
+              {
+                uid: process.getuid!() + 1,
+              },
+            )
+          }
+          return stat
+        },
+      )
+    try {
+      expect(() => loadMasterKey()).toThrow(/owned by the current uid/)
+    } finally {
+      statSpy.mockRestore()
+    }
+  })
+
+  it('throws when the parent directory is owned by a different uid', () => {
+    const keyPath = writeKeyFile(tmpDir)
+    process.env[EnvKeys.TDR_CODE_MASTER_KEY_FILE] = keyPath
+    const realStatSync = fs.statSync.bind(fs)
+    const statSpy = jest
+      .spyOn(fs, 'statSync')
+      .mockImplementation(
+        (p: fs.PathLike | number, opts?: { bigint?: boolean }): fs.Stats => {
+          const stat = realStatSync(
+            p,
+            opts as Parameters<typeof fs.statSync>[1],
+          )
+          if (p === path.dirname(keyPath)) {
+            return Object.assign(
+              Object.create(Object.getPrototypeOf(stat)) as fs.Stats,
+              stat,
+              {
+                uid: process.getuid!() + 1,
+              },
+            )
+          }
+          return stat
+        },
+      )
+    try {
+      expect(() => loadMasterKey()).toThrow(/parent directory/)
+    } finally {
+      statSpy.mockRestore()
+    }
+  })
 })

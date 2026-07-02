@@ -1,5 +1,15 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+import BetterSqlite3 from 'better-sqlite3'
+import { drizzle } from 'drizzle-orm/better-sqlite3'
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
+
 import { getConfig, getOrSeedConfig, updateConfig } from 'src/db/config.repo'
+import { resolveMigrationsFolder } from 'src/db/database.module'
 import { config } from 'src/db/schema'
+import * as schema from 'src/db/schema'
 import { createTestDb } from 'src/db/test-db'
 
 describe('config.repo', () => {
@@ -73,22 +83,39 @@ describe('config.repo', () => {
     }
   })
 
-  it('idempotent seed under concurrent in-process callers — exactly one row', () => {
-    // BEGIN IMMEDIATE serializes the two attempts; the second re-reads the
-    // already-seeded row and returns it without inserting a duplicate
-    // (atomicity-tests learning: contend at the real write window).
-    const { db, close } = createTestDb()
+  it('idempotent seed — two connections to the same file DB: exactly one row survives', () => {
+    // Two separate BetterSQLite3 connections to the same WAL-mode file.
+    // Each calls getOrSeedConfig; BEGIN IMMEDIATE on the second serializes
+    // and re-reads the already-inserted row rather than double-inserting.
+    const tmpFile = path.join(
+      os.tmpdir(),
+      `tdr-config-seed-test-${process.pid}.db`,
+    )
+    const setupDb = (file: string) => {
+      const sqlite = new BetterSqlite3(file)
+      sqlite.pragma('journal_mode = WAL')
+      sqlite.pragma('synchronous = NORMAL')
+      sqlite.pragma('foreign_keys = ON')
+      sqlite.pragma('busy_timeout = 5000')
+      const db = drizzle(sqlite, { schema })
+      migrate(db, { migrationsFolder: resolveMigrationsFolder() })
+      return { db, close: () => sqlite.close() }
+    }
+    const { db: db1, close: close1 } = setupDb(tmpFile)
+    const { db: db2, close: close2 } = setupDb(tmpFile)
     try {
-      // Call in the same synchronous stack — both enter the transaction, the
-      // second sees the row already present and returns it.
-      const r1 = getOrSeedConfig(db)
-      const r2 = getOrSeedConfig(db)
+      const r1 = getOrSeedConfig(db1)
+      const r2 = getOrSeedConfig(db2)
       expect(r1.id).toBe(1)
       expect(r2.id).toBe(1)
-      const all = db.select().from(config).all()
+      const all = db1.select().from(config).all()
       expect(all).toHaveLength(1)
     } finally {
-      close()
+      close1()
+      close2()
+      fs.rmSync(tmpFile, { force: true })
+      fs.rmSync(`${tmpFile}-wal`, { force: true })
+      fs.rmSync(`${tmpFile}-shm`, { force: true })
     }
   })
 

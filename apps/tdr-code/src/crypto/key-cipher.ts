@@ -4,6 +4,20 @@ import crypto from 'node:crypto'
 const ALGORITHM = 'aes-256-gcm' as const
 const IV_BYTES = 12
 const AUTH_TAG_BYTES = 16
+const REQUIRED_KEY_BYTES = 32
+
+function assertMasterKeyLength(masterKey: Buffer): void {
+  if (masterKey.length !== REQUIRED_KEY_BYTES) {
+    // Throw a distinct, non-decrypt error so resolveIdentity's catch-all does
+    // NOT map it to decrypt_failed — a wrong-length master key is a deployment
+    // misconfiguration that should surface loudly, not silence every row.
+    const e = new RangeError(
+      `[key-cipher] masterKey must be exactly ${REQUIRED_KEY_BYTES} bytes, got ${masterKey.length}`,
+    )
+    ;(e as NodeJS.ErrnoException).code = 'ERR_MASTER_KEY_LENGTH'
+    throw e
+  }
+}
 
 export interface EncryptedKey {
   iv: Buffer
@@ -19,6 +33,7 @@ export function encryptKey(
   aad: string,
   masterKey: Buffer,
 ): EncryptedKey {
+  assertMasterKeyLength(masterKey)
   const iv = crypto.randomBytes(IV_BYTES)
   const cipher = crypto.createCipheriv(ALGORITHM, masterKey, iv)
   cipher.setAAD(Buffer.from(aad, 'utf8'))
@@ -41,6 +56,7 @@ export function decryptKey(
   aad: string,
   masterKey: Buffer,
 ): Buffer {
+  assertMasterKeyLength(masterKey)
   if (encrypted.authTag.length !== AUTH_TAG_BYTES) {
     throw new Error(
       `[key-cipher] authTag must be exactly ${AUTH_TAG_BYTES} bytes, got ${encrypted.authTag.length}`,

@@ -94,7 +94,16 @@ export function resolveIdentity(
       keyPlaintext,
       fingerprint,
     }
-  } catch {
+  } catch (err) {
+    // A wrong-length master key is a deployment misconfiguration, not a per-row
+    // failure — rethrow so callers see a loud error instead of silent decrypt_failed
+    // for every row (which would mask the real cause).
+    if (
+      err instanceof RangeError &&
+      (err as NodeJS.ErrnoException).code === 'ERR_MASTER_KEY_LENGTH'
+    ) {
+      throw err
+    }
     return {
       kind: 'decrypt_failed',
       fingerprint: row.keyFingerprint,

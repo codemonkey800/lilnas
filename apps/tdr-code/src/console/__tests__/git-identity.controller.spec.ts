@@ -48,7 +48,6 @@ function makeService(): jest.Mocked<GitIdentityService> {
     listIdentities: jest.fn().mockReturnValue(MOCK_LIST_RESPONSE),
     upsertIdentity: jest.fn().mockReturnValue(MOCK_UPSERT_RESPONSE),
     deleteIdentity: jest.fn(),
-    getStatus: jest.fn().mockReturnValue('configured'),
   } as unknown as jest.Mocked<GitIdentityService>
 }
 

@@ -2,7 +2,7 @@
 
 import { cns } from '@lilnas/utils/cns'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { EmptyState } from 'src/app/components/empty-state'
 import { ErrorState } from 'src/app/components/error-state'
@@ -31,13 +31,16 @@ function IdentityRow({
   onReplace,
   onClear,
   clearPending,
+  savePending,
 }: {
   item: GitIdentityItemDto
   onReplace: (userId: string) => void
   onClear: (userId: string) => void
   clearPending: boolean
+  savePending: boolean
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const actionDisabled = clearPending || savePending
 
   return (
     <tr className="border-b border-gray-800">
@@ -63,7 +66,7 @@ function IdentityRow({
           {!confirmOpen ? (
             <button
               onClick={() => setConfirmOpen(true)}
-              disabled={clearPending}
+              disabled={actionDisabled}
               className="rounded bg-gray-800 px-2 py-1 text-xs text-gray-300 hover:bg-gray-700 disabled:opacity-50"
             >
               Clear
@@ -76,7 +79,8 @@ function IdentityRow({
                   setConfirmOpen(false)
                   onClear(item.discordUserId)
                 }}
-                className="rounded bg-red-900 px-2 py-1 text-xs text-red-300 hover:bg-red-800"
+                disabled={actionDisabled}
+                className="rounded bg-red-900 px-2 py-1 text-xs text-red-300 hover:bg-red-800 disabled:opacity-50"
               >
                 Confirm
               </button>
@@ -110,22 +114,44 @@ export default function GitIdentityPage() {
   const [email, setEmail] = useState('')
   const [privateKey, setPrivateKey] = useState('')
   const [saved, setSaved] = useState(false)
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Cancel the "saved" dismiss timer on unmount to avoid setState on a dead component.
+  useEffect(
+    () => () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+    },
+    [],
+  )
 
   const upsertMutation = useMutation({
     mutationFn: api.upsertGitIdentity,
     onSuccess: () => {
       setSaved(true)
-      setTimeout(() => setSaved(false), 2500)
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+      savedTimerRef.current = setTimeout(() => setSaved(false), 2500)
       // Clear only the private key — retain other fields for verification.
       setPrivateKey('')
       void queryClient.invalidateQueries({ queryKey: queryKeys.gitIdentity })
     },
   })
 
+  // Track pending clear per discordUserId to avoid a shared-mutation race where
+  // two rows open confirm panels and the second Confirm overwrites the first.
+  const [clearPendingFor, setClearPendingFor] = useState<string | null>(null)
+
   const clearMutation = useMutation({
-    mutationFn: (userId: string) => api.deleteGitIdentity(userId),
-    onSuccess: () =>
-      void queryClient.invalidateQueries({ queryKey: queryKeys.gitIdentity }),
+    mutationFn: (userId: string) => {
+      setClearPendingFor(userId)
+      return api.deleteGitIdentity(userId)
+    },
+    onSuccess: () => {
+      setClearPendingFor(null)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.gitIdentity })
+    },
+    onError: () => {
+      setClearPendingFor(null)
+    },
   })
 
   function handleReplace(userId: string) {
@@ -216,10 +242,12 @@ export default function GitIdentityPage() {
           <div className="flex items-center gap-3 sm:col-span-2">
             <button
               type="submit"
-              disabled={upsertMutation.isPending}
+              disabled={
+                upsertMutation.isPending || clearPendingFor === discordUserId
+              }
               className={cns(
                 'rounded px-4 py-2 text-sm font-medium transition-colors',
-                upsertMutation.isPending
+                upsertMutation.isPending || clearPendingFor === discordUserId
                   ? 'bg-gray-700 text-gray-400 opacity-50 cursor-not-allowed'
                   : 'bg-blue-700 text-blue-100 hover:bg-blue-600',
               )}
@@ -287,7 +315,12 @@ export default function GitIdentityPage() {
                       item={item}
                       onReplace={handleReplace}
                       onClear={userId => clearMutation.mutate(userId)}
-                      clearPending={clearMutation.isPending}
+                      clearPending={clearPendingFor === item.discordUserId}
+                      savePending={
+                        upsertMutation.isPending &&
+                        upsertMutation.variables?.discordUserId ===
+                          item.discordUserId
+                      }
                     />
                   </>
                 ))}

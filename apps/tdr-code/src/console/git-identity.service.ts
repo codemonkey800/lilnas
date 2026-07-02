@@ -8,7 +8,6 @@ import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
 import {
   deleteIdentity,
-  getIdentity,
   listIdentities,
   upsertIdentity,
 } from 'src/db/git-identity.repo'
@@ -91,20 +90,5 @@ export class GitIdentityService {
 
   deleteIdentity(discordUserId: string): void {
     deleteIdentity(this.db, discordUserId)
-  }
-
-  // Health-check for a single identity (used for status badge in list view).
-  getStatus(
-    discordUserId: string,
-  ): 'configured' | 'decrypt_failed' | 'not_configured' {
-    const masterKey = loadMasterKey()
-    const row = getIdentity(this.db, discordUserId)
-    if (!row) return 'not_configured'
-    const resolution = resolveIdentity(row, masterKey)
-    if (isConfigured(resolution)) {
-      resolution.keyPlaintext.fill(0)
-      return 'configured'
-    }
-    return 'decrypt_failed'
   }
 }

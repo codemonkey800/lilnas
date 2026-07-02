@@ -1,6 +1,44 @@
+import { spawn } from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import { Readable, Writable } from 'node:stream'
+
+import { ClientSideConnection } from '@agentclientprotocol/sdk'
+
 import type { AcpEventHandlers } from 'src/agent/agent.types'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { EnvKeys } from 'src/env'
+
+jest.mock('node:child_process', () => ({
+  spawn: jest.fn(),
+}))
+
+jest.mock('@agentclientprotocol/sdk', () => ({
+  ndJsonStream: jest.fn().mockReturnValue({}),
+  PROTOCOL_VERSION: '1.0',
+  ClientSideConnection: jest.fn(),
+}))
+
+jest.mock('src/agent/acp-client', () => ({
+  createAcpClient: jest.fn(),
+}))
+
+jest.mock('src/agent/git-turn-context', () => {
+  const MockGitTurnContext = jest.fn().mockImplementation(() => ({
+    begin: jest.fn().mockResolvedValue(undefined),
+    end: jest.fn(),
+    abort: jest.fn(),
+  }))
+  Object.assign(MockGitTurnContext, { sweep: jest.fn() })
+  return { GitTurnContext: MockGitTurnContext }
+})
+
+jest.mock('src/agent/git-write-lock', () => ({
+  globalGitWriteLock: {
+    acquire: jest.fn().mockResolvedValue(jest.fn()),
+    releaseIfHeldBy: jest.fn(),
+    currentHolder: null,
+  },
+}))
 
 function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
   return {
@@ -212,5 +250,102 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
     expect((service as unknown as ServiceInternals).claudeArgs).toEqual([
       '--dangerously-skip-permissions',
     ])
+  })
+})
+
+describe('SessionManagerService — R3 apply-timing behavioral tests (U2)', () => {
+  beforeEach(() => {
+    process.env[EnvKeys.BOT_GENERATION_ID] = '99'
+  })
+  afterEach(() => {
+    delete process.env[EnvKeys.BOT_GENERATION_ID]
+  })
+
+  function mockProcess() {
+    const mockProc = new EventEmitter() as EventEmitter & {
+      pid: number
+      stdin: unknown
+      stdout: EventEmitter
+      kill: jest.Mock
+    }
+    mockProc.pid = 1234
+    mockProc.stdin = new Writable({ write: (_c, _e, cb) => cb() })
+    mockProc.stdout = new Readable({ read: () => {} })
+    mockProc.kill = jest.fn()
+    return mockProc
+  }
+
+  it('rereadConfig: new session uses updated cwd and claudeArgs', async () => {
+    const handlers = createMockHandlers()
+    const initial = makeConfigRow({
+      cwd: '/old/cwd',
+      claudeCommand: 'claude',
+      claudeArgs: ['--old-flag'],
+    })
+    const db = makeDbMockWithConfig(initial)
+
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+
+    const mockProc = mockProcess()
+    jest.mocked(spawn).mockReturnValue(mockProc as never)
+    ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
+      initialize: jest.fn().mockResolvedValue({ agentCapabilities: {} }),
+      newSession: jest.fn().mockResolvedValue({ sessionId: 'sess-1' }),
+      prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+    }))
+
+    // Update config: new cwd and args
+    const updated = makeConfigRow({
+      cwd: '/new/cwd',
+      claudeCommand: 'claude',
+      claudeArgs: ['--new-flag'],
+    })
+    db._chain.get.mockReturnValue(updated)
+    service.rereadConfig()
+
+    // Trigger session creation
+    await service.prompt('ch1', 'hello', 'user-1')
+
+    expect(spawn).toHaveBeenCalledWith(
+      'claude',
+      ['--new-flag'],
+      expect.objectContaining({ cwd: '/new/cwd' }),
+    )
+  })
+
+  it('rereadConfig: maxConcurrentSessions is NOT applied retroactively (no eviction)', () => {
+    const handlers = createMockHandlers()
+    const initial = makeConfigRow({ maxConcurrentSessions: 5 })
+    const db = makeDbMockWithConfig(initial)
+
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    const sessions = (service as unknown as { sessions: Map<string, unknown> })
+      .sessions
+
+    // Inject two active sessions
+    sessions.set('ch1', {
+      prompting: false,
+      idleTimer: setTimeout(() => {}, 99999),
+      process: { kill: jest.fn(), on: jest.fn() },
+    })
+    sessions.set('ch2', {
+      prompting: false,
+      idleTimer: setTimeout(() => {}, 99999),
+      process: { kill: jest.fn(), on: jest.fn() },
+    })
+
+    // Lower max below active count
+    const updated = makeConfigRow({ maxConcurrentSessions: 1 })
+    db._chain.get.mockReturnValue(updated)
+    service.rereadConfig()
+
+    // Both sessions must still be active — no retroactive eviction
+    expect(sessions.size).toBe(2)
   })
 })

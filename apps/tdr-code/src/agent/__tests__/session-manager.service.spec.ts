@@ -6,6 +6,25 @@ import { SessionManagerService } from 'src/agent/session-manager.service'
 import { DB } from 'src/db/database.module'
 import { EnvKeys } from 'src/env'
 
+// Mock git-turn-context so executePrompt tests don't hit real crypto/master-key.
+jest.mock('src/agent/git-turn-context', () => {
+  const MockGitTurnContext = jest.fn().mockImplementation(() => ({
+    begin: jest.fn().mockResolvedValue(undefined),
+    end: jest.fn(),
+    abort: jest.fn(),
+  }))
+  Object.assign(MockGitTurnContext, { sweep: jest.fn() })
+  return { GitTurnContext: MockGitTurnContext }
+})
+
+jest.mock('src/agent/git-write-lock', () => ({
+  globalGitWriteLock: {
+    acquire: jest.fn().mockResolvedValue(jest.fn()),
+    releaseIfHeldBy: jest.fn(),
+    currentHolder: null,
+  },
+}))
+
 function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
   return {
     onToolCall: jest.fn(),

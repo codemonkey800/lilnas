@@ -29,7 +29,9 @@ const WRAPPER_SCRIPT = path.resolve(
 export interface GitTurnContextOptions {
   db: Db
   generationId: number | null
-  cwd: string
+  // Thunk so callers can update cwd (via rereadConfig) without reconstructing
+  // the context. Evaluated per-turn so .git/config always targets the current workspace.
+  getCwd: () => string
   handlers: AcpEventHandlers
 }
 
@@ -72,7 +74,8 @@ export class GitTurnContext {
     }
     this.activeTurns.set(channelId, state)
 
-    const { db, generationId, cwd } = this.opts
+    const { db, generationId } = this.opts
+    const cwd = this.opts.getCwd()
 
     if (isConfigured(resolution)) {
       // Write key to tmpfs, then set .git/config.
@@ -214,9 +217,14 @@ function applyGitConfig(
   sshCommand: string,
 ): void {
   // Use `git config --local` for atomic writes — serialized by the lock.
-  execFileSync('git', ['config', '--local', 'user.name', name], { cwd })
-  execFileSync('git', ['config', '--local', 'user.email', email], { cwd })
-  execFileSync('git', ['config', '--local', 'core.sshCommand', sshCommand], {
-    cwd,
-  })
+  // Timeout matches busy_timeout (5 s) so a stalled git releases the
+  // global write-lock rather than wedging every channel indefinitely.
+  const opts = { cwd, timeout: 5000 }
+  execFileSync('git', ['config', '--local', 'user.name', name], opts)
+  execFileSync('git', ['config', '--local', 'user.email', email], opts)
+  execFileSync(
+    'git',
+    ['config', '--local', 'core.sshCommand', sshCommand],
+    opts,
+  )
 }

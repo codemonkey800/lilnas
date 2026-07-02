@@ -19,12 +19,16 @@ DEK-Info: AES-128-CBC,ABCDEF0123456789ABCDEF0123456789
 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 -----END EC PRIVATE KEY-----`
 
-// OpenSSH format encrypted key (ed25519 with bcrypt KDF).
-// This is a minimal structurally-valid encrypted OpenSSH key.
+// OpenSSH format encrypted key (ed25519 with bcrypt KDF, aes256-ctr cipher).
+// Generated with: ssh-keygen -t ed25519 -N "testpassphrase" -f /tmp/test_key
+// sshpk detects the bcrypt KDF and throws KeyEncryptedError (not a parse error).
 const OPENSSH_ENCRYPTED = `-----BEGIN OPENSSH PRIVATE KEY-----
-b3BlbnNzaC1rZXktdjEAAAAGYmNyeXB0AAAAGAAAABBjxcz3h3LxPJ+7v3JWvVz4AAAAE
-AAAAAEAAAAzAAAAC3NzaC1lZDI1NTE5AAAAINxF1B3C5iyTZjAiJXenqRBJOjXaBfx1lD5u
-Rb9dUOLCAAAAoH2+z8Q1oXFqaIf3rGcJkzHMvQ==
+b3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABDc+p0isI
+m5KII5wq+ZY785AAAAGAAAAAEAAAAzAAAAC3NzaC1lZDI1NTE5AAAAIFHwYs6nM9YPZBCi
+7jXxRf8cYS8prT4ZKdcMcQkHEUbfAAAAsLY052/RzEtN6dz5MroPFf9lk/R85hExC731MK
+OSseuy4+YK9mRUFXlf1x/Vi4azvCgTef7WMOPyf0dg4V2neg8MMdO5fD5sjZCLMMHFp4v6
+Z0R/RC8JW1xZgZAE/CjmGbwp9w/cJvkP/bAhcm7I4VOM5Dk2c2Sm6ztjVopJTWmqJlx2sn
+gmvr+iRaJD0T0eEg+JnJmu6HgfOSZXD3S8/w8ySBPgjReVpIH4Nz7KrCPM
 -----END OPENSSH PRIVATE KEY-----`
 
 describe('ssh-key — validateAndFingerprint', () => {

@@ -8,48 +8,42 @@
 // is called — Decision #4, U8 risk note).
 
 type Release = () => void
+type Grant = () => void
 
 export class GitWriteLock {
-  private queue: Array<{ channelId: string; resolve: () => void }> = []
+  private queue: Array<{ channelId: string; grant: Grant }> = []
   private holderChannelId: string | null = null
 
   // Acquire the lock. Returns a release function. Callers MUST call the
   // returned function unconditionally at the top of their finally block.
   acquire(channelId: string): Promise<Release> {
     return new Promise<Release>(resolve => {
-      const tryAcquire = () => {
-        if (this.holderChannelId === null) {
-          this.holderChannelId = channelId
-          const release: Release = () => {
-            if (this.holderChannelId === channelId) {
-              this.holderChannelId = null
-            }
-            const next = this.queue.shift()
-            if (next) {
-              this.holderChannelId = next.channelId
-              next.resolve()
-            }
-          }
-          resolve(release)
-        } else {
-          this.queue.push({ channelId, resolve: tryAcquire })
-        }
+      // grant-closure: sets holder and resolves the outer promise directly,
+      // so the woken waiter never re-runs the null-check (fixes deadlock when
+      // a queued waiter is released — it would re-queue instead of settling).
+      const grant: Grant = () => {
+        this.holderChannelId = channelId
+        resolve(() => {
+          if (this.holderChannelId === channelId) this.holderChannelId = null
+          const next = this.queue.shift()
+          if (next) next.grant()
+        })
       }
-      tryAcquire()
+      if (this.holderChannelId === null) grant()
+      else this.queue.push({ channelId, grant })
     })
   }
 
   // Release the lock only if channelId currently holds it. Idempotent with
   // the release function returned by acquire() — safe to call on every
   // force-kill path even if the turn's finally already released.
+  // A stale release (caller is no longer the holder) is a no-op — the
+  // queue and current holder are left undisturbed.
   releaseIfHeldBy(channelId: string): void {
     if (this.holderChannelId !== channelId) return
     this.holderChannelId = null
     const next = this.queue.shift()
-    if (next) {
-      this.holderChannelId = next.channelId
-      next.resolve()
-    }
+    if (next) next.grant()
   }
 
   get currentHolder(): string | null {

@@ -26,15 +26,15 @@ set -euo pipefail
 CONSOLE_URL="${TDR_CODE_CONSOLE_URL:-https://tdr-code.lilnas.io}"
 
 # Scan all argv for a git verb. Git's exec format is:
-#   ssh-path [ssh-options...] host git-verb 'path'
-# The verb is not at a fixed position, so we scan all arguments.
+#   ssh-path [ssh-options...] host "git-verb 'path'"
+# Git passes the verb and repo path as a single combined argument
+# (e.g. "git-receive-pack '/user/repo'"), so we match on prefix.
 GIT_VERB=""
 for arg in "$@"; do
   case "$arg" in
-    git-receive-pack|git-upload-pack|git-upload-archive)
-      GIT_VERB="$arg"
-      break
-      ;;
+    "git-receive-pack "*|git-receive-pack)   GIT_VERB="git-receive-pack";   break ;;
+    "git-upload-pack "*|git-upload-pack)     GIT_VERB="git-upload-pack";    break ;;
+    "git-upload-archive "*|git-upload-archive) GIT_VERB="git-upload-archive"; break ;;
   esac
 done
 

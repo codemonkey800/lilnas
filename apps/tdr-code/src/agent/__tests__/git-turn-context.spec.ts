@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import fs from 'node:fs'
 
 import { GitTurnContext } from 'src/agent/git-turn-context'
 import { globalGitWriteLock } from 'src/agent/git-write-lock'
@@ -28,6 +29,8 @@ jest.mock('node:child_process', () => ({
   execFileSync: jest.fn(),
   spawn: jest.fn(),
 }))
+
+import { execFileSync } from 'node:child_process'
 
 import { isConfigured, resolveIdentity } from 'src/crypto/identity-resolution'
 import { insertEvent } from 'src/db/events.repo'
@@ -59,7 +62,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
-        cwd: '/tmp',
+        getCwd: () => '/tmp',
         handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
@@ -74,7 +77,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
-        cwd: '/tmp',
+        getCwd: () => '/tmp',
         handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
@@ -89,7 +92,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
-        cwd: '/tmp',
+        getCwd: () => '/tmp',
         handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
@@ -102,12 +105,74 @@ describe('GitTurnContext', () => {
     })
   })
 
+  describe('configured user — R14 key write + sshCommand', () => {
+    it('writes key to tmpfs with mode 0o600 and sets correct core.sshCommand', async () => {
+      const keyBytes = crypto.randomBytes(64)
+      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
+        kind: 'configured',
+        name: 'Jane Doe',
+        email: 'jane@example.com',
+        keyPlaintext: Buffer.from(keyBytes),
+        fingerprint: 'SHA256:test',
+      })
+      ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(true)
+
+      const writeFileSpy = jest
+        .spyOn(fs, 'writeFileSync')
+        .mockImplementation(() => undefined)
+      const rmSyncSpy = jest
+        .spyOn(fs, 'rmSync')
+        .mockImplementation(() => undefined)
+      const execSpy = execFileSync as jest.Mock
+
+      const ctx = new GitTurnContext({
+        db: makeDb(),
+        generationId: 1,
+        getCwd: () => '/workspace',
+        handlers: makeHandlers(),
+      })
+      const mockRelease = jest.fn()
+
+      await ctx.begin('ch1', '123456789012345678', mockRelease)
+
+      // Key written to tmpfs with restrictive permissions
+      expect(writeFileSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/ch1\.key$/),
+        expect.any(Buffer),
+        { mode: 0o600 },
+      )
+      const keyPath = writeFileSpy.mock.calls[0]![0] as string
+
+      // core.sshCommand must include per-turn key path and disable multiplexing
+      const sshCommandCall = execSpy.mock.calls.find(
+        (c: unknown[]) =>
+          Array.isArray(c[1]) && (c[1] as string[]).includes('core.sshCommand'),
+      )
+      expect(sshCommandCall).toBeDefined()
+      const sshCommand = (sshCommandCall![1] as string[])[3] as string
+      expect(sshCommand).toContain(`-i ${keyPath}`)
+      expect(sshCommand).toContain('IdentitiesOnly=yes')
+      expect(sshCommand).toContain('ControlMaster=no')
+      expect(sshCommand).toContain('ControlPath=none')
+      // Must NOT use the blocking wrapper path for a configured user
+      expect(sshCommand).not.toContain('git-ssh-wrapper')
+
+      ctx.end('ch1')
+
+      // Key removed after end()
+      expect(rmSyncSpy).toHaveBeenCalledWith(keyPath, { force: true })
+
+      writeFileSpy.mockRestore()
+      rmSyncSpy.mockRestore()
+    })
+  })
+
   describe('abort()', () => {
     it('abort() releases lock via globalGitWriteLock.releaseIfHeldBy', async () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
-        cwd: '/tmp',
+        getCwd: () => '/tmp',
         handlers: makeHandlers(),
       })
 
@@ -134,7 +199,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
-        cwd: '/tmp',
+        getCwd: () => '/tmp',
         handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
@@ -154,7 +219,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 42,
-        cwd: '/tmp',
+        getCwd: () => '/tmp',
         handlers: makeHandlers(),
       })
 
@@ -183,7 +248,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 42,
-        cwd: '/tmp',
+        getCwd: () => '/tmp',
         handlers: makeHandlers(),
       })
 
@@ -207,7 +272,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
-        cwd: '/tmp',
+        getCwd: () => '/tmp',
         handlers: makeHandlers(),
       })
 

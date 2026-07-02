@@ -99,7 +99,9 @@ export class SessionManagerService implements OnApplicationShutdown {
     this.gitTurnContext = new GitTurnContext({
       db,
       generationId: this.generationId,
-      cwd: this.claudeCwd,
+      // Thunk so gitTurnContext tracks the same cwd that createSession uses —
+      // rereadConfig() updates this.claudeCwd without reconstructing the context.
+      getCwd: () => this.claudeCwd,
       handlers,
     })
 
