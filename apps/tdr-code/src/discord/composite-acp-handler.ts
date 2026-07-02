@@ -5,6 +5,7 @@ import type {
   DiffContent,
   PromptStartContext,
 } from 'src/agent/agent.types'
+import { errorCode } from 'src/agent/error-code'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
 import { insertEvent } from 'src/db/events.repo'
@@ -225,12 +226,9 @@ export class CompositeAcpHandler implements AcpEventHandlers {
   // Emit a transcript_write_failed event for operator-visibility (Decision 2b).
   // context carries only safe identifiers — never the raw error message (F10).
   private handleWriterError(err: unknown, op: string, channelId: string): void {
-    const errorCode =
-      err instanceof Error
-        ? ((err as NodeJS.ErrnoException).code ?? err.name)
-        : 'UNKNOWN'
+    const code = errorCode(err)
     console.error(
-      `[composite] Writer fault in ${op} channel=${channelId}: code=${errorCode}`,
+      `[composite] Writer fault in ${op} channel=${channelId}: code=${code}`,
     )
 
     const genId = this.generationId
@@ -243,16 +241,12 @@ export class CompositeAcpHandler implements AcpEventHandlers {
         channelId,
         type: 'transcript_write_failed',
         level: 'error',
-        context: { op, channelId, errorCode },
+        context: { op, channelId, errorCode: code },
         createdAt: new Date(),
       })
     } catch (innerErr) {
-      const innerCode =
-        innerErr instanceof Error
-          ? ((innerErr as NodeJS.ErrnoException).code ?? innerErr.name)
-          : 'UNKNOWN'
       console.error(
-        `[composite] transcript_write_failed event also failed: code=${innerCode} (log-only, no retry)`,
+        `[composite] transcript_write_failed event also failed: code=${errorCode(innerErr)} (log-only, no retry)`,
       )
     }
   }

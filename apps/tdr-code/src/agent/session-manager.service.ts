@@ -35,18 +35,18 @@ import type {
   ImageAttachment,
   PromptOutcome,
 } from './agent.types'
+import { errorCode } from './error-code'
 import { GitTurnContext } from './git-turn-context'
 import { globalGitWriteLock } from './git-write-lock'
 import { buildPromptBlocks } from './message-bridge'
 
-// U5: safe error-reason extraction for a persisted event's context — same
-// scrub convention as composite-acp-handler.ts's handleWriterError. Never
-// the raw error message, which could carry transcript/prompt content.
-function errorCode(err: unknown): string {
-  return err instanceof Error
-    ? ((err as NodeJS.ErrnoException).code ?? err.name)
-    : 'UNKNOWN'
-}
+// A rate-limited/hung ACP loadSession() can silently never resolve or reject
+// while replaying an arbitrarily large persisted transcript — race it against
+// this timeout (same failure mode and remedy as discord-handler.service.ts's
+// THREAD_RENAME_TIMEOUT_MS for setName()) so a reactivation attempt always
+// settles promptly and falls through to a fresh session instead of wedging
+// the channel behind the U8 pending-guard forever.
+const LOAD_SESSION_TIMEOUT_MS = 30_000
 
 interface ManagedSession {
   channelId: string
@@ -553,11 +553,16 @@ export class SessionManagerService implements OnApplicationShutdown {
     }
 
     try {
-      await connection.loadSession({
-        sessionId: acpSessionId,
-        cwd: latestRow.cwd,
-        mcpServers: [],
-      })
+      // Race against LOAD_SESSION_TIMEOUT_MS — see its comment for why an
+      // un-timed-out loadSession is a channel-wedge hazard, not just a slow call.
+      await Promise.race([
+        connection.loadSession({
+          sessionId: acpSessionId,
+          cwd: latestRow.cwd,
+          mcpServers: [],
+        }),
+        this.timeoutReject(LOAD_SESSION_TIMEOUT_MS, 'loadSession timed out'),
+      ])
     } catch (err) {
       // U5: genuine failure — same notify-then-cleanup ordering as above.
       this.emitResumeFailed(channelId, errorCode(err))
@@ -683,14 +688,27 @@ export class SessionManagerService implements OnApplicationShutdown {
   private emitResumeFailed(channelId: string, reason: string): void {
     this.handlers.onResumeFailed(channelId)
     if (this.generationId != null) {
-      insertEvent(this.db, {
-        generationId: this.generationId,
-        channelId,
-        type: 'session_created',
-        level: 'warn',
-        context: { resumeFailed: true, reason },
-        createdAt: new Date(),
-      })
+      // Guarded (unlike a bare call) so a transient DB fault (e.g.
+      // SQLITE_BUSY — realistic given the two-process bot/main DB split)
+      // degrades to log-only instead of throwing out of this method and
+      // skipping the caller's killProcessTree(proc), which would otherwise
+      // leak the half-spawned reactivation process (the exact F8 failure U5
+      // exists to prevent).
+      try {
+        insertEvent(this.db, {
+          generationId: this.generationId,
+          channelId,
+          type: 'session_created',
+          level: 'warn',
+          context: { resumeFailed: true, reason },
+          createdAt: new Date(),
+        })
+      } catch (err) {
+        console.warn(
+          `[session-manager] emitResumeFailed event insert failed channel=${channelId}:`,
+          err instanceof Error ? err.message : String(err),
+        )
+      }
     }
   }
 
@@ -1044,5 +1062,15 @@ export class SessionManagerService implements OnApplicationShutdown {
         /* already dead */
       }
     }, 5000).unref()
+  }
+
+  // Rejects after `ms` — used to race against an ACP call that can silently
+  // hang forever (never resolve or reject) so callers always get a settled
+  // outcome. Unref'd so a pending timeout can never keep the process alive.
+  private timeoutReject(ms: number, message: string): Promise<never> {
+    return new Promise((_, reject) => {
+      const t = setTimeout(() => reject(new Error(message)), ms)
+      t.unref()
+    })
   }
 }

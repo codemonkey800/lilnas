@@ -117,7 +117,7 @@ describe('GitWriteLock', () => {
     expect(lock.acquire('ch2')).resolves.toBeTruthy()
   })
 
-  it('cancelWaiter removes a queued waiter — the holder release passes to the next real waiter, never the cancelled one', async () => {
+  it('cancelWaiter removes a queued waiter and rejects its parked acquire() — the holder release passes to the next real waiter, never the cancelled one', async () => {
     const lock = new GitWriteLock()
     const order: string[] = []
 
@@ -142,13 +142,11 @@ describe('GitWriteLock', () => {
     expect(order).toEqual(['ch3:acquired'])
     expect(lock.currentHolder).toBeNull()
 
-    // ch2's acquire() promise never settles now that it was cancelled —
-    // race it against a short timeout to prove it, then clean up.
-    const ch2Settled = await Promise.race([
-      ch2Promise.then(() => true),
-      new Promise<boolean>(resolve => setTimeout(() => resolve(false), 20)),
-    ])
-    expect(ch2Settled).toBe(false)
+    // ch2's acquire() promise now settles (rejects) once cancelled, instead
+    // of hanging forever — the caller's awaited executePrompt can unwind.
+    await expect(ch2Promise).rejects.toThrow(
+      /waiter ch2 cancelled during teardown/,
+    )
   })
 
   it('cancelWaiter goes to idle (no queued waiters left) when the only waiter is cancelled', async () => {
@@ -171,7 +169,11 @@ describe('GitWriteLock', () => {
     expect(lock.currentHolder).toBe('ch3')
     r3()
 
-    void ch2Promise // never settles — intentionally left pending, GC'd with the lock
+    // ch2's acquire() settles (rejects) once cancelled rather than leaking a
+    // pending promise forever.
+    await expect(ch2Promise).rejects.toThrow(
+      /waiter ch2 cancelled during teardown/,
+    )
   })
 
   it('cancelWaiter for the current HOLDER (not queued) is a no-op — the holder is unaffected', async () => {

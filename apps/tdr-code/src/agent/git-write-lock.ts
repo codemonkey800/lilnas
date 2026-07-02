@@ -9,15 +9,16 @@
 
 type Release = () => void
 type Grant = () => void
+type Reject = (err: Error) => void
 
 export class GitWriteLock {
-  private queue: Array<{ channelId: string; grant: Grant }> = []
+  private queue: Array<{ channelId: string; grant: Grant; reject: Reject }> = []
   private holderChannelId: string | null = null
 
   // Acquire the lock. Returns a release function. Callers MUST call the
   // returned function unconditionally at the top of their finally block.
   acquire(channelId: string): Promise<Release> {
-    return new Promise<Release>(resolve => {
+    return new Promise<Release>((resolve, reject) => {
       // grant-closure: sets holder and resolves the outer promise directly,
       // so the woken waiter never re-runs the null-check (fixes deadlock when
       // a queued waiter is released — it would re-queue instead of settling).
@@ -30,7 +31,7 @@ export class GitWriteLock {
         })
       }
       if (this.holderChannelId === null) grant()
-      else this.queue.push({ channelId, grant })
+      else this.queue.push({ channelId, grant, reject })
     })
   }
 
@@ -46,17 +47,29 @@ export class GitWriteLock {
     if (next) next.grant()
   }
 
-  // Remove a queued waiter for channelId, if one exists. Sibling of
-  // releaseIfHeldBy — that touches only the holder, this touches only the
-  // queue. A no-op if channelId is not currently queued, and a no-op if
-  // channelId is the current HOLDER (only the queue is spliced; a holder is
-  // never removed from itself here — that's what release()/releaseIfHeldBy
-  // are for). Defense-in-depth for tearing down a session that may be parked
-  // on acquire(): without this, its queue entry survives teardown and the
-  // lock is briefly granted to a channel that no longer exists.
+  // Remove a queued waiter for channelId, if one exists, and reject its
+  // parked acquire() so the waiter's turn settles instead of hanging forever.
+  // Sibling of releaseIfHeldBy — that touches only the holder, this touches
+  // only the queue. A no-op if channelId is not currently queued, and a
+  // no-op if channelId is the current HOLDER (only the queue is spliced; a
+  // holder is never removed from itself here — that's what
+  // release()/releaseIfHeldBy are for). Defense-in-depth for tearing down a
+  // session that may be parked on acquire(): without the rejection, the
+  // caller's `await acquire()` never settles (grant() — the only place that
+  // resolves it — never runs for a spliced-out entry), stranding the
+  // suspended executePrompt frame forever even though the queue entry itself
+  // is gone. executePrompt's existing catch/finally already handles a
+  // rejected acquire() the same as any other lock-acquire failure.
   cancelWaiter(channelId: string): void {
     const idx = this.queue.findIndex(w => w.channelId === channelId)
-    if (idx !== -1) this.queue.splice(idx, 1)
+    if (idx === -1) return
+    const [waiter] = this.queue.splice(idx, 1)
+    if (!waiter) return
+    waiter.reject(
+      new Error(
+        `git-write-lock: waiter ${channelId} cancelled during teardown`,
+      ),
+    )
   }
 
   get currentHolder(): string | null {

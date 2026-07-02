@@ -11,6 +11,7 @@ import {
   Events,
   type Message,
   PermissionFlagsBits,
+  type PublicThreadChannel,
   type TextChannel,
 } from 'discord.js'
 import { Context, type ContextOf, On } from 'necord'
@@ -272,7 +273,7 @@ export class DiscordHandlerService
       return
     }
 
-    const key = await this.resolveSessionKey(message, text)
+    const { key, createdThread } = await this.resolveSessionKey(message, text)
     const sessionManager = this.moduleRef.get(SessionManagerService, {
       strict: false,
     })
@@ -302,6 +303,10 @@ export class DiscordHandlerService
       this.stopTyping(key)
       const errMsg = err instanceof Error ? err.message : String(err)
       if (errMsg.includes('sessions are busy')) {
+        // The thread was already created (naming it after the prompt) before
+        // capacity was checked — don't litter the channel with an empty,
+        // session-less thread for a turn that never ran (R5 busy state).
+        if (createdThread) await createdThread.delete().catch(() => {})
         await message
           .reply(
             '⏳ All agent sessions are busy. Please wait for the current task to finish.',
@@ -322,20 +327,26 @@ export class DiscordHandlerService
   // in a threadable channel, or fall back to inline for anything else
   // (non-threadable channel, missing perms, or a startThread failure). The
   // caller's turn is never dropped — every branch resolves to a usable key.
+  // `createdThread` is the thread just created for this call (if any) so the
+  // caller can delete it if the turn never actually runs (e.g. all sessions
+  // busy) — it must not be confused with an existing thread being continued.
   private async resolveSessionKey(
     message: Message,
     strippedText: string,
-  ): Promise<string> {
+  ): Promise<{
+    key: string
+    createdThread: PublicThreadChannel<false> | null
+  }> {
     const channel = message.channel
 
     if (channel.isThread()) {
       // R3: continue the existing thread's session.
-      return channel.id
+      return { key: channel.id, createdThread: null }
     }
 
     if (channel.isDMBased()) {
       // R4: DMs don't support threads — run inline keyed by the DM channel.
-      return message.channelId
+      return { key: message.channelId, createdThread: null }
     }
 
     if (this.canCreateThread(message)) {
@@ -344,7 +355,7 @@ export class DiscordHandlerService
           name: buildThreadName(strippedText),
           autoArchiveDuration: THREAD_AUTO_ARCHIVE_MINUTES,
         })
-        return thread.id
+        return { key: thread.id, createdThread: thread }
       } catch {
         // Resilience: never drop the user's turn because thread creation
         // failed — fall through to the inline fallback below.
@@ -352,7 +363,7 @@ export class DiscordHandlerService
     }
 
     // Non-threadable channel type, missing perms, or a failed startThread.
-    return message.channelId
+    return { key: message.channelId, createdThread: null }
   }
 
   // Whether this message's channel is a type that supports startThread() and
@@ -404,6 +415,10 @@ export class DiscordHandlerService
     // Drop the stale send-chain tail — in-flight tasks still check the guard and
     // return early, so they won't post into the cleared channel.
     this.sendChains.delete(channelId)
+    // Restore first-rename exemption for the next session on this (reused)
+    // thread id, and bound the map's growth to live threads (mirrors the
+    // other per-channel maps cleared above).
+    this.threadRenameStates.delete(channelId)
   }
 
   // --- Private helpers ---
