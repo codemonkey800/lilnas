@@ -9,7 +9,14 @@ Object.defineProperty(process.env, 'NODE_ENV', {
   value: 'test',
   writable: true,
 })
-process.env.DISCORD_BOT_TOKEN = 'test-token'
+// Fixture name matches EnvKeys.DISCORD_API_TOKEN (the bot token env key the
+// code actually reads — src/bot.module.ts, src/supervisor/supervisor.service
+// .ts). The prior name here, DISCORD_BOT_TOKEN, was never read by any source
+// file (confirmed via a full-source grep before this fix — bot.module.ts's
+// env(EnvKeys.DISCORD_API_TOKEN, '') was silently falling back to its ''
+// default the whole time), so no existing test was depending on this
+// fixture's value; this rename only makes the fixture's name match reality.
+process.env.DISCORD_API_TOKEN = 'test-token'
 process.env.DISCORD_GUILD_ID = 'test-guild-id'
 process.env.CLAUDE_COMMAND = 'claude'
 process.env.CLAUDE_CWD = '/tmp'

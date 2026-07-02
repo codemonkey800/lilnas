@@ -1,10 +1,14 @@
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import { env } from '@lilnas/utils/env'
+import type { Account, GenericEndpointContext } from 'better-auth'
 import { betterAuth } from 'better-auth'
 
+import { sweepAccountlessUsers } from 'src/db/auth-sweep.repo'
 import type { Db } from 'src/db/database.module'
 import * as schema from 'src/db/schema'
 import { EnvKeys } from 'src/env'
+
+import { isCurrentUserGuildMember } from './guild-gate'
 
 // Discord profile shape relevant to email synthesis — Better Auth passes the
 // raw provider profile to mapProfileToUser; we only touch `email`/`id`.
@@ -171,22 +175,135 @@ export function buildAuth(db: Db) {
     // public-by-construction routes from a plugin).
     plugins: [],
 
-    // TODO(U3): wire the guild-membership gate here. The seam (request-level
-    // `hooks.before` on the callback path vs `databaseHooks.account.create
-    // .before`) is decided by U3's own runtime probe against a real Discord
-    // OAuth as a non-member — see the plan's "Guild-gate seam decision
-    // matrix". Do not add `hooks` or `databaseHooks` keys speculatively here;
-    // U3 owns that decision and the seam wiring.
+    // U3: guild-membership gate (R18, AE5) — SEAM = Option B
+    // (`databaseHooks.account.create.before`), not Option A
+    // (`hooks.before`). See guild-gate.ts's header comment for the full
+    // file:line trace of why Option A is impossible (not merely costly):
+    // `hooks.before` runs at better-auth/dist/api/dispatch.mjs's
+    // `dispatchAuthEndpoint` BEFORE the callback endpoint closure that
+    // performs the code→token exchange is ever invoked, so no seam at that
+    // layer can see a Discord access token without a hand-rolled second
+    // exchange. `databaseHooks.account.create.before` runs from
+    // better-auth/dist/db/with-hooks.mjs's `createWithHooks`, called from
+    // internal-adapter.mjs's `createOAuthUser` with the account payload
+    // ALREADY containing the just-exchanged `accessToken` (set at
+    // @better-auth/core's oauth2/link-account.mjs before that call) — this
+    // is a genuine seam, not a workaround.
+    //
+    // This SAME hook also resolves the other TODO(U3) — token persistence.
+    // Confirmed against 1.6.23's installed types
+    // (@better-auth/core's types/init-options.d.mts): there is no
+    // first-class "don't persist OAuth tokens" option — only
+    // `account.encryptOAuthTokens` (encrypts at rest, but still persists)
+    // or a databaseHooks seam that mutates the payload before insert. R18
+    // is a SIGN-IN-ONLY check (D10) — nothing downstream of the guild gate
+    // ever re-presents the Discord token — so there is no reason to retain
+    // it even encrypted; nulling it in the hook that already runs on every
+    // `account` create is one seam doing two jobs instead of two
+    // independent half-measures. (This is data-minimization, not a
+    // `get-session` leak fix: better-auth/dist/api/routes/session.mjs's
+    // get-session handlers only ever call `parseUserOutput`/
+    // `parseSessionOutput` on the `user`/`session` rows — the `account`
+    // row's accessToken/refreshToken columns were never read or returned
+    // by get-session in the first place, confirmed by reading that file in
+    // full, so this hook is defense-in-depth for the stored row, not a fix
+    // for an existing exposure.)
+    databaseHooks: {
+      account: {
+        create: {
+          before: async (
+            account: Account,
+            context: GenericEndpointContext | null,
+          ) => {
+            // Only Discord accounts carry a guild-membership question — a
+            // future non-social provider (none configured today; `plugins`
+            // above is empty and only the Discord social provider exists)
+            // would have no Discord accessToken to check and no guild to
+            // check it against, so this gate (and the token-nulling below)
+            // is scoped to providerId 'discord' rather than assuming every
+            // account row is one.
+            if (account.providerId !== 'discord') return
 
-    // TODO(U3): token persistence. Better Auth's `account` table stores
-    // accessToken/refreshToken by default (confirmed: no first-class "don't
-    // persist" option exists in 1.6.23 — the closest typed seam is
-    // `databaseHooks.account.create.before`/`update.before` returning
-    // `{ data: { ...account, accessToken: null, refreshToken: null } }`, or
-    // `account.encryptOAuthTokens: true` which encrypts at rest but still
-    // persists). R18 is a sign-in-only check, so U3 should decide whether to
-    // null the tokens out via that hook or accept encryption-at-rest instead
-    // of guessing at partial config here.
+            // Every path below that is NOT "confirmed member" must reject
+            // AND sweep — including isCurrentUserGuildMember throwing
+            // unexpectedly (it's designed not to per guild-gate.ts's own
+            // fail-closed contract, but this hook does not trust that
+            // contract blindly: an uncaught throw here would otherwise skip
+            // straight past the sweep call below, silently reintroducing
+            // the exact orphan-`user`-row leak the sweep exists to close).
+            // try/catch here is the SAME "never allow on ambiguity"
+            // principle lookupGuildMembership already applies to its own
+            // fetch() call, just applied one layer up so a gate-internal
+            // exception can't bypass the compensating cleanup either.
+            let isMember: boolean
+            try {
+              // accessToken is optional on the Account type (some
+              // providers/flows omit it) — treat a missing token as
+              // fail-closed too: no token means no way to prove membership.
+              isMember = account.accessToken
+                ? await isCurrentUserGuildMember(account.accessToken)
+                : false
+            } catch (error) {
+              context?.context.logger.error(
+                'guild_gate_check_error: guild-membership check threw; treating as non-member (fail-closed)',
+                error,
+              )
+              isMember = false
+            }
+
+            if (isMember) {
+              // Allowed: let the INSERT proceed, but with the just-checked
+              // Discord token replaced by null — R18 needed it only for
+              // this one guild-membership check, which already happened
+              // above; nothing later in the request (or any future
+              // request) re-reads account.accessToken, so there's no
+              // reason for it to land on disk at all. Per with-hooks.mjs's
+              // createWithHooks: `if (typeof result === "object" && "data"
+              // in result) actualData = { ...actualData, ...result.data }`
+              // — this MERGES onto the original payload rather than
+              // replacing it, so every other field (providerId, accountId,
+              // scope, ...) is preserved unchanged.
+              return {
+                data: { accessToken: null, refreshToken: null },
+              }
+            }
+
+            context?.context.logger.warn(
+              'guild_gate_rejected: non-member sign-in rejected before account provisioning',
+              { providerId: account.providerId },
+            )
+
+            // The sweep runs for EVERY non-member outcome reached above —
+            // both the normal "Discord said no" path and the caught-throw
+            // path — because both leave the exact same orphan-row shape
+            // behind (see below) and neither should ever early-return past
+            // this call.
+            //
+            // Returning `false` (per with-hooks.mjs's createWithHooks: `if
+            // (result === false) return null`) makes the `account` INSERT
+            // never happen — no account row, and internal-adapter.mjs's
+            // handleOAuthUserInfo call chain (createOAuthUser -> "unable to
+            // create user" error path) then never reaches createSession
+            // either, so no session row and no session cookie. The one row
+            // this CANNOT prevent is the paired `user` row: internal-
+            // adapter.mjs's createOAuthUser runs createWithHooks(...,
+            // "user", ...) and that INSERT commits BEFORE createWithHooks(
+            // ..., "account", ...) — where this hook runs — is ever called.
+            // That accountless `user` row is what auth-sweep.repo.ts's
+            // sweepAccountlessUsers() cleans up immediately below, so
+            // AE5's "no usable rows" holds: the row that survives has no
+            // account and can never authenticate.
+            const swept = sweepAccountlessUsers(db)
+            context?.context.logger.warn(
+              'guild_gate_sweep: accountless user rows deleted after guild-gate rejection',
+              { rowsDeleted: swept },
+            )
+
+            return false
+          },
+        },
+      },
+    },
   })
 }
 

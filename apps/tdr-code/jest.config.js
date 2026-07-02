@@ -66,6 +66,23 @@ module.exports = {
     // but these packages have no CJS build for Jest's CJS-based module
     // loader to require() directly.
     //
+    // Phase D (U3): msw joins the same allowlist for the same underlying
+    // reason, even though `msw` DOES ship a real CJS build (`lib/*/index.js`,
+    // confirmed by requiring it directly by absolute path) — the problem is
+    // that neither Node's nor Jest's default `exports`-map resolution for
+    // the bare specifiers `msw`/`msw/node` picks that CJS entry; both land on
+    // the `.mjs` build instead (confirmed empirically: `require.resolve('msw')`
+    // in plain Node, outside Jest entirely, already resolves to
+    // `lib/core/index.mjs`). A `moduleNameMapper` override to msw's CJS path
+    // was tried and rejected: msw's OWN dependencies (`@mswjs/interceptors`
+    // and its many deep subpath exports, `rettime`, etc.) are only resolvable
+    // from *inside* msw's own node_modules tree, not this app's directly
+    // declared deps, so pinning around them would mean mapping an
+    // open-ended, version/hash-fragile set of absolute pnpm-store paths.
+    // Un-ignoring by package name (this list) is what survives a lockfile
+    // hash change; @mswjs/interceptors, rettime, and other msw runtime deps
+    // that hit this codepath are added alongside it for the same reason.
+    //
     // The lookahead uses a leading `.*` (not just an immediately-following
     // name) because pnpm's virtual store nests real packages under
     // `.pnpm/<hash>/node_modules/<pkg>` — a plain `/node_modules/(?!(name))`
@@ -76,7 +93,7 @@ module.exports = {
     // pnpm-nested package regardless of what's in the allowlist. `.*` lets
     // the lookahead scan past that intermediate .pnpm/<hash>/node_modules/
     // segment to find the real package name deeper in the path.
-    '/node_modules/(?!.*(@lilnas|nanoid|better-auth|@better-auth|@thallesp|better-call|@better-fetch|@noble|nanostores|defu|jose|kysely|rou3)/)',
+    '/node_modules/(?!.*(@lilnas|nanoid|better-auth|@better-auth|@thallesp|better-call|@better-fetch|@noble|nanostores|defu|jose|kysely|rou3|msw|@mswjs|rettime|@open-draft|is-node-process|outvariant|strict-event-emitter|until-async|headers-polyfill)/)',
   ],
   collectCoverageFrom: [
     'src/**/*.ts',
