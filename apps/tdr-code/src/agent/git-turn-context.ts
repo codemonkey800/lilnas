@@ -75,7 +75,6 @@ export class GitTurnContext {
     }
     this.activeTurns.set(channelId, state)
 
-    const { db, generationId } = this.opts
     const idDir = path.join(IDENTITY_DIR, channelId)
 
     if (isConfigured(resolution)) {
@@ -110,11 +109,6 @@ export class GitTurnContext {
       state.identityDir = idDir
     } else {
       // No identity or decrypt failure → write identity files with blocking wrapper.
-      const reason =
-        resolution.kind === 'decrypt_failed'
-          ? 'key_decrypt_failed'
-          : 'unconfigured'
-
       fs.mkdirSync(idDir, { recursive: true, mode: 0o700 })
       fs.writeFileSync(path.join(idDir, 'name'), userId, { mode: 0o600 })
       fs.writeFileSync(path.join(idDir, 'email'), `${userId}@unconfigured`, {
