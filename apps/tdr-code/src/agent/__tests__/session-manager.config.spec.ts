@@ -9,6 +9,7 @@ import { SessionManagerService } from 'src/agent/session-manager.service'
 import { EnvKeys } from 'src/env'
 
 jest.mock('node:child_process', () => ({
+  execFileSync: jest.fn().mockReturnValue('/usr/bin/git'),
   spawn: jest.fn(),
 }))
 
@@ -48,7 +49,6 @@ function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
     onAgentMessageImage: jest.fn(),
     onPromptStart: jest.fn(),
     onPromptComplete: jest.fn(),
-    onGitPushBlocked: jest.fn(),
   }
 }
 

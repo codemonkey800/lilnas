@@ -1,19 +1,21 @@
-import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 
 import { isConfigured, resolveIdentity } from 'src/crypto/identity-resolution'
 import { loadMasterKey } from 'src/crypto/master-key'
 import type { Db } from 'src/db/database.module'
-import { insertEvent } from 'src/db/events.repo'
 import { getIdentity } from 'src/db/git-identity.repo'
 
-import type { AcpEventHandlers } from './agent.types'
 import { globalGitWriteLock } from './git-write-lock'
 
 // Tmpfs directory for per-turn key files (Decision #6).
 // /run is preferred over /dev/shm (often world-accessible).
-const KEYS_DIR = '/run/tdr-code/keys'
+// Override TDR_CODE_RUN_DIR for local dev on macOS (e.g. /tmp/tdr-code).
+const RUN_DIR = process.env.TDR_CODE_RUN_DIR ?? '/run/tdr-code'
+const KEYS_DIR = `${RUN_DIR}/keys`
+
+// Tmpfs directory for per-turn identity files read by the git PATH wrapper.
+const IDENTITY_DIR = `${RUN_DIR}/identity`
 
 // Path to the SSH blocking wrapper (Decision #6).
 // Resolved relative to this file so it works in both source and dist.
@@ -29,16 +31,13 @@ const WRAPPER_SCRIPT = path.resolve(
 export interface GitTurnContextOptions {
   db: Db
   generationId: number | null
-  // Thunk so callers can update cwd (via rereadConfig) without reconstructing
-  // the context. Evaluated per-turn so .git/config always targets the current workspace.
-  getCwd: () => string
-  handlers: AcpEventHandlers
 }
 
 // State per channel's active turn (cleared at turn end).
 interface TurnState {
   channelId: string
   keyPath: string | null
+  identityDir: string | null
   release: (() => void) | null
 }
 
@@ -48,7 +47,7 @@ export class GitTurnContext {
   constructor(private readonly opts: GitTurnContextOptions) {}
 
   // Call AFTER executePrompt's synchronous prologue and AFTER gitLock.acquire().
-  // Writes identity to .git/config and decrypts a key to tmpfs.
+  // Writes identity files to tmpfs and (for configured users) decrypts the key.
   // The lock must already be held by the caller (executePrompt passes the release fn).
   async begin(
     channelId: string,
@@ -59,6 +58,7 @@ export class GitTurnContext {
     // silently block every configured turn (Decision #4 risk note).
     try {
       fs.mkdirSync(KEYS_DIR, { recursive: true, mode: 0o700 })
+      fs.mkdirSync(IDENTITY_DIR, { recursive: true, mode: 0o700 })
     } catch {
       // Ignore if already exists
     }
@@ -70,15 +70,16 @@ export class GitTurnContext {
     const state: TurnState = {
       channelId,
       keyPath: null,
+      identityDir: null,
       release,
     }
     this.activeTurns.set(channelId, state)
 
     const { db, generationId } = this.opts
-    const cwd = this.opts.getCwd()
+    const idDir = path.join(IDENTITY_DIR, channelId)
 
     if (isConfigured(resolution)) {
-      // Write key to tmpfs, then set .git/config.
+      // Write key to tmpfs, then write identity files for the git wrapper.
       const keyPath = path.join(KEYS_DIR, `${channelId}.key`)
       fs.writeFileSync(keyPath, resolution.keyPlaintext, { mode: 0o600 })
       // Best-effort zeroize plaintext.
@@ -96,51 +97,38 @@ export class GitTurnContext {
         ` -o ControlMaster=no` +
         ` -o ControlPath=none`
 
-      applyGitConfig(cwd, resolution.name, resolution.email, sshCommand)
+      fs.mkdirSync(idDir, { recursive: true, mode: 0o700 })
+      fs.writeFileSync(path.join(idDir, 'name'), resolution.name, {
+        mode: 0o600,
+      })
+      fs.writeFileSync(path.join(idDir, 'email'), resolution.email, {
+        mode: 0o600,
+      })
+      fs.writeFileSync(path.join(idDir, 'ssh_command'), sshCommand, {
+        mode: 0o600,
+      })
+      state.identityDir = idDir
     } else {
-      // No identity or decrypt failure → install the blocking wrapper.
-      applyGitConfig(cwd, userId, `${userId}@unconfigured`, WRAPPER_SCRIPT)
-
+      // No identity or decrypt failure → write identity files with blocking wrapper.
       const reason =
         resolution.kind === 'decrypt_failed'
           ? 'key_decrypt_failed'
           : 'unconfigured'
 
-      // Emit enforcement events. Guard on generationId (schema writer invariant).
-      if (generationId != null) {
-        try {
-          insertEvent(db, {
-            generationId,
-            channelId,
-            sessionId: null,
-            type:
-              resolution.kind === 'decrypt_failed'
-                ? 'git_key_decrypt_failed'
-                : 'git_push_blocked',
-            level: 'warn',
-            context: {
-              discordUserId: userId,
-              reason,
-              // fingerprint is safe to log (plaintext in backup); keyPath/ciphertext/iv/authTag are NOT
-              ...(resolution.kind === 'decrypt_failed'
-                ? { keyFingerprint: resolution.fingerprint }
-                : {}),
-            },
-            createdAt: new Date(),
-          })
-        } catch {
-          // Best-effort — never fail the turn for a logging error
-        }
-      }
-
-      // R17: fire Discord notice synchronously (fire-and-forget the channel.send
-      // inside handlers.onGitPushBlocked — C1 constraint on DiscordHandlerService).
-      this.opts.handlers.onGitPushBlocked(channelId, reason)
+      fs.mkdirSync(idDir, { recursive: true, mode: 0o700 })
+      fs.writeFileSync(path.join(idDir, 'name'), userId, { mode: 0o600 })
+      fs.writeFileSync(path.join(idDir, 'email'), `${userId}@unconfigured`, {
+        mode: 0o600,
+      })
+      fs.writeFileSync(path.join(idDir, 'ssh_command'), WRAPPER_SCRIPT, {
+        mode: 0o600,
+      })
+      state.identityDir = idDir
     }
   }
 
   // Call at the TOP of executePrompt's finally block, before the drain guard.
-  // Releases the lock first, then removes the tmpfs key (Decision #4 ordering).
+  // Releases the lock first, then removes tmpfs files (Decision #4 ordering).
   end(channelId: string): void {
     const state = this.activeTurns.get(channelId)
     if (!state) return
@@ -158,6 +146,17 @@ export class GitTurnContext {
       state.keyPath = null
       try {
         fs.rmSync(kp, { force: true })
+      } catch {
+        // Ignore — sweep() will catch orphans on next boot
+      }
+    }
+
+    // 3. Best-effort identity dir removal.
+    if (state.identityDir) {
+      const idDir = state.identityDir
+      state.identityDir = null
+      try {
+        fs.rmSync(idDir, { recursive: true, force: true })
       } catch {
         // Ignore — sweep() will catch orphans on next boot
       }
@@ -183,22 +182,53 @@ export class GitTurnContext {
           /* ignore */
         }
       }
+      if (state.identityDir) {
+        const idDir = state.identityDir
+        state.identityDir = null
+        try {
+          fs.rmSync(idDir, { recursive: true, force: true })
+        } catch {
+          /* ignore */
+        }
+      }
     }
     globalGitWriteLock.releaseIfHeldBy(channelId)
   }
 
-  // Boot-time and shutdown sweep — removes all orphaned key files in KEYS_DIR.
-  // Tmpfs is also wiped on reboot, but this handles restarts without a reboot.
+  // Boot-time and shutdown sweep — removes all orphaned tmpfs files from a
+  // previous crash. Tmpfs is also wiped on reboot, but this handles restarts
+  // without a reboot.
   static sweep(): void {
     try {
-      if (!fs.existsSync(KEYS_DIR)) return
-      const files = fs.readdirSync(KEYS_DIR)
-      for (const file of files) {
-        if (file.endsWith('.key')) {
-          try {
-            fs.rmSync(path.join(KEYS_DIR, file), { force: true })
-          } catch {
-            /* ignore */
+      if (fs.existsSync(KEYS_DIR)) {
+        const files = fs.readdirSync(KEYS_DIR)
+        for (const file of files) {
+          if (file.endsWith('.key')) {
+            try {
+              fs.rmSync(path.join(KEYS_DIR, file), { force: true })
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      if (fs.existsSync(IDENTITY_DIR)) {
+        const entries = fs.readdirSync(IDENTITY_DIR, { withFileTypes: true })
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            try {
+              fs.rmSync(path.join(IDENTITY_DIR, entry.name), {
+                recursive: true,
+                force: true,
+              })
+            } catch {
+              /* ignore */
+            }
           }
         }
       }
@@ -206,25 +236,4 @@ export class GitTurnContext {
       /* ignore */
     }
   }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-
-function applyGitConfig(
-  cwd: string,
-  name: string,
-  email: string,
-  sshCommand: string,
-): void {
-  // Use `git config --local` for atomic writes — serialized by the lock.
-  // Timeout matches busy_timeout (5 s) so a stalled git releases the
-  // global write-lock rather than wedging every channel indefinitely.
-  const opts = { cwd, timeout: 5000 }
-  execFileSync('git', ['config', '--local', 'user.name', name], opts)
-  execFileSync('git', ['config', '--local', 'user.email', email], opts)
-  execFileSync(
-    'git',
-    ['config', '--local', 'core.sshCommand', sshCommand],
-    opts,
-  )
 }

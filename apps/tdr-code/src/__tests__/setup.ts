@@ -75,6 +75,7 @@ jest.mock('@agentclientprotocol/sdk', () => ({
 }))
 
 jest.mock('node:child_process', () => ({
+  execFileSync: jest.fn().mockReturnValue('/usr/bin/git'),
   spawn: jest.fn(),
   execFile: jest.fn(),
 }))

@@ -178,24 +178,6 @@ export class DiscordHandlerService
     )
   }
 
-  // R17: synchronous notice — fire-and-forget the channel.send (C1: do not
-  // await inside a callback that runs synchronously in the executePrompt flow).
-  onGitPushBlocked(channelId: string, reason: string): void {
-    const consoleUrl =
-      process.env.ALLOWED_CONSOLE_ORIGIN ?? 'https://tdr-code.lilnas.io'
-    const message =
-      reason === 'key_decrypt_failed'
-        ? `⚠️ Push blocked: your stored SSH key could not be decrypted. Re-upload a key at ${consoleUrl}/git-identity`
-        : `⚠️ Push blocked: no git identity configured. Set one at ${consoleUrl}/git-identity`
-
-    void this.fetchChannel(channelId).then(channel => {
-      if (!channel) return
-      channel
-        .send({ content: message, allowedMentions: { parse: [] } })
-        .catch(() => {})
-    })
-  }
-
   // --- Discord event handlers ---
 
   @On(Events.MessageCreate)

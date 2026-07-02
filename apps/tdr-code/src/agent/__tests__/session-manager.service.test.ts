@@ -53,7 +53,6 @@ function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
     onAgentMessageImage: jest.fn(),
     onPromptStart: jest.fn(),
     onPromptComplete: jest.fn(),
-    onGitPushBlocked: jest.fn(),
   }
 }
 
@@ -67,6 +66,7 @@ function createMockConnection(stopReason = 'end_turn'): TestConnection {
 }
 
 jest.mock('node:child_process', () => ({
+  execFileSync: jest.fn().mockReturnValue('/usr/bin/git'),
   spawn: jest.fn(),
 }))
 

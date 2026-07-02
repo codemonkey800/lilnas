@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import path from 'node:path'
 
 import { GitTurnContext } from 'src/agent/git-turn-context'
 import { globalGitWriteLock } from 'src/agent/git-write-lock'
@@ -19,37 +20,11 @@ jest.mock('src/crypto/identity-resolution', () => ({
   isDecryptFailed: jest.fn().mockReturnValue(false),
 }))
 
-jest.mock('src/db/events.repo', () => ({
-  insertEvent: jest.fn(),
-}))
-
-// Mock execFileSync to avoid actually running git
-jest.mock('node:child_process', () => ({
-  ...jest.requireActual('node:child_process'),
-  execFileSync: jest.fn(),
-  spawn: jest.fn(),
-}))
-
-import { execFileSync } from 'node:child_process'
-
 import { isConfigured, resolveIdentity } from 'src/crypto/identity-resolution'
-import { insertEvent } from 'src/db/events.repo'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeDb(): any {
   return {}
-}
-
-function makeHandlers() {
-  return {
-    onToolCall: jest.fn(),
-    onToolCallUpdate: jest.fn(),
-    onAgentMessageChunk: jest.fn(),
-    onAgentMessageImage: jest.fn(),
-    onPromptStart: jest.fn(),
-    onPromptComplete: jest.fn(),
-    onGitPushBlocked: jest.fn(),
-  }
 }
 
 describe('GitTurnContext', () => {
@@ -62,10 +37,11 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
-        getCwd: () => '/tmp',
-        handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
+
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined)
 
       await ctx.begin('ch1', '123456789012345678', mockRelease)
       ctx.end('ch1')
@@ -77,10 +53,11 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
-        getCwd: () => '/tmp',
-        handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
+
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined)
 
       await ctx.begin('ch1', '123456789012345678', mockRelease)
       ctx.end('ch1')
@@ -92,10 +69,11 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
-        getCwd: () => '/tmp',
-        handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
+
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined)
 
       await ctx.begin('ch1', '123456789012345678', mockRelease)
       ctx.end('ch1')
@@ -105,8 +83,8 @@ describe('GitTurnContext', () => {
     })
   })
 
-  describe('configured user — R14 key write + sshCommand', () => {
-    it('writes key to tmpfs with mode 0o600 and sets correct core.sshCommand', async () => {
+  describe('configured user — key write + identity files', () => {
+    it('writes key to tmpfs and writes identity files with ssh_command containing key path', async () => {
       const keyBytes = crypto.randomBytes(64)
       ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
         kind: 'configured',
@@ -117,51 +95,75 @@ describe('GitTurnContext', () => {
       })
       ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(true)
 
+      const mkdirSpy = jest
+        .spyOn(fs, 'mkdirSync')
+        .mockImplementation(() => undefined)
       const writeFileSpy = jest
         .spyOn(fs, 'writeFileSync')
         .mockImplementation(() => undefined)
       const rmSyncSpy = jest
         .spyOn(fs, 'rmSync')
         .mockImplementation(() => undefined)
-      const execSpy = execFileSync as jest.Mock
 
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
-        getCwd: () => '/workspace',
-        handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
 
       await ctx.begin('ch1', '123456789012345678', mockRelease)
 
       // Key written to tmpfs with restrictive permissions
-      expect(writeFileSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/ch1\.key$/),
-        expect.any(Buffer),
-        { mode: 0o600 },
+      const keyWrite = writeFileSpy.mock.calls.find(([p]) =>
+        (p as string).endsWith('ch1.key'),
       )
-      const keyPath = writeFileSpy.mock.calls[0]![0] as string
+      expect(keyWrite).toBeDefined()
+      expect(keyWrite![2]).toEqual({ mode: 0o600 })
+      const keyPath = keyWrite![0] as string
 
-      // core.sshCommand must include per-turn key path and disable multiplexing
-      const sshCommandCall = execSpy.mock.calls.find(
-        (c: unknown[]) =>
-          Array.isArray(c[1]) && (c[1] as string[]).includes('core.sshCommand'),
+      // Identity dir created
+      expect(mkdirSpy).toHaveBeenCalledWith(
+        expect.stringContaining('ch1'),
+        expect.objectContaining({ mode: 0o700 }),
       )
-      expect(sshCommandCall).toBeDefined()
-      const sshCommand = (sshCommandCall![1] as string[])[3] as string
+
+      // name and email written to identity dir
+      const nameWrite = writeFileSpy.mock.calls.find(([p]) =>
+        (p as string).endsWith(path.join('ch1', 'name')),
+      )
+      expect(nameWrite).toBeDefined()
+      expect(nameWrite![1]).toBe('Jane Doe')
+
+      const emailWrite = writeFileSpy.mock.calls.find(([p]) =>
+        (p as string).endsWith(path.join('ch1', 'email')),
+      )
+      expect(emailWrite).toBeDefined()
+      expect(emailWrite![1]).toBe('jane@example.com')
+
+      // ssh_command includes per-turn key path and disables multiplexing
+      const sshWrite = writeFileSpy.mock.calls.find(([p]) =>
+        (p as string).endsWith(path.join('ch1', 'ssh_command')),
+      )
+      expect(sshWrite).toBeDefined()
+      const sshCommand = sshWrite![1] as string
       expect(sshCommand).toContain(`-i ${keyPath}`)
       expect(sshCommand).toContain('IdentitiesOnly=yes')
       expect(sshCommand).toContain('ControlMaster=no')
       expect(sshCommand).toContain('ControlPath=none')
-      // Must NOT use the blocking wrapper path for a configured user
+      // Must NOT use the blocking wrapper for a configured user
       expect(sshCommand).not.toContain('git-ssh-wrapper')
 
       ctx.end('ch1')
 
       // Key removed after end()
       expect(rmSyncSpy).toHaveBeenCalledWith(keyPath, { force: true })
+      // Identity dir removed after end()
+      expect(rmSyncSpy).toHaveBeenCalledWith(expect.stringContaining('ch1'), {
+        recursive: true,
+        force: true,
+      })
 
+      mkdirSpy.mockRestore()
       writeFileSpy.mockRestore()
       rmSyncSpy.mockRestore()
     })
@@ -169,11 +171,12 @@ describe('GitTurnContext', () => {
 
   describe('abort()', () => {
     it('abort() releases lock via globalGitWriteLock.releaseIfHeldBy', async () => {
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined)
+
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
-        getCwd: () => '/tmp',
-        handlers: makeHandlers(),
       })
 
       // Acquire the real lock so releaseIfHeldBy has something to release
@@ -196,11 +199,12 @@ describe('GitTurnContext', () => {
     })
 
     it('abort() is idempotent — safe to call twice', async () => {
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined)
+
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
-        getCwd: () => '/tmp',
-        handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
       await ctx.begin('ch1', '123456789012345678', mockRelease)
@@ -209,85 +213,33 @@ describe('GitTurnContext', () => {
     })
   })
 
-  describe('unconfigured user → blocking wrapper + git_push_blocked event', () => {
-    it('emits git_push_blocked event for unconfigured user', async () => {
+  describe('unconfigured user — blocking wrapper', () => {
+    it('writes blocking wrapper path as ssh_command for unconfigured user', async () => {
       ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
         kind: 'unconfigured',
       })
       ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(false)
 
-      const ctx = new GitTurnContext({
-        db: makeDb(),
-        generationId: 42,
-        getCwd: () => '/tmp',
-        handlers: makeHandlers(),
-      })
-
-      await ctx.begin('ch1', '123456789012345678', jest.fn())
-      ctx.end('ch1')
-
-      expect(insertEvent).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          type: 'git_push_blocked',
-          level: 'warn',
-          context: expect.objectContaining({
-            discordUserId: '123456789012345678',
-          }),
-        }),
-      )
-    })
-
-    it('emits git_key_decrypt_failed (distinct event) for decrypt_failed user', async () => {
-      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
-        kind: 'decrypt_failed',
-        fingerprint: 'SHA256:test',
-      })
-      ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(false)
-
-      const ctx = new GitTurnContext({
-        db: makeDb(),
-        generationId: 42,
-        getCwd: () => '/tmp',
-        handlers: makeHandlers(),
-      })
-
-      await ctx.begin('ch1', '123456789012345678', jest.fn())
-      ctx.end('ch1')
-
-      expect(insertEvent).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          type: 'git_key_decrypt_failed',
-        }),
-      )
-    })
-
-    it('event context never contains key material', async () => {
-      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
-        kind: 'unconfigured',
-      })
-      ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(false)
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      const writeFileSpy = jest
+        .spyOn(fs, 'writeFileSync')
+        .mockImplementation(() => undefined)
 
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
-        getCwd: () => '/tmp',
-        handlers: makeHandlers(),
       })
 
       await ctx.begin('ch1', '123456789012345678', jest.fn())
       ctx.end('ch1')
 
-      const calls = (insertEvent as jest.Mock).mock.calls
-      for (const [, eventData] of calls) {
-        const ctx = eventData?.context ?? {}
-        expect(ctx).not.toHaveProperty('privateKey')
-        expect(ctx).not.toHaveProperty('ciphertext')
-        expect(ctx).not.toHaveProperty('iv')
-        expect(ctx).not.toHaveProperty('authTag')
-        expect(ctx).not.toHaveProperty('keyPath')
-      }
+      const sshWrite = writeFileSpy.mock.calls.find(([p]) =>
+        (p as string).endsWith(path.join('ch1', 'ssh_command')),
+      )
+      expect(sshWrite).toBeDefined()
+      expect(sshWrite![1] as string).toContain('git-ssh-wrapper')
+
+      writeFileSpy.mockRestore()
     })
   })
 

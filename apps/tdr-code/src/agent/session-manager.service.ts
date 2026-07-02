@@ -1,4 +1,5 @@
-import { type ChildProcess, spawn } from 'node:child_process'
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
+import path from 'node:path'
 import { Readable, Writable } from 'node:stream'
 
 import {
@@ -67,6 +68,10 @@ export class SessionManagerService implements OnApplicationShutdown {
 
   private readonly generationId: number | null
 
+  // Resolved once in the constructor — same for all sessions.
+  private readonly scriptsDir: string
+  private readonly realGit: string
+
   // U5: live_status heartbeat — one timer per bot lifetime, cleared by shutdown
   // authority before finalizeGeneration (Decision 8c).
   private liveStatusTimer: NodeJS.Timeout | null = null
@@ -96,13 +101,12 @@ export class SessionManagerService implements OnApplicationShutdown {
     const genIdStr = process.env[EnvKeys.BOT_GENERATION_ID]
     this.generationId = genIdStr ? parseInt(genIdStr, 10) : null
 
+    this.scriptsDir = path.resolve(__dirname, '../../scripts')
+    this.realGit = execFileSync('which', ['git'], { encoding: 'utf-8' }).trim()
+
     this.gitTurnContext = new GitTurnContext({
       db,
       generationId: this.generationId,
-      // Thunk so gitTurnContext tracks the same cwd that createSession uses —
-      // rereadConfig() updates this.claudeCwd without reconstructing the context.
-      getCwd: () => this.claudeCwd,
-      handlers,
     })
 
     // Boot-time sweep of any orphaned tmpfs key files from a previous crash.
@@ -394,6 +398,15 @@ export class SessionManagerService implements OnApplicationShutdown {
       stdio: ['pipe', 'pipe', 'inherit'],
       cwd: this.claudeCwd,
       detached: true,
+      env: {
+        ...process.env,
+        // Prepend scripts dir so our git wrapper intercepts git calls.
+        PATH: `${this.scriptsDir}:${process.env.PATH ?? ''}`,
+        // Used by the git wrapper to read the per-turn identity dir.
+        TDR_CHANNEL_ID: channelId,
+        // Real git binary — prevents infinite recursion in the wrapper.
+        TDR_REAL_GIT: this.realGit,
+      },
     })
 
     // Record PGID synchronously with no await between spawn() and INSERT

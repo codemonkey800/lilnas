@@ -54,8 +54,4 @@ export interface AcpEventHandlers {
     context: PromptStartContext,
   ): void
   onPromptComplete(channelId: string, stopReason: string): void
-  // R17: notify the channel when a push is blocked (no identity configured or
-  // decrypt failed). Must stay synchronous like onPromptComplete — do not
-  // await inside the ACP callback (C1 in DiscordHandlerService).
-  onGitPushBlocked(channelId: string, reason: string): void
 }

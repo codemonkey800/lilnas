@@ -27,8 +27,8 @@ export function getOrSeedConfig(db: Db): ConfigRow {
         .values({
           id: 1,
           cwd: env(EnvKeys.CLAUDE_CWD),
-          claudeCommand: env(EnvKeys.CLAUDE_COMMAND, 'claude'),
-          claudeArgs: ['--dangerously-skip-permissions'],
+          claudeCommand: env(EnvKeys.CLAUDE_COMMAND, 'npx'),
+          claudeArgs: ['@agentclientprotocol/claude-agent-acp'],
           idleTimeoutSec: parseInt(
             env(EnvKeys.AGENT_IDLE_TIMEOUT_SECONDS, '300'),
             10,

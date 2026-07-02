@@ -190,19 +190,6 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     }
   }
 
-  // C1: must stay synchronous (see discord-handler.service.ts).
-  onGitPushBlocked(channelId: string, reason: string): void {
-    try {
-      this.discord.onGitPushBlocked(channelId, reason)
-    } catch (err) {
-      console.error(
-        '[composite] Discord handler error in onGitPushBlocked:',
-        err instanceof Error ? err.message : String(err),
-      )
-    }
-    // writer does not handle this event (no transcript write needed)
-  }
-
   // Emit a transcript_write_failed event for operator-visibility (Decision 2b).
   // context carries only safe identifiers — never the raw error message (F10).
   private handleWriterError(err: unknown, op: string, channelId: string): void {
