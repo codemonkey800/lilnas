@@ -1,7 +1,7 @@
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import { env } from '@lilnas/utils/env'
 import type { Account, GenericEndpointContext } from 'better-auth'
-import { betterAuth } from 'better-auth'
+import { APIError, betterAuth } from 'better-auth'
 
 import { sweepAccountlessUsers } from 'src/db/auth-sweep.repo'
 import type { Db } from 'src/db/database.module'
@@ -279,13 +279,8 @@ export function buildAuth(db: Db) {
             // behind (see below) and neither should ever early-return past
             // this call.
             //
-            // Returning `false` (per with-hooks.mjs's createWithHooks: `if
-            // (result === false) return null`) makes the `account` INSERT
-            // never happen — no account row, and internal-adapter.mjs's
-            // handleOAuthUserInfo call chain (createOAuthUser -> "unable to
-            // create user" error path) then never reaches createSession
-            // either, so no session row and no session cookie. The one row
-            // this CANNOT prevent is the paired `user` row: internal-
+            // The paired `user` row is unavoidably orphaned by the time we
+            // get here regardless of how we reject below: internal-
             // adapter.mjs's createOAuthUser runs createWithHooks(...,
             // "user", ...) and that INSERT commits BEFORE createWithHooks(
             // ..., "account", ...) — where this hook runs — is ever called.
@@ -299,7 +294,73 @@ export function buildAuth(db: Db) {
               { rowsDeleted: swept },
             )
 
-            return false
+            // THROW an APIError here — do NOT `return false`. This was
+            // fixed after `return false` was proven to crash the request
+            // with a raw 500 instead of the intended redirect-to-/login
+            // rejection. Full trace of why `return false` is broken,
+            // verified against the installed better-auth@1.6.23 source
+            // (kept in full so a future "simplification" back to `return
+            // false` doesn't reintroduce this bug):
+            //
+            // `return false` only tells with-hooks.mjs's createWithHooks
+            // (`if (result === false) return null`) to skip the `account`
+            // INSERT — it does NOT abort the REQUEST. internal-adapter.mjs's
+            // createOAuthUser then resolves to `{ user: <the already-
+            // committed row>, account: null }` (a resolved value, not a
+            // rejection) and returns normally to its caller,
+            // @better-auth/core's link-account.mjs's handleOAuthUserInfo.
+            // That function destructures `{ user: createdUser, account:
+            // createdAccount }`, sets `user = createdUser` unconditionally,
+            // and NEVER checks `createdAccount` for null before falling
+            // through past its `if (!user) return {error: "unable to create
+            // user", ...}` guard (which passes, since `user` is the real
+            // row) straight to `const session = await
+            // c.context.internalAdapter.createSession(user.id)`. But the
+            // sweep two lines above already deleted THAT EXACT `user.id`
+            // row (at the moment it ran, the row had no `account` yet —
+            // that's the very row being rejected — so
+            // sweepAccountlessUsers()'s own `NOT EXISTS (SELECT 1 FROM
+            // account ...)` correctly matched and deleted it). schema.ts's
+            // `session.userId` has `onDelete: 'cascade'` and
+            // database.module.ts turns on `foreign_keys = ON`, so
+            // createSession's INSERT throws a raw
+            // SqliteError{code:'SQLITE_CONSTRAINT_FOREIGNKEY'} — which
+            // dist/api/routes/callback.mjs's own try/catch around
+            // handleOAuthUserInfo does NOT handle (it only special-cases
+            // `isAPIError(e)` before re-throwing), so it surfaces as an
+            // uncaught 500 instead of AE5's intended redirect.
+            //
+            // Throwing an APIError instead works because
+            // handleOAuthUserInfo wraps its ENTIRE createOAuthUser(...)
+            // call (not just the account-hook piece) in its own try/catch
+            // that DOES check `isAPIError(e)`:
+            //   } catch (e) {
+            //     if (isAPIError(e)) return { error: e.message, data: null,
+            //       isRegister: false }
+            //     return { error: "unable to create user", ... }
+            //   }
+            // That catch sits ABOVE (wraps) the later `createSession` call
+            // in the same function — so when createOAuthUser throws instead
+            // of resolving with `account: null`, execution never reaches
+            // the `if (!user)` guard or `createSession` at all; it returns
+            // `{ error: e.message, data: null, isRegister: false }`
+            // straight away. callback.mjs then does:
+            //   if (result.error) {
+            //     redirectOnError(c, resolvedErrorURL,
+            //       result.error.split(" ").join("_"))
+            //   }
+            // — a clean redirect, not a crash. `result.error` is exactly
+            // `e.message` off our thrown APIError, and `better-call`'s base
+            // APIError constructor sets `this.message` straight from
+            // `body.message` (confirmed in better-call/dist/error.mjs:
+            // `super(body?.message, ...)`), so the three-word, space-
+            // separated message below becomes, after
+            // `.split(" ").join("_")`, byte-identical to the login page's
+            // `not_guild_member` LoginErrorCode
+            // (src/app/login/page.tsx) — this is not a coincidence to
+            // re-derive; the exact string 'not guild member' below is
+            // load-bearing.
+            throw new APIError('FORBIDDEN', { message: 'not guild member' })
           },
         },
       },

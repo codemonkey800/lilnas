@@ -480,6 +480,22 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
     return cookies.some(entry => /\bsession_token=/.test(entry))
   }
 
+  // Extracts the `Location` header off a redirect response — this is where
+  // better-auth/dist/oauth2/errors.mjs's redirectOnError puts the
+  // `?error=<code>` (and `&error_description=...`) query params (it throws
+  // `ctx.redirect(...)`, which sets a real HTTP redirect `Location` header,
+  // not a body). Node lower-cases incoming header names, so this reads
+  // `res.headers.location`, not `Location`.
+  function redirectLocation(res: JsonResponse): string {
+    const location = res.headers.location
+    if (typeof location !== 'string') {
+      throw new Error(
+        `expected a Location header on a redirect response, got status ${res.status} with no Location header`,
+      )
+    }
+    return location
+  }
+
   // Scenario 1 (AE5 happy path): a guild member completes OAuth ->
   // user+account+session provisioned, session cookie set.
   it('a guild member completing OAuth is provisioned with user + account + session, and gets a session cookie', async () => {
@@ -529,8 +545,25 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
     const res = await driveCallback(oauthState)
 
     // A rejected sign-in still redirects (redirectOnError -> c.redirect to
-    // the error URL) but carries no session cookie.
+    // the error URL) but carries no session cookie. Asserting the status
+    // code here (not just "no cookie") is exactly what this bug's own fix
+    // needs covered: before the fix, this scenario's guild-gate hook
+    // returned `false`, which let the request crash with an uncaught
+    // SQLITE_CONSTRAINT_FOREIGNKEY 500 instead of ever reaching this
+    // redirect — a plain "no session cookie" assertion still passes on a
+    // 500 response (a 500 carries no session cookie either), which is
+    // exactly how this bug went unnoticed by this suite for as long as it
+    // did.
+    expect(res.status).toBeGreaterThanOrEqual(300)
+    expect(res.status).toBeLessThan(400)
     expect(hasSessionCookie(res)).toBe(false)
+
+    // The redirect target must carry the stable `not_guild_member` error
+    // code the login page (src/app/login/page.tsx's LoginErrorCode) reads
+    // off `?error=` — proving the rejection reaches Better Auth's own
+    // redirectOnError with the exact message auth.ts's hook throws, not
+    // just "some redirect happened."
+    expect(redirectLocation(res)).toContain('error=not_guild_member')
 
     expect(testDb.db.select().from(account).all()).toHaveLength(0)
     expect(testDb.db.select().from(session).all()).toHaveLength(0)
@@ -552,7 +585,18 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
     const oauthState = await getRealOAuthState()
     const res = await driveCallback(oauthState)
 
+    // A Discord 500 during the guild check resolves to a normal `{ ok:
+    // false, status: 500 }` MemberLookupResult (lookupGuildMembership
+    // itself never throws on a non-200 — it only ever returns a
+    // discriminated-union result), so this reaches auth.ts's hook via the
+    // SAME `isMember = false` path Scenario 2 exercises, not the
+    // gate-internal-throw catch branch — meaning it must produce the
+    // identical redirect shape and error code as Scenario 2, not a
+    // different one.
+    expect(res.status).toBeGreaterThanOrEqual(300)
+    expect(res.status).toBeLessThan(400)
     expect(hasSessionCookie(res)).toBe(false)
+    expect(redirectLocation(res)).toContain('error=not_guild_member')
     expect(testDb.db.select().from(account).all()).toHaveLength(0)
     expect(testDb.db.select().from(session).all()).toHaveLength(0)
     expect(testDb.db.select().from(user).all()).toHaveLength(0)
@@ -588,7 +632,16 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
     const oauthState = await getRealOAuthState()
     const res = await driveCallback(oauthState)
 
+    // A network-level failure (fetch() itself rejecting) is caught inside
+    // lookupGuildMembership's own try/catch and folded into `{ ok: false,
+    // status: 'network_error' }` — never propagated as a throw — so, same
+    // as Scenario 3, this also reaches auth.ts's hook via `isMember =
+    // false`, not the gate-internal-throw catch branch, and must produce
+    // the identical redirect + error code.
+    expect(res.status).toBeGreaterThanOrEqual(300)
+    expect(res.status).toBeLessThan(400)
     expect(hasSessionCookie(res)).toBe(false)
+    expect(redirectLocation(res)).toContain('error=not_guild_member')
     expect(testDb.db.select().from(account).all()).toHaveLength(0)
     expect(testDb.db.select().from(session).all()).toHaveLength(0)
     expect(testDb.db.select().from(user).all()).toHaveLength(0)
@@ -682,20 +735,31 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
       // auth.ts's hook wraps isCurrentUserGuildMember in its OWN try/catch
       // (a deliberate defense-in-depth choice made specifically because of
       // this failure mode — see that hook's comment) — so the injected
-      // throw is caught internally, treated as fail-closed, and the SAME
-      // reject-and-sweep path a normal "Discord said no" runs; it never
-      // surfaces as an uncaught error or a crash.
+      // `Error('injected mid-provisioning failure')` is caught internally
+      // (setting isMember = false), and execution falls through to the SAME
+      // reject-and-sweep-and-throw-APIError code a normal "Discord said no"
+      // runs (Scenario 2 above) — it never surfaces as an uncaught error or
+      // a crash. This is a DIFFERENT throw than the APIError auth.ts's
+      // rejection branch itself now throws (that one fires strictly AFTER
+      // this injected fault has already been caught and isMember is
+      // already false) — the two do not interact or get confused with each
+      // other; the injected fault only decides which branch sets isMember
+      // to false, not what happens once it's false.
+      expect(res.status).toBeGreaterThanOrEqual(300)
+      expect(res.status).toBeLessThan(400)
       expect(hasSessionCookie(res)).toBe(false)
+      expect(redirectLocation(res)).toContain('error=not_guild_member')
 
       // The assertion that actually matters: does the `user` row inserted
       // by internal-adapter.mjs's createOAuthUser BEFORE our hook even ran
       // survive as an orphan? It must not — this is exactly what the
       // hook's try/catch exists to guarantee: EVERY non-member outcome
       // (including a gate-internal exception) reaches the same
-      // sweepAccountlessUsers() call before returning `false`. If this
-      // assertion ever fails, it means a thrown mid-hook fault bypassed
-      // the sweep and left a permanently orphaned `user` row — exactly the
-      // "partial state survives" outcome an atomicity test exists to catch.
+      // sweepAccountlessUsers() call before throwing the rejection
+      // APIError. If this assertion ever fails, it means a thrown mid-hook
+      // fault bypassed the sweep and left a permanently orphaned `user`
+      // row — exactly the "partial state survives" outcome an atomicity
+      // test exists to catch.
       expect(testDb.db.select().from(user).all()).toHaveLength(0)
       expect(testDb.db.select().from(account).all()).toHaveLength(0)
       expect(testDb.db.select().from(session).all()).toHaveLength(0)
