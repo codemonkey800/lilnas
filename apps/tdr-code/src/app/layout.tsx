@@ -12,7 +12,7 @@ export const metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>
+      <body className="bg-gray-950 text-white antialiased">
         <QueryProvider>
           <NavShell>{children}</NavShell>
         </QueryProvider>
