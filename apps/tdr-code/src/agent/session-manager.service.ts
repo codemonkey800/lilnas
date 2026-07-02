@@ -199,6 +199,15 @@ export class SessionManagerService implements OnApplicationShutdown {
     // U9: belt-and-suspenders abort — removes tmpfs key and releases lock if
     // this channel holds it. Idempotent with executePrompt's finally.
     this.gitTurnContext.abort(channelId)
+    // U7: belt-and-suspenders for a session torn down while merely PARKED on
+    // globalGitWriteLock.acquire (not yet holding it) — gitTurnContext.abort
+    // above only releases if this channel is the current HOLDER, so a queued
+    // waiter entry would otherwise survive teardown and the lock would be
+    // briefly granted to this now-dead channel when the real holder releases.
+    // The primary fix (idle timer cleared while prompting) should prevent
+    // this from ever firing for the idle-eviction path; this covers other
+    // teardown callers (e.g. explicit cancellation of a parked session).
+    globalGitWriteLock.cancelWaiter(channelId)
 
     // U2 + U5: best-effort DB bookkeeping — mirror syncLiveStatus try/catch so a
     // transient SQLITE_BUSY inside a setTimeout callback cannot crash the process.
@@ -268,6 +277,15 @@ export class SessionManagerService implements OnApplicationShutdown {
     session.cancelRequested = false
     session.prompting = true
     session.activeUserId = userId
+    // U7: a prompting session is by definition not idle — this includes the
+    // window where it is merely PARKED on globalGitWriteLock.acquire below,
+    // waiting behind another channel's long-running turn. Without this, the
+    // idle timer armed by prompt()/resetIdleTimer keeps ticking and can fire
+    // teardown('evicted') while this turn is still in flight, orphaning its
+    // queued grant in the lock (see cancelWaiter in git-write-lock.ts for the
+    // defense-in-depth half of this fix). Re-armed in the finally block below
+    // once the turn (including any queued drain) fully settles.
+    clearTimeout(session.idleTimer)
     // U5: sync live_status before the await (prompting=true transition).
     this.syncLiveStatus(session)
     this.handlers.onPromptStart(session.channelId, turnId, {
@@ -339,6 +357,12 @@ export class SessionManagerService implements OnApplicationShutdown {
       session.prompting = false
       // U5: sync live_status after prompting=false (drain transition).
       if (this.sessions.has(session.channelId)) {
+        // U7: re-arm the idle timer now that the turn has fully drained —
+        // mirrors the prompting=true clearTimeout above. If a queued turn
+        // starts immediately below, its recursive executePrompt call clears
+        // this again before any real time elapses (a still-queued session is
+        // never idle either).
+        this.resetIdleTimer(session)
         this.syncLiveStatus(session)
         const next = session.queue.shift()
         if (next) {

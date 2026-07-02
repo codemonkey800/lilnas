@@ -46,6 +46,19 @@ export class GitWriteLock {
     if (next) next.grant()
   }
 
+  // Remove a queued waiter for channelId, if one exists. Sibling of
+  // releaseIfHeldBy — that touches only the holder, this touches only the
+  // queue. A no-op if channelId is not currently queued, and a no-op if
+  // channelId is the current HOLDER (only the queue is spliced; a holder is
+  // never removed from itself here — that's what release()/releaseIfHeldBy
+  // are for). Defense-in-depth for tearing down a session that may be parked
+  // on acquire(): without this, its queue entry survives teardown and the
+  // lock is briefly granted to a channel that no longer exists.
+  cancelWaiter(channelId: string): void {
+    const idx = this.queue.findIndex(w => w.channelId === channelId)
+    if (idx !== -1) this.queue.splice(idx, 1)
+  }
+
   get currentHolder(): string | null {
     return this.holderChannelId
   }

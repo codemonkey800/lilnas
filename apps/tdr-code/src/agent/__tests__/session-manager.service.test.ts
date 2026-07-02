@@ -97,6 +97,7 @@ jest.mock('src/agent/git-write-lock', () => ({
   globalGitWriteLock: {
     acquire: jest.fn().mockResolvedValue(jest.fn()),
     releaseIfHeldBy: jest.fn(),
+    cancelWaiter: jest.fn(),
     currentHolder: null,
   },
 }))
