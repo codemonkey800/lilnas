@@ -5,6 +5,16 @@ export const EnvKeys = {
   TDR_CODE_MASTER_KEY_FILE: 'TDR_CODE_MASTER_KEY_FILE',
   DISCORD_API_TOKEN: 'DISCORD_API_TOKEN',
   DISCORD_GUILD_ID: 'DISCORD_GUILD_ID',
+  // Phase D: Discord OAuth2 app credentials (Better Auth Discord provider).
+  // Distinct from DISCORD_API_TOKEN (the bot token) — these come from the
+  // same Discord Application's OAuth2 page, not the Bot page.
+  DISCORD_CLIENT_ID: 'DISCORD_CLIENT_ID',
+  DISCORD_CLIENT_SECRET: 'DISCORD_CLIENT_SECRET',
+  // Phase D: Better Auth session-signing secret (generated, not from Discord)
+  // and the app's public base URL used to build OAuth redirect URIs and
+  // derive secure-cookie defaults.
+  BETTER_AUTH_SECRET: 'BETTER_AUTH_SECRET',
+  BETTER_AUTH_URL: 'BETTER_AUTH_URL',
   NODE_ENV: 'NODE_ENV',
   CLAUDE_COMMAND: 'CLAUDE_COMMAND',
   CLAUDE_CWD: 'CLAUDE_CWD',

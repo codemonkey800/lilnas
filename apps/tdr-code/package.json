@@ -5,6 +5,9 @@
   "sideEffects": false,
   "packageManager": "pnpm@10.18.2",
   "prettier": "@lilnas/prettier",
+  "engines": {
+    "node": ">=22.22.1"
+  },
   "files": [
     "./.next",
     "./dist"
@@ -37,6 +40,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.15.0",
+    "@better-auth/drizzle-adapter": "1.6.23",
     "@lilnas/utils": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@nestjs/common": "11.1.6",
@@ -44,6 +48,8 @@
     "@nestjs/platform-express": "11.1.6",
     "@nestjs/schedule": "6.0.1",
     "@tanstack/react-query": "5.90.2",
+    "@thallesp/nestjs-better-auth": "2.6.1",
+    "better-auth": "1.6.23",
     "better-sqlite3": "^12.10.0",
     "clsx": "2.1.1",
     "commander": "^14.0.3",
@@ -53,7 +59,7 @@
     "diff": "^8.0.3",
     "discord.js": "^14.25.1",
     "dotenv": "17.2.3",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "helmet": "^8.0.0",
     "necord": "6.11.1",
     "nestjs-pino": "4.4.1",

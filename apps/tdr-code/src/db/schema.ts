@@ -28,12 +28,19 @@ import {
 //   config       — global operator config (single-row, seeded from env)
 //   git_identity — Discord snowflake → git author mapping
 //
-// Phase D (anticipated, not yet created — Better Auth):
-//   user, session, account, verification
+// Phase D (U1 — Better Auth, schema only; no auth behavior wired yet):
+//   user         — Better Auth identity row
+//   session      — Better Auth session row (DB-backed opaque session, not a JWT)
+//   account      — Better Auth provider-linked credential row (Discord OAuth)
+//   verification — Better Auth OAuth state / verification token row
 //
 // Forward-compatibility notes:
 //   sessions.triggering_user_id and turns.user_id are raw Discord snowflakes (no FK) so
 //   Phase C git_identity and Phase D account can attach without migration churn.
+//
+// Identity invariant (Phase D): account.accountId (providerId 'discord') ===
+// git_identity.discordUserId === the bot's message.author.id — all three are
+// the same raw Discord snowflake string, just reached via different tables.
 // ──────────────────────────────────────────────────────────────────────────────
 
 export const BOT_GENERATION_STATUSES = [
@@ -556,3 +563,113 @@ export const gitIdentity = sqliteTable('git_identity', {
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Phase D — U1: user · session · account · verification (Better Auth)
+//
+// Canonical shape per `@better-auth/cli generate` (Better Auth 1.6.x Drizzle/
+// SQLite output), hand-placed here (not machine-generated into this file) so
+// `drizzle-kit generate` — not Better Auth's own Kysely-only `migrate` — owns
+// these tables' migrations, per the reserved-tables note above. No auth
+// behavior is wired yet; this unit is schema/deps only.
+//
+// The Better Auth `session` table (this export, SQL table `session`,
+// singular) is unrelated to the Phase B `sessions` export (SQL table
+// `sessions`, plural agent-session records) — same-ish name, different
+// tables, no collision.
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const user = sqliteTable('user', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  emailVerified: integer('email_verified', { mode: 'boolean' })
+    .notNull()
+    .default(false),
+  image: text('image'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export type UserRow = typeof user.$inferSelect
+
+export const session = sqliteTable(
+  'session',
+  {
+    id: text('id').primaryKey(),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    token: text('token').notNull().unique(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+  },
+  t => [index('session_user_id_idx').on(t.userId)],
+)
+
+// Named AuthSessionRow (not SessionRow) to avoid colliding with the Phase B
+// `sessions` table's SessionRow export above — same-ish name, different
+// tables (see the note on the `session` sqliteTable above).
+export type AuthSessionRow = typeof session.$inferSelect
+
+export const account = sqliteTable(
+  'account',
+  {
+    id: text('id').primaryKey(),
+    // Provider-side account identifier. For providerId 'discord', this is the
+    // raw Discord snowflake — same value as git_identity.discordUserId and
+    // the bot's message.author.id (see the identity invariant note above).
+    accountId: text('account_id').notNull(),
+    providerId: text('provider_id').notNull(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    idToken: text('id_token'),
+    accessTokenExpiresAt: integer('access_token_expires_at', {
+      mode: 'timestamp_ms',
+    }),
+    refreshTokenExpiresAt: integer('refresh_token_expires_at', {
+      mode: 'timestamp_ms',
+    }),
+    scope: text('scope'),
+    password: text('password'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  t => [
+    index('account_user_id_idx').on(t.userId),
+    // Paired defense for U3's fail-closed guild gate: even if a future code
+    // path ever bypassed the guild check before provisioning an account row,
+    // this backstops against two account rows aliasing the same provider
+    // identity (e.g. the same Discord snowflake linked twice). Partial (not a
+    // plain unique index) because Better Auth's credential provider can
+    // insert accountId values that are not provider-scoped snowflakes for
+    // non-social providers — scoping to providerId keeps the constraint
+    // meaningful without assuming every row is a Discord row.
+    uniqueIndex('account_provider_account_unique_idx')
+      .on(t.providerId, t.accountId)
+      .where(sql`${t.providerId} IS NOT NULL AND ${t.accountId} IS NOT NULL`),
+  ],
+)
+
+export type AccountRow = typeof account.$inferSelect
+
+export const verification = sqliteTable(
+  'verification',
+  {
+    id: text('id').primaryKey(),
+    identifier: text('identifier').notNull(),
+    value: text('value').notNull(),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  t => [index('verification_identifier_idx').on(t.identifier)],
+)
+
+export type VerificationRow = typeof verification.$inferSelect
