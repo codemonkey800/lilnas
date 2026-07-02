@@ -1,7 +1,7 @@
 ---
 title: "feat: tdr-code Phase D — Authentication & access (the security cutover)"
 type: feat
-status: active
+status: completed
 date: 2026-07-02
 origin: docs/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md
 deepened: 2026-07-02
