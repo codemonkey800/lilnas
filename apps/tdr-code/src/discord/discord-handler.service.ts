@@ -39,6 +39,7 @@ interface ChannelState {
   replyBuffer: string
   replyMessage: Message | null
   flushTimer: NodeJS.Timeout | null
+  pendingFlush: Promise<void> | null
   workingMessage: Message | null
   workingMessageCreating: boolean
   currentTurnId: number
@@ -160,22 +161,9 @@ export class DiscordHandlerService
       state.flushTimer = null
     }
 
-    // Capture before deleting state
-    const buffer = state.replyBuffer
-    const replyMsg = state.replyMessage
-    const toolSummaryMsg = state.toolSummaryMessage
-    const workingMsg = state.workingMessage
-
-    this.channelStates.delete(channelId)
-
-    void this.finalizeTurn(
-      channelId,
-      buffer,
-      replyMsg,
-      toolSummaryMsg,
-      workingMsg,
-      stopReason,
-    )
+    // C1 stays satisfied: synchronous fire-and-forget. finalizeTurn handles
+    // state deletion and awaits any in-flight flush before reading replyMessage.
+    void this.finalizeTurn(channelId, state, stopReason)
   }
 
   // --- Discord event handlers ---
@@ -336,6 +324,7 @@ export class DiscordHandlerService
         replyBuffer: '',
         replyMessage: null,
         flushTimer: null,
+        pendingFlush: null,
         workingMessage: null,
         workingMessageCreating: false,
         currentTurnId: 0,
@@ -456,7 +445,7 @@ export class DiscordHandlerService
     if (state.flushTimer) return
     state.flushTimer = setTimeout(() => {
       state.flushTimer = null
-      void this.flushReply(channelId, false)
+      state.pendingFlush = this.flushReply(channelId, false)
     }, 500)
   }
 
@@ -511,13 +500,21 @@ export class DiscordHandlerService
 
   private async finalizeTurn(
     channelId: string,
-    buffer: string,
-    replyMsg: Message | null,
-    toolSummaryMsg: Message | null,
-    workingMsg: Message | null,
+    state: ChannelState,
     stopReason: string,
   ): Promise<void> {
     const noMentions = { parse: [] as const }
+
+    const buffer = state.replyBuffer
+    const toolSummaryMsg = state.toolSummaryMessage
+    const workingMsg = state.workingMessage
+
+    // Remove from the active map synchronously (before any await) so late ACP
+    // events can't create new state for this channel. The state object itself
+    // stays alive — this function and any in-flight flushReply both hold
+    // references to it, so flushReply can still write state.replyMessage even
+    // after this delete.
+    this.channelStates.delete(channelId)
 
     if (stopReason === 'cancelled') {
       // Edit working message to "⏹ Stopped" with button removed (R6, R7)
@@ -560,7 +557,15 @@ export class DiscordHandlerService
     const channel = await this.fetchChannel(channelId)
     if (!channel) return
 
-    // Delete streaming placeholder and send final message(s)
+    // Wait for any in-flight timer-triggered flush. The flush may be mid-send
+    // (channel.send in flight when onPromptComplete fired); awaiting here ensures
+    // its write to state.replyMessage completes before we read it below.
+    if (state.pendingFlush) {
+      await state.pendingFlush.catch(() => {})
+    }
+
+    // Delete streaming placeholder (may have just been written by the flush above)
+    const replyMsg = state.replyMessage
     if (replyMsg) await replyMsg.delete().catch(() => {})
 
     const chunks = splitMessage(buffer)
