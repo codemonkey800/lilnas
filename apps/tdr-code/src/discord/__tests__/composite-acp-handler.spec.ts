@@ -14,6 +14,7 @@ function makeDiscordMock(): jest.Mocked<AcpEventHandlers> {
     onAgentMessageImage: jest.fn(),
     onPromptStart: jest.fn(),
     onPromptComplete: jest.fn(),
+    onSessionInfoUpdate: jest.fn(),
   }
 }
 
@@ -25,6 +26,7 @@ function makeWriterMock(): jest.Mocked<AcpEventHandlers> {
     onAgentMessageImage: jest.fn(),
     onPromptStart: jest.fn(),
     onPromptComplete: jest.fn(),
+    onSessionInfoUpdate: jest.fn(),
   }
 }
 
@@ -141,11 +143,29 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
         composite.onAgentMessageImage('ch', 'data', 'image/png'),
         composite.onPromptStart('ch', 1, ctx),
         composite.onPromptComplete('ch', 'end_turn'),
+        composite.onSessionInfoUpdate('ch', 'title'),
       ]
       for (const r of results) {
         expect(r).not.toBeInstanceOf(Promise)
         expect(r).toBeUndefined()
       }
+    })
+
+    it('onSessionInfoUpdate forwards to both Discord and SQLite handlers (U3)', () => {
+      const discord = makeDiscordMock()
+      const writer = makeWriterMock()
+      const composite = makeComposite(discord, writer)
+
+      composite.onSessionInfoUpdate('ch1', 'Refactor auth module')
+
+      expect(discord.onSessionInfoUpdate).toHaveBeenCalledWith(
+        'ch1',
+        'Refactor auth module',
+      )
+      expect(writer.onSessionInfoUpdate).toHaveBeenCalledWith(
+        'ch1',
+        'Refactor auth module',
+      )
     })
   })
 

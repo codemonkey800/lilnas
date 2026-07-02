@@ -166,6 +166,13 @@ export class DiscordHandlerService
     void this.finalizeTurn(channelId, state, stopReason)
   }
 
+  // Stub for now — the real implementation (fetch thread, rename with dedupe +
+  // rate-limit handling) lands in a later unit (U6).
+  onSessionInfoUpdate(_channelId: string, _title: string): void {
+    void _channelId
+    void _title
+  }
+
   // --- Discord event handlers ---
 
   @On(Events.MessageCreate)

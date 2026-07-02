@@ -41,6 +41,7 @@ function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
     onAgentMessageImage: jest.fn(),
     onPromptStart: jest.fn(),
     onPromptComplete: jest.fn(),
+    onSessionInfoUpdate: jest.fn(),
   }
 }
 

@@ -54,4 +54,8 @@ export interface AcpEventHandlers {
     context: PromptStartContext,
   ): void
   onPromptComplete(channelId: string, stopReason: string): void
+  // Fired for the ACP `session_info_update` notification when the agent reports
+  // a real, non-empty title. Callers never receive null/undefined/'' here — the
+  // dispatcher (acp-client.ts) filters those out before invoking this handler.
+  onSessionInfoUpdate(channelId: string, title: string): void
 }

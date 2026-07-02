@@ -10,6 +10,7 @@ import type { AcpEventHandlers, DiffContent } from './agent.types'
 export function createAcpClient(
   channelId: string,
   handlers: AcpEventHandlers,
+  isReplaying?: () => boolean,
 ): Client {
   return {
     async requestPermission(
@@ -25,6 +26,12 @@ export function createAcpClient(
     },
 
     async sessionUpdate(params: SessionNotification): Promise<void> {
+      // C1/R10: synchronous suppression gate — reads live holder state on every
+      // call (no value captured once at construction time). Must sit above the
+      // switch so it uniformly suppresses every session/update variant,
+      // including session_info_update, during loadSession replay (U4).
+      if (isReplaying?.()) return
+
       const update = params.update
       switch (update.sessionUpdate) {
         case 'agent_message_chunk': {
@@ -75,6 +82,14 @@ export function createAcpClient(
             updateDiffs,
             updateRawInput,
           )
+          break
+        }
+        case 'session_info_update': {
+          // title is string | null | undefined per the ACP SDK; only forward a
+          // real, non-empty title — there's nothing useful to report otherwise.
+          if (update.title) {
+            handlers.onSessionInfoUpdate(channelId, update.title)
+          }
           break
         }
       }

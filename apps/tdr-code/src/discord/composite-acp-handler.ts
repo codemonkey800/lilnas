@@ -190,6 +190,22 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     }
   }
 
+  onSessionInfoUpdate(channelId: string, title: string): void {
+    try {
+      this.discord.onSessionInfoUpdate(channelId, title)
+    } catch (err) {
+      console.error(
+        '[composite] Discord handler error in onSessionInfoUpdate:',
+        err instanceof Error ? err.message : String(err),
+      )
+    }
+    try {
+      this.writer.onSessionInfoUpdate(channelId, title)
+    } catch (err) {
+      this.handleWriterError(err, 'onSessionInfoUpdate', channelId)
+    }
+  }
+
   // Emit a transcript_write_failed event for operator-visibility (Decision 2b).
   // context carries only safe identifiers — never the raw error message (F10).
   private handleWriterError(err: unknown, op: string, channelId: string): void {

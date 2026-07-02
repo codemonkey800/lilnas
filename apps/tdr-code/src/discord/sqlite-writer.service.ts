@@ -250,4 +250,10 @@ export class SqliteWriterService implements AcpEventHandlers {
     })
   }
 
+  // No-op: v1 schema has no title column on the sessions table, so there's
+  // nothing to persist here.
+  onSessionInfoUpdate(_channelId: string, _title: string): void {
+    void _channelId
+    void _title
+  }
 }
