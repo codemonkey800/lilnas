@@ -80,6 +80,18 @@ export class SessionsService {
         }
         content.push(this.mapBlock(block.id, narrowed))
       }
+
+      // Merge consecutive agent_text blocks — streaming writes one row per chunk.
+      const merged: TurnContentBlockDto[] = []
+      for (const block of content) {
+        const last = merged[merged.length - 1]
+        if (block.kind === 'agent_text' && last?.kind === 'agent_text') {
+          merged[merged.length - 1] = { ...last, text: last.text + block.text }
+        } else {
+          merged.push(block)
+        }
+      }
+
       return {
         id: turn.id,
         turnIndex: turn.turnIndex,
@@ -88,7 +100,7 @@ export class SessionsService {
         startedAt: turn.startedAt.toISOString(),
         endedAt: turn.endedAt?.toISOString() ?? null,
         stopReason: turn.stopReason ?? null,
-        content,
+        content: merged,
       }
     })
 
