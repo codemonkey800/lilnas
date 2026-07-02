@@ -206,6 +206,22 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     }
   }
 
+  onResumeFailed(channelId: string): void {
+    try {
+      this.discord.onResumeFailed(channelId)
+    } catch (err) {
+      console.error(
+        '[composite] Discord handler error in onResumeFailed:',
+        err instanceof Error ? err.message : String(err),
+      )
+    }
+    try {
+      this.writer.onResumeFailed(channelId)
+    } catch (err) {
+      this.handleWriterError(err, 'onResumeFailed', channelId)
+    }
+  }
+
   // Emit a transcript_write_failed event for operator-visibility (Decision 2b).
   // context carries only safe identifiers — never the raw error message (F10).
   private handleWriterError(err: unknown, op: string, channelId: string): void {

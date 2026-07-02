@@ -483,6 +483,55 @@ describe('DiscordHandlerService — onAgentMessageImage / outbound images (U5)',
   })
 })
 
+describe('DiscordHandlerService — onResumeFailed (U5)', () => {
+  it('posts the fixed notice to the resolved channel with allowedMentions: { parse: [] }', async () => {
+    const channel = createMockTextChannel()
+    const service = await createService(
+      createMockClient(new Map([['ch1', channel]])),
+    )
+
+    service.onResumeFailed('ch1')
+    await new Promise(r => setImmediate(r))
+    await new Promise(r => setImmediate(r))
+
+    expect(channel.send).toHaveBeenCalledWith({
+      content: "⚠️ Couldn't restore the earlier conversation — starting fresh.",
+      allowedMentions: { parse: [] },
+    })
+  })
+
+  it('does not post anything for a channel that has been /clear-ed (clearedTurnId watermark set)', async () => {
+    const channel = createMockTextChannel()
+    const service = await createService(
+      createMockClient(new Map([['ch1', channel]])),
+    )
+
+    // Arm the cleared-channel guard before the resume-failure notice arrives
+    // — a late genuine-failure notice for a channel that has ALSO just been
+    // /clear'd in the interim shouldn't post into a now-reset channel.
+    service.resetChannel('ch1')
+    service.onResumeFailed('ch1')
+    await new Promise(r => setImmediate(r))
+    await new Promise(r => setImmediate(r))
+
+    expect(channel.send).not.toHaveBeenCalled()
+  })
+
+  it('does not throw when fetchChannel returns null (channel not found/fetchable)', async () => {
+    // No entry in the channel cache and fetch() rejects — fetchChannel
+    // resolves to null.
+    const mockClient = createMockClient()
+    ;(mockClient.channels.fetch as jest.Mock).mockRejectedValue(
+      new Error('Unknown Channel'),
+    )
+    const service = await createService(mockClient)
+
+    expect(() => service.onResumeFailed('ch-missing')).not.toThrow()
+    await new Promise(r => setImmediate(r))
+    await new Promise(r => setImmediate(r))
+  })
+})
+
 describe('DiscordHandlerService — onMessage / inbound images (U4)', () => {
   beforeEach(() => {
     // Default: no images extracted

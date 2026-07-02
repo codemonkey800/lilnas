@@ -39,6 +39,15 @@ import { GitTurnContext } from './git-turn-context'
 import { globalGitWriteLock } from './git-write-lock'
 import { buildPromptBlocks } from './message-bridge'
 
+// U5: safe error-reason extraction for a persisted event's context — same
+// scrub convention as composite-acp-handler.ts's handleWriterError. Never
+// the raw error message, which could carry transcript/prompt content.
+function errorCode(err: unknown): string {
+  return err instanceof Error
+    ? ((err as NodeJS.ErrnoException).code ?? err.name)
+    : 'UNKNOWN'
+}
+
 interface ManagedSession {
   channelId: string
   process: ChildProcess
@@ -472,11 +481,13 @@ export class SessionManagerService implements OnApplicationShutdown {
       try {
         return await this.reactivateSession(channelId, userId, latestRow)
       } catch (err) {
-        // U5 (later unit) will differentiate "silent because /clear
-        // happened" from "genuine failure, notice needed" by re-inspecting
-        // DB state, and will post a Discord notice + resumeFailed event on
-        // the genuine-failure branch. For now, every reactivation failure
-        // falls through to a plain fresh session — no notice, no event.
+        // U5: reactivateSession itself already differentiated "silent
+        // because /clear happened" from "genuine failure, notice needed" at
+        // each of its own throw sites (it knows why it's failing there,
+        // without needing to re-inspect DB state after the fact) — see
+        // emitResumeFailed and the comments at its two genuine-failure call
+        // sites plus the silent re-check branch. Every reactivation failure,
+        // genuine or not, still falls through to a plain fresh session here.
         console.warn(
           `[session-manager] reactivation failed channel=${channelId}, falling back to fresh:`,
           err instanceof Error ? err.message : String(err),
@@ -531,6 +542,10 @@ export class SessionManagerService implements OnApplicationShutdown {
     const loadSessionCapable =
       initResult.agentCapabilities?.loadSession ?? false
     if (!loadSessionCapable) {
+      // U5: genuine failure (not a /clear race) — notify before cleanup so
+      // the notice precedes the fresh turn's output (see the re-check branch
+      // below for the one path that stays silent instead).
+      this.emitResumeFailed(channelId, 'capability_absent')
       this.killProcessTree(proc)
       throw new Error(
         `[session-manager] channel=${channelId}: agent does not advertise loadSession capability`,
@@ -544,6 +559,8 @@ export class SessionManagerService implements OnApplicationShutdown {
         mcpServers: [],
       })
     } catch (err) {
+      // U5: genuine failure — same notify-then-cleanup ordering as above.
+      this.emitResumeFailed(channelId, errorCode(err))
       this.killProcessTree(proc)
       throw err
     }
@@ -558,6 +575,11 @@ export class SessionManagerService implements OnApplicationShutdown {
     const recheck = getLatestSessionForChannel(this.db, channelId)
     const cancelled = this.pendingSessions.get(channelId)?.cancelled ?? false
     if (recheck?.acpSessionId == null || cancelled) {
+      // U5: deliberately NO onResumeFailed call and NO resumeFailed event
+      // here — this is the expected /clear-mid-replay case (R14), not a
+      // genuine failure. A /clear during replay is the user's own action,
+      // not something that failed unexpectedly, so it stays silent (the
+      // fresh createSession fallback is the only visible effect).
       this.killProcessTree(proc)
       throw new Error(
         `[session-manager] channel=${channelId}: reactivation aborted — cleared during replay`,
@@ -648,6 +670,28 @@ export class SessionManagerService implements OnApplicationShutdown {
     this.ensureLiveStatusHeartbeat()
 
     return managed
+  }
+
+  // U5: notify + record a genuine reactivation failure (capability absent or
+  // loadSession rejects) — NOT called for the /clear-mid-replay re-check
+  // branch, which is expected and stays silent (see that branch's comment).
+  // Fires the Discord-visible notice via handlers.onResumeFailed BEFORE the
+  // caller's killProcessTree/throw so the notice precedes the fresh turn's
+  // output (mirrors reactivateSession's own header-comment ordering
+  // rationale). sessionId is omitted — there is no sessions row for a
+  // reactivation attempt that never got past this point.
+  private emitResumeFailed(channelId: string, reason: string): void {
+    this.handlers.onResumeFailed(channelId)
+    if (this.generationId != null) {
+      insertEvent(this.db, {
+        generationId: this.generationId,
+        channelId,
+        type: 'session_created',
+        level: 'warn',
+        context: { resumeFailed: true, reason },
+        createdAt: new Date(),
+      })
+    }
   }
 
   private evictIfNeeded(): void {

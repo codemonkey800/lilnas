@@ -15,6 +15,7 @@ function makeDiscordMock(): jest.Mocked<AcpEventHandlers> {
     onPromptStart: jest.fn(),
     onPromptComplete: jest.fn(),
     onSessionInfoUpdate: jest.fn(),
+    onResumeFailed: jest.fn(),
   }
 }
 
@@ -27,6 +28,7 @@ function makeWriterMock(): jest.Mocked<AcpEventHandlers> {
     onPromptStart: jest.fn(),
     onPromptComplete: jest.fn(),
     onSessionInfoUpdate: jest.fn(),
+    onResumeFailed: jest.fn(),
   }
 }
 
@@ -144,6 +146,7 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
         composite.onPromptStart('ch', 1, ctx),
         composite.onPromptComplete('ch', 'end_turn'),
         composite.onSessionInfoUpdate('ch', 'title'),
+        composite.onResumeFailed('ch'),
       ]
       for (const r of results) {
         expect(r).not.toBeInstanceOf(Promise)
@@ -166,6 +169,17 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
         'ch1',
         'Refactor auth module',
       )
+    })
+
+    it('onResumeFailed forwards to both Discord and SQLite handlers (U5)', () => {
+      const discord = makeDiscordMock()
+      const writer = makeWriterMock()
+      const composite = makeComposite(discord, writer)
+
+      composite.onResumeFailed('ch1')
+
+      expect(discord.onResumeFailed).toHaveBeenCalledWith('ch1')
+      expect(writer.onResumeFailed).toHaveBeenCalledWith('ch1')
     })
   })
 

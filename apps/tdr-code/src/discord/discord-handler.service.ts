@@ -207,6 +207,29 @@ export class DiscordHandlerService
     void _title
   }
 
+  // U5: fired by SessionManagerService.reactivateSession on a genuine
+  // reactivation failure (capability absent or loadSession rejects) — NOT
+  // fired for the expected /clear-mid-replay case, which stays silent. Posts
+  // a fixed, channel-visible one-line notice before the fresh turn's output
+  // arrives. Kept synchronous per the C1 discipline every other handler
+  // method here follows — the actual fetch+send is fire-and-forget.
+  onResumeFailed(channelId: string): void {
+    // Honor the cleared-channel guard (same as sendAgentImage): a
+    // late-arriving genuine-failure notice for a channel that has ALSO just
+    // been /clear'd in the interim shouldn't post into a now-reset channel.
+    if (this.clearedTurnId.has(channelId)) return
+    void this.fetchChannel(channelId).then(channel => {
+      if (!channel) return
+      return channel
+        .send({
+          content:
+            "⚠️ Couldn't restore the earlier conversation — starting fresh.",
+          allowedMentions: { parse: [] },
+        })
+        .catch(() => {})
+    })
+  }
+
   // --- Discord event handlers ---
 
   @On(Events.MessageCreate)

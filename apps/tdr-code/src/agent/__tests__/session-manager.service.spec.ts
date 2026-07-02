@@ -44,6 +44,7 @@ function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
     onPromptStart: jest.fn(),
     onPromptComplete: jest.fn(),
     onSessionInfoUpdate: jest.fn(),
+    onResumeFailed: jest.fn(),
   }
 }
 
@@ -276,6 +277,22 @@ function makeSessionRow(overrides: Partial<SessionRow> = {}): SessionRow {
     endReason: null,
     ...overrides,
   }
+}
+
+// U5: makeDbMock()'s chain object is shared across every db.insert() call in
+// a test (insertSession, insertEvent, etc. all resolve to the same chain), so
+// chain.values.mock.calls accumulates one [payload] tuple per .values(...)
+// invocation across the whole test in call order. This reads that shared
+// chain off the mocked db (via db.insert's return value) and returns every
+// inserted row payload — callers filter for the shape they care about
+// (e.g. an events-table insert with type: 'session_created').
+function insertedRowPayloads(
+  db: ReturnType<typeof makeDbMock>,
+): Record<string, unknown>[] {
+  const chain = (db.insert as jest.Mock).mock.results[0]?.value as {
+    values: jest.Mock
+  }
+  return chain.values.mock.calls.map(call => call[0] as Record<string, unknown>)
 }
 
 // U4: waits by polling the microtask queue (capped) until `predicate()`
@@ -1222,7 +1239,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     expect(newSession).toHaveBeenCalled()
   })
 
-  it('capability absent: falls through to fresh create — spawn is called twice (aborted reactivation attempt + fresh fallback)', async () => {
+  it('capability absent: falls through to fresh create — spawn is called twice (aborted reactivation attempt + fresh fallback); onResumeFailed fires + resumeFailed event recorded (U5, R9)', async () => {
     const handlers = createMockHandlers()
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
@@ -1257,9 +1274,23 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     expect(freshAttempt.newSession).toHaveBeenCalled()
     expect(reactivationAttempt.mockProc.kill).toHaveBeenCalled()
     expect(sessions(service).has('ch-nocap')).toBe(true)
+
+    // U5: capability-absent is a genuine failure — notify once, and never
+    // call loadSession (no capability to attempt it with).
+    expect(handlers.onResumeFailed).toHaveBeenCalledTimes(1)
+    expect(handlers.onResumeFailed).toHaveBeenCalledWith('ch-nocap')
+    const resumeFailedEvent = insertedRowPayloads(db).find(
+      row => (row.context as { resumeFailed?: boolean })?.resumeFailed,
+    )
+    expect(resumeFailedEvent).toMatchObject({
+      type: 'session_created',
+      level: 'warn',
+      channelId: 'ch-nocap',
+      context: { resumeFailed: true, reason: 'capability_absent' },
+    })
   })
 
-  it('loadSession rejects: falls through to fresh create (same fallback assertion style as capability-absent)', async () => {
+  it('loadSession rejects: falls through to fresh create; onResumeFailed fires once + resumeFailed event recorded with a scrubbed reason, half-spawned process fully cleaned up (happy path, AE4/R9, F8)', async () => {
     const handlers = createMockHandlers()
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
@@ -1283,7 +1314,11 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     })
 
     await waitFor(() => reactivationAttempt.loadSession.mock.calls.length > 0)
-    reactivationAttempt.rejectLoadSession(new Error('transcript missing'))
+    const loadSessionError = new Error(
+      'transcript missing: sensitive detail that must not be persisted',
+    )
+    loadSessionError.name = 'TranscriptMissingError'
+    reactivationAttempt.rejectLoadSession(loadSessionError)
 
     await waitFor(() => freshAttempt.initialize.mock.calls.length > 0)
     freshAttempt.resolveInitialize({ agentCapabilities: {} })
@@ -1292,8 +1327,27 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     expect(result.kind).not.toBe('shutting_down')
     expect(jest.mocked(spawn)).toHaveBeenCalledTimes(2)
     expect(freshAttempt.newSession).toHaveBeenCalled()
+    // F8: the half-spawned reactivation process is fully cleaned up.
     expect(reactivationAttempt.mockProc.kill).toHaveBeenCalled()
     expect(sessions(service).has('ch-loadfail')).toBe(true)
+
+    // U5: a genuine reactivation failure notifies exactly once and records a
+    // resumeFailed event whose reason is derived safely from the error (its
+    // name/code, never the raw message — matches composite-acp-handler.ts's
+    // handleWriterError scrub convention).
+    expect(handlers.onResumeFailed).toHaveBeenCalledTimes(1)
+    expect(handlers.onResumeFailed).toHaveBeenCalledWith('ch-loadfail')
+    const resumeFailedEvent = insertedRowPayloads(db).find(
+      row => (row.context as { resumeFailed?: boolean })?.resumeFailed,
+    )
+    expect(resumeFailedEvent).toMatchObject({
+      type: 'session_created',
+      level: 'warn',
+      channelId: 'ch-loadfail',
+      context: { resumeFailed: true, reason: 'TranscriptMissingError' },
+    })
+    const eventStr = JSON.stringify(resumeFailedEvent)
+    expect(eventStr).not.toContain('sensitive detail')
   })
 
   it('closes the dangling prior row with endReason interrupted before inserting the new row', async () => {
@@ -1342,7 +1396,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     expect(closeOrder).toBeLessThan(insertOrder)
   })
 
-  it('/clear mid-replay race: the re-check aborts before inserting a new row, kills the half-spawned process, and does not re-link the nulled acpSessionId (R14)', async () => {
+  it('/clear mid-replay race: the re-check aborts before inserting a new row, kills the half-spawned process, does not re-link the nulled acpSessionId, and stays silent — no onResumeFailed, no resumeFailed event (R14, U5)', async () => {
     const handlers = createMockHandlers()
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
@@ -1393,6 +1447,93 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     expect(reactivationAttempt.mockProc.kill).toHaveBeenCalled()
     expect(freshAttempt.newSession).toHaveBeenCalled()
     expect(sessions(service).has('ch-clear-race')).toBe(true)
+
+    // U5: this is the expected/silent fresh-start reason — a /clear landing
+    // mid-replay is the user's own action, not a genuine failure, so it must
+    // NOT trigger the resume-failure notice or event (that's reserved for
+    // the capability-absent / loadSession-rejects branches tested above).
+    expect(handlers.onResumeFailed).not.toHaveBeenCalled()
+    const resumeFailedEvent = insertedRowPayloads(db).find(
+      row => (row.context as { resumeFailed?: boolean })?.resumeFailed,
+    )
+    expect(resumeFailedEvent).toBeUndefined()
+  })
+
+  it('integration: a resume-failure fresh start does not poison future attempts — the pending entry clears and the next mention for the same channel reactivates normally (U5)', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    const staleRow = makeSessionRow({
+      id: 1,
+      channelId: 'ch-poison-check',
+      acpSessionId: 'stale-acp-session',
+    })
+    getLatestSessionForChannelSpy.mockReturnValue(staleRow)
+
+    const failedReactivation = mockSpawnAndConnection()
+    const freshFallback = mockSpawnAndConnection()
+
+    const firstOutcome = service.prompt('ch-poison-check', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    failedReactivation.resolveInitialize({
+      agentCapabilities: { loadSession: true },
+    })
+    await waitFor(() => failedReactivation.loadSession.mock.calls.length > 0)
+    failedReactivation.rejectLoadSession(new Error('transcript missing'))
+    await waitFor(() => freshFallback.initialize.mock.calls.length > 0)
+    freshFallback.resolveInitialize({ agentCapabilities: {} })
+
+    await firstOutcome
+
+    // The first attempt's failure is visible (sanity-check on this test's
+    // own setup) but must not leave the channel's pending-guard stuck.
+    expect(handlers.onResumeFailed).toHaveBeenCalledTimes(1)
+    expect(pendingSessions(service).has('ch-poison-check')).toBe(false)
+
+    // Simulate the fresh session eventually going dormant (idle-evicted),
+    // same as any other session — this is what makes the channel
+    // reactivation-eligible again on the next mention.
+    service.teardown('ch-poison-check', 'evicted')
+    expect(sessions(service).has('ch-poison-check')).toBe(false)
+
+    // Next mention: the fresh session's own row is now the resumable one.
+    // A brand-new resumable row (representing the fresh session that just
+    // went dormant) is what the next getLatestSessionForChannel call sees.
+    const newRow = makeSessionRow({
+      id: 2,
+      channelId: 'ch-poison-check',
+      acpSessionId: 'fresh-acp-session',
+    })
+    getLatestSessionForChannelSpy.mockReturnValue(newRow)
+
+    const secondReactivation = mockSpawnAndConnection()
+    const secondOutcome = service.prompt(
+      'ch-poison-check',
+      'hello again',
+      'user-1',
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+    secondReactivation.resolveInitialize({
+      agentCapabilities: { loadSession: true },
+    })
+    await waitFor(() => secondReactivation.loadSession.mock.calls.length > 0)
+    secondReactivation.resolveLoadSession()
+
+    await secondOutcome
+
+    // One failure did not permanently disable resume for this channel: the
+    // second attempt reactivates via loadSession normally (no second
+    // fallback spawn needed, no additional onResumeFailed call).
+    expect(secondReactivation.loadSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'fresh-acp-session' }),
+    )
+    expect(handlers.onResumeFailed).toHaveBeenCalledTimes(1)
+    expect(sessions(service).has('ch-poison-check')).toBe(true)
   })
 
   it('turn-index reseed integration: the first live turn after reactivation is handed a sessionRowId different from the prior (closed) row', async () => {

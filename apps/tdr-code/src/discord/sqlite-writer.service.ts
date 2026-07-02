@@ -256,4 +256,12 @@ export class SqliteWriterService implements AcpEventHandlers {
     void _channelId
     void _title
   }
+
+  // No-op: the resumeFailed session_created event is already recorded
+  // directly by session-manager.service.ts's own insertEvent call (it has
+  // the failure reason in hand at the throw site); the writer has nothing
+  // additional to persist here.
+  onResumeFailed(_channelId: string): void {
+    void _channelId
+  }
 }

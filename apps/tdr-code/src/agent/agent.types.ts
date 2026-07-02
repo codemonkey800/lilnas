@@ -58,4 +58,8 @@ export interface AcpEventHandlers {
   // a real, non-empty title. Callers never receive null/undefined/'' here — the
   // dispatcher (acp-client.ts) filters those out before invoking this handler.
   onSessionInfoUpdate(channelId: string, title: string): void
+  // U5: fired when a reactivation attempt fails for a genuine reason (not a
+  // /clear racing mid-replay) so the UI layer can notify the user before the
+  // fresh turn's output arrives.
+  onResumeFailed(channelId: string): void
 }
