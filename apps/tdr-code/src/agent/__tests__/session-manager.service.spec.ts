@@ -5,11 +5,13 @@ import { Readable, Writable } from 'node:stream'
 import { ClientSideConnection } from '@agentclientprotocol/sdk'
 import { Test } from '@nestjs/testing'
 
+import { createAcpClient } from 'src/agent/acp-client'
 import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
 import type { AcpEventHandlers } from 'src/agent/agent.types'
 import { globalGitWriteLock } from 'src/agent/git-write-lock'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { DB } from 'src/db/database.module'
+import type { SessionRow } from 'src/db/schema'
 import * as sessionsRepo from 'src/db/sessions.repo'
 import { EnvKeys } from 'src/env'
 
@@ -180,6 +182,112 @@ function injectSessionWithRowId(
 
 type CtorWith2 = {
   new (h: AcpEventHandlers, db: unknown): SessionManagerService
+}
+
+// Builds a controllable mock child process (real EventEmitter, so proc.on
+// wiring in createSession/reactivateSession's shared spawnAndConnect behaves
+// like production) and wires spawn() / ClientSideConnection to it.
+// `initialize`/`newSession`/`loadSession` resolution is controlled by the
+// caller via the returned deferred-style resolvers, so tests can create a
+// genuine concurrency window (U8) or control replay-completion timing
+// relative to other assertions (U4) before any of them settles. Module-scope
+// (not nested in a single describe block) so both the U8 in-flight-guard
+// tests and the U4 reactivation tests can share it.
+function mockSpawnAndConnection() {
+  const mockProc = new EventEmitter() as EventEmitter & {
+    pid: number
+    stdin: unknown
+    stdout: EventEmitter
+    kill: jest.Mock
+  }
+  mockProc.pid = Math.floor(Math.random() * 100000)
+  mockProc.stdin = new Writable({ write: (_c, _e, cb) => cb() })
+  mockProc.stdout = new Readable({ read: () => {} })
+  mockProc.kill = jest.fn()
+  jest.mocked(spawn).mockReturnValueOnce(mockProc as never)
+
+  let resolveInitialize!: (v: {
+    agentCapabilities: Record<string, unknown>
+  }) => void
+  let rejectInitialize!: (err: unknown) => void
+  const initialize = jest.fn(
+    () =>
+      new Promise((resolve, reject) => {
+        resolveInitialize = resolve
+        rejectInitialize = reject
+      }),
+  )
+  const newSession = jest.fn().mockResolvedValue({ sessionId: 'session-x' })
+
+  // U4: controllable loadSession mock, deferred-resolver style matching
+  // initialize's pattern above, so tests can control exactly when replay
+  // "completes" relative to other assertions (e.g. the isReplaying
+  // predicate's value, or a /clear landing mid-replay).
+  let resolveLoadSession!: () => void
+  let rejectLoadSession!: (err: unknown) => void
+  const loadSession = jest.fn(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        resolveLoadSession = resolve
+        rejectLoadSession = reject
+      }),
+  )
+
+  const prompt = jest.fn().mockResolvedValue({ stopReason: 'end_turn' })
+  ;(ClientSideConnection as jest.Mock).mockImplementationOnce(() => ({
+    initialize,
+    newSession,
+    loadSession,
+    prompt,
+  }))
+
+  return {
+    mockProc,
+    initialize,
+    newSession,
+    loadSession,
+    prompt,
+    resolveInitialize: (
+      v: {
+        agentCapabilities?: Record<string, unknown>
+      } = {},
+    ) => resolveInitialize({ agentCapabilities: v.agentCapabilities ?? {} }),
+    rejectInitialize: (err: unknown) => rejectInitialize(err),
+    resolveLoadSession: () => resolveLoadSession(),
+    rejectLoadSession: (err: unknown) => rejectLoadSession(err),
+  }
+}
+
+// U4: builds a realistic SessionRow-shaped object for
+// getLatestSessionForChannel mocks — the generic makeDbMock()'s chained
+// .get() always returns a fixed config row, so tests must spy on the repo
+// function directly (see sessionsRepo import) rather than rely on the DB
+// mock's chain to produce session-shaped rows.
+function makeSessionRow(overrides: Partial<SessionRow> = {}): SessionRow {
+  return {
+    id: 1,
+    channelId: 'ch1',
+    generationId: 1,
+    triggeringUserId: 'user-1',
+    acpSessionId: 'prior-acp-session',
+    cwd: '/tmp',
+    createdAt: new Date(),
+    endedAt: null,
+    endReason: null,
+    ...overrides,
+  }
+}
+
+// U4: waits by polling the microtask queue (capped) until `predicate()`
+// becomes true, rather than hardcoding an exact await-hop count through the
+// multi-layer spawnAndConnect/reactivateSession/createOrReactivateSession/
+// getOrCreate async chain — the exact hop count is an implementation detail
+// this test suite shouldn't need to track precisely. 50 ticks is generous
+// for a handful of nested async calls.
+async function waitFor(predicate: () => boolean, maxTicks = 50): Promise<void> {
+  for (let i = 0; i < maxTicks && !predicate(); i++) {
+    await Promise.resolve()
+  }
 }
 
 describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
@@ -723,56 +831,8 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
 })
 
 describe('SessionManagerService — per-channel create in-flight guard (U8)', () => {
-  // Builds a controllable mock child process (real EventEmitter, so proc.on
-  // wiring in createSession behaves like production) and wires spawn() /
-  // ClientSideConnection to it. `initialize`/`newSession` resolution is
-  // controlled by the caller via the returned deferred-style resolvers, so
-  // tests can create a genuine concurrency window across two getOrCreate
-  // attempts before either one settles.
-  function mockSpawnAndConnection() {
-    const mockProc = new EventEmitter() as EventEmitter & {
-      pid: number
-      stdin: unknown
-      stdout: EventEmitter
-      kill: jest.Mock
-    }
-    mockProc.pid = Math.floor(Math.random() * 100000)
-    mockProc.stdin = new Writable({ write: (_c, _e, cb) => cb() })
-    mockProc.stdout = new Readable({ read: () => {} })
-    mockProc.kill = jest.fn()
-    jest.mocked(spawn).mockReturnValueOnce(mockProc as never)
-
-    let resolveInitialize!: (v: {
-      agentCapabilities: Record<string, unknown>
-    }) => void
-    let rejectInitialize!: (err: unknown) => void
-    const initialize = jest.fn(
-      () =>
-        new Promise((resolve, reject) => {
-          resolveInitialize = resolve
-          rejectInitialize = reject
-        }),
-    )
-    const newSession = jest.fn().mockResolvedValue({ sessionId: 'session-x' })
-    ;(ClientSideConnection as jest.Mock).mockImplementationOnce(() => ({
-      initialize,
-      newSession,
-      prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
-    }))
-
-    return {
-      mockProc,
-      initialize,
-      newSession,
-      resolveInitialize: (
-        v: {
-          agentCapabilities?: Record<string, unknown>
-        } = {},
-      ) => resolveInitialize({ agentCapabilities: v.agentCapabilities ?? {} }),
-      rejectInitialize: (err: unknown) => rejectInitialize(err),
-    }
-  }
-
+  // mockSpawnAndConnection is now module-scoped (shared with the U4
+  // reactivation describe block below) — see its definition above.
   let insertSessionSpy: jest.SpyInstance
 
   beforeEach(() => {
@@ -960,5 +1020,451 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
       await expect(attempt).resolves.toBeDefined()
       expect(sessions(service).has('ch-cancel')).toBe(true)
     })
+  })
+})
+
+describe('SessionManagerService — loadSession reactivation (U4)', () => {
+  let insertSessionSpy: jest.SpyInstance
+  let closeSessionSpy: jest.SpyInstance
+  let getLatestSessionForChannelSpy: jest.SpyInstance
+
+  beforeEach(() => {
+    process.env[EnvKeys.BOT_GENERATION_ID] = '1'
+    // See U8's beforeEach comment — jest.clearAllMocks() (global afterEach)
+    // clears call history but not queued once-values.
+    jest.mocked(spawn).mockReset()
+    jest.mocked(ClientSideConnection).mockReset()
+    jest.mocked(createAcpClient).mockReset()
+    insertSessionSpy = jest.spyOn(sessionsRepo, 'insertSession')
+    closeSessionSpy = jest.spyOn(sessionsRepo, 'closeSession')
+    // The generic makeDbMock()'s chained .get() always returns a fixed
+    // config row, so it cannot produce realistic session rows — spy on the
+    // repo function directly, same pattern as insertSessionSpy above.
+    getLatestSessionForChannelSpy = jest.spyOn(
+      sessionsRepo,
+      'getLatestSessionForChannel',
+    )
+  })
+  afterEach(() => {
+    delete process.env[EnvKeys.BOT_GENERATION_ID]
+    insertSessionSpy.mockRestore()
+    closeSessionSpy.mockRestore()
+    getLatestSessionForChannelSpy.mockRestore()
+  })
+
+  it('happy path: reactivates a dormant channel via loadSession and runs the mention as the next turn (AE3, R8)', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    const priorRow = makeSessionRow({
+      id: 42,
+      channelId: 'ch-dormant',
+      acpSessionId: 'prior-acp-session',
+      cwd: '/tmp/dormant-cwd',
+      endedAt: new Date(),
+      endReason: 'evicted',
+    })
+    getLatestSessionForChannelSpy.mockReturnValue(priorRow)
+
+    const { resolveInitialize, loadSession, resolveLoadSession } =
+      mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-dormant', 'hello again', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize({ agentCapabilities: { loadSession: true } })
+
+    await waitFor(() => loadSession.mock.calls.length > 0)
+    expect(loadSession).toHaveBeenCalledWith({
+      sessionId: 'prior-acp-session',
+      cwd: '/tmp/dormant-cwd',
+      mcpServers: [],
+    })
+    resolveLoadSession()
+
+    const result = await outcome
+    expect(result.kind).not.toBe('shutting_down')
+
+    expect(insertSessionSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        channelId: 'ch-dormant',
+        acpSessionId: 'prior-acp-session',
+        cwd: '/tmp/dormant-cwd',
+      }),
+    )
+    expect(sessions(service).has('ch-dormant')).toBe(true)
+  })
+
+  it('suppression timing: the isReplaying predicate is true before/through initialize+loadSession and flips false only once the live turn starts (R10)', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    const priorRow = makeSessionRow({
+      channelId: 'ch-suppress',
+      acpSessionId: 'prior-acp-session',
+    })
+    getLatestSessionForChannelSpy.mockReturnValue(priorRow)
+
+    const { resolveInitialize, loadSession, resolveLoadSession } =
+      mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-suppress', 'hello', 'user-1')
+
+    // ClientSideConnection is already constructed synchronously by the time
+    // prompt() returns — spawnAndConnect calls createAcpClient (capturing
+    // the predicate as its 3rd arg) immediately before constructing the
+    // connection, both before the first await (connection.initialize).
+    await Promise.resolve()
+    expect(jest.mocked(createAcpClient)).toHaveBeenCalledTimes(1)
+    const isReplaying = jest.mocked(createAcpClient).mock.calls[0]![2] as
+      | (() => boolean)
+      | undefined
+    expect(isReplaying).toBeDefined()
+    expect(isReplaying!()).toBe(true)
+
+    resolveInitialize({ agentCapabilities: { loadSession: true } })
+    await waitFor(() => loadSession.mock.calls.length > 0)
+    // Still true across initialize and into the in-flight loadSession call.
+    expect(isReplaying!()).toBe(true)
+
+    resolveLoadSession()
+    // Immediately after resolving — the re-check/close/insert continuation
+    // that flips the box hasn't run yet (requires at least one microtask
+    // hop), so the predicate is still true here.
+    expect(isReplaying!()).toBe(true)
+
+    await waitFor(() => handlers.onPromptStart.mock.calls.length > 0)
+    // Flipped false by the time the live turn opens.
+    expect(isReplaying!()).toBe(false)
+
+    await outcome
+  })
+
+  it('cleared session: acpSessionId null on the latest row falls through to fresh newSession, never calling loadSession (R14)', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    const clearedRow = makeSessionRow({
+      channelId: 'ch-cleared',
+      acpSessionId: null,
+    })
+    getLatestSessionForChannelSpy.mockReturnValue(clearedRow)
+
+    const { resolveInitialize, newSession, loadSession } =
+      mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-cleared', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize({ agentCapabilities: {} })
+
+    const result = await outcome
+    expect(result.kind).not.toBe('shutting_down')
+    expect(loadSession).not.toHaveBeenCalled()
+    expect(newSession).toHaveBeenCalled()
+    expect(sessions(service).has('ch-cleared')).toBe(true)
+  })
+
+  it('live session bypass: a channel already in the sessions map never consults getLatestSessionForChannel or spawns, even with a reactivation-eligible-looking DB row', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    // Reactivation-eligible-looking row present in "the DB" — must be
+    // ignored because the live sessions map fast path wins first.
+    getLatestSessionForChannelSpy.mockReturnValue(
+      makeSessionRow({
+        channelId: 'ch-live',
+        acpSessionId: 'some-acp-session',
+      }),
+    )
+    const session = injectSessionWithRowId(service, 'ch-live', 7)
+    const connSpy = session.connection as unknown as { prompt: jest.Mock }
+    connSpy.prompt.mockResolvedValue({ stopReason: 'end_turn' })
+
+    await service.prompt('ch-live', 'hello', 'user-1')
+
+    expect(getLatestSessionForChannelSpy).not.toHaveBeenCalled()
+    expect(jest.mocked(spawn)).not.toHaveBeenCalled()
+  })
+
+  it('no prior row: getLatestSessionForChannel returning undefined falls through to fresh create, never calling loadSession', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    getLatestSessionForChannelSpy.mockReturnValue(undefined)
+
+    const { resolveInitialize, newSession, loadSession } =
+      mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-never-seen', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize({ agentCapabilities: {} })
+
+    await outcome
+    expect(loadSession).not.toHaveBeenCalled()
+    expect(newSession).toHaveBeenCalled()
+  })
+
+  it('capability absent: falls through to fresh create — spawn is called twice (aborted reactivation attempt + fresh fallback)', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    const priorRow = makeSessionRow({
+      channelId: 'ch-nocap',
+      acpSessionId: 'prior-acp-session',
+    })
+    getLatestSessionForChannelSpy.mockReturnValue(priorRow)
+
+    // Queue BOTH attempts' spawn/connection mocks upfront — the aborted
+    // reactivation consumes the first pair, the fresh fallback consumes the
+    // second, regardless of the exact microtask interleaving between them.
+    const reactivationAttempt = mockSpawnAndConnection()
+    const freshAttempt = mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-nocap', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // No loadSession capability advertised for the reactivation attempt.
+    reactivationAttempt.resolveInitialize({ agentCapabilities: {} })
+    await waitFor(() => freshAttempt.initialize.mock.calls.length > 0)
+    freshAttempt.resolveInitialize({ agentCapabilities: {} })
+
+    const result = await outcome
+    expect(result.kind).not.toBe('shutting_down')
+    expect(jest.mocked(spawn)).toHaveBeenCalledTimes(2)
+    expect(reactivationAttempt.loadSession).not.toHaveBeenCalled()
+    expect(freshAttempt.newSession).toHaveBeenCalled()
+    expect(reactivationAttempt.mockProc.kill).toHaveBeenCalled()
+    expect(sessions(service).has('ch-nocap')).toBe(true)
+  })
+
+  it('loadSession rejects: falls through to fresh create (same fallback assertion style as capability-absent)', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    const priorRow = makeSessionRow({
+      channelId: 'ch-loadfail',
+      acpSessionId: 'prior-acp-session',
+    })
+    getLatestSessionForChannelSpy.mockReturnValue(priorRow)
+
+    const reactivationAttempt = mockSpawnAndConnection()
+    const freshAttempt = mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-loadfail', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    reactivationAttempt.resolveInitialize({
+      agentCapabilities: { loadSession: true },
+    })
+
+    await waitFor(() => reactivationAttempt.loadSession.mock.calls.length > 0)
+    reactivationAttempt.rejectLoadSession(new Error('transcript missing'))
+
+    await waitFor(() => freshAttempt.initialize.mock.calls.length > 0)
+    freshAttempt.resolveInitialize({ agentCapabilities: {} })
+
+    const result = await outcome
+    expect(result.kind).not.toBe('shutting_down')
+    expect(jest.mocked(spawn)).toHaveBeenCalledTimes(2)
+    expect(freshAttempt.newSession).toHaveBeenCalled()
+    expect(reactivationAttempt.mockProc.kill).toHaveBeenCalled()
+    expect(sessions(service).has('ch-loadfail')).toBe(true)
+  })
+
+  it('closes the dangling prior row with endReason interrupted before inserting the new row', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    const priorRow = makeSessionRow({
+      id: 99,
+      channelId: 'ch-close',
+      acpSessionId: 'prior-acp-session',
+      cwd: '/tmp/close-cwd',
+    })
+    getLatestSessionForChannelSpy.mockReturnValue(priorRow)
+
+    const { resolveInitialize, loadSession, resolveLoadSession } =
+      mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-close', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize({ agentCapabilities: { loadSession: true } })
+    await waitFor(() => loadSession.mock.calls.length > 0)
+    resolveLoadSession()
+
+    await outcome
+
+    expect(closeSessionSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 99, endReason: 'interrupted' }),
+    )
+    expect(insertSessionSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        channelId: 'ch-close',
+        acpSessionId: 'prior-acp-session',
+      }),
+    )
+    // Close-first ordering: the close call must precede the insert call.
+    // invocationCallOrder is a single global counter shared across all jest
+    // mocks, so comparing it across two different spies is valid.
+    const closeOrder = closeSessionSpy.mock.invocationCallOrder[0]!
+    const insertOrder = insertSessionSpy.mock.invocationCallOrder[0]!
+    expect(closeOrder).toBeLessThan(insertOrder)
+  })
+
+  it('/clear mid-replay race: the re-check aborts before inserting a new row, kills the half-spawned process, and does not re-link the nulled acpSessionId (R14)', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    const priorRow = makeSessionRow({
+      id: 55,
+      channelId: 'ch-clear-race',
+      acpSessionId: 'prior-acp-session',
+      cwd: '/tmp/clear-race-cwd',
+    })
+    const clearedRow = makeSessionRow({
+      id: 55,
+      channelId: 'ch-clear-race',
+      acpSessionId: null,
+    })
+    // First call (resumability check in createOrReactivateSession):
+    // resumable. Second call (the re-check in reactivateSession, run after
+    // loadSession resolves): /clear landed mid-replay, nulling acpSessionId.
+    getLatestSessionForChannelSpy
+      .mockReturnValueOnce(priorRow)
+      .mockReturnValueOnce(clearedRow)
+
+    const reactivationAttempt = mockSpawnAndConnection()
+    const freshAttempt = mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-clear-race', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    reactivationAttempt.resolveInitialize({
+      agentCapabilities: { loadSession: true },
+    })
+    await waitFor(() => reactivationAttempt.loadSession.mock.calls.length > 0)
+    reactivationAttempt.resolveLoadSession()
+
+    await waitFor(() => freshAttempt.initialize.mock.calls.length > 0)
+    freshAttempt.resolveInitialize({ agentCapabilities: {} })
+
+    await outcome
+
+    // No new sessions row was inserted re-linking the old (now-nulled)
+    // acpSessionId.
+    expect(insertSessionSpy).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ acpSessionId: 'prior-acp-session' }),
+    )
+    expect(reactivationAttempt.mockProc.kill).toHaveBeenCalled()
+    expect(freshAttempt.newSession).toHaveBeenCalled()
+    expect(sessions(service).has('ch-clear-race')).toBe(true)
+  })
+
+  it('turn-index reseed integration: the first live turn after reactivation is handed a sessionRowId different from the prior (closed) row', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    const priorRow = makeSessionRow({
+      id: 42,
+      channelId: 'ch-reseed',
+      acpSessionId: 'prior-acp-session',
+    })
+    getLatestSessionForChannelSpy.mockReturnValue(priorRow)
+
+    const { resolveInitialize, loadSession, resolveLoadSession } =
+      mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-reseed', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize({ agentCapabilities: { loadSession: true } })
+    await waitFor(() => loadSession.mock.calls.length > 0)
+    resolveLoadSession()
+
+    await outcome
+
+    expect(handlers.onPromptStart).toHaveBeenCalledTimes(1)
+    const [, , context] = handlers.onPromptStart.mock.calls[0]!
+    expect((context as { sessionRowId: number | null }).sessionRowId).not.toBe(
+      42,
+    )
+  })
+
+  it('stale Stop button / turn counter: reactivation does not reset the service-global turn counter', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+
+    // Mint a turn id on an unrelated LIVE session first.
+    const liveSession = injectSessionWithRowId(service, 'ch-other', 1)
+    const liveConn = liveSession.connection as unknown as { prompt: jest.Mock }
+    liveConn.prompt.mockResolvedValue({ stopReason: 'end_turn' })
+    await service.prompt('ch-other', 'first turn', 'user-1')
+    const priorTurnId = handlers.onPromptStart.mock.calls[0]![1] as number
+
+    // Now reactivate a different, dormant channel.
+    const priorRow = makeSessionRow({
+      channelId: 'ch-reactivated',
+      acpSessionId: 'prior-acp-session',
+    })
+    getLatestSessionForChannelSpy.mockReturnValue(priorRow)
+    const { resolveInitialize, loadSession, resolveLoadSession } =
+      mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-reactivated', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize({ agentCapabilities: { loadSession: true } })
+    await waitFor(() => loadSession.mock.calls.length > 0)
+    resolveLoadSession()
+    await outcome
+
+    const reactivatedTurnId = handlers.onPromptStart.mock.calls[1]![1] as number
+    expect(reactivatedTurnId).toBeGreaterThan(priorTurnId)
+
+    // A stale Stop click for the unrelated live session's old turn id must
+    // not cancel the reactivated turn.
+    expect(service.cancel('ch-reactivated', priorTurnId)).toBe(false)
   })
 })

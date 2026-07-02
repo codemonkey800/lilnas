@@ -2,6 +2,7 @@ import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import path from 'node:path'
 import { Readable, Writable } from 'node:stream'
 
+import type { InitializeResponse } from '@agentclientprotocol/sdk'
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -19,7 +20,12 @@ import {
   removeLiveStatus,
   upsertLiveStatus,
 } from 'src/db/live-status.repo'
-import { closeSession, insertSession } from 'src/db/sessions.repo'
+import type { SessionRow } from 'src/db/schema'
+import {
+  closeSession,
+  getLatestSessionForChannel,
+  insertSession,
+} from 'src/db/sessions.repo'
 import { EnvKeys } from 'src/env'
 
 import { createAcpClient } from './acp-client'
@@ -449,16 +455,199 @@ export class SessionManagerService implements OnApplicationShutdown {
   }
 
   // U8: The actual create/reactivate work, wrapped by getOrCreate's guard.
-  // Today this is always fresh-create; a future unit will branch here
-  // between reactivation and fresh create without needing to touch the
-  // guard above.
+  // U4: branches on the channel's latest DB session row — a resumable
+  // linkage (acpSessionId present) attempts reactivation first, falling
+  // through to fresh create on ANY failure (capability absent, loadSession
+  // rejects, or the pre-insert re-check fails). evictIfNeeded runs exactly
+  // once here, hoisted above the branch, since both paths consume a
+  // session-map slot.
   private async createOrReactivateSession(
     channelId: string,
     userId: string,
   ): Promise<ManagedSession> {
     this.evictIfNeeded()
 
+    const latestRow = getLatestSessionForChannel(this.db, channelId)
+    if (latestRow?.acpSessionId != null) {
+      try {
+        return await this.reactivateSession(channelId, userId, latestRow)
+      } catch (err) {
+        // U5 (later unit) will differentiate "silent because /clear
+        // happened" from "genuine failure, notice needed" by re-inspecting
+        // DB state, and will post a Discord notice + resumeFailed event on
+        // the genuine-failure branch. For now, every reactivation failure
+        // falls through to a plain fresh session — no notice, no event.
+        console.warn(
+          `[session-manager] reactivation failed channel=${channelId}, falling back to fresh:`,
+          err instanceof Error ? err.message : String(err),
+        )
+      }
+    }
+
     return this.createSession(channelId, userId)
+  }
+
+  // U4: Restores a dormant thread's agent memory via ACP loadSession. Spawns
+  // a fresh process (spawnAndConnect, shared with createSession), replays
+  // the persisted transcript with all session/update notifications
+  // suppressed via a per-attempt `replaying` box, then closes the dangling
+  // prior row and inserts a new one before un-suppressing immediately ahead
+  // of the live turn. Throws on any failure — capability absent, loadSession
+  // rejects, or a /clear landing mid-replay — so the caller
+  // (createOrReactivateSession) can fall through to a fresh session.
+  //
+  // Known gap (out of scope for this unit): this service has no Discord
+  // awareness (it works purely on opaque channelId strings), so it cannot
+  // detect a locked/archived/undeliverable thread before running the
+  // reactivated turn. The existing `.catch(() => {})` around every Discord
+  // send elsewhere in the app already prevents a crash in that case, but it
+  // does not prevent silently consuming a turn (and the git lock) with no
+  // visible output on an undeliverable thread. A cross-file fix wasn't
+  // scoped here.
+  private async reactivateSession(
+    channelId: string,
+    userId: string,
+    latestRow: SessionRow,
+  ): Promise<ManagedSession> {
+    // Guaranteed non-null by the caller's `latestRow?.acpSessionId != null`
+    // check immediately before calling reactivateSession — TypeScript can't
+    // see across that boundary, so this is a single well-commented assertion
+    // at a call site the caller has already made safe (see
+    // type-guards-over-nonnull-assertions convention: that guidance targets
+    // DB rows read fresh WITHOUT a preceding check, which isn't the case here).
+    const acpSessionId = latestRow.acpSessionId!
+
+    // U3/U4: per-spawn-attempt suppression box, created BEFORE the ACP
+    // connection exists — the SDK's receive loop is live from
+    // ClientSideConnection construction and can stream setup/replay
+    // session/update notifications before any session is registered.
+    const box = { replaying: true }
+
+    const { proc, connection, initResult } = await this.spawnAndConnect(
+      channelId,
+      () => box.replaying,
+    )
+
+    const loadSessionCapable =
+      initResult.agentCapabilities?.loadSession ?? false
+    if (!loadSessionCapable) {
+      this.killProcessTree(proc)
+      throw new Error(
+        `[session-manager] channel=${channelId}: agent does not advertise loadSession capability`,
+      )
+    }
+
+    try {
+      await connection.loadSession({
+        sessionId: acpSessionId,
+        cwd: latestRow.cwd,
+        mcpServers: [],
+      })
+    } catch (err) {
+      this.killProcessTree(proc)
+      throw err
+    }
+
+    // U8/R14: re-check state immediately before committing — a /clear may
+    // have landed mid-replay (nulling acpSessionId) or cancelled this exact
+    // pending attempt. this.pendingSessions.get(channelId) is safe to read
+    // here: reactivateSession runs INSIDE the promise that IS that pending
+    // entry's `.promise`, registered by getOrCreate before
+    // createOrReactivateSession was ever called, so the entry is guaranteed
+    // to exist for the whole duration of this call.
+    const recheck = getLatestSessionForChannel(this.db, channelId)
+    const cancelled = this.pendingSessions.get(channelId)?.cancelled ?? false
+    if (recheck?.acpSessionId == null || cancelled) {
+      this.killProcessTree(proc)
+      throw new Error(
+        `[session-manager] channel=${channelId}: reactivation aborted — cleared during replay`,
+      )
+    }
+
+    // Close the dangling prior row (mandatory, close-first) before inserting
+    // the new one. closeSession is a blind-guarded UPDATE (WHERE ended_at IS
+    // NULL) so this is a safe no-op when latestRow was already closed (the
+    // common case — idle-eviction/teardown already closed it cleanly); it
+    // only does real work for the crash-recovery case (a row left dangling
+    // because the process died without clean teardown). 'interrupted'
+    // matches this file's existing convention for "process is gone, wasn't
+    // a clean teardown" (see proc.on('exit')/proc.on('error') above).
+    closeSession(this.db, {
+      id: latestRow.id,
+      endedAt: new Date(),
+      endReason: 'interrupted',
+    })
+
+    // Try/catch mirrors createSession's own insert step: a throw here must
+    // not orphan the already-spawned (and now successfully resumed) proc —
+    // continue with sessionRowId=null (in-memory session only) rather than
+    // discarding a working, memory-restored connection over a DB write
+    // failure. The prior row above is already closed regardless.
+    let sessionRowId: number | null = null
+    if (this.generationId != null) {
+      try {
+        const row = insertSession(this.db, {
+          channelId,
+          generationId: this.generationId,
+          triggeringUserId: userId,
+          acpSessionId,
+          cwd: latestRow.cwd,
+          createdAt: new Date(),
+        })
+        sessionRowId = row.id
+        insertEvent(this.db, {
+          generationId: this.generationId,
+          sessionId: row.id,
+          channelId,
+          type: 'session_created',
+          level: 'info',
+          context: { acpSessionId, cwd: latestRow.cwd, resumed: true },
+          createdAt: new Date(),
+        })
+      } catch (err) {
+        console.error(
+          `[session-manager] reactivation session-row insert failed channel=${channelId}:`,
+          err instanceof Error ? err.message : String(err),
+        )
+        sessionRowId = null
+      }
+    }
+
+    // U4: un-suppress here, immediately before the live turn — NOT on
+    // loadSession's resolution. The ACP spec gives no ordering guarantee
+    // that all replay notifications land before loadSession's promise
+    // resolves, so clearing earlier could leak a trailing replayed event.
+    // There is no `await` between this function returning and
+    // executePrompt's onPromptStart firing (getOrCreate's synchronous
+    // continuation leads straight into prompt()'s executePrompt call), so
+    // there is no interleaving window for a stray event here.
+    box.replaying = false
+
+    const managed: ManagedSession = {
+      channelId,
+      process: proc,
+      connection,
+      sessionId: acpSessionId,
+      sessionRowId,
+      lastActivity: Date.now(),
+      idleTimer: this.startIdleTimer(channelId),
+      prompting: false,
+      imageCapable:
+        initResult.agentCapabilities?.promptCapabilities?.image ?? false,
+      currentTurnId: 0,
+      queue: [],
+      activeUserId: userId,
+      cancelRequested: false,
+    }
+
+    this.sessions.set(channelId, managed)
+
+    // U5: upsert live_status immediately and ensure heartbeat is running —
+    // same as createSession.
+    this.syncLiveStatus(managed)
+    this.ensureLiveStatusHeartbeat()
+
+    return managed
   }
 
   private evictIfNeeded(): void {
@@ -483,6 +672,101 @@ export class SessionManagerService implements OnApplicationShutdown {
     channelId: string,
     userId: string,
   ): Promise<ManagedSession> {
+    const { proc, connection, initResult } =
+      await this.spawnAndConnect(channelId)
+    const imageCapable =
+      initResult.agentCapabilities?.promptCapabilities?.image ?? false
+
+    let sessionId: string
+    try {
+      const result = await connection.newSession({
+        cwd: this.claudeCwd,
+        mcpServers: [],
+      })
+      sessionId = result.sessionId
+    } catch (err) {
+      this.killProcessTree(proc)
+      throw err
+    }
+
+    // U2: Insert sessions row AFTER newSession resolves so acp_session_id
+    // and cwd land in the initial INSERT (no backfill UPDATE needed).
+    // Guard on generationId — FK is NOT NULL (Decision 4b).
+    // Try/catch: a throw here must not orphan the already-spawned proc; on
+    // failure we fall through with sessionRowId=null (in-memory session only).
+    let sessionRowId: number | null = null
+    if (this.generationId != null) {
+      try {
+        const row = insertSession(this.db, {
+          channelId,
+          generationId: this.generationId,
+          triggeringUserId: userId,
+          acpSessionId: sessionId,
+          cwd: this.claudeCwd,
+          createdAt: new Date(),
+        })
+        sessionRowId = row.id
+        insertEvent(this.db, {
+          generationId: this.generationId,
+          sessionId: row.id,
+          channelId,
+          type: 'session_created',
+          level: 'info',
+          context: { acpSessionId: sessionId, cwd: this.claudeCwd },
+          createdAt: new Date(),
+        })
+      } catch (err) {
+        console.error(
+          `[session-manager] session-row insert failed channel=${channelId}:`,
+          err instanceof Error ? err.message : String(err),
+        )
+        sessionRowId = null
+      }
+    }
+
+    const managed: ManagedSession = {
+      channelId,
+      process: proc,
+      connection,
+      sessionId,
+      sessionRowId,
+      lastActivity: Date.now(),
+      idleTimer: this.startIdleTimer(channelId),
+      prompting: false,
+      imageCapable,
+      currentTurnId: 0,
+      queue: [],
+      activeUserId: userId,
+      cancelRequested: false,
+    }
+
+    this.sessions.set(channelId, managed)
+
+    // U5: upsert live_status immediately and ensure heartbeat is running.
+    this.syncLiveStatus(managed)
+    this.ensureLiveStatusHeartbeat()
+
+    return managed
+  }
+
+  // U4: Shared spawn/wire/connect setup extracted from createSession so
+  // reactivateSession can reuse it verbatim — spawn (same env/stdio),
+  // recordSpawn, the generic proc.on('error'/'exit') cleanup handlers
+  // (channel-keyed and no-op if this channel isn't registered yet, so they
+  // give reactivation correct cleanup-on-death semantics for free), building
+  // the ndJsonStream, creating the ACP client (with the caller's optional
+  // isReplaying predicate), constructing ClientSideConnection, and calling
+  // initialize(). Does NOT call newSession or loadSession — callers branch
+  // on that afterward. On any failure the process tree is killed and the
+  // error rethrown; callers do not need to duplicate that cleanup.
+  private async spawnAndConnect(
+    channelId: string,
+    isReplaying?: () => boolean,
+  ): Promise<{
+    proc: ChildProcess
+    connection: ClientSideConnection
+    initResult: InitializeResponse
+  }> {
     const proc = spawn(this.claudeCommand, this.claudeArgs, {
       stdio: ['pipe', 'pipe', 'inherit'],
       cwd: this.claudeCwd,
@@ -582,17 +866,14 @@ export class SessionManagerService implements OnApplicationShutdown {
       }
     })
 
-    let connection: ClientSideConnection
-    let sessionId: string
-    let imageCapable = false
     try {
       const stream = ndJsonStream(
         Writable.toWeb(proc.stdin!) as WritableStream<Uint8Array>,
         Readable.toWeb(proc.stdout!) as ReadableStream<Uint8Array>,
       )
 
-      const client = createAcpClient(channelId, this.handlers)
-      connection = new ClientSideConnection(() => client, stream)
+      const client = createAcpClient(channelId, this.handlers, isReplaying)
+      const connection = new ClientSideConnection(() => client, stream)
 
       const initResult = await connection.initialize({
         protocolVersion: PROTOCOL_VERSION,
@@ -606,80 +887,29 @@ export class SessionManagerService implements OnApplicationShutdown {
           version: '0.1.0',
         },
       })
-      imageCapable =
+
+      const imageCapable =
         initResult.agentCapabilities?.promptCapabilities?.image ?? false
       console.log(
         `[session-manager] channel=${channelId}: imageCapable=${imageCapable}`,
       )
+      // U4: production observability — the plan flags SDK-version-vs-wrapper-
+      // capability as an open runtime question (installed client SDK is
+      // 0.15.0; the deployed claude-agent-acp wrapper resolves at runtime
+      // via npx). Logging on every spawn (not just reactivation attempts)
+      // lets operators confirm the actual capability before the first
+      // reactivation is ever attempted.
+      console.log(
+        `[session-manager] channel=${channelId}: loadSessionCapable=${
+          initResult.agentCapabilities?.loadSession ?? false
+        }`,
+      )
 
-      const result = await connection.newSession({
-        cwd: this.claudeCwd,
-        mcpServers: [],
-      })
-      sessionId = result.sessionId
+      return { proc, connection, initResult }
     } catch (err) {
       this.killProcessTree(proc)
       throw err
     }
-
-    // U2: Insert sessions row AFTER newSession resolves so acp_session_id
-    // and cwd land in the initial INSERT (no backfill UPDATE needed).
-    // Guard on generationId — FK is NOT NULL (Decision 4b).
-    // Try/catch: a throw here must not orphan the already-spawned proc; on
-    // failure we fall through with sessionRowId=null (in-memory session only).
-    let sessionRowId: number | null = null
-    if (this.generationId != null) {
-      try {
-        const row = insertSession(this.db, {
-          channelId,
-          generationId: this.generationId,
-          triggeringUserId: userId,
-          acpSessionId: sessionId,
-          cwd: this.claudeCwd,
-          createdAt: new Date(),
-        })
-        sessionRowId = row.id
-        insertEvent(this.db, {
-          generationId: this.generationId,
-          sessionId: row.id,
-          channelId,
-          type: 'session_created',
-          level: 'info',
-          context: { acpSessionId: sessionId, cwd: this.claudeCwd },
-          createdAt: new Date(),
-        })
-      } catch (err) {
-        console.error(
-          `[session-manager] session-row insert failed channel=${channelId}:`,
-          err instanceof Error ? err.message : String(err),
-        )
-        sessionRowId = null
-      }
-    }
-
-    const managed: ManagedSession = {
-      channelId,
-      process: proc,
-      connection,
-      sessionId,
-      sessionRowId,
-      lastActivity: Date.now(),
-      idleTimer: this.startIdleTimer(channelId),
-      prompting: false,
-      imageCapable,
-      currentTurnId: 0,
-      queue: [],
-      activeUserId: userId,
-      cancelRequested: false,
-    }
-
-    this.sessions.set(channelId, managed)
-
-    // U5: upsert live_status immediately and ensure heartbeat is running.
-    this.syncLiveStatus(managed)
-    this.ensureLiveStatusHeartbeat()
-
-    return managed
   }
 
   private startIdleTimer(channelId: string): NodeJS.Timeout {
