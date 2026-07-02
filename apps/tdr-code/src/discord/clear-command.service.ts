@@ -28,6 +28,14 @@ export class ClearCommandService {
     // the abort finds no state and cannot flush a partial reply (Decision #5).
     this.discordHandler.resetChannel(channelId)
     this.sessionManager.teardown(channelId)
+    // U8: cancel any in-flight pending create/reactivate attempt for this
+    // channel BEFORE severing acpSessionId below. A pending attempt (a future
+    // unit's reactivation) reads acpSessionId again just before committing its
+    // DB insert — cancelling first means that re-check sees "cancelled" even
+    // if the attempt's read of acpSessionId raced ahead of this UPDATE, so a
+    // /clear landing mid-attempt can't be silently ignored by an attempt that
+    // was already past the point of observing the null.
+    this.sessionManager.cancelPending(channelId)
     // Sever the resume linkage on the channel's latest row whether or not a
     // live session existed (dormant channels have no in-memory session for
     // teardown to act on) — the next @mention must start fresh, not resume.

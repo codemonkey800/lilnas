@@ -1,3 +1,8 @@
+import { spawn } from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import { Readable, Writable } from 'node:stream'
+
+import { ClientSideConnection } from '@agentclientprotocol/sdk'
 import { Test } from '@nestjs/testing'
 
 import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
@@ -5,6 +10,7 @@ import type { AcpEventHandlers } from 'src/agent/agent.types'
 import { globalGitWriteLock } from 'src/agent/git-write-lock'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { DB } from 'src/db/database.module'
+import * as sessionsRepo from 'src/db/sessions.repo'
 import { EnvKeys } from 'src/env'
 
 // Mock git-turn-context so executePrompt tests don't hit real crypto/master-key.
@@ -95,6 +101,23 @@ function sessions(service: SessionManagerService): ServiceSessions {
       sessions: ServiceSessions
     }
   ).sessions
+}
+
+// U8: private-state accessor for the pending create/reactivate guard, in the
+// same cast-through-unknown style as sessions() above.
+type ServicePendingSessions = Map<
+  string,
+  { promise: Promise<unknown>; cancelled: boolean }
+>
+
+function pendingSessions(
+  service: SessionManagerService,
+): ServicePendingSessions {
+  return (
+    service as unknown as {
+      pendingSessions: ServicePendingSessions
+    }
+  ).pendingSessions
 }
 
 function injectPromptingSession(
@@ -385,6 +408,19 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
   })
   afterEach(() => {
     jest.useRealTimers()
+    // U8: the global `afterEach` in setup.ts only calls jest.clearAllMocks(),
+    // which clears call history but NOT a `.mockImplementation()` installed
+    // with jest.mocked(...).mockImplementation(...). Several tests in this
+    // block (notably the real-GitWriteLock INTEGRATION test below) rewire
+    // globalGitWriteLock.acquire/cancelWaiter to delegate to a test-local
+    // lock instance that goes out of scope at the end of the test — without
+    // this restore, that dangling delegation leaks into every later test in
+    // the file (including U8's), where `.acquire()` then resolves against a
+    // lock nobody can ever release, hanging on a 30s Jest timeout.
+    const mockedLock = jest.mocked(globalGitWriteLock)
+    mockedLock.acquire.mockResolvedValue(jest.fn())
+    mockedLock.cancelWaiter.mockReset()
+    mockedLock.releaseIfHeldBy.mockReset()
   })
 
   type ServiceInternals = {
@@ -682,5 +718,246 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     expect(realLock.currentHolder).toBeNull()
 
     void bPromise
+  })
+})
+
+describe('SessionManagerService — per-channel create in-flight guard (U8)', () => {
+  // Builds a controllable mock child process (real EventEmitter, so proc.on
+  // wiring in createSession behaves like production) and wires spawn() /
+  // ClientSideConnection to it. `initialize`/`newSession` resolution is
+  // controlled by the caller via the returned deferred-style resolvers, so
+  // tests can create a genuine concurrency window across two getOrCreate
+  // attempts before either one settles.
+  function mockSpawnAndConnection() {
+    const mockProc = new EventEmitter() as EventEmitter & {
+      pid: number
+      stdin: unknown
+      stdout: EventEmitter
+      kill: jest.Mock
+    }
+    mockProc.pid = Math.floor(Math.random() * 100000)
+    mockProc.stdin = new Writable({ write: (_c, _e, cb) => cb() })
+    mockProc.stdout = new Readable({ read: () => {} })
+    mockProc.kill = jest.fn()
+    jest.mocked(spawn).mockReturnValueOnce(mockProc as never)
+
+    let resolveInitialize!: (v: {
+      agentCapabilities: Record<string, unknown>
+    }) => void
+    let rejectInitialize!: (err: unknown) => void
+    const initialize = jest.fn(
+      () =>
+        new Promise((resolve, reject) => {
+          resolveInitialize = resolve
+          rejectInitialize = reject
+        }),
+    )
+    const newSession = jest.fn().mockResolvedValue({ sessionId: 'session-x' })
+    ;(ClientSideConnection as jest.Mock).mockImplementationOnce(() => ({
+      initialize,
+      newSession,
+      prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+    }))
+
+    return {
+      mockProc,
+      initialize,
+      newSession,
+      resolveInitialize: (
+        v: {
+          agentCapabilities?: Record<string, unknown>
+        } = {},
+      ) => resolveInitialize({ agentCapabilities: v.agentCapabilities ?? {} }),
+      rejectInitialize: (err: unknown) => rejectInitialize(err),
+    }
+  }
+
+  let insertSessionSpy: jest.SpyInstance
+
+  beforeEach(() => {
+    process.env[EnvKeys.BOT_GENERATION_ID] = '1'
+    // jest.clearAllMocks() (global afterEach in setup.ts) clears call/results
+    // history but NOT queued mockReturnValueOnce/mockImplementationOnce
+    // values — reset explicitly so a test that (correctly) leaves a once-value
+    // unconsumed can never leak into the next test's spawn()/ClientSideConnection
+    // call.
+    jest.mocked(spawn).mockReset()
+    jest.mocked(ClientSideConnection).mockReset()
+    // Spy on insertSession directly (rather than counting raw db.insert calls,
+    // which also fire for recordSpawn/insertEvent/the frequent live_status
+    // upserts) so "one session row inserted" is asserted precisely — same
+    // spy-on-the-repo-function style as session-manager.service.test.ts's
+    // recordSpawn/markExited assertions.
+    insertSessionSpy = jest.spyOn(sessionsRepo, 'insertSession')
+  })
+  afterEach(() => {
+    delete process.env[EnvKeys.BOT_GENERATION_ID]
+    insertSessionSpy.mockRestore()
+  })
+
+  it('two concurrent mentions on a never-seen channel spawn exactly one agent and resolve to the SAME session', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    const { resolveInitialize } = mockSpawnAndConnection()
+
+    // Two "mentions" in the same tick, before either has resolved.
+    const first = service.prompt('ch-fresh', 'hello', 'user-1')
+    const second = service.prompt('ch-fresh', 'hi again', 'user-2')
+
+    // Let the pending guard register and createSession reach the initialize()
+    // await (still unresolved) before letting it proceed.
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Only one spawn/connection attempt should exist — the second mention
+    // joined the first's pending promise instead of starting its own.
+    expect(jest.mocked(spawn)).toHaveBeenCalledTimes(1)
+    expect(jest.mocked(ClientSideConnection)).toHaveBeenCalledTimes(1)
+
+    resolveInitialize()
+
+    const [firstOutcome, secondOutcome] = await Promise.all([first, second])
+
+    // Both prompt() calls resolve (one runs the turn directly, the other is
+    // queued behind it — either way, no second createSession happened).
+    expect(firstOutcome.kind).not.toBe('shutting_down')
+    expect(secondOutcome.kind).not.toBe('shutting_down')
+    expect(jest.mocked(spawn)).toHaveBeenCalledTimes(1)
+
+    // Exactly one open sessions row was inserted.
+    expect(insertSessionSpy).toHaveBeenCalledTimes(1)
+
+    // The single live session in the map is shared — there is only one entry
+    // for the channel, proving both callers converged on the same session.
+    expect(sessions(service).size).toBe(1)
+    expect(sessions(service).has('ch-fresh')).toBe(true)
+  })
+
+  it('clears the pending entry after a successful create so it is not consulted for a later, separate attempt', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    const { resolveInitialize } = mockSpawnAndConnection()
+
+    const firstAttempt = service.prompt('ch-settle', 'hello', 'user-1')
+    // Let getOrCreate register the pending entry and createSession reach the
+    // still-unresolved initialize() await before resolving it — otherwise
+    // awaiting firstAttempt below would deadlock on its own unresolved promise.
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize()
+    await firstAttempt
+
+    // Pending entry is gone once the attempt (and the live session it
+    // produced) has settled — the channel is now served by the fast
+    // (sessions map) path instead.
+    expect(pendingSessions(service).has('ch-settle')).toBe(false)
+    expect(sessions(service).has('ch-settle')).toBe(true)
+
+    // A later, separate call for the same channel hits the now-live session
+    // (fast path) rather than starting a fresh pending attempt or reusing a
+    // stale one — no second spawn.
+    await service.prompt('ch-settle', 'hello again', 'user-1')
+    expect(jest.mocked(spawn)).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears the pending entry after a failed create so a retry is not permanently blocked', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    const failing = mockSpawnAndConnection()
+
+    const failedAttempt = service.prompt('ch-retry', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    failing.rejectInitialize(new Error('agent init failed'))
+
+    await expect(failedAttempt).rejects.toThrow('agent init failed')
+
+    // The failed attempt's pending entry must not linger.
+    expect(pendingSessions(service).has('ch-retry')).toBe(false)
+    expect(sessions(service).has('ch-retry')).toBe(false)
+
+    // A retry for the same channel is not blocked by the stale entry — it
+    // starts a brand-new attempt (second spawn call).
+    const retry = mockSpawnAndConnection()
+    const retryAttempt = service.prompt('ch-retry', 'hello again', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    retry.resolveInitialize()
+    await expect(retryAttempt).resolves.toEqual(
+      expect.objectContaining({ kind: expect.any(String) }),
+    )
+    expect(jest.mocked(spawn)).toHaveBeenCalledTimes(2)
+    expect(sessions(service).has('ch-retry')).toBe(true)
+  })
+
+  it('a mention for a live (already-registered) session bypasses the pending guard entirely', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    // Live session already registered — no spawn/connection mock configured
+    // at all, so any attempt to go through createSession would throw/hang.
+    const session = injectSessionWithRowId(service, 'ch-live', 7)
+    const connSpy = session.connection as unknown as { prompt: jest.Mock }
+    connSpy.prompt.mockResolvedValue({ stopReason: 'end_turn' })
+
+    await service.prompt('ch-live', 'hello', 'user-1')
+
+    // pendingSessions was never touched for this channel.
+    expect(pendingSessions(service).has('ch-live')).toBe(false)
+    expect(jest.mocked(spawn)).not.toHaveBeenCalled()
+  })
+
+  describe('cancelPending', () => {
+    it('is a no-op when nothing is pending for the channel (no throw)', () => {
+      const handlers = createMockHandlers()
+      const db = makeDbMock()
+      const service = new (SessionManagerService as unknown as CtorWith2)(
+        handlers,
+        db,
+      )
+
+      expect(() => service.cancelPending('ch-nothing-pending')).not.toThrow()
+      expect(pendingSessions(service).has('ch-nothing-pending')).toBe(false)
+    })
+
+    it('sets the cancelled flag on the pending entry when something IS pending', async () => {
+      const handlers = createMockHandlers()
+      const db = makeDbMock()
+      const service = new (SessionManagerService as unknown as CtorWith2)(
+        handlers,
+        db,
+      )
+      const { resolveInitialize } = mockSpawnAndConnection()
+
+      const attempt = service.prompt('ch-cancel', 'hello', 'user-1')
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(pendingSessions(service).has('ch-cancel')).toBe(true)
+      service.cancelPending('ch-cancel')
+      expect(pendingSessions(service).get('ch-cancel')?.cancelled).toBe(true)
+
+      // cancelPending does not interfere with the in-flight attempt itself —
+      // there is no consumer yet (that lands in a future unit), so the
+      // create still completes normally.
+      resolveInitialize()
+      await expect(attempt).resolves.toBeDefined()
+      expect(sessions(service).has('ch-cancel')).toBe(true)
+    })
   })
 })

@@ -7,6 +7,7 @@ import {
   getLatestSessionForChannel,
   insertSession,
 } from 'src/db/sessions.repo'
+import * as sessionsRepo from 'src/db/sessions.repo'
 import { createTestDb, type TestDb } from 'src/db/test-db'
 import { ClearCommandService } from 'src/discord/clear-command.service'
 import { DiscordHandlerService } from 'src/discord/discord-handler.service'
@@ -16,6 +17,10 @@ function createMockSessionManager() {
     teardown: jest.fn(),
     prompt: jest.fn(),
     isPrompting: jest.fn().mockReturnValue(false),
+    // U8: cancelPending is called unconditionally by onClear — stub it here
+    // so every existing test in this file (which doesn't care about the
+    // pending-guard) doesn't fail with "not a function".
+    cancelPending: jest.fn(),
   }
 }
 
@@ -202,6 +207,57 @@ describe('ClearCommandService', () => {
       expect(
         getLatestSessionForChannel(testDb.db, 'ch-clear-no-row'),
       ).toBeUndefined()
+    })
+  })
+
+  describe('cancels a pending reactivation (U8: R5, R14)', () => {
+    it('calls sessionManager.cancelPending with the channel id', async () => {
+      const { service, mockManager } = await createService(testDb)
+      const interaction = createMockInteraction('ch-clear-pending')
+
+      await service.onClear([interaction] as never)
+
+      expect(mockManager.cancelPending).toHaveBeenCalledWith('ch-clear-pending')
+    })
+
+    it('calls cancelPending before severing acpSessionId, so a pending attempt racing the UPDATE still observes cancelled', async () => {
+      const gen = insertGeneration(testDb.db, { startedAt: new Date() })
+      insertSession(testDb.db, {
+        channelId: 'ch-clear-order',
+        generationId: gen.id,
+        triggeringUserId: 'u1',
+        acpSessionId: 'acp-order-session',
+        cwd: '/cwd',
+        createdAt: new Date(),
+      })
+
+      const { service, mockManager } = await createService(testDb)
+      const interaction = createMockInteraction('ch-clear-order')
+
+      const order: string[] = []
+      mockManager.cancelPending.mockImplementation(() =>
+        order.push('cancelPending'),
+      )
+      // Capture the real implementation BEFORE installing the spy — spyOn
+      // replaces the module's live binding, so calling through via a
+      // re-lookup (e.g. jest.requireActual on the same already-loaded
+      // module) would just recurse into the spy itself.
+      const realClearAcpSessionId = sessionsRepo.clearAcpSessionId
+      const clearAcpSessionIdSpy = jest
+        .spyOn(sessionsRepo, 'clearAcpSessionId')
+        .mockImplementation((...args) => {
+          order.push('clearAcpSessionId')
+          return realClearAcpSessionId(...args)
+        })
+
+      await service.onClear([interaction] as never)
+
+      expect(order).toEqual(['cancelPending', 'clearAcpSessionId'])
+      expect(mockManager.cancelPending).toHaveBeenCalledWith('ch-clear-order')
+      clearAcpSessionIdSpy.mockRestore()
+
+      const latest = getLatestSessionForChannel(testDb.db, 'ch-clear-order')
+      expect(latest?.acpSessionId).toBeNull()
     })
   })
 })

@@ -53,9 +53,22 @@ interface ManagedSession {
   cancelRequested: boolean
 }
 
+// U8: One entry per channel with an in-flight getOrCreate attempt (fresh
+// create today; a future unit's reactivation will share this same guard).
+// `promise` is the single in-flight attempt concurrent callers join instead
+// of starting their own; `cancelled` is a flag a future consumer (U4's
+// reactivation) checks at its own checkpoints before committing a DB write —
+// it is NOT a cancellation mechanism and never aborts anything itself.
+interface PendingSession {
+  promise: Promise<ManagedSession>
+  cancelled: boolean
+}
+
 @Injectable()
 export class SessionManagerService implements OnApplicationShutdown {
   private readonly sessions = new Map<string, ManagedSession>()
+  // U8: per-channel in-flight create/reactivate guard — see PendingSession.
+  private readonly pendingSessions = new Map<string, PendingSession>()
   // Mutable — rereadConfig() replaces these at runtime without re-spawning.
   private maxConcurrentSessions: number
   private idleTimeoutSec: number
@@ -384,6 +397,11 @@ export class SessionManagerService implements OnApplicationShutdown {
     }
   }
 
+  // U8: Live sessions bypass the pending-guard entirely (existing fast path,
+  // unchanged in shape). Otherwise, concurrent callers for the same channel
+  // join a single in-flight attempt rather than each starting their own —
+  // closes the fresh-create race today, and is the primitive a future unit's
+  // seconds-long reactivation window will need to stay safe under R5.
   private async getOrCreate(
     channelId: string,
     userId: string,
@@ -391,6 +409,53 @@ export class SessionManagerService implements OnApplicationShutdown {
     const existing = this.sessions.get(channelId)
     if (existing) return existing
 
+    const pending = this.pendingSessions.get(channelId)
+    if (pending) return pending.promise
+
+    const entry: PendingSession = {
+      promise: this.createOrReactivateSession(channelId, userId),
+      cancelled: false,
+    }
+    this.pendingSessions.set(channelId, entry)
+    // Clear the pending entry once the attempt settles (success or failure)
+    // so a channel is never permanently stuck behind a stale attempt. The
+    // derived promise from .finally() is intentionally not returned/awaited
+    // by this method — entry.promise (below) is what callers observe, and
+    // this cleanup-only chain gets its own .catch() so a rejection here
+    // doesn't surface as an unhandled rejection independent of the caller's
+    // handling of entry.promise.
+    entry.promise
+      .finally(() => {
+        if (this.pendingSessions.get(channelId) === entry) {
+          this.pendingSessions.delete(channelId)
+        }
+      })
+      .catch(() => {
+        /* rejection is the caller's concern via entry.promise, not this chain */
+      })
+    return entry.promise
+  }
+
+  // U8: Marks a channel's in-flight pending attempt (if any) as cancelled.
+  // No-op if nothing is pending. This does NOT reject or otherwise interfere
+  // with the in-flight promise itself — it is a flag for a future consumer
+  // (U4's reactivation) to check at its own checkpoints, not a cancellation
+  // mechanism that aborts anything today. Fresh createSession does not (and
+  // should not) check this flag; only future reactivation logic will.
+  cancelPending(channelId: string): void {
+    const pending = this.pendingSessions.get(channelId)
+    if (!pending) return
+    pending.cancelled = true
+  }
+
+  // U8: The actual create/reactivate work, wrapped by getOrCreate's guard.
+  // Today this is always fresh-create; a future unit will branch here
+  // between reactivation and fresh create without needing to touch the
+  // guard above.
+  private async createOrReactivateSession(
+    channelId: string,
+    userId: string,
+  ): Promise<ManagedSession> {
     this.evictIfNeeded()
 
     return this.createSession(channelId, userId)
