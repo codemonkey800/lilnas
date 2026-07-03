@@ -38,10 +38,9 @@ export class DiscordDirectoryService {
     null
 
   // Bots are filtered out — a git identity is always for a human. `force`
-  // bypasses and refreshes the cache (the console page's manual "Refresh"
-  // button); a normal load prefers the cache within CACHE_TTL_MS to avoid
-  // hitting Discord's rate limits, which are shared with the actual bot
-  // process's own gateway/REST usage.
+  // bypasses the cache for on-demand refreshes; a normal load prefers the
+  // cache within CACHE_TTL_MS to avoid hitting Discord's rate limits, which
+  // are shared with the actual bot process's own gateway/REST usage.
   async listGuildMembers(force = false): Promise<DiscordGuildMemberDto[]> {
     if (
       !force &&

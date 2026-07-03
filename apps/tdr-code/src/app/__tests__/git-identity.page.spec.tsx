@@ -105,18 +105,6 @@ describe('GitIdentityPage — Discord member dropdown', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
   })
 
-  it('the Refresh button forces a cache-bypassing refetch', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await screen.findByRole('combobox')
-    await user.click(screen.getByRole('button', { name: 'Refresh' }))
-
-    await waitFor(() =>
-      expect(listMembersSpy).toHaveBeenCalledWith({ force: true }),
-    )
-  })
-
   it('shows an "Unknown member" option for a Replace target no longer in the fetched list', async () => {
     const staleIdentity: GitIdentityListResponseDto = [
       {

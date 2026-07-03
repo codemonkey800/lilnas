@@ -109,20 +109,12 @@ export default function GitIdentityPage() {
   })
 
   // Discord guild members, for the "Discord user" dropdown below. Cached
-  // server-side for 5 minutes; the Refresh button bypasses that via
-  // force=true and writes the fresh result straight into this query's cache.
+  // server-side for 5 minutes.
   const membersQuery = useQuery({
     queryKey: queryKeys.discordGuildMembers,
     queryFn: () => api.listDiscordGuildMembers(),
     staleTime: 5 * 60_000,
     retry: false,
-  })
-
-  const refreshMembers = useMutation({
-    mutationFn: () => api.listDiscordGuildMembers({ force: true }),
-    onSuccess: members => {
-      queryClient.setQueryData(queryKeys.discordGuildMembers, members)
-    },
   })
 
   // Form state
@@ -205,19 +197,9 @@ export default function GitIdentityPage() {
           className="grid grid-cols-1 gap-4 sm:grid-cols-2"
         >
           <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <label className="block text-xs font-medium text-gray-300">
-                Discord user
-              </label>
-              <button
-                type="button"
-                onClick={() => refreshMembers.mutate()}
-                disabled={refreshMembers.isPending}
-                className="text-xs text-gray-400 hover:text-gray-200 disabled:opacity-50"
-              >
-                {refreshMembers.isPending ? 'Refreshing…' : 'Refresh'}
-              </button>
-            </div>
+            <label className="block text-xs font-medium text-gray-300">
+              Discord user
+            </label>
             <select
               required
               value={discordUserId}
