@@ -15,6 +15,7 @@ function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
     onPromptComplete: jest.fn(),
     onSessionInfoUpdate: jest.fn(),
     onResumeFailed: jest.fn(),
+    onUsageUpdate: jest.fn(),
   }
 }
 
@@ -229,4 +230,36 @@ describe('createAcpClient — session_info_update dispatch (U3, R12)', () => {
       expect(handlers.onSessionInfoUpdate).not.toHaveBeenCalled()
     },
   )
+})
+
+describe('createAcpClient — usage_update dispatch', () => {
+  it('calls onUsageUpdate with used/size forwarded verbatim', async () => {
+    const handlers = createMockHandlers()
+    const client = createAcpClient('ch1', handlers)
+
+    await client.sessionUpdate!({
+      update: {
+        sessionUpdate: 'usage_update',
+        used: 15000,
+        size: 200000,
+      },
+    } as never)
+
+    expect(handlers.onUsageUpdate).toHaveBeenCalledWith('ch1', 15000, 200000)
+  })
+
+  it('is suppressed while replaying (no onUsageUpdate call)', async () => {
+    const handlers = createMockHandlers()
+    const client = createAcpClient('ch1', handlers, () => true)
+
+    await client.sessionUpdate!({
+      update: {
+        sessionUpdate: 'usage_update',
+        used: 15000,
+        size: 200000,
+      },
+    } as never)
+
+    expect(handlers.onUsageUpdate).not.toHaveBeenCalled()
+  })
 })

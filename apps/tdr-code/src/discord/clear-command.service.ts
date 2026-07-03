@@ -5,6 +5,7 @@ import { SessionManagerService } from 'src/agent/session-manager.service'
 import { DB, type Db } from 'src/db/database.module'
 import { clearAcpSessionId } from 'src/db/sessions.repo'
 
+import { ContextUsageService } from './context-usage.service'
 import { DiscordHandlerService } from './discord-handler.service'
 
 @Injectable()
@@ -12,6 +13,7 @@ export class ClearCommandService {
   constructor(
     private readonly sessionManager: SessionManagerService,
     private readonly discordHandler: DiscordHandlerService,
+    private readonly contextUsage: ContextUsageService,
     @Inject(DB) private readonly db: Db,
   ) {}
 
@@ -27,6 +29,9 @@ export class ClearCommandService {
     // guard BEFORE teardown fires the synchronous onPromptComplete('aborted'), so
     // the abort finds no state and cannot flush a partial reply (Decision #5).
     this.discordHandler.resetChannel(channelId)
+    // A forced-fresh session must not inherit a stale notifiedThreshold from
+    // whatever this channel's usage was before /clear.
+    this.contextUsage.resetChannel(channelId)
     this.sessionManager.teardown(channelId)
     // U8: cancel any in-flight pending create/reactivate attempt for this
     // channel BEFORE severing acpSessionId below. A pending attempt (a future

@@ -264,4 +264,13 @@ export class SqliteWriterService implements AcpEventHandlers {
   onResumeFailed(_channelId: string): void {
     void _channelId
   }
+
+  // No-op: usage/token data is not persisted to the transcript in v1 —
+  // ContextUsageService owns all context-usage behavior and its own
+  // in-memory state; nothing for the writer to record here.
+  onUsageUpdate(_channelId: string, _used: number, _size: number): void {
+    void _channelId
+    void _used
+    void _size
+  }
 }

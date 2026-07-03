@@ -29,6 +29,7 @@ import {
   splitMessage,
 } from 'src/agent/message-bridge'
 import { SessionManagerService } from 'src/agent/session-manager.service'
+import { fetchChannel as fetchChannelUtil } from 'src/discord/fetch-channel'
 import { extractImages, MAX_IMAGE_BYTES } from 'src/discord/image-attachments'
 import { stopButtonId } from 'src/discord/stop-button-id'
 
@@ -37,8 +38,9 @@ import { stopButtonId } from 'src/discord/stop-button-id'
 const THREAD_NAME_MAX_LENGTH = 90
 const FALLBACK_THREAD_NAME = 'New session'
 // 24 hours — chosen default autoArchiveDuration (in minutes) for created
-// threads (plan Decision, U2).
-const THREAD_AUTO_ARCHIVE_MINUTES = 1440
+// threads (plan Decision, U2). Exported so ContextUsageService's handoff
+// thread creation shares the same default rather than hardcoding a second one.
+export const THREAD_AUTO_ARCHIVE_MINUTES = 1440
 // Discord documents ~2 thread renames per 10 minutes, per thread. Throttling
 // to one rename per 5 minutes keeps us comfortably under that limit even
 // with imprecise timing (U6, R12).
@@ -47,6 +49,15 @@ const THREAD_RENAME_THROTTLE_MS = 5 * 60 * 1000
 // resolve or reject) — race it against this timeout so our bookkeeping
 // always proceeds promptly regardless of Discord's behavior (U6).
 const THREAD_RENAME_TIMEOUT_MS = 10_000
+// Flavor text for the transient "turn in progress" placeholder (R7); one is
+// picked at random per turn. Exported so tests can assert membership instead
+// of hardcoding a single expected string.
+export const WORKING_MESSAGES = [
+  'jorking it...',
+  'gooning...',
+  'succing it...',
+] as const
+
 // Guild channel types that support message.startThread(); GuildForum uses a
 // separate thread-creation flow and isn't posted to directly, so it's
 // intentionally excluded (treated as non-threadable → inline fallback).
@@ -58,7 +69,11 @@ const THREADABLE_CHANNEL_TYPES: ReadonlySet<ChannelType> = new Set([
 // Truncate `text` to at most `maxLength` chars, preferring to break at a
 // word boundary and appending an ellipsis when truncated. Used to seed a
 // Discord thread name from the (already mention-stripped) prompt text.
-function truncateAtWordBoundary(text: string, maxLength: number): string {
+// Exported for reuse by ContextUsageService's continuation-thread naming.
+export function truncateAtWordBoundary(
+  text: string,
+  maxLength: number,
+): string {
   if (text.length <= maxLength) return text
   const budget = maxLength - 1 // reserve room for the ellipsis char
   const slice = text.slice(0, budget)
@@ -67,7 +82,7 @@ function truncateAtWordBoundary(text: string, maxLength: number): string {
   return base.trimEnd() + '…'
 }
 
-function buildThreadName(strippedText: string): string {
+export function buildThreadName(strippedText: string): string {
   const truncated = truncateAtWordBoundary(strippedText, THREAD_NAME_MAX_LENGTH)
   return truncated.length > 0 ? truncated : FALLBACK_THREAD_NAME
 }
@@ -252,6 +267,15 @@ export class DiscordHandlerService
         })
         .catch(() => {})
     })
+  }
+
+  // No-op: context-usage notifications and the 95% handoff are entirely
+  // owned by ContextUsageService; DiscordHandlerService has no reason to
+  // react to usage_update directly.
+  onUsageUpdate(_channelId: string, _used: number, _size: number): void {
+    void _channelId
+    void _used
+    void _size
   }
 
   // --- Discord event handlers ---
@@ -519,7 +543,8 @@ export class DiscordHandlerService
 
     const msg = await channel
       .send({
-        content: '🔄 Working…',
+        content:
+          WORKING_MESSAGES[Math.floor(Math.random() * WORKING_MESSAGES.length)],
         components: [row],
         allowedMentions: { parse: [] },
       })
@@ -528,7 +553,7 @@ export class DiscordHandlerService
     // Post-send re-check: if turn already ended while send was in flight, clean up
     const currentState = this.channelStates.get(channelId)
     if (!currentState || currentState.currentTurnId !== turnId) {
-      // Turn already finalized — delete the orphan so "🔄 Working…" doesn't linger
+      // Turn already finalized — delete the orphan placeholder so it doesn't linger
       if (msg) void msg.delete().catch(() => {})
       return
     }
@@ -832,17 +857,16 @@ export class DiscordHandlerService
     })
   }
 
-  private async fetchChannel(channelId: string): Promise<TextChannel | null> {
-    const cached = this.client.channels.cache.get(channelId) as
-      | TextChannel
-      | undefined
-    if (cached) return cached
-    try {
-      const fetched = await this.client.channels.fetch(channelId)
-      return fetched as TextChannel
-    } catch {
-      return null
-    }
+  // Not `async` — returns the shared util's Promise reference directly
+  // (cast only, no `.then()`/`await` wrapping) so callers observe the exact
+  // same microtask-resolution timing as calling fetchChannelUtil directly.
+  // An `await` here would add an extra microtask tick relative to the
+  // pre-refactor implementation, which several fake-timer tests key off of.
+  private fetchChannel(channelId: string): Promise<TextChannel | null> {
+    return fetchChannelUtil(
+      this.client,
+      channelId,
+    ) as Promise<TextChannel | null>
   }
 }
 

@@ -92,6 +92,10 @@ export function createAcpClient(
           }
           break
         }
+        case 'usage_update': {
+          handlers.onUsageUpdate(channelId, update.used, update.size)
+          break
+        }
       }
     },
   }

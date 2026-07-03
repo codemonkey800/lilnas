@@ -1213,3 +1213,13 @@ describe('DiscordHandlerService — onSessionInfoUpdate / thread rename (U6)', (
     expect(threadRenameStates(service).has('thread-1')).toBe(false)
   })
 })
+
+describe('DiscordHandlerService — onUsageUpdate', () => {
+  it('is a no-op: does not throw and does not touch the Discord client', async () => {
+    const mockClient = createMockClient()
+    const service = await createService(mockClient)
+
+    expect(() => service.onUsageUpdate('ch1', 15000, 200000)).not.toThrow()
+    expect(mockClient.channels.fetch).not.toHaveBeenCalled()
+  })
+})

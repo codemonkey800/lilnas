@@ -20,7 +20,7 @@ import {
   removeLiveStatus,
   upsertLiveStatus,
 } from 'src/db/live-status.repo'
-import type { SessionRow } from 'src/db/schema'
+import type { EventContext, SessionRow } from 'src/db/schema'
 import {
   closeSession,
   getLatestSessionForChannel,
@@ -207,9 +207,14 @@ export class SessionManagerService implements OnApplicationShutdown {
     return true
   }
 
+  // extraContext: additive tag merged into the closing session_evicted event's
+  // free-form context bag (e.g. `{reason: 'context_limit'}` for the
+  // ContextUsageService handoff) — optional and backward compatible, every
+  // existing call site omits it.
   teardown(
     channelId: string,
     endReason: 'evicted' | 'teardown' | 'interrupted' = 'teardown',
+    extraContext?: EventContext,
   ): void {
     const session = this.sessions.get(channelId)
     if (!session) return
@@ -253,7 +258,7 @@ export class SessionManagerService implements OnApplicationShutdown {
             channelId,
             type: 'session_evicted',
             level: 'info',
-            context: { endReason },
+            context: { endReason, ...extraContext },
             createdAt: new Date(),
           })
         }

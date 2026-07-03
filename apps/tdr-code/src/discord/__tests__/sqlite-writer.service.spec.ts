@@ -221,4 +221,19 @@ describe('SqliteWriterService — turn round-trip', () => {
       close()
     }
   })
+
+  it('onUsageUpdate is a no-op: does not throw and writes nothing', async () => {
+    const { db, close } = createTestDb()
+    try {
+      const gen = insertGeneration(db, { startedAt: new Date() })
+      const service = await createService(db, gen.id)
+
+      expect(() => service.onUsageUpdate('ch1', 15000, 200000)).not.toThrow()
+
+      const { events } = await import('src/db/schema')
+      expect(db.select().from(events).all()).toHaveLength(0)
+    } finally {
+      close()
+    }
+  })
 })

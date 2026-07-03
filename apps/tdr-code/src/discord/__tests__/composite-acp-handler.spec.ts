@@ -5,7 +5,8 @@ import type {
 import { CompositeAcpHandler } from 'src/discord/composite-acp-handler'
 import { EnvKeys } from 'src/env'
 
-// Minimal mocks for DiscordHandlerService and SqliteWriterService.
+// Minimal mocks for DiscordHandlerService, SqliteWriterService, and
+// ContextUsageService.
 function makeDiscordMock(): jest.Mocked<AcpEventHandlers> {
   return {
     onToolCall: jest.fn(),
@@ -16,6 +17,7 @@ function makeDiscordMock(): jest.Mocked<AcpEventHandlers> {
     onPromptComplete: jest.fn(),
     onSessionInfoUpdate: jest.fn(),
     onResumeFailed: jest.fn(),
+    onUsageUpdate: jest.fn(),
   }
 }
 
@@ -29,6 +31,21 @@ function makeWriterMock(): jest.Mocked<AcpEventHandlers> {
     onPromptComplete: jest.fn(),
     onSessionInfoUpdate: jest.fn(),
     onResumeFailed: jest.fn(),
+    onUsageUpdate: jest.fn(),
+  }
+}
+
+function makeContextUsageMock(): jest.Mocked<AcpEventHandlers> {
+  return {
+    onToolCall: jest.fn(),
+    onToolCallUpdate: jest.fn(),
+    onAgentMessageChunk: jest.fn(),
+    onAgentMessageImage: jest.fn(),
+    onPromptStart: jest.fn(),
+    onPromptComplete: jest.fn(),
+    onSessionInfoUpdate: jest.fn(),
+    onResumeFailed: jest.fn(),
+    onUsageUpdate: jest.fn(),
   }
 }
 
@@ -70,15 +87,21 @@ type CompositeCtor = {
   new (
     discord: AcpEventHandlers,
     writer: AcpEventHandlers,
+    contextUsage: AcpEventHandlers,
     db: unknown,
   ): CompositeAcpHandler
 }
 
-function makeComposite(discord: AcpEventHandlers, writer: AcpEventHandlers) {
+function makeComposite(
+  discord: AcpEventHandlers,
+  writer: AcpEventHandlers,
+  contextUsage: AcpEventHandlers = makeContextUsageMock(),
+) {
   const db = makeDbMock()
   const composite = new (CompositeAcpHandler as unknown as CompositeCtor)(
     discord,
     writer,
+    contextUsage,
     db,
   )
   return composite
@@ -147,6 +170,7 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
         composite.onPromptComplete('ch', 'end_turn'),
         composite.onSessionInfoUpdate('ch', 'title'),
         composite.onResumeFailed('ch'),
+        composite.onUsageUpdate('ch', 100, 1000),
       ]
       for (const r of results) {
         expect(r).not.toBeInstanceOf(Promise)
@@ -181,6 +205,23 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
       expect(discord.onResumeFailed).toHaveBeenCalledWith('ch1')
       expect(writer.onResumeFailed).toHaveBeenCalledWith('ch1')
     })
+
+    it('onUsageUpdate forwards to Discord, writer, and ContextUsageService', () => {
+      const discord = makeDiscordMock()
+      const writer = makeWriterMock()
+      const contextUsage = makeContextUsageMock()
+      const composite = makeComposite(discord, writer, contextUsage)
+
+      composite.onUsageUpdate('ch1', 15000, 200000)
+
+      expect(discord.onUsageUpdate).toHaveBeenCalledWith('ch1', 15000, 200000)
+      expect(writer.onUsageUpdate).toHaveBeenCalledWith('ch1', 15000, 200000)
+      expect(contextUsage.onUsageUpdate).toHaveBeenCalledWith(
+        'ch1',
+        15000,
+        200000,
+      )
+    })
   })
 
   describe('Error path (Decision 2): fault isolation', () => {
@@ -208,6 +249,20 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
       expect(writer.onAgentMessageChunk).toHaveBeenCalledWith('ch1', 'text')
     })
 
+    it('a ContextUsageService fault does NOT prevent Discord or writer from running', () => {
+      const discord = makeDiscordMock()
+      const writer = makeWriterMock()
+      const contextUsage = makeContextUsageMock()
+      contextUsage.onUsageUpdate.mockImplementation(() => {
+        throw new Error('context-usage fail')
+      })
+      const composite = makeComposite(discord, writer, contextUsage)
+
+      expect(() => composite.onUsageUpdate('ch1', 15000, 200000)).not.toThrow()
+      expect(discord.onUsageUpdate).toHaveBeenCalledWith('ch1', 15000, 200000)
+      expect(writer.onUsageUpdate).toHaveBeenCalledWith('ch1', 15000, 200000)
+    })
+
     it('double-fault (writer throw + event INSERT throw) degrades to log-only, no rethrow', () => {
       const discord = makeDiscordMock()
       const writer = makeWriterMock()
@@ -222,6 +277,7 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
       const composite = new (CompositeAcpHandler as unknown as CompositeCtor)(
         discord,
         writer,
+        makeContextUsageMock(),
         db,
       )
 
@@ -247,6 +303,7 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
       const composite = new (CompositeAcpHandler as unknown as CompositeCtor)(
         discord,
         writer,
+        makeContextUsageMock(),
         db,
       )
 

@@ -55,6 +55,7 @@ function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
     onPromptComplete: jest.fn(),
     onSessionInfoUpdate: jest.fn(),
     onResumeFailed: jest.fn(),
+    onUsageUpdate: jest.fn(),
   }
 }
 

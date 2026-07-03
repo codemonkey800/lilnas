@@ -11,6 +11,7 @@ import { DB } from 'src/db/database.module'
 import { insertEvent } from 'src/db/events.repo'
 import { EnvKeys } from 'src/env'
 
+import { ContextUsageService } from './context-usage.service'
 import { DiscordHandlerService } from './discord-handler.service'
 import { SqliteWriterService } from './sqlite-writer.service'
 
@@ -36,14 +37,17 @@ export class CompositeAcpHandler implements AcpEventHandlers {
   // interface (all params present) — the concrete classes may have fewer params.
   private readonly discord: AcpEventHandlers
   private readonly writer: AcpEventHandlers
+  private readonly contextUsage: AcpEventHandlers
 
   constructor(
     discord: DiscordHandlerService,
     writer: SqliteWriterService,
+    contextUsage: ContextUsageService,
     @Inject(DB) private readonly db: Db,
   ) {
     this.discord = discord
     this.writer = writer
+    this.contextUsage = contextUsage
     const genIdStr = process.env[EnvKeys.BOT_GENERATION_ID]
     this.generationId = genIdStr ? parseInt(genIdStr, 10) : null
   }
@@ -220,6 +224,33 @@ export class CompositeAcpHandler implements AcpEventHandlers {
       this.writer.onResumeFailed(channelId)
     } catch (err) {
       this.handleWriterError(err, 'onResumeFailed', channelId)
+    }
+  }
+
+  onUsageUpdate(channelId: string, used: number, size: number): void {
+    try {
+      this.discord.onUsageUpdate(channelId, used, size)
+    } catch (err) {
+      console.error(
+        '[composite] Discord handler error in onUsageUpdate:',
+        err instanceof Error ? err.message : String(err),
+      )
+    }
+    try {
+      this.writer.onUsageUpdate(channelId, used, size)
+    } catch (err) {
+      this.handleWriterError(err, 'onUsageUpdate', channelId)
+    }
+    // ContextUsageService's failures are not a "transcript write failed"
+    // case (it isn't a writer), so it gets its own plain console.error rather
+    // than routing through handleWriterError's transcript_write_failed event.
+    try {
+      this.contextUsage.onUsageUpdate(channelId, used, size)
+    } catch (err) {
+      console.error(
+        '[composite] ContextUsage handler error in onUsageUpdate:',
+        err instanceof Error ? err.message : String(err),
+      )
     }
   }
 

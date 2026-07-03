@@ -62,4 +62,9 @@ export interface AcpEventHandlers {
   // /clear racing mid-replay) so the UI layer can notify the user before the
   // fresh turn's output arrives.
   onResumeFailed(channelId: string): void
+  // Fired for the ACP `usage_update` notification. used/size are forwarded
+  // verbatim from the wire payload (tokens currently in context / total
+  // context window size) — no filtering or validation applied by the
+  // dispatcher (acp-client.ts), including no guarantee that size > 0.
+  onUsageUpdate(channelId: string, used: number, size: number): void
 }

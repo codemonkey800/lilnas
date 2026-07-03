@@ -6,7 +6,10 @@ import {
   createMockTextChannel,
   createTestingModule,
 } from 'src/__tests__/test-utils'
-import { DiscordHandlerService } from 'src/discord/discord-handler.service'
+import {
+  DiscordHandlerService,
+  WORKING_MESSAGES,
+} from 'src/discord/discord-handler.service'
 import { stopButtonId } from 'src/discord/stop-button-id'
 
 function createMockClient() {
@@ -72,7 +75,7 @@ describe('DiscordHandlerService — onPromptStart', () => {
       string,
       unknown
     >
-    expect(call.content).toBe('🔄 Working…')
+    expect(WORKING_MESSAGES).toContain(call.content)
     expect(call.components).toBeDefined()
   })
 

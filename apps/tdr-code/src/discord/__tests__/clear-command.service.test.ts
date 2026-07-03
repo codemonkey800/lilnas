@@ -10,6 +10,7 @@ import {
 import * as sessionsRepo from 'src/db/sessions.repo'
 import { createTestDb, type TestDb } from 'src/db/test-db'
 import { ClearCommandService } from 'src/discord/clear-command.service'
+import { ContextUsageService } from 'src/discord/context-usage.service'
 import { DiscordHandlerService } from 'src/discord/discord-handler.service'
 
 function createMockSessionManager() {
@@ -31,6 +32,12 @@ function createMockDiscordHandler() {
   }
 }
 
+function createMockContextUsage() {
+  return {
+    resetChannel: jest.fn(),
+  }
+}
+
 function createMockInteraction(channelId = 'ch-clear') {
   return {
     channelId,
@@ -43,16 +50,19 @@ function createMockInteraction(channelId = 'ch-clear') {
 async function createService(testDb: TestDb) {
   const mockManager = createMockSessionManager()
   const mockHandler = createMockDiscordHandler()
+  const mockContextUsage = createMockContextUsage()
   const module = await createTestingModule([
     ClearCommandService,
     { provide: SessionManagerService, useValue: mockManager },
     { provide: DiscordHandlerService, useValue: mockHandler },
+    { provide: ContextUsageService, useValue: mockContextUsage },
     { provide: DB, useValue: testDb.db },
   ])
   return {
     service: module.get(ClearCommandService),
     mockManager,
     mockHandler,
+    mockContextUsage,
   }
 }
 
@@ -69,13 +79,15 @@ describe('ClearCommandService', () => {
 
   describe('happy path — mid-turn clear (AE3: R9, R11, R12)', () => {
     it('calls teardown and resetChannel for the channel', async () => {
-      const { service, mockManager, mockHandler } = await createService(testDb)
+      const { service, mockManager, mockHandler, mockContextUsage } =
+        await createService(testDb)
       const interaction = createMockInteraction('ch-clear')
 
       await service.onClear([interaction] as never)
 
       expect(mockManager.teardown).toHaveBeenCalledWith('ch-clear')
       expect(mockHandler.resetChannel).toHaveBeenCalledWith('ch-clear')
+      expect(mockContextUsage.resetChannel).toHaveBeenCalledWith('ch-clear')
     })
 
     it('replies with a public confirmation (R14, Decision #8)', async () => {
