@@ -81,8 +81,15 @@ export class CommandPollerService implements OnModuleInit, OnModuleDestroy {
       for (const row of claimed) {
         this.dispatch(row)
       }
+      this.logger.debug(
+        { generationId: genId, claimedCount: claimed.length },
+        'Command poll tick complete',
+      )
     } catch (err) {
-      this.logger.warn({ err }, 'Command poll error — will retry next tick')
+      this.logger.warn(
+        { err, generationId: genId },
+        'Command poll error — will retry next tick',
+      )
     }
     this.armPoll()
   }
@@ -100,6 +107,7 @@ export class CommandPollerService implements OnModuleInit, OnModuleDestroy {
           type: row.type,
           target: row.target,
           reason: result.reason,
+          generationId: this.generationId,
         },
         'Command validation anomaly — deny-by-default, not dispatched',
       )
@@ -118,7 +126,10 @@ export class CommandPollerService implements OnModuleInit, OnModuleDestroy {
             createdAt: new Date(),
           })
         } catch (err) {
-          this.logger.warn({ err }, 'Failed to write command_anomaly event')
+          this.logger.warn(
+            { err, generationId: genId },
+            'Failed to write command_anomaly event',
+          )
         }
       }
       return
@@ -127,13 +138,20 @@ export class CommandPollerService implements OnModuleInit, OnModuleDestroy {
       case 'teardown_channel':
         this.sessionManager.teardown(result.command.target)
         this.logger.info(
-          { channelId: result.command.target, commandId: row.id },
+          {
+            channelId: result.command.target,
+            commandId: row.id,
+            generationId: this.generationId,
+          },
           'Dispatched teardown_channel',
         )
         break
       case 'reread_config':
         this.sessionManager.rereadConfig()
-        this.logger.info({ commandId: row.id }, 'Dispatched reread_config')
+        this.logger.info(
+          { commandId: row.id, generationId: this.generationId },
+          'Dispatched reread_config',
+        )
         break
     }
   }

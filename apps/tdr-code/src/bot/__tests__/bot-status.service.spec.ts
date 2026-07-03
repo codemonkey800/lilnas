@@ -1,3 +1,5 @@
+import { PinoLogger } from 'nestjs-pino'
+
 import { BotStatusService } from 'src/bot/bot-status.service'
 import {
   finalize,
@@ -6,8 +8,17 @@ import {
 } from 'src/db/bot-generation.repo'
 import { createTestDb } from 'src/db/test-db'
 
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
+}
+
 function buildService(db: ReturnType<typeof createTestDb>['db']) {
-  return new BotStatusService(db)
+  return new BotStatusService(db, makeLogger())
 }
 
 describe('BotStatusService.getStatus', () => {

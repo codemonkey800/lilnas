@@ -15,11 +15,12 @@ function fakeLogger(): PinoLogger {
     warn: jest.fn(),
     error: jest.fn(),
     info: jest.fn(),
+    debug: jest.fn(),
   } as unknown as PinoLogger
 }
 
 function buildService(db: ReturnType<typeof createTestDb>['db']) {
-  const botStatus = new BotStatusService(db)
+  const botStatus = new BotStatusService(db, fakeLogger())
   return new LiveService(db, botStatus, fakeLogger())
 }
 

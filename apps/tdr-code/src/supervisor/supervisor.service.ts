@@ -221,7 +221,11 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
         continue
       }
       // PID is alive — verify identity before signaling.
-      const confirmed = await verifyPidIdentity(row.pid, row.startedAt)
+      const confirmed = await verifyPidIdentity(
+        row.pid,
+        row.startedAt,
+        this.logger,
+      )
       if (!confirmed) {
         // A recycled PID: finalize without signaling.
         finalize(this.db, row.id, 'crashed', null, new Date())
@@ -238,14 +242,20 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
       )
       try {
         process.kill(row.pid, 'SIGTERM')
-      } catch {
-        /* already exited */
+      } catch (err) {
+        this.logger.debug(
+          { err, pid: row.pid },
+          'Boot reconciliation: SIGTERM failed (process likely already exited)',
+        )
       }
       await sleep(100)
       try {
         process.kill(row.pid, 'SIGKILL')
-      } catch {
-        /* gone */
+      } catch (err) {
+        this.logger.debug(
+          { err, pid: row.pid },
+          'Boot reconciliation: SIGKILL failed (process likely already gone)',
+        )
       }
       finalize(this.db, row.id, 'crashed', null, new Date())
     }
@@ -258,7 +268,18 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
       ...this.ctxConfig,
       unexpectedExitHistory: this.unexpectedExitHistory,
     }
+    const fromPhase = this.fsmState.phase
     const result = applyEvent(this.fsmState, event, ctx)
+    this.logger.debug(
+      {
+        generationId: this.currentGenerationId,
+        from: fromPhase,
+        event: event.type,
+        to: result.state.phase,
+        attempt: result.state.attempt,
+      },
+      'Supervisor FSM transition',
+    )
     this.fsmState = result.state
     this.unexpectedExitHistory = result.unexpectedExitHistory
     this.executeEffects(result)
@@ -404,8 +425,11 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
         if (this.currentChild) {
           try {
             this.currentChild.kill('SIGTERM')
-          } catch {
-            /* already gone */
+          } catch (err) {
+            this.logger.debug(
+              { err, generationId: this.currentGenerationId },
+              'sendSigterm: kill failed (likely already gone)',
+            )
           }
         }
         break
@@ -415,8 +439,11 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
         if (this.currentChild) {
           try {
             this.currentChild.kill('SIGKILL')
-          } catch {
-            /* already gone */
+          } catch (err) {
+            this.logger.debug(
+              { err, generationId: this.currentGenerationId },
+              'sendSigkill: kill failed (likely already gone)',
+            )
           }
         }
         break
@@ -593,6 +620,7 @@ function isPidAlive(pid: number): boolean {
 async function verifyPidIdentity(
   pid: number,
   startedAt: Date,
+  logger?: PinoLogger,
 ): Promise<boolean> {
   try {
     // Compare the process start time from the OS against the generation's
@@ -612,8 +640,15 @@ async function verifyPidIdentity(
     if (isNaN(osStart.getTime())) return false
     // Allow 5 second slack for clock precision.
     return Math.abs(osStart.getTime() - startedAt.getTime()) < 5_000
-  } catch {
-    return true // ps failed — assume identity ok (conservative)
+  } catch (err) {
+    // ps failed — assume identity ok (conservative), but log it: this is the
+    // more dangerous branch (signals a possibly-wrong PID), so an unexpected
+    // ps failure (not just "no such process") should be visible, not silent.
+    logger?.warn(
+      { err, pid },
+      'verifyPidIdentity: ps check failed — defaulting to confirmed (conservative)',
+    )
+    return true
   }
 }
 

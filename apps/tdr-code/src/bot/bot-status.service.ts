@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 
 import { latestGeneration } from 'src/db/bot-generation.repo'
 import type { Db } from 'src/db/database.module'
@@ -10,7 +11,10 @@ import { staleThresholdMs } from './staleness'
 
 @Injectable()
 export class BotStatusService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly logger: PinoLogger,
+  ) {}
 
   getStatus(now: Date = new Date()): BotStatusDto {
     const row = latestGeneration(this.db)
@@ -41,7 +45,16 @@ export class BotStatusService {
 
     if (isRunningGeneration(row)) {
       const ageSinceHeartbeat = now.getTime() - row.lastHeartbeatAt.getTime()
-      if (ageSinceHeartbeat > staleThresholdMs()) {
+      const threshold = staleThresholdMs()
+      this.logger.debug(
+        {
+          ageSinceHeartbeat,
+          staleThresholdMs: threshold,
+          stale: ageSinceHeartbeat > threshold,
+        },
+        'Computed bot status from heartbeat age',
+      )
+      if (ageSinceHeartbeat > threshold) {
         return {
           status: 'offline',
           lastSeenAt: row.lastHeartbeatAt.toISOString(),
