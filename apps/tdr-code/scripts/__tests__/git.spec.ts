@@ -146,6 +146,48 @@ describe('scripts/git wrapper', () => {
       expect(code).toBe(0)
     })
 
+    describe('commit signing', () => {
+      it('exports GIT_CONFIG_* for SSH commit signing when signing_key is present', async () => {
+        const envFakeGit = path.join(runDir, 'env-fake-git')
+        fs.writeFileSync(envFakeGit, '#!/usr/bin/env bash\nenv\n', {
+          mode: 0o755,
+        })
+        const signingKeyPath = path.join(runDir, 'dummy.key')
+        fs.writeFileSync(path.join(idDir, 'signing_key'), signingKeyPath)
+
+        // `status` is never in the blocked set, so this is a deterministic
+        // passthrough regardless of whether `configured` exists.
+        const { stdout } = await runWrapper(['status'], {
+          TDR_CHANNEL_ID: CHANNEL_ID,
+          TDR_CODE_RUN_DIR: runDir,
+          TDR_REAL_GIT: envFakeGit,
+        })
+
+        expect(stdout).toContain('GIT_CONFIG_COUNT=3')
+        expect(stdout).toContain('GIT_CONFIG_KEY_0=gpg.format')
+        expect(stdout).toContain('GIT_CONFIG_VALUE_0=ssh')
+        expect(stdout).toContain('GIT_CONFIG_KEY_1=user.signingkey')
+        expect(stdout).toContain(`GIT_CONFIG_VALUE_1=${signingKeyPath}`)
+        expect(stdout).toContain('GIT_CONFIG_KEY_2=commit.gpgsign')
+        expect(stdout).toContain('GIT_CONFIG_VALUE_2=true')
+      })
+
+      it('does not export GIT_CONFIG_* when signing_key is absent', async () => {
+        const envFakeGit = path.join(runDir, 'env-fake-git')
+        fs.writeFileSync(envFakeGit, '#!/usr/bin/env bash\nenv\n', {
+          mode: 0o755,
+        })
+
+        const { stdout } = await runWrapper(['status'], {
+          TDR_CHANNEL_ID: CHANNEL_ID,
+          TDR_CODE_RUN_DIR: runDir,
+          TDR_REAL_GIT: envFakeGit,
+        })
+
+        expect(stdout).not.toContain('GIT_CONFIG_COUNT')
+      })
+    })
+
     describe('local-write block — `configured` file absent (fail-closed default)', () => {
       it.each(BLOCKED_VERBS)(
         'blocks "git %s" with a nonzero exit and an identity-configured message',

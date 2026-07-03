@@ -160,6 +160,14 @@ describe('GitTurnContext', () => {
       expect(configuredWrite).toBeDefined()
       expect(configuredWrite![1]).toBe('SHA256:test')
 
+      // signing_key written — points scripts/git's user.signingkey at the
+      // same tmpfs key file used for SSH transport
+      const signingKeyWrite = writeFileSpy.mock.calls.find(([p]) =>
+        (p as string).endsWith(path.join('ch1', 'signing_key')),
+      )
+      expect(signingKeyWrite).toBeDefined()
+      expect(signingKeyWrite![1]).toBe(keyPath)
+
       ctx.end('ch1')
 
       // Key removed after end()
@@ -253,6 +261,13 @@ describe('GitTurnContext', () => {
       )
       expect(configuredWrite).toBeUndefined()
 
+      // No signing_key either — there's no key to sign with, and this turn
+      // can't commit at all until identity is configured.
+      const signingKeyWrite = writeFileSpy.mock.calls.find(([p]) =>
+        (p as string).endsWith(path.join('ch1', 'signing_key')),
+      )
+      expect(signingKeyWrite).toBeUndefined()
+
       writeFileSpy.mockRestore()
     })
 
@@ -280,6 +295,11 @@ describe('GitTurnContext', () => {
         (p as string).endsWith(path.join('ch1', 'configured')),
       )
       expect(configuredWrite).toBeUndefined()
+
+      const signingKeyWrite = writeFileSpy.mock.calls.find(([p]) =>
+        (p as string).endsWith(path.join('ch1', 'signing_key')),
+      )
+      expect(signingKeyWrite).toBeUndefined()
 
       writeFileSpy.mockRestore()
     })

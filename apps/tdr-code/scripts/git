@@ -8,6 +8,8 @@
 #   name        — GIT_AUTHOR_NAME / GIT_COMMITTER_NAME
 #   email       — GIT_AUTHOR_EMAIL / GIT_COMMITTER_EMAIL
 #   ssh_command — GIT_SSH_COMMAND (configured key path or blocking wrapper)
+#   signing_key — path to the same tmpfs private key file, used to sign
+#                 commits (gpg.format=ssh); written only when configured.
 #   configured  — presence-only gate: written ONLY when the turn's identity
 #                 is confirmed configured. Its ABSENCE (not the presence of
 #                 some other "blocked" marker) is what triggers the
@@ -46,6 +48,23 @@ if [ -n "${TDR_CHANNEL_ID:-}" ] && [ -d "$IDENTITY_DIR" ]; then
   if [ -f "$IDENTITY_DIR/ssh_command" ]; then
     GIT_SSH_COMMAND=$(cat "$IDENTITY_DIR/ssh_command")
     export GIT_SSH_COMMAND
+  fi
+
+  # Commit signing (SSH format, Git >=2.34) — only for confirmed-configured
+  # turns. `signing_key` is written by GitTurnContext.begin() in the same
+  # isConfigured() branch as `configured` itself, so its presence tracks the
+  # same gate. Uses Git's native env-based config injection (GIT_CONFIG_COUNT
+  # / GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n, Git >=2.31) instead of touching
+  # .git/config, matching this wrapper's existing scalar-env-var-only style.
+  if [ -f "$IDENTITY_DIR/signing_key" ]; then
+    export GIT_CONFIG_COUNT=3
+    export GIT_CONFIG_KEY_0=gpg.format
+    export GIT_CONFIG_VALUE_0=ssh
+    export GIT_CONFIG_KEY_1=user.signingkey
+    GIT_CONFIG_VALUE_1=$(cat "$IDENTITY_DIR/signing_key")
+    export GIT_CONFIG_VALUE_1
+    export GIT_CONFIG_KEY_2=commit.gpgsign
+    export GIT_CONFIG_VALUE_2=true
   fi
 
   if [ ! -f "$IDENTITY_DIR/configured" ]; then
