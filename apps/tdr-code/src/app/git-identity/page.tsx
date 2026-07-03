@@ -108,6 +108,23 @@ export default function GitIdentityPage() {
     retry: false,
   })
 
+  // Discord guild members, for the "Discord user" dropdown below. Cached
+  // server-side for 5 minutes; the Refresh button bypasses that via
+  // force=true and writes the fresh result straight into this query's cache.
+  const membersQuery = useQuery({
+    queryKey: queryKeys.discordGuildMembers,
+    queryFn: () => api.listDiscordGuildMembers(),
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+
+  const refreshMembers = useMutation({
+    mutationFn: () => api.listDiscordGuildMembers({ force: true }),
+    onSuccess: members => {
+      queryClient.setQueryData(queryKeys.discordGuildMembers, members)
+    },
+  })
+
   // Form state
   const [discordUserId, setDiscordUserId] = useState('')
   const [name, setName] = useState('')
@@ -179,8 +196,8 @@ export default function GitIdentityPage() {
           Add or replace identity
         </h2>
         <p className="text-xs text-gray-500">
-          Admin-managed by Discord ID. Phase D will source the snowflake from
-          the session automatically.
+          Admin-managed. The dropdown lists members of the connected Discord
+          server.
         </p>
 
         <form
@@ -188,16 +205,60 @@ export default function GitIdentityPage() {
           className="grid grid-cols-1 gap-4 sm:grid-cols-2"
         >
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-300">
-              Discord user ID (snowflake)
-            </label>
-            <input
-              type="text"
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-medium text-gray-300">
+                Discord user
+              </label>
+              <button
+                type="button"
+                onClick={() => refreshMembers.mutate()}
+                disabled={refreshMembers.isPending}
+                className="text-xs text-gray-400 hover:text-gray-200 disabled:opacity-50"
+              >
+                {refreshMembers.isPending ? 'Refreshing…' : 'Refresh'}
+              </button>
+            </div>
+            <select
+              required
               value={discordUserId}
               onChange={e => setDiscordUserId(e.target.value)}
-              placeholder="123456789012345678"
-              className="w-full rounded border border-gray-700 bg-gray-900 px-3 py-2 font-mono text-sm text-gray-100 focus:border-gray-500 focus:outline-none"
-            />
+              disabled={membersQuery.isLoading}
+              className={cns(
+                'w-full rounded border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-gray-500 focus:outline-none',
+                membersQuery.isLoading && 'opacity-50',
+              )}
+            >
+              <option value="" disabled>
+                {membersQuery.isLoading
+                  ? 'Loading members…'
+                  : 'Select a member…'}
+              </option>
+              {discordUserId &&
+                !membersQuery.data?.some(
+                  member => member.id === discordUserId,
+                ) && (
+                  <option value={discordUserId}>
+                    Unknown member ({discordUserId})
+                  </option>
+                )}
+              {membersQuery.data?.map(member => (
+                <option key={member.id} value={member.id}>
+                  {member.displayName} ({member.id})
+                </option>
+              ))}
+            </select>
+            {membersQuery.isError && (
+              <p className="text-xs text-red-400">
+                Couldn&apos;t load Discord members.{' '}
+                <button
+                  type="button"
+                  onClick={() => membersQuery.refetch()}
+                  className="underline hover:text-red-300"
+                >
+                  Retry
+                </button>
+              </p>
+            )}
           </div>
 
           <div className="space-y-1">

@@ -6,6 +6,7 @@ import { SupervisorModule } from 'src/supervisor/supervisor.module'
 import { AuthAdminController } from './auth-admin.controller'
 import { ConfigController } from './config.controller'
 import { ConfigService } from './config.service'
+import { DiscordDirectoryService } from './discord-directory.service'
 import { EventsController } from './events.controller'
 import { EventsService } from './events.service'
 import { GitIdentityController } from './git-identity.controller'
@@ -48,6 +49,7 @@ import { SessionsService } from './sessions.service'
     BotStatusService,
     ConfigService,
     GitIdentityService,
+    DiscordDirectoryService,
   ],
 })
 export class ConsoleModule {}

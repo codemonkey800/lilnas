@@ -23,6 +23,7 @@ import { AuthAdminController } from 'src/console/auth-admin.controller'
 import { ConfigController } from 'src/console/config.controller'
 import type { ConfigResponseDto } from 'src/console/config.dto'
 import { ConfigService } from 'src/console/config.service'
+import { DiscordDirectoryService } from 'src/console/discord-directory.service'
 import { EventsController } from 'src/console/events.controller'
 import type { EventListResponseDto } from 'src/console/events.dto'
 import { EventsService } from 'src/console/events.service'
@@ -197,6 +198,9 @@ function buildTestAppModule(db: TestDb['db']) {
     upsertIdentity: jest.fn().mockReturnValue(MOCK_GIT_IDENTITY_RESPONSE),
     deleteIdentity: jest.fn(),
   }
+  const mockDiscordDirectoryService = {
+    listGuildMembers: jest.fn().mockResolvedValue([]),
+  }
   const mockBotStatusService = {
     getStatus: jest.fn().mockReturnValue(MOCK_BOT_STATUS),
   }
@@ -232,6 +236,10 @@ function buildTestAppModule(db: TestDb['db']) {
       { provide: ReconcileService, useValue: mockReconcileService },
       { provide: ConfigService, useValue: mockConfigService },
       { provide: GitIdentityService, useValue: mockGitIdentityService },
+      {
+        provide: DiscordDirectoryService,
+        useValue: mockDiscordDirectoryService,
+      },
       { provide: BotStatusService, useValue: mockBotStatusService },
       { provide: SupervisorService, useValue: mockSupervisorService },
       { provide: PinoLogger, useValue: fakePinoLogger },
@@ -499,6 +507,7 @@ describe('U5 — end-to-end auth verification harness (pre-cutover gate)', () =>
       'GET /events',
       'GET /config',
       'GET /git-identity',
+      'GET /git-identity/discord-members',
       'GET /bot/status',
     ]
 
@@ -987,8 +996,8 @@ describe('U5 — end-to-end auth verification harness (pre-cutover gate)', () =>
   // ---------------------------------------------------------------------------
 
   describe('bookkeeping — this suite swept exactly as many routes as PROTECTED_ROUTES declares', () => {
-    it('PROTECTED_ROUTES has exactly 15 entries (the canonical U4 enumeration this suite imports, not a second hand-typed list)', () => {
-      expect(PROTECTED_ROUTES).toHaveLength(15)
+    it('PROTECTED_ROUTES has exactly 16 entries (the canonical U4 enumeration this suite imports, not a second hand-typed list)', () => {
+      expect(PROTECTED_ROUTES).toHaveLength(16)
     })
 
     it('PUBLIC_ROUTES has exactly one entry: GET /health', () => {

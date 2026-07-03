@@ -2,8 +2,10 @@ import crypto from 'node:crypto'
 
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
 
+import { DiscordDirectoryService } from 'src/console/discord-directory.service'
 import { GitIdentityController } from 'src/console/git-identity.controller'
 import type {
+  DiscordGuildMemberListResponseDto,
   GitIdentityListResponseDto,
   UpsertGitIdentityResponseDto,
 } from 'src/console/git-identity.dto'
@@ -51,11 +53,21 @@ function makeService(): jest.Mocked<GitIdentityService> {
   } as unknown as jest.Mocked<GitIdentityService>
 }
 
+const MOCK_MEMBERS_RESPONSE: DiscordGuildMemberListResponseDto = [
+  { id: VALID_SNOWFLAKE, username: 'testuser', displayName: 'Test User' },
+]
+
+function makeDiscordDirectory(): jest.Mocked<DiscordDirectoryService> {
+  return {
+    listGuildMembers: jest.fn().mockResolvedValue(MOCK_MEMBERS_RESPONSE),
+  } as unknown as jest.Mocked<DiscordDirectoryService>
+}
+
 describe('GitIdentityController', () => {
   describe('GET /git-identity', () => {
     it('returns list without private keys', () => {
       const svc = makeService()
-      const ctrl = new GitIdentityController(svc)
+      const ctrl = new GitIdentityController(svc, makeDiscordDirectory())
       const result = ctrl.listIdentities()
       expect(result).toEqual(MOCK_LIST_RESPONSE)
       // Ensure no private key field in the response
@@ -66,10 +78,43 @@ describe('GitIdentityController', () => {
     })
   })
 
+  describe('GET /git-identity/discord-members', () => {
+    it('returns the directory service list', async () => {
+      const svc = makeService()
+      const discordDirectory = makeDiscordDirectory()
+      const ctrl = new GitIdentityController(svc, discordDirectory)
+
+      const result = await ctrl.listDiscordMembers()
+
+      expect(result).toEqual(MOCK_MEMBERS_RESPONSE)
+      expect(discordDirectory.listGuildMembers).toHaveBeenCalledWith(false)
+    })
+
+    it('force=true query param forwards force=true to the service', async () => {
+      const svc = makeService()
+      const discordDirectory = makeDiscordDirectory()
+      const ctrl = new GitIdentityController(svc, discordDirectory)
+
+      await ctrl.listDiscordMembers('true')
+
+      expect(discordDirectory.listGuildMembers).toHaveBeenCalledWith(true)
+    })
+
+    it('any other (or missing) force value forwards false to the service', async () => {
+      const svc = makeService()
+      const discordDirectory = makeDiscordDirectory()
+      const ctrl = new GitIdentityController(svc, discordDirectory)
+
+      await ctrl.listDiscordMembers('yes')
+
+      expect(discordDirectory.listGuildMembers).toHaveBeenCalledWith(false)
+    })
+  })
+
   describe('POST /git-identity (upsert)', () => {
     it('valid body returns fingerprint and status — no private key in response', () => {
       const svc = makeService()
-      const ctrl = new GitIdentityController(svc)
+      const ctrl = new GitIdentityController(svc, makeDiscordDirectory())
       const result = ctrl.upsertIdentity(ALLOWED, {
         discordUserId: VALID_SNOWFLAKE,
         name: 'Test User',
@@ -83,7 +128,7 @@ describe('GitIdentityController', () => {
 
     it('cross-origin → ForbiddenException', () => {
       const svc = makeService()
-      const ctrl = new GitIdentityController(svc)
+      const ctrl = new GitIdentityController(svc, makeDiscordDirectory())
       expect(() =>
         ctrl.upsertIdentity('https://evil.example.com', {
           discordUserId: VALID_SNOWFLAKE,
@@ -97,7 +142,7 @@ describe('GitIdentityController', () => {
 
     it('invalid snowflake → BadRequestException', () => {
       const svc = makeService()
-      const ctrl = new GitIdentityController(svc)
+      const ctrl = new GitIdentityController(svc, makeDiscordDirectory())
       expect(() =>
         ctrl.upsertIdentity(ALLOWED, {
           discordUserId: 'not-a-snowflake',
@@ -111,7 +156,7 @@ describe('GitIdentityController', () => {
 
     it('invalid email → BadRequestException', () => {
       const svc = makeService()
-      const ctrl = new GitIdentityController(svc)
+      const ctrl = new GitIdentityController(svc, makeDiscordDirectory())
       expect(() =>
         ctrl.upsertIdentity(ALLOWED, {
           discordUserId: VALID_SNOWFLAKE,
@@ -124,7 +169,7 @@ describe('GitIdentityController', () => {
 
     it('empty privateKey → BadRequestException', () => {
       const svc = makeService()
-      const ctrl = new GitIdentityController(svc)
+      const ctrl = new GitIdentityController(svc, makeDiscordDirectory())
       expect(() =>
         ctrl.upsertIdentity(ALLOWED, {
           discordUserId: VALID_SNOWFLAKE,
@@ -139,14 +184,14 @@ describe('GitIdentityController', () => {
   describe('DELETE /git-identity/:discordUserId (clear)', () => {
     it('valid snowflake calls deleteIdentity', () => {
       const svc = makeService()
-      const ctrl = new GitIdentityController(svc)
+      const ctrl = new GitIdentityController(svc, makeDiscordDirectory())
       ctrl.deleteIdentity(ALLOWED, VALID_SNOWFLAKE)
       expect(svc.deleteIdentity).toHaveBeenCalledWith(VALID_SNOWFLAKE)
     })
 
     it('cross-origin → ForbiddenException', () => {
       const svc = makeService()
-      const ctrl = new GitIdentityController(svc)
+      const ctrl = new GitIdentityController(svc, makeDiscordDirectory())
       expect(() =>
         ctrl.deleteIdentity('https://evil.com', VALID_SNOWFLAKE),
       ).toThrow(ForbiddenException)
@@ -155,7 +200,7 @@ describe('GitIdentityController', () => {
 
     it('invalid snowflake param → BadRequestException', () => {
       const svc = makeService()
-      const ctrl = new GitIdentityController(svc)
+      const ctrl = new GitIdentityController(svc, makeDiscordDirectory())
       expect(() => ctrl.deleteIdentity(ALLOWED, 'bad')).toThrow(
         BadRequestException,
       )

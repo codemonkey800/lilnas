@@ -9,8 +9,10 @@ import {
   HttpCode,
   Param,
   Post,
+  Query,
 } from '@nestjs/common'
 
+import { DiscordDirectoryService } from './discord-directory.service'
 import {
   DiscordSnowflakeSchema,
   UpsertGitIdentityBodySchema,
@@ -33,11 +35,22 @@ function requireSameOrigin(origin: string | undefined): void {
 // No per-identity authorization in Phase C (Decision #11).
 @Controller('git-identity')
 export class GitIdentityController {
-  constructor(private readonly service: GitIdentityService) {}
+  constructor(
+    private readonly service: GitIdentityService,
+    private readonly discordDirectory: DiscordDirectoryService,
+  ) {}
 
   @Get()
   listIdentities() {
     return this.service.listIdentities()
+  }
+
+  // Backs the "pick a user" dropdown on the git-identity form. Read-only, so
+  // (like GET /git-identity) it carries no requireSameOrigin() check —
+  // consistent with every other GET in this controller.
+  @Get('discord-members')
+  listDiscordMembers(@Query('force') force?: string) {
+    return this.discordDirectory.listGuildMembers(force === 'true')
   }
 
   @Post()

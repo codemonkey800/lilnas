@@ -4,6 +4,7 @@ import type {
 } from 'src/console/config.dto'
 import type { EventListResponseDto } from 'src/console/events.dto'
 import type {
+  DiscordGuildMemberListResponseDto,
   GitIdentityListResponseDto,
   UpsertGitIdentityBodyDto,
   UpsertGitIdentityResponseDto,
@@ -114,6 +115,7 @@ export const queryKeys = {
   reconcile: (sessionId: number) => ['reconcile', sessionId] as const,
   config: ['config'] as const,
   gitIdentity: ['git-identity'] as const,
+  discordGuildMembers: ['discord-guild-members'] as const,
 }
 
 // Typed API functions.
@@ -164,5 +166,9 @@ export const api = {
   deleteGitIdentity: (discordUserId: string) =>
     deleteJson<{ accepted: true }>(
       `/git-identity/${encodeURIComponent(discordUserId)}`,
+    ),
+  listDiscordGuildMembers: (opts?: { force?: boolean }) =>
+    fetchJson<DiscordGuildMemberListResponseDto>(
+      `/git-identity/discord-members${opts?.force ? '?force=true' : ''}`,
     ),
 }

@@ -30,6 +30,7 @@ import { AuthAdminController } from 'src/console/auth-admin.controller'
 import { ConfigController } from 'src/console/config.controller'
 import type { ConfigResponseDto } from 'src/console/config.dto'
 import { ConfigService } from 'src/console/config.service'
+import { DiscordDirectoryService } from 'src/console/discord-directory.service'
 import { EventsController } from 'src/console/events.controller'
 import type { EventListResponseDto } from 'src/console/events.dto'
 import { EventsService } from 'src/console/events.service'
@@ -362,6 +363,9 @@ function buildTestControllerModule(db: TestDb['db']) {
     upsertIdentity: jest.fn().mockReturnValue(MOCK_GIT_IDENTITY_RESPONSE),
     deleteIdentity: jest.fn(),
   }
+  const mockDiscordDirectoryService = {
+    listGuildMembers: jest.fn().mockResolvedValue([]),
+  }
   const mockBotStatusService = {
     getStatus: jest.fn().mockReturnValue(MOCK_BOT_STATUS),
   }
@@ -396,6 +400,10 @@ function buildTestControllerModule(db: TestDb['db']) {
       { provide: ReconcileService, useValue: mockReconcileService },
       { provide: ConfigService, useValue: mockConfigService },
       { provide: GitIdentityService, useValue: mockGitIdentityService },
+      {
+        provide: DiscordDirectoryService,
+        useValue: mockDiscordDirectoryService,
+      },
       { provide: BotStatusService, useValue: mockBotStatusService },
       { provide: SupervisorService, useValue: mockSupervisorService },
       { provide: PinoLogger, useValue: fakePinoLogger },
@@ -413,6 +421,7 @@ function buildTestControllerModule(db: TestDb['db']) {
       mockReconcileService,
       mockConfigService,
       mockGitIdentityService,
+      mockDiscordDirectoryService,
       mockBotStatusService,
       mockSupervisorService,
       fakePinoLogger,
@@ -1011,8 +1020,8 @@ describe('protected-routes.ts — canonical enumeration bookkeeping', () => {
   // summary sentence, not a route this file is missing or has extra. So:
   // 14 (verified pre-existing) + 1 (this unit's own revoke-sessions
   // deliverable) = 15 protected routes; + GET /health public = 16 total.
-  it("enumerates exactly 15 protected routes (14 pre-existing + this unit's revoke-sessions route)", () => {
-    expect(PROTECTED_ROUTES).toHaveLength(15)
+  it('enumerates exactly 16 protected routes (15 pre-existing + GET /git-identity/discord-members)', () => {
+    expect(PROTECTED_ROUTES).toHaveLength(16)
   })
 
   it('enumerates exactly one public route: GET /health', () => {

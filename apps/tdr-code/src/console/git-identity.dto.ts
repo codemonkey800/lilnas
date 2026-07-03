@@ -38,3 +38,20 @@ export const UpsertGitIdentityResponseSchema = z.object({
 export type UpsertGitIdentityResponseDto = z.infer<
   typeof UpsertGitIdentityResponseSchema
 >
+
+// A Discord guild member, as surfaced to the "pick a user" dropdown on the
+// git-identity form. displayName is the best available human-readable
+// name (server nickname > global display name > username) — Discord never
+// exposes another member's email to a bot, so name/email on the form stay
+// manual text entry regardless.
+export const DiscordGuildMemberSchema = z.object({
+  id: DiscordSnowflakeSchema,
+  username: z.string(),
+  displayName: z.string(),
+})
+export type DiscordGuildMemberDto = z.infer<typeof DiscordGuildMemberSchema>
+
+export const DiscordGuildMemberListResponseSchema = z.array(
+  DiscordGuildMemberSchema,
+)
+export type DiscordGuildMemberListResponseDto = DiscordGuildMemberDto[]

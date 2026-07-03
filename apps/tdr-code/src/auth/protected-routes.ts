@@ -81,6 +81,11 @@ export const PROTECTED_ROUTES: ProtectedRouteSpec[] = [
   { method: 'GET', path: '/config', label: 'GET /config' },
   { method: 'PUT', path: '/config', label: 'PUT /config' },
   { method: 'GET', path: '/git-identity', label: 'GET /git-identity' },
+  {
+    method: 'GET',
+    path: '/git-identity/discord-members',
+    label: 'GET /git-identity/discord-members',
+  },
   { method: 'POST', path: '/git-identity', label: 'POST /git-identity' },
   {
     method: 'DELETE',
