@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 
 import {
   config as middlewareConfig,
+  getSessionCookieName,
   middleware,
   SESSION_COOKIE_NAME,
 } from 'src/middleware'
@@ -80,6 +81,34 @@ describe('middleware (cookie-presence page gate)', () => {
         expect(matchesConfiguredMatcher(path)).toBe(true)
       },
     )
+  })
+})
+
+// Regression coverage for the dev-mode redirect-loop bug: this file
+// previously hardcoded SESSION_COOKIE_NAME to the "__Secure-"-prefixed form,
+// which only matches what better-auth actually sets when BETTER_AUTH_URL is
+// https:// (production). Every test above exercises the module-load-time
+// SESSION_COOKIE_NAME constant, which resolves once per process — it can't
+// observe a different BETTER_AUTH_URL without a module reset. Testing the
+// pure getSessionCookieName() function directly, with explicit inputs,
+// covers the branch those tests structurally cannot: local dev
+// (BETTER_AUTH_URL=http://localhost:...), where better-auth drops the
+// prefix entirely.
+describe("getSessionCookieName (mirrors better-auth's own secureCookiePrefix branch)", () => {
+  it('drops the "__Secure-" prefix for an http:// BETTER_AUTH_URL (local dev)', () => {
+    expect(getSessionCookieName('http://localhost:8082')).toBe(
+      'better-auth.session_token',
+    )
+  })
+
+  it('adds the "__Secure-" prefix for an https:// BETTER_AUTH_URL (production)', () => {
+    expect(getSessionCookieName('https://tdr-code.lilnas.io')).toBe(
+      '__Secure-better-auth.session_token',
+    )
+  })
+
+  it('treats an empty/unset BETTER_AUTH_URL as non-secure rather than throwing', () => {
+    expect(getSessionCookieName('')).toBe('better-auth.session_token')
   })
 })
 

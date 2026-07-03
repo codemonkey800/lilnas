@@ -1,6 +1,8 @@
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
+import { EnvKeys } from 'src/env'
+
 // Cheap COOKIE-PRESENCE page gate (R19: pages deny-by-default). This is
 // deliberately NOT a session validation — Next's edge runtime cannot run
 // better-sqlite3 (the driver Better Auth's session lookup needs), so the
@@ -21,21 +23,37 @@ import { NextResponse } from 'next/server'
 //      \`${prefix}.${cookieName}\`` — never overridden here, and the
 //      session-token cookie's `cookieName` is literally "session_token", so
 //      name = "better-auth.session_token".
-//   - `secureCookiePrefix` resolves to "__Secure-" because
-//     `options.advanced?.useSecureCookies` is unset in auth.ts, so it falls
-//     through to `baseURLString.startsWith("https://")` — auth.ts's
-//     `baseURL` is `${BETTER_AUTH_URL}/api/auth`, and BETTER_AUTH_URL is
-//     documented (.env.example) as `https://tdr-code.lilnas.io` in the
-//     configured deployment, so this is true.
-//   - Final cookie name: "__Secure-" + "better-auth.session_token" =
-//     "__Secure-better-auth.session_token".
+//   - The "__Secure-" prefix is NOT a fixed constant — better-auth derives
+//     it PER-DEPLOYMENT from `baseURL`'s own scheme
+//     (dist/cookies/index.mjs:21: `baseURLString.startsWith("https://")`),
+//     where `baseURL` is built from the SAME `BETTER_AUTH_URL` env var
+//     auth.ts reads (`baseURL: \`${betterAuthUrl}${PUBLIC_AUTH_PATH_SEGMENT}\``).
+//     Confirmed empirically by calling the installed package's own exported
+//     `getCookies()` with this app's real dev vs. prod values:
+//       BETTER_AUTH_URL=http://localhost:8082      -> "better-auth.session_token"
+//       BETTER_AUTH_URL=https://tdr-code.lilnas.io -> "__Secure-better-auth.session_token"
+//     A prior version of this file hardcoded the "__Secure-" form
+//     unconditionally. That matches production, but silently broke local
+//     dev (BETTER_AUTH_URL=http://localhost:...): Better Auth genuinely set
+//     the unprefixed cookie, this gate looked for the prefixed name, never
+//     found it, and redirected to /login on every request — including the
+//     request immediately after a successful Discord login. Re-deriving
+//     the prefix from the same env var Better Auth itself keys off means
+//     the two can never drift apart again.
+export function getSessionCookieName(betterAuthUrl: string): string {
+  const prefix = betterAuthUrl.startsWith('https://') ? '__Secure-' : ''
+  return `${prefix}better-auth.session_token`
+}
+
 // Matching this EXACT literal (not a substring/prefix check against "any
 // better-auth-ish cookie") is load-bearing: a half-completed OAuth
 // round-trip leaves transient cookies (e.g. Better Auth's own internal
 // state-tracking artifacts) with no session cookie, and that request must
 // still redirect to /login — a substring match risks treating any
 // better-auth-prefixed cookie as "signed in".
-export const SESSION_COOKIE_NAME = '__Secure-better-auth.session_token'
+export const SESSION_COOKIE_NAME = getSessionCookieName(
+  process.env[EnvKeys.BETTER_AUTH_URL] ?? '',
+)
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
