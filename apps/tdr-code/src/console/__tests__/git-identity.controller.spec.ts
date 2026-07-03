@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 
 import { DiscordDirectoryService } from 'src/console/discord-directory.service'
 import { GitIdentityController } from 'src/console/git-identity.controller'
@@ -51,6 +52,15 @@ function makeService(): jest.Mocked<GitIdentityService> {
     upsertIdentity: jest.fn().mockReturnValue(MOCK_UPSERT_RESPONSE),
     deleteIdentity: jest.fn(),
   } as unknown as jest.Mocked<GitIdentityService>
+}
+
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
 }
 
 const MOCK_MEMBERS_RESPONSE: DiscordGuildMemberListResponseDto = [
@@ -274,7 +284,7 @@ describe('GitIdentityService', () => {
       updatedAt: new Date(),
     })
 
-    const svc = new SvcClass(db as unknown as Db)
+    const svc = new SvcClass(db as unknown as Db, makeLogger())
     const result = svc.upsertIdentity({
       discordUserId: VALID_SNOWFLAKE,
       name: 'Test',
@@ -289,7 +299,7 @@ describe('GitIdentityService', () => {
 
   it('upsertIdentity with passphrase-protected key → BadRequestException, nothing stored', () => {
     const db = makeDbMock()
-    const svc = new SvcClass(db as unknown as Db)
+    const svc = new SvcClass(db as unknown as Db, makeLogger())
 
     const ENCRYPTED_KEY = `-----BEGIN OPENSSH PRIVATE KEY-----
 b3BlbnNzaC1rZXktdjEAAAAGYmNyeXB0AAAAGAAAABBjxcz3h3LxPJ+7v3JWvVz4AAAAE
@@ -310,7 +320,7 @@ Rb9dUOLCAAAAoH2+z8Q1oXFqaIf3rGcJkzHMvQ==
 
   it('upsertIdentity with garbage key → BadRequestException, nothing stored', () => {
     const db = makeDbMock()
-    const svc = new SvcClass(db as unknown as Db)
+    const svc = new SvcClass(db as unknown as Db, makeLogger())
 
     expect(() =>
       svc.upsertIdentity({
@@ -345,7 +355,7 @@ Rb9dUOLCAAAAoH2+z8Q1oXFqaIf3rGcJkzHMvQ==
       },
     ])
 
-    const svc = new SvcClass(db as unknown as Db)
+    const svc = new SvcClass(db as unknown as Db, makeLogger())
     const result = svc.listIdentities()
 
     expect(result).toHaveLength(1)

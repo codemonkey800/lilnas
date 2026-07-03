@@ -110,8 +110,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { env } from '@lilnas/utils/env'
+import { Logger } from '@nestjs/common'
 
 import { EnvKeys } from 'src/env'
+
+// Non-DI (plain exported functions, no class) — see acp-client.ts's header
+// comment for why this Logger's calls are one interpolated string rather
+// than PinoLogger's object-first API.
+const logger = new Logger('GuildGate')
 
 // The three Discord guild-member-lookup outcomes `isGuildMember` must
 // distinguish. `ok: true` carries the raw fetch Response's status only
@@ -146,7 +152,7 @@ export function isGuildMember(result: MemberLookupResult): boolean {
 // discriminated union so `isGuildMember` never has to special-case "the
 // fetch itself blew up" differently from "Discord said no." A caller that
 // forgets to catch is not a way for this to accidentally fail open.
-export async function lookupGuildMembership(
+async function doLookupGuildMembership(
   accessToken: string,
 ): Promise<MemberLookupResult> {
   const guildId = env(EnvKeys.DISCORD_GUILD_ID)
@@ -202,6 +208,23 @@ export async function lookupGuildMembership(
   }
 
   return { ok: true, status: 200 }
+}
+
+// Thin outer wrapper around doLookupGuildMembership — adds duration/outcome
+// logging at the one exit point every internal early-return funnels through,
+// rather than instrumenting each of doLookupGuildMembership's five early
+// returns individually. This is the single external HTTP call the entire
+// sign-in flow depends on, and previously had no outcome/duration logging
+// at all — never logs accessToken, only the resulting ok/status.
+export async function lookupGuildMembership(
+  accessToken: string,
+): Promise<MemberLookupResult> {
+  const startedAt = Date.now()
+  const result = await doLookupGuildMembership(accessToken)
+  logger.log(
+    `Guild membership lookup complete durationMs=${Date.now() - startedAt} ok=${result.ok} status=${result.status}`,
+  )
+  return result
 }
 
 // Convenience wrapper combining the HTTP call + the pure predicate — this is

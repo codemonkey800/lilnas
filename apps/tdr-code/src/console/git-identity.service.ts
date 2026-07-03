@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 
 import { isConfigured, resolveIdentity } from 'src/crypto/identity-resolution'
 import { encryptKey } from 'src/crypto/key-cipher'
@@ -21,7 +22,10 @@ import type {
 
 @Injectable()
 export class GitIdentityService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly logger: PinoLogger,
+  ) {}
 
   // List all configured identities with their status. Never returns key material.
   // NOTE: a full resolveIdentity decrypts each private key transiently in the
@@ -68,6 +72,10 @@ export class GitIdentityService {
         (err as Error).message ?? 'Invalid SSH private key',
       )
     }
+    this.logger.info(
+      { discordUserId: body.discordUserId, fingerprint },
+      'Git identity upsert: key validated',
+    )
 
     const encrypted = encryptKey(plaintext, body.discordUserId, masterKey)
 
@@ -80,6 +88,10 @@ export class GitIdentityService {
       keyAuthTag: encrypted.authTag,
       keyFingerprint: fingerprint,
     })
+    this.logger.info(
+      { discordUserId: body.discordUserId, fingerprint },
+      'Git identity upserted',
+    )
 
     return {
       discordUserId: body.discordUserId,
@@ -90,5 +102,6 @@ export class GitIdentityService {
 
   deleteIdentity(discordUserId: string): void {
     deleteIdentity(this.db, discordUserId)
+    this.logger.warn({ discordUserId }, 'Git identity deleted')
   }
 }
