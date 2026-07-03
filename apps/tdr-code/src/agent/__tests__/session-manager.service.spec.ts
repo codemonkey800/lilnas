@@ -4,6 +4,7 @@ import { Readable, Writable } from 'node:stream'
 
 import { ClientSideConnection } from '@agentclientprotocol/sdk'
 import { Test } from '@nestjs/testing'
+import { PinoLogger } from 'nestjs-pino'
 
 import { createAcpClient } from 'src/agent/acp-client'
 import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
@@ -184,7 +185,20 @@ function injectSessionWithRowId(
 }
 
 type CtorWith2 = {
-  new (h: AcpEventHandlers, db: unknown): SessionManagerService
+  new (
+    h: AcpEventHandlers,
+    db: unknown,
+    logger: PinoLogger,
+  ): SessionManagerService
+}
+
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
 }
 
 // Builds a controllable mock child process (real EventEmitter, so proc.on
@@ -317,6 +331,7 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
 
     injectPromptingSession(service, 'ch1')
@@ -333,6 +348,7 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
 
     const session = injectPromptingSession(service, 'ch1')
@@ -351,6 +367,7 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
         SessionManagerService,
         { provide: ACP_EVENT_HANDLERS, useValue: handlers },
         { provide: DB, useValue: makeDbMock() },
+        { provide: PinoLogger, useValue: makeLogger() },
       ],
     }).compile()
     const service = module.get(SessionManagerService)
@@ -393,6 +410,7 @@ describe('SessionManagerService — session-lifecycle DB writes (U2, U5)', () =>
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     injectSessionWithRowId(service, 'ch1', 42)
 
@@ -413,6 +431,7 @@ describe('SessionManagerService — session-lifecycle DB writes (U2, U5)', () =>
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     injectSessionWithRowId(service, 'ch1', 42)
 
@@ -426,6 +445,7 @@ describe('SessionManagerService — session-lifecycle DB writes (U2, U5)', () =>
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     // sessionRowId null → U2 block skipped, U5 (removeLiveStatus) still runs
     injectPromptingSession(service, 'ch1')
@@ -465,6 +485,7 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const internals = service as unknown as ServiceInternals
 
@@ -484,6 +505,7 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const internals = service as unknown as ServiceInternals
 
@@ -498,6 +520,7 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const internals = service as unknown as ServiceInternals
 
@@ -519,6 +542,7 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const internals = service as unknown as ServiceInternals
 
@@ -599,6 +623,7 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const session = injectIdleSession(service, 'ch-b')
 
@@ -654,6 +679,7 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const session = injectIdleSession(service, 'ch-b')
 
@@ -701,6 +727,7 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const session = injectIdleSession(service, 'ch-solo')
 
@@ -730,6 +757,7 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     injectIdleSession(service, 'ch-parked')
     // Simulate "parked": prompting=true, as executePrompt's prologue would
@@ -761,10 +789,12 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     const serviceA = new (SessionManagerService as unknown as CtorWith2)(
       handlersA,
       dbA,
+      makeLogger(),
     )
     const serviceB = new (SessionManagerService as unknown as CtorWith2)(
       handlersB,
       dbB,
+      makeLogger(),
     )
 
     const sessionA = injectIdleSession(serviceA, 'ch-a')
@@ -881,6 +911,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const { resolveInitialize } = mockSpawnAndConnection()
 
@@ -923,6 +954,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const { resolveInitialize } = mockSpawnAndConnection()
 
@@ -954,6 +986,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const failing = mockSpawnAndConnection()
 
@@ -988,6 +1021,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     // Live session already registered — no spawn/connection mock configured
     // at all, so any attempt to go through createSession would throw/hang.
@@ -1009,6 +1043,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
       const service = new (SessionManagerService as unknown as CtorWith2)(
         handlers,
         db,
+        makeLogger(),
       )
 
       expect(() => service.cancelPending('ch-nothing-pending')).not.toThrow()
@@ -1021,6 +1056,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
       const service = new (SessionManagerService as unknown as CtorWith2)(
         handlers,
         db,
+        makeLogger(),
       )
       const { resolveInitialize } = mockSpawnAndConnection()
 
@@ -1077,6 +1113,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const priorRow = makeSessionRow({
       id: 42,
@@ -1124,6 +1161,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const priorRow = makeSessionRow({
       channelId: 'ch-suppress',
@@ -1172,6 +1210,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const clearedRow = makeSessionRow({
       channelId: 'ch-cleared',
@@ -1200,6 +1239,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     // Reactivation-eligible-looking row present in "the DB" — must be
     // ignored because the live sessions map fast path wins first.
@@ -1225,6 +1265,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     getLatestSessionForChannelSpy.mockReturnValue(undefined)
 
@@ -1247,6 +1288,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const priorRow = makeSessionRow({
       channelId: 'ch-nocap',
@@ -1298,6 +1340,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const priorRow = makeSessionRow({
       channelId: 'ch-loadfail',
@@ -1358,6 +1401,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const priorRow = makeSessionRow({
       channelId: 'ch-insertfault',
@@ -1417,6 +1461,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       const service = new (SessionManagerService as unknown as CtorWith2)(
         handlers,
         db,
+        makeLogger(),
       )
       const priorRow = makeSessionRow({
         channelId: 'ch-loadtimeout',
@@ -1472,6 +1517,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const priorRow = makeSessionRow({
       id: 99,
@@ -1518,6 +1564,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const priorRow = makeSessionRow({
       id: 55,
@@ -1581,6 +1628,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const staleRow = makeSessionRow({
       id: 1,
@@ -1658,6 +1706,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const priorRow = makeSessionRow({
       id: 42,
@@ -1691,6 +1740,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
 
     // Mint a turn id on an unrelated LIVE session first.

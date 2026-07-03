@@ -1,5 +1,6 @@
 import { ModuleRef } from '@nestjs/core'
 import { Client } from 'discord.js'
+import { PinoLogger } from 'nestjs-pino'
 
 import {
   createMockMessage,
@@ -17,6 +18,15 @@ jest.mock('src/discord/image-attachments', () => ({
   MAX_IMAGE_BYTES: 10 * 1024 * 1024,
   MAX_IMAGES_PER_MESSAGE: 4,
 }))
+
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
+}
 
 const mockExtractImages = extractImages as jest.Mock
 
@@ -56,6 +66,7 @@ async function createService(clientOverrides = {}) {
     DiscordHandlerService,
     { provide: Client, useValue: mockClient },
     { provide: ModuleRef, useValue: mockModuleRef },
+    { provide: PinoLogger, useValue: makeLogger() },
   ])
 
   return module.get(DiscordHandlerService)
@@ -346,6 +357,7 @@ async function createServiceWithSessionMgr(
     { provide: Client, useValue: mockClient },
     { provide: ModuleRef, useValue: mockModuleRef },
     { provide: SessionManagerService, useValue: mockSessionManager },
+    { provide: PinoLogger, useValue: makeLogger() },
   ])
 
   return {
@@ -640,6 +652,7 @@ describe('DiscordHandlerService — onMessage / inbound images (U4)', () => {
       DiscordHandlerService,
       { provide: Client, useValue: mockClient },
       { provide: ModuleRef, useValue: mockModuleRef },
+      { provide: PinoLogger, useValue: makeLogger() },
     ])
     const service = module.get(DiscordHandlerService)
 
@@ -997,6 +1010,7 @@ describe('DiscordHandlerService — thread-aware routing (U2)', () => {
       DiscordHandlerService,
       { provide: Client, useValue: mockClient },
       { provide: ModuleRef, useValue: mockModuleRef },
+      { provide: PinoLogger, useValue: makeLogger() },
     ])
     const service = module.get(DiscordHandlerService)
 

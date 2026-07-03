@@ -1,12 +1,20 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { Logger } from '@nestjs/common'
+
 import { isConfigured, resolveIdentity } from 'src/crypto/identity-resolution'
 import { loadMasterKey } from 'src/crypto/master-key'
 import type { Db } from 'src/db/database.module'
 import { getIdentity } from 'src/db/git-identity.repo'
 
 import { globalGitWriteLock } from './git-write-lock'
+
+// Non-DI (plain class, instantiated via `new` in SessionManagerService's
+// constructor, not DI) — module-scope since sweep() is static and cannot use
+// `this`. See acp-client.ts's header comment for why this Logger's calls are
+// one interpolated string rather than PinoLogger's object-first API.
+const logger = new Logger('GitTurnContext')
 
 // Tmpfs directory for per-turn key files (Decision #6).
 // /run is preferred over /dev/shm (often world-accessible).
@@ -59,13 +67,22 @@ export class GitTurnContext {
     try {
       fs.mkdirSync(KEYS_DIR, { recursive: true, mode: 0o700 })
       fs.mkdirSync(IDENTITY_DIR, { recursive: true, mode: 0o700 })
-    } catch {
+    } catch (err) {
       // Ignore if already exists
+      logger.debug(
+        `KEYS_DIR/IDENTITY_DIR mkdir failed (may already exist) channel=${channelId}: ${err instanceof Error ? err.message : String(err)}`,
+      )
     }
 
     const masterKey = loadMasterKey()
     const row = getIdentity(this.opts.db, userId)
     const resolution = resolveIdentity(row, masterKey)
+    logger.debug(
+      `Git identity resolved for turn channel=${channelId} kind=${resolution.kind}` +
+        (resolution.kind !== 'unconfigured'
+          ? ` fingerprint=${resolution.fingerprint}`
+          : ''),
+    )
 
     const state: TurnState = {
       channelId,
@@ -104,6 +121,12 @@ export class GitTurnContext {
         mode: 0o600,
       })
       fs.writeFileSync(path.join(idDir, 'ssh_command'), sshCommand, {
+        mode: 0o600,
+      })
+      // Commit signing (SSH format) — the wrapper points user.signingKey at
+      // this same tmpfs key file. Safe to use directly (no ssh-agent) because
+      // validateAndFingerprint already rejected passphrase-protected keys.
+      fs.writeFileSync(path.join(idDir, 'signing_key'), keyPath, {
         mode: 0o600,
       })
       // Positive gate signal for the `scripts/git` PATH wrapper's local-write
@@ -149,8 +172,11 @@ export class GitTurnContext {
       state.keyPath = null
       try {
         fs.rmSync(kp, { force: true })
-      } catch {
+      } catch (err) {
         // Ignore — sweep() will catch orphans on next boot
+        logger.debug(
+          `Tmpfs key removal failed (sweep will catch orphan) channel=${channelId} keyPath=${kp}: ${err instanceof Error ? err.message : String(err)}`,
+        )
       }
     }
 
@@ -160,8 +186,11 @@ export class GitTurnContext {
       state.identityDir = null
       try {
         fs.rmSync(idDir, { recursive: true, force: true })
-      } catch {
+      } catch (err) {
         // Ignore — sweep() will catch orphans on next boot
+        logger.debug(
+          `Tmpfs identity dir removal failed (sweep will catch orphan) channel=${channelId} identityDir=${idDir}: ${err instanceof Error ? err.message : String(err)}`,
+        )
       }
     }
   }
@@ -202,6 +231,9 @@ export class GitTurnContext {
   // previous crash. Tmpfs is also wiped on reboot, but this handles restarts
   // without a reboot.
   static sweep(): void {
+    let keysRemoved = 0
+    let identityDirsRemoved = 0
+
     try {
       if (fs.existsSync(KEYS_DIR)) {
         const files = fs.readdirSync(KEYS_DIR)
@@ -209,6 +241,7 @@ export class GitTurnContext {
           if (file.endsWith('.key')) {
             try {
               fs.rmSync(path.join(KEYS_DIR, file), { force: true })
+              keysRemoved++
             } catch {
               /* ignore */
             }
@@ -229,6 +262,7 @@ export class GitTurnContext {
                 recursive: true,
                 force: true,
               })
+              identityDirsRemoved++
             } catch {
               /* ignore */
             }
@@ -238,5 +272,9 @@ export class GitTurnContext {
     } catch {
       /* ignore */
     }
+
+    logger.log(
+      `Boot/shutdown sweep of orphaned tmpfs files complete keysRemoved=${keysRemoved} identityDirsRemoved=${identityDirsRemoved}`,
+    )
   }
 }

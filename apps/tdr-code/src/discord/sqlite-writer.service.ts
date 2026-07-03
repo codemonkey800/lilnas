@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 
 import { mapStopReason } from 'src/agent/acp-event-mapping'
 import type {
@@ -39,7 +40,10 @@ export class SqliteWriterService implements AcpEventHandlers {
   private readonly generationId: number | null
   private readonly channelState = new Map<string, ChannelWriterState>()
 
-  constructor(@Inject(DB) private readonly db: Db) {
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly logger: PinoLogger,
+  ) {
     const genIdStr = process.env[EnvKeys.BOT_GENERATION_ID]
     this.generationId = genIdStr ? parseInt(genIdStr, 10) : null
   }
@@ -95,8 +99,9 @@ export class SqliteWriterService implements AcpEventHandlers {
       status,
     })
     if (changes === 0) {
-      console.warn(
-        `[sqlite-writer] onToolCallUpdate: 0 rows updated channel=${channelId} ref=${toolCallId} (late/cross-turn, skipping)`,
+      this.logger.warn(
+        { channelId, toolCallId },
+        'onToolCallUpdate: 0 rows updated (late/cross-turn, skipping)',
       )
       return
     }
@@ -122,8 +127,9 @@ export class SqliteWriterService implements AcpEventHandlers {
     const state = this.channelState.get(channelId)
     // Mirror DiscordHandlerService clearedTurnId watermark: drop if no open turn.
     if (!state?.currentTurnRowId) {
-      console.warn(
-        `[sqlite-writer] onAgentMessageChunk: no open turn for channel=${channelId}, dropping chunk`,
+      this.logger.warn(
+        { channelId },
+        'onAgentMessageChunk: no open turn, dropping chunk',
       )
       return
     }
@@ -139,8 +145,9 @@ export class SqliteWriterService implements AcpEventHandlers {
     if (this.generationId == null) return
     const state = this.channelState.get(channelId)
     if (!state?.currentTurnRowId) {
-      console.warn(
-        `[sqlite-writer] onAgentMessageImage: no open turn for channel=${channelId}, dropping image`,
+      this.logger.warn(
+        { channelId },
+        'onAgentMessageImage: no open turn, dropping image',
       )
       return
     }

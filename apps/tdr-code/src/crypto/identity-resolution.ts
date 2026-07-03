@@ -1,5 +1,12 @@
+import { Logger } from '@nestjs/common'
+
 import { decryptKey, type EncryptedKey } from './key-cipher'
 import { validateAndFingerprint } from './ssh-key'
+
+// Non-DI (plain exported function, called from both bot-plane and main-plane
+// contexts) — see acp-client.ts's header comment for why this Logger's calls
+// are one interpolated string rather than PinoLogger's object-first API.
+const logger = new Logger('IdentityResolution')
 
 // Row type imported as a structural type only — avoids importing from src/agent
 // (bot-plane-only module) from the main-plane controller. Both planes import
@@ -104,6 +111,9 @@ export function resolveIdentity(
     ) {
       throw err
     }
+    logger.warn(
+      `Identity decrypt/parse failed discordUserId=${row.discordUserId} fingerprint=${row.keyFingerprint}: ${err instanceof Error ? err.message : String(err)}`,
+    )
     return {
       kind: 'decrypt_failed',
       fingerprint: row.keyFingerprint,

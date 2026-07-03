@@ -4,6 +4,7 @@ import { Readable, Writable } from 'node:stream'
 
 import { ClientSideConnection } from '@agentclientprotocol/sdk'
 import { Test } from '@nestjs/testing'
+import { PinoLogger } from 'nestjs-pino'
 
 import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
 import type { AcpEventHandlers } from 'src/agent/agent.types'
@@ -141,12 +142,22 @@ function createMockDb() {
   }
 }
 
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
+}
+
 async function createService(handlers: AcpEventHandlers) {
   const module = await Test.createTestingModule({
     providers: [
       SessionManagerService,
       { provide: ACP_EVENT_HANDLERS, useValue: handlers },
       { provide: DB, useValue: createMockDb() },
+      { provide: PinoLogger, useValue: makeLogger() },
     ],
   }).compile()
   return module.get(SessionManagerService)

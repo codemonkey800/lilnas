@@ -1,6 +1,7 @@
 import { ModuleRef } from '@nestjs/core'
 import { Test } from '@nestjs/testing'
 import { ChannelType, Client } from 'discord.js'
+import { PinoLogger } from 'nestjs-pino'
 
 import {
   createMockTextChannel,
@@ -34,6 +35,15 @@ function createMockSessionManager() {
   }
 }
 
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
+}
+
 async function createService(
   db: TestDb['db'],
   client: ReturnType<typeof createMockClient>,
@@ -46,6 +56,7 @@ async function createService(
       { provide: Client, useValue: client },
       { provide: ModuleRef, useValue: moduleRef },
       { provide: DB, useValue: db },
+      { provide: PinoLogger, useValue: makeLogger() },
     ],
   }).compile()
   return module.get(ContextUsageService)

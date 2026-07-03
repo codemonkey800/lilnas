@@ -9,6 +9,7 @@ import {
   PROTOCOL_VERSION,
 } from '@agentclientprotocol/sdk'
 import { Inject, Injectable, OnApplicationShutdown } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 
 import { markExited, recordSpawn } from 'src/db/claude-process.repo'
 import { getConfig } from 'src/db/config.repo'
@@ -113,6 +114,7 @@ export class SessionManagerService implements OnApplicationShutdown {
   constructor(
     @Inject(ACP_EVENT_HANDLERS) private readonly handlers: AcpEventHandlers,
     @Inject(DB) private readonly db: Db,
+    private readonly logger: PinoLogger,
   ) {
     const cfg = getConfig(db)
     if (!cfg) {
@@ -153,6 +155,15 @@ export class SessionManagerService implements OnApplicationShutdown {
     this.claudeArgs = cfg.claudeArgs
     this.idleTimeoutSec = cfg.idleTimeoutSec
     this.maxConcurrentSessions = cfg.maxConcurrentSessions
+    this.logger.info(
+      {
+        claudeCommand: this.claudeCommand,
+        cwd: this.claudeCwd,
+        idleTimeoutSec: this.idleTimeoutSec,
+        maxConcurrentSessions: this.maxConcurrentSessions,
+      },
+      'Config reread applied',
+    )
   }
 
   async prompt(
@@ -161,6 +172,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     userId: string,
     images: ImageAttachment[] = [],
   ): Promise<PromptOutcome> {
+    this.logger.debug({ channelId, userId }, 'Prompt received')
     if (this.shutdownRequested) return { kind: 'shutting_down' }
     const session = await this.getOrCreate(channelId, userId)
     session.lastActivity = Date.now()
@@ -168,8 +180,9 @@ export class SessionManagerService implements OnApplicationShutdown {
 
     const usableImages = session.imageCapable ? images : []
     if (images.length > 0 && usableImages.length === 0) {
-      console.log(
-        `[session-manager] channel=${channelId}: dropping ${images.length} image(s) — agent not image-capable`,
+      this.logger.debug(
+        { channelId, dropped: images.length },
+        'Dropping images — agent not image-capable',
       )
     }
 
@@ -193,10 +206,15 @@ export class SessionManagerService implements OnApplicationShutdown {
   // C2: Await-free ordered guard — all reads + queue clear are synchronous so
   // nothing can mutate prompting/currentTurnId between the checks and the clear.
   cancel(channelId: string, turnId?: number): boolean {
+    const logResult = (cancelled: boolean): boolean => {
+      this.logger.info({ channelId, turnId, cancelled }, 'Cancel requested')
+      return cancelled
+    }
     const session = this.sessions.get(channelId)
-    if (!session) return false
-    if (!session.prompting) return false
-    if (turnId !== undefined && turnId !== session.currentTurnId) return false
+    if (!session) return logResult(false)
+    if (!session.prompting) return logResult(false)
+    if (turnId !== undefined && turnId !== session.currentTurnId)
+      return logResult(false)
     session.queue = []
     // U8: signal the lock-acquire/identity-application window to abort before
     // connection.prompt (Decision #5). The flag is reset synchronously at the
@@ -204,7 +222,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     session.cancelRequested = true
     this.syncLiveStatus(session)
     void session.connection.cancel({ sessionId: session.sessionId })
-    return true
+    return logResult(true)
   }
 
   // extraContext: additive tag merged into the closing session_evicted event's
@@ -218,6 +236,7 @@ export class SessionManagerService implements OnApplicationShutdown {
   ): void {
     const session = this.sessions.get(channelId)
     if (!session) return
+    this.logger.info({ channelId, endReason }, 'Session teardown requested')
     clearTimeout(session.idleTimer)
     // A force-killed process orphans the in-flight connection.prompt — it never
     // settles, so onPromptComplete never fires via the normal path. Signal it
@@ -264,10 +283,7 @@ export class SessionManagerService implements OnApplicationShutdown {
         }
         removeLiveStatus(this.db, channelId, this.generationId)
       } catch (err) {
-        console.warn(
-          `[session-manager] teardown bookkeeping failed channel=${channelId}:`,
-          err instanceof Error ? err.message : String(err),
-        )
+        this.logger.warn({ err, channelId }, 'Teardown bookkeeping failed')
       }
     }
   }
@@ -325,6 +341,15 @@ export class SessionManagerService implements OnApplicationShutdown {
       sessionRowId: session.sessionRowId,
       prompt: { text, images },
     })
+    this.logger.info(
+      {
+        channelId: session.channelId,
+        turnId,
+        sessionId: session.sessionId,
+        sessionRowId: session.sessionRowId,
+      },
+      'Prompt dispatched',
+    )
 
     // U8: Acquire the global git-write lock AFTER the synchronous prologue
     // (preserves C1's guarantee up to the lock await). The lock spans the entire
@@ -333,7 +358,15 @@ export class SessionManagerService implements OnApplicationShutdown {
     // — see the release placement comment below.
     let gitBegun = false
     try {
+      this.logger.debug(
+        { channelId: session.channelId, turnId },
+        'Acquiring git-write lock',
+      )
       const gitRelease = await globalGitWriteLock.acquire(session.channelId)
+      this.logger.debug(
+        { channelId: session.channelId, turnId },
+        'Git-write lock acquired',
+      )
 
       // U9: Apply per-turn identity under the lock. This writes .git/config
       // and (for configured users) decrypts the key to a chmod-600 tmpfs file.
@@ -345,12 +378,20 @@ export class SessionManagerService implements OnApplicationShutdown {
         gitRelease,
       )
       gitBegun = true
+      this.logger.debug(
+        { channelId: session.channelId, turnId },
+        'Git identity applied for turn',
+      )
 
       // U8: Single cancelRequested check immediately before connection.prompt —
       // the latest possible point. Narrows the stop-cancel window opened by the
       // lock-acquire await (Decision #5). A cancel that lands in the residual
       // check→prompt tick still relies on the existing ACP cancel tolerance.
       if (session.cancelRequested) {
+        this.logger.debug(
+          { channelId: session.channelId, turnId },
+          'Turn cancelled before prompt dispatch',
+        )
         this.handlers.onPromptComplete(session.channelId, 'cancelled')
         return { kind: 'queued' } // treated as a queued-then-cancelled turn
       }
@@ -360,11 +401,19 @@ export class SessionManagerService implements OnApplicationShutdown {
         prompt: buildPromptBlocks(text, images),
       })
       this.handlers.onPromptComplete(session.channelId, result.stopReason)
+      this.logger.info(
+        {
+          channelId: session.channelId,
+          turnId,
+          stopReason: result.stopReason,
+        },
+        'Prompt completed',
+      )
       return { kind: 'completed', stopReason: result.stopReason }
     } catch (err) {
-      console.error(
-        `Prompt error for channel ${session.channelId}, tearing down session:`,
-        err,
+      this.logger.error(
+        { err, channelId: session.channelId, turnId },
+        'Prompt error — tearing down session',
       )
       this.handlers.onPromptComplete(session.channelId, 'error')
       // Mark no-longer-prompting before teardown so teardown's abort signal
@@ -407,9 +456,9 @@ export class SessionManagerService implements OnApplicationShutdown {
             next.userId,
             next.images,
           ).catch(err => {
-            console.error(
-              `Queued prompt failed for channel ${session.channelId}:`,
-              err,
+            this.logger.error(
+              { err, channelId: session.channelId },
+              'Queued prompt failed',
             )
           })
         }
@@ -493,9 +542,9 @@ export class SessionManagerService implements OnApplicationShutdown {
         // emitResumeFailed and the comments at its two genuine-failure call
         // sites plus the silent re-check branch. Every reactivation failure,
         // genuine or not, still falls through to a plain fresh session here.
-        console.warn(
-          `[session-manager] reactivation failed channel=${channelId}, falling back to fresh:`,
-          err instanceof Error ? err.message : String(err),
+        this.logger.warn(
+          { err, channelId },
+          'Session reactivation failed — falling back to fresh session',
         )
       }
     }
@@ -637,9 +686,9 @@ export class SessionManagerService implements OnApplicationShutdown {
           createdAt: new Date(),
         })
       } catch (err) {
-        console.error(
-          `[session-manager] reactivation session-row insert failed channel=${channelId}:`,
-          err instanceof Error ? err.message : String(err),
+        this.logger.error(
+          { err, channelId },
+          'Reactivation session-row insert failed',
         )
         sessionRowId = null
       }
@@ -654,6 +703,11 @@ export class SessionManagerService implements OnApplicationShutdown {
     // continuation leads straight into prompt()'s executePrompt call), so
     // there is no interleaving window for a stray event here.
     box.replaying = false
+
+    this.logger.info(
+      { channelId, sessionId: acpSessionId, sessionRowId },
+      'Session reactivated',
+    )
 
     const managed: ManagedSession = {
       channelId,
@@ -709,9 +763,9 @@ export class SessionManagerService implements OnApplicationShutdown {
           createdAt: new Date(),
         })
       } catch (err) {
-        console.warn(
-          `[session-manager] emitResumeFailed event insert failed channel=${channelId}:`,
-          err instanceof Error ? err.message : String(err),
+        this.logger.warn(
+          { err, channelId },
+          'emitResumeFailed event insert failed',
         )
       }
     }
@@ -727,6 +781,13 @@ export class SessionManagerService implements OnApplicationShutdown {
         }
       }
       if (!oldest) {
+        this.logger.warn(
+          {
+            sessionCount: this.sessions.size,
+            max: this.maxConcurrentSessions,
+          },
+          'All agent sessions busy — rejecting new session',
+        )
         throw new Error(
           'All agent sessions are busy. Please wait for the current task to finish.',
         )
@@ -783,13 +844,12 @@ export class SessionManagerService implements OnApplicationShutdown {
           createdAt: new Date(),
         })
       } catch (err) {
-        console.error(
-          `[session-manager] session-row insert failed channel=${channelId}:`,
-          err instanceof Error ? err.message : String(err),
-        )
+        this.logger.error({ err, channelId }, 'Session-row insert failed')
         sessionRowId = null
       }
     }
+
+    this.logger.info({ channelId, sessionId, sessionRowId }, 'Session created')
 
     const managed: ManagedSession = {
       channelId,
@@ -848,6 +908,10 @@ export class SessionManagerService implements OnApplicationShutdown {
         TDR_REAL_GIT: this.realGit,
       },
     })
+    this.logger.debug(
+      { channelId, pid: proc.pid, command: this.claudeCommand },
+      'Agent process spawned',
+    )
 
     // Record PGID synchronously with no await between spawn() and INSERT
     // so a bot SIGKILLed in this window still has its PGID persisted.
@@ -863,9 +927,9 @@ export class SessionManagerService implements OnApplicationShutdown {
 
     proc.on('error', err => {
       const e = err as NodeJS.ErrnoException
-      console.error(
-        `Agent process error for channel ${channelId}: ${e.message} ` +
-          `(code=${e.code ?? '?'} syscall=${e.syscall ?? '?'})`,
+      this.logger.error(
+        { err, channelId, pid: proc.pid, code: e.code, syscall: e.syscall },
+        'Agent process error',
       )
       const session = this.sessions.get(channelId)
       if (session?.process === proc) {
@@ -885,9 +949,9 @@ export class SessionManagerService implements OnApplicationShutdown {
             }
             removeLiveStatus(this.db, channelId, this.generationId)
           } catch (dbErr) {
-            console.warn(
-              `[session-manager] proc-error bookkeeping failed channel=${channelId}:`,
-              dbErr instanceof Error ? dbErr.message : String(dbErr),
+            this.logger.warn(
+              { err: dbErr, channelId },
+              'Proc-error bookkeeping failed',
             )
           }
         }
@@ -895,17 +959,23 @@ export class SessionManagerService implements OnApplicationShutdown {
     })
 
     proc.on('exit', code => {
+      if (code !== 0 && code !== null) {
+        this.logger.warn(
+          { channelId, pid: proc.pid, code },
+          'Agent process exited non-zero',
+        )
+      } else {
+        this.logger.debug(
+          { channelId, pid: proc.pid, code },
+          'Agent process exited',
+        )
+      }
       const session = this.sessions.get(channelId)
       if (session?.process === proc) {
         clearTimeout(session.idleTimer)
         this.sessions.delete(channelId)
         // U9: Belt-and-suspenders abort (same as proc.on('error')).
         this.gitTurnContext.abort(channelId)
-        if (code !== 0 && code !== null) {
-          console.warn(
-            `Agent process for channel ${channelId} exited with code ${code}`,
-          )
-        }
         if (this.generationId != null) {
           try {
             if (session.sessionRowId != null) {
@@ -917,9 +987,9 @@ export class SessionManagerService implements OnApplicationShutdown {
             }
             removeLiveStatus(this.db, channelId, this.generationId)
           } catch (dbErr) {
-            console.warn(
-              `[session-manager] proc-exit bookkeeping failed channel=${channelId}:`,
-              dbErr instanceof Error ? dbErr.message : String(dbErr),
+            this.logger.warn(
+              { err: dbErr, channelId },
+              'Proc-exit bookkeeping failed',
             )
           }
         }
@@ -957,19 +1027,20 @@ export class SessionManagerService implements OnApplicationShutdown {
 
       const imageCapable =
         initResult.agentCapabilities?.promptCapabilities?.image ?? false
-      console.log(
-        `[session-manager] channel=${channelId}: imageCapable=${imageCapable}`,
-      )
       // U4: production observability — the plan flags SDK-version-vs-wrapper-
       // capability as an open runtime question (installed client SDK is
       // 0.15.0; the deployed claude-agent-acp wrapper resolves at runtime
       // via npx). Logging on every spawn (not just reactivation attempts)
       // lets operators confirm the actual capability before the first
       // reactivation is ever attempted.
-      console.log(
-        `[session-manager] channel=${channelId}: loadSessionCapable=${
-          initResult.agentCapabilities?.loadSession ?? false
-        }`,
+      this.logger.debug(
+        {
+          channelId,
+          imageCapable,
+          loadSessionCapable:
+            initResult.agentCapabilities?.loadSession ?? false,
+        },
+        'Agent initialized',
       )
 
       return { proc, connection, initResult }
@@ -1007,9 +1078,9 @@ export class SessionManagerService implements OnApplicationShutdown {
         lastHeartbeatAt: new Date(),
       })
     } catch (err) {
-      console.warn(
-        `[session-manager] syncLiveStatus failed channel=${session.channelId}:`,
-        err instanceof Error ? err.message : String(err),
+      this.logger.warn(
+        { err, channelId: session.channelId },
+        'syncLiveStatus failed',
       )
     }
   }

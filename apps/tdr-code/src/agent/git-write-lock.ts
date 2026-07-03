@@ -7,6 +7,12 @@
 // (e.g. process death during the lock-acquire window before connection.prompt
 // is called — Decision #4, U8 risk note).
 
+import { Logger } from '@nestjs/common'
+
+// Non-DI singleton — see acp-client.ts's header comment for why this Logger's
+// calls are one interpolated string rather than PinoLogger's object-first API.
+const logger = new Logger('GitWriteLock')
+
 type Release = () => void
 type Grant = () => void
 type Reject = (err: Error) => void
@@ -65,6 +71,9 @@ export class GitWriteLock {
     if (idx === -1) return
     const [waiter] = this.queue.splice(idx, 1)
     if (!waiter) return
+    logger.warn(
+      `Queued git-write-lock waiter cancelled during teardown channel=${channelId}`,
+    )
     waiter.reject(
       new Error(
         `git-write-lock: waiter ${channelId} cancelled during teardown`,

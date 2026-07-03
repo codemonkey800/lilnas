@@ -1,4 +1,5 @@
 import { MessageFlags } from 'discord.js'
+import { PinoLogger } from 'nestjs-pino'
 
 import { createTestingModule } from 'src/__tests__/test-utils'
 import { SessionManagerService } from 'src/agent/session-manager.service'
@@ -8,6 +9,15 @@ function createMockSessionManager(cancelResult = true) {
   return {
     cancel: jest.fn().mockReturnValue(cancelResult),
   }
+}
+
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
 }
 
 function createMockInteraction(channelId = 'ch-1') {
@@ -23,6 +33,7 @@ async function createService(cancelResult = true) {
   const module = await createTestingModule([
     StopButtonService,
     { provide: SessionManagerService, useValue: mockManager },
+    { provide: PinoLogger, useValue: makeLogger() },
   ])
   return { service: module.get(StopButtonService), mockManager }
 }

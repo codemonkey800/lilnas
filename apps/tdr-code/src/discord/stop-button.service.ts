@@ -1,13 +1,17 @@
 import { Injectable } from '@nestjs/common'
 import { MessageFlags } from 'discord.js'
 import { Button, type ButtonContext, ComponentParam, Context } from 'necord'
+import { PinoLogger } from 'nestjs-pino'
 
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { STOP_ID_PREFIX } from 'src/discord/stop-button-id'
 
 @Injectable()
 export class StopButtonService {
-  constructor(private readonly sessionManager: SessionManagerService) {}
+  constructor(
+    private readonly sessionManager: SessionManagerService,
+    private readonly logger: PinoLogger,
+  ) {}
 
   @Button(`${STOP_ID_PREFIX}/:channelId/:turnId`)
   async onStop(
@@ -39,6 +43,10 @@ export class StopButtonService {
     }
 
     const cancelled = this.sessionManager.cancel(rawChannelId, turnId)
+    this.logger.info(
+      { channelId: rawChannelId, turnId, cancelled },
+      'Stop button pressed',
+    )
 
     if (cancelled) {
       // Working message will be edited to "⏹ Stopped" via onPromptComplete

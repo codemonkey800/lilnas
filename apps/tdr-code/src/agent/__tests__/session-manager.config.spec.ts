@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { Readable, Writable } from 'node:stream'
 
 import { ClientSideConnection } from '@agentclientprotocol/sdk'
+import { PinoLogger } from 'nestjs-pino'
 
 import type { AcpEventHandlers } from 'src/agent/agent.types'
 import { SessionManagerService } from 'src/agent/session-manager.service'
@@ -112,7 +113,20 @@ function makeDbMockWithConfig(configRow: ReturnType<typeof makeConfigRow>) {
 }
 
 type CtorWith2 = {
-  new (h: AcpEventHandlers, db: unknown): SessionManagerService
+  new (
+    h: AcpEventHandlers,
+    db: unknown,
+    logger: PinoLogger,
+  ): SessionManagerService
+}
+
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
 }
 
 type ServiceInternals = {
@@ -145,6 +159,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const internals = service as unknown as ServiceInternals
 
@@ -191,7 +206,12 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
     }
 
     expect(
-      () => new (SessionManagerService as unknown as CtorWith2)(handlers, db),
+      () =>
+        new (SessionManagerService as unknown as CtorWith2)(
+          handlers,
+          db,
+          makeLogger(),
+        ),
     ).toThrow(/config row missing/)
   })
 
@@ -206,6 +226,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const internals = service as unknown as ServiceInternals
     expect(internals.idleTimeoutSec).toBe(300)
@@ -231,6 +252,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const internals = service as unknown as ServiceInternals
 
@@ -249,6 +271,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     expect((service as unknown as ServiceInternals).claudeArgs).toEqual([
       '--dangerously-skip-permissions',
@@ -290,6 +313,7 @@ describe('SessionManagerService — R3 apply-timing behavioral tests (U2)', () =
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
 
     const mockProc = mockProcess()
@@ -327,6 +351,7 @@ describe('SessionManagerService — R3 apply-timing behavioral tests (U2)', () =
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
       db,
+      makeLogger(),
     )
     const sessions = (service as unknown as { sessions: Map<string, unknown> })
       .sessions

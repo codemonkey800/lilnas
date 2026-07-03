@@ -4,8 +4,20 @@ import type {
   RequestPermissionResponse,
   SessionNotification,
 } from '@agentclientprotocol/sdk'
+import { Logger } from '@nestjs/common'
 
 import type { AcpEventHandlers, DiffContent } from './agent.types'
+
+// Non-DI: this module exports a plain factory, not a Nest-managed provider.
+// `Logger` from '@nestjs/common' is globally overridden to route through the
+// same pino sink once bootstrap.ts/bot-bootstrap.ts call
+// `app.useLogger(app.get(Logger))` — see src/logger.ts's header comment.
+// Unlike the DI-injected PinoLogger elsewhere, this Logger's methods take a
+// single message (string | object | Error) plus a context string appended
+// automatically — passing a plain fields object as the message does NOT
+// merge into flat top-level JSON fields the way PinoLogger's object-first
+// calls do, so messages here are one interpolated string, not {fields, msg}.
+const logger = new Logger('AcpClient')
 
 export function createAcpClient(
   channelId: string,
@@ -18,10 +30,16 @@ export function createAcpClient(
     ): Promise<RequestPermissionResponse> {
       const firstOption = params.options[0]
       if (firstOption) {
+        logger.debug(
+          `Permission request auto-resolved channel=${channelId} optionId=${firstOption.optionId} outcome=selected`,
+        )
         return {
           outcome: { outcome: 'selected', optionId: firstOption.optionId },
         }
       }
+      logger.debug(
+        `Permission request auto-resolved channel=${channelId} outcome=cancelled`,
+      )
       return { outcome: { outcome: 'cancelled' } }
     },
 
@@ -31,6 +49,10 @@ export function createAcpClient(
       // switch so it uniformly suppresses every session/update variant,
       // including session_info_update, during loadSession replay (U4).
       if (isReplaying?.()) return
+
+      logger.debug(
+        `ACP session update received channel=${channelId} sessionUpdate=${params.update.sessionUpdate}`,
+      )
 
       const update = params.update
       switch (update.sessionUpdate) {
@@ -81,6 +103,7 @@ export function createAcpClient(
             update.status ?? 'in_progress',
             updateDiffs,
             updateRawInput,
+            update.title || undefined,
           )
           break
         }

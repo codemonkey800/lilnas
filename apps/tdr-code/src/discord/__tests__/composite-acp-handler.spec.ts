@@ -1,9 +1,20 @@
+import { PinoLogger } from 'nestjs-pino'
+
 import type {
   AcpEventHandlers,
   PromptStartContext,
 } from 'src/agent/agent.types'
 import { CompositeAcpHandler } from 'src/discord/composite-acp-handler'
 import { EnvKeys } from 'src/env'
+
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
+}
 
 // Minimal mocks for DiscordHandlerService, SqliteWriterService, and
 // ContextUsageService.
@@ -89,6 +100,7 @@ type CompositeCtor = {
     writer: AcpEventHandlers,
     contextUsage: AcpEventHandlers,
     db: unknown,
+    logger: PinoLogger,
   ): CompositeAcpHandler
 }
 
@@ -103,6 +115,7 @@ function makeComposite(
     writer,
     contextUsage,
     db,
+    makeLogger(),
   )
   return composite
 }
@@ -195,6 +208,38 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
       )
     })
 
+    it('onToolCallUpdate forwards the resolved rawInput/title to both Discord and SQLite handlers', () => {
+      const discord = makeDiscordMock()
+      const writer = makeWriterMock()
+      const composite = makeComposite(discord, writer)
+
+      composite.onToolCallUpdate(
+        'ch1',
+        'tool1',
+        'in_progress',
+        [],
+        { command: 'git status' },
+        'git status',
+      )
+
+      expect(discord.onToolCallUpdate).toHaveBeenCalledWith(
+        'ch1',
+        'tool1',
+        'in_progress',
+        [],
+        { command: 'git status' },
+        'git status',
+      )
+      expect(writer.onToolCallUpdate).toHaveBeenCalledWith(
+        'ch1',
+        'tool1',
+        'in_progress',
+        [],
+        { command: 'git status' },
+        'git status',
+      )
+    })
+
     it('onResumeFailed forwards to both Discord and SQLite handlers (U5)', () => {
       const discord = makeDiscordMock()
       const writer = makeWriterMock()
@@ -279,6 +324,7 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
         writer,
         makeContextUsageMock(),
         db,
+        makeLogger(),
       )
 
       expect(() => composite.onPromptStart('ch1', 1, ctx)).not.toThrow()
@@ -305,6 +351,7 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
         writer,
         makeContextUsageMock(),
         db,
+        makeLogger(),
       )
 
       composite.onPromptStart('ch1', 1, {

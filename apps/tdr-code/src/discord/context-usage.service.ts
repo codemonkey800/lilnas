@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { AttachmentBuilder, ChannelType, Client } from 'discord.js'
+import { PinoLogger } from 'nestjs-pino'
 
 import type { AcpEventHandlers } from 'src/agent/agent.types'
 import { SessionManagerService } from 'src/agent/session-manager.service'
@@ -77,6 +78,7 @@ export class ContextUsageService implements AcpEventHandlers {
     @Inject(Client) private readonly client: Client,
     private readonly moduleRef: ModuleRef,
     @Inject(DB) private readonly db: Db,
+    private readonly logger: PinoLogger,
   ) {}
 
   // --- AcpEventHandlers implementation ---
@@ -108,11 +110,12 @@ export class ContextUsageService implements AcpEventHandlers {
 
     if (crossed === HANDOFF_THRESHOLD) {
       state.handoffInFlight = true
+      this.logger.info(
+        { channelId, used, size },
+        'Context handoff triggered (95% threshold crossed)',
+      )
       void this.runHandoff(channelId).catch(err => {
-        console.error(
-          `[context-usage] runHandoff failed channel=${channelId}:`,
-          err instanceof Error ? err.message : String(err),
-        )
+        this.logger.error({ err, channelId }, 'runHandoff failed')
         const s = this.channelState.get(channelId)
         if (s) s.handoffInFlight = false
       })
@@ -275,9 +278,9 @@ export class ContextUsageService implements AcpEventHandlers {
     sessionManager
       .prompt(target.newChannelId, buildSeedPrompt(summary), triggeringUserId)
       .catch(err => {
-        console.error(
-          `[context-usage] seed prompt failed channel=${target.newChannelId}:`,
-          err instanceof Error ? err.message : String(err),
+        this.logger.error(
+          { err, channelId: target.newChannelId },
+          'Seed prompt failed',
         )
       })
   }
@@ -359,9 +362,9 @@ export class ContextUsageService implements AcpEventHandlers {
             inline: false,
           }
         } catch (err) {
-          console.warn(
-            `[context-usage] continuation thread creation failed channel=${channelId}, falling back to inline:`,
-            err instanceof Error ? err.message : String(err),
+          this.logger.warn(
+            { err, channelId },
+            'Continuation thread creation failed, falling back to inline',
           )
         }
       }

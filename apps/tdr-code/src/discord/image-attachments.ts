@@ -1,4 +1,11 @@
+import { Logger } from '@nestjs/common'
+
 import type { ImageAttachment } from 'src/agent/agent.types'
+
+// Non-DI (plain exported functions, no class) — see acp-client.ts's header
+// comment for why this Logger's calls are one interpolated string rather
+// than PinoLogger's object-first API.
+const logger = new Logger('ImageAttachments')
 
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 export const MAX_IMAGES_PER_MESSAGE = 4
@@ -18,7 +25,7 @@ export async function extractImages(
     if (att.contentType?.startsWith('image/')) {
       imageAttachments.push(att)
     } else {
-      console.log(
+      logger.debug(
         `Ignoring non-image attachment ${att.name} (contentType=${att.contentType})`,
       )
     }
@@ -27,7 +34,7 @@ export async function extractImages(
   const kept = imageAttachments.slice(0, MAX_IMAGES_PER_MESSAGE)
   const dropped = imageAttachments.length - kept.length
   if (dropped > 0) {
-    console.log(
+    logger.debug(
       `Dropping ${dropped} image attachment(s) over the per-message cap`,
     )
   }
@@ -35,7 +42,7 @@ export async function extractImages(
   const results: ImageAttachment[] = []
   for (const att of kept) {
     if (att.size > MAX_IMAGE_BYTES) {
-      console.warn(
+      logger.warn(
         `Skipping image attachment ${att.name}: ${att.size} bytes exceeds ${MAX_IMAGE_BYTES}`,
       )
       continue
@@ -43,21 +50,23 @@ export async function extractImages(
     try {
       const res = await fetch(att.url)
       if (!res.ok) {
-        console.warn(
+        logger.warn(
           `Failed to fetch image ${att.name}: ${res.status} ${res.statusText}`,
         )
         continue
       }
       const buf = Buffer.from(await res.arrayBuffer())
       if (buf.byteLength > MAX_IMAGE_BYTES) {
-        console.warn(
+        logger.warn(
           `Skipping image ${att.name}: fetched ${buf.byteLength} bytes exceeds ${MAX_IMAGE_BYTES}`,
         )
         continue
       }
       results.push({ data: buf.toString('base64'), mimeType: att.contentType! })
     } catch (err) {
-      console.warn(`Error fetching image ${att.name}:`, err)
+      logger.warn(
+        `Error fetching image ${att.name}: ${err instanceof Error ? err.message : String(err)}`,
+      )
     }
   }
 

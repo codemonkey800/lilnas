@@ -1,3 +1,5 @@
+import { PinoLogger } from 'nestjs-pino'
+
 import { createTestingModule } from 'src/__tests__/test-utils'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { insertGeneration } from 'src/db/bot-generation.repo'
@@ -45,6 +47,15 @@ function createMockInteraction(channelId = 'ch-clear') {
   }
 }
 
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
+}
+
 // Real in-memory test DB — clearAcpSessionId runs a real query, and the
 // integration scenario needs to read the row back afterward.
 async function createService(testDb: TestDb) {
@@ -57,6 +68,7 @@ async function createService(testDb: TestDb) {
     { provide: DiscordHandlerService, useValue: mockHandler },
     { provide: ContextUsageService, useValue: mockContextUsage },
     { provide: DB, useValue: testDb.db },
+    { provide: PinoLogger, useValue: makeLogger() },
   ])
   return {
     service: module.get(ClearCommandService),

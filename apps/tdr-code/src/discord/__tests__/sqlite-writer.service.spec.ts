@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing'
+import { PinoLogger } from 'nestjs-pino'
 
 import type { PromptStartContext } from 'src/agent/agent.types'
 import { insertGeneration } from 'src/db/bot-generation.repo'
@@ -8,6 +9,15 @@ import { createTestDb } from 'src/db/test-db'
 import { blocksByTurn } from 'src/db/turn-content.repo'
 import { SqliteWriterService } from 'src/discord/sqlite-writer.service'
 import { EnvKeys } from 'src/env'
+
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
+}
 
 async function createService(
   db: ReturnType<typeof createTestDb>['db'],
@@ -19,7 +29,11 @@ async function createService(
     delete process.env[EnvKeys.BOT_GENERATION_ID]
   }
   const module = await Test.createTestingModule({
-    providers: [SqliteWriterService, { provide: DB, useValue: db }],
+    providers: [
+      SqliteWriterService,
+      { provide: DB, useValue: db },
+      { provide: PinoLogger, useValue: makeLogger() },
+    ],
   }).compile()
   return module.get(SqliteWriterService)
 }

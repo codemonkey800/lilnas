@@ -15,6 +15,7 @@ import {
   type TextChannel,
 } from 'discord.js'
 import { Context, type ContextOf, On } from 'necord'
+import { PinoLogger } from 'nestjs-pino'
 
 import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
 import type {
@@ -132,6 +133,7 @@ export class DiscordHandlerService
   constructor(
     @Inject(Client) private readonly client: Client,
     private readonly moduleRef: ModuleRef,
+    private readonly logger: PinoLogger,
   ) {}
 
   // --- AcpEventHandlers implementation ---
@@ -166,13 +168,19 @@ export class DiscordHandlerService
     status: string,
     diffs: DiffContent[],
     rawInput?: Record<string, unknown>,
+    title?: string,
   ): void {
     this.startTyping(channelId)
     const state = this.channelStates.get(channelId)
     const tool = state?.toolStates.get(toolCallId)
     if (!tool || !state) return
     tool.status = status as ToolStatus
-    if (rawInput && !tool.rawInput) tool.rawInput = rawInput
+    // The initial tool_call fires while the SDK is still streaming the tool's
+    // input (rawInput is `{}`, title falls back to a generic label like
+    // "Terminal") — this update carries the resolved command/file path once
+    // streaming finishes, so it must always win over that first snapshot.
+    if (rawInput) tool.rawInput = rawInput
+    if (title) tool.title = title
     this.accumulateDiffs(state, toolCallId, diffs)
     void this.updateToolSummaryMessage(channelId)
     if (status === 'completed' || status === 'failed') {
@@ -289,6 +297,11 @@ export class DiscordHandlerService
     const isMention = message.mentions.has(this.client.user!)
     if (!isMention) return
 
+    this.logger.debug(
+      { channelId: message.channelId, userId: message.author.id },
+      'Mention received',
+    )
+
     const text = message.content.replace(/<@!?\d+>/g, '').trim()
     const images = await extractImages(message.attachments.values())
 
@@ -310,6 +323,10 @@ export class DiscordHandlerService
         text,
         message.author.id,
         images,
+      )
+      this.logger.debug(
+        { channelId: key, resultKind: result.kind },
+        'Prompt result',
       )
       if (result.kind === 'queued') {
         await message
@@ -342,6 +359,10 @@ export class DiscordHandlerService
           )
           .catch(() => {})
       } else {
+        this.logger.error(
+          { err, channelId: key, userId: message.author.id },
+          'Prompt failed unexpectedly',
+        )
         await message
           .reply('An error occurred while processing your request.')
           .catch(() => {})
@@ -384,6 +405,10 @@ export class DiscordHandlerService
           name: buildThreadName(strippedText),
           autoArchiveDuration: THREAD_AUTO_ARCHIVE_MINUTES,
         })
+        this.logger.debug(
+          { channelId: thread.id, parentChannelId: message.channelId },
+          'Thread created for session',
+        )
         return { key: thread.id, createdThread: thread }
       } catch {
         // Resilience: never drop the user's turn because thread creation
@@ -785,8 +810,9 @@ export class DiscordHandlerService
 
     const buf = Buffer.from(data, 'base64')
     if (buf.byteLength > MAX_IMAGE_BYTES) {
-      console.warn(
-        `[discord] channel=${channelId}: dropping outbound image (${buf.byteLength} bytes > cap)`,
+      this.logger.warn(
+        { channelId, byteLength: buf.byteLength, capBytes: MAX_IMAGE_BYTES },
+        'Dropping outbound image over byte cap',
       )
       return
     }

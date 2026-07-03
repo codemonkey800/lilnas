@@ -1,5 +1,6 @@
 import { ModuleRef } from '@nestjs/core'
 import { Client } from 'discord.js'
+import { PinoLogger } from 'nestjs-pino'
 
 import {
   createMockMessage,
@@ -11,6 +12,15 @@ import {
   WORKING_MESSAGES,
 } from 'src/discord/discord-handler.service'
 import { stopButtonId } from 'src/discord/stop-button-id'
+
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
+}
 
 function createMockClient() {
   return {
@@ -36,6 +46,7 @@ async function createService(clientOverrides = {}) {
     DiscordHandlerService,
     { provide: Client, useValue: mockClient },
     { provide: ModuleRef, useValue: mockModuleRef },
+    { provide: PinoLogger, useValue: makeLogger() },
   ])
 
   const service = module.get(DiscordHandlerService)
@@ -252,6 +263,53 @@ describe('DiscordHandlerService — onPromptComplete / finalizeTurn', () => {
 
     // Normal completion (non-cancelled, non-error) → delete
     expect(workingMsg.delete).toHaveBeenCalled()
+  })
+})
+
+describe('DiscordHandlerService — onToolCallUpdate resolves the placeholder title/rawInput', () => {
+  // Regression: Bash/Read/etc. tool calls arrive via onToolCall while the SDK
+  // is still streaming input, so rawInput is `{}` and title falls back to a
+  // generic label (e.g. "Terminal"). A later onToolCallUpdate carries the
+  // resolved command/file path — it must overwrite that first snapshot
+  // instead of being dropped because a (truthy but empty) rawInput already
+  // existed.
+  it('replaces the empty placeholder rawInput with the resolved command', async () => {
+    const { service } = await createService()
+
+    service.onToolCall('ch1', 'tool1', 'Terminal', 'execute', 'pending', [], {})
+    service.onToolCallUpdate(
+      'ch1',
+      'tool1',
+      'in_progress',
+      [],
+      { command: 'git status' },
+      'git status',
+    )
+
+    const state = channelStates(service).get('ch1') as
+      | { toolStates: Map<string, { title: string; rawInput?: unknown }> }
+      | undefined
+    const tool = state?.toolStates.get('tool1')
+
+    expect(tool?.rawInput).toEqual({ command: 'git status' })
+    expect(tool?.title).toBe('git status')
+  })
+
+  it('leaves the existing rawInput/title untouched when the update carries neither', async () => {
+    const { service } = await createService()
+
+    service.onToolCall('ch1', 'tool1', 'Terminal', 'execute', 'pending', [], {
+      command: 'git status',
+    })
+    service.onToolCallUpdate('ch1', 'tool1', 'completed', [])
+
+    const state = channelStates(service).get('ch1') as
+      | { toolStates: Map<string, { title: string; rawInput?: unknown }> }
+      | undefined
+    const tool = state?.toolStates.get('tool1')
+
+    expect(tool?.rawInput).toEqual({ command: 'git status' })
+    expect(tool?.title).toBe('Terminal')
   })
 })
 
