@@ -157,14 +157,30 @@ export async function lookupGuildMembership(
       `https://discord.com/api/users/@me/guilds/${guildId}/member`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
+        // Node's global fetch (undici) has NO default total-request
+        // timeout — only a per-phase `headersTimeout`/`bodyTimeout`, each
+        // defaulting to 300_000ms, and a separate ~10s `connectTimeout`
+        // that covers connection setup only (a prior version of this
+        // comment claimed "undici's own request timeout throws", which is
+        // false). A Discord endpoint that accepts the TCP connection and
+        // then stalls — a realistic degraded-upstream mode, exactly what
+        // this fail-closed gate exists to survive — would otherwise hang
+        // this OAuth callback request for up to ~5 minutes. Bounding it
+        // explicitly matches the same silently-hangs-forever hardening
+        // this app applies elsewhere (session-manager's
+        // LOAD_SESSION_TIMEOUT_MS, discord-handler's
+        // THREAD_RENAME_TIMEOUT_MS). The resulting AbortError is caught
+        // below like any other network failure — fail-closed still holds,
+        // just bounded to seconds instead of minutes.
+        signal: AbortSignal.timeout(10_000),
       },
     )
   } catch {
-    // Network error, DNS failure, timeout (undici's own request timeout
-    // throws), TLS failure, etc. — all fold into the same fail-closed
-    // "not a member" outcome. Treated identically to a non-200, never as
-    // "allow" (the plan's explicit fail-closed invariant for Discord being
-    // unreachable at sign-in).
+    // Network error, DNS failure, a timed-out AbortSignal above, TLS
+    // failure, etc. — all fold into the same fail-closed "not a member"
+    // outcome. Treated identically to a non-200, never as "allow" (the
+    // plan's explicit fail-closed invariant for Discord being unreachable
+    // at sign-in).
     return { ok: false, status: 'network_error' }
   }
 

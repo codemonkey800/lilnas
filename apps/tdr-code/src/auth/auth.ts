@@ -119,6 +119,23 @@ export function buildAuth(db: Db) {
     // requireSameOrigin() checks use, so this can't drift from them.
     trustedOrigins: [ALLOWED_ORIGIN],
 
+    // Every OAuth-flow error (guild-gate rejection, a failed token exchange,
+    // an unlinked-account conflict, ...) redirects here instead of Better
+    // Auth's own generic error page. Confirmed against 1.6.23's installed
+    // source that this is a GLOBAL default, not a per-call override: every
+    // site that builds an error redirect (dist/api/routes/callback.mjs,
+    // dist/oauth2/state.mjs, dist/oauth2/link-account.mjs, the generic-oauth
+    // and oidc-provider plugins) resolves the same
+    // `options.onAPIError?.errorURL || \`${baseURL}/error\`` fallback chain —
+    // so leaving this unset silently sends every OAuth failure to
+    // `${baseURL}/error` (i.e. `/api/auth/error`, Better Auth's bare HTML
+    // page) instead of the styled `/login?error=<code>` banner U6 built
+    // (src/app/login/page.tsx's ERROR_COPY). redirectOnError
+    // (dist/oauth2/errors.mjs) appends `?error=<code>` (or `&error=<code>`
+    // if errorURL already has a query string) unconditionally, so this only
+    // needs to be the bare page path — never build the query string here.
+    onAPIError: { errorURL: `${betterAuthUrl}/login` },
+
     // Keep the default `database` state strategy (do NOT set
     // storeStateStrategy: 'cookie') — with a `database` adapter configured,
     // better-auth's own default is already 'database' (OAuth state lives in
@@ -190,7 +207,11 @@ export function buildAuth(db: Db) {
     // @better-auth/core's oauth2/link-account.mjs before that call) — this
     // is a genuine seam, not a workaround.
     //
-    // This SAME hook also resolves the other TODO(U3) — token persistence.
+    // This SAME hook also resolves the other TODO(U3) — token persistence —
+    // for the FIRST sign-in only (`create`, not `update`; see the sibling
+    // `account.updateAccountOnSignIn: false` option below for the re-login
+    // write path this hook alone cannot see, added after a re-review found
+    // Better Auth re-persisting the token on every RETURNING sign-in).
     // Confirmed against 1.6.23's installed types
     // (@better-auth/core's types/init-options.d.mts): there is no
     // first-class "don't persist OAuth tokens" option — only
@@ -208,6 +229,28 @@ export function buildAuth(db: Db) {
     // by get-session in the first place, confirmed by reading that file in
     // full, so this hook is defense-in-depth for the stored row, not a fix
     // for an existing exposure.)
+
+    // Closes the re-login gap the comment above calls out. Confirmed against
+    // 1.6.23's installed source (@better-auth/core's oauth2/link-account.mjs,
+    // handleOAuthUserInfo's "account already linked" branch — i.e. every
+    // sign-in AFTER the first, which never reaches databaseHooks.account
+    // .create.before above at all since it's not a create): `const
+    // freshTokens = options.account?.updateAccountOnSignIn !== false ? {
+    // accessToken, refreshToken, ... } : {}`, followed unconditionally by
+    // `internalAdapter.updateAccount(linkedAccount.id, freshTokens)` once
+    // `freshTokens` is non-empty — so by DEFAULT (option unset), Better Auth
+    // re-persists the live Discord accessToken/refreshToken in plaintext on
+    // every returning member's sign-in, even though the create-hook above
+    // already nulled them on the first. Since R18's guild check is sign-in-
+    // only (D10) and nothing downstream ever re-reads either token (same
+    // rationale as the create-hook), setting this false makes `freshTokens`
+    // always `{}`, so `updateAccount` is skipped entirely — no re-persist to
+    // race against, rather than a second `databaseHooks.account.update
+    // .before` hook nulling it after the fact.
+    account: {
+      updateAccountOnSignIn: false,
+    },
+
     databaseHooks: {
       account: {
         create: {
@@ -287,8 +330,19 @@ export function buildAuth(db: Db) {
             // That accountless `user` row is what auth-sweep.repo.ts's
             // sweepAccountlessUsers() cleans up immediately below, so
             // AE5's "no usable rows" holds: the row that survives has no
-            // account and can never authenticate.
-            const swept = sweepAccountlessUsers(db)
+            // account and can never authenticate. Scoped to THIS rejection's
+            // own account.userId (already populated here — internal-
+            // adapter.mjs's createOAuthUser merges `userId: createdUser.id`
+            // onto the account payload before this hook ever runs) rather
+            // than a blanket sweep of every accountless user row: an
+            // unscoped sweep can delete a DIFFERENT, concurrently in-flight
+            // member's own not-yet-linked user row (the same "user row
+            // briefly exists without an account" window this file's header
+            // comment documents), FK-failing their sign-in. Scoping to this
+            // exact id makes that cross-request blast radius structurally
+            // impossible while still cleaning up the one row this rejection
+            // actually orphaned.
+            const swept = sweepAccountlessUsers(db, account.userId)
             context?.context.logger.warn(
               'guild_gate_sweep: accountless user rows deleted after guild-gate rejection',
               { rowsDeleted: swept },

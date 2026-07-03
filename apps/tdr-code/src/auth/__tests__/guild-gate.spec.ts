@@ -270,6 +270,33 @@ describe('Guild-membership gate (U3) — lookupGuildMembership HTTP call', () =>
     )
     await expect(isCurrentUserGuildMember('real-token')).resolves.toBe(true)
   })
+
+  // A stalled (connection-accepted-then-silent) Discord response has no
+  // default total-request timeout on Node's global fetch — only a 300s
+  // headersTimeout/bodyTimeout — so without an explicit AbortSignal this
+  // call could hang the OAuth callback request for minutes. Bypasses msw
+  // entirely (replaces global.fetch outright) so this one test can inspect
+  // the exact options fetch() was called with, independent of response
+  // content — every other test in this block covers the response-shape
+  // branches once the call already returns.
+  it('bounds the request with a 10s AbortSignal so a stalled Discord response cannot hang indefinitely', async () => {
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ user: { id: '123' } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    try {
+      await lookupGuildMembership('real-token')
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      const [, options] = fetchSpy.mock.calls[0]!
+      expect(options?.signal).toBeInstanceOf(AbortSignal)
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
 })
 
 describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocked', () => {
@@ -496,6 +523,21 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
     return location
   }
 
+  // A rejected sign-in must land on the app's OWN `/login` page, never
+  // Better Auth's generic `/api/auth/error` default (auth.ts's
+  // `onAPIError.errorURL`) — a bare `.toContain('error=not_guild_member')`
+  // check passes on EITHER target (both carry that query param), which is
+  // exactly how a prior regression here shipped green. Asserting the exact
+  // pathname is what actually pins the fix.
+  function expectRedirectsToLoginError(res: JsonResponse, errorCode: string) {
+    const location = new URL(
+      redirectLocation(res),
+      'https://placeholder.invalid',
+    )
+    expect(location.pathname).toBe('/login')
+    expect(location.searchParams.get('error')).toBe(errorCode)
+  }
+
   // Scenario 1 (AE5 happy path): a guild member completes OAuth ->
   // user+account+session provisioned, session cookie set.
   it('a guild member completing OAuth is provisioned with user + account + session, and gets a session cookie', async () => {
@@ -527,6 +569,51 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
     // Token-persistence TODO resolution: the member's own account row still
     // has its accessToken/refreshToken nulled out (data minimization —
     // R18 needed the token only for the guild check that already ran).
+    expect(accounts[0]?.accessToken).toBeNull()
+    expect(accounts[0]?.refreshToken).toBeNull()
+  })
+
+  // Regression test for a finding this suite's own vacuous coverage missed:
+  // the create.before hook above only nulls the token on the FIRST sign-in
+  // (a `create`). On every RETURNING sign-in, Better Auth takes the
+  // "already linked" branch (@better-auth/core's oauth2/link-account.mjs)
+  // and, by default, re-persists the freshly-exchanged accessToken/
+  // refreshToken via internalAdapter.updateAccount — a path this hook never
+  // sees, since it isn't a create. auth.ts's `account.updateAccountOnSignIn:
+  // false` closes that gap; this drives the SAME member through a real
+  // OAuth round trip TWICE to prove the second sign-in doesn't undo the
+  // first sign-in's data-minimization.
+  it('a returning member signing in a second time does not re-persist Discord tokens onto the account row', async () => {
+    const discordUserId = '100000000000000007'
+
+    mockDiscordOAuthChain({
+      accessToken: 'returning-member-first-token',
+      discordUserId,
+      guildMemberStatus: 200,
+    })
+    const firstState = await getRealOAuthState()
+    const firstRes = await driveCallback(firstState)
+    expect(hasSessionCookie(firstRes)).toBe(true)
+
+    let accounts = testDb.db.select().from(account).all()
+    expect(accounts).toHaveLength(1)
+    expect(accounts[0]?.accessToken).toBeNull()
+    expect(accounts[0]?.refreshToken).toBeNull()
+
+    // Second sign-in, same Discord user/account — takes link-account.mjs's
+    // "already linked" branch, NOT databaseHooks.account.create.before
+    // (which only ever fires once, on the first link).
+    mockDiscordOAuthChain({
+      accessToken: 'returning-member-second-token',
+      discordUserId,
+      guildMemberStatus: 200,
+    })
+    const secondState = await getRealOAuthState()
+    const secondRes = await driveCallback(secondState)
+    expect(hasSessionCookie(secondRes)).toBe(true)
+
+    accounts = testDb.db.select().from(account).all()
+    expect(accounts).toHaveLength(1)
     expect(accounts[0]?.accessToken).toBeNull()
     expect(accounts[0]?.refreshToken).toBeNull()
   })
@@ -563,7 +650,7 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
     // off `?error=` — proving the rejection reaches Better Auth's own
     // redirectOnError with the exact message auth.ts's hook throws, not
     // just "some redirect happened."
-    expect(redirectLocation(res)).toContain('error=not_guild_member')
+    expectRedirectsToLoginError(res, 'not_guild_member')
 
     expect(testDb.db.select().from(account).all()).toHaveLength(0)
     expect(testDb.db.select().from(session).all()).toHaveLength(0)
@@ -596,7 +683,7 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
     expect(res.status).toBeGreaterThanOrEqual(300)
     expect(res.status).toBeLessThan(400)
     expect(hasSessionCookie(res)).toBe(false)
-    expect(redirectLocation(res)).toContain('error=not_guild_member')
+    expectRedirectsToLoginError(res, 'not_guild_member')
     expect(testDb.db.select().from(account).all()).toHaveLength(0)
     expect(testDb.db.select().from(session).all()).toHaveLength(0)
     expect(testDb.db.select().from(user).all()).toHaveLength(0)
@@ -641,7 +728,7 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
     expect(res.status).toBeGreaterThanOrEqual(300)
     expect(res.status).toBeLessThan(400)
     expect(hasSessionCookie(res)).toBe(false)
-    expect(redirectLocation(res)).toContain('error=not_guild_member')
+    expectRedirectsToLoginError(res, 'not_guild_member')
     expect(testDb.db.select().from(account).all()).toHaveLength(0)
     expect(testDb.db.select().from(session).all()).toHaveLength(0)
     expect(testDb.db.select().from(user).all()).toHaveLength(0)
@@ -748,7 +835,7 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
       expect(res.status).toBeGreaterThanOrEqual(300)
       expect(res.status).toBeLessThan(400)
       expect(hasSessionCookie(res)).toBe(false)
-      expect(redirectLocation(res)).toContain('error=not_guild_member')
+      expectRedirectsToLoginError(res, 'not_guild_member')
 
       // The assertion that actually matters: does the `user` row inserted
       // by internal-adapter.mjs's createOAuthUser BEFORE our hook even ran

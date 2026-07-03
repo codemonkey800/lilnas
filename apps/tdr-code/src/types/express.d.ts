@@ -8,11 +8,11 @@ import type { Session, User } from 'better-auth'
 // is none here, since AuthGuard runs globally before every non-@Public()
 // handler, but the type itself must not assume that).
 //
-// Deliberately OPTIONAL here (not required) — the REQUIRED-both-fields
-// narrowing lives in auth.guard.ts's AuthedRequest interface +
-// isAuthenticated() type guard (the type-guards-over-nonnull-assertions
-// convention: a subtype that makes the conditionally-present fields
-// non-null, plus a runtime-checked guard — never a global `!`/`as`).
+// Deliberately OPTIONAL here (not required) — a plain @Req() req: Request
+// param has no compile-time guarantee AuthGuard already ran (even though it
+// always has, by construction), so a consumer that needs both fields
+// guaranteed-present should narrow with its own runtime check rather than
+// a global `!`/`as` assertion.
 declare global {
   namespace Express {
     interface Request {

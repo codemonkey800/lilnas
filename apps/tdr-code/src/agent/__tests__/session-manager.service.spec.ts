@@ -11,6 +11,7 @@ import type { AcpEventHandlers } from 'src/agent/agent.types'
 import { globalGitWriteLock } from 'src/agent/git-write-lock'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { DB } from 'src/db/database.module'
+import * as eventsRepo from 'src/db/events.repo'
 import type { SessionRow } from 'src/db/schema'
 import * as sessionsRepo from 'src/db/sessions.repo'
 import { EnvKeys } from 'src/env'
@@ -1348,6 +1349,120 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     })
     const eventStr = JSON.stringify(resumeFailedEvent)
     expect(eventStr).not.toContain('sensitive detail')
+  })
+
+  it('emitResumeFailed insert-fault guard: a transient insertEvent throw during the resume-failure notice does not skip killProcessTree (F8)', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+    )
+    const priorRow = makeSessionRow({
+      channelId: 'ch-insertfault',
+      acpSessionId: 'prior-acp-session',
+    })
+    getLatestSessionForChannelSpy.mockReturnValue(priorRow)
+
+    const reactivationAttempt = mockSpawnAndConnection()
+    const freshAttempt = mockSpawnAndConnection()
+
+    // Faults ONLY the first insertEvent call — the one inside
+    // emitResumeFailed's own try/catch — so the fresh fallback's later
+    // legitimate session_created insert still succeeds normally.
+    const insertEventSpy = jest
+      .spyOn(eventsRepo, 'insertEvent')
+      .mockImplementationOnce(() => {
+        throw new Error('SQLITE_BUSY: database is locked')
+      })
+
+    try {
+      const outcome = service.prompt('ch-insertfault', 'hello', 'user-1')
+      await Promise.resolve()
+      await Promise.resolve()
+      reactivationAttempt.resolveInitialize({
+        agentCapabilities: { loadSession: true },
+      })
+
+      await waitFor(() => reactivationAttempt.loadSession.mock.calls.length > 0)
+      reactivationAttempt.rejectLoadSession(new Error('transcript missing'))
+
+      await waitFor(() => freshAttempt.initialize.mock.calls.length > 0)
+      freshAttempt.resolveInitialize({ agentCapabilities: {} })
+
+      const result = await outcome
+      expect(result.kind).not.toBe('shutting_down')
+
+      // The guard: even though recording the resumeFailed event faulted,
+      // the notice still fired and the half-spawned process was still
+      // killed — neither is skipped by the DB write failing.
+      expect(handlers.onResumeFailed).toHaveBeenCalledTimes(1)
+      expect(handlers.onResumeFailed).toHaveBeenCalledWith('ch-insertfault')
+      expect(reactivationAttempt.mockProc.kill).toHaveBeenCalled()
+      expect(freshAttempt.newSession).toHaveBeenCalled()
+      expect(sessions(service).has('ch-insertfault')).toBe(true)
+    } finally {
+      insertEventSpy.mockRestore()
+    }
+  })
+
+  describe('reactivateSession loadSession timeout (F8 — channel-wedge fix coverage)', () => {
+    beforeEach(() => jest.useFakeTimers())
+    afterEach(() => jest.useRealTimers())
+
+    it('a loadSession call that never settles is bounded by LOAD_SESSION_TIMEOUT_MS and falls through to a fresh session', async () => {
+      const handlers = createMockHandlers()
+      const db = makeDbMock()
+      const service = new (SessionManagerService as unknown as CtorWith2)(
+        handlers,
+        db,
+      )
+      const priorRow = makeSessionRow({
+        channelId: 'ch-loadtimeout',
+        acpSessionId: 'prior-acp-session',
+      })
+      getLatestSessionForChannelSpy.mockReturnValue(priorRow)
+
+      const reactivationAttempt = mockSpawnAndConnection()
+      const freshAttempt = mockSpawnAndConnection()
+
+      const outcome = service.prompt('ch-loadtimeout', 'hello', 'user-1')
+      await Promise.resolve()
+      await Promise.resolve()
+      reactivationAttempt.resolveInitialize({
+        agentCapabilities: { loadSession: true },
+      })
+
+      await waitFor(() => reactivationAttempt.loadSession.mock.calls.length > 0)
+      // Never resolve/reject reactivationAttempt's loadSession — simulates
+      // a silently-hung ACP call. Advancing past LOAD_SESSION_TIMEOUT_MS
+      // (30s) is what must unwedge this channel instead of hanging forever.
+      await jest.advanceTimersByTimeAsync(30_000)
+
+      await waitFor(() => freshAttempt.initialize.mock.calls.length > 0)
+      freshAttempt.resolveInitialize({ agentCapabilities: {} })
+
+      const result = await outcome
+      expect(result.kind).not.toBe('shutting_down')
+      expect(jest.mocked(spawn)).toHaveBeenCalledTimes(2)
+      expect(freshAttempt.newSession).toHaveBeenCalled()
+      // The wedged reactivation process is fully cleaned up, not leaked.
+      expect(reactivationAttempt.mockProc.kill).toHaveBeenCalled()
+      expect(sessions(service).has('ch-loadtimeout')).toBe(true)
+
+      // Same genuine-failure notify contract as the loadSession-rejects case.
+      expect(handlers.onResumeFailed).toHaveBeenCalledTimes(1)
+      expect(handlers.onResumeFailed).toHaveBeenCalledWith('ch-loadtimeout')
+      const resumeFailedEvent = insertedRowPayloads(db).find(
+        row => (row.context as { resumeFailed?: boolean })?.resumeFailed,
+      )
+      expect(resumeFailedEvent).toMatchObject({
+        type: 'session_created',
+        level: 'warn',
+        channelId: 'ch-loadtimeout',
+        context: { resumeFailed: true, reason: 'Error' },
+      })
+    })
   })
 
   it('closes the dangling prior row with endReason interrupted before inserting the new row', async () => {

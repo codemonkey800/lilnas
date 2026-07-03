@@ -29,6 +29,15 @@ function typingIntervals(
   ).typingIntervals
 }
 
+// Expose private thread-rename bookkeeping for inspection (U6) — same
+// cast-through-unknown style as typingIntervals() above.
+function threadRenameStates(
+  service: DiscordHandlerService,
+): Map<string, unknown> {
+  return (service as unknown as { threadRenameStates: Map<string, unknown> })
+    .threadRenameStates
+}
+
 function createMockClient(channelMap: Map<string, unknown> = new Map()) {
   return {
     user: { id: 'bot-id' },
@@ -968,6 +977,68 @@ describe('DiscordHandlerService — thread-aware routing (U2)', () => {
     expect(typingIntervals(service).has('ch1')).toBe(false)
     expect(typingIntervals(service).size).toBe(0)
   })
+
+  it('deletes the just-created thread when all agent sessions are busy — no orphaned empty thread (R5)', async () => {
+    const deleteThread = jest.fn().mockResolvedValue(undefined)
+    const threadChannel = createMockThreadChannel({
+      id: 'thread-busy',
+      delete: deleteThread,
+    })
+    const startThread = jest.fn().mockResolvedValue(threadChannel)
+    const mockPrompt = jest
+      .fn()
+      .mockRejectedValue(new Error('sessions are busy: at capacity'))
+    const mockModuleRef = {
+      get: jest.fn().mockReturnValue({ prompt: mockPrompt }),
+    }
+    const mockClient = createMockClient()
+
+    const module = await createTestingModule([
+      DiscordHandlerService,
+      { provide: Client, useValue: mockClient },
+      { provide: ModuleRef, useValue: mockModuleRef },
+    ])
+    const service = module.get(DiscordHandlerService)
+
+    const message = makeMentionMessage('please help me with this task', {
+      ...allowThreadCreation(),
+      startThread,
+    })
+
+    await service.onMessage([message] as never)
+
+    expect(deleteThread).toHaveBeenCalledTimes(1)
+    expect(message.reply).toHaveBeenCalledWith(
+      expect.stringContaining('All agent sessions are busy'),
+    )
+  })
+
+  it('deletes the just-created thread when the agent has no image support and no text was provided — sibling to the busy-path cleanup', async () => {
+    const fakeImage = { data: 'abc', mimeType: 'image/png' }
+    mockExtractImages.mockResolvedValue([fakeImage])
+
+    const deleteThread = jest.fn().mockResolvedValue(undefined)
+    const threadChannel = createMockThreadChannel({
+      id: 'thread-no-image-support',
+      delete: deleteThread,
+    })
+    const startThread = jest.fn().mockResolvedValue(threadChannel)
+    const { service } = await createServiceWithSessionMgr({
+      kind: 'no_image_support',
+    })
+    const message = makeMentionMessage('', {
+      ...allowThreadCreation(),
+      startThread,
+      attachments: { values: jest.fn().mockReturnValue(['fake-attachment']) },
+    })
+
+    await service.onMessage([message] as never)
+
+    expect(deleteThread).toHaveBeenCalledTimes(1)
+    expect(message.reply).toHaveBeenCalledWith(
+      expect.stringContaining('cannot read images'),
+    )
+  })
 })
 
 describe('DiscordHandlerService — onSessionInfoUpdate / thread rename (U6)', () => {
@@ -1123,5 +1194,22 @@ describe('DiscordHandlerService — onSessionInfoUpdate / thread rename (U6)', (
       service.onSessionInfoUpdate('thread-missing', 'Some title')
     }).not.toThrow()
     await jest.advanceTimersByTimeAsync(0)
+  })
+
+  it('/clear (resetChannel) clears threadRenameStates — no stale-title bleed or unbounded growth on a reused thread id', async () => {
+    const setName = jest.fn().mockResolvedValue(undefined)
+    const thread = createMockThreadChannel({ id: 'thread-1', setName })
+    const service = await createService(
+      createMockClient(new Map([['thread-1', thread]])),
+    )
+
+    service.onSessionInfoUpdate('thread-1', 'Some title')
+    await jest.advanceTimersByTimeAsync(0)
+    expect(setName).toHaveBeenCalledTimes(1)
+    expect(threadRenameStates(service).has('thread-1')).toBe(true)
+
+    service.resetChannel('thread-1')
+
+    expect(threadRenameStates(service).has('thread-1')).toBe(false)
   })
 })

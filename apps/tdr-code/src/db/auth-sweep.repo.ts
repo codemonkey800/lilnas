@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 
 import type { Db } from './database.module'
 import { user } from './schema'
@@ -12,12 +12,23 @@ import { user } from './schema'
 // comment for the file:line trace of why: better-auth/dist/db/internal-
 // adapter.mjs's createOAuthUser runs createWithHooks(..., "user", ...)
 // BEFORE createWithHooks(..., "account", ...), and only the latter call is
-// where our hook can return `false`). This repo deletes exactly those
-// accountless rows so AE5's "no usable rows" holds under Option B: a `user`
-// row with no `account` row can never authenticate (Better Auth's own
-// sign-in paths all key off `account.providerId`/`account.accountId`), so
-// it is not itself a security hole — but it is unbounded orphan-row growth
-// under anonymous OAuth spam, hence "sweep, don't just accept."
+// where our hook can return `false`). This repo deletes exactly the ONE
+// accountless row this rejection orphaned (scoped by userId — see below) so
+// AE5's "no usable rows" holds under Option B: a `user` row with no
+// `account` row can never authenticate (Better Auth's own sign-in paths all
+// key off `account.providerId`/`account.accountId`), so it is not itself a
+// security hole — but an unswept one is still orphan-row growth under
+// anonymous OAuth spam, hence "sweep, don't just accept."
+//
+// Scoped to a single userId, NOT a blanket "every accountless user" sweep —
+// a prior version deleted every such row unconditionally, which meant a
+// non-member's rejection could delete a DIFFERENT, concurrently in-flight
+// member's own user row (see the next paragraph for exactly how that window
+// opens), FK-failing their sign-in with `unable_to_create_user`. Scoping the
+// DELETE to the userId this specific rejection produced (available on the
+// databaseHooks payload before this call — see auth.ts's call site) removes
+// that cross-request blast radius entirely; the row this rejection actually
+// orphaned is still deleted the same way.
 //
 // A `user` row briefly WITHOUT an account row is possible for another
 // reason too: another request racing between the two createWithHooks calls
@@ -46,22 +57,27 @@ import { user } from './schema'
 // for Better Auth's own two inserts, because none exists to preserve.
 // ──────────────────────────────────────────────────────────────────────────────
 
-// Deletes every `user` row with no matching `account` row. Narrow and
-// single-purpose by design (per the plan: "keep it a single narrow DELETE")
-// — this sweep runs inside the OAuth callback request itself and competes
-// with the bot process for the WAL write lock (≤5s busy_timeout), so it must
-// stay cheap. Returns the number of rows deleted (for logging/observability
-// at the call site — auth.ts logs a rejected sign-in either way, so this is
-// not itself the audit trail).
-export function sweepAccountlessUsers(db: Db): number {
+// Deletes the given `userId`'s `user` row IF it has no matching `account`
+// row. Scoped to a single id (not a blanket "every accountless user" sweep
+// — see this file's header comment for why) and single-purpose by design
+// (per the plan: "keep it a single narrow DELETE") — this sweep runs inside
+// the OAuth callback request itself and competes with the bot process for
+// the WAL write lock (≤5s busy_timeout), so it must stay cheap. Returns the
+// number of rows deleted — 0 or 1, never more, since `userId` is unique
+// (for logging/observability at the call site — auth.ts logs a rejected
+// sign-in either way, so this is not itself the audit trail).
+export function sweepAccountlessUsers(db: Db, userId: string): number {
   return db.transaction(
     tx => {
       const result = tx
         .delete(user)
         .where(
-          sql`NOT EXISTS (
-            SELECT 1 FROM account WHERE account.user_id = ${user.id}
-          )`,
+          and(
+            eq(user.id, userId),
+            sql`NOT EXISTS (
+              SELECT 1 FROM account WHERE account.user_id = ${user.id}
+            )`,
+          ),
         )
         .run()
       return result.changes

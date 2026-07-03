@@ -23,23 +23,6 @@ import { IS_PUBLIC_KEY } from './public.decorator'
 export type AuthedUser = User
 export type AuthedSession = Session
 
-// The type-guard convention (type-guards-over-nonnull-assertions-on-db-rows)
-// applied to the auth boundary: a request is only ever "authenticated" once
-// BOTH request.user and request.session have been populated by canActivate
-// — never inferred from one alone, and never asserted with `!`/`as`. Every
-// consumer that needs the authenticated identity (session-user.ts, the
-// controllers' Request param, tests) should narrow through this guard
-// rather than reaching into request.user directly.
-export interface AuthedRequest extends Request {
-  user: AuthedUser
-  session: AuthedSession
-}
-
-export function isAuthenticated(req: Request): req is AuthedRequest {
-  const maybe = req as Partial<AuthedRequest>
-  return maybe.user !== undefined && maybe.session !== undefined
-}
-
 // Two DISTINCT audit-log event names, deliberately not merged into one
 // "auth failure" event — the plan calls this out explicitly: a WAL-
 // contention lockout (getSession threw) must be distinguishable in Loki
@@ -140,10 +123,8 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException()
     }
 
-    // Attach BOTH fields together — isAuthenticated (session-user.ts and any
-    // other consumer) narrows on both being present, so a request can never
-    // be "half authenticated" (e.g. user set but session missing) even
-    // transiently.
+    // Attach BOTH fields together so a request can never be "half
+    // authenticated" (e.g. user set but session missing) even transiently.
     request.user = result.user
     request.session = result.session
 

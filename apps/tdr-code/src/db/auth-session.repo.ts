@@ -46,10 +46,10 @@ import { session } from './schema'
 // Discord snowflake (joined through `account.accountId` — the same raw
 // snowflake string git_identity.discordUserId and the bot's
 // message.author.id use, per schema.ts's identity invariant). Scoped to
-// providerId 'discord' for the same reason session-user.ts's
-// discordUserIdForSession is: only the Discord social provider is
-// configured today, but a future non-social account row must never be
-// mistaken for a Discord identity.
+// providerId 'discord' for the same defensive reason auth.ts's guild-gate
+// hook is: only the Discord social provider is configured today, but a
+// future non-social account row must never be mistaken for a Discord
+// identity.
 //
 // Read-then-write against a row the sign-in path (auth.ts's OAuth callback)
 // can concurrently insert into (a fresh session created by the SAME user

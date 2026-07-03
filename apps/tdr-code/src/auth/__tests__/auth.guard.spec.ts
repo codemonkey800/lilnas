@@ -14,7 +14,6 @@ import {
   AUTH_DENIED_EVENT,
   type AuthedUser,
   AuthGuard,
-  isAuthenticated,
 } from 'src/auth/auth.guard'
 import { AuthModule } from 'src/auth/auth.module'
 import {
@@ -23,7 +22,6 @@ import {
   PUBLIC_ROUTES,
 } from 'src/auth/protected-routes'
 import { Public } from 'src/auth/public.decorator'
-import { discordUserIdForSession } from 'src/auth/session-user'
 import { BotStatusController } from 'src/bot/bot-status.controller'
 import type { BotStatusDto } from 'src/bot/bot-status.dto'
 import { BotStatusService } from 'src/bot/bot-status.service'
@@ -53,7 +51,7 @@ import type { SessionDetailResponseDto } from 'src/console/sessions.dto'
 import { SessionsService } from 'src/console/sessions.service'
 import { revokeSessionsForDiscordUser } from 'src/db/auth-session.repo'
 import { DB } from 'src/db/database.module'
-import { account, session, user } from 'src/db/schema'
+import { session } from 'src/db/schema'
 import type { TestDb } from 'src/db/test-db'
 import { createTestDb } from 'src/db/test-db'
 import { SupervisorService } from 'src/supervisor/supervisor.service'
@@ -262,32 +260,6 @@ describe('AuthGuard.canActivate — isolated unit tests', () => {
     expect(request.session).toEqual(authedSession)
     expect(logger.warn).not.toHaveBeenCalled()
     expect(logger.error).not.toHaveBeenCalled()
-  })
-})
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Section 2: isAuthenticated type guard — the type-guards-over-nonnull-
-// assertions convention applied at the auth boundary. A request must never
-// narrow to AuthedRequest with only ONE of user/session set.
-// ──────────────────────────────────────────────────────────────────────────────
-
-describe('isAuthenticated type guard', () => {
-  it('is false when neither user nor session is set', () => {
-    expect(isAuthenticated({ headers: {} } as never)).toBe(false)
-  })
-
-  it('is false when only user is set', () => {
-    expect(isAuthenticated({ headers: {}, user: {} } as never)).toBe(false)
-  })
-
-  it('is false when only session is set', () => {
-    expect(isAuthenticated({ headers: {}, session: {} } as never)).toBe(false)
-  })
-
-  it('is true once both user and session are set', () => {
-    expect(
-      isAuthenticated({ headers: {}, user: {}, session: {} } as never),
-    ).toBe(true)
   })
 })
 
@@ -876,85 +848,6 @@ describe('AuthGuard — full HTTP integration (deny-by-default across every enum
       })
 
       expect(res.status).toBe(200)
-    })
-  })
-
-  // ---------------------------------------------------------------------------
-  // Scenario 7: session-user.ts's discordUserIdForSession helper, against a
-  // real user+account row in the test DB (the schema's actual join), not a
-  // hand-typed fixture object standing in for the whole User/Account layer.
-  // ---------------------------------------------------------------------------
-
-  describe('session-user.ts — discordUserIdForSession', () => {
-    it('resolves the correct Discord snowflake for a real user+account row', () => {
-      const now = new Date()
-      const userId = 'session-user-helper-test-user'
-      const discordSnowflake = '100000000000000020'
-
-      testDb.db
-        .insert(user)
-        .values({
-          id: userId,
-          name: 'Helper Test User',
-          email: 'helper-test@example.com',
-          emailVerified: false,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run()
-      testDb.db
-        .insert(account)
-        .values({
-          id: 'account-for-' + userId,
-          accountId: discordSnowflake,
-          providerId: 'discord',
-          userId,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run()
-
-      const authedUser: AuthedUser = {
-        id: userId,
-        name: 'Helper Test User',
-        email: 'helper-test@example.com',
-        emailVerified: false,
-        image: null,
-        createdAt: now,
-        updatedAt: now,
-      }
-
-      expect(discordUserIdForSession(testDb.db, authedUser)).toBe(
-        discordSnowflake,
-      )
-    })
-
-    it('returns undefined when the user has no linked Discord account', () => {
-      const now = new Date()
-      const userId = 'session-user-helper-no-account'
-      testDb.db
-        .insert(user)
-        .values({
-          id: userId,
-          name: 'Orphan User',
-          email: 'orphan-helper@example.com',
-          emailVerified: false,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run()
-
-      const authedUser: AuthedUser = {
-        id: userId,
-        name: 'Orphan User',
-        email: 'orphan-helper@example.com',
-        emailVerified: false,
-        image: null,
-        createdAt: now,
-        updatedAt: now,
-      }
-
-      expect(discordUserIdForSession(testDb.db, authedUser)).toBeUndefined()
     })
   })
 

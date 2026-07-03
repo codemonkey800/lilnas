@@ -293,6 +293,11 @@ export class DiscordHandlerService
           .catch(() => {})
       } else if (result.kind === 'no_image_support') {
         this.stopTyping(key)
+        // Sibling to the busy-path cleanup below: the thread was already
+        // created (naming it after the prompt) before the agent's
+        // image-support capability was known — no turn ever ran in it, so
+        // don't litter the channel with an empty, session-less thread.
+        if (createdThread) await createdThread.delete().catch(() => {})
         await message
           .reply(
             'This agent cannot read images, and no text was provided. Please include a text message.',
