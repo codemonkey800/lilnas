@@ -20,6 +20,7 @@ REVIEW.md
 *.db-shm
 *.db-wal
 truereflection-dev/
+player.html
 
 # Helm chart dependencies
 k8s/charts/*/charts/*.tgz
