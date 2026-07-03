@@ -2,7 +2,7 @@
 
 import { cns } from '@lilnas/utils/cns'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 
 import { EmptyState } from 'src/app/components/empty-state'
 import { ErrorState } from 'src/app/components/error-state'
@@ -341,7 +341,7 @@ export default function GitIdentityPage() {
               </thead>
               <tbody>
                 {data.map(item => (
-                  <>
+                  <Fragment key={item.discordUserId}>
                     {item.status === 'decrypt_failed' && (
                       <tr key={`${item.discordUserId}-notice`}>
                         <td
@@ -365,7 +365,7 @@ export default function GitIdentityPage() {
                           item.discordUserId
                       }
                     />
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>
