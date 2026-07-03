@@ -8,6 +8,7 @@ import {
   Param,
   Post,
 } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 
 import { revokeSessionsForDiscordUser } from 'src/db/auth-session.repo'
 import type { Db } from 'src/db/database.module'
@@ -43,7 +44,10 @@ function requireSameOrigin(origin: string | undefined): void {
 // adds no further role/scope check on top of that, by design.
 @Controller('auth-admin')
 export class AuthAdminController {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly logger: PinoLogger,
+  ) {}
 
   @Post('users/:discordUserId/revoke-sessions')
   @HttpCode(200)
@@ -60,7 +64,15 @@ export class AuthAdminController {
       )
     }
 
+    this.logger.warn(
+      { targetDiscordUserId: parsed.data, origin },
+      'Admin session-revoke requested',
+    )
     const sessionsRevoked = revokeSessionsForDiscordUser(this.db, parsed.data)
+    this.logger.warn(
+      { targetDiscordUserId: parsed.data, sessionsRevoked },
+      'Admin session-revoke completed',
+    )
     return { discordUserId: parsed.data, sessionsRevoked }
   }
 }

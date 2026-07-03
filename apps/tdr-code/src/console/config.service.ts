@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 
 import { BadRequestException, Inject, Injectable } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 
 import { latestGeneration } from 'src/db/bot-generation.repo'
 import { enqueue } from 'src/db/command.repo'
@@ -13,7 +14,10 @@ import type { ConfigResponseDto, UpdateConfigBodyDto } from './config.dto'
 
 @Injectable()
 export class ConfigService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly logger: PinoLogger,
+  ) {}
 
   getConfig(): ConfigResponseDto {
     const row = getConfig(this.db)
@@ -37,6 +41,7 @@ export class ConfigService {
     }
 
     const updated = updateConfig(this.db, patch)
+    this.logger.info({ patch }, 'Config updated')
 
     // Best-effort reread_config signal — only when a running generation exists.
     // The config is persisted regardless; if the bot is offline it reads the new
@@ -50,9 +55,14 @@ export class ConfigService {
           target: null,
           createdAt: new Date(),
         })
+        this.logger.debug(
+          { generationId: gen.id },
+          'Enqueued reread_config for running bot generation',
+        )
       }
-    } catch {
+    } catch (err) {
       // Best-effort: do not fail the request if enqueueing fails
+      this.logger.warn({ err }, 'Best-effort reread_config enqueue failed')
     }
 
     return this.toDto(updated)

@@ -1,6 +1,7 @@
 import { ServiceUnavailableException } from '@nestjs/common'
 import { http as mswHttp, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
+import { PinoLogger } from 'nestjs-pino'
 
 import { DiscordDirectoryService } from 'src/console/discord-directory.service'
 
@@ -8,6 +9,15 @@ import { DiscordDirectoryService } from 'src/console/discord-directory.service'
 // DISCORD_API_TOKEN = 'test-token' (shared fixtures).
 const GUILD_ID = process.env.DISCORD_GUILD_ID ?? 'test-guild-id'
 const MEMBERS_URL = `https://discord.com/api/v10/guilds/${GUILD_ID}/members?limit=1000`
+
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
+}
 
 describe('DiscordDirectoryService', () => {
   const server = setupServer()
@@ -37,7 +47,7 @@ describe('DiscordDirectoryService', () => {
       }),
     )
 
-    const svc = new DiscordDirectoryService()
+    const svc = new DiscordDirectoryService(makeLogger())
     const result = await svc.listGuildMembers()
 
     // Bot filtered out; sorted by displayName (AliceNick < Bobby); nick beats
@@ -59,7 +69,7 @@ describe('DiscordDirectoryService', () => {
       }),
     )
 
-    const svc = new DiscordDirectoryService()
+    const svc = new DiscordDirectoryService(makeLogger())
     await svc.listGuildMembers()
     await svc.listGuildMembers()
 
@@ -77,7 +87,7 @@ describe('DiscordDirectoryService', () => {
       }),
     )
 
-    const svc = new DiscordDirectoryService()
+    const svc = new DiscordDirectoryService(makeLogger())
     await svc.listGuildMembers()
     await svc.listGuildMembers(true)
 
@@ -101,7 +111,7 @@ describe('DiscordDirectoryService', () => {
     let mockedNow = Date.now()
     jest.spyOn(Date, 'now').mockImplementation(() => mockedNow)
 
-    const svc = new DiscordDirectoryService()
+    const svc = new DiscordDirectoryService(makeLogger())
     await svc.listGuildMembers()
     mockedNow += 5 * 60_000 + 1
     await svc.listGuildMembers()
@@ -117,7 +127,7 @@ describe('DiscordDirectoryService', () => {
       ),
     )
 
-    const svc = new DiscordDirectoryService()
+    const svc = new DiscordDirectoryService(makeLogger())
     await expect(svc.listGuildMembers()).rejects.toThrow(
       ServiceUnavailableException,
     )
@@ -126,7 +136,7 @@ describe('DiscordDirectoryService', () => {
   it('a network error throws ServiceUnavailableException', async () => {
     server.use(mswHttp.get(MEMBERS_URL, () => HttpResponse.error()))
 
-    const svc = new DiscordDirectoryService()
+    const svc = new DiscordDirectoryService(makeLogger())
     await expect(svc.listGuildMembers()).rejects.toThrow(
       ServiceUnavailableException,
     )

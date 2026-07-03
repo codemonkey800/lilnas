@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 
 import { ConfigController } from 'src/console/config.controller'
 import type {
@@ -9,6 +10,15 @@ import type {
 } from 'src/console/config.dto'
 import { ConfigService } from 'src/console/config.service'
 import type { Db } from 'src/db/database.module'
+
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
+}
 
 const ALLOWED =
   process.env.ALLOWED_CONSOLE_ORIGIN ?? 'https://tdr-code.lilnas.io'
@@ -244,7 +254,7 @@ describe('ConfigService', () => {
   describe('updateConfig cwd validation', () => {
     it('non-existent cwd → BadRequestException, nothing persisted', () => {
       const { db } = makeServiceDb()
-      const svc = new ConfigService(db as unknown as Db)
+      const svc = new ConfigService(db as unknown as Db, makeLogger())
 
       jest.spyOn(fs, 'statSync').mockImplementationOnce(() => {
         throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
@@ -259,7 +269,7 @@ describe('ConfigService', () => {
 
     it('cwd is a file (not a dir) → BadRequestException', () => {
       const { db } = makeServiceDb()
-      const svc = new ConfigService(db as unknown as Db)
+      const svc = new ConfigService(db as unknown as Db, makeLogger())
 
       jest.spyOn(fs, 'statSync').mockReturnValueOnce({
         isDirectory: () => false,
@@ -272,7 +282,7 @@ describe('ConfigService', () => {
 
     it('valid cwd persists config and returns DTO', () => {
       const { db } = makeServiceDb()
-      const svc = new ConfigService(db as unknown as Db)
+      const svc = new ConfigService(db as unknown as Db, makeLogger())
 
       jest.spyOn(fs, 'statSync').mockReturnValueOnce({
         isDirectory: () => true,
@@ -311,7 +321,7 @@ describe('ConfigService', () => {
         .spyOn(fs, 'statSync')
         .mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats)
 
-      const svc = new ConfigService(db as unknown as Db)
+      const svc = new ConfigService(db as unknown as Db, makeLogger())
       svc.updateConfig(VALID_BODY)
 
       expect(db.insert).toHaveBeenCalled()
@@ -333,7 +343,7 @@ describe('ConfigService', () => {
         .spyOn(fs, 'statSync')
         .mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats)
 
-      const svc = new ConfigService(db as unknown as Db)
+      const svc = new ConfigService(db as unknown as Db, makeLogger())
       expect(() => svc.updateConfig(VALID_BODY)).not.toThrow()
     })
   })

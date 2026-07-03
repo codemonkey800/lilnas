@@ -1,5 +1,6 @@
 import { env } from '@lilnas/utils/env'
 import { Injectable, ServiceUnavailableException } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 
 import { EnvKeys } from 'src/env'
 
@@ -37,6 +38,8 @@ export class DiscordDirectoryService {
   private cache: { fetchedAt: number; data: DiscordGuildMemberDto[] } | null =
     null
 
+  constructor(private readonly logger: PinoLogger) {}
+
   // Bots are filtered out — a git identity is always for a human. `force`
   // bypasses the cache for on-demand refreshes; a normal load prefers the
   // cache within CACHE_TTL_MS to avoid hitting Discord's rate limits, which
@@ -70,13 +73,21 @@ export class DiscordDirectoryService {
           signal: AbortSignal.timeout(10_000),
         },
       )
-    } catch {
+    } catch (err) {
+      this.logger.warn(
+        { err, guildId },
+        'Failed to reach Discord for guild member list',
+      )
       throw new ServiceUnavailableException(
         'Could not reach Discord to list guild members',
       )
     }
 
     if (!response.ok) {
+      this.logger.warn(
+        { status: response.status, statusText: response.statusText },
+        'Discord returned an error listing guild members',
+      )
       throw new ServiceUnavailableException(
         'Discord returned an error listing guild members',
       )
@@ -94,6 +105,10 @@ export class DiscordDirectoryService {
       .sort((a, b) => a.displayName.localeCompare(b.displayName))
 
     this.cache = { fetchedAt: Date.now(), data }
+    this.logger.debug(
+      { memberCount: data.length, forced: force },
+      'Guild member list refreshed',
+    )
     return data
   }
 }

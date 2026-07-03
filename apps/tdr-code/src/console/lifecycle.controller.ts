@@ -9,6 +9,7 @@ import {
   Param,
   Post,
 } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 
 import { latestGeneration } from 'src/db/bot-generation.repo'
@@ -46,16 +47,26 @@ export class LifecycleController {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly supervisor: SupervisorService,
+    private readonly logger: PinoLogger,
   ) {}
 
   @Post('bot/restart')
   @HttpCode(202)
   restart(@Headers('origin') origin: string | undefined): RestartResponseDto {
     requireSameOrigin(origin)
+    this.logger.info({ origin }, 'Admin-triggered bot restart requested')
     const result = this.supervisor.requestRestart()
     if ('error' in result) {
+      this.logger.warn(
+        { error: result.error },
+        'Admin-triggered bot restart rejected',
+      )
       throw new ConflictException(result.error)
     }
+    this.logger.info(
+      { phase: result.phase },
+      'Admin-triggered bot restart dispatched',
+    )
     return { phase: result.phase }
   }
 
@@ -68,6 +79,10 @@ export class LifecycleController {
     requireSameOrigin(origin)
     const parsed = DiscordSnowflakeSchema.safeParse(channelId)
     if (!parsed.success) {
+      this.logger.debug(
+        { channelId, reason: 'invalid-channel-id' },
+        'Admin-triggered channel teardown rejected',
+      )
       throw new BadRequestException(
         parsed.error.issues[0]?.message ?? 'Invalid channelId',
       )
@@ -75,17 +90,33 @@ export class LifecycleController {
 
     const gen = latestGeneration(this.db)
     if (!gen) {
+      this.logger.debug(
+        { channelId, reason: 'bot-offline' },
+        'Admin-triggered channel teardown rejected',
+      )
       throw new ConflictException('bot-offline')
     }
     if (!isRunningGeneration(gen)) {
       // Generation exists but is not yet running (Starting) or has ended.
       const isStarting = gen.status === 'starting'
       if (isStarting) {
+        this.logger.debug(
+          { channelId, reason: 'bot-starting' },
+          'Admin-triggered channel teardown rejected',
+        )
         throw new ConflictException('bot-starting')
       }
+      this.logger.debug(
+        { channelId, reason: 'bot-offline' },
+        'Admin-triggered channel teardown rejected',
+      )
       throw new ConflictException('bot-offline')
     }
 
+    this.logger.info(
+      { channelId, origin },
+      'Admin-triggered channel teardown requested',
+    )
     enqueue(this.db, {
       generationId: gen.id,
       type: 'teardown_channel',

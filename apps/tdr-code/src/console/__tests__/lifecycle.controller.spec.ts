@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 
 import { LifecycleController } from 'src/console/lifecycle.controller'
 import {
@@ -32,20 +33,37 @@ function makeStubSupervisor(
   }
 }
 
+function makeLogger(): PinoLogger {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  } as unknown as PinoLogger
+}
+
 const ALLOWED =
   process.env.ALLOWED_CONSOLE_ORIGIN ?? 'https://tdr-code.lilnas.io'
 
 describe('LifecycleController.restart', () => {
   it('returns 202 with phase on success', () => {
     const sup = makeStubSupervisor()
-    const ctrl = new LifecycleController({} as Db, sup as SupervisorService)
+    const ctrl = new LifecycleController(
+      {} as Db,
+      sup as SupervisorService,
+      makeLogger(),
+    )
     const result = ctrl.restart(ALLOWED)
     expect(result.phase).toBe('Stopping')
   })
 
   it('throws ForbiddenException for wrong origin', () => {
     const sup = makeStubSupervisor()
-    const ctrl = new LifecycleController({} as Db, sup as SupervisorService)
+    const ctrl = new LifecycleController(
+      {} as Db,
+      sup as SupervisorService,
+      makeLogger(),
+    )
     const { ForbiddenException } = jest.requireActual(
       '@nestjs/common',
     ) as typeof import('@nestjs/common')
@@ -56,7 +74,11 @@ describe('LifecycleController.restart', () => {
 
   it('throws ForbiddenException when origin is absent', () => {
     const sup = makeStubSupervisor()
-    const ctrl = new LifecycleController({} as Db, sup as SupervisorService)
+    const ctrl = new LifecycleController(
+      {} as Db,
+      sup as SupervisorService,
+      makeLogger(),
+    )
     const { ForbiddenException } = jest.requireActual(
       '@nestjs/common',
     ) as typeof import('@nestjs/common')
@@ -65,13 +87,21 @@ describe('LifecycleController.restart', () => {
 
   it('throws ConflictException when not-supervised', () => {
     const sup = makeStubSupervisor({ supervise: false })
-    const ctrl = new LifecycleController({} as Db, sup as SupervisorService)
+    const ctrl = new LifecycleController(
+      {} as Db,
+      sup as SupervisorService,
+      makeLogger(),
+    )
     expect(() => ctrl.restart(ALLOWED)).toThrow(ConflictException)
   })
 
   it('throws ConflictException when transition-in-progress', () => {
     const sup = makeStubSupervisor({ phase: 'Stopping' })
-    const ctrl = new LifecycleController({} as Db, sup as SupervisorService)
+    const ctrl = new LifecycleController(
+      {} as Db,
+      sup as SupervisorService,
+      makeLogger(),
+    )
     expect(() => ctrl.restart(ALLOWED)).toThrow(ConflictException)
   })
 })
@@ -89,7 +119,11 @@ describe('LifecycleController.teardown', () => {
 
   it('invalid snowflake → 400', () => {
     const sup = makeStubSupervisor()
-    const ctrl = new LifecycleController(testDb.db, sup as SupervisorService)
+    const ctrl = new LifecycleController(
+      testDb.db,
+      sup as SupervisorService,
+      makeLogger(),
+    )
     expect(() => ctrl.teardown(ALLOWED, 'not-a-snowflake')).toThrow(
       BadRequestException,
     )
@@ -97,7 +131,11 @@ describe('LifecycleController.teardown', () => {
 
   it('no generation → 409 bot-offline', () => {
     const sup = makeStubSupervisor()
-    const ctrl = new LifecycleController(testDb.db, sup as SupervisorService)
+    const ctrl = new LifecycleController(
+      testDb.db,
+      sup as SupervisorService,
+      makeLogger(),
+    )
     expect(() => ctrl.teardown(ALLOWED, '123456789012345678')).toThrow(
       ConflictException,
     )
@@ -106,7 +144,11 @@ describe('LifecycleController.teardown', () => {
   it('generation in Starting state → 409 bot-starting', () => {
     insertGeneration(testDb.db, { startedAt: new Date() })
     const sup = makeStubSupervisor()
-    const ctrl = new LifecycleController(testDb.db, sup as SupervisorService)
+    const ctrl = new LifecycleController(
+      testDb.db,
+      sup as SupervisorService,
+      makeLogger(),
+    )
     let err: ConflictException | null = null
     try {
       ctrl.teardown(ALLOWED, '123456789012345678')
@@ -121,7 +163,11 @@ describe('LifecycleController.teardown', () => {
     const gen = insertGeneration(testDb.db, { startedAt: new Date() })
     markRunning(testDb.db, gen.id, 1234, new Date())
     const sup = makeStubSupervisor()
-    const ctrl = new LifecycleController(testDb.db, sup as SupervisorService)
+    const ctrl = new LifecycleController(
+      testDb.db,
+      sup as SupervisorService,
+      makeLogger(),
+    )
     const result = ctrl.teardown(ALLOWED, '123456789012345678')
     expect(result.accepted).toBe(true)
   })
@@ -130,7 +176,11 @@ describe('LifecycleController.teardown', () => {
     const gen = insertGeneration(testDb.db, { startedAt: new Date() })
     finalize(testDb.db, gen.id, 'stopped', 0, new Date())
     const sup = makeStubSupervisor()
-    const ctrl = new LifecycleController(testDb.db, sup as SupervisorService)
+    const ctrl = new LifecycleController(
+      testDb.db,
+      sup as SupervisorService,
+      makeLogger(),
+    )
     let err: ConflictException | null = null
     try {
       ctrl.teardown(ALLOWED, '123456789012345678')
