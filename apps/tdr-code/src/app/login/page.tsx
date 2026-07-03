@@ -109,6 +109,7 @@ export default function LoginPage() {
         type="button"
         onClick={handleLogin}
         disabled={isRedirecting}
+        data-track-id="login-discord"
         className={cns(
           'w-full rounded px-4 py-2.5 text-sm font-medium transition-colors',
           isRedirecting

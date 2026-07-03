@@ -7,6 +7,7 @@ import { Logger } from 'nestjs-pino'
 import { AppModule } from './app.module'
 import { loadMasterKey } from './crypto/master-key'
 import { EnvKeys } from './env'
+import { logFilePath } from './logging/log-paths'
 
 export async function bootstrapApp() {
   // Restrict file creation permissions before opening the SQLite WAL — so the
@@ -54,4 +55,14 @@ export async function bootstrapApp() {
   // this removes the host's non-loopback interfaces from the attack surface now
   // that mutating endpoints (restart/teardown) and raw-transcript reads ship.
   await app.listen(port, '127.0.0.1')
+
+  // Printed here (real process start), not inside buildLoggerOptions()/
+  // logging.module.ts at import time, so a test importing those modules
+  // never sees this — see logFilePath('backend')'s own header comment for
+  // why main and bot share one file. This process hosts LoggingModule's
+  // BrowserLogsController, so it also owns announcing the browser-log file.
+  console.log(`[tdr-code] backend logs: ${logFilePath('backend')}`)
+  console.log(
+    `[tdr-code] frontend-browser logs: ${logFilePath('frontend-browser')}`,
+  )
 }

@@ -15,12 +15,13 @@ const NAV_LINKS = [
   { href: '/git-identity', label: 'Git identity' },
 ]
 
-// Fixed width so the loading -> resolved transition never shifts layout in
-// the h-14 header (plan requirement: "a fixed-width loading placeholder
-// while the client-side session fetch resolves — no layout shift, no flash
-// of logged-out chrome"). Matches roughly the width of a short avatar +
-// name pairing; long names truncate to this same box via UserBadge's own
-// max-w-[...] truncate below, so the header never grows past it either.
+// Fixed width for the loading/logged-out placeholders so the pending ->
+// resolved transition never shrinks the h-14 header (plan requirement: "a
+// fixed-width loading placeholder while the client-side session fetch
+// resolves — no layout shift, no flash of logged-out chrome"). The resolved
+// badge below reuses this as a min-width instead of a fixed width, so short
+// names don't shrink the box but the full name (Discord caps display names
+// at 32 characters) always renders untruncated.
 const USER_BADGE_WIDTH = 'w-40'
 
 function UserBadge() {
@@ -56,7 +57,7 @@ function UserBadge() {
   const initial = displayName.trim().charAt(0).toUpperCase() || '?'
 
   return (
-    <div className={cns(USER_BADGE_WIDTH, 'flex items-center gap-2')}>
+    <div className="flex min-w-40 items-center gap-2">
       {user.image ? (
         // Plain <img>, not next/image — an external Discord CDN URL;
         // next/image's remote-pattern allowlist isn't configured for
@@ -79,10 +80,7 @@ function UserBadge() {
           {initial}
         </div>
       )}
-      <span
-        className="max-w-[7rem] truncate text-sm text-gray-300"
-        title={displayName}
-      >
+      <span className="text-sm whitespace-nowrap text-gray-300">
         {displayName}
       </span>
       <button
@@ -99,6 +97,7 @@ function UserBadge() {
             },
           })
         }}
+        data-track-id="nav-logout"
         className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-900 hover:text-gray-300"
       >
         Log out

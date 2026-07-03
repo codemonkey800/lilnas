@@ -112,6 +112,16 @@ export const PROTECTED_ROUTES: ProtectedRouteSpec[] = [
     label: 'POST /auth-admin/users/:discordUserId/revoke-sessions',
     params: { discordUserId: FAKE_DISCORD_USER_ID },
   },
+  // Unified-logging unit's browser-log ingestion endpoint (logging.module.ts).
+  // Guarded, not @Public() — see browser-logs.controller.ts's own header
+  // comment for why (keeps PUBLIC_ROUTES' tested single-entry invariant
+  // intact; the accepted trade-off is that unauthenticated pages, chiefly
+  // /login, can't report browser errors).
+  {
+    method: 'POST',
+    path: '/logs/browser',
+    label: 'POST /logs/browser',
+  },
 ]
 
 // The sole allowlisted route (R19: deny-by-default; @Public() is the one

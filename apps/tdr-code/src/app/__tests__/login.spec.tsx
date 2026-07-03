@@ -299,8 +299,8 @@ describe('NavShell user display (client-sourced session)', () => {
     expect(screen.getByText('Z')).toBeInTheDocument()
   })
 
-  it('truncates a long display name via a max-width truncate class (no header overflow)', () => {
-    const longName = 'A'.repeat(80)
+  it('renders the full display name without truncating (Discord names cap at 32 chars)', () => {
+    const longName = 'A'.repeat(32)
     mockUseSession.mockReturnValue({
       data: { user: { id: 'u1', name: longName, image: null } },
       isPending: false,
@@ -311,8 +311,8 @@ describe('NavShell user display (client-sourced session)', () => {
       </NavShell>,
     )
     const nameEl = screen.getByText(longName)
-    expect(nameEl.className).toMatch(/truncate/)
-    expect(nameEl.className).toMatch(/max-w-/)
+    expect(nameEl.className).not.toMatch(/truncate/)
+    expect(nameEl.className).not.toMatch(/max-w-/)
   })
 
   it('calls signOut() and the caller redirects to a bare /login on logout', async () => {

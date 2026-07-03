@@ -5,6 +5,7 @@ import { SessionManagerService } from './agent/session-manager.service'
 import { BotModule } from './bot.module'
 import { loadMasterKey } from './crypto/master-key'
 import { BotLifecycleService } from './discord/bot-lifecycle.service'
+import { logFilePath } from './logging/log-paths'
 
 export async function bootstrapBot() {
   // Mirror bootstrap.ts umask so tmpfs key files (U9) are not world-readable
@@ -21,6 +22,11 @@ export async function bootstrapBot() {
   })
   app.useLogger(app.get(Logger))
   app.enableShutdownHooks()
+
+  // Same shared backend.<env>.log file bootstrap.ts's main process writes to
+  // — see logFilePath('backend')'s header comment in src/logger.ts for why
+  // that's safe.
+  console.log(`[tdr-code] backend logs: ${logFilePath('backend')}`)
 
   // Single ordered shutdown sequence — this is the sole authority for ordering.
   // NestJS onApplicationShutdown on SessionManagerService is idempotent so

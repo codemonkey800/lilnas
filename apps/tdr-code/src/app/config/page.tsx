@@ -78,6 +78,7 @@ export default function ConfigPage() {
   )
 
   const mutation = useMutation({
+    mutationKey: ['config-save'],
     mutationFn: (body: UpdateConfigBodyDto) => api.updateConfig(body),
     onSuccess: response => {
       setSaved(true)
@@ -210,6 +211,7 @@ export default function ConfigPage() {
           <button
             type="submit"
             disabled={mutation.isPending}
+            data-track-id="config-save"
             className={cns(
               'rounded px-4 py-2 text-sm font-medium transition-colors',
               mutation.isPending

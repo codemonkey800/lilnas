@@ -10,6 +10,7 @@ import { HealthController } from './bot/health.controller'
 import { ConsoleModule } from './console/console.module'
 import { DatabaseModule } from './db/database.module'
 import { buildLoggerOptions } from './logger'
+import { LoggingModule } from './logging/logging.module'
 import { SupervisorModule } from './supervisor/supervisor.module'
 
 // Main-server module: owns the DB (with migration), exposes HTTP controllers
@@ -26,10 +27,11 @@ import { SupervisorModule } from './supervisor/supervisor.module'
 @Module({
   imports: [
     DatabaseModule.forRoot({ migrate: true }),
-    LoggerModule.forRoot(buildLoggerOptions()),
+    LoggerModule.forRoot(buildLoggerOptions('main')),
     SupervisorModule,
     ConsoleModule,
     AuthModule,
+    LoggingModule,
   ],
   controllers: [BotStatusController, HealthController],
   providers: [BotStatusService, { provide: APP_GUARD, useClass: AuthGuard }],

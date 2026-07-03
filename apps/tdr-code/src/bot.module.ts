@@ -16,7 +16,7 @@ import { buildLoggerOptions } from './logger'
 @Module({
   imports: [
     DatabaseModule.forRoot({ migrate: false }),
-    LoggerModule.forRoot(buildLoggerOptions()),
+    LoggerModule.forRoot(buildLoggerOptions('bot')),
     ScheduleModule.forRoot(),
     NecordModule.forRoot({
       development: [env(EnvKeys.DISCORD_GUILD_ID, '')],

@@ -4,13 +4,14 @@ import { cns } from '@lilnas/utils/cns'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import { notFound, useParams } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { EmptyState } from 'src/app/components/empty-state'
 import { ErrorState } from 'src/app/components/error-state'
 import { LoadingState } from 'src/app/components/loading-state'
 import { RelativeTime } from 'src/app/components/relative-time'
 import { api, queryKeys } from 'src/app/lib/api'
+import { logReconcileResult } from 'src/app/lib/reconcile-logging'
 import type {
   TurnContentBlockDto,
   TurnDetailDto,
@@ -116,6 +117,16 @@ function ReconcilePanel({ sessionId }: { sessionId: number }) {
     staleTime: Infinity,
   })
 
+  // Logs what reconcile actually found, not just that someone ran it — a
+  // clean result and a drift result are distinguishable in the log without
+  // anyone needing to be looking at this page when it happens. `data` only
+  // ever resolves once per mount (staleTime: Infinity, no re-trigger
+  // affordance once triggered), so this fires at most once per visit.
+  useEffect(() => {
+    if (!data) return
+    logReconcileResult(sessionId, data)
+  }, [data, sessionId])
+
   return (
     <section className="rounded-lg border border-gray-800 p-4">
       <div className="mb-3 flex items-center justify-between">
@@ -125,6 +136,7 @@ function ReconcilePanel({ sessionId }: { sessionId: number }) {
         {!triggered && (
           <button
             onClick={() => setTriggered(true)}
+            data-track-id="session-run-reconcile"
             className="rounded bg-gray-800 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700"
           >
             Run reconcile

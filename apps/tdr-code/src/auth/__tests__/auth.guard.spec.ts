@@ -55,6 +55,8 @@ import { DB } from 'src/db/database.module'
 import { session } from 'src/db/schema'
 import type { TestDb } from 'src/db/test-db'
 import { createTestDb } from 'src/db/test-db'
+import { BrowserLogsController } from 'src/logging/browser-logs.controller'
+import { BrowserLogsService } from 'src/logging/browser-logs.service'
 import { SupervisorService } from 'src/supervisor/supervisor.service'
 
 // Same test-env scoping convention as auth-mount.spec.ts / guild-gate.spec.ts
@@ -377,6 +379,7 @@ function buildTestControllerModule(db: TestDb['db']) {
   const mockSupervisorService = {
     requestRestart: jest.fn().mockReturnValue({ phase: 'Starting' }),
   }
+  const mockBrowserLogsService = { write: jest.fn() }
   const fakePinoLogger = fakeLogger()
 
   @Module({
@@ -392,6 +395,7 @@ function buildTestControllerModule(db: TestDb['db']) {
       AuthAdminController,
       BotStatusController,
       HealthController,
+      BrowserLogsController,
     ],
     providers: [
       { provide: LiveService, useValue: mockLiveService },
@@ -406,6 +410,7 @@ function buildTestControllerModule(db: TestDb['db']) {
       },
       { provide: BotStatusService, useValue: mockBotStatusService },
       { provide: SupervisorService, useValue: mockSupervisorService },
+      { provide: BrowserLogsService, useValue: mockBrowserLogsService },
       { provide: PinoLogger, useValue: fakePinoLogger },
       { provide: APP_GUARD, useClass: AuthGuard },
     ],
@@ -1020,8 +1025,8 @@ describe('protected-routes.ts — canonical enumeration bookkeeping', () => {
   // summary sentence, not a route this file is missing or has extra. So:
   // 14 (verified pre-existing) + 1 (this unit's own revoke-sessions
   // deliverable) = 15 protected routes; + GET /health public = 16 total.
-  it('enumerates exactly 16 protected routes (15 pre-existing + GET /git-identity/discord-members)', () => {
-    expect(PROTECTED_ROUTES).toHaveLength(16)
+  it('enumerates exactly 17 protected routes (16 pre-existing + POST /logs/browser)', () => {
+    expect(PROTECTED_ROUTES).toHaveLength(17)
   })
 
   it('enumerates exactly one public route: GET /health', () => {

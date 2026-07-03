@@ -59,6 +59,7 @@ function IdentityRow({
         <div className="flex items-center justify-end gap-2">
           <button
             onClick={() => onReplace(item.discordUserId)}
+            data-track-id="git-identity-replace"
             className="rounded bg-gray-800 px-2 py-1 text-xs text-gray-300 hover:bg-gray-700"
           >
             Replace
@@ -80,12 +81,14 @@ function IdentityRow({
                   onClear(item.discordUserId)
                 }}
                 disabled={actionDisabled}
+                data-track-id="git-identity-clear-confirm"
                 className="rounded bg-red-900 px-2 py-1 text-xs text-red-300 hover:bg-red-800 disabled:opacity-50"
               >
                 Confirm
               </button>
               <button
                 onClick={() => setConfirmOpen(false)}
+                data-track-id="git-identity-clear-cancel"
                 className="rounded bg-gray-800 px-2 py-1 text-xs text-gray-300 hover:bg-gray-700"
               >
                 Cancel
@@ -134,6 +137,7 @@ export default function GitIdentityPage() {
   )
 
   const upsertMutation = useMutation({
+    mutationKey: ['git-identity-upsert'],
     mutationFn: api.upsertGitIdentity,
     onSuccess: () => {
       setSaved(true)
@@ -150,6 +154,7 @@ export default function GitIdentityPage() {
   const [clearPendingFor, setClearPendingFor] = useState<string | null>(null)
 
   const clearMutation = useMutation({
+    mutationKey: ['git-identity-clear'],
     mutationFn: (userId: string) => {
       setClearPendingFor(userId)
       return api.deleteGitIdentity(userId)
@@ -288,6 +293,7 @@ export default function GitIdentityPage() {
               disabled={
                 upsertMutation.isPending || clearPendingFor === discordUserId
               }
+              data-track-id="git-identity-save"
               className={cns(
                 'rounded px-4 py-2 text-sm font-medium transition-colors',
                 upsertMutation.isPending || clearPendingFor === discordUserId

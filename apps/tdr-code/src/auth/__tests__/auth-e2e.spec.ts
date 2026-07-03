@@ -46,6 +46,8 @@ import { SessionsService } from 'src/console/sessions.service'
 import { DB } from 'src/db/database.module'
 import type { TestDb } from 'src/db/test-db'
 import { createTestDb } from 'src/db/test-db'
+import { BrowserLogsController } from 'src/logging/browser-logs.controller'
+import { BrowserLogsService } from 'src/logging/browser-logs.service'
 import { SupervisorService } from 'src/supervisor/supervisor.service'
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -213,6 +215,7 @@ function buildTestAppModule(db: TestDb['db']) {
   const mockSupervisorService = {
     requestRestart: jest.fn().mockReturnValue({ phase: 'Starting' }),
   }
+  const mockBrowserLogsService = { write: jest.fn() }
   const fakePinoLogger = fakeLogger()
 
   @Module({
@@ -228,6 +231,7 @@ function buildTestAppModule(db: TestDb['db']) {
       AuthAdminController,
       BotStatusController,
       HealthController,
+      BrowserLogsController,
     ],
     providers: [
       { provide: LiveService, useValue: mockLiveService },
@@ -242,6 +246,7 @@ function buildTestAppModule(db: TestDb['db']) {
       },
       { provide: BotStatusService, useValue: mockBotStatusService },
       { provide: SupervisorService, useValue: mockSupervisorService },
+      { provide: BrowserLogsService, useValue: mockBrowserLogsService },
       { provide: PinoLogger, useValue: fakePinoLogger },
       { provide: APP_GUARD, useClass: AuthGuard },
     ],
@@ -996,8 +1001,8 @@ describe('U5 — end-to-end auth verification harness (pre-cutover gate)', () =>
   // ---------------------------------------------------------------------------
 
   describe('bookkeeping — this suite swept exactly as many routes as PROTECTED_ROUTES declares', () => {
-    it('PROTECTED_ROUTES has exactly 16 entries (the canonical U4 enumeration this suite imports, not a second hand-typed list)', () => {
-      expect(PROTECTED_ROUTES).toHaveLength(16)
+    it('PROTECTED_ROUTES has exactly 17 entries (the canonical U4 enumeration this suite imports, not a second hand-typed list)', () => {
+      expect(PROTECTED_ROUTES).toHaveLength(17)
     })
 
     it('PUBLIC_ROUTES has exactly one entry: GET /health', () => {

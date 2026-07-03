@@ -82,12 +82,14 @@ function LiveRow({
                 setConfirmOpen(false)
                 onTeardown(item.channelId)
               }}
+              data-track-id="dashboard-teardown-confirm"
               className="rounded bg-red-900 px-2 py-1 text-xs text-red-300 hover:bg-red-800"
             >
               Confirm
             </button>
             <button
               onClick={() => setConfirmOpen(false)}
+              data-track-id="dashboard-teardown-cancel"
               className="rounded bg-gray-800 px-2 py-1 text-xs text-gray-300 hover:bg-gray-700"
             >
               Cancel
@@ -115,6 +117,7 @@ export default function DashboardPage() {
   })
 
   const restartMutation = useMutation({
+    mutationKey: ['restart'],
     mutationFn: api.restart,
     onSuccess: () => {
       setRestartError(null)
@@ -129,6 +132,7 @@ export default function DashboardPage() {
   })
 
   const teardownMutation = useMutation({
+    mutationKey: ['teardown'],
     mutationFn: (channelId: string) => api.teardown(channelId),
     onMutate: channelId =>
       void queryClient.setQueryData<LiveResponseDto>(queryKeys.live, old =>
@@ -175,12 +179,14 @@ export default function DashboardPage() {
               </span>
               <button
                 onClick={() => restartMutation.mutate()}
+                data-track-id="dashboard-restart-confirm"
                 className="rounded bg-red-900 px-3 py-1.5 text-sm text-red-300 hover:bg-red-800"
               >
                 Confirm restart
               </button>
               <button
                 onClick={() => setConfirmRestart(false)}
+                data-track-id="dashboard-restart-cancel"
                 className="rounded bg-gray-800 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-700"
               >
                 Cancel

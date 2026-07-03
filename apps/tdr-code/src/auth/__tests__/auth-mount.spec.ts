@@ -417,40 +417,53 @@ describe('pino redaction (logger.ts) — real serialized output, not just config
 
   function loggerOptionsFor(nodeEnv: 'production' | 'development') {
     setNodeEnv(nodeEnv)
-    return buildLoggerOptions()
+    // 'main' vs 'bot' only affects the `base.process` tag — irrelevant to
+    // every assertion in this describe block, which is entirely about
+    // redaction, so an arbitrary literal is fine here.
+    return buildLoggerOptions('main')
   }
 
   afterEach(() => {
     setNodeEnv('test')
   })
 
-  // A minimal synchronous pino.DestinationStream that buffers whatever pino
-  // writes to it, so a test can inspect the exact serialized (and, by the
-  // time write() is called, already-redacted) JSON line.
-  function makeBufferedDestination(): pino.DestinationStream & {
-    buffered: string
-  } {
-    return {
-      buffered: '',
-      write(chunk: string) {
-        this.buffered += chunk
+  // buildLoggerOptions()'s production branch now always sets `transport`
+  // (the backend.<env>.log file target, added alongside this unit's own
+  // work) — pino throws ("only one of option.transport or stream can be
+  // specified") if a destination is ALSO passed as pino()'s second argument
+  // once `transport` is set, so the old synchronous
+  // pino(pinoOptions, customDestination) capture technique no longer works
+  // for the prod branch. This overrides `transport` to redirect the real
+  // file target at a throwaway temp path instead (same technique the dev
+  // test below already uses for its own pino-pretty transport), keeping
+  // `redact`/`level`/`base` from the real config.
+  async function logAndCaptureViaTransport(
+    pinoHttp: object,
+    logObject: object,
+  ): Promise<Record<string, unknown>> {
+    const outputPath = path.join(
+      os.tmpdir(),
+      `tdr-code-redact-test-prod-${process.pid}-${Date.now()}.log`,
+    )
+    const logger = pino({
+      ...pinoHttp,
+      transport: {
+        target: 'pino/file',
+        options: { destination: outputPath, mkdir: true },
       },
+    })
+    logger.info(logObject, 'test log line')
+    try {
+      const written = await pollForFileContent(outputPath, 5_000)
+      return JSON.parse(written) as Record<string, unknown>
+    } finally {
+      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath)
     }
   }
 
-  function logAndCapture(
-    pinoOptions: object,
-    logObject: object,
-  ): Record<string, unknown> {
-    const destination = makeBufferedDestination()
-    const logger = pino(pinoOptions, destination)
-    logger.info(logObject, 'test log line')
-    return JSON.parse(destination.buffered) as Record<string, unknown>
-  }
-
-  it('production config redacts cookies, auth headers, and the OAuth query string in req.url', () => {
+  it('production config redacts cookies, auth headers, and the OAuth query string in req.url', async () => {
     const { pinoHttp } = loggerOptionsFor('production')
-    const line = logAndCapture(pinoHttp, {
+    const line = await logAndCaptureViaTransport(pinoHttp, {
       req: {
         url: '/auth/callback/discord?code=OAUTHCODE123&state=STATEVAL456',
         headers: {
@@ -481,9 +494,11 @@ describe('pino redaction (logger.ts) — real serialized output, not just config
     expect(raw).not.toContain('FAKE-SSH-PRIVATE-KEY-CONTENT')
   })
 
-  it('a non-auth URL keeps its query string (redaction is scoped to /auth/*, not global)', () => {
+  it('a non-auth URL keeps its query string (redaction is scoped to /auth/*, not global)', async () => {
     const { pinoHttp } = loggerOptionsFor('production')
-    const line = logAndCapture(pinoHttp, { req: { url: '/live?foo=bar' } })
+    const line = await logAndCaptureViaTransport(pinoHttp, {
+      req: { url: '/live?foo=bar' },
+    })
 
     const req = line.req as Record<string, unknown>
     expect(req.url).toBe('/live?foo=bar')
