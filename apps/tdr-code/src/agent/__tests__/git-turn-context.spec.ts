@@ -153,6 +153,13 @@ describe('GitTurnContext', () => {
       // Must NOT use the blocking wrapper for a configured user
       expect(sshCommand).not.toContain('git-ssh-wrapper')
 
+      // `configured` marker written — gates scripts/git's local-write block
+      const configuredWrite = writeFileSpy.mock.calls.find(([p]) =>
+        (p as string).endsWith(path.join('ch1', 'configured')),
+      )
+      expect(configuredWrite).toBeDefined()
+      expect(configuredWrite![1]).toBe('SHA256:test')
+
       ctx.end('ch1')
 
       // Key removed after end()
@@ -238,6 +245,41 @@ describe('GitTurnContext', () => {
       )
       expect(sshWrite).toBeDefined()
       expect(sshWrite![1] as string).toContain('git-ssh-wrapper')
+
+      // No `configured` marker for an unconfigured user — scripts/git's
+      // local-write block must default to blocked (fail-closed).
+      const configuredWrite = writeFileSpy.mock.calls.find(([p]) =>
+        (p as string).endsWith(path.join('ch1', 'configured')),
+      )
+      expect(configuredWrite).toBeUndefined()
+
+      writeFileSpy.mockRestore()
+    })
+
+    it('does not write a `configured` marker for a decrypt-failed user', async () => {
+      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
+        kind: 'decrypt_failed',
+        fingerprint: 'SHA256:stale',
+      })
+      ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(false)
+
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      const writeFileSpy = jest
+        .spyOn(fs, 'writeFileSync')
+        .mockImplementation(() => undefined)
+
+      const ctx = new GitTurnContext({
+        db: makeDb(),
+        generationId: 1,
+      })
+
+      await ctx.begin('ch1', '123456789012345678', jest.fn())
+      ctx.end('ch1')
+
+      const configuredWrite = writeFileSpy.mock.calls.find(([p]) =>
+        (p as string).endsWith(path.join('ch1', 'configured')),
+      )
+      expect(configuredWrite).toBeUndefined()
 
       writeFileSpy.mockRestore()
     })

@@ -753,3 +753,78 @@ flowchart LR
 - **Storage backup tiers:** `docs/semantic-storage.md`
 - **Institutional learnings:** `docs/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md`, `docs/solutions/conventions/type-guards-over-nonnull-assertions-on-db-rows-2026-05-30.md`, `docs/solutions/architecture-patterns/pure-fsm-core-for-stateful-domain-logic-2026-05-27.md`, `docs/solutions/conventions/atomicity-tests-must-reach-the-write-phase-2026-06-03.md`
 - **Key code:** `apps/tdr-code/src/agent/session-manager.service.ts`, `src/db/schema.ts`, `src/commands/command-poller.service.ts`, `src/db/command.repo.ts`, `src/console/lifecycle.controller.ts`, `src/discord/discord-handler.service.ts`, `src/bootstrap.ts`, `src/bot-bootstrap.ts`, `src/app/lib/api.ts`, `src/db/test-db.ts`
+
+---
+
+## Addendum (2026-07-03): local-write block in `scripts/git`
+
+**Status:** Implemented as a follow-up to this plan. Does not revise any
+Decision or Requirement above — restates and extends Decision #10a's posture
+to a second enforcement point.
+
+**What changed:** `apps/tdr-code/scripts/git` (the PATH-level wrapper
+injected into the agent's own env, distinct from `git-ssh-wrapper.sh`) now
+also denies `commit`, `commit-tree`, `merge`, `rebase`, `cherry-pick`,
+`revert`, `am`, `push`, and `pull` when the triggering user's identity isn't
+configured. `push` is included here too, as defense-in-depth: the existing
+SSH wrapper only ever sees push attempts that go over an SSH transport (it
+runs as `core.sshCommand`); a repo configured with an HTTPS or local-path
+remote could push completely unguarded before this change. `pull` is
+included because it's fetch+merge — a non-fast-forward pull creates a merge
+commit under the placeholder identity, the same concern as bare `merge`.
+
+**Fail-closed gate, not a "blocked" flag:** `GitTurnContext.begin()` now
+writes a `configured` marker file (content: the key fingerprint, a free
+debug value) into the per-turn identity dir, but **only** in the
+`isConfigured(resolution)` branch. `scripts/git` blocks the verbs above when
+that file is **absent**. This is deliberately the inverse of a "write a
+`blocked` file when unconfigured" design: gating on the *absence* of a
+positive "identity confirmed" signal means that if the write is ever
+skipped for any reason (bug, crash mid-`begin()`, disk issue), the fallback
+is to block, not to silently allow — matching `git-ssh-wrapper.sh`'s own
+explicit "default-deny" principle. The requirement being enforced is
+identity configuration, not SSH specifically; unlike the push block, most of
+these verbs never touch SSH at all, so gating them on "is there a valid SSH
+command" would have been the wrong signal even though today the two happen
+to be written together.
+
+**Why this is still scoped to a UX nudge, not containment (restating
+Decision #10a so it is not later over-trusted):** the same
+`--dangerously-skip-permissions` agent that could already bypass the SSH
+push block (`-c core.sshCommand=…`, `GIT_SSH_COMMAND=…`, editing
+`.git/config`, generating its own key, an HTTPS remote) can bypass this new
+block just as trivially: `$TDR_REAL_GIT` — the real git binary's absolute
+path — is exported directly into the agent's own environment (needed so the
+wrapper itself can delegate to it), so `"$TDR_REAL_GIT" commit ...` skips
+the wrapper entirely; a raw filesystem write to `.git/objects`/`.git/refs`
+bypasses git as a binary altogether. A real containment boundary (removing
+`--dangerously-skip-permissions` in favor of ACP-mediated permission
+gating, and/or server-side enforcement via branch protection / per-user key
+scope) was explicitly considered and deferred as a separate, larger
+decision; this follow-up does not attempt it and should not be read as
+having done so.
+
+**Pre-existing gap, confirmed but explicitly NOT addressed here:** this
+plan's own U9/U12 called for `insertEvent`-ing `git_push_blocked`/
+`git_key_decrypt_failed` from `GitTurnContext.begin()`'s not-configured
+branch, plus a dedicated Discord-notice handler. Neither shipped —
+`git-turn-context.ts` has no `insertEvent` call today, for the original push
+block or this new local-write block. This follow-up does not add
+event-logging either, to avoid fixing half of a gap that predates and
+extends beyond it. A future pass should cover both together, including the
+event-context shape and any CHECK-constraint migration it needs, as its own
+unit.
+
+**Also fixed as a prerequisite:** `apps/tdr-code/scripts/git` previously
+hardcoded `/run/tdr-code/identity`, unlike `git-turn-context.ts`'s
+`TDR_CODE_RUN_DIR`-respecting `RUN_DIR` — this had no macOS-dev path and is
+why this script's own test suite (`scripts/__tests__/git.spec.ts`) had given
+up on real integration coverage of the identity-dir behavior, falling back
+to a bash syntax check. Both scripts now respect `TDR_CODE_RUN_DIR`
+consistently. Separately, `jest.config.js`'s two projects' `roots` (`src`,
+`src/app`) never included `scripts/`, so `scripts/__tests__/*.spec.ts` were
+not discovered by `pnpm test`/`turbo test` at all (confirmed via
+`npx jest --listTests`) — a third minimal `scripts` Jest project was added
+to close this.
+
+**Files:** `apps/tdr-code/scripts/git`, `apps/tdr-code/src/agent/git-turn-context.ts`, `apps/tdr-code/jest.config.js`, `apps/tdr-code/scripts/__tests__/git.spec.ts`, `apps/tdr-code/src/agent/__tests__/git-turn-context.spec.ts`

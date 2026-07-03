@@ -1,19 +1,40 @@
 #!/usr/bin/env bash
 # git — PATH wrapper injected by tdr-code into the Claude subprocess environment.
 #
-# Reads per-turn identity from /run/tdr-code/identity/$TDR_CHANNEL_ID/ and
+# Reads per-turn identity from ${RUN_DIR}/identity/$TDR_CHANNEL_ID/ and
 # exports git env vars before delegating to the real git binary ($TDR_REAL_GIT).
 #
 # Files written by GitTurnContext.begin() and removed by GitTurnContext.end():
 #   name        — GIT_AUTHOR_NAME / GIT_COMMITTER_NAME
 #   email       — GIT_AUTHOR_EMAIL / GIT_COMMITTER_EMAIL
 #   ssh_command — GIT_SSH_COMMAND (configured key path or blocking wrapper)
+#   configured  — presence-only gate: written ONLY when the turn's identity
+#                 is confirmed configured. Its ABSENCE (not the presence of
+#                 some other "blocked" marker) is what triggers the
+#                 local-write block below — fail-closed, so a skipped write
+#                 blocks rather than silently allows.
 #
 # If no identity dir exists (no active turn or non-git cwd) git runs unmodified.
+#
+# Local-write block (follow-up to Decision #10a in
+# docs/plans/2026-07-01-001-feat-tdr-code-phase-c-config-git-identity-plan.md):
+# for a turn whose identity isn't configured, deny git verbs that create
+# commits under the placeholder identity or push/pull them, BEFORE exec'ing
+# real git. This is a UX nudge for the normal PATH-lookup code path, not a
+# containment boundary — identical posture and identical bypass surface to
+# git-ssh-wrapper.sh: this script's own $TDR_REAL_GIT is exported into the
+# agent's env (needed so it can delegate), so `"$TDR_REAL_GIT" commit ...`
+# bypasses it entirely; a raw write to .git/objects/.git/refs bypasses git
+# as a binary altogether. `git notes` and history-rewriting commands
+# (filter-branch/filter-repo) are deliberately excluded from the blocked set
+# below — obscure enough that an agent won't emit them unprompted.
 
 set -euo pipefail
 
-IDENTITY_DIR="/run/tdr-code/identity/${TDR_CHANNEL_ID:-}"
+# Mirrors the Node side's override (git-turn-context.ts) — fixes macOS-dev
+# parity and enables real (non-syntax-only) integration testing.
+RUN_DIR="${TDR_CODE_RUN_DIR:-/run/tdr-code}"
+IDENTITY_DIR="${RUN_DIR}/identity/${TDR_CHANNEL_ID:-}"
 
 if [ -n "${TDR_CHANNEL_ID:-}" ] && [ -d "$IDENTITY_DIR" ]; then
   GIT_AUTHOR_NAME=$(cat "$IDENTITY_DIR/name")
@@ -25,6 +46,49 @@ if [ -n "${TDR_CHANNEL_ID:-}" ] && [ -d "$IDENTITY_DIR" ]; then
   if [ -f "$IDENTITY_DIR/ssh_command" ]; then
     GIT_SSH_COMMAND=$(cat "$IDENTITY_DIR/ssh_command")
     export GIT_SSH_COMMAND
+  fi
+
+  if [ ! -f "$IDENTITY_DIR/configured" ]; then
+    CONSOLE_URL="${TDR_CODE_CONSOLE_URL:-https://tdr-code.lilnas.io}"
+
+    # Find the git verb: the first argument that is not a global option and
+    # is not itself the value of a global option that takes one (-C <path>,
+    # -c <key>=<value>). Does NOT attempt full getopt-style parsing of every
+    # git global option (--work-tree, --namespace, --exec-path, etc.) —
+    # accepted limitation, same rigor level as git-ssh-wrapper.sh's own verb
+    # scan. -C/-c are handled because they are the pattern an agent
+    # plausibly emits (`git -C /workspace commit -m "..."`).
+    #
+    # Scans a snapshot array by index rather than `shift`-ing "$@" directly
+    # — shifting would consume the very positional parameters the final
+    # `exec "${TDR_REAL_GIT}" "$@"` below still needs, silently dropping
+    # leading flags/values whenever no blocked verb is found.
+    GIT_VERB=""
+    args=("$@")
+    i=0
+    while [ "$i" -lt "${#args[@]}" ]; do
+      case "${args[$i]}" in
+        -C|-c)
+          i=$((i + 2))
+          ;;
+        -*)
+          i=$((i + 1))
+          ;;
+        *)
+          GIT_VERB="${args[$i]}"
+          break
+          ;;
+      esac
+    done
+
+    case "$GIT_VERB" in
+      commit|commit-tree|merge|rebase|cherry-pick|revert|am|push|pull)
+        echo "error: git ${GIT_VERB} is blocked: your git identity is not configured." >&2
+        echo "       Configure your identity at: ${CONSOLE_URL}/git-identity" >&2
+        echo "       Writes are blocked until your git identity is configured." >&2
+        exit 1
+        ;;
+    esac
   fi
 fi
 

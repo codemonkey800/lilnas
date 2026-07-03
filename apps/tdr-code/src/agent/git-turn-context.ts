@@ -106,6 +106,15 @@ export class GitTurnContext {
       fs.writeFileSync(path.join(idDir, 'ssh_command'), sshCommand, {
         mode: 0o600,
       })
+      // Positive gate signal for the `scripts/git` PATH wrapper's local-write
+      // block: presence means "identity confirmed configured for this turn."
+      // Content (fingerprint) is a free debug value. Deliberately NOT written
+      // in the unconfigured/decrypt-failed branch below, so the wrapper's
+      // check defaults to blocked (fail-closed) if this write is ever
+      // skipped.
+      fs.writeFileSync(path.join(idDir, 'configured'), resolution.fingerprint, {
+        mode: 0o600,
+      })
       state.identityDir = idDir
     } else {
       // No identity or decrypt failure → write identity files with blocking wrapper.

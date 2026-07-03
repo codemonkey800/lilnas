@@ -28,6 +28,52 @@ async function runWrapper(
     }))
 }
 
+const CHANNEL_ID = 'ch1'
+
+// Verbs that create commits under the placeholder identity, or push/pull
+// them — see the wrapper's own header comment for the rationale per verb.
+const BLOCKED_VERBS = [
+  'commit',
+  'commit-tree',
+  'merge',
+  'rebase',
+  'cherry-pick',
+  'revert',
+  'am',
+  'push',
+  'pull',
+]
+
+// Read-only, inert-until-pushed, or needed for normal agent workflow.
+const ALLOWED_VERBS = [
+  'status',
+  'diff',
+  'log',
+  'show',
+  'add',
+  'branch',
+  'checkout',
+  'switch',
+  'stash',
+  'fetch',
+  'clone',
+  'reset',
+  'tag',
+]
+
+// Fake git executable used as TDR_REAL_GIT so tests assert against a known,
+// stable exit code/output instead of real git's behavior against a
+// non-repo cwd.
+function writeFakeGit(dir: string): string {
+  const fakeGit = path.join(dir, 'fake-git')
+  fs.writeFileSync(
+    fakeGit,
+    '#!/usr/bin/env bash\necho ran-real-git "$@"\nexit 0\n',
+    { mode: 0o755 },
+  )
+  return fakeGit
+}
+
 describe('scripts/git wrapper', () => {
   describe('no identity dir — passthrough', () => {
     it('delegates to TDR_REAL_GIT when no identity dir exists', async () => {
@@ -47,49 +93,50 @@ describe('scripts/git wrapper', () => {
     })
   })
 
-  describe('with identity dir — env vars exported', () => {
-    let tmpDir: string
+  describe('with identity dir', () => {
+    let runDir: string
+    let idDir: string
+    let fakeGit: string
 
     beforeEach(() => {
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tdr-git-test-'))
+      runDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tdr-git-test-'))
+      idDir = path.join(runDir, 'identity', CHANNEL_ID)
+      fs.mkdirSync(idDir, { recursive: true })
+      fs.writeFileSync(path.join(idDir, 'name'), 'Jane Doe')
+      fs.writeFileSync(path.join(idDir, 'email'), 'jane@example.com')
+      fakeGit = writeFakeGit(runDir)
     })
 
     afterEach(() => {
-      fs.rmSync(tmpDir, { recursive: true, force: true })
+      fs.rmSync(runDir, { recursive: true, force: true })
     })
 
-    it('exports GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL from identity files', async () => {
-      const channelId = path.basename(tmpDir)
-      const idDir = path.join(tmpDir, channelId)
-      fs.mkdirSync(idDir)
-      fs.writeFileSync(path.join(idDir, 'name'), 'Jane Doe')
-      fs.writeFileSync(path.join(idDir, 'email'), 'jane@example.com')
-
-      // Use a real git command that prints env — use git var to check config,
-      // or just use env to verify the exported vars reach the subprocess.
-      // We run `env` via a fake TDR_REAL_GIT to capture exported vars.
-      const fakeGit = path.join(tmpDir, 'fake-git')
-      fs.writeFileSync(
-        fakeGit,
-        '#!/usr/bin/env bash\nenv\n',
-        { mode: 0o755 },
-      )
-
-      const { stdout } = await runWrapper([], {
-        TDR_CHANNEL_ID: channelId,
+    function run(args: string[]) {
+      return runWrapper(args, {
+        TDR_CHANNEL_ID: CHANNEL_ID,
+        TDR_CODE_RUN_DIR: runDir,
         TDR_REAL_GIT: fakeGit,
-        // Override /run/tdr-code/identity with our tmp dir
+      })
+    }
+
+    it('exports GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL from identity files', async () => {
+      const envFakeGit = path.join(runDir, 'env-fake-git')
+      fs.writeFileSync(envFakeGit, '#!/usr/bin/env bash\nenv\n', {
+        mode: 0o755,
       })
 
-      // The wrapper uses hardcoded /run/tdr-code/identity — we test via
-      // a symlink to redirect the lookup to our tmp dir.
-      // Simpler: just verify the wrapper script is syntactically valid here;
-      // integration is covered by the identity-dir presence check test above.
-      // Structural test: wrapper must be executable and parseable by bash.
-      const { code: syntaxCode } = await execFileAsync('bash', ['-n', WRAPPER])
-        .then(() => ({ code: 0 }))
-        .catch((e: { code?: number }) => ({ code: e.code ?? 1 }))
-      expect(syntaxCode).toBe(0)
+      // `status` is never in the blocked set, so this is a deterministic
+      // passthrough regardless of whether `configured` exists.
+      const { stdout } = await runWrapper(['status'], {
+        TDR_CHANNEL_ID: CHANNEL_ID,
+        TDR_CODE_RUN_DIR: runDir,
+        TDR_REAL_GIT: envFakeGit,
+      })
+
+      expect(stdout).toContain('GIT_AUTHOR_NAME=Jane Doe')
+      expect(stdout).toContain('GIT_AUTHOR_EMAIL=jane@example.com')
+      expect(stdout).toContain('GIT_COMMITTER_NAME=Jane Doe')
+      expect(stdout).toContain('GIT_COMMITTER_EMAIL=jane@example.com')
     })
 
     it('wrapper script passes bash syntax check', async () => {
@@ -97,6 +144,78 @@ describe('scripts/git wrapper', () => {
         .then(() => ({ code: 0 }))
         .catch((e: { code?: number }) => ({ code: e.code ?? 1 }))
       expect(code).toBe(0)
+    })
+
+    describe('local-write block — `configured` file absent (fail-closed default)', () => {
+      it.each(BLOCKED_VERBS)(
+        'blocks "git %s" with a nonzero exit and an identity-configured message',
+        async verb => {
+          const { code, stderr } = await run([verb])
+          expect(code).not.toBe(0)
+          expect(stderr).toContain(`git ${verb} is blocked`)
+          expect(stderr).toContain('your git identity is not configured')
+          expect(stderr).toContain('/git-identity')
+        },
+      )
+
+      it.each(ALLOWED_VERBS)('does not block "git %s"', async verb => {
+        const { code, stdout } = await run([verb])
+        expect(code).toBe(0)
+        expect(stdout).toContain(`ran-real-git ${verb}`)
+      })
+
+      it('detects the verb after `-C <path>`', async () => {
+        const { code, stderr } = await run(['-C', '/tmp', 'commit', '-m', 'x'])
+        expect(code).not.toBe(0)
+        expect(stderr).toContain('git commit is blocked')
+      })
+
+      it('detects the verb after `-c <key>=<value>`', async () => {
+        const { code, stderr } = await run(['-c', 'user.name=x', 'push'])
+        expect(code).not.toBe(0)
+        expect(stderr).toContain('git push is blocked')
+      })
+
+      it('consumes multiple repeated `-c` pairs before finding the verb', async () => {
+        const { code, stderr } = await run(['-c', 'a=b', '-c', 'c=d', 'rebase'])
+        expect(code).not.toBe(0)
+        expect(stderr).toContain('git rebase is blocked')
+      })
+
+      it('falls through safely when a trailing -C has no value', async () => {
+        // Malformed invocation: GIT_VERB stays empty (matches no blocked
+        // verb), so it falls through to the real git rather than erroring
+        // inside the wrapper itself.
+        const { code, stdout } = await run(['-C'])
+        expect(code).toBe(0)
+        expect(stdout).toContain('ran-real-git -C')
+      })
+    })
+
+    describe('local-write block — `configured` file present', () => {
+      beforeEach(() => {
+        fs.writeFileSync(path.join(idDir, 'configured'), 'SHA256:test')
+      })
+
+      it.each(BLOCKED_VERBS)(
+        'does not block "git %s" once identity is configured',
+        async verb => {
+          const { code, stdout } = await run([verb])
+          expect(code).toBe(0)
+          expect(stdout).toContain(`ran-real-git ${verb}`)
+        },
+      )
+    })
+
+    describe('identity dir present but `configured` was never written', () => {
+      it('still blocks — the exact write-was-skipped failure mode this design defends against', async () => {
+        // idDir already has name/email (from beforeEach) but no
+        // `configured` and no `ssh_command` — simulates an incomplete or
+        // partially-failed turn setup.
+        const { code, stderr } = await run(['commit'])
+        expect(code).not.toBe(0)
+        expect(stderr).toContain('git commit is blocked')
+      })
     })
   })
 })

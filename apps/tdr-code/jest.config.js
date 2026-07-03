@@ -202,8 +202,27 @@ const frontendProject = {
   },
 }
 
+// scripts project — bash wrapper integration tests (scripts/git,
+// scripts/git-ssh-wrapper.sh). These spawn real bash + fake git executables
+// via execFile; the specs reference no app source modules (only
+// node:child_process/fs/os/path), so they get their own minimal project
+// rather than widening backendProject's `roots` to include `scripts/` (which
+// would also pull in that project's better-auth/msw-specific
+// transformIgnorePatterns/moduleNameMapper entries for no reason). Neither
+// existing project's `roots` (`src`, `src/app`) includes `scripts/`, so
+// scripts/__tests__/*.spec.ts were previously never discovered by
+// `pnpm test`/`turbo test` at all (confirmed via `npx jest --listTests`).
+const scriptsProject = {
+  displayName: 'scripts',
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  rootDir: '.',
+  roots: ['<rootDir>/scripts'],
+  testMatch: ['**/__tests__/**/*.spec.ts'],
+}
+
 module.exports = {
-  projects: [backendProject, frontendProject],
+  projects: [backendProject, frontendProject, scriptsProject],
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',
