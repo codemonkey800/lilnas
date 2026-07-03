@@ -232,6 +232,64 @@ describe('createAcpClient — session_info_update dispatch (U3, R12)', () => {
   )
 })
 
+describe('createAcpClient — tool_call_update dispatch', () => {
+  it('forwards the resolved title once the tool input finishes streaming (regression: bare "Terminal"/"Read" label never resolving to the real command/file)', async () => {
+    const handlers = createMockHandlers()
+    const client = createAcpClient('ch1', handlers)
+
+    await client.sessionUpdate!({
+      update: {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'tc1',
+        status: 'in_progress',
+        title: 'git status',
+        content: [],
+        rawInput: { command: 'git status' },
+      },
+    } as never)
+
+    expect(handlers.onToolCallUpdate).toHaveBeenCalledWith(
+      'ch1',
+      'tc1',
+      'in_progress',
+      [],
+      { command: 'git status' },
+      'git status',
+    )
+  })
+
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['empty string', ''],
+  ])(
+    'forwards undefined as the title when the update title is %s (no change from the placeholder)',
+    async (_label, title) => {
+      const handlers = createMockHandlers()
+      const client = createAcpClient('ch1', handlers)
+
+      await client.sessionUpdate!({
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'tc1',
+          status: 'completed',
+          title,
+          content: [],
+        },
+      } as never)
+
+      expect(handlers.onToolCallUpdate).toHaveBeenCalledWith(
+        'ch1',
+        'tc1',
+        'completed',
+        [],
+        undefined,
+        undefined,
+      )
+    },
+  )
+})
+
 describe('createAcpClient — usage_update dispatch', () => {
   it('calls onUsageUpdate with used/size forwarded verbatim', async () => {
     const handlers = createMockHandlers()

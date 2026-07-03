@@ -37,12 +37,17 @@ export interface AcpEventHandlers {
     diffs: DiffContent[],
     rawInput?: Record<string, unknown>,
   ): void
+  // title/rawInput are only present when the ACP bridge resends a corrected
+  // value once the tool's real input finishes streaming (e.g. Bash's command
+  // text arrives empty on the initial tool_call, then resolved here) —
+  // absent means "no change from what onToolCall already recorded".
   onToolCallUpdate(
     channelId: string,
     toolCallId: string,
     status: string,
     diffs: DiffContent[],
     rawInput?: Record<string, unknown>,
+    title?: string,
   ): void
   onAgentMessageChunk(channelId: string, text: string): void
   onAgentMessageImage(channelId: string, data: string, mimeType: string): void
