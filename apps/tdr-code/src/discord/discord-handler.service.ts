@@ -33,6 +33,7 @@ import { SessionManagerService } from 'src/agent/session-manager.service'
 import { fetchChannel as fetchChannelUtil } from 'src/discord/fetch-channel'
 import { extractImages, MAX_IMAGE_BYTES } from 'src/discord/image-attachments'
 import { stopButtonId } from 'src/discord/stop-button-id'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 // Discord's hard limit on thread names is 100 chars; seed shorter to leave
 // headroom for the eventual title-based rename (U6).
@@ -360,7 +361,12 @@ export class DiscordHandlerService
           .catch(() => {})
       } else {
         this.logger.error(
-          { err, channelId: key, userId: message.author.id },
+          {
+            event: LOG_EVENTS.promptFailedUnexpectedly,
+            err,
+            channelId: key,
+            userId: message.author.id,
+          },
           'Prompt failed unexpectedly',
         )
         await message
@@ -811,7 +817,12 @@ export class DiscordHandlerService
     const buf = Buffer.from(data, 'base64')
     if (buf.byteLength > MAX_IMAGE_BYTES) {
       this.logger.warn(
-        { channelId, byteLength: buf.byteLength, capBytes: MAX_IMAGE_BYTES },
+        {
+          event: LOG_EVENTS.outboundImageDropped,
+          channelId,
+          byteLength: buf.byteLength,
+          capBytes: MAX_IMAGE_BYTES,
+        },
         'Dropping outbound image over byte cap',
       )
       return

@@ -14,6 +14,7 @@ import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
 import { insertEvent } from 'src/db/events.repo'
 import { EnvKeys } from 'src/env'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 // Discord snowflake: 17–20 digit numeric string.
 const DiscordSnowflakeSchema = z
@@ -52,7 +53,10 @@ export class CommandPollerService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit(): void {
     if (this.generationId == null) {
-      this.logger.warn('BOT_GENERATION_ID not set — command poller inactive')
+      this.logger.warn(
+        { event: LOG_EVENTS.commandPollerInactive },
+        'BOT_GENERATION_ID not set — command poller inactive',
+      )
       return
     }
     this.armPoll()
@@ -87,7 +91,7 @@ export class CommandPollerService implements OnModuleInit, OnModuleDestroy {
       )
     } catch (err) {
       this.logger.warn(
-        { err, generationId: genId },
+        { event: LOG_EVENTS.commandPollError, err, generationId: genId },
         'Command poll error — will retry next tick',
       )
     }
@@ -103,6 +107,7 @@ export class CommandPollerService implements OnModuleInit, OnModuleDestroy {
     if (!result.ok) {
       this.logger.warn(
         {
+          event: LOG_EVENTS.commandValidationAnomaly,
           commandId: row.id,
           type: row.type,
           target: row.target,
@@ -127,7 +132,11 @@ export class CommandPollerService implements OnModuleInit, OnModuleDestroy {
           })
         } catch (err) {
           this.logger.warn(
-            { err, generationId: genId },
+            {
+              event: LOG_EVENTS.commandAnomalyEventInsertFailed,
+              err,
+              generationId: genId,
+            },
             'Failed to write command_anomaly event',
           )
         }
@@ -139,6 +148,7 @@ export class CommandPollerService implements OnModuleInit, OnModuleDestroy {
         this.sessionManager.teardown(result.command.target)
         this.logger.info(
           {
+            event: LOG_EVENTS.commandTeardownDispatched,
             channelId: result.command.target,
             commandId: row.id,
             generationId: this.generationId,
@@ -149,7 +159,11 @@ export class CommandPollerService implements OnModuleInit, OnModuleDestroy {
       case 'reread_config':
         this.sessionManager.rereadConfig()
         this.logger.info(
-          { commandId: row.id, generationId: this.generationId },
+          {
+            event: LOG_EVENTS.commandRereadConfigDispatched,
+            commandId: row.id,
+            generationId: this.generationId,
+          },
           'Dispatched reread_config',
         )
         break

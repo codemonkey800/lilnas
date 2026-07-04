@@ -20,6 +20,7 @@ import {
   THREAD_AUTO_ARCHIVE_MINUTES,
 } from 'src/discord/discord-handler.service'
 import { fetchChannel } from 'src/discord/fetch-channel'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 // Ascending — onUsageUpdate relies on this order to find the *highest*
 // newly-crossed threshold (so a 0%→96% jump in one update notifies 95% only,
@@ -111,11 +112,14 @@ export class ContextUsageService implements AcpEventHandlers {
     if (crossed === HANDOFF_THRESHOLD) {
       state.handoffInFlight = true
       this.logger.info(
-        { channelId, used, size },
+        { event: LOG_EVENTS.contextHandoffTriggered, channelId, used, size },
         'Context handoff triggered (95% threshold crossed)',
       )
       void this.runHandoff(channelId).catch(err => {
-        this.logger.error({ err, channelId }, 'runHandoff failed')
+        this.logger.error(
+          { event: LOG_EVENTS.contextHandoffFailed, err, channelId },
+          'runHandoff failed',
+        )
         const s = this.channelState.get(channelId)
         if (s) s.handoffInFlight = false
       })
@@ -279,7 +283,11 @@ export class ContextUsageService implements AcpEventHandlers {
       .prompt(target.newChannelId, buildSeedPrompt(summary), triggeringUserId)
       .catch(err => {
         this.logger.error(
-          { err, channelId: target.newChannelId },
+          {
+            event: LOG_EVENTS.contextHandoffSeedPromptFailed,
+            err,
+            channelId: target.newChannelId,
+          },
           'Seed prompt failed',
         )
       })
@@ -363,7 +371,11 @@ export class ContextUsageService implements AcpEventHandlers {
           }
         } catch (err) {
           this.logger.warn(
-            { err, channelId },
+            {
+              event: LOG_EVENTS.contextHandoffThreadCreationFailed,
+              err,
+              channelId,
+            },
             'Continuation thread creation failed, falling back to inline',
           )
         }

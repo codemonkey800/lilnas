@@ -5,6 +5,7 @@ import { PinoLogger } from 'nestjs-pino'
 
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { STOP_ID_PREFIX } from 'src/discord/stop-button-id'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 @Injectable()
 export class StopButtonService {
@@ -44,7 +45,12 @@ export class StopButtonService {
 
     const cancelled = this.sessionManager.cancel(rawChannelId, turnId)
     this.logger.info(
-      { channelId: rawChannelId, turnId, cancelled },
+      {
+        event: LOG_EVENTS.stopButtonPressed,
+        channelId: rawChannelId,
+        turnId,
+        cancelled,
+      },
       'Stop button pressed',
     )
 

@@ -1,5 +1,6 @@
 import { PinoLogger } from 'nestjs-pino'
 
+import { createLoggerSpy, LoggerSpy } from 'src/__tests__/test-utils'
 import type {
   AcpEventHandlers,
   PromptStartContext,
@@ -366,6 +367,39 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
       const ctxStr = JSON.stringify(valuesCall.context)
       expect(ctxStr).not.toContain('payload text that should not appear')
       expect(ctxStr).not.toContain('secret prompt content')
+    })
+  })
+
+  describe('Structured logging (U4): handleWriterError carries event: writer-fault', () => {
+    it('logs { event: "writer-fault", err, op, channelId, code } on a writer-side fault', () => {
+      const discord = makeDiscordMock()
+      const writer = makeWriterMock()
+      const db = makeDbMock()
+      const loggerSpy: LoggerSpy = createLoggerSpy()
+      const err = new Error('write fail')
+      writer.onToolCall.mockImplementation(() => {
+        throw err
+      })
+
+      const composite = new (CompositeAcpHandler as unknown as CompositeCtor)(
+        discord,
+        writer,
+        makeContextUsageMock(),
+        db,
+        loggerSpy as unknown as PinoLogger,
+      )
+
+      composite.onToolCall('ch1', 'ref1', 'write_file', 'fs', 'pending', [])
+
+      expect(loggerSpy.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'writer-fault',
+          err,
+          op: 'onToolCall',
+          channelId: 'ch1',
+        }),
+        'Writer fault',
+      )
     })
   })
 })

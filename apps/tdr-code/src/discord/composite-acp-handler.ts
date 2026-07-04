@@ -11,6 +11,7 @@ import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
 import { insertEvent } from 'src/db/events.repo'
 import { EnvKeys } from 'src/env'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import { ContextUsageService } from './context-usage.service'
 import { DiscordHandlerService } from './discord-handler.service'
@@ -226,7 +227,7 @@ export class CompositeAcpHandler implements AcpEventHandlers {
       this.contextUsage.onUsageUpdate(channelId, used, size)
     } catch (err) {
       this.logger.error(
-        { err, channelId },
+        { event: LOG_EVENTS.contextUsageHandlerFault, err, channelId },
         'ContextUsage handler error in onUsageUpdate',
       )
     }
@@ -241,7 +242,7 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     extra?: Record<string, unknown>,
   ): void {
     this.logger.error(
-      { err, channelId, ...extra },
+      { event: LOG_EVENTS.discordFault, err, channelId, ...extra },
       `Discord handler error in ${method}`,
     )
   }
@@ -250,7 +251,10 @@ export class CompositeAcpHandler implements AcpEventHandlers {
   // context carries only safe identifiers — never the raw error message (F10).
   private handleWriterError(err: unknown, op: string, channelId: string): void {
     const code = errorCode(err)
-    this.logger.error({ err, op, channelId, code }, 'Writer fault')
+    this.logger.error(
+      { event: LOG_EVENTS.writerFault, err, op, channelId, code },
+      'Writer fault',
+    )
 
     const genId = this.generationId
     if (genId == null) return
@@ -267,7 +271,13 @@ export class CompositeAcpHandler implements AcpEventHandlers {
       })
     } catch (innerErr) {
       this.logger.error(
-        { err: innerErr, op, channelId, code: errorCode(innerErr) },
+        {
+          event: LOG_EVENTS.writerFaultEventInsertFailed,
+          err: innerErr,
+          op,
+          channelId,
+          code: errorCode(innerErr),
+        },
         'transcript_write_failed event also failed (log-only, no retry)',
       )
     }

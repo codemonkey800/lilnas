@@ -5,6 +5,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { DB, type Db } from 'src/db/database.module'
 import { clearAcpSessionId } from 'src/db/sessions.repo'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import { ContextUsageService } from './context-usage.service'
 import { DiscordHandlerService } from './discord-handler.service'
@@ -26,7 +27,10 @@ export class ClearCommandService {
   })
   async onClear(@Context() [interaction]: SlashCommandContext): Promise<void> {
     const channelId = interaction.channelId
-    this.logger.info({ channelId }, '/clear invoked')
+    this.logger.info(
+      { event: LOG_EVENTS.clearInvoked, channelId },
+      '/clear invoked',
+    )
 
     try {
       // Order matters: resetChannel deletes channelStates + arms the cleared-channel
@@ -50,11 +54,17 @@ export class ClearCommandService {
       // teardown to act on) — the next @mention must start fresh, not resume.
       clearAcpSessionId(this.db, channelId)
     } catch (err) {
-      this.logger.error({ err, channelId }, '/clear failed partway through')
+      this.logger.error(
+        { event: LOG_EVENTS.clearFailed, err, channelId },
+        '/clear failed partway through',
+      )
       throw err
     }
 
-    this.logger.info({ channelId }, '/clear completed')
+    this.logger.info(
+      { event: LOG_EVENTS.clearCompleted, channelId },
+      '/clear completed',
+    )
     await interaction.reply('Session cleared — next @mention starts fresh.')
   }
 }

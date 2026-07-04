@@ -17,6 +17,7 @@ import {
 } from 'src/db/turn-content.repo'
 import { closeTurn, insertTurn, maxTurnIndex } from 'src/db/turns.repo'
 import { EnvKeys } from 'src/env'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // SqliteWriterService — ACP event → SQLite transcript persistence (B3/B4).
@@ -100,7 +101,7 @@ export class SqliteWriterService implements AcpEventHandlers {
     })
     if (changes === 0) {
       this.logger.warn(
-        { channelId, toolCallId },
+        { event: LOG_EVENTS.toolCallUpdateOrphaned, channelId, toolCallId },
         'onToolCallUpdate: 0 rows updated (late/cross-turn, skipping)',
       )
       return
@@ -128,7 +129,7 @@ export class SqliteWriterService implements AcpEventHandlers {
     // Mirror DiscordHandlerService clearedTurnId watermark: drop if no open turn.
     if (!state?.currentTurnRowId) {
       this.logger.warn(
-        { channelId },
+        { event: LOG_EVENTS.agentMessageChunkDropped, channelId },
         'onAgentMessageChunk: no open turn, dropping chunk',
       )
       return
@@ -146,7 +147,7 @@ export class SqliteWriterService implements AcpEventHandlers {
     const state = this.channelState.get(channelId)
     if (!state?.currentTurnRowId) {
       this.logger.warn(
-        { channelId },
+        { event: LOG_EVENTS.agentMessageImageDropped, channelId },
         'onAgentMessageImage: no open turn, dropping image',
       )
       return
