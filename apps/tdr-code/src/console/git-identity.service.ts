@@ -68,10 +68,10 @@ export class GitIdentityService {
     try {
       const validated = validateAndFingerprint(plaintext)
       fingerprint = validated.fingerprint
-    } catch (err) {
-      throw new BadRequestException(
-        (err as Error).message ?? 'Invalid SSH private key',
-      )
+    } catch {
+      // Never forward the underlying error message: sshpk's parse-error text
+      // can embed decoded private-key bytes (see identity-resolution.ts C1).
+      throw new BadRequestException('Invalid SSH private key')
     }
     this.logger.info(
       {

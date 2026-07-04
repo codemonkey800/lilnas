@@ -273,15 +273,14 @@ const RECONCILE_SERVICE_EVENTS = {
   // console/reconcile.service.ts (U5 sweep) — reconcile()'s three distinct
   // JSONL file-read failure sites (stat/read/readFile). Deliberately NOT
   // reusing the frontend RECONCILE_EVENTS slugs below (reconcile-result /
-  // reconcile-mismatch): those are unclaimed placeholders reserved for a
-  // not-yet-built frontend reconcile-logging.ts (U7), and describe a
-  // different concept — a completed reconciliation's outcome (match vs.
-  // mismatch) — not this service's own file-I/O failure paths, which never
-  // reach a verdict at all (they return 'cannot-reconcile' before any
-  // matched/mismatched comparison happens). Backend-specific slugs keep an
-  // operator filtering "reconcile file I/O broke" from also matching a
-  // future "reconcile found a content mismatch" telemetry event with an
-  // unrelated field shape.
+  // reconcile-mismatch), which src/app/lib/reconcile-logging.ts already
+  // emits: those describe a different concept — a completed reconciliation's
+  // outcome (match vs. mismatch) — not this service's own file-I/O failure
+  // paths, which never reach a verdict at all (they return 'cannot-reconcile'
+  // before any matched/mismatched comparison happens). Backend-specific
+  // slugs keep an operator filtering "reconcile file I/O broke" from also
+  // matching a future "reconcile found a content mismatch" telemetry event
+  // with an unrelated field shape.
   reconcileStatFailed: 'reconcile-stat-failed',
   reconcileReadFailed: 'reconcile-read-failed',
   reconcileReadFileFailed: 'reconcile-readfile-failed',
