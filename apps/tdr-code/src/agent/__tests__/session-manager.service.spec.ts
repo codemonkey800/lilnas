@@ -1036,6 +1036,40 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     expect(jest.mocked(spawn)).not.toHaveBeenCalled()
   })
 
+  it('AE1: a throwing insertSession during fresh create logs the failure with event: session-insert-failed', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const logger = makeLogger()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      logger,
+    )
+    const { resolveInitialize } = mockSpawnAndConnection()
+    insertSessionSpy.mockImplementationOnce(() => {
+      throw new Error('SQLITE_BUSY: database is locked')
+    })
+
+    const outcome = service.prompt('ch-insert-fail', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize()
+
+    const result = await outcome
+    expect(result.kind).not.toBe('shutting_down')
+
+    // The session still comes up (sessionRowId=null, in-memory only) — the
+    // insert failure is logged, not thrown.
+    expect(sessions(service).has('ch-insert-fail')).toBe(true)
+    expect(jest.mocked(logger.error)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'session-insert-failed',
+        channelId: 'ch-insert-fail',
+      }),
+      'Session-row insert failed',
+    )
+  })
+
   describe('cancelPending', () => {
     it('is a no-op when nothing is pending for the channel (no throw)', () => {
       const handlers = createMockHandlers()
@@ -1153,6 +1187,58 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       }),
     )
     expect(sessions(service).has('ch-dormant')).toBe(true)
+  })
+
+  it('AE1: a throwing insertSession during reactivation logs the failure with event: reactivation-insert-failed, session still comes up in-memory', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const logger = makeLogger()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      logger,
+    )
+    const priorRow = makeSessionRow({
+      id: 42,
+      channelId: 'ch-dormant-insert-fail',
+      acpSessionId: 'prior-acp-session',
+      cwd: '/tmp/dormant-cwd',
+      endedAt: new Date(),
+      endReason: 'evicted',
+    })
+    getLatestSessionForChannelSpy.mockReturnValue(priorRow)
+    insertSessionSpy.mockImplementationOnce(() => {
+      throw new Error('SQLITE_BUSY: database is locked')
+    })
+
+    const { resolveInitialize, loadSession, resolveLoadSession } =
+      mockSpawnAndConnection()
+
+    const outcome = service.prompt(
+      'ch-dormant-insert-fail',
+      'hello again',
+      'user-1',
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize({ agentCapabilities: { loadSession: true } })
+
+    await waitFor(() => loadSession.mock.calls.length > 0)
+    resolveLoadSession()
+
+    const result = await outcome
+    expect(result.kind).not.toBe('shutting_down')
+
+    // Reactivation still succeeds in-memory (sessionRowId=null) despite the
+    // insert failure — mirrors createSession's own insert-failure tolerance.
+    expect(sessions(service).has('ch-dormant-insert-fail')).toBe(true)
+    expect(jest.mocked(logger.error)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'reactivation-insert-failed',
+        channelId: 'ch-dormant-insert-fail',
+      }),
+      'Reactivation session-row insert failed',
+    )
   })
 
   it('suppression timing: the isReplaying predicate is true before/through initialize+loadSession and flips false only once the live turn starts (R10)', async () => {

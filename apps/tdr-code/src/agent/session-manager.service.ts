@@ -28,6 +28,7 @@ import {
   insertSession,
 } from 'src/db/sessions.repo'
 import { EnvKeys } from 'src/env'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import { createAcpClient } from './acp-client'
 import { ACP_EVENT_HANDLERS } from './agent.module'
@@ -157,6 +158,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     this.maxConcurrentSessions = cfg.maxConcurrentSessions
     this.logger.info(
       {
+        event: LOG_EVENTS.configRereadApplied,
         claudeCommand: this.claudeCommand,
         cwd: this.claudeCwd,
         idleTimeoutSec: this.idleTimeoutSec,
@@ -207,7 +209,10 @@ export class SessionManagerService implements OnApplicationShutdown {
   // nothing can mutate prompting/currentTurnId between the checks and the clear.
   cancel(channelId: string, turnId?: number): boolean {
     const logResult = (cancelled: boolean): boolean => {
-      this.logger.info({ channelId, turnId, cancelled }, 'Cancel requested')
+      this.logger.info(
+        { event: LOG_EVENTS.cancelRequested, channelId, turnId, cancelled },
+        'Cancel requested',
+      )
       return cancelled
     }
     const session = this.sessions.get(channelId)
@@ -236,7 +241,10 @@ export class SessionManagerService implements OnApplicationShutdown {
   ): void {
     const session = this.sessions.get(channelId)
     if (!session) return
-    this.logger.info({ channelId, endReason }, 'Session teardown requested')
+    this.logger.info(
+      { event: LOG_EVENTS.sessionTeardownRequested, channelId, endReason },
+      'Session teardown requested',
+    )
     clearTimeout(session.idleTimer)
     // A force-killed process orphans the in-flight connection.prompt — it never
     // settles, so onPromptComplete never fires via the normal path. Signal it
@@ -283,7 +291,10 @@ export class SessionManagerService implements OnApplicationShutdown {
         }
         removeLiveStatus(this.db, channelId, this.generationId)
       } catch (err) {
-        this.logger.warn({ err, channelId }, 'Teardown bookkeeping failed')
+        this.logger.warn(
+          { event: LOG_EVENTS.teardownBookkeepingFailed, err, channelId },
+          'Teardown bookkeeping failed',
+        )
       }
     }
   }
@@ -343,6 +354,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     })
     this.logger.info(
       {
+        event: LOG_EVENTS.promptDispatched,
         channelId: session.channelId,
         turnId,
         sessionId: session.sessionId,
@@ -403,6 +415,7 @@ export class SessionManagerService implements OnApplicationShutdown {
       this.handlers.onPromptComplete(session.channelId, result.stopReason)
       this.logger.info(
         {
+          event: LOG_EVENTS.promptCompleted,
           channelId: session.channelId,
           turnId,
           stopReason: result.stopReason,
@@ -412,7 +425,12 @@ export class SessionManagerService implements OnApplicationShutdown {
       return { kind: 'completed', stopReason: result.stopReason }
     } catch (err) {
       this.logger.error(
-        { err, channelId: session.channelId, turnId },
+        {
+          event: LOG_EVENTS.promptError,
+          err,
+          channelId: session.channelId,
+          turnId,
+        },
         'Prompt error — tearing down session',
       )
       this.handlers.onPromptComplete(session.channelId, 'error')
@@ -457,7 +475,11 @@ export class SessionManagerService implements OnApplicationShutdown {
             next.images,
           ).catch(err => {
             this.logger.error(
-              { err, channelId: session.channelId },
+              {
+                event: LOG_EVENTS.queuedPromptFailed,
+                err,
+                channelId: session.channelId,
+              },
               'Queued prompt failed',
             )
           })
@@ -543,7 +565,7 @@ export class SessionManagerService implements OnApplicationShutdown {
         // sites plus the silent re-check branch. Every reactivation failure,
         // genuine or not, still falls through to a plain fresh session here.
         this.logger.warn(
-          { err, channelId },
+          { event: LOG_EVENTS.reactivationFallback, err, channelId },
           'Session reactivation failed — falling back to fresh session',
         )
       }
@@ -687,7 +709,7 @@ export class SessionManagerService implements OnApplicationShutdown {
         })
       } catch (err) {
         this.logger.error(
-          { err, channelId },
+          { event: LOG_EVENTS.reactivationInsertFailed, err, channelId },
           'Reactivation session-row insert failed',
         )
         sessionRowId = null
@@ -705,7 +727,12 @@ export class SessionManagerService implements OnApplicationShutdown {
     box.replaying = false
 
     this.logger.info(
-      { channelId, sessionId: acpSessionId, sessionRowId },
+      {
+        event: LOG_EVENTS.sessionReactivated,
+        channelId,
+        sessionId: acpSessionId,
+        sessionRowId,
+      },
       'Session reactivated',
     )
 
@@ -764,7 +791,11 @@ export class SessionManagerService implements OnApplicationShutdown {
         })
       } catch (err) {
         this.logger.warn(
-          { err, channelId },
+          {
+            event: LOG_EVENTS.resumeFailedEventInsertFailed,
+            err,
+            channelId,
+          },
           'emitResumeFailed event insert failed',
         )
       }
@@ -783,6 +814,7 @@ export class SessionManagerService implements OnApplicationShutdown {
       if (!oldest) {
         this.logger.warn(
           {
+            event: LOG_EVENTS.sessionsBusy,
             sessionCount: this.sessions.size,
             max: this.maxConcurrentSessions,
           },
@@ -844,12 +876,18 @@ export class SessionManagerService implements OnApplicationShutdown {
           createdAt: new Date(),
         })
       } catch (err) {
-        this.logger.error({ err, channelId }, 'Session-row insert failed')
+        this.logger.error(
+          { event: LOG_EVENTS.sessionInsertFailed, err, channelId },
+          'Session-row insert failed',
+        )
         sessionRowId = null
       }
     }
 
-    this.logger.info({ channelId, sessionId, sessionRowId }, 'Session created')
+    this.logger.info(
+      { event: LOG_EVENTS.sessionCreated, channelId, sessionId, sessionRowId },
+      'Session created',
+    )
 
     const managed: ManagedSession = {
       channelId,
@@ -928,7 +966,14 @@ export class SessionManagerService implements OnApplicationShutdown {
     proc.on('error', err => {
       const e = err as NodeJS.ErrnoException
       this.logger.error(
-        { err, channelId, pid: proc.pid, code: e.code, syscall: e.syscall },
+        {
+          event: LOG_EVENTS.agentProcessError,
+          err,
+          channelId,
+          pid: proc.pid,
+          code: e.code,
+          syscall: e.syscall,
+        },
         'Agent process error',
       )
       const session = this.sessions.get(channelId)
@@ -950,7 +995,11 @@ export class SessionManagerService implements OnApplicationShutdown {
             removeLiveStatus(this.db, channelId, this.generationId)
           } catch (dbErr) {
             this.logger.warn(
-              { err: dbErr, channelId },
+              {
+                event: LOG_EVENTS.procErrorBookkeepingFailed,
+                err: dbErr,
+                channelId,
+              },
               'Proc-error bookkeeping failed',
             )
           }
@@ -961,7 +1010,12 @@ export class SessionManagerService implements OnApplicationShutdown {
     proc.on('exit', code => {
       if (code !== 0 && code !== null) {
         this.logger.warn(
-          { channelId, pid: proc.pid, code },
+          {
+            event: LOG_EVENTS.agentProcessExitedNonZero,
+            channelId,
+            pid: proc.pid,
+            code,
+          },
           'Agent process exited non-zero',
         )
       } else {
@@ -988,7 +1042,11 @@ export class SessionManagerService implements OnApplicationShutdown {
             removeLiveStatus(this.db, channelId, this.generationId)
           } catch (dbErr) {
             this.logger.warn(
-              { err: dbErr, channelId },
+              {
+                event: LOG_EVENTS.procExitBookkeepingFailed,
+                err: dbErr,
+                channelId,
+              },
               'Proc-exit bookkeeping failed',
             )
           }
@@ -1079,7 +1137,11 @@ export class SessionManagerService implements OnApplicationShutdown {
       })
     } catch (err) {
       this.logger.warn(
-        { err, channelId: session.channelId },
+        {
+          event: LOG_EVENTS.syncLiveStatusFailed,
+          err,
+          channelId: session.channelId,
+        },
         'syncLiveStatus failed',
       )
     }
