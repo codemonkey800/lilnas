@@ -110,14 +110,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { env } from '@lilnas/utils/env'
-import { Logger } from '@nestjs/common'
 
 import { EnvKeys } from 'src/env'
+import { getBackendLogger } from 'src/logging/backend-logger'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
-// Non-DI (plain exported functions, no class) — see acp-client.ts's header
-// comment for why this Logger's calls are one interpolated string rather
-// than PinoLogger's object-first API.
-const logger = new Logger('GuildGate')
+// Non-DI (plain exported functions, no class) — uses getBackendLogger()
+// (src/logging/backend-logger.ts), fetched AT LOG TIME inside the function
+// body below, never at module-eval time.
 
 // The three Discord guild-member-lookup outcomes `isGuildMember` must
 // distinguish. `ok: true` carries the raw fetch Response's status only
@@ -221,8 +221,14 @@ export async function lookupGuildMembership(
 ): Promise<MemberLookupResult> {
   const startedAt = Date.now()
   const result = await doLookupGuildMembership(accessToken)
-  logger.log(
-    `Guild membership lookup complete durationMs=${Date.now() - startedAt} ok=${result.ok} status=${result.status}`,
+  getBackendLogger().info(
+    {
+      event: LOG_EVENTS.guildLookupComplete,
+      durationMs: Date.now() - startedAt,
+      ok: result.ok,
+      status: result.status,
+    },
+    'Guild membership lookup complete',
   )
   return result
 }

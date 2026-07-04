@@ -1,6 +1,5 @@
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import { env } from '@lilnas/utils/env'
-import { Logger } from '@nestjs/common'
 import type { Account, GenericEndpointContext } from 'better-auth'
 import { APIError, betterAuth } from 'better-auth'
 
@@ -8,19 +7,24 @@ import { sweepAccountlessUsers } from 'src/db/auth-sweep.repo'
 import type { Db } from 'src/db/database.module'
 import * as schema from 'src/db/schema'
 import { EnvKeys } from 'src/env'
+import { getBackendLogger } from 'src/logging/backend-logger'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import { isCurrentUserGuildMember } from './guild-gate'
 
 // buildAuth(db) is a plain factory invoked once at app bootstrap, not an
 // @Injectable() — no DI seam exists inside the databaseHooks closure below.
-// This Logger (see acp-client.ts's header comment for its interpolated-
-// string calling convention) is ADDITIVE alongside the existing
-// `context?.context.logger.*` calls in the hook below, not a replacement:
-// those calls may be relied on by Better Auth's own internal request
-// tracing, and `context` can be null, which would silently drop the event
-// entirely if this Logger weren't also recording it independently into the
-// app's own redacted, shared log file.
-const logger = new Logger('Auth')
+// getBackendLogger() (src/logging/backend-logger.ts, fetched AT LOG TIME
+// inside the hook below, never at module-eval time) is ADDITIVE alongside
+// the existing `context?.context.logger.*` calls in the hook below, not a
+// replacement: those calls may be relied on by Better Auth's own internal
+// request tracing, and `context` can be null, which would silently drop the
+// event entirely if this logger weren't also recording it independently
+// into the app's own redacted, shared log file. This is a DELIBERATE,
+// KEPT double-log (not removed/consolidated) — see the plan's "auth.ts
+// dual-logger" decision. The `context?.context.logger.*` calls themselves
+// are Better Auth's own framework logger and are NEVER migrated to
+// getBackendLogger() — left byte-for-byte unchanged.
 
 // Discord profile shape relevant to email synthesis — Better Auth passes the
 // raw provider profile to mapProfileToUser; we only touch `email`/`id`.
@@ -303,8 +307,13 @@ export function buildAuth(db: Db) {
                 'guild_gate_check_error: guild-membership check threw; treating as non-member (fail-closed)',
                 error,
               )
-              logger.error(
-                `guild_gate_check_error: guild-membership check threw; treating as non-member (fail-closed) providerId=${account.providerId}: ${error instanceof Error ? error.message : String(error)}`,
+              getBackendLogger().error(
+                {
+                  event: LOG_EVENTS.guildCheckError,
+                  providerId: account.providerId,
+                  err: error,
+                },
+                'Guild-membership check threw; treating as non-member (fail-closed)',
               )
               isMember = false
             }
@@ -330,8 +339,9 @@ export function buildAuth(db: Db) {
               'guild_gate_rejected: non-member sign-in rejected before account provisioning',
               { providerId: account.providerId },
             )
-            logger.warn(
-              `guild_gate_rejected: non-member sign-in rejected before account provisioning providerId=${account.providerId}`,
+            getBackendLogger().warn(
+              { event: LOG_EVENTS.guildDenied, providerId: account.providerId },
+              'Non-member sign-in rejected before account provisioning',
             )
 
             // The sweep runs for EVERY non-member outcome reached above —
@@ -365,8 +375,13 @@ export function buildAuth(db: Db) {
               'guild_gate_sweep: accountless user rows deleted after guild-gate rejection',
               { rowsDeleted: swept },
             )
-            logger.warn(
-              `guild_gate_sweep: accountless user rows deleted after guild-gate rejection rowsDeleted=${swept} userId=${account.userId}`,
+            getBackendLogger().warn(
+              {
+                event: LOG_EVENTS.guildSweep,
+                rowsDeleted: swept,
+                userId: account.userId,
+              },
+              'Accountless user rows deleted after guild-gate rejection',
             )
 
             // THROW an APIError here — do NOT `return false`. This was

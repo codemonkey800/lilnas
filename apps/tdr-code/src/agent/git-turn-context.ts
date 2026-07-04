@@ -1,20 +1,19 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { Logger } from '@nestjs/common'
-
 import { isConfigured, resolveIdentity } from 'src/crypto/identity-resolution'
 import { loadMasterKey } from 'src/crypto/master-key'
 import type { Db } from 'src/db/database.module'
 import { getIdentity } from 'src/db/git-identity.repo'
+import { getBackendLogger } from 'src/logging/backend-logger'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import { globalGitWriteLock } from './git-write-lock'
 
 // Non-DI (plain class, instantiated via `new` in SessionManagerService's
 // constructor, not DI) — module-scope since sweep() is static and cannot use
-// `this`. See acp-client.ts's header comment for why this Logger's calls are
-// one interpolated string rather than PinoLogger's object-first API.
-const logger = new Logger('GitTurnContext')
+// `this`. Uses getBackendLogger() (src/logging/backend-logger.ts), fetched
+// AT LOG TIME inside each method body below, never at module-eval time.
 
 // Tmpfs directory for per-turn key files (Decision #6).
 // /run is preferred over /dev/shm (often world-accessible).
@@ -68,20 +67,27 @@ export class GitTurnContext {
       fs.mkdirSync(KEYS_DIR, { recursive: true, mode: 0o700 })
       fs.mkdirSync(IDENTITY_DIR, { recursive: true, mode: 0o700 })
     } catch (err) {
-      // Ignore if already exists
-      logger.debug(
-        `KEYS_DIR/IDENTITY_DIR mkdir failed (may already exist) channel=${channelId}: ${err instanceof Error ? err.message : String(err)}`,
+      // Ignore if already exists — plain filesystem mkdir errors on a fixed
+      // tmpfs path (EEXIST/EACCES/...), not secret-bearing, so { err } is safe.
+      getBackendLogger().debug(
+        { channelId, err },
+        'KEYS_DIR/IDENTITY_DIR mkdir failed (may already exist)',
       )
     }
 
     const masterKey = loadMasterKey()
     const row = getIdentity(this.opts.db, userId)
     const resolution = resolveIdentity(row, masterKey)
-    logger.debug(
-      `Git identity resolved for turn channel=${channelId} kind=${resolution.kind}` +
-        (resolution.kind !== 'unconfigured'
-          ? ` fingerprint=${resolution.fingerprint}`
-          : ''),
+    getBackendLogger().debug(
+      {
+        channelId,
+        kind: resolution.kind,
+        fingerprint:
+          resolution.kind !== 'unconfigured'
+            ? resolution.fingerprint
+            : undefined,
+      },
+      'Git identity resolved for turn',
     )
 
     const state: TurnState = {
@@ -173,9 +179,14 @@ export class GitTurnContext {
       try {
         fs.rmSync(kp, { force: true })
       } catch (err) {
-        // Ignore — sweep() will catch orphans on next boot
-        logger.debug(
-          `Tmpfs key removal failed (sweep will catch orphan) channel=${channelId} keyPath=${kp}: ${err instanceof Error ? err.message : String(err)}`,
+        // Ignore — sweep() will catch orphans on next boot. keyPath is a
+        // tmpfs PATH (never key bytes), but is logged under the field name
+        // `keyPath` deliberately — that's one of backend-logger.ts's own
+        // poison-pill redact paths (defense-in-depth against a future edit
+        // that starts putting key content there instead of just a path).
+        getBackendLogger().debug(
+          { channelId, keyPath: kp, err },
+          'Tmpfs key removal failed (sweep will catch orphan)',
         )
       }
     }
@@ -188,8 +199,9 @@ export class GitTurnContext {
         fs.rmSync(idDir, { recursive: true, force: true })
       } catch (err) {
         // Ignore — sweep() will catch orphans on next boot
-        logger.debug(
-          `Tmpfs identity dir removal failed (sweep will catch orphan) channel=${channelId} identityDir=${idDir}: ${err instanceof Error ? err.message : String(err)}`,
+        getBackendLogger().debug(
+          { channelId, identityDir: idDir, err },
+          'Tmpfs identity dir removal failed (sweep will catch orphan)',
         )
       }
     }
@@ -273,8 +285,13 @@ export class GitTurnContext {
       /* ignore */
     }
 
-    logger.log(
-      `Boot/shutdown sweep of orphaned tmpfs files complete keysRemoved=${keysRemoved} identityDirsRemoved=${identityDirsRemoved}`,
+    getBackendLogger().info(
+      {
+        event: LOG_EVENTS.gitIdentitySweepComplete,
+        keysRemoved,
+        identityDirsRemoved,
+      },
+      'Boot/shutdown sweep of orphaned tmpfs files complete',
     )
   }
 }

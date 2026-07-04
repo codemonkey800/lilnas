@@ -1,12 +1,15 @@
-import { Logger } from '@nestjs/common'
+import { getBackendLogger } from 'src/logging/backend-logger'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import { decryptKey, type EncryptedKey } from './key-cipher'
 import { validateAndFingerprint } from './ssh-key'
 
 // Non-DI (plain exported function, called from both bot-plane and main-plane
-// contexts) — see acp-client.ts's header comment for why this Logger's calls
-// are one interpolated string rather than PinoLogger's object-first API.
-const logger = new Logger('IdentityResolution')
+// contexts — see the file's own dual-plane note below). getBackendLogger()
+// is fetched AT LOG TIME inside resolveIdentity's catch block, never at
+// module-eval time — see backend-logger.ts's header comment for why that's
+// load-bearing: a dual-plane file gets the correct per-process logger
+// automatically only if it never caches the root at import time.
 
 // Row type imported as a structural type only — avoids importing from src/agent
 // (bot-plane-only module) from the main-plane controller. Both planes import
@@ -111,8 +114,38 @@ export function resolveIdentity(
     ) {
       throw err
     }
-    logger.warn(
-      `Identity decrypt/parse failed discordUserId=${row.discordUserId} fingerprint=${row.keyFingerprint}: ${err instanceof Error ? err.message : String(err)}`,
+    // C1 (critical): NEVER log err.message or err.stack here, and NEVER log
+    // the raw `err` object itself (pino's default `err` serializer emits
+    // .message + the full .stack verbatim — exactly the leak this avoids).
+    // validateAndFingerprint's underlying sshpk parse-failure path can throw
+    // a message that embeds decoded private-key byte content on malformed-
+    // key input — that string is un-pathable by redaction (it lives inside a
+    // human-readable interpolated string, not a keyed field), so the only
+    // safe rule at this call site is to coarsen unconditionally to
+    // err.name/class, never the message. This holds even though the OTHER
+    // failure mode reaching this catch (a GCM decrypt failure, message
+    // "Unsupported state or unable to authenticate data") is itself
+    // secret-free — call sites here can't tell the two failure modes apart
+    // without fragile string-matching, so both are logged identically safe.
+    // Mirrors console/git-identity.service.ts's discipline of only ever
+    // logging { discordUserId, fingerprint }-shaped context around
+    // key-handling code, never error content.
+    //
+    // Never-throw guard: resolveIdentity has a documented never-throw
+    // contract (see this function's own header comment). getBackendLogger()
+    // called here is just a function call after bootstrap has already run
+    // initBackendLogger() (see backend-logger.ts's own invariant) — it
+    // cannot itself throw in ordinary operation, so this call cannot escape
+    // that boundary; no additional try/catch is added around it.
+    getBackendLogger().warn(
+      {
+        event: LOG_EVENTS.identityDecryptFailed,
+        discordUserId: row.discordUserId,
+        keyFingerprint: row.keyFingerprint,
+        errName:
+          err instanceof Error ? err.name : (err as object)?.constructor?.name,
+      },
+      'Identity decrypt/parse failed',
     )
     return {
       kind: 'decrypt_failed',

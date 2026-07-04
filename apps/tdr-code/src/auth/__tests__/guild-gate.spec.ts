@@ -1,10 +1,18 @@
+import fs from 'node:fs'
 import http from 'node:http'
+import os from 'node:os'
+import path from 'node:path'
 
 import { Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import type { UnhandledRequestStrategy } from 'msw'
 import { http as mswHttp, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
+// pino ships `export =` merged with a same-named namespace — the
+// import/no-named-as-default warning is a known false positive for this
+// pattern (see backend-logger.spec.ts's identical precedent).
+// eslint-disable-next-line import/no-named-as-default
+import pino from 'pino'
 
 import { AuthModule } from 'src/auth/auth.module'
 import {
@@ -17,6 +25,7 @@ import { DB } from 'src/db/database.module'
 import { account, session, user } from 'src/db/schema'
 import type { TestDb } from 'src/db/test-db'
 import { createTestDb } from 'src/db/test-db'
+import * as backendLoggerModule from 'src/logging/backend-logger'
 
 // Same test-env scoping convention as auth-mount.spec.ts (U2) — these values
 // are obviously-fake test values, never real secrets, scoped to this file
@@ -121,6 +130,25 @@ function request(
     if (options.body !== undefined) req.write(options.body)
     req.end()
   })
+}
+
+// Polls for a file to exist with non-empty content — for the AE2 real-
+// serialized-output test below, whose isolated pino instance writes
+// asynchronously relative to the HTTP response that triggers it. Mirrors
+// backend-logger.spec.ts's identically-named helper.
+async function pollForFileContent(
+  filePath: string,
+  timeoutMs = 5_000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, 'utf8')
+      if (content.trim().length > 0) return content
+    }
+    await new Promise(resolve => setTimeout(resolve, 25))
+  }
+  throw new Error(`${filePath} did not receive content within ${timeoutMs}ms`)
 }
 
 // Discord's raw token-endpoint response shape (getOAuth2Tokens in
@@ -295,6 +323,59 @@ describe('Guild-membership gate (U3) — lookupGuildMembership HTTP call', () =>
       expect(options?.signal).toBeInstanceOf(AbortSignal)
     } finally {
       fetchSpy.mockRestore()
+    }
+  })
+
+  // Happy path (U3): lookupGuildMembership's own outcome/duration log line
+  // (migrated from an interpolated nest-Logger `logger.log(...)` call to
+  // `getBackendLogger().info({ event: LOG_EVENTS.guildLookupComplete,
+  // durationMs, ok, status }, ...)`) — real-serialized-output, asserting the
+  // exact shape the plan's High-Level Technical Design prescribes for this
+  // call site.
+  it('logs { event: "guild-lookup-complete", durationMs, ok, status } as real structured fields on every lookup outcome', async () => {
+    server.use(
+      mswHttp.get(guildMemberUrl, () =>
+        HttpResponse.json({ user: { id: '123' } }, { status: 200 }),
+      ),
+    )
+
+    const outputPath = path.join(
+      os.tmpdir(),
+      `tdr-code-guild-lookup-complete-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.log`,
+    )
+    const isolatedLogger = pino({
+      ...backendLoggerModule.buildBackendLoggerOptions('bot'),
+      transport: {
+        target: 'pino/file',
+        options: { destination: outputPath, mkdir: true },
+      },
+    })
+    const getBackendLoggerSpy = jest
+      .spyOn(backendLoggerModule, 'getBackendLogger')
+      .mockReturnValue(isolatedLogger)
+
+    try {
+      const result = await lookupGuildMembership('real-token')
+      expect(result).toEqual({ ok: true, status: 200 })
+
+      const content = await pollForFileContent(outputPath)
+      const lines = content
+        .trim()
+        .split('\n')
+        .filter(line => line.trim().length > 0)
+      const line = JSON.parse(lines[lines.length - 1]) as Record<
+        string,
+        unknown
+      >
+
+      expect(line.event).toBe('guild-lookup-complete')
+      expect(typeof line.durationMs).toBe('number')
+      expect(line.ok).toBe(true)
+      expect(line.status).toBe(200)
+      expect(line.process).toBe('bot')
+    } finally {
+      getBackendLoggerSpy.mockRestore()
+      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath)
     }
   })
 })
@@ -658,6 +739,87 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
     // inside the same hook that rejected the account insert — AE5's "no
     // usable rows" holds at the row-count level too, not just "no session."
     expect(testDb.db.select().from(user).all()).toHaveLength(0)
+  })
+
+  // AE2 (U3, R9, R11) — real-serialized-output. auth.ts's nest-Logger
+  // guild-gate rejection call (migrated from an interpolated
+  // `guild_gate_rejected: ...` string to
+  // `getBackendLogger().warn({ event: LOG_EVENTS.guildDenied, providerId },
+  // ...)`) writes a line whose TOP-LEVEL `event` field is the literal string
+  // 'guild-denied' — not embedded inside a message string, a real machine-
+  // queryable field. Drives the SAME real, unmocked OAuth callback route the
+  // scenario above exercises (a genuinely non-member sign-in through the
+  // real databaseHooks.account.create.before hook in auth.ts), rather than
+  // calling any auth.ts internal directly (nothing in that hook is exported
+  // separately from buildAuth() to unit-test in isolation).
+  //
+  // getBackendLogger() is spied to return a REAL pino instance built from
+  // buildBackendLoggerOptions()'s exact production config, redirected only
+  // at an isolated per-test temp file — never the real shared
+  // logFilePath('backend') sink other tests/processes could be concurrently
+  // appending to (same technique as backend-logger.spec.ts and
+  // identity-resolution.spec.ts's C1 test). The spy is installed AFTER the
+  // app is already built in beforeAll — safe because auth.ts's hook calls
+  // getBackendLogger() fresh on every invocation (never caches it at
+  // module-eval/build time — the load-bearing invariant backend-logger.ts's
+  // header comment documents), so a CommonJS named-import binding read
+  // inside the hook always sees whatever the module's current
+  // getBackendLogger export is AT CALL TIME, including a jest.spyOn override
+  // installed well after the app was constructed.
+  it('AE2: a non-member rejection writes a log line with event: "guild-denied" as a top-level field (real-serialized-output)', async () => {
+    mockDiscordOAuthChain({
+      accessToken: 'ae2-nonmember-access-token',
+      discordUserId: '100000000000000008',
+      guildMemberStatus: 404,
+    })
+
+    const outputPath = path.join(
+      os.tmpdir(),
+      `tdr-code-guild-denied-ae2-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.log`,
+    )
+    const isolatedLogger = pino({
+      ...backendLoggerModule.buildBackendLoggerOptions('bot'),
+      transport: {
+        target: 'pino/file',
+        options: { destination: outputPath, mkdir: true },
+      },
+    })
+    const getBackendLoggerSpy = jest
+      .spyOn(backendLoggerModule, 'getBackendLogger')
+      .mockReturnValue(isolatedLogger)
+
+    try {
+      const oauthState = await getRealOAuthState()
+      const res = await driveCallback(oauthState)
+
+      // Same rejection-shape assertion the plain scenario above makes —
+      // confirms this really is the rejection branch, not some other path.
+      expect(res.status).toBeGreaterThanOrEqual(300)
+      expect(res.status).toBeLessThan(400)
+      expect(hasSessionCookie(res)).toBe(false)
+
+      const content = await pollForFileContent(outputPath)
+      const lines = content
+        .trim()
+        .split('\n')
+        .filter(line => line.trim().length > 0)
+      // Exactly one line: the guild-gate rejection warn. (The sweep warn
+      // that follows it in auth.ts also fires in this scenario, but this
+      // spy only intercepts calls made while it's installed — both would
+      // land in this same file; asserting "at least one line carries this
+      // event" below is what actually matters, not the exact count.)
+      const deniedLine = lines
+        .map(line => JSON.parse(line) as Record<string, unknown>)
+        .find(parsed => parsed.event === 'guild-denied')
+
+      expect(deniedLine).toBeDefined()
+      expect(deniedLine?.event).toBe('guild-denied')
+      expect(deniedLine?.providerId).toBe('discord')
+      expect(deniedLine?.process).toBe('bot')
+    } finally {
+      getBackendLoggerSpy.mockRestore()
+      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath)
+    }
   })
 
   // Scenario 3 (fail-closed): Discord's member-lookup 500s -> treated as

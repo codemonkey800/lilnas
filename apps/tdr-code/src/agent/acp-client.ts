@@ -4,20 +4,24 @@ import type {
   RequestPermissionResponse,
   SessionNotification,
 } from '@agentclientprotocol/sdk'
-import { Logger } from '@nestjs/common'
+
+import { getBackendLogger } from 'src/logging/backend-logger'
 
 import type { AcpEventHandlers, DiffContent } from './agent.types'
 
 // Non-DI: this module exports a plain factory, not a Nest-managed provider.
-// `Logger` from '@nestjs/common' is globally overridden to route through the
-// same pino sink once bootstrap.ts/bot-bootstrap.ts call
-// `app.useLogger(app.get(Logger))` — see src/logger.ts's header comment.
-// Unlike the DI-injected PinoLogger elsewhere, this Logger's methods take a
-// single message (string | object | Error) plus a context string appended
-// automatically — passing a plain fields object as the message does NOT
-// merge into flat top-level JSON fields the way PinoLogger's object-first
-// calls do, so messages here are one interpolated string, not {fields, msg}.
-const logger = new Logger('AcpClient')
+// Uses getBackendLogger() (src/logging/backend-logger.ts) — a real
+// object-first pino API, fetched AT LOG TIME (never cached at import time;
+// see that file's header comment for why that's load-bearing). This
+// supersedes the file's previous rationale for using @nestjs/common's
+// interpolated-string Logger: that Logger's methods take a single message
+// (string | object | Error) plus an auto-appended context string, so a
+// plain fields object passed as the message did NOT merge into flat
+// top-level JSON fields the way PinoLogger's object-first calls do.
+// getBackendLogger() has no such limitation — every call below is
+// `logger.debug({ ...fields }, 'message')`, real structured fields. All
+// three call sites here are `debug` (dev-only tracing), which is exempt
+// from carrying a registered `event` slug (R3).
 
 export function createAcpClient(
   channelId: string,
@@ -30,15 +34,17 @@ export function createAcpClient(
     ): Promise<RequestPermissionResponse> {
       const firstOption = params.options[0]
       if (firstOption) {
-        logger.debug(
-          `Permission request auto-resolved channel=${channelId} optionId=${firstOption.optionId} outcome=selected`,
+        getBackendLogger().debug(
+          { channelId, optionId: firstOption.optionId, outcome: 'selected' },
+          'Permission request auto-resolved',
         )
         return {
           outcome: { outcome: 'selected', optionId: firstOption.optionId },
         }
       }
-      logger.debug(
-        `Permission request auto-resolved channel=${channelId} outcome=cancelled`,
+      getBackendLogger().debug(
+        { channelId, outcome: 'cancelled' },
+        'Permission request auto-resolved',
       )
       return { outcome: { outcome: 'cancelled' } }
     },
@@ -50,8 +56,9 @@ export function createAcpClient(
       // including session_info_update, during loadSession replay (U4).
       if (isReplaying?.()) return
 
-      logger.debug(
-        `ACP session update received channel=${channelId} sessionUpdate=${params.update.sessionUpdate}`,
+      getBackendLogger().debug(
+        { channelId, sessionUpdate: params.update.sessionUpdate },
+        'ACP session update received',
       )
 
       const update = params.update

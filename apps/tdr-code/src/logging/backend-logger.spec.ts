@@ -270,6 +270,160 @@ describe('buildBackendLoggerOptions() — real serialized output, not just confi
   })
 })
 
+// U3: real call shapes from the 8 migrated non-DI files, exercised directly
+// against this same real pino config rather than backend-logger.ts's own
+// generic { event: 'x' } smoke shapes above. Each case below matches an
+// ACTUAL call site's object literal in the migrated source (not a
+// paraphrase) — see each file for the real call. auth.ts's three sites and
+// guild-gate.ts's one site have their own dedicated real-serialized-output
+// tests already (auth/__tests__/guild-gate.spec.ts's AE2 + happy-path
+// tests, run against the real HTTP/OAuth flow) and are not duplicated here;
+// this block covers the remaining files' representative shapes plus the
+// AE3 debug/no-event edge case.
+describe('U3 — real call shapes emitted by the migrated non-DI files', () => {
+  afterEach(() => {
+    setNodeEnv('test')
+  })
+
+  it('acp-client.ts: a debug call with no event field writes successfully and type-checks (AE3 — debug is exempt from the event requirement)', async () => {
+    const { logger, outputPath } = buildIsolatedLogger('bot')
+    try {
+      // Matches acp-client.ts's actual requestPermission call shape exactly
+      // (channelId, optionId, outcome) — no `event` key at all, which is
+      // valid: R3/AE3 exempts debug from the event requirement, and this
+      // compiles with no `@ts-expect-error` needed because `event` is
+      // simply omitted from the object literal, not typed wrong.
+      logger.debug(
+        { channelId: 'ch1', optionId: 'opt1', outcome: 'selected' },
+        'Permission request auto-resolved',
+      )
+
+      const line = await readLastLineFrom(outputPath)
+      expect(line.event).toBeUndefined()
+      expect(line.channelId).toBe('ch1')
+      expect(line.optionId).toBe('opt1')
+      expect(line.outcome).toBe('selected')
+      expect(line.msg).toBe('Permission request auto-resolved')
+    } finally {
+      cleanup(outputPath)
+    }
+  })
+
+  it('image-attachments.ts: a warn call carries event + reason + attachment identifiers, no raw error content for the size-cap paths', async () => {
+    const { logger, outputPath } = buildIsolatedLogger('bot')
+    try {
+      // Matches image-attachments.ts's size_over_cap warn shape exactly.
+      logger.warn(
+        {
+          event: 'image-attachment-dropped',
+          reason: 'size_over_cap',
+          attachmentName: 'big.png',
+          size: 99_999_999,
+          maxBytes: 10 * 1024 * 1024,
+        },
+        'Skipping image attachment: declared size exceeds cap',
+      )
+
+      const line = await readLastLineFrom(outputPath)
+      expect(line.event).toBe('image-attachment-dropped')
+      expect(line.reason).toBe('size_over_cap')
+      expect(line.attachmentName).toBe('big.png')
+      expect(line.size).toBe(99_999_999)
+    } finally {
+      cleanup(outputPath)
+    }
+  })
+
+  it('git-write-lock.ts: cancelWaiter warn carries event + channelId, matching its real call shape', async () => {
+    const { logger, outputPath } = buildIsolatedLogger('bot')
+    try {
+      // Matches git-write-lock.ts's cancelWaiter warn shape exactly.
+      logger.warn(
+        { event: 'git-write-lock-waiter-cancelled', channelId: 'ch2' },
+        'Queued git-write-lock waiter cancelled during teardown',
+      )
+
+      const line = await readLastLineFrom(outputPath)
+      expect(line.event).toBe('git-write-lock-waiter-cancelled')
+      expect(line.channelId).toBe('ch2')
+    } finally {
+      cleanup(outputPath)
+    }
+  })
+
+  it('reaper.ts: reapGeneration info line carries event + generationId + killed + staleSkipped, matching its real call shape', async () => {
+    const { logger, outputPath } = buildIsolatedLogger('bot')
+    try {
+      // Matches supervisor/reaper.ts's reapGeneration completion log shape.
+      logger.info(
+        {
+          event: 'reaper-pass-complete',
+          generationId: 42,
+          killed: 2,
+          staleSkipped: 1,
+        },
+        'Reaper pass complete',
+      )
+
+      const line = await readLastLineFrom(outputPath)
+      expect(line.event).toBe('reaper-pass-complete')
+      expect(line.generationId).toBe(42)
+      expect(line.killed).toBe(2)
+      expect(line.staleSkipped).toBe(1)
+    } finally {
+      cleanup(outputPath)
+    }
+  })
+
+  it('git-turn-context.ts: sweep() info line carries event + keysRemoved + identityDirsRemoved, matching its real call shape', async () => {
+    const { logger, outputPath } = buildIsolatedLogger('bot')
+    try {
+      // Matches agent/git-turn-context.ts's GitTurnContext.sweep() shape.
+      logger.info(
+        {
+          event: 'git-identity-sweep-complete',
+          keysRemoved: 3,
+          identityDirsRemoved: 1,
+        },
+        'Boot/shutdown sweep of orphaned tmpfs files complete',
+      )
+
+      const line = await readLastLineFrom(outputPath)
+      expect(line.event).toBe('git-identity-sweep-complete')
+      expect(line.keysRemoved).toBe(3)
+      expect(line.identityDirsRemoved).toBe(1)
+    } finally {
+      cleanup(outputPath)
+    }
+  })
+
+  it('git-turn-context.ts: a debug key-removal-failure line logs the tmpfs path under the `keyPath` field name, which BACKEND_MODULE_REDACT_PATHS redacts wholesale (defense-in-depth even though it never carries key bytes)', async () => {
+    const { logger, outputPath } = buildIsolatedLogger('bot')
+    try {
+      // Matches git-turn-context.ts's end()'s tmpfs-key-removal-failed debug
+      // call shape. `err` here is a plain fs.rmSync ENOENT-shaped error
+      // (safe to log verbatim, unlike identity-resolution.ts's C1 path).
+      logger.debug(
+        {
+          channelId: 'ch3',
+          keyPath: '/run/tdr-code/keys/ch3.key',
+          err: new Error('ENOENT: no such file or directory'),
+        },
+        'Tmpfs key removal failed (sweep will catch orphan)',
+      )
+
+      const line = await readLastLineFrom(outputPath)
+      expect(line.event).toBeUndefined()
+      expect(line.channelId).toBe('ch3')
+      // The poison-pill redact path fires even on a path-only value.
+      expect(line.keyPath).toBe('[Redacted]')
+      expect(JSON.stringify(line)).not.toContain('/run/tdr-code/keys/ch3.key')
+    } finally {
+      cleanup(outputPath)
+    }
+  })
+})
+
 // Re-requires backend-logger.ts against the FRESH, un-initialized module
 // registry jest.isolateModules creates, since a plain top-level import
 // shares the module instance src/__tests__/setup.ts's own

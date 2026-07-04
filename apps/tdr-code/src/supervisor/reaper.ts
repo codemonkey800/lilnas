@@ -1,12 +1,11 @@
-import { Logger } from '@nestjs/common'
-
 import { livePgids, markExited } from 'src/db/claude-process.repo'
 import type { Db } from 'src/db/database.module'
+import { getBackendLogger } from 'src/logging/backend-logger'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
-// Non-DI (plain exported function, no class) — see acp-client.ts's header
-// comment for why this Logger's calls are one interpolated string rather
-// than PinoLogger's object-first API.
-const logger = new Logger('Reaper')
+// Non-DI (plain exported function, no class) — uses getBackendLogger()
+// (src/logging/backend-logger.ts), fetched AT LOG TIME inside the function
+// body below, never at module-eval time.
 
 // Age beyond which an un-exited claude_process row is assumed stale (the OS
 // may have recycled the PGID onto an unrelated group). Set well under the
@@ -40,7 +39,13 @@ export function reapGeneration(
     }
     markExited(db, { pgid: row.pgid, generationId, exitedAt: now })
   }
-  logger.log(
-    `Reaper pass complete generationId=${generationId} killed=${killed} staleSkipped=${staleSkipped}`,
+  getBackendLogger().info(
+    {
+      event: LOG_EVENTS.reaperPassComplete,
+      generationId,
+      killed,
+      staleSkipped,
+    },
+    'Reaper pass complete',
   )
 }
