@@ -2,6 +2,8 @@ import 'reflect-metadata'
 
 import { TextDecoder, TextEncoder } from 'util'
 
+import { initBackendLogger } from 'src/logging/backend-logger'
+
 global.TextEncoder = TextEncoder as unknown as typeof globalThis.TextEncoder
 global.TextDecoder = TextDecoder as unknown as typeof globalThis.TextDecoder
 
@@ -9,6 +11,17 @@ Object.defineProperty(process.env, 'NODE_ENV', {
   value: 'test',
   writable: true,
 })
+
+// getBackendLogger() throws fail-fast when called before this runs (see
+// backend-logger.ts) — without this, any spec that exercises a migrated
+// non-DI file's non-debug log line (U3 onward) would crash instead of
+// passing. 'bot' is an arbitrary but consistent choice: every backend spec
+// runs in the same Jest 'node' project regardless of which real process the
+// file under test would run in, so there is no per-spec notion of "which
+// process" to match — see backend-logger.spec.ts for the integration test
+// proving this actually prevents the fail-fast crash.
+initBackendLogger('bot')
+
 // Fixture name matches EnvKeys.DISCORD_API_TOKEN (the bot token env key the
 // code actually reads — src/bot.module.ts, src/supervisor/supervisor.service
 // .ts). The prior name here, DISCORD_BOT_TOKEN, was never read by any source

@@ -7,9 +7,17 @@ import { Logger } from 'nestjs-pino'
 import { AppModule } from './app.module'
 import { loadMasterKey } from './crypto/master-key'
 import { EnvKeys } from './env'
+import { initBackendLogger } from './logging/backend-logger'
 import { logFilePath } from './logging/log-paths'
 
 export async function bootstrapApp() {
+  // As early as possible — before any code path in this process might log
+  // through getBackendLogger() (the 8 non-DI files, several of which sit on
+  // the auth/crypto path exercised during module init below). See
+  // backend-logger.ts's header comment for why this is a per-process root,
+  // not a module-level singleton.
+  initBackendLogger('main')
+
   // Restrict file creation permissions before opening the SQLite WAL — so the
   // DB files (data.db / -wal / -shm) are not world-readable on a shared host.
   // Phase C stores SSH key ciphertext in the same file.

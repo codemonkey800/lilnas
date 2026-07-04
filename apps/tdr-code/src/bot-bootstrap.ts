@@ -5,9 +5,17 @@ import { SessionManagerService } from './agent/session-manager.service'
 import { BotModule } from './bot.module'
 import { loadMasterKey } from './crypto/master-key'
 import { BotLifecycleService } from './discord/bot-lifecycle.service'
+import { initBackendLogger } from './logging/backend-logger'
 import { logFilePath } from './logging/log-paths'
 
 export async function bootstrapBot() {
+  // As early as possible — before any code path in this process might log
+  // through getBackendLogger() (several of the 8 non-DI files, e.g.
+  // agent/git-turn-context.ts, run in the bot process). See
+  // backend-logger.ts's header comment for why this is a per-process root,
+  // not a module-level singleton.
+  initBackendLogger('bot')
+
   // Mirror bootstrap.ts umask so tmpfs key files (U9) are not world-readable
   // before their chmod 600 (Decision #7 TOCTOU mitigation).
   process.umask(0o077)

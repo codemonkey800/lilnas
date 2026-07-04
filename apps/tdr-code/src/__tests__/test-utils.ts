@@ -68,3 +68,44 @@ export async function createTestingModule(
 ): Promise<TestingModule> {
   return Test.createTestingModule({ imports, providers }).compile()
 }
+
+// A mock shaped like a pino logger instance (nestjs-pino's injected
+// PinoLogger and getBackendLogger()'s return value both expose this same
+// `.info(mergingObject, msg)`-shaped surface), for specs that want to inject
+// or stand in for a real logger and assert on what was logged — WITHOUT
+// exercising real pino serialization/redaction (that guarantee is instead
+// proven once, via real-serialized-output tests, in
+// src/logging/backend-logger.spec.ts and the DI logger's own equivalent).
+//
+// Use this when the thing under test accepts an injected logger (or when
+// `jest.mock('src/logging/backend-logger', () => ({ getBackendLogger: () =>
+// createLoggerSpy() }))` stands in for the module) and the spec wants to
+// assert the STRUCTURED event field a call site logs — the gap the plan
+// calls out: type-check catches an unregistered LogEvent slug, but not a
+// registered-but-wrong one, so specs need to assert real log content at the
+// sites that matter (AE1, AE2, and similar).
+//
+// Usage:
+//   const spy = createLoggerSpy()
+//   // ... exercise code that calls spy.warn({ event: 'x', channelId }, 'msg')
+//   expect(spy.warn).toHaveBeenCalledWith(
+//     expect.objectContaining({ event: 'x' }),
+//     expect.any(String),
+//   )
+export interface LoggerSpy {
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+  debug: jest.Mock
+  fatal: jest.Mock
+}
+
+export function createLoggerSpy(): LoggerSpy {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+    fatal: jest.fn(),
+  }
+}
