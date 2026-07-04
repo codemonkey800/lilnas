@@ -3,6 +3,7 @@ import { Injectable, ServiceUnavailableException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 
 import { EnvKeys } from 'src/env'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import type { DiscordGuildMemberDto } from './git-identity.dto'
 
@@ -75,7 +76,7 @@ export class DiscordDirectoryService {
       )
     } catch (err) {
       this.logger.warn(
-        { err, guildId },
+        { err, guildId, event: LOG_EVENTS.discordDirectoryFetchFailed },
         'Failed to reach Discord for guild member list',
       )
       throw new ServiceUnavailableException(
@@ -85,7 +86,11 @@ export class DiscordDirectoryService {
 
     if (!response.ok) {
       this.logger.warn(
-        { status: response.status, statusText: response.statusText },
+        {
+          status: response.status,
+          statusText: response.statusText,
+          event: LOG_EVENTS.discordDirectoryApiError,
+        },
         'Discord returned an error listing guild members',
       )
       throw new ServiceUnavailableException(

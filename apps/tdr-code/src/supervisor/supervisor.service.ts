@@ -22,6 +22,7 @@ import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
 import { insertEvent } from 'src/db/events.repo'
 import { EnvKeys } from 'src/env'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import { reapGeneration } from './reaper'
 import {
@@ -182,7 +183,10 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit(): Promise<void> {
     if (!this.supervise) {
-      this.logger.info('SUPERVISE_BOT=false — running standalone (dev mode)')
+      this.logger.info(
+        { event: LOG_EVENTS.standaloneMode },
+        'SUPERVISE_BOT=false — running standalone (dev mode)',
+      )
       return
     }
     await this.reconcileOnBoot()
@@ -192,7 +196,10 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy(): void {
     this.clearAllTimers()
     if (this.currentChild && this.currentGenerationId != null) {
-      this.logger.info('Main server shutting down — stopping bot child')
+      this.logger.info(
+        { event: LOG_EVENTS.mainShuttingDown },
+        'Main server shutting down — stopping bot child',
+      )
       this.fsmState = { ...this.fsmState, expectedStop: true }
       try {
         this.currentChild.kill('SIGTERM')
@@ -230,14 +237,22 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
         // A recycled PID: finalize without signaling.
         finalize(this.db, row.id, 'crashed', null, new Date())
         this.logger.warn(
-          { pid: row.pid, generationId: row.id },
+          {
+            pid: row.pid,
+            generationId: row.id,
+            event: LOG_EVENTS.bootReconcilePidMismatch,
+          },
           'Boot reconciliation: live PID identity mismatch, finalizing without signal',
         )
         continue
       }
       // Confirmed live survivor — reap before spawning a replacement.
       this.logger.info(
-        { pid: row.pid, generationId: row.id },
+        {
+          pid: row.pid,
+          generationId: row.id,
+          event: LOG_EVENTS.bootReconcileReapedSurvivor,
+        },
         'Boot reconciliation: reaped confirmed live survivor',
       )
       try {
@@ -296,14 +311,20 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
       case 'insertGeneration': {
         const row = insertGeneration(this.db, { startedAt: new Date() })
         this.currentGenerationId = row.id
-        this.logger.info({ generationId: row.id }, 'Inserted bot generation')
+        this.logger.info(
+          { generationId: row.id, event: LOG_EVENTS.generationInserted },
+          'Inserted bot generation',
+        )
         break
       }
 
       case 'spawn': {
         const genId = this.currentGenerationId
         if (genId == null) {
-          this.logger.error('spawn effect without a generation id')
+          this.logger.error(
+            { event: LOG_EVENTS.spawnMissingGenerationId },
+            'spawn effect without a generation id',
+          )
           return
         }
         // Emit bot_restart on non-initial spawns (U1/R9). Initial boot
@@ -320,14 +341,21 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
               createdAt: new Date(),
             })
           } catch (err) {
-            this.logger.warn({ err }, 'Failed to write bot_restart event')
+            this.logger.warn(
+              { err, event: LOG_EVENTS.botRestartEventInsertFailed },
+              'Failed to write bot_restart event',
+            )
           }
         }
         try {
           const child = this.spawnFactory.spawnBot(buildBotEnv(genId))
           this.currentChild = child
           this.logger.info(
-            { pid: child.pid, generationId: genId },
+            {
+              pid: child.pid,
+              generationId: genId,
+              event: LOG_EVENTS.botSpawned,
+            },
             'Spawned bot',
           )
 
@@ -335,7 +363,13 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
           const onExit = (code: number | null) => {
             const expected = this.fsmState.expectedStop
             this.logger.info(
-              { pid: child.pid, code, expected, generationId: genId },
+              {
+                pid: child.pid,
+                code,
+                expected,
+                generationId: genId,
+                event: LOG_EVENTS.botChildExited,
+              },
               'Bot child exited',
             )
             this.dispatch({
@@ -346,12 +380,18 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
             })
           }
           const onError = (err: Error) => {
-            this.logger.error({ err }, 'Bot child process error')
+            this.logger.error(
+              { err, event: LOG_EVENTS.botChildProcessError },
+              'Bot child process error',
+            )
           }
           child.once('exit', onExit)
           child.once('error', onError)
         } catch (err) {
-          this.logger.error({ err, generationId: genId }, 'Failed to spawn bot')
+          this.logger.error(
+            { err, generationId: genId, event: LOG_EVENTS.botSpawnFailed },
+            'Failed to spawn bot',
+          )
           finalize(this.db, genId, 'crashed', null, new Date())
           this.dispatch({
             type: 'ExitObserved',
@@ -367,7 +407,10 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
         this.clearTimer('startDeadline')
         this.startDeadlineTimer = this.clock.setTimeout(() => {
           this.logger.warn(
-            { generationId: this.currentGenerationId },
+            {
+              generationId: this.currentGenerationId,
+              event: LOG_EVENTS.botStartTimeout,
+            },
             'Bot start timeout',
           )
           this.dispatch({ type: 'StartTimeout', now: this.clock.now() })
@@ -388,7 +431,10 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
         this.clearTimer('grace')
         this.graceTimer = this.clock.setTimeout(() => {
           this.logger.warn(
-            { generationId: this.currentGenerationId },
+            {
+              generationId: this.currentGenerationId,
+              event: LOG_EVENTS.botGraceTimeout,
+            },
             'Bot grace timeout — sending SIGKILL',
           )
           this.dispatch({ type: 'GraceTimeout' })
@@ -460,7 +506,11 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
             new Date(),
           )
           this.logger.info(
-            { generationId: this.currentGenerationId, status: effect.status },
+            {
+              generationId: this.currentGenerationId,
+              status: effect.status,
+              event: LOG_EVENTS.supervisorGenerationFinalized,
+            },
             'Finalized bot generation',
           )
         }
@@ -477,7 +527,10 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
           try {
             reapGeneration(this.db, genIdToReap)
           } catch (err) {
-            this.logger.warn({ err, generationId: genIdToReap }, 'Reaper error')
+            this.logger.warn(
+              { err, generationId: genIdToReap, event: LOG_EVENTS.reaperError },
+              'Reaper error',
+            )
           }
         }
         break
@@ -485,7 +538,10 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
 
       case 'resetAttempt': {
         this.logger.info(
-          { generationId: this.currentGenerationId },
+          {
+            generationId: this.currentGenerationId,
+            event: LOG_EVENTS.attemptCounterReset,
+          },
           'Bot stable — attempt counter reset',
         )
         break

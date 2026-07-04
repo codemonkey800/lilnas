@@ -9,12 +9,7 @@ import { http as mswHttp, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { PinoLogger } from 'nestjs-pino'
 
-import {
-  AUTH_CHECK_ERROR_EVENT,
-  AUTH_DENIED_EVENT,
-  type AuthedUser,
-  AuthGuard,
-} from 'src/auth/auth.guard'
+import { type AuthedUser, AuthGuard } from 'src/auth/auth.guard'
 import { AuthModule } from 'src/auth/auth.module'
 import {
   buildPath,
@@ -57,6 +52,7 @@ import type { TestDb } from 'src/db/test-db'
 import { createTestDb } from 'src/db/test-db'
 import { BrowserLogsController } from 'src/logging/browser-logs.controller'
 import { BrowserLogsService } from 'src/logging/browser-logs.service'
+import { LOG_EVENTS } from 'src/logging/log-events'
 import { SupervisorService } from 'src/supervisor/supervisor.service'
 
 // Same test-env scoping convention as auth-mount.spec.ts / guild-gate.spec.ts
@@ -175,7 +171,7 @@ describe('AuthGuard.canActivate — isolated unit tests', () => {
     expect(getSession).toHaveBeenCalled()
   })
 
-  it('denies (401) and logs auth_denied when getSession resolves null (no/expired cookie)', async () => {
+  it('denies (401) and logs auth-denied when getSession resolves null (no/expired cookie)', async () => {
     const getSession = jest.fn().mockResolvedValue(null)
     const logger = fakeLogger()
     const guard = new AuthGuard(
@@ -191,13 +187,16 @@ describe('AuthGuard.canActivate — isolated unit tests', () => {
     )
     expect(request.user).toBeUndefined()
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ path: '/live' }),
-      AUTH_DENIED_EVENT,
+      expect.objectContaining({
+        path: '/live',
+        event: LOG_EVENTS.authDenied,
+      }),
+      expect.any(String),
     )
     expect(logger.error).not.toHaveBeenCalled()
   })
 
-  it('denies (401) and logs the DISTINCT auth_check_error event when getSession throws', async () => {
+  it('denies (401) and logs the DISTINCT auth-check-error event when getSession throws', async () => {
     const dbError = new Error('SQLITE_BUSY: database is locked')
     const getSession = jest.fn().mockRejectedValue(dbError)
     const logger = fakeLogger()
@@ -216,13 +215,17 @@ describe('AuthGuard.canActivate — isolated unit tests', () => {
     // not InternalServerErrorException — the failure contract this test
     // exists to pin (do NOT mirror yoink's 500-on-DB-error pattern).
     expect(logger.error).toHaveBeenCalledWith(
-      expect.objectContaining({ err: dbError, path: '/config' }),
-      AUTH_CHECK_ERROR_EVENT,
+      expect.objectContaining({
+        err: dbError,
+        path: '/config',
+        event: LOG_EVENTS.authCheckError,
+      }),
+      expect.any(String),
     )
-    // auth_check_error and auth_denied are genuinely distinct event names —
+    // auth-check-error and auth-denied are genuinely distinct event names —
     // asserting this directly guards against a future edit accidentally
     // merging them back into one string.
-    expect(AUTH_CHECK_ERROR_EVENT).not.toBe(AUTH_DENIED_EVENT)
+    expect(LOG_EVENTS.authCheckError).not.toBe(LOG_EVENTS.authDenied)
     expect(logger.warn).not.toHaveBeenCalled()
   })
 
@@ -705,12 +708,12 @@ describe('AuthGuard — full HTTP integration (deny-by-default across every enum
 
   // ---------------------------------------------------------------------------
   // Scenario 3: getSession throws (simulated SQLITE_BUSY) -> 401, never 500,
-  // never allow — and the DISTINCT auth_check_error event fires (not
-  // auth_denied).
+  // never allow — and the DISTINCT auth-check-error event fires (not
+  // auth-denied).
   // ---------------------------------------------------------------------------
 
   describe('getSession throws (SQLITE_BUSY simulation)', () => {
-    it('returns 401 (not 500) and logs auth_check_error, not auth_denied', async () => {
+    it('returns 401 (not 500) and logs auth-check-error, not auth-denied', async () => {
       const authServiceInstance = (
         app as unknown as { get: <T>(t: unknown) => T }
       ).get<AuthService>(AuthService)
@@ -731,12 +734,15 @@ describe('AuthGuard — full HTTP integration (deny-by-default across every enum
         expect(res.status).toBe(401)
         expect(res.status).not.toBe(500)
         expect(mocks.fakePinoLogger.error).toHaveBeenCalledWith(
-          expect.objectContaining({ path: '/live' }),
-          AUTH_CHECK_ERROR_EVENT,
+          expect.objectContaining({
+            path: '/live',
+            event: LOG_EVENTS.authCheckError,
+          }),
+          expect.any(String),
         )
         expect(mocks.fakePinoLogger.warn).not.toHaveBeenCalledWith(
+          expect.objectContaining({ event: LOG_EVENTS.authDenied }),
           expect.anything(),
-          AUTH_DENIED_EVENT,
         )
       } finally {
         spy.mockRestore()

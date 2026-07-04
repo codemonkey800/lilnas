@@ -13,6 +13,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { revokeSessionsForDiscordUser } from 'src/db/auth-session.repo'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import type { RevokeSessionsResponseDto } from './auth-admin.dto'
 import { DiscordSnowflakeSchema } from './git-identity.dto'
@@ -65,12 +66,20 @@ export class AuthAdminController {
     }
 
     this.logger.warn(
-      { targetDiscordUserId: parsed.data, origin },
+      {
+        targetDiscordUserId: parsed.data,
+        origin,
+        event: LOG_EVENTS.sessionRevokeRequested,
+      },
       'Admin session-revoke requested',
     )
     const sessionsRevoked = revokeSessionsForDiscordUser(this.db, parsed.data)
     this.logger.warn(
-      { targetDiscordUserId: parsed.data, sessionsRevoked },
+      {
+        targetDiscordUserId: parsed.data,
+        sessionsRevoked,
+        event: LOG_EVENTS.sessionRevokeCompleted,
+      },
       'Admin session-revoke completed',
     )
     return { discordUserId: parsed.data, sessionsRevoked }

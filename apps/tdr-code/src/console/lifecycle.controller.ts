@@ -17,6 +17,7 @@ import { enqueue } from 'src/db/command.repo'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
 import { isRunningGeneration } from 'src/db/schema'
+import { LOG_EVENTS } from 'src/logging/log-events'
 import { SupervisorService } from 'src/supervisor/supervisor.service'
 
 import type { RestartResponseDto, TeardownResponseDto } from './lifecycle.dto'
@@ -54,17 +55,20 @@ export class LifecycleController {
   @HttpCode(202)
   restart(@Headers('origin') origin: string | undefined): RestartResponseDto {
     requireSameOrigin(origin)
-    this.logger.info({ origin }, 'Admin-triggered bot restart requested')
+    this.logger.info(
+      { origin, event: LOG_EVENTS.botRestartRequested },
+      'Admin-triggered bot restart requested',
+    )
     const result = this.supervisor.requestRestart()
     if ('error' in result) {
       this.logger.warn(
-        { error: result.error },
+        { error: result.error, event: LOG_EVENTS.botRestartRejected },
         'Admin-triggered bot restart rejected',
       )
       throw new ConflictException(result.error)
     }
     this.logger.info(
-      { phase: result.phase },
+      { phase: result.phase, event: LOG_EVENTS.botRestartDispatched },
       'Admin-triggered bot restart dispatched',
     )
     return { phase: result.phase }
@@ -114,7 +118,7 @@ export class LifecycleController {
     }
 
     this.logger.info(
-      { channelId, origin },
+      { channelId, origin, event: LOG_EVENTS.channelTeardownRequested },
       'Admin-triggered channel teardown requested',
     )
     enqueue(this.db, {

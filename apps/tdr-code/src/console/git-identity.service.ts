@@ -12,6 +12,7 @@ import {
   listIdentities,
   upsertIdentity,
 } from 'src/db/git-identity.repo'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import type {
   GitIdentityItemDto,
@@ -73,7 +74,11 @@ export class GitIdentityService {
       )
     }
     this.logger.info(
-      { discordUserId: body.discordUserId, fingerprint },
+      {
+        discordUserId: body.discordUserId,
+        fingerprint,
+        event: LOG_EVENTS.gitIdentityKeyValidated,
+      },
       'Git identity upsert: key validated',
     )
 
@@ -89,7 +94,11 @@ export class GitIdentityService {
       keyFingerprint: fingerprint,
     })
     this.logger.info(
-      { discordUserId: body.discordUserId, fingerprint },
+      {
+        discordUserId: body.discordUserId,
+        fingerprint,
+        event: LOG_EVENTS.gitIdentityUpserted,
+      },
       'Git identity upserted',
     )
 
@@ -102,6 +111,9 @@ export class GitIdentityService {
 
   deleteIdentity(discordUserId: string): void {
     deleteIdentity(this.db, discordUserId)
-    this.logger.warn({ discordUserId }, 'Git identity deleted')
+    this.logger.warn(
+      { discordUserId, event: LOG_EVENTS.gitIdentityDeleted },
+      'Git identity deleted',
+    )
   }
 }

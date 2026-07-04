@@ -9,6 +9,7 @@ import { type ConfigPatch, getConfig, updateConfig } from 'src/db/config.repo'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
 import { isRunningGeneration } from 'src/db/schema'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import type { ConfigResponseDto, UpdateConfigBodyDto } from './config.dto'
 
@@ -41,7 +42,10 @@ export class ConfigService {
     }
 
     const updated = updateConfig(this.db, patch)
-    this.logger.info({ patch }, 'Config updated')
+    this.logger.info(
+      { patch, event: LOG_EVENTS.configUpdated },
+      'Config updated',
+    )
 
     // Best-effort reread_config signal — only when a running generation exists.
     // The config is persisted regardless; if the bot is offline it reads the new
@@ -62,7 +66,10 @@ export class ConfigService {
       }
     } catch (err) {
       // Best-effort: do not fail the request if enqueueing fails
-      this.logger.warn({ err }, 'Best-effort reread_config enqueue failed')
+      this.logger.warn(
+        { err, event: LOG_EVENTS.rereadConfigEnqueueFailed },
+        'Best-effort reread_config enqueue failed',
+      )
     }
 
     return this.toDto(updated)

@@ -7,6 +7,7 @@ import { narrowTurnContentPayload, type SessionRow } from 'src/db/schema'
 import { getSessionById, listSessions } from 'src/db/sessions.repo'
 import { listBlocksByTurns } from 'src/db/turn-content.repo'
 import { listTurnsBySession } from 'src/db/turns.repo'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import { paginate, type Paginated } from './pagination'
 import type {
@@ -73,7 +74,12 @@ export class SessionsService {
         if (!narrowed) {
           droppedBlocks++
           this.logger.warn(
-            { blockId: block.id, turnId: block.turnId, kind: block.kind },
+            {
+              blockId: block.id,
+              turnId: block.turnId,
+              kind: block.kind,
+              event: LOG_EVENTS.turnContentBlockDropped,
+            },
             'Dropped un-narrowable turn_content block in transcript',
           )
           continue

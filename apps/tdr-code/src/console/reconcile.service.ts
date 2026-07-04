@@ -10,6 +10,7 @@ import { narrowTurnContentPayload } from 'src/db/schema'
 import { getSessionById } from 'src/db/sessions.repo'
 import { listBlocksByTurns } from 'src/db/turn-content.repo'
 import { listTurnsBySession } from 'src/db/turns.repo'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import { jsonlPath } from './jsonl-locator'
 import type {
@@ -82,7 +83,10 @@ export class ReconcileService {
     try {
       stat = fs.statSync(filePath)
     } catch (err) {
-      this.logger.error({ err, sessionId }, 'reconcile: stat failed')
+      this.logger.error(
+        { err, sessionId, event: LOG_EVENTS.reconcileStatFailed },
+        'reconcile: stat failed',
+      )
       return { verdict: 'cannot-reconcile', reason: 'parse-error' }
     }
 
@@ -100,7 +104,10 @@ export class ReconcileService {
         const lastNl = raw.lastIndexOf('\n')
         content = lastNl >= 0 ? raw.slice(0, lastNl + 1) : raw
       } catch (err) {
-        this.logger.error({ err, sessionId }, 'reconcile: read failed')
+        this.logger.error(
+          { err, sessionId, event: LOG_EVENTS.reconcileReadFailed },
+          'reconcile: read failed',
+        )
         return { verdict: 'cannot-reconcile', reason: 'parse-error' }
       } finally {
         if (fd !== undefined) {
@@ -115,7 +122,10 @@ export class ReconcileService {
       try {
         content = fs.readFileSync(filePath, 'utf8')
       } catch (err) {
-        this.logger.error({ err, sessionId }, 'reconcile: readFile failed')
+        this.logger.error(
+          { err, sessionId, event: LOG_EVENTS.reconcileReadFileFailed },
+          'reconcile: readFile failed',
+        )
         return { verdict: 'cannot-reconcile', reason: 'parse-error' }
       }
     }

@@ -8,6 +8,7 @@ import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
 import { listLive } from 'src/db/live-status.repo'
 import { isRunningGeneration } from 'src/db/schema'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import type { LiveChannelItemDto, LiveResponseDto } from './live.dto'
 
@@ -53,7 +54,11 @@ export class LiveService {
       } else if (stale) {
         state = 'stale'
         this.logger.warn(
-          { channelId: row.channelId, ageSinceHeartbeat },
+          {
+            channelId: row.channelId,
+            ageSinceHeartbeat,
+            event: LOG_EVENTS.liveRowStale,
+          },
           'Live row is stale — degrade-to-last-known',
         )
       } else {

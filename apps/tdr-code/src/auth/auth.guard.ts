@@ -11,6 +11,8 @@ import { fromNodeHeaders } from 'better-auth/node'
 import type { Request } from 'express'
 import { PinoLogger } from 'nestjs-pino'
 
+import { LOG_EVENTS } from 'src/logging/log-events'
+
 import { IS_PUBLIC_KEY } from './public.decorator'
 
 // Better Auth's own exported model types (better-auth's root package
@@ -29,11 +31,10 @@ export type AuthedSession = Session
 // from "no cookie was sent" (getSession resolved null), because the former
 // is an operational signal (the bot process is contending for the SQLite
 // write lock) and the latter is routine (every anonymous request, every
-// expired session). Exported so auth.guard.spec.ts asserts against these
-// exact literals rather than re-typing (and risking silently diverging
-// from) copies of the same two strings.
-export const AUTH_DENIED_EVENT = 'auth_denied'
-export const AUTH_CHECK_ERROR_EVENT = 'auth_check_error'
+// expired session). Sourced directly from the shared LOG_EVENTS registry
+// (LOG_EVENTS.authDenied / LOG_EVENTS.authCheckError) rather than local
+// constants — auth.guard.spec.ts imports the same registry values, so
+// there is exactly one place these two literals are ever defined.
 
 // Deny-by-default global guard (R19). Registered exactly once, as APP_GUARD,
 // in app.module.ts. Every /api/* route requires a valid Better Auth session
@@ -97,9 +98,9 @@ export class AuthGuard implements CanActivate {
     //     this is a genuine throw out of auth.api.getSession(), not a
     //     resolved value.
     // The distinction this guard must preserve: "null" is a normal,
-    // frequent, unauthenticated request (auth_denied); a THROW is an
+    // frequent, unauthenticated request (auth-denied); a THROW is an
     // abnormal condition worth its own Loki-distinguishable event
-    // (auth_check_error) — per the plan, explicitly NOT mirroring yoink's
+    // (auth-check-error) — per the plan, explicitly NOT mirroring yoink's
     // jwt-auth.guard.ts, which throws InternalServerErrorException (a 500)
     // on a DB read failure here. This guard fails closed to 401 in BOTH
     // cases — a 500 would be worse than a 401 (it tells a prober "something
@@ -112,14 +113,21 @@ export class AuthGuard implements CanActivate {
       })
     } catch (error) {
       this.logger.error(
-        { err: error, path: request.originalUrl },
-        AUTH_CHECK_ERROR_EVENT,
+        {
+          err: error,
+          path: request.originalUrl,
+          event: LOG_EVENTS.authCheckError,
+        },
+        'Auth check failed',
       )
       throw new UnauthorizedException()
     }
 
     if (!result) {
-      this.logger.warn({ path: request.originalUrl }, AUTH_DENIED_EVENT)
+      this.logger.warn(
+        { path: request.originalUrl, event: LOG_EVENTS.authDenied },
+        'Request denied: no valid session',
+      )
       throw new UnauthorizedException()
     }
 
