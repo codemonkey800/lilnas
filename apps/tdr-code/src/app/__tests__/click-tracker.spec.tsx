@@ -12,7 +12,7 @@ beforeEach(() => {
 })
 
 describe('ClickTracker', () => {
-  it('logs a button_click when an element with data-track-id is clicked', () => {
+  it('logs a button-click event when an element with data-track-id is clicked (AE4)', () => {
     render(
       <>
         <ClickTracker />
@@ -24,9 +24,11 @@ describe('ClickTracker', () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(1)
     const [, init] = mockFetch.mock.calls[0]!
+    expect(init?.keepalive).toBe(true)
     const body = JSON.parse(init?.body as string)
     expect(body.level).toBe('info')
-    expect(body.message).toBe('button_click')
+    expect(body.event).toBe('button-click')
+    expect(body.message).toBe('button-click')
     expect(body.context).toEqual({ id: 'do-thing' })
   })
 

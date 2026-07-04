@@ -2,7 +2,9 @@
 
 import { useEffect } from 'react'
 
-import { logToServer } from './browser-logger'
+import { LOG_EVENTS } from 'src/logging/log-events'
+
+import { capStack, logToServer } from './browser-logger'
 
 // Mounted once in layout.tsx, alongside (not inside) QueryProvider —
 // providers.tsx's own job is React Query setup, so global error-listener
@@ -13,11 +15,13 @@ import { logToServer } from './browser-logger'
 export function ErrorReporter() {
   useEffect(() => {
     function handleError(event: ErrorEvent) {
-      logToServer('error', event.message, {
+      logToServer('error', LOG_EVENTS.unhandledError, event.message, {
         filename: event.filename,
         lineno: event.lineno,
         colno: event.colno,
-        stack: event.error instanceof Error ? event.error.stack : undefined,
+        stack: capStack(
+          event.error instanceof Error ? event.error.stack : undefined,
+        ),
       })
     }
 
@@ -25,8 +29,11 @@ export function ErrorReporter() {
       const { reason } = event
       logToServer(
         'error',
+        LOG_EVENTS.unhandledRejection,
         reason instanceof Error ? reason.message : String(reason),
-        { stack: reason instanceof Error ? reason.stack : undefined },
+        {
+          stack: capStack(reason instanceof Error ? reason.stack : undefined),
+        },
       )
     }
 

@@ -1,4 +1,5 @@
 import type { ReconcileResponseDto } from 'src/console/reconcile.dto'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 import { logEvent, logToServer } from './browser-logger'
 
@@ -12,7 +13,7 @@ export function logReconcileResult(
   data: ReconcileResponseDto,
 ): void {
   if (data.verdict === 'cannot-reconcile') {
-    logEvent('reconcile_result', {
+    logEvent(LOG_EVENTS.reconcileResult, {
       sessionId,
       verdict: data.verdict,
       reason: data.reason,
@@ -36,8 +37,13 @@ export function logReconcileResult(
   }
 
   if (hasDrift) {
-    logToServer('warn', 'reconcile_mismatch', counts)
+    logToServer(
+      'warn',
+      LOG_EVENTS.reconcileMismatch,
+      'Reconcile mismatch detected',
+      counts,
+    )
   } else {
-    logEvent('reconcile_result', counts)
+    logEvent(LOG_EVENTS.reconcileResult, counts)
   }
 }

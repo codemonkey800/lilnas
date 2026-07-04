@@ -35,7 +35,7 @@ function mountMutation(
 }
 
 describe('createQueryClient — QueryCache logging', () => {
-  it('logs a query_error for a failing query', async () => {
+  it('logs a query-error event for a failing query, with the error message as msg', async () => {
     const client = createQueryClient()
 
     await client
@@ -49,10 +49,12 @@ describe('createQueryClient — QueryCache logging', () => {
     const bodies = loggedBodies()
     expect(bodies).toHaveLength(1)
     expect(bodies[0].level).toBe('warn')
-    expect(bodies[0].message).toBe('query_error')
+    expect(bodies[0].event).toBe('query-error')
+    // The raw error message now lives in the top-level `message` field
+    // (the logToServer `msg` argument), not nested under context.
+    expect(bodies[0].message).toBe('boom')
     expect(bodies[0].context).toEqual({
       queryKey: ['test-query-a'],
-      message: 'boom',
     })
   })
 
@@ -92,7 +94,7 @@ describe('createQueryClient — QueryCache logging', () => {
 
     const bodies = loggedBodies()
     expect(bodies).toHaveLength(2)
-    expect(bodies[1].context.message).toBe('second')
+    expect(bodies[1].message).toBe('second')
   })
 
   it('clears the dedup entry on success, so an identical later failure logs again', async () => {
@@ -115,13 +117,31 @@ describe('createQueryClient — QueryCache logging', () => {
       .fetchQuery({ queryKey, queryFn: fail, retry: false, staleTime: 0 })
       .catch(() => {})
 
-    const errorBodies = loggedBodies().filter(b => b.message === 'query_error')
+    const errorBodies = loggedBodies().filter(b => b.event === 'query-error')
     expect(errorBodies).toHaveLength(2)
+  })
+
+  it('caps an oversized query error message before sending it', async () => {
+    const client = createQueryClient()
+    const oversized = 'z'.repeat(1000)
+
+    await client
+      .fetchQuery({
+        queryKey: ['test-query-cap'],
+        queryFn: () => Promise.reject(new Error(oversized)),
+        retry: false,
+      })
+      .catch(() => {})
+
+    const bodies = loggedBodies()
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0].message.length).toBeLessThanOrEqual(300)
+    expect(bodies[0].message.length).toBeLessThan(oversized.length)
   })
 })
 
 describe('createQueryClient — MutationCache logging', () => {
-  it('logs a mutation_error for a failing mutation', async () => {
+  it('logs a mutation-error event for a failing mutation, with the error message as msg', async () => {
     const client = createQueryClient()
     const { result } = mountMutation(client, ['test-mutation-a'], () =>
       Promise.reject(new Error('boom')),
@@ -133,14 +153,14 @@ describe('createQueryClient — MutationCache logging', () => {
     const bodies = loggedBodies()
     expect(bodies).toHaveLength(1)
     expect(bodies[0].level).toBe('warn')
-    expect(bodies[0].message).toBe('mutation_error')
+    expect(bodies[0].event).toBe('mutation-error')
+    expect(bodies[0].message).toBe('boom')
     expect(bodies[0].context).toEqual({
       mutationKey: ['test-mutation-a'],
-      message: 'boom',
     })
   })
 
-  it('logs a mutation_success for a succeeding mutation', async () => {
+  it('logs a mutation-success event for a succeeding mutation', async () => {
     const client = createQueryClient()
     const { result } = mountMutation(client, ['test-mutation-b'], () =>
       Promise.resolve('ok'),
@@ -152,7 +172,8 @@ describe('createQueryClient — MutationCache logging', () => {
     const bodies = loggedBodies()
     expect(bodies).toHaveLength(1)
     expect(bodies[0].level).toBe('info')
-    expect(bodies[0].message).toBe('mutation_success')
+    expect(bodies[0].event).toBe('mutation-success')
+    expect(bodies[0].message).toBe('mutation-success')
     expect(bodies[0].context).toEqual({ mutationKey: ['test-mutation-b'] })
   })
 

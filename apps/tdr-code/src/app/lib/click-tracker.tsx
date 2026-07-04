@@ -2,6 +2,8 @@
 
 import { useEffect } from 'react'
 
+import { LOG_EVENTS } from 'src/logging/log-events'
+
 import { logEvent } from './browser-logger'
 
 // Delegated, single-listener click tracking via a `data-track-id` attribute
@@ -17,7 +19,7 @@ export function ClickTracker() {
       if (!(target instanceof Element)) return
       const trackedEl = target.closest<HTMLElement>('[data-track-id]')
       if (!trackedEl) return
-      logEvent('button_click', { id: trackedEl.dataset.trackId })
+      logEvent(LOG_EVENTS.buttonClick, { id: trackedEl.dataset.trackId })
     }
 
     document.addEventListener('click', handleClick)

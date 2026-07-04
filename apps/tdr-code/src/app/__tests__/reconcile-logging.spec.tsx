@@ -15,7 +15,7 @@ function loggedBody() {
 }
 
 describe('logReconcileResult', () => {
-  it('logs an info-level result for cannot-reconcile', () => {
+  it('logs an info-level reconcile-result event for cannot-reconcile', () => {
     logReconcileResult(5, {
       verdict: 'cannot-reconcile',
       reason: 'file-missing',
@@ -23,7 +23,8 @@ describe('logReconcileResult', () => {
 
     const body = loggedBody()
     expect(body.level).toBe('info')
-    expect(body.message).toBe('reconcile_result')
+    expect(body.event).toBe('reconcile-result')
+    expect(body.message).toBe('reconcile-result')
     expect(body.context).toEqual({
       sessionId: 5,
       verdict: 'cannot-reconcile',
@@ -31,7 +32,7 @@ describe('logReconcileResult', () => {
     })
   })
 
-  it('logs an info-level result for a clean reconciliation', () => {
+  it('logs an info-level reconcile-result event for a clean reconciliation', () => {
     logReconcileResult(5, {
       verdict: 'reconciled',
       matched: 10,
@@ -43,7 +44,8 @@ describe('logReconcileResult', () => {
 
     const body = loggedBody()
     expect(body.level).toBe('info')
-    expect(body.message).toBe('reconcile_result')
+    expect(body.event).toBe('reconcile-result')
+    expect(body.message).toBe('reconcile-result')
     expect(body.context).toEqual({
       sessionId: 5,
       verdict: 'reconciled',
@@ -55,7 +57,7 @@ describe('logReconcileResult', () => {
     })
   })
 
-  it('logs a warn-level reconcile_mismatch when drift is found, with counts only', () => {
+  it('logs a warn-level reconcile-mismatch event when drift is found, with counts only', () => {
     logReconcileResult(5, {
       verdict: 'reconciled',
       matched: 8,
@@ -71,7 +73,8 @@ describe('logReconcileResult', () => {
 
     const body = loggedBody()
     expect(body.level).toBe('warn')
-    expect(body.message).toBe('reconcile_mismatch')
+    expect(body.event).toBe('reconcile-mismatch')
+    expect(body.message).toBe('Reconcile mismatch detected')
     expect(body.context).toEqual({
       sessionId: 5,
       verdict: 'reconciled',

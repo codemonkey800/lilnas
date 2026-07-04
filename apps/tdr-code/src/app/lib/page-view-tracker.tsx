@@ -3,6 +3,8 @@
 import { usePathname } from 'next/navigation'
 import { useEffect } from 'react'
 
+import { LOG_EVENTS } from 'src/logging/log-events'
+
 import { logEvent } from './browser-logger'
 
 // Mounted once in layout.tsx, alongside ErrorReporter — pathname-only (no
@@ -15,7 +17,7 @@ export function PageViewTracker() {
   const pathname = usePathname()
 
   useEffect(() => {
-    logEvent('page_view', { path: pathname })
+    logEvent(LOG_EVENTS.pageView, { path: pathname })
   }, [pathname])
 
   return null

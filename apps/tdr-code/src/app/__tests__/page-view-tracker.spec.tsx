@@ -20,7 +20,7 @@ beforeEach(() => {
 })
 
 describe('PageViewTracker', () => {
-  it('logs a page_view with the current pathname on mount', () => {
+  it('logs a page-view event with the current pathname on mount', () => {
     mockPathname.mockReturnValue('/sessions')
     render(<PageViewTracker />)
 
@@ -28,7 +28,8 @@ describe('PageViewTracker', () => {
     const [, init] = mockFetch.mock.calls[0]!
     const body = JSON.parse(init?.body as string)
     expect(body.level).toBe('info')
-    expect(body.message).toBe('page_view')
+    expect(body.event).toBe('page-view')
+    expect(body.message).toBe('page-view')
     expect(body.context).toEqual({ path: '/sessions' })
   })
 
