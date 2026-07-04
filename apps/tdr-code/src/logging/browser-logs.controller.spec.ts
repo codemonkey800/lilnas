@@ -95,5 +95,67 @@ describe('BrowserLogsController', () => {
 
       expect(svc.write).toHaveBeenCalledWith(body)
     })
+
+    it('accepts a valid kebab-case event field and forwards it to the service', () => {
+      const svc = makeService()
+      const ctrl = new BrowserLogsController(svc)
+      const body = {
+        level: 'info' as const,
+        message: 'clicked',
+        event: 'button-click',
+      }
+
+      ctrl.logBrowserEvent(ALLOWED, body)
+
+      expect(svc.write).toHaveBeenCalledWith(body)
+    })
+
+    it('omitted event field → still valid, service called without it', () => {
+      const svc = makeService()
+      const ctrl = new BrowserLogsController(svc)
+
+      ctrl.logBrowserEvent(ALLOWED, { level: 'info', message: 'no event' })
+
+      expect(svc.write).toHaveBeenCalledWith({
+        level: 'info',
+        message: 'no event',
+      })
+    })
+
+    it('event over 64 chars → BadRequestException, service never called', () => {
+      const svc = makeService()
+      const ctrl = new BrowserLogsController(svc)
+
+      expect(() =>
+        ctrl.logBrowserEvent(ALLOWED, {
+          level: 'info',
+          message: 'clicked',
+          event: `${'a'.repeat(60)}-toolong`,
+        }),
+      ).toThrow(BadRequestException)
+      expect(svc.write).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['uppercase', 'Button-Click'],
+      ['underscores', 'button_click'],
+      ['spaces', 'button click'],
+      ['embedded newline (log-forging attempt)', 'x\nfake-line'],
+    ])(
+      'event with %s → BadRequestException, service never called',
+      (_label, badEvent) => {
+        const svc = makeService()
+        const ctrl = new BrowserLogsController(svc)
+
+        expect(() =>
+          ctrl.logBrowserEvent(ALLOWED, {
+            level: 'info',
+            message: 'clicked',
+            event: badEvent,
+          }),
+        ).toThrow(BadRequestException)
+        expect(svc.write).not.toHaveBeenCalled()
+      },
+    )
   })
 })

@@ -67,7 +67,16 @@ export class BrowserLogsService {
     // field, so a rest-spread variable named `context` would shadow it and
     // silently double-nest ({ context: { context: {...}, url, userAgent } })
     // instead of producing one flat { context, url, userAgent } log object.
-    const { level, message, ...rest } = entry
-    this.logger[level](rest, message)
+    const { level, message, event, ...rest } = entry
+    // `event` is a queryable structured field (a LogQL json-parser target /
+    // line filter) but must NEVER be promoted to a Loki stream label. It's
+    // client-supplied and only shape-validated (kebab-case, ≤64 chars) —
+    // see browser-logs.dto.ts's KEBAB_CASE_PATTERN comment — rather than
+    // checked against the backend's LogEvent enum, so anyone who can reach
+    // this endpoint controls its value and could otherwise mint unbounded
+    // label cardinality if it were ever wired into pino's label config.
+    // Spread back in at the top level (sibling to context/url/userAgent),
+    // not nested under `context`, so it stays a directly queryable field.
+    this.logger[level]({ ...rest, event }, message)
   }
 }
