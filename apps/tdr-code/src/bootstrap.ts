@@ -9,6 +9,7 @@ import { loadMasterKey } from './crypto/master-key'
 import { EnvKeys } from './env'
 import { initBackendLogger } from './logging/backend-logger'
 import { logFilePath } from './logging/log-paths'
+import { SupervisorService } from './supervisor/supervisor.service'
 
 export async function bootstrapApp() {
   // As early as possible — before any code path in this process might log
@@ -63,6 +64,15 @@ export async function bootstrapApp() {
   // this removes the host's non-loopback interfaces from the attack surface now
   // that mutating endpoints (restart/teardown) and raw-transcript reads ship.
   await app.listen(port, '127.0.0.1')
+
+  // Start supervising the bot only after winning BACKEND_PORT above. That port
+  // bind is the single-instance guard: a duplicate main-server process (e.g. an
+  // overlapping dev-watch restart) fails app.listen() with EADDRINUSE and exits
+  // before this line, so it never spawns a competing bot. The bot is spawned
+  // here rather than in SupervisorService's module init because module init runs
+  // before the port bind — which is what previously let two processes each spawn
+  // a bot and orphan the loser's child.
+  await app.get(SupervisorService).start()
 
   // Printed here (real process start), not inside buildLoggerOptions()/
   // logging.module.ts at import time, so a test importing those modules

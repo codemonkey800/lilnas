@@ -3,12 +3,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 
 import { env } from '@lilnas/utils/env'
-import {
-  Inject,
-  Injectable,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common'
+import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 
 import {
@@ -113,13 +108,15 @@ function buildBotEnv(generationId: number): NodeJS.ProcessEnv {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Injectable()
-export class SupervisorService implements OnModuleInit, OnModuleDestroy {
+export class SupervisorService implements OnModuleDestroy {
   private fsmState: SupervisorState = initialState()
   private unexpectedExitHistory: number[] = []
   private currentChild: ChildProcess | null = null
   private currentGenerationId: number | null = null
   // Tracks total spawn count — used to discriminate initial boot vs restart (U1/R9).
   private spawnCount = 0
+  // Guards start() against double-invocation (it is public + idempotent).
+  private startInvoked = false
 
   // Timers — each is keyed per-spawn; re-armed only via the FSM effects.
   private startDeadlineTimer: NodeJS.Timeout | null = null
@@ -181,7 +178,16 @@ export class SupervisorService implements OnModuleInit, OnModuleDestroy {
     )
   }
 
-  async onModuleInit(): Promise<void> {
+  // Begin supervising the bot: reconcile any leftover generation rows, then
+  // spawn the first bot. Deliberately NOT an onModuleInit hook — bootstrap.ts
+  // calls this only AFTER app.listen() wins BACKEND_PORT, so a duplicate
+  // main-server process (e.g. an overlapping dev-watch restart) fails the port
+  // bind and exits before ever reaching here. That makes the HTTP port the sole
+  // single-instance guard and closes the spawn-before-listen race that spawned
+  // (and then orphaned) a second bot. Idempotent: safe to call more than once.
+  async start(): Promise<void> {
+    if (this.startInvoked) return
+    this.startInvoked = true
     if (!this.supervise) {
       this.logger.info(
         { event: LOG_EVENTS.standaloneMode },

@@ -137,7 +137,7 @@ describe('SupervisorService', () => {
     delete process.env.SUPERVISE_BOT
   })
 
-  it('onModuleInit with no prior rows → inserts generation and spawns', async () => {
+  it('start() with no prior rows → inserts generation and spawns', async () => {
     const children: FakeChild[] = []
     const svc = await buildService(db, clock, () => {
       const c = new FakeChild(100 + children.length)
@@ -145,7 +145,7 @@ describe('SupervisorService', () => {
       return c as unknown as ChildProcess
     })
 
-    await svc.onModuleInit()
+    await svc.start()
 
     const gen = await waitForCondition(() => {
       const rows = liveGenerations(db)
@@ -157,6 +157,43 @@ describe('SupervisorService', () => {
     expect(svc.getPhase()).toBe('Starting')
   })
 
+  it('does not spawn until start() is called (gated behind app.listen in bootstrap)', async () => {
+    const children: FakeChild[] = []
+    const svc = await buildService(db, clock, () => {
+      const c = new FakeChild(100 + children.length)
+      children.push(c)
+      return c as unknown as ChildProcess
+    })
+
+    // Constructing the provider must NOT spawn — the bot is only spawned by an
+    // explicit start(), which bootstrap.ts calls after app.listen() wins the
+    // HTTP port. This is the invariant that stops two overlapping main-server
+    // processes from each spawning a bot before the port conflict resolves.
+    expect(children).toHaveLength(0)
+    expect(liveGenerations(db)).toHaveLength(0)
+    expect(svc.getPhase()).toBe('Stopped')
+
+    await svc.start()
+    expect(children).toHaveLength(1)
+    expect(svc.getPhase()).toBe('Starting')
+  })
+
+  it('start() is idempotent — a second call does not spawn a second bot', async () => {
+    const children: FakeChild[] = []
+    const svc = await buildService(db, clock, () => {
+      const c = new FakeChild(100 + children.length)
+      children.push(c)
+      return c as unknown as ChildProcess
+    })
+
+    await svc.start()
+    await svc.start()
+    await flushPromises()
+
+    expect(children).toHaveLength(1)
+    expect(liveGenerations(db)).toHaveLength(1)
+  })
+
   it('liveness poll detects heartbeat → dispatches Ready → Running', async () => {
     const children: FakeChild[] = []
     const svc = await buildService(db, clock, () => {
@@ -165,7 +202,7 @@ describe('SupervisorService', () => {
       return c as unknown as ChildProcess
     })
 
-    await svc.onModuleInit()
+    await svc.start()
     const gen = liveGenerations(db)[0]!
     // Simulate bot writing markRunning.
     markRunning(db, gen.id, 200, new Date())
@@ -185,7 +222,7 @@ describe('SupervisorService', () => {
       return c as unknown as ChildProcess
     })
 
-    await svc.onModuleInit()
+    await svc.start()
     await flushPromises()
 
     // Simulate unexpected exit.
@@ -208,7 +245,7 @@ describe('SupervisorService', () => {
       return c as unknown as ChildProcess
     })
 
-    await svc.onModuleInit()
+    await svc.start()
     await flushPromises()
 
     // Advance past start timeout — StartTimeout fires, SIGTERM sent.
@@ -238,7 +275,7 @@ describe('SupervisorService', () => {
       } as unknown as ChildProcess
     })
 
-    await svc.onModuleInit()
+    await svc.start()
     await flushPromises()
 
     expect(capturedEnv.length).toBeGreaterThan(0)
@@ -254,7 +291,7 @@ describe('SupervisorService', () => {
       return c as unknown as ChildProcess
     })
 
-    await svc.onModuleInit()
+    await svc.start()
     await flushPromises()
     const gen = liveGenerations(db)[0]!
 
@@ -288,7 +325,7 @@ describe('SupervisorService', () => {
       false,
     )
 
-    await svc.onModuleInit()
+    await svc.start()
     expect(spawned).toHaveLength(0)
     expect(svc.getPhase()).toBe('Stopped')
   })
@@ -307,7 +344,7 @@ describe('SupervisorService', () => {
           }) as unknown as ChildProcess,
         false,
       )
-      await svc.onModuleInit()
+      await svc.start()
       expect(svc.getPhase()).toBe('Stopped')
       const result = svc.requestRestart()
       expect(result).toEqual({ error: 'not-supervised' })
@@ -320,7 +357,7 @@ describe('SupervisorService', () => {
         children.push(c)
         return c as unknown as ChildProcess
       })
-      await svc.onModuleInit()
+      await svc.start()
       expect(svc.getPhase()).toBe('Starting')
 
       const result = svc.requestRestart()
@@ -338,7 +375,7 @@ describe('SupervisorService', () => {
         children.push(c)
         return c as unknown as ChildProcess
       })
-      await svc.onModuleInit()
+      await svc.start()
       const gen = liveGenerations(db)[0]!
       markRunning(db, gen.id, 950, new Date())
       clock.advance(200)
@@ -360,7 +397,7 @@ describe('SupervisorService', () => {
         children.push(c)
         return c as unknown as ChildProcess
       })
-      await svc.onModuleInit()
+      await svc.start()
       await flushPromises()
       // Trigger unexpected exit → Backoff
       children[0]!.exitCode = 1
@@ -381,7 +418,7 @@ describe('SupervisorService', () => {
         children.push(c)
         return c as unknown as ChildProcess
       })
-      await svc.onModuleInit()
+      await svc.start()
       const gen = liveGenerations(db)[0]!
       markRunning(db, gen.id, 990, new Date())
       clock.advance(200)
@@ -412,7 +449,7 @@ describe('SupervisorService', () => {
       } as unknown as ChildProcess
     })
 
-    await svc.onModuleInit()
+    await svc.start()
     await flushPromises()
 
     const row = generationById(db, gen.id)!
