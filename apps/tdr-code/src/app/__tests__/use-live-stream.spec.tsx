@@ -174,6 +174,18 @@ describe('useLiveStream', () => {
     expect(topicToQueryKey('not-a-real-topic')).toBeUndefined()
   })
 
+  it('topicToQueryKey rejects a well-formed session: prefix carrying a malformed id, instead of trusting wire data blindly', () => {
+    // These all pass isSessionTopic (the prefix is well-formed) but must be
+    // rejected by the Number.isInteger/positivity guard that runs after —
+    // the exact "browser must not trust wire data blindly" contract this
+    // function's own header comment describes. A dropped guard here would
+    // silently turn into queryKeys.session(NaN) (or a negative id) with no
+    // failing test.
+    expect(topicToQueryKey('session:abc')).toBeUndefined()
+    expect(topicToQueryKey('session:1.5')).toBeUndefined()
+    expect(topicToQueryKey('session:-5')).toBeUndefined()
+  })
+
   it('ignores a keepalive event without invalidating anything', () => {
     const invalidateSpy = spyOnInvalidate()
     renderHook(() => useLiveStream(['live']), { wrapper })

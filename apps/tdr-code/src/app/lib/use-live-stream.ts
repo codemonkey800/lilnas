@@ -38,7 +38,7 @@ export function topicToQueryKey(topic: string): QueryKey | undefined {
     const id = parseSessionTopic(topic)
     if (id === null) return undefined
     const sessionId = Number(id)
-    if (!Number.isInteger(sessionId)) return undefined
+    if (!Number.isInteger(sessionId) || sessionId <= 0) return undefined
     return queryKeys.session(sessionId)
   }
   return undefined

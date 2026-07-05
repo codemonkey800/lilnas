@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 
 import { BotStatusService } from 'src/bot/bot-status.service'
-import { staleThresholdMs } from 'src/bot/staleness'
+import { isBotOffline, staleThresholdMs } from 'src/bot/staleness'
 import { latestGeneration } from 'src/db/bot-generation.repo'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
@@ -22,8 +22,7 @@ export class LiveService {
 
   getLive(now: Date = new Date()): LiveResponseDto {
     const status = this.botStatus.getStatus(now)
-    const botOffline =
-      status.status !== 'online' && status.status !== 'starting'
+    const botOffline = isBotOffline(status.status)
 
     // Read latestGeneration + listLive in one DEFERRED snapshot so the bot cannot
     // commit a generation transition between the two reads (same pattern as getSessionTranscript).

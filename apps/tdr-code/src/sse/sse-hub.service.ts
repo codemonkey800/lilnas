@@ -4,13 +4,15 @@ import type BetterSqlite3 from 'better-sqlite3'
 import { PinoLogger } from 'nestjs-pino'
 import {
   asyncScheduler,
+  debounceTime,
   groupBy,
   mergeMap,
   Observable,
   throttleTime,
 } from 'rxjs'
 
-import { staleThresholdMs } from 'src/bot/staleness'
+import type { BotStatusDto } from 'src/bot/bot-status.dto'
+import { isBotOffline, staleThresholdMs } from 'src/bot/staleness'
 import { latestGeneration } from 'src/db/bot-generation.repo'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
@@ -56,7 +58,7 @@ const THROTTLE_WINDOW_MS = 50
 // staleThresholdMs) so they cannot silently drift on the underlying rule,
 // only on presentation shape (which this fallback detector doesn't need —
 // it only ever compares the string for equality across ticks).
-function computeBotStatusDigest(db: Db, now: Date): string {
+function computeBotStatusDigest(db: Db, now: Date): BotStatusDto['status'] {
   const row = latestGeneration(db)
   if (!row) return 'never-seen'
   if (isEndedGeneration(row)) {
@@ -76,9 +78,11 @@ function computeBotStatusDigest(db: Db, now: Date): string {
 // BotStatusService, again out of reach per the process-scoping note above).
 // Covers the same time-derived transitions getLive() computes
 // (working/idle/stale/last-known) so a live-page flip with zero DB writes
-// (e.g. a channel's heartbeat going stale) still changes this string.
+// (e.g. a channel's heartbeat going stale) still changes this string. Uses
+// the same shared isBotOffline() as getLive() so the two derivations of
+// this rule cannot drift on what 'starting' means.
 function computeLiveDigest(db: Db, now: Date): string {
-  const botOffline = computeBotStatusDigest(db, now) !== 'online'
+  const botOffline = isBotOffline(computeBotStatusDigest(db, now))
   const row = latestGeneration(db)
   if (!row) return 'never-seen'
   const threshold = staleThresholdMs()
@@ -153,7 +157,17 @@ export class SseHubService implements OnModuleDestroy {
     // the plan calls out. Explicitly NOT `debounceTime(50)`.
     this.notifyBus.stream$
       .pipe(
-        groupBy((signal: NotifySignal) => signal.topic),
+        // duration closes (and discards) a topic's group once it's been
+        // idle for 4 throttle windows — without it, groupBy's internal
+        // per-key Subject is retained for the life of the process, and
+        // session topics carry a never-repeating id per session, so the
+        // group map would grow forever. 4x keeps the window well clear of
+        // an active burst's own trailing emit; a re-created group's fresh
+        // leading edge on the next signal is at most one harmless
+        // redundant fanOut under snapshot-refetch idempotency.
+        groupBy((signal: NotifySignal) => signal.topic, {
+          duration: group$ => group$.pipe(debounceTime(THROTTLE_WINDOW_MS * 4)),
+        }),
         mergeMap(group$ =>
           group$.pipe(
             throttleTime(THROTTLE_WINDOW_MS, asyncScheduler, {

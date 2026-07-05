@@ -260,6 +260,16 @@ describe('SseHubService', () => {
       expect(hub.connectionCount()).toBe(0)
     })
 
+    it('onModuleDestroy clears both fallback timers even with connections still open', () => {
+      const { hub } = buildHub()
+      collect(hub, ['live']) // leave open; do NOT unsubscribe
+      expect(jest.getTimerCount()).toBeGreaterThan(0)
+
+      hub.onModuleDestroy()
+
+      expect(jest.getTimerCount()).toBe(0)
+    })
+
     it('edge: subscribe() called twice registers two independent connections, each needing its own unsubscribe', () => {
       const { hub, bus } = buildHub()
       const first = collect(hub, ['live'])
@@ -277,6 +287,30 @@ describe('SseHubService', () => {
       expect(hub.connectionCount()).toBe(1)
       second.close()
       expect(hub.connectionCount()).toBe(0)
+    })
+
+    it('fanOut skips a connection registered but never subscribed to its signals$ Observable, without throwing or blocking fan-out to other connections', () => {
+      const { hub, bus } = buildHub()
+      // subscribe() alone registers the connection in `connections`, but
+      // `perConnectionListeners` is only populated once something
+      // subscribes to the returned signals$ — this reproduces that window
+      // (e.g. between registration and the controller subscribing) without
+      // ever closing it.
+      const unobserved = hub.subscribe(['live'])
+      const observed = collect(hub, ['live'])
+      expect(hub.connectionCount()).toBe(2)
+
+      expect(() => {
+        bus.publish('live')
+        jest.advanceTimersByTime(60)
+      }).not.toThrow()
+
+      // fanOut's `if (!listener) continue` must not stop it from reaching
+      // the connection registered afterward.
+      expect(observed.received).toEqual([{ topic: 'live' }])
+
+      observed.close()
+      hub.unsubscribe(unobserved.connectionId)
     })
 
     it('F3/AE3: bot-status flips online -> offline on heartbeat staleness alone (time-driven, no writes after subscribe)', () => {
