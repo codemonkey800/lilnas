@@ -41,6 +41,27 @@ module.exports = {
           },
         ],
       },
+      // SSE push (R13/U8): NestJS's @Sse() already sets this header on the
+      // /api/stream response itself (verified against the installed
+      // @nestjs/core sse-stream.js), and nginx's own /api/stream location
+      // (deploy/nginx.conf) explicitly disables proxy_buffering — this
+      // entry is the third, Next-layer leg of that same defense-in-depth
+      // chain (browser -> Traefik -> nginx -> this rewrite -> NestJS), for
+      // the chained-proxy header-stripping trap the plan calls out. Scoped
+      // to the whole /api/:path* prefix (matching the rewrite's own scope
+      // below) rather than just /api/stream — harmless on the other JSON
+      // routes (the header is simply ignored by non-streaming responses)
+      // and keeps this list independent of the SSE path staying at exactly
+      // "/stream" if it ever moves.
+      {
+        source: '/api/:path*',
+        headers: [
+          {
+            key: 'X-Accel-Buffering',
+            value: 'no',
+          },
+        ],
+      },
     ]
   },
 }
