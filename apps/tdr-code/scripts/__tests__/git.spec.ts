@@ -163,13 +163,15 @@ describe('scripts/git wrapper', () => {
           TDR_REAL_GIT: envFakeGit,
         })
 
-        expect(stdout).toContain('GIT_CONFIG_COUNT=3')
+        expect(stdout).toContain('GIT_CONFIG_COUNT=4')
         expect(stdout).toContain('GIT_CONFIG_KEY_0=gpg.format')
         expect(stdout).toContain('GIT_CONFIG_VALUE_0=ssh')
         expect(stdout).toContain('GIT_CONFIG_KEY_1=user.signingkey')
         expect(stdout).toContain(`GIT_CONFIG_VALUE_1=${signingKeyPath}`)
         expect(stdout).toContain('GIT_CONFIG_KEY_2=commit.gpgsign')
         expect(stdout).toContain('GIT_CONFIG_VALUE_2=true')
+        expect(stdout).toContain('GIT_CONFIG_KEY_3=gpg.ssh.program')
+        expect(stdout).toContain('GIT_CONFIG_VALUE_3=ssh-keygen')
       })
 
       it('does not export GIT_CONFIG_* when signing_key is absent', async () => {

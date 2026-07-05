@@ -10,6 +10,11 @@
 #   ssh_command — GIT_SSH_COMMAND (configured key path or blocking wrapper)
 #   signing_key — path to the same tmpfs private key file, used to sign
 #                 commits (gpg.format=ssh); written only when configured.
+#                 The wrapper also pins gpg.ssh.program=ssh-keygen so a
+#                 machine's global/system gitconfig (e.g. a personal
+#                 1Password SSH-signing setup) can never intercept
+#                 per-turn signing — these keys are passphrase-free and
+#                 must be signed directly.
 #   configured  — presence-only gate: written ONLY when the turn's identity
 #                 is confirmed configured. Its ABSENCE (not the presence of
 #                 some other "blocked" marker) is what triggers the
@@ -57,7 +62,7 @@ if [ -n "${TDR_CHANNEL_ID:-}" ] && [ -d "$IDENTITY_DIR" ]; then
   # / GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n, Git >=2.31) instead of touching
   # .git/config, matching this wrapper's existing scalar-env-var-only style.
   if [ -f "$IDENTITY_DIR/signing_key" ]; then
-    export GIT_CONFIG_COUNT=3
+    export GIT_CONFIG_COUNT=4
     export GIT_CONFIG_KEY_0=gpg.format
     export GIT_CONFIG_VALUE_0=ssh
     export GIT_CONFIG_KEY_1=user.signingkey
@@ -65,6 +70,8 @@ if [ -n "${TDR_CHANNEL_ID:-}" ] && [ -d "$IDENTITY_DIR" ]; then
     export GIT_CONFIG_VALUE_1
     export GIT_CONFIG_KEY_2=commit.gpgsign
     export GIT_CONFIG_VALUE_2=true
+    export GIT_CONFIG_KEY_3=gpg.ssh.program
+    export GIT_CONFIG_VALUE_3=ssh-keygen
   fi
 
   if [ ! -f "$IDENTITY_DIR/configured" ]; then

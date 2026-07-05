@@ -25,28 +25,39 @@ async function runWrapper(
 }
 
 describe('git-ssh-wrapper.sh', () => {
-  describe('read-only operations (allowed)', () => {
-    it('git-upload-pack → exit 0 (attempts exec ssh — fails gracefully since no real host)', async () => {
-      // The wrapper tries to exec ssh; since the args are fake it will fail
-      // at the ssh level, but the wrapper itself exits cleanly via exec.
-      // We just verify the wrapper exits without the "blocked" stderr message.
-      const { stderr } = await runWrapper([
+  describe('read operations are also blocked (git-upload-pack / git-upload-archive)', () => {
+    it('git-upload-pack → exits nonzero with the blocked message', async () => {
+      const { code, stderr } = await runWrapper([
         'git@github.com',
         'git-upload-pack',
         '/user/repo',
       ])
-      // Should NOT contain the push-blocked message
-      expect(stderr).not.toContain('git push is blocked')
-      expect(stderr).not.toContain('Configure your identity')
+      expect(code).not.toBe(0)
+      expect(stderr).toContain('git operation blocked')
+      expect(stderr).toContain('tdr-code.example.com/git-identity')
     })
 
-    it('git-upload-archive → does not exit with blocked message', async () => {
-      const { stderr } = await runWrapper([
+    it('git-upload-archive → exits nonzero with the blocked message', async () => {
+      const { code, stderr } = await runWrapper([
         'git@github.com',
         'git-upload-archive',
         '/user/repo',
       ])
-      expect(stderr).not.toContain('git push is blocked')
+      expect(code).not.toBe(0)
+      expect(stderr).toContain('git operation blocked')
+    })
+
+    it('verb found at non-first position is still blocked', async () => {
+      // Simulate ssh with extra options before the verb
+      const { code, stderr } = await runWrapper([
+        '-o',
+        'StrictHostKeyChecking=accept-new',
+        'git@github.com',
+        'git-upload-pack',
+        '/user/repo',
+      ])
+      expect(code).not.toBe(0)
+      expect(stderr).toContain('git operation blocked')
     })
   })
 
@@ -73,7 +84,8 @@ describe('git-ssh-wrapper.sh', () => {
     it('verb found at non-first position is still blocked', async () => {
       // Simulate ssh with extra options before the verb
       const { code, stderr } = await runWrapper([
-        '-o', 'StrictHostKeyChecking=accept-new',
+        '-o',
+        'StrictHostKeyChecking=accept-new',
         'git@github.com',
         'git-receive-pack',
         '/user/repo',
