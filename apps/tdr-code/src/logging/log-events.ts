@@ -346,6 +346,13 @@ const SSE_EVENTS = {
   sseFallbackIntervalStarted: 'sse-fallback-interval-started',
   sseFallbackIntervalStopped: 'sse-fallback-interval-stopped',
   sseFallbackTick: 'sse-fallback-tick',
+  // sse.controller.ts (U2) — the @Sse('stream') endpoint's own connection
+  // lifecycle, distinct from the hub-internal events above: sseConnected
+  // fires once per subscribe() (a new EventSource handshake); sseClientDisconnected
+  // fires once per finalize() teardown (the paired release for that same
+  // connection id — see sse.controller.ts's own header comment).
+  sseConnected: 'sse-connected',
+  sseClientDisconnected: 'sse-client-disconnected',
 } as const
 
 const ERROR_BOUNDARY_EVENTS = {

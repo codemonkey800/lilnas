@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common'
 
 import { NotifyBusService } from './notify-bus.service'
+import { SseController } from './sse.controller'
 import { SseHubService } from './sse-hub.service'
 
 // PROCESS-SCOPING INVARIANT (load-bearing — see the plan's "Process-scoping
@@ -19,10 +20,11 @@ import { SseHubService } from './sse-hub.service'
 // SseModule directly (e.g. a later unit's SupervisorService, itself under
 // SupervisorModule -> ConsoleModule, publishes to the bus with no cycle).
 // SseHubService is NOT exported here — it is package-internal to this
-// module; only the U2 SseController (declared by this module in a later
-// unit) is meant to call it.
+// module; only SseController (declared by this module, below) is meant to
+// call it.
 @Global()
 @Module({
+  controllers: [SseController],
   providers: [NotifyBusService, SseHubService],
   exports: [NotifyBusService],
 })

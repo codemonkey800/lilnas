@@ -11,6 +11,7 @@ import { ConsoleModule } from './console/console.module'
 import { DatabaseModule } from './db/database.module'
 import { buildLoggerOptions } from './logger'
 import { LoggingModule } from './logging/logging.module'
+import { SseModule } from './sse/sse.module'
 import { SupervisorModule } from './supervisor/supervisor.module'
 
 // Main-server module: owns the DB (with migration), exposes HTTP controllers
@@ -28,6 +29,7 @@ import { SupervisorModule } from './supervisor/supervisor.module'
   imports: [
     DatabaseModule.forRoot({ migrate: true }),
     LoggerModule.forRoot(buildLoggerOptions('main')),
+    SseModule,
     SupervisorModule,
     ConsoleModule,
     AuthModule,
