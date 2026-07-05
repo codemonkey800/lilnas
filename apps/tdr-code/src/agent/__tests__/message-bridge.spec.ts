@@ -35,7 +35,7 @@ describe('buildPromptBlocks', () => {
 })
 
 describe('formatToolSummary', () => {
-  it('appends the command as a detail suffix (regression: bare "Terminal" with no visible command)', () => {
+  it('prefers the description over repeating the raw command', () => {
     const tools = new Map([
       [
         'tool1',
@@ -47,7 +47,41 @@ describe('formatToolSummary', () => {
       ],
     ])
 
-    expect(formatToolSummary(tools)).toBe('✅ git status · `git status`')
+    expect(formatToolSummary(tools)).toBe('✅ Check status')
+  })
+
+  it('falls back to the command as a single detail when no description is present (regression: bare "Terminal" with no visible command)', () => {
+    const tools = new Map([
+      [
+        'tool1',
+        {
+          title: 'git status',
+          status: 'completed' as const,
+          rawInput: { command: 'git status' },
+        },
+      ],
+    ])
+
+    expect(formatToolSummary(tools)).toBe('✅ `git status`')
+  })
+
+  it('dedupes a long command that ACP sets as both the title and the detail (regression: full raw command shown twice)', () => {
+    const longCommand =
+      'cd /Users/example/dev/project && git config --show-origin --get gpg.ssh.program; git config --show-origin --get user.signingkey'
+    const tools = new Map([
+      [
+        'tool1',
+        {
+          title: longCommand,
+          status: 'completed' as const,
+          rawInput: { command: longCommand },
+        },
+      ],
+    ])
+
+    expect(formatToolSummary(tools)).toBe(
+      '✅ `cd /Users/example/dev/project && git config --show-origin --get gpg.ssh.program…`',
+    )
   })
 
   it('skips sensitive fields and prefers the first safe field present', () => {

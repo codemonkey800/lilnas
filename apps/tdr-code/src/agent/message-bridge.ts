@@ -89,25 +89,36 @@ export function formatToolSummary(
 ): string {
   const lines: string[] = []
   for (const [, tool] of tools) {
-    const detail =
-      extractToolDetail(tool.rawInput) ?? extractDetailFromTitle(tool.title)
+    const description = extractDescription(tool.rawInput)
+    if (description) {
+      lines.push(`${STATUS_ICONS[tool.status]} ${description}`)
+      continue
+    }
+
+    const rawDetail = pickSafeFieldValue(tool.rawInput)
+    const detail = rawDetail
+      ? truncate(sanitizeDetail(rawDetail), MAX_DETAIL_LENGTH)
+      : extractDetailFromTitle(tool.title)
+
+    // Bash-style tool calls set the title to the raw command itself, which is
+    // exactly what rawDetail also resolves to — showing both duplicates the
+    // same (potentially very long) string. Collapse to the single, truncated,
+    // code-formatted copy instead.
+    if (rawDetail !== null && rawDetail === tool.title) {
+      lines.push(`${STATUS_ICONS[tool.status]} \`${detail}\``)
+      continue
+    }
+
     const suffix = detail ? ` · \`${detail}\`` : ''
-    lines.push(`${STATUS_ICONS[tool.status]} ${tool.title}${suffix}`)
+    const title = truncate(sanitizeDetail(tool.title), MAX_DETAIL_LENGTH)
+    lines.push(`${STATUS_ICONS[tool.status]} ${title}${suffix}`)
   }
   return lines.join('\n')
 }
 
 const MAX_DETAIL_LENGTH = 80
 
-const SAFE_FIELDS = [
-  'command',
-  'file_path',
-  'pattern',
-  'query',
-  'path',
-  'url',
-  'description',
-]
+const SAFE_FIELDS = ['command', 'file_path', 'pattern', 'query', 'path', 'url']
 
 const BLOCKED_SUBSTRINGS = [
   'token',
@@ -126,15 +137,21 @@ function isBlockedField(name: string): boolean {
   return BLOCKED_SUBSTRINGS.some(sub => lower.includes(sub))
 }
 
-function extractToolDetail(rawInput?: Record<string, unknown>): string | null {
+function extractDescription(rawInput?: Record<string, unknown>): string | null {
+  if (!rawInput) return null
+  const value = rawInput.description
+  if (typeof value === 'string' && value.trim()) {
+    return truncate(sanitizeDetail(value), MAX_DETAIL_LENGTH)
+  }
+  return null
+}
+
+function pickSafeFieldValue(rawInput?: Record<string, unknown>): string | null {
   if (!rawInput) return null
 
   for (const field of SAFE_FIELDS) {
     if (typeof rawInput[field] === 'string' && rawInput[field]) {
-      return truncate(
-        sanitizeDetail(rawInput[field] as string),
-        MAX_DETAIL_LENGTH,
-      )
+      return rawInput[field] as string
     }
   }
 
@@ -142,7 +159,7 @@ function extractToolDetail(rawInput?: Record<string, unknown>): string | null {
     if (isBlockedField(fieldName)) continue
     if (SAFE_FIELDS.includes(fieldName)) continue
     if (typeof value === 'string' && value.length > 0 && value.length < 100) {
-      return truncate(sanitizeDetail(value), MAX_DETAIL_LENGTH)
+      return value
     }
   }
 
