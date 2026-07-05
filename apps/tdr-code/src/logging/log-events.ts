@@ -332,6 +332,22 @@ const RECONCILE_EVENTS = {
   reconcileMismatch: 'reconcile-mismatch',
 } as const
 
+const SSE_EVENTS = {
+  // sse-hub.service.ts / notify-bus.service.ts (U1). notifyReceived fires
+  // when the hub's stream$ subscription observes a signal from the bus (the
+  // primary, notify-driven path); sseSignalEmitted fires when the hub
+  // actually fans a MessageEvent out to a matching connection (either from
+  // that primary path or from the fallback tick below) — kept distinct so
+  // an operator can tell "a notify arrived" from "a client was pushed to".
+  notifyReceived: 'notify-received',
+  sseSignalEmitted: 'sse-signal-emitted',
+  // The lazily-started fallback interval (0->1 / 1->0 subscriber
+  // transitions) and each tick's outcome.
+  sseFallbackIntervalStarted: 'sse-fallback-interval-started',
+  sseFallbackIntervalStopped: 'sse-fallback-interval-stopped',
+  sseFallbackTick: 'sse-fallback-tick',
+} as const
+
 const ERROR_BOUNDARY_EVENTS = {
   // error-reporter.tsx mounts a window-level 'error' listener and an
   // 'unhandledrejection' listener; each is a distinct raw-message site that
@@ -371,6 +387,7 @@ export const LOG_EVENTS = {
   ...QUERY_EVENTS,
   ...MUTATION_EVENTS,
   ...RECONCILE_EVENTS,
+  ...SSE_EVENTS,
   ...ERROR_BOUNDARY_EVENTS,
 } as const
 

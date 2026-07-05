@@ -38,4 +38,12 @@ export const EnvKeys = {
   BOT_COMMAND_POLL_MS: 'BOT_COMMAND_POLL_MS',
   // Heartbeat staleness threshold = heartbeatMs + busy_timeout + margin
   BOT_HEARTBEAT_STALE_THRESHOLD_MS: 'BOT_HEARTBEAT_STALE_THRESHOLD_MS',
+  // SSE push (U1): the data_version backstop cadence (dropped-notify
+  // catch-up for row changes), the derived-status recompute cadence (kept
+  // <= staleThresholdMs() so the online/offline flip stays within budget),
+  // and the per-connection keepalive interval. Main-process only — no
+  // buildBotEnv allowlist entry (the bot never reads these).
+  SSE_FALLBACK_INTERVAL_MS: 'SSE_FALLBACK_INTERVAL_MS',
+  SSE_STALENESS_RECOMPUTE_MS: 'SSE_STALENESS_RECOMPUTE_MS',
+  SSE_KEEPALIVE_MS: 'SSE_KEEPALIVE_MS',
 } as const
