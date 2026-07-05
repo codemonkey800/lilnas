@@ -358,6 +358,18 @@ const SSE_EVENTS = {
   // connection id — see sse.controller.ts's own header comment).
   sseConnected: 'sse-connected',
   sseClientDisconnected: 'sse-client-disconnected',
+  // use-live-stream.ts (U5) — the BROWSER-side half of the topic contract,
+  // distinct from every event above (all server-side). Each subscribed
+  // topic is its own named SSE event (addEventListener(topic, ...), not the
+  // generic onmessage — see that file's header comment), so the topic is
+  // always known from which listener fired and there is no payload to
+  // validate. sseSessionExpiryFallback fires the one bounded authenticated
+  // request the hook issues after N consecutive onerror events with no
+  // intervening onopen/message — see that file's own header comment for why
+  // this exists (removing refetchInterval removed the only guaranteed
+  // periodic request() that used to trigger api.ts's 401->/login redirect
+  // latch).
+  sseSessionExpiryFallback: 'sse-session-expiry-fallback',
 } as const
 
 const NOTIFY_EMITTER_EVENTS = {

@@ -13,6 +13,7 @@ import { LoadingState } from './components/loading-state'
 import { RelativeTime } from './components/relative-time'
 import { StatusDot } from './components/status-dot'
 import { api, queryKeys } from './lib/api'
+import { useLiveStream } from './lib/use-live-stream'
 
 const CHANNEL_STATE_VARIANT: Record<
   LiveChannelItemDto['state'],
@@ -109,10 +110,11 @@ export default function DashboardPage() {
   )
   const [confirmRestart, setConfirmRestart] = useState(false)
 
+  useLiveStream(['live'])
+
   const { data, isLoading, isError, error } = useQuery({
     queryKey: queryKeys.live,
     queryFn: api.getLive,
-    refetchInterval: 5_000,
     retry: false,
   })
 

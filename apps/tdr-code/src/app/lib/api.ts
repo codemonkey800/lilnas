@@ -19,6 +19,7 @@ import type {
   SessionDetailResponseDto,
   SessionListResponseDto,
 } from 'src/console/sessions.dto'
+import type { Topic } from 'src/sse/sse.types'
 
 // Module-scoped flag collapsing a 401 STORM into a single redirect. This
 // file's request() is called from up to four concurrent
@@ -80,6 +81,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return res.json() as Promise<T>
 }
+
+// Builds the `?topics=` query string for the multiplexed `@Sse('stream')`
+// endpoint (see src/sse/sse.controller.ts's parseTopics()). Deliberately NOT
+// routed through request()/fetchJson() — this is a plain URL string handed
+// to `new EventSource(...)` (use-live-stream.ts), not a fetch call, so it
+// has no 401/JSON-parsing concerns of its own.
+export const streamUrl = (topics: Topic[]): string =>
+  `/api/stream?topics=${topics.join(',')}`
 
 export const fetchJson = <T>(path: string) => request<T>(path)
 export const postJson = <T>(path: string) =>
