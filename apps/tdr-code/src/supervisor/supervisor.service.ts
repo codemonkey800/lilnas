@@ -18,6 +18,8 @@ import { DB } from 'src/db/database.module'
 import { insertEvent } from 'src/db/events.repo'
 import { EnvKeys } from 'src/env'
 import { LOG_EVENTS } from 'src/logging/log-events'
+import { isNotifyMessage } from 'src/sse/notify.types'
+import { NotifyBusService } from 'src/sse/notify-bus.service'
 
 import { reapGeneration } from './reaper'
 import {
@@ -60,7 +62,9 @@ export function defaultSpawn(): SupervisorSpawn {
     spawnBot: (spawnEnv: NodeJS.ProcessEnv) => {
       const botEntry = path.resolve(process.cwd(), 'dist/bot-main.js')
       return spawn('node', [botEntry], {
-        stdio: 'inherit',
+        // 4th slot opens an IPC channel so the bot can process.send() notify
+        // messages (R4/R14/U4) — inherited stdin/stdout/stderr are unchanged.
+        stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
         detached: false,
         env: spawnEnv,
       })
@@ -138,6 +142,7 @@ export class SupervisorService implements OnModuleDestroy {
     private readonly logger: PinoLogger,
     @Inject(SUPERVISOR_CLOCK) clock: SupervisorClock,
     @Inject(SUPERVISOR_SPAWN) spawnFn: SupervisorSpawn,
+    private readonly notifyBus: NotifyBusService,
   ) {
     this.supervise = env(EnvKeys.SUPERVISE_BOT, 'true') === 'true'
     this.clock = clock
@@ -221,6 +226,13 @@ export class SupervisorService implements OnModuleDestroy {
 
   // ── Liveness-aware boot reconciliation ────────────────────────────────────
 
+  // Deliberately does NOT publish 'bot-status' at its four finalize() call
+  // sites (U4): this runs once during start(), before reconcileOnBoot's
+  // caller ever dispatches StartRequested — i.e. before app.listen() has
+  // even returned to bootstrap.ts, so no browser has had a chance to open
+  // an SSE connection yet. NotifyBusService wraps a bare rxjs Subject (not a
+  // ReplaySubject), so publishing here would reach zero subscribers and be
+  // a pure no-op. Skipped for that reason, not by oversight.
   private async reconcileOnBoot(): Promise<void> {
     const liveRows = liveGenerations(this.db)
     for (const row of liveRows) {
@@ -321,6 +333,12 @@ export class SupervisorService implements OnModuleDestroy {
           { generationId: row.id, event: LOG_EVENTS.generationInserted },
           'Inserted bot generation',
         )
+        // In-process publish (R4/U4) — this write happens in the main
+        // process before the bot boots, so there is no bot-side IPC notify
+        // for it. Publishing here is what makes F2 restart convergence
+        // (starting -> online) appear live instead of waiting on the
+        // fallback tick.
+        this.notifyBus.publish('bot-status')
         break
       }
 
@@ -366,6 +384,30 @@ export class SupervisorService implements OnModuleDestroy {
           )
 
           // Bind listeners exactly once per generation (drawer-history invariant).
+          // 'message' is a persistent stream (not a one-shot exit/error), so
+          // unlike the two listeners below it does NOT self-clean — onExit
+          // explicitly removes it below to keep the listener count from
+          // growing by one per restart.
+          const onMessage = (message: unknown) => {
+            if (!isNotifyMessage(message)) {
+              this.logger.warn(
+                { message, event: LOG_EVENTS.notifyReceivedMalformed },
+                'Malformed notify message from bot child',
+              )
+              return
+            }
+            // No generation-matching here by design: a message from a
+            // superseded child arriving after a restart is harmless under
+            // snapshot-refetch idempotency (Decision 1A/2A) — re-publishing
+            // a topic that's already current is a no-op refetch, not a bug.
+            for (const topic of message.topics) {
+              this.logger.debug(
+                { topic, event: LOG_EVENTS.notifyReceived },
+                'Notify received from bot child',
+              )
+              this.notifyBus.publish(topic)
+            }
+          }
           const onExit = (code: number | null) => {
             const expected = this.fsmState.expectedStop
             this.logger.info(
@@ -378,6 +420,7 @@ export class SupervisorService implements OnModuleDestroy {
               },
               'Bot child exited',
             )
+            child.removeListener('message', onMessage)
             this.dispatch({
               type: 'ExitObserved',
               code,
@@ -391,6 +434,7 @@ export class SupervisorService implements OnModuleDestroy {
               'Bot child process error',
             )
           }
+          child.on('message', onMessage)
           child.once('exit', onExit)
           child.once('error', onError)
         } catch (err) {
@@ -469,6 +513,7 @@ export class SupervisorService implements OnModuleDestroy {
       case 'markStopping': {
         if (this.currentGenerationId != null) {
           markStopping(this.db, this.currentGenerationId)
+          this.notifyBus.publish('bot-status')
         }
         break
       }
@@ -519,6 +564,7 @@ export class SupervisorService implements OnModuleDestroy {
             },
             'Finalized bot generation',
           )
+          this.notifyBus.publish('bot-status')
         }
         this.clearLivenessPoll()
         this.clearTimer('stableWindow')
@@ -532,6 +578,7 @@ export class SupervisorService implements OnModuleDestroy {
         if (genIdToReap != null) {
           try {
             reapGeneration(this.db, genIdToReap)
+            this.notifyBus.publish('bot-status')
           } catch (err) {
             this.logger.warn(
               { err, generationId: genIdToReap, event: LOG_EVENTS.reaperError },

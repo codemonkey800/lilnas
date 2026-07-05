@@ -341,6 +341,11 @@ const SSE_EVENTS = {
   // an operator can tell "a notify arrived" from "a client was pushed to".
   notifyReceived: 'notify-received',
   sseSignalEmitted: 'sse-signal-emitted',
+  // supervisor.service.ts (U4) — the supervisor's IPC bridge received a
+  // `message` on the bot child's channel that failed isNotifyMessage
+  // validation (wrong shape, non-array topics, or a malformed topic
+  // element). Dropped without publishing; never thrown.
+  notifyReceivedMalformed: 'notify-received-malformed',
   // The lazily-started fallback interval (0->1 / 1->0 subscriber
   // transitions) and each tick's outcome.
   sseFallbackIntervalStarted: 'sse-fallback-interval-started',

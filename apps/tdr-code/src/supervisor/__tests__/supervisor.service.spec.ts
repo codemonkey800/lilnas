@@ -13,6 +13,7 @@ import {
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
 import { createTestDb } from 'src/db/test-db'
+import { NotifyBusService } from 'src/sse/notify-bus.service'
 import {
   SUPERVISOR_CLOCK,
   SUPERVISOR_SPAWN,
@@ -65,6 +66,8 @@ class FakeChild extends EventEmitter {
   pid: number
   exitCode: number | null = null
   killed = false
+  connected = true
+  send = jest.fn()
 
   constructor(pid: number) {
     super()
@@ -76,6 +79,7 @@ class FakeChild extends EventEmitter {
     // Simulate synchronous exit for testing.
     setImmediate(() => {
       this.exitCode = signal === 'SIGKILL' ? null : 0
+      this.connected = false
       this.emit('exit', this.exitCode)
     })
     return true
@@ -94,11 +98,20 @@ function makeLogger() {
   } as unknown as PinoLogger
 }
 
+// A standalone Test.createTestingModule never imports SseModule, so @Global
+// does not make NotifyBusService resolvable here — every test must supply
+// this fake explicitly (U4/doc-review A4) or SupervisorService's constructor
+// injection fails .compile().
+function makeFakeNotifyBus() {
+  return { publish: jest.fn() }
+}
+
 async function buildService(
   db: Db,
   clock: FakeClock,
   spawnFn: (env: NodeJS.ProcessEnv) => ChildProcess,
   supervise = true,
+  notifyBus: { publish: jest.Mock } = makeFakeNotifyBus(),
 ) {
   process.env.SUPERVISE_BOT = supervise ? 'true' : 'false'
   const module = await Test.createTestingModule({
@@ -108,6 +121,7 @@ async function buildService(
       { provide: PinoLogger, useValue: makeLogger() },
       { provide: SUPERVISOR_CLOCK, useValue: clock },
       { provide: SUPERVISOR_SPAWN, useValue: { spawnBot: spawnFn } },
+      { provide: NotifyBusService, useValue: notifyBus },
     ],
   }).compile()
   return module.get(SupervisorService)
@@ -455,6 +469,267 @@ describe('SupervisorService', () => {
     const row = generationById(db, gen.id)!
     expect(row.status).toBe('crashed')
     expect(row.endedAt).not.toBeNull()
+  })
+
+  describe('notify bridge (U4)', () => {
+    it('happy path: a notify message from the bot child publishes its topic', async () => {
+      const children: FakeChild[] = []
+      const notifyBus = makeFakeNotifyBus()
+      const svc = await buildService(
+        db,
+        clock,
+        () => {
+          const c = new FakeChild(1000 + children.length)
+          children.push(c)
+          return c as unknown as ChildProcess
+        },
+        true,
+        notifyBus,
+      )
+
+      await svc.start()
+      notifyBus.publish.mockClear() // drop the insertGeneration in-process publish
+
+      children[0]!.emit('message', { type: 'notify', topics: ['live'] })
+
+      expect(notifyBus.publish).toHaveBeenCalledTimes(1)
+      expect(notifyBus.publish).toHaveBeenCalledWith('live')
+    })
+
+    it('multi-topic message: publish is called once per topic', async () => {
+      const children: FakeChild[] = []
+      const notifyBus = makeFakeNotifyBus()
+      const svc = await buildService(
+        db,
+        clock,
+        () => {
+          const c = new FakeChild(1010 + children.length)
+          children.push(c)
+          return c as unknown as ChildProcess
+        },
+        true,
+        notifyBus,
+      )
+
+      await svc.start()
+      notifyBus.publish.mockClear()
+
+      children[0]!.emit('message', {
+        type: 'notify',
+        topics: ['live', 'session:1'],
+      })
+
+      expect(notifyBus.publish).toHaveBeenCalledTimes(2)
+      expect(notifyBus.publish).toHaveBeenCalledWith('live')
+      expect(notifyBus.publish).toHaveBeenCalledWith('session:1')
+    })
+
+    it('listener leak guard: the message listener is removed on every exit across N restarts', async () => {
+      const children: FakeChild[] = []
+      const notifyBus = makeFakeNotifyBus()
+      const svc = await buildService(
+        db,
+        clock,
+        () => {
+          const c = new FakeChild(1020 + children.length)
+          children.push(c)
+          return c as unknown as ChildProcess
+        },
+        true,
+        notifyBus,
+      )
+
+      await svc.start()
+      await flushPromises()
+      expect(children[0]!.listenerCount('message')).toBe(1)
+
+      // Simulate an unexpected exit → Backoff → BackoffElapsed → restart, N
+      // times. Kept below SUPERVISOR_CRASH_LOOP_THRESHOLD (3, set in
+      // beforeEach) so the FSM keeps restarting instead of tripping to
+      // Failed after the window's 3rd unexpected exit.
+      const restarts = 2
+      for (let i = 0; i < restarts; i++) {
+        const dying = children[children.length - 1]!
+        dying.exitCode = 1
+        dying.emit('exit', 1)
+        await flushPromises()
+        // The listener is removed unconditionally on exit.
+        expect(dying.listenerCount('message')).toBe(0)
+        // Advance past the backoff delay (exponential from backoffBaseMs=
+        // 1000) to trigger the next spawn — deliberately NOT a huge jump:
+        // SUPERVISOR_START_TIMEOUT_MS=5000 means overshooting would also
+        // fire the new child's own start deadline mid-loop and route it to
+        // Stopped instead of leaving it in Starting for the next iteration.
+        clock.advance(3_000)
+        await flushPromises()
+      }
+
+      expect(children).toHaveLength(restarts + 1)
+      // Each live child carries exactly one message listener — the count
+      // never grows across restarts.
+      for (const child of children.slice(0, -1)) {
+        expect(child.listenerCount('message')).toBe(0)
+      }
+      expect(children[children.length - 1]!.listenerCount('message')).toBe(1)
+      void svc
+    })
+
+    it("late/stale message: a message emitted after the child's listeners were removed does not publish", async () => {
+      const children: FakeChild[] = []
+      const notifyBus = makeFakeNotifyBus()
+      const svc = await buildService(
+        db,
+        clock,
+        () => {
+          const c = new FakeChild(1030 + children.length)
+          children.push(c)
+          return c as unknown as ChildProcess
+        },
+        true,
+        notifyBus,
+      )
+
+      await svc.start()
+      await flushPromises()
+      const child = children[0]!
+
+      child.exitCode = 1
+      child.emit('exit', 1)
+      await flushPromises()
+      notifyBus.publish.mockClear()
+
+      // The listener is gone post-exit, so this is structurally a no-op —
+      // asserting it rather than assuming it. (By contrast, a message from a
+      // superseded-but-not-yet-exited child — listener still attached — is
+      // NOT specially rejected: it is harmless by design under idempotent
+      // snapshot-refetch, so no generation-matching is implemented here.)
+      child.emit('message', { type: 'notify', topics: ['live'] })
+
+      expect(notifyBus.publish).not.toHaveBeenCalled()
+      void svc
+    })
+
+    it.each([
+      ['empty object', {}],
+      ['wrong type', { type: 'wrong' }],
+      ['non-array topics', { type: 'notify', topics: 'not-an-array' }],
+      ['mixed valid/invalid topics', { type: 'notify', topics: ['live', 123] }],
+    ])(
+      'malformed message (%s) is dropped without throwing and never publishes',
+      async (_label, payload) => {
+        const children: FakeChild[] = []
+        const notifyBus = makeFakeNotifyBus()
+        const logger = makeLogger()
+        process.env.SUPERVISE_BOT = 'true'
+        const module = await Test.createTestingModule({
+          providers: [
+            SupervisorService,
+            { provide: DB, useValue: db },
+            { provide: PinoLogger, useValue: logger },
+            { provide: SUPERVISOR_CLOCK, useValue: clock },
+            {
+              provide: SUPERVISOR_SPAWN,
+              useValue: {
+                spawnBot: () => {
+                  const c = new FakeChild(1040 + children.length)
+                  children.push(c)
+                  return c as unknown as ChildProcess
+                },
+              },
+            },
+            { provide: NotifyBusService, useValue: notifyBus },
+          ],
+        }).compile()
+        const svc = module.get(SupervisorService)
+
+        await svc.start()
+        notifyBus.publish.mockClear()
+
+        expect(() => {
+          children[0]!.emit('message', payload)
+        }).not.toThrow()
+
+        expect(notifyBus.publish).not.toHaveBeenCalled()
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.objectContaining({ event: 'notify-received-malformed' }),
+          expect.any(String),
+        )
+      },
+    )
+
+    it('in-process publish: insertGeneration publishes bot-status synchronously on start()', async () => {
+      const children: FakeChild[] = []
+      const notifyBus = makeFakeNotifyBus()
+      const svc = await buildService(
+        db,
+        clock,
+        () => {
+          const c = new FakeChild(1050 + children.length)
+          children.push(c)
+          return c as unknown as ChildProcess
+        },
+        true,
+        notifyBus,
+      )
+
+      await svc.start()
+
+      expect(notifyBus.publish).toHaveBeenCalledWith('bot-status')
+    })
+
+    it('in-process publish: markStopping and finalize publish bot-status', async () => {
+      const children: FakeChild[] = []
+      const notifyBus = makeFakeNotifyBus()
+      const svc = await buildService(
+        db,
+        clock,
+        () => {
+          const c = new FakeChild(1060 + children.length)
+          children.push(c)
+          return c as unknown as ChildProcess
+        },
+        true,
+        notifyBus,
+      )
+
+      await svc.start()
+      const gen = liveGenerations(db)[0]!
+      markRunning(db, gen.id, 1060, new Date())
+      clock.advance(200)
+      await flushPromises()
+      expect(svc.getPhase()).toBe('Running')
+
+      notifyBus.publish.mockClear()
+      svc.requestRestart()
+      expect(svc.getPhase()).toBe('Stopping')
+      // markStopping effect publishes synchronously as part of the dispatch.
+      expect(notifyBus.publish).toHaveBeenCalledWith('bot-status')
+
+      notifyBus.publish.mockClear()
+      // Flush the SIGTERM-triggered setImmediate exit → ExitObserved → finalize.
+      await flushPromises()
+      expect(notifyBus.publish).toHaveBeenCalledWith('bot-status')
+    })
+
+    it('R14: defaultSpawn requests an ipc stdio slot', async () => {
+      // Re-import lazily to avoid polluting the top-of-file imports with a
+      // module under test that every other test in this file fakes out via
+      // SUPERVISOR_SPAWN.
+      const { defaultSpawn } = await import('src/supervisor/supervisor.service')
+      const childProcess = await import('node:child_process')
+      const spawnSpy = jest
+        .spyOn(childProcess, 'spawn')
+        .mockReturnValue({ pid: 1 } as unknown as ChildProcess)
+
+      try {
+        defaultSpawn().spawnBot({} as NodeJS.ProcessEnv)
+        expect(spawnSpy).toHaveBeenCalledTimes(1)
+        const [, , options] = spawnSpy.mock.calls[0]!
+        expect((options as { stdio?: unknown[] }).stdio).toContain('ipc')
+      } finally {
+        spawnSpy.mockRestore()
+      }
+    })
   })
 })
 
