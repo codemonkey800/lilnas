@@ -41,6 +41,7 @@ import { errorCode } from './error-code'
 import { GitTurnContext } from './git-turn-context'
 import { globalGitWriteLock } from './git-write-lock'
 import { buildPromptBlocks } from './message-bridge'
+import { BASE_SYSTEM_PROMPT } from './system-prompt.constants'
 
 // A rate-limited/hung ACP loadSession() can silently never resolve or reject
 // while replaying an arbitrarily large persisted transcript — race it against
@@ -92,6 +93,7 @@ export class SessionManagerService implements OnApplicationShutdown {
   private claudeCommand: string
   private claudeCwd: string
   private claudeArgs: string[]
+  private customSystemPrompt: string
   // C4: Service-global counter — never resets on session teardown/recreate, so
   // stale turn ids from old sessions cannot match new sessions (see plan Decision #3).
   private turnCounter = 0
@@ -129,6 +131,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     this.claudeArgs = cfg.claudeArgs
     this.idleTimeoutSec = cfg.idleTimeoutSec
     this.maxConcurrentSessions = cfg.maxConcurrentSessions
+    this.customSystemPrompt = cfg.customSystemPrompt
     const genIdStr = process.env[EnvKeys.BOT_GENERATION_ID]
     this.generationId = genIdStr ? parseInt(genIdStr, 10) : null
 
@@ -156,6 +159,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     this.claudeArgs = cfg.claudeArgs
     this.idleTimeoutSec = cfg.idleTimeoutSec
     this.maxConcurrentSessions = cfg.maxConcurrentSessions
+    this.customSystemPrompt = cfg.customSystemPrompt
     this.logger.info(
       {
         event: LOG_EVENTS.configRereadApplied,
@@ -163,9 +167,22 @@ export class SessionManagerService implements OnApplicationShutdown {
         cwd: this.claudeCwd,
         idleTimeoutSec: this.idleTimeoutSec,
         maxConcurrentSessions: this.maxConcurrentSessions,
+        // Logged in full, unredacted — operator-authored config text, not a
+        // secret (same posture as the other four fields above).
+        customSystemPrompt: this.customSystemPrompt,
       },
       'Config reread applied',
     )
+  }
+
+  // Combines the hardcoded base prompt (R4/R5, always applied) with the live
+  // operator-editable custom prompt (R3). Custom text is trimmed and, when
+  // non-empty, appended after a blank line so it reads as the most-recent —
+  // highest-weighted — instruction; when empty/whitespace-only, the result is
+  // exactly BASE_SYSTEM_PROMPT with no trailing separator.
+  private buildSystemPrompt(): string {
+    const custom = this.customSystemPrompt.trim()
+    return custom ? `${BASE_SYSTEM_PROMPT}\n\n${custom}` : BASE_SYSTEM_PROMPT
   }
 
   async prompt(
@@ -628,6 +645,7 @@ export class SessionManagerService implements OnApplicationShutdown {
       )
     }
 
+    const systemPrompt = this.buildSystemPrompt()
     try {
       // Race against LOAD_SESSION_TIMEOUT_MS — see its comment for why an
       // un-timed-out loadSession is a channel-wedge hazard, not just a slow call.
@@ -636,6 +654,7 @@ export class SessionManagerService implements OnApplicationShutdown {
           sessionId: acpSessionId,
           cwd: latestRow.cwd,
           mcpServers: [],
+          _meta: { systemPrompt: { append: systemPrompt } },
         }),
         this.timeoutReject(LOAD_SESSION_TIMEOUT_MS, 'loadSession timed out'),
       ])
@@ -704,7 +723,15 @@ export class SessionManagerService implements OnApplicationShutdown {
           channelId,
           type: 'session_created',
           level: 'info',
-          context: { acpSessionId, cwd: latestRow.cwd, resumed: true },
+          context: {
+            acpSessionId,
+            cwd: latestRow.cwd,
+            resumed: true,
+            // Same audit pair as createSession's session_created event — see
+            // its comment for why a length/boolean pair, not the prompt text.
+            promptAppendLength: systemPrompt.length,
+            hasCustom: this.customSystemPrompt.trim().length > 0,
+          },
           createdAt: new Date(),
         })
       } catch (err) {
@@ -837,11 +864,13 @@ export class SessionManagerService implements OnApplicationShutdown {
     const imageCapable =
       initResult.agentCapabilities?.promptCapabilities?.image ?? false
 
+    const systemPrompt = this.buildSystemPrompt()
     let sessionId: string
     try {
       const result = await connection.newSession({
         cwd: this.claudeCwd,
         mcpServers: [],
+        _meta: { systemPrompt: { append: systemPrompt } },
       })
       sessionId = result.sessionId
     } catch (err) {
@@ -872,7 +901,15 @@ export class SessionManagerService implements OnApplicationShutdown {
           channelId,
           type: 'session_created',
           level: 'info',
-          context: { acpSessionId: sessionId, cwd: this.claudeCwd },
+          context: {
+            acpSessionId: sessionId,
+            cwd: this.claudeCwd,
+            // What was actually sent in _meta.systemPrompt.append — a
+            // length/boolean pair rather than the prompt text itself, kept
+            // small and durable enough to audit composition on every session.
+            promptAppendLength: systemPrompt.length,
+            hasCustom: this.customSystemPrompt.trim().length > 0,
+          },
           createdAt: new Date(),
         })
       } catch (err) {

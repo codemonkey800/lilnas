@@ -11,6 +11,7 @@ import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
 import type { AcpEventHandlers } from 'src/agent/agent.types'
 import { globalGitWriteLock } from 'src/agent/git-write-lock'
 import { SessionManagerService } from 'src/agent/session-manager.service'
+import { BASE_SYSTEM_PROMPT } from 'src/agent/system-prompt.constants'
 import { DB } from 'src/db/database.module'
 import * as eventsRepo from 'src/db/events.repo'
 import type { SessionRow } from 'src/db/schema'
@@ -58,10 +59,14 @@ const MOCK_CONFIG_ROW = {
   claudeArgs: ['--dangerously-skip-permissions'],
   idleTimeoutSec: 300,
   maxConcurrentSessions: 5,
+  customSystemPrompt: '',
   updatedAt: new Date(),
 }
 
-function makeDbMock(runChanges = 0) {
+function makeDbMock(
+  runChanges = 0,
+  configOverrides?: Partial<typeof MOCK_CONFIG_ROW>,
+) {
   const chain: Record<string, jest.Mock> = {
     values: jest.fn(),
     set: jest.fn(),
@@ -72,7 +77,7 @@ function makeDbMock(runChanges = 0) {
     onConflictDoUpdate: jest.fn(),
     from: jest.fn(),
     // Return a config row by default — getConfig() in the constructor reads this.
-    get: jest.fn().mockReturnValue(MOCK_CONFIG_ROW),
+    get: jest.fn().mockReturnValue({ ...MOCK_CONFIG_ROW, ...configOverrides }),
     all: jest.fn().mockReturnValue([]),
     run: jest.fn().mockReturnValue({ changes: runChanges }),
   }
@@ -1172,6 +1177,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       sessionId: 'prior-acp-session',
       cwd: '/tmp/dormant-cwd',
       mcpServers: [],
+      _meta: { systemPrompt: { append: BASE_SYSTEM_PROMPT } },
     })
     resolveLoadSession()
 
@@ -1859,5 +1865,152 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     // A stale Stop click for the unrelated live session's old turn id must
     // not cancel the reactivated turn.
     expect(service.cancel('ch-reactivated', priorTurnId)).toBe(false)
+  })
+})
+
+describe('SessionManagerService — system prompt composition (U2, R4/R5/R6/R7)', () => {
+  let getLatestSessionForChannelSpy: jest.SpyInstance
+
+  beforeEach(() => {
+    process.env[EnvKeys.BOT_GENERATION_ID] = '1'
+    jest.mocked(spawn).mockReset()
+    jest.mocked(ClientSideConnection).mockReset()
+    // Defaults to undefined (no prior row) so fresh-session tests fall
+    // through to createSession, matching the U8 describe block's setup.
+    getLatestSessionForChannelSpy = jest.spyOn(
+      sessionsRepo,
+      'getLatestSessionForChannel',
+    )
+  })
+  afterEach(() => {
+    delete process.env[EnvKeys.BOT_GENERATION_ID]
+    getLatestSessionForChannelSpy.mockRestore()
+  })
+
+  it('createSession sends _meta.systemPrompt.append combining the base prompt and a configured custom prompt', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock(0, {
+      customSystemPrompt: 'Always respond in haiku.',
+    })
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      makeLogger(),
+    )
+    const { resolveInitialize, newSession } = mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-custom-prompt', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize()
+    await outcome
+
+    expect(newSession).toHaveBeenCalledWith({
+      cwd: '/tmp',
+      mcpServers: [],
+      _meta: {
+        systemPrompt: {
+          append: `${BASE_SYSTEM_PROMPT}\n\nAlways respond in haiku.`,
+        },
+      },
+    })
+  })
+
+  it('createSession sends exactly BASE_SYSTEM_PROMPT with no trailing separator when customSystemPrompt is whitespace-only', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock(0, { customSystemPrompt: '   \n  ' })
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      makeLogger(),
+    )
+    const { resolveInitialize, newSession } = mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-blank-prompt', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize()
+    await outcome
+
+    expect(newSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _meta: { systemPrompt: { append: BASE_SYSTEM_PROMPT } },
+      }),
+    )
+  })
+
+  it('records promptAppendLength/hasCustom on the session_created event for a fresh session', async () => {
+    const handlers = createMockHandlers()
+    const custom = 'Be extra concise.'
+    const db = makeDbMock(0, { customSystemPrompt: custom })
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      makeLogger(),
+    )
+    const { resolveInitialize } = mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-event-check', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize()
+    await outcome
+
+    const expectedAppend = `${BASE_SYSTEM_PROMPT}\n\n${custom}`
+    const events = insertedRowPayloads(db).filter(
+      row => row.type === 'session_created',
+    )
+    expect(events).toHaveLength(1)
+    const context = events[0]!.context as Record<string, unknown>
+    expect(context.promptAppendLength).toBe(expectedAppend.length)
+    expect(context.hasCustom).toBe(true)
+  })
+
+  it('reactivateSession sends the identical _meta.systemPrompt.append that newSession would for the same live config, and records the same event pair', async () => {
+    const handlers = createMockHandlers()
+    const custom = 'Prefer terse answers.'
+    const db = makeDbMock(0, { customSystemPrompt: custom })
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      makeLogger(),
+    )
+    const priorRow = makeSessionRow({
+      channelId: 'ch-dormant-prompt',
+      acpSessionId: 'prior-acp-session',
+      cwd: '/tmp/dormant-cwd',
+      endedAt: new Date(),
+      endReason: 'evicted',
+    })
+    getLatestSessionForChannelSpy.mockReturnValue(priorRow)
+
+    const { resolveInitialize, loadSession, resolveLoadSession } =
+      mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-dormant-prompt', 'hello again', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize({ agentCapabilities: { loadSession: true } })
+    await waitFor(() => loadSession.mock.calls.length > 0)
+
+    const expectedAppend = `${BASE_SYSTEM_PROMPT}\n\n${custom}`
+    expect(loadSession).toHaveBeenCalledWith({
+      sessionId: 'prior-acp-session',
+      cwd: '/tmp/dormant-cwd',
+      mcpServers: [],
+      _meta: { systemPrompt: { append: expectedAppend } },
+    })
+    resolveLoadSession()
+    await outcome
+
+    const events = insertedRowPayloads(db).filter(
+      row =>
+        row.type === 'session_created' &&
+        (row.context as Record<string, unknown> | undefined)?.resumed === true,
+    )
+    expect(events).toHaveLength(1)
+    const context = events[0]!.context as Record<string, unknown>
+    expect(context.promptAppendLength).toBe(expectedAppend.length)
+    expect(context.hasCustom).toBe(true)
   })
 })

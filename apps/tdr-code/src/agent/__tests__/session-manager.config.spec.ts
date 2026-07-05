@@ -7,6 +7,7 @@ import { PinoLogger } from 'nestjs-pino'
 
 import type { AcpEventHandlers } from 'src/agent/agent.types'
 import { SessionManagerService } from 'src/agent/session-manager.service'
+import { BASE_SYSTEM_PROMPT } from 'src/agent/system-prompt.constants'
 import { EnvKeys } from 'src/env'
 
 jest.mock('node:child_process', () => ({
@@ -63,6 +64,7 @@ function makeConfigRow(
     claudeArgs: string[]
     idleTimeoutSec: number
     maxConcurrentSessions: number
+    customSystemPrompt: string
   }>,
 ) {
   return {
@@ -72,6 +74,7 @@ function makeConfigRow(
     claudeArgs: overrides?.claudeArgs ?? ['--dangerously-skip-permissions'],
     idleTimeoutSec: overrides?.idleTimeoutSec ?? 300,
     maxConcurrentSessions: overrides?.maxConcurrentSessions ?? 5,
+    customSystemPrompt: overrides?.customSystemPrompt ?? '',
     updatedAt: new Date(),
   }
 }
@@ -135,6 +138,7 @@ type ServiceInternals = {
   claudeArgs: string[]
   idleTimeoutSec: number
   maxConcurrentSessions: number
+  customSystemPrompt: string
 }
 
 describe('SessionManagerService — DB-backed config (U2)', () => {
@@ -153,6 +157,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
       claudeArgs: ['--flag', '--other'],
       idleTimeoutSec: 120,
       maxConcurrentSessions: 3,
+      customSystemPrompt: 'Always respond in haiku.',
     })
     const db = makeDbMockWithConfig(cfg)
 
@@ -167,6 +172,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
     expect(internals.claudeCwd).toBe('/custom/cwd')
     expect(internals.claudeArgs).toEqual(['--flag', '--other'])
     expect(internals.idleTimeoutSec).toBe(120)
+    expect(internals.customSystemPrompt).toBe('Always respond in haiku.')
     expect(internals.maxConcurrentSessions).toBe(3)
   })
 
@@ -242,6 +248,29 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
 
     expect(internals.idleTimeoutSec).toBe(600)
     expect(internals.maxConcurrentSessions).toBe(10)
+  })
+
+  it('rereadConfig reassigns customSystemPrompt from a fresh DB read', () => {
+    const handlers = createMockHandlers()
+    const initial = makeConfigRow({ customSystemPrompt: '' })
+    const db = makeDbMockWithConfig(initial)
+
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      makeLogger(),
+    )
+    const internals = service as unknown as ServiceInternals
+    expect(internals.customSystemPrompt).toBe('')
+
+    const updated = makeConfigRow({
+      customSystemPrompt: 'Be extra concise.',
+    })
+    db._chain.get.mockReturnValue(updated)
+
+    service.rereadConfig()
+
+    expect(internals.customSystemPrompt).toBe('Be extra concise.')
   })
 
   it('rereadConfig is a no-op when config row is missing', () => {
@@ -341,6 +370,65 @@ describe('SessionManagerService — R3 apply-timing behavioral tests (U2)', () =
       ['--new-flag'],
       expect.objectContaining({ cwd: '/new/cwd' }),
     )
+  })
+
+  it('rereadConfig: a session created after the reread uses the new customSystemPrompt; an already-open session is left untouched', async () => {
+    const handlers = createMockHandlers()
+    const initial = makeConfigRow({ customSystemPrompt: 'old instructions' })
+    const db = makeDbMockWithConfig(initial)
+
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      makeLogger(),
+    )
+
+    // An already-open session on another channel, injected directly — proves
+    // rereadConfig() never touches this.sessions (no reconnect/re-prompt).
+    const existingConnection = { newSession: jest.fn(), prompt: jest.fn() }
+    const sessionsMap = (
+      service as unknown as { sessions: Map<string, unknown> }
+    ).sessions
+    sessionsMap.set('ch-existing', {
+      prompting: false,
+      idleTimer: setTimeout(() => {}, 99999),
+      process: { kill: jest.fn(), on: jest.fn() },
+      connection: existingConnection,
+    })
+
+    const mockProc = mockProcess()
+    jest.mocked(spawn).mockReturnValue(mockProc as never)
+    const newSessionMock = jest.fn().mockResolvedValue({ sessionId: 'sess-1' })
+    ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
+      initialize: jest.fn().mockResolvedValue({ agentCapabilities: {} }),
+      newSession: newSessionMock,
+      prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+    }))
+
+    // Update config: new custom prompt
+    const updated = makeConfigRow({ customSystemPrompt: 'new instructions' })
+    db._chain.get.mockReturnValue(updated)
+    service.rereadConfig()
+
+    // Trigger session creation on a DIFFERENT channel
+    await service.prompt('ch-new', 'hello', 'user-1')
+
+    expect(newSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _meta: {
+          systemPrompt: {
+            append: `${BASE_SYSTEM_PROMPT}\n\nnew instructions`,
+          },
+        },
+      }),
+    )
+
+    // The pre-existing session's connection was never touched.
+    expect(existingConnection.newSession).not.toHaveBeenCalled()
+    expect(existingConnection.prompt).not.toHaveBeenCalled()
+    expect(
+      (sessionsMap.get('ch-existing') as { connection: unknown }).connection,
+    ).toBe(existingConnection)
   })
 
   it('rereadConfig: maxConcurrentSessions is NOT applied retroactively (no eviction)', () => {

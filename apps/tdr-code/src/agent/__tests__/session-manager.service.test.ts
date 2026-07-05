@@ -117,7 +117,10 @@ function createMockDb() {
     limit: jest.fn(),
     onConflictDoUpdate: jest.fn(),
     from: jest.fn(),
-    get: jest.fn().mockReturnValue({ id: 1 }),
+    // customSystemPrompt must be a string (buildSystemPrompt() calls .trim()
+    // on it unconditionally) — other fields here tolerate undefined because
+    // nothing in this file calls a method on them directly.
+    get: jest.fn().mockReturnValue({ id: 1, customSystemPrompt: '' }),
     all: jest.fn().mockReturnValue([]),
     run: jest.fn().mockReturnValue({ changes: 0 }),
   }
