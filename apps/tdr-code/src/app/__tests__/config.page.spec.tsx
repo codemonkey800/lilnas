@@ -33,6 +33,26 @@ function renderPage() {
   }
 }
 
+// U6: ConfigPage now calls useLiveStream(['bot-status']) (see src/app/lib/
+// use-live-stream.ts), which constructs a real `new EventSource(...)` on
+// mount. jsdom (this project's frontend testEnvironment) does not implement
+// EventSource — the same gap use-live-stream.spec.tsx's own header comment
+// documents — so without a stand-in, every test in this file would now
+// throw `ReferenceError: EventSource is not defined` the instant ConfigPage
+// mounts. This file only needs the constructor + close() (the hook's mount/
+// unmount lifecycle) to not throw; it never needs to simulate a topic
+// signal arriving (that behavior is use-live-stream.spec.tsx's job — see
+// its "shared bot-status key across multiple mounts (U6)" describe block),
+// so this stub is deliberately minimal rather than importing that file's
+// fuller MockEventSource.
+class StubEventSource {
+  onopen: (() => void) | null = null
+  onerror: (() => void) | null = null
+  addEventListener(): void {}
+  removeEventListener(): void {}
+  close(): void {}
+}
+
 beforeEach(() => {
   // .mockReset() before re-arming: jest.config.js's top-level clearMocks/
   // restoreMocks have no effect once a `projects` array is used (Jest only
@@ -45,12 +65,13 @@ beforeEach(() => {
   // still sitting in .mock.calls[0]).
   jest.spyOn(api, 'getConfig').mockReset().mockResolvedValue(CONFIG)
   jest.spyOn(api, 'updateConfig').mockReset().mockResolvedValue(CONFIG)
-  // Page also polls bot status directly via fetchJson — stub it so that
+  // Page also reads bot status directly via fetchJson — stub it so that
   // query settles without touching the network.
   jest
     .spyOn(apiLib, 'fetchJson')
     .mockReset()
     .mockResolvedValue({ status: 'never-seen' } as never)
+  global.EventSource = StubEventSource as unknown as typeof EventSource
 })
 
 describe('ConfigPage — custom system prompt field', () => {
@@ -126,5 +147,48 @@ describe('ConfigPage — custom system prompt field', () => {
     })
     // See the previous test's comment on why this matters for test isolation.
     await screen.findByText('Saved')
+  })
+})
+
+// U6: this page's bot-status query used to carry `refetchInterval: 5_000`
+// (and BotStatusWidget's own query, exercised by use-live-stream.spec.tsx's
+// own U6 describe block, had the same). Both are now fed by
+// useLiveStream(['bot-status']) instead. React Query does not expose
+// `refetchInterval` as an inspectable property on a rendered observer from
+// outside (there is no public "what interval is this query configured
+// with" accessor), so this proves the removal BEHAVIORALLY rather than by
+// reading source text: advance fake timers well past the old 5s interval
+// (and past a couple of would-be ticks, to rule out a timer that fires but
+// coalesces) and assert neither query's fetcher was called again beyond its
+// one initial mount-time call. Structural confirmation of the literal
+// `refetchInterval: 5_000` removal from both call sites is also visible
+// directly in this unit's diff (src/app/components/bot-status-widget.tsx
+// and src/app/config/page.tsx) — this test is the runtime complement to
+// that, not a replacement for eyeballing the diff.
+describe('ConfigPage — bot-status query no longer polls (U6)', () => {
+  it('neither the config query nor the bot-status query refetches on a timer after mount, even well past the old 5s refetchInterval', async () => {
+    jest.useFakeTimers()
+    try {
+      const getConfigSpy = jest.spyOn(api, 'getConfig')
+      const fetchJsonSpy = jest.spyOn(apiLib, 'fetchJson')
+      renderPage()
+
+      // Let the initial mount-time fetches resolve (React Query's own
+      // internal promise-then scheduling still needs real microtask
+      // flushes even under fake timers).
+      await waitFor(() => expect(getConfigSpy).toHaveBeenCalledTimes(1))
+      await waitFor(() => expect(fetchJsonSpy).toHaveBeenCalledTimes(1))
+
+      // Advance well past three would-be 5s poll ticks. If either
+      // `refetchInterval: 5_000` were still present, this would produce
+      // additional calls; with both removed and no other timer-driven
+      // refetch source on this page, the call counts must stay at 1.
+      jest.advanceTimersByTime(20_000)
+
+      expect(getConfigSpy).toHaveBeenCalledTimes(1)
+      expect(fetchJsonSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.useRealTimers()
+    }
   })
 })

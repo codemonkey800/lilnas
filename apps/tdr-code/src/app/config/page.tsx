@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ErrorState } from 'src/app/components/error-state'
 import { LoadingState } from 'src/app/components/loading-state'
 import { api, fetchJson, queryKeys } from 'src/app/lib/api'
+import { useLiveStream } from 'src/app/lib/use-live-stream'
 import type { BotStatusDto } from 'src/bot/bot-status.dto'
 import type { UpdateConfigBodyDto } from 'src/console/config.dto'
 
@@ -30,6 +31,8 @@ function FieldLabel({
 export default function ConfigPage() {
   const queryClient = useQueryClient()
 
+  useLiveStream(['bot-status'])
+
   const { data, isLoading, isError, error } = useQuery({
     queryKey: queryKeys.config,
     queryFn: api.getConfig,
@@ -40,7 +43,6 @@ export default function ConfigPage() {
   const { data: botStatus } = useQuery({
     queryKey: queryKeys.botStatus,
     queryFn: () => fetchJson<BotStatusDto>('/bot/status'),
-    refetchInterval: 5_000,
     retry: false,
   })
 

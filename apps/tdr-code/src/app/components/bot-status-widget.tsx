@@ -4,6 +4,7 @@ import { cns } from '@lilnas/utils/cns'
 import { useQuery } from '@tanstack/react-query'
 
 import { fetchJson, queryKeys } from 'src/app/lib/api'
+import { useLiveStream } from 'src/app/lib/use-live-stream'
 import type { BotStatusDto } from 'src/bot/bot-status.dto'
 
 import { StatusDot } from './status-dot'
@@ -28,10 +29,11 @@ function statusVariant(s: ClientStatus): 'green' | 'yellow' | 'red' | 'gray' {
 }
 
 export function BotStatusWidget() {
+  useLiveStream(['bot-status'])
+
   const { data, isLoading, isError } = useQuery({
     queryKey: queryKeys.botStatus,
     queryFn: () => fetchJson<BotStatusDto>('/bot/status'),
-    refetchInterval: 5_000,
     retry: false,
   })
 

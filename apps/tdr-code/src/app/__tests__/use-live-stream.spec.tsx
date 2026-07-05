@@ -292,3 +292,93 @@ describe('useLiveStream', () => {
     })
   })
 })
+
+// U6: both bot-status poll sites (BotStatusWidget, ConfigPage) migrate to
+// their own `useLiveStream(['bot-status'])` call, each opening its own
+// EventSource (connection sharing/dedup across components is out of scope
+// for this unit — see the U6 plan section). What matters is that a signal
+// delivered to EITHER connection invalidates the SAME queryKeys.botStatus
+// key, so whichever component(s) are mounted re-render with fresh data.
+// This is proven most directly at the query-client level: React Query
+// itself guarantees "invalidate this key" affects every observer of that
+// key application-wide, so mounting two independent useLiveStream(['bot-
+// status']) hooks (standing in for the widget's and the config page's own
+// call sites, without needing to render either real component's markup/
+// queryFn here — that would just re-test bot-status-widget.tsx/config/
+// page.tsx's own unrelated rendering logic) and firing a signal on ONE of
+// their connections is sufficient: if the OTHER hook's connection's
+// listener also observes an invalidation of the identical key instance,
+// the shared-key behavior holds regardless of which physical EventSource
+// received the wire signal.
+describe('useLiveStream — shared bot-status key across multiple mounts (U6)', () => {
+  it('a bot-status signal delivered on one mount’s connection invalidates the same queryKeys.botStatus key that a second, independent mount also subscribes to', () => {
+    const invalidateSpy = spyOnInvalidate()
+
+    // Two independent mounts, each standing in for one of U6's two real
+    // call sites (BotStatusWidget, ConfigPage) — each gets its OWN
+    // EventSource per the hook's "one handle per key" rule.
+    renderHook(() => useLiveStream(['bot-status']), { wrapper })
+    renderHook(() => useLiveStream(['bot-status']), { wrapper })
+
+    expect(MockEventSource.instances).toHaveLength(2)
+    const [firstConnection, secondConnection] = MockEventSource.instances
+
+    // Fire the signal on only the FIRST mount's connection — a real SSE hub
+    // would push to every open connection subscribed to the topic, but this
+    // isolates the assertion to "one signal, one key" rather than relying
+    // on both connections happening to fire together.
+    firstConnection?.emitTopic('bot-status')
+
+    expect(invalidateSpy).toHaveBeenCalledTimes(1)
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      { queryKey: queryKeys.botStatus },
+      { cancelRefetch: false },
+    )
+
+    // The second mount's own connection independently receiving the same
+    // topic invalidates the identical key instance — proving there is no
+    // per-mount-scoped key, only the one shared queryKeys.botStatus that
+    // both BotStatusWidget and ConfigPage read from in production.
+    secondConnection?.emitTopic('bot-status')
+    expect(invalidateSpy).toHaveBeenCalledTimes(2)
+    expect(invalidateSpy).toHaveBeenLastCalledWith(
+      { queryKey: queryKeys.botStatus },
+      { cancelRefetch: false },
+    )
+  })
+
+  // Covers F2 (restart convergence appears live): today, a starting->online
+  // transition is only visible once every 5s (whatever the poll happens to
+  // catch). After U3/U4 (backend) + this unit (frontend), each transition
+  // gets its own bot-status signal, so the indicator flips per actual
+  // transition instead of being coalesced into a poll tick. There is
+  // nothing to CODE for this beyond removing the poll and trusting the
+  // push signal (already done above) — this test proves the payoff: a
+  // sequence of distinct signals (simulating starting, then online) each
+  // triggers its OWN invalidateQueries call, not one coalesced call for
+  // the whole sequence.
+  it('a sequence of distinct bot-status signals (simulating starting -> online) each triggers its own invalidateQueries call, not coalesced into one (F2)', () => {
+    const invalidateSpy = spyOnInvalidate()
+    renderHook(() => useLiveStream(['bot-status']), { wrapper })
+    const instance = latestInstance()
+
+    // Three separate signals on three separate "ticks" of the underlying
+    // bot lifecycle (e.g. starting, then online, then a later heartbeat) —
+    // nothing here coalesces multiple emitTopic calls the way the bot-side
+    // NotifyEmitterService's ~50ms coalesce window or the server-side hub's
+    // throttle would upstream of the wire; this hook has no throttleMs set
+    // for bot-status (U6 callers don't pass one), so every signal that
+    // reaches the browser is invalidated 1:1.
+    instance.emitTopic('bot-status')
+    instance.emitTopic('bot-status')
+    instance.emitTopic('bot-status')
+
+    expect(invalidateSpy).toHaveBeenCalledTimes(3)
+    for (const call of invalidateSpy.mock.calls) {
+      expect(call).toEqual([
+        { queryKey: queryKeys.botStatus },
+        { cancelRefetch: false },
+      ])
+    }
+  })
+})
