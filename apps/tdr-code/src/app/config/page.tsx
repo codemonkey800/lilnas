@@ -10,6 +10,8 @@ import { api, fetchJson, queryKeys } from 'src/app/lib/api'
 import type { BotStatusDto } from 'src/bot/bot-status.dto'
 import type { UpdateConfigBodyDto } from 'src/console/config.dto'
 
+const CUSTOM_PROMPT_MAX = 20_000
+
 function FieldLabel({
   label,
   effectLabel,
@@ -52,6 +54,7 @@ export default function ConfigPage() {
   const [claudeArgsJson, setClaudeArgsJson] = useState('')
   const [idleTimeoutSec, setIdleTimeoutSec] = useState('')
   const [maxConcurrentSessions, setMaxConcurrentSessions] = useState('')
+  const [customSystemPrompt, setCustomSystemPrompt] = useState('')
   const [argsError, setArgsError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -65,6 +68,7 @@ export default function ConfigPage() {
       setClaudeArgsJson(JSON.stringify(data.claudeArgs))
       setIdleTimeoutSec(String(data.idleTimeoutSec))
       setMaxConcurrentSessions(String(data.maxConcurrentSessions))
+      setCustomSystemPrompt(data.customSystemPrompt)
     }
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [data])
@@ -117,8 +121,12 @@ export default function ConfigPage() {
       claudeArgs: parsedArgs,
       idleTimeoutSec: Number(idleTimeoutSec),
       maxConcurrentSessions: Number(maxConcurrentSessions),
+      customSystemPrompt,
     })
   }
+
+  const customPromptNearCap =
+    customSystemPrompt.length >= CUSTOM_PROMPT_MAX * 0.9
 
   if (isLoading) return <LoadingState />
   if (isError) return <ErrorState message={(error as Error).message} />
@@ -205,6 +213,27 @@ export default function ConfigPage() {
             onChange={e => setMaxConcurrentSessions(e.target.value)}
             className="w-full rounded border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-gray-500 focus:outline-none"
           />
+        </div>
+
+        <div className="space-y-1">
+          <FieldLabel
+            label="Custom system prompt"
+            effectLabel="new sessions only"
+          />
+          <textarea
+            value={customSystemPrompt}
+            onChange={e => setCustomSystemPrompt(e.target.value)}
+            rows={7}
+            className="w-full rounded border border-gray-700 bg-gray-900 px-3 py-2 font-mono text-sm text-gray-100 focus:border-gray-500 focus:outline-none"
+          />
+          <p
+            className={cns(
+              'text-right text-xs',
+              customPromptNearCap ? 'text-yellow-400' : 'text-gray-500',
+            )}
+          >
+            {customSystemPrompt.length} / {CUSTOM_PROMPT_MAX}
+          </p>
         </div>
 
         <div className="flex items-center gap-3">
