@@ -29,6 +29,13 @@ export const UpdateConfigBodySchema = z.object({
     .number()
     .int()
     .min(1, 'maxConcurrentSessions must be at least 1'),
+  customSystemPrompt: z
+    .string()
+    .max(20_000, 'customSystemPrompt must be at most 20,000 characters')
+    .refine(
+      v => !v.includes('\0'),
+      'customSystemPrompt must not contain NUL bytes',
+    ),
 })
 export type UpdateConfigBodyDto = z.infer<typeof UpdateConfigBodySchema>
 
@@ -38,5 +45,6 @@ export const ConfigResponseSchema = z.object({
   claudeArgs: z.array(z.string()),
   idleTimeoutSec: z.number(),
   maxConcurrentSessions: z.number(),
+  customSystemPrompt: z.string(),
 })
 export type ConfigResponseDto = z.infer<typeof ConfigResponseSchema>

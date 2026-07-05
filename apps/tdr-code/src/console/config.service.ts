@@ -39,9 +39,12 @@ export class ConfigService {
       claudeArgs: body.claudeArgs,
       idleTimeoutSec: body.idleTimeoutSec,
       maxConcurrentSessions: body.maxConcurrentSessions,
+      customSystemPrompt: body.customSystemPrompt,
     }
 
     const updated = updateConfig(this.db, patch)
+    // patch (including customSystemPrompt) is logged in full, unredacted —
+    // operator-authored config text, not a secret.
     this.logger.info(
       { patch, event: LOG_EVENTS.configUpdated },
       'Config updated',
@@ -95,6 +98,7 @@ export class ConfigService {
     claudeArgs: string[]
     idleTimeoutSec: number
     maxConcurrentSessions: number
+    customSystemPrompt: string
   }): ConfigResponseDto {
     return {
       cwd: row.cwd,
@@ -102,6 +106,7 @@ export class ConfigService {
       claudeArgs: row.claudeArgs,
       idleTimeoutSec: row.idleTimeoutSec,
       maxConcurrentSessions: row.maxConcurrentSessions,
+      customSystemPrompt: row.customSystemPrompt,
     }
   }
 }

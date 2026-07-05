@@ -294,6 +294,7 @@ const MOCK_CONFIG_RESPONSE: ConfigResponseDto = {
   claudeArgs: ['--dangerously-skip-permissions'],
   idleTimeoutSec: 300,
   maxConcurrentSessions: 5,
+  customSystemPrompt: '',
 }
 
 const MOCK_GIT_IDENTITY_RESPONSE: UpsertGitIdentityResponseDto = {
