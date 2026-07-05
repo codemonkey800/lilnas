@@ -9,6 +9,7 @@ import { ClearCommandService } from './clear-command.service'
 import { CompositeAcpHandler } from './composite-acp-handler'
 import { ContextUsageService } from './context-usage.service'
 import { DiscordHandlerService } from './discord-handler.service'
+import { NotifyEmitterService } from './notify-emitter.service'
 import { SqliteWriterService } from './sqlite-writer.service'
 import { StopButtonService } from './stop-button.service'
 
@@ -27,6 +28,7 @@ import { StopButtonService } from './stop-button.service'
     SessionManagerService,
     StopButtonService,
     ClearCommandService,
+    NotifyEmitterService,
   ],
 })
 export class DiscordModule {}

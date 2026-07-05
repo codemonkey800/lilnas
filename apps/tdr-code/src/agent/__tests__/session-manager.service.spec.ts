@@ -16,6 +16,7 @@ import { DB } from 'src/db/database.module'
 import * as eventsRepo from 'src/db/events.repo'
 import type { SessionRow } from 'src/db/schema'
 import * as sessionsRepo from 'src/db/sessions.repo'
+import { NotifyEmitterService } from 'src/discord/notify-emitter.service'
 import { EnvKeys } from 'src/env'
 
 // Mock git-turn-context so executePrompt tests don't hit real crypto/master-key.
@@ -194,6 +195,7 @@ type CtorWith2 = {
     h: AcpEventHandlers,
     db: unknown,
     logger: PinoLogger,
+    notifyEmitter: Pick<NotifyEmitterService, 'notify'>,
   ): SessionManagerService
 }
 
@@ -204,6 +206,12 @@ function makeLogger(): PinoLogger {
     error: jest.fn(),
     debug: jest.fn(),
   } as unknown as PinoLogger
+}
+
+function makeNotifyEmitterMock(): jest.Mocked<
+  Pick<NotifyEmitterService, 'notify'>
+> {
+  return { notify: jest.fn() }
 }
 
 // Builds a controllable mock child process (real EventEmitter, so proc.on
@@ -337,6 +345,7 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
 
     injectPromptingSession(service, 'ch1')
@@ -354,6 +363,7 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
 
     const session = injectPromptingSession(service, 'ch1')
@@ -373,6 +383,7 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
         { provide: ACP_EVENT_HANDLERS, useValue: handlers },
         { provide: DB, useValue: makeDbMock() },
         { provide: PinoLogger, useValue: makeLogger() },
+        { provide: NotifyEmitterService, useValue: makeNotifyEmitterMock() },
       ],
     }).compile()
     const service = module.get(SessionManagerService)
@@ -416,6 +427,7 @@ describe('SessionManagerService — session-lifecycle DB writes (U2, U5)', () =>
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     injectSessionWithRowId(service, 'ch1', 42)
 
@@ -425,6 +437,24 @@ describe('SessionManagerService — session-lifecycle DB writes (U2, U5)', () =>
     expect(db.insert).toHaveBeenCalled() // insertEvent(session_evicted)
     expect(db.delete).toHaveBeenCalled() // removeLiveStatus
     expect(sessions(service).has('ch1')).toBe(false)
+  })
+
+  it('U3: teardown notifies session:<id> (closeSession) and live (removeLiveStatus)', () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const notifyEmitter = makeNotifyEmitterMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      makeLogger(),
+      notifyEmitter,
+    )
+    injectSessionWithRowId(service, 'ch1', 42)
+
+    service.teardown('ch1', 'evicted')
+
+    expect(notifyEmitter.notify).toHaveBeenCalledWith(['session:42'])
+    expect(notifyEmitter.notify).toHaveBeenCalledWith(['live'])
   })
 
   it('teardown DB writes are best-effort — a throw does not propagate', () => {
@@ -437,11 +467,34 @@ describe('SessionManagerService — session-lifecycle DB writes (U2, U5)', () =>
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     injectSessionWithRowId(service, 'ch1', 42)
 
     expect(() => service.teardown('ch1', 'evicted')).not.toThrow()
     expect(sessions(service).has('ch1')).toBe(false)
+  })
+
+  it('U3: teardown does not notify when the write throws before it (notify is conditioned on write success)', () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    db.update.mockImplementation(() => {
+      throw new Error('SQLITE_BUSY')
+    })
+    const notifyEmitter = makeNotifyEmitterMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      makeLogger(),
+      notifyEmitter,
+    )
+    injectSessionWithRowId(service, 'ch1', 42)
+
+    service.teardown('ch1', 'evicted')
+
+    // closeSession threw before either notify call in the try block ran —
+    // the whole try/catch bails out, so neither session:<id> nor live fires.
+    expect(notifyEmitter.notify).not.toHaveBeenCalled()
   })
 
   it('teardown skips DB writes when sessionRowId is null', () => {
@@ -451,6 +504,7 @@ describe('SessionManagerService — session-lifecycle DB writes (U2, U5)', () =>
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     // sessionRowId null → U2 block skipped, U5 (removeLiveStatus) still runs
     injectPromptingSession(service, 'ch1')
@@ -461,6 +515,27 @@ describe('SessionManagerService — session-lifecycle DB writes (U2, U5)', () =>
     expect(db.update).not.toHaveBeenCalled() // closeSession skipped
     expect(db.insert).not.toHaveBeenCalled() // insertEvent skipped
     expect(db.delete).toHaveBeenCalled() // removeLiveStatus still fires
+  })
+
+  it('U3: teardown with a null sessionRowId still notifies live (session:<id> skipped)', () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const notifyEmitter = makeNotifyEmitterMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      makeLogger(),
+      notifyEmitter,
+    )
+    injectPromptingSession(service, 'ch1')
+    sessions(service).get('ch1')!.prompting = false
+
+    service.teardown('ch1', 'evicted')
+
+    expect(notifyEmitter.notify).toHaveBeenCalledWith(['live'])
+    expect(notifyEmitter.notify).not.toHaveBeenCalledWith(
+      expect.arrayContaining([expect.stringMatching(/^session:/)]),
+    )
   })
 })
 
@@ -491,6 +566,7 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const internals = service as unknown as ServiceInternals
 
@@ -511,6 +587,7 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const internals = service as unknown as ServiceInternals
 
@@ -526,6 +603,7 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const internals = service as unknown as ServiceInternals
 
@@ -548,6 +626,7 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const internals = service as unknown as ServiceInternals
 
@@ -556,6 +635,49 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
 
     internals.ensureLiveStatusHeartbeat()
     expect(internals.liveStatusTimer).toBe(firstTimer)
+  })
+
+  it('U3: syncLiveStatus notifies live after upsertLiveStatus succeeds', () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock() // default run().changes=0 — upsert path uses .get(), not .run()
+    const notifyEmitter = makeNotifyEmitterMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      makeLogger(),
+      notifyEmitter,
+    )
+    const session = injectSessionWithRowId(service, 'ch1', 42)
+    const internals = service as unknown as {
+      syncLiveStatus(s: typeof session): void
+    }
+
+    internals.syncLiveStatus(session)
+
+    expect(db.insert).toHaveBeenCalled() // upsertLiveStatus (onConflictDoUpdate)
+    expect(notifyEmitter.notify).toHaveBeenCalledWith(['live'])
+  })
+
+  it('U3: syncLiveStatus does not notify when the upsert throws', () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    db.insert.mockImplementation(() => {
+      throw new Error('SQLITE_BUSY')
+    })
+    const notifyEmitter = makeNotifyEmitterMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      makeLogger(),
+      notifyEmitter,
+    )
+    const session = injectSessionWithRowId(service, 'ch1', 42)
+    const internals = service as unknown as {
+      syncLiveStatus(s: typeof session): void
+    }
+
+    expect(() => internals.syncLiveStatus(session)).not.toThrow()
+    expect(notifyEmitter.notify).not.toHaveBeenCalled()
   })
 })
 
@@ -629,6 +751,7 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const session = injectIdleSession(service, 'ch-b')
 
@@ -685,6 +808,7 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const session = injectIdleSession(service, 'ch-b')
 
@@ -733,6 +857,7 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const session = injectIdleSession(service, 'ch-solo')
 
@@ -763,6 +888,7 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     injectIdleSession(service, 'ch-parked')
     // Simulate "parked": prompting=true, as executePrompt's prologue would
@@ -795,11 +921,13 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
       handlersA,
       dbA,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const serviceB = new (SessionManagerService as unknown as CtorWith2)(
       handlersB,
       dbB,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
 
     const sessionA = injectIdleSession(serviceA, 'ch-a')
@@ -917,6 +1045,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const { resolveInitialize } = mockSpawnAndConnection()
 
@@ -960,6 +1089,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const { resolveInitialize } = mockSpawnAndConnection()
 
@@ -992,6 +1122,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const failing = mockSpawnAndConnection()
 
@@ -1027,6 +1158,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     // Live session already registered — no spawn/connection mock configured
     // at all, so any attempt to go through createSession would throw/hang.
@@ -1049,6 +1181,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
       handlers,
       db,
       logger,
+      makeNotifyEmitterMock(),
     )
     const { resolveInitialize } = mockSpawnAndConnection()
     insertSessionSpy.mockImplementationOnce(() => {
@@ -1075,6 +1208,55 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     )
   })
 
+  it('U3: fresh create notifies session:<id> once insertSession succeeds', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const notifyEmitter = makeNotifyEmitterMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      makeLogger(),
+      notifyEmitter,
+    )
+    const { resolveInitialize } = mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-insert-ok', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize()
+    await outcome
+
+    // makeDbMock()'s chain.get() defaults to { id: 1 } — the inserted row id.
+    expect(insertSessionSpy).toHaveBeenCalledTimes(1)
+    expect(notifyEmitter.notify).toHaveBeenCalledWith(['session:1'])
+  })
+
+  it('U3: a throwing insertSession during fresh create does not notify session:<id>', async () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const notifyEmitter = makeNotifyEmitterMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      makeLogger(),
+      notifyEmitter,
+    )
+    const { resolveInitialize } = mockSpawnAndConnection()
+    insertSessionSpy.mockImplementationOnce(() => {
+      throw new Error('SQLITE_BUSY: database is locked')
+    })
+
+    const outcome = service.prompt('ch-insert-fail-2', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize()
+    await outcome
+
+    expect(notifyEmitter.notify).not.toHaveBeenCalledWith(
+      expect.arrayContaining([expect.stringMatching(/^session:/)]),
+    )
+  })
+
   describe('cancelPending', () => {
     it('is a no-op when nothing is pending for the channel (no throw)', () => {
       const handlers = createMockHandlers()
@@ -1083,6 +1265,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
         handlers,
         db,
         makeLogger(),
+        makeNotifyEmitterMock(),
       )
 
       expect(() => service.cancelPending('ch-nothing-pending')).not.toThrow()
@@ -1096,6 +1279,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
         handlers,
         db,
         makeLogger(),
+        makeNotifyEmitterMock(),
       )
       const { resolveInitialize } = mockSpawnAndConnection()
 
@@ -1153,6 +1337,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const priorRow = makeSessionRow({
       id: 42,
@@ -1203,6 +1388,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       handlers,
       db,
       logger,
+      makeNotifyEmitterMock(),
     )
     const priorRow = makeSessionRow({
       id: 42,
@@ -1254,6 +1440,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const priorRow = makeSessionRow({
       channelId: 'ch-suppress',
@@ -1303,6 +1490,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const clearedRow = makeSessionRow({
       channelId: 'ch-cleared',
@@ -1332,6 +1520,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     // Reactivation-eligible-looking row present in "the DB" — must be
     // ignored because the live sessions map fast path wins first.
@@ -1358,6 +1547,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     getLatestSessionForChannelSpy.mockReturnValue(undefined)
 
@@ -1381,6 +1571,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const priorRow = makeSessionRow({
       channelId: 'ch-nocap',
@@ -1433,6 +1624,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const priorRow = makeSessionRow({
       channelId: 'ch-loadfail',
@@ -1494,6 +1686,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const priorRow = makeSessionRow({
       channelId: 'ch-insertfault',
@@ -1554,6 +1747,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
         handlers,
         db,
         makeLogger(),
+        makeNotifyEmitterMock(),
       )
       const priorRow = makeSessionRow({
         channelId: 'ch-loadtimeout',
@@ -1610,6 +1804,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const priorRow = makeSessionRow({
       id: 99,
@@ -1657,6 +1852,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const priorRow = makeSessionRow({
       id: 55,
@@ -1721,6 +1917,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const staleRow = makeSessionRow({
       id: 1,
@@ -1799,6 +1996,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const priorRow = makeSessionRow({
       id: 42,
@@ -1833,6 +2031,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
 
     // Mint a turn id on an unrelated LIVE session first.
@@ -1896,6 +2095,7 @@ describe('SessionManagerService — system prompt composition (U2, R4/R5/R6/R7)'
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const { resolveInitialize, newSession } = mockSpawnAndConnection()
 
@@ -1923,6 +2123,7 @@ describe('SessionManagerService — system prompt composition (U2, R4/R5/R6/R7)'
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const { resolveInitialize, newSession } = mockSpawnAndConnection()
 
@@ -1947,6 +2148,7 @@ describe('SessionManagerService — system prompt composition (U2, R4/R5/R6/R7)'
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const { resolveInitialize } = mockSpawnAndConnection()
 
@@ -1974,6 +2176,7 @@ describe('SessionManagerService — system prompt composition (U2, R4/R5/R6/R7)'
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const priorRow = makeSessionRow({
       channelId: 'ch-dormant-prompt',

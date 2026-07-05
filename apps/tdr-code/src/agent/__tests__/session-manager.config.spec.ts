@@ -8,6 +8,7 @@ import { PinoLogger } from 'nestjs-pino'
 import type { AcpEventHandlers } from 'src/agent/agent.types'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { BASE_SYSTEM_PROMPT } from 'src/agent/system-prompt.constants'
+import type { NotifyEmitterService } from 'src/discord/notify-emitter.service'
 import { EnvKeys } from 'src/env'
 
 jest.mock('node:child_process', () => ({
@@ -120,6 +121,7 @@ type CtorWith2 = {
     h: AcpEventHandlers,
     db: unknown,
     logger: PinoLogger,
+    notifyEmitter: Pick<NotifyEmitterService, 'notify'>,
   ): SessionManagerService
 }
 
@@ -130,6 +132,12 @@ function makeLogger(): PinoLogger {
     error: jest.fn(),
     debug: jest.fn(),
   } as unknown as PinoLogger
+}
+
+function makeNotifyEmitterMock(): jest.Mocked<
+  Pick<NotifyEmitterService, 'notify'>
+> {
+  return { notify: jest.fn() }
 }
 
 type ServiceInternals = {
@@ -165,6 +173,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const internals = service as unknown as ServiceInternals
 
@@ -217,6 +226,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
           handlers,
           db,
           makeLogger(),
+          makeNotifyEmitterMock(),
         ),
     ).toThrow(/config row missing/)
   })
@@ -233,6 +243,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const internals = service as unknown as ServiceInternals
     expect(internals.idleTimeoutSec).toBe(300)
@@ -259,6 +270,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const internals = service as unknown as ServiceInternals
     expect(internals.customSystemPrompt).toBe('')
@@ -282,6 +294,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const internals = service as unknown as ServiceInternals
 
@@ -301,6 +314,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     expect((service as unknown as ServiceInternals).claudeArgs).toEqual([
       '--dangerously-skip-permissions',
@@ -343,6 +357,7 @@ describe('SessionManagerService — R3 apply-timing behavioral tests (U2)', () =
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
 
     const mockProc = mockProcess()
@@ -381,6 +396,7 @@ describe('SessionManagerService — R3 apply-timing behavioral tests (U2)', () =
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
 
     // An already-open session on another channel, injected directly — proves
@@ -440,6 +456,7 @@ describe('SessionManagerService — R3 apply-timing behavioral tests (U2)', () =
       handlers,
       db,
       makeLogger(),
+      makeNotifyEmitterMock(),
     )
     const sessions = (service as unknown as { sessions: Map<string, unknown> })
       .sessions

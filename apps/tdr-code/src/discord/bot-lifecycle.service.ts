@@ -19,6 +19,8 @@ import { DB } from 'src/db/database.module'
 import { EnvKeys } from 'src/env'
 import { LOG_EVENTS } from 'src/logging/log-events'
 
+import { NotifyEmitterService } from './notify-emitter.service'
+
 // ──────────────────────────────────────────────────────────────────────────────
 // BotLifecycleService — bot-side half of the generation primitive.
 //
@@ -40,6 +42,7 @@ export class BotLifecycleService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly logger: PinoLogger,
+    private readonly notifyEmitter: NotifyEmitterService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -148,6 +151,10 @@ export class BotLifecycleService implements OnModuleInit, OnModuleDestroy {
       },
       'Bot marked running',
     )
+    // U3: markRunning succeeded (changes !== 0, handled above) — notify so
+    // the bot-status widget/config page flip starting -> online without
+    // waiting on the staleness-recompute fallback.
+    this.notifyEmitter.notify(['bot-status'])
     this.armHeartbeat()
   }
 
@@ -169,6 +176,10 @@ export class BotLifecycleService implements OnModuleInit, OnModuleDestroy {
         this.stopHeartbeat()
         return
       }
+      // U3: heartbeat succeeded — notify. This is what makes the widget's
+      // heartbeat-derived freshness track the real bot cadence instead of
+      // only the slower staleness-recompute fallback.
+      this.notifyEmitter.notify(['bot-status'])
       this.heartbeatTimer = setTimeout(beat, intervalMs)
     }
     this.heartbeatTimer = setTimeout(beat, intervalMs)

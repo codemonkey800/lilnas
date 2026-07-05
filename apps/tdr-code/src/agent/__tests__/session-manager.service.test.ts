@@ -11,6 +11,7 @@ import type { AcpEventHandlers } from 'src/agent/agent.types'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import * as claudeProcessRepo from 'src/db/claude-process.repo'
 import { DB } from 'src/db/database.module'
+import { NotifyEmitterService } from 'src/discord/notify-emitter.service'
 import { EnvKeys } from 'src/env'
 
 interface TestSession {
@@ -154,6 +155,12 @@ function makeLogger(): PinoLogger {
   } as unknown as PinoLogger
 }
 
+function makeNotifyEmitterMock(): jest.Mocked<
+  Pick<NotifyEmitterService, 'notify'>
+> {
+  return { notify: jest.fn() }
+}
+
 async function createService(handlers: AcpEventHandlers) {
   const module = await Test.createTestingModule({
     providers: [
@@ -161,6 +168,7 @@ async function createService(handlers: AcpEventHandlers) {
       { provide: ACP_EVENT_HANDLERS, useValue: handlers },
       { provide: DB, useValue: createMockDb() },
       { provide: PinoLogger, useValue: makeLogger() },
+      { provide: NotifyEmitterService, useValue: makeNotifyEmitterMock() },
     ],
   }).compile()
   return module.get(SessionManagerService)

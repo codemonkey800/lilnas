@@ -27,8 +27,10 @@ import {
   getLatestSessionForChannel,
   insertSession,
 } from 'src/db/sessions.repo'
+import { NotifyEmitterService } from 'src/discord/notify-emitter.service'
 import { EnvKeys } from 'src/env'
 import { LOG_EVENTS } from 'src/logging/log-events'
+import { sessionTopic } from 'src/sse/sse.types'
 
 import { createAcpClient } from './acp-client'
 import { ACP_EVENT_HANDLERS } from './agent.module'
@@ -118,6 +120,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     @Inject(ACP_EVENT_HANDLERS) private readonly handlers: AcpEventHandlers,
     @Inject(DB) private readonly db: Db,
     private readonly logger: PinoLogger,
+    private readonly notifyEmitter: NotifyEmitterService,
   ) {
     const cfg = getConfig(db)
     if (!cfg) {
@@ -305,8 +308,13 @@ export class SessionManagerService implements OnApplicationShutdown {
             context: { endReason, ...extraContext },
             createdAt: new Date(),
           })
+          // U3: the closeSession UPDATE above is exactly the in-place
+          // mutation an id-only cursor can't see — notify so the session
+          // page's close shows up without waiting for the fallback tick.
+          this.notifyEmitter.notify([sessionTopic(session.sessionRowId)])
         }
         removeLiveStatus(this.db, channelId, this.generationId)
+        this.notifyEmitter.notify(['live'])
       } catch (err) {
         this.logger.warn(
           { event: LOG_EVENTS.teardownBookkeepingFailed, err, channelId },
@@ -699,6 +707,11 @@ export class SessionManagerService implements OnApplicationShutdown {
       endedAt: new Date(),
       endReason: 'interrupted',
     })
+    // U3: notify.notify() is itself internally guarded (see
+    // notify-emitter.service.ts) and can never throw, so it's safe to call
+    // unwrapped right after this write — same in-place-UPDATE rationale as
+    // teardown()'s closeSession notify above.
+    this.notifyEmitter.notify([sessionTopic(latestRow.id)])
 
     // Try/catch mirrors createSession's own insert step: a throw here must
     // not orphan the already-spawned (and now successfully resumed) proc —
@@ -734,6 +747,8 @@ export class SessionManagerService implements OnApplicationShutdown {
           },
           createdAt: new Date(),
         })
+        // U3: notify AFTER the insert succeeds, still inside this try.
+        this.notifyEmitter.notify([sessionTopic(row.id)])
       } catch (err) {
         this.logger.error(
           { event: LOG_EVENTS.reactivationInsertFailed, err, channelId },
@@ -912,6 +927,8 @@ export class SessionManagerService implements OnApplicationShutdown {
           },
           createdAt: new Date(),
         })
+        // U3: notify AFTER the insert succeeds, still inside this try.
+        this.notifyEmitter.notify([sessionTopic(row.id)])
       } catch (err) {
         this.logger.error(
           { event: LOG_EVENTS.sessionInsertFailed, err, channelId },
@@ -1028,8 +1045,10 @@ export class SessionManagerService implements OnApplicationShutdown {
                 endedAt: new Date(),
                 endReason: 'interrupted',
               })
+              this.notifyEmitter.notify([sessionTopic(session.sessionRowId)])
             }
             removeLiveStatus(this.db, channelId, this.generationId)
+            this.notifyEmitter.notify(['live'])
           } catch (dbErr) {
             this.logger.warn(
               {
@@ -1075,8 +1094,10 @@ export class SessionManagerService implements OnApplicationShutdown {
                 endedAt: new Date(),
                 endReason: 'interrupted',
               })
+              this.notifyEmitter.notify([sessionTopic(session.sessionRowId)])
             }
             removeLiveStatus(this.db, channelId, this.generationId)
+            this.notifyEmitter.notify(['live'])
           } catch (dbErr) {
             this.logger.warn(
               {
@@ -1172,6 +1193,9 @@ export class SessionManagerService implements OnApplicationShutdown {
         lastActivityAt: new Date(session.lastActivity),
         lastHeartbeatAt: new Date(),
       })
+      // U3: notify AFTER the write succeeds, still inside this try, so a
+      // notify-side failure can never be attributed to the upsert itself.
+      this.notifyEmitter.notify(['live'])
     } catch (err) {
       this.logger.warn(
         {

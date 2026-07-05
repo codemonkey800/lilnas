@@ -355,6 +355,19 @@ const SSE_EVENTS = {
   sseClientDisconnected: 'sse-client-disconnected',
 } as const
 
+const NOTIFY_EMITTER_EVENTS = {
+  // notify-emitter.service.ts (U3) — the bot-process half of the notify
+  // channel. notifyEmitted fires once per coalesced process.send() (the
+  // primary, sub-second push path); notifyEmitSkippedNoIpc fires instead
+  // when process.send is undefined (dev-standalone SUPERVISE_BOT=false, or
+  // any Jest spec) — this is the guarded-no-op that is the bot side's
+  // process-scoping guarantee (mirrors SseModule's own invariant from the
+  // opposite process), logged at debug since it is an expected, routine
+  // condition rather than an anomaly.
+  notifyEmitted: 'notify-emitted',
+  notifyEmitSkippedNoIpc: 'notify-emit-skipped-no-ipc',
+} as const
+
 const ERROR_BOUNDARY_EVENTS = {
   // error-reporter.tsx mounts a window-level 'error' listener and an
   // 'unhandledrejection' listener; each is a distinct raw-message site that
@@ -395,6 +408,7 @@ export const LOG_EVENTS = {
   ...MUTATION_EVENTS,
   ...RECONCILE_EVENTS,
   ...SSE_EVENTS,
+  ...NOTIFY_EMITTER_EVENTS,
   ...ERROR_BOUNDARY_EVENTS,
 } as const
 

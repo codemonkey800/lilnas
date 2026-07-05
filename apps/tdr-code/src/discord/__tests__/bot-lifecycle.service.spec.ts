@@ -11,6 +11,7 @@ import {
 import { DB } from 'src/db/database.module'
 import { createTestDb } from 'src/db/test-db'
 import { BotLifecycleService } from 'src/discord/bot-lifecycle.service'
+import { NotifyEmitterService } from 'src/discord/notify-emitter.service'
 import { EnvKeys } from 'src/env'
 
 function makeLogger() {
@@ -23,12 +24,22 @@ function makeLogger() {
   } as unknown as PinoLogger
 }
 
-async function buildService(db: ReturnType<typeof createTestDb>['db']) {
+function makeNotifyEmitterMock(): jest.Mocked<
+  Pick<NotifyEmitterService, 'notify'>
+> {
+  return { notify: jest.fn() }
+}
+
+async function buildService(
+  db: ReturnType<typeof createTestDb>['db'],
+  notifyEmitter: Pick<NotifyEmitterService, 'notify'> = makeNotifyEmitterMock(),
+) {
   const module = await Test.createTestingModule({
     providers: [
       BotLifecycleService,
       { provide: DB, useValue: db },
       { provide: PinoLogger, useValue: makeLogger() },
+      { provide: NotifyEmitterService, useValue: notifyEmitter },
     ],
   }).compile()
   return module.get(BotLifecycleService)
@@ -84,6 +95,56 @@ describe('BotLifecycleService', () => {
     const row = getById(testDb.db, gen.id)!
     expect(row.status).toBe('running')
     expect(row.lastHeartbeatAt).not.toBeNull()
+
+    svc.onModuleDestroy()
+  })
+
+  it('U3: onReady notifies bot-status after markRunning succeeds, and each heartbeat notifies again', async () => {
+    const gen = insertGeneration(testDb.db, { startedAt: new Date() })
+    process.env[EnvKeys.BOT_GENERATION_ID] = String(gen.id)
+    process.env[EnvKeys.BOT_HEARTBEAT_MS] = '30'
+
+    const notifyEmitter = makeNotifyEmitterMock()
+    const svc = await buildService(testDb.db, notifyEmitter)
+    await svc.onModuleInit()
+
+    svc.onReady()
+    expect(notifyEmitter.notify).toHaveBeenCalledWith(['bot-status'])
+    const callsAfterReady = notifyEmitter.notify.mock.calls.length
+
+    // Give at least one heartbeat tick time to fire.
+    await new Promise(r => setTimeout(r, 80))
+    expect(notifyEmitter.notify.mock.calls.length).toBeGreaterThan(
+      callsAfterReady,
+    )
+    // Every call so far was for the bot-status topic — heartbeat never
+    // notifies any other topic.
+    for (const call of notifyEmitter.notify.mock.calls) {
+      expect(call[0]).toEqual(['bot-status'])
+    }
+
+    svc.onModuleDestroy()
+  })
+
+  it('U3: heartbeat affecting 0 rows (generation finalized) does not notify again', async () => {
+    const gen = insertGeneration(testDb.db, { startedAt: new Date() })
+    process.env[EnvKeys.BOT_GENERATION_ID] = String(gen.id)
+    process.env[EnvKeys.BOT_HEARTBEAT_MS] = '30'
+
+    const notifyEmitter = makeNotifyEmitterMock()
+    const svc = await buildService(testDb.db, notifyEmitter)
+    await svc.onModuleInit()
+    svc.onReady()
+
+    // Wait for markRunning to land, then finalize the generation externally
+    // (simulating the supervisor) before the next heartbeat tick.
+    await new Promise(r => setTimeout(r, 10))
+    finalize(testDb.db, gen.id, 'stopped', 0, new Date())
+    notifyEmitter.notify.mockClear()
+
+    // Wait past the next heartbeat tick — it should stop, no more notifies.
+    await new Promise(r => setTimeout(r, 80))
+    expect(notifyEmitter.notify).not.toHaveBeenCalled()
 
     svc.onModuleDestroy()
   })

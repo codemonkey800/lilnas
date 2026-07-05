@@ -12,9 +12,11 @@ import { DB } from 'src/db/database.module'
 import { insertEvent } from 'src/db/events.repo'
 import { EnvKeys } from 'src/env'
 import { LOG_EVENTS } from 'src/logging/log-events'
+import { sessionTopic } from 'src/sse/sse.types'
 
 import { ContextUsageService } from './context-usage.service'
 import { DiscordHandlerService } from './discord-handler.service'
+import { NotifyEmitterService } from './notify-emitter.service'
 import { SqliteWriterService } from './sqlite-writer.service'
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -30,6 +32,18 @@ import { SqliteWriterService } from './sqlite-writer.service'
 //     (Decision 2b). The event write is itself wrapped so a double-fault degrades
 //     to log-only with no retry. context carries only safe identifiers — never the
 //     raw SqliteError message (Decision 2b secret-scrub / F10).
+//   - U3: after a writer call SUCCEEDS (i.e. inside the try, past the call, never
+//     in the catch), notify `session:<id>` for the channel's DB session row —
+//     this is the ACP fan-out point for every turn_content/turns INSERT and the
+//     two in-place UPDATE paths (onToolCallUpdate -> updateToolCallStatus,
+//     onPromptComplete -> closeTurn). The session row id isn't a per-call
+//     parameter on most of these methods, so it's tracked locally in
+//     channelSessionRowId, seeded from onPromptStart's PromptStartContext (the
+//     one method that receives it) — mirrors SqliteWriterService's own
+//     per-channel state-tracking shape one file over. onSessionInfoUpdate,
+//     onResumeFailed, and onUsageUpdate are deliberately excluded: the writer
+//     is a no-op for all three (see sqlite-writer.service.ts), so there is no
+//     turn_content/turns change to notify about.
 // ──────────────────────────────────────────────────────────────────────────────
 
 @Injectable()
@@ -40,6 +54,12 @@ export class CompositeAcpHandler implements AcpEventHandlers {
   private readonly discord: AcpEventHandlers
   private readonly writer: AcpEventHandlers
   private readonly contextUsage: AcpEventHandlers
+  // U3: channelId -> sessions.id, seeded by onPromptStart (the only method
+  // that receives sessionRowId). Never cleared on session end — a stale
+  // mapping surviving past teardown is harmless under snapshot-refetch
+  // idempotency (Decision 2A), and the entry is naturally replaced by the
+  // channel's next onPromptStart on session recreation/reactivation.
+  private readonly channelSessionRowId = new Map<string, number>()
 
   constructor(
     discord: DiscordHandlerService,
@@ -47,12 +67,22 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     contextUsage: ContextUsageService,
     @Inject(DB) private readonly db: Db,
     private readonly logger: PinoLogger,
+    private readonly notifyEmitter: NotifyEmitterService,
   ) {
     this.discord = discord
     this.writer = writer
     this.contextUsage = contextUsage
     const genIdStr = process.env[EnvKeys.BOT_GENERATION_ID]
     this.generationId = genIdStr ? parseInt(genIdStr, 10) : null
+  }
+
+  // U3: fire-and-forget notify for the channel's current session row, if
+  // known. No-op (nothing to notify) for a channel whose onPromptStart has
+  // never run with a non-null sessionRowId (e.g. generationId is null).
+  private notifySession(channelId: string): void {
+    const sessionRowId = this.channelSessionRowId.get(channelId)
+    if (sessionRowId == null) return
+    this.notifyEmitter.notify([sessionTopic(sessionRowId)])
   }
 
   onToolCall(
@@ -87,6 +117,7 @@ export class CompositeAcpHandler implements AcpEventHandlers {
         diffs,
         rawInput,
       )
+      this.notifySession(channelId)
     } catch (err) {
       this.handleWriterError(err, 'onToolCall', channelId)
     }
@@ -121,6 +152,10 @@ export class CompositeAcpHandler implements AcpEventHandlers {
         rawInput,
         title,
       )
+      // R5: this is the in-place UPDATE path (updateToolCallStatus) — the
+      // notify covers it just as it covers a plain INSERT, so a tool-status
+      // flip pushes just as fast as new transcript content.
+      this.notifySession(channelId)
     } catch (err) {
       this.handleWriterError(err, 'onToolCallUpdate', channelId)
     }
@@ -134,6 +169,7 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     }
     try {
       this.writer.onAgentMessageChunk(channelId, text)
+      this.notifySession(channelId)
     } catch (err) {
       this.handleWriterError(err, 'onAgentMessageChunk', channelId)
     }
@@ -147,6 +183,7 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     }
     try {
       this.writer.onAgentMessageImage(channelId, data, mimeType)
+      this.notifySession(channelId)
     } catch (err) {
       this.handleWriterError(err, 'onAgentMessageImage', channelId)
     }
@@ -164,6 +201,14 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     }
     try {
       this.writer.onPromptStart(channelId, turnId, context)
+      // U3: seed/refresh the channel's session-row mapping from the one
+      // method that carries it, BEFORE notifying, so this call's own notify
+      // (and every later chokepoint for this channel) resolves the correct
+      // session:<id> topic.
+      if (context.sessionRowId != null) {
+        this.channelSessionRowId.set(channelId, context.sessionRowId)
+      }
+      this.notifySession(channelId)
     } catch (err) {
       this.handleWriterError(err, 'onPromptStart', channelId)
     }
@@ -178,6 +223,11 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     }
     try {
       this.writer.onPromptComplete(channelId, stopReason)
+      // R5: this is the in-place UPDATE path (closeTurn) — a turn closing
+      // (completed/cancelled/aborted/error) is exactly the kind of change an
+      // id-only cursor can't see, so the notify here is what makes it appear
+      // live instead of waiting for the data_version fallback.
+      this.notifySession(channelId)
     } catch (err) {
       this.handleWriterError(err, 'onPromptComplete', channelId)
     }

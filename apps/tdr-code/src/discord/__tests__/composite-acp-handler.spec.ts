@@ -6,6 +6,7 @@ import type {
   PromptStartContext,
 } from 'src/agent/agent.types'
 import { CompositeAcpHandler } from 'src/discord/composite-acp-handler'
+import type { NotifyEmitterService } from 'src/discord/notify-emitter.service'
 import { EnvKeys } from 'src/env'
 
 function makeLogger(): PinoLogger {
@@ -61,6 +62,12 @@ function makeContextUsageMock(): jest.Mocked<AcpEventHandlers> {
   }
 }
 
+function makeNotifyEmitterMock(): jest.Mocked<
+  Pick<NotifyEmitterService, 'notify'>
+> {
+  return { notify: jest.fn() }
+}
+
 function makeDbMock() {
   const chain: Record<string, jest.Mock> = {
     values: jest.fn(),
@@ -102,6 +109,7 @@ type CompositeCtor = {
     contextUsage: AcpEventHandlers,
     db: unknown,
     logger: PinoLogger,
+    notifyEmitter: Pick<NotifyEmitterService, 'notify'>,
   ): CompositeAcpHandler
 }
 
@@ -109,6 +117,7 @@ function makeComposite(
   discord: AcpEventHandlers,
   writer: AcpEventHandlers,
   contextUsage: AcpEventHandlers = makeContextUsageMock(),
+  notifyEmitter: Pick<NotifyEmitterService, 'notify'> = makeNotifyEmitterMock(),
 ) {
   const db = makeDbMock()
   const composite = new (CompositeAcpHandler as unknown as CompositeCtor)(
@@ -117,6 +126,7 @@ function makeComposite(
     contextUsage,
     db,
     makeLogger(),
+    notifyEmitter,
   )
   return composite
 }
@@ -326,6 +336,7 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
         makeContextUsageMock(),
         db,
         makeLogger(),
+        makeNotifyEmitterMock(),
       )
 
       expect(() => composite.onPromptStart('ch1', 1, ctx)).not.toThrow()
@@ -353,6 +364,7 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
         makeContextUsageMock(),
         db,
         makeLogger(),
+        makeNotifyEmitterMock(),
       )
 
       composite.onPromptStart('ch1', 1, {
@@ -387,6 +399,7 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
         makeContextUsageMock(),
         db,
         loggerSpy as unknown as PinoLogger,
+        makeNotifyEmitterMock(),
       )
 
       composite.onToolCall('ch1', 'ref1', 'write_file', 'fs', 'pending', [])
@@ -400,6 +413,247 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
         }),
         'Writer fault',
       )
+    })
+  })
+
+  describe('U3: notify session:<id> after writer success', () => {
+    it('onPromptStart seeds the channel->sessionRowId mapping and notifies once', () => {
+      const notifyEmitter = makeNotifyEmitterMock()
+      const composite = makeComposite(
+        makeDiscordMock(),
+        makeWriterMock(),
+        makeContextUsageMock(),
+        notifyEmitter,
+      )
+
+      composite.onPromptStart('ch1', 1, {
+        sessionRowId: 42,
+        prompt: { text: 'hello', images: [] },
+      })
+
+      expect(notifyEmitter.notify).toHaveBeenCalledTimes(1)
+      expect(notifyEmitter.notify).toHaveBeenCalledWith(['session:42'])
+    })
+
+    it('does not notify when the writer throws (notify is conditioned on success, not unconditional)', () => {
+      const writer = makeWriterMock()
+      writer.onPromptStart.mockImplementation(() => {
+        throw new Error('DB locked')
+      })
+      const notifyEmitter = makeNotifyEmitterMock()
+      const composite = makeComposite(
+        makeDiscordMock(),
+        writer,
+        makeContextUsageMock(),
+        notifyEmitter,
+      )
+
+      composite.onPromptStart('ch1', 1, {
+        sessionRowId: 42,
+        prompt: { text: 'hello', images: [] },
+      })
+
+      expect(notifyEmitter.notify).not.toHaveBeenCalled()
+    })
+
+    it('INSERT path: onAgentMessageChunk notifies session:<id> once the session row is known (integration, R5)', () => {
+      const notifyEmitter = makeNotifyEmitterMock()
+      const composite = makeComposite(
+        makeDiscordMock(),
+        makeWriterMock(),
+        makeContextUsageMock(),
+        notifyEmitter,
+      )
+      composite.onPromptStart('ch1', 1, {
+        sessionRowId: 5,
+        prompt: { text: 'hi', images: [] },
+      })
+      notifyEmitter.notify.mockClear()
+
+      composite.onAgentMessageChunk('ch1', 'streaming text')
+
+      expect(notifyEmitter.notify).toHaveBeenCalledTimes(1)
+      expect(notifyEmitter.notify).toHaveBeenCalledWith(['session:5'])
+    })
+
+    it('INSERT path: a writer throw during onAgentMessageChunk emits no extra notify beyond existing error handling', () => {
+      const writer = makeWriterMock()
+      const notifyEmitter = makeNotifyEmitterMock()
+      const composite = makeComposite(
+        makeDiscordMock(),
+        writer,
+        makeContextUsageMock(),
+        notifyEmitter,
+      )
+      composite.onPromptStart('ch1', 1, {
+        sessionRowId: 5,
+        prompt: { text: 'hi', images: [] },
+      })
+      notifyEmitter.notify.mockClear()
+      writer.onAgentMessageChunk.mockImplementation(() => {
+        throw new Error('write fail')
+      })
+
+      expect(() =>
+        composite.onAgentMessageChunk('ch1', 'streaming text'),
+      ).not.toThrow()
+      expect(notifyEmitter.notify).not.toHaveBeenCalled()
+    })
+
+    it('UPDATE path: onToolCallUpdate (-> updateToolCallStatus) still notifies session:<id> (R5)', () => {
+      const notifyEmitter = makeNotifyEmitterMock()
+      const composite = makeComposite(
+        makeDiscordMock(),
+        makeWriterMock(),
+        makeContextUsageMock(),
+        notifyEmitter,
+      )
+      composite.onPromptStart('ch1', 1, {
+        sessionRowId: 5,
+        prompt: { text: 'hi', images: [] },
+      })
+      notifyEmitter.notify.mockClear()
+
+      composite.onToolCallUpdate('ch1', 'tool1', 'completed', [])
+
+      expect(notifyEmitter.notify).toHaveBeenCalledTimes(1)
+      expect(notifyEmitter.notify).toHaveBeenCalledWith(['session:5'])
+    })
+
+    it('UPDATE path: a writer throw during onToolCallUpdate emits no notify', () => {
+      const writer = makeWriterMock()
+      const notifyEmitter = makeNotifyEmitterMock()
+      const composite = makeComposite(
+        makeDiscordMock(),
+        writer,
+        makeContextUsageMock(),
+        notifyEmitter,
+      )
+      composite.onPromptStart('ch1', 1, {
+        sessionRowId: 5,
+        prompt: { text: 'hi', images: [] },
+      })
+      notifyEmitter.notify.mockClear()
+      writer.onToolCallUpdate.mockImplementation(() => {
+        throw new Error('write fail')
+      })
+
+      expect(() =>
+        composite.onToolCallUpdate('ch1', 'tool1', 'completed', []),
+      ).not.toThrow()
+      expect(notifyEmitter.notify).not.toHaveBeenCalled()
+    })
+
+    it('UPDATE path: onPromptComplete (-> closeTurn) notifies session:<id>', () => {
+      const notifyEmitter = makeNotifyEmitterMock()
+      const composite = makeComposite(
+        makeDiscordMock(),
+        makeWriterMock(),
+        makeContextUsageMock(),
+        notifyEmitter,
+      )
+      composite.onPromptStart('ch1', 1, {
+        sessionRowId: 5,
+        prompt: { text: 'hi', images: [] },
+      })
+      notifyEmitter.notify.mockClear()
+
+      composite.onPromptComplete('ch1', 'end_turn')
+
+      expect(notifyEmitter.notify).toHaveBeenCalledTimes(1)
+      expect(notifyEmitter.notify).toHaveBeenCalledWith(['session:5'])
+    })
+
+    it('onToolCall (INSERT) notifies session:<id>', () => {
+      const notifyEmitter = makeNotifyEmitterMock()
+      const composite = makeComposite(
+        makeDiscordMock(),
+        makeWriterMock(),
+        makeContextUsageMock(),
+        notifyEmitter,
+      )
+      composite.onPromptStart('ch1', 1, {
+        sessionRowId: 5,
+        prompt: { text: 'hi', images: [] },
+      })
+      notifyEmitter.notify.mockClear()
+
+      composite.onToolCall('ch1', 'ref1', 'write_file', 'fs', 'pending', [])
+
+      expect(notifyEmitter.notify).toHaveBeenCalledWith(['session:5'])
+    })
+
+    it('onAgentMessageImage (INSERT) notifies session:<id>', () => {
+      const notifyEmitter = makeNotifyEmitterMock()
+      const composite = makeComposite(
+        makeDiscordMock(),
+        makeWriterMock(),
+        makeContextUsageMock(),
+        notifyEmitter,
+      )
+      composite.onPromptStart('ch1', 1, {
+        sessionRowId: 5,
+        prompt: { text: 'hi', images: [] },
+      })
+      notifyEmitter.notify.mockClear()
+
+      composite.onAgentMessageImage('ch1', 'data', 'image/png')
+
+      expect(notifyEmitter.notify).toHaveBeenCalledWith(['session:5'])
+    })
+
+    it('does not notify for a channel that never had a successful onPromptStart (no session row known)', () => {
+      const notifyEmitter = makeNotifyEmitterMock()
+      const composite = makeComposite(
+        makeDiscordMock(),
+        makeWriterMock(),
+        makeContextUsageMock(),
+        notifyEmitter,
+      )
+
+      composite.onAgentMessageChunk('ch-unknown', 'text')
+
+      expect(notifyEmitter.notify).not.toHaveBeenCalled()
+    })
+
+    it('no-op writer methods (onSessionInfoUpdate/onResumeFailed/onUsageUpdate) never notify — the writer has nothing to change for these', () => {
+      const notifyEmitter = makeNotifyEmitterMock()
+      const composite = makeComposite(
+        makeDiscordMock(),
+        makeWriterMock(),
+        makeContextUsageMock(),
+        notifyEmitter,
+      )
+      composite.onPromptStart('ch1', 1, {
+        sessionRowId: 5,
+        prompt: { text: 'hi', images: [] },
+      })
+      notifyEmitter.notify.mockClear()
+
+      composite.onSessionInfoUpdate('ch1', 'title')
+      composite.onResumeFailed('ch1')
+      composite.onUsageUpdate('ch1', 100, 1000)
+
+      expect(notifyEmitter.notify).not.toHaveBeenCalled()
+    })
+
+    it('onPromptStart with sessionRowId=null does not seed a mapping — later chokepoints stay silent', () => {
+      const notifyEmitter = makeNotifyEmitterMock()
+      const composite = makeComposite(
+        makeDiscordMock(),
+        makeWriterMock(),
+        makeContextUsageMock(),
+        notifyEmitter,
+      )
+
+      composite.onPromptStart('ch1', 1, {
+        sessionRowId: null,
+        prompt: { text: 'hi', images: [] },
+      })
+      expect(notifyEmitter.notify).not.toHaveBeenCalled()
+
+      composite.onAgentMessageChunk('ch1', 'text')
+      expect(notifyEmitter.notify).not.toHaveBeenCalled()
     })
   })
 })
