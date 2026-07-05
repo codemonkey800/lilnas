@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 
 import { api, queryKeys } from 'src/app/lib/api'
 import { topicToQueryKey, useLiveStream } from 'src/app/lib/use-live-stream'
+import { sessionTopic } from 'src/sse/sse.types'
 
 // jsdom (jest-environment-jsdom) implements the DOM but not EventSource —
 // confirmed by checking this repo's dependencies: there is no EventSource
@@ -379,6 +380,108 @@ describe('useLiveStream — shared bot-status key across multiple mounts (U6)', 
         { queryKey: queryKeys.botStatus },
         { cancelRefetch: false },
       ])
+    }
+  })
+})
+
+// U7: session detail page — the first call site to actually turn the
+// throttle knob on (session:<id> is the highest-churn topic: an active
+// agent turn can emit many chunks/tool-call-updates per second). The
+// scoping test below proves F1/AE1 end-to-end for the session-topic shape
+// specifically (prior units only exercised live/bot-status); the throttle
+// tests are the core proof of the coalescing property this unit exists to
+// deliver (R7 / the plan's "Client refetch coalescing is explicit, not
+// assumed" decision).
+describe('useLiveStream — session topic scoping and throttle coalescing (U7)', () => {
+  const THROTTLE_MS = 300 // mirrors page.tsx's SESSION_STREAM_THROTTLE_MS
+
+  it('a session:<id> signal invalidates queryKeys.session(id); a signal for a different session id does not (F1/AE1)', () => {
+    const invalidateSpy = spyOnInvalidate()
+    renderHook(() => useLiveStream([sessionTopic(1)]), { wrapper })
+    const instance = latestInstance()
+
+    instance.emitTopic(sessionTopic(1))
+
+    expect(invalidateSpy).toHaveBeenCalledTimes(1)
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      { queryKey: queryKeys.session(1) },
+      { cancelRefetch: false },
+    )
+
+    // A real EventSource would never deliver an event for a topic this
+    // connection never subscribed to (no addEventListener(sessionTopic(2))
+    // was ever registered) — emitTopic on an unregistered type is a no-op
+    // by construction here, same as the pre-existing live/session:9 test
+    // above. Asserting it end-to-end for the session-topic shape guards
+    // against a future regression where session topics start sharing a
+    // listener or key by accident.
+    instance.emitTopic(sessionTopic(2))
+    expect(invalidateSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('coalesces a burst of signals within one throttle window into exactly one invalidate', () => {
+    jest.useFakeTimers()
+    try {
+      const invalidateSpy = spyOnInvalidate()
+      renderHook(
+        () => useLiveStream([sessionTopic(1)], { throttleMs: THROTTLE_MS }),
+        { wrapper },
+      )
+      const instance = latestInstance()
+
+      // A burst of 10 signals landing well inside one throttle window —
+      // standing in for a sustained token stream driving many chunk/tool-
+      // call-update writes per second.
+      for (let i = 0; i < 10; i++) {
+        instance.emitTopic(sessionTopic(1))
+        jest.advanceTimersByTime(10)
+      }
+      // 10 * 10ms = 100ms elapsed, still well inside THROTTLE_MS (300ms) —
+      // nothing should have flushed yet.
+      expect(invalidateSpy).not.toHaveBeenCalled()
+
+      // Let the trailing timer (started on the FIRST signal, 100ms ago)
+      // fire.
+      jest.advanceTimersByTime(THROTTLE_MS - 100 + 1)
+
+      expect(invalidateSpy).toHaveBeenCalledTimes(1)
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        { queryKey: queryKeys.session(1) },
+        { cancelRefetch: false },
+      )
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('fires a trailing invalidate once the throttle window elapses with no further signals — the burst is delayed, never dropped', () => {
+    jest.useFakeTimers()
+    try {
+      const invalidateSpy = spyOnInvalidate()
+      renderHook(
+        () => useLiveStream([sessionTopic(1)], { throttleMs: THROTTLE_MS }),
+        { wrapper },
+      )
+      const instance = latestInstance()
+
+      instance.emitTopic(sessionTopic(1))
+      expect(invalidateSpy).not.toHaveBeenCalled()
+
+      // Nothing else arrives — advance past the full window.
+      jest.advanceTimersByTime(THROTTLE_MS)
+
+      expect(invalidateSpy).toHaveBeenCalledTimes(1)
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        { queryKey: queryKeys.session(1) },
+        { cancelRefetch: false },
+      )
+
+      // And it does not fire again on its own — a fresh signal is required
+      // to arm the next window.
+      jest.advanceTimersByTime(THROTTLE_MS * 3)
+      expect(invalidateSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.useRealTimers()
     }
   })
 })

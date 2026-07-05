@@ -41,6 +41,13 @@ export const TurnContentBlockSchema = z.discriminatedUnion('kind', [
     path: z.string(),
     newText: z.string(),
     oldText: z.string().nullable().optional(),
+    // True when newText/oldText were cut to DIFF_PREVIEW_MAX_CHARS
+    // (sessions.service.ts) — a future "show full diff" UI affordance can
+    // key off this without re-deriving it from field length. Required
+    // (not optional) so every diff-block constructor — service code and
+    // test fixtures alike — states it explicitly rather than silently
+    // defaulting.
+    truncated: z.boolean(),
   }),
 ])
 export type TurnContentBlockDto = z.infer<typeof TurnContentBlockSchema>

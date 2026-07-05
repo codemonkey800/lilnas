@@ -12,10 +12,25 @@ import { LoadingState } from 'src/app/components/loading-state'
 import { RelativeTime } from 'src/app/components/relative-time'
 import { api, queryKeys } from 'src/app/lib/api'
 import { logReconcileResult } from 'src/app/lib/reconcile-logging'
+import { useLiveStream } from 'src/app/lib/use-live-stream'
 import type {
   TurnContentBlockDto,
   TurnDetailDto,
 } from 'src/console/sessions.dto'
+import { sessionTopic } from 'src/sse/sse.types'
+
+// Trailing-throttle window for this page's session:<id> topic (see U7 of
+// docs/plans/2026-07-05-002-feat-tdr-code-sse-push-plan.md). This is the
+// highest-churn topic — an active agent turn can emit many chunks/tool-call-
+// updates per second — so unlike the low-volume live/bot-status callers,
+// this is the first useLiveStream() call site to turn the throttle on.
+// 300ms: the midpoint of the plan's own 250-400ms band. Fast enough that a
+// burst still reads as live to the eye; slow enough to keep the refetch rate
+// comfortably under the plan's own <=4 refetches/sec acceptance bar with
+// margin (a 300ms trailing throttle caps sustained-burst refetches at
+// ~3.3/sec, before even accounting for the cancelRefetch:false + diff-
+// truncation cuts to per-refetch cost).
+const SESSION_STREAM_THROTTLE_MS = 300
 
 function ContentBlock({ block }: { block: TurnContentBlockDto }) {
   switch (block.kind) {
@@ -219,11 +234,14 @@ export default function SessionDetailPage() {
   const sessionId = Number(params.id)
   if (!Number.isInteger(sessionId) || sessionId <= 0) notFound()
 
+  useLiveStream([sessionTopic(sessionId)], {
+    throttleMs: SESSION_STREAM_THROTTLE_MS,
+  })
+
   const { data, isLoading, isError, error } = useQuery({
     queryKey: queryKeys.session(sessionId),
     queryFn: () => api.getSession(sessionId),
     retry: false,
-    refetchInterval: 5_000,
   })
 
   if (isLoading && !data) return <LoadingState />

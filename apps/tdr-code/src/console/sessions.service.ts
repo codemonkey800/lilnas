@@ -17,6 +17,26 @@ import type {
   TurnDetailDto,
 } from './sessions.dto'
 
+// Bounded preview length for diff.newText/oldText in the transcript DTO
+// (chars, not bytes — string.slice() uses UTF-16 code units, which is fine
+// for a display preview; this is NOT the reconcile.service.ts MAX_JSONL_BYTES
+// case, which needs byte-exact precision to resume a file read). Under
+// snapshot-refetch (Decision 2A), every signal-triggered refetch re-reads and
+// re-sends the WHOLE transcript, so an uncapped diff body is resent in full
+// on every burst even though the UI already clamps the visible area to
+// `max-h-40 overflow-auto` (session detail page's ContentBlock). 4000 chars
+// is several screens' worth of clamped-box scrolling — comfortably more than
+// what a user scrolling a fixed-height preview will ever read — while
+// cutting the dominant per-refetch byte cost for large file diffs.
+const DIFF_PREVIEW_MAX_CHARS = 4000
+
+function truncateDiffText(text: string): { text: string; truncated: boolean } {
+  if (text.length <= DIFF_PREVIEW_MAX_CHARS) {
+    return { text, truncated: false }
+  }
+  return { text: text.slice(0, DIFF_PREVIEW_MAX_CHARS), truncated: true }
+}
+
 @Injectable()
 export class SessionsService {
   constructor(
@@ -161,14 +181,22 @@ export class SessionsService {
           toolKind: payload.toolKind,
           status: payload.status,
         }
-      case 'diff':
+      case 'diff': {
+        const newText = truncateDiffText(payload.newText)
+        // A genuinely absent oldText (new-file creation) must stay null,
+        // never become a truncated-empty-string artifact — only run the
+        // truncation when oldText is a real string.
+        const oldText =
+          payload.oldText != null ? truncateDiffText(payload.oldText) : null
         return {
           id,
           kind: 'diff',
           path: payload.path,
-          newText: payload.newText,
-          oldText: payload.oldText ?? null,
+          newText: newText.text,
+          oldText: oldText ? oldText.text : null,
+          truncated: newText.truncated || (oldText?.truncated ?? false),
         }
+      }
     }
   }
 }
