@@ -57,6 +57,13 @@
       "when": 1783016391020,
       "tag": "0007_quiet_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1783242403268,
+      "tag": "0008_clammy_dreadnoughts",
+      "breakpoints": true
     }
   ]
 }

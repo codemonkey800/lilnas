@@ -1,0 +1,1 @@
+ALTER TABLE `config` ADD `custom_system_prompt` text DEFAULT '' NOT NULL;

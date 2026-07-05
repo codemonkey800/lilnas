@@ -20,9 +20,10 @@ describe('config.repo', () => {
       expect(row.id).toBe(1)
       expect(row.cwd).toBe('/tmp') // from setup.ts: CLAUDE_CWD=/tmp
       expect(row.claudeCommand).toBe('claude')
-      expect(row.claudeArgs).toEqual(['--dangerously-skip-permissions'])
+      expect(row.claudeArgs).toEqual(['@agentclientprotocol/claude-agent-acp'])
       expect(row.idleTimeoutSec).toBe(300)
       expect(row.maxConcurrentSessions).toBe(5)
+      expect(row.customSystemPrompt).toBe('')
       expect(row.updatedAt).toBeInstanceOf(Date)
     } finally {
       close()
@@ -75,6 +76,75 @@ describe('config.repo', () => {
       const seeded = getOrSeedConfig(db)
       await new Promise(r => setTimeout(r, 2))
       const updated = updateConfig(db, { idleTimeoutSec: 120 })
+      expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(
+        seeded.updatedAt.getTime(),
+      )
+    } finally {
+      close()
+    }
+  })
+
+  it('updateConfig persists a non-empty customSystemPrompt and it round-trips on read', () => {
+    const { db, close } = createTestDb()
+    try {
+      getOrSeedConfig(db)
+      const prompt = 'Never emit Markdown tables in chat responses.'
+      const updated = updateConfig(db, { customSystemPrompt: prompt })
+      expect(updated.customSystemPrompt).toBe(prompt)
+
+      const read = getConfig(db)
+      expect(read?.customSystemPrompt).toBe(prompt)
+    } finally {
+      close()
+    }
+  })
+
+  it('updateConfig can clear customSystemPrompt from a non-empty value back to empty string', () => {
+    const { db, close } = createTestDb()
+    try {
+      getOrSeedConfig(db)
+      updateConfig(db, { customSystemPrompt: 'Some custom instructions.' })
+
+      const cleared = updateConfig(db, { customSystemPrompt: '' })
+      expect(cleared.customSystemPrompt).toBe('')
+
+      const read = getConfig(db)
+      expect(read?.customSystemPrompt).toBe('')
+    } finally {
+      close()
+    }
+  })
+
+  it('a several-thousand-character customSystemPrompt round-trips without truncation or corruption', () => {
+    const { db, close } = createTestDb()
+    try {
+      getOrSeedConfig(db)
+      // Repeating pattern (not just one char) so any byte-offset truncation
+      // or corruption would be detectable, not masked by uniform content.
+      const longPrompt = 'The quick brown fox jumps over the lazy dog. '.repeat(
+        150,
+      )
+      expect(longPrompt.length).toBeGreaterThan(5_000)
+
+      const updated = updateConfig(db, { customSystemPrompt: longPrompt })
+      expect(updated.customSystemPrompt).toBe(longPrompt)
+      expect(updated.customSystemPrompt).toHaveLength(longPrompt.length)
+
+      const read = getConfig(db)
+      expect(read?.customSystemPrompt).toBe(longPrompt)
+    } finally {
+      close()
+    }
+  })
+
+  it('a customSystemPrompt-only patch still advances updatedAt', async () => {
+    const { db, close } = createTestDb()
+    try {
+      const seeded = getOrSeedConfig(db)
+      await new Promise(r => setTimeout(r, 2))
+      const updated = updateConfig(db, {
+        customSystemPrompt: 'Operator-authored instructions.',
+      })
       expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(
         seeded.updatedAt.getTime(),
       )

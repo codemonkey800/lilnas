@@ -37,6 +37,9 @@ export function getOrSeedConfig(db: Db): ConfigRow {
             env(EnvKeys.AGENT_MAX_SESSIONS, '5'),
             10,
           ),
+          // Literal, not env()-derived — no sensible env-var default exists
+          // for free-form prompt text (unlike the other four seeded fields).
+          customSystemPrompt: '',
           updatedAt: new Date(),
         })
         .returning()

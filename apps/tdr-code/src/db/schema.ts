@@ -530,6 +530,11 @@ export const config = sqliteTable(
       .notNull(),
     idleTimeoutSec: integer('idle_timeout_sec').notNull(),
     maxConcurrentSessions: integer('max_concurrent_sessions').notNull(),
+    // Operator-editable text appended after the hardcoded base system prompt
+    // (see agent/system-prompt.constants.ts). Not env-seedable — there's no
+    // sensible env-var default for free-form prompt text — so NOT NULL with
+    // a literal '' default keeps "unset" and "empty" the same state.
+    customSystemPrompt: text('custom_system_prompt').notNull().default(''),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   },
   t => [
