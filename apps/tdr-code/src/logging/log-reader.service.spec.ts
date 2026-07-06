@@ -565,6 +565,119 @@ describe('LogReaderService (real temp files)', () => {
   })
 
   // ───────────────────────────────────────────────────────────────────────
+  // REVIEW.md #7 + #8: computeBounds' backward look-back growth (and its
+  // byte-0-region fallback) and the 'around'/'after' forward-read retry are
+  // only ever reached when a single line's own byte length exceeds
+  // SCAN_BLOCK_BYTES (64 KiB) — every other fixture in this suite uses
+  // ~200-byte lines, so those paths were previously never exercised. A
+  // large JSON payload or long stack trace is exactly the realistic case
+  // that produces a line this size.
+  // ───────────────────────────────────────────────────────────────────────
+  describe('backward look-back growth and forward-read retry on an oversized line (REVIEW.md #7, #8)', () => {
+    it("REVIEW.md #7: an anchor deep inside a line longer than SCAN_BLOCK_BYTES forces the look-back region to grow before resolving; 'before' still excludes that whole line, never a split JSON line", async () => {
+      const prefix = jsonLine({ level: 30, time: 1, msg: 'prefix' })
+      // No internal '\n' at all — long enough that the FIRST look-back
+      // attempt (SCAN_BLOCK_BYTES=64 KiB, since maxBytes below is smaller)
+      // lands entirely inside this line with zero newlines in view, forcing
+      // at least one lookBackBytes doubling before a boundary is found.
+      const longLine = jsonLine({
+        level: 30,
+        time: 2,
+        msg: 'x'.repeat(100_000),
+      })
+      writeStream('backend', prefix + longLine)
+
+      // Anchor well inside longLine — far enough from its own start that a
+      // single 64 KiB look-back does not reach back to prefix's newline.
+      const anchor = prefix.length + 90_000
+
+      const result = await service.readWindow({
+        stream: 'backend',
+        anchor,
+        direction: 'before',
+        maxBytes: 256,
+      })
+
+      // 'before' excludes the anchor's own (longLine) entirely — only
+      // prefix, never a fragment of longLine.
+      expect(result.lines).toHaveLength(1)
+      expect(result.lines[0]?.parsed).toEqual({
+        level: 30,
+        time: 1,
+        msg: 'prefix',
+      })
+      expect(result.windowEnd).toBe(prefix.length)
+      for (const l of result.lines) {
+        expect(() => JSON.parse(l.raw)).not.toThrow()
+      }
+    })
+
+    it("REVIEW.md #7 + #8: a single line far longer than maxBytes is still returned WHOLE and parseable for 'around' (jump-to-hit contract), exercising both the backward growth AND the forward-read retry", async () => {
+      const prefix = jsonLine({ level: 30, time: 1, msg: 'prefix' })
+      const bigMsg = 'y'.repeat(200_000)
+      const longLine = jsonLine({ level: 30, time: 2, msg: bigMsg })
+      const suffix = jsonLine({ level: 30, time: 3, msg: 'suffix' })
+      writeStream('backend', prefix + longLine + suffix)
+
+      // Anchor mid-way through longLine — a maxBytes this small could never
+      // reach either of longLine's own edges via a single un-retried read in
+      // EITHER direction.
+      const anchor = prefix.length + Math.floor(longLine.length / 2)
+
+      const result = await service.readWindow({
+        stream: 'backend',
+        anchor,
+        direction: 'around',
+        maxBytes: 1024,
+      })
+
+      const longLineResult = result.lines.find(l => l.parsed?.time === 2)
+      expect(longLineResult).toBeDefined()
+      expect(longLineResult?.parsed).toEqual({
+        level: 30,
+        time: 2,
+        msg: bigMsg,
+      })
+      // Every returned line is complete, valid JSON — the anchor's own line
+      // was never split by either edge.
+      for (const l of result.lines) {
+        expect(() => JSON.parse(l.raw)).not.toThrow()
+      }
+    })
+
+    it('REVIEW.md #7: a run of newline-free bytes spanning several look-back doublings (>4 MiB) still resolves correctly (start clamped to byte 0), never hangs or throws', async () => {
+      // 2^23 = 8 MiB of 'x' — comfortably past the MAX_SCAN_BLOCKS-ceiling
+      // comment's own "4 MiB max look-back" figure, forcing several
+      // lookBackBytes doublings (65536 -> ... -> beyond the anchor) before
+      // resolving. The whole file is this ONE line: byte 0 is the only
+      // valid boundary before it.
+      const bigMsg = 'x'.repeat(5 * 1024 * 1024)
+      const bigLine = jsonLine({ level: 30, time: 1, msg: bigMsg })
+      writeStream('backend', bigLine)
+
+      const result = await service.readWindow({
+        stream: 'backend',
+        anchor: bigLine.length,
+        direction: 'before',
+        // Deliberately tiny: proves the "never split a line" guarantee
+        // holds even when honoring it means returning far more than
+        // maxBytes was nominally asked for.
+        maxBytes: 256,
+      })
+
+      expect(result.lines).toHaveLength(1)
+      expect(result.lines[0]?.parsed).toEqual({
+        level: 30,
+        time: 1,
+        msg: bigMsg,
+      })
+      expect(result.windowStart).toBe(0)
+      expect(result.atStart).toBe(true)
+      expect(result.atEnd).toBe(true)
+    }, 10000)
+  })
+
+  // ───────────────────────────────────────────────────────────────────────
   // Integration (R20/AE3 backend half): a single window read on a large
   // file completes in bounded time and its buffer allocation is bounded by
   // the window cap, not the file size. 200 MB (the plan's own figure) is

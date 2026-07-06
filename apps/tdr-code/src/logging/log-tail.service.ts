@@ -8,7 +8,7 @@ import { Observable } from 'rxjs'
 
 import { EnvKeys } from 'src/env'
 import { LOG_EVENTS } from 'src/logging/log-events'
-import { LOG_DIR, logFilePath } from 'src/logging/log-paths'
+import { LOG_DIR, resolveLogPath } from 'src/logging/log-paths'
 import type { LogStream, LogTailMessage } from 'src/logging/log-view.types'
 
 // A tail connection emits exactly one of these two shapes. Kept as a
@@ -71,9 +71,7 @@ export class LogTailService implements OnModuleDestroy {
   }
 
   private resolvePath(stream: LogStream): string {
-    return this.logDir === LOG_DIR
-      ? logFilePath(stream)
-      : logFilePath(stream).replace(LOG_DIR, this.logDir)
+    return resolveLogPath(stream, this.logDir)
   }
 
   onModuleDestroy(): void {
@@ -120,6 +118,13 @@ export class LogTailService implements OnModuleDestroy {
       let watcher: fs.FSWatcher | undefined
       let debounceTimer: ReturnType<typeof setTimeout> | undefined
       let keepaliveTimer: ReturnType<typeof setInterval> | undefined
+      // Captured so cleanup() can pass the SAME listener reference to
+      // fs.unwatchFile. fs.unwatchFile(filename) with no listener argument
+      // removes every listener registered for that filename — including
+      // any other concurrent tail connection on the same stream — and
+      // stops the underlying stat poller outright. Passing this
+      // connection's own listener scopes teardown to just this connection.
+      let pollListener: (() => void) | undefined
       let lastOffset = 0
       let lastIno: number | undefined
       // Held across every read on this connection — a partial trailing line
@@ -178,7 +183,7 @@ export class LogTailService implements OnModuleDestroy {
         this.activeCleanups.delete(cleanup)
         if (debounceTimer !== undefined) clearTimeout(debounceTimer)
         if (keepaliveTimer !== undefined) clearInterval(keepaliveTimer)
-        if (pollFallback) fs.unwatchFile(filePath)
+        if (pollFallback && pollListener) fs.unwatchFile(filePath, pollListener)
         abortController.abort()
         // Fire-and-forget: a close failure here has no recovery action a
         // caller could take (the fd is going away either way), and
@@ -389,10 +394,11 @@ export class LogTailService implements OnModuleDestroy {
           // as harmless as firing "too late" — either way, the eventual
           // drainOnce() call only ever reads [lastOffset, current size).
           if (pollFallback) {
+            pollListener = () => scheduleCheck()
             fs.watchFile(
               filePath,
               { interval: POLL_FALLBACK_INTERVAL_MS },
-              () => scheduleCheck(),
+              pollListener,
             )
           } else {
             try {

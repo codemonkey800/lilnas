@@ -1,6 +1,7 @@
 'use client'
 
 import { cns } from '@lilnas/utils/cns'
+import { memo } from 'react'
 
 import type { LogLine } from 'src/logging/log-view.types'
 
@@ -229,7 +230,12 @@ function contextChips(parsed: Record<string, unknown>): ContextChip[] {
 export interface LogRowProps {
   line: LogLine
   stream: string
-  onSelect: (byteOffset: number) => void
+  // Takes the full line (not just its byteOffset) so the caller can pass a
+  // referentially-stable callback straight through (e.g. `onSelectLine`)
+  // instead of an inline `() => onSelectLine(line)` wrapper recreated every
+  // render — see this component's own React.memo wrapping below for why
+  // that stability matters.
+  onSelect: (line: LogLine) => void
   // U11: the CURRENT matched search text to highlight in this row, or
   // absent/empty for no active highlight (the default — every pre-U11 call
   // site never passes this prop at all). Scoped to `msg` (the dominant,
@@ -247,11 +253,25 @@ export interface LogRowProps {
   highlightText?: string
 }
 
-export function LogRow({ line, stream, onSelect, highlightText }: LogRowProps) {
-  const { parsed, raw, byteOffset } = line
+// Wrapped in React.memo (U15/REVIEW.md #5): under live follow, every
+// incoming tail line re-renders LogViewer, which recreates a LogRow
+// element for every visible row (~70 at ROW_PX=24 + overscan on 1080p).
+// With `onSelect` now a stable per-line-independent reference (see that
+// prop's own header comment) and `highlightText` a primitive, every prop
+// this component receives is referentially stable across an unrelated
+// re-render, so memoizing here means an append only re-renders the ONE
+// row that actually changed instead of every visible row's own
+// contextChips()/Highlightable work.
+export const LogRow = memo(function LogRow({
+  line,
+  stream,
+  onSelect,
+  highlightText,
+}: LogRowProps) {
+  const { parsed, raw } = line
 
   function handleSelect() {
-    onSelect(byteOffset)
+    onSelect(line)
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
@@ -353,4 +373,4 @@ export function LogRow({ line, stream, onSelect, highlightText }: LogRowProps) {
       )}
     </div>
   )
-}
+})

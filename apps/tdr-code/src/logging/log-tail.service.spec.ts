@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -249,6 +250,86 @@ describe('LogTailService (real temp files, real timers)', () => {
       expect(() => conn.sub.unsubscribe()).not.toThrow()
       expect(() => conn.sub.unsubscribe()).not.toThrow()
       expect(() => service.onModuleDestroy()).not.toThrow()
+    })
+  })
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Watcher-error teardown (REVIEW.md #4): watcher.on('error', ...) and the
+  // synchronous fs.watch-throw catch branch must each run their three
+  // order-sensitive steps — log, cleanup(), then subscriber.error(err) — and
+  // neither path had any coverage before this. Real fs.watch exposes no way
+  // to force an 'error' event from user code, so fs.watch itself is mocked
+  // for exactly these two tests (every other test in this suite drives real
+  // fs.watch/timers against real files).
+  // ───────────────────────────────────────────────────────────────────────
+  describe('watcher error teardown (REVIEW.md #4)', () => {
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    it('a watcher error after attach logs the failure and propagates it to the subscriber with no leaked fs.watch handles', async () => {
+      writeStream('backend', jsonLine({ level: 30, msg: 'x' }))
+      const baselineFsEvents = activeResourceCount('FSEventWrap')
+
+      const fakeWatcher = Object.assign(new EventEmitter(), {
+        close: jest.fn(),
+      }) as unknown as fs.FSWatcher
+      const watchSpy = jest
+        .spyOn(fs, 'watch')
+        .mockImplementation((() => fakeWatcher) as typeof fs.watch)
+
+      const conn = collect(service, { stream: 'backend' })
+      await waitFor(() => watchSpy.mock.calls.length >= 1)
+
+      const boom = new Error('boom')
+      fakeWatcher.emit('error', boom)
+
+      await waitFor(() => conn.errored !== undefined)
+      expect(conn.errored).toBe(boom)
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: boom,
+          event: LOG_EVENTS.logTailWatchFailed,
+          stream: 'backend',
+        }),
+        'log tail watcher errored',
+      )
+
+      // No further events arrive once errored — proves the connection was
+      // actually torn down (cleanup ran), not merely that the subscriber's
+      // error callback fired once while timers/watchers kept running.
+      const receivedAtError = conn.received.length
+      await sleep(100)
+      expect(conn.received.length).toBe(receivedAtError)
+      expect(activeResourceCount('FSEventWrap')).toBe(baselineFsEvents)
+
+      expect(() => conn.sub.unsubscribe()).not.toThrow()
+    })
+
+    it('fs.watch throwing synchronously on attach logs the failure and propagates it to the subscriber', async () => {
+      writeStream('backend', jsonLine({ level: 30, msg: 'x' }))
+      const baselineFsEvents = activeResourceCount('FSEventWrap')
+
+      const boom = new Error('boom-sync')
+      jest.spyOn(fs, 'watch').mockImplementation((() => {
+        throw boom
+      }) as typeof fs.watch)
+
+      const conn = collect(service, { stream: 'backend' })
+
+      await waitFor(() => conn.errored !== undefined)
+      expect(conn.errored).toBe(boom)
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: boom,
+          event: LOG_EVENTS.logTailWatchFailed,
+          stream: 'backend',
+        }),
+        'log tail failed to attach watcher',
+      )
+      expect(activeResourceCount('FSEventWrap')).toBe(baselineFsEvents)
+
+      expect(() => conn.sub.unsubscribe()).not.toThrow()
     })
   })
 

@@ -1,16 +1,12 @@
 import { z } from 'zod'
 
-import type { LogStream } from 'src/logging/log-paths'
+import { LOG_STREAMS, type LogStream } from 'src/logging/log-paths'
 
 // @Query() delivers strings/undefined with no coercion — mirrors
 // console/query-params.ts's own convention (parseQuery + this module's
 // schemas). stream is the R17 enforcement point: only a name from the fixed
-// LogStream union is ever accepted, so no client-supplied path reaches fs.
-const LOG_STREAMS: readonly LogStream[] = [
-  'backend',
-  'frontend-server',
-  'frontend-browser',
-]
+// LOG_STREAMS list (log-paths.ts's own single source of truth) is ever
+// accepted, so no client-supplied path reaches fs.
 
 export const LogWindowQuerySchema = z.object({
   stream: z

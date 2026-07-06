@@ -167,7 +167,7 @@ describe('LogRow — malformed line (R14)', () => {
     expect(screen.queryByText('main')).not.toBeInTheDocument()
   })
 
-  it('a malformed row is still clickable and invokes onSelect with its byteOffset', async () => {
+  it('a malformed row is still clickable and invokes onSelect with its full line', async () => {
     const user = userEvent.setup()
     const onSelect = jest.fn()
     const line = makeLine(null, { raw: '<half json', byteOffset: 99 })
@@ -175,12 +175,12 @@ describe('LogRow — malformed line (R14)', () => {
     render(<LogRow line={line} stream="backend" onSelect={onSelect} />)
 
     await user.click(screen.getByText('<half json'))
-    expect(onSelect).toHaveBeenCalledWith(99)
+    expect(onSelect).toHaveBeenCalledWith(line)
   })
 })
 
 describe('LogRow — interaction', () => {
-  it('clicking a row calls onSelect with the line byteOffset', async () => {
+  it('clicking a row calls onSelect with the full LogLine, not just its byteOffset', async () => {
     const user = userEvent.setup()
     const onSelect = jest.fn()
     const line = makeLine(
@@ -198,7 +198,7 @@ describe('LogRow — interaction', () => {
 
     await user.click(screen.getByText('Inserted bot generation'))
     expect(onSelect).toHaveBeenCalledTimes(1)
-    expect(onSelect).toHaveBeenCalledWith(12345)
+    expect(onSelect).toHaveBeenCalledWith(line)
   })
 
   it('has a data-track-id attribute for click tracking', () => {

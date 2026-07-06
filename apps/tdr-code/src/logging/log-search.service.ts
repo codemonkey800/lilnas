@@ -4,7 +4,7 @@ import { BadRequestException, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 
 import { LOG_EVENTS } from 'src/logging/log-events'
-import { LOG_DIR, logFilePath } from 'src/logging/log-paths'
+import { LOG_DIR, resolveLogPath } from 'src/logging/log-paths'
 import {
   type LogScanPredicate,
   type LogSearchResponse,
@@ -178,9 +178,7 @@ export class LogSearchService {
   }
 
   private resolvePath(stream: LogStream): string {
-    return this.logDir === LOG_DIR
-      ? logFilePath(stream)
-      : logFilePath(stream).replace(LOG_DIR, this.logDir)
+    return resolveLogPath(stream, this.logDir)
   }
 
   // The two-phase whole-file scan engine (R9/R10/R11). See this class's own

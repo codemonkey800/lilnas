@@ -17,6 +17,7 @@ import { LogSearchBar } from 'src/app/logs/log-search-bar'
 import { useLogTail } from 'src/app/logs/use-log-tail'
 import {
   type LogLine,
+  type LogScanPredicate,
   type LogStream,
   type LogWindowDirection,
   type LogWindowResponse,
@@ -325,16 +326,16 @@ const EMPTY_FILTERED_STATE: FilteredState = {
 // see this function's own test coverage in log-viewer.spec.tsx for the
 // exact same predicate-composition scenarios log-search.service.spec.ts
 // already proves server-side.
-export interface FilterPredicate {
-  text?: string
-  level?: number
-  process?: 'main' | 'bot' | 'both'
-  event?: string
-}
-
+//
+// Takes LogScanPredicate (the shared wire type log-view.types.ts already
+// defines for exactly this client/server contract) rather than a
+// client-local redeclaration — the FUNCTION below legitimately can't
+// import the Nest service it mirrors, but the TYPE is the contract
+// itself, so reusing it means a future field added to LogScanPredicate
+// fails to compile here instead of silently never reaching this check.
 export function matchesFilterPredicate(
   line: LogLine,
-  predicate: FilterPredicate,
+  predicate: LogScanPredicate,
 ): boolean {
   if (predicate.text !== undefined) {
     if (!line.raw.toLowerCase().includes(predicate.text.toLowerCase())) {
@@ -421,7 +422,20 @@ export function appendFilteredMatch(
     // genuinely new match, mirroring how a fresh server-side re-scan would
     // count it once it becomes part of the file's own matching set.
     total: state.total + 1,
-    nextCursor: state.nextCursor,
+    // Deliberately nulled, never carried forward as state.nextCursor was
+    // before this fix: every call to this function is, by construction, a
+    // match PAST the frozen scan's own ceiling (a live tail line, checked
+    // against the predicate after the initial page(s) already resolved).
+    // Resuming a stale page-1/page-2 cursor after that point would fetch
+    // matches from BEFORE the ceiling and append them after this (newer)
+    // line — a non-monotonic-by-byteOffset render order — while also
+    // overwriting `total` with the frozen-ceiling response's own count,
+    // discarding this and every other live append's `+1`. Nulling here
+    // stops pagination once a live match arrives rather than risk either;
+    // deep-paginating a filtered view that is simultaneously live is rare
+    // enough for a self-hosted log viewer that trading it away is the
+    // right call over the sorted-merge alternative.
+    nextCursor: null,
   }
 }
 
@@ -525,12 +539,29 @@ export function LogViewer({
   // out of sync with each other, even though log-search.service.ts's own
   // server-side matchesPredicate is the ultimate source of truth this
   // client-side mirror must independently agree with.
-  const composedPredicate: FilterPredicate = {
+  const composedPredicate: LogScanPredicate = {
     text: queryText.trim().length > 0 ? queryText.trim() : undefined,
     level: filters.level,
     process: filters.process,
     event: filters.event,
   }
+
+  // Guards every `setState`/`connect` call that follows an `await` in this
+  // component's async handlers (loadInitial, fetchEdge, handleHitSelected,
+  // fetchFilteredNextPage, handleJumpToLatest) — none of those awaited
+  // calls (readWindow/api.searchLog) take an AbortSignal from this
+  // component, so leaving `/logs` (or a dev StrictMode double-mount) while
+  // one is in flight would otherwise run React state updates on an
+  // unmounted component, and — specifically for handleJumpToLatest — open
+  // a brand-new EventSource that nothing would ever close (the hook's own
+  // unmount-triggered disconnect() has already run by the time a late
+  // `connect()` call would fire).
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const scrollElementRef = useRef<HTMLDivElement>(null)
   const inFlightRef = useRef<InFlight>({ before: false, after: false })
@@ -637,12 +668,15 @@ export function LogViewer({
         const anchor =
           direction === 'before' ? current.windowStart : current.windowEnd
         const response = await readWindow({ stream, anchor, direction })
+        if (!mountedRef.current) return
         setState(prev =>
           applyFetchedWindow(prev, response, direction, EVICTION_CAP),
         )
       } finally {
         inFlightRef.current[direction] = false
-        setEdgeLoading(prev => ({ ...prev, [direction]: false }))
+        if (mountedRef.current) {
+          setEdgeLoading(prev => ({ ...prev, [direction]: false }))
+        }
       }
     },
     [stream, readWindow],
@@ -683,6 +717,7 @@ export function LogViewer({
         event: predicate.event,
         cursor: current.nextCursor,
       })
+      if (!mountedRef.current) return
       setFilteredState(prev => ({
         matches: [
           ...prev.matches,
@@ -693,7 +728,9 @@ export function LogViewer({
       }))
     } finally {
       filteredFetchInFlightRef.current = false
-      setFilteredPageLoading(false)
+      if (mountedRef.current) {
+        setFilteredPageLoading(false)
+      }
     }
   }, [stream])
 
@@ -893,9 +930,11 @@ export function LogViewer({
         anchor: Number.MAX_SAFE_INTEGER,
         direction: 'before',
       })
+      if (!mountedRef.current) return
       setState(seedWindowState(response))
       setInitialLoad('done')
     } catch {
+      if (!mountedRef.current) return
       setInitialLoad('error')
     }
   }, [stream, readWindow])
@@ -1141,6 +1180,13 @@ export function LogViewer({
         anchor: Number.MAX_SAFE_INTEGER,
         direction: 'before',
       })
+      // Bail before touching any state/connection if this component
+      // unmounted while the fetch above was in flight — otherwise
+      // `connect()` below would reopen an EventSource that the hook's own
+      // unmount-triggered disconnect() already ran for, leaking a live SSE
+      // connection nothing will ever close (see mountedRef's own header
+      // comment).
+      if (!mountedRef.current) return
       // Set BEFORE setState, not after: the paired useLayoutEffect below
       // reads this flag on the render this setState schedules, so it
       // must already be true by the time that render's layout effects
@@ -1205,6 +1251,7 @@ export function LogViewer({
         anchor: byteOffset,
         direction: 'around',
       })
+      if (!mountedRef.current) return
       // Set BEFORE setState, for the identical reason
       // handleJumpToLatest's own pendingJumpScrollRef assignment precedes
       // ITS setState call — the paired layout effect below reads these
@@ -1359,7 +1406,7 @@ export function LogViewer({
             <LogRow
               line={line}
               stream={stream}
-              onSelect={() => onSelectLine(line)}
+              onSelect={onSelectLine}
               highlightText={highlightText ?? undefined}
             />
           </div>

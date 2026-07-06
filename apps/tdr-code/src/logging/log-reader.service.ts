@@ -6,7 +6,7 @@ import { PinoLogger } from 'nestjs-pino'
 
 import { EnvKeys } from 'src/env'
 import { LOG_EVENTS } from 'src/logging/log-events'
-import { LOG_DIR, logFilePath } from 'src/logging/log-paths'
+import { LOG_DIR, resolveLogPath } from 'src/logging/log-paths'
 import {
   type LogLine,
   type LogStream,
@@ -189,9 +189,7 @@ export class LogReaderService {
   }
 
   private resolvePath(stream: LogStream): string {
-    return this.logDir === LOG_DIR
-      ? logFilePath(stream)
-      : logFilePath(stream).replace(LOG_DIR, this.logDir)
+    return resolveLogPath(stream, this.logDir)
   }
 
   private clampMaxBytes(requested: number): number {
@@ -294,12 +292,34 @@ export class LogReaderService {
   // for uniformity and because `around` needs real backward-scan reach
   // anyway.
   //
-  // The previous '\n' may lie further back than a single SCAN_BLOCK_BYTES
-  // read — this grows the searched region one bounded block at a time
-  // (never the whole file) until a boundary is found or MAX_SCAN_BLOCKS is
-  // exhausted. The forward edge never needs its own retry loop: the next
-  // '\n' is always within the single maxBytes-sized region already read
-  // past the anchor.
+  // Both edges can require MORE than a single read to resolve correctly
+  // whenever a single line's own byte length exceeds SCAN_BLOCK_BYTES (a
+  // large JSON payload or a long stack trace):
+  //   - Backward: snapWindow's own backward-reaching edge (`start` for
+  //     every direction) can land on the CURRENT buffer's own start (0)
+  //     merely because the true previous '\n' hasn't been read yet, not
+  //     because byte 0 genuinely is the boundary — indistinguishable from
+  //     the real answer UNLESS readStart is ALSO 0 (true file start).
+  //     Checking ONLY "is there SOME '\n' anywhere before the anchor in the
+  //     buffer" (an earlier draft of this check) is NOT sufficient: an
+  //     anchor sitting right after a line's own trailing '\n' (e.g. anchor
+  //     === fileSize) satisfies that check via that SAME trailing '\n' —
+  //     which is right next to the anchor, not maxBytes further back — while
+  //     leaving the maxBytes-further-back edge with zero real backward
+  //     context past it. The threshold below is deliberately
+  //     `relativeAnchor - maxBytes`, not `relativeAnchor` itself, so a
+  //     newline that's merely close to the anchor (but not far enough back
+  //     to cover a maxBytes-wide window) can't be mistaken for "enough
+  //     context" — a real bug caught by REVIEW.md #7's own large-single-line
+  //     fixture.
+  //   - Forward: 'around'/'after' can read past the anchor without ever
+  //     reaching the containing line's own end (REVIEW.md #8) — 'before'
+  //     never needs this, since it excludes the anchor's own (partial)
+  //     line entirely rather than ever reading past it.
+  // Each side grows independently (backward doubles, mirroring the
+  // pre-existing look-back growth; forward extends by one block at a time)
+  // and only when ITS OWN edge still needs it, bounded by the shared
+  // MAX_SCAN_BLOCKS ceiling.
   private async computeBounds(
     handle: fs.promises.FileHandle,
     fileSize: number,
@@ -308,34 +328,60 @@ export class LogReaderService {
     maxBytes: number,
   ): Promise<WindowBounds> {
     let lookBackBytes = Math.min(Math.max(maxBytes, SCAN_BLOCK_BYTES), anchor)
+    let lookAheadBytes = maxBytes
+
     for (let attempt = 0; attempt < MAX_SCAN_BLOCKS; attempt++) {
       const readStart = Math.max(0, anchor - lookBackBytes)
-      const readEnd = Math.min(fileSize, anchor + maxBytes)
+      const readEnd = Math.min(fileSize, anchor + lookAheadBytes)
       const buf = await this.readRegion(handle, readStart, readEnd - readStart)
       const relativeAnchor = anchor - readStart
 
-      const foundBackwardBoundary =
-        readStart === 0 || bufferContainsNewlineBefore(buf, relativeAnchor)
+      const { start, end } = snapWindow(
+        buf,
+        relativeAnchor,
+        direction,
+        maxBytes,
+      )
 
-      if (foundBackwardBoundary || lookBackBytes >= anchor) {
-        const { start, end } = snapWindow(
-          buf,
-          relativeAnchor,
-          direction,
-          maxBytes,
-        )
+      // Conservative (uses the full maxBytes even for 'around', whose own
+      // half-maxBytes reach is smaller, and ignores direction — a 1-byte-
+      // only backward need like 'after' still safely converges, just via a
+      // possible unnecessary extra doubling rather than an incorrect
+      // result). A threshold of 0 means there's nothing further back to
+      // require finding at all — e.g. maxBytes alone already reaches from
+      // the anchor to at-or-past this buffer's own start.
+      const backwardThreshold = Math.max(0, relativeAnchor - maxBytes)
+      const backwardNeedsMore =
+        readStart !== 0 &&
+        backwardThreshold > 0 &&
+        !bufferContainsNewlineBefore(buf, backwardThreshold)
+      const forwardNeedsMore =
+        direction !== 'before' &&
+        end === buf.length &&
+        readStart + buf.length < fileSize &&
+        (buf.length === 0 || buf[buf.length - 1] !== NEWLINE_BYTE)
+
+      if (!backwardNeedsMore && !forwardNeedsMore) {
         return { start: readStart + start, end: readStart + end }
       }
 
-      lookBackBytes = Math.min(lookBackBytes * 2, anchor)
+      if (backwardNeedsMore) {
+        lookBackBytes = Math.min(lookBackBytes * 2, anchor)
+      }
+      if (forwardNeedsMore) {
+        lookAheadBytes = Math.min(
+          lookAheadBytes + SCAN_BLOCK_BYTES,
+          fileSize - anchor,
+        )
+      }
     }
 
-    // Look-back ceiling exhausted (a file with MAX_SCAN_BLOCKS-worth of
-    // bytes and no '\n' anywhere before the anchor) — fall back to reading
-    // from byte 0 rather than looping forever; byte 0 is always a valid
-    // line-start boundary regardless.
+    // Ceiling exhausted (a single line spanning MAX_SCAN_BLOCKS-worth of
+    // blocks with neither edge resolving) — fall back to reading from byte
+    // 0 through the widest forward reach attempted, rather than looping
+    // forever; byte 0 is always a valid line-start boundary regardless.
     const readStart = 0
-    const readEnd = Math.min(fileSize, anchor + maxBytes)
+    const readEnd = Math.min(fileSize, anchor + lookAheadBytes)
     const buf = await this.readRegion(handle, readStart, readEnd - readStart)
     const { start, end } = snapWindow(buf, anchor, direction, maxBytes)
     return { start: readStart + start, end: readStart + end }
@@ -357,9 +403,10 @@ export class LogReaderService {
 }
 
 // True if `buf` contains a '\n' at any position strictly before `pos` —
-// used by the backward look-back loop to decide whether the CURRENT read
-// region already reaches far enough back to contain the true previous line
-// boundary, or whether another (larger) block read is needed.
+// used by computeBounds' backward-growth check to decide whether the
+// CURRENT read region already reaches far enough back to contain the
+// boundary a maxBytes-wide window needs, or whether another (larger) block
+// read is needed.
 function bufferContainsNewlineBefore(buf: Buffer, pos: number): boolean {
   const limit = Math.min(pos, buf.length)
   for (let i = 0; i < limit; i++) {
