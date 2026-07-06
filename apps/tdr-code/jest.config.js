@@ -168,7 +168,12 @@ const frontendProject = {
   testEnvironment: 'jsdom',
   rootDir: '.',
   roots: ['<rootDir>/src/app'],
-  testMatch: ['**/app/__tests__/**/*.tsx'],
+  // Logs viewer (U6+): broadened from '**/app/__tests__/**/*.tsx' so specs
+  // nested under a feature directory (e.g. app/logs/__tests__/) are
+  // discovered too — the original glob only matched the single top-level
+  // app/__tests__/ dir and would have silently skipped every spec this
+  // feature adds (confirmed via `jest --listTests` before this fix).
+  testMatch: ['**/app/**/__tests__/**/*.tsx'],
   setupFilesAfterEnv: ['<rootDir>/src/app/__tests__/setup.ts'],
   transform: {
     '^.+\\.tsx?$': [
