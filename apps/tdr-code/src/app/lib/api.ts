@@ -1,3 +1,4 @@
+import type { ReadLogWindowParams } from 'src/app/logs/log-viewer'
 import type {
   ConfigResponseDto,
   UpdateConfigBodyDto,
@@ -19,6 +20,7 @@ import type {
   SessionDetailResponseDto,
   SessionListResponseDto,
 } from 'src/console/sessions.dto'
+import type { LogSource, LogWindowResponse } from 'src/logging/log-view.types'
 import type { Topic } from 'src/sse/sse.types'
 
 // Module-scoped flag collapsing a 401 STORM into a single redirect. This
@@ -125,6 +127,7 @@ export const queryKeys = {
   config: ['config'] as const,
   gitIdentity: ['git-identity'] as const,
   discordGuildMembers: ['discord-guild-members'] as const,
+  logSources: ['log-sources'] as const,
 }
 
 // Typed API functions.
@@ -180,4 +183,19 @@ export const api = {
     fetchJson<DiscordGuildMemberListResponseDto>(
       `/git-identity/discord-members${opts?.force ? '?force=true' : ''}`,
     ),
+  getLogSources: () => fetchJson<LogSource[]>('/logs/sources'),
+  // Plain typed fetch, NOT a useQuery-wrapped hook — LogViewer (U5) manages
+  // its own window/eviction state via useState and calls this directly as
+  // an async function prop, so there is no queryKeys.logWindow cache key to
+  // define here.
+  readLogWindow: (params: ReadLogWindowParams) => {
+    const q = new URLSearchParams()
+    q.set('stream', params.stream)
+    q.set('anchor', String(params.anchor))
+    q.set('direction', params.direction)
+    if (params.maxBytes !== undefined) {
+      q.set('maxBytes', String(params.maxBytes))
+    }
+    return fetchJson<LogWindowResponse>(`/logs/window?${q.toString()}`)
+  },
 }

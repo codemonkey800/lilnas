@@ -210,11 +210,13 @@ describe('NavShell placement on /login', () => {
     // Zero nav links present — every one of NAV_LINKS' labels must be
     // absent, not just the header element itself, since the failure mode
     // the plan calls out is specifically "an unauthenticated visitor sees
-    // the full 5-link app nav above the login button."
+    // the full app nav above the login button." (Logs viewer U4: 'Logs'
+    // added to NAV_LINKS alongside the pre-existing five.)
     for (const label of [
       'Live',
       'Sessions',
       'Events',
+      'Logs',
       'Config',
       'Git identity',
     ]) {
@@ -235,6 +237,27 @@ describe('NavShell placement on /login', () => {
 
     expect(screen.getByText('Live')).toBeInTheDocument()
     expect(screen.getByText('Sessions')).toBeInTheDocument()
+  })
+
+  // Logs viewer (U4): the /logs nav link. Page-level auth for /logs itself
+  // is the generic middleware.ts cookie-presence gate (no per-page registry
+  // entry exists or is needed — see protected-routes.ts, which enumerates
+  // only /api/* routes) — this test only needs to prove the link is present
+  // and points at the right href, matching this describe block's own
+  // existing "full nav chrome" assertions for the other five links.
+  it('renders the Logs nav link pointing at /logs', () => {
+    mockPathname.mockReturnValue('/')
+    mockUseSession.mockReturnValue({ data: null, isPending: true })
+
+    render(
+      <NavShell>
+        <div>page content</div>
+      </NavShell>,
+    )
+
+    const link = screen.getByRole('link', { name: 'Logs' })
+    expect(link).toBeInTheDocument()
+    expect(link).toHaveAttribute('href', '/logs')
   })
 })
 
