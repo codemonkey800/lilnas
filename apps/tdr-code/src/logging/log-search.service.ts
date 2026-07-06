@@ -289,7 +289,7 @@ export class LogSearchService {
       handle = await fs.promises.open(filePath, 'r')
 
       let total = opts.priorTotal
-      const matches: { byteOffset: number }[] = []
+      const matches: { byteOffset: number; raw: string }[] = []
       // Set the instant this page's own MAX_MATCHES_PER_PAGE cap is hit —
       // from that point on, the loop still walks every remaining byte up to
       // `ceiling` (countFromZero pages still need the EXACT total, which
@@ -369,7 +369,13 @@ export class LogSearchService {
           if (matchesPredicate(scanned, predicate)) {
             if (opts.countFromZero) total++
             if (matches.length < MAX_MATCHES_PER_PAGE) {
-              matches.push({ byteOffset: scanned.byteOffset })
+              // `raw` (U12) is `scanned.raw` verbatim — already decoded above
+              // to run matchesPredicate, so holding onto it here for the
+              // response costs nothing extra in THIS streaming pass; see
+              // LogSearchResponse's own header comment in log-view.types.ts
+              // for why the filtered-projection view needs the matched
+              // line's actual text, not just its offset.
+              matches.push({ byteOffset: scanned.byteOffset, raw: scanned.raw })
               // +1 for the '\n' this iteration just consumed — the resume
               // point for a LATER page must start reading strictly AFTER
               // this line's own trailing newline, never re-including it.
@@ -422,7 +428,10 @@ export class LogSearchService {
         if (matchesPredicate(scanned, predicate)) {
           if (opts.countFromZero) total++
           if (matches.length < MAX_MATCHES_PER_PAGE) {
-            matches.push({ byteOffset: scanned.byteOffset })
+            // See the mid-block push above for why `raw` is included here
+            // too — this is the second (final-remainder) of the two call
+            // sites the U12 unit brief calls out.
+            matches.push({ byteOffset: scanned.byteOffset, raw: scanned.raw })
             resumeAfterLastCollected = lineStartOffset + carry.length
           }
         }

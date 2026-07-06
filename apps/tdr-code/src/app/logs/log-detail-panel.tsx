@@ -26,6 +26,26 @@ const COPIED_RESET_MS = 1800
 
 type ClipboardState = 'idle' | 'copied' | 'unavailable'
 
+// U12: the SAME TRACE/DEBUG/INFO/WARN/ERROR/FATAL naming log-row.tsx's own
+// (unexported) LEVEL_LABELS establishes for the row display and log-filters
+// .tsx's own level <select> reuses — duplicated locally rather than
+// imported, for the identical reason formatUtcTimestamp below is duplicated
+// rather than imported: a small lookup neither file owns more than the
+// other, matching this file's own established "don't couple to a sibling
+// component module for a one-off detail" convention.
+const LEVEL_LABELS: Record<number, string> = {
+  10: 'TRACE',
+  20: 'DEBUG',
+  30: 'INFO',
+  40: 'WARN',
+  50: 'ERROR',
+  60: 'FATAL',
+}
+
+function levelLabel(level: number): string {
+  return LEVEL_LABELS[level] ?? String(level)
+}
+
 // `time` is epoch-ms (same convention as log-row.tsx's formatUtcTitle).
 // Duplicated locally rather than imported from log-row.tsx: it's a two-line
 // helper, and importing it would make this file depend on a sibling
@@ -151,6 +171,18 @@ export interface LogDetailPanelProps {
   line: LogLine | null
   stream: string
   onClose: () => void
+  // U12: the deferred "filter by this field/value" actions (completing
+  // R13's Phase 1 read-only half — see this file's own former "Phase 2
+  // seam" comment below, now replaced with the real wiring). Each callback
+  // is fired with THIS line's own value for that field. All three are
+  // optional and default to not rendering the corresponding action — a
+  // pre-U12 caller that never passes any of them keeps compiling and
+  // rendering exactly as before (no action row at all), matching this
+  // codebase's own established "additive, backward-compatible prop"
+  // convention (e.g. LogViewer's own isActive/filters props).
+  onFilterByLevel?: (level: number) => void
+  onFilterByProcess?: (process: string) => void
+  onFilterByEvent?: (eventSlug: string) => void
 }
 
 // Design note on layout expectation for the (not-yet-built) host: this
@@ -172,7 +204,14 @@ export interface LogDetailPanelProps {
 // line swap (React's own effects lint rule flags synchronous setState calls
 // inside an effect body as cascading-render-prone — remounting sidesteps
 // that entirely rather than suppressing the rule).
-export function LogDetailPanel({ line, stream, onClose }: LogDetailPanelProps) {
+export function LogDetailPanel({
+  line,
+  stream,
+  onClose,
+  onFilterByLevel,
+  onFilterByProcess,
+  onFilterByEvent,
+}: LogDetailPanelProps) {
   if (line === null) {
     return null
   }
@@ -183,6 +222,9 @@ export function LogDetailPanel({ line, stream, onClose }: LogDetailPanelProps) {
       line={line}
       stream={stream}
       onClose={onClose}
+      onFilterByLevel={onFilterByLevel}
+      onFilterByProcess={onFilterByProcess}
+      onFilterByEvent={onFilterByEvent}
     />
   )
 }
@@ -191,10 +233,16 @@ function LogDetailPanelContent({
   line,
   stream,
   onClose,
+  onFilterByLevel,
+  onFilterByProcess,
+  onFilterByEvent,
 }: {
   line: LogLine
   stream: string
   onClose: () => void
+  onFilterByLevel?: (level: number) => void
+  onFilterByProcess?: (process: string) => void
+  onFilterByEvent?: (eventSlug: string) => void
 }) {
   const panelRef = useRef<HTMLDivElement>(null)
   const [clipboardState, setClipboardState] = useState<ClipboardState>('idle')
@@ -260,6 +308,23 @@ function LogDetailPanelContent({
     parsed !== null && typeof parsed.process === 'string'
       ? parsed.process
       : stream
+
+  // U12 (R13, filter-actions half): guarded field reads for the "filter by
+  // this field/value" actions below — `null` both when `parsed` itself is
+  // null (a malformed line, R14: nothing structured to filter by at all)
+  // and when this SPECIFIC line simply doesn't carry that field (e.g. a
+  // valid `debug` line legitimately has no `event` — see the structured-
+  // logging convention's own level-semantics table; that is a normal
+  // state, not malformed, and correctly produces no "filter by event"
+  // action rather than one that would filter by `undefined`).
+  const filterableLevel =
+    parsed !== null && typeof parsed.level === 'number' ? parsed.level : null
+  const filterableProcess =
+    parsed !== null && typeof parsed.process === 'string'
+      ? parsed.process
+      : null
+  const filterableEvent =
+    parsed !== null && typeof parsed.event === 'string' ? parsed.event : null
 
   function handleClose() {
     onClose()
@@ -385,13 +450,59 @@ function LogDetailPanelContent({
 
       <div className="min-h-0 flex-1 overflow-auto p-4">
         {/*
-          Phase 2 seam (deliberately absent here, not a rendered stub): the
-          plan's R13 also calls for "filter by this field/value" actions
-          hanging off each key/value pair in this JSON view. That requires
-          Phase 2's filter model (U12) to exist first, so this Phase 1 panel
-          is READ-ONLY — no click-to-filter affordance on any token below,
-          even though a future reader might expect one given the plan text.
+          U12 (R13, filter-actions half): replaces the Phase 1 "Phase 2
+          seam" comment this file used to carry here — the filter model
+          (log-viewer.tsx's isFilteredProjection/composedPredicate, fed by
+          page.tsx's own lifted filtersByStream state) now exists, so these
+          actions are real. Rendered ONLY when at least one guarded field
+          value AND its corresponding callback are both present — a
+          malformed line (parsed === null) has every filterable* value
+          null, so this entire row correctly disappears rather than
+          rendering a row of dead/no-op buttons (per this unit's own brief:
+          "disabled/hidden," not merely visually de-emphasized). Each
+          button's own value comes straight from THIS line's parsed field,
+          never a placeholder — clicking "Filter by level >= WARN" always
+          filters by the value that line actually carries.
         */}
+        {(filterableLevel !== null && onFilterByLevel) ||
+        (filterableProcess !== null && onFilterByProcess) ||
+        (filterableEvent !== null && onFilterByEvent) ? (
+          <div
+            data-track-id="log-detail-panel-filter-actions"
+            className="mb-3 flex flex-wrap items-center gap-2 border-b border-gray-800 pb-3 text-xs"
+          >
+            {filterableLevel !== null && onFilterByLevel && (
+              <button
+                type="button"
+                data-track-id="log-detail-panel-filter-by-level"
+                onClick={() => onFilterByLevel(filterableLevel)}
+                className="rounded bg-gray-800 px-2 py-1 text-gray-300 transition-colors hover:bg-gray-700"
+              >
+                Filter by level ≥ {levelLabel(filterableLevel)}
+              </button>
+            )}
+            {filterableProcess !== null && onFilterByProcess && (
+              <button
+                type="button"
+                data-track-id="log-detail-panel-filter-by-process"
+                onClick={() => onFilterByProcess(filterableProcess)}
+                className="rounded bg-gray-800 px-2 py-1 text-gray-300 transition-colors hover:bg-gray-700"
+              >
+                Filter by process={filterableProcess}
+              </button>
+            )}
+            {filterableEvent !== null && onFilterByEvent && (
+              <button
+                type="button"
+                data-track-id="log-detail-panel-filter-by-event"
+                onClick={() => onFilterByEvent(filterableEvent)}
+                className="rounded bg-gray-800 px-2 py-1 text-gray-300 transition-colors hover:bg-gray-700"
+              >
+                Filter by event={filterableEvent}
+              </button>
+            )}
+          </div>
+        ) : null}
         <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap text-gray-300">
           {parsed === null ? (
             displayText

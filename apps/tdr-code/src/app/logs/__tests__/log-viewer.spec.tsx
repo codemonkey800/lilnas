@@ -9,20 +9,24 @@ import {
 import userEvent from '@testing-library/user-event'
 import type { ReactElement } from 'react'
 
-import { logTailUrl } from 'src/app/lib/api'
+import { api, logTailUrl } from 'src/app/lib/api'
 import { ROW_PX } from 'src/app/logs/log-row'
 import {
+  appendFilteredMatch,
   appendTailLine,
   applyFetchedWindow,
   EDGE_FETCH_THRESHOLD,
   EVICTION_CAP,
+  filteredMatchToLogLine,
   LogViewer,
+  matchesFilterPredicate,
   type ReadLogWindowParams,
   seedWindowState,
   type WindowState,
 } from 'src/app/logs/log-viewer'
 import type {
   LogLine,
+  LogSearchResponse,
   LogTailMessage,
   LogWindowResponse,
 } from 'src/logging/log-view.types'
@@ -42,15 +46,50 @@ import type {
 let latestOnHitSelected:
   | ((byteOffset: number, matchText: string) => void)
   | null = null
+// U12: mirrors latestOnHitSelected's own pattern above, applied to
+// LogSearchBar's OWN onQueryTextChange — this is the ONE seam log-viewer
+// .tsx's U12 tests need to simulate "the user's debounced free-text term
+// has settled" without reproducing LogSearchBar's real debounce logic here
+// (log-search-bar.spec.tsx already covers that in isolation).
+let latestOnQueryTextChange: ((text: string) => void) | null = null
 
 jest.mock('src/app/logs/log-search-bar', () => ({
   LogSearchBar: (props: {
     onHitSelected: (byteOffset: number, matchText: string) => void
+    onQueryTextChange?: (text: string) => void
+    hideNavigation?: boolean
   }) => {
     latestOnHitSelected = props.onHitSelected
-    return <div data-track-id="mock-log-search-bar" />
+    latestOnQueryTextChange = props.onQueryTextChange ?? null
+    // U12: hideNavigation surfaced as a data attribute (not just captured
+    // in a module ref) so a test can assert log-viewer.tsx actually passed
+    // `hideNavigation={isFilteredProjection}` through the SAME DOM-query
+    // idiom this file already uses everywhere else, without needing a
+    // second read path just for this one prop.
+    return (
+      <div
+        data-track-id="mock-log-search-bar"
+        data-hide-navigation={String(props.hideNavigation ?? false)}
+      />
+    )
   },
 }))
+
+// U12: invokes the CURRENT LogSearchBar mock instance's onQueryTextChange
+// exactly as the real component would once its OWN debounce settles — the
+// counterpart to dispatchMockHitSelected above, for the free-text-composes-
+// into-the-filtered-predicate side of AE6.
+async function dispatchMockQueryTextChange(text: string) {
+  if (!latestOnQueryTextChange) {
+    throw new Error(
+      'dispatchMockQueryTextChange called before any LogSearchBar mock instance rendered',
+    )
+  }
+  await act(async () => {
+    latestOnQueryTextChange!(text)
+    await Promise.resolve()
+  })
+}
 
 // Invokes the CURRENT LogSearchBar mock instance's onHitSelected exactly
 // as the real component would once a hit is selected — the one seam this
@@ -710,6 +749,273 @@ describe('appendTailLine', () => {
   })
 })
 
+// U12: matchesFilterPredicate must mirror log-search.service.ts's own
+// matchesPredicate EXACTLY (case-insensitive substring on raw text; level
+// as a minimum threshold; process 'both'/absent = no constraint; event =
+// exact match; a malformed/parsed===null line is text-searchable but
+// excluded by any structured filter) — AE6 depends on the client's live
+// tail-matching and the server's whole-file scan agreeing on what counts as
+// a match. This block mirrors log-search.service.spec.ts's own predicate-
+// composition test scenarios directly against THIS function, at the same
+// exhaustive "Part 1: pure state machine" level this file already applies
+// to applyFetchedWindow/appendTailLine above — the strongest, cheapest
+// place to prove the semantics actually agree, independent of any
+// React/DOM/virtualizer machinery.
+describe('matchesFilterPredicate (mirrors log-search.service.ts’s matchesPredicate)', () => {
+  function makeTestLine(
+    raw: string,
+    parsed: Record<string, unknown> | null,
+  ): LogLine {
+    return { byteOffset: 0, byteLength: raw.length, raw, parsed }
+  }
+
+  it('an empty predicate matches every line, including a malformed one', () => {
+    expect(matchesFilterPredicate(makeTestLine('{"a":1}', { a: 1 }), {})).toBe(
+      true,
+    )
+    expect(matchesFilterPredicate(makeTestLine('not json', null), {})).toBe(
+      true,
+    )
+  })
+
+  describe('text: case-insensitive substring against the RAW text', () => {
+    it('matches regardless of case', () => {
+      const line = makeTestLine('HELLO World', { msg: 'HELLO World' })
+      expect(matchesFilterPredicate(line, { text: 'hello world' })).toBe(true)
+    })
+
+    it('a malformed line is still text-searchable', () => {
+      const line = makeTestLine('not json but has MARKER', null)
+      expect(matchesFilterPredicate(line, { text: 'MARKER' })).toBe(true)
+    })
+
+    it('does not match when the substring is absent', () => {
+      const line = makeTestLine('{"msg":"nope"}', { msg: 'nope' })
+      expect(matchesFilterPredicate(line, { text: 'zzz' })).toBe(false)
+    })
+  })
+
+  describe('level: a MINIMUM threshold (>=), excludes a malformed line', () => {
+    it('matches when the line’s level is >= the threshold', () => {
+      const line = makeTestLine('{"level":50}', { level: 50 })
+      expect(matchesFilterPredicate(line, { level: 40 })).toBe(true)
+    })
+
+    it('does not match when the line’s level is below the threshold', () => {
+      const line = makeTestLine('{"level":30}', { level: 30 })
+      expect(matchesFilterPredicate(line, { level: 40 })).toBe(false)
+    })
+
+    it('a malformed line (parsed === null) never satisfies an active level filter', () => {
+      const line = makeTestLine('not json', null)
+      expect(matchesFilterPredicate(line, { level: 10 })).toBe(false)
+    })
+  })
+
+  describe('process: "both"/absent imposes NO constraint; "main"/"bot" is exact', () => {
+    it('"both" matches regardless of the line’s own process', () => {
+      const line = makeTestLine('{"process":"main"}', { process: 'main' })
+      expect(matchesFilterPredicate(line, { process: 'both' })).toBe(true)
+    })
+
+    it('an absent predicate.process imposes no constraint either (the outer `if` short-circuits)', () => {
+      const line = makeTestLine('{"process":"bot"}', { process: 'bot' })
+      expect(matchesFilterPredicate(line, {})).toBe(true)
+    })
+
+    it('"bot" matches only a line whose own process is exactly "bot"', () => {
+      const botLine = makeTestLine('{"process":"bot"}', { process: 'bot' })
+      const mainLine = makeTestLine('{"process":"main"}', { process: 'main' })
+      expect(matchesFilterPredicate(botLine, { process: 'bot' })).toBe(true)
+      expect(matchesFilterPredicate(mainLine, { process: 'bot' })).toBe(false)
+    })
+
+    it('a malformed line never satisfies an active "main"/"bot" process filter', () => {
+      const line = makeTestLine('not json', null)
+      expect(matchesFilterPredicate(line, { process: 'bot' })).toBe(false)
+    })
+  })
+
+  describe('event: an EXACT slug match, never a substring — excludes (not "malformed") a valid debug line with no event field', () => {
+    it('matches an exact slug', () => {
+      const line = makeTestLine('{"event":"writer-fault"}', {
+        event: 'writer-fault',
+      })
+      expect(matchesFilterPredicate(line, { event: 'writer-fault' })).toBe(true)
+    })
+
+    it('does not match a different slug', () => {
+      const line = makeTestLine('{"event":"other"}', { event: 'other' })
+      expect(matchesFilterPredicate(line, { event: 'writer-fault' })).toBe(
+        false,
+      )
+    })
+
+    it('a valid debug line with no event field at all is excluded (a normal state, not malformed) — R14', () => {
+      const line = makeTestLine('{"level":20,"msg":"debug"}', {
+        level: 20,
+        msg: 'debug',
+      })
+      expect(matchesFilterPredicate(line, { event: 'writer-fault' })).toBe(
+        false,
+      )
+    })
+
+    it('a malformed line is excluded exactly the same way', () => {
+      const line = makeTestLine('not json', null)
+      expect(matchesFilterPredicate(line, { event: 'writer-fault' })).toBe(
+        false,
+      )
+    })
+  })
+
+  describe('composition: every active field ANDs together (mirrors AE6)', () => {
+    it('matches only when EVERY active field is satisfied, not any', () => {
+      const line = makeTestLine(
+        '{"level":50,"process":"bot","event":"e1","msg":"yes"}',
+        { level: 50, process: 'bot', event: 'e1', msg: 'yes' },
+      )
+      expect(
+        matchesFilterPredicate(line, {
+          level: 40,
+          process: 'bot',
+          event: 'e1',
+          text: 'yes',
+        }),
+      ).toBe(true)
+      // Flip ONE field to a non-matching value — the whole predicate fails.
+      expect(
+        matchesFilterPredicate(line, {
+          level: 40,
+          process: 'main', // wrong process
+          event: 'e1',
+          text: 'yes',
+        }),
+      ).toBe(false)
+    })
+  })
+})
+
+// U12: filteredMatchToLogLine — converts one filtered-match entry
+// {byteOffset, raw} into a full LogLine, mirroring use-log-tail.ts's own
+// tailMessageToLogLine conversion pattern (byteLength via TextEncoder,
+// parsed via parseLogLine).
+describe('filteredMatchToLogLine', () => {
+  it('produces a LogLine whose byteOffset is the match’s own START offset (no end-offset conversion, unlike tailMessageToLogLine)', () => {
+    const raw = JSON.stringify({ level: 30, msg: 'hello' })
+    const line = filteredMatchToLogLine({ byteOffset: 500, raw })
+    expect(line.byteOffset).toBe(500)
+    expect(line.raw).toBe(raw)
+    expect(line.parsed).toEqual({ level: 30, msg: 'hello' })
+  })
+
+  it('byteLength is the UTF-8 byte length of `raw` plus one for the trailing newline the server’s own accounting includes', () => {
+    const raw = 'x'.repeat(10)
+    const line = filteredMatchToLogLine({ byteOffset: 0, raw })
+    expect(line.byteLength).toBe(11)
+  })
+
+  it('a malformed (non-JSON) raw string still converts, with parsed:null', () => {
+    const line = filteredMatchToLogLine({
+      byteOffset: 0,
+      raw: 'not json at all',
+    })
+    expect(line.parsed).toBeNull()
+    expect(line.raw).toBe('not json at all')
+  })
+})
+
+// U12: appendFilteredMatch — the filtered-projection counterpart to
+// appendTailLine, exercised at the SAME pure/DOM-free level.
+describe('appendFilteredMatch', () => {
+  function makeMatchLine(byteOffset: number, msg: string): LogLine {
+    return {
+      byteOffset,
+      byteLength: 20,
+      raw: `{"msg":"${msg}"}`,
+      parsed: { msg },
+    }
+  }
+
+  it('appends one line to the back and increments total by exactly one', () => {
+    const initial = {
+      matches: [makeMatchLine(0, 'a')],
+      nextCursor: null,
+      total: 1,
+    }
+    const next = appendFilteredMatch(
+      initial,
+      makeMatchLine(100, 'b'),
+      EVICTION_CAP,
+    )
+
+    expect(next.matches).toHaveLength(2)
+    expect(next.matches[1]).toEqual(makeMatchLine(100, 'b'))
+    expect(next.total).toBe(2)
+    // nextCursor is carried through unchanged — a live append never
+    // invalidates whatever pagination cursor the last server fetch left.
+    expect(next.nextCursor).toBeNull()
+  })
+
+  it('evicts from the FRONT once the cap is exceeded, mirroring appendTailLine’s own eviction direction', () => {
+    const cap = 2
+    const initial = {
+      matches: [makeMatchLine(0, 'a'), makeMatchLine(100, 'b')],
+      nextCursor: null,
+      total: 2,
+    }
+    const next = appendFilteredMatch(initial, makeMatchLine(200, 'c'), cap)
+
+    expect(next.matches).toHaveLength(cap)
+    expect(next.matches.map(m => m.parsed?.msg)).toEqual(['b', 'c'])
+  })
+
+  it('is idempotent against a redundant delivery of the SAME line already at the back', () => {
+    const lastLine = makeMatchLine(100, 'b')
+    const initial = {
+      matches: [makeMatchLine(0, 'a'), lastLine],
+      nextCursor: null,
+      total: 2,
+    }
+    const duplicate: LogLine = { ...lastLine, raw: 'a-different-raw-value' }
+    const next = appendFilteredMatch(initial, duplicate, EVICTION_CAP)
+
+    expect(next).toBe(initial) // a complete no-op
+    expect(next.matches).toHaveLength(2)
+  })
+
+  it('never mutates the previous state object or its matches array in place', () => {
+    const initial = {
+      matches: [makeMatchLine(0, 'a')],
+      nextCursor: null,
+      total: 1,
+    }
+    const initialMatchesRef = initial.matches
+    const next = appendFilteredMatch(
+      initial,
+      makeMatchLine(100, 'b'),
+      EVICTION_CAP,
+    )
+
+    expect(next).not.toBe(initial)
+    expect(next.matches).not.toBe(initialMatchesRef)
+    expect(initial.matches).toBe(initialMatchesRef) // untouched
+    expect(initial.matches).toHaveLength(1) // untouched
+  })
+
+  it('handles a from-empty append correctly', () => {
+    const initial = { matches: [], nextCursor: null, total: 0 }
+    const next = appendFilteredMatch(
+      initial,
+      makeMatchLine(0, 'first'),
+      EVICTION_CAP,
+    )
+
+    expect(next.matches).toEqual([makeMatchLine(0, 'first')])
+    expect(next.total).toBe(1)
+  })
+})
+
 // ═══════════════════════════════════════════════════════════════════════
 // Part 2: component-level wiring. Thinner by design (per this unit's own
 // testing-architecture directive) — these prove the virtualizer/React glue
@@ -940,13 +1246,15 @@ describe('LogViewer — component wiring', () => {
     // comment documents.
     MockEventSource.instances = []
     global.EventSource = MockEventSource as unknown as typeof EventSource
-    // U11: defensive reset so a stale reference from a PRIOR test's
+    // U11/U12: defensive reset so a stale reference from a PRIOR test's
     // LogSearchBar mock instance can never be reachable by
-    // dispatchMockHitSelected in a LATER test that never itself renders a
-    // fresh LogViewer before calling it (every real U11 test below does
-    // render fresh first, so this is a belt-and-suspenders guard, not a
-    // load-bearing requirement of any single test).
+    // dispatchMockHitSelected/dispatchMockQueryTextChange in a LATER test
+    // that never itself renders a fresh LogViewer before calling it (every
+    // real U11/U12 test below does render fresh first, so this is a
+    // belt-and-suspenders guard, not a load-bearing requirement of any
+    // single test).
     latestOnHitSelected = null
+    latestOnQueryTextChange = null
   })
 
   afterEach(() => {
@@ -2144,6 +2452,573 @@ describe('LogViewer — component wiring', () => {
         )
         expect(mark).toBeInTheDocument()
         expect(mark).toHaveTextContent('line 75')
+      })
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════
+  // U12: structured filters + filtered-projection mode. `filters` is a
+  // plain prop (unlike U11's search state, which LogViewer owns
+  // internally) — every test below drives it via render()/rerender() with
+  // a NEW `filters` value, exactly mirroring how page.tsx's own lifted
+  // filtersByStream state would re-render this component after a
+  // LogFilters/detail-panel interaction. api.searchLog is mocked at the
+  // MODULE level (jest.spyOn, not jest.mock) since log-viewer.tsx imports
+  // `api` directly (matching log-search-bar.tsx's own established
+  // precedent) rather than receiving a searchLog function as a prop.
+  // ═══════════════════════════════════════════════════════════════════
+  describe('U12: structured filters + filtered-projection mode', () => {
+    const TOTAL_LINES = 50
+    const FILE_SIZE = TOTAL_LINES * BYTES_PER_LINE
+
+    function makeReadWindow() {
+      return jest
+        .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+        .mockImplementation(async ({ anchor, direction }) =>
+          makeResponse(
+            TOTAL_LINES,
+            anchor,
+            direction === 'after' ? 'after' : 'before',
+            20,
+          ),
+        )
+    }
+
+    function makeSearchResponse(
+      overrides: Partial<LogSearchResponse> = {},
+    ): LogSearchResponse {
+      return { total: 0, matches: [], nextCursor: null, ...overrides }
+    }
+
+    // Builds one LogSearchResponse match entry — `raw` is the serialized
+    // JSON text the U12 response-shape extension added (log-view.types.ts),
+    // round-tripped back through parseLogLine by filteredMatchToLogLine
+    // exactly as the real component does, so these fixtures exercise the
+    // SAME conversion path a real server response would.
+    function filterMatch(
+      byteOffset: number,
+      parsed: Record<string, unknown>,
+    ): { byteOffset: number; raw: string } {
+      return { byteOffset, raw: JSON.stringify(parsed) }
+    }
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    it('AE6 (R11): composing level + process + a text term sends the FULL composed predicate to api.searchLog and renders ONLY the mocked matches (not state.lines)', async () => {
+      const readWindow = makeReadWindow()
+      const searchLogSpy = jest.spyOn(api, 'searchLog').mockResolvedValue(
+        makeSearchResponse({
+          total: 1,
+          matches: [
+            filterMatch(999, {
+              level: 40,
+              process: 'bot',
+              event: 'writer-fault',
+              msg: 'errorish thing happened',
+            }),
+          ],
+          nextCursor: null,
+        }),
+      )
+
+      const { rerender } = render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{}}
+        />,
+      )
+      await settleInitialLoad(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText('line 49')).toBeInTheDocument(),
+      )
+
+      // The free-text term settles (as if LogSearchBar's own debounce had
+      // resolved) BEFORE any structured filter goes active — queryText is
+      // durable state, so it composes into the predicate the MOMENT a
+      // structured filter later makes isFilteredProjection true, with no
+      // re-typing needed.
+      await dispatchMockQueryTextChange('errorish')
+
+      rerender(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{ level: 40, process: 'bot' }}
+        />,
+      )
+
+      await waitFor(() =>
+        expect(searchLogSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            stream: 'backend',
+            text: 'errorish',
+            level: 40,
+            process: 'bot',
+            cursor: undefined,
+          }),
+        ),
+      )
+
+      await waitFor(() =>
+        expect(screen.getByText(/errorish thing happened/)).toBeInTheDocument(),
+      )
+      // Raw-mode content is gone — the filtered projection shows ONLY the
+      // matching set, never a mix of the two.
+      expect(screen.queryByText('line 49')).not.toBeInTheDocument()
+    })
+
+    it('happy path: "errors-only" (level>=50) with no text shows the filtered projection with the mocked matches, distinct from raw mode', async () => {
+      const readWindow = makeReadWindow()
+      jest.spyOn(api, 'searchLog').mockResolvedValue(
+        makeSearchResponse({
+          total: 2,
+          matches: [
+            filterMatch(10, { level: 50, msg: 'first error' }),
+            filterMatch(20, { level: 60, msg: 'second error' }),
+          ],
+          nextCursor: null,
+        }),
+      )
+
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{ level: 50 }}
+        />,
+      )
+
+      await settleInitialLoad(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText(/first error/)).toBeInTheDocument(),
+      )
+      expect(screen.getByText(/second error/)).toBeInTheDocument()
+      // None of raw mode's own "line N" content ever appears.
+      expect(screen.queryByText(/^line \d+$/)).not.toBeInTheDocument()
+    })
+
+    it('edge case: filters compose with each other (level ∧ process ∧ event) — the composed predicate sent to the mocked api.searchLog carries every one of them', async () => {
+      const readWindow = makeReadWindow()
+      const searchLogSpy = jest
+        .spyOn(api, 'searchLog')
+        .mockResolvedValue(makeSearchResponse())
+
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{ level: 40, process: 'bot', event: 'writer-fault' }}
+        />,
+      )
+
+      // Deliberately NOT settleInitialLoad here: this mocked search
+      // response is empty (matches: []), which renders the distinct
+      // filtered-empty state rather than the scroll container that helper
+      // waits for — this test only cares about the CALL made to
+      // api.searchLog, not what subsequently renders.
+      await waitFor(() => expect(readWindow).toHaveBeenCalledTimes(1))
+
+      await waitFor(() =>
+        expect(searchLogSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            stream: 'backend',
+            level: 40,
+            process: 'bot',
+            event: 'writer-fault',
+            text: undefined,
+            cursor: undefined,
+          }),
+        ),
+      )
+    })
+
+    it('edge case: clearing filters returns to the raw windowed view', async () => {
+      const readWindow = makeReadWindow()
+      jest.spyOn(api, 'searchLog').mockResolvedValue(
+        makeSearchResponse({
+          total: 1,
+          matches: [filterMatch(10, { level: 50, msg: 'an error' })],
+          nextCursor: null,
+        }),
+      )
+
+      const { rerender } = render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{ level: 50 }}
+        />,
+      )
+      await settleInitialLoad(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText(/an error/)).toBeInTheDocument(),
+      )
+
+      rerender(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{}}
+        />,
+      )
+
+      // isFilteredProjection recomputes to false the instant `filters`
+      // becomes entirely empty again — no special reset logic exists
+      // beyond that recomputation, so the render simply falls back to
+      // whatever `state`/raw-mode already held.
+      await waitFor(() =>
+        expect(screen.getByText('line 49')).toBeInTheDocument(),
+      )
+      expect(screen.queryByText(/an error/)).not.toBeInTheDocument()
+    })
+
+    it('edge case (empty): a filter with zero matching lines shows the distinct "No lines match these filters" empty state, and holds the loading indicator until the scan genuinely resolves', async () => {
+      const readWindow = makeReadWindow()
+      let resolveSearch: ((response: LogSearchResponse) => void) | undefined
+      jest.spyOn(api, 'searchLog').mockImplementation(
+        () =>
+          new Promise<LogSearchResponse>(resolve => {
+            resolveSearch = resolve
+          }),
+      )
+
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{ level: 60 }}
+        />,
+      )
+
+      // Deliberately NOT settleInitialLoad here: that helper waits for the
+      // scroll container to appear, which never happens while the scan is
+      // pending OR resolves to zero matches (both branches render one of
+      // the two non-scroll-container states below instead) — this test
+      // only needs the RAW windowed load to have settled so the component
+      // has moved past its top-level initialLoad==='pending' early return.
+      await waitFor(() => expect(readWindow).toHaveBeenCalledTimes(1))
+
+      // Still resolving — the scan hasn't landed yet, so the empty state
+      // must NOT show (the "no flash to empty" discipline U11's own
+      // LogSearchBar already applies, mirrored here).
+      await waitFor(() =>
+        expect(screen.getByText(/scanning for matches/i)).toBeInTheDocument(),
+      )
+      expect(
+        screen.queryByText(/no lines match these filters/i),
+      ).not.toBeInTheDocument()
+
+      await act(async () => {
+        resolveSearch?.(
+          makeSearchResponse({ total: 0, matches: [], nextCursor: null }),
+        )
+        await Promise.resolve()
+      })
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(/no lines match these filters/i),
+        ).toBeInTheDocument(),
+      )
+      // Distinct from raw mode's own bootstrap empty state and from
+      // LogSearchBar's own "No results" — neither of those track-ids ever
+      // appear for this outcome.
+      expect(
+        document.querySelector('[data-track-id="log-viewer-empty"]'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('pagination: scrolling near the bottom of the loaded filtered matches fetches the next page via nextCursor and appends (never a re-scan from the top)', async () => {
+      // 60 page-1 matches — deliberately larger than viewport(~16 rows) +
+      // 2*OVERSCAN(12 each side, ~24 rows) so the array's own END is NOT
+      // already within EDGE_FETCH_THRESHOLD of the initial (unscrolled,
+      // scrollTop:0) visible+overscanned range on mount. A smaller page-1
+      // fixture (e.g. 20 rows) would make the WHOLE array fit inside that
+      // initial range, firing the pagination fetch immediately on mount
+      // rather than in response to the explicit scroll this test exists to
+      // exercise — an artifact of an undersized fixture, not a real
+      // production concern (a genuine page 1 can hold up to
+      // MAX_MATCHES_PER_PAGE=200 matches, comfortably larger than any
+      // viewport+overscan).
+      const PAGE_1_COUNT = 60
+      const readWindow = makeReadWindow()
+      const searchLogSpy = jest
+        .spyOn(api, 'searchLog')
+        .mockResolvedValueOnce(
+          makeSearchResponse({
+            total: PAGE_1_COUNT + 20,
+            matches: Array.from({ length: PAGE_1_COUNT }, (_, i) =>
+              filterMatch(i * 1000, { level: 50, msg: `match ${i}` }),
+            ),
+            nextCursor: 'cursor-page-2',
+          }),
+        )
+        .mockResolvedValueOnce(
+          makeSearchResponse({
+            total: PAGE_1_COUNT + 20,
+            matches: Array.from({ length: 20 }, (_, i) =>
+              filterMatch((i + PAGE_1_COUNT) * 1000, {
+                level: 50,
+                msg: `match ${i + PAGE_1_COUNT}`,
+              }),
+            ),
+            nextCursor: null,
+          }),
+        )
+
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{ level: 50 }}
+        />,
+      )
+
+      const scrollContainer = await settleInitialLoad(readWindow)
+
+      // Explicitly scroll to the TOP first — unlike raw mode (which has
+      // its own EXPLICIT "pin scroll to the bottom on open" effect,
+      // establishing a known, deterministic starting scrollTop before any
+      // test ever touches it), filtered-projection mode has no equivalent
+      // effect of its own, so the virtualizer's OWN internal first-
+      // measurement heuristic for a brand-new instance (this component's
+      // `anchorTo:'end'` option) is otherwise the only thing determining
+      // where the initial visible range lands — not a premise this test
+      // needs to depend on. Scrolling to a KNOWN position (the top) first
+      // is what makes "scrolling near the bottom afterward triggers page
+      // 2" an actually-isolated, deliberate action rather than an
+      // accidental side effect of wherever the first render happened to
+      // settle.
+      scrollTo(scrollContainer, 0)
+      await waitFor(() =>
+        expect(screen.getByText(/match 0\b/)).toBeInTheDocument(),
+      )
+      expect(searchLogSpy).toHaveBeenCalledTimes(1)
+
+      const spacerBefore = scrollContainer.firstElementChild as HTMLElement
+      const heightBefore = parseFloat(spacerBefore.style.height)
+
+      scrollTo(scrollContainer, scrollContainer.scrollHeight)
+
+      await waitFor(() => expect(searchLogSpy).toHaveBeenCalledTimes(2))
+      // The SAME server-issued cursor, never a fresh/undefined one — a
+      // resumed page, not a rescan from the top.
+      expect(searchLogSpy.mock.calls[1]?.[0]).toMatchObject({
+        cursor: 'cursor-page-2',
+      })
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(new RegExp(`match ${PAGE_1_COUNT + 19}\\b`)),
+        ).toBeInTheDocument(),
+      )
+      // Page 2's 20 matches genuinely landed as an APPEND, not a
+      // wholesale replace — proven via the virtualizer's own total-size
+      // spacer growing by exactly one page's worth of rows, the SAME proxy
+      // this file's own raw-mode edge-fetch tests already use (asserting a
+      // specific EARLY page-1 row like "match 0" is still individually
+      // on-screen would be false by construction once 80 rows are loaded
+      // and the viewport is scrolled to the bottom — the virtualizer
+      // correctly does not render rows far outside the visible+overscan
+      // range, which is the whole point of virtualizing at all).
+      await waitFor(() => {
+        const spacerAfter = scrollContainer.firstElementChild as HTMLElement
+        expect(parseFloat(spacerAfter.style.height)).toBe(
+          heightBefore + 20 * ROW_PX,
+        )
+      })
+    })
+
+    it('hideNavigation is passed through to LogSearchBar as true while filtered-projection is active, and false otherwise', async () => {
+      const readWindow = makeReadWindow()
+      jest.spyOn(api, 'searchLog').mockResolvedValue(makeSearchResponse())
+
+      const { rerender } = render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{}}
+        />,
+      )
+      await settleInitialLoad(readWindow)
+
+      expect(
+        document.querySelector('[data-track-id="mock-log-search-bar"]'),
+      ).toHaveAttribute('data-hide-navigation', 'false')
+
+      rerender(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{ level: 40 }}
+        />,
+      )
+
+      await waitFor(() =>
+        expect(
+          document.querySelector('[data-track-id="mock-log-search-bar"]'),
+        ).toHaveAttribute('data-hide-navigation', 'true'),
+      )
+    })
+
+    // ─────────────────────────────────────────────────────────────────
+    // Liveness (chosen behavior — see this unit's own report for the full
+    // rationale): a filtered projection is UNCONDITIONALLY live, checking
+    // every incoming tail line against the composed predicate client-side
+    // and appending a match in real time, independent of the raw-mode
+    // following/pause state (which describes a different, not-currently-
+    // rendered view). This describe covers exactly that chosen behavior —
+    // NOT the "N new matches — refresh" fallback, which was not needed.
+    // ─────────────────────────────────────────────────────────────────
+    describe('liveness: unconditional real-time append (chosen behavior)', () => {
+      async function settleInitialLoadAndTail(
+        readWindowMock: jest.Mock<
+          Promise<LogWindowResponse>,
+          [ReadLogWindowParams]
+        >,
+      ) {
+        const scrollContainer = await settleInitialLoad(readWindowMock)
+        await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
+        return { scrollContainer, tail: latestTailInstance() }
+      }
+
+      it('a newly-arrived tail line matching the active predicate appears in the filtered projection in real time, alongside the already-loaded matches', async () => {
+        const readWindow = makeReadWindow()
+        jest.spyOn(api, 'searchLog').mockResolvedValue(
+          makeSearchResponse({
+            total: 1,
+            matches: [filterMatch(10, { level: 50, msg: 'existing error' })],
+            nextCursor: null,
+          }),
+        )
+
+        render(
+          <LogViewer
+            stream="backend"
+            readWindow={readWindow}
+            onSelectLine={jest.fn()}
+            filters={{ level: 50 }}
+          />,
+        )
+
+        const { tail } = await settleInitialLoadAndTail(readWindow)
+        await waitFor(() =>
+          expect(screen.getByText(/existing error/)).toBeInTheDocument(),
+        )
+
+        // A matching tail line (level 60 >= the active level:50 threshold).
+        const matchingMessage = makeTailMessage(FILE_SIZE, {
+          level: 60,
+          msg: 'brand new fatal error',
+        })
+        tail.emit('log-append', matchingMessage)
+
+        await waitFor(() =>
+          expect(screen.getByText(/brand new fatal error/)).toBeInTheDocument(),
+        )
+        // The pre-existing match is still shown — an append, not a
+        // replace.
+        expect(screen.getByText(/existing error/)).toBeInTheDocument()
+      })
+
+      it('a newly-arrived tail line that does NOT satisfy the active predicate is not appended into the filtered projection', async () => {
+        const readWindow = makeReadWindow()
+        jest.spyOn(api, 'searchLog').mockResolvedValue(
+          makeSearchResponse({
+            total: 1,
+            matches: [filterMatch(10, { level: 50, msg: 'existing error' })],
+            nextCursor: null,
+          }),
+        )
+
+        render(
+          <LogViewer
+            stream="backend"
+            readWindow={readWindow}
+            onSelectLine={jest.fn()}
+            filters={{ level: 50 }}
+          />,
+        )
+
+        const { tail } = await settleInitialLoadAndTail(readWindow)
+        await waitFor(() =>
+          expect(screen.getByText(/existing error/)).toBeInTheDocument(),
+        )
+
+        // level 20 (DEBUG) does NOT satisfy the active level:50 (>=ERROR)
+        // threshold.
+        const nonMatchingMessage = makeTailMessage(FILE_SIZE, {
+          level: 20,
+          msg: 'an ordinary debug line',
+        })
+        tail.emit('log-append', nonMatchingMessage)
+
+        // Give the (correctly no-op) state update a chance to have applied
+        // — asserting a NEGATIVE, so this proves the projection genuinely
+        // never grew rather than merely not having re-rendered yet.
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(
+          screen.queryByText(/an ordinary debug line/),
+        ).not.toBeInTheDocument()
+        expect(
+          document.querySelectorAll('[data-track-id="log-row-select"]').length,
+        ).toBe(1)
+      })
+
+      it('the raw-mode tail machinery (following/badge) keeps running unaffected underneath filtered-projection mode', async () => {
+        const readWindow = makeReadWindow()
+        jest.spyOn(api, 'searchLog').mockResolvedValue(
+          makeSearchResponse({
+            total: 1,
+            matches: [filterMatch(10, { level: 50, msg: 'existing error' })],
+            nextCursor: null,
+          }),
+        )
+
+        render(
+          <LogViewer
+            stream="backend"
+            readWindow={readWindow}
+            onSelectLine={jest.fn()}
+            filters={{ level: 50 }}
+          />,
+        )
+
+        const { tail } = await settleInitialLoadAndTail(readWindow)
+        await waitFor(() =>
+          expect(screen.getByText(/existing error/)).toBeInTheDocument(),
+        )
+
+        // A tail line arrives that does NOT match the active filter — it
+        // must still be silently absorbed into the (not-currently-
+        // rendered) raw-mode state.lines via the SAME handleTailLine path
+        // U10 already established, per this unit's own "runs ALONGSIDE
+        // the raw-mode branch, never instead of it" design.
+        tail.emit(
+          'log-append',
+          makeTailMessage(FILE_SIZE, { level: 30, msg: 'line 50' }),
+        )
+
+        // No crash, no stuck loading state — the filtered banner's own
+        // count is unaffected by a non-matching arrival.
+        await Promise.resolve()
+        await Promise.resolve()
+        expect(screen.getByText(/1 matching line/)).toBeInTheDocument()
       })
     })
   })

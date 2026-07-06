@@ -48,6 +48,27 @@ export interface LogSearchBarProps {
   // `highlightText` only on a hard `false`, not on every render where
   // `total` happens to be 0).
   onSearchActiveChange: (active: boolean) => void
+  // U12: fired whenever this component's OWN debounced query text settles
+  // (alongside whatever else the settle-effect below already does) — purely
+  // additive, optional, and never itself drives this component's rendering.
+  // log-viewer.tsx uses this to learn the CURRENT free-text term so it can
+  // compose it into the filtered-projection predicate (AE6: text AND
+  // structured filters together) without this component needing to know
+  // anything about filters/predicates at all — it only ever reports its own
+  // already-debounced text, exactly as it would have used internally for
+  // its own api.searchLog call.
+  onQueryTextChange?: (text: string) => void
+  // U12: true while the viewer is in filtered-projection mode (any
+  // structured filter active) — in that mode the ENTIRE rendered list is
+  // already the matching set, so "jump to hit i of N" and auto-selecting a
+  // single hit make no sense (there's no one hit to jump to; every visible
+  // row already IS a hit). This component still renders its input and
+  // still fires onQueryTextChange as normal (the free-text term still needs
+  // to compose into the filtered predicate) — it only suppresses the hit-
+  // count/prev/next UI and the auto-select/onHitSelected firing. Defaults
+  // to false so every pre-U12 call site (search-navigator mode, the only
+  // mode that existed before this unit) keeps behaving unchanged.
+  hideNavigation?: boolean
 }
 
 // One accumulated page of hit offsets for the CURRENT logical search,
@@ -73,6 +94,8 @@ export function LogSearchBar({
   currentFileSize,
   onHitSelected,
   onSearchActiveChange,
+  onQueryTextChange,
+  hideNavigation = false,
 }: LogSearchBarProps) {
   const [inputValue, setInputValue] = useState('')
   const debouncedQuery = useDebouncedValue(inputValue, SEARCH_DEBOUNCE_MS)
@@ -173,6 +196,15 @@ export function LogSearchBar({
   useEffect(() => {
     searchGenerationRef.current += 1
     const trimmed = debouncedQuery.trim()
+    // U12: reports the settled text unconditionally (empty or not) — this
+    // is the SAME "debouncedQuery just settled" point this effect already
+    // exists to react to, so log-viewer.tsx's own composed filtered-
+    // projection predicate always sees the CURRENT free-text term with no
+    // separate debounce of its own needed on that side. Fired regardless of
+    // whether this effect goes on to start a real search session below
+    // (trimmed.length === 0 still means "the composed predicate's text
+    // constraint is now empty," which is itself a real, reportable state).
+    onQueryTextChange?.(trimmed)
     setCursor(undefined)
     setWrapLoading(false)
     if (trimmed.length === 0) {
@@ -194,8 +226,9 @@ export function LogSearchBar({
     // reset on every single live-tail byte the file grows by, which is
     // exactly the opposite of the "file grew — re-run" AFFORDANCE this
     // unit calls for (an explicit user action), not an automatic reset).
-    // onSearchActiveChange is a caller-supplied callback invoked, never a
-    // reactive input this effect's OWN logic depends on re-running for.
+    // onSearchActiveChange/onQueryTextChange are caller-supplied callbacks
+    // invoked, never reactive inputs this effect's OWN logic depends on
+    // re-running for.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery])
 
@@ -268,7 +301,16 @@ export function LogSearchBar({
 
     if (response.total > 0) {
       onSearchActiveChange(true)
-      if (isFreshFirstPage) {
+      // U12: hideNavigation means the viewer is in filtered-projection mode
+      // — the entire rendered list IS the matching set already, so there is
+      // no single "hit" to jump to or highlight in place; auto-selecting
+      // one here would fight the parent's own filtered-projection window
+      // for control of where the viewport lands. This component's OWN
+      // accumulator/query keeps running regardless (harmless — just unused
+      // for navigation purposes while this mode is active), since
+      // hideNavigation only suppresses the JUMP/HIGHLIGHT side effect and
+      // the count/prev/next UI below, never the underlying search itself.
+      if (isFreshFirstPage && !hideNavigation) {
         // Auto-select hit 0 the instant a fresh search's first page lands
         // — this is what makes AE2 hold even when the only match is deep
         // in a huge file and was never separately "loaded" by the client:
@@ -287,8 +329,8 @@ export function LogSearchBar({
       setCurrentIndex(null)
     }
     // Deliberately NOT keyed on trimmedQuery/cursor/onHitSelected/
-    // onSearchActiveChange: this effect's whole job is "react to
-    // searchQuery.data having resolved to a NEW value," which the
+    // onSearchActiveChange/hideNavigation: this effect's whole job is
+    // "react to searchQuery.data having resolved to a NEW value," which the
     // appliedDataRef guard above already handles precisely; re-running it
     // for any of those other reasons would either double-apply the same
     // response or apply it against inputs that have since moved on.
@@ -504,7 +546,17 @@ export function LogSearchBar({
         className="w-56 rounded bg-gray-800 px-2 py-1 text-gray-200 placeholder-gray-600 focus:outline-none"
       />
 
-      {searchEnabled && (
+      {/*
+        U12: the hit-count/prev/next affordances only make sense in
+        search-navigator mode — once the viewer has switched to filtered
+        projection (hideNavigation:true), the ENTIRE rendered list already
+        IS the matching set, so "hit i of N" and stepping between hits has
+        no meaning (there's no single hit distinct from "everything on
+        screen"). The input above and onQueryTextChange keep firing
+        regardless — only this navigation UI (and the auto-select effect
+        above) is suppressed.
+      */}
+      {searchEnabled && !hideNavigation && (
         <span
           data-track-id="log-search-count"
           className={cns(
@@ -518,7 +570,7 @@ export function LogSearchBar({
         </span>
       )}
 
-      {searchEnabled && accumulator.total > 0 && (
+      {searchEnabled && !hideNavigation && accumulator.total > 0 && (
         <span className="flex items-center gap-1">
           <button
             type="button"

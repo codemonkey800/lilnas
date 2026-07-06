@@ -39,7 +39,11 @@ const MOCK_SOURCES_RESPONSE: LogSource[] = [
 
 const MOCK_SEARCH_RESPONSE: LogSearchResponse = {
   total: 3,
-  matches: [{ byteOffset: 0 }, { byteOffset: 40 }, { byteOffset: 80 }],
+  matches: [
+    { byteOffset: 0, raw: 'line-0' },
+    { byteOffset: 40, raw: 'line-1' },
+    { byteOffset: 80, raw: 'line-2' },
+  ],
   nextCursor: null,
 }
 

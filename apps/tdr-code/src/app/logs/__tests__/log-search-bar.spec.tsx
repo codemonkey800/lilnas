@@ -26,8 +26,14 @@ function makeResponse(
   return { total: 0, matches: [], nextCursor: null, ...overrides }
 }
 
-function offsets(...values: number[]): { byteOffset: number }[] {
-  return values.map(byteOffset => ({ byteOffset }))
+// U12 extended LogSearchResponse.matches with a `raw` field (the matched
+// line's own text) — this file's own tests never inspect `.raw` (LogSearchBar
+// only ever reads `.byteOffset` off a match, per that component's own header
+// comment on why the U12 response-shape extension didn't require any change
+// to this component), so a synthetic-but-valid placeholder per offset is
+// sufficient to satisfy the type without affecting any existing assertion.
+function offsets(...values: number[]): { byteOffset: number; raw: string }[] {
+  return values.map(byteOffset => ({ byteOffset, raw: `raw-${byteOffset}` }))
 }
 
 beforeEach(() => {

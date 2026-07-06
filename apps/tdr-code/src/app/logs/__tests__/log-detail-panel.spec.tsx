@@ -106,6 +106,230 @@ describe('LogDetailPanel — malformed line (R14)', () => {
   })
 })
 
+// U12 (R13, filter-actions half): the deferred "filter by this field/value"
+// actions, now that log-viewer.tsx's filter model actually exists to feed
+// them.
+describe('LogDetailPanel — filter actions (U12, R13)', () => {
+  describe('rendering: only for present fields, only when callbacks are provided', () => {
+    it('renders all three actions when the line has level+process+event and every callback is provided', () => {
+      const line = makeLine({
+        level: 40,
+        process: 'bot',
+        event: 'writer-fault',
+        msg: 'hi',
+      })
+
+      render(
+        <LogDetailPanel
+          line={line}
+          stream="backend"
+          onClose={jest.fn()}
+          onFilterByLevel={jest.fn()}
+          onFilterByProcess={jest.fn()}
+          onFilterByEvent={jest.fn()}
+        />,
+      )
+
+      expect(
+        document.querySelector(
+          '[data-track-id="log-detail-panel-filter-by-level"]',
+        ),
+      ).toBeInTheDocument()
+      expect(
+        document.querySelector(
+          '[data-track-id="log-detail-panel-filter-by-process"]',
+        ),
+      ).toBeInTheDocument()
+      expect(
+        document.querySelector(
+          '[data-track-id="log-detail-panel-filter-by-event"]',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('does NOT render the event action for a valid debug-level line with no event field (a normal state, not malformed)', () => {
+      const line = makeLine({ level: 20, process: 'main', msg: 'debug line' })
+
+      render(
+        <LogDetailPanel
+          line={line}
+          stream="backend"
+          onClose={jest.fn()}
+          onFilterByLevel={jest.fn()}
+          onFilterByProcess={jest.fn()}
+          onFilterByEvent={jest.fn()}
+        />,
+      )
+
+      expect(
+        document.querySelector(
+          '[data-track-id="log-detail-panel-filter-by-level"]',
+        ),
+      ).toBeInTheDocument()
+      expect(
+        document.querySelector(
+          '[data-track-id="log-detail-panel-filter-by-process"]',
+        ),
+      ).toBeInTheDocument()
+      expect(
+        document.querySelector(
+          '[data-track-id="log-detail-panel-filter-by-event"]',
+        ),
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders no action buttons at all on a malformed line (parsed === null), even when every callback is provided', () => {
+      const line = makeLine(null, { raw: 'not json at all' })
+
+      render(
+        <LogDetailPanel
+          line={line}
+          stream="backend"
+          onClose={jest.fn()}
+          onFilterByLevel={jest.fn()}
+          onFilterByProcess={jest.fn()}
+          onFilterByEvent={jest.fn()}
+        />,
+      )
+
+      expect(
+        document.querySelector(
+          '[data-track-id="log-detail-panel-filter-actions"]',
+        ),
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders NO action buttons at all when every callback is omitted (backward compatibility with pre-U12 usage)', () => {
+      const line = makeLine({
+        level: 40,
+        process: 'bot',
+        event: 'writer-fault',
+        msg: 'hi',
+      })
+
+      render(
+        <LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />,
+      )
+
+      expect(
+        document.querySelector(
+          '[data-track-id="log-detail-panel-filter-actions"]',
+        ),
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders only the actions whose OWN callback was provided, even if the line has every field', () => {
+      const line = makeLine({
+        level: 40,
+        process: 'bot',
+        event: 'writer-fault',
+        msg: 'hi',
+      })
+
+      render(
+        <LogDetailPanel
+          line={line}
+          stream="backend"
+          onClose={jest.fn()}
+          onFilterByLevel={jest.fn()}
+          // onFilterByProcess / onFilterByEvent deliberately omitted.
+        />,
+      )
+
+      expect(
+        document.querySelector(
+          '[data-track-id="log-detail-panel-filter-by-level"]',
+        ),
+      ).toBeInTheDocument()
+      expect(
+        document.querySelector(
+          '[data-track-id="log-detail-panel-filter-by-process"]',
+        ),
+      ).not.toBeInTheDocument()
+      expect(
+        document.querySelector(
+          '[data-track-id="log-detail-panel-filter-by-event"]',
+        ),
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  describe('clicking each action calls the corresponding callback with the correct value', () => {
+    it('"Filter by level" calls onFilterByLevel with this line\'s own numeric level', async () => {
+      const user = userEvent.setup()
+      const onFilterByLevel = jest.fn()
+      const line = makeLine({ level: 40, process: 'bot', msg: 'hi' })
+
+      render(
+        <LogDetailPanel
+          line={line}
+          stream="backend"
+          onClose={jest.fn()}
+          onFilterByLevel={onFilterByLevel}
+        />,
+      )
+
+      await user.click(
+        document.querySelector(
+          '[data-track-id="log-detail-panel-filter-by-level"]',
+        ) as HTMLElement,
+      )
+
+      expect(onFilterByLevel).toHaveBeenCalledWith(40)
+    })
+
+    it('"Filter by process" calls onFilterByProcess with this line\'s own process string', async () => {
+      const user = userEvent.setup()
+      const onFilterByProcess = jest.fn()
+      const line = makeLine({ level: 40, process: 'bot', msg: 'hi' })
+
+      render(
+        <LogDetailPanel
+          line={line}
+          stream="backend"
+          onClose={jest.fn()}
+          onFilterByProcess={onFilterByProcess}
+        />,
+      )
+
+      await user.click(
+        document.querySelector(
+          '[data-track-id="log-detail-panel-filter-by-process"]',
+        ) as HTMLElement,
+      )
+
+      expect(onFilterByProcess).toHaveBeenCalledWith('bot')
+    })
+
+    it('"Filter by event" calls onFilterByEvent with this line\'s own event slug', async () => {
+      const user = userEvent.setup()
+      const onFilterByEvent = jest.fn()
+      const line = makeLine({
+        level: 50,
+        event: 'writer-fault',
+        msg: 'hi',
+      })
+
+      render(
+        <LogDetailPanel
+          line={line}
+          stream="backend"
+          onClose={jest.fn()}
+          onFilterByEvent={onFilterByEvent}
+        />,
+      )
+
+      await user.click(
+        document.querySelector(
+          '[data-track-id="log-detail-panel-filter-by-event"]',
+        ) as HTMLElement,
+      )
+
+      expect(onFilterByEvent).toHaveBeenCalledWith('writer-fault')
+    })
+  })
+})
+
 describe('LogDetailPanel — dismissal', () => {
   it('Esc calls onClose', async () => {
     const user = userEvent.setup()

@@ -30,13 +30,26 @@ const mountEvents: string[] = []
 // error and no visible behavior difference in a shallow render).
 const isActiveByStream: Record<string, boolean | undefined> = {}
 
+// U12: the CURRENT `filters` prop each mocked LogViewer instance was
+// rendered with, keyed by stream — the SAME "prove page.tsx actually
+// threads the value through, not just computes it" rationale
+// isActiveByStream's own header comment documents, applied to filters
+// instead of isActive. ALSO rendered into the DOM (via the span below) so a
+// test can assert through this file's existing querySelector idiom too —
+// either read path observes the same value at the same moment.
+const filtersByStreamSeen: Record<string, unknown> = {}
+
 jest.mock('src/app/logs/log-viewer', () => ({
   LogViewer: (props: {
     stream: string
     onSelectLine: (line: unknown) => void
     isActive?: boolean
+    filters?: unknown
+    onFiltersChange?: (patch: unknown) => void
+    onClearFilters?: () => void
   }) => {
     isActiveByStream[props.stream] = props.isActive
+    filtersByStreamSeen[props.stream] = props.filters
     useEffect(() => {
       mountEvents.push(`mount:${props.stream}`)
       return () => {
@@ -46,6 +59,9 @@ jest.mock('src/app/logs/log-viewer', () => ({
     }, [])
     return (
       <div data-track-id={`mock-log-viewer-${props.stream}`}>
+        <span data-track-id={`mock-log-viewer-filters-${props.stream}`}>
+          {JSON.stringify(props.filters ?? {})}
+        </span>
         <button
           type="button"
           onClick={() =>
@@ -68,12 +84,36 @@ jest.mock('src/app/logs/log-detail-panel', () => ({
   LogDetailPanel: (props: {
     line: { parsed: { msg?: string } | null } | null
     onClose: () => void
+    onFilterByLevel?: (level: number) => void
+    onFilterByProcess?: (process: string) => void
+    onFilterByEvent?: (eventSlug: string) => void
   }) =>
     props.line ? (
       <div data-track-id="mock-log-detail-panel">
         <span>{props.line.parsed?.msg}</span>
         <button type="button" onClick={props.onClose}>
           close panel
+        </button>
+        {/*
+          U12: mock triggers for the detail panel's own "filter by this
+          field/value" actions — this file (unlike log-detail-panel.spec.tsx,
+          which exhaustively covers the real component's own rendering/
+          field-guard logic) only needs a seam to prove page.tsx wires these
+          callbacks to the correct stream's patchFilters call, exactly the
+          same "mock exposes ONE trigger per callback under test" idiom the
+          pre-existing onSelectLine button above already establishes.
+        */}
+        <button type="button" onClick={() => props.onFilterByLevel?.(40)}>
+          filter by level 40
+        </button>
+        <button type="button" onClick={() => props.onFilterByProcess?.('bot')}>
+          filter by process bot
+        </button>
+        <button
+          type="button"
+          onClick={() => props.onFilterByEvent?.('writer-fault')}
+        >
+          filter by event writer-fault
         </button>
       </div>
     ) : null,
@@ -118,6 +158,9 @@ beforeEach(() => {
   mountEvents.length = 0
   for (const key of Object.keys(isActiveByStream)) {
     delete isActiveByStream[key]
+  }
+  for (const key of Object.keys(filtersByStreamSeen)) {
+    delete filtersByStreamSeen[key]
   }
   jest.spyOn(api, 'getLogSources').mockReset()
 })
@@ -250,6 +293,103 @@ describe('LogsPage — per-tab state preservation (R2)', () => {
     expect(
       document.querySelector('[data-track-id="mock-log-detail-panel"]'),
     ).not.toBeInTheDocument()
+  })
+})
+
+// U12: filter state was lifted from LogViewer into THIS page precisely
+// because LogDetailPanel (a sibling of every LogViewer instance, rendered
+// once and shared across tabs — Decision #3, Phase 1) needs to WRITE to it
+// via its own "filter by this field" actions, while each LogViewer instance
+// needs to READ its own stream's slice — see page.tsx's own header comment
+// on filtersByStream for the full architectural rationale. This is the
+// right layer to prove the round-trip end-to-end (detail-panel click ->
+// page.tsx's patchFilters -> the correct stream's LogViewer instance),
+// since log-viewer.tsx's own tests (a fresh, standalone-rendered instance)
+// have no sibling detail panel to receive a click from at all, and this is
+// ALSO the right layer to prove R2 (per-tab filter survival across a tab
+// switch) now that the state genuinely lives here rather than inside any
+// one LogViewer instance.
+describe('LogsPage — filter state round-trip (U12, R2)', () => {
+  it('a detail-panel filter action patches the ACTIVE tab’s filters and reaches that exact stream’s LogViewer instance, leaving every other stream’s filters untouched', async () => {
+    const user = userEvent.setup()
+    jest.spyOn(api, 'getLogSources').mockResolvedValue(makeSources())
+    renderPage()
+
+    await screen.findAllByRole('tab')
+
+    // Every stream starts with an empty filter slice.
+    expect(filtersByStreamSeen.backend).toEqual({})
+    expect(filtersByStreamSeen['frontend-browser']).toEqual({})
+
+    // Select a line in backend (the default active tab) so the (mocked)
+    // detail panel mounts with a real `line`, then fire its own "filter by
+    // level" action.
+    await user.click(
+      screen.getByRole('button', { name: 'select a line in backend' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'filter by level 40' }))
+
+    expect(filtersByStreamSeen.backend).toEqual({ level: 40 })
+    // A DIFFERENT stream's slice is completely untouched — filters are
+    // per-tab, not one shared object (per-stream keying is what makes this
+    // true, not anything LogViewer/LogDetailPanel themselves do).
+    expect(filtersByStreamSeen['frontend-browser']).toEqual({})
+    expect(filtersByStreamSeen['frontend-server']).toEqual({})
+
+    // Composing filters (process, then event) on the SAME active tab
+    // merges into the existing patch rather than replacing it wholesale —
+    // proving patchFilters' own `{ ...prev[stream], ...patch }` merge
+    // semantics hold through this page's real wiring, not just in
+    // isolation.
+    await user.click(
+      screen.getByRole('button', { name: 'filter by process bot' }),
+    )
+    await user.click(
+      screen.getByRole('button', {
+        name: 'filter by event writer-fault',
+      }),
+    )
+    expect(filtersByStreamSeen.backend).toEqual({
+      level: 40,
+      process: 'bot',
+      event: 'writer-fault',
+    })
+  })
+
+  it('filter state set on one tab survives switching away and back (R2) — proven here since the state now lives in page.tsx, not inside any one LogViewer instance', async () => {
+    const user = userEvent.setup()
+    jest.spyOn(api, 'getLogSources').mockResolvedValue(makeSources())
+    renderPage()
+
+    await screen.findAllByRole('tab')
+
+    await user.click(
+      screen.getByRole('button', { name: 'select a line in backend' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'filter by level 40' }))
+    expect(filtersByStreamSeen.backend).toEqual({ level: 40 })
+
+    // Switch away — decision #3 closes the detail panel, but backend's OWN
+    // LogViewer instance stays mounted (mount-all-hide-inactive, R2's
+    // pre-existing precedent) with its filters slice untouched by the
+    // switch itself.
+    await user.click(screen.getByRole('tab', { name: 'frontend-browser' }))
+    expect(filtersByStreamSeen.backend).toEqual({ level: 40 })
+    expect(filtersByStreamSeen['frontend-browser']).toEqual({})
+
+    // Switch back — backend's filters are EXACTLY as left, never reset by
+    // the round trip.
+    await user.click(screen.getByRole('tab', { name: 'backend' }))
+    expect(filtersByStreamSeen.backend).toEqual({ level: 40 })
+
+    // Also verifiable through the DOM read path (the span each mocked
+    // LogViewer renders), not just the module-level tracking object —
+    // confirms the ACTUAL rendered prop, not merely a value this test
+    // double happened to record on the side.
+    const backendFiltersSpan = document.querySelector(
+      '[data-track-id="mock-log-viewer-filters-backend"]',
+    )
+    expect(backendFiltersSpan).toHaveTextContent(JSON.stringify({ level: 40 }))
   })
 })
 

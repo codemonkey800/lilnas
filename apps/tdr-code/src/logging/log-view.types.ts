@@ -115,16 +115,32 @@ export interface LogScanPredicate {
 // one logical multi-page search (see log-search.service.ts's own cursor
 // design comment) — it is NOT recomputed on later pages, so it stays
 // identical across a growing file exactly because it is echoed through the
-// cursor, never re-derived from a fresh stat(). `matches` carries only the
-// byte offset of each matching line's START (not its content) — the client
-// re-fetches the actual line text via the existing windowed read
-// (GET /logs/window, `direction: 'around'`), matching U9's "never
-// materialize all offsets, never load the file into memory" contract: this
-// response is bounded to at most one page's worth of offsets regardless of
-// how large `total` is.
+// cursor, never re-derived from a fresh stat(). `matches` carries the byte
+// offset of each matching line's START plus its own already-decoded `raw`
+// text (U12) — this response is still bounded to at most one page's worth
+// of entries regardless of how large `total` is (MAX_MATCHES_PER_PAGE), so
+// adding `raw` does not reintroduce the "materialize the whole file"
+// problem this endpoint exists to avoid; it only means a page response
+// carries a few hundred KB of text worst-case instead of zero.
+//
+// Why `raw` was added on top of the offset-only shape U9 originally shipped
+// (see the Phase 2 plan's own "Deferred to Implementation" note — this was
+// explicitly left open pending a real consumer): U11's search-navigator only
+// ever needs ONE hit's context at a time, which it already gets cheaply via
+// a separate windowed-read round-trip (`direction: 'around'`) — a single
+// extra request is a non-issue there. U12's filtered-projection view is a
+// different shape of consumer: it renders potentially every match in the
+// current page (up to MAX_MATCHES_PER_PAGE) as the primary row list, so
+// fetching each one individually via its own windowed-read round-trip would
+// be slow and chatty in a way the search-navigator's single-hit case never
+// is. The scan's own streaming pass already holds each matching line's
+// decoded text in memory for the instant it takes to run the predicate
+// check (see log-search.service.ts's own scanRange) — keeping it in the
+// response instead of discarding it costs nothing extra in that pass
+// itself.
 export interface LogSearchResponse {
   total: number
-  matches: { byteOffset: number }[]
+  matches: { byteOffset: number; raw: string }[]
   nextCursor: string | null
 }
 

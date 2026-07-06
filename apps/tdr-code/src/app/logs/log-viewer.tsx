@@ -9,14 +9,17 @@ import {
   useState,
 } from 'react'
 
+import { api } from 'src/app/lib/api'
+import { LogFilters, type LogFiltersValue } from 'src/app/logs/log-filters'
 import { LogRow, ROW_PX } from 'src/app/logs/log-row'
 import { LogSearchBar } from 'src/app/logs/log-search-bar'
 import { useLogTail } from 'src/app/logs/use-log-tail'
-import type {
-  LogLine,
-  LogStream,
-  LogWindowDirection,
-  LogWindowResponse,
+import {
+  type LogLine,
+  type LogStream,
+  type LogWindowDirection,
+  type LogWindowResponse,
+  parseLogLine,
 } from 'src/logging/log-view.types'
 
 // Comfortably more than any realistic viewport + overscan (a 1080p screen at
@@ -60,6 +63,19 @@ export interface LogViewerProps {
   // tail connection would otherwise ALSO stay open forever. See this
   // file's isActive effect below for the connect/disconnect wiring.
   isActive?: boolean
+  // U12: structured filter state for THIS stream, lifted to page.tsx (see
+  // that file's own header comment on why) — this component does NOT hold
+  // its own copy of filter state; it receives it as a prop, passes it
+  // straight through to LogFilters (a controlled-component pass-through),
+  // and ALSO reads it itself to decide whether to enter filtered-projection
+  // mode and to build the composed scan query. Defaulting to {} rather than
+  // making this prop itself optional keeps every derived computation below
+  // (isFilteredProjection, the composed predicate) total with no extra
+  // undefined-guarding — page.tsx always provides a real (possibly empty)
+  // slice for every mounted stream, so a default here is purely defensive.
+  filters?: LogFiltersValue
+  onFiltersChange?: (patch: Partial<LogFiltersValue>) => void
+  onClearFilters?: () => void
 }
 
 export interface WindowState {
@@ -262,14 +278,172 @@ export function appendTailLine(
   }
 }
 
+// U12: the filtered-projection's own state, deliberately SEPARATE from
+// WindowState above rather than shoehorned into it — the two modes have
+// genuinely different shapes and invariants (WindowState tiles a
+// contiguous byte range in both directions with eviction at either edge;
+// FilteredState is a forward-only, server-scan-paginated LIST of matching
+// lines with no "before" direction at all — see the fetch effect below for
+// why). Keeping them as two independent pieces of state, swapped at RENDER
+// time by isFilteredProjection, is what lets clearing filters fall back to
+// whatever `state`/raw-mode already holds with NO special reset logic
+// needed beyond the boolean recomputing to false (per this unit's own
+// brief) — there's nothing to reconcile between them because neither one
+// is ever derived from or mutates the other.
+//
+// `matches` holds full LogLine objects (converted ONCE, via
+// filteredMatchToLogLine below, at the moment a page response lands or a
+// live tail match is appended) rather than the raw wire shape
+// { byteOffset, raw } LogSearchResponse actually carries — this is what
+// lets the row-render loop below share ONE code path with raw mode's own
+// state.lines (both are LogLine[]), and avoids re-running parseLogLine on
+// every render for whichever rows happen to be visible (state.lines never
+// does this either — its own LogLine.parsed is likewise computed once,
+// server-side, not on every render).
+export interface FilteredState {
+  matches: LogLine[]
+  nextCursor: string | null
+  total: number
+}
+
+const EMPTY_FILTERED_STATE: FilteredState = {
+  matches: [],
+  nextCursor: null,
+  total: 0,
+}
+
+// U12: mirrors log-search.service.ts's own matchesPredicate EXACTLY —
+// same field semantics, same short-circuit-to-true-when-absent shape for
+// every field, same case-insensitive substring for `text`, same >=
+// threshold for `level`, same 'both'/absent-imposes-no-constraint for
+// `process`, same exact-slug-equals for `event`. This is deliberately NOT
+// a "close enough" reimplementation: AE6 depends on the client's live
+// tail-matching and the server's whole-file scan agreeing on what counts
+// as a match, or a filtered projection could show a tail line the server's
+// own next fresh scan would disagree was ever a match (or vice versa) —
+// see this function's own test coverage in log-viewer.spec.tsx for the
+// exact same predicate-composition scenarios log-search.service.spec.ts
+// already proves server-side.
+export interface FilterPredicate {
+  text?: string
+  level?: number
+  process?: 'main' | 'bot' | 'both'
+  event?: string
+}
+
+export function matchesFilterPredicate(
+  line: LogLine,
+  predicate: FilterPredicate,
+): boolean {
+  if (predicate.text !== undefined) {
+    if (!line.raw.toLowerCase().includes(predicate.text.toLowerCase())) {
+      return false
+    }
+  }
+
+  if (predicate.level !== undefined) {
+    // A malformed line's `parsed` is null and therefore has no numeric
+    // `level` field at all — excluded here exactly as the server's own
+    // check excludes it (R14), with no separate null-check branch needed.
+    const level = line.parsed?.level
+    if (typeof level !== 'number' || level < predicate.level) {
+      return false
+    }
+  }
+
+  if (predicate.process !== undefined && predicate.process !== 'both') {
+    if (line.parsed?.process !== predicate.process) {
+      return false
+    }
+  }
+
+  if (predicate.event !== undefined) {
+    if (line.parsed?.event !== predicate.event) {
+      return false
+    }
+  }
+
+  return true
+}
+
+// U12: converts one filtered-match entry (byteOffset + raw text, per the
+// LogSearchResponse shape this unit extended) into a full LogLine for
+// LogRow to render — the SAME "byteLength via TextEncoder, parsed via
+// parseLogLine" approach use-log-tail.ts's own tailMessageToLogLine already
+// establishes for constructing a LogLine from wire text rather than from a
+// windowed-read response (reused verbatim, not reinvented, per this unit's
+// own brief). Unlike tailMessageToLogLine, there is no END-offset-to-START-
+// offset conversion needed here: a search match's byteOffset is ALREADY the
+// line's own START (U9's own contract — see LogSearchResponse's header
+// comment in log-view.types.ts), so this is a much simpler construction.
+// Exported so a future consumer (or a test targeting this exact conversion
+// in isolation) can reuse it without re-deriving the byteLength math.
+export function filteredMatchToLogLine(match: {
+  byteOffset: number
+  raw: string
+}): LogLine {
+  return {
+    byteOffset: match.byteOffset,
+    byteLength: new TextEncoder().encode(match.raw).length + 1, // +1 for the '\n' the server's own byte accounting includes
+    raw: match.raw,
+    parsed: parseLogLine(match.raw),
+  }
+}
+
+// U12: the filtered-projection counterpart to appendTailLine — appends one
+// live-tail LogLine that has ALREADY been confirmed (by the caller, via
+// matchesFilterPredicate) to satisfy the current composed predicate.
+// Mirrors appendTailLine's own immutable-append + bounded-eviction-from-
+// the-front shape (never mutating state.matches in place, evicting the
+// OLDEST entries once EVICTION_CAP is exceeded) applied to FilteredState
+// instead of WindowState — kept as its own small pure function for the
+// identical reason appendTailLine is its own function rather than inlined:
+// cheap to test exhaustively with no DOM/virtualizer involved.
+export function appendFilteredMatch(
+  state: FilteredState,
+  line: LogLine,
+  evictionCap: number,
+): FilteredState {
+  const lastMatch = state.matches[state.matches.length - 1]
+  if (lastMatch && lastMatch.byteOffset === line.byteOffset) {
+    return state
+  }
+
+  const merged = [...state.matches, line]
+  const overflow = merged.length - evictionCap
+  const matches = overflow <= 0 ? merged : merged.slice(overflow)
+
+  return {
+    matches,
+    // A live-matched append is, by construction, always the NEWEST entry
+    // this projection has ever seen — total grows by exactly one for every
+    // genuinely new match, mirroring how a fresh server-side re-scan would
+    // count it once it becomes part of the file's own matching set.
+    total: state.total + 1,
+    nextCursor: state.nextCursor,
+  }
+}
+
 type EdgeDirection = 'before' | 'after'
 type InFlight = Record<EdgeDirection, boolean>
+
+// U12: the default empty slice every pre-U12 call site (and every test that
+// doesn't care about filters) effectively gets when `filters` itself is
+// omitted — a stable module-level constant (not a fresh `{}` literal per
+// render) so it never appears to "change" from one render to the next by
+// object identity alone, which matters for the composed-predicate/
+// isFilteredProjection derivations below and the fetch effect keyed on
+// their primitive fields (not on this object's own reference).
+const DEFAULT_FILTERS: LogFiltersValue = {}
 
 export function LogViewer({
   stream,
   readWindow,
   onSelectLine,
   isActive = true,
+  filters = DEFAULT_FILTERS,
+  onFiltersChange,
+  onClearFilters,
 }: LogViewerProps) {
   const [state, setState] = useState<WindowState>(INITIAL_STATE)
   const [initialLoad, setInitialLoad] = useState<'pending' | 'done' | 'error'>(
@@ -301,6 +475,62 @@ export function LogViewer({
   // because the search box emptied.
   const [highlightText, setHighlightText] = useState<string | null>(null)
 
+  // U12: the current free-text term, reported by LogSearchBar's own
+  // onQueryTextChange the instant ITS debounce settles (see that
+  // component's own header comment) — this is how a lone text term
+  // composes into the filtered-projection predicate (AE6) without this
+  // component needing its own separate debounce for the text side; the
+  // ALREADY-debounced value from LogSearchBar covers it.
+  const [queryText, setQueryText] = useState('')
+  // U12: the filtered-projection's own state (see FilteredState's own
+  // header comment for why this is a SEPARATE piece of state from `state`
+  // above, never merged into it).
+  const [filteredState, setFilteredState] =
+    useState<FilteredState>(EMPTY_FILTERED_STATE)
+  // Distinguishes "no filters active" / "scan in flight" / "scan resolved"
+  // for the filtered-projection's own empty-state gating (per this unit's
+  // brief: never flash "No lines match these filters" while a fetch for
+  // the CURRENT predicate is still in flight — the identical "no flash to
+  // empty" discipline U11's own LogSearchBar already applies to its
+  // "No results" state).
+  const [filteredLoad, setFilteredLoad] = useState<'idle' | 'pending' | 'done'>(
+    'idle',
+  )
+
+  // U12 (AE6): true the instant any STRUCTURED filter is genuinely
+  // restrictive — an explicit `process: 'both'` is equivalent to "no
+  // process constraint at all" (matching U9's own matchesPredicate
+  // semantics exactly; see log-search.service.ts), so it must NOT count as
+  // an active filter here, or LogFilters' own "Any process" default
+  // selection would spuriously flip the viewer into filtered-projection
+  // mode with an empty result the instant `stream === 'backend'` renders
+  // its process <select> at its default value. Free text alone (queryText
+  // non-empty, no structured filter) is deliberately EXCLUDED from this
+  // check — that combination stays in search-navigator mode (full-file
+  // context + jump-to-hit), per the Phase 2 plan's own resolved decision;
+  // only a genuinely active structured filter switches the view mode.
+  const isFilteredProjection =
+    filters.level !== undefined ||
+    (filters.process !== undefined && filters.process !== 'both') ||
+    filters.event !== undefined
+
+  // U12: the ONE predicate composing every active input — the structured
+  // filters from the `filters` prop plus the free-text term LogSearchBar
+  // reported (AE6: text AND structured filters together, never either
+  // alone dropped from the request). Used for BOTH the server-side fetch
+  // effect below (as the actual api.searchLog params) and the client-side
+  // live-tail predicate check (matchesFilterPredicate) — sharing this one
+  // object between both call sites is what guarantees they can never drift
+  // out of sync with each other, even though log-search.service.ts's own
+  // server-side matchesPredicate is the ultimate source of truth this
+  // client-side mirror must independently agree with.
+  const composedPredicate: FilterPredicate = {
+    text: queryText.trim().length > 0 ? queryText.trim() : undefined,
+    level: filters.level,
+    process: filters.process,
+    event: filters.event,
+  }
+
   const scrollElementRef = useRef<HTMLDivElement>(null)
   const inFlightRef = useRef<InFlight>({ before: false, after: false })
   // Mirrors `state` for synchronous reads inside fetchEdge/onChange, which
@@ -321,6 +551,26 @@ export function LogViewer({
   // follow). Read via this ref inside that callback instead.
   const followingRef = useRef(following)
   followingRef.current = following
+  // U12: mirrors `isFilteredProjection` for the identical reason
+  // followingRef exists above — handleVirtualizerChange (memoized via
+  // useCallback on [fetchEdge]) must read the CURRENT mode, not whatever
+  // was true the first time that callback was constructed, or switching
+  // into/out of filtered-projection mode after mount would leave the edge-
+  // detection logic permanently stuck reacting to the WRONG list.
+  const isFilteredProjectionRef = useRef(isFilteredProjection)
+  isFilteredProjectionRef.current = isFilteredProjection
+  // U12: mirrors `filteredState` for the SAME reason stateRef mirrors
+  // `state` above — the filtered-projection pagination fetch triggered from
+  // handleVirtualizerChange needs a synchronous read of the CURRENT
+  // nextCursor/matches, never a value captured when that memoized callback
+  // was first constructed.
+  const filteredStateRef = useRef(filteredState)
+  filteredStateRef.current = filteredState
+  // U12: mirrors `composedPredicate` for the reasons explained on
+  // fetchFilteredNextPage's own header comment below — read by that
+  // memoized callback, never closed over directly.
+  const composedPredicateRef = useRef(composedPredicate)
+  composedPredicateRef.current = composedPredicate
   // True from mount until the first successful seed has both landed AND had
   // one layout pass to pin scroll to the bottom — guards the "pin to
   // bottom on open" scrollTo from re-firing on every later re-render.
@@ -397,6 +647,55 @@ export function LogViewer({
     [stream, readWindow],
   )
 
+  // U12: filtered-projection's own pagination — forward-only, by
+  // construction (the scan has no "before" direction: matches are
+  // discovered walking the file from byte 0 on every FRESH query, so the
+  // very first page already IS the start; there is nothing earlier to
+  // page backward INTO the way raw mode's `before` edge-fetch can always
+  // walk further toward byte 0). Guarded on `filteredFetchInFlightRef`
+  // (the SAME single-in-flight-request idiom `inFlightRef` already
+  // provides for raw mode's edge fetches) and on `nextCursor` actually
+  // being non-null — appends the resolved page's matches (converted via
+  // filteredMatchToLogLine) onto whatever is already loaded, mirroring
+  // fetchEdge's own 'after' append shape. Reads the composed predicate via
+  // `composedPredicateRef` (not the outer `composedPredicate` closure
+  // variable) for the SAME reason every other memoized callback in this
+  // file reads render-local values via a ref — this function is memoized
+  // via useCallback on [stream] alone, so a direct closure over
+  // `composedPredicate` would only ever see whatever text/filters were
+  // active the FIRST time this function was constructed.
+  const filteredFetchInFlightRef = useRef(false)
+  const [filteredPageLoading, setFilteredPageLoading] = useState(false)
+  const fetchFilteredNextPage = useCallback(async () => {
+    const current = filteredStateRef.current
+    if (filteredFetchInFlightRef.current || !current.nextCursor) return
+
+    filteredFetchInFlightRef.current = true
+    setFilteredPageLoading(true)
+    try {
+      const predicate = composedPredicateRef.current
+      const response = await api.searchLog({
+        stream,
+        text: predicate.text,
+        level: predicate.level,
+        process: predicate.process,
+        event: predicate.event,
+        cursor: current.nextCursor,
+      })
+      setFilteredState(prev => ({
+        matches: [
+          ...prev.matches,
+          ...response.matches.map(filteredMatchToLogLine),
+        ],
+        nextCursor: response.nextCursor,
+        total: response.total,
+      }))
+    } finally {
+      filteredFetchInFlightRef.current = false
+      setFilteredPageLoading(false)
+    }
+  }, [stream])
+
   // Edge detection off the virtualizer's own visible range, run from
   // `onChange` — the virtualizer's own notification hook for "the visible
   // range or scroll offset changed" (scroll, resize, or a measurement
@@ -426,6 +725,41 @@ export function LogViewer({
   // since the same effect-ordering applies in a real browser too.
   const handleVirtualizerChange = useCallback(
     (instance: Virtualizer<HTMLDivElement, Element>) => {
+      // U12: filtered-projection mode is a COMPLETELY different scroll
+      // surface than raw mode's byte-tiled window (see FilteredState's own
+      // header comment) — it has no "before" direction, no atStart/atEnd
+      // concept, and its own liveness (handleTailLine below) is
+      // unconditional rather than gated on `following`/pause. Branching
+      // HERE, BEFORE the pendingInitialScrollRef check below (not after
+      // it), is deliberate: that flag's entire meaning is specific to RAW
+      // MODE's own "pin scroll to bottom on open" timing (see the paired
+      // useLayoutEffect's own header comment) — filtered-projection has no
+      // equivalent pin-on-open behavior of its own to guard a transient
+      // pre-pin scrollTop misread against, and that SAME effect correctly
+      // SKIPS consuming the flag while filtered-projection is active (see
+      // its own U12 comment) — meaning if this filtered branch were placed
+      // AFTER the pendingInitialScrollRef check instead, the flag would
+      // never get consumed at all whenever filtered-projection is active
+      // from this component's very first render, permanently disabling
+      // EVERY onChange invocation (including this filtered branch's own
+      // pagination) for the rest of that mode's lifetime — a real
+      // regression an earlier draft of this ordering had. See
+      // isFilteredProjectionRef's own header comment for why this reads a
+      // ref, not the outer `isFilteredProjection` closure variable.
+      if (isFilteredProjectionRef.current) {
+        const items = instance.getVirtualItems()
+        const last = items[items.length - 1]
+        const matchCount = filteredStateRef.current.matches.length
+        if (
+          last &&
+          last.index >= matchCount - 1 - EDGE_FETCH_THRESHOLD &&
+          filteredStateRef.current.nextCursor
+        ) {
+          void fetchFilteredNextPage()
+        }
+        return
+      }
+
       if (pendingInitialScrollRef.current) return
 
       const items = instance.getVirtualItems()
@@ -488,14 +822,24 @@ export function LogViewer({
         setFollowing(false)
       }
     },
-    [fetchEdge],
+    [fetchEdge, fetchFilteredNextPage],
   )
 
+  // U12: the SAME useVirtualizer instance drives whichever list is
+  // currently active — filtered-projection's own matches when a structured
+  // filter is active, state.lines (raw/search-navigator mode, unchanged
+  // from Phase 1/U11) otherwise. `activeLines` is recomputed fresh every
+  // render (cheap: it's just picking one of two already-computed arrays,
+  // never copying), which is what lets count/getItemKey/the row-render
+  // loop below share ONE code path instead of duplicating the virtualizer
+  // wiring per mode.
+  const activeLines = isFilteredProjection ? filteredState.matches : state.lines
+
   const virtualizer = useVirtualizer({
-    count: state.lines.length,
+    count: activeLines.length,
     getScrollElement: () => scrollElementRef.current,
     estimateSize: () => ROW_PX,
-    getItemKey: i => state.lines[i]?.byteOffset ?? i,
+    getItemKey: i => activeLines[i]?.byteOffset ?? i,
     overscan: OVERSCAN,
     // Keeps the currently-visible row anchored (by getItemKey, not index)
     // across a prepend or an eviction at either edge. Chosen over the
@@ -568,7 +912,25 @@ export function LogViewer({
   // Layout effect (not a plain effect) so this runs before the browser
   // paints the newly-populated list — avoids a visible flash at the top
   // before jumping to the bottom.
+  //
+  // U12: guarded on `!isFilteredProjection` — this is RAW MODE's own
+  // "open at tail" behavior specifically, and `state.lines`/`initialLoad`
+  // update in the background regardless of which mode is CURRENTLY
+  // rendered (the raw windowed read always runs, per this file's own
+  // "runs alongside filtered-projection, never instead of it" design).
+  // Without this guard, a `state.lines.length` transition landing WHILE
+  // filtered-projection is already the active/rendered mode would still
+  // read `scrollElementRef.current` — which, in that mode, points at the
+  // FILTERED branch's own scroll container (the only one actually mounted
+  // right now), never a raw-mode container at all — and pin THAT
+  // container to ITS OWN bottom as an unintended side effect of a raw-
+  // mode background fetch that has nothing to do with what's on screen. A
+  // skip here (rather than consuming the flag) leaves
+  // pendingInitialScrollRef.current untouched, so raw mode still gets its
+  // one-time pin whenever ITS OWN content is what next triggers this
+  // effect while genuinely being the rendered branch.
   useLayoutEffect(() => {
+    if (isFilteredProjection) return
     if (!pendingInitialScrollRef.current) return
     if (initialLoad !== 'done') return
     if (state.lines.length === 0) return
@@ -576,7 +938,7 @@ export function LogViewer({
     if (!scrollElement) return
     scrollElement.scrollTop = scrollElement.scrollHeight
     pendingInitialScrollRef.current = false
-  }, [initialLoad, state.lines.length])
+  }, [initialLoad, state.lines.length, isFilteredProjection])
 
   // U10: handed to useLogTail as `onLine` — deliberately NOT wrapped in
   // useCallback. This is the "unstable callback" the hook's own header
@@ -592,15 +954,37 @@ export function LogViewer({
   function handleTailLine(line: LogLine) {
     if (following) {
       setState(prev => appendTailLine(prev, line, EVICTION_CAP))
-      return
+    } else {
+      // Paused (R4): never touch state.lines — only the bounded counter
+      // grows. This is what keeps memory bounded while paused (the plan's
+      // own "never an unbounded pending-line buffer" requirement) and is
+      // also why followOnAppend above can stay unconditionally enabled:
+      // there is no append for it to react to while paused in the first
+      // place.
+      setNewLineCount(prev => prev + 1)
     }
-    // Paused (R4): never touch state.lines — only the bounded counter
-    // grows. This is what keeps memory bounded while paused (the plan's
-    // own "never an unbounded pending-line buffer" requirement) and is
-    // also why followOnAppend above can stay unconditionally enabled:
-    // there is no append for it to react to while paused in the first
-    // place.
-    setNewLineCount(prev => prev + 1)
+
+    // U12 (chosen liveness behavior — see this unit's own report for why
+    // live-append was chosen over the "N new matches — refresh" fallback):
+    // filtered-projection's own liveness is UNCONDITIONAL, independent of
+    // `following`/pause above — those describe the RAW window, which
+    // isn't even the view currently on screen while a structured filter is
+    // active. A newly-arrived tail line is checked against the SAME
+    // composedPredicate the fetch effect below sends to the server, via
+    // matchesFilterPredicate (which must mirror log-search.service.ts's
+    // own matchesPredicate exactly — see that function's own header
+    // comment), and appended in real time if it matches. This runs
+    // ALONGSIDE the raw-mode branch above, never instead of it: both
+    // `state` and `filteredState` stay independently up to date on every
+    // tail line regardless of which one is currently rendered, so
+    // clearing filters later needs no catch-up fetch to reflect what
+    // arrived while filtered-projection was active.
+    if (
+      isFilteredProjection &&
+      matchesFilterPredicate(line, composedPredicate)
+    ) {
+      setFilteredState(prev => appendFilteredMatch(prev, line, EVICTION_CAP))
+    }
   }
 
   const { connect, disconnect } = useLogTail(stream, handleTailLine)
@@ -646,6 +1030,91 @@ export function LogViewer({
       wasConnectedRef.current = false
     }
   }, [initialLoad, isActive, connect, disconnect])
+
+  // U12: fetches a FRESH page 1 of the filtered projection whenever any
+  // input to the composed predicate changes — every structured-filter
+  // change (level/process/event, driven by LogFilters' own <select>/
+  // <input> controls) fires this immediately with no debounce of its own
+  // needed (a <select> change is a discrete, deliberate action, unlike
+  // free-text keystrokes), while the free-text side is covered for free
+  // because `queryText` itself only ever updates once LogSearchBar's OWN
+  // debounce has already settled (see that component's onQueryTextChange
+  // contract) — so this effect never fires once per keystroke even though
+  // it has no debounce logic of its own.
+  //
+  // Keyed on the PRIMITIVE fields (filters.level/.process/.event,
+  // queryText, stream), never on `composedPredicate` or `filters`
+  // themselves — those are fresh object literals every render (see
+  // composedPredicate's own construction above), so keying on their
+  // reference would re-run this effect on every single render regardless
+  // of whether any actual VALUE changed.
+  //
+  // A `generation` guard (the same pattern log-search-bar.tsx's own
+  // searchGenerationRef establishes for its accumulator) is what keeps a
+  // slow, superseded fetch from ever applying its response after a NEWER
+  // filter/text change has already landed and moved this component on —
+  // without it, a stale page-1 response for an OLD predicate could
+  // overwrite the CURRENT predicate's already-correct filteredState.
+  const filteredGenerationRef = useRef(0)
+  useEffect(() => {
+    if (!isFilteredProjection) {
+      // Not in filtered-projection mode — nothing to fetch. filteredState
+      // is deliberately left exactly as it is (not reset) per this unit's
+      // own brief: "clearing filters ... no special reset needed beyond
+      // [isFilteredProjection] recomputing" — the next time a structured
+      // filter goes active again (even with a stale filteredState still
+      // sitting there from before), THIS effect fires again anyway
+      // (because at least one of its own dependencies necessarily changed
+      // to make isFilteredProjection true again) and replaces it wholesale
+      // below, so no reader ever observes the stale interim value.
+      return
+    }
+
+    const generation = ++filteredGenerationRef.current
+    setFilteredLoad('pending')
+    const predicate = composedPredicateRef.current
+
+    void api
+      .searchLog({
+        stream,
+        text: predicate.text,
+        level: predicate.level,
+        process: predicate.process,
+        event: predicate.event,
+        cursor: undefined,
+      })
+      .then(response => {
+        if (filteredGenerationRef.current !== generation) return // superseded
+        setFilteredState({
+          matches: response.matches.map(filteredMatchToLogLine),
+          nextCursor: response.nextCursor,
+          total: response.total,
+        })
+        setFilteredLoad('done')
+      })
+      .catch(() => {
+        if (filteredGenerationRef.current !== generation) return
+        // A failed filtered-projection fetch is treated the same way
+        // log-search-bar.tsx's own react-query-backed fetch treats a
+        // rejection at this layer: the previous (possibly empty)
+        // filteredState is left as-is rather than crashing this
+        // component — there is no dedicated error affordance for THIS
+        // specific fetch beyond falling back to "no matches yet," since
+        // an outright network failure here is rare enough (this is a
+        // local admin console, not a public-internet surface) not to
+        // warrant its own distinct error UI on top of the existing raw-
+        // mode error state this component already has for the windowed
+        // read.
+        setFilteredLoad('done')
+      })
+  }, [
+    isFilteredProjection,
+    stream,
+    filters.level,
+    filters.process,
+    filters.event,
+    queryText,
+  ])
 
   function handleRefresh() {
     void loadInitial()
@@ -849,68 +1318,198 @@ export function LogViewer({
       : 0
   const virtualItems = virtualizer.getVirtualItems()
 
+  // U12: the shared row-render block both view modes use — factored out
+  // once (rather than duplicated per branch below) since it is otherwise
+  // byte-for-byte identical between raw/search-navigator mode and filtered-
+  // projection mode: both read from `activeLines` (already picked above)
+  // and the SAME `virtualizer`/`virtualItems`, differing only in the
+  // surrounding loading/edge-marker chrome each mode renders around it.
+  const virtualRowList = (
+    <div
+      style={{
+        height: virtualizer.getTotalSize(),
+        position: 'relative',
+        width: '100%',
+      }}
+    >
+      {virtualItems.map(virtualItem => {
+        const line = activeLines[virtualItem.index]
+        if (!line) return null
+        return (
+          <div
+            key={virtualItem.key}
+            data-index={virtualItem.index}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              transform: `translateY(${virtualItem.start}px)`,
+            }}
+          >
+            <LogRow
+              line={line}
+              stream={stream}
+              onSelect={() => onSelectLine(line)}
+              highlightText={highlightText ?? undefined}
+            />
+          </div>
+        )
+      })}
+    </div>
+  )
+
   return (
     <div className="flex flex-col gap-2">
       {/*
-        U11: functional placement only (near the top, above the live-
+        U12: rendered above LogSearchBar (functional placement only — U14
+        is the dedicated visual-refinement pass over this component's
+        overall layout). `onFiltersChange`/`onClearFilters` fall back to
+        no-ops when the caller doesn't provide them (a pre-U12 test/call
+        site that never passes filter props at all) — filters is likewise
+        defaulted to DEFAULT_FILTERS above, so LogFilters always receives a
+        real (possibly empty) value regardless of what page.tsx does.
+      */}
+      <LogFilters
+        stream={stream}
+        filters={filters}
+        onFiltersChange={onFiltersChange ?? (() => {})}
+        onClearFilters={onClearFilters ?? (() => {})}
+      />
+
+      {/*
+        U11/U12: functional placement only (near the top, above the live-
         status banner) — U14 is the dedicated visual-refinement pass over
         this component's overall layout, same as the banner below it.
+        hideNavigation suppresses the hit-count/prev/next UI + auto-select
+        while isFilteredProjection is true (see that prop's own header
+        comment in log-search-bar.tsx) — the input itself and
+        onQueryTextChange keep firing regardless, which is how a lone free-
+        text term still composes into the filtered predicate (AE6) even
+        though this component's own hit-navigator UI is hidden.
       */}
       <LogSearchBar
         stream={stream}
         currentFileSize={state.fileSize}
         onHitSelected={handleHitSelected}
         onSearchActiveChange={handleSearchActiveChange}
+        onQueryTextChange={setQueryText}
+        hideNavigation={isFilteredProjection}
       />
 
-      {/*
-        U10: reflects live follow/pause state instead of Phase 1's static
-        "Snapshot — refresh for newer entries" framing, now that the tail
-        is actually wired in. Kept functional-but-plain here (data-
-        track-ids + minimal layout, no motion/visual polish) — U14 is the
-        dedicated visual-refinement pass over this exact banner.
-      */}
-      <div
-        data-track-id="log-viewer-snapshot-banner"
-        className="flex items-center justify-between gap-3 rounded border border-gray-800 bg-gray-900/50 px-3 py-1.5 text-xs text-gray-500"
-      >
-        <span className="flex items-center gap-2">
-          {following ? (
-            <span data-track-id="log-viewer-following-indicator">
-              Following live.
-            </span>
-          ) : (
-            <span className="flex items-center gap-2">
-              <span data-track-id="log-viewer-paused-indicator">Paused</span>
-              <span
-                data-track-id="log-viewer-new-line-badge"
-                className="rounded bg-gray-800 px-1.5 py-0.5 text-gray-300"
-              >
-                {newLineCount} new
-              </span>
-              <button
-                type="button"
-                data-track-id="log-viewer-jump-to-latest"
-                onClick={() => void handleJumpToLatest()}
-                className="rounded px-2 py-0.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-              >
-                Jump to latest
-              </button>
-            </span>
-          )}
-          <span>{percentThroughFile}% through file.</span>
-        </span>
-        <button
-          type="button"
-          data-track-id="log-viewer-refresh"
-          onClick={handleRefresh}
-          className="shrink-0 rounded px-2 py-0.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+      {isFilteredProjection ? (
+        // U12: a DELIBERATELY distinct, simpler banner from raw mode's own
+        // following/paused/percent-through-file status below — none of
+        // that raw-window state describes what's currently on screen while
+        // a structured filter is active (state.windowStart/fileSize belong
+        // to a byte range that isn't even being rendered right now), so
+        // showing it here would be actively misleading rather than merely
+        // unpolished. The one thing genuinely worth surfacing is the
+        // filtered count itself.
+        <div
+          data-track-id="log-viewer-filtered-banner"
+          className="flex items-center justify-between gap-3 rounded border border-gray-800 bg-gray-900/50 px-3 py-1.5 text-xs text-gray-500"
         >
-          Refresh
-        </button>
-      </div>
+          <span data-track-id="log-viewer-filtered-count">
+            {filteredState.total} matching line
+            {filteredState.total === 1 ? '' : 's'}.
+          </span>
+        </div>
+      ) : (
+        // U10: reflects live follow/pause state instead of Phase 1's static
+        // "Snapshot — refresh for newer entries" framing, now that the tail
+        // is actually wired in. Kept functional-but-plain here (data-
+        // track-ids + minimal layout, no motion/visual polish) — U14 is the
+        // dedicated visual-refinement pass over this exact banner.
+        <div
+          data-track-id="log-viewer-snapshot-banner"
+          className="flex items-center justify-between gap-3 rounded border border-gray-800 bg-gray-900/50 px-3 py-1.5 text-xs text-gray-500"
+        >
+          <span className="flex items-center gap-2">
+            {following ? (
+              <span data-track-id="log-viewer-following-indicator">
+                Following live.
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <span data-track-id="log-viewer-paused-indicator">Paused</span>
+                <span
+                  data-track-id="log-viewer-new-line-badge"
+                  className="rounded bg-gray-800 px-1.5 py-0.5 text-gray-300"
+                >
+                  {newLineCount} new
+                </span>
+                <button
+                  type="button"
+                  data-track-id="log-viewer-jump-to-latest"
+                  onClick={() => void handleJumpToLatest()}
+                  className="rounded px-2 py-0.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+                >
+                  Jump to latest
+                </button>
+              </span>
+            )}
+            <span>{percentThroughFile}% through file.</span>
+          </span>
+          <button
+            type="button"
+            data-track-id="log-viewer-refresh"
+            onClick={handleRefresh}
+            className="shrink-0 rounded px-2 py-0.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+          >
+            Refresh
+          </button>
+        </div>
+      )}
 
-      {state.lines.length === 0 ? (
+      {isFilteredProjection ? (
+        filteredLoad === 'pending' ? (
+          // U12: held here (never the empty state below) until the scan
+          // has genuinely resolved — the identical "no flash to empty"
+          // discipline U11's own LogSearchBar already applies to its "No
+          // results" state, applied here to "No lines match these
+          // filters" for the same reason: a fetch simply hasn't landed yet
+          // is not the same fact as "the file genuinely contains zero
+          // matching lines," and conflating the two would flash a false
+          // negative on every filter change.
+          <div
+            data-track-id="log-viewer-filtered-loading"
+            className="flex min-h-32 items-center justify-center text-sm text-gray-500"
+          >
+            Scanning for matches…
+          </div>
+        ) : filteredState.matches.length === 0 ? (
+          // U12: a DISTINCT empty state from raw mode's own per-tab
+          // bootstrap empty state (log-viewer-empty, Phase 1) and from
+          // LogSearchBar's own "No results" (a different, text-only-search
+          // concept covering the search-navigator mode this component is
+          // NOT in right now) — deliberately different copy/track-id so a
+          // test (or an operator glancing at the DOM) can never confuse
+          // "this file is empty" with "these filters matched nothing."
+          <div
+            data-track-id="log-viewer-filtered-empty"
+            className="flex min-h-32 items-center justify-center text-sm text-gray-500"
+          >
+            No lines match these filters.
+          </div>
+        ) : (
+          <div
+            ref={scrollElementRef}
+            data-track-id="log-viewer-scroll"
+            className="h-[32rem] overflow-y-auto"
+          >
+            {virtualRowList}
+            {filteredPageLoading && (
+              <div
+                data-track-id="log-viewer-loading-after"
+                className="py-1 text-center text-xs text-gray-500"
+              >
+                Loading more matches…
+              </div>
+            )}
+          </div>
+        )
+      ) : state.lines.length === 0 ? (
         <div
           data-track-id="log-viewer-empty"
           className="flex min-h-32 items-center justify-center text-sm text-gray-500"
@@ -940,38 +1539,7 @@ export function LogViewer({
             </div>
           )}
 
-          <div
-            style={{
-              height: virtualizer.getTotalSize(),
-              position: 'relative',
-              width: '100%',
-            }}
-          >
-            {virtualItems.map(virtualItem => {
-              const line = state.lines[virtualItem.index]
-              if (!line) return null
-              return (
-                <div
-                  key={virtualItem.key}
-                  data-index={virtualItem.index}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${virtualItem.start}px)`,
-                  }}
-                >
-                  <LogRow
-                    line={line}
-                    stream={stream}
-                    onSelect={() => onSelectLine(line)}
-                    highlightText={highlightText ?? undefined}
-                  />
-                </div>
-              )
-            })}
-          </div>
+          {virtualRowList}
 
           {edgeLoading.after && (
             <div

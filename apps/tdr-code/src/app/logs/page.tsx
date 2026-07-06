@@ -9,6 +9,7 @@ import { ErrorState } from 'src/app/components/error-state'
 import { LoadingState } from 'src/app/components/loading-state'
 import { api, queryKeys } from 'src/app/lib/api'
 import { LogDetailPanel } from 'src/app/logs/log-detail-panel'
+import type { LogFiltersValue } from 'src/app/logs/log-filters'
 import { LogViewer } from 'src/app/logs/log-viewer'
 import type { LogLine, LogStream } from 'src/logging/log-view.types'
 
@@ -32,9 +33,53 @@ const TABS: { stream: LogStream; label: string }[] = [
   { stream: 'frontend-browser', label: 'frontend-browser' },
 ]
 
+// U12: structured filter state (level/source-process/event) needs to be
+// readable/writable from TWO components that are SIBLINGS under this page,
+// not parent/child — LogViewer reads it to build its filtered-projection
+// query, and LogDetailPanel WRITES to it via its own "filter by this field"
+// actions, but LogDetailPanel is rendered ONCE at this page's own level
+// (Decision #3, Phase 1), shared across every tab, not owned by any single
+// LogViewer instance. The standard React resolution is lifting this
+// specific state to the nearest shared ancestor — this page — rather than
+// letting each LogViewer hold its own copy (which LogDetailPanel would then
+// have no way to reach) or letting LogDetailPanel hold it (which no
+// LogViewer instance would ever see).
+//
+// Keyed per-stream (not one shared filter object) for the IDENTICAL reason
+// each LogViewer instance's own internal windowed-view state already
+// survives a tab switch (R2, Phase 1 decision #1): this page's own state
+// object never resets on a tab click, and each stream's own slice is
+// independent of every other stream's — switching tabs away and back
+// preserves whatever filters were set on the tab being returned to, with
+// no special-casing needed beyond the state simply never being cleared.
+const EMPTY_STREAM_FILTERS: Record<LogStream, LogFiltersValue> = {
+  backend: {},
+  'frontend-server': {},
+  'frontend-browser': {},
+}
+
 export default function LogsPage() {
   const [activeTab, setActiveTab] = useState<LogStream>('backend')
   const [selectedLine, setSelectedLine] = useState<LogLine | null>(null)
+  const [filtersByStream, setFiltersByStream] =
+    useState<Record<LogStream, LogFiltersValue>>(EMPTY_STREAM_FILTERS)
+
+  // Merges `patch` into ONE stream's own slice, leaving every other
+  // stream's filters completely untouched — the functional setState form
+  // (not a direct object mutation) is what keeps this safe to call from
+  // multiple independent callers (every LogViewer's own onFiltersChange,
+  // AND LogDetailPanel's filter-action callbacks below) without either one
+  // risking a lost update against the other's most recent change.
+  function patchFilters(stream: LogStream, patch: Partial<LogFiltersValue>) {
+    setFiltersByStream(prev => ({
+      ...prev,
+      [stream]: { ...prev[stream], ...patch },
+    }))
+  }
+
+  function clearFilters(stream: LogStream) {
+    setFiltersByStream(prev => ({ ...prev, [stream]: {} }))
+  }
 
   const {
     data: sources,
@@ -132,6 +177,16 @@ export default function LogsPage() {
               readWindow={api.readLogWindow}
               onSelectLine={setSelectedLine}
               isActive={isActive}
+              // U12: each instance gets its OWN slice of filtersByStream —
+              // this (not anything LogViewer itself does) is what makes
+              // filter state genuinely per-tab/preserved-across-switches
+              // (R2), the identical reasoning that already makes each
+              // instance's own internal windowed-view state survive a tab
+              // switch (this page's own state object never resets, and
+              // every stream's slice is independent of every other's).
+              filters={filtersByStream[stream]}
+              onFiltersChange={patch => patchFilters(stream, patch)}
+              onClearFilters={() => clearFilters(stream)}
             />
           </div>
         )
@@ -141,6 +196,28 @@ export default function LogsPage() {
         line={selectedLine}
         stream={activeTab}
         onClose={() => setSelectedLine(null)}
+        // U12 (R13, filter-actions half): LogDetailPanel only ever shows a
+        // line from `activeTab` (Decision #3: the panel closes on tab
+        // switch — see handleTabChange above), so there is no ambiguity
+        // about which tab's filters a click here should touch; wiring
+        // straight to `patchFilters(activeTab, ...)` is unconditionally
+        // correct.
+        onFilterByLevel={level => patchFilters(activeTab, { level })}
+        onFilterByProcess={process => {
+          // LogDetailPanelProps types this callback's own param as a bare
+          // `string` (it's read off an arbitrary log line's `parsed.process`
+          // field, which the structured-logging convention documents as
+          // ALWAYS 'main' or 'bot' on a real backend line — but that
+          // convention is not itself enforced at this type boundary, so a
+          // narrowing check here, rather than a blind cast, is what keeps
+          // an unexpected value from ever reaching LogScanPredicate's own
+          // stricter 'main' | 'bot' | 'both' union as a silently-wrong
+          // filter value).
+          if (process === 'main' || process === 'bot') {
+            patchFilters(activeTab, { process })
+          }
+        }}
+        onFilterByEvent={event => patchFilters(activeTab, { event })}
       />
     </div>
   )

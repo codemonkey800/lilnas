@@ -257,6 +257,27 @@ describe('LogSearchService (real temp files)', () => {
       expect(result.nextCursor).toBeNull()
     })
 
+    it('U12: each match entry carries the matched line’s own raw text verbatim, not just its offset', async () => {
+      // Bypasses the scanAll() helper (it deliberately projects down to
+      // byteOffset-only — see that helper's own header comment) since this
+      // test's whole point is asserting the field that helper discards.
+      const matchLine = jsonLine({ level: 30, time: 0, msg: 'hello world' })
+      const otherLine = jsonLine({ level: 30, time: 1, msg: 'nope' })
+      writeStream('backend', matchLine + otherLine)
+
+      const result = await service.scan({
+        stream: 'backend',
+        predicate: { text: 'world' },
+      })
+
+      expect(result.matches).toHaveLength(1)
+      // The exact serialized line text (including its own trailing
+      // newline stripped, matching every other raw-line convention in this
+      // codebase — see ScannedLine's own `raw: raw.toString('utf8')`
+      // construction, which splits strictly on '\n' and never includes it).
+      expect(result.matches[0]?.raw).toBe(matchLine.trimEnd())
+    })
+
     it('text matching is case-insensitive', async () => {
       writeStream(
         'backend',
