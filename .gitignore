@@ -13,7 +13,7 @@ coverage/
 data/
 dist/
 infra/dev.yml
-logs/
+apps/tdr-bot/logs/
 node_modules/
 REVIEW.md
 *.db
