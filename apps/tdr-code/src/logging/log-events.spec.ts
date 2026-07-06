@@ -148,6 +148,10 @@ describe('LOG_EVENT_VALUES', () => {
       'mutation-success',
       'reconcile-result',
       'reconcile-mismatch',
+      // log-reader.service.ts / log-sources.service.ts (U2/U3, tdr-code logs
+      // viewer)
+      'log-window-read-failed',
+      'log-source-stat-failed',
     ]
 
     for (const slug of seeded) {

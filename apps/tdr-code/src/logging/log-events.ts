@@ -385,6 +385,16 @@ const NOTIFY_EMITTER_EVENTS = {
   notifyEmitSkippedNoIpc: 'notify-emit-skipped-no-ipc',
 } as const
 
+const LOGS_EVENTS = {
+  // log-reader.service.ts (U2, tdr-code logs viewer) — readWindow's seek/read
+  // failure path for the windowed byte-offset read endpoint.
+  logWindowReadFailed: 'log-window-read-failed',
+  // log-sources.service.ts (U3, tdr-code logs viewer) — the tab-bootstrap
+  // stat loop's non-ENOENT failure path (a missing file is not an error; see
+  // that service's own header comment).
+  logSourceStatFailed: 'log-source-stat-failed',
+} as const
+
 const ERROR_BOUNDARY_EVENTS = {
   // error-reporter.tsx mounts a window-level 'error' listener and an
   // 'unhandledrejection' listener; each is a distinct raw-message site that
@@ -427,6 +437,7 @@ export const LOG_EVENTS = {
   ...SSE_EVENTS,
   ...NOTIFY_EMITTER_EVENTS,
   ...ERROR_BOUNDARY_EVENTS,
+  ...LOGS_EVENTS,
 } as const
 
 export type LogEvent = (typeof LOG_EVENTS)[keyof typeof LOG_EVENTS]
