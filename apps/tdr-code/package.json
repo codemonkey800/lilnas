@@ -48,6 +48,7 @@
     "@nestjs/platform-express": "11.1.6",
     "@nestjs/schedule": "6.0.1",
     "@tanstack/react-query": "5.90.2",
+    "@tanstack/react-virtual": "^3.14.5",
     "@thallesp/nestjs-better-auth": "2.6.1",
     "better-auth": "1.6.23",
     "better-sqlite3": "^12.10.0",
