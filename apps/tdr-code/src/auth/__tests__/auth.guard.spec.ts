@@ -54,7 +54,8 @@ import { BrowserLogsController } from 'src/logging/browser-logs.controller'
 import { BrowserLogsService } from 'src/logging/browser-logs.service'
 import { LOG_EVENTS } from 'src/logging/log-events'
 import { LogReaderService } from 'src/logging/log-reader.service'
-import type { LogWindowResponse } from 'src/logging/log-view.types'
+import { LogSourcesService } from 'src/logging/log-sources.service'
+import type { LogSource, LogWindowResponse } from 'src/logging/log-view.types'
 import { LogsController } from 'src/logging/logs.controller'
 import { SupervisorService } from 'src/supervisor/supervisor.service'
 
@@ -356,6 +357,12 @@ const MOCK_LOG_WINDOW_RESPONSE: LogWindowResponse = {
   lines: [],
 }
 
+const MOCK_LOG_SOURCES_RESPONSE: LogSource[] = [
+  { stream: 'backend', exists: true, size: 0 },
+  { stream: 'frontend-server', exists: false, size: 0 },
+  { stream: 'frontend-browser', exists: false, size: 0 },
+]
+
 function buildTestControllerModule(db: TestDb['db']) {
   const TestDatabaseModule = makeTestDatabaseModule(db)
 
@@ -400,6 +407,9 @@ function buildTestControllerModule(db: TestDb['db']) {
   const mockLogReaderService = {
     readWindow: jest.fn().mockReturnValue(MOCK_LOG_WINDOW_RESPONSE),
   }
+  const mockLogSourcesService = {
+    getSources: jest.fn().mockReturnValue(MOCK_LOG_SOURCES_RESPONSE),
+  }
   const fakePinoLogger = fakeLogger()
 
   @Module({
@@ -433,6 +443,7 @@ function buildTestControllerModule(db: TestDb['db']) {
       { provide: SupervisorService, useValue: mockSupervisorService },
       { provide: BrowserLogsService, useValue: mockBrowserLogsService },
       { provide: LogReaderService, useValue: mockLogReaderService },
+      { provide: LogSourcesService, useValue: mockLogSourcesService },
       { provide: PinoLogger, useValue: fakePinoLogger },
       { provide: APP_GUARD, useClass: AuthGuard },
     ],
@@ -1050,8 +1061,11 @@ describe('protected-routes.ts — canonical enumeration bookkeeping', () => {
   // summary sentence, not a route this file is missing or has extra. So:
   // 14 (verified pre-existing) + 1 (this unit's own revoke-sessions
   // deliverable) = 15 protected routes; + GET /health public = 16 total.
-  it('enumerates exactly 18 protected routes (16 pre-existing + POST /logs/browser + GET /logs/window)', () => {
-    expect(PROTECTED_ROUTES).toHaveLength(18)
+  // Running tally since: 16 + POST /logs/browser (unified-logging unit) +
+  // GET /logs/window (U2, logs viewer windowed read) = 18; + GET
+  // /logs/sources (U3, logs viewer tab-bootstrap sources) = 19.
+  it('enumerates exactly 19 protected routes (16 pre-existing + POST /logs/browser + GET /logs/window + GET /logs/sources)', () => {
+    expect(PROTECTED_ROUTES).toHaveLength(19)
   })
 
   it('enumerates exactly one public route: GET /health', () => {

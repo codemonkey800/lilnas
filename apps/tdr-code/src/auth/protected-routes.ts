@@ -131,6 +131,14 @@ export const PROTECTED_ROUTES: ProtectedRouteSpec[] = [
     path: '/logs/window',
     label: 'GET /logs/window',
   },
+  // Logs viewer (U3) — the tab-bootstrap sources endpoint. No query params
+  // and no `:param` path segment at all (see logs.controller.ts's own
+  // sources() handler), so no `params` entry is needed here either.
+  {
+    method: 'GET',
+    path: '/logs/sources',
+    label: 'GET /logs/sources',
+  },
 ]
 
 // The sole allowlisted route (R19: deny-by-default; @Public() is the one

@@ -1,9 +1,10 @@
 import { Controller, Get, Query } from '@nestjs/common'
 
 import { parseQuery } from 'src/console/query-params'
-import type { LogWindowResponse } from 'src/logging/log-view.types'
+import type { LogSource, LogWindowResponse } from 'src/logging/log-view.types'
 
 import { LogReaderService } from './log-reader.service'
+import { LogSourcesService } from './log-sources.service'
 import { LogWindowQuerySchema } from './logs.dto'
 
 // BrowserLogsController already declares @Controller('logs') with
@@ -14,10 +15,13 @@ import { LogWindowQuerySchema } from './logs.dto'
 //
 // Trust boundary: see bot-status.controller.ts / events.controller.ts.
 // Phase D (D6) must enumerate this route for deny-by-default guards — see
-// auth/protected-routes.ts's own '/logs/window' entry.
+// auth/protected-routes.ts's own '/logs/window' and '/logs/sources' entries.
 @Controller('logs')
 export class LogsController {
-  constructor(private readonly logReader: LogReaderService) {}
+  constructor(
+    private readonly logReader: LogReaderService,
+    private readonly logSources: LogSourcesService,
+  ) {}
 
   @Get('window')
   async window(
@@ -37,5 +41,12 @@ export class LogsController {
       // to the cap value the service would clamp to anyway.
       maxBytes: maxBytes ?? Number.MAX_SAFE_INTEGER,
     })
+  }
+
+  // No query params, no request body — trivially thin. All three
+  // LogStream entries in a fixed order (U3, see log-sources.service.ts).
+  @Get('sources')
+  async sources(): Promise<LogSource[]> {
+    return this.logSources.getSources()
   }
 }

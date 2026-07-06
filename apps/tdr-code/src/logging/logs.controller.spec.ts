@@ -3,9 +3,10 @@ import fs from 'node:fs'
 import { BadRequestException } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 
-import type { LogWindowResponse } from 'src/logging/log-view.types'
+import type { LogSource, LogWindowResponse } from 'src/logging/log-view.types'
 
 import { LogReaderService } from './log-reader.service'
+import { LogSourcesService } from './log-sources.service'
 import { LogsController } from './logs.controller'
 
 const MOCK_WINDOW_RESPONSE: LogWindowResponse = {
@@ -25,17 +26,30 @@ const MOCK_WINDOW_RESPONSE: LogWindowResponse = {
   ],
 }
 
+const MOCK_SOURCES_RESPONSE: LogSource[] = [
+  { stream: 'backend', exists: true, size: 1234 },
+  { stream: 'frontend-server', exists: false, size: 0 },
+  { stream: 'frontend-browser', exists: true, size: 0 },
+]
+
 describe('LogsController (unit, mocked service)', () => {
   let controller: LogsController
   let mockLogReader: { readWindow: jest.Mock }
+  let mockLogSources: { getSources: jest.Mock }
 
   beforeEach(async () => {
     mockLogReader = {
       readWindow: jest.fn().mockResolvedValue(MOCK_WINDOW_RESPONSE),
     }
+    mockLogSources = {
+      getSources: jest.fn().mockResolvedValue(MOCK_SOURCES_RESPONSE),
+    }
     const moduleRef = await Test.createTestingModule({
       controllers: [LogsController],
-      providers: [{ provide: LogReaderService, useValue: mockLogReader }],
+      providers: [
+        { provide: LogReaderService, useValue: mockLogReader },
+        { provide: LogSourcesService, useValue: mockLogSources },
+      ],
     }).compile()
     controller = moduleRef.get(LogsController)
   })
@@ -200,5 +214,24 @@ describe('LogsController (unit, mocked service)', () => {
     expect(mockLogReader.readWindow).toHaveBeenCalledWith(
       expect.objectContaining({ maxBytes: 999999999999 }),
     )
+  })
+
+  describe('sources route (U3)', () => {
+    it('happy path: returns the service result verbatim, with no query params or request body involved', async () => {
+      const result = await controller.sources()
+
+      expect(result).toEqual(MOCK_SOURCES_RESPONSE)
+      expect(mockLogSources.getSources).toHaveBeenCalledWith()
+    })
+
+    it('the existing window route still works once the controller also injects LogSourcesService', async () => {
+      const result = await controller.window({
+        stream: 'backend',
+        anchor: '0',
+        direction: 'before',
+      })
+
+      expect(result).toEqual(MOCK_WINDOW_RESPONSE)
+    })
   })
 })
