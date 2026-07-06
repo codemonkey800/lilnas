@@ -408,6 +408,12 @@ const LOGS_EVENTS = {
   // same path) and the service successfully reopened the new file and
   // resumed following it from byte 0.
   logTailReopened: 'log-tail-reopened',
+  // log-search.service.ts (Phase 2 U9, whole-file streaming scan engine) —
+  // a real stat/read error while streaming the file for a search request.
+  // Deliberately NOT fired on a clean AbortSignal cancellation (a superseding
+  // request aborting this one is an expected, deliberate outcome — see
+  // scan()'s own comment on that distinction), only on a genuine I/O failure.
+  logSearchFailed: 'log-search-failed',
 } as const
 
 const ERROR_BOUNDARY_EVENTS = {

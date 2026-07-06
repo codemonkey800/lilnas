@@ -1,11 +1,18 @@
-import { Controller, Get, Query } from '@nestjs/common'
+import { Controller, Get, Query, Req } from '@nestjs/common'
+import type { Request } from 'express'
 
 import { parseQuery } from 'src/console/query-params'
-import type { LogSource, LogWindowResponse } from 'src/logging/log-view.types'
+import type {
+  LogScanPredicate,
+  LogSearchResponse,
+  LogSource,
+  LogWindowResponse,
+} from 'src/logging/log-view.types'
 
 import { LogReaderService } from './log-reader.service'
+import { LogSearchService } from './log-search.service'
 import { LogSourcesService } from './log-sources.service'
-import { LogWindowQuerySchema } from './logs.dto'
+import { LogSearchQuerySchema, LogWindowQuerySchema } from './logs.dto'
 
 // BrowserLogsController already declares @Controller('logs') with
 // @Post('browser') — Nest allows a second controller on the same prefix
@@ -21,6 +28,7 @@ export class LogsController {
   constructor(
     private readonly logReader: LogReaderService,
     private readonly logSources: LogSourcesService,
+    private readonly logSearch: LogSearchService,
   ) {}
 
   @Get('window')
@@ -48,5 +56,56 @@ export class LogsController {
   @Get('sources')
   async sources(): Promise<LogSource[]> {
     return this.logSources.getSources()
+  }
+
+  // Phase 2 U9 — the whole-file streaming scan engine. `cursor` is
+  // deliberately NOT destructured through parseQuery's own zod-validated
+  // fields the way stream/text/level/process/event are: it is an opaque
+  // continuation token whose OWN regex/range validation lives in
+  // LogSearchService.scan() (see logs.dto.ts's own comment on why), so this
+  // handler passes it through unexamined and lets the service reject a
+  // malformed one with its own BadRequestException.
+  //
+  // `@Req() request` is used ONLY to derive an AbortSignal from the
+  // connection's own lifecycle — never for auth (AuthGuard already ran
+  // globally before this handler) and never for any other request field.
+  // Wiring an abort signal through the whole-file streaming read is what
+  // lets a superseding request (the client aborts on every query change,
+  // per U11's design) actually stop this scan's in-flight block-read loop
+  // instead of a now-abandoned scan continuing to consume file-I/O and CPU
+  // in the background for however long the whole range takes to walk — an
+  // ordinary HTTP client disconnect (navigating away, changing the search
+  // box) fires the request's own 'close' event, which is the standard
+  // Node idiom for turning that lifecycle into an AbortSignal.
+  @Get('search')
+  async search(
+    @Query() raw: Record<string, string>,
+    @Req() request: Request,
+  ): Promise<LogSearchResponse> {
+    const {
+      stream,
+      text,
+      level,
+      process: processFilter,
+      event,
+      cursor,
+    } = parseQuery(LogSearchQuerySchema, raw)
+
+    const predicate: LogScanPredicate = {
+      ...(text !== undefined ? { text } : {}),
+      ...(level !== undefined ? { level } : {}),
+      ...(processFilter !== undefined ? { process: processFilter } : {}),
+      ...(event !== undefined ? { event } : {}),
+    }
+
+    const abortController = new AbortController()
+    request.on('close', () => abortController.abort())
+
+    return this.logSearch.scan({
+      stream,
+      predicate,
+      cursor,
+      signal: abortController.signal,
+    })
   }
 }

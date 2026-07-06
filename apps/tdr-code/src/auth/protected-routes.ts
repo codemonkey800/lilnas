@@ -161,6 +161,21 @@ export const PROTECTED_ROUTES: ProtectedRouteSpec[] = [
     path: '/logs/tail',
     label: 'GET /logs/tail',
   },
+  // Logs viewer, Phase 2 U9 — the whole-file streaming scan (search)
+  // endpoint (logs.controller.ts's search() handler). Query params only
+  // (stream/text/level/process/event/cursor), no `:param` path segment,
+  // same shape as every other /logs/* entry above. Unlike GET /logs/tail
+  // just above, this is a NORMAL request/response route (not @Sse()) — its
+  // body always ends naturally even on a valid/reachable connection, so it
+  // needs none of that route's requestHeadersOnly workaround in either
+  // auth.guard.spec.ts or auth-e2e.spec.ts; the shared body-awaiting
+  // request() helper in both suites handles it exactly like every other
+  // ordinary route.
+  {
+    method: 'GET',
+    path: '/logs/search',
+    label: 'GET /logs/search',
+  },
 ]
 
 // The sole allowlisted route (R19: deny-by-default; @Public() is the one

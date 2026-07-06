@@ -50,10 +50,15 @@ import { createTestDb } from 'src/db/test-db'
 import { BrowserLogsController } from 'src/logging/browser-logs.controller'
 import { BrowserLogsService } from 'src/logging/browser-logs.service'
 import { LogReaderService } from 'src/logging/log-reader.service'
+import { LogSearchService } from 'src/logging/log-search.service'
 import { LogSourcesService } from 'src/logging/log-sources.service'
 import { LogTailController } from 'src/logging/log-tail.controller'
 import { LogTailService } from 'src/logging/log-tail.service'
-import type { LogSource, LogWindowResponse } from 'src/logging/log-view.types'
+import type {
+  LogSearchResponse,
+  LogSource,
+  LogWindowResponse,
+} from 'src/logging/log-view.types'
 import { LogsController } from 'src/logging/logs.controller'
 import { SupervisorService } from 'src/supervisor/supervisor.service'
 
@@ -192,6 +197,12 @@ const MOCK_LOG_SOURCES_RESPONSE: LogSource[] = [
   { stream: 'frontend-browser', exists: false, size: 0 },
 ]
 
+const MOCK_LOG_SEARCH_RESPONSE: LogSearchResponse = {
+  total: 0,
+  matches: [],
+  nextCursor: null,
+}
+
 // Wires every console/bot controller (mocked *Services only — exactly the
 // same shape auth.guard.spec.ts's Section 3 uses) alongside the REAL
 // AuthModule and the REAL hand-rolled AuthGuard registered as APP_GUARD —
@@ -246,6 +257,9 @@ function buildTestAppModule(db: TestDb['db']) {
   const mockLogSourcesService = {
     getSources: jest.fn().mockReturnValue(MOCK_LOG_SOURCES_RESPONSE),
   }
+  const mockLogSearchService = {
+    scan: jest.fn().mockResolvedValue(MOCK_LOG_SEARCH_RESPONSE),
+  }
   // NEVER mirrors the real LogTailService.watch()'s actual shape for a
   // reachable connection — the real tail stays open indefinitely for an
   // authenticated caller (that's the entire point of a live push endpoint)
@@ -290,6 +304,7 @@ function buildTestAppModule(db: TestDb['db']) {
       { provide: BrowserLogsService, useValue: mockBrowserLogsService },
       { provide: LogReaderService, useValue: mockLogReaderService },
       { provide: LogSourcesService, useValue: mockLogSourcesService },
+      { provide: LogSearchService, useValue: mockLogSearchService },
       { provide: LogTailService, useValue: mockLogTailService },
       { provide: PinoLogger, useValue: fakePinoLogger },
       { provide: APP_GUARD, useClass: AuthGuard },
@@ -1103,8 +1118,8 @@ describe('U5 — end-to-end auth verification harness (pre-cutover gate)', () =>
   // ---------------------------------------------------------------------------
 
   describe('bookkeeping — this suite swept exactly as many routes as PROTECTED_ROUTES declares', () => {
-    it('PROTECTED_ROUTES has exactly 20 entries (the canonical U4 enumeration this suite imports, not a second hand-typed list — 19 + GET /logs/tail from Phase 2 U8)', () => {
-      expect(PROTECTED_ROUTES).toHaveLength(20)
+    it('PROTECTED_ROUTES has exactly 21 entries (the canonical U4 enumeration this suite imports, not a second hand-typed list — 19 + GET /logs/tail from Phase 2 U8 + GET /logs/search from Phase 2 U9)', () => {
+      expect(PROTECTED_ROUTES).toHaveLength(21)
     })
 
     it('PUBLIC_ROUTES has exactly one entry: GET /health', () => {

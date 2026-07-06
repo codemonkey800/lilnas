@@ -55,10 +55,15 @@ import { BrowserLogsController } from 'src/logging/browser-logs.controller'
 import { BrowserLogsService } from 'src/logging/browser-logs.service'
 import { LOG_EVENTS } from 'src/logging/log-events'
 import { LogReaderService } from 'src/logging/log-reader.service'
+import { LogSearchService } from 'src/logging/log-search.service'
 import { LogSourcesService } from 'src/logging/log-sources.service'
 import { LogTailController } from 'src/logging/log-tail.controller'
 import { LogTailService } from 'src/logging/log-tail.service'
-import type { LogSource, LogWindowResponse } from 'src/logging/log-view.types'
+import type {
+  LogSearchResponse,
+  LogSource,
+  LogWindowResponse,
+} from 'src/logging/log-view.types'
 import { LogsController } from 'src/logging/logs.controller'
 import { SupervisorService } from 'src/supervisor/supervisor.service'
 
@@ -366,6 +371,12 @@ const MOCK_LOG_SOURCES_RESPONSE: LogSource[] = [
   { stream: 'frontend-browser', exists: false, size: 0 },
 ]
 
+const MOCK_LOG_SEARCH_RESPONSE: LogSearchResponse = {
+  total: 0,
+  matches: [],
+  nextCursor: null,
+}
+
 function buildTestControllerModule(db: TestDb['db']) {
   const TestDatabaseModule = makeTestDatabaseModule(db)
 
@@ -413,6 +424,9 @@ function buildTestControllerModule(db: TestDb['db']) {
   const mockLogSourcesService = {
     getSources: jest.fn().mockReturnValue(MOCK_LOG_SOURCES_RESPONSE),
   }
+  const mockLogSearchService = {
+    scan: jest.fn().mockResolvedValue(MOCK_LOG_SEARCH_RESPONSE),
+  }
   // NEVER (an Observable that never emits/errors/completes) mirrors the
   // real LogTailService.watch()'s actual shape for an authenticated,
   // reachable connection — the real tail also stays open indefinitely
@@ -459,6 +473,7 @@ function buildTestControllerModule(db: TestDb['db']) {
       { provide: BrowserLogsService, useValue: mockBrowserLogsService },
       { provide: LogReaderService, useValue: mockLogReaderService },
       { provide: LogSourcesService, useValue: mockLogSourcesService },
+      { provide: LogSearchService, useValue: mockLogSearchService },
       { provide: LogTailService, useValue: mockLogTailService },
       { provide: PinoLogger, useValue: fakePinoLogger },
       { provide: APP_GUARD, useClass: AuthGuard },
@@ -1159,9 +1174,11 @@ describe('protected-routes.ts — canonical enumeration bookkeeping', () => {
   // Running tally since: 16 + POST /logs/browser (unified-logging unit) +
   // GET /logs/window (U2, logs viewer windowed read) = 18; + GET
   // /logs/sources (U3, logs viewer tab-bootstrap sources) = 19; + GET
-  // /logs/tail (Phase 2 U8, append-delta live tail SSE endpoint) = 20.
-  it('enumerates exactly 20 protected routes (16 pre-existing + POST /logs/browser + GET /logs/window + GET /logs/sources + GET /logs/tail)', () => {
-    expect(PROTECTED_ROUTES).toHaveLength(20)
+  // /logs/tail (Phase 2 U8, append-delta live tail SSE endpoint) = 20; + GET
+  // /logs/search (Phase 2 U9, whole-file streaming scan/search endpoint) =
+  // 21.
+  it('enumerates exactly 21 protected routes (16 pre-existing + POST /logs/browser + GET /logs/window + GET /logs/sources + GET /logs/tail + GET /logs/search)', () => {
+    expect(PROTECTED_ROUTES).toHaveLength(21)
   })
 
   it('enumerates exactly one public route: GET /health', () => {

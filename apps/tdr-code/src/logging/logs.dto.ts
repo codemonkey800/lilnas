@@ -59,3 +59,35 @@ export const LogTailQuerySchema = z.object({
 })
 
 export type LogTailQuery = z.infer<typeof LogTailQuerySchema>
+
+// Phase 2 U9 (whole-file streaming scan engine) query: same R17 `stream`
+// allowlist enforcement as the two schemas above. `text`/`level`/`process`/
+// `event` are the plain user-facing LogScanPredicate fields — all optional,
+// composing as described on that interface. `cursor` is intentionally typed
+// as a bare optional string here, NOT parsed/validated by this schema at
+// all: it is an opaque continuation token (see log-search.service.ts's own
+// decodeCursor), not a user-facing filter value, so its own regex/range
+// validation lives in the service and throws its own BadRequestException on
+// a malformed value — folding that into this zod schema would either
+// duplicate the service's validation or force the schema to know about the
+// cursor's internal "resumeOffset:ceiling:total" encoding, which is exactly
+// the kind of cross-concern coupling this split avoids.
+export const LogSearchQuerySchema = z.object({
+  stream: z
+    .string()
+    .refine(v => (LOG_STREAMS as readonly string[]).includes(v), {
+      message: `stream must be one of: ${LOG_STREAMS.join(', ')}`,
+    })
+    .transform(v => v as LogStream),
+  text: z.string().optional(),
+  level: z
+    .string()
+    .optional()
+    .transform(v => (v === undefined ? undefined : parseInt(v, 10)))
+    .pipe(z.number().int().optional()),
+  process: z.enum(['main', 'bot', 'both']).optional(),
+  event: z.string().optional(),
+  cursor: z.string().optional(),
+})
+
+export type LogSearchQuery = z.infer<typeof LogSearchQuerySchema>
