@@ -122,6 +122,15 @@ export const PROTECTED_ROUTES: ProtectedRouteSpec[] = [
     path: '/logs/browser',
     label: 'POST /logs/browser',
   },
+  // Logs viewer (U2) — the windowed byte-offset read endpoint. No `:param`
+  // path segment (stream/anchor/direction/maxBytes are all query params),
+  // so no `params` entry is needed here, matching GET /events' own
+  // no-path-param shape above.
+  {
+    method: 'GET',
+    path: '/logs/window',
+    label: 'GET /logs/window',
+  },
 ]
 
 // The sole allowlisted route (R19: deny-by-default; @Public() is the one

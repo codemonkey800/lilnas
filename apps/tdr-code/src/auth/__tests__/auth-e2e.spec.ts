@@ -48,6 +48,9 @@ import type { TestDb } from 'src/db/test-db'
 import { createTestDb } from 'src/db/test-db'
 import { BrowserLogsController } from 'src/logging/browser-logs.controller'
 import { BrowserLogsService } from 'src/logging/browser-logs.service'
+import { LogReaderService } from 'src/logging/log-reader.service'
+import type { LogWindowResponse } from 'src/logging/log-view.types'
+import { LogsController } from 'src/logging/logs.controller'
 import { SupervisorService } from 'src/supervisor/supervisor.service'
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -169,6 +172,16 @@ const MOCK_BOT_STATUS: BotStatusDto = {
   lastSeenAt: null,
 }
 
+const MOCK_LOG_WINDOW_RESPONSE: LogWindowResponse = {
+  stream: 'backend',
+  fileSize: 0,
+  windowStart: 0,
+  windowEnd: 0,
+  atStart: true,
+  atEnd: true,
+  lines: [],
+}
+
 // Wires every console/bot controller (mocked *Services only — exactly the
 // same shape auth.guard.spec.ts's Section 3 uses) alongside the REAL
 // AuthModule and the REAL hand-rolled AuthGuard registered as APP_GUARD —
@@ -217,6 +230,9 @@ function buildTestAppModule(db: TestDb['db']) {
     requestRestart: jest.fn().mockReturnValue({ phase: 'Starting' }),
   }
   const mockBrowserLogsService = { write: jest.fn() }
+  const mockLogReaderService = {
+    readWindow: jest.fn().mockReturnValue(MOCK_LOG_WINDOW_RESPONSE),
+  }
   const fakePinoLogger = fakeLogger()
 
   @Module({
@@ -233,6 +249,7 @@ function buildTestAppModule(db: TestDb['db']) {
       BotStatusController,
       HealthController,
       BrowserLogsController,
+      LogsController,
     ],
     providers: [
       { provide: LiveService, useValue: mockLiveService },
@@ -248,6 +265,7 @@ function buildTestAppModule(db: TestDb['db']) {
       { provide: BotStatusService, useValue: mockBotStatusService },
       { provide: SupervisorService, useValue: mockSupervisorService },
       { provide: BrowserLogsService, useValue: mockBrowserLogsService },
+      { provide: LogReaderService, useValue: mockLogReaderService },
       { provide: PinoLogger, useValue: fakePinoLogger },
       { provide: APP_GUARD, useClass: AuthGuard },
     ],
@@ -1002,8 +1020,8 @@ describe('U5 — end-to-end auth verification harness (pre-cutover gate)', () =>
   // ---------------------------------------------------------------------------
 
   describe('bookkeeping — this suite swept exactly as many routes as PROTECTED_ROUTES declares', () => {
-    it('PROTECTED_ROUTES has exactly 17 entries (the canonical U4 enumeration this suite imports, not a second hand-typed list)', () => {
-      expect(PROTECTED_ROUTES).toHaveLength(17)
+    it('PROTECTED_ROUTES has exactly 18 entries (the canonical U4 enumeration this suite imports, not a second hand-typed list)', () => {
+      expect(PROTECTED_ROUTES).toHaveLength(18)
     })
 
     it('PUBLIC_ROUTES has exactly one entry: GET /health', () => {

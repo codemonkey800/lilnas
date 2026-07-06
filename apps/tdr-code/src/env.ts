@@ -46,4 +46,8 @@ export const EnvKeys = {
   SSE_FALLBACK_INTERVAL_MS: 'SSE_FALLBACK_INTERVAL_MS',
   SSE_STALENESS_RECOMPUTE_MS: 'SSE_STALENESS_RECOMPUTE_MS',
   SSE_KEEPALIVE_MS: 'SSE_KEEPALIVE_MS',
+  // Logs viewer (U2): the windowed-read endpoint's byte-size cap, clamped
+  // server-side regardless of what a client requests. Main-process only —
+  // no buildBotEnv allowlist entry (the bot never reads log files itself).
+  LOG_WINDOW_MAX_BYTES: 'LOG_WINDOW_MAX_BYTES',
 } as const

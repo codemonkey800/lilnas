@@ -53,6 +53,9 @@ import { createTestDb } from 'src/db/test-db'
 import { BrowserLogsController } from 'src/logging/browser-logs.controller'
 import { BrowserLogsService } from 'src/logging/browser-logs.service'
 import { LOG_EVENTS } from 'src/logging/log-events'
+import { LogReaderService } from 'src/logging/log-reader.service'
+import type { LogWindowResponse } from 'src/logging/log-view.types'
+import { LogsController } from 'src/logging/logs.controller'
 import { SupervisorService } from 'src/supervisor/supervisor.service'
 
 // Same test-env scoping convention as auth-mount.spec.ts / guild-gate.spec.ts
@@ -343,6 +346,16 @@ const MOCK_BOT_STATUS: BotStatusDto = {
   lastSeenAt: null,
 }
 
+const MOCK_LOG_WINDOW_RESPONSE: LogWindowResponse = {
+  stream: 'backend',
+  fileSize: 0,
+  windowStart: 0,
+  windowEnd: 0,
+  atStart: true,
+  atEnd: true,
+  lines: [],
+}
+
 function buildTestControllerModule(db: TestDb['db']) {
   const TestDatabaseModule = makeTestDatabaseModule(db)
 
@@ -384,6 +397,9 @@ function buildTestControllerModule(db: TestDb['db']) {
     requestRestart: jest.fn().mockReturnValue({ phase: 'Starting' }),
   }
   const mockBrowserLogsService = { write: jest.fn() }
+  const mockLogReaderService = {
+    readWindow: jest.fn().mockReturnValue(MOCK_LOG_WINDOW_RESPONSE),
+  }
   const fakePinoLogger = fakeLogger()
 
   @Module({
@@ -400,6 +416,7 @@ function buildTestControllerModule(db: TestDb['db']) {
       BotStatusController,
       HealthController,
       BrowserLogsController,
+      LogsController,
     ],
     providers: [
       { provide: LiveService, useValue: mockLiveService },
@@ -415,6 +432,7 @@ function buildTestControllerModule(db: TestDb['db']) {
       { provide: BotStatusService, useValue: mockBotStatusService },
       { provide: SupervisorService, useValue: mockSupervisorService },
       { provide: BrowserLogsService, useValue: mockBrowserLogsService },
+      { provide: LogReaderService, useValue: mockLogReaderService },
       { provide: PinoLogger, useValue: fakePinoLogger },
       { provide: APP_GUARD, useClass: AuthGuard },
     ],
@@ -1032,8 +1050,8 @@ describe('protected-routes.ts — canonical enumeration bookkeeping', () => {
   // summary sentence, not a route this file is missing or has extra. So:
   // 14 (verified pre-existing) + 1 (this unit's own revoke-sessions
   // deliverable) = 15 protected routes; + GET /health public = 16 total.
-  it('enumerates exactly 17 protected routes (16 pre-existing + POST /logs/browser)', () => {
-    expect(PROTECTED_ROUTES).toHaveLength(17)
+  it('enumerates exactly 18 protected routes (16 pre-existing + POST /logs/browser + GET /logs/window)', () => {
+    expect(PROTECTED_ROUTES).toHaveLength(18)
   })
 
   it('enumerates exactly one public route: GET /health', () => {
