@@ -131,6 +131,7 @@ export default function LogsPage() {
               stream={stream}
               readWindow={api.readLogWindow}
               onSelectLine={setSelectedLine}
+              isActive={isActive}
             />
           </div>
         )

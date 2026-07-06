@@ -20,7 +20,11 @@ import type {
   SessionDetailResponseDto,
   SessionListResponseDto,
 } from 'src/console/sessions.dto'
-import type { LogSource, LogWindowResponse } from 'src/logging/log-view.types'
+import type {
+  LogSource,
+  LogStream,
+  LogWindowResponse,
+} from 'src/logging/log-view.types'
 import type { Topic } from 'src/sse/sse.types'
 
 // Module-scoped flag collapsing a 401 STORM into a single redirect. This
@@ -91,6 +95,29 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // has no 401/JSON-parsing concerns of its own.
 export const streamUrl = (topics: Topic[]): string =>
   `/api/stream?topics=${topics.join(',')}`
+
+// Builds the `/api/logs/tail` EventSource URL (U10). Same "plain URL
+// string handed to `new EventSource(...)`, not routed through request()"
+// shape as streamUrl above — this has no 401/JSON-parsing concerns of its
+// own either. `from` is OMITTED entirely (not sent as `from=undefined`)
+// when absent so the server's own "no `from` -> current EOF" default
+// (log-tail.controller.ts's resolveFromOffset) applies, rather than this
+// client ever needing to know the file's size itself just to open a
+// connection. Params are percent-encoded by URLSearchParams itself on
+// `.toString()` (the same readLogWindow convention below relies on) — the
+// REVIEW.md param-encoding footgun this plan calls out is about
+// streamUrl's raw string interpolation above (predates URLSearchParams
+// usage here and is intentionally left as-is; topics are a fixed internal
+// enum, never a value that could contain a URL-breaking character), not
+// about double-encoding a value that's already handed to `.set()`.
+export const logTailUrl = (stream: LogStream, from?: number): string => {
+  const q = new URLSearchParams()
+  q.set('stream', stream)
+  if (from !== undefined) {
+    q.set('from', String(from))
+  }
+  return `/api/logs/tail?${q.toString()}`
+}
 
 export const fetchJson = <T>(path: string) => request<T>(path)
 export const postJson = <T>(path: string) =>

@@ -20,11 +20,23 @@ import type { LogSource } from 'src/logging/log-view.types'
 // only an explicit mount/unmount effect can.
 const mountEvents: string[] = []
 
+// U10 (isActive wiring): the CURRENT isActive prop each mocked LogViewer
+// instance was rendered with, keyed by stream — updated on every render
+// (not just mount/unmount, unlike mountEvents above), since this is
+// specifically proving page.tsx threads its own `isActive` local variable
+// through to the real prop rather than merely computing it and never using
+// it (a real gap this test file caught once already: LogViewer's isActive
+// prop defaults to true, so an omitted prop passes silently with no type
+// error and no visible behavior difference in a shallow render).
+const isActiveByStream: Record<string, boolean | undefined> = {}
+
 jest.mock('src/app/logs/log-viewer', () => ({
   LogViewer: (props: {
     stream: string
     onSelectLine: (line: unknown) => void
+    isActive?: boolean
   }) => {
+    isActiveByStream[props.stream] = props.isActive
     useEffect(() => {
       mountEvents.push(`mount:${props.stream}`)
       return () => {
@@ -104,6 +116,9 @@ function renderPage() {
 
 beforeEach(() => {
   mountEvents.length = 0
+  for (const key of Object.keys(isActiveByStream)) {
+    delete isActiveByStream[key]
+  }
   jest.spyOn(api, 'getLogSources').mockReset()
 })
 
@@ -186,6 +201,35 @@ describe('LogsPage — per-tab state preservation (R2)', () => {
       'mount:frontend-server',
       'mount:frontend-browser',
     ])
+  })
+
+  it('threads its own isActive computation through to each mounted LogViewer, flipping on every tab switch (U10: idle tabs must hold no live tail connection)', async () => {
+    const user = userEvent.setup()
+    jest.spyOn(api, 'getLogSources').mockResolvedValue(makeSources())
+    renderPage()
+
+    await screen.findAllByRole('tab')
+
+    // Every stream with content is mounted up front (mount-all-hide-
+    // inactive), but only the DEFAULT active tab (backend) should ever see
+    // isActive:true — LogViewer's own default (isActive prop omitted ->
+    // true) would silently mask a page.tsx regression that computes
+    // `isActive` locally but forgets to pass it down, which is exactly the
+    // gap this test exists to pin.
+    expect(isActiveByStream.backend).toBe(true)
+    expect(isActiveByStream['frontend-server']).toBe(false)
+    expect(isActiveByStream['frontend-browser']).toBe(false)
+
+    await user.click(screen.getByRole('tab', { name: 'frontend-browser' }))
+
+    expect(isActiveByStream.backend).toBe(false)
+    expect(isActiveByStream['frontend-server']).toBe(false)
+    expect(isActiveByStream['frontend-browser']).toBe(true)
+
+    await user.click(screen.getByRole('tab', { name: 'backend' }))
+
+    expect(isActiveByStream.backend).toBe(true)
+    expect(isActiveByStream['frontend-browser']).toBe(false)
   })
 
   it('closes the detail panel when switching tabs, per decision #3 (panel belongs to whatever is on screen)', async () => {

@@ -1,9 +1,16 @@
 'use client'
 
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 
 import { LogRow, ROW_PX } from 'src/app/logs/log-row'
+import { useLogTail } from 'src/app/logs/use-log-tail'
 import type {
   LogLine,
   LogStream,
@@ -43,6 +50,15 @@ export interface LogViewerProps {
   stream: LogStream
   readWindow: (params: ReadLogWindowParams) => Promise<LogWindowResponse>
   onSelectLine: (line: LogLine) => void
+  // U10 (isActive wiring): whether THIS stream's tab is the one currently
+  // visible. Defaults to true so every Phase 1 call site/test that never
+  // passes this prop keeps behaving exactly as before — page.tsx's own
+  // "mount every stream, CSS-hide the inactive ones" architecture (see
+  // that file's own header comment) means an inactive tab's LogViewer
+  // instance stays mounted indefinitely, so without this prop its live
+  // tail connection would otherwise ALSO stay open forever. See this
+  // file's isActive effect below for the connect/disconnect wiring.
+  isActive?: boolean
 }
 
 export interface WindowState {
@@ -185,6 +201,66 @@ export function seedWindowState(response: LogWindowResponse): WindowState {
   }
 }
 
+// U10: the tail-append counterpart to applyFetchedWindow above — appends
+// exactly ONE live-tail LogLine (immutably, never mutating state.lines in
+// place, per the SAME "guards against react-virtual streaming-drift bug
+// #1218" convention applyFetchedWindow's own test file documents) and
+// evicts from the front if that push would exceed evictionCap. Kept as
+// its own pure, DOM-free function — testable exhaustively without any
+// virtualizer/DOM involvement, matching this file's established "Part 1:
+// pure state machine" convention — rather than routing a single append
+// through the whole-response-shaped applyFetchedWindow, which expects a
+// LogWindowResponse (fileSize/windowStart/windowEnd/atStart/atEnd all
+// echoed from a server fetch), not a single wire-pushed line.
+//
+// De-dup is intentionally narrower than applyFetchedWindow's full
+// `existingOffsets` Set scan: tail lines arrive strictly in increasing
+// byteOffset order over ONE connection, so a redundant/duplicate delivery
+// (e.g. a stale resume overlap) can only ever repeat the line THIS
+// function most recently appended — checking against just the current
+// last line's byteOffset is therefore sufficient to guarantee "never a
+// duplicate byteOffset in state.lines" for this function's actual calling
+// pattern, at a fraction of the cost of a full Set rebuild on every single
+// line (this function's caller invokes it once per wire message, unlike
+// applyFetchedWindow's once-per-batch-response cadence).
+export function appendTailLine(
+  state: WindowState,
+  line: LogLine,
+  evictionCap: number,
+): WindowState {
+  const lastLine = state.lines[state.lines.length - 1]
+  if (lastLine && lastLine.byteOffset === line.byteOffset) {
+    return state
+  }
+
+  const merged = [...state.lines, line]
+  const overflow = merged.length - evictionCap
+  // Appending always trims from the FRONT (oldest) when over cap — the
+  // mirror of applyFetchedWindow's own 'after' eviction direction, since a
+  // tail append is definitionally an 'after' (newest-end) extension.
+  const lines = overflow <= 0 ? merged : merged.slice(overflow)
+  const firstLine = lines[0]
+  const evicted = overflow > 0
+
+  return {
+    lines,
+    // The just-appended line's own end IS the file's new known size, as
+    // far as this client can tell — mirrors applyFetchedWindow's 'after'
+    // branch adopting response.fileSize verbatim for the edge a fetch
+    // just extended.
+    fileSize: line.byteOffset + line.byteLength,
+    windowStart:
+      evicted && firstLine ? firstLine.byteOffset : state.windowStart,
+    windowEnd: line.byteOffset + line.byteLength,
+    atStart: evicted ? false : state.atStart,
+    // A tail append, by construction, only ever happens while genuinely
+    // following the live end of the file (see LogViewer's own onLine
+    // callback below) — so the window's back edge is now truthfully AT
+    // the current EOF, regardless of what atEnd was before this call.
+    atEnd: true,
+  }
+}
+
 type EdgeDirection = 'before' | 'after'
 type InFlight = Record<EdgeDirection, boolean>
 
@@ -192,6 +268,7 @@ export function LogViewer({
   stream,
   readWindow,
   onSelectLine,
+  isActive = true,
 }: LogViewerProps) {
   const [state, setState] = useState<WindowState>(INITIAL_STATE)
   const [initialLoad, setInitialLoad] = useState<'pending' | 'done' | 'error'>(
@@ -201,6 +278,18 @@ export function LogViewer({
     before: false,
     after: false,
   })
+  // U10: follow-on-by-default (R3). true = live tail lines are appended
+  // into state.lines and the viewport auto-scrolls (via followOnAppend
+  // below); false = paused, live lines only bump newLineCount (R4). The
+  // ONLY path back to true is "jump to latest" (handleJumpToLatest) —
+  // scrolling back down on the user's own does NOT resume follow, per
+  // this unit's own brief.
+  const [following, setFollowing] = useState(true)
+  // Bounded "N new" badge counter (R4) — reset to 0 on jump-to-latest and
+  // whenever `following` transitions back to true. Never backs an
+  // unbounded pending-line buffer; while paused, incoming tail lines are
+  // counted here and NOWHERE else (see handleTailLine below).
+  const [newLineCount, setNewLineCount] = useState(0)
 
   const scrollElementRef = useRef<HTMLDivElement>(null)
   const inFlightRef = useRef<InFlight>({ before: false, after: false })
@@ -212,10 +301,51 @@ export function LogViewer({
   // from whichever render happened to construct it.
   const stateRef = useRef(state)
   stateRef.current = state
+  // Mirrors `following` for the SAME reason stateRef exists above:
+  // handleVirtualizerChange (this component's onChange callback) is
+  // memoized via useCallback on [fetchEdge], which never itself changes
+  // identity across renders — a direct closure over the `following` STATE
+  // VARIABLE inside that callback would therefore see whatever value was
+  // true the FIRST time handleVirtualizerChange was constructed, forever,
+  // and never observe a later flip (e.g. a jump-to-latest resuming
+  // follow). Read via this ref inside that callback instead.
+  const followingRef = useRef(following)
+  followingRef.current = following
   // True from mount until the first successful seed has both landed AND had
   // one layout pass to pin scroll to the bottom — guards the "pin to
   // bottom on open" scrollTo from re-firing on every later re-render.
   const pendingInitialScrollRef = useRef(true)
+  // Mirrors pendingInitialScrollRef's one-shot-guard pattern for
+  // handleJumpToLatest's own explicit re-scroll (see that handler and its
+  // paired useLayoutEffect below) — kept as its OWN ref rather than
+  // reusing pendingInitialScrollRef, since that ref is also gated on
+  // `initialLoad === 'done'` in its paired effect, a condition that
+  // doesn't apply (and shouldn't be re-checked) for a jump that happens
+  // well after the initial load already completed.
+  const pendingJumpScrollRef = useRef(false)
+  // Tracks state.lines.length as of the LAST handleVirtualizerChange
+  // invocation — used ONLY to detect "this invocation is itself a
+  // reaction to state.lines having just grown" (an append or an edge-
+  // fetch), as opposed to a genuine user scroll. This matters because of
+  // a real virtual-core timing quirk, not a test artifact: `onChange` can
+  // fire SYNCHRONOUSLY during render (getVirtualItems() -> internally
+  // calculateRange()/maybeNotify()), which happens BEFORE that SAME
+  // render's `_willUpdate` layout effect has had a chance to run
+  // followOnAppend's compensating scrollToEnd() — so at the moment THIS
+  // invocation runs, isAtEnd() would transiently compare the OLD (pre-
+  // growth) scroll offset against the NEW (post-growth) total size,
+  // reporting "not at end" even though the user never scrolled and
+  // followOnAppend is about to correct it later in this SAME commit's
+  // layout pass. Skipping the pause-check specifically on a growth-
+  // triggered invocation avoids that false positive; the FOLLOWING
+  // onChange invocation — triggered by the actual scroll EVENT
+  // followOnAppend's own scrollToEnd() produces once it runs — then
+  // correctly observes the settled, at-end offset. A genuine scroll-away
+  // that happens to land on the exact same commit as a growth is only
+  // delayed by one onChange tick, never missed: that scroll's own
+  // subsequent scroll event still fires its own (ungrown, unskipped)
+  // onChange invocation.
+  const lastObservedLineCountRef = useRef(0)
 
   const fetchEdge = useCallback(
     async (direction: EdgeDirection) => {
@@ -283,6 +413,54 @@ export function LogViewer({
       if (last && last.index >= lineCount - 1 - EDGE_FETCH_THRESHOLD) {
         void fetchEdge('after')
       }
+
+      // See lastObservedLineCountRef's own header comment for the FULL
+      // rationale — in short: an invocation triggered by state.lines
+      // having just grown (an append or an edge-fetch) can transiently
+      // observe a STALE scroll offset (isAtEnd() would wrongly read
+      // false) before followOnAppend's own compensating scroll has had a
+      // chance to run later in this SAME commit — so THIS SPECIFIC
+      // invocation's pause-check is skipped, and the settled offset gets
+      // correctly re-checked on the NEXT invocation instead (the one
+      // followOnAppend's own corrective scroll event itself triggers).
+      const grewSinceLastCheck = lineCount > lastObservedLineCountRef.current
+      lastObservedLineCountRef.current = lineCount
+
+      // U10 auto-pause (R4): the FIRST time the virtualizer reports the
+      // viewport has scrolled away from the bottom while follow is
+      // currently on, flip to paused. instance.isAtEnd() (no threshold
+      // argument -> the library's own default scrollEndThreshold, the
+      // same value followOnAppend's internal auto-scroll check uses
+      // below) is the same "is the user currently pinned to the visual
+      // bottom" signal the library computes for its own follow-scroll
+      // decision — reusing it here keeps this hook's pause detection and
+      // the library's own auto-scroll trigger in agreement about what
+      // "at the bottom" means. Only ever transitions true -> false here;
+      // per this unit's brief, the ONLY path back to true is "jump to
+      // latest" (handleJumpToLatest below), never scrolling back down on
+      // the user's own.
+      //
+      // Also guarded on `!pendingJumpScrollRef.current`, the SAME kind of
+      // "don't trust the offset until the pin has had a chance to apply"
+      // guard `pendingInitialScrollRef` already provides for the initial
+      // load: a jump-to-latest replaces state.lines wholesale with a
+      // DIFFERENT set of byteOffset keys (even when the count is
+      // unchanged, so grewSinceLastCheck alone would not catch it),
+      // which can ALSO trigger an onChange invocation before this SAME
+      // commit's explicit virtualizer.scrollToEnd() (in the paired
+      // useLayoutEffect below) has actually run — observing the still-
+      // stale, pre-jump (paused) offset and immediately UNDOING the
+      // setFollowing(true) handleJumpToLatest just set. This closes that
+      // race the same way the initial-load one is already closed.
+      if (
+        !grewSinceLastCheck &&
+        !pendingJumpScrollRef.current &&
+        followingRef.current &&
+        !instance.isAtEnd()
+      ) {
+        followingRef.current = false
+        setFollowing(false)
+      }
     },
     [fetchEdge],
   )
@@ -305,6 +483,29 @@ export function LogViewer({
     // its index — which is what makes it correct across an eviction too,
     // not just a plain prepend. No hand-rolled offset math needed.
     anchorTo: 'end',
+    // U10 (R3/AE1): auto-calls scrollToEnd() internally whenever
+    // state.lines grows AND the viewport was already isAtEnd() at the
+    // moment of that growth (checked against the PREVIOUS render's scroll
+    // position, before the new item is measured — see virtual-core's own
+    // setOptions implementation) — exactly "auto-scroll on append only if
+    // already pinned." This is genuinely a REAL, confirmed-present option
+    // on the installed @tanstack/virtual-core@3.17.3 (resolved via
+    // @tanstack/react-virtual@^3.14.5 — confirmed via `pnpm why
+    // @tanstack/virtual-core`), so no manual scrollToEnd() call is needed
+    // for the normal live-append case; handleJumpToLatest below calls it
+    // explicitly for its OWN distinct case (jumping while NOT already
+    // pinned, which followOnAppend's own isAtEnd gate would never fire
+    // for). Safe to leave unconditionally enabled regardless of
+    // `following`/pause state: while paused, state.lines is never mutated
+    // by a tail line at all (handleTailLine below only increments
+    // newLineCount), so `count` never grows from a tail event while
+    // paused, and this option's own internal isAtEnd check independently
+    // guards against a coincidental unrelated edge-fetch growth
+    // (Phase 1's existing after-fetch) auto-scrolling a paused, scrolled-
+    // away viewport — since a paused viewport is, by this same
+    // isAtEnd-based definition, never "already pinned" in the first
+    // place.
+    followOnAppend: true,
     onChange: handleVirtualizerChange,
   })
 
@@ -351,9 +552,139 @@ export function LogViewer({
     pendingInitialScrollRef.current = false
   }, [initialLoad, state.lines.length])
 
+  // U10: handed to useLogTail as `onLine` — deliberately NOT wrapped in
+  // useCallback. This is the "unstable callback" the hook's own header
+  // comment expects: a fresh closure every render that closes over
+  // whatever `following` this SPECIFIC render saw. useLogTail holds the
+  // LATEST one in its own ref and always invokes that ref's current
+  // value from the actual EventSource listener (which is itself only
+  // created once per connect() call) — so a `following` flip on a LATER
+  // render is picked up automatically here with no extra plumbing on this
+  // side, unlike handleVirtualizerChange above (which DOES need
+  // followingRef, because THAT callback is long-lived/memoized instead of
+  // freshly re-created every render).
+  function handleTailLine(line: LogLine) {
+    if (following) {
+      setState(prev => appendTailLine(prev, line, EVICTION_CAP))
+      return
+    }
+    // Paused (R4): never touch state.lines — only the bounded counter
+    // grows. This is what keeps memory bounded while paused (the plan's
+    // own "never an unbounded pending-line buffer" requirement) and is
+    // also why followOnAppend above can stay unconditionally enabled:
+    // there is no append for it to react to while paused in the first
+    // place.
+    setNewLineCount(prev => prev + 1)
+  }
+
+  const { connect, disconnect } = useLogTail(stream, handleTailLine)
+
+  // U10 tail connection lifecycle, driven by (initialLoad, isActive):
+  // connects exactly once the FIRST time the initial windowed load
+  // reaches 'done' while this tab is active (mirrors the
+  // pendingInitialScrollRef one-shot-guard pattern above, applied to
+  // "should a tail connection be open" instead of "should scroll be
+  // pinned"), disconnects the instant isActive goes false (an inactive
+  // tab must hold no live watcher — page.tsx mounts every stream's
+  // LogViewer simultaneously and only CSS-hides the inactive ones, so
+  // this is the ONLY thing that actually closes an idle tab's
+  // connection), and reconnects if isActive comes back true afterward.
+  // Deliberately does NOT depend on `state` / `stream` / `connect` /
+  // `disconnect` changing identity to decide whether to act — those are
+  // either stable (connect/disconnect are useCallback-memoized in
+  // useLogTail) or irrelevant to this specific transition (stream is
+  // fixed for this component's lifetime) — only a genuine
+  // (initialLoad, isActive) transition should ever open/close a
+  // connection, never an unrelated re-render (e.g. selecting a row).
+  const wasConnectedRef = useRef(false)
+  useEffect(() => {
+    const shouldBeConnected = initialLoad === 'done' && isActive
+    if (shouldBeConnected && !wasConnectedRef.current) {
+      // Resume point: state.fileSize as currently held. Chosen over
+      // re-fetching a fresh window here because it needs no extra
+      // round-trip and is always safe — the server's own tail resume
+      // semantics (log-tail.controller.ts's resolveFromOffset / U8) treat
+      // `from` as "emit the backlog from this offset forward, then keep
+      // watching," so even a STALE state.fileSize (e.g. after a long
+      // isActive:false stretch during which the real file grew well
+      // past what this client last observed) is corrected for free: the
+      // reconnect's own backlog read emits every line between the stale
+      // offset and the current true EOF as ordinary append-delta
+      // messages, which flow through this SAME handleTailLine path (and
+      // therefore respect `following`/newLineCount exactly as any other
+      // tail line would) — never a gap, never a special case.
+      connect(stateRef.current.fileSize)
+      wasConnectedRef.current = true
+    } else if (!shouldBeConnected && wasConnectedRef.current) {
+      disconnect()
+      wasConnectedRef.current = false
+    }
+  }, [initialLoad, isActive, connect, disconnect])
+
   function handleRefresh() {
     void loadInitial()
   }
+
+  // "Jump to latest" (R4): re-anchors the loaded window to the file's
+  // CURRENT true tail (distinct from handleRefresh's own open-at-tail
+  // reseed only in that this one ALSO resets the badge, re-seeds the
+  // tail connection from the fresh offset, and resumes follow — the
+  // three things that make this a genuine "un-pause" rather than just a
+  // content refresh). Uses the SAME open-at-tail fetch shape loadInitial
+  // itself performs (anchor: MAX_SAFE_INTEGER, direction: 'before') —
+  // the server clamps this to the real EOF regardless of what this
+  // client currently believes fileSize to be, so this is correct even
+  // after an arbitrarily long paused stretch.
+  const jumpInFlightRef = useRef(false)
+  async function handleJumpToLatest() {
+    if (jumpInFlightRef.current) return
+    jumpInFlightRef.current = true
+    try {
+      const response = await readWindow({
+        stream,
+        anchor: Number.MAX_SAFE_INTEGER,
+        direction: 'before',
+      })
+      // Set BEFORE setState, not after: the paired useLayoutEffect below
+      // reads this flag on the render this setState schedules, so it
+      // must already be true by the time that render's layout effects
+      // run — setting it after would risk (depending on exact scheduling)
+      // missing that same commit.
+      pendingJumpScrollRef.current = true
+      setState(seedWindowState(response))
+      setNewLineCount(0)
+      // Re-seeds the tail from the FRESH offset this response just
+      // reported — the plan's own "manual close-and-reopen with a fresh
+      // ?from=... used only for a deliberate re-seek" case. connect()
+      // itself closes whatever connection is already open before
+      // opening the new one (see use-log-tail.ts), so this is safe to
+      // call unconditionally regardless of whether a connection was
+      // already live.
+      connect(response.fileSize)
+      setFollowing(true)
+    } finally {
+      jumpInFlightRef.current = false
+    }
+  }
+
+  // Explicit scrollToEnd() for handleJumpToLatest, deferred to a layout
+  // effect so it runs AFTER the seedWindowState replace above has
+  // actually committed and the virtualizer has fresh measurements for
+  // the NEW window — calling virtualizer.scrollToEnd() synchronously
+  // inside handleJumpToLatest itself would still be observing the OLD
+  // (pre-jump) measurements, since setState's effect on `count` is only
+  // visible starting from the NEXT render. Deliberately NOT relying on
+  // followOnAppend for this case (see that option's own comment above):
+  // followOnAppend only auto-scrolls when the viewport was ALREADY
+  // pinned at the moment count grew, which is never true here (jump-to-
+  // latest's whole reason to exist is that the viewport is currently
+  // NOT pinned — that's what "paused" means).
+  useLayoutEffect(() => {
+    if (!pendingJumpScrollRef.current) return
+    pendingJumpScrollRef.current = false
+    virtualizer.scrollToEnd()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.lines.length])
 
   if (initialLoad === 'error') {
     return (
@@ -393,13 +724,42 @@ export function LogViewer({
 
   return (
     <div className="flex flex-col gap-2">
+      {/*
+        U10: reflects live follow/pause state instead of Phase 1's static
+        "Snapshot — refresh for newer entries" framing, now that the tail
+        is actually wired in. Kept functional-but-plain here (data-
+        track-ids + minimal layout, no motion/visual polish) — U14 is the
+        dedicated visual-refinement pass over this exact banner.
+      */}
       <div
         data-track-id="log-viewer-snapshot-banner"
         className="flex items-center justify-between gap-3 rounded border border-gray-800 bg-gray-900/50 px-3 py-1.5 text-xs text-gray-500"
       >
-        <span>
-          Snapshot — refresh for newer entries. {percentThroughFile}% through
-          file.
+        <span className="flex items-center gap-2">
+          {following ? (
+            <span data-track-id="log-viewer-following-indicator">
+              Following live.
+            </span>
+          ) : (
+            <span className="flex items-center gap-2">
+              <span data-track-id="log-viewer-paused-indicator">Paused</span>
+              <span
+                data-track-id="log-viewer-new-line-badge"
+                className="rounded bg-gray-800 px-1.5 py-0.5 text-gray-300"
+              >
+                {newLineCount} new
+              </span>
+              <button
+                type="button"
+                data-track-id="log-viewer-jump-to-latest"
+                onClick={() => void handleJumpToLatest()}
+                className="rounded px-2 py-0.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+              >
+                Jump to latest
+              </button>
+            </span>
+          )}
+          <span>{percentThroughFile}% through file.</span>
         </span>
         <button
           type="button"
