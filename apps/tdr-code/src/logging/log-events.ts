@@ -414,6 +414,15 @@ const LOGS_EVENTS = {
   // request aborting this one is an expected, deliberate outcome — see
   // scan()'s own comment on that distinction), only on a genuine I/O failure.
   logSearchFailed: 'log-search-failed',
+  // use-log-tail.ts (Phase 2 U13, tail transport hardening) — the BROWSER
+  // side's own consecutive-onerror session-expiry fallback for the
+  // /api/logs/tail connection specifically. Distinct from SSE_EVENTS'
+  // sseSessionExpiryFallback (the unrelated /api/stream connection's own
+  // identical mitigation) so an operator filtering Loki can tell which
+  // long-lived connection actually triggered the fallback probe, per this
+  // module's own cross-plane-desync discipline (see U8's header comment on
+  // why the tail never imports from src/sse/*).
+  logTailSessionExpiryFallback: 'log-tail-session-expiry-fallback',
 } as const
 
 const ERROR_BOUNDARY_EVENTS = {

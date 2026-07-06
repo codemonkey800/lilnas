@@ -1,6 +1,6 @@
-import { renderHook } from '@testing-library/react'
+import { renderHook, waitFor } from '@testing-library/react'
 
-import { logTailUrl } from 'src/app/lib/api'
+import { api, logTailUrl } from 'src/app/lib/api'
 import { tailMessageToLogLine, useLogTail } from 'src/app/logs/use-log-tail'
 import type { LogLine, LogTailMessage } from 'src/logging/log-view.types'
 
@@ -10,10 +10,13 @@ import type { LogLine, LogTailMessage } from 'src/logging/log-view.types'
 // types this hook actually listens for (`log-append`/`keepalive`) instead
 // of an arbitrary topic list, since use-log-tail.ts has no per-topic
 // listener registration to exercise the way use-live-stream.ts does.
+// `onopen` (U13) is included for the SAME reason `onerror` already was —
+// the session-expiry fallback resets its counter on both.
 class MockEventSource {
   static instances: MockEventSource[] = []
 
   url: string
+  onopen: (() => void) | null = null
   onerror: (() => void) | null = null
   closed = false
   private readonly listeners = new Map<
@@ -49,6 +52,12 @@ class MockEventSource {
     this.closed = true
   }
 
+  // Test helper (U13) — simulates a native EventSource's own auto-reconnect
+  // succeeding (or the initial handshake completing).
+  emitOpen(): void {
+    this.onopen?.()
+  }
+
   // Test helper — dispatches a NAMED event (the only kind a real
   // EventSource for this endpoint ever delivers) to exactly the listeners
   // registered for `type`, mirroring real dispatch-by-event-name behavior.
@@ -76,6 +85,16 @@ function latestInstance(): MockEventSource {
 beforeEach(() => {
   MockEventSource.instances = []
   global.EventSource = MockEventSource as unknown as typeof EventSource
+})
+
+// U13: jest.config.js's top-level clearMocks/restoreMocks do NOT apply per
+// Jest PROJECT once a `projects` array is used (documented empirically in
+// use-live-stream.spec.tsx's own identical header comment, which hits the
+// exact same gotcha for its own api.getLive spy) — so a jest.spyOn(api,
+// 'getLogSources') installed in one session-expiry-fallback test bleeds its
+// call count into the next test in this file unless explicitly restored.
+afterEach(() => {
+  jest.restoreAllMocks()
 })
 
 describe('tailMessageToLogLine — the byte-offset conversion (the trickiest part of this unit)', () => {
@@ -255,10 +274,120 @@ describe('useLogTail', () => {
     expect(() => result.current.disconnect()).not.toThrow()
   })
 
-  it('an onerror event does not throw (401-fallback logic is explicitly deferred to a later unit)', () => {
-    const onLine = jest.fn()
-    const { result } = renderHook(() => useLogTail('backend', onLine))
-    result.current.connect(0)
-    expect(() => latestInstance().onerror?.()).not.toThrow()
+  describe('session-expiry fallback (U13, R18)', () => {
+    it('fires exactly one authenticated request after the consecutive-onerror threshold, and does not re-fire on further errors', async () => {
+      const getLogSourcesSpy = jest
+        .spyOn(api, 'getLogSources')
+        .mockResolvedValue([])
+      const onLine = jest.fn()
+      const { result } = renderHook(() => useLogTail('backend', onLine))
+      result.current.connect(0)
+      const instance = latestInstance()
+
+      // Threshold is 3 consecutive onerror events with no intervening
+      // onopen/message/keepalive — simulates a reconnect that never
+      // succeeds (e.g. a 401 on /api/logs/tail, which EventSource retries
+      // forever).
+      instance.onerror?.()
+      instance.onerror?.()
+      expect(getLogSourcesSpy).not.toHaveBeenCalled()
+
+      instance.onerror?.()
+      await waitFor(() => expect(getLogSourcesSpy).toHaveBeenCalledTimes(1))
+
+      // Further errors past the threshold must not re-fire — the fallback
+      // fires once until a successful onopen/message/keepalive resets it.
+      instance.onerror?.()
+      instance.onerror?.()
+      await Promise.resolve()
+      expect(getLogSourcesSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('resets the consecutive-error count on a real log-append event, so the threshold requires fresh consecutive errors afterward', async () => {
+      const getLogSourcesSpy = jest
+        .spyOn(api, 'getLogSources')
+        .mockResolvedValue([])
+      const onLine = jest.fn()
+      const { result } = renderHook(() => useLogTail('backend', onLine))
+      result.current.connect(0)
+      const instance = latestInstance()
+
+      instance.onerror?.()
+      instance.onerror?.()
+      instance.emit('log-append', { line: '{"a":1}', byteOffset: 8 })
+
+      instance.onerror?.()
+      instance.onerror?.()
+      await Promise.resolve()
+      expect(getLogSourcesSpy).not.toHaveBeenCalled()
+
+      instance.onerror?.()
+      await waitFor(() => expect(getLogSourcesSpy).toHaveBeenCalledTimes(1))
+    })
+
+    it('resets the consecutive-error count on a keepalive event too', async () => {
+      const getLogSourcesSpy = jest
+        .spyOn(api, 'getLogSources')
+        .mockResolvedValue([])
+      const onLine = jest.fn()
+      const { result } = renderHook(() => useLogTail('backend', onLine))
+      result.current.connect(0)
+      const instance = latestInstance()
+
+      instance.onerror?.()
+      instance.onerror?.()
+      instance.emit('keepalive', {})
+      instance.onerror?.()
+      instance.onerror?.()
+      await Promise.resolve()
+
+      expect(getLogSourcesSpy).not.toHaveBeenCalled()
+    })
+
+    it('resets on onopen (a successful auto-reconnect)', async () => {
+      const getLogSourcesSpy = jest
+        .spyOn(api, 'getLogSources')
+        .mockResolvedValue([])
+      const onLine = jest.fn()
+      const { result } = renderHook(() => useLogTail('backend', onLine))
+      result.current.connect(0)
+      const instance = latestInstance()
+
+      instance.onerror?.()
+      instance.onerror?.()
+      instance.emitOpen()
+      instance.onerror?.()
+      instance.onerror?.()
+      await Promise.resolve()
+
+      expect(getLogSourcesSpy).not.toHaveBeenCalled()
+    })
+
+    it("a fresh connect() call (re-seek) gets its own independent error counter, never inheriting a prior connection's streak", async () => {
+      const getLogSourcesSpy = jest
+        .spyOn(api, 'getLogSources')
+        .mockResolvedValue([])
+      const onLine = jest.fn()
+      const { result } = renderHook(() => useLogTail('backend', onLine))
+      result.current.connect(0)
+      const first = latestInstance()
+
+      // Two errors on the FIRST connection — one short of the threshold.
+      first.onerror?.()
+      first.onerror?.()
+
+      // A deliberate re-seek (e.g. jump-to-latest) supersedes it before the
+      // threshold is reached.
+      result.current.connect(500)
+      const second = latestInstance()
+      expect(second).not.toBe(first)
+
+      // The NEW connection's own errors must start counting from zero, not
+      // pick up where the old one left off (2 + 1 would wrongly hit the
+      // threshold here if the counter were shared).
+      second.onerror?.()
+      await Promise.resolve()
+      expect(getLogSourcesSpy).not.toHaveBeenCalled()
+    })
   })
 })

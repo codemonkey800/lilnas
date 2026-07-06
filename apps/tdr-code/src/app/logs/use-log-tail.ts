@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 
-import { logTailUrl } from 'src/app/lib/api'
+import { api, logTailUrl } from 'src/app/lib/api'
+import { capMessage, logToServer } from 'src/app/lib/browser-logger'
+import { LOG_EVENTS } from 'src/logging/log-events'
 import {
   LOG_TAIL_EVENT_TYPE,
   LOG_TAIL_KEEPALIVE_EVENT_TYPE,
@@ -11,6 +13,18 @@ import {
   type LogTailMessage,
   parseLogLine,
 } from 'src/logging/log-view.types'
+
+// U13: bounded threshold for the session-expiry fallback below — mirrors
+// use-live-stream.ts's own CONSECUTIVE_ERROR_THRESHOLD (same value, same
+// rationale: tolerate a single transient reconnect blip without false-
+// triggering, while still bounding how long an idle operator with an
+// expired session could be stranded watching a tail that silently retries
+// forever). Kept as this file's OWN local constant rather than importing
+// use-live-stream.ts's — the two hooks share no runtime state and this
+// tail connection is architecturally independent of /api/stream (U8's own
+// "no shared hub" decision), so importing across them would be an
+// accidental coupling with no compile-time guard against it drifting.
+const CONSECUTIVE_ERROR_THRESHOLD = 3
 
 // Converts one tail wire message into a properly-shaped LogLine. This is
 // the single most important piece of logic in this file: LogTailMessage's
@@ -105,23 +119,68 @@ export function useLogTail(
       const eventSource = new EventSource(logTailUrl(stream, from))
       eventSourceRef.current = eventSource
 
+      // U13 (R18): session-expiry fallback state, scoped to THIS specific
+      // connection (a plain closure variable, not a hook-level ref) — a
+      // later connect() call creates an entirely new EventSource with its
+      // own fresh counter, exactly as it should, since a reconnect that
+      // succeeds is proof the PRIOR connection's error streak is no longer
+      // relevant. Mirrors use-live-stream.ts's own identical per-connection
+      // scoping (that hook declares its equivalent counters inside the
+      // effect body that owns one EventSource's lifetime, for the same
+      // reason).
+      let consecutiveErrors = 0
+      let fallbackFired = false
+      const resetErrorTracking = () => {
+        consecutiveErrors = 0
+        fallbackFired = false
+      }
+
+      eventSource.onopen = resetErrorTracking
+
       eventSource.addEventListener(LOG_TAIL_EVENT_TYPE, event => {
+        resetErrorTracking()
         const message = JSON.parse(
           (event as MessageEvent<string>).data,
         ) as LogTailMessage
         onLineRef.current(tailMessageToLogLine(message))
       })
 
-      // No-op: a keepalive carries no line data and needs no handling
-      // beyond "don't let it throw or do anything visible." U13 adds the
-      // 401-fallback consecutive-error counting on top of this hook later
-      // (this unit's brief explicitly defers that) — this listener exists
-      // only so a keepalive event is a harmless, silently-ignored tick.
-      eventSource.addEventListener(LOG_TAIL_KEEPALIVE_EVENT_TYPE, () => {})
+      // A keepalive carries no line data, but receiving one is proof the
+      // connection (and therefore the session cookie) is still good — same
+      // rationale as use-live-stream.ts's own identical keepalive handling.
+      eventSource.addEventListener(LOG_TAIL_KEEPALIVE_EVENT_TYPE, () => {
+        resetErrorTracking()
+      })
 
-      // Deliberately a no-op for now (see this file's own module comment
-      // above) — U13's job, not this unit's. Must not throw.
-      eventSource.onerror = () => {}
+      // U13 (R18): removing polling removed the only guaranteed periodic
+      // authenticated request that used to trigger api.ts's 401->/login
+      // redirect latch — without this, an idle operator whose session
+      // expires while a tail connection sits open would see EventSource
+      // retry a 401 forever (only a 204 stops it) and never get redirected.
+      // Mirrors use-live-stream.ts's own identical mitigation: after
+      // CONSECUTIVE_ERROR_THRESHOLD onerror events with no intervening
+      // onopen/onmessage/keepalive, fire ONE authenticated request so a 401
+      // response can trigger the existing redirect. Fires once per bounded
+      // window (fallbackFired), not once per error past the threshold.
+      eventSource.onerror = () => {
+        consecutiveErrors += 1
+        if (consecutiveErrors < CONSECUTIVE_ERROR_THRESHOLD || fallbackFired) {
+          return
+        }
+        fallbackFired = true
+        void api.getLogSources().catch((error: unknown) => {
+          // A non-401 failure here is expected/benign (e.g. a genuine
+          // network blip) — request() only ever throws for non-2xx,
+          // non-401 responses (the 401 case redirects and never settles).
+          // Logged at warn, not rethrown: this is a best-effort background
+          // probe, not a user-facing action.
+          logToServer(
+            'warn',
+            LOG_EVENTS.logTailSessionExpiryFallback,
+            capMessage(error instanceof Error ? error.message : String(error)),
+          )
+        })
+      }
     },
     [stream, disconnect],
   )
