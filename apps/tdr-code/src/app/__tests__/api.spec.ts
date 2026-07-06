@@ -28,7 +28,16 @@
 // `jest.isolateModulesAsync` gives each test a fresh require-cache scope so
 // each one starts from `hasRedirectedForSessionExpiry === false`, matching
 // what actually happens on every real page load.
+//
+// U15: the second describe block below (param-encoding regression) tests
+// logTailUrl/api.searchLog/api.readLogWindow instead — none of those three
+// touch the redirect-storm latch at all (they only ever build a URL/call
+// fetch once each), so they are imported statically like any ordinary
+// module rather than through the isolateModulesAsync+require dance above,
+// which exists solely to work around that ONE stateful flag.
 import type { fetchJson as FetchJsonType } from 'src/app/lib/api'
+import { api, logTailUrl } from 'src/app/lib/api'
+import type { LogStream, LogWindowDirection } from 'src/logging/log-view.types'
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -174,5 +183,161 @@ describe('api.ts redirect-on-401', () => {
     // boundaries.
     await fetchJson('/config')
     expect(hrefValues).toHaveLength(1)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────
+// U15: param-encoding regression — the REVIEW.md "param-encoding footgun"
+// this plan repeatedly references. Before this suite, no test actually fed
+// a value containing a URL-special character (&, =, #, a space, or a
+// literal %) through logTailUrl/api.searchLog/api.readLogWindow and
+// asserted the resulting URL round-trips correctly — every existing
+// api.ts-adjacent test either used plain alphanumeric fixture values (which
+// would pass identically whether or not URLSearchParams' automatic encoding
+// were actually wired up) or didn't touch these three functions at all.
+// This closes that gap by proving BOTH halves of the round-trip: (1) the
+// constructed URL string itself is properly percent-encoded (never a raw
+// '&'/'='/'#'/' '/'%' character leaking into the query string, which would
+// silently truncate or corrupt the query on a real server), and (2) decoding
+// that same URL with URLSearchParams recovers the EXACT original value byte-
+// for-byte — proving the encoding is not just "present" but actually
+// correct and reversible.
+//
+// LogStream/LogWindowDirection are closed string-literal unions in normal
+// usage (never truly free text), so `as LogStream`/`as LogWindowDirection`
+// casts below deliberately inject an out-of-union value into each
+// function's `stream`/`direction` parameter — not because a real caller
+// would ever do this, but because it is the only way to prove these
+// functions rely on URLSearchParams' OWN encoding rather than silently
+// assuming every caller only ever passes a pre-vetted enum member. The
+// genuinely free-text fields already in the real type (LogScanPredicate's
+// `text`/`event` on searchLog) are exercised as themselves, no cast needed.
+describe('U15: param encoding — logTailUrl / api.searchLog / api.readLogWindow round-trip URL-special characters', () => {
+  const SPECIAL_VALUE = 'a&b=c#d e%f'
+
+  function decodeQueryParam(url: string, key: string): string | null {
+    const qIndex = url.indexOf('?')
+    const qs = qIndex === -1 ? '' : url.slice(qIndex + 1)
+    return new URLSearchParams(qs).get(key)
+  }
+
+  describe('logTailUrl', () => {
+    it('percent-encodes a special-character stream value and decodes back to the exact original', () => {
+      const url = logTailUrl(SPECIAL_VALUE as LogStream, 42)
+
+      // The raw query string itself must never contain an unescaped '&' or
+      // '#' from the value (those would otherwise be parsed as a query
+      // separator / fragment delimiter, corrupting the request).
+      const [, queryPart] = url.split('?')
+      expect(queryPart).toBeDefined()
+      expect(queryPart).not.toContain('a&b') // the raw '&' must be encoded
+      expect(queryPart).not.toMatch(/(?<!%23)#/) // no raw '#' either
+
+      expect(decodeQueryParam(url, 'stream')).toBe(SPECIAL_VALUE)
+      expect(decodeQueryParam(url, 'from')).toBe('42')
+    })
+
+    it('omits `from` entirely (not `from=undefined`) when absent, independent of the stream value’s own encoding', () => {
+      const url = logTailUrl(SPECIAL_VALUE as LogStream)
+      expect(url).not.toContain('from=')
+      expect(decodeQueryParam(url, 'stream')).toBe(SPECIAL_VALUE)
+    })
+  })
+
+  describe('api.searchLog', () => {
+    let fetchSpy: jest.SpiedFunction<typeof fetch>
+
+    beforeEach(() => {
+      fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({ total: 0, matches: [], nextCursor: null }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
+    })
+
+    afterEach(() => {
+      fetchSpy.mockRestore()
+    })
+
+    it('percent-encodes special characters in `text` and `event` and both decode back to the exact original', async () => {
+      await api.searchLog({
+        stream: 'backend',
+        text: SPECIAL_VALUE,
+        event: SPECIAL_VALUE,
+      })
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      const requestedUrl = fetchSpy.mock.calls[0]?.[0] as string
+      expect(requestedUrl).toContain('/api/logs/search?')
+      const [, queryPart] = requestedUrl.split('?')
+      expect(queryPart).not.toContain('a&b')
+      expect(queryPart).not.toMatch(/(?<!%23)#/)
+
+      expect(decodeQueryParam(requestedUrl, 'text')).toBe(SPECIAL_VALUE)
+      expect(decodeQueryParam(requestedUrl, 'event')).toBe(SPECIAL_VALUE)
+      expect(decodeQueryParam(requestedUrl, 'stream')).toBe('backend')
+    })
+
+    it('percent-encodes a special-character cursor value and decodes back to the exact original', async () => {
+      const specialCursor = '100&200#300 400%500'
+      await api.searchLog({ stream: 'backend', cursor: specialCursor })
+
+      const requestedUrl = fetchSpy.mock.calls[0]?.[0] as string
+      expect(decodeQueryParam(requestedUrl, 'cursor')).toBe(specialCursor)
+    })
+  })
+
+  describe('api.readLogWindow', () => {
+    let fetchSpy: jest.SpiedFunction<typeof fetch>
+
+    beforeEach(() => {
+      fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            stream: 'backend',
+            fileSize: 0,
+            windowStart: 0,
+            windowEnd: 0,
+            atStart: true,
+            atEnd: true,
+            lines: [],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+    })
+
+    afterEach(() => {
+      fetchSpy.mockRestore()
+    })
+
+    it('percent-encodes a special-character direction value (the closest free-value field this function exposes) and decodes back to the exact original', async () => {
+      // stream/anchor/maxBytes are typed as an enum/numbers with no
+      // meaningful "special character" case of their own — `direction` is
+      // exercised here via the same as-cast rationale as logTailUrl's
+      // stream test above, to prove readLogWindow's OWN `.set()` call for
+      // this field goes through URLSearchParams' encoding rather than
+      // assuming the value is always a safe, pre-vetted literal.
+      await api.readLogWindow({
+        stream: 'backend',
+        anchor: 123,
+        direction: SPECIAL_VALUE as LogWindowDirection,
+      })
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      const requestedUrl = fetchSpy.mock.calls[0]?.[0] as string
+      expect(requestedUrl).toContain('/api/logs/window?')
+      const [, queryPart] = requestedUrl.split('?')
+      expect(queryPart).not.toContain('a&b')
+      expect(queryPart).not.toMatch(/(?<!%23)#/)
+
+      expect(decodeQueryParam(requestedUrl, 'direction')).toBe(SPECIAL_VALUE)
+      expect(decodeQueryParam(requestedUrl, 'stream')).toBe('backend')
+      expect(decodeQueryParam(requestedUrl, 'anchor')).toBe('123')
+    })
   })
 })
