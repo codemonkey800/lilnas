@@ -10,6 +10,7 @@ import {
 } from 'react'
 
 import { LogRow, ROW_PX } from 'src/app/logs/log-row'
+import { LogSearchBar } from 'src/app/logs/log-search-bar'
 import { useLogTail } from 'src/app/logs/use-log-tail'
 import type {
   LogLine,
@@ -290,6 +291,15 @@ export function LogViewer({
   // unbounded pending-line buffer; while paused, incoming tail lines are
   // counted here and NOWHERE else (see handleTailLine below).
   const [newLineCount, setNewLineCount] = useState(0)
+  // U11: the CURRENTLY-selected search hit's matched text, or null when no
+  // search hit is selected — passed straight through to every LogRow as
+  // `highlightText`. Set alongside a hit selection (handleHitSelected
+  // below) and cleared ONLY when search becomes inactive (see
+  // handleSearchActiveChange) — a deliberate choice, not an oversight: the
+  // user stays wherever they currently are when clearing the query; the
+  // window itself is never auto-navigated away from a selected hit just
+  // because the search box emptied.
+  const [highlightText, setHighlightText] = useState<string | null>(null)
 
   const scrollElementRef = useRef<HTMLDivElement>(null)
   const inFlightRef = useRef<InFlight>({ before: false, after: false })
@@ -323,6 +333,22 @@ export function LogViewer({
   // doesn't apply (and shouldn't be re-checked) for a jump that happens
   // well after the initial load already completed.
   const pendingJumpScrollRef = useRef(false)
+  // U11: the SAME one-shot-guard pattern as pendingJumpScrollRef, applied
+  // to jump-to-HIT instead of jump-to-LATEST — kept as its own ref rather
+  // than reusing pendingJumpScrollRef because the two guard genuinely
+  // different scroll DESTINATIONS (scrollToEnd() vs. scrollToIndex at a
+  // specific row) that could, in principle, ever be pending simultaneously
+  // (e.g. a hit selection landing in the same render pass as an unrelated
+  // jump-to-latest click) — collapsing them into one flag would make the
+  // paired layout effect below unable to tell which behavior it owes.
+  const pendingHitScrollRef = useRef(false)
+  // The byte offset the jump-to-hit layout effect below should scroll to
+  // once state.lines actually contains it — set immediately before the
+  // seedWindowState call in handleHitSelected, read (and only read) by
+  // that effect. A ref rather than a second piece of derived state: this
+  // value is pure "instructions for the NEXT layout effect run," never
+  // rendered anywhere itself.
+  const pendingHitByteOffsetRef = useRef<number | null>(null)
   // Tracks state.lines.length as of the LAST handleVirtualizerChange
   // invocation — used ONLY to detect "this invocation is itself a
   // reaction to state.lines having just grown" (an append or an edge-
@@ -686,6 +712,107 @@ export function LogViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.lines.length])
 
+  // U11: search-hit selection (F3/R10). Reuses `following`/newLineCount
+  // exactly as U10's OWN "pause and look at a specific point" affordances
+  // already do — selecting a hit is conceptually identical to scrolling up
+  // (both mean "stop auto-following, I'm looking at something specific"),
+  // so this deliberately calls setFollowing(false) rather than inventing a
+  // parallel pause mechanism. Crucially, this does NOT call disconnect():
+  // the tail connection stays open and keeps running in the background
+  // (handleTailLine below still fires for every incoming tail line — it
+  // just takes the `!following` branch, bumping newLineCount exactly like
+  // a scroll-up pause does), so the "N new" badge keeps incrementing while
+  // a hit is selected, and jump-to-latest remains the one documented path
+  // back to a live, EOF-anchored window (per this unit's own brief).
+  const hitInFlightRef = useRef(false)
+  async function handleHitSelected(byteOffset: number, matchText: string) {
+    if (hitInFlightRef.current) return
+    hitInFlightRef.current = true
+    try {
+      setFollowing(false)
+      const response = await readWindow({
+        stream,
+        anchor: byteOffset,
+        direction: 'around',
+      })
+      // Set BEFORE setState, for the identical reason
+      // handleJumpToLatest's own pendingJumpScrollRef assignment precedes
+      // ITS setState call — the paired layout effect below reads these
+      // refs on the very render this setState schedules.
+      pendingHitScrollRef.current = true
+      pendingHitByteOffsetRef.current = byteOffset
+      setState(seedWindowState(response))
+      setHighlightText(matchText)
+    } finally {
+      hitInFlightRef.current = false
+    }
+  }
+
+  // U11: fires when LogSearchBar reports its OWN active/inactive
+  // transition (see that component's `onSearchActiveChange` prop
+  // contract). Only ever CLEARS highlightText on a hard `false` (the
+  // query was emptied back out) — a zero-result search or a search still
+  // resolving never touches highlightText at all, so a PRIOR hit's
+  // highlight/window stays exactly as the user left it rather than being
+  // yanked away by an unrelated in-flight query. Deliberately does NOT
+  // move the viewport or resume `following` here — the user stays
+  // wherever they currently are; resuming live-follow remains an
+  // explicit, separate "jump to latest" action (U10). This is a
+  // deliberate judgment call: emptying the search box reads as "I'm done
+  // searching," not "take me back to live," and the two existing U10
+  // affordances (Refresh / Jump to latest) already cover "get back to
+  // live" without this handler needing to guess at that intent too.
+  function handleSearchActiveChange(active: boolean) {
+    if (!active) {
+      setHighlightText(null)
+    }
+  }
+
+  // Explicit scrollToIndex() for handleHitSelected, deferred to a layout
+  // effect for the SAME reason handleJumpToLatest's own paired effect
+  // above is deferred: calling virtualizer.scrollToIndex synchronously
+  // inside handleHitSelected would still observe the OLD (pre-jump)
+  // measurements, since setState's effect on `count`/`getItemKey` is only
+  // visible starting from the NEXT render. Keyed on
+  // state.windowStart/state.windowEnd (which BOTH change the instant a
+  // NEW window — whether from a jump-to-hit, jump-to-latest, refresh, or
+  // ordinary edge-fetch — actually lands), rather than state.lines.length
+  // alone: an edge-fetch prepend/append also changes length, but this
+  // effect must fire ONLY for a genuine jump-to-hit reseed, which
+  // pendingHitScrollRef's own guard already narrows to — the broader key
+  // just guarantees this effect re-evaluates on every window change so it
+  // never MISSES the one that actually matters.
+  useLayoutEffect(() => {
+    if (!pendingHitScrollRef.current) return
+    pendingHitScrollRef.current = false
+    const targetOffset = pendingHitByteOffsetRef.current
+    pendingHitByteOffsetRef.current = null
+    if (targetOffset === null) return
+    // The target line is only found by RANGE, not by exact byteOffset
+    // equality: log-reader.service.ts's own 'around' snapWindow guarantee
+    // is that the LINE CONTAINING the anchor is whole and present in the
+    // response (see that file's own header comment on snapWindow), not
+    // that the response echoes the raw anchor value verbatim as some
+    // line's own byteOffset — a search hit's byteOffset points at a
+    // line's START (U9's own contract), so in practice this almost always
+    // resolves via the direct `line.byteOffset === targetOffset` check
+    // below, but the range check is what keeps this correct even if a
+    // future caller ever passes a mid-line anchor instead.
+    const index = state.lines.findIndex(
+      line =>
+        targetOffset >= line.byteOffset &&
+        targetOffset < line.byteOffset + line.byteLength,
+    )
+    // A missing target is a silent no-op scroll, never a thrown error —
+    // per this unit's own brief: the 'around' read guarantees the anchor's
+    // own line is present, but this guards defensively against any future
+    // inconsistency rather than crashing the whole viewer over a scroll
+    // that simply doesn't happen.
+    if (index === -1) return
+    virtualizer.scrollToIndex(index, { align: 'center' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.windowStart, state.windowEnd])
+
   if (initialLoad === 'error') {
     return (
       <div
@@ -724,6 +851,18 @@ export function LogViewer({
 
   return (
     <div className="flex flex-col gap-2">
+      {/*
+        U11: functional placement only (near the top, above the live-
+        status banner) — U14 is the dedicated visual-refinement pass over
+        this component's overall layout, same as the banner below it.
+      */}
+      <LogSearchBar
+        stream={stream}
+        currentFileSize={state.fileSize}
+        onHitSelected={handleHitSelected}
+        onSearchActiveChange={handleSearchActiveChange}
+      />
+
       {/*
         U10: reflects live follow/pause state instead of Phase 1's static
         "Snapshot — refresh for newer entries" framing, now that the tail
@@ -827,6 +966,7 @@ export function LogViewer({
                     line={line}
                     stream={stream}
                     onSelect={() => onSelectLine(line)}
+                    highlightText={highlightText ?? undefined}
                   />
                 </div>
               )

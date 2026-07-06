@@ -1,5 +1,13 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  act,
+  fireEvent,
+  render as rtlRender,
+  screen,
+  waitFor,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactElement } from 'react'
 
 import { logTailUrl } from 'src/app/lib/api'
 import { ROW_PX } from 'src/app/logs/log-row'
@@ -18,6 +26,83 @@ import type {
   LogTailMessage,
   LogWindowResponse,
 } from 'src/logging/log-view.types'
+
+// U11: LogSearchBar is mocked at the module level for this file's OWN
+// component-wiring tests — see that describe block's own header comment
+// for the full rationale (log-search-bar.spec.tsx already exhaustively
+// covers the real component's internal behavior in isolation; this file's
+// job is proving what log-viewer.tsx does IN RESPONSE to a hit selection,
+// which is orthogonal to how that selection was produced). The mock keeps
+// the LATEST `onHitSelected` callback the most-recently-rendered
+// LogSearchBar instance was given in a module-level ref, since each
+// LogViewer render constructs a fresh handleHitSelected closure — this is
+// what lets dispatchMockHitSelected (called from inside a test body, well
+// after render) reach the CURRENT instance's real callback rather than a
+// stale one captured at mock-definition time.
+let latestOnHitSelected:
+  | ((byteOffset: number, matchText: string) => void)
+  | null = null
+
+jest.mock('src/app/logs/log-search-bar', () => ({
+  LogSearchBar: (props: {
+    onHitSelected: (byteOffset: number, matchText: string) => void
+  }) => {
+    latestOnHitSelected = props.onHitSelected
+    return <div data-track-id="mock-log-search-bar" />
+  },
+}))
+
+// Invokes the CURRENT LogSearchBar mock instance's onHitSelected exactly
+// as the real component would once a hit is selected — the one seam this
+// file's U11 tests need to drive log-viewer.tsx's OWN response, without
+// reproducing LogSearchBar's real debounce/pagination logic here.
+// handleHitSelected (the real callback this reaches) is async and
+// triggers React state updates both synchronously (setFollowing) and
+// after an awaited readWindow call (setState) — wrapping in `act` and
+// awaiting its own returned promise is what keeps every one of those
+// updates flushed before this function returns, so a caller's very next
+// `await waitFor(...)` never races a still-pending microtask.
+async function dispatchMockHitSelected(byteOffset: number, matchText: string) {
+  if (!latestOnHitSelected) {
+    throw new Error(
+      'dispatchMockHitSelected called before any LogSearchBar mock instance rendered',
+    )
+  }
+  await act(async () => {
+    latestOnHitSelected!(byteOffset, matchText)
+    // Let the async handleHitSelected's own awaited readWindow() call
+    // (and the state updates that follow it) actually settle within this
+    // act() block, not just the synchronous portion before its first
+    // await.
+    await Promise.resolve()
+  })
+}
+
+// U11: LogViewer now unconditionally renders LogSearchBar once its initial
+// windowed load settles, and that component calls useQuery — every one of
+// this file's PRE-EXISTING render() calls (all of Phase 1/U10, none of
+// which ever knew about search) now needs a QueryClientProvider ancestor
+// or useQuery itself throws ("No QueryClient set"). `wrapper` (not a
+// manually-nested <QueryClientProvider> per call site) is what lets every
+// EXISTING `rerender(...)` call in this file keep working unmodified —
+// Testing Library re-applies the SAME wrapper automatically on every
+// rerender() a render() call produced, so this is the one change that
+// covers both render() and rerender() call sites without editing each one
+// individually. A FRESH QueryClient per render() call (never a
+// module-level shared instance) matches this codebase's own established
+// convention (see e.g. log-viewer.tsx's own sibling page.spec.tsx or
+// config.page.spec.tsx) — `retry: false` avoids a real test ever
+// retrying/timing out on a rejected mock.
+function render(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    ),
+  })
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Fixture helpers. A "line" is fully described by its ordinal index within
@@ -855,6 +940,13 @@ describe('LogViewer — component wiring', () => {
     // comment documents.
     MockEventSource.instances = []
     global.EventSource = MockEventSource as unknown as typeof EventSource
+    // U11: defensive reset so a stale reference from a PRIOR test's
+    // LogSearchBar mock instance can never be reachable by
+    // dispatchMockHitSelected in a LATER test that never itself renders a
+    // fresh LogViewer before calling it (every real U11 test below does
+    // render fresh first, so this is a belt-and-suspenders guard, not a
+    // load-bearing requirement of any single test).
+    latestOnHitSelected = null
   })
 
   afterEach(() => {
@@ -1828,6 +1920,231 @@ describe('LogViewer — component wiring', () => {
       // The ORIGINAL line's own text stands — no "(redundant resend)"
       // variant rendered anywhere.
       expect(screen.queryByText(/redundant resend/i)).not.toBeInTheDocument()
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════
+  // U11: search-hit selection wiring (handleHitSelected/
+  // handleSearchActiveChange) and its reconciliation with U10's own
+  // follow/pause/badge machinery. LogSearchBar is mocked at the MODULE
+  // level here (not driven through its real debounce/react-query
+  // internals) — this file already carries substantial complexity of its
+  // own (virtualizer geometry stubs, tail EventSource mocking), and
+  // log-search-bar.spec.tsx already exhaustively covers LogSearchBar's
+  // OWN internal behavior (debounce, pagination, abort, etc.) in
+  // isolation; driving the REAL component through this heavier
+  // integration test would only add timing coordination between TWO
+  // already-complex subsystems (react-query's debounce + this file's own
+  // virtualizer/EventSource stubs) without adding coverage that either
+  // suite doesn't already have on its own. The mock exposes a single
+  // "select hit" trigger button so this file can assert exactly what
+  // log-viewer.tsx itself does in RESPONSE to a hit selection — pause
+  // follow, load the 'around' window, highlight — the actual subject of
+  // this unit's own wiring, orthogonal to LogSearchBar's internals.
+  // ═══════════════════════════════════════════════════════════════════
+  describe('U11: search-hit selection wiring', () => {
+    const TOTAL_LINES = 200
+    const FILE_SIZE = TOTAL_LINES * BYTES_PER_LINE
+
+    function makeReadWindow() {
+      return jest
+        .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+        .mockImplementation(async ({ anchor, direction }) => {
+          if (direction === 'around') {
+            // A minimal 'around' response: a single line whose OWN
+            // byteOffset is snapped DOWN to the nearest line boundary
+            // containing `anchor` — mirroring log-reader.service.ts's
+            // real snapWindow 'around' guarantee (the anchor's containing
+            // line is always whole and present) without needing that
+            // service's actual byte-level scanning logic in a fixture.
+            const lineIndex = Math.floor(anchor / BYTES_PER_LINE)
+            const line = makeLine(lineIndex)
+            return {
+              stream: 'backend',
+              fileSize: FILE_SIZE,
+              windowStart: line.byteOffset,
+              windowEnd: line.byteOffset + line.byteLength,
+              atStart: lineIndex === 0,
+              atEnd: lineIndex >= TOTAL_LINES - 1,
+              lines: [line],
+            }
+          }
+          return makeResponse(
+            TOTAL_LINES,
+            anchor,
+            direction === 'after' ? 'after' : 'before',
+            50,
+          )
+        })
+    }
+
+    async function settleInitialLoadAndTail(
+      readWindow: jest.Mock<Promise<LogWindowResponse>, [ReadLogWindowParams]>,
+    ) {
+      const scrollContainer = await settleInitialLoad(readWindow)
+      await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
+      return { scrollContainer, tail: latestTailInstance() }
+    }
+
+    it('selecting a search hit pauses follow (a subsequent live-tail line does not get appended into the DOM) and loads the context window around the hit’s byte offset', async () => {
+      const readWindow = makeReadWindow()
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+        />,
+      )
+
+      const { tail } = await settleInitialLoadAndTail(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText('line 199')).toBeInTheDocument(),
+      )
+      // Still following by default before any hit is selected.
+      expect(screen.queryByText(/paused/i)).not.toBeInTheDocument()
+
+      const targetOffset = 50 * BYTES_PER_LINE
+      await dispatchMockHitSelected(targetOffset, 'line')
+
+      await waitFor(() =>
+        expect(readWindow).toHaveBeenCalledWith({
+          stream: 'backend',
+          anchor: targetOffset,
+          direction: 'around',
+        }),
+      )
+      // The context window landed — "line 50" (the ONLY line the 'around'
+      // fixture response above returns) is now on screen, replacing the
+      // tail-anchored window. Matched via the ROW's own textContent
+      // (rather than screen.getByText('line 50')) because U11's own
+      // highlight rendering deliberately SPLITS this exact text across a
+      // <mark> (matching "line") and a sibling plain span (" 50") — a
+      // real, correct rendering outcome of highlighting the row's msg,
+      // not a bug: getByText only matches a single element's OWN
+      // normalized text, never concatenated across sibling elements, so a
+      // split-by-highlight string needs its container's aggregate
+      // textContent checked instead.
+      await waitFor(() =>
+        expect(
+          [
+            ...document.querySelectorAll('[data-track-id="log-row-select"]'),
+          ].some(row => row.textContent?.includes('line 50')),
+        ).toBe(true),
+      )
+
+      // Follow paused — the SAME visible effect U10's own scroll-up-pause
+      // test asserts (see that describe block above): a live tail line
+      // delivered NOW must not add a new row.
+      await waitFor(() =>
+        expect(screen.getByText(/paused/i)).toBeInTheDocument(),
+      )
+      const rowCountBeforeTailLine = document.querySelectorAll(
+        '[data-track-id="log-row-select"]',
+      ).length
+      tail.emit(
+        'log-append',
+        makeTailMessage(FILE_SIZE, { line: 200, level: 30, msg: 'line 200' }),
+      )
+      await waitFor(() =>
+        expect(screen.getByText(/1 new/i)).toBeInTheDocument(),
+      )
+      expect(screen.queryByText('line 200')).not.toBeInTheDocument()
+      expect(
+        document.querySelectorAll('[data-track-id="log-row-select"]').length,
+      ).toBe(rowCountBeforeTailLine)
+    })
+
+    it('reconciles with live tail: after selecting a hit, a tail line delivered afterward increments the "N new" badge and does NOT appear as a new row in the mid-file window — byteOffsets stay monotonic, no near-EOF offset spliced in', async () => {
+      const readWindow = makeReadWindow()
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+        />,
+      )
+
+      const { tail } = await settleInitialLoadAndTail(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText('line 199')).toBeInTheDocument(),
+      )
+
+      const targetOffset = 20 * BYTES_PER_LINE
+      await dispatchMockHitSelected(targetOffset, 'line')
+      // Matched via row textContent, not screen.getByText — see the
+      // sibling test above's own comment on why (U11's highlight
+      // rendering splits this exact string across a <mark> + a plain
+      // sibling span).
+      await waitFor(() =>
+        expect(
+          [
+            ...document.querySelectorAll('[data-track-id="log-row-select"]'),
+          ].some(row => row.textContent?.includes('line 20')),
+        ).toBe(true),
+      )
+      // The mid-file window's own lines keep ascending byteOffset order —
+      // proven directly against the loaded row SET, not merely absence of
+      // a specific row: only the single 'around' line is loaded at this
+      // point, so exactly one row exists.
+      const rowsBeforeTailLine = [
+        ...document.querySelectorAll('[data-track-id="log-row-select"]'),
+      ].map(el => el.textContent)
+      expect(rowsBeforeTailLine).toHaveLength(1)
+      expect(rowsBeforeTailLine[0]).toContain('line 20')
+
+      let cursor = FILE_SIZE
+      for (const n of [200, 201, 202]) {
+        const message = makeTailMessage(cursor, {
+          line: n,
+          level: 30,
+          msg: `line ${n}`,
+        })
+        cursor = message.byteOffset
+        tail.emit('log-append', message)
+      }
+
+      await waitFor(() =>
+        expect(screen.getByText(/3 new/i)).toBeInTheDocument(),
+      )
+      // The mid-file window is completely unchanged — no near-EOF tail
+      // content spliced in anywhere, and the badge (not the row list) is
+      // the only thing that moved. Checked via row textContent (not
+      // screen.queryByText, for the same highlight-splits-the-text reason
+      // as above) against the exact set of rendered rows.
+      const rowsAfterTailLines = [
+        ...document.querySelectorAll('[data-track-id="log-row-select"]'),
+      ].map(el => el.textContent)
+      expect(rowsAfterTailLines).toEqual(rowsBeforeTailLine)
+      expect(
+        rowsAfterTailLines.some(text => /line 20[012]/.test(text ?? '')),
+      ).toBe(false)
+    })
+
+    it('the highlighted text renders with highlight styling in the row corresponding to the selected hit’s byte offset', async () => {
+      const readWindow = makeReadWindow()
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+        />,
+      )
+
+      await settleInitialLoadAndTail(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText('line 199')).toBeInTheDocument(),
+      )
+
+      const targetOffset = 75 * BYTES_PER_LINE
+      await dispatchMockHitSelected(targetOffset, 'line 75')
+
+      await waitFor(() => {
+        const mark = document.querySelector(
+          '[data-track-id="log-row-highlight"]',
+        )
+        expect(mark).toBeInTheDocument()
+        expect(mark).toHaveTextContent('line 75')
+      })
     })
   })
 })

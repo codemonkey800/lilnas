@@ -21,6 +21,8 @@ import type {
   SessionListResponseDto,
 } from 'src/console/sessions.dto'
 import type {
+  LogScanPredicate,
+  LogSearchResponse,
   LogSource,
   LogStream,
   LogWindowResponse,
@@ -119,7 +121,14 @@ export const logTailUrl = (stream: LogStream, from?: number): string => {
   return `/api/logs/tail?${q.toString()}`
 }
 
-export const fetchJson = <T>(path: string) => request<T>(path)
+// `init` is optional and defaults to nothing (every pre-U11 call site
+// passes only `path`) — added so `searchLog` below can forward an
+// AbortSignal through to the underlying fetch() without inventing a
+// second, parallel request helper. request() itself already accepts a
+// plain RequestInit natively; this was simply never threaded through
+// fetchJson's own narrower signature until a caller (search) needed it.
+export const fetchJson = <T>(path: string, init?: RequestInit) =>
+  request<T>(path, init)
 export const postJson = <T>(path: string) =>
   request<T>(path, { method: 'POST' })
 export const putJsonBody = <T>(path: string, body: unknown) =>
@@ -155,6 +164,22 @@ export const queryKeys = {
   gitIdentity: ['git-identity'] as const,
   discordGuildMembers: ['discord-guild-members'] as const,
   logSources: ['log-sources'] as const,
+  // U11: `cursor` is deliberately INCLUDED in the key (not just
+  // stream/text) — this is what makes "fetch the next page" its own
+  // distinct useQuery cache entry rather than colliding with page 1's, so
+  // LogSearchBar's own accumulator (see that file's header comment) can
+  // rely on each page landing as an independent query result instead of
+  // one query silently replacing another's cached data. `level`/`process`/
+  // `event` are accepted now (typed on LogScanPredicate) even though this
+  // unit only ever passes `text` — U12 composes structured filters into
+  // the SAME predicate shape on top of this without needing a new key
+  // shape.
+  logSearch: (
+    params: Pick<LogScanPredicate, 'text' | 'level' | 'process' | 'event'> & {
+      stream: LogStream
+      cursor?: string
+    },
+  ) => ['log-search', params] as const,
 }
 
 // Typed API functions.
@@ -224,5 +249,31 @@ export const api = {
       q.set('maxBytes', String(params.maxBytes))
     }
     return fetchJson<LogWindowResponse>(`/logs/window?${q.toString()}`)
+  },
+  // U11: `signal` is forwarded straight into `request()`'s RequestInit — it
+  // already accepts one natively (a plain fetch() option), so this needs
+  // no bespoke AbortController plumbing of its own. React Query's useQuery
+  // passes this from its OWN AbortSignal (which it fires on query-key
+  // change or unmount), which is what gives LogSearchBar "cancel the
+  // in-flight request when the debounced text changes" for free — see
+  // that file's header comment for the full rationale on why a
+  // hand-managed AbortController would be redundant here. Every param goes
+  // through URLSearchParams' own `.set()` (never raw string
+  // interpolation), matching readLogWindow's convention immediately above
+  // and the REVIEW.md param-encoding footgun this plan calls out.
+  searchLog: (
+    params: LogScanPredicate & { stream: LogStream; cursor?: string },
+    signal?: AbortSignal,
+  ) => {
+    const q = new URLSearchParams()
+    q.set('stream', params.stream)
+    if (params.text !== undefined) q.set('text', params.text)
+    if (params.level !== undefined) q.set('level', String(params.level))
+    if (params.process !== undefined) q.set('process', params.process)
+    if (params.event !== undefined) q.set('event', params.event)
+    if (params.cursor !== undefined) q.set('cursor', params.cursor)
+    return fetchJson<LogSearchResponse>(`/logs/search?${q.toString()}`, {
+      signal,
+    })
   },
 }
