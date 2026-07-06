@@ -1,7 +1,7 @@
 ---
 title: 'feat: tdr-code Logs page — Phase 2: live tail, whole-file search, filters, polish'
 type: feat
-status: active
+status: completed
 date: 2026-07-05
 origin: docs/brainstorms/2026-07-05-tdr-code-logs-page-requirements.md
 deepened: 2026-07-05
