@@ -1,5 +1,6 @@
 'use client'
 
+import { cns } from '@lilnas/utils/cns'
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
 import {
   useCallback,
@@ -1283,20 +1284,28 @@ export function LogViewer({
   }, [state.windowStart, state.windowEnd])
 
   if (initialLoad === 'error') {
+    // U14: dashed-border treatment matches src/app/components/error-state.tsx
+    // — this viewer's OWN error state renders inline (with a Retry action
+    // wired to this component's handleRefresh, which the shared ErrorState
+    // component has no way to offer), but there's no reason its container
+    // should look visually unrelated to every other error surface in the
+    // app just because it's hand-rolled rather than the shared component.
     return (
       <div
         data-track-id="log-viewer-error"
-        className="flex min-h-32 items-center justify-center text-sm text-red-400"
+        className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-red-800 p-8 text-center text-sm text-red-400"
       >
-        Failed to load {stream} log.{' '}
-        <button
-          type="button"
-          data-track-id="log-viewer-retry"
-          onClick={handleRefresh}
-          className="ml-2 underline hover:text-red-300"
-        >
-          Retry
-        </button>
+        <span>
+          Failed to load {stream} log.{' '}
+          <button
+            type="button"
+            data-track-id="log-viewer-retry"
+            onClick={handleRefresh}
+            className="ml-1 underline hover:text-red-300"
+          >
+            Retry
+          </button>
+        </span>
       </div>
     )
   }
@@ -1362,40 +1371,41 @@ export function LogViewer({
   return (
     <div className="flex flex-col gap-2">
       {/*
-        U12: rendered above LogSearchBar (functional placement only — U14
-        is the dedicated visual-refinement pass over this component's
-        overall layout). `onFiltersChange`/`onClearFilters` fall back to
-        no-ops when the caller doesn't provide them (a pre-U12 test/call
-        site that never passes filter props at all) — filters is likewise
-        defaulted to DEFAULT_FILTERS above, so LogFilters always receives a
-        real (possibly empty) value regardless of what page.tsx does.
-      */}
-      <LogFilters
-        stream={stream}
-        filters={filters}
-        onFiltersChange={onFiltersChange ?? (() => {})}
-        onClearFilters={onClearFilters ?? (() => {})}
-      />
-
-      {/*
-        U11/U12: functional placement only (near the top, above the live-
-        status banner) — U14 is the dedicated visual-refinement pass over
-        this component's overall layout, same as the banner below it.
-        hideNavigation suppresses the hit-count/prev/next UI + auto-select
-        while isFilteredProjection is true (see that prop's own header
-        comment in log-search-bar.tsx) — the input itself and
+        U14: LogFilters + LogSearchBar composed into ONE visual toolbar —
+        no gap between them, and each squares off the edge touching the
+        other (see their own components' header comments on the matching
+        rounded-t/rounded-b + border-b-0 pairing) — so structured filters
+        and free-text search read as two rows of a single coherent control
+        strip rather than two independently-floating boxes stacked with
+        daylight between them, per this unit's own "filter-bar density"
+        brief. `onFiltersChange`/`onClearFilters` fall back to no-ops when
+        the caller doesn't provide them (a pre-U12 test/call site that
+        never passes filter props at all) — filters is likewise defaulted
+        to DEFAULT_FILTERS above, so LogFilters always receives a real
+        (possibly empty) value regardless of what page.tsx does.
+        hideNavigation suppresses LogSearchBar's own hit-count/prev/next UI
+        + auto-select while isFilteredProjection is true (see that prop's
+        own header comment in log-search-bar.tsx) — the input itself and
         onQueryTextChange keep firing regardless, which is how a lone free-
         text term still composes into the filtered predicate (AE6) even
         though this component's own hit-navigator UI is hidden.
       */}
-      <LogSearchBar
-        stream={stream}
-        currentFileSize={state.fileSize}
-        onHitSelected={handleHitSelected}
-        onSearchActiveChange={handleSearchActiveChange}
-        onQueryTextChange={setQueryText}
-        hideNavigation={isFilteredProjection}
-      />
+      <div className="flex flex-col">
+        <LogFilters
+          stream={stream}
+          filters={filters}
+          onFiltersChange={onFiltersChange ?? (() => {})}
+          onClearFilters={onClearFilters ?? (() => {})}
+        />
+        <LogSearchBar
+          stream={stream}
+          currentFileSize={state.fileSize}
+          onHitSelected={handleHitSelected}
+          onSearchActiveChange={handleSearchActiveChange}
+          onQueryTextChange={setQueryText}
+          hideNavigation={isFilteredProjection}
+        />
+      </div>
 
       {isFilteredProjection ? (
         // U12: a DELIBERATELY distinct, simpler banner from raw mode's own
@@ -1418,14 +1428,32 @@ export function LogViewer({
       ) : (
         // U10: reflects live follow/pause state instead of Phase 1's static
         // "Snapshot — refresh for newer entries" framing, now that the tail
-        // is actually wired in. Kept functional-but-plain here (data-
-        // track-ids + minimal layout, no motion/visual polish) — U14 is the
-        // dedicated visual-refinement pass over this exact banner.
+        // is actually wired in.
+        //
+        // U14: a small filled status dot (green while following, amber
+        // while paused) gives this banner an at-a-glance signal that plain
+        // text alone doesn't — an operator scanning several tabs can tell
+        // "is this one live" from the dot's color without reading the
+        // label. The badge count and the paused/following swap both get a
+        // `transition-colors`/`key`-remount-free color/opacity nudge rather
+        // than a layout-shifting animation, per this unit's own "subtle
+        // motion, no jank" brief — the DOM structure each state's text
+        // sits in is otherwise UNCHANGED from before U14 (still one leaf
+        // span per data-track-id, textContent unchanged), so every
+        // existing screen.getByText(/paused/i)-style assertion keeps
+        // matching exactly as before.
         <div
           data-track-id="log-viewer-snapshot-banner"
           className="flex items-center justify-between gap-3 rounded border border-gray-800 bg-gray-900/50 px-3 py-1.5 text-xs text-gray-500"
         >
           <span className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className={cns(
+                'h-1.5 w-1.5 shrink-0 rounded-full transition-colors',
+                following ? 'bg-green-500' : 'bg-yellow-500',
+              )}
+            />
             {following ? (
               <span data-track-id="log-viewer-following-indicator">
                 Following live.
@@ -1435,7 +1463,7 @@ export function LogViewer({
                 <span data-track-id="log-viewer-paused-indicator">Paused</span>
                 <span
                   data-track-id="log-viewer-new-line-badge"
-                  className="rounded bg-gray-800 px-1.5 py-0.5 text-gray-300"
+                  className="rounded bg-gray-800 px-1.5 py-0.5 tabular-nums text-gray-300 transition-colors"
                 >
                   {newLineCount} new
                 </span>
@@ -1449,7 +1477,9 @@ export function LogViewer({
                 </button>
               </span>
             )}
-            <span>{percentThroughFile}% through file.</span>
+            <span className="tabular-nums">
+              {percentThroughFile}% through file.
+            </span>
           </span>
           <button
             type="button"
@@ -1486,11 +1516,16 @@ export function LogViewer({
           // NOT in right now) — deliberately different copy/track-id so a
           // test (or an operator glancing at the DOM) can never confuse
           // "this file is empty" with "these filters matched nothing."
+          // U14: dashed-border treatment matches
+          // src/app/components/empty-state.tsx's own container, so every
+          // "there's genuinely nothing here" state in this app looks like
+          // the same kind of thing regardless of which component renders
+          // it.
           <div
             data-track-id="log-viewer-filtered-empty"
-            className="flex min-h-32 items-center justify-center text-sm text-gray-500"
+            className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-700 p-8 text-center text-sm text-gray-500"
           >
-            No lines match these filters.
+            No lines match these filters
           </div>
         ) : (
           <div
@@ -1510,11 +1545,13 @@ export function LogViewer({
           </div>
         )
       ) : state.lines.length === 0 ? (
+        // U14: same dashed-border treatment as log-viewer-filtered-empty
+        // above and src/app/components/empty-state.tsx.
         <div
           data-track-id="log-viewer-empty"
-          className="flex min-h-32 items-center justify-center text-sm text-gray-500"
+          className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-700 p-8 text-center text-sm text-gray-500"
         >
-          No log entries.
+          No log entries found
         </div>
       ) : (
         <div

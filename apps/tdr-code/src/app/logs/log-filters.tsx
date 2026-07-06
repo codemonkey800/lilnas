@@ -89,8 +89,18 @@ export function LogFilters({
   return (
     <div
       data-track-id="log-filters"
-      className="flex flex-wrap items-center gap-2 rounded border border-gray-800 bg-gray-900/50 px-3 py-1.5 text-xs"
+      // U14: square bottom corners + no bottom border — this sits directly
+      // above LogSearchBar with zero gap (see log-viewer.tsx's own toolbar
+      // wrapper) so the two compose into ONE bordered strip with a single
+      // internal divider, rather than reading as two independent floating
+      // boxes. `text-gray-500` on the label gives the (fixed, always-
+      // present) "Filters" word a lighter weight than the interactive
+      // controls next to it, echoing the row grid's own dim-label
+      // convention (e.g. context chip keys).
+      className="flex flex-wrap items-center gap-2 rounded-t border border-b-0 border-gray-800 bg-gray-900/50 px-3 py-1.5 text-xs"
     >
+      <span className="shrink-0 text-gray-500">Filters</span>
+
       <select
         data-track-id="log-filters-level"
         value={filters.level ?? ''}
@@ -146,7 +156,9 @@ export function LogFilters({
           type="button"
           data-track-id="log-filters-clear"
           onClick={onClearFilters}
-          className={cns('text-gray-500 transition-colors hover:text-gray-300')}
+          className={cns(
+            'ml-auto shrink-0 text-gray-500 transition-colors hover:text-gray-300',
+          )}
         >
           Clear filters
         </button>

@@ -29,6 +29,13 @@ const LEVEL_LABELS: Record<number, string> = {
 // owned by a different feature and keyed by label string, not level number,
 // and this unit's own spec calls for `text-gray-300` on info (that page uses
 // `text-gray-400`), so duplicating locally avoids fighting either owner.
+//
+// U14: kept EXACTLY as the text-color-only map log-row.spec.tsx asserts
+// against (`toHaveClass('text-yellow-400')` etc. on the level span itself) —
+// the WARN/ERROR/FATAL background-pill treatment added below in
+// `levelBadgeBackground` is layered on TOP of this same span via `cns()`,
+// never replacing these classes, so every existing color assertion still
+// passes unchanged.
 const LEVEL_COLORS: Record<number, string> = {
   10: 'text-gray-500',
   20: 'text-gray-500',
@@ -36,6 +43,19 @@ const LEVEL_COLORS: Record<number, string> = {
   40: 'text-yellow-400',
   50: 'text-red-400',
   60: 'text-red-400',
+}
+
+// U14: a subtle background pill for the levels an operator actually scans
+// for (warn/error/fatal) — plain colored text alone reads as "yet another
+// gray-ish column" at a glance in a dense monospace grid; a filled pill on
+// exactly the three severities that matter is what makes them pop without
+// adding visual noise to the overwhelmingly common info/debug/trace rows
+// (which stay plain text, matching sessions/[id]'s own TurnCard status pill
+// idiom of reserving a filled background for states worth flagging).
+const LEVEL_BADGE_BG: Record<number, string> = {
+  40: 'bg-yellow-950/60',
+  50: 'bg-red-950/60',
+  60: 'bg-red-950/60',
 }
 
 function levelLabel(level: unknown): string {
@@ -46,6 +66,11 @@ function levelLabel(level: unknown): string {
 function levelColor(level: unknown): string {
   if (typeof level !== 'number') return 'text-gray-400'
   return LEVEL_COLORS[level] ?? 'text-gray-400'
+}
+
+function levelBadgeBackground(level: unknown): string | undefined {
+  if (typeof level !== 'number') return undefined
+  return LEVEL_BADGE_BG[level]
 }
 
 // `time` is epoch-ms (confirmed against real dev-log lines). Manual field
@@ -237,10 +262,14 @@ export function LogRow({ line, stream, onSelect, highlightText }: LogRowProps) {
   }
 
   const rowClassName = cns(
-    'flex w-full cursor-pointer items-center gap-3 whitespace-nowrap px-2 font-mono text-xs text-gray-300 hover:bg-gray-900',
+    'flex w-full cursor-pointer items-center gap-3 whitespace-nowrap px-2 font-mono text-xs text-gray-300 transition-colors hover:bg-gray-900',
   )
 
   // R14: parsed === null → a single raw cell, no column structure at all.
+  // U14: a thin left-edge rule (rather than just dim/italic text on an
+  // otherwise identical row) is what makes a malformed line read as its own
+  // distinct row TYPE at a glance while scrolling, not merely "a row with
+  // slightly duller text" easy to mistake for a quiet debug/trace line.
   if (parsed === null) {
     return (
       <div
@@ -249,7 +278,7 @@ export function LogRow({ line, stream, onSelect, highlightText }: LogRowProps) {
         data-track-id="log-row-select"
         onClick={handleSelect}
         onKeyDown={handleKeyDown}
-        className={rowClassName}
+        className={cns(rowClassName, 'border-l-2 border-gray-700')}
         style={{ height: ROW_PX }}
       >
         <span className="truncate italic text-gray-500">
@@ -279,11 +308,20 @@ export function LogRow({ line, stream, onSelect, highlightText }: LogRowProps) {
       className={rowClassName}
       style={{ height: ROW_PX }}
     >
-      <span className="shrink-0 text-gray-500" title={formatUtcTitle(time)}>
+      <span
+        className="shrink-0 tabular-nums text-gray-500"
+        title={formatUtcTitle(time)}
+      >
         {formatLocalTime(time)}
       </span>
 
-      <span className={cns('w-12 shrink-0 font-medium', levelColor(level))}>
+      <span
+        className={cns(
+          'w-12 shrink-0 rounded px-1 text-center font-semibold',
+          levelColor(level),
+          levelBadgeBackground(level),
+        )}
+      >
         {levelLabel(level)}
       </span>
 
@@ -293,7 +331,7 @@ export function LogRow({ line, stream, onSelect, highlightText }: LogRowProps) {
 
       <span
         className={cns(
-          'shrink-0',
+          'max-w-48 shrink-0 truncate',
           eventSlug ? 'text-gray-400' : 'italic text-gray-600',
         )}
       >

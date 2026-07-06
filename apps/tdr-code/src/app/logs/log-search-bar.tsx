@@ -535,8 +535,15 @@ export function LogSearchBar({
   return (
     <div
       data-track-id="log-search-bar"
-      className="flex flex-wrap items-center gap-2 rounded border border-gray-800 bg-gray-900/50 px-3 py-1.5 text-xs"
+      // U14: square top corners, no top border — this sits directly below
+      // LogFilters with zero gap (see log-viewer.tsx's own toolbar wrapper)
+      // so the pair reads as ONE bordered strip with a single internal
+      // divider, matching LogFilters' own header comment on the same
+      // pairing from the other side.
+      className="flex flex-wrap items-center gap-2 rounded-b border border-gray-800 bg-gray-900/50 px-3 py-1.5 text-xs"
     >
+      <span className="shrink-0 text-gray-500">Search</span>
+
       <input
         type="text"
         data-track-id="log-search-input"

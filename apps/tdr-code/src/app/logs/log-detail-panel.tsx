@@ -467,10 +467,17 @@ function LogDetailPanelContent({
         {(filterableLevel !== null && onFilterByLevel) ||
         (filterableProcess !== null && onFilterByProcess) ||
         (filterableEvent !== null && onFilterByEvent) ? (
+          // U14: a leading "Filter:" label gives this row the same
+          // labeled-group treatment as the toolbar's own "Filters"/"Search"
+          // rows (log-filters.tsx/log-search-bar.tsx) — without it, three
+          // buttons sitting directly under the header read as generic
+          // actions on first glance rather than an obviously-grouped
+          // shortcut into the SAME filter bar sitting above the row grid.
           <div
             data-track-id="log-detail-panel-filter-actions"
             className="mb-3 flex flex-wrap items-center gap-2 border-b border-gray-800 pb-3 text-xs"
           >
+            <span className="shrink-0 text-gray-500">Filter:</span>
             {filterableLevel !== null && onFilterByLevel && (
               <button
                 type="button"
@@ -478,7 +485,7 @@ function LogDetailPanelContent({
                 onClick={() => onFilterByLevel(filterableLevel)}
                 className="rounded bg-gray-800 px-2 py-1 text-gray-300 transition-colors hover:bg-gray-700"
               >
-                Filter by level ≥ {levelLabel(filterableLevel)}
+                level ≥ {levelLabel(filterableLevel)}
               </button>
             )}
             {filterableProcess !== null && onFilterByProcess && (
@@ -488,7 +495,7 @@ function LogDetailPanelContent({
                 onClick={() => onFilterByProcess(filterableProcess)}
                 className="rounded bg-gray-800 px-2 py-1 text-gray-300 transition-colors hover:bg-gray-700"
               >
-                Filter by process={filterableProcess}
+                process={filterableProcess}
               </button>
             )}
             {filterableEvent !== null && onFilterByEvent && (
@@ -498,7 +505,7 @@ function LogDetailPanelContent({
                 onClick={() => onFilterByEvent(filterableEvent)}
                 className="rounded bg-gray-800 px-2 py-1 text-gray-300 transition-colors hover:bg-gray-700"
               >
-                Filter by event={filterableEvent}
+                event={filterableEvent}
               </button>
             )}
           </div>
