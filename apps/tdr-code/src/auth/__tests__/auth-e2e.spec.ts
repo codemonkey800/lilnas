@@ -7,6 +7,7 @@ import type { UnhandledRequestStrategy } from 'msw'
 import { http as mswHttp, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { PinoLogger } from 'nestjs-pino'
+import { NEVER } from 'rxjs'
 
 import { AuthGuard } from 'src/auth/auth.guard'
 import { AuthModule } from 'src/auth/auth.module'
@@ -50,6 +51,8 @@ import { BrowserLogsController } from 'src/logging/browser-logs.controller'
 import { BrowserLogsService } from 'src/logging/browser-logs.service'
 import { LogReaderService } from 'src/logging/log-reader.service'
 import { LogSourcesService } from 'src/logging/log-sources.service'
+import { LogTailController } from 'src/logging/log-tail.controller'
+import { LogTailService } from 'src/logging/log-tail.service'
 import type { LogSource, LogWindowResponse } from 'src/logging/log-view.types'
 import { LogsController } from 'src/logging/logs.controller'
 import { SupervisorService } from 'src/supervisor/supervisor.service'
@@ -243,6 +246,15 @@ function buildTestAppModule(db: TestDb['db']) {
   const mockLogSourcesService = {
     getSources: jest.fn().mockReturnValue(MOCK_LOG_SOURCES_RESPONSE),
   }
+  // NEVER mirrors the real LogTailService.watch()'s actual shape for a
+  // reachable connection — the real tail stays open indefinitely for an
+  // authenticated caller (that's the entire point of a live push endpoint)
+  // rather than completing on its own. See requestHeadersOnly's own header
+  // comment below for why sweep 2 (authenticated, reachable) needs a
+  // headers-only request helper for this one route.
+  const mockLogTailService = {
+    watch: jest.fn().mockReturnValue(NEVER),
+  }
   const fakePinoLogger = fakeLogger()
 
   @Module({
@@ -260,6 +272,7 @@ function buildTestAppModule(db: TestDb['db']) {
       HealthController,
       BrowserLogsController,
       LogsController,
+      LogTailController,
     ],
     providers: [
       { provide: LiveService, useValue: mockLiveService },
@@ -277,6 +290,7 @@ function buildTestAppModule(db: TestDb['db']) {
       { provide: BrowserLogsService, useValue: mockBrowserLogsService },
       { provide: LogReaderService, useValue: mockLogReaderService },
       { provide: LogSourcesService, useValue: mockLogSourcesService },
+      { provide: LogTailService, useValue: mockLogTailService },
       { provide: PinoLogger, useValue: fakePinoLogger },
       { provide: APP_GUARD, useClass: AuthGuard },
     ],
@@ -335,6 +349,59 @@ function request(
     )
     req.on('error', reject)
     if (options.body !== undefined) req.write(options.body)
+    req.end()
+  })
+}
+
+// A headers-only variant of request() above — needed for the identical
+// reason auth.guard.spec.ts's own requestHeadersOnly exists (see that
+// file's header comment for the full rationale): GET /logs/tail (Phase 2
+// U8) is an @Sse() route whose body never naturally ends while a session is
+// valid, so request()'s body-awaiting res.on('end', ...) would hang sweep
+// 2 ("authenticated member sweep") forever for that one route. This
+// resolves as soon as status/headers arrive — exactly what "reachable (not
+// 401)" needs — and behaves identically to request() for every other
+// (normal, body-ending) route too. NOT needed for the unauthenticated (401)
+// sweep or the tampered/expired-cookie sweep: AuthGuard runs as an
+// APP_GUARD and throws BEFORE the @Sse() handler's Observable ever engages,
+// so a 401 for /logs/tail is a completely normal, quickly-ending JSON body
+// just like any other route.
+function requestHeadersOnly(
+  port: number,
+  options: {
+    method: string
+    path: string
+    headers?: Record<string, string>
+  },
+): Promise<{ status: number; headers: http.IncomingHttpHeaders }> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        method: options.method,
+        path: options.path,
+        headers: options.headers,
+      },
+      res => {
+        settled = true
+        res.resume()
+        resolve({ status: res.statusCode ?? 0, headers: res.headers })
+        // Destroy AFTER resolving — exercises the tail's real
+        // socket-disconnect teardown path the same way a genuine client
+        // disconnect would.
+        req.destroy()
+      },
+    )
+    req.on('error', err => {
+      // The req.destroy() above deliberately triggers a benign ECONNRESET/
+      // "socket hang up" on the client side for the SSE-route case (after
+      // the promise has already resolved) — only reject if no response was
+      // ever received at all.
+      if (settled) return
+      reject(err)
+    })
     req.end()
   })
 }
@@ -622,10 +689,15 @@ describe('U5 — end-to-end auth verification harness (pre-cutover gate)', () =>
       })
     })
 
+    // Uses requestHeadersOnly (not request): GET /logs/tail (Phase 2 U8) is
+    // an @Sse() route whose body never naturally ends for an authenticated,
+    // reachable connection — see requestHeadersOnly's own header comment
+    // above for the full rationale. Works identically to request() for
+    // every other (normal, body-ending) route in this same sweep.
     it.each(PROTECTED_ROUTES)(
       '$label -> reachable (not 401) with a real member session cookie',
       async spec => {
-        const res = await request(port, {
+        const res = await requestHeadersOnly(port, {
           method: spec.method,
           path: buildPath(spec),
           headers: { origin: ALLOWED_ORIGIN, cookie: cookieHeader },
@@ -1031,8 +1103,8 @@ describe('U5 — end-to-end auth verification harness (pre-cutover gate)', () =>
   // ---------------------------------------------------------------------------
 
   describe('bookkeeping — this suite swept exactly as many routes as PROTECTED_ROUTES declares', () => {
-    it('PROTECTED_ROUTES has exactly 19 entries (the canonical U4 enumeration this suite imports, not a second hand-typed list — 18 + GET /logs/sources from U3)', () => {
-      expect(PROTECTED_ROUTES).toHaveLength(19)
+    it('PROTECTED_ROUTES has exactly 20 entries (the canonical U4 enumeration this suite imports, not a second hand-typed list — 19 + GET /logs/tail from Phase 2 U8)', () => {
+      expect(PROTECTED_ROUTES).toHaveLength(20)
     })
 
     it('PUBLIC_ROUTES has exactly one entry: GET /health', () => {

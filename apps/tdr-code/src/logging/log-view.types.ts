@@ -39,6 +39,42 @@ export interface LogSource {
   size: number
 }
 
+// U8 (append-delta tail push endpoint): the wire shape of one live-tail SSE
+// message's `data` payload. `byteOffset` is the line's END offset (the
+// position immediately after its own bytes, including the trailing '\n') —
+// this is also used as the message's `id` (see log-tail.controller.ts), so a
+// reconnect's `Last-Event-ID` is always "resume from right after this line",
+// never re-emitting it. Kept in this plane-neutral module (not
+// src/sse/sse.types.ts) per the REVIEW.md cross-plane-desync note: the tail
+// is a fully separate endpoint from /api/stream and must not import from
+// src/sse/* at all.
+export interface LogTailMessage {
+  line: string
+  byteOffset: number
+}
+
+// The tail SSE event's `type` for a real append-delta message — distinct
+// from the keepalive type below (mirrors sse.controller.ts's own
+// data-vs-keepalive `type` split, but this is the tail's OWN constant, not
+// an import from src/sse/*, since that module is intentionally never
+// depended on here).
+export const LOG_TAIL_EVENT_TYPE = 'log-append'
+
+// The tail's keepalive event `type`. Deliberately the SAME string value as
+// sse.controller.ts's local KEEPALIVE_EVENT_TYPE constant (both are
+// 'keepalive') — a client that already knows to ignore a generic
+// 'keepalive'-typed SSE event doesn't need two different constants to
+// recognize the same no-op signal, and there is no risk of the two ever
+// being confused for a real message since they're on entirely separate
+// EventSource connections (/api/stream vs /api/logs/tail). This is a
+// duplicated STRING LITERAL, not a shared runtime import, which is exactly
+// what the REVIEW.md note asks to avoid for constants that variate
+// independently — but a bare event-type label like this cannot desync in a
+// way that would ever matter (both are simply "not real data, ignore this
+// tick"), so duplication here is a deliberate, harmless exception, not an
+// oversight.
+export const LOG_TAIL_KEEPALIVE_EVENT_TYPE = 'keepalive'
+
 // Guarded JSON.parse for one log line: never throws, and only a plain object
 // satisfies the Record<string, unknown> contract callers rely on — a bare
 // number/string/boolean/array/null JSON value is treated the same as

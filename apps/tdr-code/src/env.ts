@@ -50,4 +50,16 @@ export const EnvKeys = {
   // server-side regardless of what a client requests. Main-process only —
   // no buildBotEnv allowlist entry (the bot never reads log files itself).
   LOG_WINDOW_MAX_BYTES: 'LOG_WINDOW_MAX_BYTES',
+  // Logs viewer, Phase 2 U8 (append-delta tail push endpoint): the
+  // debounce window for coalescing fs.watch's duplicate 'change' events per
+  // write (nodejs/node#3042), the per-connection keepalive cadence (mirrors
+  // SSE_KEEPALIVE_MS's role for the unrelated /api/stream endpoint, but this
+  // is the tail's OWN knob — the two endpoints share no config), and a flag
+  // to switch the watcher to fs.watchFile's polling mode for exotic mounts
+  // (NFS/osxfs) where fs.watch's native inotify/kqueue backend is
+  // unreliable or unavailable. All main-process only — no buildBotEnv
+  // allowlist entry (the bot process never serves the tail endpoint).
+  LOG_TAIL_DEBOUNCE_MS: 'LOG_TAIL_DEBOUNCE_MS',
+  LOG_TAIL_KEEPALIVE_MS: 'LOG_TAIL_KEEPALIVE_MS',
+  LOG_TAIL_POLL_FALLBACK: 'LOG_TAIL_POLL_FALLBACK',
 } as const

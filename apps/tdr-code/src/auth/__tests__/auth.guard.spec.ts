@@ -8,6 +8,7 @@ import type { UnhandledRequestStrategy } from 'msw'
 import { http as mswHttp, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { PinoLogger } from 'nestjs-pino'
+import { NEVER } from 'rxjs'
 
 import { type AuthedUser, AuthGuard } from 'src/auth/auth.guard'
 import { AuthModule } from 'src/auth/auth.module'
@@ -55,6 +56,8 @@ import { BrowserLogsService } from 'src/logging/browser-logs.service'
 import { LOG_EVENTS } from 'src/logging/log-events'
 import { LogReaderService } from 'src/logging/log-reader.service'
 import { LogSourcesService } from 'src/logging/log-sources.service'
+import { LogTailController } from 'src/logging/log-tail.controller'
+import { LogTailService } from 'src/logging/log-tail.service'
 import type { LogSource, LogWindowResponse } from 'src/logging/log-view.types'
 import { LogsController } from 'src/logging/logs.controller'
 import { SupervisorService } from 'src/supervisor/supervisor.service'
@@ -410,6 +413,17 @@ function buildTestControllerModule(db: TestDb['db']) {
   const mockLogSourcesService = {
     getSources: jest.fn().mockReturnValue(MOCK_LOG_SOURCES_RESPONSE),
   }
+  // NEVER (an Observable that never emits/errors/completes) mirrors the
+  // real LogTailService.watch()'s actual shape for an authenticated,
+  // reachable connection — the real tail also stays open indefinitely
+  // (that's the entire point of a live push endpoint) rather than
+  // completing on its own. This is exactly why the "valid session cookie"
+  // sweep above uses requestHeadersOnly instead of the body-awaiting
+  // request() helper for GET /logs/tail: this mock intentionally never
+  // ends its stream, matching production behavior.
+  const mockLogTailService = {
+    watch: jest.fn().mockReturnValue(NEVER),
+  }
   const fakePinoLogger = fakeLogger()
 
   @Module({
@@ -427,6 +441,7 @@ function buildTestControllerModule(db: TestDb['db']) {
       HealthController,
       BrowserLogsController,
       LogsController,
+      LogTailController,
     ],
     providers: [
       { provide: LiveService, useValue: mockLiveService },
@@ -444,6 +459,7 @@ function buildTestControllerModule(db: TestDb['db']) {
       { provide: BrowserLogsService, useValue: mockBrowserLogsService },
       { provide: LogReaderService, useValue: mockLogReaderService },
       { provide: LogSourcesService, useValue: mockLogSourcesService },
+      { provide: LogTailService, useValue: mockLogTailService },
       { provide: PinoLogger, useValue: fakePinoLogger },
       { provide: APP_GUARD, useClass: AuthGuard },
     ],
@@ -515,6 +531,77 @@ function request(
     )
     req.on('error', reject)
     if (options.body !== undefined) req.write(options.body)
+    req.end()
+  })
+}
+
+// A headers-only variant of request() above, needed specifically because
+// GET /logs/tail (Phase 2 U8) is an @Sse() route: when the guard actually
+// LETS a request through to that handler, the response body is a
+// long-lived stream that never fires 'end' on its own (the handler holds
+// the connection open for live tail pushes) — request()'s own res.on('end',
+// ...) would hang this test file's "valid session cookie -> reachable"
+// sweep forever for that one route. This variant resolves as soon as the
+// status/headers arrive (the 'response' event) and then destroys the
+// socket, which is exactly the information "reachable (not 401)" needs and
+// nothing more. It is intentionally NOT used for the "no session cookie ->
+// 401" sweep: a 401 response is a normal, quickly-ending JSON body for
+// EVERY route including /logs/tail (the guard throws BEFORE the @Sse()
+// handler's Observable ever engages — see auth.guard.ts's canActivate,
+// which runs as an APP_GUARD ahead of the route handler entirely), so that
+// sweep already completes correctly with the original body-awaiting
+// request() helper and gets the added assurance of seeing a real, fully-
+// formed 401 JSON body.
+function requestHeadersOnly(
+  port: number,
+  options: {
+    method: string
+    path: string
+    headers?: Record<string, string>
+  },
+): Promise<{ status: number; headers: http.IncomingHttpHeaders }> {
+  return new Promise((resolve, reject) => {
+    // Declared before req so the 'error' handler below can safely read it
+    // even though 'error' is registered before the 'response' callback
+    // actually runs (both are attached synchronously; only invocation order
+    // at runtime differs).
+    let settled = false
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        method: options.method,
+        path: options.path,
+        headers: options.headers,
+      },
+      res => {
+        settled = true
+        // Drain-and-discard rather than leaving the socket half-read: some
+        // platforms/http-agent configurations can back-pressure a request
+        // whose response is never consumed, which would leak a lingering
+        // handle into the next test. resume() (not res.on('data')) is
+        // enough since nothing here needs the body content.
+        res.resume()
+        resolve({ status: res.statusCode ?? 0, headers: res.headers })
+        // Destroy AFTER resolving (not before) so a long-lived SSE
+        // connection's teardown path (this unit's finalize()/cleanup()) is
+        // exercised the same way a real client disconnecting would trigger
+        // it — this incidentally doubles as a real-world proof that the
+        // tail's own leak-safety holds for a genuine socket-level
+        // disconnect, not just an RxJS-level unsubscribe.
+        req.destroy()
+      },
+    )
+    req.on('error', err => {
+      // req.destroy() above deliberately triggers a benign ECONNRESET/
+      // "socket hang up" on the client side for the SSE-route case (the
+      // promise having already resolved by then) — swallow an error that
+      // arrives AFTER resolution rather than rejecting an otherwise-
+      // successful check; only reject if the request never got a response
+      // at all.
+      if (settled) return
+      reject(err)
+    })
     req.end()
   })
 }
@@ -714,10 +801,18 @@ describe('AuthGuard — full HTTP integration (deny-by-default across every enum
       })
     })
 
+    // Uses requestHeadersOnly (not request): GET /logs/tail (Phase 2 U8) is
+    // an @Sse() route whose body never naturally ends while a session is
+    // valid (that's the whole point of a live tail) — request()'s
+    // body-awaiting res.on('end', ...) would hang this sweep forever for
+    // that one entry. requestHeadersOnly resolves as soon as status/headers
+    // arrive, which is all "reachable (not 401)" needs, and works
+    // identically for every other (normal, body-ending) route too. See
+    // requestHeadersOnly's own header comment for the full rationale.
     it.each(PROTECTED_ROUTES)(
       '$label -> reachable (not 401) with a valid session cookie',
       async spec => {
-        const res = await request(port, {
+        const res = await requestHeadersOnly(port, {
           method: spec.method,
           path: buildPath(spec),
           headers: { origin: ALLOWED_ORIGIN, cookie: cookieHeader },
@@ -1063,9 +1158,10 @@ describe('protected-routes.ts — canonical enumeration bookkeeping', () => {
   // deliverable) = 15 protected routes; + GET /health public = 16 total.
   // Running tally since: 16 + POST /logs/browser (unified-logging unit) +
   // GET /logs/window (U2, logs viewer windowed read) = 18; + GET
-  // /logs/sources (U3, logs viewer tab-bootstrap sources) = 19.
-  it('enumerates exactly 19 protected routes (16 pre-existing + POST /logs/browser + GET /logs/window + GET /logs/sources)', () => {
-    expect(PROTECTED_ROUTES).toHaveLength(19)
+  // /logs/sources (U3, logs viewer tab-bootstrap sources) = 19; + GET
+  // /logs/tail (Phase 2 U8, append-delta live tail SSE endpoint) = 20.
+  it('enumerates exactly 20 protected routes (16 pre-existing + POST /logs/browser + GET /logs/window + GET /logs/sources + GET /logs/tail)', () => {
+    expect(PROTECTED_ROUTES).toHaveLength(20)
   })
 
   it('enumerates exactly one public route: GET /health', () => {

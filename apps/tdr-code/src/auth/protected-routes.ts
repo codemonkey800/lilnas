@@ -139,6 +139,28 @@ export const PROTECTED_ROUTES: ProtectedRouteSpec[] = [
     path: '/logs/sources',
     label: 'GET /logs/sources',
   },
+  // Logs viewer, Phase 2 U8 — the append-delta live tail SSE endpoint
+  // (log-tail.controller.ts). Query params only (stream/from), no `:param`
+  // path segment, same shape as the two /logs/* entries above. NOTE on how
+  // this route fits BOTH auth.guard.spec.ts sweeps despite being a
+  // long-lived @Sse() connection: the "no session cookie -> 401" sweep
+  // needs no special handling at all — AuthGuard runs as an APP_GUARD and
+  // throws UnauthorizedException BEFORE the route handler (and therefore
+  // before @Sse()'s Observable) ever engages, so an unauthenticated request
+  // to this route gets a completely normal, quickly-ending 401 JSON body
+  // just like every other route. Only the "valid session cookie ->
+  // reachable" sweep actually lets the request through to the streaming
+  // handler, where the body never naturally ends — that sweep uses a
+  // headers-only request helper (requestHeadersOnly in auth.guard.spec.ts)
+  // instead of the shared body-awaiting one, specifically to keep this
+  // route's reachability check from hanging the suite. See
+  // requestHeadersOnly's own header comment in that file for the full
+  // rationale.
+  {
+    method: 'GET',
+    path: '/logs/tail',
+    label: 'GET /logs/tail',
+  },
 ]
 
 // The sole allowlisted route (R19: deny-by-default; @Public() is the one

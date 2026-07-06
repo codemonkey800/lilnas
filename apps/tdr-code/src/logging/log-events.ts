@@ -393,6 +393,21 @@ const LOGS_EVENTS = {
   // stat loop's non-ENOENT failure path (a missing file is not an error; see
   // that service's own header comment).
   logSourceStatFailed: 'log-source-stat-failed',
+  // log-tail.service.ts (Phase 2 U8, append-delta tail push endpoint) — a new
+  // connection's watcher successfully attached and the initial backlog was
+  // emitted; fires once per subscribe(), mirroring sse.controller.ts's own
+  // sseConnected slug for the unrelated /api/stream endpoint.
+  logTailStarted: 'log-tail-started',
+  // log-tail.service.ts — fs.watch itself failed to attach (e.g. the file
+  // does not exist yet and never will during this connection's lifetime) or
+  // emitted an 'error' event mid-stream. Distinct from logWindowReadFailed
+  // (a one-shot windowed read) since this is a long-lived watcher failing.
+  logTailWatchFailed: 'log-tail-watch-failed',
+  // log-tail.service.ts — the watched file's inode changed between one
+  // debounced change and the next (rotation: renamed + recreated under the
+  // same path) and the service successfully reopened the new file and
+  // resumed following it from byte 0.
+  logTailReopened: 'log-tail-reopened',
 } as const
 
 const ERROR_BOUNDARY_EVENTS = {
