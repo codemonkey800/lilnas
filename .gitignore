@@ -12,6 +12,7 @@
 coverage/
 data/
 dist/
+apps/tdr-code/server.js
 infra/dev.yml
 apps/tdr-bot/logs/
 node_modules/

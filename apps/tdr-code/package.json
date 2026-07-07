@@ -15,8 +15,8 @@
   "scripts": {
     "build": "run-s build:frontend build:backend",
     "build:backend": "nest build -b swc --type-check",
-    "build:frontend": "next build",
-    "clean": "rm -rf .next/ dist/ .turbo/",
+    "build:frontend": "next build && cp .next/standalone/apps/tdr-code/server.js server.js",
+    "clean": "rm -rf .next/ dist/ server.js .turbo/",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "dev": "run-p dev:main dev:frontend",
