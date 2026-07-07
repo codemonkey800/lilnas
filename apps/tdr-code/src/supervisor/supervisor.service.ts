@@ -87,6 +87,7 @@ function buildBotEnv(generationId: number): NodeJS.ProcessEnv {
     DISCORD_GUILD_ID: process.env[EnvKeys.DISCORD_GUILD_ID],
     CLAUDE_COMMAND: process.env[EnvKeys.CLAUDE_COMMAND],
     CLAUDE_CWD: process.env[EnvKeys.CLAUDE_CWD],
+    ANTHROPIC_MODEL: process.env[EnvKeys.ANTHROPIC_MODEL],
     NODE_ENV: process.env[EnvKeys.NODE_ENV],
     PATH: process.env.PATH,
     HOME: process.env.HOME,

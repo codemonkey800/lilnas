@@ -105,6 +105,7 @@ export class SessionManagerService implements OnApplicationShutdown {
   // Resolved once in the constructor — same for all sessions.
   private readonly scriptsDir: string
   private readonly realGit: string
+  private readonly anthropicModel: string
 
   // U5: live_status heartbeat — one timer per bot lifetime, cleared by shutdown
   // authority before finalizeGeneration (Decision 8c).
@@ -140,6 +141,7 @@ export class SessionManagerService implements OnApplicationShutdown {
 
     this.scriptsDir = path.resolve(__dirname, '../../scripts')
     this.realGit = execFileSync('which', ['git'], { encoding: 'utf-8' }).trim()
+    this.anthropicModel = process.env[EnvKeys.ANTHROPIC_MODEL] ?? 'sonnet[1m]'
 
     this.gitTurnContext = new GitTurnContext({
       db,
@@ -881,6 +883,7 @@ export class SessionManagerService implements OnApplicationShutdown {
 
     const systemPrompt = this.buildSystemPrompt()
     let sessionId: string
+    let resolvedModel: string | undefined
     try {
       const result = await connection.newSession({
         cwd: this.claudeCwd,
@@ -888,6 +891,7 @@ export class SessionManagerService implements OnApplicationShutdown {
         _meta: { systemPrompt: { append: systemPrompt } },
       })
       sessionId = result.sessionId
+      resolvedModel = result.models?.currentModelId
     } catch (err) {
       this.killProcessTree(proc)
       throw err
@@ -924,6 +928,11 @@ export class SessionManagerService implements OnApplicationShutdown {
             // small and durable enough to audit composition on every session.
             promptAppendLength: systemPrompt.length,
             hasCustom: this.customSystemPrompt.trim().length > 0,
+            // Canonical model id the ACP wrapper actually resolved (per its
+            // own ANTHROPIC_MODEL / settings.model / SDK-default priority),
+            // not just what we requested — lets an operator audit which
+            // model/context-window a session ran on after the fact.
+            resolvedModel: resolvedModel ?? null,
           },
           createdAt: new Date(),
         })
@@ -998,6 +1007,10 @@ export class SessionManagerService implements OnApplicationShutdown {
         TDR_CHANNEL_ID: channelId,
         // Real git binary — prevents infinite recursion in the wrapper.
         TDR_REAL_GIT: this.realGit,
+        // Read by the ACP wrapper's getAvailableModels() inside the spawned
+        // agent subprocess. Defaults to 'sonnet[1m]' in the constructor
+        // above when the operator hasn't set a real ANTHROPIC_MODEL.
+        ANTHROPIC_MODEL: this.anthropicModel,
       },
     })
     this.logger.debug(

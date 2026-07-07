@@ -23,6 +23,10 @@ export const EnvKeys = {
   NODE_ENV: 'NODE_ENV',
   CLAUDE_COMMAND: 'CLAUDE_COMMAND',
   CLAUDE_CWD: 'CLAUDE_CWD',
+  // Model passed to the spawned Claude agent subprocess (the ACP wrapper
+  // reads this directly). Unset -> session-manager.service.ts defaults it
+  // to 'sonnet[1m]'. Set a real value here to override the bot-wide default.
+  ANTHROPIC_MODEL: 'ANTHROPIC_MODEL',
   AGENT_IDLE_TIMEOUT_SECONDS: 'AGENT_IDLE_TIMEOUT_SECONDS',
   AGENT_MAX_SESSIONS: 'AGENT_MAX_SESSIONS',
   // Phase A: two-process substrate
