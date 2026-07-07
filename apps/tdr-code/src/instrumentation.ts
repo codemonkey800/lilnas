@@ -54,6 +54,17 @@ const MESSAGE_CAP = 300
 // for client React errors (those stay with error-reporter.tsx / the error
 // boundaries) and never for the edge middleware's cookie-gate redirect.
 //
+// Unlike register(), this export has no top-level runtime branch — Next
+// compiles onRequestError into the EDGE bundle too (it's a general hook, not
+// one this app scopes by env var), so the dynamic import below must repeat
+// register()'s `NEXT_RUNTIME === 'nodejs'` guard. Without it, webpack still
+// resolves and builds './logging/frontend-server-logger' (-> log-paths.ts ->
+// `node:path`) for the edge compilation even though this app's own routing
+// never actually calls onRequestError from edge — the guard is a build-time
+// requirement, not just a runtime one. Confirmed by reproducing `next build`
+// locally: removing this guard reintroduces "UnhandledSchemeError: Reading
+// from node:path is not handled by plugins" during the edge-server pass.
+//
 // `err` is un-pathable free text (the structured-logging convention doc's C1
 // rule): its .message can embed arbitrary internals, and this logger's
 // REDACT_PATHS are root-anchored to the pino-http `req.*` shape (see
@@ -67,26 +78,28 @@ export const onRequestError: Instrumentation.onRequestError = async (
   request,
   context,
 ) => {
-  const { frontendServerLogger } = await import(
-    './logging/frontend-server-logger'
-  )
-  const rawMessage = err instanceof Error ? err.message : String(err)
-  const cappedMessage =
-    rawMessage.length > MESSAGE_CAP
-      ? rawMessage.slice(0, MESSAGE_CAP)
-      : rawMessage
-  const queryStart = request.path.indexOf('?')
-  const pathOnly =
-    queryStart === -1 ? request.path : request.path.slice(0, queryStart)
-  frontendServerLogger.error(
-    {
-      event: LOG_EVENTS.serverRequestError,
-      errName: err instanceof Error ? err.name : typeof err,
-      method: request.method,
-      path: pathOnly,
-      routePath: context.routePath,
-      routeType: context.routeType,
-    },
-    cappedMessage,
-  )
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { frontendServerLogger } = await import(
+      './logging/frontend-server-logger'
+    )
+    const rawMessage = err instanceof Error ? err.message : String(err)
+    const cappedMessage =
+      rawMessage.length > MESSAGE_CAP
+        ? rawMessage.slice(0, MESSAGE_CAP)
+        : rawMessage
+    const queryStart = request.path.indexOf('?')
+    const pathOnly =
+      queryStart === -1 ? request.path : request.path.slice(0, queryStart)
+    frontendServerLogger.error(
+      {
+        event: LOG_EVENTS.serverRequestError,
+        errName: err instanceof Error ? err.name : typeof err,
+        method: request.method,
+        path: pathOnly,
+        routePath: context.routePath,
+        routeType: context.routeType,
+      },
+      cappedMessage,
+    )
+  }
 }

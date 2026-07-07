@@ -80,6 +80,15 @@ describe('register()', () => {
 })
 
 describe('onRequestError()', () => {
+  // onRequestError has no top-level runtime branch of its own (unlike
+  // register() above) — Next still compiles it into the edge bundle (it's a
+  // general hook, not one this app scopes by env var), so its dynamic import
+  // of frontend-server-logger repeats the same NEXT_RUNTIME guard. Every test
+  // in this block needs it set, mirroring register()'s "nodejs" case.
+  beforeEach(() => {
+    process.env.NEXT_RUNTIME = 'nodejs'
+  })
+
   it('logs server-request-error, coarsening err to name + a length-capped message with no raw stack', async () => {
     const err = new Error('y'.repeat(500))
 
@@ -127,5 +136,13 @@ describe('onRequestError()', () => {
     const [fields, message] = errorMock.mock.calls[0]!
     expect(fields.errName).toBe('string')
     expect(message).toBe('boom')
+  })
+
+  it('does nothing in the edge runtime (no filesystem — the pino/file logger must never initialize there)', async () => {
+    process.env.NEXT_RUNTIME = 'edge'
+
+    await onRequestError(new Error('boom'), makeRequest('/live'), makeContext())
+
+    expect(errorMock).not.toHaveBeenCalled()
   })
 })

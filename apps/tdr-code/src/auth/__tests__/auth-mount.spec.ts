@@ -17,6 +17,7 @@ import { AuthModule } from 'src/auth/auth.module'
 import { ConfigController } from 'src/console/config.controller'
 import type { ConfigResponseDto } from 'src/console/config.dto'
 import { ConfigService } from 'src/console/config.service'
+import { DiscordDirectoryService } from 'src/console/discord-directory.service'
 import { GitIdentityController } from 'src/console/git-identity.controller'
 import type { UpsertGitIdentityResponseDto } from 'src/console/git-identity.dto'
 import { GitIdentityService } from 'src/console/git-identity.service'
@@ -91,6 +92,16 @@ function makeMockGitIdentityService(): jest.Mocked<GitIdentityService> {
   } as unknown as jest.Mocked<GitIdentityService>
 }
 
+// GitIdentityController's second constructor dependency (added alongside its
+// GET /git-identity/discord-members route) — unmocked here would fail
+// TestAppModule compilation with a Nest DI error, since this suite builds its
+// own minimal module rather than importing ConsoleModule wholesale.
+function makeMockDiscordDirectoryService(): jest.Mocked<DiscordDirectoryService> {
+  return {
+    listGuildMembers: jest.fn().mockResolvedValue([]),
+  } as unknown as jest.Mocked<DiscordDirectoryService>
+}
+
 type JsonResponse = {
   status: number
   headers: http.IncomingHttpHeaders
@@ -161,11 +172,13 @@ describe('Better Auth NestJS mount (U2)', () => {
   let testDb: TestDb
   let mockConfigService: jest.Mocked<ConfigService>
   let mockGitIdentityService: jest.Mocked<GitIdentityService>
+  let mockDiscordDirectoryService: jest.Mocked<DiscordDirectoryService>
 
   beforeAll(async () => {
     testDb = createTestDb()
     mockConfigService = makeMockConfigService()
     mockGitIdentityService = makeMockGitIdentityService()
+    mockDiscordDirectoryService = makeMockDiscordDirectoryService()
 
     const TestDatabaseModule = makeTestDatabaseModule(testDb.db)
 
@@ -175,6 +188,10 @@ describe('Better Auth NestJS mount (U2)', () => {
       providers: [
         { provide: ConfigService, useValue: mockConfigService },
         { provide: GitIdentityService, useValue: mockGitIdentityService },
+        {
+          provide: DiscordDirectoryService,
+          useValue: mockDiscordDirectoryService,
+        },
       ],
     })
     class TestAppModule {}
@@ -306,6 +323,7 @@ describe('Better Auth NestJS mount (U2)', () => {
         claudeArgs: ['--dangerously-skip-permissions'],
         idleTimeoutSec: 300,
         maxConcurrentSessions: 5,
+        customSystemPrompt: '',
       }
 
       const res = await request(port, {
