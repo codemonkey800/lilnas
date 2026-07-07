@@ -23,22 +23,16 @@ services:
       #   sudo chmod 700 /storage/app-data/tdr-code
       # Without chown the process can't open the DB on first boot.
       - /storage/app-data/tdr-code:/data
-    # Liveness probe via Next ($PORT) → /api/health rewrite → main server.
-    # main server now binds 127.0.0.1:8082 (loopback-only); the container
-    # cannot reach it directly. Route through Next ($PORT), which rewrites
-    # /api/* → localhost:8082 — still exercises the main-server event loop.
-    # $PORT is expanded by the container's shell from the env_file above, so
-    # it always matches nginx.conf.template's own ${PORT} target.
+    # Liveness probe against nginx itself (see nginx.conf.template's
+    # /nginx-health), not the host backend -- this container is meant to
+    # stay up and healthy (serving /unreachable.html) even while the host
+    # process is down, so the healthcheck must not proxy through to it.
     healthcheck:
-      test:
-        [
-          'CMD-SHELL',
-          "node -e \"const h=require('http');h.get('http://host.docker.internal:${PORT:-8080}/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\"",
-        ]
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1/nginx-health']
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 10s
     labels:
       - traefik.enable=true
       - traefik.docker.network=lilnas-proxy

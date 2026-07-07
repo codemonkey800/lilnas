@@ -9,6 +9,19 @@ server {
         internal;
     }
 
+    # Container healthcheck target (deploy.yml) -- answered by nginx itself,
+    # never proxied to host.docker.internal, so the container stays healthy
+    # (and keeps serving /unreachable.html) even while the host backend is
+    # down. Do not point the healthcheck at `/` or `/api/health` -- those
+    # proxy through to the backend and would flap the container to
+    # unhealthy exactly when the fallback page is supposed to be doing its
+    # job.
+    location = /nginx-health {
+        access_log off;
+        return 200 "ok\n";
+        add_header Content-Type text/plain;
+    }
+
     # SSE push (R13/U8): NestJS's @Sse() already emits Cache-Control:
     # no-transform + X-Accel-Buffering: no by default (verified against the
     # installed @nestjs/core sse-stream.js), which nginx honors per-response
