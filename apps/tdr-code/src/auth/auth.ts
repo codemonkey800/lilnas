@@ -10,6 +10,7 @@ import { EnvKeys } from 'src/env'
 import { getBackendLogger } from 'src/logging/backend-logger'
 import { LOG_EVENTS } from 'src/logging/log-events'
 
+import { devLoginPlugin, isDevLoginEnabled } from './dev-login.plugin'
 import { isCurrentUserGuildMember } from './guild-gate'
 
 // buildAuth(db) is a plain factory invoked once at app bootstrap, not an
@@ -202,11 +203,19 @@ export function buildAuth(db: Db) {
       },
     },
 
-    // Only the Discord social provider — no admin/org/multi-session/
-    // list-accounts plugins, so the mounted handler's public route set stays
-    // limited to sign-in / callback / sign-out / get-session (no
-    // public-by-construction routes from a plugin).
-    plugins: [],
+    // Only the Discord social provider by default — no admin/org/
+    // multi-session/list-accounts plugins, so the mounted handler's public
+    // route set stays limited to sign-in / callback / sign-out / get-session
+    // (no public-by-construction routes from a plugin). The one conditional
+    // exception is devLoginPlugin() (see dev-login.plugin.ts / PLAN.md),
+    // which adds POST /dev-login ONLY when isDevLoginEnabled() returns true
+    // — itself gated on NODE_ENV !== 'production', a feature flag, and a
+    // configured secret, and evaluated here (at buildAuth() call time) so a
+    // misconfigured prod host (TDR_CODE_DEV_LOGIN=1 with
+    // NODE_ENV=production) throws at boot instead of silently mounting the
+    // route. When the gate is off, the array is simply `[]` — the endpoint
+    // is structurally absent (404), not merely rejected.
+    plugins: isDevLoginEnabled() ? [devLoginPlugin()] : [],
 
     // U3: guild-membership gate (R18, AE5) — SEAM = Option B
     // (`databaseHooks.account.create.before`), not Option A

@@ -33,6 +33,14 @@ const GUILD_EVENTS = {
   guildLookupComplete: 'guild-lookup-complete',
 } as const
 
+const DEV_LOGIN_EVENTS = {
+  // dev-login.plugin.ts — the dev-only synthetic-session mint and its
+  // rejection path. Logged at warn (not info) so a stray occurrence stands
+  // out even though it is expected in local dev.
+  devLoginMinted: 'dev-login-minted',
+  devLoginRejected: 'dev-login-rejected',
+} as const
+
 const SESSION_EVENTS = {
   // session-manager.service.ts's insertSession catch blocks. Both already
   // log { err, channelId }; this is the AE1 acceptance-example site.
@@ -516,6 +524,7 @@ const WEB_VITALS_EVENTS = {
 export const LOG_EVENTS = {
   ...AUTH_EVENTS,
   ...GUILD_EVENTS,
+  ...DEV_LOGIN_EVENTS,
   ...SESSION_EVENTS,
   ...IDENTITY_EVENTS,
   ...GIT_IDENTITY_EVENTS,

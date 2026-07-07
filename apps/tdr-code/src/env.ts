@@ -15,6 +15,11 @@ export const EnvKeys = {
   // derive secure-cookie defaults.
   BETTER_AUTH_SECRET: 'BETTER_AUTH_SECRET',
   BETTER_AUTH_URL: 'BETTER_AUTH_URL',
+  // Dev-only agent login (see PLAN.md / dev-login.plugin.ts). Both must be
+  // set, and only ever in local dev — buildAuth() throws if
+  // TDR_CODE_DEV_LOGIN is set while NODE_ENV=production.
+  TDR_CODE_DEV_LOGIN: 'TDR_CODE_DEV_LOGIN',
+  TDR_CODE_DEV_LOGIN_SECRET: 'TDR_CODE_DEV_LOGIN_SECRET',
   NODE_ENV: 'NODE_ENV',
   CLAUDE_COMMAND: 'CLAUDE_COMMAND',
   CLAUDE_CWD: 'CLAUDE_CWD',
