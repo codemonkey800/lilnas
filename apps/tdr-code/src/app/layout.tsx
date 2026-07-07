@@ -6,6 +6,7 @@ import { NavShell } from './components/nav-shell'
 import { ClickTracker } from './lib/click-tracker'
 import { ErrorReporter } from './lib/error-reporter'
 import { PageViewTracker } from './lib/page-view-tracker'
+import { WebVitalsReporter } from './lib/web-vitals-reporter'
 import { QueryProvider } from './providers'
 
 export const metadata = {
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <ErrorReporter />
         <PageViewTracker />
         <ClickTracker />
+        <WebVitalsReporter />
         <QueryProvider>
           <NavShell>{children}</NavShell>
         </QueryProvider>

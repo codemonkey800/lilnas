@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import ConfigPage from 'src/app/config/page'
@@ -53,6 +53,13 @@ class StubEventSource {
   close(): void {}
 }
 
+// ConfigPage now emits browser-log beacons (logEvent/logToServer -> a bare
+// global fetch): config-saved on a successful save, client-validation-rejected
+// on a bad claudeArgs submit. jsdom provides no fetch, so install the same
+// stand-in the other frontend specs use — otherwise the existing save tests
+// would throw "fetch is not defined" from inside onSuccess.
+const mockFetch = jest.fn()
+
 beforeEach(() => {
   // .mockReset() before re-arming: jest.config.js's top-level clearMocks/
   // restoreMocks have no effect once a `projects` array is used (Jest only
@@ -72,6 +79,8 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ status: 'never-seen' } as never)
   global.EventSource = StubEventSource as unknown as typeof EventSource
+  mockFetch.mockReset().mockResolvedValue(undefined)
+  global.fetch = mockFetch as unknown as typeof fetch
 })
 
 describe('ConfigPage — custom system prompt field', () => {
@@ -190,5 +199,101 @@ describe('ConfigPage — bot-status query no longer polls (U6)', () => {
     } finally {
       jest.useRealTimers()
     }
+  })
+})
+
+describe('ConfigPage — save + validation telemetry', () => {
+  function beaconBodies() {
+    return mockFetch.mock.calls
+      .filter(call => call[0] === '/api/logs/browser')
+      .map(
+        call =>
+          JSON.parse(call[1]?.body as string) as {
+            level: string
+            event: string
+            context?: {
+              botOffline?: boolean
+              changedFields?: string[]
+              field?: string
+              reason?: string
+            }
+          },
+      )
+  }
+
+  it('logs config-saved (info) with the CHANGED FIELD NAMES and botOffline, leaking no values', async () => {
+    jest.spyOn(api, 'updateConfig').mockResolvedValue({
+      ...CONFIG,
+      customSystemPrompt: 'Always respond in haiku. Be terse.',
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    const textarea = await screen.findByDisplayValue(CONFIG.customSystemPrompt)
+    await user.type(textarea, ' Be terse.')
+    await user.click(screen.getByRole('button', { name: /Save/ }))
+    await screen.findByText('Saved')
+
+    const saved = beaconBodies().filter(b => b.event === 'config-saved')
+    expect(saved).toHaveLength(1)
+    expect(saved[0]!.level).toBe('info')
+    // Only the one field the operator actually changed, by NAME.
+    expect(saved[0]!.context?.changedFields).toEqual(['customSystemPrompt'])
+    // never-seen bot status => offline (a deferred-effect save).
+    expect(saved[0]!.context?.botOffline).toBe(true)
+    // No config VALUES ever leave the browser — not the prompt text, not cwd.
+    const serialized = JSON.stringify(saved[0])
+    expect(serialized).not.toContain('haiku')
+    expect(serialized).not.toContain('/tmp')
+  })
+
+  it('logs client-validation-rejected (warn, invalid-json) and does NOT call updateConfig on unparseable claudeArgs', async () => {
+    const updateSpy = jest.spyOn(api, 'updateConfig')
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByDisplayValue(CONFIG.customSystemPrompt)
+
+    // fireEvent.change (not userEvent.type) for the args field: user-event
+    // treats '[' / '{' as special key-descriptor syntax, so typing raw JSON
+    // array text through it is unreliable — a direct value set is exact.
+    const argsField = screen.getByDisplayValue(
+      JSON.stringify(CONFIG.claudeArgs),
+    )
+    fireEvent.change(argsField, { target: { value: 'not json' } })
+    await user.click(screen.getByRole('button', { name: /Save/ }))
+
+    const rejected = beaconBodies().filter(
+      b => b.event === 'client-validation-rejected',
+    )
+    expect(rejected).toHaveLength(1)
+    expect(rejected[0]!.level).toBe('warn')
+    expect(rejected[0]!.context).toEqual({
+      field: 'claudeArgs',
+      reason: 'invalid-json',
+    })
+    expect(updateSpy).not.toHaveBeenCalled()
+  })
+
+  it('logs client-validation-rejected with reason not-string-array for a JSON array of non-strings', async () => {
+    const updateSpy = jest.spyOn(api, 'updateConfig')
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByDisplayValue(CONFIG.customSystemPrompt)
+
+    const argsField = screen.getByDisplayValue(
+      JSON.stringify(CONFIG.claudeArgs),
+    )
+    fireEvent.change(argsField, { target: { value: '[1, 2, 3]' } })
+    await user.click(screen.getByRole('button', { name: /Save/ }))
+
+    const rejected = beaconBodies().filter(
+      b => b.event === 'client-validation-rejected',
+    )
+    expect(rejected).toHaveLength(1)
+    expect(rejected[0]!.context).toEqual({
+      field: 'claudeArgs',
+      reason: 'not-string-array',
+    })
+    expect(updateSpy).not.toHaveBeenCalled()
   })
 })

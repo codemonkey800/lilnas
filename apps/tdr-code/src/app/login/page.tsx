@@ -2,9 +2,11 @@
 
 import { cns } from '@lilnas/utils/cns'
 import { useSearchParams } from 'next/navigation'
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 
 import { signIn } from 'src/app/lib/auth-client'
+import { logEvent, logToServer } from 'src/app/lib/browser-logger'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 // Stable enum for ?error=<code> — NEVER a raw Better Auth error string in
 // the URL (plan requirement). A raw library error string is (a) liable to
@@ -41,8 +43,24 @@ function isLoginErrorCode(value: string | null): value is LoginErrorCode {
 function LoginErrorBanner() {
   const searchParams = useSearchParams()
   const rawError = searchParams.get('error')
+  const code = isLoginErrorCode(rawError) ? rawError : null
 
-  if (!isLoginErrorCode(rawError)) return null
+  // Log the user-EXPERIENCED auth failure (the banner actually rendered),
+  // once per mount per code — the browser-plane complement to the backend's
+  // guild-denied / auth-check-error (which record the server-side decision,
+  // not whether a human ever saw the wall). session_expired is routine
+  // (info via logEvent); not_guild_member / oauth_failed are notable (warn
+  // via logToServer), mirroring the banner's own tone split below.
+  useEffect(() => {
+    if (code === null) return
+    if (code === 'session_expired') {
+      logEvent(LOG_EVENTS.loginErrorShown, { code })
+    } else {
+      logToServer('warn', LOG_EVENTS.loginErrorShown, 'login blocked', { code })
+    }
+  }, [code])
+
+  if (code === null) return null
 
   return (
     <div
@@ -53,12 +71,12 @@ function LoginErrorBanner() {
         // never confused for each other; session_expired uses a visually
         // distinct informational tone (not alarming — an expired session is
         // routine, not a rejection).
-        rawError === 'session_expired'
+        code === 'session_expired'
           ? 'border-gray-700 bg-gray-900 text-gray-300'
           : 'border-red-800 bg-red-950 text-red-300',
       )}
     >
-      {ERROR_COPY[rawError]}
+      {ERROR_COPY[code]}
     </div>
   )
 }

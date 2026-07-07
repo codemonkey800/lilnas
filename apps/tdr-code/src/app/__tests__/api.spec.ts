@@ -79,6 +79,12 @@ describe('api.ts redirect-on-401', () => {
     // project placement avoids — see the header comment above).
     ;(global as unknown as { window: unknown }).window = {
       location: {
+        // pathname/search feed logToServer's `path` context field on the
+        // session-expired-redirect beacon (redirectToLogin logs before it
+        // navigates) — the redirect tests below never touched them before,
+        // but the beacon test asserts on the resulting path.
+        pathname: '/sessions/1',
+        search: '',
         get href() {
           return hrefValues.at(-1) ?? ''
         },
@@ -123,6 +129,33 @@ describe('api.ts redirect-on-401', () => {
     expect(settled.value).toBe(false)
   })
 
+  it('emits exactly one session-expired-redirect (warn) beacon with the current path before navigating', async () => {
+    const fetchJson = await loadFetchJson()
+    fetchSpy.mockResolvedValue(jsonResponse({ message: 'Unauthorized' }, 401))
+
+    // Not awaited — the 401 path's promise never settles by design (see the
+    // first test's comment).
+    fetchJson('/live')
+
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // logToServer fires a fire-and-forget beacon to /api/logs/browser via the
+    // same global fetch spy — distinct from the /api/live request() that got
+    // the 401. Exactly one beacon, since it lives inside redirectToLogin's
+    // one-shot latch. A resolved 401 Response here is a no-op for logToServer
+    // (it only .catch()es rejections), so it never disturbs the redirect.
+    const beacons = fetchSpy.mock.calls.filter(
+      ([url]) => url === '/api/logs/browser',
+    )
+    expect(beacons).toHaveLength(1)
+    const body = JSON.parse(beacons[0]![1]!.body as string)
+    expect(body.level).toBe('warn')
+    expect(body.event).toBe('session-expired-redirect')
+    expect(body.context).toEqual({ path: '/sessions/1' })
+  })
+
   it('collapses a 401 storm (4 concurrent calls, mirroring the 4 real refetchInterval:5_000 call sites) into exactly ONE redirect', async () => {
     const fetchJson = await loadFetchJson()
     fetchSpy.mockResolvedValue(jsonResponse({ message: 'Unauthorized' }, 401))
@@ -163,8 +196,14 @@ describe('api.ts redirect-on-401', () => {
 
   it('a 401 followed by a later non-401 call from a DIFFERENT poll still does not re-redirect (storm flag stays latched)', async () => {
     const fetchJson = await loadFetchJson()
+    // A base 200 covers BOTH the session-expired beacon fetch (logToServer
+    // POSTs to /api/logs/browser inside redirectToLogin) and the later
+    // /config poll below; the Once(401) drives just the first /live call that
+    // trips the latch. Without the base value, the beacon would consume the
+    // queued Once meant for /config, and /config would fall through to the
+    // real (relative-URL-rejecting) fetch.
+    fetchSpy.mockResolvedValue(jsonResponse({ ok: true }, 200))
     fetchSpy.mockResolvedValueOnce(jsonResponse({}, 401))
-    fetchSpy.mockResolvedValueOnce(jsonResponse({ ok: true }, 200))
 
     fetchJson('/live')
     await Promise.resolve()

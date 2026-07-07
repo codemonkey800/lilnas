@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 
 import { api, logTailUrl } from 'src/app/lib/api'
-import { capMessage, logToServer } from 'src/app/lib/browser-logger'
+import { capMessage, logEvent, logToServer } from 'src/app/lib/browser-logger'
 import { LOG_EVENTS } from 'src/logging/log-events'
 import {
   LOG_TAIL_EVENT_TYPE,
@@ -130,12 +130,36 @@ export function useLogTail(
       // reason).
       let consecutiveErrors = 0
       let fallbackFired = false
+      // First onopen = initial connect; each later onopen = a silent
+      // EventSource auto-reconnect. Per-connection (per connect() call), like
+      // the fallback counters above.
+      let hasOpened = false
       const resetErrorTracking = () => {
         consecutiveErrors = 0
         fallbackFired = false
       }
 
-      eventSource.onopen = resetErrorTracking
+      // Connection-lifecycle telemetry alongside the error-tracking reset: the
+      // first onopen is the initial connect (info); every subsequent onopen is
+      // a silent auto-reconnect (warn — a rising rate is the earliest signal
+      // of a flaky tail transport). Kept distinct from use-live-stream.ts's
+      // live-stream slugs so an operator can tell which long-lived connection
+      // is churning. Complements log-tail.service.ts's server-side
+      // logTailStarted / logTailReopened.
+      eventSource.onopen = () => {
+        resetErrorTracking()
+        if (hasOpened) {
+          logToServer(
+            'warn',
+            LOG_EVENTS.logTailReconnected,
+            'log tail reconnected',
+            { stream },
+          )
+        } else {
+          hasOpened = true
+          logEvent(LOG_EVENTS.logTailConnected, { stream })
+        }
+      }
 
       eventSource.addEventListener(LOG_TAIL_EVENT_TYPE, event => {
         resetErrorTracking()

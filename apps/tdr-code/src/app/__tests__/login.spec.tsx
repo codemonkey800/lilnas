@@ -38,12 +38,22 @@ jest.mock('src/app/lib/auth-client', () => ({
   useSession: () => mockUseSession(),
 }))
 
+// LoginErrorBanner now emits a browser-log beacon (logEvent/logToServer -> a
+// bare global fetch) when a recognized ?error code is present. jsdom does not
+// provide fetch, so install the same stand-in every other frontend spec that
+// exercises logToServer uses (browser-logger.spec.tsx) — otherwise the
+// error-copy render tests below would throw "fetch is not defined" from
+// inside the effect.
+const mockFetch = jest.fn()
+
 beforeEach(() => {
   mockSearchParamsGet.mockReset().mockReturnValue(null)
   mockPathname.mockReset().mockReturnValue('/login')
   mockSignInSocial.mockReset()
   mockSignOut.mockReset()
   mockUseSession.mockReset().mockReturnValue({ data: null, isPending: true })
+  mockFetch.mockReset().mockResolvedValue(undefined)
+  global.fetch = mockFetch as unknown as typeof fetch
 })
 
 describe('LoginPage', () => {
@@ -193,6 +203,69 @@ describe('LoginPage', () => {
       expect(expired).not.toBe(notMember)
       expect(expired).not.toBe(oauthFailed)
     })
+  })
+})
+
+describe('LoginErrorBanner — login-error-shown telemetry', () => {
+  function lastBeaconBody(): {
+    level: string
+    event: string
+    context?: unknown
+  } {
+    const call = mockFetch.mock.calls.at(-1)
+    if (!call) throw new Error('expected a browser-log beacon fetch')
+    return JSON.parse(call[1]?.body as string)
+  }
+
+  it('logs login-error-shown at warn for not_guild_member', () => {
+    mockSearchParamsGet.mockImplementation(key =>
+      key === 'error' ? 'not_guild_member' : null,
+    )
+    render(<LoginPage />)
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    const body = lastBeaconBody()
+    expect(body.event).toBe('login-error-shown')
+    expect(body.level).toBe('warn')
+    expect(body.context).toEqual({ code: 'not_guild_member' })
+  })
+
+  it('logs login-error-shown at warn for oauth_failed', () => {
+    mockSearchParamsGet.mockImplementation(key =>
+      key === 'error' ? 'oauth_failed' : null,
+    )
+    render(<LoginPage />)
+
+    const body = lastBeaconBody()
+    expect(body.event).toBe('login-error-shown')
+    expect(body.level).toBe('warn')
+    expect(body.context).toEqual({ code: 'oauth_failed' })
+  })
+
+  it('logs login-error-shown at info (routine) for session_expired', () => {
+    mockSearchParamsGet.mockImplementation(key =>
+      key === 'error' ? 'session_expired' : null,
+    )
+    render(<LoginPage />)
+
+    const body = lastBeaconBody()
+    expect(body.event).toBe('login-error-shown')
+    expect(body.level).toBe('info')
+    expect(body.context).toEqual({ code: 'session_expired' })
+  })
+
+  it('does not log on a bare /login (no ?error banner shown)', () => {
+    mockSearchParamsGet.mockReturnValue(null)
+    render(<LoginPage />)
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('does not log for an unrecognized error code (no banner rendered for it)', () => {
+    mockSearchParamsGet.mockImplementation(key =>
+      key === 'error' ? 'some_raw_better_auth_internal_code' : null,
+    )
+    render(<LoginPage />)
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 })
 

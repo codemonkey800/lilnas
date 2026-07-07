@@ -82,9 +82,18 @@ function latestInstance(): MockEventSource {
   return instance
 }
 
+// The hook now emits a browser-log beacon (logEvent/logToServer -> a bare
+// global fetch) on every onopen (connected / reconnected). jsdom does not
+// provide fetch, so install the same stand-in the other frontend specs use —
+// otherwise the "resets on onopen" fallback test (and the new lifecycle
+// tests) would throw "fetch is not defined" from inside the onopen handler.
+const mockFetch = jest.fn()
+
 beforeEach(() => {
   MockEventSource.instances = []
   global.EventSource = MockEventSource as unknown as typeof EventSource
+  mockFetch.mockReset().mockResolvedValue(undefined)
+  global.fetch = mockFetch as unknown as typeof fetch
 })
 
 // U13: jest.config.js's top-level clearMocks/restoreMocks do NOT apply per
@@ -272,6 +281,70 @@ describe('useLogTail', () => {
     const { result } = renderHook(() => useLogTail('backend', onLine))
     expect(() => result.current.disconnect()).not.toThrow()
     expect(() => result.current.disconnect()).not.toThrow()
+  })
+
+  describe('connection-lifecycle telemetry', () => {
+    function beaconBodies() {
+      return mockFetch.mock.calls
+        .filter(call => call[0] === '/api/logs/browser')
+        .map(
+          call =>
+            JSON.parse((call[1] as RequestInit).body as string) as {
+              level: string
+              event: string
+              context?: unknown
+            },
+        )
+    }
+
+    it('logs log-tail-connected (info) on the first onopen', () => {
+      const onLine = jest.fn()
+      const { result } = renderHook(() => useLogTail('backend', onLine))
+      result.current.connect(0)
+      latestInstance().emitOpen()
+
+      const beacons = beaconBodies()
+      expect(beacons).toHaveLength(1)
+      expect(beacons[0]).toMatchObject({
+        level: 'info',
+        event: 'log-tail-connected',
+        context: { stream: 'backend' },
+      })
+    })
+
+    it('logs log-tail-reconnected (warn) on each subsequent onopen (a silent auto-reconnect)', () => {
+      const onLine = jest.fn()
+      const { result } = renderHook(() => useLogTail('backend', onLine))
+      result.current.connect(0)
+      const instance = latestInstance()
+      instance.emitOpen() // initial connect
+      instance.emitOpen() // auto-reconnect
+
+      const beacons = beaconBodies()
+      expect(beacons).toHaveLength(2)
+      expect(beacons[0]).toMatchObject({
+        event: 'log-tail-connected',
+        level: 'info',
+      })
+      expect(beacons[1]).toMatchObject({
+        event: 'log-tail-reconnected',
+        level: 'warn',
+        context: { stream: 'backend' },
+      })
+    })
+
+    it('a fresh connect() (re-seek) logs connected again, not reconnected — a new EventSource has its own lifecycle', () => {
+      const onLine = jest.fn()
+      const { result } = renderHook(() => useLogTail('backend', onLine))
+      result.current.connect(0)
+      latestInstance().emitOpen()
+      result.current.connect(500) // re-seek -> a brand-new EventSource
+      latestInstance().emitOpen()
+
+      const beacons = beaconBodies()
+      expect(beacons).toHaveLength(2)
+      expect(beacons.every(b => b.event === 'log-tail-connected')).toBe(true)
+    })
   })
 
   describe('session-expiry fallback (U13, R18)', () => {

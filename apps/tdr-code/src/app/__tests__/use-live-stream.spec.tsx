@@ -135,6 +135,53 @@ afterEach(() => {
   jest.restoreAllMocks()
 })
 
+describe('useLiveStream — connection-lifecycle telemetry', () => {
+  function beaconBodies() {
+    return mockFetch.mock.calls
+      .filter(call => call[0] === '/api/logs/browser')
+      .map(
+        call =>
+          JSON.parse((call[1] as RequestInit).body as string) as {
+            level: string
+            event: string
+            context?: unknown
+          },
+      )
+  }
+
+  it('logs live-stream-connected (info) on the first onopen', () => {
+    renderHook(() => useLiveStream(['live']), { wrapper })
+    latestInstance().emitOpen()
+
+    const beacons = beaconBodies()
+    expect(beacons).toHaveLength(1)
+    expect(beacons[0]).toMatchObject({
+      level: 'info',
+      event: 'live-stream-connected',
+      context: { topics: 'live' },
+    })
+  })
+
+  it('logs live-stream-reconnected (warn) on each subsequent onopen (a silent EventSource auto-reconnect)', () => {
+    renderHook(() => useLiveStream(['bot-status']), { wrapper })
+    const instance = latestInstance()
+    instance.emitOpen() // initial connect
+    instance.emitOpen() // auto-reconnect
+
+    const beacons = beaconBodies()
+    expect(beacons).toHaveLength(2)
+    expect(beacons[0]).toMatchObject({
+      event: 'live-stream-connected',
+      level: 'info',
+    })
+    expect(beacons[1]).toMatchObject({
+      event: 'live-stream-reconnected',
+      level: 'warn',
+      context: { topics: 'bot-status' },
+    })
+  })
+})
+
 describe('useLiveStream', () => {
   it('invalidates queryKeys.live exactly once when a live-topic event arrives', () => {
     const invalidateSpy = spyOnInvalidate()

@@ -20,6 +20,7 @@ import type {
   SessionDetailResponseDto,
   SessionListResponseDto,
 } from 'src/console/sessions.dto'
+import { LOG_EVENTS } from 'src/logging/log-events'
 import type {
   LogScanPredicate,
   LogSearchResponse,
@@ -28,6 +29,8 @@ import type {
   LogWindowResponse,
 } from 'src/logging/log-view.types'
 import type { Topic } from 'src/sse/sse.types'
+
+import { logToServer } from './browser-logger'
 
 // Module-scoped flag collapsing a 401 STORM into a single redirect. This
 // file's request() is called from up to four concurrent
@@ -48,6 +51,20 @@ let hasRedirectedForSessionExpiry = false
 function redirectToLogin() {
   if (hasRedirectedForSessionExpiry) return
   hasRedirectedForSessionExpiry = true
+  // The one telemetry signal for "the session that rendered this page is
+  // gone" — emitted INSIDE the latch (so it fires exactly once, matching the
+  // single redirect) right before the navigation tears the page down. Uses
+  // logToServer's bare keepalive fetch, NOT this file's own request(): routing
+  // it through request() would re-enter this very 401 handler (see
+  // browser-logger.ts's header comment on why it deliberately never does).
+  // The only pre-existing 401 signal was the indirect idle-EventSource
+  // fallbacks; a failing foreground fetch logged nothing.
+  logToServer(
+    'warn',
+    LOG_EVENTS.sessionExpiredRedirect,
+    'session expired; redirecting to login',
+    { path: window.location.pathname + window.location.search },
+  )
   window.location.href = '/login?error=session_expired'
 }
 

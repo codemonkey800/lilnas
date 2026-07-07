@@ -437,6 +437,82 @@ const ERROR_BOUNDARY_EVENTS = {
   errorBoundaryCaught: 'error-boundary-caught',
 } as const
 
+const FRONTEND_SERVER_EVENTS = {
+  // instrumentation.ts's register() (Node runtime only — the file guards on
+  // NEXT_RUNTIME) — a boot marker written the first time frontendServerLogger
+  // has a real call site, so an operator can pin "the Next server (re)started
+  // at T" in the frontend-server.<env>.log stream and correlate a burst of
+  // client anomalies with a redeploy or crash.
+  frontendServerBooted: 'frontend-server-booted',
+  // instrumentation.ts's onRequestError — Next's server-side request-error
+  // hook (SSR/RSC render, Route Handlers, Server Actions), the frontend-server
+  // mirror of ERROR_BOUNDARY_EVENTS' browser-side unhandled-error. `err` is
+  // un-pathable free text (see the structured-logging convention doc's C1
+  // rule), so the call site coarsens to err.name + a length-capped message and
+  // NEVER logs a raw stack; the request path is query-stripped there too (the
+  // frontend-server redact paths are root-anchored to the pino-http req.*
+  // shape and would not match this flat `path` field).
+  serverRequestError: 'server-request-error',
+} as const
+
+const AUTH_BOUNDARY_EVENTS = {
+  // api.ts's redirectToLogin() 401 latch — fired once per page life (inside
+  // the hasRedirectedForSessionExpiry guard) right before the /login
+  // navigation. The browser-plane answer to "why was I bounced to login",
+  // complementing middleware.ts's cookie gate and the NestJS auth guard. The
+  // only pre-existing 401 signal was the indirect idle-EventSource fallbacks
+  // (sseSessionExpiryFallback / logTailSessionExpiryFallback); a failing fetch
+  // logged nothing.
+  sessionExpiredRedirect: 'session-expired-redirect',
+  // login/page.tsx's LoginErrorBanner — the user-EXPERIENCED auth failure (the
+  // ?error banner actually rendered), complementing the backend's guild-denied
+  // / auth-check-error (which record the server-side decision). session_expired
+  // is routine (logged info via logEvent); not_guild_member / oauth_failed are
+  // notable (logged warn via logToServer), mirroring the banner's own tone
+  // split.
+  loginErrorShown: 'login-error-shown',
+} as const
+
+const CONNECTION_EVENTS = {
+  // use-live-stream.ts (/api/stream EventSource) — the CLIENT half of the
+  // long-lived-connection lifecycle, complementing sse.controller.ts's
+  // server-side sseConnected/sseClientDisconnected. connected fires once per
+  // mount's first onopen; reconnected fires on every subsequent onopen (an
+  // EventSource silently auto-reconnects), so a rising reconnected rate is the
+  // earliest signal of a flaky proxy/backend — warn so it filters cleanly.
+  liveStreamConnected: 'live-stream-connected',
+  liveStreamReconnected: 'live-stream-reconnected',
+  // use-log-tail.ts (/api/logs/tail EventSource) — the same connect/reconnect
+  // pair for the log-tail transport, kept distinct from the live-stream slugs
+  // (a different long-lived connection) so an operator can tell which one is
+  // churning, mirroring the module's own logTailSessionExpiryFallback vs
+  // sseSessionExpiryFallback split.
+  logTailConnected: 'log-tail-connected',
+  logTailReconnected: 'log-tail-reconnected',
+} as const
+
+const CONFIG_FLOW_EVENTS = {
+  // config/page.tsx's save mutation onSuccess — the domain-specific audit the
+  // generic mutation-success chokepoint can't give: WHICH fields changed
+  // (names only, never values — cwd/customSystemPrompt are sensitive) and
+  // whether the bot was offline (a deferred-effect save that applies at next
+  // bot start rather than immediately).
+  configSaved: 'config-saved',
+  // config/page.tsx's handleSubmit claudeArgs guard — a client-only validation
+  // rejection that returns before any request, so it is otherwise invisible
+  // (no query, no mutation, no server call). The template for the whole class
+  // of client-side guards that never reach the backend.
+  clientValidationRejected: 'client-validation-rejected',
+} as const
+
+const WEB_VITALS_EVENTS = {
+  // web-vitals-reporter.tsx via next/web-vitals' useReportWebVitals — Core Web
+  // Vitals (LCP/INP/CLS/FCP/TTFB) as browser telemetry. The metric name and
+  // rating ride in the context object; the slug itself is one value regardless
+  // of which metric fired.
+  webVital: 'web-vital',
+} as const
+
 export const LOG_EVENTS = {
   ...AUTH_EVENTS,
   ...GUILD_EVENTS,
@@ -468,6 +544,11 @@ export const LOG_EVENTS = {
   ...NOTIFY_EMITTER_EVENTS,
   ...ERROR_BOUNDARY_EVENTS,
   ...LOGS_EVENTS,
+  ...FRONTEND_SERVER_EVENTS,
+  ...AUTH_BOUNDARY_EVENTS,
+  ...CONNECTION_EVENTS,
+  ...CONFIG_FLOW_EVENTS,
+  ...WEB_VITALS_EVENTS,
 } as const
 
 export type LogEvent = (typeof LOG_EVENTS)[keyof typeof LOG_EVENTS]

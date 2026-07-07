@@ -9,7 +9,7 @@ import {
 } from 'src/sse/sse.types'
 
 import { api, queryKeys, streamUrl } from './api'
-import { capMessage, logToServer } from './browser-logger'
+import { capMessage, logEvent, logToServer } from './browser-logger'
 
 // KEEPALIVE_EVENT_TYPE mirrors sse.controller.ts's own constant of the same
 // name — duplicated rather than imported because that file lives in the
@@ -136,6 +136,10 @@ export function useLiveStream(
     // is still good, so there is nothing to fall back for.
     let consecutiveErrors = 0
     let fallbackFired = false
+    // First onopen = initial connect; each later onopen = a silent
+    // EventSource auto-reconnect. Per-connection (per effect run), like the
+    // fallback counters above.
+    let hasOpened = false
 
     const resetErrorTracking = () => {
       consecutiveErrors = 0
@@ -147,6 +151,23 @@ export function useLiveStream(
     eventSource.onopen = () => {
       if (disposed) return
       resetErrorTracking()
+      // Connection-lifecycle telemetry: the first onopen is the initial
+      // connect; every subsequent onopen is a silent EventSource auto-
+      // reconnect. A rising reconnect rate is the earliest client-side signal
+      // of a flaky proxy/backend — logged at warn (vs the info-level connect)
+      // so it filters cleanly. Complements sse.controller.ts's server-side
+      // sseConnected / sseClientDisconnected.
+      if (hasOpened) {
+        logToServer(
+          'warn',
+          LOG_EVENTS.liveStreamReconnected,
+          'live stream reconnected',
+          { topics: topicsKey },
+        )
+      } else {
+        hasOpened = true
+        logEvent(LOG_EVENTS.liveStreamConnected, { topics: topicsKey })
+      }
       // Covers F4/AE4: both the initial connection AND every reconnect
       // (a fresh onopen fires again after EventSource auto-reconnects)
       // re-invalidate every subscribed key, so a reconnect always resyncs

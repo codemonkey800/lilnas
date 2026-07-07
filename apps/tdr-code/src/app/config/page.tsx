@@ -7,11 +7,42 @@ import { useEffect, useRef, useState } from 'react'
 import { ErrorState } from 'src/app/components/error-state'
 import { LoadingState } from 'src/app/components/loading-state'
 import { api, fetchJson, queryKeys } from 'src/app/lib/api'
+import { logEvent, logToServer } from 'src/app/lib/browser-logger'
 import { useLiveStream } from 'src/app/lib/use-live-stream'
 import type { BotStatusDto } from 'src/bot/bot-status.dto'
-import type { UpdateConfigBodyDto } from 'src/console/config.dto'
+import type {
+  ConfigResponseDto,
+  UpdateConfigBodyDto,
+} from 'src/console/config.dto'
+import { LOG_EVENTS } from 'src/logging/log-events'
 
 const CUSTOM_PROMPT_MAX = 20_000
+
+// Names — never values — of the config fields whose submitted value differs
+// from the last-persisted config, for the config-saved audit log. cwd and
+// customSystemPrompt in particular are sensitive, so only field NAMES are
+// ever surfaced; claudeArgs is an array, compared structurally.
+function changedConfigFields(
+  prev: ConfigResponseDto,
+  next: UpdateConfigBodyDto,
+): string[] {
+  const changed: string[] = []
+  if (prev.cwd !== next.cwd) changed.push('cwd')
+  if (prev.claudeCommand !== next.claudeCommand) changed.push('claudeCommand')
+  if (JSON.stringify(prev.claudeArgs) !== JSON.stringify(next.claudeArgs)) {
+    changed.push('claudeArgs')
+  }
+  if (prev.idleTimeoutSec !== next.idleTimeoutSec) {
+    changed.push('idleTimeoutSec')
+  }
+  if (prev.maxConcurrentSessions !== next.maxConcurrentSessions) {
+    changed.push('maxConcurrentSessions')
+  }
+  if (prev.customSystemPrompt !== next.customSystemPrompt) {
+    changed.push('customSystemPrompt')
+  }
+  return changed
+}
 
 function FieldLabel({
   label,
@@ -60,6 +91,10 @@ export default function ConfigPage() {
   const [argsError, setArgsError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Field names changed in the pending save, computed at submit time (when
+  // both the previous config and the new body are in hand) and read back in
+  // onSuccess for the config-saved audit.
+  const changedFieldsRef = useRef<string[]>([])
 
   // Sync server-fetched data into editable form state when the query resolves.
   /* eslint-disable react-hooks/set-state-in-effect */
@@ -87,6 +122,13 @@ export default function ConfigPage() {
     mutationKey: ['config-save'],
     mutationFn: (body: UpdateConfigBodyDto) => api.updateConfig(body),
     onSuccess: response => {
+      // Domain-specific save audit the generic mutation-success chokepoint
+      // can't give: WHICH fields changed (names only) and whether the bot was
+      // offline (a deferred-effect save that applies at next bot start).
+      logEvent(LOG_EVENTS.configSaved, {
+        botOffline,
+        changedFields: changedFieldsRef.current,
+      })
       setSaved(true)
       // Cancel any prior "saved" dismiss timer before arming a new one to
       // prevent banner flicker on rapid re-saves.
@@ -108,23 +150,39 @@ export default function ConfigPage() {
       const parsed = JSON.parse(claudeArgsJson)
       if (!Array.isArray(parsed) || parsed.some(a => typeof a !== 'string')) {
         setArgsError('Must be a JSON array of strings, e.g. ["--flag"]')
+        logToServer(
+          'warn',
+          LOG_EVENTS.clientValidationRejected,
+          'config validation failed',
+          { field: 'claudeArgs', reason: 'not-string-array' },
+        )
         return
       }
       parsedArgs = parsed as string[]
       setArgsError(null)
     } catch {
       setArgsError('Invalid JSON array')
+      logToServer(
+        'warn',
+        LOG_EVENTS.clientValidationRejected,
+        'config validation failed',
+        { field: 'claudeArgs', reason: 'invalid-json' },
+      )
       return
     }
 
-    mutation.mutate({
+    const body: UpdateConfigBodyDto = {
       cwd,
       claudeCommand,
       claudeArgs: parsedArgs,
       idleTimeoutSec: Number(idleTimeoutSec),
       maxConcurrentSessions: Number(maxConcurrentSessions),
       customSystemPrompt,
-    })
+    }
+    // Field-name diff for the config-saved audit (see changedConfigFields).
+    // `data` is the last-persisted config the form was seeded from.
+    changedFieldsRef.current = data ? changedConfigFields(data, body) : []
+    mutation.mutate(body)
   }
 
   const customPromptNearCap =
