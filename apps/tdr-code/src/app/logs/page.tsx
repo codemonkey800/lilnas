@@ -13,16 +13,6 @@ import type { LogFiltersValue } from 'src/app/logs/log-filters'
 import { LogViewer } from 'src/app/logs/log-viewer'
 import type { LogLine, LogStream } from 'src/logging/log-view.types'
 
-// Matches log-detail-panel.tsx's own internal (unexported) PANEL_WIDTH
-// constant. Duplicated rather than imported: that constant is deliberately
-// not exported (nothing outside that file needs it, per its own header
-// comment), and adding an export solely so this page could reuse one
-// Tailwind width class is more coupling than the value justifies. If U7's
-// PANEL_WIDTH ever changes, this needs a matching update — a minor
-// visual-overlap risk accepted for Phase 1 rather than exporting a constant
-// across a file this unit was told not to touch.
-const PANEL_SPACE = 'pr-[28rem]'
-
 // Fixed tab order — mirrors the LogStream union itself (log-paths.ts) so
 // this is the one and only place the tab order is declared; log-sources
 // .service.ts already returns entries in this same fixed order (U3), so no
@@ -108,12 +98,11 @@ export default function LogsPage() {
   const sourceByStream = new Map(sources.map(s => [s.stream, s]))
 
   return (
-    <div
-      className={cns(
-        'mx-auto max-w-7xl space-y-4',
-        selectedLine && PANEL_SPACE,
-      )}
-    >
+    // The detail panel now OVERLAYS the row grid (fixed, with a backdrop that
+    // closes it on outside click — see LogDetailPanel), so this container no
+    // longer reserves a right-hand column: it stays full-width whether or not
+    // a line is selected, and nothing shifts when the drawer opens/closes.
+    <div className="mx-auto max-w-7xl space-y-4">
       <h1 className="text-lg font-semibold text-white">Logs</h1>
 
       <div

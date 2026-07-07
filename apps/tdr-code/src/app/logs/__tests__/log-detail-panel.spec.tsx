@@ -1,4 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import {
+  act,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { LogDetailPanel } from 'src/app/logs/log-detail-panel'
@@ -460,7 +467,9 @@ describe('LogDetailPanel — accessibility: focus restore', () => {
     await user.keyboard('{Escape}')
     // Esc only calls onClose (the caller decides what happens next); the
     // host is responsible for actually setting line back to null. Simulate
-    // that here so the panel unmounts and its cleanup runs.
+    // that here — focus returns to the trigger on the close edge (the panel
+    // then slides out and unmounts on its own timer, but focus restore does
+    // not wait for that; see the slide-lifecycle describe below).
     rerender(
       <LogDetailPanel line={null} stream="backend" onClose={jest.fn()} />,
     )
@@ -535,5 +544,151 @@ describe('LogDetailPanel — copy affordance', () => {
         screen.getByRole('button', { name: /copy unavailable/i }),
       ).toBeInTheDocument(),
     )
+  })
+})
+
+describe('LogDetailPanel — overlay drawer (no layout shift, click-outside to close)', () => {
+  it('overlays rather than reserving a column — the panel is fixed-positioned', () => {
+    const line = makeLine({ level: 30, time: 1, msg: 'hi' })
+
+    render(<LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />)
+
+    // `fixed` is what makes the panel float over the row grid instead of
+    // pushing it narrower — the whole point of this change.
+    expect(screen.getByRole('dialog')).toHaveClass('fixed')
+  })
+
+  it('renders a backdrop while open, and clicking it closes the drawer', () => {
+    const onClose = jest.fn()
+    const line = makeLine({ level: 30, time: 1, msg: 'hi' })
+
+    render(<LogDetailPanel line={line} stream="backend" onClose={onClose} />)
+
+    const overlay = document.querySelector(
+      '[data-track-id="log-detail-overlay"]',
+    )
+    expect(overlay).toBeInTheDocument()
+
+    // A click on the backdrop (anywhere outside the panel) closes the drawer.
+    fireEvent.click(overlay as HTMLElement)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('LogDetailPanel — slide lifecycle', () => {
+  it('marks the panel open (data-state) while a line is selected', () => {
+    const line = makeLine({ level: 30, time: 1, msg: 'hi' })
+
+    render(<LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />)
+
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-state', 'open')
+  })
+
+  it('keeps the panel mounted through the exit slide, then removes it from the DOM once the slide completes', () => {
+    jest.useFakeTimers()
+    try {
+      const line = makeLine({ level: 30, time: 1, msg: 'hi' })
+      const { rerender, container } = render(
+        <LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />,
+      )
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+      // Host clears the selection (this is what onClose ultimately drives).
+      rerender(
+        <LogDetailPanel line={null} stream="backend" onClose={jest.fn()} />,
+      )
+
+      // Still mounted, now animating out (so the slide can actually play).
+      const dialog = screen.getByRole('dialog')
+      expect(dialog).toBeInTheDocument()
+      expect(dialog).toHaveAttribute('data-state', 'closed')
+
+      // Once the slide duration elapses it leaves the DOM entirely — nothing
+      // lingers behind the (now-gone) backdrop.
+      act(() => {
+        jest.advanceTimersByTime(200)
+      })
+      expect(container).toBeEmptyDOMElement()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+})
+
+describe('LogDetailPanel — resizable width', () => {
+  const STORAGE_KEY = 'tdr-code:logs:detail-panel-width'
+
+  beforeEach(() => {
+    window.localStorage.clear()
+  })
+
+  function getHandle(): HTMLElement {
+    return document.querySelector(
+      '[data-track-id="log-detail-resize-handle"]',
+    ) as HTMLElement
+  }
+
+  // jsdom's PointerEvent drops clientX/clientY from the init dict, so a plain
+  // fireEvent.pointerMove({ clientX }) always reads back 0 and the drag delta
+  // computes to nothing. Define clientX explicitly on the event so the handle
+  // sees the real drag coordinate.
+  function firePointer(
+    type: 'pointerDown' | 'pointerMove' | 'pointerUp',
+    node: HTMLElement,
+    clientX: number,
+  ) {
+    const event = createEvent[type](node, { pointerId: 1, bubbles: true })
+    Object.defineProperty(event, 'clientX', { get: () => clientX })
+    fireEvent(node, event)
+  }
+
+  it('opens at the default width when nothing is persisted', () => {
+    const line = makeLine({ level: 30, time: 1, msg: 'hi' })
+
+    render(<LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />)
+
+    expect(screen.getByRole('dialog')).toHaveStyle({ width: '448px' })
+  })
+
+  it('dragging the handle leftward widens the panel and persists the final width', () => {
+    const line = makeLine({ level: 30, time: 1, msg: 'hi' })
+
+    render(<LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />)
+
+    const dialog = screen.getByRole('dialog')
+    const handle = getHandle()
+
+    // Docked on the right, so a smaller clientX than the drag start widens it:
+    // 448 + (1000 - 900) = 548.
+    firePointer('pointerDown', handle, 1000)
+    firePointer('pointerMove', handle, 900)
+    expect(dialog).toHaveStyle({ width: '548px' })
+
+    firePointer('pointerUp', handle, 900)
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe('548')
+  })
+
+  it('clamps to the minimum width when dragged well past the floor', () => {
+    const line = makeLine({ level: 30, time: 1, msg: 'hi' })
+
+    render(<LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />)
+
+    const dialog = screen.getByRole('dialog')
+    const handle = getHandle()
+
+    // Drag far to the right (narrowing): 448 + (1000 - 2000) = -552, clamped
+    // up to the 320px floor.
+    firePointer('pointerDown', handle, 1000)
+    firePointer('pointerMove', handle, 2000)
+    expect(dialog).toHaveStyle({ width: '320px' })
+  })
+
+  it('restores a previously persisted width on open', () => {
+    window.localStorage.setItem(STORAGE_KEY, '520')
+    const line = makeLine({ level: 30, time: 1, msg: 'hi' })
+
+    render(<LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />)
+
+    expect(screen.getByRole('dialog')).toHaveStyle({ width: '520px' })
   })
 })
