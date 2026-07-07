@@ -32,7 +32,7 @@
     "start": "run-p start:main start:frontend",
     "start:main": "node dist/main",
     "start:bot": "node dist/bot-main",
-    "start:frontend": "node server.js",
+    "start:frontend": "dotenv -- node server.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
