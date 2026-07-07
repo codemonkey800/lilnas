@@ -232,23 +232,32 @@ export function seedWindowState(response: LogWindowResponse): WindowState {
 // LogWindowResponse (fileSize/windowStart/windowEnd/atStart/atEnd all
 // echoed from a server fetch), not a single wire-pushed line.
 //
-// De-dup is intentionally narrower than applyFetchedWindow's full
-// `existingOffsets` Set scan: tail lines arrive strictly in increasing
-// byteOffset order over ONE connection, so a redundant/duplicate delivery
-// (e.g. a stale resume overlap) can only ever repeat the line THIS
-// function most recently appended — checking against just the current
-// last line's byteOffset is therefore sufficient to guarantee "never a
-// duplicate byteOffset in state.lines" for this function's actual calling
-// pattern, at a fraction of the cost of a full Set rebuild on every single
-// line (this function's caller invokes it once per wire message, unlike
-// applyFetchedWindow's once-per-batch-response cadence).
+// De-dup scans the FULL array, mirroring applyFetchedWindow's own
+// `existingOffsets` Set check — NOT just the current last line. An earlier
+// version only checked the last line, reasoning that tail messages arrive
+// strictly in increasing byteOffset order over one connection, so a
+// redundant delivery could only ever repeat the line most recently
+// appended. That reasoning misses a real cross-source race: `state.lines`
+// can also be wholesale-replaced from an INDEPENDENT source mid-connection
+// (log-viewer.tsx's own loadInitial/handleRefresh/handleJumpToLatest all
+// call seedWindowState directly, never through this function) while an
+// already-open tail connection is still anchored to an EARLIER resume
+// offset — e.g. React Strict Mode's dev-only double-invoke of the
+// initial-load effect firing two `loadInitial()` calls whose reads land on
+// different fileSize snapshots (the file grew between them). Whichever
+// response commits first opens the tail from ITS fileSize; the second,
+// later response then replaces state.lines wholesale with a fresher
+// snapshot that already covers the gap. The still-open tail's server-side
+// backlog replay for that gap then arrives here as ordinary messages whose
+// byteOffset already exists in the MIDDLE of the just-replaced array, not
+// at its tail — which the last-line-only check silently missed, producing
+// a real duplicate byteOffset (and therefore a duplicate virtualizer key).
 export function appendTailLine(
   state: WindowState,
   line: LogLine,
   evictionCap: number,
 ): WindowState {
-  const lastLine = state.lines[state.lines.length - 1]
-  if (lastLine && lastLine.byteOffset === line.byteOffset) {
+  if (state.lines.some(existing => existing.byteOffset === line.byteOffset)) {
     return state
   }
 
@@ -558,6 +567,15 @@ export function LogViewer({
   // `connect()` call would fire).
   const mountedRef = useRef(true)
   useEffect(() => {
+    // Re-affirms "mounted" on every (re-)setup, not just at the initial
+    // `useRef(true)` — a dev StrictMode double-mount runs this effect's
+    // cleanup once (flipping the ref false) immediately followed by a
+    // fresh setup, on the SAME fiber, without a real unmount ever
+    // happening in between. Without this line, that cleanup's `false`
+    // would stick forever (setup never wrote anything), permanently
+    // poisoning every guarded async continuation above for the rest of
+    // the component's real lifetime — even though it's genuinely mounted.
+    mountedRef.current = true
     return () => {
       mountedRef.current = false
     }
@@ -565,6 +583,19 @@ export function LogViewer({
 
   const scrollElementRef = useRef<HTMLDivElement>(null)
   const inFlightRef = useRef<InFlight>({ before: false, after: false })
+  // Guards loadInitial the SAME way inFlightRef guards fetchEdge above —
+  // without this, React Strict Mode's dev-only double-invoke of the
+  // mount effect below fires loadInitial() twice back-to-back, and
+  // whichever readWindow response resolves SECOND wholesale-replaces
+  // state.lines via seedWindowState with NO scroll re-pin (the first
+  // response's own pin effect has already consumed
+  // pendingInitialScrollRef.current by then), silently leaving the
+  // viewport short of the new true bottom. Blocking the second
+  // invocation outright — rather than letting both fetches race and
+  // patching each downstream symptom (a duplicate byteOffset from the
+  // stale tail anchor, or this auto-pause) individually — closes the
+  // actual root cause both bugs shared.
+  const loadInitialInFlightRef = useRef(false)
   // Mirrors `state` for synchronous reads inside fetchEdge/onChange, which
   // must never close over a stale `state` captured at the time the
   // virtualizer instance (and its onChange callback) was created — the
@@ -918,6 +949,8 @@ export function LogViewer({
   })
 
   const loadInitial = useCallback(async () => {
+    if (loadInitialInFlightRef.current) return
+    loadInitialInFlightRef.current = true
     setInitialLoad('pending')
     pendingInitialScrollRef.current = true
     try {
@@ -936,6 +969,8 @@ export function LogViewer({
     } catch {
       if (!mountedRef.current) return
       setInitialLoad('error')
+    } finally {
+      loadInitialInFlightRef.current = false
     }
   }, [stream, readWindow])
 

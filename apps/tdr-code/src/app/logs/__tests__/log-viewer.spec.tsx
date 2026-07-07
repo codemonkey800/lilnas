@@ -7,7 +7,7 @@ import {
   waitFor,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ReactElement } from 'react'
+import { type ReactElement, StrictMode } from 'react'
 
 import { api, logTailUrl } from 'src/app/lib/api'
 import { ROW_PX } from 'src/app/logs/log-row'
@@ -719,6 +719,26 @@ describe('appendTailLine', () => {
     expect(next.lines).toHaveLength(50)
   })
 
+  it('is idempotent against a redundant delivery of a line already present but NOT at the back (guards against a stale tail reconnect replaying backlog over content a newer window read already loaded)', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    ) // lines for indices [450, 500)
+    const middleLine = initial.lines[10]
+    if (!middleLine) throw new Error('fixture produced no lines')
+    // A stale tail connection's backlog replay reports a line that's
+    // ALREADY present, but not as the current last element — e.g. the
+    // server replaying everything after a connect() offset that a LATER,
+    // already-applied window read has since superseded.
+    const replayed: LogLine = { ...middleLine, raw: 'a-different-raw-value' }
+    const next = appendTailLine(initial, replayed, EVICTION_CAP)
+
+    expect(next).toBe(initial) // a complete no-op, not just an equal-length array
+    expect(next.lines).toHaveLength(50)
+    expect(
+      next.lines.filter(line => line.byteOffset === middleLine.byteOffset),
+    ).toHaveLength(1)
+  })
+
   it('never mutates the previous state object or its lines array in place (guards against react-virtual streaming-drift bug #1218)', () => {
     const initial = seedWindowState(
       makeResponse(1000, lineOffset(500), 'before', 50),
@@ -1327,6 +1347,143 @@ describe('LogViewer — component wiring', () => {
     await waitFor(() =>
       expect(screen.getByText('line 199')).toBeInTheDocument(),
     )
+  })
+
+  it('regression: survives React Strict Mode’s dev-only double-invoke of the initial-load effect (mountedRef must not get stuck false)', async () => {
+    // Strict Mode synchronously mounts, tears down, and re-mounts every
+    // effect once in development — including the mountedRef effect AND the
+    // loadInitial-triggering layout effect. loadInitialInFlightRef (mirroring
+    // fetchEdge's own inFlightRef) makes the SECOND loadInitial() invocation
+    // a same-tick no-op, so only ONE real readWindow call ever happens — but
+    // the mountedRef guard (meant to stop a stale async response from
+    // updating an unmounted component) still needs its own effect to reset
+    // mountedRef.current back to true on (re-)setup: without that, the
+    // double-invoke's teardown `= false` would stick forever and the ONE
+    // real call's `if (!mountedRef.current) return` would silently drop its
+    // response, leaving the component stuck in initialLoad:'pending' even
+    // though readWindow resolved successfully. This is exactly what a real
+    // dev-mode `next dev` page load does; the suite's other tests never wrap
+    // in StrictMode, so none of them exercise this path.
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockResolvedValue(makeResponse(200, lineOffset(200), 'before', 50))
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    rtlRender(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <LogViewer
+            stream="backend"
+            readWindow={readWindow}
+            onSelectLine={jest.fn()}
+          />
+        </QueryClientProvider>
+      </StrictMode>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('line 199')).toBeInTheDocument(),
+    )
+    expect(screen.queryByText(/Loading backend log/)).not.toBeInTheDocument()
+    // loadInitialInFlightRef's whole point: Strict Mode's double-invoke of
+    // the mount effect never produces a second real fetch.
+    expect(readWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('regression: a manual Refresh racing an already-open live tail never introduces a duplicate byteOffset once the refreshed response replaces state.lines wholesale', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    // loadInitialInFlightRef only blocks CONCURRENT invocations (Strict
+    // Mode's same-tick double-invoke) — it does nothing to stop a
+    // deliberate, LATER call once the first has fully settled, so a manual
+    // Refresh click racing an already-open live tail is still a real overlap
+    // source appendTailLine's full-array de-dup (not the narrower
+    // last-line-only check an earlier version had) must keep covering.
+    // Simulates the file growing by 2 lines between the initial load and the
+    // refresh — the refresh's own response is deliberately deferred behind a
+    // real pending Promise, resolved only AFTER the initial tail connect()
+    // has already fired, mirroring how two independent HTTP round trips
+    // (never perfectly co-batched) would actually interleave.
+    let resolveRefresh: (() => void) | undefined
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockImplementationOnce(async () =>
+        makeResponse(200, lineOffset(200), 'before', 50),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<LogWindowResponse>(resolve => {
+            resolveRefresh = () =>
+              resolve(makeResponse(202, lineOffset(202), 'before', 50))
+          }),
+      )
+    const user = userEvent.setup()
+
+    render(
+      <LogViewer
+        stream="backend"
+        readWindow={readWindow}
+        onSelectLine={jest.fn()}
+      />,
+    )
+    await settleInitialLoad(readWindow)
+    // The initial load settles on its own — the tail connects, anchored to
+    // ITS (smaller, 200-line) fileSize — before Refresh is ever clicked.
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
+    const tail = latestTailInstance()
+    expect(tail.url).toBe(logTailUrl('backend', lineOffset(200)))
+
+    await user.click(screen.getByRole('button', { name: /refresh/i }))
+    await waitFor(() => expect(readWindow).toHaveBeenCalledTimes(2))
+
+    // NOW let the refreshed (202-line) response land — seedWindowState
+    // wholesale-replaces state.lines with a fresher snapshot that already
+    // covers lines 152..201, while the tail above stays anchored at 200.
+    await act(async () => {
+      resolveRefresh?.()
+      await Promise.resolve()
+    })
+    await waitFor(() =>
+      expect(screen.getByText('line 201')).toBeInTheDocument(),
+    )
+
+    // The server's resolveFromOffset backlog replay (log-tail.service.ts)
+    // would redeliver every line between the stale `from` and the CURRENT
+    // EOF as ordinary tail messages — lines 200/201 here — even though the
+    // refreshed response already loaded them into state.lines.
+    await act(async () => {
+      tail.emit(
+        'log-append',
+        makeTailMessage(lineOffset(200), {
+          line: 200,
+          level: 30,
+          msg: 'line 200',
+        }),
+      )
+      tail.emit(
+        'log-append',
+        makeTailMessage(lineOffset(201), {
+          line: 201,
+          level: 30,
+          msg: 'line 201',
+        }),
+      )
+      await Promise.resolve()
+    })
+
+    const duplicateKeyWarning = errorSpy.mock.calls.some(call =>
+      String(call[0]).includes('Encountered two children with the same key'),
+    )
+    expect(duplicateKeyWarning).toBe(false)
+    // Matching msg text on the synthetic backlog replay above (matching the
+    // windowed-read fixture's own "line N" convention) is what makes these
+    // assertions actually catch a regression: if appendTailLine's de-dup
+    // ever regresses back to a last-line-only check, the replayed line
+    // would render a SECOND, genuinely duplicate row with this SAME text.
+    expect(screen.getAllByText('line 200')).toHaveLength(1)
+    expect(screen.getAllByText('line 201')).toHaveLength(1)
+    errorSpy.mockRestore()
   })
 
   it('a fixture "before" response received via the mocked readWindow results in earlier rows appearing after scrolling near the top', async () => {
