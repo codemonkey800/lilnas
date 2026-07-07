@@ -2,7 +2,13 @@ const backendPort = process.env.BACKEND_PORT ?? '8082'
 
 module.exports = {
   output: 'standalone',
-  serverExternalPackages: ['better-sqlite3'],
+  // better-sqlite3: native addon, can't survive bundling.
+  // pino: frontend-server-logger.ts hands it a worker-thread `transport`
+  // (pino-pretty/pino-file) — thread-stream locates its worker.js via
+  // `__dirname` at runtime, which bundling rewrites to a synthetic root,
+  // crashing the server the instant that module evaluates. See
+  // next-config.spec.ts for the regression guard.
+  serverExternalPackages: ['better-sqlite3', 'pino'],
 
   async rewrites() {
     return [
