@@ -13,7 +13,7 @@
     "./dist"
   ],
   "scripts": {
-    "build": "run-p build:*",
+    "build": "run-s build:frontend build:backend",
     "build:backend": "nest build -b swc --type-check",
     "build:frontend": "next build",
     "clean": "rm -rf .next/ dist/ .turbo/",
