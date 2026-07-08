@@ -17,3 +17,26 @@ export const UnlinkGithubResponseSchema = z.object({
   unlinked: z.boolean(),
 })
 export type UnlinkGithubResponseDto = z.infer<typeof UnlinkGithubResponseSchema>
+
+// Response shape for GET /git/github/status (U4 addition, not in the
+// original plan's file list — see this unit's implementation report for the
+// full rationale). Resolves the CURRENT session user's own GitHub-link
+// status server-side (req.user.id -> account/github_credential join), which
+// the frontend cannot do itself: useSession()'s client-side `user` object
+// carries only Better Auth's own opaque id/name/email/image, never the
+// underlying Discord snowflake (confirmed against schema.ts's `user` table
+// before adding this route — no client-side join was possible). Also
+// surfaces `discordUserId` so the SSH self-service form (same page) has a
+// value to send to the pre-U5 git-identity endpoints, which still require an
+// explicit discordUserId in their request bodies today.
+//
+// `derivedName`/`derivedEmail` are present only when `linked` is true —
+// never returns tokenCiphertext/tokenIv/tokenAuthTag or a decrypted token
+// (R7), same posture as UnlinkGithubResponseSchema above.
+export const GithubStatusResponseSchema = z.object({
+  discordUserId: z.string().optional(),
+  linked: z.boolean(),
+  derivedName: z.string().optional(),
+  derivedEmail: z.string().optional(),
+})
+export type GithubStatusResponseDto = z.infer<typeof GithubStatusResponseSchema>

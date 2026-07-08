@@ -10,12 +10,18 @@ import {
 import { loadMasterKey } from 'src/crypto/master-key'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
-import { getGithubCredential } from 'src/db/github-credential.repo'
+import {
+  getDiscordUserIdForUser,
+  getGithubCredential,
+} from 'src/db/github-credential.repo'
 import { account, githubCredential } from 'src/db/schema'
 import { EnvKeys } from 'src/env'
 import { LOG_EVENTS } from 'src/logging/log-events'
 
-import type { UnlinkGithubResponseDto } from './github-link.dto'
+import type {
+  GithubStatusResponseDto,
+  UnlinkGithubResponseDto,
+} from './github-link.dto'
 
 // GitHub's OAuth-app grant-revocation endpoint (R13's "best-effort revoke").
 // DELETE, not the single-token variant — revokes the ENTIRE app-to-user
@@ -48,6 +54,30 @@ export class GithubLinkService {
     @Inject(DB) private readonly db: Db,
     private readonly logger: PinoLogger,
   ) {}
+
+  // Read-only status for the CURRENT session user (GET /git/github/status,
+  // U4 addition — see this file's own note in github-link.dto.ts's
+  // GithubStatusResponseSchema comment for the full rationale). Deliberately
+  // uses getGithubCredential (U1's inner-join-against-`account` accessor),
+  // never a raw github_credential read, for the same reason unlink() above
+  // does — an orphaned row must read as not-linked here too. No log call:
+  // mirrors git-identity.controller.ts's own GET routes, which are
+  // read-only and log nothing.
+  getStatus(userId: string): GithubStatusResponseDto {
+    const discordUserId = getDiscordUserIdForUser(this.db, userId)
+    const row = getGithubCredential(this.db, userId)
+
+    if (!row) {
+      return { discordUserId, linked: false }
+    }
+
+    return {
+      discordUserId,
+      linked: true,
+      derivedName: row.derivedName,
+      derivedEmail: row.derivedEmail,
+    }
+  }
 
   async unlink(userId: string): Promise<UnlinkGithubResponseDto> {
     this.logger.warn(

@@ -12,22 +12,11 @@ import { getIdentity } from 'src/db/git-identity.repo'
 import { listGithubCredentialStatuses } from 'src/db/github-credential.repo'
 
 import { DiscordDirectoryService } from './discord-directory.service'
-
-export type GithubRosterStatus = 'linked' | 'not-linked'
-export type SshRosterStatus = 'configured' | 'not-configured' | 'decrypt-failed'
-
-// Shared, documented response shape (R3) — the frontend (U4) imports this
-// type directly. Read-only; never carries tokenCiphertext/tokenIv/
-// tokenAuthTag, a decrypted GitHub token, or decrypted SSH key bytes (R7-
-// adjacent — the roster is status only, never secrets).
-export interface RosterEntryDto {
-  discordUserId: string
-  displayName: string
-  github: GithubRosterStatus
-  ssh: SshRosterStatus
-}
-
-export type RosterResponseDto = RosterEntryDto[]
+import type {
+  RosterEntryDto,
+  RosterResponseDto,
+  SshRosterStatus,
+} from './git-roster.dto'
 
 // Joins listGithubCredentialStatuses (U1) with DiscordDirectoryService's
 // guild member list into one roster row per guild member. GitHub status is
@@ -55,16 +44,24 @@ export class GitRosterService {
     const members = await this.discordDirectory.listGuildMembers()
     const githubStatuses = listGithubCredentialStatuses(this.db)
 
+    // Keyed by discordUserId, values carry BOTH linked and the Better Auth
+    // userId behind that link (linkedUserId on RosterEntryDto — see that
+    // field's own doc comment for why break-glass-clear needs it: the
+    // route takes a Better Auth userId, never a Discord snowflake).
     const githubByDiscordUserId = new Map(
       githubStatuses
         .filter(status => status.discordUserId !== undefined)
-        .map(status => [status.discordUserId as string, status.linked]),
+        .map(status => [
+          status.discordUserId as string,
+          { linked: status.linked, userId: status.userId },
+        ]),
     )
 
     const masterKey = loadMasterKey()
 
     return members.map(member => {
-      const linked = githubByDiscordUserId.get(member.id) ?? false
+      const githubStatus = githubByDiscordUserId.get(member.id)
+      const linked = githubStatus?.linked ?? false
 
       const identityRow = getIdentity(this.db, member.id)
       const resolution = resolveIdentity(identityRow, masterKey)
@@ -82,6 +79,10 @@ export class GitRosterService {
         displayName: member.displayName,
         github: linked ? 'linked' : 'not-linked',
         ssh,
+        // Only meaningful when linked — an unlinked member's githubStatus
+        // entry (if any exists at all, e.g. a Discord sign-in with no
+        // GitHub link) has no credential to break-glass-clear.
+        linkedUserId: linked ? githubStatus?.userId : undefined,
       } satisfies RosterEntryDto
     })
   }

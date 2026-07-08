@@ -391,6 +391,103 @@ describe('GithubLinkService.unlink', () => {
   })
 })
 
+// GithubLinkService.getStatus (U4 addition — see github-link.dto.ts's
+// GithubStatusResponseSchema comment for why this method exists: the
+// frontend cannot resolve its own Discord snowflake or GitHub-link status
+// from useSession()'s client-side user object alone).
+describe('GithubLinkService.getStatus', () => {
+  let testDb: TestDb
+
+  beforeEach(() => {
+    testDb = createTestDb()
+  })
+
+  afterEach(() => {
+    testDb.close()
+  })
+
+  it('returns linked: true with derived identity and discordUserId for a linked user', () => {
+    const { db } = testDb
+    seedLinkedGithubUser(db, {
+      userId: 'u-status-linked',
+      discordUserId: 'discord-status-linked',
+    })
+
+    const service = makeService(db)
+    const status = service.getStatus('u-status-linked')
+
+    expect(status).toEqual({
+      discordUserId: 'discord-status-linked',
+      linked: true,
+      derivedName: 'Octocat u-status-linked',
+      derivedEmail: 'u-status-linked@users.noreply.github.com',
+    })
+  })
+
+  it('returns linked: false with discordUserId (no derived fields) for a user with a Discord account but no GitHub link', () => {
+    const { db } = testDb
+    seedUser(db, 'u-status-unlinked')
+    seedDiscordAccount(db, {
+      userId: 'u-status-unlinked',
+      discordUserId: 'discord-status-unlinked',
+    })
+
+    const service = makeService(db)
+    const status = service.getStatus('u-status-unlinked')
+
+    expect(status).toEqual({
+      discordUserId: 'discord-status-unlinked',
+      linked: false,
+    })
+  })
+
+  it('returns linked: false and discordUserId: undefined for a userId with no Discord account row at all', () => {
+    const { db } = testDb
+    seedUser(db, 'u-status-no-discord')
+
+    const service = makeService(db)
+    const status = service.getStatus('u-status-no-discord')
+
+    expect(status).toEqual({ discordUserId: undefined, linked: false })
+  })
+
+  it('returns linked: false for an orphaned github_credential row (no matching account(github) row)', () => {
+    const { db } = testDb
+    seedUser(db, 'u-status-orphan')
+    seedDiscordAccount(db, {
+      userId: 'u-status-orphan',
+      discordUserId: 'discord-status-orphan',
+    })
+    // No account(providerId='github') row seeded — only the raw
+    // github_credential row, simulating the write-side non-atomicity gap
+    // (see github-credential.repo.ts's header comment).
+    const encrypted = encryptKey(
+      Buffer.from('orphaned-status-token', 'utf8'),
+      'u-status-orphan:github',
+      FAKE_MASTER_KEY,
+    )
+    upsertGithubCredential(db, {
+      userId: 'u-status-orphan',
+      githubUserId: 'gh-status-orphan',
+      githubLogin: 'orphan-status-login',
+      derivedName: 'Orphan Status',
+      derivedEmail: 'orphan-status@users.noreply.github.com',
+      tokenCiphertext: encrypted.ciphertext,
+      tokenIv: encrypted.iv,
+      tokenAuthTag: encrypted.authTag,
+      scope: 'repo,workflow',
+    })
+
+    const service = makeService(db)
+    const status = service.getStatus('u-status-orphan')
+
+    expect(status).toEqual({
+      discordUserId: 'discord-status-orphan',
+      linked: false,
+    })
+  })
+})
+
 // Covers the stock-route-bypass gap (U3's Approach step 3): Better Auth's
 // own POST /unlink-account and GET /list-accounts routes must 404 rather
 // than reach Better Auth's stock handlers, which would delete an `account`

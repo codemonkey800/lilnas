@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   ForbiddenException,
+  Get,
   Headers,
   HttpCode,
   Param,
@@ -42,6 +43,25 @@ function requireSameOrigin(origin: string | undefined): void {
 @Controller('git/github')
 export class GithubLinkController {
   constructor(private readonly service: GithubLinkService) {}
+
+  // Read-only status for the CURRENT session user (U4 frontend addition, not
+  // in the original plan's file list for this controller — see
+  // github-link.dto.ts's GithubStatusResponseSchema comment for the full
+  // "how does the frontend know its own Discord snowflake / GitHub-link
+  // status" rationale). No requireSameOrigin() check, matching every other
+  // GET in this codebase's console controllers (see
+  // git-identity.controller.ts's own GET routes) — read-only, nothing
+  // mutates. Still behind the global AuthGuard (no @Public()), same
+  // defensive req.user?.id guard as unlinkSelf below.
+  @Get('status')
+  getStatus(@Req() req: Request) {
+    const userId = req.user?.id
+    if (!userId) {
+      throw new UnauthorizedException()
+    }
+
+    return this.service.getStatus(userId)
+  }
 
   // Self-unlink — no body/param; userId is resolved from the authenticated
   // session (req.user.id), the SAME id github_credential.userId/account

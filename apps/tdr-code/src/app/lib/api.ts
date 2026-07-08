@@ -10,6 +10,11 @@ import type {
   UpsertGitIdentityBodyDto,
   UpsertGitIdentityResponseDto,
 } from 'src/console/git-identity.dto'
+import type { RosterResponseDto } from 'src/console/git-roster.dto'
+import type {
+  GithubStatusResponseDto,
+  UnlinkGithubResponseDto,
+} from 'src/console/github-link.dto'
 import type {
   RestartResponseDto,
   TeardownResponseDto,
@@ -180,6 +185,8 @@ export const queryKeys = {
   config: ['config'] as const,
   gitIdentity: ['git-identity'] as const,
   discordGuildMembers: ['discord-guild-members'] as const,
+  gitRoster: ['git-roster'] as const,
+  githubStatus: ['github-status'] as const,
   logSources: ['log-sources'] as const,
   // U11: `cursor` is deliberately INCLUDED in the key (not just
   // stream/text) — this is what makes "fetch the next page" its own
@@ -251,6 +258,14 @@ export const api = {
   listDiscordGuildMembers: (opts?: { force?: boolean }) =>
     fetchJson<DiscordGuildMemberListResponseDto>(
       `/git-identity/discord-members${opts?.force ? '?force=true' : ''}`,
+    ),
+  getGitRoster: () => fetchJson<RosterResponseDto>('/git/roster'),
+  getGithubStatus: () =>
+    fetchJson<GithubStatusResponseDto>('/git/github/status'),
+  unlinkGithubSelf: () => deleteJson<UnlinkGithubResponseDto>('/git/github'),
+  unlinkGithubOther: (userId: string) =>
+    deleteJson<UnlinkGithubResponseDto>(
+      `/git/github/${encodeURIComponent(userId)}`,
     ),
   getLogSources: () => fetchJson<LogSource[]>('/logs/sources'),
   // Plain typed fetch, NOT a useQuery-wrapped hook — LogViewer (U5) manages

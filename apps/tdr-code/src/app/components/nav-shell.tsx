@@ -13,7 +13,7 @@ const NAV_LINKS = [
   { href: '/events', label: 'Events' },
   { href: '/logs', label: 'Logs' },
   { href: '/config', label: 'Config' },
-  { href: '/git-identity', label: 'Git identity' },
+  { href: '/git', label: 'Git' },
 ]
 
 // Fixed width for the loading/logged-out placeholders so the pending ->

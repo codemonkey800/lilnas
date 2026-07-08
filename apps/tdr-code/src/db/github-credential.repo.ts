@@ -72,6 +72,30 @@ export function getGithubCredentialByDiscordUserId(
   return getGithubCredential(db, discordAccount.userId)
 }
 
+// Mirror-direction lookup of getGithubCredentialByDiscordUserId above: given
+// a Better Auth `user.id`, find that user's linked Discord snowflake (the
+// account row with providerId 'discord'). Added for the U4 frontend unit —
+// useSession()'s client-side `user` object exposes only Better Auth's own
+// opaque id/name/email/image (schema.ts's `user` table has no snowflake
+// column), so the console frontend cannot answer "what is MY Discord
+// snowflake" without a server-side round-trip through this exact join.
+// Returns undefined for a user with no Discord account row at all (should
+// not happen in practice — Discord is this app's only sign-in provider —
+// but this is a read path, not an invariant-enforcing one, so it degrades
+// to undefined rather than throwing).
+export function getDiscordUserIdForUser(
+  db: Db,
+  userId: string,
+): string | undefined {
+  const discordAccount = db
+    .select({ accountId: account.accountId })
+    .from(account)
+    .where(and(eq(account.userId, userId), eq(account.providerId, 'discord')))
+    .get()
+
+  return discordAccount?.accountId
+}
+
 export interface UpsertGithubCredentialInput {
   userId: string
   githubUserId: string

@@ -291,7 +291,7 @@ describe('NavShell placement on /login', () => {
       'Events',
       'Logs',
       'Config',
-      'Git identity',
+      'Git',
     ]) {
       expect(screen.queryByText(label)).not.toBeInTheDocument()
     }
