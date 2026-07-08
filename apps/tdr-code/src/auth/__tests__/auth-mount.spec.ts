@@ -17,11 +17,11 @@ import { AuthModule } from 'src/auth/auth.module'
 import { ConfigController } from 'src/console/config.controller'
 import type { ConfigResponseDto } from 'src/console/config.dto'
 import { ConfigService } from 'src/console/config.service'
-import { DiscordDirectoryService } from 'src/console/discord-directory.service'
 import { GitIdentityController } from 'src/console/git-identity.controller'
 import type { UpsertGitIdentityResponseDto } from 'src/console/git-identity.dto'
 import { GitIdentityService } from 'src/console/git-identity.service'
 import { DB } from 'src/db/database.module'
+import { account, user } from 'src/db/schema'
 import type { TestDb } from 'src/db/test-db'
 import { createTestDb } from 'src/db/test-db'
 import { EnvKeys } from 'src/env'
@@ -77,6 +77,20 @@ const MOCK_GIT_IDENTITY_RESPONSE: UpsertGitIdentityResponseDto = {
   status: 'configured',
 }
 
+// U5: POST /git-identity now resolves discordUserId from the authenticated
+// session (getDiscordUserIdForUser(db, req.user.id)) rather than reading it
+// off the request body — this suite has no AuthGuard wired at all (it's
+// proving the body-parser split, not session enforcement; that's
+// auth.guard.spec.ts / auth-e2e.spec.ts's job), so req.user is never
+// naturally populated here. A real `user` + `account` (providerId
+// 'discord') row is seeded directly into testDb below, and a tiny app.use()
+// middleware attaches req.user for every request in THIS suite's app only —
+// keeping the "a real JSON body survives bodyParser:false and reaches the
+// service with the exact fields it sent" proof intact rather than
+// degrading it into a weaker "does it 401" check.
+const FAKE_BETTER_AUTH_USER_ID = 'fake-better-auth-user-for-body-parse-test'
+const FAKE_SESSION_DISCORD_USER_ID = '123456789012345678'
+
 function makeMockConfigService(): jest.Mocked<ConfigService> {
   return {
     getConfig: jest.fn().mockReturnValue(MOCK_CONFIG_RESPONSE),
@@ -90,16 +104,6 @@ function makeMockGitIdentityService(): jest.Mocked<GitIdentityService> {
     upsertIdentity: jest.fn().mockReturnValue(MOCK_GIT_IDENTITY_RESPONSE),
     deleteIdentity: jest.fn(),
   } as unknown as jest.Mocked<GitIdentityService>
-}
-
-// GitIdentityController's second constructor dependency (added alongside its
-// GET /git-identity/discord-members route) — unmocked here would fail
-// TestAppModule compilation with a Nest DI error, since this suite builds its
-// own minimal module rather than importing ConsoleModule wholesale.
-function makeMockDiscordDirectoryService(): jest.Mocked<DiscordDirectoryService> {
-  return {
-    listGuildMembers: jest.fn().mockResolvedValue([]),
-  } as unknown as jest.Mocked<DiscordDirectoryService>
 }
 
 type JsonResponse = {
@@ -172,26 +176,53 @@ describe('Better Auth NestJS mount (U2)', () => {
   let testDb: TestDb
   let mockConfigService: jest.Mocked<ConfigService>
   let mockGitIdentityService: jest.Mocked<GitIdentityService>
-  let mockDiscordDirectoryService: jest.Mocked<DiscordDirectoryService>
 
   beforeAll(async () => {
     testDb = createTestDb()
     mockConfigService = makeMockConfigService()
     mockGitIdentityService = makeMockGitIdentityService()
-    mockDiscordDirectoryService = makeMockDiscordDirectoryService()
+
+    // Seed a real user + account (providerId 'discord') row so
+    // GitIdentityController's getDiscordUserIdForUser(db, req.user.id) call
+    // (U5) resolves for the FAKE_BETTER_AUTH_USER_ID this suite's req.user
+    // middleware attaches below — see this file's header comment on
+    // FAKE_BETTER_AUTH_USER_ID for the full rationale.
+    const now = new Date()
+    testDb.db
+      .insert(user)
+      .values({
+        id: FAKE_BETTER_AUTH_USER_ID,
+        name: 'Body Parse Test User',
+        email: 'body-parse-test@example.com',
+        emailVerified: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run()
+    testDb.db
+      .insert(account)
+      .values({
+        id: 'fake-account-id-for-body-parse-test',
+        accountId: FAKE_SESSION_DISCORD_USER_ID,
+        providerId: 'discord',
+        userId: FAKE_BETTER_AUTH_USER_ID,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run()
 
     const TestDatabaseModule = makeTestDatabaseModule(testDb.db)
 
+    // GitIdentityController's second constructor dependency is now DB
+    // (@Inject(DB), U5) rather than DiscordDirectoryService — TestDatabaseModule
+    // is @Global() and exports DB (see its own comment above), so no extra
+    // provider entry is needed here for it to resolve.
     @Module({
       imports: [TestDatabaseModule, AuthModule],
       controllers: [ConfigController, GitIdentityController],
       providers: [
         { provide: ConfigService, useValue: mockConfigService },
         { provide: GitIdentityService, useValue: mockGitIdentityService },
-        {
-          provide: DiscordDirectoryService,
-          useValue: mockDiscordDirectoryService,
-        },
       ],
     })
     class TestAppModule {}
@@ -214,6 +245,20 @@ describe('Better Auth NestJS mount (U2)', () => {
     // `app = nestApp` assignment narrows it, which structural typing always
     // permits (a richer object satisfies a variable requiring fewer members).
     const nestApp = moduleRef.createNestApplication({ bodyParser: false })
+
+    // Attaches req.user for EVERY request in this suite's app, mirroring
+    // the shape AuthGuard itself sets (auth.guard.ts: `request.user =
+    // result.user`) — this suite has no AuthGuard/APP_GUARD wired (see this
+    // file's header comment), so nothing else would ever populate it.
+    // Registered before init() (Express requires app.use() middleware to be
+    // registered ahead of the routes it should run in front of).
+    nestApp.use(
+      (req: { user?: { id: string } }, _res: unknown, next: () => void) => {
+        req.user = { id: FAKE_BETTER_AUTH_USER_ID }
+        next()
+      },
+    )
+
     await nestApp.init()
     await nestApp.listen(0, '127.0.0.1')
 
@@ -341,9 +386,15 @@ describe('Better Auth NestJS mount (U2)', () => {
       expect(res.body).toEqual(MOCK_CONFIG_RESPONSE)
     })
 
-    it('POST /git-identity parses a real JSON body into typed fields (GitIdentityService receives the exact object)', async () => {
+    it('POST /git-identity parses a real JSON body into typed fields (GitIdentityService receives the exact object, self-resolved discordUserId separate)', async () => {
+      // U5: discordUserId is no longer a body field at all (R2, self-service
+      // only) — this request body only carries the fields
+      // UpsertGitIdentityBodySchema still accepts. The controller resolves
+      // discordUserId itself via getDiscordUserIdForUser(db, req.user.id),
+      // proven against the real seeded account row + req.user middleware
+      // (see this file's header comment and beforeAll above), and passes it
+      // to the service as a SEPARATE first argument.
       const requestBody = {
-        discordUserId: '123456789012345678',
         name: 'Test User',
         email: 'test@example.com',
         privateKey: 'FAKE-PRIVATE-KEY-CONTENT-FOR-TEST',
@@ -361,6 +412,7 @@ describe('Better Auth NestJS mount (U2)', () => {
 
       expect(res.status).toBe(200)
       expect(mockGitIdentityService.upsertIdentity).toHaveBeenCalledWith(
+        FAKE_SESSION_DISCORD_USER_ID,
         requestBody,
       )
       expect(res.body).toEqual(MOCK_GIT_IDENTITY_RESPONSE)

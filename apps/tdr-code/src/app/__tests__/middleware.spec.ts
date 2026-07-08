@@ -75,7 +75,7 @@ describe('middleware (cookie-presence page gate)', () => {
   })
 
   describe('matcher still covers ordinary pages and /login', () => {
-    it.each(['/', '/sessions', '/config', '/git-identity', '/login'])(
+    it.each(['/', '/sessions', '/config', '/git', '/login'])(
       'matcher covers %s',
       path => {
         expect(matchesConfiguredMatcher(path)).toBe(true)

@@ -56,7 +56,7 @@ case "$GIT_VERB" in
   git-receive-pack)
     # Block push — user has no configured git identity.
     echo "error: git push is blocked: your git identity is not configured." >&2
-    echo "       Configure your identity at: ${CONSOLE_URL}/git-identity" >&2
+    echo "       Configure your identity at: ${CONSOLE_URL}/git" >&2
     echo "       Pushes are blocked until a valid SSH key is on file." >&2
     exit 1
     ;;
@@ -66,14 +66,14 @@ case "$GIT_VERB" in
     # all-or-nothing, ambient/default keys are the HOST's identity, not the
     # Discord user's).
     echo "error: git operation blocked: your git identity is not configured." >&2
-    echo "       Configure your identity at: ${CONSOLE_URL}/git-identity" >&2
+    echo "       Configure your identity at: ${CONSOLE_URL}/git" >&2
     echo "       Git operations are blocked until a valid SSH key is on file." >&2
     exit 1
     ;;
   "")
     # No recognizable git verb found — default-deny.
     echo "error: git operation blocked: unrecognized SSH command." >&2
-    echo "       Configure your identity at: ${CONSOLE_URL}/git-identity" >&2
+    echo "       Configure your identity at: ${CONSOLE_URL}/git" >&2
     exit 1
     ;;
   *)

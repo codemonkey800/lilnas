@@ -7,12 +7,18 @@ import {
   Get,
   Headers,
   HttpCode,
+  Inject,
   Param,
   Post,
-  Query,
+  Req,
+  UnauthorizedException,
 } from '@nestjs/common'
+import type { Request } from 'express'
 
-import { DiscordDirectoryService } from './discord-directory.service'
+import type { Db } from 'src/db/database.module'
+import { DB } from 'src/db/database.module'
+import { getDiscordUserIdForUser } from 'src/db/github-credential.repo'
+
 import {
   DiscordSnowflakeSchema,
   UpsertGitIdentityBodySchema,
@@ -32,12 +38,21 @@ function requireSameOrigin(origin: string | undefined): void {
 // Trust boundary — Phase D (D6) must enumerate these routes for deny-by-default
 // guards. POST /git-identity accepts a private key — the most sensitive route
 // in the app; never log or echo the key. Never log or return key material.
-// No per-identity authorization in Phase C (Decision #11).
+//
+// U5 (R2): POST /git-identity and DELETE /git-identity (self-clear) are now
+// PURELY self-service — there is no "act on the SSH key of another user"
+// upsert or self-styled clear path at all, mirroring github-link
+// .controller.ts's own self/break-glass asymmetry (linking/self-clear is
+// self-only; only the break-glass CLEAR route still takes an explicit id).
+// GET /git-identity/discord-members (the "pick a user" dropdown backing
+// route) is removed entirely, not just hidden client-side — this closes R2
+// for real, not just in the UI. DELETE /git-identity/:discordUserId remains
+// flat-admin (no per-identity authorization), same posture as before.
 @Controller('git-identity')
 export class GitIdentityController {
   constructor(
     private readonly service: GitIdentityService,
-    private readonly discordDirectory: DiscordDirectoryService,
+    @Inject(DB) private readonly db: Db,
   ) {}
 
   @Get()
@@ -45,21 +60,38 @@ export class GitIdentityController {
     return this.service.listIdentities()
   }
 
-  // Backs the "pick a user" dropdown on the git-identity form. Read-only, so
-  // (like GET /git-identity) it carries no requireSameOrigin() check —
-  // consistent with every other GET in this controller.
-  @Get('discord-members')
-  listDiscordMembers(@Query('force') force?: string) {
-    return this.discordDirectory.listGuildMembers(force === 'true')
-  }
-
+  // Self-service upsert — discordUserId is resolved from the authenticated
+  // session (req.user.id -> account.accountId via getDiscordUserIdForUser),
+  // never accepted from the request body (R2; UpsertGitIdentityBodySchema no
+  // longer has a discordUserId field at all). request.user is typed optional
+  // (src/types/express.d.ts: "no compile-time guarantee AuthGuard already
+  // ran"), so this is guarded defensively rather than asserted with `!` —
+  // mirrors github-link.controller.ts's identical req.user?.id posture
+  // (docs/solutions/conventions/type-guards-over-nonnull-assertions-on-db-
+  // rows-2026-05-30.md's discipline, applied to a non-DB-row optional field
+  // for the same reason: never trust an optional value with `!`). Should
+  // never actually be undefined in practice — Discord is this app's only
+  // sign-in provider — but this is a read path, not an invariant-enforcing
+  // one, so it degrades to a thrown UnauthorizedException rather than a
+  // silent wrong-user write.
   @Post()
   @HttpCode(200)
   upsertIdentity(
     @Headers('origin') origin: string | undefined,
+    @Req() req: Request,
     @Body() body: unknown,
   ) {
     requireSameOrigin(origin)
+
+    const userId = req.user?.id
+    if (!userId) {
+      throw new UnauthorizedException()
+    }
+
+    const discordUserId = getDiscordUserIdForUser(this.db, userId)
+    if (!discordUserId) {
+      throw new UnauthorizedException()
+    }
 
     const parsed = UpsertGitIdentityBodySchema.safeParse(body)
     if (!parsed.success) {
@@ -68,9 +100,35 @@ export class GitIdentityController {
       )
     }
 
-    return this.service.upsertIdentity(parsed.data)
+    return this.service.upsertIdentity(discordUserId, parsed.data)
   }
 
+  // Self-clear — no id param; discordUserId is resolved from the
+  // authenticated session, the SAME way upsertIdentity above resolves it.
+  @Delete()
+  @HttpCode(200)
+  deleteOwnIdentity(
+    @Headers('origin') origin: string | undefined,
+    @Req() req: Request,
+  ) {
+    requireSameOrigin(origin)
+
+    const userId = req.user?.id
+    if (!userId) {
+      throw new UnauthorizedException()
+    }
+
+    const discordUserId = getDiscordUserIdForUser(this.db, userId)
+    if (!discordUserId) {
+      throw new UnauthorizedException()
+    }
+
+    this.service.deleteIdentity(discordUserId)
+    return { accepted: true }
+  }
+
+  // Break-glass clear — flat-admin, no per-identity authorization, explicit
+  // Discord snowflake param. Unchanged behavior from pre-U5.
   @Delete(':discordUserId')
   @HttpCode(200)
   deleteIdentity(

@@ -60,7 +60,14 @@ export class GitIdentityService {
   }
 
   // Upsert a git identity. Validates, encrypts, stores. Never returns the key.
-  upsertIdentity(body: UpsertGitIdentityBodyDto): UpsertGitIdentityResponseDto {
+  // U5: discordUserId is now resolved by the CONTROLLER from the acting
+  // user's own session (self-service only — R2) and passed explicitly,
+  // rather than read off `body` — UpsertGitIdentityBodyDto no longer even
+  // has a discordUserId field (see git-identity.dto.ts).
+  upsertIdentity(
+    discordUserId: string,
+    body: UpsertGitIdentityBodyDto,
+  ): UpsertGitIdentityResponseDto {
     const masterKey = loadMasterKey()
     const plaintext = Buffer.from(body.privateKey, 'utf8')
 
@@ -75,17 +82,17 @@ export class GitIdentityService {
     }
     this.logger.info(
       {
-        discordUserId: body.discordUserId,
+        discordUserId,
         fingerprint,
         event: LOG_EVENTS.gitIdentityKeyValidated,
       },
       'Git identity upsert: key validated',
     )
 
-    const encrypted = encryptKey(plaintext, body.discordUserId, masterKey)
+    const encrypted = encryptKey(plaintext, discordUserId, masterKey)
 
     upsertIdentity(this.db, {
-      discordUserId: body.discordUserId,
+      discordUserId,
       name: body.name,
       email: body.email,
       keyCiphertext: encrypted.ciphertext,
@@ -95,7 +102,7 @@ export class GitIdentityService {
     })
     this.logger.info(
       {
-        discordUserId: body.discordUserId,
+        discordUserId,
         fingerprint,
         event: LOG_EVENTS.gitIdentityUpserted,
       },
@@ -103,7 +110,7 @@ export class GitIdentityService {
     )
 
     return {
-      discordUserId: body.discordUserId,
+      discordUserId,
       fingerprint,
       status: 'configured',
     }

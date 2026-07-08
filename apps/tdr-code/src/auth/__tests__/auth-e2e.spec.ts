@@ -624,7 +624,6 @@ describe('U5 — end-to-end auth verification harness (pre-cutover gate)', () =>
       'GET /events',
       'GET /config',
       'GET /git-identity',
-      'GET /git-identity/discord-members',
       'GET /bot/status',
     ]
 

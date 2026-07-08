@@ -198,7 +198,7 @@ describe('scripts/git wrapper', () => {
           expect(code).not.toBe(0)
           expect(stderr).toContain(`git ${verb} is blocked`)
           expect(stderr).toContain('your git identity is not configured')
-          expect(stderr).toContain('/git-identity')
+          expect(stderr).toContain('/git')
         },
       )
 

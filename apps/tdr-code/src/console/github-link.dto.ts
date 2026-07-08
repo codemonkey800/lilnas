@@ -26,9 +26,12 @@ export type UnlinkGithubResponseDto = z.infer<typeof UnlinkGithubResponseSchema>
 // carries only Better Auth's own opaque id/name/email/image, never the
 // underlying Discord snowflake (confirmed against schema.ts's `user` table
 // before adding this route — no client-side join was possible). Also
-// surfaces `discordUserId` so the SSH self-service form (same page) has a
-// value to send to the pre-U5 git-identity endpoints, which still require an
-// explicit discordUserId in their request bodies today.
+// surfaces `discordUserId` for display/correlation purposes on the same
+// page. As of U5, the git-identity endpoints resolve the acting user's own
+// discordUserId server-side too (see git-identity.controller.ts) rather than
+// accepting one from the client — this field's value no longer needs to be
+// sent back to those endpoints, but is still useful here for the page to
+// show which Discord identity its SSH section is scoped to.
 //
 // `derivedName`/`derivedEmail` are present only when `linked` is true —
 // never returns tokenCiphertext/tokenIv/tokenAuthTag or a decrypted token

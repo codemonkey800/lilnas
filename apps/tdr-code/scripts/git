@@ -110,7 +110,7 @@ if [ -n "${TDR_CHANNEL_ID:-}" ] && [ -d "$IDENTITY_DIR" ]; then
     case "$GIT_VERB" in
       commit|commit-tree|merge|rebase|cherry-pick|revert|am|push|pull)
         echo "error: git ${GIT_VERB} is blocked: your git identity is not configured." >&2
-        echo "       Configure your identity at: ${CONSOLE_URL}/git-identity" >&2
+        echo "       Configure your identity at: ${CONSOLE_URL}/git" >&2
         echo "       Writes are blocked until your git identity is configured." >&2
         exit 1
         ;;

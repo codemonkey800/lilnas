@@ -46,8 +46,10 @@ import { SessionsService } from './sessions.service'
     AuthAdminController,
     // GitHub-linking plan (U3): self-unlink + break-glass clear (R13), and
     // the shared GitHub+SSH roster (R3). GitRosterController reuses the
-    // already-registered DiscordDirectoryService below (also used by
-    // GitIdentityController today) rather than a second instance.
+    // already-registered DiscordDirectoryService below rather than a second
+    // instance. GitIdentityController no longer injects DiscordDirectoryService
+    // itself (U5 removed its discord-members dropdown route — R2), but the
+    // service stays registered here for GitRosterService.
     GithubLinkController,
     GitRosterController,
   ],

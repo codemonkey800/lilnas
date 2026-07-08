@@ -227,9 +227,14 @@ function SshSection({ discordUserId }: { discordUserId: string | undefined }) {
   })
 
   const [confirmClearOpen, setConfirmClearOpen] = useState(false)
+  // Self-clear (U5) — no discordUserId param; the server resolves the
+  // acting user's own snowflake from the session. This is a DIFFERENT call
+  // site from the roster's break-glass clear below (RosterSection's
+  // clearSshMutation), which still targets api.deleteGitIdentity(id) for a
+  // DIFFERENT (not the current) user and is intentionally left unchanged.
   const clearMutation = useMutation({
     mutationKey: ['ssh-identity-clear'],
-    mutationFn: (userId: string) => api.deleteGitIdentity(userId),
+    mutationFn: () => api.deleteGitIdentitySelf(),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.gitIdentity })
     },
@@ -242,7 +247,7 @@ function SshSection({ discordUserId }: { discordUserId: string | undefined }) {
     e.preventDefault()
     if (!discordUserId) return
     setSaved(false)
-    upsertMutation.mutate({ discordUserId, name, email, privateKey })
+    upsertMutation.mutate({ name, email, privateKey })
   }
 
   const formDisabled = !discordUserId
@@ -366,7 +371,7 @@ function SshSection({ discordUserId }: { discordUserId: string | undefined }) {
                   <button
                     type="button"
                     onClick={() => {
-                      if (discordUserId) clearMutation.mutate(discordUserId)
+                      if (discordUserId) clearMutation.mutate()
                     }}
                     disabled={clearMutation.isPending}
                     data-track-id="ssh-identity-clear-confirm"

@@ -81,12 +81,13 @@ export const PROTECTED_ROUTES: ProtectedRouteSpec[] = [
   { method: 'GET', path: '/config', label: 'GET /config' },
   { method: 'PUT', path: '/config', label: 'PUT /config' },
   { method: 'GET', path: '/git-identity', label: 'GET /git-identity' },
-  {
-    method: 'GET',
-    path: '/git-identity/discord-members',
-    label: 'GET /git-identity/discord-members',
-  },
   { method: 'POST', path: '/git-identity', label: 'POST /git-identity' },
+  // U5 (R2): self-clear, no id — resolves the acting user's own Discord
+  // snowflake from the session, mirroring DELETE /git/github's self-unlink
+  // shape below. GET /git-identity/discord-members (the "pick a user"
+  // dropdown's backing route) is removed in the same unit, not merely
+  // hidden client-side — no PROTECTED_ROUTES entry replaces it.
+  { method: 'DELETE', path: '/git-identity', label: 'DELETE /git-identity' },
   {
     method: 'DELETE',
     path: '/git-identity/:discordUserId',

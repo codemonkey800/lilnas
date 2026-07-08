@@ -5,7 +5,6 @@ import type {
 } from 'src/console/config.dto'
 import type { EventListResponseDto } from 'src/console/events.dto'
 import type {
-  DiscordGuildMemberListResponseDto,
   GitIdentityListResponseDto,
   UpsertGitIdentityBodyDto,
   UpsertGitIdentityResponseDto,
@@ -184,7 +183,6 @@ export const queryKeys = {
   reconcile: (sessionId: number) => ['reconcile', sessionId] as const,
   config: ['config'] as const,
   gitIdentity: ['git-identity'] as const,
-  discordGuildMembers: ['discord-guild-members'] as const,
   gitRoster: ['git-roster'] as const,
   githubStatus: ['github-status'] as const,
   logSources: ['log-sources'] as const,
@@ -251,13 +249,14 @@ export const api = {
     fetchJson<GitIdentityListResponseDto>('/git-identity'),
   upsertGitIdentity: (body: UpsertGitIdentityBodyDto) =>
     postJsonBody<UpsertGitIdentityResponseDto>('/git-identity', body),
+  // Self-clear (U5) — no id in the path; the server resolves the acting
+  // user's own Discord snowflake from the session (R2). Distinct from
+  // deleteGitIdentity below, which is the break-glass route for clearing a
+  // DIFFERENT user's key and still takes an explicit discordUserId.
+  deleteGitIdentitySelf: () => deleteJson<{ accepted: true }>('/git-identity'),
   deleteGitIdentity: (discordUserId: string) =>
     deleteJson<{ accepted: true }>(
       `/git-identity/${encodeURIComponent(discordUserId)}`,
-    ),
-  listDiscordGuildMembers: (opts?: { force?: boolean }) =>
-    fetchJson<DiscordGuildMemberListResponseDto>(
-      `/git-identity/discord-members${opts?.force ? '?force=true' : ''}`,
     ),
   getGitRoster: () => fetchJson<RosterResponseDto>('/git/roster'),
   getGithubStatus: () =>

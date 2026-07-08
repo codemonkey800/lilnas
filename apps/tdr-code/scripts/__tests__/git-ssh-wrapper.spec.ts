@@ -34,7 +34,7 @@ describe('git-ssh-wrapper.sh', () => {
       ])
       expect(code).not.toBe(0)
       expect(stderr).toContain('git operation blocked')
-      expect(stderr).toContain('tdr-code.example.com/git-identity')
+      expect(stderr).toContain('tdr-code.example.com/git')
     })
 
     it('git-upload-archive → exits nonzero with the blocked message', async () => {
@@ -78,7 +78,7 @@ describe('git-ssh-wrapper.sh', () => {
         '/user/repo',
       ])
       expect(stderr).toContain('git push is blocked')
-      expect(stderr).toContain('tdr-code.example.com/git-identity')
+      expect(stderr).toContain('tdr-code.example.com/git')
     })
 
     it('verb found at non-first position is still blocked', async () => {

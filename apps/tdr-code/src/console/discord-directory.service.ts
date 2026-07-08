@@ -23,8 +23,10 @@ interface DiscordApiGuildMember {
   nick: string | null
 }
 
-// Fetches the connected Discord server's member list for the git-identity
-// form's "pick a user" dropdown. Deliberately separate from
+// Fetches the connected Discord server's member list. Originally backed the
+// git-identity form's "pick a user" dropdown (removed in U5 — R2 closes that
+// gap for real); now consumed by git-roster.service.ts for the shared
+// GitHub+SSH roster's per-member display names. Deliberately separate from
 // GitIdentityService (DB-backed identity storage + SSH-key crypto) — this
 // service does one thing, talks to Discord's REST API with the bot token,
 // and never touches the DB.
