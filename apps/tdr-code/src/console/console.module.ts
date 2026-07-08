@@ -11,6 +11,10 @@ import { EventsController } from './events.controller'
 import { EventsService } from './events.service'
 import { GitIdentityController } from './git-identity.controller'
 import { GitIdentityService } from './git-identity.service'
+import { GitRosterController } from './git-roster.controller'
+import { GitRosterService } from './git-roster.service'
+import { GithubLinkController } from './github-link.controller'
+import { GithubLinkService } from './github-link.service'
 import { LifecycleController } from './lifecycle.controller'
 import { LiveController } from './live.controller'
 import { LiveService } from './live.service'
@@ -40,6 +44,12 @@ import { SessionsService } from './sessions.service'
     // pattern the rest of this module uses, since there is no read-side
     // response-shaping logic to warrant a service layer here.
     AuthAdminController,
+    // GitHub-linking plan (U3): self-unlink + break-glass clear (R13), and
+    // the shared GitHub+SSH roster (R3). GitRosterController reuses the
+    // already-registered DiscordDirectoryService below (also used by
+    // GitIdentityController today) rather than a second instance.
+    GithubLinkController,
+    GitRosterController,
   ],
   providers: [
     LiveService,
@@ -50,6 +60,8 @@ import { SessionsService } from './sessions.service'
     ConfigService,
     GitIdentityService,
     DiscordDirectoryService,
+    GithubLinkService,
+    GitRosterService,
   ],
 })
 export class ConsoleModule {}

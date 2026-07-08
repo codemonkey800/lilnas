@@ -184,6 +184,40 @@ export function buildAuth(db: Db) {
     // the state_mismatch-via-rewrite hazard a cookie round-trip would
     // reintroduce under the /api-stripping rewrite. Left unset intentionally.
 
+    // GitHub-linking plan (U3, R13): disables Better Auth's own stock
+    // `POST /unlink-account` and `GET /list-accounts` endpoints. Both bypass
+    // this app's revoke-then-delete flow entirely — Better Auth's built-in
+    // unlinkAccount handler only calls internalAdapter.deleteAccount, never
+    // touching github_credential and never calling GitHub's revoke endpoint,
+    // so a caller reaching that stock route would delete the `account` row
+    // while leaving a live, un-revoked, still-decryptable token orphaned in
+    // github_credential (U1's inner join makes it invisible as "linked," but
+    // the token itself remains valid at GitHub indefinitely). Only
+    // DELETE /git/github and DELETE /git/github/:userId
+    // (github-link.controller.ts) are reachable unlink paths after this.
+    //
+    // EXACT STRING FORMAT — empirically confirmed, not assumed from static
+    // reading (see github-link.service.spec.ts's
+    // "Better Auth stock unlink-account/list-accounts routes are disabled"
+    // describe block, which drives a REAL request through a REAL
+    // buildAuth(db) instance's handler and asserts a 404 for the disabled
+    // routes vs. a working control route). Confirmed against installed
+    // better-auth@1.6.23 source (better-auth/dist/api/index.mjs's `router`
+    // function): `const basePath = new URL(ctx.baseURL).pathname` — this is
+    // baseURL's OWN pathname ('/api/auth', this app's PUBLIC_AUTH_PATH_
+    // SEGMENT), NOT the betterAuth({ basePath: ... }) config option above
+    // (a confusingly-similarly-named but different value: this app sets
+    // that to INTERNAL_AUTH_BASE_PATH, '/auth'). `normalizePathname(req.url,
+    // basePath)` (@better-auth/core's utils/url.mjs) then strips that
+    // baseURL-pathname prefix from the incoming request's own pathname
+    // before comparing against `disabledPaths`. Empirically, a request that
+    // reaches this handler at '/api/auth/unlink-account' (this app's full
+    // public path) normalizes to '/unlink-account' — i.e. disabledPaths
+    // entries carry NO '/api/auth' prefix and NO leading basePath segment
+    // at all, just the bare endpoint path exactly as createAuthEndpoint
+    // registers it ('/unlink-account', '/list-accounts').
+    disabledPaths: ['/unlink-account', '/list-accounts'],
+
     // Session TTL is a security knob here, not a library default: sign-in-
     // only guild checking (U3) means a kicked/compromised member keeps full
     // access to an RCE-equivalent surface until the session expires.

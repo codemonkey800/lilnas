@@ -326,6 +326,24 @@ const AUTH_ADMIN_EVENTS = {
   sessionRevokeCompleted: 'session-revoke-completed',
 } as const
 
+const GITHUB_LINK_EVENTS = {
+  // console/github-link.service.ts (GitHub-linking plan, U3) — the
+  // unlink/break-glass-clear request/completion pair, mirroring
+  // AUTH_ADMIN_EVENTS' sessionRevokeRequested/sessionRevokeCompleted shape.
+  // Fires for BOTH self-unlink (DELETE /git/github) and break-glass clear
+  // (DELETE /git/github/:userId) — the two routes share one service method,
+  // so one event pair covers both call sites.
+  githubUnlinkRequested: 'github-unlink-requested',
+  githubUnlinkCompleted: 'github-unlink-completed',
+  // console/github-link.service.ts — GitHub's best-effort revoke-grant call
+  // (DELETE /applications/{client_id}/grant) returned a non-2xx status.
+  // Never blocking: the local github_credential/account rows are deleted
+  // regardless of this outcome (R13's "best-effort revoke"). Never logged
+  // with err.message/err.stack — this path touches token-adjacent context,
+  // per the structured-logging convention.
+  githubRevokeFailed: 'github-revoke-failed',
+} as const
+
 const SESSIONS_SERVICE_EVENTS = {
   // console/sessions.service.ts (U5 sweep) — getSessionTranscript's
   // un-narrowable turn_content block guard.
@@ -569,6 +587,7 @@ export const LOG_EVENTS = {
   ...CONFIG_SERVICE_EVENTS,
   ...RECONCILE_SERVICE_EVENTS,
   ...AUTH_ADMIN_EVENTS,
+  ...GITHUB_LINK_EVENTS,
   ...SESSIONS_SERVICE_EVENTS,
   ...LIVE_SERVICE_EVENTS,
   ...PAGE_EVENTS,
