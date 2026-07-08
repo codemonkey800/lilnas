@@ -89,6 +89,22 @@ const GITHUB_TOKEN_EVENTS = {
   githubTokenDecryptFailed: 'github-token-decrypt-failed',
 } as const
 
+const GITHUB_ACCOUNT_HOOK_EVENTS = {
+  // auth/github-account-hook.ts's fetchGithubProfile — GET /user failed
+  // (network error, non-200, malformed JSON, or an unexpected body shape).
+  // Fires at warn since the hook rejects the link in every one of these
+  // cases (fail-closed) rather than partially provisioning a credential.
+  // Never logged with err.message/err.stack, matching the structured-
+  // logging convention's coarsening rule for any path touching token
+  // material.
+  githubProfileFetchFailed: 'github-profile-fetch-failed',
+  // auth/github-account-hook.ts's pre-flight duplicate-link check — the
+  // GitHub account being linked already belongs to a different tdr-code
+  // user. Fires before any encryption/upsert work; the hook throws a
+  // distinct APIError immediately after this log line.
+  githubAccountAlreadyLinked: 'github-account-already-linked',
+} as const
+
 const GIT_IDENTITY_EVENTS = {
   // agent/git-turn-context.ts's GitTurnContext.sweep() — boot/shutdown
   // cleanup of orphaned tmpfs key/identity files from a previous crash.
@@ -537,6 +553,7 @@ export const LOG_EVENTS = {
   ...SESSION_EVENTS,
   ...IDENTITY_EVENTS,
   ...GITHUB_TOKEN_EVENTS,
+  ...GITHUB_ACCOUNT_HOOK_EVENTS,
   ...GIT_IDENTITY_EVENTS,
   ...DISCORD_EVENTS,
   ...COMMAND_POLLER_EVENTS,

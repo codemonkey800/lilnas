@@ -31,6 +31,19 @@ initBackendLogger('bot')
 // fixture's value; this rename only makes the fixture's name match reality.
 process.env.DISCORD_API_TOKEN = 'test-token'
 process.env.DISCORD_GUILD_ID = 'test-guild-id'
+// GitHub-linking plan (U2): auth.ts's socialProviders.github config
+// evaluates env(EnvKeys.GITHUB_CLIENT_ID)/env(EnvKeys.GITHUB_CLIENT_SECRET)
+// eagerly at betterAuth({...}) construction time, exactly like the sibling
+// Discord entries — so ANY spec that builds a real buildAuth()/AuthModule
+// instance now needs these set, not just specs that exercise GitHub
+// behavior directly (mirrors why DISCORD_GUILD_ID lives here rather than
+// per-file: guild-gate.ts's env() read is unconditional for every real
+// instance too). Promoted here (rather than duplicated into each
+// Better-Auth-touching spec file) once a second such file
+// (guild-gate.spec.ts) needed it alongside the new github-account-hook
+// tests — obviously-fake test values, never real secrets.
+process.env.GITHUB_CLIENT_ID = 'test-github-client-id'
+process.env.GITHUB_CLIENT_SECRET = 'test-github-client-secret'
 process.env.CLAUDE_COMMAND = 'claude'
 process.env.CLAUDE_CWD = '/tmp'
 process.env.AGENT_IDLE_TIMEOUT_SECONDS = '300'

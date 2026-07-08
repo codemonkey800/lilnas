@@ -3,6 +3,7 @@ import { env } from '@lilnas/utils/env'
 import type { Account, GenericEndpointContext } from 'better-auth'
 import { APIError, betterAuth } from 'better-auth'
 
+import { loadMasterKey } from 'src/crypto/master-key'
 import { sweepAccountlessUsers } from 'src/db/auth-sweep.repo'
 import type { Db } from 'src/db/database.module'
 import * as schema from 'src/db/schema'
@@ -11,6 +12,7 @@ import { getBackendLogger } from 'src/logging/backend-logger'
 import { LOG_EVENTS } from 'src/logging/log-events'
 
 import { devLoginPlugin, isDevLoginEnabled } from './dev-login.plugin'
+import { handleGithubAccountUpsert } from './github-account-hook'
 import { isCurrentUserGuildMember } from './guild-gate'
 
 // buildAuth(db) is a plain factory invoked once at app bootstrap, not an
@@ -112,6 +114,28 @@ export const PUBLIC_AUTH_PATH_SEGMENT = '/api/auth'
 export function buildAuth(db: Db) {
   const betterAuthUrl = env(EnvKeys.BETTER_AUTH_URL)
 
+  // GitHub-linking plan (U2): the AES-256-GCM master key the GitHub
+  // account-link hook needs to encrypt a just-exchanged token. Lazily loaded
+  // and memoized on first actual use (NOT called eagerly here at the top of
+  // buildAuth(), unlike env()'s calls below) — auth-mount.spec.ts's
+  // `describe('buildAuth() env validation (fail fast at boot)')` block calls
+  // `buildAuth(testDb.db)` directly, asserting a SPECIFIC "<KEY> not
+  // defined" throw message per missing Better-Auth/Discord env key, with no
+  // TDR_CODE_MASTER_KEY_FILE ever set in that spec file and no request ever
+  // driven through the resulting instance (hooks never fire). An eager
+  // loadMasterKey() call here would make every one of those assertions fail
+  // for the wrong reason (a master-key-file error, not the env-key error
+  // under test) even though the master key is never actually needed by that
+  // suite. Loading it lazily, only when a real GitHub account event reaches
+  // the hook below, preserves that test's fail-fast-on-env-keys assertions
+  // while still failing loudly (loadMasterKey()'s own fail-fast checks) the
+  // first time a GitHub link genuinely needs the key in any REAL boot.
+  let masterKey: Buffer | undefined
+  function getMasterKey(): Buffer {
+    if (!masterKey) masterKey = loadMasterKey()
+    return masterKey
+  }
+
   return betterAuth({
     database: drizzleAdapter(db, {
       provider: 'sqlite',
@@ -201,6 +225,24 @@ export function buildAuth(db: Db) {
           }
         },
       },
+
+      // GitHub-linking plan (R5, R6): a LINKABLE provider only — GitHub is
+      // never a sign-in provider in this app (no "Login with GitHub" button;
+      // only the Discord guild-gated sign-in above authenticates a session).
+      // Users link this from an already-authenticated session via
+      // authClient.linkSocial({ provider: 'github', ... }).
+      github: {
+        clientId: env(EnvKeys.GITHUB_CLIENT_ID),
+        clientSecret: env(EnvKeys.GITHUB_CLIENT_SECRET),
+        // Better Auth's GitHub provider already defaults to
+        // ['read:user', 'user:email'] and CONCATENATES (not replaces) any
+        // `scope` array onto that default (confirmed against the provider
+        // source, same behavior as the Discord provider above) — this only
+        // needs the two scopes Plan B's per-turn `gh`/push enforcement will
+        // use. Deliberately NOT `delete_repo` (R6) — this app never deletes
+        // repos on a user's behalf.
+        scope: ['repo', 'workflow'],
+      },
     },
 
     // Only the Discord social provider by default — no admin/org/
@@ -283,6 +325,25 @@ export function buildAuth(db: Db) {
             account: Account,
             context: GenericEndpointContext | null,
           ) => {
+            // GitHub-linking plan (U2, R5-R8): a first-time "Link GitHub"
+            // reaches this SAME create.before hook (linkSocial's callback
+            // route calls internalAdapter.createAccount when no existing
+            // (providerId: 'github', accountId) row matches). Checked BEFORE
+            // the `!== 'discord'` early-exit below — this is now a
+            // two-branch dispatcher (Discord, GitHub), not a single-provider
+            // guard; see this file's interaction-graph note in the plan's
+            // System-Wide Impact section. handleGithubAccountUpsert is a
+            // no-op (returns undefined) for any non-GitHub event, so it's
+            // safe to call unconditionally rather than gating on
+            // account.providerId === 'github' twice.
+            const githubResult = await handleGithubAccountUpsert(
+              account,
+              context,
+              db,
+              getMasterKey,
+            )
+            if (githubResult) return githubResult
+
             // Only Discord accounts carry a guild-membership question — a
             // future non-social provider (none configured today; `plugins`
             // above is empty and only the Discord social provider exists)
@@ -460,6 +521,39 @@ export function buildAuth(db: Db) {
             // re-derive; the exact string 'not guild member' below is
             // load-bearing.
             throw new APIError('FORBIDDEN', { message: 'not guild member' })
+          },
+        },
+
+        // GitHub-linking plan (U2, R5-R8): re-linking an ALREADY-linked
+        // GitHub account does not reach create.before above at all.
+        // Confirmed by reading better-auth's installed source directly:
+        // linkSocial's callback route (`callback.mjs`'s `link` branch) calls
+        // `internalAdapter.findAccountByProviderId` first, and only calls
+        // `createAccount` (-> create.before) when NO existing
+        // (providerId: 'github', accountId) row matches; when one already
+        // does (a re-link — after a revoke-and-relink, a double-click, or a
+        // retried request), it calls `internalAdapter.updateAccount` instead
+        // (-> update.before), which is NOT gated by
+        // account.updateAccountOnSignIn above (that flag only guards the
+        // sign-in handleOAuthUserInfo path, which linkSocial never uses).
+        // Without this hook, a re-link would write a fresh plaintext token
+        // straight into Better Auth's own account.accessToken column — the
+        // exact outcome R7 forbids and the one regression this whole unit
+        // exists to prevent. Discord NEVER reaches this hook in this app
+        // (updateAccountOnSignIn: false above means Discord's own
+        // updateAccount call site — the sign-in "already linked" branch —
+        // never fires; Discord has no linkSocial flow either), so no
+        // Discord-specific logic belongs here — see
+        // github-account-hook.ts's own header comment for the full trace of
+        // why this hook's payload cannot reliably carry
+        // account.providerId/userId/accountId the way create.before's does,
+        // and how handleGithubAccountUpsert resolves them itself instead.
+        update: {
+          before: async (
+            account: Partial<Account> & Record<string, unknown>,
+            context: GenericEndpointContext | null,
+          ) => {
+            return handleGithubAccountUpsert(account, context, db, getMasterKey)
           },
         },
       },

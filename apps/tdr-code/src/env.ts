@@ -10,6 +10,12 @@ export const EnvKeys = {
   // same Discord Application's OAuth2 page, not the Bot page.
   DISCORD_CLIENT_ID: 'DISCORD_CLIENT_ID',
   DISCORD_CLIENT_SECRET: 'DISCORD_CLIENT_SECRET',
+  // GitHub-linking plan (U2): GitHub OAuth App credentials (Better Auth
+  // GitHub provider), used for self-service account-linking, not bot auth.
+  // These come from a dedicated GitHub OAuth App's page, distinct from any
+  // GitHub bot/PAT token this app might use elsewhere.
+  GITHUB_CLIENT_ID: 'GITHUB_CLIENT_ID',
+  GITHUB_CLIENT_SECRET: 'GITHUB_CLIENT_SECRET',
   // Phase D: Better Auth session-signing secret (generated, not from Discord)
   // and the app's public base URL used to build OAuth redirect URIs and
   // derive secure-cookie defaults.
