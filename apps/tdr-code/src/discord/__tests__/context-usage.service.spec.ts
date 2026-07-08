@@ -256,6 +256,26 @@ describe('ContextUsageService — threshold notifications', () => {
     expect(() => service.onUsageUpdate('ch1', 10, 0)).not.toThrow()
   })
 
+  it('onGitOperationBlocked is a no-op: does not throw and sends nothing (ContextUsageService has no reason to react to a git-block event)', async () => {
+    const channel = createMockTextChannel()
+    const client = createMockClient(new Map([['ch1', channel]]))
+    const sessionManager = createMockSessionManager()
+    const service = await createService(
+      undefined as unknown as TestDb['db'],
+      client,
+      sessionManager,
+    )
+
+    // Called through the AcpEventHandlers interface type (matching how
+    // CompositeAcpHandler would invoke it if it ever fanned out here) rather
+    // than the concrete class's own narrower (no-params) signature.
+    const handlers: import('src/agent/agent.types').AcpEventHandlers = service
+    expect(() =>
+      handlers.onGitOperationBlocked('ch1', 'github', 'unconfigured'),
+    ).not.toThrow()
+    expect(channel.send).not.toHaveBeenCalled()
+  })
+
   it('resetChannel clears notifiedThreshold so a later update re-fires the 25% notice', async () => {
     const channel = createMockTextChannel()
     const client = createMockClient(new Map([['ch1', channel]]))

@@ -31,6 +31,7 @@ function makeDiscordMock(): jest.Mocked<AcpEventHandlers> {
     onSessionInfoUpdate: jest.fn(),
     onResumeFailed: jest.fn(),
     onUsageUpdate: jest.fn(),
+    onGitOperationBlocked: jest.fn(),
   }
 }
 
@@ -45,6 +46,7 @@ function makeWriterMock(): jest.Mocked<AcpEventHandlers> {
     onSessionInfoUpdate: jest.fn(),
     onResumeFailed: jest.fn(),
     onUsageUpdate: jest.fn(),
+    onGitOperationBlocked: jest.fn(),
   }
 }
 
@@ -59,6 +61,7 @@ function makeContextUsageMock(): jest.Mocked<AcpEventHandlers> {
     onSessionInfoUpdate: jest.fn(),
     onResumeFailed: jest.fn(),
     onUsageUpdate: jest.fn(),
+    onGitOperationBlocked: jest.fn(),
   }
 }
 
@@ -260,6 +263,55 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
 
       expect(discord.onResumeFailed).toHaveBeenCalledWith('ch1')
       expect(writer.onResumeFailed).toHaveBeenCalledWith('ch1')
+    })
+
+    // Covers the plan's "missing-implementer gap" risk: CompositeAcpHandler
+    // is a fourth AcpEventHandlers implementer, easy to miss when extending
+    // the interface. Invokes onGitOperationBlocked directly on the composite
+    // (not through GitTurnContext) and asserts BOTH mocked sub-handlers that
+    // this method mirrors onResumeFailed's shape for (discord, writer) were
+    // each actually called — not just type-checked. contextUsage is
+    // deliberately asserted NOT called: ContextUsageService has no reason to
+    // react to a git-block event (same rationale as its existing
+    // onResumeFailed no-op), mirroring onResumeFailed's own fan-out shape
+    // rather than onUsageUpdate's three-way one.
+    it('onGitOperationBlocked forwards to Discord and SQLite handlers, but NOT ContextUsageService (per-turn GitHub enforcement plan, U5)', () => {
+      const discord = makeDiscordMock()
+      const writer = makeWriterMock()
+      const contextUsage = makeContextUsageMock()
+      const composite = makeComposite(discord, writer, contextUsage)
+
+      composite.onGitOperationBlocked('ch1', 'github', 'unconfigured')
+
+      expect(discord.onGitOperationBlocked).toHaveBeenCalledWith(
+        'ch1',
+        'github',
+        'unconfigured',
+      )
+      expect(writer.onGitOperationBlocked).toHaveBeenCalledWith(
+        'ch1',
+        'github',
+        'unconfigured',
+      )
+      expect(contextUsage.onGitOperationBlocked).not.toHaveBeenCalled()
+    })
+
+    it('onGitOperationBlocked: a writer fault does not prevent the Discord notice from completing (fault isolation)', () => {
+      const discord = makeDiscordMock()
+      const writer = makeWriterMock()
+      writer.onGitOperationBlocked.mockImplementation(() => {
+        throw new Error('writer fail')
+      })
+      const composite = makeComposite(discord, writer)
+
+      expect(() =>
+        composite.onGitOperationBlocked('ch1', 'ssh', 'decrypt_failed'),
+      ).not.toThrow()
+      expect(discord.onGitOperationBlocked).toHaveBeenCalledWith(
+        'ch1',
+        'ssh',
+        'decrypt_failed',
+      )
     })
 
     it('onUsageUpdate forwards to Discord, writer, and ContextUsageService', () => {

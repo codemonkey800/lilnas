@@ -281,4 +281,19 @@ export class SqliteWriterService implements AcpEventHandlers {
     void _used
     void _size
   }
+
+  // No-op: the git_push_blocked/git_key_decrypt_failed/gh_blocked/
+  // github_token_decrypt_failed event row is ALREADY recorded directly by
+  // GitTurnContext's own insertEvent call (it has the block reason in hand
+  // at the source), mirroring onResumeFailed's own no-op rationale above —
+  // the writer has nothing additional to persist here.
+  onGitOperationBlocked(
+    _channelId: string,
+    _kind: 'ssh' | 'github',
+    _reason: 'unconfigured' | 'decrypt_failed',
+  ): void {
+    void _channelId
+    void _kind
+    void _reason
+  }
 }

@@ -2,12 +2,21 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
+import type { AcpEventHandlers } from 'src/agent/agent.types'
 import { GitTurnContext } from 'src/agent/git-turn-context'
 import { globalGitWriteLock } from 'src/agent/git-write-lock'
 
 // Mock all external dependencies so tests are pure unit tests.
 jest.mock('src/crypto/master-key', () => ({
   loadMasterKey: jest.fn().mockReturnValue(crypto.randomBytes(32)),
+}))
+
+// U5: insertEvent is mocked directly (not a real test DB) so tests can
+// assert exact call args/counts for the new block/decrypt-failure events
+// without needing DB plumbing — mirrors this file's existing style of
+// mocking every collaborator at the module boundary.
+jest.mock('src/db/events.repo', () => ({
+  insertEvent: jest.fn(),
 }))
 
 jest.mock('src/db/git-identity.repo', () => ({
@@ -39,10 +48,29 @@ jest.mock('src/db/github-credential.repo', () => ({
 
 import { resolveGithubToken } from 'src/crypto/github-token-resolution'
 import { isConfigured, resolveIdentity } from 'src/crypto/identity-resolution'
+import { insertEvent } from 'src/db/events.repo'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeDb(): any {
   return {}
+}
+
+// U5: a mocked AcpEventHandlers passed into GitTurnContextOptions so tests
+// can assert the Discord-notice fan-out call (onGitOperationBlocked)
+// directly, independent of the insertEvent mock above.
+function makeHandlers(): jest.Mocked<AcpEventHandlers> {
+  return {
+    onToolCall: jest.fn(),
+    onToolCallUpdate: jest.fn(),
+    onAgentMessageChunk: jest.fn(),
+    onAgentMessageImage: jest.fn(),
+    onPromptStart: jest.fn(),
+    onPromptComplete: jest.fn(),
+    onSessionInfoUpdate: jest.fn(),
+    onResumeFailed: jest.fn(),
+    onUsageUpdate: jest.fn(),
+    onGitOperationBlocked: jest.fn(),
+  }
 }
 
 describe('GitTurnContext', () => {
@@ -55,6 +83,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
 
@@ -71,6 +100,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
 
@@ -87,6 +117,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
 
@@ -126,6 +157,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
 
@@ -210,6 +242,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
 
       // Acquire the real lock so releaseIfHeldBy has something to release
@@ -238,6 +271,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
       await ctx.begin('ch1', '123456789012345678', mockRelease)
@@ -261,6 +295,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
 
       await ctx.begin('ch1', '123456789012345678', jest.fn())
@@ -304,6 +339,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
 
       await ctx.begin('ch1', '123456789012345678', jest.fn())
@@ -351,6 +387,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
       const mockRelease = jest.fn()
 
@@ -413,6 +450,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
 
       await ctx.begin('ch1', '123456789012345678', jest.fn())
@@ -466,6 +504,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
 
       await ctx.begin('ch1', '123456789012345678', jest.fn())
@@ -523,6 +562,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
 
       await ctx.begin('ch1', '123456789012345678', jest.fn())
@@ -582,6 +622,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
 
       await ctx.begin('ch1', '123456789012345678', jest.fn())
@@ -633,6 +674,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
 
       await expect(
@@ -679,6 +721,7 @@ describe('GitTurnContext', () => {
       const ctx = new GitTurnContext({
         db: makeDb(),
         generationId: 1,
+        handlers: makeHandlers(),
       })
 
       await ctx.begin('ch1', '123456789012345678', jest.fn())
@@ -698,6 +741,326 @@ describe('GitTurnContext', () => {
   describe('sweep()', () => {
     it('sweep() does not throw when KEYS_DIR does not exist', () => {
       expect(() => GitTurnContext.sweep()).not.toThrow()
+    })
+  })
+
+  describe('U5: block-when-unlinked event logging + Discord notice', () => {
+    it('unlinked GitHub user (unconfigured) → exactly one gh_blocked event and one onGitOperationBlocked(channelId, "github", "unconfigured") call', async () => {
+      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
+        kind: 'unconfigured',
+      })
+      ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(false)
+      ;(resolveGithubToken as jest.Mock).mockReturnValueOnce({
+        kind: 'unconfigured',
+      })
+
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined)
+
+      const handlers = makeHandlers()
+      const ctx = new GitTurnContext({
+        db: makeDb(),
+        generationId: 1,
+        handlers,
+      })
+
+      await ctx.begin('ch1', '123456789012345678', jest.fn())
+
+      // Exactly one gh_blocked event (the SSH axis is ALSO unconfigured, so
+      // git_push_blocked fires too — this test asserts on the GitHub-side
+      // call specifically, not total call count).
+      const ghBlockedCalls = (insertEvent as jest.Mock).mock.calls.filter(
+        ([, opts]) => opts.type === 'gh_blocked',
+      )
+      expect(ghBlockedCalls).toHaveLength(1)
+      expect(ghBlockedCalls[0]![1]).toMatchObject({
+        type: 'gh_blocked',
+        channelId: 'ch1',
+        level: 'warn',
+        context: { discordUserId: '123456789012345678', channelId: 'ch1' },
+        generationId: 1,
+      })
+
+      expect(handlers.onGitOperationBlocked).toHaveBeenCalledWith(
+        'ch1',
+        'github',
+        'unconfigured',
+      )
+    })
+
+    it('GitHub token decrypt failure → exactly one github_token_decrypt_failed event, distinct from gh_blocked', async () => {
+      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
+        kind: 'unconfigured',
+      })
+      ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(false)
+      ;(resolveGithubToken as jest.Mock).mockReturnValueOnce({
+        kind: 'decrypt_failed',
+      })
+
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined)
+
+      const handlers = makeHandlers()
+      const ctx = new GitTurnContext({
+        db: makeDb(),
+        generationId: 1,
+        handlers,
+      })
+
+      await ctx.begin('ch1', '123456789012345678', jest.fn())
+
+      const decryptFailedCalls = (insertEvent as jest.Mock).mock.calls.filter(
+        ([, opts]) => opts.type === 'github_token_decrypt_failed',
+      )
+      expect(decryptFailedCalls).toHaveLength(1)
+      const ghBlockedCalls = (insertEvent as jest.Mock).mock.calls.filter(
+        ([, opts]) => opts.type === 'gh_blocked',
+      )
+      expect(ghBlockedCalls).toHaveLength(0)
+
+      expect(handlers.onGitOperationBlocked).toHaveBeenCalledWith(
+        'ch1',
+        'github',
+        'decrypt_failed',
+      )
+    })
+
+    it('retroactive fix: unconfigured SSH user → a git_push_blocked event (no prior call site existed before U5)', async () => {
+      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
+        kind: 'unconfigured',
+      })
+      ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(false)
+      // GitHub axis stays at the default `unconfigured` mock.
+
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined)
+
+      const handlers = makeHandlers()
+      const ctx = new GitTurnContext({
+        db: makeDb(),
+        generationId: 1,
+        handlers,
+      })
+
+      await ctx.begin('ch1', '123456789012345678', jest.fn())
+
+      const pushBlockedCalls = (insertEvent as jest.Mock).mock.calls.filter(
+        ([, opts]) => opts.type === 'git_push_blocked',
+      )
+      expect(pushBlockedCalls).toHaveLength(1)
+      expect(pushBlockedCalls[0]![1]).toMatchObject({
+        type: 'git_push_blocked',
+        channelId: 'ch1',
+        level: 'warn',
+        context: { discordUserId: '123456789012345678', channelId: 'ch1' },
+      })
+
+      expect(handlers.onGitOperationBlocked).toHaveBeenCalledWith(
+        'ch1',
+        'ssh',
+        'unconfigured',
+      )
+    })
+
+    it('retroactive fix: SSH decrypt failure → a git_key_decrypt_failed event', async () => {
+      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
+        kind: 'decrypt_failed',
+        fingerprint: 'SHA256:stale',
+      })
+      ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(false)
+      // GitHub axis stays at the default `unconfigured` mock.
+
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined)
+
+      const handlers = makeHandlers()
+      const ctx = new GitTurnContext({
+        db: makeDb(),
+        generationId: 1,
+        handlers,
+      })
+
+      await ctx.begin('ch1', '123456789012345678', jest.fn())
+
+      const keyDecryptFailedCalls = (
+        insertEvent as jest.Mock
+      ).mock.calls.filter(([, opts]) => opts.type === 'git_key_decrypt_failed')
+      expect(keyDecryptFailedCalls).toHaveLength(1)
+
+      expect(handlers.onGitOperationBlocked).toHaveBeenCalledWith(
+        'ch1',
+        'ssh',
+        'decrypt_failed',
+      )
+    })
+
+    it('CRITICAL: fully-configured "both" user → ZERO block events and ZERO onGitOperationBlocked calls', async () => {
+      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
+        kind: 'configured',
+        name: 'Both User',
+        email: 'both@example.com',
+        keyPlaintext: Buffer.from(crypto.randomBytes(64)),
+        fingerprint: 'SHA256:bothconfigured',
+      })
+      ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(true)
+      ;(resolveGithubToken as jest.Mock).mockReturnValueOnce({
+        kind: 'configured',
+        tokenPlaintext: Buffer.from('gho_bothconfigured'),
+        derivedName: 'Both GH',
+        derivedEmail: 'both@users.noreply.github.com',
+        githubLogin: 'bothconfigured',
+      })
+
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined)
+
+      const handlers = makeHandlers()
+      const ctx = new GitTurnContext({
+        db: makeDb(),
+        generationId: 1,
+        handlers,
+      })
+
+      await ctx.begin('ch1', '123456789012345678', jest.fn())
+
+      expect(insertEvent).not.toHaveBeenCalled()
+      expect(handlers.onGitOperationBlocked).not.toHaveBeenCalled()
+    })
+
+    it('edge case: GitHub configured + SSH decrypt-failed → exactly ONE event (git_key_decrypt_failed), turn not blocked overall (identityConfigured stays true)', async () => {
+      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
+        kind: 'decrypt_failed',
+        fingerprint: 'SHA256:staleboth',
+      })
+      ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(false)
+      ;(resolveGithubToken as jest.Mock).mockReturnValueOnce({
+        kind: 'configured',
+        tokenPlaintext: Buffer.from('gho_githubwins'),
+        derivedName: 'GitHub Wins',
+        derivedEmail: 'ghwins@users.noreply.github.com',
+        githubLogin: 'ghwinsuser',
+      })
+
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      const writeFileSpy = jest
+        .spyOn(fs, 'writeFileSync')
+        .mockImplementation(() => undefined)
+
+      const handlers = makeHandlers()
+      const ctx = new GitTurnContext({
+        db: makeDb(),
+        generationId: 1,
+        handlers,
+      })
+
+      await ctx.begin('ch1', '123456789012345678', jest.fn())
+
+      // Exactly one event total — SSH decrypt-failed, GitHub configured.
+      expect(insertEvent).toHaveBeenCalledTimes(1)
+      expect((insertEvent as jest.Mock).mock.calls[0]![1]).toMatchObject({
+        type: 'git_key_decrypt_failed',
+      })
+      expect(handlers.onGitOperationBlocked).toHaveBeenCalledTimes(1)
+      expect(handlers.onGitOperationBlocked).toHaveBeenCalledWith(
+        'ch1',
+        'ssh',
+        'decrypt_failed',
+      )
+
+      // Turn is NOT blocked overall — the `configured` marker is still
+      // written because GitHub-derived identity satisfies identityConfigured.
+      const configuredWrite = writeFileSpy.mock.calls.find(([p]) =>
+        (p as string).endsWith(path.join('ch1', 'configured')),
+      )
+      expect(configuredWrite).toBeDefined()
+
+      writeFileSpy.mockRestore()
+    })
+
+    it('error path: insertEvent itself throws → logged via the double-fault path, does not crash begin()', async () => {
+      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
+        kind: 'unconfigured',
+      })
+      ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(false)
+      // GitHub axis stays at the default `unconfigured` mock.
+      ;(insertEvent as jest.Mock).mockImplementation(() => {
+        throw new Error('SQLITE_BUSY')
+      })
+
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined)
+
+      const handlers = makeHandlers()
+      const ctx = new GitTurnContext({
+        db: makeDb(),
+        generationId: 1,
+        handlers,
+      })
+
+      await expect(
+        ctx.begin('ch1', '123456789012345678', jest.fn()),
+      ).resolves.toBeUndefined()
+
+      // The handler must never be notified when the DB insert itself failed
+      // — onGitOperationBlocked only fires after a successful insert.
+      expect(handlers.onGitOperationBlocked).not.toHaveBeenCalled()
+
+      // jest.clearAllMocks() (this file's afterEach) resets call history but
+      // NOT a custom mockImplementation — restore the default no-throw
+      // behavior explicitly so later tests in this file aren't affected.
+      ;(insertEvent as jest.Mock).mockImplementation(() => undefined)
+    })
+
+    it('scoping check: block-event logic fires exactly once per axis per begin() call (not per file-write)', async () => {
+      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
+        kind: 'unconfigured',
+      })
+      ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(false)
+      ;(resolveGithubToken as jest.Mock).mockReturnValueOnce({
+        kind: 'unconfigured',
+      })
+
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined)
+
+      const handlers = makeHandlers()
+      const ctx = new GitTurnContext({
+        db: makeDb(),
+        generationId: 1,
+        handlers,
+      })
+
+      await ctx.begin('ch1', '123456789012345678', jest.fn())
+
+      // Both axes unconfigured → exactly two events total (one per axis),
+      // never more, regardless of how many tmpfs files begin() writes.
+      expect(insertEvent).toHaveBeenCalledTimes(2)
+      expect(handlers.onGitOperationBlocked).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not insert an event or notify when generationId is null', async () => {
+      ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
+        kind: 'unconfigured',
+      })
+      ;(isConfigured as unknown as jest.Mock).mockReturnValueOnce(false)
+      ;(resolveGithubToken as jest.Mock).mockReturnValueOnce({
+        kind: 'unconfigured',
+      })
+
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined)
+
+      const handlers = makeHandlers()
+      const ctx = new GitTurnContext({
+        db: makeDb(),
+        generationId: null,
+        handlers,
+      })
+
+      await ctx.begin('ch1', '123456789012345678', jest.fn())
+
+      expect(insertEvent).not.toHaveBeenCalled()
+      expect(handlers.onGitOperationBlocked).not.toHaveBeenCalled()
     })
   })
 })

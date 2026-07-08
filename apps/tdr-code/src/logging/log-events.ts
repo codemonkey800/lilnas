@@ -121,6 +121,19 @@ const GIT_IDENTITY_EVENTS = {
   // agent/git-write-lock.ts's cancelWaiter() — a queued waiter was cancelled
   // during teardown before ever acquiring the lock.
   gitWriteLockWaiterCancelled: 'git-write-lock-waiter-cancelled',
+  // agent/git-turn-context.ts's begin() (per-turn GitHub application &
+  // enforcement plan, U5) — the double-fault path: a block/decrypt-failure
+  // insertEvent call (git_push_blocked/git_key_decrypt_failed/gh_blocked/
+  // github_token_decrypt_failed) itself threw. Mirrors composite-acp-
+  // handler.ts's writerFaultEventInsertFailed shape exactly (log-only, no
+  // retry, never lets a DB fault here crash the turn). No separate per-axis
+  // "block occurred" slug exists — the events.repo.ts insertEvent call
+  // itself is a pure DB write with no accompanying pino log line at any of
+  // its other existing call sites (session-manager.service.ts,
+  // sqlite-writer.service.ts, composite-acp-handler.ts's happy path); the DB
+  // event row IS the telemetry for a successful insert, so only the failure
+  // path needs a registered slug.
+  gitBlockEventInsertFailed: 'git-block-event-insert-failed',
 } as const
 
 const DISCORD_EVENTS = {

@@ -182,6 +182,10 @@ export class SessionManagerService implements OnApplicationShutdown {
     this.gitTurnContext = new GitTurnContext({
       db,
       generationId: this.generationId,
+      // U5: threaded through so begin() can fire the Discord-visible block
+      // notice via the same AcpEventHandlers fan-out this service already
+      // uses for onPromptStart/onPromptComplete/onResumeFailed etc.
+      handlers: this.handlers,
     })
 
     // Boot-time sweep of any orphaned tmpfs key files from a previous crash.

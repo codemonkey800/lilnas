@@ -71,6 +71,13 @@
       "when": 1783529290798,
       "tag": "0009_sparkling_shard",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1783547093026,
+      "tag": "0010_equal_roland_deschain",
+      "breakpoints": true
     }
   ]
 }

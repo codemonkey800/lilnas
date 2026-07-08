@@ -259,6 +259,33 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     }
   }
 
+  // Per-turn GitHub application & enforcement plan — U5: fan-out for the
+  // block-notice method, mirroring onResumeFailed's exact shape immediately
+  // above — Discord-first (real user-visible notice), writer-second (a
+  // no-op today, but fanned out unconditionally per this file's established
+  // "always fan out to both regardless of what writer does with it"
+  // convention, matching onSessionInfoUpdate/onResumeFailed rather than
+  // special-casing "no-op" methods).
+  onGitOperationBlocked(
+    channelId: string,
+    kind: 'ssh' | 'github',
+    reason: 'unconfigured' | 'decrypt_failed',
+  ): void {
+    try {
+      this.discord.onGitOperationBlocked(channelId, kind, reason)
+    } catch (err) {
+      this.logDiscordError(err, 'onGitOperationBlocked', channelId, {
+        kind,
+        reason,
+      })
+    }
+    try {
+      this.writer.onGitOperationBlocked(channelId, kind, reason)
+    } catch (err) {
+      this.handleWriterError(err, 'onGitOperationBlocked', channelId)
+    }
+  }
+
   onUsageUpdate(channelId: string, used: number, size: number): void {
     try {
       this.discord.onUsageUpdate(channelId, used, size)

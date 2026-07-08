@@ -72,4 +72,20 @@ export interface AcpEventHandlers {
   // context window size) — no filtering or validation applied by the
   // dispatcher (acp-client.ts), including no guarantee that size > 0.
   onUsageUpdate(channelId: string, used: number, size: number): void
+  // Per-turn GitHub application & enforcement plan — U5: fired by
+  // GitTurnContext.begin() whenever a credential axis (SSH or GitHub) did
+  // NOT resolve to `configured` for this turn, immediately after the
+  // corresponding DB event (git_push_blocked/git_key_decrypt_failed/
+  // gh_blocked/github_token_decrypt_failed) is inserted. One generic method
+  // (not two axis-specific ones) mirroring onResumeFailed's own
+  // single-purpose "a thing went wrong, tell the user" shape — kind/reason
+  // are enough for every implementer to build the right user-facing message
+  // without needing a second interface method per axis. `reason` is never
+  // 'configured' here by construction — this method only fires for the two
+  // non-configured axis statuses.
+  onGitOperationBlocked(
+    channelId: string,
+    kind: 'ssh' | 'github',
+    reason: 'unconfigured' | 'decrypt_failed',
+  ): void
 }

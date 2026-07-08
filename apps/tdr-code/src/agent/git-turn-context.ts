@@ -5,12 +5,16 @@ import { resolveGithubToken } from 'src/crypto/github-token-resolution'
 import { isConfigured, resolveIdentity } from 'src/crypto/identity-resolution'
 import { loadMasterKey } from 'src/crypto/master-key'
 import type { Db } from 'src/db/database.module'
+import { insertEvent } from 'src/db/events.repo'
 import { getIdentity } from 'src/db/git-identity.repo'
 import { getGithubCredentialByDiscordUserId } from 'src/db/github-credential.repo'
+import type { EventType } from 'src/db/schema'
 import { getBackendLogger } from 'src/logging/backend-logger'
 import { LOG_EVENTS } from 'src/logging/log-events'
 
+import type { AcpEventHandlers } from './agent.types'
 import { globalGitWriteLock } from './git-write-lock'
+import type { AxisStatus } from './turn-identity'
 import { resolveTurnIdentity } from './turn-identity'
 
 // Non-DI (plain class, instantiated via `new` in SessionManagerService's
@@ -41,6 +45,12 @@ const WRAPPER_SCRIPT = path.resolve(
 export interface GitTurnContextOptions {
   db: Db
   generationId: number | null
+  // U5: fan-out target for the Discord-visible block notice — the same
+  // AcpEventHandlers instance SessionManagerService already holds via its
+  // own ACP_EVENT_HANDLERS injection. GitTurnContext is a plain class (not
+  // DI-instantiated), so this is threaded through the options object rather
+  // than @Inject'd directly.
+  handlers: AcpEventHandlers
 }
 
 // State per channel's active turn (cleared at turn end).
@@ -211,6 +221,104 @@ export class GitTurnContext {
         path.join(idDir, 'configured'),
         resolution.kind === 'configured' ? resolution.fingerprint : 'github',
         { mode: 0o600 },
+      )
+    }
+
+    // U5 (R16): structured block-event logging + Discord-visible notice, one
+    // call per axis, ONLY when that axis did NOT resolve to `configured` —
+    // mirrors the tmpfs-write conditionals above exactly (an axis that IS
+    // configured never reaches this branch). A fully-configured "both" user
+    // hits neither branch, so this fires ZERO events for the happy path.
+    // This also retroactively wires the SSH-side events
+    // (git_push_blocked/git_key_decrypt_failed), which existed in the
+    // EVENT_TYPES enum since Phase C but had no insertEvent call site until
+    // this unit (a confirmed gap — see the plan's Key Technical Decisions).
+    if (turnIdentity.sshStatus !== 'configured') {
+      this.logBlockEvent(
+        channelId,
+        userId,
+        'ssh',
+        turnIdentity.sshStatus,
+        turnIdentity.sshStatus === 'decrypt_failed'
+          ? 'git_key_decrypt_failed'
+          : 'git_push_blocked',
+      )
+    }
+    if (turnIdentity.githubStatus !== 'configured') {
+      this.logBlockEvent(
+        channelId,
+        userId,
+        'github',
+        turnIdentity.githubStatus,
+        turnIdentity.githubStatus === 'decrypt_failed'
+          ? 'github_token_decrypt_failed'
+          : 'gh_blocked',
+      )
+    }
+  }
+
+  // U5: shared by both axis branches in begin() above — inserts the
+  // structured block/decrypt-failure event, then (only after that insert
+  // succeeds, still inside the same try) fans out the Discord-visible
+  // notice via AcpEventHandlers. Never lets a fault on either half crash the
+  // turn: a DB error degrades to log-only via the registered
+  // gitBlockEventInsertFailed slug (mirrors composite-acp-handler.ts's
+  // handleWriterError double-fault posture exactly), and a synchronous
+  // handler-side throw (shouldn't happen given CompositeAcpHandler's own
+  // internal try/catch fan-out, but defense in depth costs one more
+  // try/catch) is swallowed rather than propagated.
+  private logBlockEvent(
+    channelId: string,
+    userId: string,
+    kind: 'ssh' | 'github',
+    status: AxisStatus,
+    type: EventType,
+  ): void {
+    // reason is never 'configured' here — callers only invoke this when
+    // status !== 'configured' — but AxisStatus is a 3-member union, so this
+    // narrows for the AcpEventHandlers call below without a cast.
+    const reason: 'unconfigured' | 'decrypt_failed' =
+      status === 'decrypt_failed' ? 'decrypt_failed' : 'unconfigured'
+
+    if (this.opts.generationId == null) return
+    try {
+      // context carries ONLY safe scalars (discordUserId, channelId) —
+      // NEVER err/err.message/anything derived from the decrypt failure.
+      // This context object is written verbatim to a column the console UI
+      // surfaces, a MORE persistent exposure surface than a pino log line,
+      // so the structured-logging convention's "never put decrypt-failure
+      // detail on a key-material-adjacent path" rule applies here too.
+      insertEvent(this.opts.db, {
+        generationId: this.opts.generationId,
+        channelId,
+        type,
+        level: 'warn',
+        context: { discordUserId: userId, channelId },
+        createdAt: new Date(),
+      })
+      // Notify AFTER the DB insert succeeds, still inside this try — mirrors
+      // composite-acp-handler.ts's own "notify after the write succeeds"
+      // convention (see e.g. syncLiveStatus/reactivateSession in
+      // session-manager.service.ts for the same ordering elsewhere).
+      try {
+        this.opts.handlers.onGitOperationBlocked(channelId, kind, reason)
+      } catch (err) {
+        getBackendLogger().debug(
+          { channelId, kind, reason, err },
+          'onGitOperationBlocked handler threw (swallowed)',
+        )
+      }
+    } catch (err) {
+      getBackendLogger().warn(
+        {
+          event: LOG_EVENTS.gitBlockEventInsertFailed,
+          channelId,
+          kind,
+          reason,
+          type,
+          err,
+        },
+        'Block/decrypt-failure event insert failed (log-only, no retry)',
       )
     }
   }

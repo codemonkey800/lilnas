@@ -437,6 +437,10 @@ export const EVENT_TYPES = [
   // Phase C: git-identity enforcement events (R17, R18).
   'git_push_blocked',
   'git_key_decrypt_failed',
+  // Per-turn GitHub application & enforcement plan — U5: GitHub-axis parity
+  // with the SSH-axis events above (R16).
+  'gh_blocked',
+  'github_token_decrypt_failed',
 ] as const
 export type EventType = (typeof EVENT_TYPES)[number]
 
@@ -469,7 +473,7 @@ export const events = sqliteTable(
   t => [
     check(
       'events_type_check',
-      sql`${t.type} IN ('session_created','session_evicted','turn_started','turn_completed','turn_cancelled','turn_errored','turn_interrupted','bot_restart','command_anomaly','transcript_write_failed','git_push_blocked','git_key_decrypt_failed')`,
+      sql`${t.type} IN ('session_created','session_evicted','turn_started','turn_completed','turn_cancelled','turn_errored','turn_interrupted','bot_restart','command_anomaly','transcript_write_failed','git_push_blocked','git_key_decrypt_failed','gh_blocked','github_token_decrypt_failed')`,
     ),
     check('events_level_check', sql`${t.level} IN ('info','warn','error')`),
     // Feed filters (R10 affordance).

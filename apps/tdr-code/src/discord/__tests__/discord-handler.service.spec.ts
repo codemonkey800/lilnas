@@ -553,6 +553,73 @@ describe('DiscordHandlerService — onResumeFailed (U5)', () => {
   })
 })
 
+describe('DiscordHandlerService — onGitOperationBlocked (per-turn GitHub enforcement plan, U5)', () => {
+  it('posts a GitHub-specific notice mentioning /git when kind is "github"', async () => {
+    const channel = createMockTextChannel()
+    const service = await createService(
+      createMockClient(new Map([['ch1', channel]])),
+    )
+
+    service.onGitOperationBlocked('ch1', 'github', 'unconfigured')
+    await new Promise(r => setImmediate(r))
+    await new Promise(r => setImmediate(r))
+
+    expect(channel.send).toHaveBeenCalledTimes(1)
+    const sent = (channel.send as jest.Mock).mock.calls[0]![0]
+    expect(sent.allowedMentions).toEqual({ parse: [] })
+    expect(sent.content).toContain('/git')
+    expect(sent.content.toLowerCase()).toContain('github')
+  })
+
+  it('posts an SSH-specific notice mentioning /git when kind is "ssh"', async () => {
+    const channel = createMockTextChannel()
+    const service = await createService(
+      createMockClient(new Map([['ch1', channel]])),
+    )
+
+    service.onGitOperationBlocked('ch1', 'ssh', 'decrypt_failed')
+    await new Promise(r => setImmediate(r))
+    await new Promise(r => setImmediate(r))
+
+    expect(channel.send).toHaveBeenCalledTimes(1)
+    const sent = (channel.send as jest.Mock).mock.calls[0]![0]
+    expect(sent.allowedMentions).toEqual({ parse: [] })
+    expect(sent.content).toContain('/git')
+    expect(sent.content.toLowerCase()).toContain('ssh')
+  })
+
+  it('does not post anything for a channel that has been /clear-ed (clearedTurnId watermark set)', async () => {
+    const channel = createMockTextChannel()
+    const service = await createService(
+      createMockClient(new Map([['ch1', channel]])),
+    )
+
+    // Same guard behavior as onResumeFailed's own test above: a
+    // late-arriving block notice for a channel that has ALSO just been
+    // /clear'd in the interim shouldn't post into a now-reset channel.
+    service.resetChannel('ch1')
+    service.onGitOperationBlocked('ch1', 'github', 'unconfigured')
+    await new Promise(r => setImmediate(r))
+    await new Promise(r => setImmediate(r))
+
+    expect(channel.send).not.toHaveBeenCalled()
+  })
+
+  it('does not throw when fetchChannel returns null (channel not found/fetchable)', async () => {
+    const mockClient = createMockClient()
+    ;(mockClient.channels.fetch as jest.Mock).mockRejectedValue(
+      new Error('Unknown Channel'),
+    )
+    const service = await createService(mockClient)
+
+    expect(() =>
+      service.onGitOperationBlocked('ch-missing', 'github', 'unconfigured'),
+    ).not.toThrow()
+    await new Promise(r => setImmediate(r))
+    await new Promise(r => setImmediate(r))
+  })
+})
+
 describe('DiscordHandlerService — onMessage / inbound images (U4)', () => {
   beforeEach(() => {
     // Default: no images extracted

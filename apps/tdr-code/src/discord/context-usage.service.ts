@@ -138,6 +138,7 @@ export class ContextUsageService implements AcpEventHandlers {
   onPromptComplete(): void {}
   onSessionInfoUpdate(): void {}
   onResumeFailed(): void {}
+  onGitOperationBlocked(): void {}
 
   // Clears this channel's threshold-dedupe state. Called by ClearCommandService
   // on /clear (a forced-fresh session must not inherit a stale

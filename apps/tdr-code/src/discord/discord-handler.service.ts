@@ -287,6 +287,40 @@ export class DiscordHandlerService
     void _size
   }
 
+  // Per-turn GitHub application & enforcement plan — U5: the real,
+  // user-visible notice for a blocked `git`/`gh` operation. Mirrors
+  // onResumeFailed's exact shape above: honor the cleared-turn guard, fetch
+  // the channel, send a fixed one-line message with
+  // allowedMentions: { parse: [] }, .catch(() => {}) on the send. Kept
+  // synchronous per this file's C1 discipline — the fetch+send is
+  // fire-and-forget. Message text mirrors scripts/git's/scripts/gh's own
+  // blocking wording ("Configure/Link ... at <console>/git") so the
+  // Discord-side and CLI-side messages agree.
+  onGitOperationBlocked(
+    channelId: string,
+    kind: 'ssh' | 'github',
+    _reason: 'unconfigured' | 'decrypt_failed',
+  ): void {
+    void _reason
+    // Honor the cleared-channel guard (same as onResumeFailed/sendAgentImage):
+    // a late-arriving block notice for a channel that has ALSO just been
+    // /clear'd in the interim shouldn't post into a now-reset channel.
+    if (this.clearedTurnId.has(channelId)) return
+    const content =
+      kind === 'github'
+        ? "⚠️ `gh`/GitHub push is blocked — your GitHub account isn't linked. Link it in the console at `/git`."
+        : '⚠️ SSH git push is blocked — your git identity is not configured. Configure it in the console at `/git`.'
+    void this.fetchChannel(channelId).then(channel => {
+      if (!channel) return
+      return channel
+        .send({
+          content,
+          allowedMentions: { parse: [] },
+        })
+        .catch(() => {})
+    })
+  }
+
   // --- Discord event handlers ---
 
   @On(Events.MessageCreate)
