@@ -15,6 +15,16 @@
 #                 1Password SSH-signing setup) can never intercept
 #                 per-turn signing — these keys are passphrase-free and
 #                 must be signed directly.
+#   github_token — plaintext per-turn GitHub token; when present, registers
+#                 a `credential.https://github.com.helper` (Git >=2.31
+#                 env-based config injection, same mechanism as signing
+#                 below) so `git push`/`git fetch` over HTTPS to
+#                 github.com authenticate as the triggering user with no
+#                 SSH key required. Scoped to https://github.com
+#                 SPECIFICALLY (not a blanket credential.helper) — pushes
+#                 to any other HTTPS remote are unaffected and fall
+#                 through to the user's own ambient git credential
+#                 configuration (or fail normally if none exists).
 #   configured  — presence-only gate: written ONLY when the turn's identity
 #                 is confirmed configured. Its ABSENCE (not the presence of
 #                 some other "blocked" marker) is what triggers the
@@ -55,14 +65,21 @@ if [ -n "${TDR_CHANNEL_ID:-}" ] && [ -d "$IDENTITY_DIR" ]; then
     export GIT_SSH_COMMAND
   fi
 
+  # Git env-based config injection (GIT_CONFIG_COUNT / GIT_CONFIG_KEY_n /
+  # GIT_CONFIG_VALUE_n, Git >=2.31) instead of touching .git/config, matching
+  # this wrapper's existing scalar-env-var-only style. Two independent
+  # optional blocks (SSH commit signing, GitHub HTTPS credential helper) can
+  # each be present or absent, so GIT_CONFIG_COUNT is assembled additively
+  # from whichever blocks are actually present rather than a fixed count —
+  # a signing-only turn must still produce exactly the same indices 0-3 as
+  # before this generalization (byte-for-byte regression guard).
+  GIT_CONFIG_IDX=0
+
   # Commit signing (SSH format, Git >=2.34) — only for confirmed-configured
   # turns. `signing_key` is written by GitTurnContext.begin() in the same
   # isConfigured() branch as `configured` itself, so its presence tracks the
-  # same gate. Uses Git's native env-based config injection (GIT_CONFIG_COUNT
-  # / GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n, Git >=2.31) instead of touching
-  # .git/config, matching this wrapper's existing scalar-env-var-only style.
+  # same gate.
   if [ -f "$IDENTITY_DIR/signing_key" ]; then
-    export GIT_CONFIG_COUNT=4
     export GIT_CONFIG_KEY_0=gpg.format
     export GIT_CONFIG_VALUE_0=ssh
     export GIT_CONFIG_KEY_1=user.signingkey
@@ -72,6 +89,34 @@ if [ -n "${TDR_CHANNEL_ID:-}" ] && [ -d "$IDENTITY_DIR" ]; then
     export GIT_CONFIG_VALUE_2=true
     export GIT_CONFIG_KEY_3=gpg.ssh.program
     export GIT_CONFIG_VALUE_3=ssh-keygen
+    GIT_CONFIG_IDX=4
+  fi
+
+  # GitHub HTTPS push credential (R9/R14) — only for a resolved GitHub
+  # token. Scoped to https://github.com SPECIFICALLY via the literal key
+  # `credential.https://github.com.helper`, never a blanket
+  # `credential.helper`, so pushes/fetches against any other HTTPS remote
+  # fall through to the user's own ambient git credential config instead of
+  # ever seeing this token. The helper value is a `!`-prefixed inline shell
+  # snippet: git's credential-helper protocol invokes it via `sh -c` in its
+  # OWN subshell, which does NOT inherit this script's local bash
+  # variables — only the literal string written into GIT_CONFIG_VALUE_n
+  # survives into that subshell. The double-quoted assignment below
+  # therefore expands `${IDENTITY_DIR}` to its resolved absolute path HERE,
+  # at wrapper-run-time, baking the literal path into the exported string —
+  # not left as `$IDENTITY_DIR` for the credential-helper's subshell to
+  # resolve on its own, since that subshell has no such variable in its
+  # environment.
+  if [ -f "$IDENTITY_DIR/github_token" ]; then
+    GIT_CONFIG_KEY_VAR="GIT_CONFIG_KEY_${GIT_CONFIG_IDX}"
+    GIT_CONFIG_VALUE_VAR="GIT_CONFIG_VALUE_${GIT_CONFIG_IDX}"
+    export "${GIT_CONFIG_KEY_VAR}=credential.https://github.com.helper"
+    export "${GIT_CONFIG_VALUE_VAR}=!f() { echo username=x-access-token; echo password=\$(cat \"${IDENTITY_DIR}/github_token\"); }; f"
+    GIT_CONFIG_IDX=$((GIT_CONFIG_IDX + 1))
+  fi
+
+  if [ "$GIT_CONFIG_IDX" -gt 0 ]; then
+    export GIT_CONFIG_COUNT="$GIT_CONFIG_IDX"
   fi
 
   if [ ! -f "$IDENTITY_DIR/configured" ]; then

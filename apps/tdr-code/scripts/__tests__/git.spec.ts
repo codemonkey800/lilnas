@@ -28,6 +28,41 @@ async function runWrapper(
     }))
 }
 
+// Like runWrapper, but also writes to and closes the child's stdin. Needed
+// for `git credential fill`, which reads its request from stdin. Note:
+// execFile's options object has no `input` field (that's execSync/
+// spawnSync-only) — the child's stdin stream must be written and ended
+// directly, or a stdin-reading command like `git credential fill` hangs
+// waiting for EOF that never comes.
+function runWrapperWithStdin(
+  args: string[],
+  stdin: string,
+  env: Record<string, string> = {},
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise(resolve => {
+    const child = execFile(
+      'bash',
+      [WRAPPER, ...args],
+      {
+        env: {
+          ...process.env,
+          TDR_CHANNEL_ID: 'test-channel',
+          TDR_REAL_GIT: '/usr/bin/git',
+          ...env,
+        },
+      },
+      (err, stdout, stderr) => {
+        const code = err
+          ? ((err as NodeJS.ErrnoException & { code: number }).code ?? 1)
+          : 0
+        resolve({ code, stdout, stderr })
+      },
+    )
+    child.stdin?.write(stdin)
+    child.stdin?.end()
+  })
+}
+
 const CHANNEL_ID = 'ch1'
 
 // Verbs that create commits under the placeholder identity, or push/pull
@@ -187,6 +222,235 @@ describe('scripts/git wrapper', () => {
         })
 
         expect(stdout).not.toContain('GIT_CONFIG_COUNT')
+      })
+
+      it('does not export GIT_CONFIG_* when neither signing_key nor github_token is present', async () => {
+        const envFakeGit = path.join(runDir, 'env-fake-git')
+        fs.writeFileSync(envFakeGit, '#!/usr/bin/env bash\nenv\n', {
+          mode: 0o755,
+        })
+
+        // idDir already has no signing_key/github_token from beforeEach —
+        // explicit here for clarity even though the prior test already
+        // covers this by omission.
+        expect(fs.existsSync(path.join(idDir, 'signing_key'))).toBe(false)
+        expect(fs.existsSync(path.join(idDir, 'github_token'))).toBe(false)
+
+        const { stdout } = await runWrapper(['status'], {
+          TDR_CHANNEL_ID: CHANNEL_ID,
+          TDR_CODE_RUN_DIR: runDir,
+          TDR_REAL_GIT: envFakeGit,
+        })
+
+        expect(stdout).not.toContain('GIT_CONFIG_COUNT')
+        expect(stdout).not.toContain('GIT_CONFIG_KEY_')
+      })
+    })
+
+    describe('GitHub HTTPS credential injection', () => {
+      it('exports GIT_CONFIG_* for both signing and the GitHub credential helper when both files are present', async () => {
+        const envFakeGit = path.join(runDir, 'env-fake-git')
+        fs.writeFileSync(envFakeGit, '#!/usr/bin/env bash\nenv\n', {
+          mode: 0o755,
+        })
+        const signingKeyPath = path.join(runDir, 'dummy.key')
+        fs.writeFileSync(path.join(idDir, 'signing_key'), signingKeyPath)
+        fs.writeFileSync(path.join(idDir, 'github_token'), 'ghtoken-abc123')
+
+        const { stdout } = await runWrapper(['status'], {
+          TDR_CHANNEL_ID: CHANNEL_ID,
+          TDR_CODE_RUN_DIR: runDir,
+          TDR_REAL_GIT: envFakeGit,
+        })
+
+        // Combined count: 4 signing pairs + 1 credential-helper pair.
+        expect(stdout).toContain('GIT_CONFIG_COUNT=5')
+
+        // Signing block occupies indices 0-3, byte-for-byte identical to
+        // the signing-only case (see "commit signing" describe block).
+        expect(stdout).toContain('GIT_CONFIG_KEY_0=gpg.format')
+        expect(stdout).toContain('GIT_CONFIG_VALUE_0=ssh')
+        expect(stdout).toContain('GIT_CONFIG_KEY_1=user.signingkey')
+        expect(stdout).toContain(`GIT_CONFIG_VALUE_1=${signingKeyPath}`)
+        expect(stdout).toContain('GIT_CONFIG_KEY_2=commit.gpgsign')
+        expect(stdout).toContain('GIT_CONFIG_VALUE_2=true')
+        expect(stdout).toContain('GIT_CONFIG_KEY_3=gpg.ssh.program')
+        expect(stdout).toContain('GIT_CONFIG_VALUE_3=ssh-keygen')
+
+        // Credential helper occupies index 4, scoped to github.com only.
+        expect(stdout).toContain(
+          'GIT_CONFIG_KEY_4=credential.https://github.com.helper',
+        )
+        const valueLine = stdout
+          .split('\n')
+          .find(line => line.startsWith('GIT_CONFIG_VALUE_4='))
+        expect(valueLine).toBeDefined()
+        expect(valueLine).toContain('username=x-access-token')
+        expect(valueLine).toContain(`cat "${path.join(idDir, 'github_token')}"`)
+      })
+
+      it('exports only the credential helper (GIT_CONFIG_COUNT=1) when only github_token is present — the core AE3 assertion', async () => {
+        const envFakeGit = path.join(runDir, 'env-fake-git')
+        fs.writeFileSync(envFakeGit, '#!/usr/bin/env bash\nenv\n', {
+          mode: 0o755,
+        })
+        fs.writeFileSync(path.join(idDir, 'github_token'), 'ghtoken-abc123')
+
+        // No signing_key: a GitHub-only user needs no SSH key to push.
+        expect(fs.existsSync(path.join(idDir, 'signing_key'))).toBe(false)
+
+        const { stdout } = await runWrapper(['status'], {
+          TDR_CHANNEL_ID: CHANNEL_ID,
+          TDR_CODE_RUN_DIR: runDir,
+          TDR_REAL_GIT: envFakeGit,
+        })
+
+        expect(stdout).toContain('GIT_CONFIG_COUNT=1')
+        expect(stdout).toContain(
+          'GIT_CONFIG_KEY_0=credential.https://github.com.helper',
+        )
+        const valueLine = stdout
+          .split('\n')
+          .find(line => line.startsWith('GIT_CONFIG_VALUE_0='))
+        expect(valueLine).toBeDefined()
+        expect(valueLine).toContain('username=x-access-token')
+        expect(valueLine).toContain(`cat "${path.join(idDir, 'github_token')}"`)
+
+        // No signing config leaked into the same run.
+        expect(stdout).not.toContain('gpg.format')
+        expect(stdout).not.toContain('user.signingkey')
+      })
+
+      it('exports GIT_CONFIG_COUNT=4 identically to today, byte-for-byte, when only signing_key is present (regression guard)', async () => {
+        const envFakeGit = path.join(runDir, 'env-fake-git')
+        fs.writeFileSync(envFakeGit, '#!/usr/bin/env bash\nenv\n', {
+          mode: 0o755,
+        })
+        const signingKeyPath = path.join(runDir, 'dummy.key')
+        fs.writeFileSync(path.join(idDir, 'signing_key'), signingKeyPath)
+
+        expect(fs.existsSync(path.join(idDir, 'github_token'))).toBe(false)
+
+        const { stdout } = await runWrapper(['status'], {
+          TDR_CHANNEL_ID: CHANNEL_ID,
+          TDR_CODE_RUN_DIR: runDir,
+          TDR_REAL_GIT: envFakeGit,
+        })
+
+        // Identical assertions to the pre-existing signing-only test in the
+        // "commit signing" describe block above — this generalization must
+        // not change a single byte of the signing-only path.
+        expect(stdout).toContain('GIT_CONFIG_COUNT=4')
+        expect(stdout).toContain('GIT_CONFIG_KEY_0=gpg.format')
+        expect(stdout).toContain('GIT_CONFIG_VALUE_0=ssh')
+        expect(stdout).toContain('GIT_CONFIG_KEY_1=user.signingkey')
+        expect(stdout).toContain(`GIT_CONFIG_VALUE_1=${signingKeyPath}`)
+        expect(stdout).toContain('GIT_CONFIG_KEY_2=commit.gpgsign')
+        expect(stdout).toContain('GIT_CONFIG_VALUE_2=true')
+        expect(stdout).toContain('GIT_CONFIG_KEY_3=gpg.ssh.program')
+        expect(stdout).toContain('GIT_CONFIG_VALUE_3=ssh-keygen')
+        expect(stdout).not.toContain('GIT_CONFIG_KEY_4')
+        expect(stdout).not.toContain('credential.https://github.com.helper')
+      })
+
+      // Unconditional scoping proof (baseline, no real git required): the
+      // exported config KEY string is the URL-scoped
+      // `credential.https://github.com.helper`, never a blanket
+      // `credential.helper` — this is what makes the scoping possible at
+      // all, and is asserted regardless of whether a real git binary is
+      // available to drive the fuller integration test below.
+      it('scopes the credential helper key to https://github.com, never a blanket credential.helper', async () => {
+        const envFakeGit = path.join(runDir, 'env-fake-git')
+        fs.writeFileSync(envFakeGit, '#!/usr/bin/env bash\nenv\n', {
+          mode: 0o755,
+        })
+        fs.writeFileSync(path.join(idDir, 'github_token'), 'ghtoken-abc123')
+
+        const { stdout } = await runWrapper(['status'], {
+          TDR_CHANNEL_ID: CHANNEL_ID,
+          TDR_CODE_RUN_DIR: runDir,
+          TDR_REAL_GIT: envFakeGit,
+        })
+
+        expect(stdout).toContain(
+          'GIT_CONFIG_KEY_0=credential.https://github.com.helper',
+        )
+        // Must never widen to a blanket helper that would apply to every
+        // remote regardless of host.
+        expect(stdout).not.toMatch(/^GIT_CONFIG_KEY_\d+=credential\.helper$/m)
+      })
+
+      // Security-relevant integration test: proves the credential helper is
+      // scoped to https://github.com specifically, using REAL git's own
+      // credential-helper resolution (`git credential fill`) rather than
+      // only asserting the injected config string — `git push`/`git fetch`
+      // resolve credentials via this exact codepath before ever opening an
+      // HTTP connection, so exercising it here proves the scoping actually
+      // works end-to-end, not just that the right key/value strings were
+      // exported. Confirmed locally that a real `git` binary is available
+      // (git 2.53.0); the guard below keeps this test from failing the
+      // whole suite on a stripped-down CI image that lacks git on PATH —
+      // it skips (not fails) in that case, falling back to the
+      // unconditional scoping-string proof above.
+      //
+      // HOME is pointed at an empty, isolated directory (rather than
+      // inheriting the test runner's real ~/.gitconfig) so no ambient
+      // credential.helper on the host machine or CI runner can supply a
+      // credential for the non-GitHub host and mask a scoping bug as a
+      // false pass.
+      it('does not send the GitHub token as a credential for a non-GitHub HTTPS host (real git credential resolution)', async () => {
+        const hasRealGit = await execFileAsync('which', ['git'])
+          .then(() => true)
+          .catch(() => false)
+        if (!hasRealGit) {
+          console.warn(
+            'skipping real-git credential-scoping test: no git on PATH',
+          )
+          return
+        }
+
+        fs.writeFileSync(path.join(idDir, 'github_token'), 'ghtoken-abc123')
+        expect(fs.existsSync(path.join(idDir, 'signing_key'))).toBe(false)
+
+        const isolatedHome = fs.mkdtempSync(
+          path.join(os.tmpdir(), 'tdr-git-test-home-'),
+        )
+        try {
+          // github.com: the scoped helper fires and returns our token via
+          // real git's own credential-helper protocol.
+          const githubResult = await runWrapperWithStdin(
+            ['credential', 'fill'],
+            'protocol=https\nhost=github.com\n',
+            {
+              HOME: isolatedHome,
+              TDR_CHANNEL_ID: CHANNEL_ID,
+              TDR_CODE_RUN_DIR: runDir,
+              TDR_REAL_GIT: 'git',
+            },
+          )
+          expect(githubResult.code).toBe(0)
+          expect(githubResult.stdout).toContain('username=x-access-token')
+          expect(githubResult.stdout).toContain('password=ghtoken-abc123')
+
+          // gitlab.com: the scoped helper does NOT fire. With no ambient
+          // credential source (isolated HOME) and no TTY to prompt, git
+          // must fail cleanly rather than ever emitting our GitHub token.
+          const gitlabResult = await runWrapperWithStdin(
+            ['credential', 'fill'],
+            'protocol=https\nhost=gitlab.com\n',
+            {
+              HOME: isolatedHome,
+              TDR_CHANNEL_ID: CHANNEL_ID,
+              TDR_CODE_RUN_DIR: runDir,
+              TDR_REAL_GIT: 'git',
+            },
+          )
+          expect(gitlabResult.code).not.toBe(0)
+          expect(gitlabResult.stdout).not.toContain('ghtoken-abc123')
+          expect(gitlabResult.stdout).not.toContain('x-access-token')
+        } finally {
+          fs.rmSync(isolatedHome, { recursive: true, force: true })
+        }
       })
     })
 
