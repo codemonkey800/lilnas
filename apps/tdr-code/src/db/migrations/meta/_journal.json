@@ -64,6 +64,13 @@
       "when": 1783242403268,
       "tag": "0008_clammy_dreadnoughts",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1783529290798,
+      "tag": "0009_sparkling_shard",
+      "breakpoints": true
     }
   ]
 }

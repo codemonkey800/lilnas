@@ -80,6 +80,15 @@ const IDENTITY_EVENTS = {
   identityDecryptFailed: 'identity-decrypt-failed',
 } as const
 
+const GITHUB_TOKEN_EVENTS = {
+  // crypto/github-token-resolution.ts's resolveGithubToken decrypt/parse-
+  // failure path — the sibling of IDENTITY_EVENTS' identityDecryptFailed for
+  // the GitHub OAuth token store (github_credential). Never logged with
+  // err.message/err.stack, same rationale as identityDecryptFailed:
+  // coarsened unconditionally to err.name/class only.
+  githubTokenDecryptFailed: 'github-token-decrypt-failed',
+} as const
+
 const GIT_IDENTITY_EVENTS = {
   // agent/git-turn-context.ts's GitTurnContext.sweep() — boot/shutdown
   // cleanup of orphaned tmpfs key/identity files from a previous crash.
@@ -527,6 +536,7 @@ export const LOG_EVENTS = {
   ...DEV_LOGIN_EVENTS,
   ...SESSION_EVENTS,
   ...IDENTITY_EVENTS,
+  ...GITHUB_TOKEN_EVENTS,
   ...GIT_IDENTITY_EVENTS,
   ...DISCORD_EVENTS,
   ...COMMAND_POLLER_EVENTS,

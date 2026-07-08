@@ -570,6 +570,73 @@ export const gitIdentity = sqliteTable('git_identity', {
 })
 
 // ──────────────────────────────────────────────────────────────────────────────
+// GitHub-linking plan — U1: github_credential (Better Auth `account` row
+// linkage → encrypted GitHub OAuth token)
+//
+// Sibling to git_identity above, but for a GitHub OAuth token rather than an
+// SSH private key: one row per Better Auth `user.id` (not a raw Discord
+// snowflake — see the account table below for how the two connect), storing
+// the encrypted token plus the profile fields derived from it at link time
+// (R8). Keyed on userId as a PRIMARY KEY (not a unique index over a
+// nullable/multi-row shape) is itself the "no multiple-GitHub-accounts per
+// user" enforcement (Scope Boundaries) — a second `linkSocial` call for the
+// same user overwrites this single row rather than creating a second one.
+//
+// CRITICAL READ-SIDE INVARIANT (see the plan's "Key Technical Decisions" —
+// the write-side non-atomicity finding): the hook that writes this table and
+// Better Auth's own `account` row insert are two independent, non-
+// transactional operations (Better Auth's `linkSocial`/`linkAccount` path
+// has no transaction wrapper, and this app's Drizzle adapter sets
+// `transaction: false`). A failed/racing `account` insert after this
+// table's write has already committed leaves an ORPHANED github_credential
+// row with no matching `account` row. Exactly like the existing Discord
+// guild-gate hook's mirror-image orphaned-`user`-row case (see
+// `auth/guild-gate.ts`'s header comment and `db/auth-sweep.repo.ts`'s
+// `sweepAccountlessUsers`), the fix is never trusting write-side atomicity
+// across a Better Auth hook boundary: every read site
+// (`github-credential.repo.ts`'s getGithubCredential /
+// getGithubCredentialByDiscordUserId / listGithubCredentialStatuses) must
+// INNER JOIN against `account` (providerId = 'github') before reporting a
+// user as linked — a bare `SELECT * FROM github_credential` is never
+// sufficient to answer "is this user linked?". An orphaned row is invisible
+// everywhere that matters and self-heals on next observation; a periodic
+// sweep is optional cleanup hygiene, not the correctness mechanism.
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const githubCredential = sqliteTable('github_credential', {
+  // Better Auth's user.id — NOT a raw Discord snowflake. One row per user;
+  // this PK is what enforces "no multiple-GitHub-accounts per user."
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  // GitHub's numeric profile id (as a string) and login, captured at link
+  // time from GET /user — used to compute derivedEmail's noreply address
+  // and to detect a duplicate-account-link conflict (R8, see auth-account-
+  // hook.ts in a later unit).
+  githubUserId: text('github_user_id').notNull(),
+  githubLogin: text('github_login').notNull(),
+  // R8: auto-derived commit identity — name = GitHub name falling back to
+  // login; email = the account's noreply address. Never manually entered.
+  derivedName: text('derived_name').notNull(),
+  derivedEmail: text('derived_email').notNull(),
+  // AES-256-GCM blobs — all three required for decryption, same shape as
+  // git_identity's key* columns above.
+  tokenCiphertext: blob('token_ciphertext', { mode: 'buffer' }).notNull(),
+  tokenIv: blob('token_iv', { mode: 'buffer' }).notNull(),
+  tokenAuthTag: blob('token_auth_tag', { mode: 'buffer' }).notNull(),
+  // The granted OAuth scope string (e.g. "repo,workflow,read:user,user:email"),
+  // stored for future scope-narrowing audits (R6).
+  scope: text('scope').notNull(),
+  // Which master key encrypted this row; seeded to 1, never incremented this
+  // phase — reserved for rotation tooling (mirrors git_identity's column).
+  masterKeyVersion: integer('master_key_version').notNull().default(1),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export type GithubCredentialRow = typeof githubCredential.$inferSelect
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Phase D — U1: user · session · account · verification (Better Auth)
 //
 // Canonical shape per `@better-auth/cli generate` (Better Auth 1.6.x Drizzle/
