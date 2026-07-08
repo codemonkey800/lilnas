@@ -1,14 +1,17 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { resolveGithubToken } from 'src/crypto/github-token-resolution'
 import { isConfigured, resolveIdentity } from 'src/crypto/identity-resolution'
 import { loadMasterKey } from 'src/crypto/master-key'
 import type { Db } from 'src/db/database.module'
 import { getIdentity } from 'src/db/git-identity.repo'
+import { getGithubCredentialByDiscordUserId } from 'src/db/github-credential.repo'
 import { getBackendLogger } from 'src/logging/backend-logger'
 import { LOG_EVENTS } from 'src/logging/log-events'
 
 import { globalGitWriteLock } from './git-write-lock'
+import { resolveTurnIdentity } from './turn-identity'
 
 // Non-DI (plain class, instantiated via `new` in SessionManagerService's
 // constructor, not DI) — module-scope since sweep() is static and cannot use
@@ -78,10 +81,25 @@ export class GitTurnContext {
     const masterKey = loadMasterKey()
     const row = getIdentity(this.opts.db, userId)
     const resolution = resolveIdentity(row, masterKey)
+    // GitHub axis (Plan A U1) — resolved with the SAME masterKey already
+    // loaded above for the SSH axis; no second loadMasterKey() call needed.
+    const githubRow = getGithubCredentialByDiscordUserId(this.opts.db, userId)
+    const githubResolution = resolveGithubToken(githubRow, masterKey)
+    // U1: compose both already-resolved axes into the single combined
+    // decision the rest of this method applies — see turn-identity.ts for
+    // the full precedence rationale (GitHub wins commit name/email once
+    // configured; identityConfigured generalizes the `configured` marker
+    // below to "either axis," not SSH alone).
+    const turnIdentity = resolveTurnIdentity(
+      resolution,
+      githubResolution,
+      userId,
+    )
     getBackendLogger().debug(
       {
         channelId,
-        kind: resolution.kind,
+        sshStatus: turnIdentity.sshStatus,
+        githubStatus: turnIdentity.githubStatus,
         fingerprint:
           resolution.kind !== 'unconfigured'
             ? resolution.fingerprint
@@ -99,6 +117,20 @@ export class GitTurnContext {
     this.activeTurns.set(channelId, state)
 
     const idDir = path.join(IDENTITY_DIR, channelId)
+    fs.mkdirSync(idDir, { recursive: true, mode: 0o700 })
+    state.identityDir = idDir
+
+    // name/email now come from the combined TurnIdentity decision (U1) for
+    // EVERY branch — GitHub-derived when linked, else SSH-derived, else the
+    // same blocked-placeholder strings this file always wrote directly
+    // (turn-identity.ts's blockedPlaceholder() is byte-for-byte compatible
+    // with the old inline `userId` / `${userId}@unconfigured` values).
+    fs.writeFileSync(path.join(idDir, 'name'), turnIdentity.commitName, {
+      mode: 0o600,
+    })
+    fs.writeFileSync(path.join(idDir, 'email'), turnIdentity.commitEmail, {
+      mode: 0o600,
+    })
 
     if (isConfigured(resolution)) {
       // Write key to tmpfs, then write identity files for the git wrapper.
@@ -119,13 +151,6 @@ export class GitTurnContext {
         ` -o ControlMaster=no` +
         ` -o ControlPath=none`
 
-      fs.mkdirSync(idDir, { recursive: true, mode: 0o700 })
-      fs.writeFileSync(path.join(idDir, 'name'), resolution.name, {
-        mode: 0o600,
-      })
-      fs.writeFileSync(path.join(idDir, 'email'), resolution.email, {
-        mode: 0o600,
-      })
       fs.writeFileSync(path.join(idDir, 'ssh_command'), sshCommand, {
         mode: 0o600,
       })
@@ -135,27 +160,58 @@ export class GitTurnContext {
       fs.writeFileSync(path.join(idDir, 'signing_key'), keyPath, {
         mode: 0o600,
       })
-      // Positive gate signal for the `scripts/git` PATH wrapper's local-write
-      // block: presence means "identity confirmed configured for this turn."
-      // Content (fingerprint) is a free debug value. Deliberately NOT written
-      // in the unconfigured/decrypt-failed branch below, so the wrapper's
-      // check defaults to blocked (fail-closed) if this write is ever
-      // skipped.
-      fs.writeFileSync(path.join(idDir, 'configured'), resolution.fingerprint, {
-        mode: 0o600,
-      })
-      state.identityDir = idDir
     } else {
-      // No identity or decrypt failure → write identity files with blocking wrapper.
-      fs.mkdirSync(idDir, { recursive: true, mode: 0o700 })
-      fs.writeFileSync(path.join(idDir, 'name'), userId, { mode: 0o600 })
-      fs.writeFileSync(path.join(idDir, 'email'), `${userId}@unconfigured`, {
-        mode: 0o600,
-      })
+      // No SSH identity or decrypt failure → point GIT_SSH_COMMAND at the
+      // blocking wrapper. This is independent of the GitHub axis: a
+      // GitHub-only user still gets this (they simply have no SSH key to
+      // push to a non-GitHub remote or sign with), which is exactly R10's
+      // "SSH key required only for non-GitHub remotes / signing" contract.
       fs.writeFileSync(path.join(idDir, 'ssh_command'), WRAPPER_SCRIPT, {
         mode: 0o600,
       })
-      state.identityDir = idDir
+    }
+
+    if (turnIdentity.githubToken !== null) {
+      // GitHub axis configured — write the per-turn HTTPS push credential /
+      // `gh` auth token to tmpfs, mirroring the SSH key's mode-0600 tmpfs
+      // write above. Read by scripts/gh (GH_TOKEN) and scripts/git's
+      // credential.https://github.com.helper injection.
+      fs.writeFileSync(
+        path.join(idDir, 'github_token'),
+        turnIdentity.githubToken,
+        { mode: 0o600 },
+      )
+      // Best-effort zeroize plaintext, mirroring resolution.keyPlaintext.fill(0)
+      // above — this is exactly why turn-identity.ts kept githubToken as a
+      // Buffer rather than a string.
+      turnIdentity.githubToken.fill(0)
+      // Positive gate signal for scripts/gh and the HTTPS credential-helper
+      // injection specifically — presence, not content, is the gate (content
+      // is an arbitrary debug marker, mirroring `configured` below).
+      fs.writeFileSync(path.join(idDir, 'gh_configured'), 'true', {
+        mode: 0o600,
+      })
+    }
+
+    if (turnIdentity.identityConfigured) {
+      // Positive gate signal for the `scripts/git` PATH wrapper's local-write
+      // block: presence means "this turn has SOME way to attribute/push
+      // commits" — GitHub OR SSH (U1's identityConfigured), NOT SSH alone.
+      // CRITICAL: this is the fix for the gap the plan's Key Technical
+      // Decisions/Open Questions called out at length — leaving this keyed
+      // to `isConfigured(resolution)` (SSH only) would wrongly block a
+      // GitHub-only user (no SSH key at all) at scripts/git's pre-existing
+      // verb-block, contradicting AE3/R9/R10. Content (fingerprint when SSH
+      // is the configured axis, else a stable debug value) is a free debug
+      // value per the header comment in scripts/git — presence is what
+      // matters, not content. Deliberately NOT written when
+      // identityConfigured is false, so the wrapper's check defaults to
+      // blocked (fail-closed) if this write is ever skipped.
+      fs.writeFileSync(
+        path.join(idDir, 'configured'),
+        resolution.kind === 'configured' ? resolution.fingerprint : 'github',
+        { mode: 0o600 },
+      )
     }
   }
 

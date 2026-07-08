@@ -105,6 +105,9 @@ export class SessionManagerService implements OnApplicationShutdown {
   // Resolved once in the constructor — same for all sessions.
   private readonly scriptsDir: string
   private readonly realGit: string
+  // Resolved LENIENTLY, unlike realGit above — see the constructor's own
+  // comment at the point of resolution for why the two must diverge.
+  private readonly realGh: string | null
   private readonly anthropicModel: string
 
   // U5: live_status heartbeat — one timer per bot lifetime, cleared by shutdown
@@ -141,6 +144,39 @@ export class SessionManagerService implements OnApplicationShutdown {
 
     this.scriptsDir = path.resolve(__dirname, '../../scripts')
     this.realGit = execFileSync('which', ['git'], { encoding: 'utf-8' }).trim()
+    // ASYMMETRY WITH this.realGit ABOVE — DO NOT copy-paste its hard-fail
+    // shape here. `git` is a hard dependency of every feature this bot has,
+    // so a missing `git` throwing out of the constructor (killing the whole
+    // bot child process) is the correct, intentional behavior for it. `gh`
+    // is NOT a hard dependency — R10 explicitly allows a user to be
+    // GitHub-only, SSH-only, both, or neither, so a host with no `gh`
+    // installed must still boot with `git`/SSH fully functional.
+    // SessionManagerService is constructed inside the separately-spawned bot
+    // child process with NO NestJS-level error boundary around provider
+    // construction (bot-bootstrap.ts/bot-main.ts wrap nothing) — a
+    // constructor throw here is an uncaught exception that kills the entire
+    // bot child process, and the supervisor's restart-with-backoff loop
+    // would then retry the same deterministic failure until it exhausts into
+    // a terminal crash-loop, taking down every capability (SSH git included)
+    // over a missing dependency for a capability that is allowed to be
+    // independently absent. So: attempt `which gh`, but on failure log a
+    // warn-level event and leave `this.realGh` as `null` rather than
+    // rethrowing — scripts/gh (U2) checks for an unset TDR_REAL_GH and
+    // prints a distinct "gh is not installed on this host" message instead
+    // of assuming it is always present.
+    try {
+      this.realGh = execFileSync('which', ['gh'], { encoding: 'utf-8' }).trim()
+    } catch (err) {
+      this.realGh = null
+      // Plain filesystem/PATH-lookup error (ENOENT-shaped, same as `which`
+      // failing for any other binary) — not secret-bearing, so { err } is
+      // safe, mirroring the KEYS_DIR/IDENTITY_DIR mkdir debug-log precedent
+      // in git-turn-context.ts.
+      this.logger.warn(
+        { event: LOG_EVENTS.ghBinaryNotFound, err },
+        'gh CLI not found on PATH — GitHub features disabled for this bot process',
+      )
+    }
     this.anthropicModel = process.env[EnvKeys.ANTHROPIC_MODEL] ?? 'sonnet[1m]'
 
     this.gitTurnContext = new GitTurnContext({
@@ -1007,6 +1043,15 @@ export class SessionManagerService implements OnApplicationShutdown {
         TDR_CHANNEL_ID: channelId,
         // Real git binary — prevents infinite recursion in the wrapper.
         TDR_REAL_GIT: this.realGit,
+        // Real gh binary — prevents infinite recursion in scripts/gh.
+        // Conditionally spread (not an unconditional TDR_REAL_GH: this.realGh
+        // ?? '') so a host with no `gh` installed omits the key entirely
+        // rather than sending an empty string — scripts/gh's `[ -z
+        // "${TDR_REAL_GH:-}" ]` check treats both identically, but omitting
+        // the key is the cleaner, more correct expression of "an agent
+        // process spawned on a host without gh simply never sees that env
+        // var" (see this.realGh's lenient resolution in the constructor).
+        ...(this.realGh ? { TDR_REAL_GH: this.realGh } : {}),
         // Read by the ACP wrapper's getAvailableModels() inside the spawned
         // agent subprocess. Defaults to 'sonnet[1m]' in the constructor
         // above when the operator hasn't set a real ANTHROPIC_MODEL.

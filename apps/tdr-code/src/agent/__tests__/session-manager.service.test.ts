@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { Readable, Writable } from 'node:stream'
 
@@ -70,8 +70,16 @@ function createMockConnection(stopReason = 'end_turn'): TestConnection {
   }
 }
 
+// execFileSync is arg-aware (not a flat mockReturnValue) so tests can
+// control `which gh`'s outcome independently of `which git`'s — needed for
+// the this.realGh lenient-resolution tests below, which simulate a host
+// with `git` present but `gh` absent (and vice versa is never exercised,
+// since git is a hard dependency this suite always keeps happy).
 jest.mock('node:child_process', () => ({
-  execFileSync: jest.fn().mockReturnValue('/usr/bin/git'),
+  execFileSync: jest.fn((cmd: string, args: string[]) => {
+    if (args[0] === 'gh') return '/usr/bin/gh'
+    return '/usr/bin/git'
+  }),
   spawn: jest.fn(),
 }))
 
@@ -674,6 +682,196 @@ describe('SessionManagerService', () => {
         ),
       ])
       release2()
+    })
+  })
+
+  describe('this.realGh — lenient gh CLI resolution (U4)', () => {
+    afterEach(() => {
+      jest.mocked(execFileSync).mockImplementation((cmd: string, args) => {
+        if ((args as string[])[0] === 'gh') return '/usr/bin/gh'
+        return '/usr/bin/git'
+      })
+    })
+
+    it('resolves this.realGh to the `which gh` output when execFileSync succeeds', async () => {
+      const handlers = createMockHandlers()
+      const service = await createService(handlers)
+
+      expect((service as unknown as { realGh: string | null }).realGh).toBe(
+        '/usr/bin/gh',
+      )
+    })
+
+    it('boot-dependency regression guard: a missing `gh` does not throw out of the constructor, and this.realGh stays null', async () => {
+      jest.mocked(execFileSync).mockImplementation((cmd, args) => {
+        if ((args as string[])[0] === 'gh') {
+          throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+        }
+        return '/usr/bin/git'
+      })
+
+      const handlers = createMockHandlers()
+      const logger = makeLogger()
+      const module = await Test.createTestingModule({
+        providers: [
+          SessionManagerService,
+          { provide: ACP_EVENT_HANDLERS, useValue: handlers },
+          { provide: DB, useValue: createMockDb() },
+          { provide: PinoLogger, useValue: logger },
+          { provide: NotifyEmitterService, useValue: makeNotifyEmitterMock() },
+        ],
+      }).compile()
+
+      // Construction itself must not throw — this is the whole point of the
+      // lenient resolution (a missing optional `gh` must never crash the bot
+      // child process the way a missing `git` intentionally would).
+      const service = module.get(SessionManagerService)
+
+      expect((service as unknown as { realGh: string | null }).realGh).toBe(
+        null,
+      )
+      expect(jest.mocked(logger.warn)).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'gh-binary-not-found' }),
+        expect.any(String),
+      )
+
+      // git/SSH functionality is unaffected — realGit still resolved fine.
+      expect((service as unknown as { realGit: string }).realGit).toBe(
+        '/usr/bin/git',
+      )
+    })
+
+    it('spawn env includes TDR_REAL_GH when gh is installed', async () => {
+      const handlers = createMockHandlers()
+      const service = await createService(handlers)
+
+      const mockProc = new EventEmitter() as EventEmitter & {
+        pid: number
+        stdin: unknown
+        stdout: EventEmitter
+        kill: jest.Mock
+      }
+      mockProc.pid = 42424
+      mockProc.stdin = new Writable({ write: (_c, _e, cb) => cb() })
+      mockProc.stdout = new Readable({ read: () => {} })
+      mockProc.kill = jest.fn()
+      jest.mocked(spawn).mockReturnValue(mockProc as never)
+      ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
+        initialize: jest
+          .fn()
+          .mockResolvedValue({ agentCapabilities: { promptCapabilities: {} } }),
+        newSession: jest.fn().mockResolvedValue({ sessionId: 'gh-env-test' }),
+        prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+      }))
+
+      await service.prompt('ch-gh-env', 'hello', 'user-1')
+
+      const spawnEnv = jest.mocked(spawn).mock.calls[0]![2]!.env as Record<
+        string,
+        string | undefined
+      >
+      expect(spawnEnv.TDR_REAL_GH).toBe('/usr/bin/gh')
+      expect(spawnEnv.TDR_REAL_GIT).toBe('/usr/bin/git')
+    })
+
+    it('spawn env OMITS the TDR_REAL_GH key entirely (not just empty-string) when gh is not installed', async () => {
+      jest.mocked(execFileSync).mockImplementation((cmd, args) => {
+        if ((args as string[])[0] === 'gh') {
+          throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+        }
+        return '/usr/bin/git'
+      })
+
+      const handlers = createMockHandlers()
+      const service = await createService(handlers)
+
+      const mockProc = new EventEmitter() as EventEmitter & {
+        pid: number
+        stdin: unknown
+        stdout: EventEmitter
+        kill: jest.Mock
+      }
+      mockProc.pid = 42425
+      mockProc.stdin = new Writable({ write: (_c, _e, cb) => cb() })
+      mockProc.stdout = new Readable({ read: () => {} })
+      mockProc.kill = jest.fn()
+      jest.mocked(spawn).mockReturnValue(mockProc as never)
+      ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
+        initialize: jest
+          .fn()
+          .mockResolvedValue({ agentCapabilities: { promptCapabilities: {} } }),
+        newSession: jest
+          .fn()
+          .mockResolvedValue({ sessionId: 'gh-env-missing-test' }),
+        prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+      }))
+
+      await service.prompt('ch-gh-env-missing', 'hello', 'user-1')
+
+      const spawnEnv = jest.mocked(spawn).mock.calls[0]![2]!.env as Record<
+        string,
+        string | undefined
+      >
+      // Key must be entirely absent, not present-with-empty-string.
+      expect('TDR_REAL_GH' in spawnEnv).toBe(false)
+      // Everything else is unaffected.
+      expect(spawnEnv.TDR_REAL_GIT).toBe('/usr/bin/git')
+      expect(spawnEnv.TDR_CHANNEL_ID).toBe('ch-gh-env-missing')
+    })
+
+    it('no plaintext GitHub token ever appears in the spawn env object (R15 — token travels via tmpfs only)', async () => {
+      const handlers = createMockHandlers()
+      const service = await createService(handlers)
+
+      const mockProc = new EventEmitter() as EventEmitter & {
+        pid: number
+        stdin: unknown
+        stdout: EventEmitter
+        kill: jest.Mock
+      }
+      mockProc.pid = 42426
+      mockProc.stdin = new Writable({ write: (_c, _e, cb) => cb() })
+      mockProc.stdout = new Readable({ read: () => {} })
+      mockProc.kill = jest.fn()
+      jest.mocked(spawn).mockReturnValue(mockProc as never)
+      ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
+        initialize: jest
+          .fn()
+          .mockResolvedValue({ agentCapabilities: { promptCapabilities: {} } }),
+        newSession: jest
+          .fn()
+          .mockResolvedValue({ sessionId: 'gh-token-env-test' }),
+        prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+      }))
+
+      await service.prompt('ch-gh-token-env', 'hello', 'user-1')
+
+      const spawnEnv = jest.mocked(spawn).mock.calls[0]![2]!.env as Record<
+        string,
+        string | undefined
+      >
+      // The known-safe keys this unit's spawnAndConnect explicitly sets are
+      // exactly these — TDR_REAL_GH is a binary PATH, not a credential.
+      expect(spawnEnv.TDR_CHANNEL_ID).toBe('ch-gh-token-env')
+      expect(spawnEnv.TDR_REAL_GIT).toBe('/usr/bin/git')
+      expect(spawnEnv.TDR_REAL_GH).toBe('/usr/bin/gh')
+
+      // No env key carries a GitHub token, credential, or auth value — this
+      // is R15's "no ambient/host fallback, token travels via tmpfs only"
+      // guarantee applied to the spawn env specifically. The actual GitHub
+      // token only ever reaches the agent via the per-turn tmpfs file
+      // (GitTurnContext.begin(), scripts/gh's GH_TOKEN export) — never via
+      // this frozen spawn-time env object.
+      expect(spawnEnv.GH_TOKEN).toBeUndefined()
+      expect(spawnEnv.GITHUB_TOKEN).toBeUndefined()
+      // None of the keys THIS UNIT explicitly sets is a GitHub token or the
+      // real gh/git binary value themselves are checked above by exact
+      // value — additionally confirm neither of those two known-safe values
+      // (the binary paths) equals a token-shaped string, so a future
+      // accidental swap (assigning the token where a binary path belongs)
+      // would fail loudly here.
+      expect(spawnEnv.TDR_REAL_GH).not.toMatch(/^gh[opsu]_/)
+      expect(spawnEnv.TDR_REAL_GIT).not.toMatch(/^gh[opsu]_/)
     })
   })
 })

@@ -46,6 +46,15 @@ const SESSION_EVENTS = {
   // log { err, channelId }; this is the AE1 acceptance-example site.
   sessionInsertFailed: 'session-insert-failed',
   reactivationInsertFailed: 'reactivation-insert-failed',
+  // session-manager.service.ts's constructor — the lenient this.realGh
+  // resolution (`which gh` via execFileSync) failed, e.g. no `gh` installed
+  // on this host. Fires at warn (not error/fatal) and does NOT rethrow —
+  // unlike this.realGit's hard-fail-at-boot resolution, a missing `gh` must
+  // never crash the bot child process (see the constructor's own comment at
+  // the call site for the full crash-loop rationale). this.realGh stays
+  // null; GitHub features are disabled for this bot process, git/SSH
+  // functionality is unaffected.
+  ghBinaryNotFound: 'gh-binary-not-found',
   // session-manager.service.ts (U4 sweep) — remaining info/warn/error sites
   // across rereadConfig/cancel/teardown/executePrompt/createOrReactivateSession/
   // reactivateSession/emitResumeFailed/evictIfNeeded/createSession/
