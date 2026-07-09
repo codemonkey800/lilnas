@@ -558,8 +558,12 @@ export class DiscordHandlerService
           }
           return
         }
-        // Identity check: if stop+start interleaved across the await, our
-        // placeholder was replaced — don't overwrite the new call's handle.
+        // Identity check before sendTyping — stopTyping may have been called while
+        // fetchChannel was in-flight; firing a stale sendTyping here would show
+        // typing for ~10s after the turn completed.
+        if (this.typingIntervals.get(channelId) !== placeholder) {
+          return
+        }
         channel.sendTyping().catch(() => {})
         const interval = setInterval(() => {
           channel.sendTyping().catch(() => {})
