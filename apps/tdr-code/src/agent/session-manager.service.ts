@@ -308,14 +308,13 @@ export class SessionManagerService implements OnApplicationShutdown {
       'Session teardown requested',
     )
     clearTimeout(session.idleTimer)
-    // A force-killed process orphans the in-flight connection.prompt — it never
-    // settles, so onPromptComplete never fires via the normal path. Signal it
-    // explicitly so the handler can stop typing and finalize the turn. The
-    // executePrompt error path sets session.prompting = false before calling
-    // teardown, ensuring this fires exactly once.
-    if (session.prompting) {
-      this.handlers.onPromptComplete(channelId, 'aborted')
-    }
+    // Always signal onPromptComplete on teardown so the handler stops typing and
+    // finalizes any in-flight turn. Both DiscordHandlerService and SqliteWriterService
+    // guard on active state and return early when no turn is open, making this safe to
+    // call unconditionally. The executePrompt error path calls onPromptComplete before
+    // teardown (session.prompting=false by then), so the handler's own guards prevent
+    // double-finalization.
+    this.handlers.onPromptComplete(channelId, 'aborted')
     this.killProcessTree(session.process)
     this.sessions.delete(channelId)
     // U9: belt-and-suspenders abort — removes tmpfs key and releases lock if
@@ -1095,6 +1094,9 @@ export class SessionManagerService implements OnApplicationShutdown {
       const session = this.sessions.get(channelId)
       if (session?.process === proc) {
         clearTimeout(session.idleTimer)
+        // Mirror teardown's unconditional onPromptComplete signal so the handler
+        // always stops typing even when the process dies unexpectedly.
+        this.handlers.onPromptComplete(channelId, 'aborted')
         this.sessions.delete(channelId)
         // U9: The process died — executePrompt's finally may not have run yet.
         // abort() releases the lock AND removes the tmpfs key (belt-and-suspenders).
@@ -1145,6 +1147,8 @@ export class SessionManagerService implements OnApplicationShutdown {
       const session = this.sessions.get(channelId)
       if (session?.process === proc) {
         clearTimeout(session.idleTimer)
+        // Mirror teardown's unconditional onPromptComplete signal (same as proc.on('error')).
+        this.handlers.onPromptComplete(channelId, 'aborted')
         this.sessions.delete(channelId)
         // U9: Belt-and-suspenders abort (same as proc.on('error')).
         this.gitTurnContext.abort(channelId)
