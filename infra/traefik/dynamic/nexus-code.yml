@@ -1,0 +1,16 @@
+http:
+  routers:
+    dev-nexus-code:
+      rule: "Host(`nexus-code.dev.lilnas.io`)"
+      entrypoints:
+        - websecure
+      tls: {}
+      middlewares:
+        - forward-auth@docker
+      service: dev-nexus-code
+
+  services:
+    dev-nexus-code:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:5173"

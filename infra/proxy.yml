@@ -13,6 +13,8 @@ services:
       - --api=true
       - --providers.docker=true
       - --providers.docker.exposedByDefault=false
+      - --providers.file.directory=/traefik/dynamic
+      - --providers.file.watch=true
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
@@ -31,9 +33,12 @@ services:
       - 443:443
     env_file:
       - .env.traefik
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - /storage/app-data/letsencrypt:/letsencrypt
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/dynamic:/traefik/dynamic:ro
     labels:
       - traefik.enable=true
 
