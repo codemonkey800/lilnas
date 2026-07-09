@@ -159,10 +159,7 @@ export default function EventsPage() {
                     </td>
                     <td className="max-w-[12rem] py-3 pr-4 text-xs text-gray-400">
                       {evt.channelId ? (
-                        <span
-                          className="block truncate"
-                          title={evt.channelId}
-                        >
+                        <span className="block truncate" title={evt.channelId}>
                           {evt.channelName ?? evt.channelId}
                         </span>
                       ) : (

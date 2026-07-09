@@ -282,8 +282,8 @@ function SshSection({ discordUserId }: { discordUserId: string | undefined }) {
       <h2 className="text-sm font-medium text-gray-300">SSH key</h2>
       <p className="text-xs text-gray-500">
         Required for pushing to non-GitHub remotes over SSH (e.g., self-hosted
-        Git servers). Also serves as your commit signing key. Name and email
-        are only used for commit identity when GitHub is not linked.
+        Git servers). Also serves as your commit signing key. Name and email are
+        only used for commit identity when GitHub is not linked.
       </p>
 
       {identitiesQuery.isLoading ? (
@@ -328,9 +328,10 @@ function SshSection({ discordUserId }: { discordUserId: string | undefined }) {
                 </p>
                 <p className="text-blue-400">
                   Commits will use{' '}
-                  <span className="font-mono">{githubEmail}</span> — GitHub&apos;s
-                  privacy-preserving noreply format. GitHub automatically
-                  resolves it to your real email when viewing commit attribution.
+                  <span className="font-mono">{githubEmail}</span> —
+                  GitHub&apos;s privacy-preserving noreply format. GitHub
+                  automatically resolves it to your real email when viewing
+                  commit attribution.
                 </p>
               </div>
             )}

@@ -179,7 +179,11 @@ export const PROTECTED_ROUTES: ProtectedRouteSpec[] = [
   },
   // GitHub linking routes (GithubLinkController) and roster (GitRosterController)
   // — neither carries @Public(), so both are protected by the global AuthGuard.
-  { method: 'GET', path: '/git/github/status', label: 'GET /git/github/status' },
+  {
+    method: 'GET',
+    path: '/git/github/status',
+    label: 'GET /git/github/status',
+  },
   { method: 'DELETE', path: '/git/github', label: 'DELETE /git/github' },
   {
     method: 'DELETE',

@@ -105,10 +105,7 @@ export default function SessionsPage() {
                       </Link>
                     </td>
                     <td className="max-w-[12rem] py-3 pr-4 text-xs text-gray-300">
-                      <span
-                        className="block truncate"
-                        title={s.channelId}
-                      >
+                      <span className="block truncate" title={s.channelId}>
                         {s.channelName ?? s.channelId}
                       </span>
                     </td>

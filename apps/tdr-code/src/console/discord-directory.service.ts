@@ -44,7 +44,10 @@ export class DiscordDirectoryService {
     fetchedAt: number
     data: DiscordGuildMemberDto[]
   } | null = null
-  private channelNameCache = new Map<string, { fetchedAt: number; name: string | null }>()
+  private channelNameCache = new Map<
+    string,
+    { fetchedAt: number; name: string | null }
+  >()
 
   constructor(private readonly logger: PinoLogger) {}
 
@@ -142,7 +145,10 @@ export class DiscordDirectoryService {
         },
       )
       if (!response.ok) {
-        this.channelNameCache.set(channelId, { fetchedAt: Date.now(), name: null })
+        this.channelNameCache.set(channelId, {
+          fetchedAt: Date.now(),
+          name: null,
+        })
         return null
       }
       const body = (await response.json()) as DiscordApiChannel

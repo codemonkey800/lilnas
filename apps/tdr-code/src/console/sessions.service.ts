@@ -60,8 +60,12 @@ export class SessionsService {
     const uniqueChannelIds = [...new Set(paginated.items.map(i => i.channelId))]
     const [channelNameEntries, members] = await Promise.all([
       Promise.all(
-        uniqueChannelIds.map(async id =>
-          [id, await this.discordDirectory.getChannelName(id).catch(() => null)] as const,
+        uniqueChannelIds.map(
+          async id =>
+            [
+              id,
+              await this.discordDirectory.getChannelName(id).catch(() => null),
+            ] as const,
         ),
       ),
       this.discordDirectory.listGuildMembers().catch(() => []),
@@ -80,7 +84,9 @@ export class SessionsService {
     }
   }
 
-  async getSessionTranscript(sessionId: number): Promise<SessionDetailResponseDto> {
+  async getSessionTranscript(
+    sessionId: number,
+  ): Promise<SessionDetailResponseDto> {
     // Wrap session + turns + blocks in one DEFERRED snapshot so the bot cannot
     // commit between queries and yield an internally-inconsistent view.
     const result = this.db.transaction(

@@ -1,6 +1,6 @@
 import { env } from '@lilnas/utils/env'
-import { Inject, Injectable } from '@nestjs/common'
 import type { OnModuleInit } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import { PinoLogger } from 'nestjs-pino'
 
@@ -101,7 +101,9 @@ export class GithubLinkService implements OnModuleInit {
         {
           event: LOG_EVENTS.githubOrphanSweepFailed,
           errName:
-            err instanceof Error ? err.name : (err as object)?.constructor?.name,
+            err instanceof Error
+              ? err.name
+              : (err as object)?.constructor?.name,
         },
         'GitHub credential orphan sweep failed (non-fatal)',
       )

@@ -183,9 +183,7 @@ export function deleteGithubCredential(db: Db, userId: string): void {
 // but their tokens remain live at GitHub until naturally expired. The sweep
 // surface these orphans so the caller can attempt best-effort revocation
 // before deleting.
-export function listOrphanedGithubCredentials(
-  db: Db,
-): GithubCredentialRow[] {
+export function listOrphanedGithubCredentials(db: Db): GithubCredentialRow[] {
   return db
     .select({ githubCredential })
     .from(githubCredential)

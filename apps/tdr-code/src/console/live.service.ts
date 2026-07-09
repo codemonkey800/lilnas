@@ -80,7 +80,9 @@ export class LiveService {
       this.discordDirectory.listGuildMembers().catch(() => []),
       Promise.all(
         baseItems.map(item =>
-          this.discordDirectory.getChannelName(item.channelId).catch(() => null),
+          this.discordDirectory
+            .getChannelName(item.channelId)
+            .catch(() => null),
         ),
       ),
     ])

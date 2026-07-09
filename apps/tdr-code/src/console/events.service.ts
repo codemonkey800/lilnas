@@ -40,12 +40,18 @@ export class EventsService {
 
     const uniqueChannelIds = [
       ...new Set(
-        paginated.items.map(i => i.channelId).filter((id): id is string => id !== null),
+        paginated.items
+          .map(i => i.channelId)
+          .filter((id): id is string => id !== null),
       ),
     ]
     const channelNameEntries = await Promise.all(
-      uniqueChannelIds.map(async id =>
-        [id, await this.discordDirectory.getChannelName(id).catch(() => null)] as const,
+      uniqueChannelIds.map(
+        async id =>
+          [
+            id,
+            await this.discordDirectory.getChannelName(id).catch(() => null),
+          ] as const,
       ),
     )
     const channelNameMap = new Map(channelNameEntries)
@@ -54,7 +60,9 @@ export class EventsService {
       ...paginated,
       items: paginated.items.map(item => ({
         ...item,
-        channelName: item.channelId ? (channelNameMap.get(item.channelId) ?? null) : null,
+        channelName: item.channelId
+          ? (channelNameMap.get(item.channelId) ?? null)
+          : null,
       })),
     }
   }
