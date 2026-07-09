@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Server Unreachable — nexus-code</title>
+    <title>Server Unreachable — ${SERVICE_LABEL}</title>
     <style>
       *,
       *::before,
@@ -71,10 +71,7 @@
     <div class="container">
       <div class="icon">⚡</div>
       <h1>Server is not running</h1>
-      <p>
-        The nexus-code dev server on the MacBook is unreachable. Start it and
-        refresh.
-      </p>
+      <p>${UNREACHABLE_DESCRIPTION}</p>
       <span class="badge">502 upstream unreachable</span>
     </div>
   </body>

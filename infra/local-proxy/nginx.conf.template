@@ -9,19 +9,21 @@ server {
         internal;
     }
 
-    # Container healthcheck target -- answered by nginx itself so the
-    # container stays healthy (serving /unreachable.html) even when the
-    # MacBook dev server is down.
+    # Answered by nginx itself so the container stays healthy (serving
+    # /unreachable.html) even while the host backend is down.
     location = /nginx-health {
         access_log off;
         return 200 "ok\n";
         add_header Content-Type text/plain;
     }
 
+    # Service-specific location blocks (e.g. SSE endpoints) are mounted
+    # into extra-src/ by each deploy.yml and rendered here by entrypoint.sh.
+    include /etc/nginx/conf.d/extra/*.conf;
+
     location / {
-        proxy_pass http://host.docker.internal:5173;
+        proxy_pass http://host.docker.internal:${LOCAL_PORT};
         proxy_http_version 1.1;
-        # WebSocket / Vite HMR upgrade support.
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
