@@ -3,8 +3,6 @@ import crypto from 'node:crypto'
 import {
   type GithubCredentialRowLike,
   isGithubConfigured,
-  isGithubDecryptFailed,
-  isGithubUnconfigured,
   resolveGithubToken,
 } from 'src/crypto/github-token-resolution'
 import { encryptKey } from 'src/crypto/key-cipher'
@@ -32,7 +30,6 @@ describe('resolveGithubToken', () => {
   it('no row -> unconfigured', () => {
     const result = resolveGithubToken(undefined, MASTER_KEY)
     expect(result.kind).toBe('unconfigured')
-    expect(isGithubUnconfigured(result)).toBe(true)
   })
 
   it('row with valid ciphertext -> configured with original plaintext, name, and email', () => {
@@ -70,7 +67,6 @@ describe('resolveGithubToken', () => {
 
     const result = resolveGithubToken(row, OTHER_MASTER_KEY)
     expect(result.kind).toBe('decrypt_failed')
-    expect(isGithubDecryptFailed(result)).toBe(true)
   })
 
   it('row with a corrupted authTag -> decrypt_failed, not a throw', () => {

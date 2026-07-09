@@ -197,7 +197,7 @@ describe('GitRosterService.listRoster', () => {
     const roster = await service.listRoster()
 
     expect(roster).toHaveLength(4)
-    // linkedUserId (the Better Auth id behind a linked GitHub credential —
+    // betterAuthUserId (the Better Auth id behind a linked GitHub credential —
     // see RosterEntryDto's own doc comment; deliberately not named
     // githubUserId, which means GitHub's own numeric id elsewhere in this
     // codebase) is present for BOTH linked members, and is each member's OWN
@@ -207,7 +207,7 @@ describe('GitRosterService.listRoster', () => {
       displayName: 'Both User',
       github: 'linked',
       ssh: 'configured',
-      linkedUserId: 'user-both',
+      betterAuthUserId: 'user-both',
     })
     expect(roster.find(r => r.discordUserId === 'discord-github-only')).toEqual(
       {
@@ -215,24 +215,24 @@ describe('GitRosterService.listRoster', () => {
         displayName: 'GitHub Only',
         github: 'linked',
         ssh: 'not-configured',
-        linkedUserId: 'user-github-only',
+        betterAuthUserId: 'user-github-only',
       },
     )
-    // Not-linked members never carry a linkedUserId — nothing to
+    // Not-linked members never carry a betterAuthUserId — nothing to
     // break-glass-clear.
     expect(roster.find(r => r.discordUserId === 'discord-ssh-only')).toEqual({
       discordUserId: 'discord-ssh-only',
       displayName: 'SSH Only',
       github: 'not-linked',
       ssh: 'configured',
-      linkedUserId: undefined,
+      betterAuthUserId: undefined,
     })
     expect(roster.find(r => r.discordUserId === 'discord-neither')).toEqual({
       discordUserId: 'discord-neither',
       displayName: 'Neither',
       github: 'not-linked',
       ssh: 'not-configured',
-      linkedUserId: undefined,
+      betterAuthUserId: undefined,
     })
   })
 

@@ -927,7 +927,7 @@ describe('GitTurnContext', () => {
       expect(handlers.onGitOperationBlocked).not.toHaveBeenCalled()
     })
 
-    it('edge case: GitHub configured + SSH decrypt-failed → exactly ONE event (git_key_decrypt_failed), turn not blocked overall (identityConfigured stays true)', async () => {
+    it('edge case: GitHub configured + SSH decrypt-failed → ZERO block events at turn start (identityConfigured is true, single-axis guard suppresses notices)', async () => {
       ;(resolveIdentity as jest.Mock).mockReturnValueOnce({
         kind: 'decrypt_failed',
         fingerprint: 'SHA256:staleboth',
@@ -955,17 +955,12 @@ describe('GitTurnContext', () => {
 
       await ctx.begin('ch1', '123456789012345678', jest.fn())
 
-      // Exactly one event total — SSH decrypt-failed, GitHub configured.
-      expect(insertEvent).toHaveBeenCalledTimes(1)
-      expect((insertEvent as jest.Mock).mock.calls[0]![1]).toMatchObject({
-        type: 'git_key_decrypt_failed',
-      })
-      expect(handlers.onGitOperationBlocked).toHaveBeenCalledTimes(1)
-      expect(handlers.onGitOperationBlocked).toHaveBeenCalledWith(
-        'ch1',
-        'ssh',
-        'decrypt_failed',
-      )
+      // Finding #2: the identityConfigured guard suppresses ALL per-axis block
+      // events when the combined identity IS configured (GitHub is configured
+      // here, so identityConfigured = true). A user who can push via GitHub
+      // should not get SSH-block spam at turn start.
+      expect(insertEvent).not.toHaveBeenCalled()
+      expect(handlers.onGitOperationBlocked).not.toHaveBeenCalled()
 
       // Turn is NOT blocked overall — the `configured` marker is still
       // written because GitHub-derived identity satisfies identityConfigured.

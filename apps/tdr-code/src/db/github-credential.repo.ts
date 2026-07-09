@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 
 import type { Db } from './database.module'
 import { account, githubCredential, type GithubCredentialRow } from './schema'
@@ -19,6 +19,15 @@ import { account, githubCredential, type GithubCredentialRow } from './schema'
 // not-linked everywhere, mirroring the existing Discord guild-gate hook's
 // "never trust write-side atomicity across a Better Auth hook boundary"
 // posture (see auth/guild-gate.ts and db/auth-sweep.repo.ts).
+//
+// KEY ROTATION NOTE: masterKeyVersion is stored on each row (currently always
+// 1) to support future key rotation. However, there is NO in-place
+// re-encryption path today — rotation requires every linked user to manually
+// unlink and re-link their GitHub account. If TDR_CODE_MASTER_KEY_FILE
+// contents are ever replaced, all existing github_credential rows will produce
+// decrypt_failed on every subsequent turn until users re-link. Operators
+// must coordinate the key-file swap with a proactive re-link announcement, or
+// accept a window where all HTTPS-push capability is disrupted.
 // ──────────────────────────────────────────────────────────────────────────────
 
 // Returns the credential row for `userId` ONLY if a matching `account` row
@@ -164,6 +173,32 @@ export function upsertGithubCredential(
 
 export function deleteGithubCredential(db: Db, userId: string): void {
   db.delete(githubCredential).where(eq(githubCredential.userId, userId)).run()
+}
+
+// Boot-time orphan sweep: find github_credential rows that have no matching
+// account row with providerId='github'. These rows are an expected outcome of
+// the hook-boundary non-atomicity documented in this file's header (a
+// github_credential write succeeded but the outer account INSERT did not).
+// They are already invisible via getGithubCredential's inner-join invariant,
+// but their tokens remain live at GitHub until naturally expired. The sweep
+// surface these orphans so the caller can attempt best-effort revocation
+// before deleting.
+export function listOrphanedGithubCredentials(
+  db: Db,
+): GithubCredentialRow[] {
+  return db
+    .select({ githubCredential })
+    .from(githubCredential)
+    .leftJoin(
+      account,
+      and(
+        eq(account.userId, githubCredential.userId),
+        eq(account.providerId, 'github'),
+      ),
+    )
+    .where(sql`${account.userId} IS NULL`)
+    .all()
+    .map(row => row.githubCredential)
 }
 
 export interface GithubCredentialStatus {

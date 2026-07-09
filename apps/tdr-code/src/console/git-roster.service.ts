@@ -8,7 +8,7 @@ import {
 import { loadMasterKey } from 'src/crypto/master-key'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
-import { getIdentity } from 'src/db/git-identity.repo'
+import { listIdentities } from 'src/db/git-identity.repo'
 import { listGithubCredentialStatuses } from 'src/db/github-credential.repo'
 
 import { DiscordDirectoryService } from './discord-directory.service'
@@ -45,7 +45,7 @@ export class GitRosterService {
     const githubStatuses = listGithubCredentialStatuses(this.db)
 
     // Keyed by discordUserId, values carry BOTH linked and the Better Auth
-    // userId behind that link (linkedUserId on RosterEntryDto — see that
+    // userId behind that link (betterAuthUserId on RosterEntryDto — see that
     // field's own doc comment for why break-glass-clear needs it: the
     // route takes a Better Auth userId, never a Discord snowflake).
     const githubByDiscordUserId = new Map(
@@ -58,15 +58,26 @@ export class GitRosterService {
     )
 
     const masterKey = loadMasterKey()
+    // Batch-load all identity rows in one query — building a Map avoids N
+    // per-member DB lookups and eliminates all crypto work for the majority
+    // of members who have no identity row at all.
+    const allIdentityRows = listIdentities(this.db)
+    const identityByDiscordUserId = new Map(
+      allIdentityRows.map(row => [row.discordUserId, row]),
+    )
 
     return members.map(member => {
       const githubStatus = githubByDiscordUserId.get(member.id)
       const linked = githubStatus?.linked ?? false
 
-      const identityRow = getIdentity(this.db, member.id)
+      const identityRow = identityByDiscordUserId.get(member.id)
       const resolution = resolveIdentity(identityRow, masterKey)
       let ssh: SshRosterStatus
       if (isConfigured(resolution)) {
+        // Best-effort zeroize (mirrors git-identity.service.ts and
+        // git-turn-context.ts — same decrypt-then-discard shape; the roster
+        // only needs status, never the plaintext key bytes themselves).
+        resolution.keyPlaintext.fill(0)
         ssh = 'configured'
       } else if (isDecryptFailed(resolution)) {
         ssh = 'decrypt-failed'
@@ -82,7 +93,7 @@ export class GitRosterService {
         // Only meaningful when linked — an unlinked member's githubStatus
         // entry (if any exists at all, e.g. a Discord sign-in with no
         // GitHub link) has no credential to break-glass-clear.
-        linkedUserId: linked ? githubStatus?.userId : undefined,
+        betterAuthUserId: linked ? githubStatus?.userId : undefined,
       } satisfies RosterEntryDto
     })
   }

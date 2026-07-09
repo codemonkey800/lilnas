@@ -12,7 +12,6 @@ import pino from 'pino'
 import {
   isConfigured,
   isDecryptFailed,
-  isUnconfigured,
   resolveIdentity,
 } from 'src/crypto/identity-resolution'
 import { encryptKey } from 'src/crypto/key-cipher'
@@ -55,7 +54,6 @@ describe('resolveIdentity', () => {
   it('no row → unconfigured', () => {
     const result = resolveIdentity(undefined, MASTER_KEY)
     expect(result.kind).toBe('unconfigured')
-    expect(isUnconfigured(result)).toBe(true)
   })
 
   it('row with valid ciphertext → configured with keyPlaintext and recomputed fingerprint', () => {

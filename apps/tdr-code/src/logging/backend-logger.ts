@@ -89,8 +89,16 @@ export const BACKEND_MODULE_REDACT_PATHS = [
   '*.sshCommand',
   'keyPath',
   '*.keyPath',
+  'GIT_CONFIG_VALUE_0',
+  '*.GIT_CONFIG_VALUE_0',
   'GIT_CONFIG_VALUE_1',
   '*.GIT_CONFIG_VALUE_1',
+  'GIT_CONFIG_VALUE_2',
+  '*.GIT_CONFIG_VALUE_2',
+  'GIT_CONFIG_VALUE_3',
+  '*.GIT_CONFIG_VALUE_3',
+  'GIT_CONFIG_VALUE_4',
+  '*.GIT_CONFIG_VALUE_4',
 ]
 
 // Deliberately NOT registering a global `err` serializer here. Pino's

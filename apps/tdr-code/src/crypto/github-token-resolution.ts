@@ -56,18 +56,6 @@ export function isGithubConfigured(
   return r.kind === 'configured'
 }
 
-export function isGithubUnconfigured(
-  r: GithubTokenResolution,
-): r is UnconfiguredGithubToken {
-  return r.kind === 'unconfigured'
-}
-
-export function isGithubDecryptFailed(
-  r: GithubTokenResolution,
-): r is GithubDecryptFailedToken {
-  return r.kind === 'decrypt_failed'
-}
-
 // ──────────────────────────────────────────────────────────────────────────────
 
 // Resolve a stored github_credential row (or undefined) to the three-state

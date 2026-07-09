@@ -31,6 +31,10 @@ import { EventsService } from 'src/console/events.service'
 import { GitIdentityController } from 'src/console/git-identity.controller'
 import type { UpsertGitIdentityResponseDto } from 'src/console/git-identity.dto'
 import { GitIdentityService } from 'src/console/git-identity.service'
+import { GithubLinkController } from 'src/console/github-link.controller'
+import { GithubLinkService } from 'src/console/github-link.service'
+import { GitRosterController } from 'src/console/git-roster.controller'
+import { GitRosterService } from 'src/console/git-roster.service'
 import { LifecycleController } from 'src/console/lifecycle.controller'
 import { LiveController } from 'src/console/live.controller'
 import type { LiveResponseDto } from 'src/console/live.dto'
@@ -238,6 +242,15 @@ function buildTestAppModule(db: TestDb['db']) {
   const mockDiscordDirectoryService = {
     listGuildMembers: jest.fn().mockResolvedValue([]),
   }
+  const mockGithubLinkService = {
+    getStatus: jest.fn().mockReturnValue({ linked: false }),
+    unlink: jest
+      .fn()
+      .mockResolvedValue({ unlinked: false, revoked: 'skipped_no_token' }),
+  }
+  const mockGitRosterService = {
+    listRoster: jest.fn().mockResolvedValue([]),
+  }
   const mockBotStatusService = {
     getStatus: jest.fn().mockReturnValue(MOCK_BOT_STATUS),
   }
@@ -287,6 +300,8 @@ function buildTestAppModule(db: TestDb['db']) {
       BrowserLogsController,
       LogsController,
       LogTailController,
+      GithubLinkController,
+      GitRosterController,
     ],
     providers: [
       { provide: LiveService, useValue: mockLiveService },
@@ -306,6 +321,8 @@ function buildTestAppModule(db: TestDb['db']) {
       { provide: LogSourcesService, useValue: mockLogSourcesService },
       { provide: LogSearchService, useValue: mockLogSearchService },
       { provide: LogTailService, useValue: mockLogTailService },
+      { provide: GithubLinkService, useValue: mockGithubLinkService },
+      { provide: GitRosterService, useValue: mockGitRosterService },
       { provide: PinoLogger, useValue: fakePinoLogger },
       { provide: APP_GUARD, useClass: AuthGuard },
     ],
@@ -1117,8 +1134,8 @@ describe('U5 — end-to-end auth verification harness (pre-cutover gate)', () =>
   // ---------------------------------------------------------------------------
 
   describe('bookkeeping — this suite swept exactly as many routes as PROTECTED_ROUTES declares', () => {
-    it('PROTECTED_ROUTES has exactly 21 entries (the canonical U4 enumeration this suite imports, not a second hand-typed list — 19 + GET /logs/tail from Phase 2 U8 + GET /logs/search from Phase 2 U9)', () => {
-      expect(PROTECTED_ROUTES).toHaveLength(21)
+    it('PROTECTED_ROUTES has exactly 25 entries (21 pre-existing + GET /git/github/status + DELETE /git/github + DELETE /git/github/:userId + GET /git/roster)', () => {
+      expect(PROTECTED_ROUTES).toHaveLength(25)
     })
 
     it('PUBLIC_ROUTES has exactly one entry: GET /health', () => {

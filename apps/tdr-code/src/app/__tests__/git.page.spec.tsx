@@ -161,7 +161,7 @@ describe('GitPage — AE1: linked GitHub status', () => {
     jest.spyOn(api, 'getGithubStatus').mockResolvedValue(LINKED_STATUS)
     const unlinkSpy = jest
       .spyOn(api, 'unlinkGithubSelf')
-      .mockResolvedValue({ unlinked: true })
+      .mockResolvedValue({ unlinked: true, revoked: 'succeeded' as const })
     const user = userEvent.setup()
     renderPage()
 

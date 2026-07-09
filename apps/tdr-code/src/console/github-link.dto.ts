@@ -2,10 +2,16 @@ import { z } from 'zod'
 
 // Better Auth user ids are opaque, library-generated strings — NOT Discord
 // snowflakes (contrast git-identity.dto.ts's DiscordSnowflakeSchema, which
-// must not be reused here). The only real constraint is "non-empty".
+// must not be reused here). The refine below rejects 17-20 digit numeric
+// strings so accidentally swapping a Discord snowflake into this route
+// parameter fails loudly rather than silently resolving to a no-op.
 export const BetterAuthUserIdSchema = z
   .string()
   .min(1, 'userId must not be empty')
+  .refine(
+    v => !/^\d{17,20}$/.test(v),
+    'userId must not look like a Discord snowflake — this route takes a Better Auth id',
+  )
 
 // Response shape for both DELETE /git/github (self-unlink) and
 // DELETE /git/github/:userId (break-glass clear) — identical at the service
@@ -13,8 +19,15 @@ export const BetterAuthUserIdSchema = z
 // covers both routes. `unlinked: false` distinguishes the no-op case (no
 // github_credential row existed) from an actual delete, without treating
 // either outcome as an error (R13's unlink is idempotent).
+// `revoked` surfaces the outcome of the best-effort GitHub grant revocation:
+//   - 'succeeded': GitHub returned 204 (revoke accepted)
+//   - 'failed': revoke call failed (network, non-204, or decrypt error) —
+//     the local rows are still deleted, but the caller should tell the user
+//     to manually revoke the app at https://github.com/settings/applications
+//   - 'skipped_no_token': no row existed (unlinked: false path), nothing to revoke
 export const UnlinkGithubResponseSchema = z.object({
   unlinked: z.boolean(),
+  revoked: z.enum(['succeeded', 'failed', 'skipped_no_token']),
 })
 export type UnlinkGithubResponseDto = z.infer<typeof UnlinkGithubResponseSchema>
 

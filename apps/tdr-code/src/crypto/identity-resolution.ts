@@ -54,12 +54,6 @@ export function isConfigured(r: IdentityResolution): r is ConfiguredIdentity {
   return r.kind === 'configured'
 }
 
-export function isUnconfigured(
-  r: IdentityResolution,
-): r is UnconfiguredIdentity {
-  return r.kind === 'unconfigured'
-}
-
 export function isDecryptFailed(
   r: IdentityResolution,
 ): r is DecryptFailedIdentity {

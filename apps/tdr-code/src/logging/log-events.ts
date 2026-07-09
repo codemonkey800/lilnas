@@ -364,6 +364,12 @@ const GITHUB_LINK_EVENTS = {
   // with err.message/err.stack — this path touches token-adjacent context,
   // per the structured-logging convention.
   githubRevokeFailed: 'github-revoke-failed',
+  // Boot-time orphan sweep (GithubLinkService.onModuleInit): github_credential
+  // rows with no matching account(providerId='github') row.
+  githubOrphanSweepStart: 'github-orphan-sweep-start',
+  githubOrphanSweepRevoke: 'github-orphan-sweep-revoke',
+  githubOrphanSweepComplete: 'github-orphan-sweep-complete',
+  githubOrphanSweepFailed: 'github-orphan-sweep-failed',
 } as const
 
 const SESSIONS_SERVICE_EVENTS = {

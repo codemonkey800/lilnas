@@ -1,5 +1,6 @@
 import { env } from '@lilnas/utils/env'
 import { Inject, Injectable } from '@nestjs/common'
+import type { OnModuleInit } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import { PinoLogger } from 'nestjs-pino'
 
@@ -11,8 +12,10 @@ import { loadMasterKey } from 'src/crypto/master-key'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
 import {
+  deleteGithubCredential,
   getDiscordUserIdForUser,
   getGithubCredential,
+  listOrphanedGithubCredentials,
 } from 'src/db/github-credential.repo'
 import { account, githubCredential } from 'src/db/schema'
 import { EnvKeys } from 'src/env'
@@ -49,11 +52,61 @@ function revokeGrantUrl(clientId: string): string {
 // only because there is no token this service can prove is real work to
 // revoke in this same no-op branch.
 @Injectable()
-export class GithubLinkService {
+export class GithubLinkService implements OnModuleInit {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly logger: PinoLogger,
   ) {}
+
+  // Boot-time sweep: remove orphaned github_credential rows (rows with no
+  // matching account(providerId='github')) that can accumulate from the
+  // hook-boundary non-atomicity documented in github-credential.repo.ts.
+  // Mirrors the sweepAccountlessUsers() pattern in auth.ts. Best-effort only
+  // — a failure here never prevents startup.
+  async onModuleInit(): Promise<void> {
+    try {
+      const orphans = listOrphanedGithubCredentials(this.db)
+      if (orphans.length === 0) return
+
+      this.logger.warn(
+        { event: LOG_EVENTS.githubOrphanSweepStart, count: orphans.length },
+        'GitHub credential orphan sweep: found orphaned rows',
+      )
+      const masterKey = loadMasterKey()
+      for (const row of orphans) {
+        const resolution = resolveGithubToken(row, masterKey)
+        if (isGithubConfigured(resolution)) {
+          const revoked = await this.bestEffortRevoke(
+            row.userId,
+            resolution.tokenPlaintext,
+          )
+          resolution.tokenPlaintext.fill(0)
+          this.logger.warn(
+            {
+              event: LOG_EVENTS.githubOrphanSweepRevoke,
+              userId: row.userId,
+              revoked,
+            },
+            'GitHub credential orphan sweep: revoke outcome',
+          )
+        }
+        deleteGithubCredential(this.db, row.userId)
+      }
+      this.logger.warn(
+        { event: LOG_EVENTS.githubOrphanSweepComplete, count: orphans.length },
+        'GitHub credential orphan sweep: complete',
+      )
+    } catch (err) {
+      this.logger.warn(
+        {
+          event: LOG_EVENTS.githubOrphanSweepFailed,
+          errName:
+            err instanceof Error ? err.name : (err as object)?.constructor?.name,
+        },
+        'GitHub credential orphan sweep failed (non-fatal)',
+      )
+    }
+  }
 
   // Read-only status for the CURRENT session user (GET /git/github/status,
   // U4 addition — see this file's own note in github-link.dto.ts's
@@ -100,7 +153,7 @@ export class GithubLinkService {
         },
         'GitHub unlink completed (no-op — nothing linked)',
       )
-      return { unlinked: false }
+      return { unlinked: false, revoked: 'skipped_no_token' }
     }
 
     // Best-effort revoke at GitHub BEFORE deleting local rows — decrypt the
@@ -110,8 +163,9 @@ export class GithubLinkService {
     // garbage/empty token, and proceed straight to deleting local rows.
     const masterKey = loadMasterKey()
     const resolution = resolveGithubToken(row, masterKey)
+    let revoked: 'succeeded' | 'failed'
     if (isGithubConfigured(resolution)) {
-      await this.bestEffortRevoke(userId, resolution.tokenPlaintext)
+      revoked = await this.bestEffortRevoke(userId, resolution.tokenPlaintext)
       // Best-effort zeroize the plaintext buffer (mirrors git-identity's own
       // discipline for its decrypted SSH key plaintext).
       resolution.tokenPlaintext.fill(0)
@@ -124,6 +178,7 @@ export class GithubLinkService {
         },
         'Skipping GitHub revoke call — stored token could not be decrypted',
       )
+      revoked = 'failed'
     }
 
     // Delete BOTH the github_credential row and the account row in one
@@ -155,11 +210,12 @@ export class GithubLinkService {
       {
         userId,
         unlinked: true,
+        revoked,
         event: LOG_EVENTS.githubUnlinkCompleted,
       },
       'GitHub unlink completed',
     )
-    return { unlinked: true }
+    return { unlinked: true, revoked }
   }
 
   // Best-effort DELETE /applications/{client_id}/grant, Basic Auth
@@ -168,12 +224,13 @@ export class GithubLinkService {
   // tolerable failure modes — caught and logged at warn with the response
   // status only (never the response body, never err.message/err.stack, per
   // the structured-logging convention — this path handles token material).
-  // Never throws; the caller proceeds to delete local rows regardless of
-  // outcome (R13's "best-effort").
+  // Returns 'succeeded' on 204, 'failed' on any other outcome. Never throws.
+  // IMPORTANT: do NOT add `body: await response.text()` to the warn call —
+  // that would echo the client secret and/or plaintext access token into logs.
   private async bestEffortRevoke(
     userId: string,
     tokenPlaintext: Buffer,
-  ): Promise<void> {
+  ): Promise<'succeeded' | 'failed'> {
     const clientId = env(EnvKeys.GITHUB_CLIENT_ID)
     const clientSecret = env(EnvKeys.GITHUB_CLIENT_SECRET)
     const basicAuth = Buffer.from(
@@ -204,7 +261,9 @@ export class GithubLinkService {
           },
           'GitHub grant-revocation call returned a non-success status',
         )
+        return 'failed'
       }
+      return 'succeeded'
     } catch (error) {
       // Network-level failure (DNS, timeout, connection reset, ...) — never
       // log err.message/err.stack on this path (structured-logging
@@ -220,6 +279,7 @@ export class GithubLinkService {
         },
         'GitHub grant-revocation call failed (network error)',
       )
+      return 'failed'
     }
   }
 }

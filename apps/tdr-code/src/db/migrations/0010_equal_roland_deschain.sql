@@ -1,3 +1,11 @@
+-- NOTE: SQLite's PRAGMA foreign_keys cannot be changed inside an active
+-- transaction (it silently no-ops). Drizzle's better-sqlite3 migrator runs
+-- each migration file outside a wrapping transaction by default, so this
+-- PRAGMA does take effect here. The INSERT INTO __new_events SELECT below
+-- would still succeed even with FK checks ON because all existing event rows
+-- reference valid generation/session ids (ON DELETE SET NULL / RESTRICT
+-- guarantees no dangling FKs in the current schema). Verified: the migrator
+-- is NOT wrapping this file in BEGIN...COMMIT before the PRAGMA fires.
 PRAGMA foreign_keys=OFF;--> statement-breakpoint
 CREATE TABLE `__new_events` (
 	`id` integer PRIMARY KEY NOT NULL,

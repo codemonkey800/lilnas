@@ -154,7 +154,7 @@ describe('GithubLinkService.unlink', () => {
     const service = makeService(db)
     const result = await service.unlink('u1')
 
-    expect(result).toEqual({ unlinked: true })
+    expect(result).toEqual({ unlinked: true, revoked: 'succeeded' })
     expect(getGithubCredential(db, 'u1')).toBeUndefined()
 
     // Neither the github_credential row nor the
@@ -201,7 +201,7 @@ describe('GithubLinkService.unlink', () => {
     const service = makeService(db)
     const result = await service.unlink('target-user')
 
-    expect(result).toEqual({ unlinked: true })
+    expect(result).toEqual({ unlinked: true, revoked: 'succeeded' })
     expect(getGithubCredential(db, 'target-user')).toBeUndefined()
   })
 
@@ -218,7 +218,7 @@ describe('GithubLinkService.unlink', () => {
     const service = makeService(db)
     const result = await service.unlink('never-linked')
 
-    expect(result).toEqual({ unlinked: false })
+    expect(result).toEqual({ unlinked: false, revoked: 'skipped_no_token' })
     expect(fetchSpy).not.toHaveBeenCalled()
     // Discord account row is untouched.
     expect(db.select().from(account).all()).toHaveLength(1)
@@ -253,7 +253,7 @@ describe('GithubLinkService.unlink', () => {
     const service = makeService(db)
     const result = await service.unlink('orphan-user')
 
-    expect(result).toEqual({ unlinked: false })
+    expect(result).toEqual({ unlinked: false, revoked: 'skipped_no_token' })
     expect(fetchSpy).not.toHaveBeenCalled()
     // The orphaned row is left as-is (this unit deliberately does not clean
     // it up — see this service's header comment for why: it's already
@@ -272,7 +272,7 @@ describe('GithubLinkService.unlink', () => {
     const service = makeService(db)
     const result = await service.unlink('u-422')
 
-    expect(result).toEqual({ unlinked: true })
+    expect(result).toEqual({ unlinked: true, revoked: 'failed' })
     expect(getGithubCredential(db, 'u-422')).toBeUndefined()
     expect(db.select().from(githubCredential).all()).toHaveLength(0)
   })
@@ -291,7 +291,7 @@ describe('GithubLinkService.unlink', () => {
     const service = makeService(db)
     const result = await service.unlink('u-neterr')
 
-    expect(result).toEqual({ unlinked: true })
+    expect(result).toEqual({ unlinked: true, revoked: 'failed' })
     expect(getGithubCredential(db, 'u-neterr')).toBeUndefined()
   })
 
@@ -332,7 +332,7 @@ describe('GithubLinkService.unlink', () => {
     const service = makeService(db)
     const result = await service.unlink('u-corrupt')
 
-    expect(result).toEqual({ unlinked: true })
+    expect(result).toEqual({ unlinked: true, revoked: 'failed' })
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(getGithubCredential(db, 'u-corrupt')).toBeUndefined()
     expect(db.select().from(githubCredential).all()).toHaveLength(0)

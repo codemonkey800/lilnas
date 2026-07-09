@@ -439,9 +439,9 @@ function RosterRow({
   confirmKey: RosterClearKey | null
   onOpenConfirm: (key: RosterClearKey) => void
   onCancelConfirm: () => void
-  // Better Auth userId, NOT a Discord snowflake — see this row's own
-  // linkedUserId usage below and RosterEntryDto's doc comment for why.
-  onClearGithub: (linkedUserId: string) => void
+  // Better Auth userId, NOT a Discord snowflake — see RosterEntryDto's
+  // betterAuthUserId doc comment for why.
+  onClearGithub: (betterAuthUserId: string) => void
   onClearSsh: (discordUserId: string) => void
   pendingKey: RosterClearKey | null
 }) {
@@ -506,10 +506,10 @@ function RosterRow({
         <div className="flex items-center gap-2">
           <StatusChip status={entry.github} />
           {entry.github === 'linked' &&
-            entry.linkedUserId !== undefined &&
-            renderClearControl(githubKey, 'Clear', anyPending, () => {
-              if (entry.linkedUserId) onClearGithub(entry.linkedUserId)
-            })}
+            entry.betterAuthUserId !== undefined &&
+            renderClearControl(githubKey, 'Clear', anyPending, () =>
+              onClearGithub(entry.betterAuthUserId!),
+            )}
         </div>
       </td>
       <td className="py-3 pr-4">
@@ -533,18 +533,22 @@ function RosterSection() {
     queryFn: api.getGitRoster,
     refetchOnWindowFocus: false,
     retry: false,
+    // Roster resolution calls listIdentities + AES-GCM decrypt per configured
+    // member — avoid hammering on every remount.
+    staleTime: 30_000,
   })
 
   const [confirmKey, setConfirmKey] = useState<RosterClearKey | null>(null)
   const [pendingKey, setPendingKey] = useState<RosterClearKey | null>(null)
 
   // Break-glass clear takes a Better Auth userId (RosterEntryDto's
-  // linkedUserId — see that field's own doc comment for why: the route
+  // betterAuthUserId — see that field's own doc comment for why: the route
   // never accepts a Discord snowflake, and the two ids are never the same
   // value for any user in this app).
   const clearGithubMutation = useMutation({
     mutationKey: ['roster-clear-github'],
-    mutationFn: (linkedUserId: string) => api.unlinkGithubOther(linkedUserId),
+    mutationFn: (betterAuthUserId: string) =>
+      api.unlinkGithubOther(betterAuthUserId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.gitRoster })
     },
@@ -574,14 +578,14 @@ function RosterSection() {
     setConfirmKey(null)
   }
 
-  // Called with the row's linkedUserId (Better Auth id) — see RosterRow's
-  // onClearGithub prop. pendingKey/confirmKey are still tracked by
-  // discordUserId (matching RosterRow's own githubKey derivation), so the
-  // Better Auth id is threaded through only to the mutation call itself.
-  function handleClearGithub(discordUserId: string, linkedUserId: string) {
+  // Called with the row's betterAuthUserId — see RosterRow's onClearGithub
+  // prop. pendingKey/confirmKey are still tracked by discordUserId (matching
+  // RosterRow's own githubKey derivation), so the Better Auth id is threaded
+  // through only to the mutation call itself.
+  function handleClearGithub(discordUserId: string, betterAuthUserId: string) {
     const key: RosterClearKey = `${discordUserId}:github`
     setPendingKey(key)
-    clearGithubMutation.mutate(linkedUserId)
+    clearGithubMutation.mutate(betterAuthUserId)
   }
 
   function handleClearSsh(discordUserId: string) {
@@ -623,8 +627,8 @@ function RosterSection() {
                 confirmKey={confirmKey}
                 onOpenConfirm={handleOpenConfirm}
                 onCancelConfirm={handleCancelConfirm}
-                onClearGithub={linkedUserId =>
-                  handleClearGithub(entry.discordUserId, linkedUserId)
+                onClearGithub={betterAuthUserId =>
+                  handleClearGithub(entry.discordUserId, betterAuthUserId)
                 }
                 onClearSsh={handleClearSsh}
                 pendingKey={pendingKey}

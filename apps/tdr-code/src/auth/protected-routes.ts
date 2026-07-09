@@ -177,6 +177,17 @@ export const PROTECTED_ROUTES: ProtectedRouteSpec[] = [
     path: '/logs/search',
     label: 'GET /logs/search',
   },
+  // GitHub linking routes (GithubLinkController) and roster (GitRosterController)
+  // — neither carries @Public(), so both are protected by the global AuthGuard.
+  { method: 'GET', path: '/git/github/status', label: 'GET /git/github/status' },
+  { method: 'DELETE', path: '/git/github', label: 'DELETE /git/github' },
+  {
+    method: 'DELETE',
+    path: '/git/github/:userId',
+    label: 'DELETE /git/github/:userId',
+    params: { userId: 'better-auth-user-id-test' },
+  },
+  { method: 'GET', path: '/git/roster', label: 'GET /git/roster' },
 ]
 
 // The sole allowlisted route (R19: deny-by-default; @Public() is the one

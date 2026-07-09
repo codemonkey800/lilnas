@@ -33,6 +33,10 @@ import { EventsService } from 'src/console/events.service'
 import { GitIdentityController } from 'src/console/git-identity.controller'
 import type { UpsertGitIdentityResponseDto } from 'src/console/git-identity.dto'
 import { GitIdentityService } from 'src/console/git-identity.service'
+import { GithubLinkController } from 'src/console/github-link.controller'
+import { GithubLinkService } from 'src/console/github-link.service'
+import { GitRosterController } from 'src/console/git-roster.controller'
+import { GitRosterService } from 'src/console/git-roster.service'
 import { LifecycleController } from 'src/console/lifecycle.controller'
 import { LiveController } from 'src/console/live.controller'
 import type { LiveResponseDto } from 'src/console/live.dto'
@@ -406,6 +410,15 @@ function buildTestControllerModule(db: TestDb['db']) {
   const mockDiscordDirectoryService = {
     listGuildMembers: jest.fn().mockResolvedValue([]),
   }
+  const mockGithubLinkService = {
+    getStatus: jest.fn().mockReturnValue({ linked: false }),
+    unlink: jest
+      .fn()
+      .mockResolvedValue({ unlinked: false, revoked: 'skipped_no_token' }),
+  }
+  const mockGitRosterService = {
+    listRoster: jest.fn().mockResolvedValue([]),
+  }
   const mockBotStatusService = {
     getStatus: jest.fn().mockReturnValue(MOCK_BOT_STATUS),
   }
@@ -456,6 +469,8 @@ function buildTestControllerModule(db: TestDb['db']) {
       BrowserLogsController,
       LogsController,
       LogTailController,
+      GithubLinkController,
+      GitRosterController,
     ],
     providers: [
       { provide: LiveService, useValue: mockLiveService },
@@ -468,6 +483,8 @@ function buildTestControllerModule(db: TestDb['db']) {
         provide: DiscordDirectoryService,
         useValue: mockDiscordDirectoryService,
       },
+      { provide: GithubLinkService, useValue: mockGithubLinkService },
+      { provide: GitRosterService, useValue: mockGitRosterService },
       { provide: BotStatusService, useValue: mockBotStatusService },
       { provide: SupervisorService, useValue: mockSupervisorService },
       { provide: BrowserLogsService, useValue: mockBrowserLogsService },
@@ -1177,8 +1194,8 @@ describe('protected-routes.ts — canonical enumeration bookkeeping', () => {
   // /logs/tail (Phase 2 U8, append-delta live tail SSE endpoint) = 20; + GET
   // /logs/search (Phase 2 U9, whole-file streaming scan/search endpoint) =
   // 21.
-  it('enumerates exactly 21 protected routes (16 pre-existing + POST /logs/browser + GET /logs/window + GET /logs/sources + GET /logs/tail + GET /logs/search)', () => {
-    expect(PROTECTED_ROUTES).toHaveLength(21)
+  it('enumerates exactly 25 protected routes (21 pre-existing + GET /git/github/status + DELETE /git/github + DELETE /git/github/:userId + GET /git/roster)', () => {
+    expect(PROTECTED_ROUTES).toHaveLength(25)
   })
 
   it('enumerates exactly one public route: GET /health', () => {

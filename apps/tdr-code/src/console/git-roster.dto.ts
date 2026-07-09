@@ -11,20 +11,12 @@ export interface RosterEntryDto {
   github: GithubRosterStatus
   ssh: SshRosterStatus
   // Better Auth's own opaque user id for this member's linked GitHub
-  // account — present ONLY when github === 'linked'. Deliberately NOT named
-  // `githubUserId` (that name is already taken elsewhere in this codebase —
-  // schema.ts's githubCredential.githubUserId, UpsertGithubCredentialInput —
-  // for GitHub's own numeric profile id, a completely different value).
-  // Added for the U4 frontend unit: GithubLinkController's break-glass-clear
-  // route (DELETE /git/github/:userId) takes a Better Auth userId, NOT a
-  // Discord snowflake, but discordUserId above IS a Discord snowflake — the
-  // two are never the same value for any user in this app (schema.ts's
-  // `user` table has no snowflake column; a user's Discord identity lives
-  // only on its own `account` row). Without this field, the roster's
-  // "Clear" action for GitHub would have no valid id to send. Sourced from
-  // listGithubCredentialStatuses' own per-row `userId` (already computed
-  // server-side, just not previously threaded through to this DTO).
-  linkedUserId?: string
+  // account — present ONLY when github === 'linked'. Named betterAuthUserId
+  // (not linkedUserId, not githubUserId) to distinguish it from both the
+  // Discord snowflake in discordUserId above and GitHub's own numeric profile
+  // id used elsewhere in the codebase. GithubLinkController's break-glass
+  // route (DELETE /git/github/:userId) takes this id, never a snowflake.
+  betterAuthUserId?: string
 }
 
 export type RosterResponseDto = RosterEntryDto[]

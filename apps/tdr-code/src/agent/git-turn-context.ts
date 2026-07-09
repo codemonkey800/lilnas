@@ -63,6 +63,10 @@ interface TurnState {
 
 export class GitTurnContext {
   private readonly activeTurns = new Map<string, TurnState>()
+  // Per-process deduplication: once a channel+axis pair has received a Discord
+  // block notice this bot generation, skip subsequent notices so fully-
+  // unconfigured users don't get spammed on every turn.
+  private readonly notifiedBlockChannels = new Set<string>()
 
   constructor(private readonly opts: GitTurnContextOptions) {}
 
@@ -127,6 +131,16 @@ export class GitTurnContext {
     this.activeTurns.set(channelId, state)
 
     const idDir = path.join(IDENTITY_DIR, channelId)
+    // Belt-and-suspenders: nuke any stale contents from a prior turn whose
+    // end()/sweep() best-effort rm did not succeed. Without this, an
+    // axis-conditional writeFileSync below (github_token, signing_key,
+    // configured, gh_configured, ssh_command) that the current turn does NOT
+    // write silently inherits whatever the previous turn left there.
+    try {
+      fs.rmSync(idDir, { recursive: true, force: true })
+    } catch {
+      /* fresh mkdir below */
+    }
     fs.mkdirSync(idDir, { recursive: true, mode: 0o700 })
     state.identityDir = idDir
 
@@ -225,35 +239,36 @@ export class GitTurnContext {
     }
 
     // U5 (R16): structured block-event logging + Discord-visible notice, one
-    // call per axis, ONLY when that axis did NOT resolve to `configured` —
-    // mirrors the tmpfs-write conditionals above exactly (an axis that IS
-    // configured never reaches this branch). A fully-configured "both" user
-    // hits neither branch, so this fires ZERO events for the happy path.
-    // This also retroactively wires the SSH-side events
-    // (git_push_blocked/git_key_decrypt_failed), which existed in the
-    // EVENT_TYPES enum since Phase C but had no insertEvent call site until
-    // this unit (a confirmed gap — see the plan's Key Technical Decisions).
-    if (turnIdentity.sshStatus !== 'configured') {
-      this.logBlockEvent(
-        channelId,
-        userId,
-        'ssh',
-        turnIdentity.sshStatus,
-        turnIdentity.sshStatus === 'decrypt_failed'
-          ? 'git_key_decrypt_failed'
-          : 'git_push_blocked',
-      )
-    }
-    if (turnIdentity.githubStatus !== 'configured') {
-      this.logBlockEvent(
-        channelId,
-        userId,
-        'github',
-        turnIdentity.githubStatus,
-        turnIdentity.githubStatus === 'decrypt_failed'
-          ? 'github_token_decrypt_failed'
-          : 'gh_blocked',
-      )
+    // call per axis, ONLY when that axis did NOT resolve to `configured` AND
+    // the combined identity is also not configured — a single-axis-configured
+    // user has SOMETHING attributable/pushable and should not get per-turn
+    // block notices for the OTHER axis they intentionally left unconfigured.
+    // Discord notices are further deduplicated per channel+axis per bot
+    // generation via notifiedBlockChannels (see logBlockEvent) so even
+    // fully-unconfigured users only see the notice once, not every turn.
+    if (!turnIdentity.identityConfigured) {
+      if (turnIdentity.sshStatus !== 'configured') {
+        this.logBlockEvent(
+          channelId,
+          userId,
+          'ssh',
+          turnIdentity.sshStatus,
+          turnIdentity.sshStatus === 'decrypt_failed'
+            ? 'git_key_decrypt_failed'
+            : 'git_push_blocked',
+        )
+      }
+      if (turnIdentity.githubStatus !== 'configured') {
+        this.logBlockEvent(
+          channelId,
+          userId,
+          'github',
+          turnIdentity.githubStatus,
+          turnIdentity.githubStatus === 'decrypt_failed'
+            ? 'github_token_decrypt_failed'
+            : 'gh_blocked',
+        )
+      }
     }
   }
 
@@ -298,15 +313,21 @@ export class GitTurnContext {
       })
       // Notify AFTER the DB insert succeeds, still inside this try — mirrors
       // composite-acp-handler.ts's own "notify after the write succeeds"
-      // convention (see e.g. syncLiveStatus/reactivateSession in
-      // session-manager.service.ts for the same ordering elsewhere).
-      try {
-        this.opts.handlers.onGitOperationBlocked(channelId, kind, reason)
-      } catch (err) {
-        getBackendLogger().debug(
-          { channelId, kind, reason, err },
-          'onGitOperationBlocked handler threw (swallowed)',
-        )
+      // convention. Discord notice is deduplicated per channel+axis per bot
+      // generation: once a channel has been told its axis is blocked, skip
+      // subsequent per-turn repeats (the DB insert above still runs every
+      // turn for operator observability).
+      const notifyKey = `${channelId}:${kind}`
+      if (!this.notifiedBlockChannels.has(notifyKey)) {
+        this.notifiedBlockChannels.add(notifyKey)
+        try {
+          this.opts.handlers.onGitOperationBlocked(channelId, kind, reason)
+        } catch (err) {
+          getBackendLogger().debug(
+            { channelId, kind, reason, err },
+            'onGitOperationBlocked handler threw (swallowed)',
+          )
+        }
       }
     } catch (err) {
       getBackendLogger().warn(

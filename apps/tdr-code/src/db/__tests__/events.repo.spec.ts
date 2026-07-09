@@ -80,6 +80,11 @@ describe('events.repo', () => {
         'bot_restart',
         'command_anomaly',
         'transcript_write_failed',
+        // New in migration 0010 — exercises the actual CHECK constraint
+        'git_push_blocked',
+        'git_key_decrypt_failed',
+        'gh_blocked',
+        'github_token_decrypt_failed',
       ] as const
       for (const type of types) {
         expect(() =>
