@@ -31,7 +31,6 @@ export default function SessionsPage() {
 
   return (
     <PageContainer title="Sessions">
-
       <form onSubmit={handleChannelSubmit} className="flex items-center gap-2">
         <input
           type="text"

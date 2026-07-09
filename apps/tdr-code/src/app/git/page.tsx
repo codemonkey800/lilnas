@@ -695,7 +695,6 @@ export default function GitPage() {
 
   return (
     <PageContainer title="Git" spacing={10}>
-
       <GithubSection
         sessionPending={sessionPending}
         onDiscordUserId={setDiscordUserId}

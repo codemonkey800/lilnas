@@ -104,7 +104,6 @@ export default function LogsPage() {
     // longer reserves a right-hand column: it stays full-width whether or not
     // a line is selected, and nothing shifts when the drawer opens/closes.
     <PageContainer title="Logs">
-
       <div
         role="tablist"
         aria-label="Log source"

@@ -49,7 +49,6 @@ export default function EventsPage() {
 
   return (
     <PageContainer title="Events">
-
       <div className="flex flex-wrap items-center gap-3">
         <select
           value={typeFilter}
