@@ -9,6 +9,7 @@ import { listBlocksByTurns } from 'src/db/turn-content.repo'
 import { listTurnsBySession } from 'src/db/turns.repo'
 import { LOG_EVENTS } from 'src/logging/log-events'
 
+import { DiscordDirectoryService } from './discord-directory.service'
 import { paginate, type Paginated } from './pagination'
 import type {
   SessionDetailResponseDto,
@@ -41,19 +42,42 @@ function truncateDiffText(text: string): { text: string; truncated: boolean } {
 export class SessionsService {
   constructor(
     @Inject(DB) private readonly db: Db,
+    private readonly discordDirectory: DiscordDirectoryService,
     private readonly logger: PinoLogger,
   ) {}
 
-  listSessions(opts: {
+  async listSessions(opts: {
     channelId?: string
     cursor?: number
     limit: number
-  }): Paginated<SessionListItemDto> {
+  }): Promise<Paginated<SessionListItemDto>> {
     const rows = listSessions(this.db, opts)
-    return paginate(
+    const paginated = paginate(
       rows.map(r => this.mapSessionItem(r)),
       opts.limit,
     )
+
+    const uniqueChannelIds = [...new Set(paginated.items.map(i => i.channelId))]
+    const [channelNameEntries, members] = await Promise.all([
+      Promise.all(
+        uniqueChannelIds.map(async id =>
+          [id, await this.discordDirectory.getChannelName(id).catch(() => null)] as const,
+        ),
+      ),
+      this.discordDirectory.listGuildMembers().catch(() => []),
+    ])
+
+    const channelNameMap = new Map(channelNameEntries)
+    const memberMap = new Map(members.map(m => [m.id, m.displayName]))
+
+    return {
+      ...paginated,
+      items: paginated.items.map(item => ({
+        ...item,
+        channelName: channelNameMap.get(item.channelId) ?? null,
+        triggeringUserDisplayName: memberMap.get(item.triggeringUserId) ?? null,
+      })),
+    }
   }
 
   getSessionTranscript(sessionId: number): SessionDetailResponseDto {
@@ -151,7 +175,9 @@ export class SessionsService {
     return {
       id: row.id,
       channelId: row.channelId,
+      channelName: null,
       triggeringUserId: row.triggeringUserId,
+      triggeringUserDisplayName: null,
       createdAt: row.createdAt.toISOString(),
       endedAt: row.endedAt?.toISOString() ?? null,
       endReason: row.endReason ?? null,

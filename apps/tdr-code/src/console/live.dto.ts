@@ -10,7 +10,9 @@ export type LiveChannelState = z.infer<typeof LiveChannelStateSchema>
 
 export const LiveChannelItemSchema = z.object({
   channelId: z.string(),
+  channelName: z.string().nullable(),
   triggeringUserId: z.string().nullable(),
+  triggeringUserDisplayName: z.string().nullable(),
   state: LiveChannelStateSchema,
   queueDepth: z.number().int(),
   lastActivityAt: z.string().datetime(),

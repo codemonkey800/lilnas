@@ -10,6 +10,7 @@ import { listLive } from 'src/db/live-status.repo'
 import { isRunningGeneration } from 'src/db/schema'
 import { LOG_EVENTS } from 'src/logging/log-events'
 
+import { DiscordDirectoryService } from './discord-directory.service'
 import type { LiveChannelItemDto, LiveResponseDto } from './live.dto'
 
 @Injectable()
@@ -17,10 +18,11 @@ export class LiveService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly botStatus: BotStatusService,
+    private readonly discordDirectory: DiscordDirectoryService,
     private readonly logger: PinoLogger,
   ) {}
 
-  getLive(now: Date = new Date()): LiveResponseDto {
+  async getLive(now: Date = new Date()): Promise<LiveResponseDto> {
     const status = this.botStatus.getStatus(now)
     const botOffline = isBotOffline(status.status)
 
@@ -43,7 +45,7 @@ export class LiveService {
     const isRunning = isRunningGeneration(latestGen)
     const threshold = staleThresholdMs()
 
-    const items: LiveChannelItemDto[] = rows.map(row => {
+    const baseItems = rows.map(row => {
       const ageSinceHeartbeat = now.getTime() - row.lastHeartbeatAt.getTime()
       const stale = ageSinceHeartbeat > threshold
 
@@ -73,6 +75,25 @@ export class LiveService {
         lastHeartbeatAt: row.lastHeartbeatAt.toISOString(),
       }
     })
+
+    const [members, channelNames] = await Promise.all([
+      this.discordDirectory.listGuildMembers().catch(() => []),
+      Promise.all(
+        baseItems.map(item =>
+          this.discordDirectory.getChannelName(item.channelId).catch(() => null),
+        ),
+      ),
+    ])
+
+    const memberMap = new Map(members.map(m => [m.id, m.displayName]))
+
+    const items: LiveChannelItemDto[] = baseItems.map((item, i) => ({
+      ...item,
+      channelName: channelNames[i],
+      triggeringUserDisplayName: item.triggeringUserId
+        ? (memberMap.get(item.triggeringUserId) ?? null)
+        : null,
+    }))
 
     const globalStatus = botOffline ? 'offline' : 'online'
     return { botOffline, globalStatus, items }

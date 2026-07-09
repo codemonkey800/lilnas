@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useCallback, useState } from 'react'
 
 import { EmptyState } from 'src/app/components/empty-state'
@@ -11,6 +12,7 @@ import { RelativeTime } from 'src/app/components/relative-time'
 import { api, queryKeys } from 'src/app/lib/api'
 
 export default function SessionsPage() {
+  const router = useRouter()
   const [channelFilter, setChannelFilter] = useState('')
   const [cursor, setCursor] = useState<number | undefined>(undefined)
 
@@ -90,21 +92,33 @@ export default function SessionsPage() {
                 {data.items.map(s => (
                   <tr
                     key={s.id}
-                    className="border-b border-gray-800 hover:bg-gray-900"
+                    onClick={() => router.push(`/sessions/${s.id}`)}
+                    className="cursor-pointer border-b border-gray-800 hover:bg-gray-900"
                   >
                     <td className="py-3 pr-4">
                       <Link
                         href={`/sessions/${s.id}`}
+                        onClick={e => e.stopPropagation()}
                         className="font-mono text-xs text-blue-400 hover:underline"
                       >
                         #{s.id}
                       </Link>
                     </td>
-                    <td className="py-3 pr-4 font-mono text-xs text-gray-300">
-                      {s.channelId}
+                    <td className="max-w-[12rem] py-3 pr-4 text-xs text-gray-300">
+                      <span
+                        className="block truncate"
+                        title={s.channelId}
+                      >
+                        {s.channelName ?? s.channelId}
+                      </span>
                     </td>
-                    <td className="py-3 pr-4 font-mono text-xs text-gray-400">
-                      {s.triggeringUserId}
+                    <td className="max-w-[12rem] py-3 pr-4 text-xs text-gray-400">
+                      <span
+                        className="block truncate"
+                        title={s.triggeringUserId}
+                      >
+                        {s.triggeringUserDisplayName ?? s.triggeringUserId}
+                      </span>
                     </td>
                     <td className="py-3 pr-4 text-xs text-gray-400">
                       <RelativeTime value={s.createdAt} />

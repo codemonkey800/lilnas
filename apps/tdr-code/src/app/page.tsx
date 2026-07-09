@@ -2,6 +2,8 @@
 
 import { cns } from '@lilnas/utils/cns'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Fragment, useState } from 'react'
 
 import type { LiveChannelItemDto, LiveResponseDto } from 'src/console/live.dto'
@@ -34,20 +36,34 @@ function LiveRow({
   onTeardown: (channelId: string) => void
   teardownPending: boolean
 }) {
+  const router = useRouter()
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   return (
-    <tr className="border-b border-gray-800">
+    <tr
+      onClick={() => router.push(`/sessions?channel=${item.channelId}`)}
+      className="cursor-pointer border-b border-gray-800 hover:bg-gray-900"
+    >
       <td className="py-3 pr-4">
         <div className="flex items-center gap-2">
           <StatusDot variant={CHANNEL_STATE_VARIANT[item.state]} />
-          <span className="font-mono text-xs text-gray-200">
-            {item.channelId}
-          </span>
+          <Link
+            href={`/sessions?channel=${item.channelId}`}
+            onClick={e => e.stopPropagation()}
+            className="max-w-[10rem] truncate text-xs text-gray-200 hover:text-white hover:underline"
+            title={item.channelId}
+          >
+            {item.channelName ?? item.channelId}
+          </Link>
         </div>
       </td>
-      <td className="py-3 pr-4 text-xs text-gray-400">
-        {item.triggeringUserId ?? '—'}
+      <td className="max-w-[10rem] py-3 pr-4 text-xs text-gray-400">
+        <span
+          className="block truncate"
+          title={item.triggeringUserId ?? undefined}
+        >
+          {item.triggeringUserDisplayName ?? item.triggeringUserId ?? '—'}
+        </span>
       </td>
       <td className="py-3 pr-4 text-xs">
         <span
@@ -66,7 +82,7 @@ function LiveRow({
       <td className="py-3 pr-4 text-xs text-gray-400">
         <RelativeTime value={item.lastActivityAt} />
       </td>
-      <td className="py-3 text-right">
+      <td className="py-3 text-right" onClick={e => e.stopPropagation()}>
         {!confirmOpen ? (
           <button
             onClick={() => setConfirmOpen(true)}
@@ -203,7 +219,7 @@ export default function DashboardPage() {
 
       <section>
         <h2 className="mb-3 text-sm font-medium text-gray-400">
-          Active channels
+          Active sessions
         </h2>
 
         {isLoading && !data && <LoadingState />}

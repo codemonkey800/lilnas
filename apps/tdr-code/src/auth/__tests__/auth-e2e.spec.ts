@@ -155,7 +155,9 @@ const MOCK_SESSION_DETAIL: SessionDetailResponseDto = {
   session: {
     id: 999999999,
     channelId: '100000000000000001',
+    channelName: null,
     triggeringUserId: '100000000000000001',
+    triggeringUserDisplayName: null,
     createdAt: new Date().toISOString(),
     endedAt: null,
     endReason: null,

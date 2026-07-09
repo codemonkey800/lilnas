@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 
+import { DiscordDirectoryService } from 'src/console/discord-directory.service'
 import { SessionsService } from 'src/console/sessions.service'
 import { insertGeneration } from 'src/db/bot-generation.repo'
 import { insertSession } from 'src/db/sessions.repo'
@@ -16,8 +17,15 @@ function fakeLogger(): PinoLogger {
   } as unknown as PinoLogger
 }
 
+function fakeDiscordDirectory(): DiscordDirectoryService {
+  return {
+    listGuildMembers: jest.fn().mockResolvedValue([]),
+    getChannelName: jest.fn().mockResolvedValue(null),
+  } as unknown as DiscordDirectoryService
+}
+
 function buildService(db: ReturnType<typeof createTestDb>['db']) {
-  return new SessionsService(db, fakeLogger())
+  return new SessionsService(db, fakeDiscordDirectory(), fakeLogger())
 }
 
 describe('SessionsService', () => {
@@ -32,14 +40,14 @@ describe('SessionsService', () => {
   })
 
   describe('listSessions', () => {
-    it('empty DB → empty items', () => {
+    it('empty DB → empty items', async () => {
       const svc = buildService(testDb.db)
-      const result = svc.listSessions({ limit: 10 })
+      const result = await svc.listSessions({ limit: 10 })
       expect(result.items).toHaveLength(0)
       expect(result.nextCursor).toBeNull()
     })
 
-    it('returns newest first, respects limit, computes nextCursor', () => {
+    it('returns newest first, respects limit, computes nextCursor', async () => {
       const gen = insertGeneration(testDb.db, { startedAt: new Date() })
       for (let i = 0; i < 6; i++) {
         insertSession(testDb.db, {
@@ -52,7 +60,7 @@ describe('SessionsService', () => {
         })
       }
       const svc = buildService(testDb.db)
-      const result = svc.listSessions({ limit: 5 })
+      const result = await svc.listSessions({ limit: 5 })
       expect(result.items).toHaveLength(5)
       expect(result.nextCursor).not.toBeNull()
       // IDs are descending (newest first).
@@ -60,7 +68,7 @@ describe('SessionsService', () => {
       expect(ids).toEqual([...ids].sort((a, b) => b - a))
     })
 
-    it('channel filter returns only matching sessions', () => {
+    it('channel filter returns only matching sessions', async () => {
       const gen = insertGeneration(testDb.db, { startedAt: new Date() })
       insertSession(testDb.db, {
         channelId: 'ch1',
@@ -79,12 +87,12 @@ describe('SessionsService', () => {
         createdAt: new Date(),
       })
       const svc = buildService(testDb.db)
-      const result = svc.listSessions({ channelId: 'ch1', limit: 10 })
+      const result = await svc.listSessions({ channelId: 'ch1', limit: 10 })
       expect(result.items).toHaveLength(1)
       expect(result.items[0]!.channelId).toBe('ch1')
     })
 
-    it('pagination boundary: two pages share no ids', () => {
+    it('pagination boundary: two pages share no ids', async () => {
       const gen = insertGeneration(testDb.db, { startedAt: new Date() })
       const ids: number[] = []
       for (let i = 0; i < 6; i++) {
@@ -99,11 +107,11 @@ describe('SessionsService', () => {
         ids.push(row.id)
       }
       const svc = buildService(testDb.db)
-      const page1 = svc.listSessions({ limit: 3 })
+      const page1 = await svc.listSessions({ limit: 3 })
       expect(page1.items).toHaveLength(3)
       const cursor = page1.nextCursor!
       expect(cursor).not.toBeNull()
-      const page2 = svc.listSessions({ cursor, limit: 3 })
+      const page2 = await svc.listSessions({ cursor, limit: 3 })
       const page1Ids = new Set(page1.items.map(i => i.id))
       const page2Ids = page2.items.map(i => i.id)
       for (const id of page2Ids) {

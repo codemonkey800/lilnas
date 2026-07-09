@@ -1,6 +1,7 @@
 import { PinoLogger } from 'nestjs-pino'
 
 import { BotStatusService } from 'src/bot/bot-status.service'
+import { DiscordDirectoryService } from 'src/console/discord-directory.service'
 import { LiveService } from 'src/console/live.service'
 import {
   finalize,
@@ -19,9 +20,16 @@ function fakeLogger(): PinoLogger {
   } as unknown as PinoLogger
 }
 
+function fakeDiscordDirectory(): DiscordDirectoryService {
+  return {
+    listGuildMembers: jest.fn().mockResolvedValue([]),
+    getChannelName: jest.fn().mockResolvedValue(null),
+  } as unknown as DiscordDirectoryService
+}
+
 function buildService(db: ReturnType<typeof createTestDb>['db']) {
   const botStatus = new BotStatusService(db, fakeLogger())
-  return new LiveService(db, botStatus, fakeLogger())
+  return new LiveService(db, botStatus, fakeDiscordDirectory(), fakeLogger())
 }
 
 describe('LiveService.getLive', () => {
@@ -39,15 +47,15 @@ describe('LiveService.getLive', () => {
     delete process.env.BOT_HEARTBEAT_STALE_THRESHOLD_MS
   })
 
-  it('no generation → never-seen, empty items', () => {
+  it('no generation → never-seen, empty items', async () => {
     const svc = buildService(testDb.db)
-    const result = svc.getLive()
+    const result = await svc.getLive()
     expect(result.globalStatus).toBe('never-seen')
     expect(result.botOffline).toBe(true)
     expect(result.items).toHaveLength(0)
   })
 
-  it('running generation, fresh heartbeat, prompting=true → working', () => {
+  it('running generation, fresh heartbeat, prompting=true → working', async () => {
     const gen = insertGeneration(testDb.db, { startedAt: new Date() })
     const now = new Date()
     markRunning(testDb.db, gen.id, 1234, now)
@@ -61,7 +69,7 @@ describe('LiveService.getLive', () => {
       lastHeartbeatAt: now,
     })
     const svc = buildService(testDb.db)
-    const result = svc.getLive(now)
+    const result = await svc.getLive(now)
     expect(result.globalStatus).toBe('online')
     expect(result.botOffline).toBe(false)
     expect(result.items).toHaveLength(1)
@@ -69,7 +77,7 @@ describe('LiveService.getLive', () => {
     expect(result.items[0]!.channelId).toBe('ch1')
   })
 
-  it('running generation, fresh heartbeat, prompting=false → idle', () => {
+  it('running generation, fresh heartbeat, prompting=false → idle', async () => {
     const gen = insertGeneration(testDb.db, { startedAt: new Date() })
     const now = new Date()
     markRunning(testDb.db, gen.id, 1234, now)
@@ -83,11 +91,11 @@ describe('LiveService.getLive', () => {
       lastHeartbeatAt: now,
     })
     const svc = buildService(testDb.db)
-    const result = svc.getLive(now)
+    const result = await svc.getLive(now)
     expect(result.items[0]!.state).toBe('idle')
   })
 
-  it('stale per-channel heartbeat while bot generation is fresh → stale state', () => {
+  it('stale per-channel heartbeat while bot generation is fresh → stale state', async () => {
     const gen = insertGeneration(testDb.db, { startedAt: new Date() })
     const now = new Date()
     // Bot-generation heartbeat is fresh so BotStatusService returns 'online'.
@@ -104,11 +112,11 @@ describe('LiveService.getLive', () => {
       lastHeartbeatAt: staleAt,
     })
     const svc = buildService(testDb.db)
-    const result = svc.getLive(now)
+    const result = await svc.getLive(now)
     expect(result.items[0]!.state).toBe('stale')
   })
 
-  it('bot offline → last-known state for all rows', () => {
+  it('bot offline → last-known state for all rows', async () => {
     const gen = insertGeneration(testDb.db, { startedAt: new Date() })
     const now = new Date()
     markRunning(testDb.db, gen.id, 1234, now)
@@ -124,24 +132,24 @@ describe('LiveService.getLive', () => {
     // Finalize the generation to simulate bot offline (BotStatusService returns offline).
     finalize(testDb.db, gen.id, 'stopped', 0, now)
     const svc = buildService(testDb.db)
-    const result = svc.getLive(now)
+    const result = await svc.getLive(now)
     expect(result.botOffline).toBe(true)
     expect(result.globalStatus).toBe('offline')
     expect(result.items[0]!.state).toBe('last-known')
   })
 
-  it('B12: bot online, zero live rows → genuinely-empty, items=[]', () => {
+  it('B12: bot online, zero live rows → genuinely-empty, items=[]', async () => {
     const gen = insertGeneration(testDb.db, { startedAt: new Date() })
     const now = new Date()
     markRunning(testDb.db, gen.id, 1234, now)
     const svc = buildService(testDb.db)
-    const result = svc.getLive(now)
+    const result = await svc.getLive(now)
     expect(result.globalStatus).toBe('online')
     expect(result.botOffline).toBe(false)
     expect(result.items).toHaveLength(0)
   })
 
-  it('prior-generation live_status rows are not shown for the new generation', () => {
+  it('prior-generation live_status rows are not shown for the new generation', async () => {
     // Create two generations. Insert a live_status row for gen1.
     const gen1 = insertGeneration(testDb.db, { startedAt: new Date() })
     const now = new Date()
@@ -161,7 +169,7 @@ describe('LiveService.getLive', () => {
     markRunning(testDb.db, gen2.id, 2222, now)
     // The service should use gen2 (latest) and find no rows for it.
     const svc = buildService(testDb.db)
-    const result = svc.getLive(now)
+    const result = await svc.getLive(now)
     expect(result.items).toHaveLength(0)
   })
 })

@@ -26,7 +26,7 @@ export class SessionsController {
   constructor(private readonly sessionsService: SessionsService) {}
 
   @Get()
-  list(@Query() raw: Record<string, string>): SessionListResponseDto {
+  async list(@Query() raw: Record<string, string>): Promise<SessionListResponseDto> {
     const { cursor, limit, channel } = parseQuery(SessionListQuerySchema, raw)
     return this.sessionsService.listSessions({
       channelId: channel,

@@ -9,10 +9,6 @@ import type { DiscordGuildMemberDto } from './git-identity.dto'
 
 const CACHE_TTL_MS = 5 * 60_000
 
-// Shape of Discord's Guild Member object we actually read — see
-// https://discord.com/developers/docs/resources/guild#guild-member-object.
-// Only the fields this service touches are declared; the rest of the real
-// payload (roles, joined_at, permissions, ...) is ignored.
 interface DiscordApiGuildMember {
   user: {
     id: string
@@ -21,6 +17,12 @@ interface DiscordApiGuildMember {
     bot?: boolean
   }
   nick: string | null
+}
+
+// Minimal shape for GET /channels/{channelId} — only the name field is used.
+interface DiscordApiChannel {
+  id: string
+  name?: string
 }
 
 // Fetches the connected Discord server's member list. Originally backed the
@@ -38,8 +40,11 @@ export class DiscordDirectoryService {
   // sharing the same imported module. In production Nest only ever creates
   // one instance (default singleton scope), so this still behaves as a
   // per-process cache.
-  private cache: { fetchedAt: number; data: DiscordGuildMemberDto[] } | null =
-    null
+  private membersCache: {
+    fetchedAt: number
+    data: DiscordGuildMemberDto[]
+  } | null = null
+  private channelNameCache = new Map<string, { fetchedAt: number; name: string | null }>()
 
   constructor(private readonly logger: PinoLogger) {}
 
@@ -50,10 +55,10 @@ export class DiscordDirectoryService {
   async listGuildMembers(force = false): Promise<DiscordGuildMemberDto[]> {
     if (
       !force &&
-      this.cache &&
-      Date.now() - this.cache.fetchedAt < CACHE_TTL_MS
+      this.membersCache &&
+      Date.now() - this.membersCache.fetchedAt < CACHE_TTL_MS
     ) {
-      return this.cache.data
+      return this.membersCache.data
     }
 
     const token = env(EnvKeys.DISCORD_API_TOKEN)
@@ -111,11 +116,41 @@ export class DiscordDirectoryService {
       }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName))
 
-    this.cache = { fetchedAt: Date.now(), data }
+    this.membersCache = { fetchedAt: Date.now(), data }
     this.logger.debug(
       { memberCount: data.length, forced: force },
       'Guild member list refreshed',
     )
     return data
+  }
+
+  // Returns the channel's name, or null on any error/unknown channel.
+  // Uses a per-channel TTL cache matching the member list's TTL.
+  async getChannelName(channelId: string): Promise<string | null> {
+    const cached = this.channelNameCache.get(channelId)
+    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+      return cached.name
+    }
+
+    const token = env(EnvKeys.DISCORD_API_TOKEN)
+    try {
+      const response = await fetch(
+        `https://discord.com/api/v10/channels/${channelId}`,
+        {
+          headers: { Authorization: `Bot ${token}` },
+          signal: AbortSignal.timeout(10_000),
+        },
+      )
+      if (!response.ok) {
+        this.channelNameCache.set(channelId, { fetchedAt: Date.now(), name: null })
+        return null
+      }
+      const body = (await response.json()) as DiscordApiChannel
+      const name = body.name ?? null
+      this.channelNameCache.set(channelId, { fetchedAt: Date.now(), name })
+      return name
+    } catch {
+      return null
+    }
   }
 }

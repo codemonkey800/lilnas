@@ -3,7 +3,9 @@ import { z } from 'zod'
 export const SessionListItemSchema = z.object({
   id: z.number().int(),
   channelId: z.string(),
+  channelName: z.string().nullable(),
   triggeringUserId: z.string(),
+  triggeringUserDisplayName: z.string().nullable(),
   createdAt: z.string().datetime(),
   endedAt: z.string().datetime().nullable(),
   endReason: z.enum(['evicted', 'teardown', 'interrupted']).nullable(),

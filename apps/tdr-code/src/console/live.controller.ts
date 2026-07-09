@@ -10,7 +10,7 @@ export class LiveController {
   constructor(private readonly liveService: LiveService) {}
 
   @Get()
-  getLive(): LiveResponseDto {
+  getLive(): Promise<LiveResponseDto> {
     return this.liveService.getLive()
   }
 }
