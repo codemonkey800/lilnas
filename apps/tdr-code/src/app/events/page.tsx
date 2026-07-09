@@ -157,8 +157,17 @@ export default function EventsPage() {
                     <td className="py-3 pr-4 text-xs text-gray-300">
                       {evt.type}
                     </td>
-                    <td className="py-3 pr-4 font-mono text-xs text-gray-400">
-                      {evt.channelId ?? '—'}
+                    <td className="max-w-[12rem] py-3 pr-4 text-xs text-gray-400">
+                      {evt.channelId ? (
+                        <span
+                          className="block truncate"
+                          title={evt.channelId}
+                        >
+                          {evt.channelName ?? evt.channelId}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td className="py-3 text-xs text-gray-400">
                       {evt.sessionId ? (

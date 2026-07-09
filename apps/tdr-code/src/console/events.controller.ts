@@ -34,7 +34,7 @@ export class EventsController {
   constructor(private readonly eventsService: EventsService) {}
 
   @Get()
-  list(@Query() raw: Record<string, string>): EventListResponseDto {
+  async list(@Query() raw: Record<string, string>): Promise<EventListResponseDto> {
     const { cursor, limit, type, level, channel } = parseQuery(
       EventListQuerySchema,
       raw,

@@ -273,14 +273,22 @@ export default function SessionDetailPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 rounded-lg border border-gray-800 p-4 text-xs text-gray-400">
-        <div>
-          Channel:{' '}
-          <span className="font-mono text-gray-200">{session.channelId}</span>
+        <div className="flex min-w-0 items-baseline gap-1">
+          <span className="shrink-0">Channel:</span>
+          <span
+            className="block truncate font-mono text-gray-200"
+            title={session.channelId}
+          >
+            {session.channelName ?? session.channelId}
+          </span>
         </div>
-        <div>
-          User:{' '}
-          <span className="font-mono text-gray-200">
-            {session.triggeringUserId}
+        <div className="flex min-w-0 items-baseline gap-1">
+          <span className="shrink-0">User:</span>
+          <span
+            className="block truncate font-mono text-gray-200"
+            title={session.triggeringUserId}
+          >
+            {session.triggeringUserDisplayName ?? session.triggeringUserId}
           </span>
         </div>
         <div>

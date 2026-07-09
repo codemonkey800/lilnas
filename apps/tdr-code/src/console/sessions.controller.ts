@@ -36,7 +36,7 @@ export class SessionsController {
   }
 
   @Get(':id')
-  getOne(@Param('id') idStr: string): SessionDetailResponseDto {
+  async getOne(@Param('id') idStr: string): Promise<SessionDetailResponseDto> {
     const id = parseInt(idStr, 10)
     if (isNaN(id) || id <= 0) {
       throw new BadRequestException('Session id must be a positive integer')

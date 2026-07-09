@@ -80,7 +80,7 @@ export class SessionsService {
     }
   }
 
-  getSessionTranscript(sessionId: number): SessionDetailResponseDto {
+  async getSessionTranscript(sessionId: number): Promise<SessionDetailResponseDto> {
     // Wrap session + turns + blocks in one DEFERRED snapshot so the bot cannot
     // commit between queries and yield an internally-inconsistent view.
     const result = this.db.transaction(
@@ -100,6 +100,12 @@ export class SessionsService {
     }
 
     const { session, turns, blocks } = result
+
+    const [channelName, members] = await Promise.all([
+      this.discordDirectory.getChannelName(session.channelId).catch(() => null),
+      this.discordDirectory.listGuildMembers().catch(() => []),
+    ])
+    const memberMap = new Map(members.map(m => [m.id, m.displayName]))
 
     // Group blocks by turnId.
     const blocksByTurnId = new Map<number, typeof blocks>()
@@ -155,7 +161,12 @@ export class SessionsService {
     })
 
     return {
-      session: this.mapSessionItem(session),
+      session: {
+        ...this.mapSessionItem(session),
+        channelName: channelName ?? null,
+        triggeringUserDisplayName:
+          memberMap.get(session.triggeringUserId) ?? null,
+      },
       turns: turnDtos,
       droppedBlocks,
     }

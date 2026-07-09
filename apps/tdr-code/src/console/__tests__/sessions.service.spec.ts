@@ -121,12 +121,14 @@ describe('SessionsService', () => {
   })
 
   describe('getSessionTranscript', () => {
-    it('non-existent session → NotFoundException', () => {
+    it('non-existent session → NotFoundException', async () => {
       const svc = buildService(testDb.db)
-      expect(() => svc.getSessionTranscript(999)).toThrow(NotFoundException)
+      await expect(svc.getSessionTranscript(999)).rejects.toThrow(
+        NotFoundException,
+      )
     })
 
-    it('happy path: session + 2 turns + blocks → correctly grouped', () => {
+    it('happy path: session + 2 turns + blocks → correctly grouped', async () => {
       const gen = insertGeneration(testDb.db, { startedAt: new Date() })
       const session = insertSession(testDb.db, {
         channelId: 'ch1',
@@ -164,7 +166,7 @@ describe('SessionsService', () => {
       })
 
       const svc = buildService(testDb.db)
-      const result = svc.getSessionTranscript(session.id)
+      const result = await svc.getSessionTranscript(session.id)
       expect(result.turns).toHaveLength(2)
       expect(result.turns[0]!.content).toHaveLength(1)
       expect(result.turns[0]!.content[0]!.kind).toBe('prompt')
@@ -172,7 +174,7 @@ describe('SessionsService', () => {
       expect(result.droppedBlocks).toBe(0)
     })
 
-    it('malformed block payload → dropped and counted', () => {
+    it('malformed block payload → dropped and counted', async () => {
       const gen = insertGeneration(testDb.db, { startedAt: new Date() })
       const session = insertSession(testDb.db, {
         channelId: 'ch1',
@@ -212,7 +214,7 @@ describe('SessionsService', () => {
       )
 
       const svc = buildService(testDb.db)
-      const result = svc.getSessionTranscript(session.id)
+      const result = await svc.getSessionTranscript(session.id)
       // The corrupted block is dropped; the agent_text block survives.
       expect(result.droppedBlocks).toBe(1)
       expect(result.turns[0]!.content).toHaveLength(1)
@@ -267,12 +269,12 @@ describe('SessionsService', () => {
         return session
       }
 
-      it('truncates a newText longer than the bound to exactly the bound length and marks truncated:true', () => {
+      it('truncates a newText longer than the bound to exactly the bound length and marks truncated:true', async () => {
         const longText = 'x'.repeat(DIFF_PREVIEW_MAX_CHARS + 500)
         const session = seedDiffBlock(testDb.db, { newText: longText })
 
         const svc = buildService(testDb.db)
-        const result = svc.getSessionTranscript(session.id)
+        const result = await svc.getSessionTranscript(session.id)
         const block = result.turns[0]!.content[0]!
         if (block.kind !== 'diff') throw new Error('expected a diff block')
 
@@ -281,7 +283,7 @@ describe('SessionsService', () => {
         expect(block.truncated).toBe(true)
       })
 
-      it('does not truncate newText/oldText at or under the bound, and marks truncated:false', () => {
+      it('does not truncate newText/oldText at or under the bound, and marks truncated:false', async () => {
         const exactText = 'y'.repeat(DIFF_PREVIEW_MAX_CHARS)
         const shortOld = 'old content'
         const session = seedDiffBlock(testDb.db, {
@@ -290,7 +292,7 @@ describe('SessionsService', () => {
         })
 
         const svc = buildService(testDb.db)
-        const result = svc.getSessionTranscript(session.id)
+        const result = await svc.getSessionTranscript(session.id)
         const block = result.turns[0]!.content[0]!
         if (block.kind !== 'diff') throw new Error('expected a diff block')
 
@@ -300,14 +302,14 @@ describe('SessionsService', () => {
         expect(block.truncated).toBe(false)
       })
 
-      it('keeps oldText: null for a new-file-creation diff (absent oldText never becomes a truncated empty string)', () => {
+      it('keeps oldText: null for a new-file-creation diff (absent oldText never becomes a truncated empty string)', async () => {
         const session = seedDiffBlock(testDb.db, {
           newText: 'created file contents',
           // oldText omitted entirely — new-file creation.
         })
 
         const svc = buildService(testDb.db)
-        const result = svc.getSessionTranscript(session.id)
+        const result = await svc.getSessionTranscript(session.id)
         const block = result.turns[0]!.content[0]!
         if (block.kind !== 'diff') throw new Error('expected a diff block')
 
@@ -315,7 +317,7 @@ describe('SessionsService', () => {
         expect(block.truncated).toBe(false)
       })
 
-      it('marks truncated:true when only oldText exceeds the bound, even if newText does not', () => {
+      it('marks truncated:true when only oldText exceeds the bound, even if newText does not', async () => {
         const longOld = 'z'.repeat(DIFF_PREVIEW_MAX_CHARS + 200)
         const session = seedDiffBlock(testDb.db, {
           newText: 'short new text',
@@ -323,7 +325,7 @@ describe('SessionsService', () => {
         })
 
         const svc = buildService(testDb.db)
-        const result = svc.getSessionTranscript(session.id)
+        const result = await svc.getSessionTranscript(session.id)
         const block = result.turns[0]!.content[0]!
         if (block.kind !== 'diff') throw new Error('expected a diff block')
 

@@ -7,6 +7,7 @@ export const EventItemSchema = z.object({
   type: z.enum(EVENT_TYPES),
   level: z.enum(EVENT_LEVELS),
   channelId: z.string().nullable(),
+  channelName: z.string().nullable(),
   sessionId: z.number().int().nullable(),
   context: z.record(z.string(), z.unknown()),
   createdAt: z.string().datetime(),
