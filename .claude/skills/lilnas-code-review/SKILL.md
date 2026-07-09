@@ -13,7 +13,7 @@ description: |
   any time the user types /lilnas-code-review. Fully self-contained — no
   dependency on /ce-code-review or the compound-engineering plugin.
 user-invocable: true
-argument-hint: "<prompt> — e.g. 45897, my-branch, 'last 3 commits', 'unstaged changes', base:<ref>"
+argument-hint: "<prompt> — e.g. 45897, my-branch, 'last 3 commits', 'unstaged changes', base:<ref>, <sha1>..<sha2>"
 ---
 
 # Lilnas Code Review
@@ -45,13 +45,14 @@ Read-only by design. No fixes are applied. The user picks issue numbers from the
 | `unstaged changes` / `working tree`     | `base:HEAD` (`git diff $BASE` covers uncommitted edits)         | NLP → `base:HEAD`                                |
 | `staged changes`                        | `base:HEAD`, with a header note that scope covers staged + unstaged together (`git diff $BASE` does not isolate `--cached`) | NLP → `base:HEAD` |
 | `commit a1b2c3d`                        | `base:a1b2c3d^` (parent of that commit)                         | NLP → `base:<sha>^`                              |
-| `between abc and def` / `abc..def`      | `base:abc`                                                      | NLP → `base:abc`                                 |
+| `between abc and def` / `abc..def`      | Explicit range `abc..def` — both ends pinned                    | direct range use                                 |
 | `the changes I made to <path>`          | `base:HEAD~N` where N covers all branch commits touching that path; mention the path filter in the header | `git log --oneline -- <path>` to count commits  |
 | anything containing `plan:<path>`       | Use `<path>` as the plan for requirements verification          | NLP → `plan:<path>`                              |
 
 **Rules:**
 
 - **`base:` cannot combine with a PR number or branch target.** If both appear, stop with: `❌ Cannot use base: with a PR number or branch target — base: implies the current checkout is already the correct branch. Pass base: alone, or pass the target alone and let scope detection resolve the base.`
+- **An explicit range (`<ref1>..<ref2>`) cannot combine with a PR number or branch target**, for the same reason. If both appear, stop with: `❌ Cannot use an explicit commit range with a PR number or branch target — a range implies the current checkout already has both commits reachable. Pass the range alone, or pass the target alone and let scope detection resolve the base.`
 - **No modes accepted.** This skill is interactive-only and read-only. If `<prompt>` contains `mode:autofix`, `mode:headless`, or `mode:report-only`, reject with: `❌ /lilnas-code-review is interactive and read-only — no mode flags accepted.`
 - **Ambiguous prompt.** When the natural-language parse leaves real doubt about scope, ask the user one clarifying question (use `AskUserQuestion` in Claude Code, `request_user_input` in Codex, the platform equivalent elsewhere). Do not dispatch reviewers until scope is resolved.
 
@@ -74,6 +75,31 @@ git diff -U10 $BASE
 echo "UNTRACKED:"
 git ls-files --others --exclude-standard
 ```
+
+### If an explicit range `<ref1>..<ref2>` was given
+
+Both ends are pinned — this is for reviewing a fixed set of commits regardless of what lands on the branch afterward (e.g. a wrapper skill handing off the exact commit range it just produced). Never substitute `<ref2>` with `HEAD`, even when it happens to equal HEAD right now — the whole point is to ignore whatever HEAD becomes later.
+
+```
+git rev-parse --verify <ref1>
+git rev-parse --verify <ref2>
+BASE=$(git rev-parse <ref1>)
+RANGE_HEAD=$(git rev-parse <ref2>)
+git merge-base $BASE $RANGE_HEAD
+```
+
+- If the `merge-base` output doesn't equal `$BASE`, `<ref1>` isn't an ancestor of `<ref2>`. Stop with: `❌ <ref1> is not an ancestor of <ref2> — check the range order (base first, head second).`
+- Otherwise, capture the diff:
+  ```
+  echo "BASE:$BASE"
+  echo "RANGE_HEAD:$RANGE_HEAD"
+  echo "FILES:"
+  git diff --name-only $BASE $RANGE_HEAD
+  echo "DIFF:"
+  git diff -U10 $BASE $RANGE_HEAD
+  ```
+
+No `UNTRACKED:` marker in this mode — a diff between two fixed commits has no relationship to the current working tree, so there's nothing to check.
 
 ### If a PR number or GitHub URL was given
 
@@ -119,14 +145,14 @@ If all files match, print:
 
 ### Untracked file handling
 
-Always inspect `UNTRACKED:`. If non-empty, tell the user which files are excluded. If any of them should be reviewed, stop and recommend `git add` + rerun.
+Always inspect `UNTRACKED:` when Stage 1 captured one. If non-empty, tell the user which files are excluded. If any of them should be reviewed, stop and recommend `git add` + rerun. Explicit-range mode never captures `UNTRACKED:` (see above) — skip this check entirely in that mode.
 
 ## Stage 2: Intent discovery
 
 Understand what the change is trying to accomplish.
 
 - **PR mode:** use PR title + body + linked issues from `gh pr view`. Supplement with commit messages if the body is sparse.
-- **Branch / standalone mode:** run `git log --oneline ${BASE}..HEAD` to get commit subjects and bodies.
+- **Branch / standalone mode:** run `git log --oneline ${BASE}..${RANGE_HEAD:-HEAD}` to get commit subjects and bodies — `RANGE_HEAD` is only set when Stage 1 resolved an explicit range; every other path still walks to `HEAD`.
 
 Compose a 2–3 line intent summary:
 
@@ -211,7 +237,7 @@ Each spawn prompt is built from `references/subagent-prompt-template.md` with th
 - `{intent_summary}` — output of Stage 2
 - `{pr_metadata}` — PR title/body/URL when reviewing a PR; empty otherwise
 - `{file_list}` — `FILES:` block from Stage 1
-- `{diff}` — `DIFF:` block from Stage 1 (`git diff -U10 $BASE`)
+- `{diff}` — `DIFF:` block from Stage 1 (`git diff -U10 $BASE`, or `git diff -U10 $BASE $RANGE_HEAD` in explicit-range mode)
 - `{reviewer_name}` — persona name (e.g. `"correctness"`, `"kieran-typescript"`, `"equations-security"`)
 - `{trigger_reason}` — for conditional reviewers, the heuristic that fired (e.g. `"6 .tsx files changed"`). Empty for always-on.
 - For `project-standards` only: append a `<standards-paths>` block with the path list from Stage 3b.

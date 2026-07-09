@@ -1,0 +1,809 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "cae5c101-d2aa-4163-9b14-eeed2831495d",
+  "prevId": "4e3fb1af-7e61-4190-a72b-b212aa012ab4",
+  "tables": {
+    "bot_generation": {
+      "name": "bot_generation",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pid": {
+          "name": "pid",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_heartbeat_at": {
+          "name": "last_heartbeat_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "exit_code": {
+          "name": "exit_code",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "bot_generation_status_check": {
+          "name": "bot_generation_status_check",
+          "value": "\"bot_generation\".\"status\" IN ('starting','running','stopping','stopped','crashed','failed')"
+        }
+      }
+    },
+    "claude_process": {
+      "name": "claude_process",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation_id": {
+          "name": "generation_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pgid": {
+          "name": "pgid",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "spawned_at": {
+          "name": "spawned_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "exited_at": {
+          "name": "exited_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "claude_process_live_idx": {
+          "name": "claude_process_live_idx",
+          "columns": [
+            "generation_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "claude_process_generation_id_bot_generation_id_fk": {
+          "name": "claude_process_generation_id_bot_generation_id_fk",
+          "tableFrom": "claude_process",
+          "tableTo": "bot_generation",
+          "columnsFrom": [
+            "generation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "commands": {
+      "name": "commands",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation_id": {
+          "name": "generation_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target": {
+          "name": "target",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "consumed_at": {
+          "name": "consumed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "commands_generation_status_idx": {
+          "name": "commands_generation_status_idx",
+          "columns": [
+            "generation_id",
+            "status"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "commands_generation_id_bot_generation_id_fk": {
+          "name": "commands_generation_id_bot_generation_id_fk",
+          "tableFrom": "commands",
+          "tableTo": "bot_generation",
+          "columnsFrom": [
+            "generation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "commands_type_check": {
+          "name": "commands_type_check",
+          "value": "\"commands\".\"type\" IN ('teardown_channel')"
+        },
+        "commands_status_check": {
+          "name": "commands_status_check",
+          "value": "\"commands\".\"status\" IN ('pending','consumed')"
+        }
+      }
+    },
+    "events": {
+      "name": "events",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation_id": {
+          "name": "generation_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "level": {
+          "name": "level",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "context": {
+          "name": "context",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "events_created_at_idx": {
+          "name": "events_created_at_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "events_channel_created_idx": {
+          "name": "events_channel_created_idx",
+          "columns": [
+            "channel_id",
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "events_session_idx": {
+          "name": "events_session_idx",
+          "columns": [
+            "session_id"
+          ],
+          "isUnique": false
+        },
+        "events_type_idx": {
+          "name": "events_type_idx",
+          "columns": [
+            "type"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "events_generation_id_bot_generation_id_fk": {
+          "name": "events_generation_id_bot_generation_id_fk",
+          "tableFrom": "events",
+          "tableTo": "bot_generation",
+          "columnsFrom": [
+            "generation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "events_session_id_sessions_id_fk": {
+          "name": "events_session_id_sessions_id_fk",
+          "tableFrom": "events",
+          "tableTo": "sessions",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "events_type_check": {
+          "name": "events_type_check",
+          "value": "\"events\".\"type\" IN ('session_created','session_evicted','turn_started','turn_completed','turn_cancelled','turn_errored','turn_interrupted','bot_restart','command_anomaly','transcript_write_failed')"
+        },
+        "events_level_check": {
+          "name": "events_level_check",
+          "value": "\"events\".\"level\" IN ('info','warn','error')"
+        }
+      }
+    },
+    "live_status": {
+      "name": "live_status",
+      "columns": {
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation_id": {
+          "name": "generation_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "triggering_user_id": {
+          "name": "triggering_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "prompting": {
+          "name": "prompting",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "queue_depth": {
+          "name": "queue_depth",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_activity_at": {
+          "name": "last_activity_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_heartbeat_at": {
+          "name": "last_heartbeat_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "live_status_generation_idx": {
+          "name": "live_status_generation_idx",
+          "columns": [
+            "generation_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "live_status_generation_id_bot_generation_id_fk": {
+          "name": "live_status_generation_id_bot_generation_id_fk",
+          "tableFrom": "live_status",
+          "tableTo": "bot_generation",
+          "columnsFrom": [
+            "generation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "live_status_prompting_check": {
+          "name": "live_status_prompting_check",
+          "value": "\"live_status\".\"prompting\" IN (0,1)"
+        },
+        "live_status_queue_depth_check": {
+          "name": "live_status_queue_depth_check",
+          "value": "\"live_status\".\"queue_depth\" >= 0"
+        }
+      }
+    },
+    "sessions": {
+      "name": "sessions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation_id": {
+          "name": "generation_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "triggering_user_id": {
+          "name": "triggering_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "acp_session_id": {
+          "name": "acp_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cwd": {
+          "name": "cwd",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "end_reason": {
+          "name": "end_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "sessions_channel_created_idx": {
+          "name": "sessions_channel_created_idx",
+          "columns": [
+            "channel_id",
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "sessions_generation_idx": {
+          "name": "sessions_generation_idx",
+          "columns": [
+            "generation_id"
+          ],
+          "isUnique": false
+        },
+        "sessions_active_lookup_idx": {
+          "name": "sessions_active_lookup_idx",
+          "columns": [
+            "channel_id",
+            "created_at"
+          ],
+          "isUnique": false,
+          "where": "\"sessions\".\"ended_at\" IS NULL"
+        }
+      },
+      "foreignKeys": {
+        "sessions_generation_id_bot_generation_id_fk": {
+          "name": "sessions_generation_id_bot_generation_id_fk",
+          "tableFrom": "sessions",
+          "tableTo": "bot_generation",
+          "columnsFrom": [
+            "generation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "sessions_end_reason_check": {
+          "name": "sessions_end_reason_check",
+          "value": "\"sessions\".\"end_reason\" IN ('evicted','teardown','interrupted')"
+        },
+        "sessions_ended_correlation_check": {
+          "name": "sessions_ended_correlation_check",
+          "value": "(\"sessions\".\"ended_at\" IS NULL) = (\"sessions\".\"end_reason\" IS NULL)"
+        }
+      }
+    },
+    "turn_content": {
+      "name": "turn_content",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "turn_id": {
+          "name": "turn_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ref": {
+          "name": "ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "turn_content_ref_unique_idx": {
+          "name": "turn_content_ref_unique_idx",
+          "columns": [
+            "turn_id",
+            "ref"
+          ],
+          "isUnique": true,
+          "where": "\"turn_content\".\"ref\" IS NOT NULL"
+        },
+        "turn_content_turn_idx": {
+          "name": "turn_content_turn_idx",
+          "columns": [
+            "turn_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "turn_content_turn_id_turns_id_fk": {
+          "name": "turn_content_turn_id_turns_id_fk",
+          "tableFrom": "turn_content",
+          "tableTo": "turns",
+          "columnsFrom": [
+            "turn_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "turn_content_kind_check": {
+          "name": "turn_content_kind_check",
+          "value": "\"turn_content\".\"kind\" IN ('prompt','agent_text','tool_call','diff')"
+        }
+      }
+    },
+    "turns": {
+      "name": "turns",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation_id": {
+          "name": "generation_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "turn_index": {
+          "name": "turn_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "stop_reason": {
+          "name": "stop_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "turns_session_turn_index_unique_idx": {
+          "name": "turns_session_turn_index_unique_idx",
+          "columns": [
+            "session_id",
+            "turn_index"
+          ],
+          "isUnique": true
+        },
+        "turns_dangling_sweep_idx": {
+          "name": "turns_dangling_sweep_idx",
+          "columns": [
+            "generation_id"
+          ],
+          "isUnique": false,
+          "where": "\"turns\".\"ended_at\" IS NULL"
+        }
+      },
+      "foreignKeys": {
+        "turns_session_id_sessions_id_fk": {
+          "name": "turns_session_id_sessions_id_fk",
+          "tableFrom": "turns",
+          "tableTo": "sessions",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "turns_generation_id_bot_generation_id_fk": {
+          "name": "turns_generation_id_bot_generation_id_fk",
+          "tableFrom": "turns",
+          "tableTo": "bot_generation",
+          "columnsFrom": [
+            "generation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "turns_status_check": {
+          "name": "turns_status_check",
+          "value": "\"turns\".\"status\" IN ('running','completed','cancelled','errored','interrupted')"
+        },
+        "turns_status_ended_correlation_check": {
+          "name": "turns_status_ended_correlation_check",
+          "value": "(\"turns\".\"status\" = 'running') = (\"turns\".\"ended_at\" IS NULL)"
+        },
+        "turns_turn_index_positive_check": {
+          "name": "turns_turn_index_positive_check",
+          "value": "\"turns\".\"turn_index\" >= 1"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

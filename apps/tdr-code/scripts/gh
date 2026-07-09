@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# gh — PATH wrapper injected by tdr-code into the Claude subprocess environment.
+#
+# Reads per-turn identity from ${RUN_DIR}/identity/$TDR_CHANNEL_ID/ and
+# exports GH_TOKEN before delegating to the real gh binary ($TDR_REAL_GH).
+#
+# Files written by GitTurnContext.begin() and removed by GitTurnContext.end():
+#   github_token — the triggering user's decrypted GitHub OAuth token,
+#                  exported as GH_TOKEN (gh's native non-interactive auth
+#                  mechanism — no hosts.yml is ever materialized). Written
+#                  ONLY when the turn's GitHub axis resolved to `configured`.
+#
+# Unlike scripts/git, there is no local-write-vs-read-verb distinction here:
+# gh has no analogue to git's blocked-commit/push verb list, so any `gh`
+# invocation without a resolved token is blocked outright (R15 — no
+# ambient/host fallback applies to the whole binary, not a verb subset). Do
+# not add verb-scanning to this wrapper; that would be over-engineering for
+# a binary with no local-write/read-only split to make.
+#
+# Two DISTINCT block reasons, two DISTINCT messages — do not conflate them:
+#   1. TDR_REAL_GH unset: the host has no `gh` installed at all. This is an
+#      operator-facing infrastructure gap; a user cannot self-service it, so
+#      the message does NOT mention /git. Checked BEFORE ever touching the
+#      identity directory — see session-manager.service.ts's Key Technical
+#      Decision on why $TDR_REAL_GH resolves leniently (warn + unset, not a
+#      hard boot failure) unlike $TDR_REAL_GIT.
+#   2. No github_token resolved for this turn (TDR_CHANNEL_ID set, but the
+#      file is absent): a per-user linking gap, self-service-fixable at
+#      /git. This is the only case that mentions /git.
+#
+# If TDR_CHANNEL_ID is unset entirely (no active turn, e.g. a non-turn
+# shell) gh runs unmodified — mirrors scripts/git's own no-op-outside-a-turn
+# behavior.
+#
+# Ambient environment variables (e.g. GH_DEBUG) are inherited unfiltered
+# into the real gh process on exec, matching scripts/git's existing posture
+# for $TDR_REAL_GIT — not a new gap this wrapper introduces.
+
+set -euo pipefail
+
+if [ -z "${TDR_REAL_GH:-}" ]; then
+  echo "error: gh is not installed on this host — contact an operator." >&2
+  exit 1
+fi
+
+# Mirrors scripts/git's override — fixes macOS-dev parity and enables real
+# (non-syntax-only) integration testing.
+RUN_DIR="${TDR_CODE_RUN_DIR:-/run/tdr-code}"
+IDENTITY_DIR="${RUN_DIR}/identity/${TDR_CHANNEL_ID:-}"
+
+if [ -n "${TDR_CHANNEL_ID:-}" ]; then
+  if [ -f "$IDENTITY_DIR/github_token" ]; then
+    GH_TOKEN=$(cat "$IDENTITY_DIR/github_token")
+    export GH_TOKEN
+  else
+    CONSOLE_URL="${TDR_CODE_CONSOLE_URL:-https://tdr-code.lilnas.io}"
+    echo "error: gh is blocked: your GitHub account is not linked." >&2
+    echo "       Link your GitHub account at: ${CONSOLE_URL}/git" >&2
+    exit 1
+  fi
+fi
+
+exec "${TDR_REAL_GH}" "$@"

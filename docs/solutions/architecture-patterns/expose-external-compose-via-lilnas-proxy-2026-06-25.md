@@ -29,9 +29,10 @@ When developing services in separate repositories outside the lilnas monorepo, t
 Two alternatives were explored and rejected before settling on the shared-network pattern (session history):
 
 - **Bash CLI + Traefik file provider:** Dynamically wrote YAML into `/storage/app-data/traefik-dynamic` to proxy host-bound ports. Abandoned because it required an extra `host.docker.internal` hop, couldn't work with Docker-internal services, and had a silent name-collision bug: `lilnas-expose start redirect 8080` would overwrite the production `redirect.yml` that routes all HTTP→HTTPS — no guard existed.
-- **DNS-01 wildcard cert:** Would have issued a single `*.dev.lilnas.io` cert, but rejected because the domain is not on Cloudflare and Namecheap's API requires IP allowlisting.
 
 The final design attaches external compose projects' containers directly to a shared Docker network (`lilnas-proxy`) that Traefik monitors. No host ports, no extra hops — pure container-to-container routing.
+
+**Update (post-launch):** The v1 design shipped with per-host TLS-ALPN-01 certs and explicitly rejected DNS-01 wildcard issuance (Namecheap's API required IP allowlisting). That blocker was later resolved — `infra/proxy.yml` now runs the `le` resolver with `acme.dnschallenge.provider=namecheap`, and the `traefik` dashboard router requests a cert with `tls.domains[].main` covering `*.lilnas.io`, `lilnas.io`, and `*.dev.lilnas.io`. Every `*.dev.lilnas.io` route — including external `lilnas-proxy` projects — now reuses that wildcard cert automatically. Router labels must use `tls=true`, not `tls.certresolver=le`, to pick it up (see below).
 
 ## Guidance
 
@@ -68,7 +69,7 @@ services:
       # Use dev- prefix to avoid silently shadowing a production router name
       - traefik.http.routers.dev-my-service.rule=Host(`my-service.dev.lilnas.io`)
       - traefik.http.routers.dev-my-service.entrypoints=websecure
-      - traefik.http.routers.dev-my-service.tls.certresolver=le
+      - traefik.http.routers.dev-my-service.tls=true
 
       # Container-internal port (not a host port — no `ports:` mapping needed)
       - traefik.http.services.dev-my-service.loadbalancer.server.port=3000
