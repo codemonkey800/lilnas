@@ -12,11 +12,16 @@
 coverage/
 data/
 dist/
+apps/tdr-code/server.js
 infra/dev.yml
-logs/
+apps/tdr-bot/logs/
 node_modules/
 REVIEW.md
+*.db
+*.db-shm
+*.db-wal
 truereflection-dev/
+player.html
 
 # Helm chart dependencies
 k8s/charts/*/charts/*.tgz

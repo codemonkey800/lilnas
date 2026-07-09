@@ -133,7 +133,7 @@ labels:
   - traefik.docker.network=lilnas-proxy
   - traefik.http.routers.dev-<name>.rule=Host(`<name>.dev.lilnas.io`)
   - traefik.http.routers.dev-<name>.entrypoints=websecure
-  - traefik.http.routers.dev-<name>.tls.certresolver=le
+  - traefik.http.routers.dev-<name>.tls=true
   - traefik.http.services.dev-<name>.loadbalancer.server.port=<port>
   - traefik.http.routers.dev-<name>.middlewares=forward-auth
 ```
@@ -191,7 +191,7 @@ After `docker compose up` succeeds:
    > ✅ `https://<name>.dev.lilnas.io` is live.
    >
    > - **Route:** gated by OAuth (`forward-auth`). To make it public, remove the `middlewares=forward-auth` label and run `docker compose up -d` again.
-   > - **TLS cert:** issued on first request by Let's Encrypt (TLS-ALPN-01). May take a few seconds on first hit.
+   > - **TLS cert:** shared `*.dev.lilnas.io` wildcard cert (DNS-01, managed by the production Traefik) — no per-host cert is issued. Router must use `tls=true`, not `tls.certresolver=le`, to use it.
    > - **Dashboard:** active routes are visible at `https://traefik.lilnas.io`.
    > - **Teardown:** `docker compose down` in `<project-path>` removes the route within ~1 second.
 

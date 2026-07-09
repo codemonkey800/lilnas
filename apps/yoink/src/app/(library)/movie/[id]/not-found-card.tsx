@@ -4,6 +4,7 @@ import SearchOffIcon from '@mui/icons-material/SearchOff'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
+// eslint-disable-next-line import/no-named-as-default-member -- dayjs's default export is the correct API; the named `extend` is an unrelated export
 dayjs.extend(relativeTime)
 
 interface NotFoundCardProps {

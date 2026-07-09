@@ -1,0 +1,3182 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  act,
+  fireEvent,
+  render as rtlRender,
+  screen,
+  waitFor,
+} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { type ReactElement, StrictMode } from 'react'
+
+import { api, logTailUrl } from 'src/app/lib/api'
+import { ROW_PX } from 'src/app/logs/log-row'
+import {
+  appendFilteredMatch,
+  appendTailLine,
+  applyFetchedWindow,
+  EDGE_FETCH_THRESHOLD,
+  EVICTION_CAP,
+  filteredMatchToLogLine,
+  LogViewer,
+  matchesFilterPredicate,
+  type ReadLogWindowParams,
+  seedWindowState,
+  type WindowState,
+} from 'src/app/logs/log-viewer'
+import type {
+  LogLine,
+  LogSearchResponse,
+  LogTailMessage,
+  LogWindowResponse,
+} from 'src/logging/log-view.types'
+
+// U11: LogSearchBar is mocked at the module level for this file's OWN
+// component-wiring tests — see that describe block's own header comment
+// for the full rationale (log-search-bar.spec.tsx already exhaustively
+// covers the real component's internal behavior in isolation; this file's
+// job is proving what log-viewer.tsx does IN RESPONSE to a hit selection,
+// which is orthogonal to how that selection was produced). The mock keeps
+// the LATEST `onHitSelected` callback the most-recently-rendered
+// LogSearchBar instance was given in a module-level ref, since each
+// LogViewer render constructs a fresh handleHitSelected closure — this is
+// what lets dispatchMockHitSelected (called from inside a test body, well
+// after render) reach the CURRENT instance's real callback rather than a
+// stale one captured at mock-definition time.
+let latestOnHitSelected:
+  | ((byteOffset: number, matchText: string) => void)
+  | null = null
+// U12: mirrors latestOnHitSelected's own pattern above, applied to
+// LogSearchBar's OWN onQueryTextChange — this is the ONE seam log-viewer
+// .tsx's U12 tests need to simulate "the user's debounced free-text term
+// has settled" without reproducing LogSearchBar's real debounce logic here
+// (log-search-bar.spec.tsx already covers that in isolation).
+let latestOnQueryTextChange: ((text: string) => void) | null = null
+
+jest.mock('src/app/logs/log-search-bar', () => ({
+  LogSearchBar: (props: {
+    onHitSelected: (byteOffset: number, matchText: string) => void
+    onQueryTextChange?: (text: string) => void
+    hideNavigation?: boolean
+  }) => {
+    latestOnHitSelected = props.onHitSelected
+    latestOnQueryTextChange = props.onQueryTextChange ?? null
+    // U12: hideNavigation surfaced as a data attribute (not just captured
+    // in a module ref) so a test can assert log-viewer.tsx actually passed
+    // `hideNavigation={isFilteredProjection}` through the SAME DOM-query
+    // idiom this file already uses everywhere else, without needing a
+    // second read path just for this one prop.
+    return (
+      <div
+        data-track-id="mock-log-search-bar"
+        data-hide-navigation={String(props.hideNavigation ?? false)}
+      />
+    )
+  },
+}))
+
+// U12: invokes the CURRENT LogSearchBar mock instance's onQueryTextChange
+// exactly as the real component would once its OWN debounce settles — the
+// counterpart to dispatchMockHitSelected above, for the free-text-composes-
+// into-the-filtered-predicate side of AE6.
+async function dispatchMockQueryTextChange(text: string) {
+  if (!latestOnQueryTextChange) {
+    throw new Error(
+      'dispatchMockQueryTextChange called before any LogSearchBar mock instance rendered',
+    )
+  }
+  await act(async () => {
+    latestOnQueryTextChange!(text)
+    await Promise.resolve()
+  })
+}
+
+// Invokes the CURRENT LogSearchBar mock instance's onHitSelected exactly
+// as the real component would once a hit is selected — the one seam this
+// file's U11 tests need to drive log-viewer.tsx's OWN response, without
+// reproducing LogSearchBar's real debounce/pagination logic here.
+// handleHitSelected (the real callback this reaches) is async and
+// triggers React state updates both synchronously (setFollowing) and
+// after an awaited readWindow call (setState) — wrapping in `act` and
+// awaiting its own returned promise is what keeps every one of those
+// updates flushed before this function returns, so a caller's very next
+// `await waitFor(...)` never races a still-pending microtask.
+async function dispatchMockHitSelected(byteOffset: number, matchText: string) {
+  if (!latestOnHitSelected) {
+    throw new Error(
+      'dispatchMockHitSelected called before any LogSearchBar mock instance rendered',
+    )
+  }
+  await act(async () => {
+    latestOnHitSelected!(byteOffset, matchText)
+    // Let the async handleHitSelected's own awaited readWindow() call
+    // (and the state updates that follow it) actually settle within this
+    // act() block, not just the synchronous portion before its first
+    // await.
+    await Promise.resolve()
+  })
+}
+
+// U11: LogViewer now unconditionally renders LogSearchBar once its initial
+// windowed load settles, and that component calls useQuery — every one of
+// this file's PRE-EXISTING render() calls (all of Phase 1/U10, none of
+// which ever knew about search) now needs a QueryClientProvider ancestor
+// or useQuery itself throws ("No QueryClient set"). `wrapper` (not a
+// manually-nested <QueryClientProvider> per call site) is what lets every
+// EXISTING `rerender(...)` call in this file keep working unmodified —
+// Testing Library re-applies the SAME wrapper automatically on every
+// rerender() a render() call produced, so this is the one change that
+// covers both render() and rerender() call sites without editing each one
+// individually. A FRESH QueryClient per render() call (never a
+// module-level shared instance) matches this codebase's own established
+// convention (see e.g. log-viewer.tsx's own sibling page.spec.tsx or
+// config.page.spec.tsx) — `retry: false` avoids a real test ever
+// retrying/timing out on a rejected mock.
+function render(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    ),
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Fixture helpers. A "line" is fully described by its ordinal index within
+// a fixture stream; byteOffset/byteLength are derived deterministically
+// (each line is treated as if it took exactly BYTES_PER_LINE bytes) so a
+// response's windowStart/windowEnd can be computed directly from index
+// ranges, mirroring how log-reader.service.ts's real byte accounting works
+// without needing a real file anywhere in this spec.
+// ─────────────────────────────────────────────────────────────────────────
+
+const BYTES_PER_LINE = 20
+
+function makeLine(index: number): LogLine {
+  return {
+    byteOffset: index * BYTES_PER_LINE,
+    byteLength: BYTES_PER_LINE,
+    raw: `{"line":${index}}`,
+    parsed: { line: index, level: 30, msg: `line ${index}` },
+  }
+}
+
+// Converts a line's ordinal index to its byte offset — used by callers that
+// think in terms of "line N" but must hand makeResponse a genuine byte
+// anchor (see that function's own header comment for why the distinction
+// is load-bearing, not cosmetic).
+function lineOffset(index: number): number {
+  return index * BYTES_PER_LINE
+}
+
+// Builds a response as if reading `direction` from a BYTE-OFFSET `anchor`
+// in a file of `totalLines` total lines, returning up to `count` lines and
+// correctly derived atStart/atEnd/windowStart/windowEnd — the same tiling
+// contract log-reader.service.ts guarantees (a `before` window's end
+// exactly equals the requested anchor's line-aligned position; a fresh
+// `after` window's start exactly equals the anchor).
+//
+// `anchor` is deliberately a BYTE offset, not a line index, even though
+// every fixture line is a fixed BYTES_PER_LINE wide — this mirrors the
+// real `ReadLogWindowParams.anchor` field the production LogViewer actually
+// sends (always `state.windowStart`/`state.windowEnd`, both byte offsets),
+// which is exactly what a mocked `readWindow` in a component test receives
+// verbatim. An earlier draft of this fixture treated its second parameter
+// as a line index and was called with a raw BYTE anchor from component
+// tests' `readWindow` mock implementations, which silently produced the
+// SAME window on every repeat call (a real bug this fixture had, not
+// LogViewer — caught by a component test that kept re-fetching the
+// identical anchor forever instead of converging on atStart). Callers that
+// want to think in terms of "line N" convert via lineOffset(N) explicitly.
+function makeResponse(
+  totalLines: number,
+  anchor: number,
+  direction: 'before' | 'after',
+  count: number,
+): LogWindowResponse {
+  const fileSize = totalLines * BYTES_PER_LINE
+  const anchorIndex = Math.floor(anchor / BYTES_PER_LINE)
+  if (direction === 'before') {
+    const endIndex = Math.min(anchorIndex, totalLines)
+    const startIndex = Math.max(0, endIndex - count)
+    const lines = Array.from({ length: endIndex - startIndex }, (_, i) =>
+      makeLine(startIndex + i),
+    )
+    return {
+      stream: 'backend',
+      fileSize,
+      windowStart: startIndex * BYTES_PER_LINE,
+      windowEnd: endIndex * BYTES_PER_LINE,
+      atStart: startIndex === 0,
+      atEnd: endIndex >= totalLines,
+      lines,
+    }
+  }
+  const startIndex = Math.max(0, anchorIndex)
+  const endIndex = Math.min(totalLines, startIndex + count)
+  const lines = Array.from({ length: endIndex - startIndex }, (_, i) =>
+    makeLine(startIndex + i),
+  )
+  return {
+    stream: 'backend',
+    fileSize,
+    windowStart: startIndex * BYTES_PER_LINE,
+    windowEnd: endIndex * BYTES_PER_LINE,
+    atStart: startIndex <= 0,
+    atEnd: endIndex >= totalLines,
+    lines,
+  }
+}
+
+function emptyResponse(): LogWindowResponse {
+  return {
+    stream: 'backend',
+    fileSize: 0,
+    windowStart: 0,
+    windowEnd: 0,
+    atStart: true,
+    atEnd: true,
+    lines: [],
+  }
+}
+
+// U10: builds a LogTailMessage whose CONVERTED LogLine.byteOffset lands
+// EXACTLY at `fromOffset` — the same worked-example math use-log-tail.ts's
+// own tailMessageToLogLine performs, inverted here so a test can specify
+// "this tail line starts at byte X" directly instead of hand-computing
+// the server's END-offset wire representation every time. `parsed`
+// becomes this message's raw JSON text verbatim (via JSON.stringify), so
+// a caller that includes a `msg` field gets that exact text rendered by
+// LogRow, matching how the fixture helpers above already give each
+// windowed-read line a `msg: 'line N'` field for the SAME
+// screen.getByText('line N') query convention.
+function makeTailMessage(
+  fromOffset: number,
+  parsed: Record<string, unknown>,
+): LogTailMessage {
+  const raw = JSON.stringify(parsed)
+  const byteLength = new TextEncoder().encode(raw).length + 1 // +1 for '\n'
+  return { line: raw, byteOffset: fromOffset + byteLength }
+}
+
+// jsdom does not implement EventSource — same confirmed rationale as
+// use-live-stream.spec.tsx's own MockEventSource (no polyfill installed;
+// jsdom scopes itself to the DOM, not networking). This is a SEPARATE,
+// locally-scoped mock rather than an import from use-log-tail.spec.tsx —
+// matching this codebase's own established precedent of NOT sharing a
+// MockEventSource test double across spec files (use-live-stream
+// .spec.tsx defines its own rather than importing one from elsewhere
+// either). Scoped to exactly the two event types use-log-tail.ts listens
+// for.
+class MockEventSource {
+  static instances: MockEventSource[] = []
+
+  url: string
+  onerror: (() => void) | null = null
+  closed = false
+  private readonly listeners = new Map<
+    string,
+    Set<(event: MessageEvent<string>) => void>
+  >()
+
+  constructor(url: string) {
+    this.url = url
+    MockEventSource.instances.push(this)
+  }
+
+  addEventListener(
+    type: string,
+    listener: (event: MessageEvent<string>) => void,
+  ): void {
+    let set = this.listeners.get(type)
+    if (!set) {
+      set = new Set()
+      this.listeners.set(type, set)
+    }
+    set.add(listener)
+  }
+
+  removeEventListener(
+    type: string,
+    listener: (event: MessageEvent<string>) => void,
+  ): void {
+    this.listeners.get(type)?.delete(listener)
+  }
+
+  close(): void {
+    this.closed = true
+  }
+
+  // Test helper — early-returns once closed so a superseded/stale
+  // instance's late event is a proven no-op, matching a real closed
+  // EventSource's guarantee that it stops delivering events.
+  emit(type: string, data: unknown): void {
+    if (this.closed) return
+    const event = { data: JSON.stringify(data), type } as MessageEvent<string>
+    for (const listener of this.listeners.get(type) ?? []) listener(event)
+  }
+}
+
+function latestTailInstance(): MockEventSource {
+  const instance = MockEventSource.instances.at(-1)
+  if (!instance) throw new Error('No MockEventSource was constructed')
+  return instance
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Part 1: the pure state machine (seedWindowState / applyFetchedWindow).
+// No DOM, no virtualizer, no React — this is where the plan's R7/R8/R20
+// correctness actually lives (bounded eviction, correct prepend/append
+// merge, no duplicate byteOffsets), per this unit's own testing-
+// architecture directive. Exhaustive by design: every scenario here costs
+// nothing to run at any fixture size, including intentionally huge ones.
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('seedWindowState', () => {
+  it('replaces state wholesale from a response with no merge/eviction logic involved', () => {
+    const response = makeResponse(1000, lineOffset(1000), 'before', 50)
+    const state = seedWindowState(response)
+    expect(state.lines).toHaveLength(50)
+    expect(state.windowStart).toBe(response.windowStart)
+    expect(state.windowEnd).toBe(response.windowEnd)
+    expect(state.atStart).toBe(false)
+    expect(state.atEnd).toBe(true)
+    expect(state.fileSize).toBe(response.fileSize)
+  })
+
+  it('seeds an empty state correctly for an empty/absent file', () => {
+    const state = seedWindowState(emptyResponse())
+    expect(state.lines).toEqual([])
+    expect(state.atStart).toBe(true)
+    expect(state.atEnd).toBe(true)
+    expect(state.fileSize).toBe(0)
+  })
+})
+
+describe('applyFetchedWindow — before (prepend)', () => {
+  it('prepends fetched lines ahead of the existing window, ascending by byteOffset', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    )
+    const before = makeResponse(1000, lineOffset(450), 'before', 50)
+    const next = applyFetchedWindow(initial, before, 'before', EVICTION_CAP)
+
+    expect(next.lines).toHaveLength(100)
+    expect(next.lines[0]?.byteOffset).toBe(400 * BYTES_PER_LINE)
+    expect(next.lines[next.lines.length - 1]?.byteOffset).toBe(
+      499 * BYTES_PER_LINE,
+    )
+    // Ascending order maintained end to end.
+    for (let i = 1; i < next.lines.length; i++) {
+      expect(next.lines[i]!.byteOffset).toBeGreaterThan(
+        next.lines[i - 1]!.byteOffset,
+      )
+    }
+  })
+
+  it('adopts the new response windowStart/atStart (this fetch owns that edge)', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    )
+    const before = makeResponse(1000, lineOffset(450), 'before', 450) // reaches byte 0
+    const next = applyFetchedWindow(initial, before, 'before', EVICTION_CAP)
+    expect(next.windowStart).toBe(0)
+    expect(next.atStart).toBe(true)
+  })
+
+  it('leaves windowEnd/atEnd untouched when no eviction happens', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    )
+    const before = makeResponse(1000, lineOffset(450), 'before', 50)
+    const next = applyFetchedWindow(initial, before, 'before', EVICTION_CAP)
+    expect(next.windowEnd).toBe(initial.windowEnd)
+    expect(next.atEnd).toBe(initial.atEnd)
+  })
+
+  it('a tiny file (fewer lines than one window) settles with atStart AND atEnd both true after a single before fetch, from byte 0', () => {
+    const response = makeResponse(10, Number.MAX_SAFE_INTEGER, 'before', 999)
+    const state = seedWindowState(response)
+    expect(state.lines).toHaveLength(10)
+    expect(state.atStart).toBe(true)
+    expect(state.atEnd).toBe(true)
+  })
+})
+
+describe('applyFetchedWindow — after (append)', () => {
+  it('appends fetched lines after the existing window, ascending by byteOffset', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    )
+    const after = makeResponse(1000, lineOffset(500), 'after', 50)
+    const next = applyFetchedWindow(initial, after, 'after', EVICTION_CAP)
+
+    expect(next.lines).toHaveLength(100)
+    expect(next.lines[0]?.byteOffset).toBe(450 * BYTES_PER_LINE)
+    expect(next.lines[next.lines.length - 1]?.byteOffset).toBe(
+      549 * BYTES_PER_LINE,
+    )
+    for (let i = 1; i < next.lines.length; i++) {
+      expect(next.lines[i]!.byteOffset).toBeGreaterThan(
+        next.lines[i - 1]!.byteOffset,
+      )
+    }
+  })
+
+  it('adopts the new response windowEnd/atEnd (this fetch owns that edge)', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    )
+    const after = makeResponse(1000, lineOffset(500), 'after', 500) // reaches EOF
+    const next = applyFetchedWindow(initial, after, 'after', EVICTION_CAP)
+    expect(next.windowEnd).toBe(1000 * BYTES_PER_LINE)
+    expect(next.atEnd).toBe(true)
+  })
+
+  it('leaves windowStart/atStart untouched when no eviction happens', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    )
+    const after = makeResponse(1000, lineOffset(500), 'after', 50)
+    const next = applyFetchedWindow(initial, after, 'after', EVICTION_CAP)
+    expect(next.windowStart).toBe(initial.windowStart)
+    expect(next.atStart).toBe(initial.atStart)
+  })
+})
+
+describe('applyFetchedWindow — eviction bounds (R8)', () => {
+  it('never exceeds evictionCap after a prepend that would otherwise overflow it', () => {
+    const cap = 100
+    let state: WindowState = seedWindowState(
+      makeResponse(100000, lineOffset(60000), 'before', 80),
+    )
+    for (let step = 0; step < 20; step++) {
+      // A REAL byte offset carried forward from the prior response — not
+      // wrapped in lineOffset, since state.windowStart already IS a byte
+      // offset (exactly how the real fetchEdge computes its own anchor).
+      const anchor = state.windowStart
+      const response = makeResponse(100000, anchor, 'before', 80)
+      state = applyFetchedWindow(state, response, 'before', cap)
+      expect(state.lines.length).toBeLessThanOrEqual(cap)
+    }
+  })
+
+  it('never exceeds evictionCap after an append that would otherwise overflow it', () => {
+    const cap = 100
+    let state: WindowState = seedWindowState(
+      makeResponse(100000, lineOffset(40000), 'before', 80),
+    )
+    for (let step = 0; step < 20; step++) {
+      const anchor = state.windowEnd
+      const response = makeResponse(100000, anchor, 'after', 80)
+      state = applyFetchedWindow(state, response, 'after', cap)
+      expect(state.lines.length).toBeLessThanOrEqual(cap)
+    }
+  })
+
+  it('a prepend past the cap evicts from the BACK (newest end), keeping the newly-prepended oldest lines', () => {
+    const cap = 60
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    ) // lines [450,500)
+    const before = makeResponse(1000, lineOffset(450), 'before', 50) // lines [400,450)
+    const next = applyFetchedWindow(initial, before, 'before', cap)
+
+    expect(next.lines).toHaveLength(cap)
+    // The oldest (just-prepended) lines must all survive.
+    expect(next.lines[0]?.byteOffset).toBe(400 * BYTES_PER_LINE)
+    // The newest lines (from the tail of the pre-eviction merge) are what
+    // got dropped — line 499 (the very newest of the original 50) must be
+    // gone, since evicting 40 lines from a 100-line merge drops the last 40.
+    const offsets = next.lines.map(l => l.byteOffset / BYTES_PER_LINE)
+    expect(offsets).not.toContain(499)
+    expect(Math.max(...offsets)).toBe(459) // 400 + 60 - 1
+  })
+
+  it('an append past the cap evicts from the FRONT (oldest end), keeping the newly-appended newest lines', () => {
+    const cap = 60
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    ) // lines [450,500)
+    const after = makeResponse(1000, lineOffset(500), 'after', 50) // lines [500,550)
+    const next = applyFetchedWindow(initial, after, 'after', cap)
+
+    expect(next.lines).toHaveLength(cap)
+    expect(next.lines[next.lines.length - 1]?.byteOffset).toBe(
+      549 * BYTES_PER_LINE,
+    )
+    const offsets = next.lines.map(l => l.byteOffset / BYTES_PER_LINE)
+    expect(offsets).not.toContain(450)
+    expect(Math.min(...offsets)).toBe(490) // 550 - 60
+  })
+
+  it('re-derives windowEnd/atEnd (not the stale pre-eviction value) after a prepend evicts from the back', () => {
+    const cap = 60
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    ) // atEnd:false (500 of 1000)
+    const before = makeResponse(1000, lineOffset(450), 'before', 50)
+    const next = applyFetchedWindow(initial, before, 'before', cap)
+
+    // The evicted-to line is index 459 (see prior test) — windowEnd must
+    // reflect that line's OWN end, not the original response's windowEnd
+    // (450*BYTES_PER_LINE), which described the pre-eviction merged array.
+    expect(next.windowEnd).toBe(460 * BYTES_PER_LINE)
+    // atEnd must become false — eviction just discarded content that used
+    // to be loaded, even though the file's real EOF status hasn't changed.
+    expect(next.atEnd).toBe(false)
+  })
+
+  it('re-derives windowStart/atStart (not the stale pre-eviction value) after an append evicts from the front', () => {
+    const cap = 60
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    ) // atStart:false
+    const after = makeResponse(1000, lineOffset(500), 'after', 50)
+    const next = applyFetchedWindow(initial, after, 'after', cap)
+
+    expect(next.windowStart).toBe(490 * BYTES_PER_LINE)
+    expect(next.atStart).toBe(false)
+  })
+
+  it('an eviction-free merge (well under the cap) preserves the calling edge’s exact atStart/atEnd from the response, including a true value', () => {
+    // A `before` fetch that itself reaches byte 0 — this is the ONE case
+    // where atStart:true legitimately flows straight from the response,
+    // proven separately from the untouched-state-carryover tests above.
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    )
+    const before = makeResponse(1000, lineOffset(450), 'before', 450)
+    const next = applyFetchedWindow(initial, before, 'before', EVICTION_CAP)
+    expect(next.atStart).toBe(true)
+    expect(next.windowStart).toBe(0)
+  })
+
+  it('handles a huge fixture line count with no behavioral difference — this is pure logic, cost-free regardless of "file" size (AE3 backend-equivalent proof)', () => {
+    const cap = 200
+    const totalLines = 50_000_000 // an intentionally huge fixture — cheap because nothing here touches real I/O.
+    let state: WindowState = seedWindowState(
+      makeResponse(totalLines, lineOffset(totalLines), 'before', 100),
+    )
+    for (let step = 0; step < 50; step++) {
+      const response = makeResponse(
+        totalLines,
+        state.windowStart,
+        'before',
+        100,
+      )
+      state = applyFetchedWindow(state, response, 'before', cap)
+      expect(state.lines.length).toBeLessThanOrEqual(cap)
+    }
+    // Scrolled back exactly 50*100 = 5000 lines from the tail; still nowhere
+    // near byte 0 of a 50-million-line file.
+    expect(state.atStart).toBe(false)
+  })
+})
+
+describe('applyFetchedWindow — de-duplication (defensive)', () => {
+  it('filters out incoming lines whose byteOffset already exists in state before prepending', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    ) // [450,500)
+    // A stale/overlapping fetch reporting some of the SAME lines already
+    // held, plus two genuinely new ones.
+    const overlapping = makeResponse(1000, lineOffset(460), 'before', 20) // [440,460)
+    const next = applyFetchedWindow(
+      initial,
+      overlapping,
+      'before',
+      EVICTION_CAP,
+    )
+
+    const offsets = next.lines.map(l => l.byteOffset)
+    const uniqueOffsets = new Set(offsets)
+    expect(uniqueOffsets.size).toBe(offsets.length) // no duplicate byteOffset anywhere
+    // Only the truly-new lines [440,450) were actually added on top of the
+    // original 50.
+    expect(next.lines).toHaveLength(60)
+  })
+
+  it('filters out incoming lines whose byteOffset already exists in state before appending', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    ) // [450,500)
+    const overlapping = makeResponse(1000, lineOffset(490), 'after', 20) // [490,510)
+    const next = applyFetchedWindow(initial, overlapping, 'after', EVICTION_CAP)
+
+    const offsets = next.lines.map(l => l.byteOffset)
+    expect(new Set(offsets).size).toBe(offsets.length)
+    expect(next.lines).toHaveLength(60) // only [500,510) were genuinely new
+  })
+
+  it('a fully-overlapping duplicate fetch (a manual refresh re-fetching the SAME window) is a complete no-op on the array', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    )
+    const identical = makeResponse(1000, lineOffset(500), 'before', 50)
+    const next = applyFetchedWindow(initial, identical, 'before', EVICTION_CAP)
+    expect(next.lines).toHaveLength(50)
+    expect(next.lines).toEqual(initial.lines)
+  })
+})
+
+describe('applyFetchedWindow — immutability (guards against react-virtual streaming-drift bug #1218)', () => {
+  it('never mutates the previous state object or its lines array in place', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    )
+    const initialLinesRef = initial.lines
+    const initialFirstLineRef = initial.lines[0]
+
+    const before = makeResponse(1000, lineOffset(450), 'before', 50)
+    const next = applyFetchedWindow(initial, before, 'before', EVICTION_CAP)
+
+    expect(next).not.toBe(initial)
+    expect(next.lines).not.toBe(initialLinesRef)
+    expect(initial.lines).toBe(initialLinesRef) // untouched
+    expect(initial.lines[0]).toBe(initialFirstLineRef) // untouched
+    // The old lines are the SAME object references in the new array (no
+    // needless re-allocation of unaffected entries), just a different
+    // array/object wrapping them.
+    expect(next.lines).toContain(initialFirstLineRef)
+  })
+})
+
+// U10: appendTailLine — the tail-append counterpart to applyFetchedWindow
+// above, exercised at the SAME pure/DOM-free level per this file's own
+// established convention.
+describe('appendTailLine', () => {
+  function makeTailLine(
+    byteOffset: number,
+    byteLength = BYTES_PER_LINE,
+  ): LogLine {
+    return {
+      byteOffset,
+      byteLength,
+      raw: `{"line":"tail-${byteOffset}"}`,
+      parsed: { msg: `tail-${byteOffset}` },
+    }
+  }
+
+  it('appends one line to the back, extending fileSize/windowEnd to the appended line’s own end and marking atEnd true', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    ) // [450,500), atEnd:false
+    const tailLine = makeTailLine(initial.windowEnd)
+    const next = appendTailLine(initial, tailLine, EVICTION_CAP)
+
+    expect(next.lines).toHaveLength(51)
+    expect(next.lines[next.lines.length - 1]).toBe(tailLine)
+    expect(next.fileSize).toBe(tailLine.byteOffset + tailLine.byteLength)
+    expect(next.windowEnd).toBe(tailLine.byteOffset + tailLine.byteLength)
+    expect(next.atEnd).toBe(true)
+  })
+
+  it('leaves windowStart/atStart untouched when no eviction happens', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    )
+    const next = appendTailLine(
+      initial,
+      makeTailLine(initial.windowEnd),
+      EVICTION_CAP,
+    )
+    expect(next.windowStart).toBe(initial.windowStart)
+    expect(next.atStart).toBe(initial.atStart)
+  })
+
+  it('evicts from the FRONT (oldest end) once the cap is exceeded, re-deriving windowStart/atStart from the new first line', () => {
+    const cap = 50
+    const state: WindowState = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', cap),
+    ) // exactly at cap already: [450,500)
+    expect(state.lines).toHaveLength(cap)
+
+    const tailLine = makeTailLine(state.windowEnd)
+    const next = appendTailLine(state, tailLine, cap)
+
+    expect(next.lines).toHaveLength(cap) // still bounded, never grows past cap
+    expect(next.lines[next.lines.length - 1]).toBe(tailLine) // newest survives
+    expect(next.lines[0]?.byteOffset).toBe(451 * BYTES_PER_LINE) // oldest (line 450) evicted
+    expect(next.windowStart).toBe(next.lines[0]?.byteOffset)
+    expect(next.atStart).toBe(false)
+  })
+
+  it('is idempotent against a redundant delivery of the SAME line already at the back (guards against a duplicate byteOffset ever entering state.lines)', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    )
+    const lastLine = initial.lines[initial.lines.length - 1]
+    if (!lastLine) throw new Error('fixture produced no lines')
+    // A redundant delivery reporting the EXACT SAME byteOffset as the
+    // current last line — e.g. a stale resume overlap.
+    const duplicate: LogLine = { ...lastLine, raw: 'a-different-raw-value' }
+    const next = appendTailLine(initial, duplicate, EVICTION_CAP)
+
+    expect(next).toBe(initial) // a complete no-op, not just an equal-length array
+    expect(next.lines).toHaveLength(50)
+  })
+
+  it('is idempotent against a redundant delivery of a line already present but NOT at the back (guards against a stale tail reconnect replaying backlog over content a newer window read already loaded)', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    ) // lines for indices [450, 500)
+    const middleLine = initial.lines[10]
+    if (!middleLine) throw new Error('fixture produced no lines')
+    // A stale tail connection's backlog replay reports a line that's
+    // ALREADY present, but not as the current last element — e.g. the
+    // server replaying everything after a connect() offset that a LATER,
+    // already-applied window read has since superseded.
+    const replayed: LogLine = { ...middleLine, raw: 'a-different-raw-value' }
+    const next = appendTailLine(initial, replayed, EVICTION_CAP)
+
+    expect(next).toBe(initial) // a complete no-op, not just an equal-length array
+    expect(next.lines).toHaveLength(50)
+    expect(
+      next.lines.filter(line => line.byteOffset === middleLine.byteOffset),
+    ).toHaveLength(1)
+  })
+
+  it('never mutates the previous state object or its lines array in place (guards against react-virtual streaming-drift bug #1218)', () => {
+    const initial = seedWindowState(
+      makeResponse(1000, lineOffset(500), 'before', 50),
+    )
+    const initialLinesRef = initial.lines
+    const next = appendTailLine(
+      initial,
+      makeTailLine(initial.windowEnd),
+      EVICTION_CAP,
+    )
+
+    expect(next).not.toBe(initial)
+    expect(next.lines).not.toBe(initialLinesRef)
+    expect(initial.lines).toBe(initialLinesRef) // untouched
+    expect(initial.lines).toHaveLength(50) // untouched
+  })
+
+  it('handles a from-empty append (the empty-file open-at-tail case) correctly', () => {
+    const initial = seedWindowState(emptyResponse())
+    const tailLine = makeTailLine(0)
+    const next = appendTailLine(initial, tailLine, EVICTION_CAP)
+
+    expect(next.lines).toEqual([tailLine])
+    expect(next.fileSize).toBe(tailLine.byteLength)
+    expect(next.windowEnd).toBe(tailLine.byteLength)
+    expect(next.atEnd).toBe(true)
+    expect(next.atStart).toBe(true) // nothing evicted from an already-empty front
+  })
+})
+
+// U12: matchesFilterPredicate must mirror log-search.service.ts's own
+// matchesPredicate EXACTLY (case-insensitive substring on raw text; level
+// as a minimum threshold; process 'both'/absent = no constraint; event =
+// exact match; a malformed/parsed===null line is text-searchable but
+// excluded by any structured filter) — AE6 depends on the client's live
+// tail-matching and the server's whole-file scan agreeing on what counts as
+// a match. This block mirrors log-search.service.spec.ts's own predicate-
+// composition test scenarios directly against THIS function, at the same
+// exhaustive "Part 1: pure state machine" level this file already applies
+// to applyFetchedWindow/appendTailLine above — the strongest, cheapest
+// place to prove the semantics actually agree, independent of any
+// React/DOM/virtualizer machinery.
+describe('matchesFilterPredicate (mirrors log-search.service.ts’s matchesPredicate)', () => {
+  function makeTestLine(
+    raw: string,
+    parsed: Record<string, unknown> | null,
+  ): LogLine {
+    return { byteOffset: 0, byteLength: raw.length, raw, parsed }
+  }
+
+  it('an empty predicate matches every line, including a malformed one', () => {
+    expect(matchesFilterPredicate(makeTestLine('{"a":1}', { a: 1 }), {})).toBe(
+      true,
+    )
+    expect(matchesFilterPredicate(makeTestLine('not json', null), {})).toBe(
+      true,
+    )
+  })
+
+  describe('text: case-insensitive substring against the RAW text', () => {
+    it('matches regardless of case', () => {
+      const line = makeTestLine('HELLO World', { msg: 'HELLO World' })
+      expect(matchesFilterPredicate(line, { text: 'hello world' })).toBe(true)
+    })
+
+    it('a malformed line is still text-searchable', () => {
+      const line = makeTestLine('not json but has MARKER', null)
+      expect(matchesFilterPredicate(line, { text: 'MARKER' })).toBe(true)
+    })
+
+    it('does not match when the substring is absent', () => {
+      const line = makeTestLine('{"msg":"nope"}', { msg: 'nope' })
+      expect(matchesFilterPredicate(line, { text: 'zzz' })).toBe(false)
+    })
+  })
+
+  describe('level: a MINIMUM threshold (>=), excludes a malformed line', () => {
+    it('matches when the line’s level is >= the threshold', () => {
+      const line = makeTestLine('{"level":50}', { level: 50 })
+      expect(matchesFilterPredicate(line, { level: 40 })).toBe(true)
+    })
+
+    it('does not match when the line’s level is below the threshold', () => {
+      const line = makeTestLine('{"level":30}', { level: 30 })
+      expect(matchesFilterPredicate(line, { level: 40 })).toBe(false)
+    })
+
+    it('a malformed line (parsed === null) never satisfies an active level filter', () => {
+      const line = makeTestLine('not json', null)
+      expect(matchesFilterPredicate(line, { level: 10 })).toBe(false)
+    })
+  })
+
+  describe('process: "both"/absent imposes NO constraint; "main"/"bot" is exact', () => {
+    it('"both" matches regardless of the line’s own process', () => {
+      const line = makeTestLine('{"process":"main"}', { process: 'main' })
+      expect(matchesFilterPredicate(line, { process: 'both' })).toBe(true)
+    })
+
+    it('an absent predicate.process imposes no constraint either (the outer `if` short-circuits)', () => {
+      const line = makeTestLine('{"process":"bot"}', { process: 'bot' })
+      expect(matchesFilterPredicate(line, {})).toBe(true)
+    })
+
+    it('"bot" matches only a line whose own process is exactly "bot"', () => {
+      const botLine = makeTestLine('{"process":"bot"}', { process: 'bot' })
+      const mainLine = makeTestLine('{"process":"main"}', { process: 'main' })
+      expect(matchesFilterPredicate(botLine, { process: 'bot' })).toBe(true)
+      expect(matchesFilterPredicate(mainLine, { process: 'bot' })).toBe(false)
+    })
+
+    it('a malformed line never satisfies an active "main"/"bot" process filter', () => {
+      const line = makeTestLine('not json', null)
+      expect(matchesFilterPredicate(line, { process: 'bot' })).toBe(false)
+    })
+  })
+
+  describe('event: an EXACT slug match, never a substring — excludes (not "malformed") a valid debug line with no event field', () => {
+    it('matches an exact slug', () => {
+      const line = makeTestLine('{"event":"writer-fault"}', {
+        event: 'writer-fault',
+      })
+      expect(matchesFilterPredicate(line, { event: 'writer-fault' })).toBe(true)
+    })
+
+    it('does not match a different slug', () => {
+      const line = makeTestLine('{"event":"other"}', { event: 'other' })
+      expect(matchesFilterPredicate(line, { event: 'writer-fault' })).toBe(
+        false,
+      )
+    })
+
+    it('a valid debug line with no event field at all is excluded (a normal state, not malformed) — R14', () => {
+      const line = makeTestLine('{"level":20,"msg":"debug"}', {
+        level: 20,
+        msg: 'debug',
+      })
+      expect(matchesFilterPredicate(line, { event: 'writer-fault' })).toBe(
+        false,
+      )
+    })
+
+    it('a malformed line is excluded exactly the same way', () => {
+      const line = makeTestLine('not json', null)
+      expect(matchesFilterPredicate(line, { event: 'writer-fault' })).toBe(
+        false,
+      )
+    })
+  })
+
+  describe('composition: every active field ANDs together (mirrors AE6)', () => {
+    it('matches only when EVERY active field is satisfied, not any', () => {
+      const line = makeTestLine(
+        '{"level":50,"process":"bot","event":"e1","msg":"yes"}',
+        { level: 50, process: 'bot', event: 'e1', msg: 'yes' },
+      )
+      expect(
+        matchesFilterPredicate(line, {
+          level: 40,
+          process: 'bot',
+          event: 'e1',
+          text: 'yes',
+        }),
+      ).toBe(true)
+      // Flip ONE field to a non-matching value — the whole predicate fails.
+      expect(
+        matchesFilterPredicate(line, {
+          level: 40,
+          process: 'main', // wrong process
+          event: 'e1',
+          text: 'yes',
+        }),
+      ).toBe(false)
+    })
+  })
+})
+
+// U12: filteredMatchToLogLine — converts one filtered-match entry
+// {byteOffset, raw} into a full LogLine, mirroring use-log-tail.ts's own
+// tailMessageToLogLine conversion pattern (byteLength via TextEncoder,
+// parsed via parseLogLine).
+describe('filteredMatchToLogLine', () => {
+  it('produces a LogLine whose byteOffset is the match’s own START offset (no end-offset conversion, unlike tailMessageToLogLine)', () => {
+    const raw = JSON.stringify({ level: 30, msg: 'hello' })
+    const line = filteredMatchToLogLine({ byteOffset: 500, raw })
+    expect(line.byteOffset).toBe(500)
+    expect(line.raw).toBe(raw)
+    expect(line.parsed).toEqual({ level: 30, msg: 'hello' })
+  })
+
+  it('byteLength is the UTF-8 byte length of `raw` plus one for the trailing newline the server’s own accounting includes', () => {
+    const raw = 'x'.repeat(10)
+    const line = filteredMatchToLogLine({ byteOffset: 0, raw })
+    expect(line.byteLength).toBe(11)
+  })
+
+  it('a malformed (non-JSON) raw string still converts, with parsed:null', () => {
+    const line = filteredMatchToLogLine({
+      byteOffset: 0,
+      raw: 'not json at all',
+    })
+    expect(line.parsed).toBeNull()
+    expect(line.raw).toBe('not json at all')
+  })
+})
+
+// U12: appendFilteredMatch — the filtered-projection counterpart to
+// appendTailLine, exercised at the SAME pure/DOM-free level.
+describe('appendFilteredMatch', () => {
+  function makeMatchLine(byteOffset: number, msg: string): LogLine {
+    return {
+      byteOffset,
+      byteLength: 20,
+      raw: `{"msg":"${msg}"}`,
+      parsed: { msg },
+    }
+  }
+
+  it('appends one line to the back and increments total by exactly one', () => {
+    const initial = {
+      matches: [makeMatchLine(0, 'a')],
+      nextCursor: null,
+      total: 1,
+    }
+    const next = appendFilteredMatch(
+      initial,
+      makeMatchLine(100, 'b'),
+      EVICTION_CAP,
+    )
+
+    expect(next.matches).toHaveLength(2)
+    expect(next.matches[1]).toEqual(makeMatchLine(100, 'b'))
+    expect(next.total).toBe(2)
+    // nextCursor is carried through unchanged — a live append never
+    // invalidates whatever pagination cursor the last server fetch left.
+    expect(next.nextCursor).toBeNull()
+  })
+
+  it('evicts from the FRONT once the cap is exceeded, mirroring appendTailLine’s own eviction direction', () => {
+    const cap = 2
+    const initial = {
+      matches: [makeMatchLine(0, 'a'), makeMatchLine(100, 'b')],
+      nextCursor: null,
+      total: 2,
+    }
+    const next = appendFilteredMatch(initial, makeMatchLine(200, 'c'), cap)
+
+    expect(next.matches).toHaveLength(cap)
+    expect(next.matches.map(m => m.parsed?.msg)).toEqual(['b', 'c'])
+  })
+
+  it('is idempotent against a redundant delivery of the SAME line already at the back', () => {
+    const lastLine = makeMatchLine(100, 'b')
+    const initial = {
+      matches: [makeMatchLine(0, 'a'), lastLine],
+      nextCursor: null,
+      total: 2,
+    }
+    const duplicate: LogLine = { ...lastLine, raw: 'a-different-raw-value' }
+    const next = appendFilteredMatch(initial, duplicate, EVICTION_CAP)
+
+    expect(next).toBe(initial) // a complete no-op
+    expect(next.matches).toHaveLength(2)
+  })
+
+  it('never mutates the previous state object or its matches array in place', () => {
+    const initial = {
+      matches: [makeMatchLine(0, 'a')],
+      nextCursor: null,
+      total: 1,
+    }
+    const initialMatchesRef = initial.matches
+    const next = appendFilteredMatch(
+      initial,
+      makeMatchLine(100, 'b'),
+      EVICTION_CAP,
+    )
+
+    expect(next).not.toBe(initial)
+    expect(next.matches).not.toBe(initialMatchesRef)
+    expect(initial.matches).toBe(initialMatchesRef) // untouched
+    expect(initial.matches).toHaveLength(1) // untouched
+  })
+
+  it('handles a from-empty append correctly', () => {
+    const initial = { matches: [], nextCursor: null, total: 0 }
+    const next = appendFilteredMatch(
+      initial,
+      makeMatchLine(0, 'first'),
+      EVICTION_CAP,
+    )
+
+    expect(next.matches).toEqual([makeMatchLine(0, 'first')])
+    expect(next.total).toBe(1)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// Part 2: component-level wiring. Thinner by design (per this unit's own
+// testing-architecture directive) — these prove the virtualizer/React glue
+// isn't broken, not every edge case the pure function above already
+// covers exhaustively. @tanstack/react-virtual reads real layout geometry
+// (offsetHeight/offsetWidth, scrollTop, scroll events), none of which
+// jsdom computes from CSS — see the stubs below.
+// ═══════════════════════════════════════════════════════════════════════
+
+const VISIBLE_ROWS = 16
+const VIEWPORT_HEIGHT = VISIBLE_ROWS * ROW_PX
+
+// @tanstack/react-virtual measures the scroll container via
+// `element.offsetWidth`/`offsetHeight` (NOT getBoundingClientRect — traced
+// directly in virtual-core's observeElementRect/getRect), which jsdom
+// always reports as 0 with no polyfill. Stubbing the PROTOTYPE getter
+// (rather than defineProperty-ing each individual element instance) is
+// what lets a plain `render(<LogViewer .../>)` — which never gets a
+// direct handle to the scroll div until after mount — receive a non-zero
+// viewport size the instant the virtualizer's first synchronous
+// `getRect(element)` call runs during mount, before any test code could
+// intervene on that specific instance.
+//
+// `scrollHeight` gets the same prototype-getter treatment, computed live
+// from the virtualized content div's own `style.height` (which LogViewer
+// itself sets to `virtualizer.getTotalSize()`) rather than a value a test
+// manually pokes in after the fact. This matters concretely: LogViewer's
+// own "pin scroll to bottom on initial open-at-tail load" effect reads
+// `scrollElement.scrollHeight` SYNCHRONOUSLY inside a useLayoutEffect that
+// fires as part of mount, before any test code gets a chance to intervene
+// on that specific element — a fixed/manually-set scrollHeight would still
+// read as 0 (jsdom's real default) at exactly the moment that effect runs,
+// silently defeating the very affordance these tests exist to prove (open-
+// at-tail = scrolled to the newest content, not stuck at index 0).
+function stubViewportGeometry() {
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get() {
+      // Only the scroll container itself needs a real viewport height —
+      // every other element (rows, wrapper divs) can keep reporting 0
+      // without affecting the virtualizer's own range math, since rows are
+      // absolutely positioned/sized via `estimateSize`, never measured.
+      return this.dataset?.trackId === 'log-viewer-scroll' ? VIEWPORT_HEIGHT : 0
+    },
+  })
+  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+    configurable: true,
+    get() {
+      return this.dataset?.trackId === 'log-viewer-scroll' ? 800 : 0
+    },
+  })
+  // U10: virtual-core's getMaxScrollOffset() (which isAtEnd()/
+  // getDistanceFromEnd()/scrollToEnd() all depend on — see that
+  // function's own source: `scrollElement.scrollHeight -
+  // scrollElement.clientHeight`) reads `clientHeight`/`clientWidth`, NOT
+  // `offsetHeight`/`offsetWidth` — a DIFFERENT pair of DOM properties
+  // Phase 1 never needed to polyfill, since none of its own logic
+  // (edge-fetch detection, anchorTo) ever called isAtEnd() or any other
+  // getMaxScrollOffset()-derived method. Without this, clientHeight
+  // silently defaults to jsdom's real (0) value, making
+  // getMaxScrollOffset() permanently equal to the FULL scrollHeight
+  // instead of `scrollHeight - viewportHeight` — which makes
+  // getDistanceFromEnd() report a large, never-zero distance for ANY
+  // scroll position short of literally scrolling past the entire
+  // content, and isAtEnd() therefore NEVER report true no matter how
+  // genuinely "scrolled to the bottom" the viewport is. U10 is the
+  // first unit to actually depend on isAtEnd() (auto-pause detection,
+  // followOnAppend's own internal check, handleJumpToLatest's
+  // scrollToEnd()), so this gap only matters starting here. For a
+  // container with no border/padding, clientHeight/clientWidth equal
+  // offsetHeight/offsetWidth in a real browser too, so mirroring the
+  // SAME values is correct, not just convenient.
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+    configurable: true,
+    get() {
+      return this.dataset?.trackId === 'log-viewer-scroll' ? VIEWPORT_HEIGHT : 0
+    },
+  })
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+    configurable: true,
+    get() {
+      return this.dataset?.trackId === 'log-viewer-scroll' ? 800 : 0
+    },
+  })
+  Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+    configurable: true,
+    get() {
+      if (this.dataset?.trackId !== 'log-viewer-scroll') return 0
+      // The virtualizer's own inner "total size" spacer div is this
+      // element's only child at all times LogViewer renders content (see
+      // the component's JSX) — reading ITS live style.height is what makes
+      // this getter track every count/eviction change automatically,
+      // without a test ever needing to recompute or re-stub anything.
+      const spacer = this.firstElementChild as HTMLElement | null
+      const spacerHeight = spacer ? parseFloat(spacer.style.height || '0') : 0
+      return Math.max(spacerHeight, VIEWPORT_HEIGHT)
+    },
+  })
+  // jsdom's real `scrollTop` is a plain writable property with NO clamping
+  // (confirmed empirically: assigning past scrollHeight leaves it exactly
+  // at the overshot value) — unlike a real browser, which always clamps a
+  // write to [0, scrollHeight - offsetHeight]. LogViewer's own "pin to
+  // bottom" effect assigns `scrollTop = scrollHeight` verbatim, relying on
+  // that real-browser clamp to land at the true max scroll position; under
+  // jsdom's unclamped default, that same assignment overshoots past the
+  // last row entirely, and the virtualizer (which trusts scrollOffset
+  // literally) would compute a visible range that starts PAST the real
+  // last visible row. This accessor pair restores the clamp so scrollTop
+  // behaves like the real DOM property LogViewer (correctly) assumes it is.
+  const scrollTopValues = new WeakMap<HTMLElement, number>()
+  Object.defineProperty(HTMLElement.prototype, 'scrollTop', {
+    configurable: true,
+    get() {
+      return scrollTopValues.get(this) ?? 0
+    },
+    set(value: number) {
+      const maxScrollTop = Math.max(0, this.scrollHeight - this.offsetHeight)
+      scrollTopValues.set(this, Math.max(0, Math.min(value, maxScrollTop)))
+    },
+  })
+  // @tanstack/react-virtual's DEFAULT scrollToFn (elementScroll, confirmed
+  // by reading virtual-core's own source) does not assign `scrollTop`
+  // directly — it calls `scrollElement.scrollTo({ top, behavior })`, the
+  // METHOD. This matters concretely for `anchorTo:'end'`: on every render
+  // where the loaded array's edge keys changed (a prepend or an edge-
+  // eviction), a `useLayoutEffect` INTERNAL to useVirtualizer computes a
+  // compensating scroll offset and applies it via exactly this scrollTo()
+  // call — jsdom implements `Element.prototype.scrollTo` as a documented
+  // no-op (unlike `window.scrollTo`, which jsdom logs "not implemented"
+  // for; the element-level method just silently does nothing), so without
+  // this polyfill the anchor adjustment is computed correctly internally
+  // but never actually reaches this stubbed scrollTop, and the visible
+  // range appears to never move — indistinguishable from `anchorTo`
+  // failing, when the real gap is this jsdom method being a no-op.
+  Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+    configurable: true,
+    value(this: HTMLElement, options?: number | ScrollToOptions) {
+      const top =
+        typeof options === 'object' && options !== null
+          ? (options.top ?? this.scrollTop)
+          : this.scrollTop
+      this.scrollTop = top
+      // Dispatched on a microtask, NOT synchronously within this call — a
+      // real browser's `scroll` event does not fire re-entrantly inside
+      // the same call stack as the `scrollTo()` invocation that caused it.
+      // This matters concretely here because THIS polyfill's own caller is
+      // virtual-core's internal `_willUpdate` useLayoutEffect (see this
+      // property's own header comment) — firing the event synchronously
+      // let React's effect-flush and virtual-core's own re-entrant
+      // `setOptions`/measurement bookkeeping interleave within a single
+      // layout-effect pass, which corrupted internal state badly enough to
+      // render zero rows in some scenarios (observed empirically: an
+      // earlier synchronous-dispatch version of this polyfill produced an
+      // empty spacer div with no virtual items at all).
+      void Promise.resolve().then(() => fireEvent.scroll(this))
+    },
+  })
+}
+
+function restoreViewportGeometry() {
+  // @ts-expect-error -- deleting a test-installed accessor to restore jsdom's own default descriptor
+  delete HTMLElement.prototype.offsetHeight
+  // @ts-expect-error -- see above
+  delete HTMLElement.prototype.offsetWidth
+  // @ts-expect-error -- see above
+  delete HTMLElement.prototype.clientHeight
+  // @ts-expect-error -- see above
+  delete HTMLElement.prototype.clientWidth
+  // @ts-expect-error -- see above
+  delete HTMLElement.prototype.scrollHeight
+  // @ts-expect-error -- see above
+  delete HTMLElement.prototype.scrollTop
+  // @ts-expect-error -- see above
+  delete HTMLElement.prototype.scrollTo
+}
+
+function scrollTo(scrollElement: HTMLElement, top: number) {
+  scrollElement.scrollTop = top
+  fireEvent.scroll(scrollElement)
+}
+
+function findScrollContainer(): HTMLElement {
+  const el = document.querySelector('[data-track-id="log-viewer-scroll"]')
+  if (!(el instanceof HTMLElement)) {
+    throw new Error('scroll container not found')
+  }
+  return el
+}
+
+// LogViewer pins scroll to the bottom on initial load by setting
+// `scrollElement.scrollTop` IMPERATIVELY inside a useLayoutEffect (see the
+// component's own comment on that effect). A real browser fires a native
+// `scroll` event as a side effect of that assignment, which is what lets
+// @tanstack/react-virtual's `observeElementOffset` (a plain
+// addEventListener('scroll', ...)) learn about the new offset and
+// recompute the visible range — jsdom, unlike a real browser, does NOT
+// synthesize that event for a JS-driven scrollTop assignment, so the
+// virtualizer would otherwise stay stuck believing the range is still
+// scrolled to the top. This is a genuine jsdom fidelity gap, not a
+// component bug: firing the event explicitly here stands in for what a
+// real browser does automatically the instant `scrollTop` changes.
+async function settleInitialLoad(
+  readWindow: jest.Mock<Promise<LogWindowResponse>, [ReadLogWindowParams]>,
+) {
+  await waitFor(() => expect(readWindow).toHaveBeenCalledTimes(1))
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-track-id="log-viewer-scroll"]'),
+    ).toBeInTheDocument(),
+  )
+  const scrollContainer = findScrollContainer()
+  fireEvent.scroll(scrollContainer)
+  return scrollContainer
+}
+
+describe('LogViewer — component wiring', () => {
+  beforeEach(() => {
+    stubViewportGeometry()
+    // U10: LogViewer now unconditionally opens a live-tail EventSource
+    // once its initial windowed load settles (isActive defaults true,
+    // following defaults true) — EVERY test in this describe block,
+    // including every pre-existing Phase 1 test above that never
+    // mentions the tail at all, now exercises that connect() call. A
+    // mock global is required here (not just inside the new U10-specific
+    // nested describe below) or those pre-existing tests would throw the
+    // instant `new EventSource(...)` runs against jsdom's real (absent)
+    // global — same confirmed gap use-live-stream.spec.tsx's own header
+    // comment documents.
+    MockEventSource.instances = []
+    global.EventSource = MockEventSource as unknown as typeof EventSource
+    // U11/U12: defensive reset so a stale reference from a PRIOR test's
+    // LogSearchBar mock instance can never be reachable by
+    // dispatchMockHitSelected/dispatchMockQueryTextChange in a LATER test
+    // that never itself renders a fresh LogViewer before calling it (every
+    // real U11/U12 test below does render fresh first, so this is a
+    // belt-and-suspenders guard, not a load-bearing requirement of any
+    // single test).
+    latestOnHitSelected = null
+    latestOnQueryTextChange = null
+  })
+
+  afterEach(() => {
+    restoreViewportGeometry()
+  })
+
+  it('happy path (R7): renders far fewer DOM rows than the total fixture size — only the visible window + overscan', async () => {
+    const totalLines = 5000
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockImplementation(async ({ anchor, direction }) =>
+        // `anchor` is already a real byte offset here (destructured straight
+        // from the params LogViewer actually sent) — makeResponse itself
+        // clamps it against totalLines internally, so no external clamping
+        // is needed (an earlier draft's `Math.min(anchor, totalLines)`
+        // mixed a byte-offset unit with a line-count unit).
+        makeResponse(
+          totalLines,
+          anchor,
+          direction === 'after' ? 'after' : 'before',
+          80,
+        ),
+      )
+
+    render(
+      <LogViewer
+        stream="backend"
+        readWindow={readWindow}
+        onSelectLine={jest.fn()}
+      />,
+    )
+
+    await waitFor(() => expect(readWindow).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(
+        document.querySelectorAll('[data-track-id="log-row-select"]').length,
+      ).toBeGreaterThan(0),
+    )
+
+    const renderedRows = document.querySelectorAll(
+      '[data-track-id="log-row-select"]',
+    ).length
+    // Visible viewport (~16 rows) + 2*OVERSCAN (12) is comfortably under 50
+    // — nowhere near the 5000-line fixture or even the single 80-line
+    // fetched window.
+    expect(renderedRows).toBeLessThan(50)
+    expect(renderedRows).toBeGreaterThan(0)
+  })
+
+  it('initial render triggers the open-at-tail fetch (anchor=MAX_SAFE_INTEGER, direction=before) and displays the returned rows', async () => {
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockResolvedValue(makeResponse(200, lineOffset(200), 'before', 50))
+
+    render(
+      <LogViewer
+        stream="backend"
+        readWindow={readWindow}
+        onSelectLine={jest.fn()}
+      />,
+    )
+
+    await settleInitialLoad(readWindow)
+    expect(readWindow).toHaveBeenCalledWith({
+      stream: 'backend',
+      anchor: Number.MAX_SAFE_INTEGER,
+      direction: 'before',
+    })
+
+    await waitFor(() =>
+      expect(screen.getByText('line 199')).toBeInTheDocument(),
+    )
+  })
+
+  it('regression: survives React Strict Mode’s dev-only double-invoke of the initial-load effect (mountedRef must not get stuck false)', async () => {
+    // Strict Mode synchronously mounts, tears down, and re-mounts every
+    // effect once in development — including the mountedRef effect AND the
+    // loadInitial-triggering layout effect. loadInitialInFlightRef (mirroring
+    // fetchEdge's own inFlightRef) makes the SECOND loadInitial() invocation
+    // a same-tick no-op, so only ONE real readWindow call ever happens — but
+    // the mountedRef guard (meant to stop a stale async response from
+    // updating an unmounted component) still needs its own effect to reset
+    // mountedRef.current back to true on (re-)setup: without that, the
+    // double-invoke's teardown `= false` would stick forever and the ONE
+    // real call's `if (!mountedRef.current) return` would silently drop its
+    // response, leaving the component stuck in initialLoad:'pending' even
+    // though readWindow resolved successfully. This is exactly what a real
+    // dev-mode `next dev` page load does; the suite's other tests never wrap
+    // in StrictMode, so none of them exercise this path.
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockResolvedValue(makeResponse(200, lineOffset(200), 'before', 50))
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    rtlRender(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <LogViewer
+            stream="backend"
+            readWindow={readWindow}
+            onSelectLine={jest.fn()}
+          />
+        </QueryClientProvider>
+      </StrictMode>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('line 199')).toBeInTheDocument(),
+    )
+    expect(screen.queryByText(/Loading backend log/)).not.toBeInTheDocument()
+    // loadInitialInFlightRef's whole point: Strict Mode's double-invoke of
+    // the mount effect never produces a second real fetch.
+    expect(readWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('regression: a manual Refresh racing an already-open live tail never introduces a duplicate byteOffset once the refreshed response replaces state.lines wholesale', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    // loadInitialInFlightRef only blocks CONCURRENT invocations (Strict
+    // Mode's same-tick double-invoke) — it does nothing to stop a
+    // deliberate, LATER call once the first has fully settled, so a manual
+    // Refresh click racing an already-open live tail is still a real overlap
+    // source appendTailLine's full-array de-dup (not the narrower
+    // last-line-only check an earlier version had) must keep covering.
+    // Simulates the file growing by 2 lines between the initial load and the
+    // refresh — the refresh's own response is deliberately deferred behind a
+    // real pending Promise, resolved only AFTER the initial tail connect()
+    // has already fired, mirroring how two independent HTTP round trips
+    // (never perfectly co-batched) would actually interleave.
+    let resolveRefresh: (() => void) | undefined
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockImplementationOnce(async () =>
+        makeResponse(200, lineOffset(200), 'before', 50),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<LogWindowResponse>(resolve => {
+            resolveRefresh = () =>
+              resolve(makeResponse(202, lineOffset(202), 'before', 50))
+          }),
+      )
+    const user = userEvent.setup()
+
+    render(
+      <LogViewer
+        stream="backend"
+        readWindow={readWindow}
+        onSelectLine={jest.fn()}
+      />,
+    )
+    await settleInitialLoad(readWindow)
+    // The initial load settles on its own — the tail connects, anchored to
+    // ITS (smaller, 200-line) fileSize — before Refresh is ever clicked.
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
+    const tail = latestTailInstance()
+    expect(tail.url).toBe(logTailUrl('backend', lineOffset(200)))
+
+    await user.click(screen.getByRole('button', { name: /refresh/i }))
+    await waitFor(() => expect(readWindow).toHaveBeenCalledTimes(2))
+
+    // NOW let the refreshed (202-line) response land — seedWindowState
+    // wholesale-replaces state.lines with a fresher snapshot that already
+    // covers lines 152..201, while the tail above stays anchored at 200.
+    await act(async () => {
+      resolveRefresh?.()
+      await Promise.resolve()
+    })
+    await waitFor(() =>
+      expect(screen.getByText('line 201')).toBeInTheDocument(),
+    )
+
+    // The server's resolveFromOffset backlog replay (log-tail.service.ts)
+    // would redeliver every line between the stale `from` and the CURRENT
+    // EOF as ordinary tail messages — lines 200/201 here — even though the
+    // refreshed response already loaded them into state.lines.
+    await act(async () => {
+      tail.emit(
+        'log-append',
+        makeTailMessage(lineOffset(200), {
+          line: 200,
+          level: 30,
+          msg: 'line 200',
+        }),
+      )
+      tail.emit(
+        'log-append',
+        makeTailMessage(lineOffset(201), {
+          line: 201,
+          level: 30,
+          msg: 'line 201',
+        }),
+      )
+      await Promise.resolve()
+    })
+
+    const duplicateKeyWarning = errorSpy.mock.calls.some(call =>
+      String(call[0]).includes('Encountered two children with the same key'),
+    )
+    expect(duplicateKeyWarning).toBe(false)
+    // Matching msg text on the synthetic backlog replay above (matching the
+    // windowed-read fixture's own "line N" convention) is what makes these
+    // assertions actually catch a regression: if appendTailLine's de-dup
+    // ever regresses back to a last-line-only check, the replayed line
+    // would render a SECOND, genuinely duplicate row with this SAME text.
+    expect(screen.getAllByText('line 200')).toHaveLength(1)
+    expect(screen.getAllByText('line 201')).toHaveLength(1)
+    errorSpy.mockRestore()
+  })
+
+  it('a fixture "before" response received via the mocked readWindow results in earlier rows appearing after scrolling near the top', async () => {
+    const totalLines = 300
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockImplementation(async ({ anchor, direction }) => {
+        if (direction === 'after') {
+          return makeResponse(totalLines, anchor, 'after', 60)
+        }
+        // `anchor` is already a real byte offset — makeResponse clamps it
+        // against totalLines internally now, so no external Math.min
+        // (which would otherwise compare a byte offset against a raw line
+        // count, a real unit-mismatch bug an earlier draft of this fixture
+        // had) is needed.
+        return makeResponse(totalLines, anchor, 'before', 60)
+      })
+
+    render(
+      <LogViewer
+        stream="backend"
+        readWindow={readWindow}
+        onSelectLine={jest.fn()}
+      />,
+    )
+
+    const scrollContainer = await settleInitialLoad(readWindow)
+    // Initial window: lines [240,300).
+    await waitFor(() =>
+      expect(screen.getByText('line 299')).toBeInTheDocument(),
+    )
+    expect(screen.queryByText('line 200')).not.toBeInTheDocument()
+
+    const spacerBefore = scrollContainer.firstElementChild as HTMLElement
+    const heightBefore = parseFloat(spacerBefore.style.height)
+
+    scrollTo(scrollContainer, 0)
+
+    await waitFor(() => expect(readWindow).toHaveBeenCalledTimes(2))
+    expect(readWindow).toHaveBeenLastCalledWith({
+      stream: 'backend',
+      anchor: 240 * BYTES_PER_LINE,
+      direction: 'before',
+    })
+    // The fetched `before` response's 60 lines [180,240) are now genuinely
+    // part of the loaded array — proven via the virtualizer's own total-
+    // size spacer growing by exactly one window's worth of rows, rather
+    // than asserting a SPECIFIC line's on-screen visibility. The latter
+    // would be in direct tension with anchorTo:'end' actually working:
+    // that option's entire purpose is to keep the viewport showing the
+    // SAME content across a prepend rather than jumping to reveal the
+    // newly-prepended rows (proven separately, and more directly, by the
+    // "does not move the currently-rendered top row" test below) — so an
+    // assertion that the JUST-prepended content is immediately on-screen
+    // would only pass if anchoring were broken.
+    await waitFor(() => {
+      const spacerAfter = scrollContainer.firstElementChild as HTMLElement
+      const heightAfter = parseFloat(spacerAfter.style.height)
+      expect(heightAfter).toBe(heightBefore + 60 * ROW_PX)
+    })
+  })
+
+  it('happy path (R6): scrolling to the top repeatedly walks before-fetches until atStart, exposing line 0 and showing the top-of-file marker', async () => {
+    const totalLines = 150 // small enough that a handful of 60-line before-fetches reaches byte 0
+    // Each `before` fetch adds 60 lines to the front. Scrolling all the way
+    // to scrollTop:0 always lands the visible range at index 0 of whatever
+    // is currently loaded, which is always well within EDGE_FETCH_THRESHOLD
+    // of the array's own start — so every iteration of this loop reliably
+    // re-triggers another `before` fetch, exactly the property this test
+    // exercises (not a coincidence of the chosen fetch size).
+    expect(0).toBeLessThanOrEqual(EDGE_FETCH_THRESHOLD)
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockImplementation(async ({ anchor, direction }) => {
+        if (direction === 'after') {
+          return makeResponse(totalLines, anchor, 'after', 60)
+        }
+        // `anchor` is already a real byte offset — makeResponse clamps it
+        // against totalLines internally now, so no external Math.min
+        // (which would otherwise compare a byte offset against a raw line
+        // count, a real unit-mismatch bug an earlier draft of this fixture
+        // had) is needed.
+        return makeResponse(totalLines, anchor, 'before', 60)
+      })
+
+    render(
+      <LogViewer
+        stream="backend"
+        readWindow={readWindow}
+        onSelectLine={jest.fn()}
+      />,
+    )
+    const scrollContainer = await settleInitialLoad(readWindow)
+    // Repeatedly scroll to the top, letting each resulting prepend settle,
+    // until the top-of-file marker appears (atStart reached) or a generous
+    // attempt budget is exhausted. Each iteration's waitFor accepts EITHER
+    // outcome — a new fetch landed, OR atStart was already reached by a
+    // prior iteration's fetch — rather than asserting an exact per-
+    // iteration call-count delta: once atStart is true, fetchEdge's own
+    // early-return means a further scrollTo(0) legitimately produces NO
+    // new call, which an exact-delta assertion would misreport as a stall
+    // instead of the correct terminal state.
+    for (let attempt = 0; attempt < 10; attempt++) {
+      if (screen.queryByText('line 0')) break
+      const callsBeforeThisScroll = readWindow.mock.calls.length
+      scrollTo(scrollContainer, 0)
+
+      await waitFor(() => {
+        const reachedStart = screen.queryByText('line 0') !== null
+        const gotNewCall = readWindow.mock.calls.length > callsBeforeThisScroll
+        expect(reachedStart || gotNewCall).toBe(true)
+      })
+    }
+
+    await waitFor(() => expect(screen.getByText('line 0')).toBeInTheDocument())
+    expect(
+      screen.getByText(/top of file/i, { exact: false }),
+    ).toBeInTheDocument()
+  })
+
+  it('edge case: rapid near-simultaneous scroll events do not fire overlapping fetches for the same edge (in-flight guard)', async () => {
+    let resolveBefore: ((response: LogWindowResponse) => void) | undefined
+    const beforeCallCount = { current: 0 }
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockImplementation(({ anchor, direction }) => {
+        if (direction === 'before' && beforeCallCount.current > 0) {
+          // Only the FIRST `before` call after the initial seed is left
+          // pending on purpose; a second concurrent one would resolve
+          // immediately here, which is exactly what this test must prove
+          // never happens.
+          beforeCallCount.current += 1
+          return new Promise<LogWindowResponse>(resolve => {
+            resolveBefore = resolve
+          })
+        }
+        if (direction === 'before') {
+          beforeCallCount.current += 1
+          return new Promise<LogWindowResponse>(resolve => {
+            resolveBefore = resolve
+          })
+        }
+        return Promise.resolve(makeResponse(1000, anchor, 'after', 60))
+      })
+
+    render(
+      <LogViewer
+        stream="backend"
+        readWindow={readWindow}
+        onSelectLine={jest.fn()}
+      />,
+    )
+
+    // Initial open-at-tail fetch is itself a `before` fetch — let it
+    // resolve once via the fallback path below before testing the
+    // in-flight guard on a SECOND, deliberately-slow `before` fetch.
+    await waitFor(() => expect(readWindow).toHaveBeenCalledTimes(1))
+    resolveBefore?.(makeResponse(1000, lineOffset(1000), 'before', 60))
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-track-id="log-viewer-scroll"]'),
+      ).toBeInTheDocument(),
+    )
+    const scrollContainer = findScrollContainer()
+    // See settleInitialLoad's own comment: a JS-driven scrollTop assignment
+    // (the initial pin-to-bottom effect) does not synthesize a jsdom scroll
+    // event the way a real browser would, so the virtualizer needs one
+    // fired explicitly BEFORE checking for tail content — asserting
+    // 'line 999' first (as an earlier draft did) races the pin-to-bottom
+    // effect and fails nondeterministically depending on exactly when
+    // React commits relative to this assertion.
+    fireEvent.scroll(scrollContainer)
+    await waitFor(() =>
+      expect(screen.getByText('line 999')).toBeInTheDocument(),
+    )
+
+    const callsBeforeScroll = readWindow.mock.calls.length
+
+    // Two near-simultaneous scroll events landing at/near the top edge —
+    // the second must be swallowed by the in-flight ref guard while the
+    // first (deliberately never resolved in this test) is still pending.
+    scrollTo(scrollContainer, 0)
+    scrollTo(scrollContainer, 0)
+
+    // Give any microtask-queued (but guarded-against) second call a chance
+    // to have fired if the guard were broken.
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const beforeCallsSinceScroll = readWindow.mock.calls
+      .slice(callsBeforeScroll)
+      .filter(([params]) => params.direction === 'before')
+    expect(beforeCallsSinceScroll).toHaveLength(1)
+  })
+
+  it('edge case: a stream with fewer lines than one window renders fully with atStart and atEnd both true, and issues no further fetches', async () => {
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockResolvedValue(
+        makeResponse(5, Number.MAX_SAFE_INTEGER, 'before', 999),
+      )
+
+    render(
+      <LogViewer
+        stream="backend"
+        readWindow={readWindow}
+        onSelectLine={jest.fn()}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByText('line 4')).toBeInTheDocument())
+    expect(screen.getByText('line 0')).toBeInTheDocument()
+    expect(
+      screen.getByText(/top of file/i, { exact: false }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/end of file/i, { exact: false }),
+    ).toBeInTheDocument()
+
+    const callsAfterInitialLoad = readWindow.mock.calls.length
+    const scrollContainer = findScrollContainer()
+    scrollTo(scrollContainer, 0)
+    scrollTo(scrollContainer, scrollContainer.scrollHeight)
+
+    // No fetch loop: atStart/atEnd are both already true, so fetchEdge's
+    // own early-return guards must prevent any further call regardless of
+    // how the (tiny, fully-loaded) list is scrolled.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(readWindow.mock.calls.length).toBe(callsAfterInitialLoad)
+  })
+
+  it('selecting a row invokes onSelectLine with the FULL LogLine object the row represents, not just a byteOffset', async () => {
+    const user = userEvent.setup()
+    const onSelectLine = jest.fn()
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockResolvedValue(makeResponse(10, lineOffset(10), 'before', 10))
+
+    render(
+      <LogViewer
+        stream="backend"
+        readWindow={readWindow}
+        onSelectLine={onSelectLine}
+      />,
+    )
+
+    const row = await screen.findByText('line 5')
+    await user.click(row)
+
+    expect(onSelectLine).toHaveBeenCalledTimes(1)
+    const selected = onSelectLine.mock.calls[0]?.[0] as LogLine
+    expect(selected.byteOffset).toBe(5 * BYTES_PER_LINE)
+    expect(selected.parsed).toEqual({ line: 5, level: 30, msg: 'line 5' })
+  })
+
+  it('the manual refresh control re-runs the open-at-tail fetch and resets state fresh', async () => {
+    const user = userEvent.setup()
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockResolvedValueOnce(makeResponse(200, lineOffset(200), 'before', 50))
+      .mockResolvedValue(makeResponse(260, lineOffset(260), 'before', 50))
+
+    render(
+      <LogViewer
+        stream="backend"
+        readWindow={readWindow}
+        onSelectLine={jest.fn()}
+      />,
+    )
+    await settleInitialLoad(readWindow)
+    await waitFor(() =>
+      expect(screen.getByText('line 199')).toBeInTheDocument(),
+    )
+
+    await user.click(screen.getByRole('button', { name: /refresh/i }))
+
+    await waitFor(() => expect(readWindow).toHaveBeenCalledTimes(2))
+    expect(readWindow).toHaveBeenLastCalledWith({
+      stream: 'backend',
+      anchor: Number.MAX_SAFE_INTEGER,
+      direction: 'before',
+    })
+    // The refresh reseeds via the SAME pin-to-bottom useLayoutEffect as the
+    // initial mount, so it needs its own post-scroll settle for the same
+    // jsdom-fidelity reason settleInitialLoad's own comment explains.
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-track-id="log-viewer-scroll"]'),
+      ).toBeInTheDocument(),
+    )
+    fireEvent.scroll(findScrollContainer())
+    await waitFor(() =>
+      expect(screen.getByText('line 259')).toBeInTheDocument(),
+    )
+    // The pre-refresh tail content is gone — this was a wholesale reseed,
+    // not a merge.
+    expect(screen.queryByText('line 199')).not.toBeInTheDocument()
+  })
+
+  it('shows the live-status banner alongside the loaded content, following by default (U10 superseded Phase 1’s static "Snapshot" framing now that the tail is wired in)', async () => {
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockResolvedValue(makeResponse(200, lineOffset(200), 'before', 50))
+
+    render(
+      <LogViewer
+        stream="backend"
+        readWindow={readWindow}
+        onSelectLine={jest.fn()}
+      />,
+    )
+
+    // settleInitialLoad (not a bare waitFor) is required here: it fires
+    // the explicit scroll event that syncs the virtualizer's OWN internal
+    // scroll-offset tracking with the pin-to-bottom effect's imperative
+    // `scrollTop = scrollHeight` write — the SAME jsdom-fidelity gap this
+    // file's settleInitialLoad/stubViewportGeometry comments already
+    // document (a real browser fires a native `scroll` event as a side
+    // effect of that assignment; jsdom does not). Without it, isAtEnd()
+    // would read a STALE pre-scroll offset on any later onChange
+    // invocation and this unit's own auto-pause logic would (correctly,
+    // given that stale reading) trigger — a test-fidelity gap, not a
+    // production bug, since a real browser's own scroll event closes it
+    // well before any such invocation could observe a stale value.
+    await settleInitialLoad(readWindow)
+    await waitFor(() =>
+      expect(
+        screen.getByText(/following live/i, { exact: false }),
+      ).toBeInTheDocument(),
+    )
+    // No pause affordance while genuinely following by default.
+    expect(screen.queryByText(/paused/i)).not.toBeInTheDocument()
+  })
+
+  it('renders an error affordance with a retry control when the initial fetch rejects', async () => {
+    const user = userEvent.setup()
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValue(makeResponse(10, lineOffset(10), 'before', 10))
+
+    render(
+      <LogViewer
+        stream="backend"
+        readWindow={readWindow}
+        onSelectLine={jest.fn()}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/failed to load/i, { exact: false }),
+      ).toBeInTheDocument(),
+    )
+
+    await user.click(screen.getByRole('button', { name: /retry/i }))
+
+    await waitFor(() => expect(screen.getByText('line 9')).toBeInTheDocument())
+  })
+
+  it('a row present both before and after a prepend keeps the SAME DOM node identity, rather than every visible row being torn down and recreated (best-effort viewport-stability proxy under jsdom)', async () => {
+    // This is a deliberately WEAKER proxy than a pixel-for-pixel
+    // scrollTop/visible-range assertion, and the gap is not merely
+    // jsdom's missing layout engine — reproducing this exact scenario
+    // against the REAL installed @tanstack/virtual-core (3.17.3) under
+    // this project's jsdom + polyfilled offsetHeight/scrollTop/scrollTo
+    // stack showed the post-prepend visible index range shifting away
+    // from the pre-prepend range with NO overlap at all, even though
+    // getItemKey here is exactly the documented-correct pattern (a
+    // persistent per-line identifier — byteOffset — never an index; see
+    // https://tanstack.com/virtual/latest/docs/api/virtualizer's own
+    // anchorTo section, which calls this out as the prerequisite for
+    // prepend stability). TanStack's own GitHub discussions (#195, #1018)
+    // document other users hitting comparable anchor-drift symptoms even
+    // with correct key usage, so this is a known-nontrivial area of the
+    // library itself under some conditions, not a misuse of the API on
+    // this component's part — and not the kind of upstream-library
+    // uncertainty worth deep-diving inside this unit (per this unit's own
+    // brief: prioritize the pure-function tests' confidence over chasing
+    // jsdom/virtual-core pixel fidelity here).
+    //
+    // What this test proves instead, robust to exactly where the
+    // post-prepend viewport ends up landing: React's reconciliation
+    // NEVER tears down and recreates a DOM node for a LogLine whose
+    // getItemKey (byteOffset) is unchanged and still within whatever the
+    // rendered range turns out to be — captured via real DOM node
+    // identity (`toBe`, not just text content), which a broken-key
+    // implementation (e.g. keying by array index instead of byteOffset)
+    // would fail even by coincidence, since an index-keyed remount
+    // recreates every node whose relative position shifted, which a
+    // prepend does for the entire array.
+    const totalLines = 300
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockImplementation(({ anchor, direction }) =>
+        Promise.resolve(
+          direction === 'after'
+            ? makeResponse(totalLines, anchor, 'after', 60)
+            : makeResponse(totalLines, anchor, 'before', 60),
+        ),
+      )
+
+    render(
+      <LogViewer
+        stream="backend"
+        readWindow={readWindow}
+        onSelectLine={jest.fn()}
+      />,
+    )
+    const scrollContainer = await settleInitialLoad(readWindow)
+    await waitFor(() =>
+      expect(screen.getByText('line 299')).toBeInTheDocument(),
+    )
+
+    // Capture the DOM node identity of every rendered row, keyed by its
+    // own text content, before the prepend — rather than assuming which
+    // specific line survives, this test discovers it empirically from
+    // whatever range actually renders both before and after.
+    const rowsBefore = new Map<string, Element>()
+    for (const row of scrollContainer.querySelectorAll(
+      '[data-track-id="log-row-select"]',
+    )) {
+      const text = row.textContent
+      if (text) rowsBefore.set(text, row)
+    }
+    expect(rowsBefore.size).toBeGreaterThan(0)
+
+    const spacerBefore = scrollContainer.firstElementChild as HTMLElement
+    const heightBefore = parseFloat(spacerBefore.style.height)
+
+    // A small nudge just past EDGE_FETCH_THRESHOLD's pixel equivalent —
+    // deliberately NOT a jump all the way to scrollTop:0. The smaller the
+    // scroll delta that triggers the fetch, the closer the pre/post
+    // visible ranges start out, which is what makes ANY overlap surviving
+    // the prepend a meaningful signal rather than a coincidence of how far
+    // anchorTo's compensation actually lands (see this test's own header
+    // comment on why an exact pixel destination isn't asserted).
+    scrollTo(scrollContainer, EDGE_FETCH_THRESHOLD * ROW_PX)
+    await waitFor(() => expect(readWindow).toHaveBeenCalledTimes(2))
+
+    // The fetched content genuinely landed (the array grew by one window's
+    // worth of rows) — checked via the spacer height rather than asserting
+    // a specific newly-prepended line's on-screen visibility, which would
+    // be in direct tension with anchorTo:'end' actually holding the
+    // viewport steady (see the "before" response component test's own
+    // comment on this same distinction).
+    await waitFor(() => {
+      const spacerAfter = scrollContainer.firstElementChild as HTMLElement
+      const heightAfter = parseFloat(spacerAfter.style.height)
+      expect(heightAfter).toBe(heightBefore + 60 * ROW_PX)
+    })
+
+    const rowsAfter = new Map<string, Element>()
+    for (const row of scrollContainer.querySelectorAll(
+      '[data-track-id="log-row-select"]',
+    )) {
+      const text = row.textContent
+      if (text) rowsAfter.set(text, row)
+    }
+
+    const survivingTexts = [...rowsBefore.keys()].filter(text =>
+      rowsAfter.has(text),
+    )
+    // At least one row rendered both before and after — proves the two
+    // rendered ranges are not disjoint (a real regression this test would
+    // also want to catch: e.g. a completely different fetch size than
+    // requested silently blowing the whole visible window away).
+    expect(survivingTexts.length).toBeGreaterThan(0)
+    for (const text of survivingTexts) {
+      // The IDENTICAL DOM node, not just equal text — this is what proves
+      // React never unmounted/remounted it across the prepend, which is
+      // exactly what a stable byteOffset-based getItemKey is supposed to
+      // guarantee for any row that remains part of the rendered range.
+      expect(rowsAfter.get(text)).toBe(rowsBefore.get(text))
+    }
+  })
+
+  // ═══════════════════════════════════════════════════════════════════
+  // U10: follow / pause / jump-to-latest (live tail client). Nested here
+  // (not a sibling describe) so it inherits the outer beforeEach's
+  // stubViewportGeometry() + MockEventSource global installation.
+  // ═══════════════════════════════════════════════════════════════════
+  describe('U10: follow / pause / jump-to-latest (live tail)', () => {
+    const TOTAL_LINES = 200
+    const FILE_SIZE = TOTAL_LINES * BYTES_PER_LINE
+
+    function makeReadWindow() {
+      return jest
+        .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+        .mockImplementation(async ({ anchor, direction }) =>
+          makeResponse(
+            TOTAL_LINES,
+            anchor,
+            direction === 'after' ? 'after' : 'before',
+            50,
+          ),
+        )
+    }
+
+    // Settles the initial load AND the tail connect() that fires once it
+    // reaches 'done' — settleInitialLoad's own waitFor/scroll cycles
+    // already flush enough passive-effect ticks for the (initialLoad,
+    // isActive) connect effect to have run by the time this returns, but
+    // this helper makes that dependency explicit and gives every test in
+    // this block a single, obviously-real MockEventSource instance to
+    // grab.
+    async function settleInitialLoadAndTail(
+      readWindow: jest.Mock<Promise<LogWindowResponse>, [ReadLogWindowParams]>,
+    ) {
+      const scrollContainer = await settleInitialLoad(readWindow)
+      await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
+      return { scrollContainer, tail: latestTailInstance() }
+    }
+
+    it('AE1 (R3): connects the tail from the initial window’s fileSize once the initial load settles', async () => {
+      const readWindow = makeReadWindow()
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+        />,
+      )
+
+      const { tail } = await settleInitialLoadAndTail(readWindow)
+      expect(tail.url).toBe(logTailUrl('backend', FILE_SIZE))
+    })
+
+    it('AE1 (R3): with follow on and pinned at bottom, a tail append shows the new line and keeps the viewport pinned to the bottom', async () => {
+      const readWindow = makeReadWindow()
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+        />,
+      )
+
+      const { scrollContainer, tail } =
+        await settleInitialLoadAndTail(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText('line 199')).toBeInTheDocument(),
+      )
+
+      const spacerBefore = scrollContainer.firstElementChild as HTMLElement
+      const heightBefore = parseFloat(spacerBefore.style.height)
+
+      const message = makeTailMessage(FILE_SIZE, {
+        line: 200,
+        level: 30,
+        msg: 'line 200',
+      })
+      tail.emit('log-append', message)
+
+      await waitFor(() =>
+        expect(screen.getByText('line 200')).toBeInTheDocument(),
+      )
+
+      // Exactly one new row's worth of height — the append landed, not a
+      // whole-tail re-fetch of unknown size.
+      const spacerAfter = scrollContainer.firstElementChild as HTMLElement
+      const heightAfter = parseFloat(spacerAfter.style.height)
+      expect(heightAfter).toBe(heightBefore + ROW_PX)
+
+      // followOnAppend auto-scrolled: the viewport is still pinned to the
+      // (new, taller) bottom, same proxy convention this file's Phase 1
+      // tests already use for "the currently-visible content didn't jump
+      // away."
+      await waitFor(() => {
+        expect(scrollContainer.scrollTop).toBe(
+          scrollContainer.scrollHeight - scrollContainer.offsetHeight,
+        )
+      })
+
+      // Still following — no pause affordance appeared.
+      expect(screen.queryByText(/paused/i)).not.toBeInTheDocument()
+    })
+
+    it('AE1 (R4): scrolling up pauses follow and shows an "N new" badge; clicking "jump to latest" reseeds, scrolls to bottom, resets the badge, and genuinely resumes follow', async () => {
+      const readWindow = makeReadWindow()
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+        />,
+      )
+
+      const { scrollContainer } = await settleInitialLoadAndTail(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText('line 199')).toBeInTheDocument(),
+      )
+
+      // Scroll away from the bottom — flips to paused.
+      scrollTo(scrollContainer, 0)
+      await waitFor(() =>
+        expect(screen.getByText(/paused/i)).toBeInTheDocument(),
+      )
+      expect(screen.getByText(/0 new/i)).toBeInTheDocument()
+
+      // Further tail appends increment the badge without adding rows —
+      // grab the CURRENT tail instance fresh (a `before` edge-fetch may
+      // have fired from the scroll above, but that's an unrelated
+      // windowed read, not a new tail connection).
+      const tail = latestTailInstance()
+      const rowCountBefore = document.querySelectorAll(
+        '[data-track-id="log-row-select"]',
+      ).length
+
+      tail.emit(
+        'log-append',
+        makeTailMessage(FILE_SIZE, { line: 200, level: 30, msg: 'line 200' }),
+      )
+      await waitFor(() =>
+        expect(screen.getByText(/1 new/i)).toBeInTheDocument(),
+      )
+      expect(screen.queryByText('line 200')).not.toBeInTheDocument()
+      expect(
+        document.querySelectorAll('[data-track-id="log-row-select"]').length,
+      ).toBe(rowCountBefore)
+
+      // Jump to latest: fresh readWindow call, scroll back to bottom,
+      // badge resets, follow resumes.
+      const callsBeforeJump = readWindow.mock.calls.length
+      await userEvent.click(
+        screen.getByRole('button', { name: /jump to latest/i }),
+      )
+
+      await waitFor(() =>
+        expect(readWindow.mock.calls.length).toBeGreaterThan(callsBeforeJump),
+      )
+      expect(readWindow).toHaveBeenLastCalledWith({
+        stream: 'backend',
+        anchor: Number.MAX_SAFE_INTEGER,
+        direction: 'before',
+      })
+
+      await waitFor(() =>
+        expect(screen.queryByText(/paused/i)).not.toBeInTheDocument(),
+      )
+      await waitFor(() =>
+        expect(screen.getByText(/following live/i)).toBeInTheDocument(),
+      )
+
+      // A NEW tail connection was opened for the re-seek (connect()
+      // closes the old one first — see use-log-tail.ts).
+      await waitFor(() => expect(MockEventSource.instances).toHaveLength(2))
+      const newTail = latestTailInstance()
+      expect(newTail).not.toBe(tail)
+      // Re-seeded from the FRESH fileSize the jump's own readWindow
+      // response reported (still FILE_SIZE here — the mock readWindow's
+      // TOTAL_LINES is constant across calls, so the "fresh" offset and
+      // the original one coincide, but this asserts it was actually
+      // DERIVED from that response rather than reusing a stale value by
+      // coincidence).
+      expect(newTail.url).toBe(logTailUrl('backend', FILE_SIZE))
+
+      // Prove follow is genuinely back to true (not just cosmetically
+      // reset): a tail append AFTER the jump auto-scrolls again.
+      const spacerBeforeSecondAppend =
+        scrollContainer.firstElementChild as HTMLElement
+      const heightBeforeSecondAppend = parseFloat(
+        spacerBeforeSecondAppend.style.height,
+      )
+      newTail.emit(
+        'log-append',
+        makeTailMessage(FILE_SIZE, {
+          line: 201,
+          level: 30,
+          msg: 'line 201',
+        }),
+      )
+      await waitFor(() =>
+        expect(screen.getByText('line 201')).toBeInTheDocument(),
+      )
+      await waitFor(() => {
+        const spacerAfterSecondAppend =
+          scrollContainer.firstElementChild as HTMLElement
+        expect(parseFloat(spacerAfterSecondAppend.style.height)).toBe(
+          heightBeforeSecondAppend + ROW_PX,
+        )
+      })
+    })
+
+    it('AE4 (R5): a burst of several tail appends in quick succession all individually appear as separate rows, not coalesced into only the last one', async () => {
+      const readWindow = makeReadWindow()
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+        />,
+      )
+
+      const { tail } = await settleInitialLoadAndTail(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText('line 199')).toBeInTheDocument(),
+      )
+
+      let cursor = FILE_SIZE
+      const burstLines = [200, 201, 202, 203, 204]
+      for (const n of burstLines) {
+        const message = makeTailMessage(cursor, {
+          line: n,
+          level: 30,
+          msg: `line ${n}`,
+        })
+        cursor = message.byteOffset
+        tail.emit('log-append', message)
+      }
+
+      // Sequential awaits (not Promise.all) are deliberate: each line's
+      // own appearance is asserted independently, which is what proves
+      // EVERY one of the 5 emits above is reflected in the DOM, not just
+      // whichever one happened to win a single shared re-render.
+      for (const n of burstLines) {
+        await waitFor(() =>
+          expect(screen.getByText(`line ${n}`)).toBeInTheDocument(),
+        )
+      }
+    })
+
+    it('edge case: while paused, incoming tail lines never grow state.lines/the DOM row count/the total-size spacer height — only the badge counter increases', async () => {
+      const readWindow = makeReadWindow()
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+        />,
+      )
+
+      const { scrollContainer } = await settleInitialLoadAndTail(readWindow)
+      scrollTo(scrollContainer, 0)
+      await waitFor(() =>
+        expect(screen.getByText(/paused/i)).toBeInTheDocument(),
+      )
+
+      const tail = latestTailInstance()
+      const rowCountBefore = document.querySelectorAll(
+        '[data-track-id="log-row-select"]',
+      ).length
+      const spacerBefore = scrollContainer.firstElementChild as HTMLElement
+      const heightBefore = parseFloat(spacerBefore.style.height)
+
+      let cursor = FILE_SIZE
+      for (const n of [200, 201, 202]) {
+        const message = makeTailMessage(cursor, {
+          line: n,
+          level: 30,
+          msg: `line ${n}`,
+        })
+        cursor = message.byteOffset
+        tail.emit('log-append', message)
+      }
+
+      await waitFor(() =>
+        expect(screen.getByText(/3 new/i)).toBeInTheDocument(),
+      )
+      expect(
+        document.querySelectorAll('[data-track-id="log-row-select"]').length,
+      ).toBe(rowCountBefore)
+      const spacerAfter = scrollContainer.firstElementChild as HTMLElement
+      expect(parseFloat(spacerAfter.style.height)).toBe(heightBefore)
+      expect(screen.queryByText('line 200')).not.toBeInTheDocument()
+    })
+
+    it('edge case (leak): the tail EventSource is created once when the initial load settles and closed on unmount; a re-render for an unrelated reason does not tear it down and recreate it', async () => {
+      const readWindow = makeReadWindow()
+      const onSelectLine = jest.fn()
+      const { rerender, unmount } = render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={onSelectLine}
+        />,
+      )
+
+      const { tail } = await settleInitialLoadAndTail(readWindow)
+      expect(tail.closed).toBe(false)
+
+      // A re-render with the SAME prop values/identities — the isolated-
+      // component equivalent of "an unrelated part of the tree re-
+      // rendered this component with unchanged props" (in the real
+      // page.tsx, this is what selecting a row does: it updates state in
+      // the PARENT, re-rendering this LogViewer child with the same
+      // stream/readWindow/onSelectLine/isActive it already had).
+      rerender(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={onSelectLine}
+        />,
+      )
+      await Promise.resolve()
+
+      expect(MockEventSource.instances).toHaveLength(1)
+      expect(tail.closed).toBe(false)
+
+      unmount()
+      expect(tail.closed).toBe(true)
+    })
+
+    it('edge case (isActive): rendering with isActive={false} after having been active closes the tail connection; flipping back to isActive={true} reconnects', async () => {
+      const readWindow = makeReadWindow()
+      const { rerender } = render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          isActive={true}
+        />,
+      )
+
+      const { tail: firstTail } = await settleInitialLoadAndTail(readWindow)
+      expect(firstTail.closed).toBe(false)
+
+      expect(() =>
+        rerender(
+          <LogViewer
+            stream="backend"
+            readWindow={readWindow}
+            onSelectLine={jest.fn()}
+            isActive={false}
+          />,
+        ),
+      ).not.toThrow()
+
+      await waitFor(() => expect(firstTail.closed).toBe(true))
+      // No SECOND instance was created just to immediately close it —
+      // going inactive only disconnects the existing one.
+      expect(MockEventSource.instances).toHaveLength(1)
+
+      rerender(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          isActive={true}
+        />,
+      )
+
+      await waitFor(() => expect(MockEventSource.instances).toHaveLength(2))
+      const secondTail = latestTailInstance()
+      expect(secondTail).not.toBe(firstTail)
+      expect(secondTail.closed).toBe(false)
+    })
+
+    it('integration: a redundant tail delivery of a line the initial windowed read already loaded does not produce a duplicate row (proves the byte-offset conversion + de-dup composition end-to-end)', async () => {
+      const readWindow = makeReadWindow()
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+        />,
+      )
+
+      const { scrollContainer, tail } =
+        await settleInitialLoadAndTail(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText('line 199')).toBeInTheDocument(),
+      )
+
+      const rowCountBefore = document.querySelectorAll(
+        '[data-track-id="log-row-select"]',
+      ).length
+      const spacerBefore = scrollContainer.firstElementChild as HTMLElement
+      const heightBefore = parseFloat(spacerBefore.style.height)
+
+      // The initial windowed read's own last line ("line 199") sits at
+      // byteOffset 199*BYTES_PER_LINE (see makeLine). A redundant tail
+      // delivery reporting the SAME real byte position (constructed via
+      // makeTailMessage so its CONVERTED LogLine.byteOffset lands exactly
+      // there, regardless of its own raw text/byteLength) must not add a
+      // second entry — this is exactly the offset-conversion + de-dup
+      // composition this unit's brief calls out as the easiest thing to
+      // get subtly wrong.
+      const redundant = makeTailMessage(199 * BYTES_PER_LINE, {
+        line: 199,
+        level: 30,
+        msg: 'line 199 (redundant resend)',
+      })
+      tail.emit('log-append', redundant)
+
+      // Give the (idempotent, no-op) state update a chance to have
+      // applied — asserting a NEGATIVE (nothing changed), so this
+      // confirms the array genuinely never grew rather than merely not
+      // having re-rendered yet.
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(
+        document.querySelectorAll('[data-track-id="log-row-select"]').length,
+      ).toBe(rowCountBefore)
+      const spacerAfter = scrollContainer.firstElementChild as HTMLElement
+      expect(parseFloat(spacerAfter.style.height)).toBe(heightBefore)
+      // The ORIGINAL line's own text stands — no "(redundant resend)"
+      // variant rendered anywhere.
+      expect(screen.queryByText(/redundant resend/i)).not.toBeInTheDocument()
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════
+  // U11: search-hit selection wiring (handleHitSelected/
+  // handleSearchActiveChange) and its reconciliation with U10's own
+  // follow/pause/badge machinery. LogSearchBar is mocked at the MODULE
+  // level here (not driven through its real debounce/react-query
+  // internals) — this file already carries substantial complexity of its
+  // own (virtualizer geometry stubs, tail EventSource mocking), and
+  // log-search-bar.spec.tsx already exhaustively covers LogSearchBar's
+  // OWN internal behavior (debounce, pagination, abort, etc.) in
+  // isolation; driving the REAL component through this heavier
+  // integration test would only add timing coordination between TWO
+  // already-complex subsystems (react-query's debounce + this file's own
+  // virtualizer/EventSource stubs) without adding coverage that either
+  // suite doesn't already have on its own. The mock exposes a single
+  // "select hit" trigger button so this file can assert exactly what
+  // log-viewer.tsx itself does in RESPONSE to a hit selection — pause
+  // follow, load the 'around' window, highlight — the actual subject of
+  // this unit's own wiring, orthogonal to LogSearchBar's internals.
+  // ═══════════════════════════════════════════════════════════════════
+  describe('U11: search-hit selection wiring', () => {
+    const TOTAL_LINES = 200
+    const FILE_SIZE = TOTAL_LINES * BYTES_PER_LINE
+
+    function makeReadWindow() {
+      return jest
+        .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+        .mockImplementation(async ({ anchor, direction }) => {
+          if (direction === 'around') {
+            // A minimal 'around' response: a single line whose OWN
+            // byteOffset is snapped DOWN to the nearest line boundary
+            // containing `anchor` — mirroring log-reader.service.ts's
+            // real snapWindow 'around' guarantee (the anchor's containing
+            // line is always whole and present) without needing that
+            // service's actual byte-level scanning logic in a fixture.
+            const lineIndex = Math.floor(anchor / BYTES_PER_LINE)
+            const line = makeLine(lineIndex)
+            return {
+              stream: 'backend',
+              fileSize: FILE_SIZE,
+              windowStart: line.byteOffset,
+              windowEnd: line.byteOffset + line.byteLength,
+              atStart: lineIndex === 0,
+              atEnd: lineIndex >= TOTAL_LINES - 1,
+              lines: [line],
+            }
+          }
+          return makeResponse(
+            TOTAL_LINES,
+            anchor,
+            direction === 'after' ? 'after' : 'before',
+            50,
+          )
+        })
+    }
+
+    async function settleInitialLoadAndTail(
+      readWindow: jest.Mock<Promise<LogWindowResponse>, [ReadLogWindowParams]>,
+    ) {
+      const scrollContainer = await settleInitialLoad(readWindow)
+      await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
+      return { scrollContainer, tail: latestTailInstance() }
+    }
+
+    it('selecting a search hit pauses follow (a subsequent live-tail line does not get appended into the DOM) and loads the context window around the hit’s byte offset', async () => {
+      const readWindow = makeReadWindow()
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+        />,
+      )
+
+      const { tail } = await settleInitialLoadAndTail(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText('line 199')).toBeInTheDocument(),
+      )
+      // Still following by default before any hit is selected.
+      expect(screen.queryByText(/paused/i)).not.toBeInTheDocument()
+
+      const targetOffset = 50 * BYTES_PER_LINE
+      await dispatchMockHitSelected(targetOffset, 'line')
+
+      await waitFor(() =>
+        expect(readWindow).toHaveBeenCalledWith({
+          stream: 'backend',
+          anchor: targetOffset,
+          direction: 'around',
+        }),
+      )
+      // The context window landed — "line 50" (the ONLY line the 'around'
+      // fixture response above returns) is now on screen, replacing the
+      // tail-anchored window. Matched via the ROW's own textContent
+      // (rather than screen.getByText('line 50')) because U11's own
+      // highlight rendering deliberately SPLITS this exact text across a
+      // <mark> (matching "line") and a sibling plain span (" 50") — a
+      // real, correct rendering outcome of highlighting the row's msg,
+      // not a bug: getByText only matches a single element's OWN
+      // normalized text, never concatenated across sibling elements, so a
+      // split-by-highlight string needs its container's aggregate
+      // textContent checked instead.
+      await waitFor(() =>
+        expect(
+          [
+            ...document.querySelectorAll('[data-track-id="log-row-select"]'),
+          ].some(row => row.textContent?.includes('line 50')),
+        ).toBe(true),
+      )
+
+      // Follow paused — the SAME visible effect U10's own scroll-up-pause
+      // test asserts (see that describe block above): a live tail line
+      // delivered NOW must not add a new row.
+      await waitFor(() =>
+        expect(screen.getByText(/paused/i)).toBeInTheDocument(),
+      )
+      const rowCountBeforeTailLine = document.querySelectorAll(
+        '[data-track-id="log-row-select"]',
+      ).length
+      tail.emit(
+        'log-append',
+        makeTailMessage(FILE_SIZE, { line: 200, level: 30, msg: 'line 200' }),
+      )
+      await waitFor(() =>
+        expect(screen.getByText(/1 new/i)).toBeInTheDocument(),
+      )
+      expect(screen.queryByText('line 200')).not.toBeInTheDocument()
+      expect(
+        document.querySelectorAll('[data-track-id="log-row-select"]').length,
+      ).toBe(rowCountBeforeTailLine)
+    })
+
+    it('reconciles with live tail: after selecting a hit, a tail line delivered afterward increments the "N new" badge and does NOT appear as a new row in the mid-file window — byteOffsets stay monotonic, no near-EOF offset spliced in', async () => {
+      const readWindow = makeReadWindow()
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+        />,
+      )
+
+      const { tail } = await settleInitialLoadAndTail(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText('line 199')).toBeInTheDocument(),
+      )
+
+      const targetOffset = 20 * BYTES_PER_LINE
+      await dispatchMockHitSelected(targetOffset, 'line')
+      // Matched via row textContent, not screen.getByText — see the
+      // sibling test above's own comment on why (U11's highlight
+      // rendering splits this exact string across a <mark> + a plain
+      // sibling span).
+      await waitFor(() =>
+        expect(
+          [
+            ...document.querySelectorAll('[data-track-id="log-row-select"]'),
+          ].some(row => row.textContent?.includes('line 20')),
+        ).toBe(true),
+      )
+      // The mid-file window's own lines keep ascending byteOffset order —
+      // proven directly against the loaded row SET, not merely absence of
+      // a specific row: only the single 'around' line is loaded at this
+      // point, so exactly one row exists.
+      const rowsBeforeTailLine = [
+        ...document.querySelectorAll('[data-track-id="log-row-select"]'),
+      ].map(el => el.textContent)
+      expect(rowsBeforeTailLine).toHaveLength(1)
+      expect(rowsBeforeTailLine[0]).toContain('line 20')
+
+      let cursor = FILE_SIZE
+      for (const n of [200, 201, 202]) {
+        const message = makeTailMessage(cursor, {
+          line: n,
+          level: 30,
+          msg: `line ${n}`,
+        })
+        cursor = message.byteOffset
+        tail.emit('log-append', message)
+      }
+
+      await waitFor(() =>
+        expect(screen.getByText(/3 new/i)).toBeInTheDocument(),
+      )
+      // The mid-file window is completely unchanged — no near-EOF tail
+      // content spliced in anywhere, and the badge (not the row list) is
+      // the only thing that moved. Checked via row textContent (not
+      // screen.queryByText, for the same highlight-splits-the-text reason
+      // as above) against the exact set of rendered rows.
+      const rowsAfterTailLines = [
+        ...document.querySelectorAll('[data-track-id="log-row-select"]'),
+      ].map(el => el.textContent)
+      expect(rowsAfterTailLines).toEqual(rowsBeforeTailLine)
+      expect(
+        rowsAfterTailLines.some(text => /line 20[012]/.test(text ?? '')),
+      ).toBe(false)
+    })
+
+    it('the highlighted text renders with highlight styling in the row corresponding to the selected hit’s byte offset', async () => {
+      const readWindow = makeReadWindow()
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+        />,
+      )
+
+      await settleInitialLoadAndTail(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText('line 199')).toBeInTheDocument(),
+      )
+
+      const targetOffset = 75 * BYTES_PER_LINE
+      await dispatchMockHitSelected(targetOffset, 'line 75')
+
+      await waitFor(() => {
+        const mark = document.querySelector(
+          '[data-track-id="log-row-highlight"]',
+        )
+        expect(mark).toBeInTheDocument()
+        expect(mark).toHaveTextContent('line 75')
+      })
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════
+  // U12: structured filters + filtered-projection mode. `filters` is a
+  // plain prop (unlike U11's search state, which LogViewer owns
+  // internally) — every test below drives it via render()/rerender() with
+  // a NEW `filters` value, exactly mirroring how page.tsx's own lifted
+  // filtersByStream state would re-render this component after a
+  // LogFilters/detail-panel interaction. api.searchLog is mocked at the
+  // MODULE level (jest.spyOn, not jest.mock) since log-viewer.tsx imports
+  // `api` directly (matching log-search-bar.tsx's own established
+  // precedent) rather than receiving a searchLog function as a prop.
+  // ═══════════════════════════════════════════════════════════════════
+  describe('U12: structured filters + filtered-projection mode', () => {
+    const TOTAL_LINES = 50
+    const FILE_SIZE = TOTAL_LINES * BYTES_PER_LINE
+
+    function makeReadWindow() {
+      return jest
+        .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+        .mockImplementation(async ({ anchor, direction }) =>
+          makeResponse(
+            TOTAL_LINES,
+            anchor,
+            direction === 'after' ? 'after' : 'before',
+            20,
+          ),
+        )
+    }
+
+    function makeSearchResponse(
+      overrides: Partial<LogSearchResponse> = {},
+    ): LogSearchResponse {
+      return { total: 0, matches: [], nextCursor: null, ...overrides }
+    }
+
+    // Builds one LogSearchResponse match entry — `raw` is the serialized
+    // JSON text the U12 response-shape extension added (log-view.types.ts),
+    // round-tripped back through parseLogLine by filteredMatchToLogLine
+    // exactly as the real component does, so these fixtures exercise the
+    // SAME conversion path a real server response would.
+    function filterMatch(
+      byteOffset: number,
+      parsed: Record<string, unknown>,
+    ): { byteOffset: number; raw: string } {
+      return { byteOffset, raw: JSON.stringify(parsed) }
+    }
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    it('AE6 (R11): composing level + process + a text term sends the FULL composed predicate to api.searchLog and renders ONLY the mocked matches (not state.lines)', async () => {
+      const readWindow = makeReadWindow()
+      const searchLogSpy = jest.spyOn(api, 'searchLog').mockResolvedValue(
+        makeSearchResponse({
+          total: 1,
+          matches: [
+            filterMatch(999, {
+              level: 40,
+              process: 'bot',
+              event: 'writer-fault',
+              msg: 'errorish thing happened',
+            }),
+          ],
+          nextCursor: null,
+        }),
+      )
+
+      const { rerender } = render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{}}
+        />,
+      )
+      await settleInitialLoad(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText('line 49')).toBeInTheDocument(),
+      )
+
+      // The free-text term settles (as if LogSearchBar's own debounce had
+      // resolved) BEFORE any structured filter goes active — queryText is
+      // durable state, so it composes into the predicate the MOMENT a
+      // structured filter later makes isFilteredProjection true, with no
+      // re-typing needed.
+      await dispatchMockQueryTextChange('errorish')
+
+      rerender(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{ level: 40, process: 'bot' }}
+        />,
+      )
+
+      await waitFor(() =>
+        expect(searchLogSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            stream: 'backend',
+            text: 'errorish',
+            level: 40,
+            process: 'bot',
+            cursor: undefined,
+          }),
+        ),
+      )
+
+      await waitFor(() =>
+        expect(screen.getByText(/errorish thing happened/)).toBeInTheDocument(),
+      )
+      // Raw-mode content is gone — the filtered projection shows ONLY the
+      // matching set, never a mix of the two.
+      expect(screen.queryByText('line 49')).not.toBeInTheDocument()
+    })
+
+    it('happy path: "errors-only" (level>=50) with no text shows the filtered projection with the mocked matches, distinct from raw mode', async () => {
+      const readWindow = makeReadWindow()
+      jest.spyOn(api, 'searchLog').mockResolvedValue(
+        makeSearchResponse({
+          total: 2,
+          matches: [
+            filterMatch(10, { level: 50, msg: 'first error' }),
+            filterMatch(20, { level: 60, msg: 'second error' }),
+          ],
+          nextCursor: null,
+        }),
+      )
+
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{ level: 50 }}
+        />,
+      )
+
+      await settleInitialLoad(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText(/first error/)).toBeInTheDocument(),
+      )
+      expect(screen.getByText(/second error/)).toBeInTheDocument()
+      // None of raw mode's own "line N" content ever appears.
+      expect(screen.queryByText(/^line \d+$/)).not.toBeInTheDocument()
+    })
+
+    it('edge case: filters compose with each other (level ∧ process ∧ event) — the composed predicate sent to the mocked api.searchLog carries every one of them', async () => {
+      const readWindow = makeReadWindow()
+      const searchLogSpy = jest
+        .spyOn(api, 'searchLog')
+        .mockResolvedValue(makeSearchResponse())
+
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{ level: 40, process: 'bot', event: 'writer-fault' }}
+        />,
+      )
+
+      // Deliberately NOT settleInitialLoad here: this mocked search
+      // response is empty (matches: []), which renders the distinct
+      // filtered-empty state rather than the scroll container that helper
+      // waits for — this test only cares about the CALL made to
+      // api.searchLog, not what subsequently renders.
+      await waitFor(() => expect(readWindow).toHaveBeenCalledTimes(1))
+
+      await waitFor(() =>
+        expect(searchLogSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            stream: 'backend',
+            level: 40,
+            process: 'bot',
+            event: 'writer-fault',
+            text: undefined,
+            cursor: undefined,
+          }),
+        ),
+      )
+    })
+
+    it('edge case: clearing filters returns to the raw windowed view', async () => {
+      const readWindow = makeReadWindow()
+      jest.spyOn(api, 'searchLog').mockResolvedValue(
+        makeSearchResponse({
+          total: 1,
+          matches: [filterMatch(10, { level: 50, msg: 'an error' })],
+          nextCursor: null,
+        }),
+      )
+
+      const { rerender } = render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{ level: 50 }}
+        />,
+      )
+      await settleInitialLoad(readWindow)
+      await waitFor(() =>
+        expect(screen.getByText(/an error/)).toBeInTheDocument(),
+      )
+
+      rerender(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{}}
+        />,
+      )
+
+      // isFilteredProjection recomputes to false the instant `filters`
+      // becomes entirely empty again — no special reset logic exists
+      // beyond that recomputation, so the render simply falls back to
+      // whatever `state`/raw-mode already held.
+      await waitFor(() =>
+        expect(screen.getByText('line 49')).toBeInTheDocument(),
+      )
+      expect(screen.queryByText(/an error/)).not.toBeInTheDocument()
+    })
+
+    it('edge case (empty): a filter with zero matching lines shows the distinct "No lines match these filters" empty state, and holds the loading indicator until the scan genuinely resolves', async () => {
+      const readWindow = makeReadWindow()
+      let resolveSearch: ((response: LogSearchResponse) => void) | undefined
+      jest.spyOn(api, 'searchLog').mockImplementation(
+        () =>
+          new Promise<LogSearchResponse>(resolve => {
+            resolveSearch = resolve
+          }),
+      )
+
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{ level: 60 }}
+        />,
+      )
+
+      // Deliberately NOT settleInitialLoad here: that helper waits for the
+      // scroll container to appear, which never happens while the scan is
+      // pending OR resolves to zero matches (both branches render one of
+      // the two non-scroll-container states below instead) — this test
+      // only needs the RAW windowed load to have settled so the component
+      // has moved past its top-level initialLoad==='pending' early return.
+      await waitFor(() => expect(readWindow).toHaveBeenCalledTimes(1))
+
+      // Still resolving — the scan hasn't landed yet, so the empty state
+      // must NOT show (the "no flash to empty" discipline U11's own
+      // LogSearchBar already applies, mirrored here).
+      await waitFor(() =>
+        expect(screen.getByText(/scanning for matches/i)).toBeInTheDocument(),
+      )
+      expect(
+        screen.queryByText(/no lines match these filters/i),
+      ).not.toBeInTheDocument()
+
+      await act(async () => {
+        resolveSearch?.(
+          makeSearchResponse({ total: 0, matches: [], nextCursor: null }),
+        )
+        await Promise.resolve()
+      })
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(/no lines match these filters/i),
+        ).toBeInTheDocument(),
+      )
+      // Distinct from raw mode's own bootstrap empty state and from
+      // LogSearchBar's own "No results" — neither of those track-ids ever
+      // appear for this outcome.
+      expect(
+        document.querySelector('[data-track-id="log-viewer-empty"]'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('pagination: scrolling near the bottom of the loaded filtered matches fetches the next page via nextCursor and appends (never a re-scan from the top)', async () => {
+      // 60 page-1 matches — deliberately larger than viewport(~16 rows) +
+      // 2*OVERSCAN(12 each side, ~24 rows) so the array's own END is NOT
+      // already within EDGE_FETCH_THRESHOLD of the initial (unscrolled,
+      // scrollTop:0) visible+overscanned range on mount. A smaller page-1
+      // fixture (e.g. 20 rows) would make the WHOLE array fit inside that
+      // initial range, firing the pagination fetch immediately on mount
+      // rather than in response to the explicit scroll this test exists to
+      // exercise — an artifact of an undersized fixture, not a real
+      // production concern (a genuine page 1 can hold up to
+      // MAX_MATCHES_PER_PAGE=200 matches, comfortably larger than any
+      // viewport+overscan).
+      const PAGE_1_COUNT = 60
+      const readWindow = makeReadWindow()
+      const searchLogSpy = jest
+        .spyOn(api, 'searchLog')
+        .mockResolvedValueOnce(
+          makeSearchResponse({
+            total: PAGE_1_COUNT + 20,
+            matches: Array.from({ length: PAGE_1_COUNT }, (_, i) =>
+              filterMatch(i * 1000, { level: 50, msg: `match ${i}` }),
+            ),
+            nextCursor: 'cursor-page-2',
+          }),
+        )
+        .mockResolvedValueOnce(
+          makeSearchResponse({
+            total: PAGE_1_COUNT + 20,
+            matches: Array.from({ length: 20 }, (_, i) =>
+              filterMatch((i + PAGE_1_COUNT) * 1000, {
+                level: 50,
+                msg: `match ${i + PAGE_1_COUNT}`,
+              }),
+            ),
+            nextCursor: null,
+          }),
+        )
+
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{ level: 50 }}
+        />,
+      )
+
+      const scrollContainer = await settleInitialLoad(readWindow)
+
+      // Explicitly scroll to the TOP first — unlike raw mode (which has
+      // its own EXPLICIT "pin scroll to the bottom on open" effect,
+      // establishing a known, deterministic starting scrollTop before any
+      // test ever touches it), filtered-projection mode has no equivalent
+      // effect of its own, so the virtualizer's OWN internal first-
+      // measurement heuristic for a brand-new instance (this component's
+      // `anchorTo:'end'` option) is otherwise the only thing determining
+      // where the initial visible range lands — not a premise this test
+      // needs to depend on. Scrolling to a KNOWN position (the top) first
+      // is what makes "scrolling near the bottom afterward triggers page
+      // 2" an actually-isolated, deliberate action rather than an
+      // accidental side effect of wherever the first render happened to
+      // settle.
+      scrollTo(scrollContainer, 0)
+      await waitFor(() =>
+        expect(screen.getByText(/match 0\b/)).toBeInTheDocument(),
+      )
+      expect(searchLogSpy).toHaveBeenCalledTimes(1)
+
+      const spacerBefore = scrollContainer.firstElementChild as HTMLElement
+      const heightBefore = parseFloat(spacerBefore.style.height)
+
+      scrollTo(scrollContainer, scrollContainer.scrollHeight)
+
+      await waitFor(() => expect(searchLogSpy).toHaveBeenCalledTimes(2))
+      // The SAME server-issued cursor, never a fresh/undefined one — a
+      // resumed page, not a rescan from the top.
+      expect(searchLogSpy.mock.calls[1]?.[0]).toMatchObject({
+        cursor: 'cursor-page-2',
+      })
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(new RegExp(`match ${PAGE_1_COUNT + 19}\\b`)),
+        ).toBeInTheDocument(),
+      )
+      // Page 2's 20 matches genuinely landed as an APPEND, not a
+      // wholesale replace — proven via the virtualizer's own total-size
+      // spacer growing by exactly one page's worth of rows, the SAME proxy
+      // this file's own raw-mode edge-fetch tests already use (asserting a
+      // specific EARLY page-1 row like "match 0" is still individually
+      // on-screen would be false by construction once 80 rows are loaded
+      // and the viewport is scrolled to the bottom — the virtualizer
+      // correctly does not render rows far outside the visible+overscan
+      // range, which is the whole point of virtualizing at all).
+      await waitFor(() => {
+        const spacerAfter = scrollContainer.firstElementChild as HTMLElement
+        expect(parseFloat(spacerAfter.style.height)).toBe(
+          heightBefore + 20 * ROW_PX,
+        )
+      })
+    })
+
+    it('hideNavigation is passed through to LogSearchBar as true while filtered-projection is active, and false otherwise', async () => {
+      const readWindow = makeReadWindow()
+      jest.spyOn(api, 'searchLog').mockResolvedValue(makeSearchResponse())
+
+      const { rerender } = render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{}}
+        />,
+      )
+      await settleInitialLoad(readWindow)
+
+      expect(
+        document.querySelector('[data-track-id="mock-log-search-bar"]'),
+      ).toHaveAttribute('data-hide-navigation', 'false')
+
+      rerender(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+          filters={{ level: 40 }}
+        />,
+      )
+
+      await waitFor(() =>
+        expect(
+          document.querySelector('[data-track-id="mock-log-search-bar"]'),
+        ).toHaveAttribute('data-hide-navigation', 'true'),
+      )
+    })
+
+    // ─────────────────────────────────────────────────────────────────
+    // Liveness (chosen behavior — see this unit's own report for the full
+    // rationale): a filtered projection is UNCONDITIONALLY live, checking
+    // every incoming tail line against the composed predicate client-side
+    // and appending a match in real time, independent of the raw-mode
+    // following/pause state (which describes a different, not-currently-
+    // rendered view). This describe covers exactly that chosen behavior —
+    // NOT the "N new matches — refresh" fallback, which was not needed.
+    // ─────────────────────────────────────────────────────────────────
+    describe('liveness: unconditional real-time append (chosen behavior)', () => {
+      async function settleInitialLoadAndTail(
+        readWindowMock: jest.Mock<
+          Promise<LogWindowResponse>,
+          [ReadLogWindowParams]
+        >,
+      ) {
+        const scrollContainer = await settleInitialLoad(readWindowMock)
+        await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
+        return { scrollContainer, tail: latestTailInstance() }
+      }
+
+      it('a newly-arrived tail line matching the active predicate appears in the filtered projection in real time, alongside the already-loaded matches', async () => {
+        const readWindow = makeReadWindow()
+        jest.spyOn(api, 'searchLog').mockResolvedValue(
+          makeSearchResponse({
+            total: 1,
+            matches: [filterMatch(10, { level: 50, msg: 'existing error' })],
+            nextCursor: null,
+          }),
+        )
+
+        render(
+          <LogViewer
+            stream="backend"
+            readWindow={readWindow}
+            onSelectLine={jest.fn()}
+            filters={{ level: 50 }}
+          />,
+        )
+
+        const { tail } = await settleInitialLoadAndTail(readWindow)
+        await waitFor(() =>
+          expect(screen.getByText(/existing error/)).toBeInTheDocument(),
+        )
+
+        // A matching tail line (level 60 >= the active level:50 threshold).
+        const matchingMessage = makeTailMessage(FILE_SIZE, {
+          level: 60,
+          msg: 'brand new fatal error',
+        })
+        tail.emit('log-append', matchingMessage)
+
+        await waitFor(() =>
+          expect(screen.getByText(/brand new fatal error/)).toBeInTheDocument(),
+        )
+        // The pre-existing match is still shown — an append, not a
+        // replace.
+        expect(screen.getByText(/existing error/)).toBeInTheDocument()
+      })
+
+      it('a newly-arrived tail line that does NOT satisfy the active predicate is not appended into the filtered projection', async () => {
+        const readWindow = makeReadWindow()
+        jest.spyOn(api, 'searchLog').mockResolvedValue(
+          makeSearchResponse({
+            total: 1,
+            matches: [filterMatch(10, { level: 50, msg: 'existing error' })],
+            nextCursor: null,
+          }),
+        )
+
+        render(
+          <LogViewer
+            stream="backend"
+            readWindow={readWindow}
+            onSelectLine={jest.fn()}
+            filters={{ level: 50 }}
+          />,
+        )
+
+        const { tail } = await settleInitialLoadAndTail(readWindow)
+        await waitFor(() =>
+          expect(screen.getByText(/existing error/)).toBeInTheDocument(),
+        )
+
+        // level 20 (DEBUG) does NOT satisfy the active level:50 (>=ERROR)
+        // threshold.
+        const nonMatchingMessage = makeTailMessage(FILE_SIZE, {
+          level: 20,
+          msg: 'an ordinary debug line',
+        })
+        tail.emit('log-append', nonMatchingMessage)
+
+        // Give the (correctly no-op) state update a chance to have applied
+        // — asserting a NEGATIVE, so this proves the projection genuinely
+        // never grew rather than merely not having re-rendered yet.
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(
+          screen.queryByText(/an ordinary debug line/),
+        ).not.toBeInTheDocument()
+        expect(
+          document.querySelectorAll('[data-track-id="log-row-select"]').length,
+        ).toBe(1)
+      })
+
+      it('the raw-mode tail machinery (following/badge) keeps running unaffected underneath filtered-projection mode', async () => {
+        const readWindow = makeReadWindow()
+        jest.spyOn(api, 'searchLog').mockResolvedValue(
+          makeSearchResponse({
+            total: 1,
+            matches: [filterMatch(10, { level: 50, msg: 'existing error' })],
+            nextCursor: null,
+          }),
+        )
+
+        render(
+          <LogViewer
+            stream="backend"
+            readWindow={readWindow}
+            onSelectLine={jest.fn()}
+            filters={{ level: 50 }}
+          />,
+        )
+
+        const { tail } = await settleInitialLoadAndTail(readWindow)
+        await waitFor(() =>
+          expect(screen.getByText(/existing error/)).toBeInTheDocument(),
+        )
+
+        // A tail line arrives that does NOT match the active filter — it
+        // must still be silently absorbed into the (not-currently-
+        // rendered) raw-mode state.lines via the SAME handleTailLine path
+        // U10 already established, per this unit's own "runs ALONGSIDE
+        // the raw-mode branch, never instead of it" design.
+        tail.emit(
+          'log-append',
+          makeTailMessage(FILE_SIZE, { level: 30, msg: 'line 50' }),
+        )
+
+        // No crash, no stuck loading state — the filtered banner's own
+        // count is unaffected by a non-matching arrival.
+        await Promise.resolve()
+        await Promise.resolve()
+        expect(screen.getByText(/1 matching line/)).toBeInTheDocument()
+      })
+    })
+  })
+})

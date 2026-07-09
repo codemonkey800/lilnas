@@ -22,7 +22,11 @@ describe('healthResponse', () => {
   it('flips status to degraded / 503 when a probe throws', async () => {
     const result = await healthResponse({
       service: 'swole',
-      deps: { sqlite: () => { throw new Error('db closed') } },
+      deps: {
+        sqlite: () => {
+          throw new Error('db closed')
+        },
+      },
     })
     expect(result.status).toBe('degraded')
     expect(result.deps?.sqlite).toBe('degraded')
@@ -34,7 +38,9 @@ describe('healthResponse', () => {
       service: 'swole',
       deps: {
         healthy: async () => undefined,
-        broken: () => { throw new Error('fail') },
+        broken: () => {
+          throw new Error('fail')
+        },
       },
     })
     expect(result.status).toBe('degraded')

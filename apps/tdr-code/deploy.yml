@@ -1,0 +1,46 @@
+services:
+  tdr-code:
+    image: nginx:alpine
+    restart: unless-stopped
+    # Give the main server up to 30s to SIGTERM the bot child, reap it,
+    # and close the WAL handle cleanly on `docker-compose down`.
+    stop_grace_period: 30s
+    networks:
+      - lilnas-proxy
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    # PORT here is the same var the host-run Next.js process reads (see
+    # apps/tdr-code/.env / .env.example) -- reused so nginx.conf.template
+    # and the healthcheck below always target the actual frontend port.
+    env_file:
+      - .env
+    volumes:
+      - ./deploy/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./deploy/unreachable.html:/usr/share/nginx/html/unreachable.html:ro
+      # SQLite WAL data directory.
+      # One-time host setup (run before first boot):
+      #   sudo chown 1000:1000 /storage/app-data/tdr-code
+      #   sudo chmod 700 /storage/app-data/tdr-code
+      # Without chown the process can't open the DB on first boot.
+      - /storage/app-data/tdr-code:/data
+    # Liveness probe against nginx itself (see nginx.conf.template's
+    # /nginx-health), not the host backend -- this container is meant to
+    # stay up and healthy (serving /unreachable.html) even while the host
+    # process is down, so the healthcheck must not proxy through to it.
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1/nginx-health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=lilnas-proxy
+      - traefik.http.routers.tdr-code.rule=Host(`tdr-code.lilnas.io`)
+      - traefik.http.routers.tdr-code.entrypoints=websecure
+      - traefik.http.routers.tdr-code.tls.certresolver=le
+      - traefik.http.services.tdr-code.loadbalancer.server.port=80
+
+networks:
+  lilnas-proxy:
+    external: true

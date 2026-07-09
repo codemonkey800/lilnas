@@ -47,6 +47,17 @@ If you are utilizing the Fish shell, you can source the `.env.fish` file to set 
 source .env.fish
 ```
 
+### Development Ports
+
+Ports used by apps that run their dev processes directly on the host (not
+proxied through a per-app Docker network), to avoid collisions when running
+multiple dev services at once:
+
+| App | Port | Purpose |
+| --- | --- | --- |
+| tdr-code | 8790 | Next.js frontend |
+| tdr-code | 8791 | NestJS backend |
+
 ### Docker Compose Service Management
 
 Use Docker Compose to manage services in the development environment:
