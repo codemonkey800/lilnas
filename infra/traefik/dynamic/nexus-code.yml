@@ -1,4 +1,12 @@
 http:
+  middlewares:
+    file-forward-auth:
+      forwardAuth:
+        address: "http://traefik-forward-auth:4181"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - "X-Forwarded-User"
+
   routers:
     dev-nexus-code:
       rule: "Host(`nexus-code.dev.lilnas.io`)"
@@ -6,7 +14,7 @@ http:
         - websecure
       tls: {}
       middlewares:
-        - forward-auth@docker
+        - file-forward-auth
       service: dev-nexus-code
 
   services:
