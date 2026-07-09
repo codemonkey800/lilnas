@@ -356,7 +356,7 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
     expect(sessions(service).has('ch1')).toBe(false)
   })
 
-  it('does NOT fire onPromptComplete when tearing down a non-prompting session', () => {
+  it('fires onPromptComplete("aborted") unconditionally when tearing down a non-prompting session', () => {
     const handlers = createMockHandlers()
     const db = makeDbMock()
 
@@ -372,7 +372,10 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
 
     service.teardown('ch1')
 
-    expect(handlers.onPromptComplete).not.toHaveBeenCalled()
+    // teardown always signals onPromptComplete so the handler can stop any lingering
+    // typing indicator — both DiscordHandlerService and SqliteWriterService guard on
+    // active state and return early when no turn is open, so this is a safe no-op.
+    expect(handlers.onPromptComplete).toHaveBeenCalledWith('ch1', 'aborted')
   })
 
   it('fires the abort signal exactly once (executePrompt error path sets prompting=false before teardown)', async () => {
@@ -407,9 +410,12 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
       internals.executePrompt(session, 'hello', 'user-1'),
     ).rejects.toThrow('crash')
 
-    // 'error' from the catch block — NOT 'aborted' from teardown
-    expect(handlers.onPromptComplete).toHaveBeenCalledTimes(1)
-    expect(handlers.onPromptComplete).toHaveBeenCalledWith('ch1', 'error')
+    // Two calls: 'error' from executePrompt's catch block (with session.prompting=false),
+    // then 'aborted' from teardown (unconditional). Real handlers guard on active state
+    // and make the second call a safe no-op.
+    expect(handlers.onPromptComplete).toHaveBeenCalledTimes(2)
+    expect(handlers.onPromptComplete).toHaveBeenNthCalledWith(1, 'ch1', 'error')
+    expect(handlers.onPromptComplete).toHaveBeenNthCalledWith(2, 'ch1', 'aborted')
   })
 })
 
