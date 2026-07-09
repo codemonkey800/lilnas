@@ -93,13 +93,14 @@ function GithubSection({
     mutationFn: api.unlinkGithubSelf,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.githubStatus })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.gitRoster })
     },
   })
 
   function handleLink() {
     void authClient.linkSocial({
       provider: 'github',
-      scopes: ['repo', 'workflow'],
+      scopes: ['repo', 'workflow', 'delete_repo'],
       callbackURL: '/git',
       // REQUIRED — without this, Better Auth's consent-denial/hook-failure
       // redirects fall through to the global /login error page instead of
@@ -112,6 +113,11 @@ function GithubSection({
   return (
     <section className="space-y-3">
       <h2 className="text-sm font-medium text-gray-300">GitHub</h2>
+      <p className="text-xs text-gray-500">
+        Connect your GitHub account so tdr-code can push commits, open pull
+        requests, and create repositories as you. Your GitHub name and email
+        become your git commit identity when linked.
+      </p>
 
       {statusQuery.isLoading ? (
         <LoadingState />
@@ -197,6 +203,19 @@ function SshSection({ discordUserId }: { discordUserId: string | undefined }) {
     retry: false,
   })
 
+  // Reuses the same query GithubSection already issued — React Query serves
+  // it from cache, no second network request.
+  const githubStatusQuery = useQuery({
+    queryKey: queryKeys.githubStatus,
+    queryFn: api.getGithubStatus,
+    refetchOnWindowFocus: false,
+    retry: false,
+  })
+
+  const githubLinked = githubStatusQuery.data?.linked ?? false
+  const githubName = githubStatusQuery.data?.derivedName ?? ''
+  const githubEmail = githubStatusQuery.data?.derivedEmail ?? ''
+
   const myIdentity = identitiesQuery.data?.find(
     item => item.discordUserId === discordUserId,
   )
@@ -223,6 +242,7 @@ function SshSection({ discordUserId }: { discordUserId: string | undefined }) {
       savedTimerRef.current = setTimeout(() => setSaved(false), 2500)
       setPrivateKey('')
       void queryClient.invalidateQueries({ queryKey: queryKeys.gitIdentity })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.gitRoster })
     },
   })
 
@@ -237,6 +257,7 @@ function SshSection({ discordUserId }: { discordUserId: string | undefined }) {
     mutationFn: () => api.deleteGitIdentitySelf(),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.gitIdentity })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.gitRoster })
     },
     onSettled: () => {
       setConfirmClearOpen(false)
@@ -247,7 +268,11 @@ function SshSection({ discordUserId }: { discordUserId: string | undefined }) {
     e.preventDefault()
     if (!discordUserId) return
     setSaved(false)
-    upsertMutation.mutate({ name, email, privateKey })
+    upsertMutation.mutate({
+      name: githubLinked && githubName ? githubName : name,
+      email: githubLinked && githubEmail ? githubEmail : email,
+      privateKey,
+    })
   }
 
   const formDisabled = !discordUserId
@@ -255,6 +280,11 @@ function SshSection({ discordUserId }: { discordUserId: string | undefined }) {
   return (
     <section className="space-y-4">
       <h2 className="text-sm font-medium text-gray-300">SSH key</h2>
+      <p className="text-xs text-gray-500">
+        Required for pushing to non-GitHub remotes over SSH (e.g., self-hosted
+        Git servers). Also serves as your commit signing key. Name and email
+        are only used for commit identity when GitHub is not linked.
+      </p>
 
       {identitiesQuery.isLoading ? (
         <LoadingState />
@@ -291,16 +321,30 @@ function SshSection({ discordUserId }: { discordUserId: string | undefined }) {
             onSubmit={handleSubmit}
             className="grid grid-cols-1 gap-4 sm:grid-cols-2"
           >
+            {githubLinked && (
+              <div className="sm:col-span-2 rounded border border-blue-800 bg-blue-950/50 px-3 py-2.5 text-xs text-blue-300 space-y-1">
+                <p className="font-medium">
+                  Name and email are sourced from your linked GitHub account.
+                </p>
+                <p className="text-blue-400">
+                  Commits will use{' '}
+                  <span className="font-mono">{githubEmail}</span> — GitHub&apos;s
+                  privacy-preserving noreply format. GitHub automatically
+                  resolves it to your real email when viewing commit attribution.
+                </p>
+              </div>
+            )}
+
             <div className="space-y-1">
               <label className="block text-xs font-medium text-gray-300">
                 Name
               </label>
               <input
                 type="text"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="Jane Doe"
-                disabled={formDisabled}
+                value={githubLinked ? githubName : name}
+                onChange={e => !githubLinked && setName(e.target.value)}
+                placeholder={!githubLinked ? 'Jane Doe' : undefined}
+                disabled={formDisabled || githubLinked}
                 className="w-full rounded border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-gray-500 focus:outline-none disabled:opacity-50"
               />
             </div>
@@ -311,10 +355,10 @@ function SshSection({ discordUserId }: { discordUserId: string | undefined }) {
               </label>
               <input
                 type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="jane@example.com"
-                disabled={formDisabled}
+                value={githubLinked ? githubEmail : email}
+                onChange={e => !githubLinked && setEmail(e.target.value)}
+                placeholder={!githubLinked ? 'jane@example.com' : undefined}
+                disabled={formDisabled || githubLinked}
                 className="w-full rounded border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-gray-500 focus:outline-none disabled:opacity-50"
               />
             </div>

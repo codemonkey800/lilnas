@@ -6,6 +6,12 @@ describe('BASE_SYSTEM_PROMPT', () => {
     expect(BASE_SYSTEM_PROMPT).toContain('link it in the console at `/git`')
   })
 
+  it('requires explicit user confirmation before repo deletion (R6-confirm)', () => {
+    expect(BASE_SYSTEM_PROMPT).toContain('gh repo delete')
+    expect(BASE_SYSTEM_PROMPT).toContain('explicit confirmation from the user')
+    expect(BASE_SYSTEM_PROMPT).toContain('Repository deletion is irreversible')
+  })
+
   it('references the current /git console route, never the stale /git-identity route', () => {
     expect(BASE_SYSTEM_PROMPT).toContain('/git`')
     expect(BASE_SYSTEM_PROMPT).not.toContain('/git-identity')

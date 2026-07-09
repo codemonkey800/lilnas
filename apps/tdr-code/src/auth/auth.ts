@@ -271,11 +271,11 @@ export function buildAuth(db: Db) {
         // Better Auth's GitHub provider already defaults to
         // ['read:user', 'user:email'] and CONCATENATES (not replaces) any
         // `scope` array onto that default (confirmed against the provider
-        // source, same behavior as the Discord provider above) — this only
-        // needs the two scopes Plan B's per-turn `gh`/push enforcement will
-        // use. Deliberately NOT `delete_repo` (R6) — this app never deletes
-        // repos on a user's behalf.
-        scope: ['repo', 'workflow'],
+        // source, same behavior as the Discord provider above). `delete_repo`
+        // is included so the agent can delete repos on the user's behalf;
+        // the system prompt requires explicit user confirmation before any
+        // `gh repo delete` command is run (R6).
+        scope: ['repo', 'workflow', 'delete_repo'],
       },
     },
 
