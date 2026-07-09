@@ -7,6 +7,7 @@ import { useState } from 'react'
 import { EmptyState } from 'src/app/components/empty-state'
 import { ErrorState } from 'src/app/components/error-state'
 import { LoadingState } from 'src/app/components/loading-state'
+import { PageContainer } from 'src/app/components/page-container'
 import { api, queryKeys } from 'src/app/lib/api'
 import { LogDetailPanel } from 'src/app/logs/log-detail-panel'
 import type { LogFiltersValue } from 'src/app/logs/log-filters'
@@ -102,8 +103,7 @@ export default function LogsPage() {
     // closes it on outside click — see LogDetailPanel), so this container no
     // longer reserves a right-hand column: it stays full-width whether or not
     // a line is selected, and nothing shifts when the drawer opens/closes.
-    <div className="mx-auto max-w-7xl space-y-4">
-      <h1 className="text-lg font-semibold text-white">Logs</h1>
+    <PageContainer title="Logs">
 
       <div
         role="tablist"
@@ -208,6 +208,6 @@ export default function LogsPage() {
         }}
         onFilterByEvent={event => patchFilters(activeTab, { event })}
       />
-    </div>
+    </PageContainer>
   )
 }

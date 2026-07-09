@@ -12,6 +12,7 @@ import { BotStatusWidget } from './components/bot-status-widget'
 import { EmptyState } from './components/empty-state'
 import { ErrorState } from './components/error-state'
 import { LoadingState } from './components/loading-state'
+import { PageContainer } from './components/page-container'
 import { RelativeTime } from './components/relative-time'
 import { StatusDot } from './components/status-dot'
 import { api, queryKeys } from './lib/api'
@@ -172,7 +173,7 @@ export default function DashboardPage() {
   })
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <PageContainer spacing={6}>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-white">Dashboard</h1>
@@ -295,6 +296,6 @@ export default function DashboardPage() {
           </>
         )}
       </section>
-    </div>
+    </PageContainer>
   )
 }

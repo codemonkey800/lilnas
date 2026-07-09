@@ -8,6 +8,7 @@ import { useCallback, useState } from 'react'
 import { EmptyState } from 'src/app/components/empty-state'
 import { ErrorState } from 'src/app/components/error-state'
 import { LoadingState } from 'src/app/components/loading-state'
+import { PageContainer } from 'src/app/components/page-container'
 import { RelativeTime } from 'src/app/components/relative-time'
 import { api, queryKeys } from 'src/app/lib/api'
 
@@ -29,8 +30,7 @@ export default function SessionsPage() {
   }, [])
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4">
-      <h1 className="text-lg font-semibold text-white">Sessions</h1>
+    <PageContainer title="Sessions">
 
       <form onSubmit={handleChannelSubmit} className="flex items-center gap-2">
         <input
@@ -146,6 +146,6 @@ export default function SessionsPage() {
           )}
         </>
       )}
-    </div>
+    </PageContainer>
   )
 }

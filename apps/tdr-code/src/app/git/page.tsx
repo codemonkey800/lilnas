@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { EmptyState } from 'src/app/components/empty-state'
 import { ErrorState } from 'src/app/components/error-state'
 import { LoadingState } from 'src/app/components/loading-state'
+import { PageContainer } from 'src/app/components/page-container'
 import { api, queryKeys } from 'src/app/lib/api'
 import { authClient, useSession } from 'src/app/lib/auth-client'
 import type { RosterEntryDto } from 'src/console/git-roster.dto'
@@ -693,8 +694,7 @@ export default function GitPage() {
   )
 
   return (
-    <div className="mx-auto max-w-4xl space-y-10">
-      <h1 className="text-lg font-semibold text-white">Git</h1>
+    <PageContainer title="Git" spacing={10}>
 
       <GithubSection
         sessionPending={sessionPending}
@@ -704,6 +704,6 @@ export default function GitPage() {
       <SshSection discordUserId={discordUserId} />
 
       <RosterSection />
-    </div>
+    </PageContainer>
   )
 }

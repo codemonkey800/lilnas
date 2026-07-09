@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { EmptyState } from 'src/app/components/empty-state'
 import { ErrorState } from 'src/app/components/error-state'
 import { LoadingState } from 'src/app/components/loading-state'
+import { PageContainer } from 'src/app/components/page-container'
 import { RelativeTime } from 'src/app/components/relative-time'
 import { api, queryKeys } from 'src/app/lib/api'
 import { EVENT_LEVELS, EVENT_TYPES } from 'src/db/schema'
@@ -47,8 +48,7 @@ export default function EventsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4">
-      <h1 className="text-lg font-semibold text-white">Events</h1>
+    <PageContainer title="Events">
 
       <div className="flex flex-wrap items-center gap-3">
         <select
@@ -194,6 +194,6 @@ export default function EventsPage() {
           )}
         </>
       )}
-    </div>
+    </PageContainer>
   )
 }
