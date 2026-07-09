@@ -176,6 +176,25 @@ describe('ContextUsageService — threshold notifications', () => {
     expect(channel.send).toHaveBeenCalledTimes(1)
   })
 
+  // Regression: pct is (used/size)*100, so 50k used against a 1M-context size
+  // is only 5% and must NOT cross the 25% threshold. Guards against a stale
+  // wrapper (v0.37 reported 200k for every model) making 50k look like 25%.
+  it('does not fire the 25% notice at 50k used when size is 1M', async () => {
+    const channel = createMockTextChannel()
+    const client = createMockClient(new Map([['ch1', channel]]))
+    const sessionManager = createMockSessionManager()
+    const service = await createService(
+      undefined as unknown as TestDb['db'],
+      client,
+      sessionManager,
+    )
+
+    service.onUsageUpdate('ch1', 50_000, 1_000_000)
+    await Promise.resolve()
+
+    expect(channel.send).not.toHaveBeenCalled()
+  })
+
   it('fires 50% after 25% once usage climbs past the next threshold', async () => {
     const channel = createMockTextChannel()
     const client = createMockClient(new Map([['ch1', channel]]))

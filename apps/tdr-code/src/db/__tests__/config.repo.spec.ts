@@ -6,7 +6,12 @@ import BetterSqlite3 from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 
-import { getConfig, getOrSeedConfig, updateConfig } from 'src/db/config.repo'
+import {
+  DEFAULT_CLAUDE_ARGS,
+  getConfig,
+  getOrSeedConfig,
+  updateConfig,
+} from 'src/db/config.repo'
 import { resolveMigrationsFolder } from 'src/db/database.module'
 import { config } from 'src/db/schema'
 import * as schema from 'src/db/schema'
@@ -20,7 +25,7 @@ describe('config.repo', () => {
       expect(row.id).toBe(1)
       expect(row.cwd).toBe('/tmp') // from setup.ts: CLAUDE_CWD=/tmp
       expect(row.claudeCommand).toBe('claude')
-      expect(row.claudeArgs).toEqual(['@agentclientprotocol/claude-agent-acp'])
+      expect(row.claudeArgs).toEqual(DEFAULT_CLAUDE_ARGS)
       expect(row.idleTimeoutSec).toBe(300)
       expect(row.maxConcurrentSessions).toBe(5)
       expect(row.customSystemPrompt).toBe('')
@@ -39,6 +44,76 @@ describe('config.repo', () => {
       // No duplicate rows
       const all = db.select().from(config).all()
       expect(all).toHaveLength(1)
+    } finally {
+      close()
+    }
+  })
+
+  it('getOrSeedConfig migrates a legacy unpinned claudeArgs row to DEFAULT_CLAUDE_ARGS', () => {
+    const { db, close } = createTestDb()
+    try {
+      // Simulate a pre-pin install: a row already exists with the unpinned
+      // literal that seed used to emit.
+      db.insert(config)
+        .values({
+          id: 1,
+          cwd: '/tmp',
+          claudeCommand: 'npx',
+          claudeArgs: ['@agentclientprotocol/claude-agent-acp'],
+          idleTimeoutSec: 300,
+          maxConcurrentSessions: 5,
+          customSystemPrompt: '',
+          updatedAt: new Date(),
+        })
+        .run()
+
+      const row = getOrSeedConfig(db)
+      expect(row.claudeArgs).toEqual(DEFAULT_CLAUDE_ARGS)
+
+      const read = getConfig(db)
+      expect(read?.claudeArgs).toEqual(DEFAULT_CLAUDE_ARGS)
+    } finally {
+      close()
+    }
+  })
+
+  it('getOrSeedConfig leaves a user-customized claudeArgs alone', () => {
+    const { db, close } = createTestDb()
+    try {
+      // A user who edited claudeArgs via the /config UI to their own value
+      // must not be silently reverted on next boot.
+      const customArgs = ['@agentclientprotocol/claude-agent-acp', '--foo']
+      db.insert(config)
+        .values({
+          id: 1,
+          cwd: '/tmp',
+          claudeCommand: 'npx',
+          claudeArgs: customArgs,
+          idleTimeoutSec: 300,
+          maxConcurrentSessions: 5,
+          customSystemPrompt: '',
+          updatedAt: new Date(),
+        })
+        .run()
+
+      const row = getOrSeedConfig(db)
+      expect(row.claudeArgs).toEqual(customArgs)
+    } finally {
+      close()
+    }
+  })
+
+  it('getOrSeedConfig leaves an already-pinned claudeArgs alone', () => {
+    const { db, close } = createTestDb()
+    try {
+      // Idempotency for the migrated shape — a second boot after the heal
+      // must not keep rewriting the row and bumping updatedAt.
+      getOrSeedConfig(db)
+      const before = getConfig(db)!
+
+      const row = getOrSeedConfig(db)
+      expect(row.claudeArgs).toEqual(DEFAULT_CLAUDE_ARGS)
+      expect(row.updatedAt.getTime()).toBe(before.updatedAt.getTime())
     } finally {
       close()
     }
