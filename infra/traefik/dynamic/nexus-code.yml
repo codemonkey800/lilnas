@@ -9,7 +9,7 @@ http:
 
   routers:
     dev-nexus-code:
-      rule: "Host(`nexus-code.dev.lilnas.io`)"
+      rule: "Host(`nexus-code-mbp.lilnas.io`)"
       entrypoints:
         - websecure
       tls: {}
