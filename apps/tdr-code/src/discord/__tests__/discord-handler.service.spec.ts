@@ -330,6 +330,110 @@ describe('DiscordHandlerService — typing indicator (U1)', () => {
   })
 })
 
+// Expose private channel-state map for reply-buffer inspection — same
+// cast-through-unknown style as typingIntervals() above. Used by the text-block
+// boundary tests below to assert what onAgentMessageChunk actually accumulated
+// before scheduleFlushReply's 500ms timer would flush it to Discord.
+function channelStates(
+  service: DiscordHandlerService,
+): Map<string, { replyBuffer: string; sawNonTextEvent: boolean }> {
+  return (
+    service as unknown as {
+      channelStates: Map<
+        string,
+        { replyBuffer: string; sawNonTextEvent: boolean }
+      >
+    }
+  ).channelStates
+}
+
+describe('DiscordHandlerService — ACP text-block boundary', () => {
+  // ACP splits a turn into text blocks separated by tool_call/tool_call_update
+  // /agent_message_image events. Chunks within one block stitch cleanly, but
+  // the first chunk of a fresh block after a non-text event has no leading
+  // whitespace — so a naive replyBuffer += text collapses "shortener." +
+  // "Now let me verify" into "shortener.Now let me verify". These tests lock
+  // in the paragraph-break insertion at the boundary.
+
+  const dummyPromptContext = {
+    sessionRowId: null,
+    prompt: { text: '', images: [] },
+  }
+
+  it('inserts paragraph break between text blocks separated by tool_call', async () => {
+    const service = await createService()
+
+    service.onAgentMessageChunk('ch1', 'First message.')
+    service.onToolCall('ch1', 't1', 'Bash', 'execute', 'completed', [])
+    service.onAgentMessageChunk('ch1', 'Second message.')
+
+    expect(channelStates(service).get('ch1')?.replyBuffer).toBe(
+      'First message.\n\nSecond message.',
+    )
+  })
+
+  it('does not insert break for contiguous chunks within a single text block', async () => {
+    const service = await createService()
+
+    service.onAgentMessageChunk('ch1', 'Part one ')
+    service.onAgentMessageChunk('ch1', 'part two.')
+
+    expect(channelStates(service).get('ch1')?.replyBuffer).toBe(
+      'Part one part two.',
+    )
+  })
+
+  it('does not stack whitespace when the buffer already ends with whitespace', async () => {
+    const service = await createService()
+
+    service.onAgentMessageChunk('ch1', 'A. ')
+    service.onToolCall('ch1', 't1', 'Bash', 'execute', 'completed', [])
+    service.onAgentMessageChunk('ch1', 'B.')
+
+    expect(channelStates(service).get('ch1')?.replyBuffer).toBe('A. B.')
+  })
+
+  it('does not stack whitespace when the next chunk already starts with whitespace', async () => {
+    const service = await createService()
+
+    service.onAgentMessageChunk('ch1', 'A.')
+    service.onToolCall('ch1', 't1', 'Bash', 'execute', 'completed', [])
+    service.onAgentMessageChunk('ch1', ' B.')
+
+    expect(channelStates(service).get('ch1')?.replyBuffer).toBe('A. B.')
+  })
+
+  it('applies the boundary rule after onToolCallUpdate too', async () => {
+    const service = await createService()
+
+    // Seed a tool so onToolCallUpdate has something to look up.
+    service.onToolCall('ch1', 't1', 'Bash', 'execute', 'in_progress', [])
+    service.onAgentMessageChunk('ch1', 'A.')
+    service.onToolCallUpdate('ch1', 't1', 'completed', [])
+    service.onAgentMessageChunk('ch1', 'B.')
+
+    // sawNonTextEvent was latched by both onToolCall (before any text) AND
+    // onToolCallUpdate (between the two text blocks). The first
+    // onAgentMessageChunk finds replyBuffer empty so no break is inserted;
+    // the second finds it non-empty and inserts the paragraph break.
+    expect(channelStates(service).get('ch1')?.replyBuffer).toBe('A.\n\nB.')
+  })
+
+  it('does not insert a break when the boundary comes before any text (first chunk of the turn)', async () => {
+    const service = await createService()
+
+    service.onPromptStart('ch1', 1, dummyPromptContext)
+    service.onToolCall('ch1', 't1', 'Bash', 'execute', 'completed', [])
+    service.onAgentMessageChunk('ch1', 'First text after tool call.')
+
+    // replyBuffer was empty when the boundary chunk arrived — no leading
+    // paragraph break should appear.
+    expect(channelStates(service).get('ch1')?.replyBuffer).toBe(
+      'First text after tool call.',
+    )
+  })
+})
+
 // Helper: create a service wired to a mock SessionManagerService
 import { SessionManagerService } from 'src/agent/session-manager.service'
 

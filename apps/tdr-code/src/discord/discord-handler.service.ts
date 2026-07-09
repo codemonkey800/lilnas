@@ -113,6 +113,14 @@ interface ChannelState {
   workingMessage: Message | null
   workingMessageCreating: boolean
   currentTurnId: number
+  // ACP splits a turn into text blocks separated by non-text events
+  // (tool_call, tool_call_update, agent_message_image). Chunks within one
+  // block stitch cleanly, but the first chunk of a fresh block after a
+  // non-text event has no leading whitespace, so a naive replyBuffer += text
+  // produces "shortener.Now let me verify". This flag latches whenever a
+  // non-text event fires and is consumed by the next onAgentMessageChunk to
+  // insert a paragraph break at the block boundary.
+  sawNonTextEvent: boolean
 }
 
 @Injectable()
@@ -151,6 +159,7 @@ export class DiscordHandlerService
     this.startTyping(channelId)
     const state = this.getOrCreateChannelState(channelId)
     if (!state) return
+    state.sawNonTextEvent = true
     state.toolStates.set(toolCallId, {
       title,
       status: status as ToolStatus,
@@ -175,6 +184,7 @@ export class DiscordHandlerService
     const state = this.channelStates.get(channelId)
     const tool = state?.toolStates.get(toolCallId)
     if (!tool || !state) return
+    state.sawNonTextEvent = true
     tool.status = status as ToolStatus
     // The initial tool_call fires while the SDK is still streaming the tool's
     // input (rawInput is `{}`, title falls back to a generic label like
@@ -193,11 +203,25 @@ export class DiscordHandlerService
     this.startTyping(channelId)
     const state = this.getOrCreateChannelState(channelId)
     if (!state) return
-    state.replyBuffer += text
+    // ACP text-block boundary: if the previous event was non-text (tool_call,
+    // tool_call_update, agent_message_image), the new chunk starts a fresh
+    // sentence with no leading whitespace — insert a paragraph break so
+    // "shortener." + "Now let me verify" doesn't collapse into
+    // "shortener.Now let me verify". Skip when either side already carries
+    // whitespace to avoid stacking blanks.
+    const needsBreak =
+      state.sawNonTextEvent &&
+      state.replyBuffer.length > 0 &&
+      !/\s$/.test(state.replyBuffer) &&
+      !/^\s/.test(text)
+    state.replyBuffer += (needsBreak ? '\n\n' : '') + text
+    state.sawNonTextEvent = false
     this.scheduleFlushReply(channelId, state)
   }
 
   onAgentMessageImage(channelId: string, data: string, mimeType: string): void {
+    const state = this.channelStates.get(channelId)
+    if (state) state.sawNonTextEvent = true
     this.enqueueSend(channelId, () =>
       this.sendAgentImage(channelId, data, mimeType),
     )
@@ -582,6 +606,7 @@ export class DiscordHandlerService
         workingMessage: null,
         workingMessageCreating: false,
         currentTurnId: 0,
+        sawNonTextEvent: false,
       }
       this.channelStates.set(channelId, state)
     }
