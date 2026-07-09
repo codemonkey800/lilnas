@@ -766,9 +766,7 @@ export class DiscordHandlerService
       }
     } else {
       const truncated =
-        buffer.length > 2000
-          ? buffer.slice(buffer.length - 1900) + '...'
-          : buffer
+        buffer.length > 2000 ? buffer.slice(0, 1900) + '...' : buffer
       const existing = state.replyMessage
       if (existing) {
         await existing.edit(truncated).catch(() => {})
