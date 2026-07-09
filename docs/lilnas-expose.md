@@ -58,7 +58,7 @@ services:
       - traefik.docker.network=lilnas-proxy          # REQUIRED — see note below
       - traefik.http.routers.dev-<name>.rule=Host(`<name>.dev.lilnas.io`)
       - traefik.http.routers.dev-<name>.entrypoints=websecure
-      - traefik.http.routers.dev-<name>.tls.certresolver=le
+      - traefik.http.routers.dev-<name>.tls=true
       - traefik.http.services.dev-<name>.loadbalancer.server.port=<port>
       # Remove this label to make the route public:
       - traefik.http.routers.dev-<name>.middlewares=forward-auth
@@ -105,7 +105,7 @@ A `traefik/whoami` fixture is bundled at `plugins/lilnas/skills/expose/examples/
 
 - **Same-host only.** The external project must run on the NAS Docker host.
 - **Container must bind `0.0.0.0`.** Traefik cannot reach a service bound only to `localhost`.
-- **Per-host TLS certs.** No wildcard `*.dev.lilnas.io` cert — each hostname gets its own cert on first request (~50 new certs/week Let's Encrypt rate limit; reusing a hostname reuses its cert).
+- **Shared wildcard TLS cert.** All `*.dev.lilnas.io` routes share one wildcard cert (DNS-01 via the `le` resolver, Namecheap provider), managed by the production Traefik — no per-host cert is issued. Router labels must use `tls=true`, not `tls.certresolver=le`; setting `certresolver` requests a wasteful per-host cert instead of reusing the wildcard and eats into the ~50 new certs/week Let's Encrypt rate limit.
 - **DNS interaction.** `*.dev.lilnas.io` resolves via the existing `*.lilnas.io` wildcard. If any explicit DNS record is added under `dev`, the wildcard stops covering `*.dev.lilnas.io`.
 
 See `plugins/lilnas/skills/expose/reference/caveats.md` for the full list.
