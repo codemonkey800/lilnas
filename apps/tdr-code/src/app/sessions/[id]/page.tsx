@@ -14,6 +14,7 @@ import { api, queryKeys } from 'src/app/lib/api'
 import { logReconcileResult } from 'src/app/lib/reconcile-logging'
 import { useLiveStream } from 'src/app/lib/use-live-stream'
 import type {
+  SessionDetailResponseDto,
   TurnContentBlockDto,
   TurnDetailDto,
 } from 'src/console/sessions.dto'
@@ -28,8 +29,8 @@ import { sessionTopic } from 'src/sse/sse.types'
 // burst still reads as live to the eye; slow enough to keep the refetch rate
 // comfortably under the plan's own <=4 refetches/sec acceptance bar with
 // margin (a 300ms trailing throttle caps sustained-burst refetches at
-// ~3.3/sec, before even accounting for the cancelRefetch:false + diff-
-// truncation cuts to per-refetch cost).
+// ~3.3/sec, before even accounting for diff-truncation cuts to per-refetch
+// cost).
 const SESSION_STREAM_THROTTLE_MS = 300
 
 function ContentBlock({ block }: { block: TurnContentBlockDto }) {
@@ -242,6 +243,13 @@ export default function SessionDetailPage() {
     queryKey: queryKeys.session(sessionId),
     queryFn: () => api.getSession(sessionId),
     retry: false,
+    // Poll every 5s for active sessions so the page recovers if SSE events
+    // are missed (e.g. EventSource drop during a long agent turn).
+    refetchInterval: query =>
+      (query.state.data as SessionDetailResponseDto | undefined)?.session
+        .endedAt
+        ? false
+        : 5_000,
   })
 
   if (isLoading && !data) return <LoadingState />

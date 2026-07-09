@@ -21,8 +21,7 @@ const KEEPALIVE_EVENT_TYPE = 'keepalive'
 // widget/config and session detail in later units) reuses: one EventSource
 // per mount, mapped to React Query invalidations. See the SSE push plan
 // (docs/plans/2026-07-05-002-feat-tdr-code-sse-push-plan.md, U5) for the
-// full design — in particular the "Client refetch coalescing is explicit,
-// not assumed" decision (cancelRefetch: false below) and the
+// full design — in particular the
 // "API surface parity / session-expiry" system-wide-impact note (the
 // consecutive-onerror fallback below).
 
@@ -97,7 +96,7 @@ export function useLiveStream(
     let disposed = false
 
     const invalidate = (queryKey: QueryKey) =>
-      void queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false })
+      void queryClient.invalidateQueries({ queryKey }, { cancelRefetch: true })
 
     // Per-key trailing throttle state. Only exercised when throttleMs > 0;
     // for this unit's callers (throttleMs unset) invalidate() above is
