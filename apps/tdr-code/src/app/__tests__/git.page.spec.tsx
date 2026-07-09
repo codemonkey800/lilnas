@@ -98,7 +98,7 @@ describe('GitPage — Link GitHub button and session-pending state', () => {
     expect(mockLinkSocial).toHaveBeenCalledTimes(1)
     expect(mockLinkSocial).toHaveBeenCalledWith({
       provider: 'github',
-      scopes: ['repo', 'workflow'],
+      scopes: ['repo', 'workflow', 'delete_repo'],
       callbackURL: '/git',
       errorCallbackURL: '/git',
     })
