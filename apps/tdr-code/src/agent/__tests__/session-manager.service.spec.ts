@@ -415,7 +415,11 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
     // and make the second call a safe no-op.
     expect(handlers.onPromptComplete).toHaveBeenCalledTimes(2)
     expect(handlers.onPromptComplete).toHaveBeenNthCalledWith(1, 'ch1', 'error')
-    expect(handlers.onPromptComplete).toHaveBeenNthCalledWith(2, 'ch1', 'aborted')
+    expect(handlers.onPromptComplete).toHaveBeenNthCalledWith(
+      2,
+      'ch1',
+      'aborted',
+    )
   })
 })
 
