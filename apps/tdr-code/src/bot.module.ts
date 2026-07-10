@@ -7,6 +7,7 @@ import { LoggerModule } from 'nestjs-pino'
 
 import { DatabaseModule } from './db/database.module'
 import { DiscordModule } from './discord/discord.module'
+import { resolveDevelopmentGuilds } from './discord-guild-config'
 import { EnvKeys } from './env'
 import { buildLoggerOptions } from './logger'
 
@@ -19,7 +20,7 @@ import { buildLoggerOptions } from './logger'
     LoggerModule.forRoot(buildLoggerOptions('bot')),
     ScheduleModule.forRoot(),
     NecordModule.forRoot({
-      development: [env(EnvKeys.DISCORD_GUILD_ID, '')],
+      development: resolveDevelopmentGuilds(env(EnvKeys.DISCORD_GUILD_ID, '')),
       token: env(EnvKeys.DISCORD_API_TOKEN, ''),
       intents: [
         IntentsBitField.Flags.GuildMessages,
