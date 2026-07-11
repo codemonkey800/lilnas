@@ -41,7 +41,10 @@ import type {
 } from './agent.types'
 import { errorCode } from './error-code'
 import { GitTurnContext } from './git-turn-context'
-import { globalGitWriteLock } from './git-write-lock'
+import {
+  GitWriteLockCancelledError,
+  globalGitWriteLock,
+} from './git-write-lock'
 import { buildPromptBlocks } from './message-bridge'
 import { BASE_SYSTEM_PROMPT } from './system-prompt.constants'
 
@@ -288,6 +291,12 @@ export class SessionManagerService implements OnApplicationShutdown {
     // start of the next executePrompt prologue so a drained turn is unaffected.
     session.cancelRequested = true
     this.syncLiveStatus(session)
+    // If the turn is still queued behind another channel's lock hold (never
+    // reached connection.prompt yet), connection.cancel() below has nothing
+    // to interrupt — evict it from the lock queue directly so Stop cannot
+    // hang forever behind an unrelated channel's long-running turn. A no-op
+    // if this channel already holds the lock or isn't queued at all.
+    globalGitWriteLock.cancelWaiter(channelId, 'stop')
     void session.connection.cancel({ sessionId: session.sessionId })
     return logResult(true)
   }
@@ -490,6 +499,20 @@ export class SessionManagerService implements OnApplicationShutdown {
       )
       return { kind: 'completed', stopReason: result.stopReason }
     } catch (err) {
+      if (err instanceof GitWriteLockCancelledError) {
+        // Stop was pressed while this turn was still queued behind another
+        // channel's lock hold — a deliberate cancellation, not a failure.
+        // Resolve the same way the pre-prompt cancelRequested check below
+        // does, rather than falling through to the generic error+teardown
+        // path (which would kill an otherwise-healthy agent process/session
+        // just because it never got a turn).
+        this.logger.debug(
+          { channelId: session.channelId, turnId },
+          'Turn cancelled while queued for the git-write lock',
+        )
+        this.handlers.onPromptComplete(session.channelId, 'cancelled')
+        return { kind: 'queued' } // treated as a queued-then-cancelled turn
+      }
       this.logger.error(
         {
           event: LOG_EVENTS.promptError,

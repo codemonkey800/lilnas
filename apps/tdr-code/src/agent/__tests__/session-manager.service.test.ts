@@ -108,6 +108,10 @@ jest.mock('src/agent/git-turn-context', () => {
 // Mock the global lock so acquire returns a no-op release and the lock never
 // blocks across tests (each test has a fresh mock state).
 jest.mock('src/agent/git-write-lock', () => ({
+  // Real GitWriteLockCancelledError so executePrompt's `instanceof` check
+  // works against errors constructed by the (also real, in some tests)
+  // cancelWaiter — only globalGitWriteLock itself is mocked.
+  ...jest.requireActual('src/agent/git-write-lock'),
   globalGitWriteLock: {
     acquire: jest.fn().mockResolvedValue(jest.fn()),
     releaseIfHeldBy: jest.fn(),
