@@ -31,6 +31,10 @@ jest.mock('src/agent/git-turn-context', () => {
 })
 
 jest.mock('src/agent/git-write-lock', () => ({
+  // Real GitWriteLockCancelledError so executePrompt's `instanceof` check
+  // works against errors constructed by the (also real, in some tests)
+  // cancelWaiter — only globalGitWriteLock itself is mocked.
+  ...jest.requireActual('src/agent/git-write-lock'),
   globalGitWriteLock: {
     acquire: jest.fn().mockResolvedValue(jest.fn()),
     releaseIfHeldBy: jest.fn(),
@@ -911,6 +915,130 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     const mockedLock = jest.mocked(globalGitWriteLock)
     expect(mockedLock.cancelWaiter).toHaveBeenCalledWith('ch-parked')
     expect(sessions(service).has('ch-parked')).toBe(false)
+  })
+
+  it('cancel() (Stop button) also evicts a session parked on acquire — without this, Stop is a no-op for a turn still queued behind another channel', () => {
+    const handlers = createMockHandlers()
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      db,
+      makeLogger(),
+      makeNotifyEmitterMock(),
+    )
+    injectIdleSession(service, 'ch-parked')
+    // Simulate "parked": prompting=true, as executePrompt's prologue would
+    // have set before awaiting acquire().
+    sessions(service).get('ch-parked')!.prompting = true
+
+    const cancelled = service.cancel('ch-parked')
+
+    expect(cancelled).toBe(true)
+    const mockedLock = jest.mocked(globalGitWriteLock)
+    expect(mockedLock.cancelWaiter).toHaveBeenCalledWith('ch-parked', 'stop')
+    // Unlike teardown, cancelling a merely-queued turn must NOT kill the
+    // session — the channel should still be able to prompt again.
+    expect(sessions(service).has('ch-parked')).toBe(true)
+  })
+
+  it("INTEGRATION: Stop on a session parked behind another channel's lock hold unsticks it as a clean cancellation, without tearing the session down", async () => {
+    // Exercises the REAL GitWriteLock end-to-end: channel A holds the lock
+    // with a long-running turn, channel B parks behind it, and the user
+    // presses Stop on B. Before the fix, cancel() never touched the lock
+    // queue, so B's `await acquire()` — and the Discord handler awaiting the
+    // whole prompt() call — would hang until a full teardown (this is
+    // exactly the session #55 incident: Stop pressed 3x with no effect).
+    const { GitWriteLock: RealGitWriteLock } = jest.requireActual<
+      typeof import('src/agent/git-write-lock')
+    >('src/agent/git-write-lock')
+    const realLock: InstanceType<typeof RealGitWriteLock> =
+      new RealGitWriteLock()
+
+    const handlersA = createMockHandlers()
+    const handlersB = createMockHandlers()
+    const dbA = makeDbMock()
+    const dbB = makeDbMock()
+    const serviceA = new (SessionManagerService as unknown as CtorWith2)(
+      handlersA,
+      dbA,
+      makeLogger(),
+      makeNotifyEmitterMock(),
+    )
+    const serviceB = new (SessionManagerService as unknown as CtorWith2)(
+      handlersB,
+      dbB,
+      makeLogger(),
+      makeNotifyEmitterMock(),
+    )
+
+    const sessionA = injectIdleSession(serviceA, 'ch-a')
+    const sessionB = injectIdleSession(serviceB, 'ch-b')
+
+    const mockConnA = sessionA.connection as { prompt: jest.Mock }
+    let resolveAPrompt: (v: { stopReason: string }) => void
+    mockConnA.prompt.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveAPrompt = resolve
+        }),
+    )
+
+    const internalsA = serviceA as unknown as ServiceInternals
+    const internalsB = serviceB as unknown as ServiceInternals
+
+    const mockedLock = jest.mocked(globalGitWriteLock)
+    mockedLock.acquire.mockImplementation((channelId: string) =>
+      realLock.acquire(channelId),
+    )
+    mockedLock.cancelWaiter.mockImplementation(
+      (channelId: string, reason?: string) =>
+        realLock.cancelWaiter(channelId, reason),
+    )
+
+    let capturedARelease: (() => void) | null = null
+    ;(
+      serviceA as unknown as {
+        gitTurnContext: { begin: jest.Mock; end: jest.Mock }
+      }
+    ).gitTurnContext = {
+      begin: jest.fn((_channelId: string, _userId: string, release) => {
+        capturedARelease = release as () => void
+        return Promise.resolve()
+      }),
+      end: jest.fn(() => {
+        capturedARelease?.()
+        capturedARelease = null
+      }),
+    }
+
+    // A acquires and starts a long-running connection.prompt (lock held).
+    const aPromise = internalsA.executePrompt(sessionA, 'a turn', 'user-a')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(realLock.currentHolder).toBe('ch-a')
+
+    // B starts a turn and parks in the queue behind A.
+    const bPromise = internalsB.executePrompt(sessionB, 'b turn', 'user-b')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(realLock.currentHolder).toBe('ch-a') // still A; B is queued, not granted
+    expect(sessions(serviceB).get('ch-b')?.prompting).toBe(true)
+
+    // User presses Stop on B while it is still parked on acquire().
+    const cancelled = serviceB.cancel('ch-b')
+    expect(cancelled).toBe(true)
+
+    // B's executePrompt settles gracefully — no throw, no teardown — the
+    // same outcome as cancelling before connection.prompt is dispatched.
+    await expect(bPromise).resolves.toEqual({ kind: 'queued' })
+    expect(handlersB.onPromptComplete).toHaveBeenCalledWith('ch-b', 'cancelled')
+    expect(sessions(serviceB).has('ch-b')).toBe(true)
+
+    // A completes and releases — the lock goes idle, having never been
+    // transiently granted to the cancelled B.
+    resolveAPrompt!({ stopReason: 'end_turn' })
+    await aPromise
+    expect(realLock.currentHolder).toBeNull()
   })
 
   it('INTEGRATION (core race): channel A holds the lock, channel B parks, B idle-times-out and is cleanly removed from the queue — the lock never transiently passes to dead B', async () => {

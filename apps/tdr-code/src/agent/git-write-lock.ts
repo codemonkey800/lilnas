@@ -18,6 +18,17 @@ type Release = () => void
 type Grant = () => void
 type Reject = (err: Error) => void
 
+// Thrown into a parked acquire() by cancelWaiter — distinguishes a
+// deliberate cancellation (session-manager.service.ts can resolve the turn
+// gracefully as 'cancelled') from a genuine failure (which tears the
+// session down). See cancelWaiter for callers.
+export class GitWriteLockCancelledError extends Error {
+  constructor(channelId: string, reason: string) {
+    super(`git-write-lock: waiter ${channelId} cancelled during ${reason}`)
+    this.name = 'GitWriteLockCancelledError'
+  }
+}
+
 export class GitWriteLock {
   private queue: Array<{ channelId: string; grant: Grant; reject: Reject }> = []
   private holderChannelId: string | null = null
@@ -60,27 +71,27 @@ export class GitWriteLock {
   // only the queue. A no-op if channelId is not currently queued, and a
   // no-op if channelId is the current HOLDER (only the queue is spliced; a
   // holder is never removed from itself here — that's what
-  // release()/releaseIfHeldBy are for). Defense-in-depth for tearing down a
-  // session that may be parked on acquire(): without the rejection, the
-  // caller's `await acquire()` never settles (grant() — the only place that
-  // resolves it — never runs for a spliced-out entry), stranding the
-  // suspended executePrompt frame forever even though the queue entry itself
-  // is gone. executePrompt's existing catch/finally already handles a
-  // rejected acquire() the same as any other lock-acquire failure.
-  cancelWaiter(channelId: string): void {
+  // release()/releaseIfHeldBy are for). Called from two places: teardown()
+  // (defense-in-depth for a session that may be parked on acquire()) and
+  // cancel() (the Stop button — without this, Stop is a no-op for a turn
+  // still queued behind another channel's long-running turn, since there is
+  // no active connection.prompt() for connection.cancel() to interrupt).
+  // Without the rejection, the caller's `await acquire()` never settles
+  // (grant() — the only place that resolves it — never runs for a
+  // spliced-out entry), stranding the suspended executePrompt frame forever
+  // even though the queue entry itself is gone. executePrompt's catch block
+  // special-cases GitWriteLockCancelledError to resolve the turn as
+  // 'cancelled' rather than treating it as a fatal error.
+  cancelWaiter(channelId: string, reason = 'teardown'): void {
     const idx = this.queue.findIndex(w => w.channelId === channelId)
     if (idx === -1) return
     const [waiter] = this.queue.splice(idx, 1)
     if (!waiter) return
     getBackendLogger().warn(
-      { event: LOG_EVENTS.gitWriteLockWaiterCancelled, channelId },
-      'Queued git-write-lock waiter cancelled during teardown',
+      { event: LOG_EVENTS.gitWriteLockWaiterCancelled, channelId, reason },
+      'Queued git-write-lock waiter cancelled',
     )
-    waiter.reject(
-      new Error(
-        `git-write-lock: waiter ${channelId} cancelled during teardown`,
-      ),
-    )
+    waiter.reject(new GitWriteLockCancelledError(channelId, reason))
   }
 
   get currentHolder(): string | null {
