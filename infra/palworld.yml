@@ -1,6 +1,6 @@
 services:
   palworld:
-    image: thijsvanloef/palworld-server-docker:latest
+    image: thijsvanloef/palworld-server-docker:v2.4.2
     restart: unless-stopped
     stop_grace_period: 30s # Set to however long you are willing to wait for the container to gracefully stop
     ports:
@@ -11,3 +11,4 @@ services:
       - .env.palworld
     volumes:
       - /storage/app-data/palworld/:/palworld/
+      - /storage/backup-archive/palworld/v2.4.2/:/palworld/backups/
