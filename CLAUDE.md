@@ -135,7 +135,7 @@ pnpm run dev      # Development server
 pnpm run build    # Production build
 pnpm run start    # Production server
 
-# For Vite-based frontends (dashcam, macros)
+# For Vite-based frontends (dashcam)
 pnpm run dev      # Development server (port 8080)
 pnpm run build    # Production build
 pnpm run preview  # Preview production build
@@ -184,13 +184,11 @@ _Frontend Applications:_
 
 - `@lilnas/portal` - Next.js application portal/dashboard (`apps/portal/`)
 - `@lilnas/dashcam` - Vite+React dashcam video viewer (`apps/dashcam/`)
-- `@lilnas/macros` - Vite+React macros app (`apps/macros/`)
 
 _Full-Stack Applications (NestJS + Next.js):_
 
 - `@lilnas/tdr-bot` - Discord bot with AI (LangChain, OpenAI) + admin interface (`apps/tdr-bot/`)
 - `@lilnas/download` - Video download service with web UI (yt-dlp, ffmpeg) (`apps/download/`)
-- `@lilnas/yoink` - Media management with OAuth (`apps/yoink/`)
 
 _Backend Services (NestJS):_
 

@@ -128,8 +128,6 @@ Follow the same commit conventions used in the lilnas monorepo:
 - `equations` - LaTeX rendering service
 - `me-token-tracker` - Crypto tracking bot
 - `dashcam` - Dashcam viewer
-- `macros` - Macros app
-- `yoink` - Media management app
 - `utils` - Shared utilities
 - `media` - Radarr/Sonarr API clients
 - `infra` - Infrastructure/Docker changes
@@ -211,8 +209,6 @@ The command automatically detects affected packages by analyzing file paths:
 - Files in `apps/equations/` → `@lilnas/equations`
 - Files in `apps/me-token-tracker/` → `@lilnas/me-token-tracker`
 - Files in `apps/dashcam/` → `@lilnas/dashcam`
-- Files in `apps/macros/` → `@lilnas/macros`
-- Files in `apps/yoink/` → `@lilnas/yoink`
 - Files in `packages/utils/` → `@lilnas/utils`
 - Files in `packages/media/` → `@lilnas/media`
 - Files in `infra/` → Infrastructure changes
