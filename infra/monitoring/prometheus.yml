@@ -44,16 +44,6 @@ scrape_configs:
     static_configs:
       - targets: ['me-token-tracker:8080']
 
-  - job_name: yoink
-    metrics_path: /metrics
-    static_configs:
-      - targets: ['yoink:8081']
-
-  - job_name: token
-    metrics_path: /metrics
-    static_configs:
-      - targets: ['token:8081']
-
   - job_name: swole
     metrics_path: /metrics
     static_configs:

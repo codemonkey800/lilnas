@@ -110,8 +110,6 @@ Common scopes in the lilnas monorepo:
 - `equations` - LaTeX rendering service
 - `me-token-tracker` - Crypto tracking bot
 - `dashcam` - Dashcam viewer
-- `macros` - Macros app
-- `yoink` - Media management app
 - `utils` - Shared utilities
 - `media` - Radarr/Sonarr API clients
 - `eslint` - ESLint configuration

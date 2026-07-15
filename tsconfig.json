@@ -7,7 +7,6 @@
     { "path": "./apps/equations" },
     { "path": "./apps/download" },
     { "path": "./apps/dashcam" },
-    { "path": "./apps/me-token-tracker" },
-    { "path": "./apps/yoink" }
+    { "path": "./apps/me-token-tracker" }
   ]
 }
