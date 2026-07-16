@@ -4,7 +4,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { isConfigured, resolveIdentity } from 'src/crypto/identity-resolution'
 import { encryptKey } from 'src/crypto/key-cipher'
 import { loadMasterKey } from 'src/crypto/master-key'
-import { validateAndFingerprint } from 'src/crypto/ssh-key'
+import { normalizeKeyBlob, validateAndFingerprint } from 'src/crypto/ssh-key'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
 import {
@@ -69,7 +69,12 @@ export class GitIdentityService {
     body: UpsertGitIdentityBodyDto,
   ): UpsertGitIdentityResponseDto {
     const masterKey = loadMasterKey()
-    const plaintext = Buffer.from(body.privateKey, 'utf8')
+    // Normalize BEFORE validating/encrypting — sshpk (validateAndFingerprint)
+    // tolerates CRLF, a leading blank line, and a missing trailing newline;
+    // ssh-keygen (the actual commit signer, invoked later via the git PATH
+    // wrapper's gpg.ssh.program) does not. Without this, a key that passes
+    // validation here can still fail to sign every commit at turn time.
+    const plaintext = normalizeKeyBlob(body.privateKey)
 
     let fingerprint: string
     try {

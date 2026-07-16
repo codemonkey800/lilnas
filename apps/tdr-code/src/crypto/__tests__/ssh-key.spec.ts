@@ -1,4 +1,4 @@
-import { validateAndFingerprint } from 'src/crypto/ssh-key'
+import { normalizeKeyBlob, validateAndFingerprint } from 'src/crypto/ssh-key'
 
 // Unencrypted ed25519 OpenSSH key generated for this test.
 // Golden fingerprint: SHA256:bwCR+3Vl8Ma8ShBUT6zIrk+RAN+kUa+SgbeLJJcNKcY
@@ -67,5 +67,55 @@ describe('ssh-key — validateAndFingerprint', () => {
     expect(() => validateAndFingerprint(OPENSSH_ENCRYPTED)).toThrow(
       /[Pp]assphrase/,
     )
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────────────────
+// normalizeKeyBlob — closes the gap between sshpk (lenient, used to validate
+// at upsert time) and ssh-keygen (strict, the actual commit signer). Each
+// malformed shape below is one sshpk silently accepts today but ssh-keygen
+// refuses to load at sign time — reproduced against the real ssh-keygen
+// binary during the flexecute/tdr-code signing-key incident (2026-07-16).
+// TEST_ED25519_KEY itself already lacks a trailing newline (its template
+// literal ends right at `-----END...-----` with no `\n` before the closing
+// backtick), so it doubles as the "missing trailing newline" fixture.
+// ──────────────────────────────────────────────────────────────────────────────
+describe('ssh-key — normalizeKeyBlob', () => {
+  const CANONICAL = `${TEST_ED25519_KEY}\n`
+
+  it('adds a trailing newline when missing (TEST_ED25519_KEY itself has none)', () => {
+    expect(normalizeKeyBlob(TEST_ED25519_KEY).toString('utf8')).toBe(CANONICAL)
+  })
+
+  it('strips a leading blank line (the real-world trigger: browser/chat paste prepending an empty line)', () => {
+    const withLeadingBlank = `\n${TEST_ED25519_KEY}`
+    expect(normalizeKeyBlob(withLeadingBlank).toString('utf8')).toBe(CANONICAL)
+  })
+
+  it('converts CRLF line endings to LF', () => {
+    const crlf = TEST_ED25519_KEY.replace(/\n/g, '\r\n')
+    expect(normalizeKeyBlob(crlf).toString('utf8')).toBe(CANONICAL)
+  })
+
+  it('is idempotent on already-canonical input', () => {
+    expect(normalizeKeyBlob(CANONICAL).toString('utf8')).toBe(CANONICAL)
+  })
+
+  it('normalizes a key with all three defects at once (leading blank line + CRLF + no trailing newline)', () => {
+    const mangled = `\n${TEST_ED25519_KEY.replace(/\n/g, '\r\n')}`
+    expect(normalizeKeyBlob(mangled).toString('utf8')).toBe(CANONICAL)
+  })
+
+  it('composes with validateAndFingerprint: normalizing a malformed key does not change its fingerprint', () => {
+    const withLeadingBlank = `\n${TEST_ED25519_KEY}`
+    const normalized = normalizeKeyBlob(withLeadingBlank)
+    expect(validateAndFingerprint(normalized).fingerprint).toBe(
+      'SHA256:bwCR+3Vl8Ma8ShBUT6zIrk+RAN+kUa+SgbeLJJcNKcY',
+    )
+  })
+
+  it('accepts a Buffer input, not just a string', () => {
+    const buf = Buffer.from(`\n${TEST_ED25519_KEY}`, 'utf8')
+    expect(normalizeKeyBlob(buf).toString('utf8')).toBe(CANONICAL)
   })
 })
