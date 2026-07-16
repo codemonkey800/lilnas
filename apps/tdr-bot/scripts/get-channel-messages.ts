@@ -3,7 +3,7 @@ import { ChannelType, Client, IntentsBitField, TextChannel } from 'discord.js'
 import * as dotenv from 'dotenv'
 import path from 'path'
 
-const ENV_FILE = path.resolve(__dirname, '../.env.dev')
+const ENV_FILE = path.resolve(__dirname, '../.env')
 dotenv.config({ path: ENV_FILE })
 
 interface ParsedArgs {
@@ -66,7 +66,7 @@ async function main() {
   const token = process.env[tokenKey]
 
   if (!token) {
-    console.error(`${tokenKey} is not set in .env.dev`)
+    console.error(`${tokenKey} is not set in .env`)
     process.exit(1)
   }
 

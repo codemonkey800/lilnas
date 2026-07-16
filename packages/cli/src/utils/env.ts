@@ -3,8 +3,8 @@ import * as fs from 'fs'
 
 /**
  * Loads a .env file into process.env using dotenv.
- * Uses override: true so later calls take precedence over earlier ones,
- * enabling layered loading (infra env → local .env.dev overrides).
+ * Uses override: true so values here take precedence over anything already
+ * set in the environment.
  * No-ops silently if the file does not exist.
  */
 export function loadEnvFile(filePath: string): void {

@@ -2,8 +2,9 @@
 // `'server-only'` — these are consumable from anywhere.
 //
 // `getCurrentDayCode` relies on the container's `TZ` env var (set in
-// `infra/.env.swole`) for the right local day-of-week. A missing-TZ regression
-// will not break this code, but will silently return the wrong day on UTC.
+// `apps/swole/.env(.prod)`) for the right local day-of-week. A missing-TZ
+// regression will not break this code, but will silently return the wrong
+// day on UTC.
 
 import type { Exercise, NextTarget } from 'src/core/session-machine'
 import { type DataLayerErrorKind } from 'src/db/errors'

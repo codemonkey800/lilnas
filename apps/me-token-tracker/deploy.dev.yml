@@ -4,6 +4,6 @@ services:
     command: -c "pnpm --filter=me-token-tracker dev"
     restart: unless-stopped
     env_file:
-      - ../../infra/.env.me-token-tracker
+      - .env
     volumes:
       - ../../:/source

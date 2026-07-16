@@ -4,7 +4,7 @@ services:
     command: -c "pnpm --filter=swole dev"
     restart: unless-stopped
     env_file:
-      - ../../infra/.env.swole
+      - .env
     environment:
       - DATABASE_PATH=/source/apps/swole/swole.db
     volumes:
