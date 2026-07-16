@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_HOST: tdr-bot-db
     env_file:
-      - ../../infra/.env.tdr-bot
+      - .env
     depends_on:
       tdr-bot-db:
         condition: service_healthy
@@ -21,7 +21,7 @@ services:
   tdr-bot-db:
     image: postgres:17-alpine
     env_file:
-      - ../../infra/.env.tdr-bot
+      - .env
     volumes:
       - ./data/tdr-bot-db:/var/lib/postgresql/data
     healthcheck:

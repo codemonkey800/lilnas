@@ -4,7 +4,7 @@ services:
     command: -c "pnpm --filter=equations dev"
     restart: unless-stopped
     env_file:
-      - ../../infra/.env.equations
+      - .env
     volumes:
       - ../../:/source
     labels:

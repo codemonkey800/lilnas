@@ -9,7 +9,7 @@ In lilnas context, your focus is:
 - **NestJS controllers across all apps** — input handling on public routes, missing `@UseGuards()`, missing `ValidationPipe` / Zod schema on request bodies, file-upload size/MIME checks, response leakage of internal fields.
 - **Discord bot command handlers** in `apps/tdr-bot/` and `apps/me-token-tracker/` — Necord slash-command argument handling, guild/user-ID validation, guard middleware, secrets passed into Discord embeds or thrown errors.
 - **Subprocess invocation anywhere** (`spawn`, `exec`, `execFile`, `child_process`) — argument smuggling, shell metacharacters, untrusted input reaching argv. yt-dlp/ffmpeg invocations in `apps/download/` are a common pattern to scrutinize.
-- **Secrets in code or logs** — Discord bot tokens, OAuth client secrets, JWT signing keys, Radarr/Sonarr/Lidarr API keys, MinIO/S3 credentials, OpenAI keys. Source files and error messages should never contain literal secrets; production secrets must come from env / `infra/.env.*`.
+- **Secrets in code or logs** — Discord bot tokens, OAuth client secrets, JWT signing keys, Radarr/Sonarr/Lidarr API keys, MinIO/S3 credentials, OpenAI keys. Source files and error messages should never contain literal secrets; production secrets must come from env / `apps/*/.env.prod`.
 - **Docker entrypoints** in `apps/*/Dockerfile`, `apps/*/deploy.yml`, `infra/**.yml` — privilege drop (USER directive), user-controlled args, mount of secrets into world-readable paths.
 - **File-system writes** outside `os.tmpdir()` — path-traversal sinks in `apps/download/` (yt-dlp output paths), `apps/equations/` (temp PDF/PNG output), `apps/yoink/` (media library writes).
 

@@ -18,13 +18,13 @@ Auth is handled upstream by Traefik forward-auth before requests reach the conta
 ## Development
 
 ```bash
-cp infra/.env.swole.example infra/.env.swole
+cp apps/swole/.env.example apps/swole/.env
 cd apps/swole && pnpm dev
 ```
 
 Next.js starts on port `8080`. Visit http://localhost:8080.
 
-Environment variables (see `infra/.env.swole.example`):
+Environment variables (see `.env.example`):
 
 | Variable        | Default           | Purpose                    |
 |-----------------|-------------------|----------------------------|

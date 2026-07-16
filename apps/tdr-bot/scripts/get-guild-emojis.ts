@@ -4,7 +4,7 @@ import * as dotenv from 'dotenv'
 import fs from 'fs/promises'
 import path from 'path'
 
-dotenv.config({ path: path.resolve(__dirname, '../.env.dev') })
+dotenv.config({ path: path.resolve(__dirname, '../.env') })
 
 interface Emoji {
   id: string

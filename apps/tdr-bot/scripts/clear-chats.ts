@@ -3,7 +3,7 @@ import { ChannelType, Client, GuildChannel, IntentsBitField } from 'discord.js'
 import * as dotenv from 'dotenv'
 import path from 'path'
 
-const ENV_FILE = path.resolve(__dirname, '../.env.dev')
+const ENV_FILE = path.resolve(__dirname, '../.env')
 dotenv.config({ path: ENV_FILE })
 
 const CHANNELS_TO_CLEAR = ['general', 'tdr-bot-chat', 'food']
@@ -12,7 +12,7 @@ async function main() {
   const token = process.env.DISCORD_SCRIPTS_DEV_TOKEN
 
   if (!token) {
-    console.error('DISCORD_SCRIPTS_DEV_TOKEN is not set in .env.dev')
+    console.error('DISCORD_SCRIPTS_DEV_TOKEN is not set in .env')
     process.exit(1)
   }
 

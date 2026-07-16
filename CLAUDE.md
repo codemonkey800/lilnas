@@ -415,13 +415,15 @@ docker-compose -f deploy.yml up -d
 
 ### Environment Variables
 
-Environment configuration follows a secure pattern:
+Each app owns its own environment files under `apps/<app>/`:
 
-- **Example files:** `deploy/.env.example` shows required variables
-- **Service-specific:** Each docker-compose file defines its own variables
-- **No centralized .env:** Intentional design for security isolation
-- **Development defaults:** Most services work with default values in dev
-- **Production secrets:** Must be explicitly set, never committed
+- **`.env`** — development values (gitignored)
+- **`.env.prod`** — production values (gitignored; populated directly on the deploy host, never committed)
+- **`.env.example`** — committed template showing required variables (copy it to `.env` for dev or `.env.prod` for prod)
+
+`deploy.dev.yml` loads `.env`; `deploy.yml` loads `.env.prod` — both via Docker Compose's `env_file:`, relative to the app's own directory. The `lilnas dev` CLI (`packages/cli/src/commands/dev.ts`) loads the same `.env` for the native (non-Docker) dev flow.
+
+Not every app has environment variables — `portal` and `dashcam` have none. `tdr-code` is a special case: its processes run directly on the deploy host rather than in a container, so it uses a single `.env` for both dev and prod (see `docs/runbooks/tdr-code-phase-d-forward-auth-cutover.md`).
 
 ## Best Practices
 

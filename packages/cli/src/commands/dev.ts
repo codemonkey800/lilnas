@@ -44,9 +44,8 @@ export class Dev extends Command {
 
     const appDir = path.join(appsDir, appName)
 
-    // Load env in layers: infra env first, then local .env.dev overrides
-    loadEnvFile(path.join(root, 'infra', `.env.${appName}`))
-    loadEnvFile(path.join(appDir, '.env.dev'))
+    // Load the app's own dev env file.
+    loadEnvFile(path.join(appDir, '.env'))
 
     // Auto-detect Drizzle by presence of drizzle.config.ts in the app root,
     // then read the dialect to decide whether a database container is needed.
@@ -80,7 +79,7 @@ export class Dev extends Command {
         this.log(`Mounting persistent DB storage at ${dbPath}`)
       } else {
         this.log(
-          'No DB_PATH set — database will be ephemeral (set DB_PATH in .env.dev to persist data).',
+          'No DB_PATH set — database will be ephemeral (set DB_PATH in .env to persist data).',
         )
       }
 
