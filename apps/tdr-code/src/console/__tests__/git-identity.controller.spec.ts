@@ -327,6 +327,7 @@ describe('GitIdentityController', () => {
 // GitIdentityService — write-only + key rejection
 // ──────────────────────────────────────────────────────────────────────────────
 
+import { decryptKey } from 'src/crypto/key-cipher'
 import { loadMasterKey } from 'src/crypto/master-key'
 
 // Mock loadMasterKey to avoid needing a real key file in tests
@@ -398,6 +399,59 @@ describe('GitIdentityService', () => {
     expect(result).not.toHaveProperty('privateKey')
     expect(result.fingerprint).toContain('SHA256:')
     expect(result.status).toBe('configured')
+  })
+
+  // Regression test for the flexecute/tdr-code signing-key incident
+  // (2026-07-16): a key with a leading blank line passed sshpk validation
+  // (used here at upsert time) but ssh-keygen — the actual commit signer,
+  // invoked later via the git PATH wrapper's gpg.ssh.program — refused to
+  // load it, failing every commit with a misleading "can't find the key"
+  // error. Proves the fix end-to-end: what actually reaches encryption (and
+  // therefore what gets written back to tmpfs and signed with at commit
+  // time) is the byte-exact canonical form, not the raw pasted bytes.
+  it('upsertIdentity normalizes a key with a leading blank line before encrypting — stored ciphertext decrypts to byte-exact canonical form', () => {
+    const db = makeDbMock()
+    db._chain.get.mockReturnValue({
+      discordUserId: VALID_SNOWFLAKE,
+      name: 'Test',
+      email: 'test@x.com',
+      keyCiphertext: Buffer.alloc(16),
+      keyIv: Buffer.alloc(12),
+      keyAuthTag: Buffer.alloc(16),
+      keyFingerprint: 'SHA256:bwCR+3Vl8Ma8ShBUT6zIrk+RAN+kUa+SgbeLJJcNKcY',
+      keyVersion: 1,
+      masterKeyVersion: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    const svc = new SvcClass(db as unknown as Db, makeLogger())
+
+    svc.upsertIdentity(VALID_SNOWFLAKE, {
+      name: 'Test',
+      email: 'test@x.com',
+      privateKey: `\n${TEST_KEY}`, // leading blank line — sshpk accepts, ssh-keygen does not
+    })
+
+    const stored = db._chain.values.mock.calls[0]![0] as {
+      keyCiphertext: Buffer
+      keyIv: Buffer
+      keyAuthTag: Buffer
+    }
+    const masterKey = (loadMasterKey as jest.Mock)() as Buffer
+    const decrypted = decryptKey(
+      {
+        iv: stored.keyIv,
+        authTag: stored.keyAuthTag,
+        ciphertext: stored.keyCiphertext,
+      },
+      VALID_SNOWFLAKE,
+      masterKey,
+    )
+
+    // TEST_KEY's template literal ends right at `-----END...-----` with no
+    // newline before the closing backtick, so the canonical form adds
+    // exactly one trailing `\n` on top of stripping the leading blank line.
+    expect(decrypted.toString('utf8')).toBe(`${TEST_KEY}\n`)
   })
 
   it('upsertIdentity with passphrase-protected key → BadRequestException, nothing stored', () => {

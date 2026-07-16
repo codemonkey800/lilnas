@@ -10,6 +10,20 @@ export interface SshKeyValidation {
   fingerprint: string // SHA256:<base64> — matches ssh-keygen -lf output
 }
 
+// Normalize a pasted key blob to the exact byte shape ssh-keygen expects: LF
+// line endings, no leading/trailing blank lines or whitespace, exactly one
+// trailing newline. sshpk (validateAndFingerprint below) tolerates CRLF, a
+// leading blank line, and a missing trailing newline — ssh-keygen's own PEM
+// parser does not, and fails with a misleading "error in libcrypto:
+// unsupported" or "No such file or directory" instead of a parse error.
+// Callers must normalize BEFORE validateAndFingerprint and BEFORE encrypting
+// for storage, so the bytes written to disk at commit time are always the
+// bytes ssh-keygen will successfully sign with.
+export function normalizeKeyBlob(pem: string | Buffer): Buffer {
+  const text = typeof pem === 'string' ? pem : pem.toString('utf8')
+  return Buffer.from(`${text.replace(/\r\n?/g, '\n').trim()}\n`, 'utf8')
+}
+
 // Validate a raw private key blob and return its fingerprint.
 // Throws with a distinct message for:
 //   - passphrase-protected keys (KeyEncryptedError)
