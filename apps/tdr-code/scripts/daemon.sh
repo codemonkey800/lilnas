@@ -127,7 +127,16 @@ cmd_stop() {
       break
     fi
     sleep 1
-    (( waited++ ))
+    # NOT `(( waited++ ))`: post-increment's *expression value* is the
+    # pre-increment number, so on the very first pass (waited=0 -> 1) the
+    # arithmetic command evaluates to 0 -- which bash treats as failure,
+    # aborting the whole script under `set -e`. Confirmed version-dependent
+    # the hard way: silent on macOS bash 3.2 (never manifested in local
+    # testing), fatal on Linux bash 5.3 on the very first real deploy, always
+    # after the loop had already sent SIGTERM -- so `stop` looked like it
+    # crashed instead of just quietly skipping its own wait/cleanup. Plain
+    # assignment has no such gotcha.
+    waited=$((waited + 1))
   done
   rm -f "$PID_FILE"
   echo "tdr-code stopped"
