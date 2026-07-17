@@ -20,6 +20,7 @@ import { DownloadStepOptions } from './types'
 
 const VIDEO_DIR = '/download/videos'
 const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.webm']
+const MAX_STDERR_BUFFER_CHARS = 8000
 
 async function getVideoFiles(path: string) {
   const dir = `${VIDEO_DIR}/${path}`
@@ -277,12 +278,16 @@ export class DownloadVideoService {
     })
 
     try {
-      await downloadProcess.promise
+      const { code, stderrTail } = await downloadProcess.promise
+
+      if (code !== 0) {
+        throw new Error(stderrTail || `yt-dlp exited with code ${code}`)
+      }
 
       const files = await getVideoFiles(job.id)
 
       if (files.length === 0) {
-        throw new Error('No video files found')
+        throw new Error(stderrTail || 'No video files found')
       }
 
       log('log', { ...options, files }, 'Download complete')
@@ -344,7 +349,11 @@ export class DownloadVideoService {
       })
 
       try {
-        await convertProcess.promise
+        const { code, stderrTail } = await convertProcess.promise
+
+        if (code !== 0) {
+          throw new Error(stderrTail || `ffmpeg exited with code ${code}`)
+        }
 
         const files = await getVideoFiles(`${job.id}/render`)
         log('log', { ...options, files }, 'Conversion complete')
@@ -446,7 +455,18 @@ export class DownloadVideoService {
 
     const proc = spawn(bin, args, { cwd })
 
-    const promise = new Promise((resolve, reject) => {
+    let stderrBuffer = ''
+    proc.stderr.on('data', chunk => {
+      stderrBuffer += chunk.toString('utf-8')
+      if (stderrBuffer.length > MAX_STDERR_BUFFER_CHARS) {
+        stderrBuffer = stderrBuffer.slice(-MAX_STDERR_BUFFER_CHARS)
+      }
+    })
+
+    const promise = new Promise<{
+      code: number | null
+      stderrTail: string
+    }>((resolve, reject) => {
       proc.stdout.pipe(logFileStream)
       proc.stderr.pipe(logFileStream)
 
@@ -457,7 +477,7 @@ export class DownloadVideoService {
 
       proc.on('close', code => {
         logFileStream.close()
-        resolve(code)
+        resolve({ code, stderrTail: stderrBuffer.trim() })
       })
     })
 

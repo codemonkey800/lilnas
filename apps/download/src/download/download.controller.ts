@@ -34,6 +34,7 @@ export class DownloadController {
     return {
       description: job.description,
       downloadUrls: job.downloadUrls,
+      error: job.error,
       id: job.id,
       status: job.status,
       timeRange: job.timeRange,

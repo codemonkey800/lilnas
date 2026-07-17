@@ -285,6 +285,7 @@ export class DownloadSchedulerService {
 
       this.downloadStateService.updateJob(job.id, {
         status: DownloadJobStatus.Failed,
+        error,
       })
 
       this.metrics.jobCompleted('failed')
