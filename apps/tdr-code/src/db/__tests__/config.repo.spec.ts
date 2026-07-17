@@ -77,6 +77,35 @@ describe('config.repo', () => {
     }
   })
 
+  it('getOrSeedConfig migrates the superseded ^0.57.0 pin to DEFAULT_CLAUDE_ARGS', () => {
+    const { db, close } = createTestDb()
+    try {
+      // The first pin (^0.57.0) shipped a wrapper that still reported a 200k
+      // window on session resume; installs carrying it must self-heal to the
+      // current default on the next boot, same as the bare-unpinned literal.
+      db.insert(config)
+        .values({
+          id: 1,
+          cwd: '/tmp',
+          claudeCommand: 'npx',
+          claudeArgs: ['@agentclientprotocol/claude-agent-acp@^0.57.0'],
+          idleTimeoutSec: 300,
+          maxConcurrentSessions: 5,
+          customSystemPrompt: '',
+          updatedAt: new Date(),
+        })
+        .run()
+
+      const row = getOrSeedConfig(db)
+      expect(row.claudeArgs).toEqual(DEFAULT_CLAUDE_ARGS)
+
+      const read = getConfig(db)
+      expect(read?.claudeArgs).toEqual(DEFAULT_CLAUDE_ARGS)
+    } finally {
+      close()
+    }
+  })
+
   it('getOrSeedConfig leaves a user-customized claudeArgs alone', () => {
     const { db, close } = createTestDb()
     try {
