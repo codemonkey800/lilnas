@@ -26,6 +26,7 @@ export type CreateDownloadJobInput = z.infer<
 export interface DownloadJob extends CreateDownloadJobInput {
   description?: string
   downloadUrls?: string[]
+  error?: string
   file?: string
   id: string
   proc?: ChildProcessWithoutNullStreams
@@ -43,6 +44,7 @@ export type GetDownloadJobResponse = Pick<
   DownloadJob,
   | 'description'
   | 'downloadUrls'
+  | 'error'
   | 'id'
   | 'status'
   | 'timeRange'

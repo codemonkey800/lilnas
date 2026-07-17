@@ -29,6 +29,8 @@ const DOWNLOAD_URL =
     ? 'https://download.lilnas.io'
     : 'http://download.localhost'
 
+const MAX_ERROR_LENGTH = 1000
+
 class DownloadDto {
   @StringOption({
     name: 'url',
@@ -212,7 +214,6 @@ export class DownloadCommandService {
   }) {
     const job = await this.client.getVideoJob(jobId)
     const urls = job.downloadUrls ?? []
-    const userId = `<@${interaction.user.id}>`
     const iteration = this.checkJobIterationMap.get(jobId) ?? 0
 
     if (job.status === DownloadJobStatus.Completed && urls.length > 0) {
@@ -237,9 +238,12 @@ export class DownloadCommandService {
       this.checkJobIterationMap.delete(jobId)
       this.client.cancelVideoJob(jobId)
 
-      if (interaction.channel?.isSendable()) {
-        interaction.channel.send(`${userId} downloaded job iteration maxed out`)
-      }
+      await this.sendEphemeralNotice({
+        content: `download timed out while waiting for <${job.url}> to finish`,
+        id,
+        interaction,
+        jobId,
+      })
 
       return
     }
@@ -249,9 +253,12 @@ export class DownloadCommandService {
 
       this.checkJobIterationMap.delete(jobId)
 
-      if (interaction.channel?.isSendable()) {
-        interaction.channel.send(`${userId} downloaded job failed ${job.url}`)
-      }
+      await this.sendEphemeralNotice({
+        content: `download failed for <${job.url}>${this.formatJobError(job.error)}`,
+        id,
+        interaction,
+        jobId,
+      })
 
       return
     }
@@ -261,11 +268,12 @@ export class DownloadCommandService {
 
       this.checkJobIterationMap.delete(jobId)
 
-      if (interaction.channel?.isSendable()) {
-        interaction.channel.send(
-          `${userId} downloaded job cancelled ${job.url}`,
-        )
-      }
+      await this.sendEphemeralNotice({
+        content: `download cancelled for <${job.url}>`,
+        id,
+        interaction,
+        jobId,
+      })
 
       return
     }
@@ -288,6 +296,43 @@ export class DownloadCommandService {
         }),
       +env(EnvKeys.DOWNLOAD_POLL_DURATION_MS),
     )
+  }
+
+  private formatJobError(error?: string): string {
+    if (!error) {
+      return ''
+    }
+
+    const truncated =
+      error.length > MAX_ERROR_LENGTH
+        ? `${error.slice(0, MAX_ERROR_LENGTH)}…`
+        : error
+
+    return `\n\`\`\`\n${truncated}\n\`\`\``
+  }
+
+  private async sendEphemeralNotice({
+    content,
+    id,
+    interaction,
+    jobId,
+  }: {
+    content: string
+    id: string
+    interaction: SlashCommandContext[0]
+    jobId: string
+  }) {
+    try {
+      await interaction.followUp({
+        content,
+        flags: [MessageFlags.Ephemeral],
+      })
+    } catch (error) {
+      this.logger.warn(
+        { error, id, jobId },
+        'Failed to send ephemeral download notice',
+      )
+    }
   }
 
   private async sendFiles({

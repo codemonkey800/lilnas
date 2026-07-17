@@ -79,6 +79,12 @@ export function DownloadById({
             {job?.title || job?.url || '--'}
           </a>
 
+          {job?.status === DownloadJobStatus.Failed && job?.error && (
+            <p className="whitespace-pre-wrap rounded bg-red-950/40 p-3 text-red-400">
+              {job.error}
+            </p>
+          )}
+
           {job.timeRange && (
             <p className="text-gray-400">
               From {job.timeRange.start} to {job.timeRange.end}
