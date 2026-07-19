@@ -169,6 +169,7 @@ export class SessionManagerService implements OnApplicationShutdown {
   private claudeCwd: string
   private claudeArgs: string[]
   private customSystemPrompt: string
+  private autoPostDiffs: boolean
   // C4: Service-global counter — never resets on session teardown/recreate, so
   // stale turn ids from old sessions cannot match new sessions (see plan Decision #3).
   private turnCounter = 0
@@ -214,6 +215,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     this.idleTimeoutSec = cfg.idleTimeoutSec
     this.maxConcurrentSessions = cfg.maxConcurrentSessions
     this.customSystemPrompt = cfg.customSystemPrompt
+    this.autoPostDiffs = cfg.autoPostDiffs
     const genIdStr = process.env[EnvKeys.BOT_GENERATION_ID]
     this.generationId = genIdStr ? parseInt(genIdStr, 10) : null
 
@@ -280,6 +282,7 @@ export class SessionManagerService implements OnApplicationShutdown {
     this.idleTimeoutSec = cfg.idleTimeoutSec
     this.maxConcurrentSessions = cfg.maxConcurrentSessions
     this.customSystemPrompt = cfg.customSystemPrompt
+    this.autoPostDiffs = cfg.autoPostDiffs
     this.logger.info(
       {
         event: LOG_EVENTS.configRereadApplied,
@@ -290,9 +293,17 @@ export class SessionManagerService implements OnApplicationShutdown {
         // Logged in full, unredacted — operator-authored config text, not a
         // secret (same posture as the other four fields above).
         customSystemPrompt: this.customSystemPrompt,
+        autoPostDiffs: this.autoPostDiffs,
       },
       'Config reread applied',
     )
+  }
+
+  // Read by DiscordHandlerService (via moduleRef.get, strict: false) at the
+  // point a completed/failed tool call's diffs would otherwise post to
+  // Discord — see discord-handler.service.ts's onToolCall/onToolCallUpdate.
+  get shouldAutoPostDiffs(): boolean {
+    return this.autoPostDiffs
   }
 
   // Combines the hardcoded base prompt (R4/R5, always applied) with the live

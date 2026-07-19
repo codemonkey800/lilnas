@@ -40,6 +40,7 @@ export class ConfigService {
       idleTimeoutSec: body.idleTimeoutSec,
       maxConcurrentSessions: body.maxConcurrentSessions,
       customSystemPrompt: body.customSystemPrompt,
+      autoPostDiffs: body.autoPostDiffs,
     }
 
     const updated = updateConfig(this.db, patch)
@@ -99,6 +100,7 @@ export class ConfigService {
     idleTimeoutSec: number
     maxConcurrentSessions: number
     customSystemPrompt: string
+    autoPostDiffs: boolean
   }): ConfigResponseDto {
     return {
       cwd: row.cwd,
@@ -107,6 +109,7 @@ export class ConfigService {
       idleTimeoutSec: row.idleTimeoutSec,
       maxConcurrentSessions: row.maxConcurrentSessions,
       customSystemPrompt: row.customSystemPrompt,
+      autoPostDiffs: row.autoPostDiffs,
     }
   }
 }

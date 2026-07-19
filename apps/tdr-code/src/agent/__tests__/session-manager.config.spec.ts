@@ -70,6 +70,7 @@ function makeConfigRow(
     idleTimeoutSec: number
     maxConcurrentSessions: number
     customSystemPrompt: string
+    autoPostDiffs: boolean
   }>,
 ) {
   return {
@@ -80,6 +81,7 @@ function makeConfigRow(
     idleTimeoutSec: overrides?.idleTimeoutSec ?? 300,
     maxConcurrentSessions: overrides?.maxConcurrentSessions ?? 5,
     customSystemPrompt: overrides?.customSystemPrompt ?? '',
+    autoPostDiffs: overrides?.autoPostDiffs ?? false,
     updatedAt: new Date(),
   }
 }
@@ -159,6 +161,7 @@ type ServiceInternals = {
   idleTimeoutSec: number
   maxConcurrentSessions: number
   customSystemPrompt: string
+  autoPostDiffs: boolean
 }
 
 describe('SessionManagerService — DB-backed config (U2)', () => {
@@ -178,6 +181,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
       idleTimeoutSec: 120,
       maxConcurrentSessions: 3,
       customSystemPrompt: 'Always respond in haiku.',
+      autoPostDiffs: true,
     })
     const db = makeDbMockWithConfig(cfg)
 
@@ -196,6 +200,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
     expect(internals.idleTimeoutSec).toBe(120)
     expect(internals.customSystemPrompt).toBe('Always respond in haiku.')
     expect(internals.maxConcurrentSessions).toBe(3)
+    expect(internals.autoPostDiffs).toBe(true)
   })
 
   it('constructor throws when config row is missing (bot booted before main seeded)', () => {
@@ -299,6 +304,31 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
     service.rereadConfig()
 
     expect(internals.customSystemPrompt).toBe('Be extra concise.')
+  })
+
+  it('rereadConfig reassigns autoPostDiffs from a fresh DB read', () => {
+    const handlers = createMockHandlers()
+    const initial = makeConfigRow({ autoPostDiffs: false })
+    const db = makeDbMockWithConfig(initial)
+
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      makePlanPresenter(),
+      db,
+      makeLogger(),
+      makeNotifyEmitterMock(),
+    )
+    const internals = service as unknown as ServiceInternals
+    expect(internals.autoPostDiffs).toBe(false)
+    expect(service.shouldAutoPostDiffs).toBe(false)
+
+    const updated = makeConfigRow({ autoPostDiffs: true })
+    db._chain.get.mockReturnValue(updated)
+
+    service.rereadConfig()
+
+    expect(internals.autoPostDiffs).toBe(true)
+    expect(service.shouldAutoPostDiffs).toBe(true)
   })
 
   it('rereadConfig is a no-op when config row is missing', () => {

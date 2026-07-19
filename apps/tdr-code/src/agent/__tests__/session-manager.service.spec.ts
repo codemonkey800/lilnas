@@ -72,6 +72,7 @@ const MOCK_CONFIG_ROW = {
   idleTimeoutSec: 300,
   maxConcurrentSessions: 5,
   customSystemPrompt: '',
+  autoPostDiffs: false,
   updatedAt: new Date(),
 }
 

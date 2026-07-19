@@ -311,6 +311,7 @@ const MOCK_CONFIG_RESPONSE: ConfigResponseDto = {
   idleTimeoutSec: 300,
   maxConcurrentSessions: 5,
   customSystemPrompt: '',
+  autoPostDiffs: false,
 }
 
 const MOCK_GIT_IDENTITY_RESPONSE: UpsertGitIdentityResponseDto = {

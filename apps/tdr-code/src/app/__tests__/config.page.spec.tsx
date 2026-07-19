@@ -14,6 +14,7 @@ const CONFIG: ConfigResponseDto = {
   idleTimeoutSec: 300,
   maxConcurrentSessions: 5,
   customSystemPrompt: 'Always respond in haiku.',
+  autoPostDiffs: false,
 }
 
 function renderPage() {

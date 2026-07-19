@@ -98,6 +98,7 @@ export function getOrSeedConfig(db: Db): ConfigRow {
           // Literal, not env()-derived — no sensible env-var default exists
           // for free-form prompt text (unlike the other four seeded fields).
           customSystemPrompt: '',
+          autoPostDiffs: false,
           updatedAt: new Date(),
         })
         .returning()

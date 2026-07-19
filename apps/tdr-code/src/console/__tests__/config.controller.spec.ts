@@ -30,6 +30,7 @@ const VALID_BODY: UpdateConfigBodyDto = {
   idleTimeoutSec: 300,
   maxConcurrentSessions: 5,
   customSystemPrompt: '',
+  autoPostDiffs: false,
 }
 
 const MOCK_RESPONSE: ConfigResponseDto = {
@@ -39,6 +40,7 @@ const MOCK_RESPONSE: ConfigResponseDto = {
   idleTimeoutSec: 300,
   maxConcurrentSessions: 5,
   customSystemPrompt: '',
+  autoPostDiffs: false,
 }
 
 function makeService(
@@ -255,6 +257,7 @@ const MOCK_CONFIG_ROW = {
   idleTimeoutSec: 300,
   maxConcurrentSessions: 5,
   customSystemPrompt: '',
+  autoPostDiffs: false,
   updatedAt: new Date(),
 }
 

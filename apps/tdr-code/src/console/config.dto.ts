@@ -36,6 +36,7 @@ export const UpdateConfigBodySchema = z.object({
       v => !v.includes('\0'),
       'customSystemPrompt must not contain NUL bytes',
     ),
+  autoPostDiffs: z.boolean(),
 })
 export type UpdateConfigBodyDto = z.infer<typeof UpdateConfigBodySchema>
 
@@ -46,5 +47,6 @@ export const ConfigResponseSchema = z.object({
   idleTimeoutSec: z.number(),
   maxConcurrentSessions: z.number(),
   customSystemPrompt: z.string(),
+  autoPostDiffs: z.boolean(),
 })
 export type ConfigResponseDto = z.infer<typeof ConfigResponseSchema>
