@@ -779,6 +779,26 @@ describe('DiscordHandlerService — onMessage / inbound images (U4)', () => {
     )
   })
 
+  it('does not respond to a plain @everyone/@here message that does not directly mention the bot (regression)', async () => {
+    const { service, mockPrompt } = await createServiceWithSessionMgr()
+    const message = makeMentionMessage('hello world', {
+      mentions: {
+        // Mirrors discord.js's real MessageMentions#has: without
+        // ignoreEveryone: true, an @everyone/@here message resolves `has()`
+        // to true for any user, even one never actually tagged.
+        has: jest.fn((_user, opts) => Boolean(opts?.ignoreEveryone) === false),
+      },
+    })
+
+    await service.onMessage([message] as never)
+
+    expect(message.mentions.has).toHaveBeenCalledWith(expect.anything(), {
+      ignoreEveryone: true,
+    })
+    expect(mockPrompt).not.toHaveBeenCalled()
+    expect(message.reply).not.toHaveBeenCalled()
+  })
+
   it('replies with images-unsupported note when prompt returns no_image_support (R10)', async () => {
     const fakeImage = { data: 'abc', mimeType: 'image/png' }
     mockExtractImages.mockResolvedValue([fakeImage])
