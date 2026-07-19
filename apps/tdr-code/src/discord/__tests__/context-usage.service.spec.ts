@@ -587,3 +587,65 @@ describe('ContextUsageService — runHandoff (95% threshold)', () => {
     }
   })
 })
+
+describe('ContextUsageService — getUsage (backs /context)', () => {
+  it('returns null for a channel with no usage_update yet', async () => {
+    const channel = createMockTextChannel()
+    const client = createMockClient(new Map([['ch-fresh', channel]]))
+    const sessionManager = createMockSessionManager()
+    const service = await createService(
+      undefined as unknown as TestDb['db'],
+      client,
+      sessionManager,
+    )
+
+    expect(service.getUsage('ch-fresh')).toBeNull()
+  })
+
+  it('returns the most recent used/size after an update', async () => {
+    const channel = createMockTextChannel()
+    const client = createMockClient(new Map([['ch1', channel]]))
+    const sessionManager = createMockSessionManager()
+    const service = await createService(
+      undefined as unknown as TestDb['db'],
+      client,
+      sessionManager,
+    )
+
+    service.onUsageUpdate('ch1', 30, 100)
+
+    expect(service.getUsage('ch1')).toEqual({ used: 30, size: 100 })
+  })
+
+  it('reflects the latest update even when it does not cross a new threshold', async () => {
+    const channel = createMockTextChannel()
+    const client = createMockClient(new Map([['ch1', channel]]))
+    const sessionManager = createMockSessionManager()
+    const service = await createService(
+      undefined as unknown as TestDb['db'],
+      client,
+      sessionManager,
+    )
+
+    service.onUsageUpdate('ch1', 30, 100)
+    service.onUsageUpdate('ch1', 35, 100)
+
+    expect(service.getUsage('ch1')).toEqual({ used: 35, size: 100 })
+  })
+
+  it('returns null again after resetChannel', async () => {
+    const channel = createMockTextChannel()
+    const client = createMockClient(new Map([['ch1', channel]]))
+    const sessionManager = createMockSessionManager()
+    const service = await createService(
+      undefined as unknown as TestDb['db'],
+      client,
+      sessionManager,
+    )
+
+    service.onUsageUpdate('ch1', 30, 100)
+    service.resetChannel('ch1')
+
+    expect(service.getUsage('ch1')).toBeNull()
+  })
+})

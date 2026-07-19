@@ -260,6 +260,11 @@ const CLEAR_COMMAND_EVENTS = {
   clearCompleted: 'clear-completed',
 } as const
 
+const CONTEXT_COMMAND_EVENTS = {
+  // context-command.service.ts's onContext: /context invoked.
+  contextCommandInvoked: 'context-command-invoked',
+} as const
+
 const STOP_BUTTON_EVENTS = {
   // stop-button.service.ts's onStop: the Stop button was pressed.
   stopButtonPressed: 'stop-button-pressed',
@@ -640,6 +645,7 @@ export const LOG_EVENTS = {
   ...SQLITE_WRITER_EVENTS,
   ...CONTEXT_USAGE_EVENTS,
   ...CLEAR_COMMAND_EVENTS,
+  ...CONTEXT_COMMAND_EVENTS,
   ...STOP_BUTTON_EVENTS,
   ...PLAN_APPROVAL_EVENTS,
   ...SUPERVISOR_EVENTS,
