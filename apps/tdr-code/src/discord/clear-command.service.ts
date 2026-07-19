@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { Client } from 'discord.js'
 import { Context, SlashCommand, type SlashCommandContext } from 'necord'
 import { PinoLogger } from 'nestjs-pino'
 
@@ -9,10 +10,12 @@ import { LOG_EVENTS } from 'src/logging/log-events'
 
 import { ContextUsageService } from './context-usage.service'
 import { DiscordHandlerService } from './discord-handler.service'
+import { isThreadChannel } from './fetch-channel'
 
 @Injectable()
 export class ClearCommandService {
   constructor(
+    @Inject(Client) private readonly client: Client,
     private readonly sessionManager: SessionManagerService,
     private readonly discordHandler: DiscordHandlerService,
     private readonly contextUsage: ContextUsageService,
@@ -31,6 +34,17 @@ export class ClearCommandService {
       { event: LOG_EVENTS.clearInvoked, channelId },
       '/clear invoked',
     )
+
+    // Each thread is its own agent session — running this outside a thread
+    // has no session boundary to reset.
+    if (!(await isThreadChannel(this.client, channelId))) {
+      this.logger.info(
+        { event: LOG_EVENTS.clearRejectedNotThread, channelId },
+        '/clear rejected — not a thread',
+      )
+      await interaction.reply('⚠️ `/clear` can only be used inside a thread.')
+      return
+    }
 
     try {
       // Order matters: resetChannel deletes channelStates + arms the cleared-channel
