@@ -1,5 +1,5 @@
-import { Home } from 'src/components/Home/Home'
+import { SceneView } from 'src/components/Scene/SceneView'
 
 export default function RootPage() {
-  return <Home />
+  return <SceneView />
 }

@@ -1,5 +1,6 @@
 import 'src/tailwind.css'
 
+import { cns } from '@lilnas/utils/cns'
 import { Roboto } from 'next/font/google'
 import { ReactNode } from 'react'
 
@@ -14,7 +15,7 @@ const roboto = Roboto({
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
-    <html className={roboto.variable} lang="en">
+    <html className={cns('w-full h-full', roboto.variable)} lang="en">
       <body className="w-full h-full flex flex-auto flex-col">
         <Layout>{children}</Layout>
       </body>
