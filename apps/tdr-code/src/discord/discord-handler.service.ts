@@ -353,7 +353,9 @@ export class DiscordHandlerService
   ): Promise<void> {
     if (message.author.bot) return
 
-    const isMention = message.mentions.has(this.client.user!)
+    const isMention = message.mentions.has(this.client.user!, {
+      ignoreEveryone: true,
+    })
     if (!isMention) return
 
     this.logger.debug(
