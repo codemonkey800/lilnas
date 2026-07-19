@@ -11,3 +11,4 @@ include:
   - ./apps/me-token-tracker/deploy.dev.yml
   - ./apps/swole/deploy.dev.yml
   - ./apps/tdr-bot/deploy.dev.yml
+  - ./apps/theater/deploy.dev.yml

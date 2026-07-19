@@ -1,0 +1,13 @@
+services:
+  theater:
+    image: lilnas-dev
+    command: -c "pnpm --filter=theater dev"
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ../..:/source
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.theater.rule=Host(`theater.localhost`)
+      - traefik.http.services.theater.loadbalancer.server.port=8080
