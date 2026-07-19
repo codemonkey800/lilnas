@@ -48,6 +48,7 @@
   "files": [
     "bin",
     "completions",
-    "dist"
+    "dist",
+    "src"
   ]
 }
