@@ -10,6 +10,7 @@ import { CommandPollerService } from 'src/commands/command-poller.service'
 import { BotLifecycleService } from './bot-lifecycle.service'
 import { ClearCommandService } from './clear-command.service'
 import { CompositeAcpHandler } from './composite-acp-handler'
+import { ContextCommandService } from './context-command.service'
 import { ContextUsageService } from './context-usage.service'
 import { DiscordHandlerService } from './discord-handler.service'
 import { NotifyEmitterService } from './notify-emitter.service'
@@ -37,6 +38,7 @@ import { StopButtonService } from './stop-button.service'
     StopButtonService,
     PlanApprovalButtonService,
     ClearCommandService,
+    ContextCommandService,
     NotifyEmitterService,
   ],
 })

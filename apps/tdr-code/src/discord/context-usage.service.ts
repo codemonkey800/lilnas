@@ -50,6 +50,12 @@ function buildSeedPrompt(summary: string): string {
 interface ContextUsageState {
   notifiedThreshold: 0 | Threshold
   handoffInFlight: boolean
+  lastUsage: { used: number; size: number } | null
+}
+
+export interface ChannelUsage {
+  used: number
+  size: number
 }
 
 interface ContinuationTarget {
@@ -94,8 +100,13 @@ export class ContextUsageService implements AcpEventHandlers {
     const state = this.channelState.get(channelId) ?? {
       notifiedThreshold: 0,
       handoffInFlight: false,
+      lastUsage: null,
     }
     this.channelState.set(channelId, state)
+    // Recorded unconditionally (ahead of the handoff-in-flight/threshold
+    // early-returns below) so /context always reflects the most recent
+    // usage_update, independent of whether it happened to cross a threshold.
+    state.lastUsage = { used, size }
 
     if (state.handoffInFlight) return
 
@@ -147,6 +158,13 @@ export class ContextUsageService implements AcpEventHandlers {
   // its own on first usage_update).
   resetChannel(channelId: string): void {
     this.channelState.delete(channelId)
+  }
+
+  // Returns the most recent usage_update seen for this channel, or null if
+  // none has arrived yet (dormant channel / no session started). Backs the
+  // /context command.
+  getUsage(channelId: string): ChannelUsage | null {
+    return this.channelState.get(channelId)?.lastUsage ?? null
   }
 
   // --- Handoff flow ---
