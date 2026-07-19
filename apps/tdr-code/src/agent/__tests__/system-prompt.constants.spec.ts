@@ -27,4 +27,11 @@ describe('BASE_SYSTEM_PROMPT', () => {
   it('leaves rule 2 (no Markdown tables) unchanged', () => {
     expect(BASE_SYSTEM_PROMPT).toContain('Never send Markdown tables')
   })
+
+  it('includes the no-snippets-unless-asked rule', () => {
+    expect(BASE_SYSTEM_PROMPT).toContain(
+      "Don't show full code snippets while reading or editing files",
+    )
+    expect(BASE_SYSTEM_PROMPT).toContain('only include one if explicitly asked')
+  })
 })
