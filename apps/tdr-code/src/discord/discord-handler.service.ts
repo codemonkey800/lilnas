@@ -21,6 +21,8 @@ import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
 import type {
   AcpEventHandlers,
   DiffContent,
+  PlanApprovalPresenter,
+  PlanApprovalRequest,
   PromptStartContext,
   ToolStatus,
 } from 'src/agent/agent.types'
@@ -32,8 +34,27 @@ import {
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { fetchChannel as fetchChannelUtil } from 'src/discord/fetch-channel'
 import { extractImages, MAX_IMAGE_BYTES } from 'src/discord/image-attachments'
+import { planApprovalButtonId } from 'src/discord/plan-approval-button-id'
 import { stopButtonId } from 'src/discord/stop-button-id'
 import { LOG_EVENTS } from 'src/logging/log-events'
+
+// User-facing suffix appended to the original plan message once its
+// Accept/Reject gate settles, for all four outcomes — see
+// PlanApprovalPresenter.settlePlanApprovalUi, called uniformly by
+// SessionManagerService.resolvePlanApproval (accepted/rejected, live or
+// reactivated) and cancel() (cancelled/superseded). Discord button clicks
+// (plan-approval-button.service.ts) only deferUpdate() and let this path
+// render the outcome — see that file's own comment.
+const PLAN_APPROVAL_OUTCOME_TEXT: Record<
+  'cancelled' | 'superseded' | 'accepted' | 'rejected',
+  string
+> = {
+  cancelled:
+    '⚠️ Session ended before you responded — this plan is no longer valid.',
+  superseded: '↩️ Cancelled — continuing with your follow-up message.',
+  accepted: '✅ Plan approved',
+  rejected: '❌ Plan rejected',
+}
 
 // Discord's hard limit on thread names is 100 chars; seed shorter to leave
 // headroom for the eventual title-based rename (U6).
@@ -113,6 +134,13 @@ interface ChannelState {
   workingMessage: Message | null
   workingMessageCreating: boolean
   currentTurnId: number
+  // Plan-mode support: the live Accept/Reject message for the most recent
+  // ExitPlanMode gate on this channel, if one is currently showing buttons.
+  // Cleared by settlePlanApprovalUi — the single path that edits this
+  // message for every outcome (accepted/rejected/cancelled/superseded), see
+  // that method's own comment — or overwritten by the next
+  // presentPlanApproval call.
+  pendingPlanApprovalMessage: { message: Message; toolCallId: string } | null
   // ACP splits a turn into text blocks separated by non-text events
   // (tool_call, tool_call_update, agent_message_image). Chunks within one
   // block stitch cleanly, but the first chunk of a fresh block after a
@@ -125,7 +153,7 @@ interface ChannelState {
 
 @Injectable()
 export class DiscordHandlerService
-  implements AcpEventHandlers, OnApplicationShutdown
+  implements AcpEventHandlers, PlanApprovalPresenter, OnApplicationShutdown
 {
   private readonly channelStates = new Map<string, ChannelState>()
   // Cleared-channel guard: channelId → cleared turnId watermark. Blocks late ACP
@@ -345,6 +373,91 @@ export class DiscordHandlerService
     })
   }
 
+  // --- PlanApprovalPresenter implementation ---
+
+  // Fire-and-forget send, mirroring sendWorkingMessage's shape (a standalone
+  // message with buttons, stored for later editing) — kept synchronous per
+  // this file's C1 discipline.
+  presentPlanApproval(req: PlanApprovalRequest): void {
+    void this.sendPlanApproval(req)
+  }
+
+  settlePlanApprovalUi(
+    channelId: string,
+    toolCallId: string,
+    outcome: 'cancelled' | 'superseded' | 'accepted' | 'rejected',
+  ): void {
+    void this.editPlanApprovalMessage(channelId, toolCallId, outcome)
+  }
+
+  private async sendPlanApproval(req: PlanApprovalRequest): Promise<void> {
+    const channel = await this.fetchChannel(req.channelId)
+    if (!channel) return
+
+    const acceptButton = new ButtonBuilder()
+      .setCustomId(
+        planApprovalButtonId(req.channelId, req.toolCallId, 'accept'),
+      )
+      .setLabel(
+        req.bypassAvailable
+          ? '✅ Accept & Bypass Permissions'
+          : '✅ Accept & Auto-Accept Edits',
+      )
+      .setStyle(ButtonStyle.Success)
+
+    const rejectButton = new ButtonBuilder()
+      .setCustomId(
+        planApprovalButtonId(req.channelId, req.toolCallId, 'reject'),
+      )
+      .setLabel('❌ No, Keep Planning')
+      .setStyle(ButtonStyle.Secondary)
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      acceptButton,
+      rejectButton,
+    )
+
+    const msg = await channel
+      .send({
+        content: req.planText || '_(no plan text received)_',
+        components: [row],
+        allowedMentions: { parse: [] },
+      })
+      .catch(() => null)
+    if (!msg) return
+
+    const state = this.getOrCreateChannelState(req.channelId)
+    if (!state) {
+      // Channel was /clear'd while the send was in flight — don't leave a
+      // live-looking Accept/Reject message with nothing tracking it.
+      void msg.delete().catch(() => {})
+      return
+    }
+    state.pendingPlanApprovalMessage = {
+      message: msg,
+      toolCallId: req.toolCallId,
+    }
+  }
+
+  private async editPlanApprovalMessage(
+    channelId: string,
+    toolCallId: string,
+    outcome: 'cancelled' | 'superseded' | 'accepted' | 'rejected',
+  ): Promise<void> {
+    const state = this.channelStates.get(channelId)
+    const pending = state?.pendingPlanApprovalMessage
+    if (!pending || pending.toolCallId !== toolCallId) return
+    if (state) state.pendingPlanApprovalMessage = null
+
+    await pending.message
+      .edit({
+        content: `${pending.message.content}\n\n${PLAN_APPROVAL_OUTCOME_TEXT[outcome]}`,
+        components: [],
+        allowedMentions: { parse: [] },
+      })
+      .catch(() => {})
+  }
+
   // --- Discord event handlers ---
 
   @On(Events.MessageCreate)
@@ -524,6 +637,13 @@ export class DiscordHandlerService
           .edit({ components: [], allowedMentions: { parse: [] } })
           .catch(() => {})
       }
+      // Same for a live plan-approval message — /clear mid-plan shouldn't
+      // leave clickable-looking Accept/Reject buttons behind.
+      if (state.pendingPlanApprovalMessage) {
+        void state.pendingPlanApprovalMessage.message
+          .edit({ components: [], allowedMentions: { parse: [] } })
+          .catch(() => {})
+      }
       this.channelStates.delete(channelId)
     }
     // Stamp watermark: block late ACP events from this turn (or 0 if no active
@@ -613,6 +733,7 @@ export class DiscordHandlerService
         workingMessageCreating: false,
         currentTurnId: 0,
         sawNonTextEvent: false,
+        pendingPlanApprovalMessage: null,
       }
       this.channelStates.set(channelId, state)
     }

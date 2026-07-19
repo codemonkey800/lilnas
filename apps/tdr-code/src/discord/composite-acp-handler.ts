@@ -4,6 +4,8 @@ import { PinoLogger } from 'nestjs-pino'
 import type {
   AcpEventHandlers,
   DiffContent,
+  PlanApprovalPresenter,
+  PlanApprovalRequest,
   PromptStartContext,
 } from 'src/agent/agent.types'
 import { errorCode } from 'src/agent/error-code'
@@ -47,12 +49,19 @@ import { SqliteWriterService } from './sqlite-writer.service'
 // ──────────────────────────────────────────────────────────────────────────────
 
 @Injectable()
-export class CompositeAcpHandler implements AcpEventHandlers {
+export class CompositeAcpHandler
+  implements AcpEventHandlers, PlanApprovalPresenter
+{
   private readonly generationId: number | null
-  // Typed as AcpEventHandlers so TypeScript resolves method calls against the
-  // interface (all params present) — the concrete classes may have fewer params.
-  private readonly discord: AcpEventHandlers
-  private readonly writer: AcpEventHandlers
+  // Typed as AcpEventHandlers & PlanApprovalPresenter so TypeScript resolves
+  // method calls against the interfaces (all params present) — the concrete
+  // classes may have fewer params. Both DiscordHandlerService and
+  // SqliteWriterService implement both interfaces (PLAN_APPROVAL_PRESENTER
+  // binds to this class, not directly to DiscordHandlerService, precisely so
+  // the plan-approval events get the same dual fan-out as every other ACP
+  // event here — see presentPlanApproval/settlePlanApprovalUi below).
+  private readonly discord: AcpEventHandlers & PlanApprovalPresenter
+  private readonly writer: AcpEventHandlers & PlanApprovalPresenter
   private readonly contextUsage: AcpEventHandlers
   // U3: channelId -> sessions.id, seeded by onPromptStart (the only method
   // that receives sessionRowId). Never cleared on session end — a stale
@@ -93,6 +102,7 @@ export class CompositeAcpHandler implements AcpEventHandlers {
     status: string,
     diffs: DiffContent[],
     rawInput?: Record<string, unknown>,
+    planText?: string,
   ): void {
     try {
       this.discord.onToolCall(
@@ -103,6 +113,7 @@ export class CompositeAcpHandler implements AcpEventHandlers {
         status,
         diffs,
         rawInput,
+        planText,
       )
     } catch (err) {
       this.logDiscordError(err, 'onToolCall', channelId)
@@ -116,6 +127,7 @@ export class CompositeAcpHandler implements AcpEventHandlers {
         status,
         diffs,
         rawInput,
+        planText,
       )
       this.notifySession(channelId)
     } catch (err) {
@@ -283,6 +295,45 @@ export class CompositeAcpHandler implements AcpEventHandlers {
       this.writer.onGitOperationBlocked(channelId, kind, reason)
     } catch (err) {
       this.handleWriterError(err, 'onGitOperationBlocked', channelId)
+    }
+  }
+
+  // Plan-mode support — mirrors onGitOperationBlocked's exact shape: always
+  // fan out to both regardless of what either side does with it.
+  // DiscordHandlerService renders the buttons; SqliteWriterService no-ops
+  // here (the plan text is already captured via the ordinary onToolCall
+  // persistence above — see its own comment).
+  presentPlanApproval(req: PlanApprovalRequest): void {
+    try {
+      this.discord.presentPlanApproval(req)
+    } catch (err) {
+      this.logDiscordError(err, 'presentPlanApproval', req.channelId)
+    }
+    try {
+      this.writer.presentPlanApproval(req)
+    } catch (err) {
+      this.handleWriterError(err, 'presentPlanApproval', req.channelId)
+    }
+  }
+
+  // Fires for every settle path — a live/reactivated button click
+  // ('accepted'/'rejected'), Stop ('cancelled'), or a superseding follow-up
+  // message ('superseded') — so SqliteWriterService always gets a chance to
+  // patch the persisted planOutcome regardless of how the gate closed.
+  settlePlanApprovalUi(
+    channelId: string,
+    toolCallId: string,
+    outcome: 'cancelled' | 'superseded' | 'accepted' | 'rejected',
+  ): void {
+    try {
+      this.discord.settlePlanApprovalUi(channelId, toolCallId, outcome)
+    } catch (err) {
+      this.logDiscordError(err, 'settlePlanApprovalUi', channelId)
+    }
+    try {
+      this.writer.settlePlanApprovalUi(channelId, toolCallId, outcome)
+    } catch (err) {
+      this.handleWriterError(err, 'settlePlanApprovalUi', channelId)
     }
   }
 

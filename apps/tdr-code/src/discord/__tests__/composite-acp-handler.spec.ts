@@ -3,6 +3,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { createLoggerSpy, LoggerSpy } from 'src/__tests__/test-utils'
 import type {
   AcpEventHandlers,
+  PlanApprovalPresenter,
   PromptStartContext,
 } from 'src/agent/agent.types'
 import { CompositeAcpHandler } from 'src/discord/composite-acp-handler'
@@ -20,7 +21,9 @@ function makeLogger(): PinoLogger {
 
 // Minimal mocks for DiscordHandlerService, SqliteWriterService, and
 // ContextUsageService.
-function makeDiscordMock(): jest.Mocked<AcpEventHandlers> {
+function makeDiscordMock(): jest.Mocked<
+  AcpEventHandlers & PlanApprovalPresenter
+> {
   return {
     onToolCall: jest.fn(),
     onToolCallUpdate: jest.fn(),
@@ -32,10 +35,14 @@ function makeDiscordMock(): jest.Mocked<AcpEventHandlers> {
     onResumeFailed: jest.fn(),
     onUsageUpdate: jest.fn(),
     onGitOperationBlocked: jest.fn(),
+    presentPlanApproval: jest.fn(),
+    settlePlanApprovalUi: jest.fn(),
   }
 }
 
-function makeWriterMock(): jest.Mocked<AcpEventHandlers> {
+function makeWriterMock(): jest.Mocked<
+  AcpEventHandlers & PlanApprovalPresenter
+> {
   return {
     onToolCall: jest.fn(),
     onToolCallUpdate: jest.fn(),
@@ -47,6 +54,8 @@ function makeWriterMock(): jest.Mocked<AcpEventHandlers> {
     onResumeFailed: jest.fn(),
     onUsageUpdate: jest.fn(),
     onGitOperationBlocked: jest.fn(),
+    presentPlanApproval: jest.fn(),
+    settlePlanApprovalUi: jest.fn(),
   }
 }
 
@@ -107,8 +116,8 @@ function makeDbMock() {
 
 type CompositeCtor = {
   new (
-    discord: AcpEventHandlers,
-    writer: AcpEventHandlers,
+    discord: AcpEventHandlers & PlanApprovalPresenter,
+    writer: AcpEventHandlers & PlanApprovalPresenter,
     contextUsage: AcpEventHandlers,
     db: unknown,
     logger: PinoLogger,
@@ -117,8 +126,8 @@ type CompositeCtor = {
 }
 
 function makeComposite(
-  discord: AcpEventHandlers,
-  writer: AcpEventHandlers,
+  discord: AcpEventHandlers & PlanApprovalPresenter,
+  writer: AcpEventHandlers & PlanApprovalPresenter,
   contextUsage: AcpEventHandlers = makeContextUsageMock(),
   notifyEmitter: Pick<NotifyEmitterService, 'notify'> = makeNotifyEmitterMock(),
 ) {
@@ -311,6 +320,65 @@ describe('CompositeAcpHandler (B2 — synchronous fan-out)', () => {
         'ch1',
         'ssh',
         'decrypt_failed',
+      )
+    })
+
+    // Plan-mode support: PlanApprovalPresenter fan-out mirrors
+    // onGitOperationBlocked's exact shape (always fan out to both regardless
+    // of what either side does with it) — see composite-acp-handler.ts's own
+    // comment on why PLAN_APPROVAL_PRESENTER binds here rather than directly
+    // to DiscordHandlerService.
+    it('presentPlanApproval forwards to both Discord and SQLite handlers', () => {
+      const discord = makeDiscordMock()
+      const writer = makeWriterMock()
+      const composite = makeComposite(discord, writer)
+
+      const req = {
+        channelId: 'ch1',
+        toolCallId: 'plan-1',
+        planText: 'Step 1: do the thing.',
+        bypassAvailable: true,
+      }
+      composite.presentPlanApproval(req)
+
+      expect(discord.presentPlanApproval).toHaveBeenCalledWith(req)
+      expect(writer.presentPlanApproval).toHaveBeenCalledWith(req)
+    })
+
+    it('settlePlanApprovalUi forwards to both Discord and SQLite handlers, for every outcome', () => {
+      const discord = makeDiscordMock()
+      const writer = makeWriterMock()
+      const composite = makeComposite(discord, writer)
+
+      composite.settlePlanApprovalUi('ch1', 'plan-1', 'accepted')
+
+      expect(discord.settlePlanApprovalUi).toHaveBeenCalledWith(
+        'ch1',
+        'plan-1',
+        'accepted',
+      )
+      expect(writer.settlePlanApprovalUi).toHaveBeenCalledWith(
+        'ch1',
+        'plan-1',
+        'accepted',
+      )
+    })
+
+    it('settlePlanApprovalUi: a writer fault does not prevent the Discord message edit from completing (fault isolation)', () => {
+      const discord = makeDiscordMock()
+      const writer = makeWriterMock()
+      writer.settlePlanApprovalUi.mockImplementation(() => {
+        throw new Error('writer fail')
+      })
+      const composite = makeComposite(discord, writer)
+
+      expect(() =>
+        composite.settlePlanApprovalUi('ch1', 'plan-1', 'cancelled'),
+      ).not.toThrow()
+      expect(discord.settlePlanApprovalUi).toHaveBeenCalledWith(
+        'ch1',
+        'plan-1',
+        'cancelled',
       )
     })
 

@@ -223,6 +223,13 @@ export class SessionsService {
           title: payload.title,
           toolKind: payload.toolKind,
           status: payload.status,
+          // Plan-mode support: only present for a switch_mode (ExitPlanMode)
+          // tool call — see ToolCallPayload's own comment. planText reuses
+          // the diff preview's truncation cap/helper rather than a new one.
+          planText: payload.planText
+            ? truncateDiffText(payload.planText).text
+            : undefined,
+          planOutcome: payload.planOutcome,
         }
       case 'diff': {
         const newText = truncateDiffText(payload.newText)

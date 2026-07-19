@@ -7,8 +7,14 @@ import { Test } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
 
 import { createAcpClient } from 'src/agent/acp-client'
-import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
-import type { AcpEventHandlers } from 'src/agent/agent.types'
+import {
+  ACP_EVENT_HANDLERS,
+  PLAN_APPROVAL_PRESENTER,
+} from 'src/agent/agent.module'
+import type {
+  AcpEventHandlers,
+  PlanApprovalPresenter,
+} from 'src/agent/agent.types'
 import { globalGitWriteLock } from 'src/agent/git-write-lock'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { BASE_SYSTEM_PROMPT } from 'src/agent/system-prompt.constants'
@@ -198,10 +204,18 @@ function injectSessionWithRowId(
 type CtorWith2 = {
   new (
     h: AcpEventHandlers,
+    planPresenter: PlanApprovalPresenter,
     db: unknown,
     logger: PinoLogger,
     notifyEmitter: Pick<NotifyEmitterService, 'notify'>,
   ): SessionManagerService
+}
+
+function makePlanPresenter(): jest.Mocked<PlanApprovalPresenter> {
+  return {
+    presentPlanApproval: jest.fn(),
+    settlePlanApprovalUi: jest.fn(),
+  }
 }
 
 function makeLogger(): PinoLogger {
@@ -348,6 +362,7 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
 
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -366,6 +381,7 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
 
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -389,6 +405,7 @@ describe('SessionManagerService — teardown abort signal (U1, R4)', () => {
       providers: [
         SessionManagerService,
         { provide: ACP_EVENT_HANDLERS, useValue: handlers },
+        { provide: PLAN_APPROVAL_PRESENTER, useValue: makePlanPresenter() },
         { provide: DB, useValue: makeDbMock() },
         { provide: PinoLogger, useValue: makeLogger() },
         { provide: NotifyEmitterService, useValue: makeNotifyEmitterMock() },
@@ -440,6 +457,7 @@ describe('SessionManagerService — session-lifecycle DB writes (U2, U5)', () =>
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -460,6 +478,7 @@ describe('SessionManagerService — session-lifecycle DB writes (U2, U5)', () =>
     const notifyEmitter = makeNotifyEmitterMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       notifyEmitter,
@@ -480,6 +499,7 @@ describe('SessionManagerService — session-lifecycle DB writes (U2, U5)', () =>
     })
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -499,6 +519,7 @@ describe('SessionManagerService — session-lifecycle DB writes (U2, U5)', () =>
     const notifyEmitter = makeNotifyEmitterMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       notifyEmitter,
@@ -517,6 +538,7 @@ describe('SessionManagerService — session-lifecycle DB writes (U2, U5)', () =>
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -538,6 +560,7 @@ describe('SessionManagerService — session-lifecycle DB writes (U2, U5)', () =>
     const notifyEmitter = makeNotifyEmitterMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       notifyEmitter,
@@ -579,6 +602,7 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
     const db = makeDbMock(1)
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -600,6 +624,7 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
     const db = makeDbMock(0)
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -616,6 +641,7 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
     const db = makeDbMock(1)
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -639,6 +665,7 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
     const db = makeDbMock(1)
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -658,6 +685,7 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
     const notifyEmitter = makeNotifyEmitterMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       notifyEmitter,
@@ -682,6 +710,7 @@ describe('SessionManagerService — live_status heartbeat lifecycle (U5)', () =>
     const notifyEmitter = makeNotifyEmitterMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       notifyEmitter,
@@ -764,6 +793,7 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -821,6 +851,7 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -870,6 +901,7 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -901,6 +933,7 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -922,6 +955,7 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -960,12 +994,14 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     const dbB = makeDbMock()
     const serviceA = new (SessionManagerService as unknown as CtorWith2)(
       handlersA,
+      makePlanPresenter(),
       dbA,
       makeLogger(),
       makeNotifyEmitterMock(),
     )
     const serviceB = new (SessionManagerService as unknown as CtorWith2)(
       handlersB,
+      makePlanPresenter(),
       dbB,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1058,12 +1094,14 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     const dbB = makeDbMock()
     const serviceA = new (SessionManagerService as unknown as CtorWith2)(
       handlersA,
+      makePlanPresenter(),
       dbA,
       makeLogger(),
       makeNotifyEmitterMock(),
     )
     const serviceB = new (SessionManagerService as unknown as CtorWith2)(
       handlersB,
+      makePlanPresenter(),
       dbB,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1182,6 +1220,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1226,6 +1265,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1259,6 +1299,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1295,6 +1336,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1318,6 +1360,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     const logger = makeLogger()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       logger,
       makeNotifyEmitterMock(),
@@ -1353,6 +1396,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     const notifyEmitter = makeNotifyEmitterMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       notifyEmitter,
@@ -1376,6 +1420,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     const notifyEmitter = makeNotifyEmitterMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       notifyEmitter,
@@ -1402,6 +1447,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
       const db = makeDbMock()
       const service = new (SessionManagerService as unknown as CtorWith2)(
         handlers,
+        makePlanPresenter(),
         db,
         makeLogger(),
         makeNotifyEmitterMock(),
@@ -1416,6 +1462,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
       const db = makeDbMock()
       const service = new (SessionManagerService as unknown as CtorWith2)(
         handlers,
+        makePlanPresenter(),
         db,
         makeLogger(),
         makeNotifyEmitterMock(),
@@ -1474,6 +1521,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1525,6 +1573,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const logger = makeLogger()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       logger,
       makeNotifyEmitterMock(),
@@ -1577,6 +1626,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1627,6 +1677,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1657,6 +1708,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1684,6 +1736,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1708,6 +1761,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1761,6 +1815,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1823,6 +1878,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1884,6 +1940,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
       const db = makeDbMock()
       const service = new (SessionManagerService as unknown as CtorWith2)(
         handlers,
+        makePlanPresenter(),
         db,
         makeLogger(),
         makeNotifyEmitterMock(),
@@ -1941,6 +1998,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -1989,6 +2047,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -2054,6 +2113,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -2133,6 +2193,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -2168,6 +2229,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     const db = makeDbMock()
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -2232,6 +2294,7 @@ describe('SessionManagerService — system prompt composition (U2, R4/R5/R6/R7)'
     })
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -2260,6 +2323,7 @@ describe('SessionManagerService — system prompt composition (U2, R4/R5/R6/R7)'
     const db = makeDbMock(0, { customSystemPrompt: '   \n  ' })
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -2285,6 +2349,7 @@ describe('SessionManagerService — system prompt composition (U2, R4/R5/R6/R7)'
     const db = makeDbMock(0, { customSystemPrompt: custom })
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -2313,6 +2378,7 @@ describe('SessionManagerService — system prompt composition (U2, R4/R5/R6/R7)'
     const db = makeDbMock(0, { customSystemPrompt: custom })
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),

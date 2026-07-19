@@ -2,7 +2,11 @@ import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import path from 'node:path'
 import { Readable, Writable } from 'node:stream'
 
-import type { InitializeResponse } from '@agentclientprotocol/sdk'
+import type {
+  InitializeResponse,
+  PermissionOption,
+  RequestPermissionResponse,
+} from '@agentclientprotocol/sdk'
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -33,10 +37,12 @@ import { LOG_EVENTS } from 'src/logging/log-events'
 import { sessionTopic } from 'src/sse/sse.types'
 
 import { createAcpClient } from './acp-client'
-import { ACP_EVENT_HANDLERS } from './agent.module'
+import { ACP_EVENT_HANDLERS, PLAN_APPROVAL_PRESENTER } from './agent.module'
 import type {
   AcpEventHandlers,
   ImageAttachment,
+  PlanApprovalDecision,
+  PlanApprovalPresenter,
   PromptOutcome,
 } from './agent.types'
 import { errorCode } from './error-code'
@@ -56,6 +62,46 @@ import { BASE_SYSTEM_PROMPT } from './system-prompt.constants'
 // the channel behind the U8 pending-guard forever.
 const LOAD_SESSION_TIMEOUT_MS = 30_000
 
+// Plan-mode support: how long a presented plan-approval gate waits for an
+// Accept/Reject click before the underlying session/process is torn down to
+// free its concurrency slot. Deliberately separate from idleTimeoutSec —
+// that timer is paused for the whole duration of a turn (see
+// executePrompt's clearTimeout(session.idleTimer) at prologue), which
+// includes this wait, so without a dedicated timer nothing would ever
+// reclaim a session stuck on an unanswered plan. The Discord message/buttons
+// are left untouched when this fires — see demotePendingPlanApproval — so a
+// later click still works via reactivation (resolvePlanApproval).
+const PLAN_APPROVAL_TIMEOUT_MS = 10 * 60 * 1000
+
+// Maps a plan-approval decision to the actual ACP permission optionId to
+// resolve with, from the specific options the agent subprocess actually
+// offered for this gate (captured on the RequestPermissionRequest — see
+// handlePlanApprovalNeeded). 'accept' prefers bypassPermissions (per the
+// product decision: Accept always means "bypass permissions"), falling back
+// to acceptEdits if the subprocess didn't offer bypass (e.g. running as
+// root without IS_SANDBOX — see claude-agent-acp's ALLOW_BYPASS gate).
+// 'reject' uses the wrapper's own "No, keep planning" option. The final `??`
+// fallbacks in each branch are defensive only — the wrapper always offers
+// acceptEdits/plan among ExitPlanMode's options; they should never trigger.
+function pickPlanOptionId(
+  decision: PlanApprovalDecision,
+  options: PermissionOption[],
+): string {
+  if (decision === 'accept') {
+    return (
+      options.find(o => o.optionId === 'bypassPermissions')?.optionId ??
+      options.find(o => o.optionId === 'acceptEdits')?.optionId ??
+      options[0]?.optionId ??
+      'acceptEdits'
+    )
+  }
+  return (
+    options.find(o => o.optionId === 'plan')?.optionId ??
+    options[options.length - 1]?.optionId ??
+    'plan'
+  )
+}
+
 interface ManagedSession {
   channelId: string
   process: ChildProcess
@@ -74,6 +120,18 @@ interface ManagedSession {
   // turn can short-circuit before connection.prompt (Decision #5). Reset at
   // the top of executePrompt's synchronous prologue alongside C3 turnId mint.
   cancelRequested: boolean
+  // Plan-mode support: set while an ExitPlanMode requestPermission gate is
+  // held open (see handlePlanApprovalNeeded), null otherwise. `resolve`
+  // settles the live ACP call; `timer` is the PLAN_APPROVAL_TIMEOUT_MS
+  // watchdog. Cleared by resolvePlanApproval (button click), cancel()
+  // (Stop / follow-up-message supersede), or demotePendingPlanApproval
+  // (session torn down for any reason while still pending).
+  pendingPlanApproval: {
+    toolCallId: string
+    options: PermissionOption[]
+    resolve: (r: RequestPermissionResponse) => void
+    timer: NodeJS.Timeout
+  } | null
 }
 
 // U8: One entry per channel with an in-flight getOrCreate attempt (fresh
@@ -92,6 +150,18 @@ export class SessionManagerService implements OnApplicationShutdown {
   private readonly sessions = new Map<string, ManagedSession>()
   // U8: per-channel in-flight create/reactivate guard — see PendingSession.
   private readonly pendingSessions = new Map<string, PendingSession>()
+  // Plan-mode support: channelId -> the plan-approval gate's toolCallId +
+  // triggering userId, populated by demotePendingPlanApproval when a session
+  // dies (any reason) while a plan approval was still pending. Survives
+  // ManagedSession's own deletion (unlike ManagedSession.pendingPlanApproval)
+  // so a later Accept/Reject click can still be honored via reactivation —
+  // see resolvePlanApproval. Does not survive a full bot-process restart
+  // (in-memory only) — a click against a stale entry after that falls
+  // through to the same 'stale' outcome as any other dead reference.
+  private readonly killedPlanApprovals = new Map<
+    string,
+    { toolCallId: string; activeUserId: string }
+  >()
   // Mutable — rereadConfig() replaces these at runtime without re-spawning.
   private maxConcurrentSessions: number
   private idleTimeoutSec: number
@@ -125,6 +195,8 @@ export class SessionManagerService implements OnApplicationShutdown {
 
   constructor(
     @Inject(ACP_EVENT_HANDLERS) private readonly handlers: AcpEventHandlers,
+    @Inject(PLAN_APPROVAL_PRESENTER)
+    private readonly planPresenter: PlanApprovalPresenter,
     @Inject(DB) private readonly db: Db,
     private readonly logger: PinoLogger,
     private readonly notifyEmitter: NotifyEmitterService,
@@ -245,6 +317,26 @@ export class SessionManagerService implements OnApplicationShutdown {
     session.lastActivity = Date.now()
     this.resetIdleTimer(session)
 
+    // A stale post-timeout marker for this channel no longer applies once a
+    // real new turn is about to run here — whether this call IS the
+    // resolvePlanApproval-driven "Plan approved"/"Plan rejected" follow-up
+    // (which already deleted its own entry before calling prompt(), making
+    // this a no-op) or the user simply sent something else instead of
+    // clicking a button.
+    this.killedPlanApprovals.delete(channelId)
+
+    // A follow-up message arriving while a plan-approval gate is still open
+    // on a LIVE session: cancel the in-flight turn (same mechanism as the
+    // Stop button) rather than let this message sit queued behind an
+    // indefinite wait. The turn unwinds via its normal success path
+    // (stopReason: 'cancelled', not a throw — see connection.cancel()'s
+    // documented behavior), then this message drains automatically as the
+    // very next turn once prompting flips back to false in executePrompt's
+    // finally block — no new queueing logic needed.
+    if (session.pendingPlanApproval) {
+      this.cancel(channelId, undefined, 'superseded')
+    }
+
     const usableImages = session.imageCapable ? images : []
     if (images.length > 0 && usableImages.length === 0) {
       this.logger.debug(
@@ -272,7 +364,15 @@ export class SessionManagerService implements OnApplicationShutdown {
 
   // C2: Await-free ordered guard — all reads + queue clear are synchronous so
   // nothing can mutate prompting/currentTurnId between the checks and the clear.
-  cancel(channelId: string, turnId?: number): boolean {
+  // planSettleReason: which Discord-facing wording a pending plan-approval
+  // gate (if any) is settled with — 'cancelled' for a real Stop-button press
+  // (StopButtonService never passes this, so it defaults there), 'superseded'
+  // for the prompt()-driven follow-up-message path above.
+  cancel(
+    channelId: string,
+    turnId?: number,
+    planSettleReason: 'cancelled' | 'superseded' = 'cancelled',
+  ): boolean {
     const logResult = (cancelled: boolean): boolean => {
       this.logger.info(
         { event: LOG_EVENTS.cancelRequested, channelId, turnId, cancelled },
@@ -285,6 +385,23 @@ export class SessionManagerService implements OnApplicationShutdown {
     if (!session.prompting) return logResult(false)
     if (turnId !== undefined && turnId !== session.currentTurnId)
       return logResult(false)
+
+    // Settle a still-live plan-approval gate before anything else — the
+    // session stays alive here (connection.cancel() below just interrupts
+    // the turn), so this always resolves the real held-open ACP request
+    // rather than going through the killedPlanApprovals/reactivation path.
+    if (session.pendingPlanApproval) {
+      const pending = session.pendingPlanApproval
+      clearTimeout(pending.timer)
+      session.pendingPlanApproval = null
+      pending.resolve({ outcome: { outcome: 'cancelled' } })
+      this.planPresenter.settlePlanApprovalUi(
+        channelId,
+        pending.toolCallId,
+        planSettleReason,
+      )
+    }
+
     session.queue = []
     // U8: signal the lock-acquire/identity-application window to abort before
     // connection.prompt (Decision #5). The flag is reset synchronously at the
@@ -317,6 +434,11 @@ export class SessionManagerService implements OnApplicationShutdown {
       'Session teardown requested',
     )
     clearTimeout(session.idleTimer)
+    // Plan-mode support: preserve a still-pending plan approval across this
+    // teardown (any reason — idle/plan-timeout eviction, explicit teardown,
+    // bot shutdown) so a later Accept/Reject click can still be honored via
+    // reactivation. See demotePendingPlanApproval's own comment.
+    this.demotePendingPlanApproval(session)
     // Always signal onPromptComplete on teardown so the handler stops typing and
     // finalizes any in-flight turn. Both DiscordHandlerService and SqliteWriterService
     // guard on active state and return early when no turn is open, making this safe to
@@ -376,6 +498,200 @@ export class SessionManagerService implements OnApplicationShutdown {
 
   isPrompting(channelId: string): boolean {
     return this.sessions.get(channelId)?.prompting ?? false
+  }
+
+  // --- Plan-mode support ---
+
+  // acp-client.ts's requestPermission() calls this instead of auto-picking
+  // options[0] whenever the gate is an ExitPlanMode switch_mode request. The
+  // returned promise is held open — by acp-client's own await — for as long
+  // as it takes a human to click Accept/Reject, arbitrarily long (the ACP
+  // SDK's requestPermission has no built-in timeout), bounded only by
+  // PLAN_APPROVAL_TIMEOUT_MS below.
+  private handlePlanApprovalNeeded(args: {
+    channelId: string
+    toolCallId: string
+    planText: string
+    options: PermissionOption[]
+  }): Promise<RequestPermissionResponse> {
+    const session = this.sessions.get(args.channelId)
+    if (!session) {
+      // Shouldn't happen — this gate only fires mid-turn, and a live turn
+      // implies a live session — but fail safe rather than hang the ACP
+      // call forever if it somehow does.
+      return Promise.resolve({ outcome: { outcome: 'cancelled' } })
+    }
+
+    return new Promise<RequestPermissionResponse>(resolve => {
+      const timer = setTimeout(() => {
+        this.onPlanApprovalTimeout(args.channelId, args.toolCallId)
+      }, PLAN_APPROVAL_TIMEOUT_MS)
+
+      session.pendingPlanApproval = {
+        toolCallId: args.toolCallId,
+        options: args.options,
+        resolve,
+        timer,
+      }
+
+      const bypassAvailable = args.options.some(
+        o => o.optionId === 'bypassPermissions',
+      )
+      this.logger.info(
+        {
+          event: LOG_EVENTS.planApprovalPresented,
+          channelId: args.channelId,
+          toolCallId: args.toolCallId,
+          bypassAvailable,
+        },
+        'Plan approval presented',
+      )
+      this.planPresenter.presentPlanApproval({
+        channelId: args.channelId,
+        toolCallId: args.toolCallId,
+        planText: args.planText,
+        bypassAvailable,
+      })
+    })
+  }
+
+  // PLAN_APPROVAL_TIMEOUT_MS elapsed with no button click. Tears the session
+  // down to free its concurrency slot (idle timeout and eviction both leave
+  // a plan-pending session alone forever otherwise — see PLAN_APPROVAL_TIMEOUT_MS's
+  // own comment), but teardown()'s call to demotePendingPlanApproval
+  // preserves the pending approval for a later reactivation-driven click —
+  // the Discord message/buttons are never touched here.
+  private onPlanApprovalTimeout(channelId: string, toolCallId: string): void {
+    const session = this.sessions.get(channelId)
+    if (
+      !session?.pendingPlanApproval ||
+      session.pendingPlanApproval.toolCallId !== toolCallId
+    ) {
+      return // already resolved/superseded by something else
+    }
+    this.logger.info(
+      { event: LOG_EVENTS.planApprovalTimedOut, channelId, toolCallId },
+      'Plan approval timed out — tearing down session',
+    )
+    this.teardown(channelId, 'evicted', { reason: 'plan_approval_timeout' })
+  }
+
+  // Called immediately before a session is removed from `this.sessions` for
+  // ANY reason (clean teardown, idle/plan-timeout eviction, explicit
+  // teardown, or an unexpected process death) while a plan approval is still
+  // pending. Moves it into killedPlanApprovals (keyed by channelId, carrying
+  // the original triggering user so a later reactivation-driven "Plan
+  // approved"/"Plan rejected" follow-up is attributed correctly — see
+  // resolvePlanApproval) so a later Accept/Reject click can still be
+  // honored. Resolves the in-memory promise as a harmless no-op — nothing is
+  // listening once the process is gone either way — purely so nothing holds
+  // a dangling reference. Deliberately does NOT touch the Discord message:
+  // the buttons are left exactly as they are so a dead session looks
+  // identical to a live one until someone actually clicks (R: seamless).
+  private demotePendingPlanApproval(session: ManagedSession): void {
+    const pending = session.pendingPlanApproval
+    if (!pending) return
+    clearTimeout(pending.timer)
+    session.pendingPlanApproval = null
+    this.killedPlanApprovals.set(session.channelId, {
+      toolCallId: pending.toolCallId,
+      activeUserId: session.activeUserId,
+    })
+    pending.resolve({ outcome: { outcome: 'cancelled' } })
+  }
+
+  // Unified Accept/Reject resolution for plan-approval-button.service.ts —
+  // handles both a still-live gate (resolve the real held-open ACP request
+  // directly) and a gate whose session was killed by the timeout/a crash/an
+  // explicit teardown (reactivate via loadSession replay, then send
+  // "Plan approved"/"Plan rejected" as a normal follow-up prompt). Both
+  // paths are indistinguishable from the clicking user's side — the caller
+  // renders the same outcome text for 'resolved_live' and
+  // 'resolved_reactivated'.
+  async resolvePlanApproval(
+    channelId: string,
+    toolCallId: string,
+    decision: PlanApprovalDecision,
+  ): Promise<
+    'resolved_live' | 'resolved_reactivated' | 'stale' | 'resume_failed'
+  > {
+    const session = this.sessions.get(channelId)
+    if (session?.pendingPlanApproval?.toolCallId === toolCallId) {
+      const pending = session.pendingPlanApproval
+      clearTimeout(pending.timer)
+      session.pendingPlanApproval = null
+      const optionId = pickPlanOptionId(decision, pending.options)
+      pending.resolve({ outcome: { outcome: 'selected', optionId } })
+      // Drives both the Discord message edit (in place of the removed direct
+      // interaction.editReply — see plan-approval-button.service.ts) and the
+      // SQLite planOutcome persist, via CompositeAcpHandler's
+      // PlanApprovalPresenter fan-out.
+      this.planPresenter.settlePlanApprovalUi(
+        channelId,
+        toolCallId,
+        decision === 'accept' ? 'accepted' : 'rejected',
+      )
+      this.logger.info(
+        {
+          event: LOG_EVENTS.planApprovalResolvedLive,
+          channelId,
+          toolCallId,
+          decision,
+          optionId,
+        },
+        'Plan approval resolved (live)',
+      )
+      return 'resolved_live'
+    }
+
+    const killed = this.killedPlanApprovals.get(channelId)
+    if (killed?.toolCallId === toolCallId) {
+      this.killedPlanApprovals.delete(channelId)
+      try {
+        // prompt() internally reactivates (or silently falls back to a
+        // fresh session if loadSession itself fails — see
+        // createOrReactivateSession/onResumeFailed, which already posts its
+        // own Discord notice in that case) — a throw here means the session
+        // genuinely couldn't be recreated at all (e.g. spawn failure, all
+        // sessions busy), not merely "resumed without history".
+        await this.prompt(
+          channelId,
+          decision === 'accept' ? 'Plan approved' : 'Plan rejected',
+          killed.activeUserId,
+          [],
+        )
+      } catch (err) {
+        this.logger.error(
+          {
+            event: LOG_EVENTS.planApprovalReactivationFailed,
+            err,
+            channelId,
+            toolCallId,
+          },
+          'Plan-approval reactivation failed',
+        )
+        return 'resume_failed'
+      }
+      // Same fan-out as the live path above — the message/persistence side
+      // doesn't distinguish live vs. reactivated (that's the whole point).
+      this.planPresenter.settlePlanApprovalUi(
+        channelId,
+        toolCallId,
+        decision === 'accept' ? 'accepted' : 'rejected',
+      )
+      this.logger.info(
+        {
+          event: LOG_EVENTS.planApprovalResolvedReactivated,
+          channelId,
+          toolCallId,
+          decision,
+        },
+        'Plan approval resolved (reactivated)',
+      )
+      return 'resolved_reactivated'
+    }
+
+    return 'stale'
   }
 
   onApplicationShutdown(): void {
@@ -857,6 +1173,7 @@ export class SessionManagerService implements OnApplicationShutdown {
       queue: [],
       activeUserId: userId,
       cancelRequested: false,
+      pendingPlanApproval: null,
     }
 
     this.sessions.set(channelId, managed)
@@ -1028,6 +1345,7 @@ export class SessionManagerService implements OnApplicationShutdown {
       queue: [],
       activeUserId: userId,
       cancelRequested: false,
+      pendingPlanApproval: null,
     }
 
     this.sessions.set(channelId, managed)
@@ -1117,6 +1435,8 @@ export class SessionManagerService implements OnApplicationShutdown {
       const session = this.sessions.get(channelId)
       if (session?.process === proc) {
         clearTimeout(session.idleTimer)
+        // Plan-mode support — same rationale as teardown()'s own call.
+        this.demotePendingPlanApproval(session)
         // Mirror teardown's unconditional onPromptComplete signal so the handler
         // always stops typing even when the process dies unexpectedly.
         this.handlers.onPromptComplete(channelId, 'aborted')
@@ -1170,6 +1490,8 @@ export class SessionManagerService implements OnApplicationShutdown {
       const session = this.sessions.get(channelId)
       if (session?.process === proc) {
         clearTimeout(session.idleTimer)
+        // Plan-mode support — same rationale as teardown()'s own call.
+        this.demotePendingPlanApproval(session)
         // Mirror teardown's unconditional onPromptComplete signal (same as proc.on('error')).
         this.handlers.onPromptComplete(channelId, 'aborted')
         this.sessions.delete(channelId)
@@ -1214,7 +1536,12 @@ export class SessionManagerService implements OnApplicationShutdown {
         Readable.toWeb(proc.stdout!) as ReadableStream<Uint8Array>,
       )
 
-      const client = createAcpClient(channelId, this.handlers, isReplaying)
+      const client = createAcpClient(
+        channelId,
+        this.handlers,
+        isReplaying,
+        args => this.handlePlanApprovalNeeded(args),
+      )
       const connection = new ClientSideConnection(() => client, stream)
 
       const initResult = await connection.initialize({

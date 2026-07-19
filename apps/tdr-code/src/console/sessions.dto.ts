@@ -36,6 +36,12 @@ export const TurnContentBlockSchema = z.discriminatedUnion('kind', [
     title: z.string(),
     toolKind: z.string(),
     status: z.string(),
+    // Plan-mode support: only present for a switch_mode (ExitPlanMode) tool
+    // call — see ToolCallPayload's own comment in db/schema.ts.
+    planText: z.string().optional(),
+    planOutcome: z
+      .enum(['accepted', 'rejected', 'cancelled', 'superseded'])
+      .optional(),
   }),
   z.object({
     id: z.number().int(),

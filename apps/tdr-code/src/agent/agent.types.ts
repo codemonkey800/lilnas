@@ -10,6 +10,45 @@ export interface DiffContent {
   newText: string
 }
 
+// Plan-mode support: the ExitPlanMode gate surfaces as a `requestPermission`
+// call whose `toolCall.kind === 'switch_mode'` — acp-client.ts intercepts
+// that instead of auto-resolving it, and hands the plan text + raw options
+// off to whoever presents it (DiscordHandlerService). 'accept' always means
+// "bypass permissions" per R (falling back to acceptEdits if the agent
+// subprocess didn't offer bypass — see session-manager.service.ts); 'reject'
+// means "no, keep planning".
+export type PlanApprovalDecision = 'accept' | 'reject'
+
+export interface PlanApprovalRequest {
+  channelId: string
+  toolCallId: string
+  planText: string
+  // Whether the 'bypassPermissions' option was actually offered by the agent
+  // subprocess for this gate — lets the presenter label the Accept button
+  // honestly (it may silently resolve to 'acceptEdits' instead).
+  bypassAvailable: boolean
+}
+
+// Separate from AcpEventHandlers on purpose: every method on that interface
+// is synchronous fire-and-forget (CompositeAcpHandler's whole fan-out design
+// depends on that — see its header comment), whereas presenting a plan is
+// just "show it" (fire-and-forget, fits fine) but settling it after the
+// underlying session/process is gone is a distinct, narrower concern with no
+// natural home on the ACP event-fan-out interface.
+export interface PlanApprovalPresenter {
+  presentPlanApproval(req: PlanApprovalRequest): void
+  // Called when a pending approval is settled WITHOUT a button click (Stop
+  // pressed, the session torn down for any reason, or a follow-up message
+  // superseded it) so the Discord message can reflect that. `outcome` is
+  // display-only — the decision of what to actually resolve the ACP request
+  // with already happened in SessionManagerService before this fires.
+  settlePlanApprovalUi(
+    channelId: string,
+    toolCallId: string,
+    outcome: 'cancelled' | 'superseded' | 'accepted' | 'rejected',
+  ): void
+}
+
 export interface ImageAttachment {
   data: string
   mimeType: string
@@ -36,6 +75,11 @@ export interface AcpEventHandlers {
     status: string,
     diffs: DiffContent[],
     rawInput?: Record<string, unknown>,
+    // Plan-mode support: only present for a switch_mode (ExitPlanMode) tool
+    // call, carrying the plan markdown extracted off its content block (see
+    // acp-client.ts's extractPlanText). Additive/non-breaking — implementers
+    // that don't care about plan mode can ignore it entirely.
+    planText?: string,
   ): void
   // title/rawInput are only present when the ACP bridge resends a corrected
   // value once the tool's real input finishes streaming (e.g. Bash's command
@@ -48,6 +92,7 @@ export interface AcpEventHandlers {
     diffs: DiffContent[],
     rawInput?: Record<string, unknown>,
     title?: string,
+    planText?: string,
   ): void
   onAgentMessageChunk(channelId: string, text: string): void
   onAgentMessageImage(channelId: string, data: string, mimeType: string): void

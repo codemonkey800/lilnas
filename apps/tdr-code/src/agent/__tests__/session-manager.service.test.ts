@@ -6,8 +6,14 @@ import { ClientSideConnection } from '@agentclientprotocol/sdk'
 import { Test } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
 
-import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
-import type { AcpEventHandlers } from 'src/agent/agent.types'
+import {
+  ACP_EVENT_HANDLERS,
+  PLAN_APPROVAL_PRESENTER,
+} from 'src/agent/agent.module'
+import type {
+  AcpEventHandlers,
+  PlanApprovalPresenter,
+} from 'src/agent/agent.types'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import * as claudeProcessRepo from 'src/db/claude-process.repo'
 import { DB } from 'src/db/database.module'
@@ -174,11 +180,19 @@ function makeNotifyEmitterMock(): jest.Mocked<
   return { notify: jest.fn() }
 }
 
+function makePlanPresenter(): jest.Mocked<PlanApprovalPresenter> {
+  return {
+    presentPlanApproval: jest.fn(),
+    settlePlanApprovalUi: jest.fn(),
+  }
+}
+
 async function createService(handlers: AcpEventHandlers) {
   const module = await Test.createTestingModule({
     providers: [
       SessionManagerService,
       { provide: ACP_EVENT_HANDLERS, useValue: handlers },
+      { provide: PLAN_APPROVAL_PRESENTER, useValue: makePlanPresenter() },
       { provide: DB, useValue: createMockDb() },
       { provide: PinoLogger, useValue: makeLogger() },
       { provide: NotifyEmitterService, useValue: makeNotifyEmitterMock() },
@@ -721,6 +735,7 @@ describe('SessionManagerService', () => {
         providers: [
           SessionManagerService,
           { provide: ACP_EVENT_HANDLERS, useValue: handlers },
+          { provide: PLAN_APPROVAL_PRESENTER, useValue: makePlanPresenter() },
           { provide: DB, useValue: createMockDb() },
           { provide: PinoLogger, useValue: logger },
           { provide: NotifyEmitterService, useValue: makeNotifyEmitterMock() },
