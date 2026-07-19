@@ -21,6 +21,7 @@
     "daemon:stop": "./scripts/daemon.sh stop",
     "daemon:restart": "./scripts/daemon.sh restart",
     "daemon:status": "./scripts/daemon.sh status",
+    "daemon:rebuild": "run-s build daemon:restart",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "dev": "run-p dev:main dev:frontend",
