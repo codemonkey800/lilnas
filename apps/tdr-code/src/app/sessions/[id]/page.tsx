@@ -33,6 +33,19 @@ import { sessionTopic } from 'src/sse/sse.types'
 // cost).
 const SESSION_STREAM_THROTTLE_MS = 300
 
+// Plan-mode support: display label for a settled ExitPlanMode gate's
+// planOutcome (see ToolCallPayload in db/schema.ts). Absent entirely while
+// still pending — no 'pending' entry needed.
+const PLAN_OUTCOME_LABEL: Record<
+  'accepted' | 'rejected' | 'cancelled' | 'superseded',
+  string
+> = {
+  accepted: 'Plan approved',
+  rejected: 'Plan rejected',
+  cancelled: 'Plan cancelled',
+  superseded: 'Superseded by follow-up',
+}
+
 function ContentBlock({ block }: { block: TurnContentBlockDto }) {
   switch (block.kind) {
     case 'prompt':
@@ -66,7 +79,17 @@ function ContentBlock({ block }: { block: TurnContentBlockDto }) {
           </p>
           <p className="text-xs text-gray-600">
             {block.toolKind} · {block.status}
+            {block.planOutcome && (
+              <span className="ml-2 text-gray-500">
+                · {PLAN_OUTCOME_LABEL[block.planOutcome]}
+              </span>
+            )}
           </p>
+          {block.planText && (
+            <p className="mt-1 whitespace-pre-wrap text-xs text-gray-300">
+              {block.planText}
+            </p>
+          )}
         </div>
       )
     case 'diff':

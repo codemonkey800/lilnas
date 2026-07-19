@@ -327,6 +327,15 @@ export type ToolCallPayload = {
   title: string
   toolKind: string
   status: string
+  // Plan-mode support: only present for a switch_mode (ExitPlanMode) tool
+  // call — the plan markdown captured off the tool_call's content block
+  // (see acp-client.ts's extractPlanText). Reuses this existing row rather
+  // than a new turn_content kind so no schema migration is needed (payload
+  // is a JSON blob column).
+  planText?: string
+  // Set once the plan-approval gate settles (see PlanApprovalPresenter.
+  // settlePlanApprovalUi) — absent while still pending.
+  planOutcome?: 'accepted' | 'rejected' | 'cancelled' | 'superseded'
 }
 
 export type DiffPayload = {

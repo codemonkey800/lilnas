@@ -267,4 +267,119 @@ describe('SqliteWriterService — turn round-trip', () => {
       close()
     }
   })
+
+  describe('plan-mode persistence', () => {
+    it('onToolCall persists planText on the tool_call row, and settlePlanApprovalUi patches planOutcome', async () => {
+      const { db, close } = createTestDb()
+      try {
+        const gen = insertGeneration(db, { startedAt: new Date() })
+        const session = insertSession(db, {
+          channelId: 'ch1',
+          generationId: gen.id,
+          triggeringUserId: 'u1',
+          acpSessionId: null,
+          cwd: '/cwd',
+          createdAt: new Date(),
+        })
+        const service = await createService(db, gen.id)
+
+        service.onPromptStart('ch1', 1, makeCtx(session.id))
+        service.onToolCall(
+          'ch1',
+          'plan-1',
+          'Ready to code?',
+          'switch_mode',
+          'pending',
+          [],
+          undefined,
+          'Step 1: do the thing.',
+        )
+
+        const { turns } = await import('src/db/schema')
+        const turn = db.select().from(turns).all()[0]!
+        const blocks = blocksByTurn(db, turn.id)
+        const toolCallBlock = blocks.find(b => b.kind === 'tool_call')!
+        expect(toolCallBlock.payload).toMatchObject({
+          title: 'Ready to code?',
+          toolKind: 'switch_mode',
+          planText: 'Step 1: do the thing.',
+        })
+        expect(toolCallBlock.payload).not.toHaveProperty('planOutcome')
+
+        service.settlePlanApprovalUi('ch1', 'plan-1', 'accepted')
+
+        const blocksAfter = blocksByTurn(db, turn.id)
+        const toolCallBlockAfter = blocksAfter.find(
+          b => b.kind === 'tool_call',
+        )!
+        expect(toolCallBlockAfter.payload).toMatchObject({
+          planText: 'Step 1: do the thing.',
+          planOutcome: 'accepted',
+        })
+      } finally {
+        close()
+      }
+    })
+
+    it('settlePlanApprovalUi is a no-op for a toolCallId it never tracked (stale/unrelated)', async () => {
+      const { db, close } = createTestDb()
+      try {
+        const gen = insertGeneration(db, { startedAt: new Date() })
+        const service = await createService(db, gen.id)
+
+        expect(() =>
+          service.settlePlanApprovalUi('ch1', 'never-tracked', 'accepted'),
+        ).not.toThrow()
+      } finally {
+        close()
+      }
+    })
+
+    it('presentPlanApproval is a no-op: does not throw and writes nothing extra (planText is already captured via onToolCall)', async () => {
+      const { db, close } = createTestDb()
+      try {
+        const gen = insertGeneration(db, { startedAt: new Date() })
+        const service = await createService(db, gen.id)
+
+        expect(() =>
+          service.presentPlanApproval({
+            channelId: 'ch1',
+            toolCallId: 'plan-1',
+            planText: 'the plan',
+            bypassAvailable: true,
+          }),
+        ).not.toThrow()
+      } finally {
+        close()
+      }
+    })
+
+    it('a non-switch_mode tool call never sets a tracked plan turn (settlePlanApprovalUi for its ref is a no-op)', async () => {
+      const { db, close } = createTestDb()
+      try {
+        const gen = insertGeneration(db, { startedAt: new Date() })
+        const session = insertSession(db, {
+          channelId: 'ch1',
+          generationId: gen.id,
+          triggeringUserId: 'u1',
+          acpSessionId: null,
+          cwd: '/cwd',
+          createdAt: new Date(),
+        })
+        const service = await createService(db, gen.id)
+
+        service.onPromptStart('ch1', 1, makeCtx(session.id))
+        service.onToolCall('ch1', 'ref-1', 'write_file', 'fs', 'pending', [])
+        service.settlePlanApprovalUi('ch1', 'ref-1', 'accepted')
+
+        const { turns } = await import('src/db/schema')
+        const turn = db.select().from(turns).all()[0]!
+        const blocks = blocksByTurn(db, turn.id)
+        const toolCallBlock = blocks.find(b => b.kind === 'tool_call')!
+        expect(toolCallBlock.payload).not.toHaveProperty('planOutcome')
+      } finally {
+        close()
+      }
+    })
+  })
 })

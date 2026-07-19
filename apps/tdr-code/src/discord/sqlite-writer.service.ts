@@ -5,6 +5,8 @@ import { mapStopReason } from 'src/agent/acp-event-mapping'
 import type {
   AcpEventHandlers,
   DiffContent,
+  PlanApprovalPresenter,
+  PlanApprovalRequest,
   PromptStartContext,
 } from 'src/agent/agent.types'
 import type { Db } from 'src/db/database.module'
@@ -13,6 +15,7 @@ import { insertEvent } from 'src/db/events.repo'
 import {
   appendBlock,
   insertToolCall,
+  updateToolCallPlanOutcome,
   updateToolCallStatus,
 } from 'src/db/turn-content.repo'
 import { closeTurn, insertTurn, maxTurnIndex } from 'src/db/turns.repo'
@@ -37,9 +40,22 @@ interface ChannelWriterState {
 }
 
 @Injectable()
-export class SqliteWriterService implements AcpEventHandlers {
+export class SqliteWriterService
+  implements AcpEventHandlers, PlanApprovalPresenter
+{
   private readonly generationId: number | null
   private readonly channelState = new Map<string, ChannelWriterState>()
+  // Plan-mode support: channelId -> the most recent switch_mode tool call's
+  // (toolCallId, turnId) pair, set in onToolCall below. Needed because
+  // settlePlanApprovalUi can fire long after the *originating* turn closed
+  // (a post-timeout reactivation opens a brand-new turn for the synthetic
+  // "Plan approved"/"Plan rejected" follow-up) — channelState's
+  // currentTurnRowId would point at the wrong turn by then, so this is
+  // tracked separately and read once, at settle time.
+  private readonly pendingPlanTurn = new Map<
+    string,
+    { toolCallId: string; turnRowId: number }
+  >()
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -56,6 +72,8 @@ export class SqliteWriterService implements AcpEventHandlers {
     kind: string,
     _status: string,
     diffs: DiffContent[],
+    _rawInput?: Record<string, unknown>,
+    planText?: string,
   ): void {
     if (this.generationId == null) return
     const state = this.channelState.get(channelId)
@@ -64,9 +82,22 @@ export class SqliteWriterService implements AcpEventHandlers {
     insertToolCall(this.db, {
       turnId: state.currentTurnRowId,
       ref: toolCallId,
-      payload: { kind: 'tool_call', title, toolKind: kind, status: 'pending' },
+      payload: {
+        kind: 'tool_call',
+        title,
+        toolKind: kind,
+        status: 'pending',
+        ...(planText ? { planText } : {}),
+      },
       createdAt: new Date(),
     })
+
+    if (kind === 'switch_mode' && planText) {
+      this.pendingPlanTurn.set(channelId, {
+        toolCallId,
+        turnRowId: state.currentTurnRowId,
+      })
+    }
 
     // Append any diffs that arrived with the initial tool_call event.
     for (const diff of diffs) {
@@ -295,5 +326,45 @@ export class SqliteWriterService implements AcpEventHandlers {
     void _channelId
     void _kind
     void _reason
+  }
+
+  // No-op: the plan text is already captured via the ordinary onToolCall
+  // persistence above — every switch_mode tool_call flows through that path
+  // regardless of whether the plan-approval feature is even in play, so
+  // there's nothing additional to write when the gate first opens.
+  presentPlanApproval(_req: PlanApprovalRequest): void {
+    void _req
+  }
+
+  // Patches the planOutcome field onto the switch_mode tool_call row
+  // recorded by onToolCall, using the (toolCallId, turnId) pair captured
+  // there — NOT this.channelState's currentTurnRowId, which may already
+  // point at a different (later) turn by the time this fires (see
+  // pendingPlanTurn's own comment).
+  settlePlanApprovalUi(
+    channelId: string,
+    toolCallId: string,
+    outcome: 'cancelled' | 'superseded' | 'accepted' | 'rejected',
+  ): void {
+    if (this.generationId == null) return
+    const tracked = this.pendingPlanTurn.get(channelId)
+    if (!tracked || tracked.toolCallId !== toolCallId) return
+    this.pendingPlanTurn.delete(channelId)
+
+    const changes = updateToolCallPlanOutcome(this.db, {
+      turnId: tracked.turnRowId,
+      ref: toolCallId,
+      outcome,
+    })
+    if (changes === 0) {
+      this.logger.warn(
+        {
+          event: LOG_EVENTS.planApprovalOutcomePersistFailed,
+          channelId,
+          toolCallId,
+        },
+        'settlePlanApprovalUi: 0 rows updated (row missing), skipping',
+      )
+    }
   }
 }

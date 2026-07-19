@@ -256,6 +256,7 @@ describe('createAcpClient — tool_call_update dispatch', () => {
       [],
       { command: 'git status' },
       'git status',
+      undefined,
     )
   })
 
@@ -284,6 +285,7 @@ describe('createAcpClient — tool_call_update dispatch', () => {
         'tc1',
         'completed',
         [],
+        undefined,
         undefined,
         undefined,
       )
@@ -320,5 +322,197 @@ describe('createAcpClient — usage_update dispatch', () => {
     } as never)
 
     expect(handlers.onUsageUpdate).not.toHaveBeenCalled()
+  })
+})
+
+describe('createAcpClient — plan-mode: switch_mode tool_call plan-text extraction', () => {
+  it('extracts the plan markdown from a switch_mode tool_call content block and forwards it as the 8th onToolCall arg', async () => {
+    const handlers = createMockHandlers()
+    const client = createAcpClient('ch1', handlers)
+
+    await client.sessionUpdate!({
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'plan-1',
+        title: 'Ready to code?',
+        kind: 'switch_mode',
+        status: 'pending',
+        content: [
+          {
+            type: 'content',
+            content: { type: 'text', text: 'Step 1: do it.' },
+          },
+        ],
+      },
+    } as never)
+
+    expect(handlers.onToolCall).toHaveBeenCalledWith(
+      'ch1',
+      'plan-1',
+      'Ready to code?',
+      'switch_mode',
+      'pending',
+      [],
+      undefined,
+      'Step 1: do it.',
+    )
+  })
+
+  it('forwards undefined planText for a non-switch_mode tool_call, even with a content block present', async () => {
+    const handlers = createMockHandlers()
+    const client = createAcpClient('ch1', handlers)
+
+    await client.sessionUpdate!({
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'tc1',
+        title: 'Read file',
+        kind: 'read',
+        status: 'pending',
+        content: [
+          { type: 'content', content: { type: 'text', text: 'not a plan' } },
+        ],
+      },
+    } as never)
+
+    expect(handlers.onToolCall).toHaveBeenCalledWith(
+      'ch1',
+      'tc1',
+      'Read file',
+      'read',
+      'pending',
+      [],
+      undefined,
+      undefined,
+    )
+  })
+
+  it('forwards undefined planText for a switch_mode tool_call with no content blocks', async () => {
+    const handlers = createMockHandlers()
+    const client = createAcpClient('ch1', handlers)
+
+    await client.sessionUpdate!({
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'plan-2',
+        title: 'Ready to code?',
+        kind: 'switch_mode',
+        status: 'pending',
+        content: [],
+      },
+    } as never)
+
+    expect(handlers.onToolCall).toHaveBeenCalledWith(
+      'ch1',
+      'plan-2',
+      'Ready to code?',
+      'switch_mode',
+      'pending',
+      [],
+      undefined,
+      undefined,
+    )
+  })
+})
+
+describe('createAcpClient — plan-mode: requestPermission gate interception', () => {
+  it('delegates a switch_mode permission request to onPlanApprovalNeeded instead of auto-picking options[0]', async () => {
+    const handlers = createMockHandlers()
+    const onPlanApprovalNeeded = jest
+      .fn()
+      .mockResolvedValue({ outcome: { outcome: 'cancelled' } })
+    const client = createAcpClient(
+      'ch1',
+      handlers,
+      undefined,
+      onPlanApprovalNeeded,
+    )
+
+    // The plan text must be captured off a preceding tool_call first —
+    // mirrors the real wrapper's event ordering (notification, then request).
+    await client.sessionUpdate!({
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'plan-1',
+        title: 'Ready to code?',
+        kind: 'switch_mode',
+        status: 'pending',
+        content: [
+          { type: 'content', content: { type: 'text', text: 'the plan' } },
+        ],
+      },
+    } as never)
+
+    const options = [
+      {
+        kind: 'allow_always',
+        name: 'Yes, and bypass permissions',
+        optionId: 'bypassPermissions',
+      },
+      { kind: 'reject_once', name: 'No, keep planning', optionId: 'plan' },
+    ]
+    const result = await client.requestPermission!({
+      sessionId: 'sess1',
+      toolCall: { toolCallId: 'plan-1', kind: 'switch_mode' },
+      options,
+    } as never)
+
+    expect(onPlanApprovalNeeded).toHaveBeenCalledWith({
+      channelId: 'ch1',
+      toolCallId: 'plan-1',
+      planText: 'the plan',
+      options,
+    })
+    expect(result).toEqual({ outcome: { outcome: 'cancelled' } })
+  })
+
+  it('falls through to auto-pick options[0] for a switch_mode request when no onPlanApprovalNeeded callback is provided', async () => {
+    const handlers = createMockHandlers()
+    const client = createAcpClient('ch1', handlers) // no 4th arg
+
+    const result = await client.requestPermission!({
+      sessionId: 'sess1',
+      toolCall: { toolCallId: 'plan-1', kind: 'switch_mode' },
+      options: [{ kind: 'allow_once', name: 'default', optionId: 'default' }],
+    } as never)
+
+    expect(result).toEqual({
+      outcome: { outcome: 'selected', optionId: 'default' },
+    })
+  })
+
+  it('auto-picks options[0] for an ordinary (non-switch_mode) permission request, unaffected by onPlanApprovalNeeded being present', async () => {
+    const handlers = createMockHandlers()
+    const onPlanApprovalNeeded = jest.fn()
+    const client = createAcpClient(
+      'ch1',
+      handlers,
+      undefined,
+      onPlanApprovalNeeded,
+    )
+
+    const result = await client.requestPermission!({
+      sessionId: 'sess1',
+      toolCall: { toolCallId: 'tc1', kind: 'execute' },
+      options: [{ kind: 'allow_once', name: 'allow', optionId: 'allow' }],
+    } as never)
+
+    expect(onPlanApprovalNeeded).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      outcome: { outcome: 'selected', optionId: 'allow' },
+    })
+  })
+
+  it('auto-resolves as cancelled when there are no options at all', async () => {
+    const handlers = createMockHandlers()
+    const client = createAcpClient('ch1', handlers)
+
+    const result = await client.requestPermission!({
+      sessionId: 'sess1',
+      toolCall: { toolCallId: 'tc1', kind: 'execute' },
+      options: [],
+    } as never)
+
+    expect(result).toEqual({ outcome: { outcome: 'cancelled' } })
   })
 })

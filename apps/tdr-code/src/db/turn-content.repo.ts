@@ -80,6 +80,31 @@ export function updateToolCallStatus(
   return result.changes
 }
 
+// Guarded planOutcome-only UPDATE via json_set — mirrors updateToolCallStatus's
+// shape exactly, for the same (turnId, ref) unique-indexed pair. Used to patch
+// a switch_mode tool_call row once its plan-approval gate settles (accepted/
+// rejected/cancelled/superseded) — see PlanApprovalPresenter.settlePlanApprovalUi.
+// Returns rows changed (0 = the row's gone/never existed, log and skip).
+export function updateToolCallPlanOutcome(
+  db: Db,
+  opts: {
+    turnId: number
+    ref: string
+    outcome: string
+  },
+): number {
+  const result = db
+    .update(turnContent)
+    .set({
+      payload: sql`json_set(${turnContent.payload}, '$.planOutcome', ${opts.outcome})`,
+    })
+    .where(
+      sql`${turnContent.turnId} = ${opts.turnId} AND ${turnContent.ref} = ${opts.ref}`,
+    )
+    .run()
+  return result.changes
+}
+
 // Read all blocks for a turn ordered by insertion (id). Also used by listBlocksByTurns for the single-turn fast path.
 export function blocksByTurn(db: Db, turnId: number): TurnContentRow[] {
   return db

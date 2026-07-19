@@ -5,7 +5,10 @@ import { Readable, Writable } from 'node:stream'
 import { ClientSideConnection } from '@agentclientprotocol/sdk'
 import { PinoLogger } from 'nestjs-pino'
 
-import type { AcpEventHandlers } from 'src/agent/agent.types'
+import type {
+  AcpEventHandlers,
+  PlanApprovalPresenter,
+} from 'src/agent/agent.types'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { BASE_SYSTEM_PROMPT } from 'src/agent/system-prompt.constants'
 import type { NotifyEmitterService } from 'src/discord/notify-emitter.service'
@@ -120,10 +123,18 @@ function makeDbMockWithConfig(configRow: ReturnType<typeof makeConfigRow>) {
 type CtorWith2 = {
   new (
     h: AcpEventHandlers,
+    planPresenter: PlanApprovalPresenter,
     db: unknown,
     logger: PinoLogger,
     notifyEmitter: Pick<NotifyEmitterService, 'notify'>,
   ): SessionManagerService
+}
+
+function makePlanPresenter(): jest.Mocked<PlanApprovalPresenter> {
+  return {
+    presentPlanApproval: jest.fn(),
+    settlePlanApprovalUi: jest.fn(),
+  }
 }
 
 function makeLogger(): PinoLogger {
@@ -172,6 +183,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
 
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -225,6 +237,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
       () =>
         new (SessionManagerService as unknown as CtorWith2)(
           handlers,
+          makePlanPresenter(),
           db,
           makeLogger(),
           makeNotifyEmitterMock(),
@@ -242,6 +255,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
 
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -269,6 +283,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
 
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -293,6 +308,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
 
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -313,6 +329,7 @@ describe('SessionManagerService — DB-backed config (U2)', () => {
 
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -356,6 +373,7 @@ describe('SessionManagerService — R3 apply-timing behavioral tests (U2)', () =
 
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -395,6 +413,7 @@ describe('SessionManagerService — R3 apply-timing behavioral tests (U2)', () =
 
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),
@@ -455,6 +474,7 @@ describe('SessionManagerService — R3 apply-timing behavioral tests (U2)', () =
 
     const service = new (SessionManagerService as unknown as CtorWith2)(
       handlers,
+      makePlanPresenter(),
       db,
       makeLogger(),
       makeNotifyEmitterMock(),

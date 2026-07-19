@@ -265,6 +265,39 @@ const STOP_BUTTON_EVENTS = {
   stopButtonPressed: 'stop-button-pressed',
 } as const
 
+const PLAN_APPROVAL_EVENTS = {
+  // session-manager.service.ts's handlePlanApprovalNeeded: an ExitPlanMode
+  // permission gate opened and the plan-approval flow took over instead of
+  // auto-resolving it.
+  planApprovalPresented: 'plan-approval-presented',
+  // session-manager.service.ts's plan-approval timer firing: no button click
+  // within PLAN_APPROVAL_TIMEOUT_MS — the session is torn down (freeing the
+  // concurrency slot) but the Discord message/buttons are left untouched so a
+  // later click can still reactivate (see killedPlanApprovals).
+  planApprovalTimedOut: 'plan-approval-timed-out',
+  // session-manager.service.ts's resolvePlanApproval: a button click resolved
+  // a still-live permission request directly (the common, fast path).
+  planApprovalResolvedLive: 'plan-approval-resolved-live',
+  // session-manager.service.ts's resolvePlanApproval: a button click landed
+  // after the process had already been torn down — reactivated the session
+  // via loadSession replay and sent the synthetic "Plan approved"/"Plan
+  // rejected" follow-up.
+  planApprovalResolvedReactivated: 'plan-approval-resolved-reactivated',
+  // session-manager.service.ts's resolvePlanApproval: the post-timeout
+  // reactivation attempt itself failed (session couldn't be recreated at
+  // all) — distinct from the existing resumeFailed/onResumeFailed case
+  // (loadSession failing but still falling back to a fresh session), which
+  // is not an error from this flow's point of view.
+  planApprovalReactivationFailed: 'plan-approval-reactivation-failed',
+  // plan-approval-button.service.ts's onDecision: the Accept/Reject button
+  // was pressed.
+  planApprovalButtonPressed: 'plan-approval-button-pressed',
+  // sqlite-writer.service.ts's settlePlanApprovalUi: the guarded planOutcome
+  // UPDATE matched 0 rows (the tracked tool_call row is missing) — mirrors
+  // toolCallUpdateOrphaned's shape for the same class of late/orphaned patch.
+  planApprovalOutcomePersistFailed: 'plan-approval-outcome-persist-failed',
+} as const
+
 const SUPERVISOR_EVENTS = {
   // supervisor/reaper.ts's reapGeneration — one pass over a generation's
   // live claude_process PGIDs, killing fresh groups and skipping stale ones.
@@ -608,6 +641,7 @@ export const LOG_EVENTS = {
   ...CONTEXT_USAGE_EVENTS,
   ...CLEAR_COMMAND_EVENTS,
   ...STOP_BUTTON_EVENTS,
+  ...PLAN_APPROVAL_EVENTS,
   ...SUPERVISOR_EVENTS,
   ...LIFECYCLE_CONTROLLER_EVENTS,
   ...DISCORD_DIRECTORY_EVENTS,

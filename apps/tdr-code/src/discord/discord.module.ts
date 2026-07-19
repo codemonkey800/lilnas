@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common'
 
-import { ACP_EVENT_HANDLERS } from 'src/agent/agent.module'
+import {
+  ACP_EVENT_HANDLERS,
+  PLAN_APPROVAL_PRESENTER,
+} from 'src/agent/agent.module'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { CommandPollerService } from 'src/commands/command-poller.service'
 
@@ -10,6 +13,7 @@ import { CompositeAcpHandler } from './composite-acp-handler'
 import { ContextUsageService } from './context-usage.service'
 import { DiscordHandlerService } from './discord-handler.service'
 import { NotifyEmitterService } from './notify-emitter.service'
+import { PlanApprovalButtonService } from './plan-approval-button.service'
 import { SqliteWriterService } from './sqlite-writer.service'
 import { StopButtonService } from './stop-button.service'
 
@@ -25,8 +29,13 @@ import { StopButtonService } from './stop-button.service'
       provide: ACP_EVENT_HANDLERS,
       useExisting: CompositeAcpHandler,
     },
+    {
+      provide: PLAN_APPROVAL_PRESENTER,
+      useExisting: CompositeAcpHandler,
+    },
     SessionManagerService,
     StopButtonService,
+    PlanApprovalButtonService,
     ClearCommandService,
     NotifyEmitterService,
   ],

@@ -1,5 +1,6 @@
 import type {
   Client,
+  PermissionOption,
   RequestPermissionRequest,
   RequestPermissionResponse,
   SessionNotification,
@@ -8,6 +9,20 @@ import type {
 import { getBackendLogger } from 'src/logging/backend-logger'
 
 import type { AcpEventHandlers, DiffContent } from './agent.types'
+
+// The ExitPlanMode gate surfaces as a requestPermission() call whose
+// toolCall.kind === 'switch_mode' — see session-manager.service.ts's
+// handlePlanApprovalNeeded for what this callback actually does (hold the
+// request open, present it in Discord, resolve on a button click or a
+// later reactivation). planText is whatever was captured off the preceding
+// tool_call/tool_call_update's switch_mode content block, kept local to this
+// factory call's closure — see lastPlanText below for why.
+export type PlanApprovalCallback = (args: {
+  channelId: string
+  toolCallId: string
+  planText: string
+  options: PermissionOption[]
+}) => Promise<RequestPermissionResponse>
 
 // Non-DI: this module exports a plain factory, not a Nest-managed provider.
 // Uses getBackendLogger() (src/logging/backend-logger.ts) — a real
@@ -27,11 +42,31 @@ export function createAcpClient(
   channelId: string,
   handlers: AcpEventHandlers,
   isReplaying?: () => boolean,
+  onPlanApprovalNeeded?: PlanApprovalCallback,
 ): Client {
+  // Plan text for the current/most-recent switch_mode tool call, captured
+  // off the tool_call(_update) content block that precedes the
+  // requestPermission gate by one event on the same ndjson stream. Kept
+  // local to this factory call (one per channel-session) rather than
+  // threaded through a separate handler round-trip — avoids a race against
+  // Discord's own send latency (see plan discussion: the gate fires
+  // moments after the tool_call notification, well before a human could
+  // physically click anything).
+  let lastPlanText = ''
+
   return {
     async requestPermission(
       params: RequestPermissionRequest,
     ): Promise<RequestPermissionResponse> {
+      if (params.toolCall.kind === 'switch_mode' && onPlanApprovalNeeded) {
+        return onPlanApprovalNeeded({
+          channelId,
+          toolCallId: params.toolCall.toolCallId,
+          planText: lastPlanText,
+          options: params.options,
+        })
+      }
+
       const firstOption = params.options[0]
       if (firstOption) {
         getBackendLogger().debug(
@@ -76,6 +111,14 @@ export function createAcpClient(
           break
         }
         case 'tool_call': {
+          let planText: string | undefined
+          if (update.kind === 'switch_mode') {
+            const extracted = extractPlanText(update.content)
+            if (extracted) {
+              lastPlanText = extracted
+              planText = extracted
+            }
+          }
           const toolCallDiffs = extractDiffs(update.content)
           const rawVal = (update as Record<string, unknown>).rawInput
           const rawInput =
@@ -92,10 +135,19 @@ export function createAcpClient(
             update.status ?? 'pending',
             toolCallDiffs,
             rawInput,
+            planText,
           )
           break
         }
         case 'tool_call_update': {
+          let planText: string | undefined
+          if (update.kind === 'switch_mode') {
+            const extracted = extractPlanText(update.content)
+            if (extracted) {
+              lastPlanText = extracted
+              planText = extracted
+            }
+          }
           const updateDiffs = extractDiffs(update.content)
           const updateRawVal = (update as Record<string, unknown>).rawInput
           const updateRawInput =
@@ -111,6 +163,7 @@ export function createAcpClient(
             updateDiffs,
             updateRawInput,
             update.title || undefined,
+            planText,
           )
           break
         }
@@ -129,6 +182,37 @@ export function createAcpClient(
       }
     },
   }
+}
+
+// Sibling to extractDiffs, pulling `type: 'content'` text blocks instead of
+// `type: 'diff'` — this is where the ExitPlanMode tool call's plan markdown
+// lives (see claude-agent-acp's ExitPlanMode tool metadata: `content: [{
+// type: 'content', content: { type: 'text', text: planInput.plan } }]`).
+// Only meaningful for a switch_mode tool_call/tool_call_update — callers
+// gate on that before calling this. Concatenates every text block found
+// (in practice there is exactly one) so a shape change on the wrapper's end
+// degrades gracefully instead of silently dropping content.
+function extractPlanText(content: unknown): string {
+  if (!Array.isArray(content)) return ''
+  const parts: string[] = []
+  for (const item of content) {
+    if (
+      item &&
+      typeof item === 'object' &&
+      'type' in item &&
+      item.type === 'content' &&
+      'content' in item &&
+      item.content &&
+      typeof item.content === 'object' &&
+      'type' in item.content &&
+      item.content.type === 'text' &&
+      'text' in item.content &&
+      typeof item.content.text === 'string'
+    ) {
+      parts.push(item.content.text)
+    }
+  }
+  return parts.join('\n\n')
 }
 
 function extractDiffs(content: unknown): DiffContent[] {
