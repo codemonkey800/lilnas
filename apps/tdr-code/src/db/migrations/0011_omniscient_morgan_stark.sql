@@ -1,0 +1,1 @@
+ALTER TABLE `config` ADD `auto_post_diffs` integer DEFAULT false NOT NULL;

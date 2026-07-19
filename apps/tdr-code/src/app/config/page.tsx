@@ -41,6 +41,9 @@ function changedConfigFields(
   if (prev.customSystemPrompt !== next.customSystemPrompt) {
     changed.push('customSystemPrompt')
   }
+  if (prev.autoPostDiffs !== next.autoPostDiffs) {
+    changed.push('autoPostDiffs')
+  }
   return changed
 }
 
@@ -88,6 +91,7 @@ export default function ConfigPage() {
   const [idleTimeoutSec, setIdleTimeoutSec] = useState('')
   const [maxConcurrentSessions, setMaxConcurrentSessions] = useState('')
   const [customSystemPrompt, setCustomSystemPrompt] = useState('')
+  const [autoPostDiffs, setAutoPostDiffs] = useState(false)
   const [argsError, setArgsError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -106,6 +110,7 @@ export default function ConfigPage() {
       setIdleTimeoutSec(String(data.idleTimeoutSec))
       setMaxConcurrentSessions(String(data.maxConcurrentSessions))
       setCustomSystemPrompt(data.customSystemPrompt)
+      setAutoPostDiffs(data.autoPostDiffs)
     }
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [data])
@@ -178,6 +183,7 @@ export default function ConfigPage() {
       idleTimeoutSec: Number(idleTimeoutSec),
       maxConcurrentSessions: Number(maxConcurrentSessions),
       customSystemPrompt,
+      autoPostDiffs,
     }
     // Field-name diff for the config-saved audit (see changedConfigFields).
     // `data` is the last-persisted config the form was seeded from.
@@ -294,6 +300,22 @@ export default function ConfigPage() {
           >
             {customSystemPrompt.length} / {CUSTOM_PROMPT_MAX}
           </p>
+        </div>
+
+        <div className="space-y-1">
+          <FieldLabel
+            label="Auto-post tool diffs to Discord"
+            effectLabel="next tool call"
+          />
+          <label className="flex items-center gap-2 text-sm text-gray-300">
+            <input
+              type="checkbox"
+              checked={autoPostDiffs}
+              onChange={e => setAutoPostDiffs(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-700 bg-gray-900 focus:outline-none"
+            />
+            Post a diff message after each completed Edit/Read tool call
+          </label>
         </div>
 
         <div className="flex items-center gap-3">

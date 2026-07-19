@@ -548,6 +548,12 @@ export const config = sqliteTable(
     // sensible env-var default for free-form prompt text — so NOT NULL with
     // a literal '' default keeps "unset" and "empty" the same state.
     customSystemPrompt: text('custom_system_prompt').notNull().default(''),
+    // Global toggle for whether completed Edit/Read tool calls auto-post their
+    // diff to the Discord channel (see message-bridge.ts's formatDiff). Off by
+    // default — diffs are still recorded in turn_content either way.
+    autoPostDiffs: integer('auto_post_diffs', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   },
   t => [

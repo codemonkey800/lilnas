@@ -831,8 +831,16 @@ export class DiscordHandlerService
     toolCallId: string,
     state: ChannelState,
   ): Promise<void> {
+    // Always clear the buffered diffs on completion, whether or not they get
+    // posted below, so a disabled toggle doesn't leak entries in this map.
     const diffs = state.pendingDiffs.get(toolCallId)
+    state.pendingDiffs.delete(toolCallId)
     if (!diffs || diffs.length === 0) return
+
+    const sessionManager = this.moduleRef.get(SessionManagerService, {
+      strict: false,
+    })
+    if (!sessionManager.shouldAutoPostDiffs) return
 
     const channel = await this.fetchChannel(channelId)
     if (!channel) return
@@ -844,8 +852,6 @@ export class DiscordHandlerService
         allowedMentions: { parse: [] },
       })
     }
-
-    state.pendingDiffs.delete(toolCallId)
   }
 
   private scheduleFlushReply(channelId: string, state: ChannelState): void {
