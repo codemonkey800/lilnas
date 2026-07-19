@@ -22,3 +22,15 @@ export async function fetchChannel(
     return null
   }
 }
+
+// Shared guard for thread-only slash commands (/context, /clear): resolves
+// the channel the same way fetchChannel's other callers do (cache-then-fetch,
+// never trusting interaction.channel — see fetchChannel's own comment) rather
+// than each command re-deriving thread-ness its own way.
+export async function isThreadChannel(
+  client: Client,
+  channelId: string,
+): Promise<boolean> {
+  const channel = await fetchChannel(client, channelId)
+  return channel?.isThread() ?? false
+}

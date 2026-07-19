@@ -1,6 +1,11 @@
+import { Client } from 'discord.js'
 import { PinoLogger } from 'nestjs-pino'
 
-import { createTestingModule } from 'src/__tests__/test-utils'
+import {
+  createMockTextChannel,
+  createMockThreadChannel,
+  createTestingModule,
+} from 'src/__tests__/test-utils'
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { insertGeneration } from 'src/db/bot-generation.repo'
 import { DB } from 'src/db/database.module'
@@ -14,6 +19,19 @@ import { createTestDb, type TestDb } from 'src/db/test-db'
 import { ClearCommandService } from 'src/discord/clear-command.service'
 import { ContextUsageService } from 'src/discord/context-usage.service'
 import { DiscordHandlerService } from 'src/discord/discord-handler.service'
+
+// Every /clear test channel id resolves as a thread via the fetch fallback
+// (nothing pre-populates the cache) — none of these tests care about thread
+// resolution itself, only the not-a-thread-guard tests below do, and they
+// build their own client with a specific non-thread channel.
+function createMockClient() {
+  return {
+    channels: {
+      cache: new Map(),
+      fetch: jest.fn().mockResolvedValue(createMockThreadChannel()),
+    },
+  } as unknown as Client
+}
 
 function createMockSessionManager() {
   return {
@@ -58,12 +76,16 @@ function makeLogger(): PinoLogger {
 
 // Real in-memory test DB — clearAcpSessionId runs a real query, and the
 // integration scenario needs to read the row back afterward.
-async function createService(testDb: TestDb) {
+async function createService(
+  testDb: TestDb,
+  client: Client = createMockClient(),
+) {
   const mockManager = createMockSessionManager()
   const mockHandler = createMockDiscordHandler()
   const mockContextUsage = createMockContextUsage()
   const module = await createTestingModule([
     ClearCommandService,
+    { provide: Client, useValue: client },
     { provide: SessionManagerService, useValue: mockManager },
     { provide: DiscordHandlerService, useValue: mockHandler },
     { provide: ContextUsageService, useValue: mockContextUsage },
@@ -87,6 +109,31 @@ describe('ClearCommandService', () => {
 
   afterEach(() => {
     testDb.close()
+  })
+
+  describe('not-a-thread guard', () => {
+    it('replies with a thread-only message and never touches session state', async () => {
+      const client = {
+        channels: {
+          cache: new Map([
+            ['ch-plain', createMockTextChannel({ id: 'ch-plain' })],
+          ]),
+          fetch: jest.fn(),
+        },
+      } as unknown as Client
+      const { service, mockManager, mockHandler, mockContextUsage } =
+        await createService(testDb, client)
+      const interaction = createMockInteraction('ch-plain')
+
+      await service.onClear([interaction] as never)
+
+      expect(interaction.reply).toHaveBeenCalledWith(
+        expect.stringContaining('can only be used inside a thread'),
+      )
+      expect(mockManager.teardown).not.toHaveBeenCalled()
+      expect(mockHandler.resetChannel).not.toHaveBeenCalled()
+      expect(mockContextUsage.resetChannel).not.toHaveBeenCalled()
+    })
   })
 
   describe('happy path — mid-turn clear (AE3: R9, R11, R12)', () => {

@@ -258,11 +258,17 @@ const CLEAR_COMMAND_EVENTS = {
   clearFailed: 'clear-failed',
   // clear-command.service.ts's onClear: /clear completed successfully.
   clearCompleted: 'clear-completed',
+  // clear-command.service.ts's onClear: rejected because the invoking
+  // channel is not a thread.
+  clearRejectedNotThread: 'clear-rejected-not-thread',
 } as const
 
 const CONTEXT_COMMAND_EVENTS = {
   // context-command.service.ts's onContext: /context invoked.
   contextCommandInvoked: 'context-command-invoked',
+  // context-command.service.ts's onContext: rejected because the invoking
+  // channel is not a thread.
+  contextCommandRejectedNotThread: 'context-command-rejected-not-thread',
 } as const
 
 const STOP_BUTTON_EVENTS = {
