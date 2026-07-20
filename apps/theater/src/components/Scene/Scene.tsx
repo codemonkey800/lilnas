@@ -1,20 +1,28 @@
 'use client'
 
-import { KeyboardControls, useGLTF } from '@react-three/drei'
+import { KeyboardControls, Stats, useGLTF } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
 import { Physics } from '@react-three/rapier'
 import { Leva } from 'leva'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { ACESFilmicToneMapping } from 'three'
 
-import { KEYBOARD_MAP, Player } from './Player'
+import { DebugHud } from './DebugHud'
+import { KEYBOARD_MAP, Player, Telemetry } from './Player'
 import { Theater } from './Theater'
 
-const DEV = process.env.NODE_ENV !== 'production'
+const ZERO_TELEMETRY: Telemetry = {
+  position: { x: 0, y: 0, z: 0 },
+  velocity: { x: 0, y: 0, z: 0 },
+}
 
 export function Scene() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [pointerLocked, setPointerLocked] = useState(false)
+  const [debugMode] = useState(() =>
+    new URLSearchParams(window.location.search).has('debug'),
+  )
+  const [telemetry, setTelemetry] = useState<Telemetry>(ZERO_TELEMETRY)
 
   useEffect(() => {
     const handlePointerLockChange = () => {
@@ -47,6 +55,8 @@ export function Scene() {
             canvasRef.current = state.gl.domElement
           }}
         >
+          {debugMode && <Stats />}
+
           {/* Dim sky/ground fill so unlit corners aren't pure black —
               a stand-in for bounce light since the model has no baked GI. */}
           <hemisphereLight
@@ -74,9 +84,9 @@ export function Scene() {
           />
 
           <Suspense fallback={null}>
-            <Physics debug={DEV} gravity={[0, -9.81, 0]}>
+            <Physics debug={debugMode} gravity={[0, -9.81, 0]}>
               <Theater />
-              <Player />
+              <Player onTelemetry={debugMode ? setTelemetry : undefined} />
             </Physics>
           </Suspense>
         </Canvas>
@@ -90,6 +100,8 @@ export function Scene() {
             ? 'WASD move · Space jump'
             : 'Click to look around · WASD move · Space jump'}
         </div>
+
+        {debugMode && <DebugHud telemetry={telemetry} />}
       </div>
     </KeyboardControls>
   )

@@ -24,9 +24,10 @@ export const KEYBOARD_MAP: KeyboardControlsEntry<Controls>[] = [
   { name: 'run', keys: ['ShiftLeft', 'ShiftRight'] },
 ]
 
-// Spawned above the room (recentered height is ~5m) so the player visibly
-// falls onto the raked floor instead of spawning inside a raised back row.
-const SPAWN_POSITION: [number, number, number] = [0, 5.5, -3]
+// Picked from the debug HUD's live position readout while standing on the
+// raked floor, so the player spawns resting on the floor instead of falling
+// onto it.
+const SPAWN_POSITION: [number, number, number] = [2.19, 1.13, -3.62]
 const SPAWN_VECTOR = {
   x: SPAWN_POSITION[0],
   y: SPAWN_POSITION[1],
@@ -52,15 +53,40 @@ const RESPAWN_MIN_Y = -2
 // less like a looming adult.
 const CAM_TARGET_POS = { x: 0, y: -0.2, z: 0 }
 
-export function Player() {
-  const ecctrlRef = useRef<CustomEcctrlRigidBody>(null)
+// A debug HUD only needs a human-readable refresh rate — pushing telemetry
+// into React state at useFrame's display-refresh cadence (~60Hz) would mean
+// 60 Scene re-renders/sec for numbers nobody can read that fast.
+const TELEMETRY_INTERVAL_S = 0.1
 
-  useFrame(() => {
+export type Telemetry = {
+  position: { x: number; y: number; z: number }
+  velocity: { x: number; y: number; z: number }
+}
+
+export type PlayerProps = {
+  onTelemetry?: (telemetry: Telemetry) => void
+}
+
+export function Player({ onTelemetry }: PlayerProps) {
+  const ecctrlRef = useRef<CustomEcctrlRigidBody>(null)
+  const telemetryElapsedRef = useRef(0)
+
+  useFrame((_state, delta) => {
     const body = ecctrlRef.current?.group
-    if (body && isOutOfBounds(body.translation(), RESPAWN_MIN_Y)) {
+    if (!body) return
+
+    if (isOutOfBounds(body.translation(), RESPAWN_MIN_Y)) {
       body.setTranslation(SPAWN_VECTOR, true)
       body.setLinvel(ZERO_VELOCITY, true)
       body.setAngvel(ZERO_VELOCITY, true)
+    }
+
+    if (onTelemetry) {
+      telemetryElapsedRef.current += delta
+      if (telemetryElapsedRef.current >= TELEMETRY_INTERVAL_S) {
+        telemetryElapsedRef.current = 0
+        onTelemetry({ position: body.translation(), velocity: body.linvel() })
+      }
     }
   })
 
