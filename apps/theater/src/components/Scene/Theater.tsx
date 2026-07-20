@@ -1,26 +1,46 @@
 'use client'
 
 import { useGLTF } from '@react-three/drei'
-import { CuboidCollider, RigidBody } from '@react-three/rapier'
+import { RigidBody } from '@react-three/rapier'
 import { useMemo } from 'react'
 import { Box3, Mesh, Vector3 } from 'three'
 
-import { buildFloorColliderGeometry } from './floorCollider'
+import { buildColliderGeometry } from './meshCollider'
 
 const MODEL_URL = '/models/cinema.glb'
-const WALL_THICKNESS = 0.2
 
-// A flat safety net just below the lowest floor point. The trimesh floor
-// covers >98% of the interior; this catches the player in the thin uncovered
-// strip at the very back edge so they can never fall out of the world. It sits
-// below every real floor surface, so ecctrl always floats on the real floor
-// where one exists and only ever rests on the net inside a genuine gap.
-const SAFETY_NET_HALF = 0.1
+// The cinema GLB's `floor` and `floor_metal` nodes together cover essentially
+// the entire walkable interior — measured ~2,118 triangles, with floor meshes
+// under >98% of the interior footprint. Trimeshing just those two nodes gives
+// an accurate, cheap collider that follows the real raked/tiered floor.
+//
+// This replaces an earlier synthetic flat 2-triangle ramp. That ramp spanned
+// wall-to-wall at a single shallow slope, so it floated up to ~2 m ABOVE the
+// true floor in the lower/side parts of the room. Because ecctrl holds the
+// camera a fixed height above whatever collider is beneath it, that made the
+// player's eye-height swing by ~2 m across the room.
+const FLOOR_NAME_RE = /floor/i
+
+// The real wall/frame geometry — `wall`, `wall_2`, `wall_metal`, `wall_screen`
+// (the screen-end wall panel), and `frame` (the exit door frame) — matches
+// `/wall|frame/i` on every named group in the GLB with no accidental hits.
+//
+// This replaces four AABB cuboids placed at the model's bounding-box extremes
+// (X = ±2.83, Z = ±5.60). Those cuboids sat past the real walls: the floor
+// mesh only spans Z∈[-4.10, 4.05] (screen end at +Z, exit end at -Z), so the
+// ~1.5 m gap between the floor's edge and each cuboid was walkable and
+// floorless — falling straight through it and out of the world. The interior
+// `wall`/`wall_metal` panels also had no collider at all, so a player could
+// walk straight through them. Trimeshing the real geometry fixes both: walls
+// are solid exactly where the model shows them, and the cuboids' only actual
+// job (blocking the true room perimeter) is now done more accurately by
+// `wall_2`, which already spans the full recentered footprint.
+const WALL_NAME_RE = /wall|frame/i
 
 export function Theater() {
   const { scene } = useGLTF(MODEL_URL)
 
-  const { model, bounds, floorGeometry } = useMemo(() => {
+  const { model, floorGeometry, wallGeometry } = useMemo(() => {
     // Clone so we never mutate (and never risk double-recentering) the
     // shared cache useGLTF returns for this URL.
     const model = scene.clone()
@@ -36,21 +56,14 @@ export function Theater() {
     model.position.set(-center.x, -box.min.y, -center.z)
     model.updateMatrixWorld(true)
 
-    const bounds = new Box3().setFromObject(model)
-    // Trimesh the real `floor`/`floor_metal` meshes so the walkable collider
-    // follows the actual raked/tiered floor (see floorCollider.ts for why the
-    // previous synthetic flat ramp made the player feel too tall lower down).
-    const floorGeometry = buildFloorColliderGeometry(model)
+    // Trimesh the real `floor`/`floor_metal` and `wall`/`wall_2`/`wall_metal`/
+    // `wall_screen`/`frame` meshes so both the walkable floor and the room's
+    // walls follow the actual geometry (see the name-pattern comments above).
+    const floorGeometry = buildColliderGeometry(model, FLOOR_NAME_RE)
+    const wallGeometry = buildColliderGeometry(model, WALL_NAME_RE)
 
-    return { model, bounds, floorGeometry }
+    return { model, floorGeometry, wallGeometry }
   }, [scene])
-
-  const width = bounds.max.x - bounds.min.x
-  const depth = bounds.max.z - bounds.min.z
-  const height = bounds.max.y - bounds.min.y
-  const centerX = (bounds.min.x + bounds.max.x) / 2
-  const centerY = (bounds.min.y + bounds.max.y) / 2
-  const centerZ = (bounds.min.z + bounds.max.z) / 2
 
   return (
     <>
@@ -65,29 +78,12 @@ export function Theater() {
         <mesh geometry={floorGeometry} visible={false} dispose={null} />
       </RigidBody>
 
-      {/* Perimeter walls + a flat safety net, as plain cuboids not tied to
-          specific meshes. */}
-      <RigidBody type="fixed" colliders={false}>
-        <CuboidCollider
-          args={[WALL_THICKNESS / 2, height / 2, depth / 2]}
-          position={[bounds.min.x, centerY, centerZ]}
-        />
-        <CuboidCollider
-          args={[WALL_THICKNESS / 2, height / 2, depth / 2]}
-          position={[bounds.max.x, centerY, centerZ]}
-        />
-        <CuboidCollider
-          args={[width / 2, height / 2, WALL_THICKNESS / 2]}
-          position={[centerX, centerY, bounds.min.z]}
-        />
-        <CuboidCollider
-          args={[width / 2, height / 2, WALL_THICKNESS / 2]}
-          position={[centerX, centerY, bounds.max.z]}
-        />
-        <CuboidCollider
-          args={[width / 2, SAFETY_NET_HALF, depth / 2]}
-          position={[centerX, bounds.min.y - SAFETY_NET_HALF, centerZ]}
-        />
+      {/* Accurate walls: a trimesh of the real wall/frame meshes only
+          (~30k tris) — replaces the previous bounding-box cuboids, which
+          floated past the floor's real edge and left the interior walls
+          uncollided (see the WALL_NAME_RE comment above). */}
+      <RigidBody type="fixed" colliders="trimesh" includeInvisible>
+        <mesh geometry={wallGeometry} visible={false} dispose={null} />
       </RigidBody>
     </>
   )

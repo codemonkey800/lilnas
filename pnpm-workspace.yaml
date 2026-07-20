@@ -5,3 +5,8 @@ packages:
 onlyBuiltDependencies:
   - bcrypt
   - better-sqlite3
+
+overrides:
+  # ecctrl depends on a loose '@types/three' range that resolves to a stale,
+  # incompatible copy alongside our pinned version — force one shared copy.
+  '@types/three': 0.185.1

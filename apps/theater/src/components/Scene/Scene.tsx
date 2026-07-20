@@ -1,44 +1,98 @@
 'use client'
 
-import { KeyboardControls, PointerLockControls } from '@react-three/drei'
+import { KeyboardControls, useGLTF } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
+import { Physics } from '@react-three/rapier'
+import { Leva } from 'leva'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { ACESFilmicToneMapping } from 'three'
 
-import { Floor } from './Floor'
-import { EYE_HEIGHT, KEYBOARD_MAP, Player } from './Player'
+import { KEYBOARD_MAP, Player } from './Player'
+import { Theater } from './Theater'
 
-const BOX_POSITIONS: [number, number, number][] = [
-  [-3, 0.5, -3],
-  [3, 0.5, -3],
-  [-3, 0.5, 2],
-  [3, 0.5, 2],
-  [0, 0.5, -6],
-]
+const DEV = process.env.NODE_ENV !== 'production'
 
 export function Scene() {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [pointerLocked, setPointerLocked] = useState(false)
+
+  useEffect(() => {
+    const handlePointerLockChange = () => {
+      setPointerLocked(document.pointerLockElement === canvasRef.current)
+    }
+    document.addEventListener('pointerlockchange', handlePointerLockChange)
+    return () =>
+      document.removeEventListener('pointerlockchange', handlePointerLockChange)
+  }, [])
+
+  // ecctrl already rotates the camera on mousemove whenever
+  // document.pointerLockElement is set (no ecctrl props needed) — this just
+  // requests the lock itself, which browsers only grant from a user gesture.
+  const requestLook = useCallback(() => {
+    canvasRef.current?.requestPointerLock().catch(() => {
+      // Rejected outside a user gesture, or unsupported — ignore.
+    })
+  }, [])
+
   return (
     <KeyboardControls map={KEYBOARD_MAP}>
-      <div className="relative min-h-0 flex-auto">
-        <Canvas camera={{ position: [0, EYE_HEIGHT, 5], fov: 75 }}>
-          <ambientLight intensity={0.6} />
-          <directionalLight intensity={1.2} position={[5, 10, 5]} />
+      <Leva hidden />
 
-          <Floor />
+      <div className="relative min-h-0 flex-auto" onClick={requestLook}>
+        <Canvas
+          shadows="percentage"
+          camera={{ fov: 75 }}
+          gl={{ toneMapping: ACESFilmicToneMapping }}
+          onCreated={state => {
+            canvasRef.current = state.gl.domElement
+          }}
+        >
+          {/* Dim sky/ground fill so unlit corners aren't pure black —
+              a stand-in for bounce light since the model has no baked GI. */}
+          <hemisphereLight
+            intensity={0.15}
+            color="#8fa3c9"
+            groundColor="#15111a"
+          />
 
-          {BOX_POSITIONS.map(position => (
-            <mesh key={position.join('-')} position={position}>
-              <boxGeometry args={[1, 1, 1]} />
-              <meshStandardMaterial color="orange" />
-            </mesh>
-          ))}
+          {/* Ceiling-mounted practical lights, not a directional "sun" —
+              this room has no windows, so light should fall off with
+              distance the way real fixtures do. */}
+          <pointLight
+            position={[0, 4.3, 2.5]}
+            intensity={12}
+            distance={11}
+            decay={2}
+            castShadow
+            shadow-mapSize={[1024, 1024]}
+          />
+          <pointLight
+            position={[0, 4.3, -2.5]}
+            intensity={9}
+            distance={11}
+            decay={2}
+          />
 
-          <Player />
-          <PointerLockControls />
+          <Suspense fallback={null}>
+            <Physics debug={DEV} gravity={[0, -9.81, 0]}>
+              <Theater />
+              <Player />
+            </Physics>
+          </Suspense>
         </Canvas>
 
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="h-2 w-2 rounded-full bg-white/80" />
+        </div>
+
         <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded bg-black/60 px-4 py-2 text-sm">
-          Click to look · WASD to move · Esc to release
+          {pointerLocked
+            ? 'WASD move · Space jump'
+            : 'Click to look around · WASD move · Space jump'}
         </div>
       </div>
     </KeyboardControls>
   )
 }
+
+useGLTF.preload('/models/cinema.glb')
