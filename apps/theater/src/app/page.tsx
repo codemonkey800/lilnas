@@ -1,5 +1,5 @@
-import { SceneView } from 'src/components/Scene/SceneView'
+import { TheaterApp } from 'src/components/TheaterApp'
 
 export default function RootPage() {
-  return <SceneView />
+  return <TheaterApp />
 }

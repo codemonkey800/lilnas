@@ -10,7 +10,10 @@ module.exports = [
     // Three.js-specific props (args, rotation-x, intensity, ...) that
     // eslint-plugin-react's DOM-oriented no-unknown-property rule doesn't
     // recognize.
-    files: ['src/components/Scene/**/*.tsx'],
+    files: [
+      'src/components/Scene/**/*.tsx',
+      'src/components/CharacterSelect/**/*.tsx',
+    ],
     rules: {
       'react/no-unknown-property': 'off',
     },

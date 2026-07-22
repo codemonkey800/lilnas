@@ -15,6 +15,8 @@ dist/
 apps/tdr-code/server.js
 infra/dev.yml
 apps/tdr-bot/logs/
+apps/theater/public/models/*.fbx
+apps/theater/public/animations/*.fbx
 node_modules/
 REVIEW.md
 *.db
