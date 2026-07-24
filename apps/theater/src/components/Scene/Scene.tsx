@@ -53,6 +53,20 @@ export function Scene() {
           gl={{ toneMapping: ACESFilmicToneMapping }}
           onCreated={state => {
             canvasRef.current = state.gl.domElement
+            // Trackpad pinch-to-zoom has no touch events to hook (trackpads
+            // aren't touchscreens) — browsers instead synthesize a `wheel`
+            // event with ctrlKey set, for both pinch and actual Ctrl+scroll.
+            // Must be a native listener: React attaches its own onWheel as
+            // passive, which makes preventDefault() inside it a silent
+            // no-op. This only blocks the browser's page-zoom; Player.tsx's
+            // camZoomSpeed={0} already neutralizes ecctrl's own camera zoom.
+            state.gl.domElement.addEventListener(
+              'wheel',
+              e => {
+                if (e.ctrlKey) e.preventDefault()
+              },
+              { passive: false },
+            )
           }}
         >
           {debugMode && <Stats />}

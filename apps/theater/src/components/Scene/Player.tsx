@@ -98,6 +98,13 @@ export function Player({ onTelemetry }: PlayerProps) {
       camCollision={false}
       camInitDis={-0.01}
       camMinDis={-0.01}
+      // ecctrl's own first-person recipe omits this, but it leaves the
+      // mouse-wheel camera-zoom listener (Ecctrl.js's onDocumentMouseWheel)
+      // active on the canvas — since the cam sits at -0.01 (the character's
+      // head), any scroll zooms it out toward camMaxDis, which reads as the
+      // character/world lurching away. Zeroing zoom speed neutralizes that
+      // handler without touching the rest of the FP camera setup.
+      camZoomSpeed={0}
       camFollowMult={1000}
       camLerpMult={1000}
       turnVelMultiplier={1}
