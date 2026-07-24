@@ -6,11 +6,13 @@ import { PrometheusModule } from '@willsoto/nestjs-prometheus'
 import { LoggerModule } from 'nestjs-pino'
 
 import { AuthModule } from './auth/auth.module'
+import { EmbyModule } from './emby/emby.module'
 import { HealthModule } from './health/health.module'
 
 @Module({
   imports: [
     AuthModule,
+    EmbyModule,
     HealthModule,
     LoggerModule.forRoot(),
     PrometheusModule.register({ defaultMetrics: { enabled: true } }),

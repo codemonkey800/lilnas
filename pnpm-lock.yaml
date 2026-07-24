@@ -1013,6 +1013,9 @@ importers:
       ecctrl:
         specifier: 1.0.97
         version: 1.0.97(@react-three/drei@10.7.7(@react-three/fiber@9.6.1(@types/react@19.2.2)(immer@11.1.8)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.185.1))(@types/react@19.2.2)(@types/three@0.185.1)(immer@11.1.8)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.185.1))(@react-three/fiber@9.6.1(@types/react@19.2.2)(immer@11.1.8)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.185.1))(@react-three/rapier@2.2.0(@react-three/fiber@9.6.1(@types/react@19.2.2)(immer@11.1.8)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.185.1))(react@19.2.0)(three@0.185.1))(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(immer@11.1.8)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.185.1)(use-sync-external-store@1.6.0(react@19.2.0))
+      hls.js:
+        specifier: 1.6.16
+        version: 1.6.16
       leva:
         specifier: 0.10.1
         version: 0.10.1(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -1058,6 +1061,9 @@ importers:
       zod:
         specifier: 4.1.12
         version: 4.1.12
+      zustand:
+        specifier: 5.0.14
+        version: 5.0.14(@types/react@19.2.2)(immer@11.1.8)(react@19.2.0)(use-sync-external-store@1.6.0(react@19.2.0))
     devDependencies:
       '@lilnas/cli':
         specifier: workspace:*

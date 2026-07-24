@@ -1,4 +1,18 @@
-import { isOutOfBounds } from 'src/components/Scene/respawn'
+import { isFiniteVec3, isOutOfBounds } from 'src/components/Scene/respawn'
+
+describe('isFiniteVec3', () => {
+  it('is true when every component is finite', () => {
+    expect(isFiniteVec3({ x: 0, y: 1, z: -5 })).toBe(true)
+  })
+
+  it('is false if any component is NaN or infinite', () => {
+    expect(isFiniteVec3({ x: NaN, y: 0, z: 0 })).toBe(false)
+    expect(isFiniteVec3({ x: 0, y: NaN, z: 0 })).toBe(false)
+    expect(isFiniteVec3({ x: 0, y: 0, z: NaN })).toBe(false)
+    expect(isFiniteVec3({ x: Infinity, y: 0, z: 0 })).toBe(false)
+    expect(isFiniteVec3({ x: 0, y: -Infinity, z: 0 })).toBe(false)
+  })
+})
 
 describe('isOutOfBounds', () => {
   it('is false for a finite position at or above the threshold', () => {

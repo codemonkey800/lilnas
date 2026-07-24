@@ -32,7 +32,7 @@ module.exports = {
   coverageReporters: ['text', 'lcov', 'html'],
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
-    '^@lilnas/utils/(.*)$': '<rootDir>/../utils/src/$1',
+    '^@lilnas/utils/(.*)$': '<rootDir>/../../packages/utils/src/$1',
   },
   clearMocks: true,
   restoreMocks: true,

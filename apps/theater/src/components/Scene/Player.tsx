@@ -5,7 +5,9 @@ import { useFrame } from '@react-three/fiber'
 import Ecctrl, { CustomEcctrlRigidBody } from 'ecctrl'
 import { useRef } from 'react'
 
-import { isOutOfBounds } from './respawn'
+import { usePlaybackStore } from 'src/playback/store'
+
+import { isFiniteVec3, isOutOfBounds } from './respawn'
 
 export type Controls =
   | 'forward'
@@ -53,6 +55,21 @@ const RESPAWN_MIN_Y = -2
 // less like a looming adult.
 const CAM_TARGET_POS = { x: 0, y: -0.2, z: 0 }
 
+// ecctrl's own per-frame loop returns immediately when `disableControl` is
+// true — before it applies the floating-capsule spring force that holds a
+// grounded character up, and before its gravityScale management runs (see
+// node_modules/ecctrl/dist/Ecctrl.js). That leaves gravityScale pinned at
+// whatever it last was (1, ecctrl's own default, for a character standing
+// still) with nothing left to counteract it, so a motionless character
+// starts falling — fast enough to tunnel straight through the floor's thin
+// trimesh collider (ecctrl has no CCD) well before the iPad closes. Freezing
+// gravity + velocity here for the whole time the iPad is open is what
+// actually keeps the character "exactly in place", restoring ecctrl's
+// default the instant it closes so its own floor-spring/gravity logic
+// resumes correctly from the next frame.
+const IPAD_OPEN_GRAVITY_SCALE = 0
+const DEFAULT_GRAVITY_SCALE = 1 // matches ecctrl's own unconfigured default
+
 // A debug HUD only needs a human-readable refresh rate — pushing telemetry
 // into React state at useFrame's display-refresh cadence (~60Hz) would mean
 // 60 Scene re-renders/sec for numbers nobody can read that fast.
@@ -68,17 +85,45 @@ export type PlayerProps = {
 }
 
 export function Player({ onTelemetry }: PlayerProps) {
+  const ipadOpen = usePlaybackStore(state => state.ipadOpen)
   const ecctrlRef = useRef<CustomEcctrlRigidBody>(null)
   const telemetryElapsedRef = useRef(0)
+  const wasIpadOpenRef = useRef(false)
 
-  useFrame((_state, delta) => {
+  useFrame((state, delta) => {
     const body = ecctrlRef.current?.group
     if (!body) return
+
+    if (ipadOpen) {
+      // Every frame, not just on open — a one-time zero would still leave
+      // gravityScale at 1 with nothing opposing it (see the constant's
+      // comment above), so the character would resume falling on the very
+      // next physics step.
+      body.setGravityScale(IPAD_OPEN_GRAVITY_SCALE, true)
+      body.setLinvel(ZERO_VELOCITY, true)
+      body.setAngvel(ZERO_VELOCITY, true)
+    } else if (wasIpadOpenRef.current) {
+      // Just closed — hand gravityScale back so ecctrl's own management
+      // (which only runs while disableControl is false) resumes from a
+      // known-good value instead of the frozen 0 we left it at.
+      body.setGravityScale(DEFAULT_GRAVITY_SCALE, true)
+    }
+    wasIpadOpenRef.current = ipadOpen
 
     if (isOutOfBounds(body.translation(), RESPAWN_MIN_Y)) {
       body.setTranslation(SPAWN_VECTOR, true)
       body.setLinvel(ZERO_VELOCITY, true)
       body.setAngvel(ZERO_VELOCITY, true)
+    }
+
+    // Backstop alongside the body respawn above: ecctrl's camera-follow
+    // lerp (THREE.Vector3.lerp) never recovers once a component goes
+    // non-finite ("NaN + anything" stays NaN), which otherwise throws
+    // inside AudioListener.updateMatrixWorld the next time positional audio
+    // updates (linearRampToValueAtTime rejects non-finite values). Snap
+    // directly — not via lerp — the instant that happens.
+    if (!isFiniteVec3(state.camera.position)) {
+      state.camera.position.set(...SPAWN_POSITION)
     }
 
     if (onTelemetry) {
@@ -93,6 +138,14 @@ export function Player({ onTelemetry }: PlayerProps) {
   return (
     <Ecctrl
       ref={ecctrlRef}
+      // Freezes WASD/jump input (and reading it at all) while the iPad is
+      // open — without this, typing in the iPad's search box moves the
+      // character, since drei's KeyboardControls listens on `window`
+      // regardless of DOM focus. This also stops ecctrl's own internal
+      // frame logic (see the IPAD_OPEN_GRAVITY_SCALE comment above for why
+      // that's not safe on its own), so the useFrame below takes over
+      // holding the character in place for as long as this is true.
+      disableControl={ipadOpen}
       jumpVel={2.5}
       camTargetPos={CAM_TARGET_POS}
       camCollision={false}

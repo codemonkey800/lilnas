@@ -7,6 +7,11 @@ import { AppModule } from './app.module'
 import { EnvKeys } from './env'
 
 export async function bootstrap() {
+  // Fail fast at boot if required env vars are missing.
+  env(EnvKeys.EMBY_URL)
+  env(EnvKeys.EMBY_API_KEY)
+  env(EnvKeys.EMBY_USERNAME)
+
   const app = await NestFactory.create(AppModule, { bufferLogs: true })
   app.useLogger(app.get(Logger))
   app.use(cookieParser(env(EnvKeys.THEATER_SESSION_SECRET)))
