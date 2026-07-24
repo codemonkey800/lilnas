@@ -87,6 +87,16 @@ The server uses the following storage directories under `/storage/`:
 - **Used By:**
   - Immich photo management system
 
+### File Sharing
+
+#### `/storage/files/`
+
+- **Purpose:** User-uploaded files served via the copyparty file browser
+- **Access Pattern:** Write on upload, read/write for management and download
+- **Backup Priority:** High (Tier 1 - may contain irreplaceable personal data)
+- **Used By:**
+  - copyparty (files.lilnas.io)
+
 ### Backup Infrastructure
 
 #### `/storage/backup-tier1/`
@@ -218,6 +228,15 @@ volumes:
   - /storage/photos/library:/usr/src/app/upload/library
   - /storage/photos/upload:/usr/src/app/upload/upload
   - /storage/photos/external:/usr/src/app/external
+```
+
+### File Sharing (infra/files.yml)
+
+#### copyparty
+
+```yaml
+volumes:
+  - /storage/files:/w
 ```
 
 ### Application Services

@@ -1,0 +1,26 @@
+services:
+  files:
+    image: copyparty/ac:latest
+    restart: unless-stopped
+    user: '1000:1000'
+    command:
+      - -v
+      - /w::rw
+      - -e2dsa
+    environment:
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - /storage/files:/w
+    healthcheck:
+      test: ['CMD-SHELL', 'wget --spider -q 127.0.0.1:3923/?reset=/._']
+      interval: 1m
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.files.rule=Host(`files.lilnas.io`)
+      - traefik.http.routers.files.entrypoints=websecure
+      - traefik.http.routers.files.tls.certresolver=le
+      - traefik.http.routers.files.middlewares=forward-auth
+      - traefik.http.services.files.loadbalancer.server.port=3923
