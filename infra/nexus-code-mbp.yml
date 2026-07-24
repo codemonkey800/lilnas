@@ -29,7 +29,6 @@ services:
       - traefik.http.routers.nexus-code-mbp.rule=Host(`nexus-code-mbp.lilnas.io`)
       - traefik.http.routers.nexus-code-mbp.entrypoints=websecure
       - traefik.http.routers.nexus-code-mbp.tls=true
-      - traefik.http.routers.nexus-code-mbp.middlewares=forward-auth
       - traefik.http.services.nexus-code-mbp.loadbalancer.server.port=80
 
 networks:
