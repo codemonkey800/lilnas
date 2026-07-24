@@ -1,5 +1,6 @@
 include:
   # Infrastructure services
+  - ./infra/files.yml
   - ./infra/immich.yml
   - ./infra/media.yml
   - ./infra/monitoring.yml
