@@ -1,7 +1,7 @@
 'use client'
 
 import { useFrame } from '@react-three/fiber'
-import { useRef, useState } from 'react'
+import { Suspense, useRef, useState } from 'react'
 import { Group, Vector3 } from 'three'
 
 import { CHARACTERS } from 'src/components/CharacterSelect/characters'
@@ -58,13 +58,36 @@ const SPEED_STATE_EPSILON = 0.05
 
 // Maps `peerIds` (React-visible; changes only on join/leave) to one
 // <RemoteAvatar> per peer.
+//
+// Each gets its OWN <Suspense> boundary, not just the shared one Scene.tsx
+// puts around this whole component. <Avatar>'s useGLTF(modelUrl) call
+// (Avatar.tsx) suspends on an unseen character model -- unlike the five
+// animation clips and cinema.glb, per-character models are never preloaded,
+// since preloading all seven every session would mean downloading every
+// unselected character's multi-MB GLB for nothing. Without a per-peer
+// boundary, that suspend propagates up to Scene.tsx's shared <Suspense>,
+// which also wraps <Physics><Player/></Physics>: React hides the whole
+// boundary (blanking the local player's view -- lights sit outside it, so
+// hidden geometry renders as pure black) AND tears down every RigidBody
+// inside it via @react-three/rapier's cleanup effects, including the local
+// player's own body and Theater's floor/wall colliders. They get recreated
+// from scratch once the model resolves, snapping the camera back to
+// Player.tsx's hardcoded SPAWN_POSITION with a fresh capsule dropped through
+// a momentarily-absent floor collider -- i.e. every OTHER player in the
+// theater gets yanked to spawn and glitches through the floor each time
+// someone joins with a not-yet-cached character. Scoping the boundary to
+// just the one peer whose model is loading confines the blank/hide to that
+// one <RemoteAvatar>, leaving the local player and already-loaded peers
+// untouched.
 export function RemoteAvatars() {
   const peerIds = useMultiplayerStore(state => state.peerIds)
 
   return (
     <>
       {peerIds.map(id => (
-        <RemoteAvatar key={id} id={id} />
+        <Suspense key={id} fallback={null}>
+          <RemoteAvatar id={id} />
+        </Suspense>
       ))}
     </>
   )
