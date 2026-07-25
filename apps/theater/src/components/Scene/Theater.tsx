@@ -2,8 +2,8 @@
 
 import { useGLTF } from '@react-three/drei'
 import { RigidBody } from '@react-three/rapier'
-import { useMemo } from 'react'
-import { Box3, Mesh, Vector3 } from 'three'
+import { useEffect, useMemo } from 'react'
+import { Box3, Mesh, Object3D, Vector3 } from 'three'
 
 import { buildColliderGeometry } from './meshCollider'
 
@@ -37,6 +37,19 @@ const FLOOR_NAME_RE = /floor/i
 // `wall_2`, which already spans the full recentered footprint.
 const WALL_NAME_RE = /wall|frame/i
 
+// Module-level mutable object, NOT a React ref or context (PLAN.md's F7 section: "Occlusion --
+// occludesGaze helper + a shared theater env-root ref"). NameTag.tsx (F7, a sibling unit under
+// Scene/) needs to raycast against this exact recentered geometry for its gaze-occlusion check,
+// but there is no context provider or prop-drilling path from this file to NameTag.tsx today,
+// and adding one would mean editing Scene.tsx -- out of scope for both units. A plain exported
+// mutable object any module can import and read mirrors this codebase's existing
+// module-level-singleton convention (playback/store.ts's `sharedVideoElement`,
+// multiplayer/store.ts's `peerBuffers`) instead of introducing a new plumbing mechanism.
+// `current` starts (and ends up back at) `null` so a consumer running before this component has
+// mounted -- or after it has unmounted -- can treat "no env root yet" as "not occluded" rather
+// than dereferencing a stale/absent object.
+export const theaterEnvRef: { current: Object3D | null } = { current: null }
+
 export function Theater() {
   const { scene } = useGLTF(MODEL_URL)
 
@@ -64,6 +77,16 @@ export function Theater() {
 
     return { model, floorGeometry, wallGeometry }
   }, [scene])
+
+  // Publishes the recentered model for NameTag.tsx's occlusion raycast (see theaterEnvRef's
+  // comment above), and clears it on unmount so a stale reference from a previous mount can
+  // never outlive this component.
+  useEffect(() => {
+    theaterEnvRef.current = model
+    return () => {
+      theaterEnvRef.current = null
+    }
+  }, [model])
 
   return (
     <>

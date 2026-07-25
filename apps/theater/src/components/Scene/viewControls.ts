@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 
+import { getSocket } from 'src/multiplayer/store'
 import { usePlaybackStore } from 'src/playback/store'
+import { getLocalStream, useVoiceStore } from 'src/voice/store'
 
 // Standard guard so Tab/Escape/F don't fire while the user is typing into
 // some future text input (the iPad's own UI, most likely). Checked against
@@ -63,10 +65,18 @@ function closeIpad(): void {
 //           openIpad/closeIpad above).
 //   - Escape dismisses the iPad if it's open (same restore as Tab);
 //           otherwise a no-op. Checked *before* the isEditingText() guard
-//           below — unlike Tab/F, Escape must still close the iPad even
+//           below — unlike Tab/F/M, Escape must still close the iPad even
 //           while its own search input (IpadBrowser.tsx) has focus, the way
 //           any search UI is expected to let Escape back out.
 //   - F     toggles the POV/fullscreen view.
+//   - M     toggles mic mute (PLAN.md "Phase 4B"). The voice store's
+//           `muted` flag is the source of truth — flipped first — then
+//           applied to every local audio track's `.enabled`, so intent
+//           toggles coherently even if getLocalStream() is still `null`
+//           (mic never acquired/denied): it takes effect the moment a
+//           stream does exist. Optionally emits `peer:mute` so peers can
+//           show a muted icon. Checked after isEditingText(), like Tab/F,
+//           so typing "m" into the iPad's search box doesn't toggle mute.
 //
 // Takes no arguments and returns nothing — a later integration wave calls
 // this once from Scene.tsx.
@@ -98,6 +108,16 @@ export function useViewControls(): void {
       if (event.key.toLowerCase() === 'f') {
         const { view, setView } = usePlaybackStore.getState()
         setView(view === 'fullscreen' ? 'pov' : 'fullscreen')
+      }
+
+      if (event.key.toLowerCase() === 'm') {
+        const nextMuted = !useVoiceStore.getState().muted
+        useVoiceStore.getState().setMuted(nextMuted)
+        const stream = getLocalStream()
+        stream?.getAudioTracks().forEach(track => {
+          track.enabled = !nextMuted
+        })
+        getSocket()?.emit('peer:mute', { muted: nextMuted })
       }
     }
 

@@ -1,14 +1,21 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
 import { Html, RoundedBox } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
-import { useEffect, useRef, useState } from 'react'
+import { type UIEvent, useEffect, useRef, useState } from 'react'
 import { type Group } from 'three'
 
+import { getSocket } from 'src/multiplayer/store'
 import { type QualityTier, usePlaybackStore } from 'src/playback/store'
 
-import { filterLibraryItems, type LibraryTypeFilter } from './libraryFilter'
+import {
+  type BrowseState,
+  IpadBrowserView,
+  type TheaterEpisode,
+  type TheaterItem,
+  type TheaterSeason,
+} from './IpadBrowserView'
+import { type LibraryTypeFilter } from './libraryFilter'
 
 // ---------------------------------------------------------------------------
 // The 3D iPad (PLAN.md D8 / ORCHESTRATE.md "iPad (C1/Q1)"): a procedural
@@ -16,6 +23,18 @@ import { filterLibraryItems, type LibraryTypeFilter } from './libraryFilter'
 // drei <Html transform occlude> poster-grid UI, summoned/dismissed on Tab —
 // the key handling itself lives in viewControls.ts; this component only
 // reacts to the store's `ipadOpen` boolean.
+//
+// Split (PLAN.md's "Phase 4C — Tablet presence + UI mirroring" /
+// ORCHESTRATE.md §2, unit TF1): this file now owns only input + the
+// camera-HUD positioning below — every piece of the <Html> panel's actual
+// DOM content (search box, grid, seasons/episodes, playback footer, ...)
+// lives in IpadBrowserView.tsx, rendered here with `interactive={true}` and
+// every callback wired to the handlers below. That split is what lets a
+// later unit (TF3) re-render the exact same panel, read-only, from a REMOTE
+// peer's broadcast tablet state instead of this local one. Local behavior is
+// unchanged — this file still owns 100% of the input handling and writes to
+// usePlaybackStore exactly as before, just via callback props now instead of
+// inline JSX handlers.
 //
 // Positioning ("parent it to the camera", PLAN.md D8): rather than literally
 // reparenting into THREE.Camera's own Object3D subtree (which complicates
@@ -85,65 +104,6 @@ const HTML_HEIGHT_PX = 400
 const HTML_SCALE = 0.04375
 const HTML_FRONT_OFFSET = 0.001 // just off the tablet's front face
 
-const TICKS_PER_MINUTE = 10_000_000 * 60 // Emby ticks (100ns units) per minute
-
-// Shape of `GET /theater/items` (ORCHESTRATE.md § "Backend endpoints",
-// matching `src/emby/emby.service.ts`'s `TheaterItemDto`) — not exported
-// anywhere shared, so inlined here. `type` has to be kept in sync with that
-// backend DTO by hand.
-type TheaterItemType = 'movie' | 'series'
-
-type TheaterItem = {
-  id: string
-  name: string
-  type: TheaterItemType
-  year: number | null
-  overview: string | null
-  runTimeTicks: number | null
-  imageTag: string | null
-}
-
-// Mirrors `TheaterSeasonDto`/`TheaterEpisodeDto` in `emby.service.ts`.
-type TheaterSeason = {
-  id: string
-  name: string
-  indexNumber: number | null
-}
-
-type TheaterEpisode = {
-  id: string
-  name: string
-  indexNumber: number | null
-  overview: string | null
-  runTimeTicks: number | null
-  imageTag: string | null
-}
-
-// A fixed-depth (grid -> seasons -> episodes) drill-down, modeled as a
-// discriminated union rather than independent nullable fields so an invalid
-// combination (a season selected with no series) is structurally
-// unrepresentable. Render code derives flat nullable `browsingSeries`/
-// `browsingSeason` values from this once (see below) rather than
-// re-narrowing the union at every use site.
-type BrowseState =
-  | { view: 'grid' }
-  | { view: 'seasons'; series: TheaterItem }
-  | { view: 'episodes'; series: TheaterItem; season: TheaterSeason }
-
-const TYPE_FILTER_OPTIONS: { value: LibraryTypeFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'movie', label: 'Movies' },
-  { value: 'series', label: 'Shows' },
-]
-
-const QUALITY_OPTIONS: { tier: QualityTier; label: string }[] = [
-  { tier: 'auto', label: 'Auto' },
-  { tier: '1080p', label: '1080p' },
-  { tier: '720p', label: '720p' },
-  { tier: '480p', label: '480p' },
-  { tier: 'datasaver', label: 'Data saver' },
-]
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
@@ -156,40 +116,6 @@ function describeFetchError(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback
 }
 
-function formatRuntime(ticks: number | null): string | null {
-  if (ticks === null) {
-    return null
-  }
-  const totalMinutes = Math.round(ticks / TICKS_PER_MINUTE)
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`
-}
-
-function formatItemMeta(item: TheaterItem): string {
-  const parts: string[] = []
-  if (item.year !== null) {
-    parts.push(String(item.year))
-  }
-  const runtime = formatRuntime(item.runTimeTicks)
-  if (runtime !== null) {
-    parts.push(runtime)
-  }
-  return parts.join(' · ')
-}
-
-function formatEpisodeMeta(episode: TheaterEpisode): string {
-  const parts: string[] = []
-  if (episode.indexNumber !== null) {
-    parts.push(`E${episode.indexNumber}`)
-  }
-  const runtime = formatRuntime(episode.runTimeTicks)
-  if (runtime !== null) {
-    parts.push(runtime)
-  }
-  return parts.join(' · ')
-}
-
 // The poster click is also the required user-gesture for the browser's
 // video-autoplay policy (PLAN.md "Gesture") — load() then play() directly
 // inside the click handler's own async call, nothing else in between.
@@ -198,86 +124,75 @@ async function selectItem(id: string): Promise<void> {
   usePlaybackStore.getState().play()
 }
 
-// Centered "play" affordance for tiles that actually start playback on
-// click (movies, episodes) — an inline SVG since no icon library is
-// installed in this app.
-function PlayGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-7 w-7 drop-shadow" aria-hidden="true">
-      <circle cx="12" cy="12" r="11" className="fill-black/55" />
-      <path d="M9.5 7.5v9l7-4.5z" className="fill-white/95" />
-    </svg>
-  )
+// ---------------------------------------------------------------------------
+// TF2 — broadcast this (local, interactive) tablet's UI state so peers can
+// mirror it (PLAN.md "Phase 4C — Tablet presence + UI mirroring" /
+// ORCHESTRATE.md §1's `tablet:state` event). Pure addition layered on top of
+// state that already lives in this component for other reasons — nothing
+// below changes existing rendering, state, or local interactive behavior.
+//
+// `TabletState` is hand-mirrored here — NOT imported from
+// `src/presence/tablet.schema.ts` (the backend zod schema) or from
+// `src/multiplayer/store.ts` (which keeps its OWN separate copy of this
+// exact shape, for the exact same reason) — matching this app's established
+// convention of hand-duplicating wire shapes at each module boundary meant to
+// stay independently buildable rather than importing across it (see that
+// store's "Keep in sync" comments, and this file's own `TheaterItemType`
+// mirroring `emby.service.ts` across the frontend/backend boundary).
+// ---------------------------------------------------------------------------
+
+// Keep in sync with src/presence/tablet.schema.ts's `TabletState` /
+// ORCHESTRATE.md §1's frozen wire contract.
+type TabletState = {
+  open: boolean
+  view: 'grid' | 'seasons' | 'episodes'
+  seriesId: string | null
+  seasonId: string | null
+  search: string
+  typeFilter: LibraryTypeFilter
+  scrollTop: number
 }
 
-// Distinct "browse into" affordance for series tiles — clicking one opens
-// the season picker rather than playing anything, so it deliberately does
-// NOT reuse PlayGlyph (a play triangle there would be a false promise).
-function SeriesGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-7 w-7 drop-shadow" aria-hidden="true">
-      <rect
-        x="3.5"
-        y="8.5"
-        width="13"
-        height="10"
-        rx="1.5"
-        className="fill-black/55"
-      />
-      <rect
-        x="7"
-        y="5"
-        width="13"
-        height="10"
-        rx="1.5"
-        className="fill-black/80 stroke-white/70"
-        strokeWidth="1"
-      />
-    </svg>
-  )
-}
-
-// Poster/thumbnail `<img>` with a text-placeholder fallback on load failure
-// — more likely to matter now that episodes commonly lack their own unique
-// art in Emby-family servers (they fall back to season/series art, which is
-// a client responsibility, not automatic).
-function LibraryImage({
-  src,
-  alt,
-  aspectClassName,
-}: {
-  src: string
-  alt: string
-  aspectClassName: string
-}) {
-  const [broken, setBroken] = useState(false)
-
-  if (broken) {
-    return (
-      <div
-        className={cns(
-          'flex w-full items-center justify-center rounded-md border border-white/10 bg-white/5 p-1 text-center text-[8px] text-white/40',
-          aspectClassName,
-        )}
-      >
-        {alt}
-      </div>
-    )
+// Derives the wire payload from local state. Shared by both emit sites below
+// (the discrete-field change effect and the throttled scroll handler) so a
+// given field is only ever computed one way.
+function buildTabletState(
+  ipadOpen: boolean,
+  browse: BrowseState,
+  search: string,
+  typeFilter: LibraryTypeFilter,
+  scrollTop: number,
+): TabletState {
+  return {
+    open: ipadOpen,
+    view: browse.view,
+    seriesId: browse.view !== 'grid' ? browse.series.id : null,
+    seasonId: browse.view === 'episodes' ? browse.season.id : null,
+    search,
+    typeFilter,
+    scrollTop,
   }
+}
 
+// Flat field-by-field compare — cheaper and more explicit than
+// JSON.stringify for a shape this small and flat — so a redundant emit can be
+// skipped when nothing actually changed ("silent when nothing changed",
+// PLAN.md).
+function tabletStatesEqual(a: TabletState, b: TabletState): boolean {
   return (
-    <img
-      src={src}
-      alt={alt}
-      loading="lazy"
-      onError={() => setBroken(true)}
-      className={cns(
-        'w-full rounded-md border border-white/10 bg-white/5 object-cover',
-        aspectClassName,
-      )}
-    />
+    a.open === b.open &&
+    a.view === b.view &&
+    a.seriesId === b.seriesId &&
+    a.seasonId === b.seasonId &&
+    a.search === b.search &&
+    a.typeFilter === b.typeFilter &&
+    a.scrollTop === b.scrollTop
   )
 }
+
+// Throttle window for the scroll-triggered broadcast below (PLAN.md:
+// "throttled ~10 Hz while open").
+const SCROLL_EMIT_INTERVAL_MS = 100
 
 export function IpadBrowser() {
   const camera = useThree(state => state.camera)
@@ -307,17 +222,26 @@ export function IpadBrowser() {
   const [episodesLoading, setEpisodesLoading] = useState(false)
   const [episodesError, setEpisodesError] = useState<string | null>(null)
 
-  // Flat, always-nullable views of the union above — used throughout render
-  // instead of re-narrowing `browse` at every JSX use site (narrowing a
-  // discriminated union doesn't reliably survive into nested closures, e.g.
-  // an inline onClick, without re-checking `.view` again there too).
+  // The one flat, nullable view of the `browse` union this file still needs
+  // directly (handleSeasonClick's state transition below) — see
+  // IpadBrowserView.tsx's identical derivation (and its fuller comment) for
+  // everything the *rendering* side needs from this same union.
   const browsingSeries = browse.view === 'grid' ? null : browse.series
-  const browsingSeason = browse.view === 'episodes' ? browse.season : null
 
   const groupRef = useRef<Group>(null)
   const opennessRef = useRef(0)
   const domVisibleRef = useRef(false)
   const [domVisible, setDomVisible] = useState(false)
+
+  // TF2 broadcast bookkeeping — refs only, never React state: the scroll
+  // handler below can fire far more often than the ~100ms throttle window,
+  // so gating and de-duplication must not themselves trigger a re-render.
+  // `scrollTopRef` is the latest known scroll position (updated on every
+  // scroll tick regardless of throttling) so the change-effect below can
+  // fold it into a fresh payload even when scroll isn't what triggered it.
+  const scrollTopRef = useRef(0)
+  const lastSentTabletStateRef = useRef<TabletState | null>(null)
+  const lastScrollEmitAtRef = useRef(0)
 
   // Poster grid data — fetched once on mount (simplest option; this
   // component is always mounted going forward). The <img> requests
@@ -439,6 +363,29 @@ export function IpadBrowser() {
     }
   }, [browse])
 
+  // Broadcast on any change to the fields that define what's on screen
+  // (PLAN.md: "immediately on any change"). Deliberately NOT gated on
+  // `ipadOpen` — `open` is itself one of the watched/sent fields below, so
+  // the close transition (ipadOpen flipping to false) still runs this
+  // effect and tells peers the tablet closed; the throttled SCROLL
+  // broadcast (handleScroll, below) is separately inert while closed since
+  // its DOM listener isn't mounted then (domVisible gates the <Html>).
+  useEffect(() => {
+    const next = buildTabletState(
+      ipadOpen,
+      browse,
+      search,
+      typeFilter,
+      scrollTopRef.current,
+    )
+    const last = lastSentTabletStateRef.current
+    if (last && tabletStatesEqual(last, next)) {
+      return
+    }
+    lastSentTabletStateRef.current = next
+    getSocket()?.emit('tablet:state', next)
+  }, [ipadOpen, browse, search, typeFilter])
+
   useFrame((_state, delta) => {
     const group = groupRef.current
     if (!group) {
@@ -468,9 +415,6 @@ export function IpadBrowser() {
     }
   })
 
-  const textSubtitles = subtitles.filter(track => track.isText)
-  const filteredItems = filterLibraryItems(items, search, typeFilter)
-
   function handleItemClick(item: TheaterItem): void {
     if (item.type === 'movie') {
       void selectItem(item.id)
@@ -485,6 +429,66 @@ export function IpadBrowser() {
       return
     }
     setBrowse({ view: 'grid' })
+  }
+
+  function handleSeasonClick(season: TheaterSeason): void {
+    if (browsingSeries) {
+      setBrowse({ view: 'episodes', series: browsingSeries, season })
+    }
+  }
+
+  function handleEpisodeClick(episode: TheaterEpisode): void {
+    void selectItem(episode.id)
+  }
+
+  function handlePlayPause(): void {
+    if (playing) {
+      usePlaybackStore.getState().pause()
+    } else {
+      usePlaybackStore.getState().play()
+    }
+  }
+
+  function handleVolumeChange(nextVolume: number): void {
+    usePlaybackStore.getState().setVolume(nextVolume)
+  }
+
+  function handleQualityChange(nextQuality: QualityTier): void {
+    usePlaybackStore.getState().setQuality(nextQuality)
+  }
+
+  function handleSubtitleChange(index: number | null): void {
+    usePlaybackStore.getState().setSubtitle(index)
+  }
+
+  // Throttled scroll broadcast (~10 Hz, PLAN.md). `onScrollCapture` on the
+  // wrapper <div> below fires on React's capture phase for a descendant's
+  // native `scroll` event even though `scroll` itself doesn't bubble — see
+  // that div's own comment. This can fire far more often than the throttle
+  // window, so the elapsed-time gate is an inline ref-timestamp check here,
+  // not a useEffect/state round-trip. Reads `event.target`, NOT
+  // `event.currentTarget`: the element that actually scrolled is a
+  // descendant scroll container inside IpadBrowserView, not this wrapper
+  // div itself.
+  function handleScroll(event: UIEvent<HTMLDivElement>): void {
+    const scrollTop = (event.target as HTMLElement).scrollTop
+    scrollTopRef.current = scrollTop
+
+    const now = Date.now()
+    if (now - lastScrollEmitAtRef.current < SCROLL_EMIT_INTERVAL_MS) {
+      return
+    }
+    lastScrollEmitAtRef.current = now
+
+    const next = buildTabletState(
+      ipadOpen,
+      browse,
+      search,
+      typeFilter,
+      scrollTop,
+    )
+    lastSentTabletStateRef.current = next
+    getSocket()?.emit('tablet:state', next)
   }
 
   return (
@@ -517,339 +521,53 @@ export function IpadBrowser() {
               click handler that (re)requests pointer lock, so without this
               stopPropagation a poster/picker click would immediately re-lock
               the pointer while the tablet is still open. Kept self-contained
-              here rather than depending on a change to that other file. */}
+              here rather than depending on a change to that other file. This
+              wrapper div is deliberately kept in THIS file (rather than
+              folded into IpadBrowserView's own root) — it's HUD-sizing/
+              pointer-lock-guard plumbing, not view-rendering, and it's also
+              the one DOM node outside IpadBrowserView.tsx that TF2's
+              `handleScroll` below attaches to via `onScrollCapture`: a
+              native `scroll` event on the actual scrollable container deep
+              inside IpadBrowserView doesn't bubble, but React's capture
+              phase still reaches an ancestor listener for it. */}
           <div
             onClick={event => event.stopPropagation()}
+            onScrollCapture={handleScroll}
             style={{ width: HTML_WIDTH_PX, height: HTML_HEIGHT_PX }}
-            className={cns(
-              'flex flex-col overflow-hidden rounded-2xl border border-white/15',
-              'bg-black/90 text-white shadow-2xl backdrop-blur',
-            )}
           >
-            <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-              <span className="text-[10px] font-medium tracking-[0.2em] text-white/50 uppercase">
-                Library
-              </span>
-            </div>
-
-            {browse.view === 'grid' ? (
-              <div className="flex flex-col gap-1.5 border-b border-white/10 px-3 py-2">
-                <input
-                  type="text"
-                  value={search}
-                  onChange={event => setSearch(event.target.value)}
-                  placeholder="Search titles…"
-                  className={cns(
-                    'w-full rounded border border-white/20 bg-white/5 px-2 py-1 text-[10px] text-white',
-                    'placeholder:text-white/30 focus:border-white/50 focus:outline-none',
-                  )}
-                />
-                <div className="flex gap-1">
-                  {TYPE_FILTER_OPTIONS.map(option => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      aria-current={typeFilter === option.value}
-                      onClick={() => setTypeFilter(option.value)}
-                      className={cns(
-                        'rounded-full border px-2 py-0.5 text-[9px] transition',
-                        typeFilter === option.value
-                          ? 'border-white bg-white/15 text-white'
-                          : 'border-white/25 text-white/60 hover:border-white/50 hover:text-white',
-                      )}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
-                <button
-                  type="button"
-                  onClick={handleBack}
-                  className="shrink-0 rounded-full border border-white/25 px-2 py-0.5 text-[9px] text-white/60 transition hover:border-white/50 hover:text-white"
-                >
-                  ← Back
-                </button>
-                <span className="truncate text-[10px] text-white/50">
-                  {browsingSeries?.name}
-                  {browsingSeason ? ` · ${browsingSeason.name}` : ''}
-                </span>
-              </div>
-            )}
-
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
-              {browse.view === 'grid' && (
-                <>
-                  {itemsLoading && (
-                    <p className="p-2 text-[11px] text-white/50">
-                      Loading titles…
-                    </p>
-                  )}
-                  {itemsError && (
-                    <p className="p-2 text-[11px] text-red-300">{itemsError}</p>
-                  )}
-                  {!itemsLoading &&
-                    !itemsError &&
-                    filteredItems.length === 0 && (
-                      <p className="p-2 text-[11px] text-white/50">
-                        No titles found.
-                      </p>
-                    )}
-
-                  <div className="grid grid-cols-4 gap-2">
-                    {filteredItems.map(item => {
-                      const meta = formatItemMeta(item)
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          title={item.overview ?? undefined}
-                          onClick={() => handleItemClick(item)}
-                          className="group flex flex-col gap-1 rounded text-left transition hover:opacity-90"
-                        >
-                          <div className="relative">
-                            <LibraryImage
-                              src={`/api/theater/items/${item.id}/image`}
-                              alt={item.name}
-                              aspectClassName="aspect-[2/3]"
-                            />
-                            <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
-                              {item.type === 'movie' ? (
-                                <PlayGlyph />
-                              ) : (
-                                <SeriesGlyph />
-                              )}
-                            </div>
-                          </div>
-                          <span className="truncate text-[9px] leading-tight text-white/80">
-                            {item.name}
-                          </span>
-                          {meta && (
-                            <span className="truncate text-[8px] leading-tight text-white/40">
-                              {meta}
-                            </span>
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </>
-              )}
-
-              {browse.view === 'seasons' && (
-                <>
-                  {seasonsLoading && (
-                    <p className="p-2 text-[11px] text-white/50">
-                      Loading seasons…
-                    </p>
-                  )}
-                  {seasonsError && (
-                    <p className="p-2 text-[11px] text-red-300">
-                      {seasonsError}
-                    </p>
-                  )}
-                  {!seasonsLoading && !seasonsError && seasons.length === 0 && (
-                    <p className="p-2 text-[11px] text-white/50">
-                      No seasons found.
-                    </p>
-                  )}
-                  <div className="flex flex-wrap gap-1.5">
-                    {seasons.map(season => (
-                      <button
-                        key={season.id}
-                        type="button"
-                        onClick={() => {
-                          if (browsingSeries) {
-                            setBrowse({
-                              view: 'episodes',
-                              series: browsingSeries,
-                              season,
-                            })
-                          }
-                        }}
-                        className="rounded-full border border-white/25 px-3 py-1.5 text-[10px] text-white/70 transition hover:border-white/50 hover:text-white"
-                      >
-                        {season.name}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {browse.view === 'episodes' && (
-                <>
-                  {episodesLoading && (
-                    <p className="p-2 text-[11px] text-white/50">
-                      Loading episodes…
-                    </p>
-                  )}
-                  {episodesError && (
-                    <p className="p-2 text-[11px] text-red-300">
-                      {episodesError}
-                    </p>
-                  )}
-                  {!episodesLoading &&
-                    !episodesError &&
-                    episodes.length === 0 && (
-                      <p className="p-2 text-[11px] text-white/50">
-                        No episodes found.
-                      </p>
-                    )}
-                  <div className="flex flex-col gap-1.5">
-                    {episodes.map(episode => {
-                      const meta = formatEpisodeMeta(episode)
-                      return (
-                        <button
-                          key={episode.id}
-                          type="button"
-                          title={episode.overview ?? undefined}
-                          onClick={() => void selectItem(episode.id)}
-                          className="group flex items-center gap-2 rounded text-left transition hover:opacity-90"
-                        >
-                          <div className="relative w-20 shrink-0">
-                            <LibraryImage
-                              src={`/api/theater/items/${episode.id}/image`}
-                              alt={episode.name}
-                              aspectClassName="aspect-video"
-                            />
-                            <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
-                              <PlayGlyph />
-                            </div>
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-[10px] text-white/80">
-                              {episode.name}
-                            </p>
-                            {meta && (
-                              <p className="truncate text-[8px] text-white/40">
-                                {meta}
-                              </p>
-                            )}
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="space-y-1.5 border-t border-white/10 p-2">
-              {itemId === null ? (
-                <p className="text-[9px] text-white/40">
-                  Pick a title to begin.
-                </p>
-              ) : (
-                <>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        playing
-                          ? usePlaybackStore.getState().pause()
-                          : usePlaybackStore.getState().play()
-                      }
-                      className="shrink-0 rounded-full border border-white/30 bg-white/10 px-3 py-1 text-[10px] font-medium text-white transition hover:bg-white/20"
-                    >
-                      {playing ? 'Pause' : 'Play'}
-                    </button>
-                    <label className="flex min-w-0 flex-1 items-center gap-1.5 text-[9px] text-white/50">
-                      <span className="tracking-wide uppercase">Vol</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        value={volume}
-                        onChange={event =>
-                          usePlaybackStore
-                            .getState()
-                            .setVolume(Number(event.target.value))
-                        }
-                        className="h-1 min-w-0 flex-1 accent-white"
-                      />
-                    </label>
-                  </div>
-
-                  <div>
-                    <p className="mb-1 text-[9px] tracking-wide text-white/40 uppercase">
-                      Quality
-                    </p>
-                    <div className="flex flex-wrap gap-1">
-                      {QUALITY_OPTIONS.map(option => (
-                        <button
-                          key={option.tier}
-                          type="button"
-                          aria-current={quality === option.tier}
-                          onClick={() =>
-                            usePlaybackStore.getState().setQuality(option.tier)
-                          }
-                          className={cns(
-                            'rounded-full border px-1.5 py-0.5 text-[9px] transition',
-                            quality === option.tier
-                              ? 'border-white bg-white/15 text-white'
-                              : 'border-white/25 text-white/60 hover:border-white/50 hover:text-white',
-                          )}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="mb-1 text-[9px] tracking-wide text-white/40 uppercase">
-                      Subtitles
-                    </p>
-                    <div className="flex flex-wrap gap-1">
-                      <button
-                        type="button"
-                        aria-current={subtitleIndex === null}
-                        onClick={() =>
-                          usePlaybackStore.getState().setSubtitle(null)
-                        }
-                        className={cns(
-                          'rounded-full border px-1.5 py-0.5 text-[9px] transition',
-                          subtitleIndex === null
-                            ? 'border-white bg-white/15 text-white'
-                            : 'border-white/25 text-white/60 hover:border-white/50 hover:text-white',
-                        )}
-                      >
-                        Off
-                      </button>
-                      {textSubtitles.map(track => (
-                        <button
-                          key={track.index}
-                          type="button"
-                          aria-current={subtitleIndex === track.index}
-                          onClick={() =>
-                            usePlaybackStore.getState().setSubtitle(track.index)
-                          }
-                          className={cns(
-                            'rounded-full border px-1.5 py-0.5 text-[9px] transition',
-                            subtitleIndex === track.index
-                              ? 'border-white bg-white/15 text-white'
-                              : 'border-white/25 text-white/60 hover:border-white/50 hover:text-white',
-                          )}
-                        >
-                          {track.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {loading && (
-                <p className="flex items-center gap-1.5 text-[9px] text-white/50">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white/60" />
-                  Buffering…
-                </p>
-              )}
-              {error && <p className="text-[9px] text-red-300">{error}</p>}
-            </div>
+            <IpadBrowserView
+              interactive={true}
+              items={items}
+              itemsLoading={itemsLoading}
+              itemsError={itemsError}
+              search={search}
+              typeFilter={typeFilter}
+              browse={browse}
+              seasons={seasons}
+              seasonsLoading={seasonsLoading}
+              seasonsError={seasonsError}
+              episodes={episodes}
+              episodesLoading={episodesLoading}
+              episodesError={episodesError}
+              itemId={itemId}
+              playing={playing}
+              volume={volume}
+              quality={quality}
+              subtitleIndex={subtitleIndex}
+              subtitles={subtitles}
+              loading={loading}
+              error={error}
+              onSearchChange={setSearch}
+              onTypeFilterChange={setTypeFilter}
+              onItemClick={handleItemClick}
+              onBack={handleBack}
+              onSeasonClick={handleSeasonClick}
+              onEpisodeClick={handleEpisodeClick}
+              onPlayPause={handlePlayPause}
+              onVolumeChange={handleVolumeChange}
+              onQualityChange={handleQualityChange}
+              onSubtitleChange={handleSubtitleChange}
+            />
           </div>
         </Html>
       )}

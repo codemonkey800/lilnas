@@ -8,12 +8,14 @@ import { LoggerModule } from 'nestjs-pino'
 import { AuthModule } from './auth/auth.module'
 import { EmbyModule } from './emby/emby.module'
 import { HealthModule } from './health/health.module'
+import { PresenceModule } from './presence/presence.module'
 
 @Module({
   imports: [
     AuthModule,
     EmbyModule,
     HealthModule,
+    PresenceModule,
     LoggerModule.forRoot(),
     PrometheusModule.register({ defaultMetrics: { enabled: true } }),
     ThrottlerModule.forRoot([

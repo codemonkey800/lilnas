@@ -20,12 +20,16 @@ import {
 } from 'three'
 
 import { FullscreenPlayer } from 'src/components/FullscreenPlayer'
+import { useMultiplayerStore } from 'src/multiplayer/store'
 import { usePlaybackStore } from 'src/playback/store'
 import { useVideoAudio } from 'src/playback/useVideoAudio'
 
 import { DebugHud } from './DebugHud'
 import { IpadBrowser } from './IpadBrowser'
+import { LocalPresence } from './LocalPresence'
+import { MicIndicator } from './MicIndicator'
 import { KEYBOARD_MAP, Player, Telemetry } from './Player'
+import { RemoteAvatars } from './RemoteAvatars'
 import { SubtitleOverlay } from './SubtitleOverlay'
 import { Theater } from './Theater'
 import { TheaterScreen } from './TheaterScreen'
@@ -81,10 +85,15 @@ function TheaterPlayback() {
   )
 }
 
-export function Scene() {
+type SceneProps = {
+  characterId: string
+}
+
+export function Scene({ characterId }: SceneProps) {
   useViewControls()
 
   const view = usePlaybackStore(state => state.view)
+  const peerCount = useMultiplayerStore(state => state.peerIds.length)
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [pointerLocked, setPointerLocked] = useState(false)
@@ -101,6 +110,19 @@ export function Scene() {
     return () =>
       document.removeEventListener('pointerlockchange', handlePointerLockChange)
   }, [])
+
+  // Join/leave the multiplayer room alongside this component's own
+  // mount/unmount lifecycle. Imperative `.getState()` calls (matching this
+  // store's action-API design, and TheaterPlayback's own
+  // `usePlaybackStore.getState().tick(...)` pattern above) rather than
+  // subscribing via the `useMultiplayerStore(...)` hook — this effect has
+  // nothing to react to besides `characterId` itself. `connect`/`disconnect`
+  // are already StrictMode-safe (multiplayer/store.ts's deferred-teardown
+  // guard), so no extra guarding is needed here.
+  useEffect(() => {
+    useMultiplayerStore.getState().connect(characterId)
+    return () => useMultiplayerStore.getState().disconnect()
+  }, [characterId])
 
   // ecctrl already rotates the camera on mousemove whenever
   // document.pointerLockElement is set (no ecctrl props needed) — this just
@@ -173,6 +195,11 @@ export function Scene() {
               <Player onTelemetry={debugMode ? setTelemetry : undefined} />
             </Physics>
             <TheaterPlayback />
+            {/* Remote avatars are visual-only (no colliders/ecctrl) and
+                LocalPresence only reads the camera — both live outside
+                <Physics> per RemoteAvatars.tsx / LocalPresence.tsx. */}
+            <RemoteAvatars />
+            <LocalPresence characterId={characterId} />
           </Suspense>
         </Canvas>
 
@@ -185,6 +212,17 @@ export function Scene() {
             ? 'WASD move · Space jump · Tab tablet · F fullscreen'
             : 'Click to look around · WASD move · Space jump · Tab tablet · F fullscreen'}
         </div>
+
+        {/* Cheap demo affordance (PLAN.md "F6") — confirms presence is
+            actually wired without needing the debug HUD. */}
+        <div className="pointer-events-none absolute bottom-4 right-4 rounded bg-black/60 px-4 py-2 text-sm">
+          {peerCount} {peerCount === 1 ? 'other' : 'others'} in the theater
+        </div>
+
+        {/* VF5 built this standalone (voice/store.ts's permissionState +
+            muted); mounted here since Scene.tsx isn't any voice unit's file
+            to touch. Positions itself at top-left. */}
+        <MicIndicator />
 
         {debugMode && <DebugHud telemetry={telemetry} />}
       </div>

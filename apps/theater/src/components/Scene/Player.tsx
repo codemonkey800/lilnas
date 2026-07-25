@@ -7,6 +7,7 @@ import { useRef } from 'react'
 
 import { usePlaybackStore } from 'src/playback/store'
 
+import { playerVelocity } from './playerVelocity'
 import { isFiniteVec3, isOutOfBounds } from './respawn'
 
 export type Controls =
@@ -93,6 +94,15 @@ export function Player({ onTelemetry }: PlayerProps) {
   useFrame((state, delta) => {
     const body = ecctrlRef.current?.group
     if (!body) return
+
+    // Publish the player's TRUE planar velocity for LocalPresence's animState
+    // classification (see playerVelocity.ts). The Rapier rigid body's linvel is
+    // read straight off the physics state -- accurate magnitude, no camera-delta
+    // aliasing, and a sharp start/stop edge -- replacing the camera-position
+    // delta + EMA that lagged the classified stop by ~0.3s.
+    const linvel = body.linvel()
+    playerVelocity.x = linvel.x
+    playerVelocity.z = linvel.z
 
     if (ipadOpen) {
       // Every frame, not just on open — a one-time zero would still leave

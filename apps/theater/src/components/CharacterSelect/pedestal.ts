@@ -116,6 +116,15 @@ export type PreparedCharacterScene = {
   bones: Bone[]
   anchor: PedestalAnchor | null
   groundY: number
+  /**
+   * Bind-pose vertical extent (`box.max.y - box.min.y`) of the same local
+   * bounds this function already measures to recenter the scene — added for
+   * Scene/Avatar.tsx's `onMeasured` head-height callback (multiplayer
+   * nametag placement) so that caller doesn't need a second, duplicate
+   * bounds pass. Existing callers (CharacterModel.tsx) are unaffected: they
+   * destructure only the fields they use.
+   */
+  height: number
 }
 
 // Bounding box of `scene`'s meshes expressed in scene's OWN local frame,
@@ -199,6 +208,7 @@ export function prepareCharacterScene(scene: Object3D): PreparedCharacterScene {
   // is what pushed switched-in characters off-centre (see measureLocalBounds).
   const box = measureLocalBounds(scene)
   const center = box.getCenter(new Vector3())
+  const height = box.max.y - box.min.y
   scene.position.set(-center.x, -box.min.y, -center.z)
   scene.updateMatrixWorld(true)
 
@@ -221,8 +231,8 @@ export function prepareCharacterScene(scene: Object3D): PreparedCharacterScene {
 
   if (rootBone && bones.length > 0) {
     const { anchor, groundY } = capturePedestalAnchor(scene, rootBone, bones)
-    return { rootBone, bones, anchor, groundY }
+    return { rootBone, bones, anchor, groundY, height }
   }
 
-  return { rootBone, bones, anchor: null, groundY: 0 }
+  return { rootBone, bones, anchor: null, groundY: 0, height }
 }

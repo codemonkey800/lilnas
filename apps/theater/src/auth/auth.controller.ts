@@ -10,18 +10,18 @@ import {
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common'
-import { ThrottlerGuard } from '@nestjs/throttler'
 import type { Request, Response } from 'express'
 
 import { AuthService } from './auth.service'
 import { LoginRequestSchema } from './login-request.schema'
+import { AppThrottlerGuard } from './throttler.guard'
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
-  @UseGuards(ThrottlerGuard)
+  @UseGuards(AppThrottlerGuard)
   login(
     @Body() body: unknown,
     @Res({ passthrough: true }) res: Response,

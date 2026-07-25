@@ -12,3 +12,16 @@ services:
       - traefik.http.routers.theater.entrypoints=websecure
       - traefik.http.routers.theater.tls.certresolver=le
       - traefik.http.services.theater.loadbalancer.server.port=8080
+      # Second router on the same host+container, keyed on the socket.io
+      # path prefix, pointed at the NestJS backend port directly (8081)
+      # instead of the Next.js frontend (8080). Needed because Next.js
+      # rewrites don't proxy the WebSocket Upgrade handshake — Traefik does,
+      # natively — so `/socket.io` must reach the backend without going
+      # through the frontend's rewrite at all. Same same-host
+      # base-router-plus-PathPrefix-router pattern as apps/swole/deploy.yml's
+      # `swole-metrics-deny` router.
+      - traefik.http.routers.theater-ws.rule=Host(`theater.lilnas.io`) && PathPrefix(`/socket.io`)
+      - traefik.http.routers.theater-ws.entrypoints=websecure
+      - traefik.http.routers.theater-ws.tls.certresolver=le
+      - traefik.http.routers.theater-ws.service=theater-ws
+      - traefik.http.services.theater-ws.loadbalancer.server.port=8081

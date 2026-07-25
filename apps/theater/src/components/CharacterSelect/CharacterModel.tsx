@@ -3,8 +3,10 @@
 import { useAnimations, useGLTF } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { useLayoutEffect, useMemo, useRef } from 'react'
-import { AnimationAction, AnimationClip, Bone } from 'three'
+import { AnimationAction, Bone } from 'three'
 import { SkeletonUtils } from 'three-stdlib'
+
+import { stripProportionTracks } from 'src/components/Scene/clipTracks'
 
 import {
   applyPedestal,
@@ -22,27 +24,6 @@ export type CharacterModelProps = {
 // makes cross-character clip sharing possible at all (see animationUrl's
 // comment in characters.ts) — this is that same assumption, not a new one.
 const ROOT_BONE_NAME = 'mixamorig:Hips'
-
-// Mixamo bakes a translation (position) and scale track onto *every* bone,
-// not just the root — including bones whose rest offset never actually
-// changes during the clip. Those tracks encode the source rig's bone
-// lengths, not motion: sharing idle.glb (exported from Kanna's proportions)
-// onto a differently-proportioned rig like Master Chief overwrote his bone
-// offsets with hers every frame, bulging the mesh away from the pose its
-// skin was bound to (forearms ~51% off, hands ~40%, Hips ~369%, measured
-// against the shipped assets). Articulation — the part actually worth
-// sharing — lives entirely in the rotation tracks, which are proportion-
-// independent. Keep those plus the root bone's own position (the pedestal
-// machinery below re-anchors that one anyway), drop everything else.
-function stripProportionTracks(clip: AnimationClip): AnimationClip {
-  const filtered = clip.clone()
-  filtered.tracks = filtered.tracks.filter(
-    track =>
-      track.name.endsWith('.quaternion') ||
-      track.name === `${ROOT_BONE_NAME}.position`,
-  )
-  return filtered
-}
 
 // Freeze frame for prefers-reduced-motion — a front-facing standing beat
 // with the visor and chest marking clearly visible. The idle clip runs
@@ -84,7 +65,7 @@ export function CharacterModel({
   // plays whatever (if anything) is embedded in its model.
   const { animations } = useGLTF(animationUrl ?? modelUrl)
   const clips = useMemo(
-    () => animations.map(stripProportionTracks),
+    () => animations.map(clip => stripProportionTracks(clip, ROOT_BONE_NAME)),
     [animations],
   )
   const { actions, names, mixer } = useAnimations(clips, scene)

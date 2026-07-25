@@ -34,9 +34,7 @@ function TheaterAppContent() {
     return <CharacterSelect onSelect={setCharacterId} onLogout={handleLogout} />
   }
 
-  // characterId isn't consumed yet — Phase 2 wires it into the scene to
-  // render the chosen character's body.
-  return <SceneView />
+  return <SceneView characterId={characterId} />
 }
 
 export function TheaterApp() {

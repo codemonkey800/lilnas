@@ -7,6 +7,6 @@ const Scene = dynamic(() => import('./Scene').then(mod => mod.Scene), {
   loading: () => <p>Loading…</p>,
 })
 
-export function SceneView() {
-  return <Scene />
+export function SceneView({ characterId }: { characterId: string }) {
+  return <Scene characterId={characterId} />
 }
