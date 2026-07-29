@@ -13,9 +13,10 @@
     "./dist"
   ],
   "scripts": {
-    "build": "run-s build:frontend build:backend",
+    "build": "run-s build:frontend build:backend build:info",
     "build:backend": "nest build -b swc --type-check",
     "build:frontend": "next build && cp .next/standalone/apps/tdr-code/server.js server.js",
+    "build:info": "git rev-parse HEAD > dist/BUILD_SHA",
     "clean": "rm -rf .next/ dist/ server.js .turbo/",
     "daemon:start": "./scripts/daemon.sh start",
     "daemon:stop": "./scripts/daemon.sh stop",

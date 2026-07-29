@@ -148,6 +148,27 @@ cmd_restart() {
   cmd_start
 }
 
+
+# Prints which commit the running dist/ was built from, and whether that
+# still matches HEAD, so `daemon:status` doubles as a "do I need
+# daemon:rebuild" check without a manual git-vs-dist timestamp comparison.
+print_build_sha() {
+  if [[ ! -f dist/BUILD_SHA ]]; then
+    echo "  build: dist/BUILD_SHA not found (built before this check existed — run daemon:rebuild)"
+    return
+  fi
+  local built_sha current_sha
+  built_sha="$(<dist/BUILD_SHA)"
+  current_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+  if [[ -z "$current_sha" ]]; then
+    echo "  build: ${built_sha:0:7} (could not resolve current HEAD to compare)"
+  elif [[ "$built_sha" == "$current_sha" ]]; then
+    echo "  build: ${built_sha:0:7} (matches HEAD)"
+  else
+    echo "  build: ${built_sha:0:7} (HEAD is now ${current_sha:0:7} — run daemon:rebuild)"
+  fi
+}
+
 cmd_status() {
   if is_running; then
     local pgid uptime
@@ -159,6 +180,7 @@ cmd_status() {
   else
     echo "tdr-code is not running"
   fi
+  print_build_sha
 }
 
 case "${1:-}" in
