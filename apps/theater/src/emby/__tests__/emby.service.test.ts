@@ -268,3 +268,55 @@ describe('EmbyService.listSeasons / listEpisodes', () => {
     expect(episodes).toEqual([])
   })
 })
+
+// Pure URL builder — no fetch involved, so this block needs only the env the
+// service reads at construction/URL time.
+describe('EmbyService.buildImageUrl', () => {
+  beforeEach(() => {
+    process.env.EMBY_URL = 'https://emby.test'
+    process.env.EMBY_API_KEY = 'test-api-key'
+  })
+
+  // The tablet's poster grid calls with no options, so these defaults are what
+  // keep its request (and browser cache entry) unchanged now that the method
+  // takes an options argument.
+  it('defaults to a 400px Primary image', () => {
+    const url = new URL(new EmbyService().buildImageUrl('item-1'))
+
+    expect(url.pathname).toBe('/Items/item-1/Images/Primary')
+    expect(url.searchParams.get('maxWidth')).toBe('400')
+    expect(url.searchParams.get('api_key')).toBe('test-api-key')
+  })
+
+  it('honors an explicit type and maxWidth for the player hero', () => {
+    const url = new URL(
+      new EmbyService().buildImageUrl('item-1', {
+        type: 'Backdrop',
+        maxWidth: 1920,
+      }),
+    )
+
+    expect(url.pathname).toBe('/Items/item-1/Images/Backdrop')
+    expect(url.searchParams.get('maxWidth')).toBe('1920')
+  })
+
+  it('applies each option independently of the other', () => {
+    const typeOnly = new URL(
+      new EmbyService().buildImageUrl('item-1', { type: 'Thumb' }),
+    )
+    expect(typeOnly.pathname).toBe('/Items/item-1/Images/Thumb')
+    expect(typeOnly.searchParams.get('maxWidth')).toBe('400')
+
+    const widthOnly = new URL(
+      new EmbyService().buildImageUrl('item-1', { maxWidth: 800 }),
+    )
+    expect(widthOnly.pathname).toBe('/Items/item-1/Images/Primary')
+    expect(widthOnly.searchParams.get('maxWidth')).toBe('800')
+  })
+
+  it('percent-encodes the item id so it cannot escape its path segment', () => {
+    const url = new URL(new EmbyService().buildImageUrl('a/b'))
+
+    expect(url.pathname).toBe('/Items/a%2Fb/Images/Primary')
+  })
+})

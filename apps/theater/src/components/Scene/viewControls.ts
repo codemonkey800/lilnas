@@ -2,7 +2,11 @@ import { useEffect } from 'react'
 
 import { getSocket } from 'src/multiplayer/store'
 import { usePlaybackStore } from 'src/playback/store'
+import { useSeatStore } from 'src/seats/store'
 import { getLocalStream, useVoiceStore } from 'src/voice/store'
+
+import { seatPhaseRef } from './SeatedCamera'
+import { seatTargetRef } from './seatTargeting'
 
 // Standard guard so Tab/Escape/F don't fire while the user is typing into
 // some future text input (the iPad's own UI, most likely). Checked against
@@ -59,24 +63,39 @@ function closeIpad(): void {
 }
 
 // Global key bindings for the theater's playback chrome (PLAN.md "Views" /
-// "iPad browser"):
+// "iPad browser" / Phase 5 "seats"):
 //   - Tab   summons/dismisses the iPad, dropping pointer lock on summon and
 //           restoring it on dismiss iff it was locked beforehand (see
-//           openIpad/closeIpad above).
+//           openIpad/closeIpad above). Inert while `view === 'fullscreen'`
+//           (D7) — no tablet in fullscreen at all — but still
+//           preventDefault()s either way, so focus can't escape the canvas
+//           regardless.
 //   - Escape dismisses the iPad if it's open (same restore as Tab);
 //           otherwise a no-op. Checked *before* the isEditingText() guard
-//           below — unlike Tab/F/M, Escape must still close the iPad even
+//           below — unlike Tab/E/F/M, Escape must still close the iPad even
 //           while its own search input (IpadBrowser.tsx) has focus, the way
 //           any search UI is expected to let Escape back out.
-//   - F     toggles the POV/fullscreen view.
+//   - E     toggles sit/stand (D5, D9). Ignored entirely while a sit_down/
+//           stand_up one-shot is in flight (SeatedCamera.tsx's
+//           `seatPhaseRef`); releases the held seat if already seated;
+//           otherwise claims whichever seat seatTargeting.ts's
+//           `seatTargetRef` currently names, if any. Never recomputes the
+//           gaze+proximity test itself — reads the SAME ref <SitPrompt>
+//           (F8) polls, so the prompt and the keypress can't disagree about
+//           which seat (ORCHESTRATE.md §1).
+//   - F     toggles the POV/fullscreen view. Closes the iPad on the way IN
+//           to fullscreen (D7) via closeIpad() (not setIpadOpen directly,
+//           so its pointer-lock-restore bookkeeping still runs) — otherwise
+//           it's left open-but-unreachable behind the fullscreen overlay.
 //   - M     toggles mic mute (PLAN.md "Phase 4B"). The voice store's
 //           `muted` flag is the source of truth — flipped first — then
 //           applied to every local audio track's `.enabled`, so intent
 //           toggles coherently even if getLocalStream() is still `null`
 //           (mic never acquired/denied): it takes effect the moment a
 //           stream does exist. Optionally emits `peer:mute` so peers can
-//           show a muted icon. Checked after isEditingText(), like Tab/F,
-//           so typing "m" into the iPad's search box doesn't toggle mute.
+//           show a muted icon. Checked after isEditingText(), like
+//           Tab/E/F, so typing "m" into the iPad's search box doesn't
+//           toggle mute.
 //
 // Takes no arguments and returns nothing — a later integration wave calls
 // this once from Scene.tsx.
@@ -95,8 +114,13 @@ export function useViewControls(): void {
       }
 
       if (event.key === 'Tab') {
-        // Stop the browser from cycling focus off the canvas.
+        // Stop the browser from cycling focus off the canvas — even while
+        // inert below (D7: no tablet in fullscreen), so focus still can't
+        // escape the canvas either way.
         event.preventDefault()
+        if (usePlaybackStore.getState().view === 'fullscreen') {
+          return
+        }
         if (usePlaybackStore.getState().ipadOpen) {
           closeIpad()
         } else {
@@ -105,9 +129,35 @@ export function useViewControls(): void {
         return
       }
 
+      if (event.key.toLowerCase() === 'e') {
+        // D5/D9: E toggles sit/stand. Ignored entirely while a one-shot is
+        // in flight — simpler than queueing, and both windows are under 5s
+        // (clipTimings.ts).
+        const phase = seatPhaseRef.current
+        if (phase === 'sit_down' || phase === 'stand_up') {
+          return
+        }
+        if (phase === 'sitting') {
+          useSeatStore.getState().release()
+          return
+        }
+        const seatId = seatTargetRef.current
+        if (seatId !== null) {
+          useSeatStore.getState().claim(seatId)
+        }
+        return
+      }
+
       if (event.key.toLowerCase() === 'f') {
-        const { view, setView } = usePlaybackStore.getState()
-        setView(view === 'fullscreen' ? 'pov' : 'fullscreen')
+        const { view, ipadOpen, setView } = usePlaybackStore.getState()
+        const nextView = view === 'fullscreen' ? 'pov' : 'fullscreen'
+        if (nextView === 'fullscreen' && ipadOpen) {
+          // D7: never leave the tablet open-but-unreachable behind the
+          // fullscreen overlay. closeIpad() (not setIpadOpen directly) so
+          // its pointer-lock-restore bookkeeping still runs.
+          closeIpad()
+        }
+        setView(nextView)
       }
 
       if (event.key.toLowerCase() === 'm') {

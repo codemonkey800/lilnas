@@ -2,6 +2,7 @@ import {
   isAnimState,
   isPeerLeavePayload,
   isPeerPresencePayload,
+  isPeerSeatPayload,
   isPeerSnapshot,
   isPeerTabletPayload,
   isPositionTuple,
@@ -92,6 +93,24 @@ describe('isTabletState', () => {
     ).toBe(true)
   })
 
+  it('accepts the queue view (Phase 5)', () => {
+    expect(isTabletState({ ...VALID_TABLET, view: 'queue' })).toBe(true)
+  })
+
+  // The `view` union is hand-mirrored in four places (this guard,
+  // tablet.schema.ts's zod enum, IpadBrowserView.tsx's BrowseState, and
+  // RemoteIpad.tsx's reconstruction). Missing a copy fails SILENTLY — a peer
+  // sitting on the player page just stops mirroring — so each member gets an
+  // explicit case here.
+  it('accepts the player view', () => {
+    expect(isTabletState({ ...VALID_TABLET, view: 'player' })).toBe(true)
+  })
+
+  it('accepts the seasons and episodes views', () => {
+    expect(isTabletState({ ...VALID_TABLET, view: 'seasons' })).toBe(true)
+    expect(isTabletState({ ...VALID_TABLET, view: 'episodes' })).toBe(true)
+  })
+
   it('rejects a non-boolean open', () => {
     expect(isTabletState({ ...VALID_TABLET, open: 'yes' })).toBe(false)
   })
@@ -142,6 +161,11 @@ describe('isPeerSnapshot', () => {
     ).toBe(true)
   })
 
+  it('accepts an optional seatId, including null (Phase 5)', () => {
+    expect(isPeerSnapshot({ ...VALID_SNAPSHOT, seatId: 'r0s3' })).toBe(true)
+    expect(isPeerSnapshot({ ...VALID_SNAPSHOT, seatId: null })).toBe(true)
+  })
+
   it('rejects a missing/empty id', () => {
     const missingId: Record<string, unknown> = { ...VALID_SNAPSHOT }
     delete missingId.id
@@ -168,6 +192,10 @@ describe('isPeerSnapshot', () => {
         tablet: { ...VALID_TABLET, scrollTop: -5 },
       }),
     ).toBe(false)
+  })
+
+  it('rejects a non-string, non-null seatId', () => {
+    expect(isPeerSnapshot({ ...VALID_SNAPSHOT, seatId: 42 })).toBe(false)
   })
 
   it('rejects non-objects', () => {
@@ -240,5 +268,30 @@ describe('isPeerTabletPayload', () => {
     expect(
       isPeerTabletPayload({ id: 'abc123', ...VALID_TABLET, view: 'bad' }),
     ).toBe(false)
+  })
+})
+
+describe('isPeerSeatPayload', () => {
+  it('accepts { id, seatId } with a string seatId', () => {
+    expect(isPeerSeatPayload({ id: 'abc123', seatId: 'r0s3' })).toBe(true)
+  })
+
+  it('accepts a null seatId (standing)', () => {
+    expect(isPeerSeatPayload({ id: 'abc123', seatId: null })).toBe(true)
+  })
+
+  it('rejects a missing/empty id', () => {
+    expect(isPeerSeatPayload({ seatId: 'r0s3' })).toBe(false)
+    expect(isPeerSeatPayload({ id: '', seatId: 'r0s3' })).toBe(false)
+  })
+
+  it('rejects a non-string, non-null seatId', () => {
+    expect(isPeerSeatPayload({ id: 'abc123', seatId: 42 })).toBe(false)
+    expect(isPeerSeatPayload({ id: 'abc123', seatId: undefined })).toBe(false)
+  })
+
+  it('rejects non-objects', () => {
+    expect(isPeerSeatPayload(null)).toBe(false)
+    expect(isPeerSeatPayload('seat')).toBe(false)
   })
 })

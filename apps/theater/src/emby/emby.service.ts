@@ -10,7 +10,7 @@ import {
 
 import { EnvKeys } from 'src/env'
 
-import type { PlaybackQuery } from './emby.schema'
+import type { ItemImageQuery, PlaybackQuery } from './emby.schema'
 
 // ---------------------------------------------------------------------------
 // Emby client identity (ORCHESTRATE.md § "Backend endpoints" — DeviceId is a
@@ -28,6 +28,12 @@ const EMBY_AUTHORIZATION_HEADER =
 // so both the initial playback URL and every rewritten playlist child URI
 // use this exact prefix — see `buildHlsProxyUrl`/`rewriteChildUri`.
 const HLS_PROXY_PATH_PREFIX = '/api/theater/hls'
+
+// `buildImageUrl` defaults — the values it used to hardcode, sized for the
+// tablet's poster grid. Kept as the defaults so that call site's URL (and cache
+// entry) is unchanged now that the method takes options.
+const DEFAULT_IMAGE_TYPE = 'Primary'
+const DEFAULT_IMAGE_MAX_WIDTH = 400
 
 // ---------------------------------------------------------------------------
 // DeviceProfile sent with every `PlaybackInfo` POST. Declares what this
@@ -249,6 +255,16 @@ function isHlsPlaylistUrl(url: string): boolean {
   return path.toLowerCase().endsWith('.m3u8')
 }
 
+// Emby's raw capability flags for whether THIS DeviceProfile can play a given
+// MediaSource without transcoding — shared by version selection (pick the
+// direct-playable one among multiple) and mode decision (direct vs hls) below.
+function hasDirectPlayCapability(source: EmbyMediaSource): boolean {
+  return (
+    (source.SupportsDirectStream ?? false) ||
+    (source.SupportsDirectPlay ?? false)
+  )
+}
+
 @Injectable()
 export class EmbyService implements OnModuleInit {
   private readonly logger = new Logger(EmbyService.name)
@@ -396,12 +412,22 @@ export class EmbyService implements OnModuleInit {
       body: JSON.stringify(body),
     })
 
-    const mediaSource = data.MediaSources?.[0]
-    if (!mediaSource) {
+    const sources = data.MediaSources ?? []
+    const firstSource = sources[0]
+    if (!firstSource) {
       throw new NotFoundException(
         `Emby returned no playable media source for item ${id}`,
       )
     }
+
+    // With multiple versions of a title (e.g. a 4K HEVC original alongside a
+    // pre-made 1080p H.264/AAC MP4 — see docs/solutions on theater playback),
+    // Emby returns one MediaSource per version and the array order isn't
+    // contractual, so [0] isn't safe to assume. Prefer whichever version this
+    // DeviceProfile can actually direct-play; single-version items fall
+    // through to that one (already-validated) source unchanged.
+    const mediaSource =
+      sources.find(source => hasDirectPlayCapability(source)) ?? firstSource
 
     // Mode is decided by Emby's capability flags and the URL shape, NOT by
     // which URL field is populated. Emby mirrors an HLS `master.m3u8` onto BOTH
@@ -417,8 +443,7 @@ export class EmbyService implements OnModuleInit {
     // ("Unrecognized Guid format").
     const directStreamUrl = mediaSource.DirectStreamUrl
     const canDirectStream =
-      ((mediaSource.SupportsDirectStream ?? false) ||
-        (mediaSource.SupportsDirectPlay ?? false)) &&
+      hasDirectPlayCapability(mediaSource) &&
       directStreamUrl != null &&
       // Belt-and-suspenders: an `.m3u8` URL is always a transcode playlist and
       // must go through the HLS proxy, even if Emby ever flags it direct.
@@ -506,11 +531,26 @@ export class EmbyService implements OnModuleInit {
 
   // Ready-to-fetch, same-origin-authenticated URLs for the controller's
   // simple (non-Range) proxies.
-  buildImageUrl(itemId: string): string {
+  //
+  // The defaults reproduce this method's original fixed behavior (Primary at
+  // 400px, sized for the tablet's poster grid), so the grid keeps hitting the
+  // same URL — and therefore the same browser cache entry — while the full-page
+  // player can ask for a wide Backdrop hero. `type` is constrained upstream by
+  // `ItemImageQuerySchema`'s enum, which is what makes interpolating it into the
+  // path safe.
+  //
+  // Emby returns 404 for an image type an item doesn't have (backdrops are
+  // frequently absent), and the controller's `forwardResponse` passes that
+  // status straight through — that's the signal the client's artwork fallback
+  // chain reads via `<img onError>`.
+  buildImageUrl(itemId: string, options: ItemImageQuery = {}): string {
     const url = this.toAbsoluteEmbyUrl(
-      `/Items/${encodeURIComponent(itemId)}/Images/Primary`,
+      `/Items/${encodeURIComponent(itemId)}/Images/${options.type ?? DEFAULT_IMAGE_TYPE}`,
     )
-    url.searchParams.set('maxWidth', '400')
+    url.searchParams.set(
+      'maxWidth',
+      String(options.maxWidth ?? DEFAULT_IMAGE_MAX_WIDTH),
+    )
     return this.withApiKey(url).toString()
   }
 

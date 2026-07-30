@@ -6,7 +6,19 @@ import { type UIEvent, useEffect, useRef, useState } from 'react'
 import { type Group } from 'three'
 
 import { getSocket } from 'src/multiplayer/store'
+import { useQueueStore } from 'src/playback/queue'
 import { type QualityTier, usePlaybackStore } from 'src/playback/store'
+import {
+  commandEnqueue,
+  commandJump,
+  commandMove,
+  commandNext,
+  commandPause,
+  commandPlay,
+  commandRemove,
+  commandSeek,
+  type EnqueueEntry,
+} from 'src/playback/sync'
 
 import {
   type BrowseState,
@@ -94,6 +106,15 @@ const MIN_SCALE = 0.6 // scale at fully-closed — a "pop in" flourish only
 const OPEN_CLOSE_RATE = 8
 const VISIBLE_OPENNESS_EPSILON = 0.02
 
+// Throttled React-state promotion for the scrub bar's `playhead` (PLAN.md/
+// ORCHESTRATE.md F7a: "~4 Hz... the discipline RemoteAvatars already applies
+// to its own speed value") — mirrors RemoteAvatars.tsx's
+// SPEED_STATE_INTERVAL_S / SPEED_STATE_EPSILON pair exactly: a time-elapsed
+// ref accumulator plus a magnitude epsilon, so a paused video (playhead
+// static) causes zero additional re-renders rather than just throttled ones.
+const PLAYHEAD_STATE_INTERVAL_S = 0.25
+const PLAYHEAD_STATE_EPSILON = 0.05
+
 // drei's <Html transform>: with the default (unset) `distanceFactor` (=10
 // internally), 1 world unit renders as `400 / 10 = 40` CSS px at `scale={1}`
 // — i.e. `scale = worldSize * 40 / pxSize`. Sized up from 440x300 (see
@@ -116,12 +137,71 @@ function describeFetchError(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback
 }
 
-// The poster click is also the required user-gesture for the browser's
-// video-autoplay policy (PLAN.md "Gesture") — load() then play() directly
-// inside the click handler's own async call, nothing else in between.
-async function selectItem(id: string): Promise<void> {
-  await usePlaybackStore.getState().load(id)
-  usePlaybackStore.getState().play()
+// PLAN.md's "F7a — tablet: transport through commands, plus seeking":
+// picking a title now enqueues it (PLAN.md D2/D6's shared, cursor-based
+// queue) instead of loading+playing it directly. `subtitle` composition
+// mirrors this file's own formatItemMeta()/formatEpisodeMeta() labeling in
+// IpadBrowserView.tsx (a movie's year; an episode's series + "S{n}E{n}"),
+// per ORCHESTRATE.md §1's `QueueEntry.subtitle` examples ("2019" /
+// "The Bear · S2E4").
+function buildMovieEntry(item: TheaterItem): EnqueueEntry {
+  return {
+    itemId: item.id,
+    title: item.name,
+    subtitle: item.year !== null ? String(item.year) : null,
+    imageTag: item.imageTag,
+    runTimeTicks: item.runTimeTicks,
+  }
+}
+
+function formatEpisodeSubtitle(
+  series: TheaterItem,
+  season: TheaterSeason,
+  episode: TheaterEpisode,
+): string {
+  const seasonPart =
+    season.indexNumber !== null ? `S${season.indexNumber}` : null
+  const episodePart =
+    episode.indexNumber !== null ? `E${episode.indexNumber}` : null
+  const code = [seasonPart, episodePart].filter(Boolean).join('')
+  return code.length > 0 ? `${series.name} · ${code}` : series.name
+}
+
+function buildEpisodeEntry(
+  series: TheaterItem,
+  season: TheaterSeason,
+  episode: TheaterEpisode,
+): EnqueueEntry {
+  return {
+    itemId: episode.id,
+    title: episode.name,
+    subtitle: formatEpisodeSubtitle(series, season, episode),
+    imageTag: episode.imageTag,
+    runTimeTicks: episode.runTimeTicks,
+  }
+}
+
+// The poster/episode click is also the required user-gesture for the
+// browser's video-autoplay policy (PLAN.md "Gesture" / F6's "Autoplay
+// gesture" mitigation (a)) — but ONLY when this enqueue is what will START
+// playback, i.e. the room has nothing currently playing
+// (`useQueueStore.getState().currentItemId === null`). A click that only
+// appends to an already-playing queue must not touch local playback at all.
+// Both the optimistic call and the command emission always happen — the
+// echoed `video:state` this command triggers is what every client (this one
+// included) actually reconciles against via `useVideoSync()`'s
+// `applyAnchor()`; load()+play() here exists solely to keep the click a real
+// user gesture for the browser's autoplay policy, load() then play()
+// directly inside the click handler's own async call, nothing else in
+// between (mirrors this file's previous single-player `selectItem()`).
+function enqueueEntry(entry: EnqueueEntry): void {
+  if (useQueueStore.getState().currentItemId === null) {
+    void usePlaybackStore
+      .getState()
+      .load(entry.itemId)
+      .then(() => usePlaybackStore.getState().play())
+  }
+  commandEnqueue(entry)
 }
 
 // ---------------------------------------------------------------------------
@@ -142,10 +222,17 @@ async function selectItem(id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 // Keep in sync with src/presence/tablet.schema.ts's `TabletState` /
-// ORCHESTRATE.md §1's frozen wire contract.
+// ORCHESTRATE.md §1's frozen wire contract. `'queue'` (Phase 5/F7b) and
+// `'player'` are each one of four independent mirrors of this exact union —
+// `tablet.schema.ts`'s zod enum, `multiplayer/store.ts`'s type +
+// `isTabletState`, this type + `buildTabletState` below, and
+// `RemoteIpad.tsx`'s `TabletState -> BrowseState` reconstruction are the
+// other three (ORCHESTRATE.md §3). A partial edit fails silently — a peer's
+// tablet state just stops validating — so grep the union rather than trusting
+// the type checker to connect the copies.
 type TabletState = {
   open: boolean
-  view: 'grid' | 'seasons' | 'episodes'
+  view: 'grid' | 'seasons' | 'episodes' | 'queue' | 'player'
   seriesId: string | null
   seasonId: string | null
   search: string
@@ -166,7 +253,10 @@ function buildTabletState(
   return {
     open: ipadOpen,
     view: browse.view,
-    seriesId: browse.view !== 'grid' ? browse.series.id : null,
+    seriesId:
+      browse.view === 'seasons' || browse.view === 'episodes'
+        ? browse.series.id
+        : null,
     seasonId: browse.view === 'episodes' ? browse.season.id : null,
     search,
     typeFilter,
@@ -206,6 +296,15 @@ export function IpadBrowser() {
   const subtitles = usePlaybackStore(state => state.subtitles)
   const loading = usePlaybackStore(state => state.loading)
   const error = usePlaybackStore(state => state.error)
+  // `duration` only changes when a new item loads, so — unlike `playhead`
+  // below — it's read straight from the store like every other field above.
+  const duration = usePlaybackStore(state => state.duration)
+
+  // Room-wide queue state (F6/F7b) — the SAME queue and cursor every peer
+  // sees, distinct from the local browse/search/scroll state below (which
+  // is this tablet's own nav, never synced to anyone).
+  const queue = useQueueStore(state => state.queue)
+  const currentEntryId = useQueueStore(state => state.currentEntryId)
 
   const [items, setItems] = useState<TheaterItem[]>([])
   const [itemsLoading, setItemsLoading] = useState(true)
@@ -226,12 +325,24 @@ export function IpadBrowser() {
   // directly (handleSeasonClick's state transition below) — see
   // IpadBrowserView.tsx's identical derivation (and its fuller comment) for
   // everything the *rendering* side needs from this same union.
-  const browsingSeries = browse.view === 'grid' ? null : browse.series
+  const browsingSeries =
+    browse.view === 'seasons' || browse.view === 'episodes'
+      ? browse.series
+      : null
 
   const groupRef = useRef<Group>(null)
   const opennessRef = useRef(0)
   const domVisibleRef = useRef(false)
   const [domVisible, setDomVisible] = useState(false)
+
+  // Scrub bar (F7a / D4 — the tablet is the only surface with seek):
+  // `playhead` changes continuously while playing, so — unlike `duration`
+  // above — it's sampled from `getTargetPlayhead()` in the useFrame below
+  // and throttled into this state at ~4 Hz rather than read reactively;
+  // per-frame `setState` here would re-render the whole tablet DOM 60x/s.
+  const [playhead, setPlayhead] = useState(0)
+  const playheadElapsedRef = useRef(0)
+  const lastReportedPlayheadRef = useRef(0)
 
   // TF2 broadcast bookkeeping — refs only, never React state: the scroll
   // handler below can fire far more often than the ~100ms throttle window,
@@ -387,6 +498,23 @@ export function IpadBrowser() {
   }, [ipadOpen, browse, search, typeFilter])
 
   useFrame((_state, delta) => {
+    // Scrub-bar playhead throttle — independent of the HUD-positioning
+    // logic below (runs even before `groupRef` has mounted), mirroring
+    // RemoteAvatars.tsx's SPEED_STATE_INTERVAL_S/EPSILON discipline for its
+    // own continuously-changing `speed` value.
+    playheadElapsedRef.current += delta
+    if (playheadElapsedRef.current >= PLAYHEAD_STATE_INTERVAL_S) {
+      playheadElapsedRef.current = 0
+      const targetPlayhead = usePlaybackStore.getState().getTargetPlayhead()
+      if (
+        Math.abs(targetPlayhead - lastReportedPlayheadRef.current) >
+        PLAYHEAD_STATE_EPSILON
+      ) {
+        lastReportedPlayheadRef.current = targetPlayhead
+        setPlayhead(targetPlayhead)
+      }
+    }
+
     const group = groupRef.current
     if (!group) {
       return
@@ -417,7 +545,13 @@ export function IpadBrowser() {
 
   function handleItemClick(item: TheaterItem): void {
     if (item.type === 'movie') {
-      void selectItem(item.id)
+      enqueueEntry(buildMovieEntry(item))
+      // Picking a title is the one moment the viewer's attention is on what
+      // they just chose, so land them on the player page rather than leaving
+      // them staring at the grid. Local nav only — nothing about this is
+      // broadcast as a room command, and a peer who picks a title moves only
+      // their OWN tablet to this page.
+      setBrowse({ view: 'player' })
       return
     }
     setBrowse({ view: 'seasons', series: item })
@@ -428,6 +562,8 @@ export function IpadBrowser() {
       setBrowse({ view: 'seasons', series: browse.series })
       return
     }
+    // 'player' and 'queue' both go straight back to the grid — neither is a
+    // drill-down, so there's no intermediate level to return to.
     setBrowse({ view: 'grid' })
   }
 
@@ -438,14 +574,48 @@ export function IpadBrowser() {
   }
 
   function handleEpisodeClick(episode: TheaterEpisode): void {
-    void selectItem(episode.id)
+    if (browse.view !== 'episodes') {
+      return
+    }
+    enqueueEntry(buildEpisodeEntry(browse.series, browse.season, episode))
+    // Same as handleItemClick's movie branch — go to the player page. Note this
+    // discards the episodes drill-down, so `← Back` from the player lands on the
+    // grid rather than back in the season; picking a title is a commit, not a
+    // browse step.
+    setBrowse({ view: 'player' })
+  }
+
+  // Pure local nav (parallels handleBack) — flips this tablet's own
+  // BrowseState into the queue tab. Never a room command; the queue's
+  // CONTENTS come from useQueueStore above regardless of which local tab is
+  // currently showing.
+  function handleOpenQueue(): void {
+    setBrowse({ view: 'queue' })
+  }
+
+  // Also pure local nav (parallels handleOpenQueue) — the now-playing footer
+  // strip's route into the player page.
+  function handleOpenPlayer(): void {
+    setBrowse({ view: 'player' })
+  }
+
+  // A room command, unlike the two above. `commandNext` needs the entry it's
+  // advancing FROM so the server can reject a stale click (someone else may
+  // have already advanced the cursor). The button is disabled on the last entry
+  // — see `hasNext` in IpadBrowserView — because applyNext would otherwise
+  // clear the cursor and stop playback for the whole room.
+  function handleNext(): void {
+    const entryId = useQueueStore.getState().currentEntryId
+    if (entryId !== null) {
+      commandNext(entryId)
+    }
   }
 
   function handlePlayPause(): void {
     if (playing) {
-      usePlaybackStore.getState().pause()
+      commandPause()
     } else {
-      usePlaybackStore.getState().play()
+      commandPlay()
     }
   }
 
@@ -557,6 +727,10 @@ export function IpadBrowser() {
               subtitles={subtitles}
               loading={loading}
               error={error}
+              playhead={playhead}
+              duration={duration}
+              queue={queue}
+              currentEntryId={currentEntryId}
               onSearchChange={setSearch}
               onTypeFilterChange={setTypeFilter}
               onItemClick={handleItemClick}
@@ -567,6 +741,13 @@ export function IpadBrowser() {
               onVolumeChange={handleVolumeChange}
               onQualityChange={handleQualityChange}
               onSubtitleChange={handleSubtitleChange}
+              onSeek={commandSeek}
+              onOpenQueue={handleOpenQueue}
+              onQueueJump={commandJump}
+              onQueueRemove={commandRemove}
+              onQueueMove={commandMove}
+              onOpenPlayer={handleOpenPlayer}
+              onNext={handleNext}
             />
           </div>
         </Html>

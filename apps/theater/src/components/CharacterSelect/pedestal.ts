@@ -125,6 +125,62 @@ export type PreparedCharacterScene = {
    * destructure only the fields they use.
    */
   height: number
+  /**
+   * How far above the recentred floor (the point <Avatar>'s parent group is
+   * positioned at) the root bone's BIND-POSE position sits — added for
+   * Scene/Avatar.tsx's `onHipsMeasured` callback (seated-peer group
+   * pinning). Root motion is stripped from every seat clip
+   * (Scene/clipTracks.ts's `stripToRotation`), so the root bone's
+   * translation never moves from this value for the whole seated window —
+   * exactly the offset a seated pin needs to land the character's hips (not
+   * feet) on the cushion.
+   *
+   * Measured in `scene`'s OWN local frame (`scene.worldToLocal`, not
+   * `rootBone.matrixWorld`'s raw world position or the ANCESTOR-local frame
+   * `capturePedestalAnchor`'s own `anchor`/`groundY` use) — this is a pure
+   * bind-pose property of the character asset itself, and must stay
+   * independent of wherever the recentred `scene` (or any ancestor, e.g. a
+   * rotated turntable) happens to sit, the same "cancel ancestor transforms
+   * out" reasoning `measureLocalBounds` above already uses.
+   *
+   * Bugfix — the `- box.min.y` term below is load-bearing, not cosmetic.
+   * The floor is `box.min.y` in scene's own local frame, NOT local zero:
+   * the recenter that moves the feet to zero writes `scene.position`, a
+   * PARENT-local quantity, which by construction cancels out of every
+   * `scene.worldToLocal` read. Omitting the subtraction therefore returns
+   * "hips above the model's own authored origin", which only coincides with
+   * "hips above the feet" for a rig whose origin already sits at its feet.
+   * Five of the seven shipped characters are authored that way, so the
+   * error was invisible on them (<=1.3cm); master-chief and xxxtentacion
+   * are authored with the origin at roughly hip height instead, and came
+   * out 1.000m / 0.987m short — landing them a full metre above their seat.
+   * Measured directly off the shipped GLBs through the real GLTFLoader.
+   *
+   * `0` when there's no root bone to measure, matching `groundY`'s own
+   * no-skeleton fallback below.
+   */
+  rootBoneHeight: number
+  /**
+   * How far the root bone's BIND-POSE X/Z sits from the recentred origin —
+   * the horizontal counterpart to `rootBoneHeight` above, for the exact same
+   * consumer (Scene/RemoteAvatars.tsx's seated-peer pin). The recenter above
+   * places the group origin at the bind-pose bounding box's X/Z CENTRE
+   * (`scene.position.set(-center.x, ..., -center.z)`), which only coincides
+   * with the hips for a rig whose silhouette is symmetric around its own
+   * pelvis. It isn't, for every shipped character: Kanna's hair and tail
+   * extend behind her, pulling the bbox centre 0.127m behind her actual
+   * hips. RemoteAvatars.tsx's seat pin used to set the group's X/Z straight
+   * to the seat cushion's own X/Z with no correction at all (mirroring the Y
+   * pin, which DOES apply `rootBoneHeight` correctly) — landing Kanna's hips
+   * 90% of the way across the cushion's depth and her back ~12.5cm clear of
+   * the backrest. Measured directly off the shipped GLBs through the real
+   * GLTFLoader, posed with sitting-idle.glb, while root-causing that gap.
+   *
+   * `0` for both when there's no root bone to measure, matching
+   * `rootBoneHeight`'s own no-skeleton fallback.
+   */
+  rootBoneOffsetX: number
+  rootBoneOffsetZ: number
 }
 
 // Bounding box of `scene`'s meshes expressed in scene's OWN local frame,
@@ -229,10 +285,48 @@ export function prepareCharacterScene(scene: Object3D): PreparedCharacterScene {
     ? candidates.filter(bone => bone !== rootBone)
     : candidates
 
-  if (rootBone && bones.length > 0) {
-    const { anchor, groundY } = capturePedestalAnchor(scene, rootBone, bones)
-    return { rootBone, bones, anchor, groundY, height }
+  // `scene.worldToLocal` (not a parent-relative or raw-world read) is
+  // deliberate — see `rootBoneHeight`'s own doc comment on
+  // `PreparedCharacterScene` for why this needs to stay independent of
+  // wherever `scene` (or any ancestor) is currently positioned/rotated, and
+  // for why `box.min.y` (the floor in that same local frame) has to come
+  // back off rather than being assumed to be zero. `center.x`/`center.z`
+  // (rootBoneOffsetX/Z's own subtraction term — see that doc comment) are
+  // that same recentred origin's X/Z counterpart to `box.min.y`.
+  // Read before `capturePedestalAnchor` below reuses this same module-level
+  // `scratch` vector for its own, unrelated measurement.
+  let rootBoneHeight = 0
+  let rootBoneOffsetX = 0
+  let rootBoneOffsetZ = 0
+  if (rootBone) {
+    scene.worldToLocal(scratch.setFromMatrixPosition(rootBone.matrixWorld))
+    rootBoneHeight = scratch.y - box.min.y
+    rootBoneOffsetX = scratch.x - center.x
+    rootBoneOffsetZ = scratch.z - center.z
   }
 
-  return { rootBone, bones, anchor: null, groundY: 0, height }
+  if (rootBone && bones.length > 0) {
+    const { anchor, groundY } = capturePedestalAnchor(scene, rootBone, bones)
+    return {
+      rootBone,
+      bones,
+      anchor,
+      groundY,
+      height,
+      rootBoneHeight,
+      rootBoneOffsetX,
+      rootBoneOffsetZ,
+    }
+  }
+
+  return {
+    rootBone,
+    bones,
+    anchor: null,
+    groundY: 0,
+    height,
+    rootBoneHeight,
+    rootBoneOffsetX,
+    rootBoneOffsetZ,
+  }
 }

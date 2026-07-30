@@ -148,6 +148,30 @@ let sharedVideoElement: HTMLVideoElement | null = null
 let sharedHls: Hls | null = null
 let subtitleTrackElement: HTMLTrackElement | null = null
 
+// Tracks a `load()` call still resolving its `fetchPlaybackInfo()`/
+// `applySource()` cycle. Without this, two `load()` calls for the same item
+// can run concurrently — e.g. `IpadBrowser.tsx`'s `enqueueEntry()` fires an
+// optimistic local `load()` for the browser's autoplay-gesture requirement,
+// while the server's echoed `video:state` (a synchronous, no-I/O broadcast —
+// see `presence.gateway.ts`'s `videoEnqueue()`) reliably beats that local
+// load's own HTTP round-trip and `sync.ts`'s `handleVideoState()` doesn't yet
+// see this item as loaded, so it starts a second `load()` for the same id.
+// The second call's `applySource()` reassigns the shared `<video>`'s `.src`,
+// which aborts the first call's already-in-flight `play()` with an
+// `AbortError` that lands in `error` and is never cleared — even though the
+// second call's own subsequent `play()` succeeds and playback continues.
+type InFlightLoad = { itemId: string; promise: Promise<void> }
+let inFlightLoad: InFlightLoad | null = null
+
+// Exported for testing — the pure decision `load()` makes before touching
+// the DOM/network at all.
+export function shouldReuseInFlightLoad(
+  inFlight: InFlightLoad | null,
+  id: string,
+): inFlight is InFlightLoad {
+  return inFlight !== null && inFlight.itemId === id
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
@@ -407,26 +431,46 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
     volume: 1,
 
     // command API
-    load: async id => {
-      const { playSessionId, quality, audioIndex, subtitleIndex } = get()
-      set({ loading: true, error: null })
-
-      // A fresh selection retires whatever was playing before it — otherwise
-      // switching movies repeatedly leaks a transcode per switch.
-      await stopSession(playSessionId)
-
-      const data = await fetchPlaybackInfo(id, {
-        maxBitrate: QUALITY_MAX_BITRATE[quality],
-        audioIndex,
-        subtitleIndex,
-      })
-      if (!data) {
-        return
+    load: id => {
+      // Reuse the in-flight promise rather than starting a second
+      // fetch+applySource() cycle for the same item — see the
+      // `shouldReuseInFlightLoad`/`inFlightLoad` comment above.
+      if (shouldReuseInFlightLoad(inFlightLoad, id)) {
+        return inFlightLoad.promise
       }
 
-      applySource(id, data)
-      get().seek(0)
-      set({ playing: false })
+      const promise = (async () => {
+        const { playSessionId, quality, audioIndex, subtitleIndex } = get()
+        set({ loading: true, error: null })
+
+        // A fresh selection retires whatever was playing before it —
+        // otherwise switching movies repeatedly leaks a transcode per
+        // switch.
+        await stopSession(playSessionId)
+
+        const data = await fetchPlaybackInfo(id, {
+          maxBitrate: QUALITY_MAX_BITRATE[quality],
+          audioIndex,
+          subtitleIndex,
+        })
+        if (!data) {
+          return
+        }
+
+        applySource(id, data)
+        get().seek(0)
+        set({ playing: false })
+      })().finally(() => {
+        // Only clear if we're still the current in-flight load for this id —
+        // a later call for a DIFFERENT id may have already overwritten
+        // `inFlightLoad` by the time this settles.
+        if (inFlightLoad?.itemId === id) {
+          inFlightLoad = null
+        }
+      })
+
+      inFlightLoad = { itemId: id, promise }
+      return promise
     },
 
     play: () => {

@@ -22,3 +22,22 @@ export const EpisodesQuerySchema = z.object({
 })
 
 export type EpisodesQuery = z.infer<typeof EpisodesQuerySchema>
+
+// Query params on `GET /theater/items/:id/image`. Both are optional; omitting
+// them reproduces the tablet poster grid's original request exactly (Primary at
+// the service's default width), so that call site needed no change.
+//
+// `type` is an ENUM rather than a free string on purpose: the service
+// interpolates it straight into the Emby path (`/Items/{id}/Images/{type}`), so
+// an unconstrained value would let a caller walk out of that path segment. The
+// list is the set of image kinds this app actually renders — a hero backdrop,
+// posters, and the two Emby also commonly has for episodes/series.
+//
+// `maxWidth` is capped rather than merely positive so a caller can't ask the
+// Emby server to resample an image at an arbitrary size.
+export const ItemImageQuerySchema = z.object({
+  type: z.enum(['Primary', 'Backdrop', 'Thumb', 'Logo']).optional(),
+  maxWidth: z.coerce.number().int().positive().max(3840).optional(),
+})
+
+export type ItemImageQuery = z.infer<typeof ItemImageQuerySchema>

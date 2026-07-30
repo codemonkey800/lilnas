@@ -25,6 +25,7 @@
     "lint:fix": "run-p -l lint:*:fix",
     "lint:eslint:fix": "eslint --fix src scripts",
     "lint:prettier:fix": "prettier -w src scripts",
+    "seats": "tsx scripts/seats.ts",
     "start": "run-p start:*",
     "start:backend": "node dist/main",
     "start:frontend": "node server.js",

@@ -22,6 +22,7 @@ import {
 import { FullscreenPlayer } from 'src/components/FullscreenPlayer'
 import { useMultiplayerStore } from 'src/multiplayer/store'
 import { usePlaybackStore } from 'src/playback/store'
+import { useVideoSync } from 'src/playback/sync'
 import { useVideoAudio } from 'src/playback/useVideoAudio'
 
 import { DebugHud } from './DebugHud'
@@ -30,6 +31,9 @@ import { LocalPresence } from './LocalPresence'
 import { MicIndicator } from './MicIndicator'
 import { KEYBOARD_MAP, Player, Telemetry } from './Player'
 import { RemoteAvatars } from './RemoteAvatars'
+import { SeatedCamera } from './SeatedCamera'
+import { useSeatTargeting } from './seatTargeting'
+import { SitPrompt } from './SitPrompt'
 import { SubtitleOverlay } from './SubtitleOverlay'
 import { Theater } from './Theater'
 import { TheaterScreen } from './TheaterScreen'
@@ -85,12 +89,32 @@ function TheaterPlayback() {
   )
 }
 
+// Trivial wrapper whose only purpose is to run seatTargeting.ts's
+// useSeatTargeting() every frame. That hook does nothing on its own — it
+// must be mounted somewhere inside <Canvas> for its useFrame to ever run,
+// and nothing else in this app calls it. ORCHESTRATE.md §1 ("If nothing
+// mounts this, seatTargetRef never leaves null"), §5's Batch 5 gate, and §7
+// all flag this exact mount as the single line most likely to be silently
+// skipped in this whole phase: there is no crash and no type error if it's
+// missing, `E` just permanently does nothing. Renders no JSX of its own,
+// the same "no local body" shape as LocalPresence.tsx / SeatedCamera.tsx.
+function SeatTargeting() {
+  useSeatTargeting()
+  return null
+}
+
 type SceneProps = {
   characterId: string
 }
 
 export function Scene({ characterId }: SceneProps) {
   useViewControls()
+  // Attaches this client's room video-sync socket listeners for as long as
+  // Scene itself is mounted, rebinding on reconnect (src/playback/sync.ts,
+  // F6). Not a useFrame hook, so — unlike useSeatTargeting() below — it has
+  // no need to run inside <Canvas>; called here at the top level for the
+  // same "runs for the whole scene's lifetime" reason useViewControls() is.
+  useVideoSync()
 
   const view = usePlaybackStore(state => state.view)
   const peerCount = useMultiplayerStore(state => state.peerIds.length)
@@ -200,12 +224,25 @@ export function Scene({ characterId }: SceneProps) {
                 <Physics> per RemoteAvatars.tsx / LocalPresence.tsx. */}
             <RemoteAvatars />
             <LocalPresence characterId={characterId} />
+            {/* Seats (Phase 5 / F4, mounted here by F8): <SeatedCamera />
+                owns the local camera for the whole sit_down/sitting/stand_up
+                window (SeatedCamera.tsx), and <SeatTargeting /> is what
+                actually runs useSeatTargeting()'s per-frame publish into
+                seatTargetRef — see its own comment above for why this exact
+                mount matters. Neither needs <Physics>. */}
+            <SeatedCamera />
+            <SeatTargeting />
           </Suspense>
         </Canvas>
 
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="h-2 w-2 rounded-full bg-white/80" />
         </div>
+
+        {/* Sits just above the movement-hint bar below (F8, PLAN.md "F8 —
+            Scene wiring + the sit prompt") — self-positioning and
+            self-hiding, like <MicIndicator/> below. */}
+        <SitPrompt />
 
         <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded bg-black/60 px-4 py-2 text-sm">
           {pointerLocked

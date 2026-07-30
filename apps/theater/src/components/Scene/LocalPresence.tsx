@@ -6,6 +6,7 @@ import { Vector3 } from 'three'
 
 import { getSocket } from 'src/multiplayer/store'
 import { usePlaybackStore } from 'src/playback/store'
+import { useSeatStore } from 'src/seats/store'
 
 import {
   type AnimState,
@@ -60,7 +61,12 @@ export type LocalPresenceProps = {
 // documented approximation, not a measured figure. A few centimeters of
 // feet-position error on a remote peer's rendered avatar isn't visually
 // significant.
-const EYE_TO_FEET_HEIGHT_M = 1.3
+//
+// Exported for SeatedCamera.tsx (Phase 5, F4), which reuses it as-is for
+// its stand_up ease target -- "standing eye height above the feet" is
+// exactly the quantity needed to ease the camera back to once the player
+// stands, at the seat's floor position.
+export const EYE_TO_FEET_HEIGHT_M = 1.3
 
 // Dead-band thresholds for the throttled emit below (ORCHESTRATE.md §1:
 // "~13 Hz, dead-banded"): only actually send a packet once per
@@ -130,7 +136,25 @@ export function LocalPresence({
     // just suppressing the network call. Read via `.getState()`, not the
     // `usePlaybackStore(...)` hook -- this component never re-renders (it
     // returns null), so there's nothing for a subscription to refresh.
-    if (usePlaybackStore.getState().ipadOpen) {
+    //
+    // Seated is the same story for a different reason (Phase 5, F4): a
+    // seated player isn't moving at all, and every client derives the
+    // seated transform from `seatId` (F3's `peerSeats`) + the shared seat
+    // table instead of presence -- ORCHESTRATE.md §1: "seatId -- not an
+    // AnimState -- is the single source of truth for 'is sitting'". Keyed
+    // off `mySeatId` rather than SeatedCamera.tsx's fuller
+    // sit_down/sitting/stand_up phase because that's the exact same instant
+    // the gateway's `peer:seat` broadcast flips peers over to rendering the
+    // seat pose instead of interpolating this buffer -- gating on the
+    // narrower signal here can't leave a gap or an overlap either side of
+    // that switch. (The wider stand_up window this under-covers relative to
+    // SeatedCamera.tsx's phase doesn't matter: F5's remote avatar already
+    // expects and tolerates a presence gap there -- see its own "short
+    // glide" note.)
+    if (
+      usePlaybackStore.getState().ipadOpen ||
+      useSeatStore.getState().mySeatId !== null
+    ) {
       return
     }
 

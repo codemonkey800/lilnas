@@ -3,6 +3,13 @@
 import { cns } from '@lilnas/utils/cns'
 import { useEffect, useRef, useState } from 'react'
 
+import { formatRuntime, formatTimecode } from 'src/playback/format'
+import {
+  buildArtworkUrl,
+  findNextEntry,
+  resolveNowPlaying,
+} from 'src/playback/nowPlaying'
+import { type QueueEntry } from 'src/playback/queue'
 import { type QualityTier, type SubtitleTrack } from 'src/playback/store'
 
 import { filterLibraryItems, type LibraryTypeFilter } from './libraryFilter'
@@ -39,8 +46,6 @@ import { filterLibraryItems, type LibraryTypeFilter } from './libraryFilter'
 // player — this component has no opinion about either; it only renders the
 // <Html> panel's DOM content.
 // ---------------------------------------------------------------------------
-
-const TICKS_PER_MINUTE = 10_000_000 * 60 // Emby ticks (100ns units) per minute
 
 // Shape of `GET /theater/items` (ORCHESTRATE.md § "Backend endpoints",
 // matching `src/emby/emby.service.ts`'s `TheaterItemDto`) — not part of any
@@ -83,16 +88,39 @@ export type TheaterEpisode = {
 // unrepresentable. A purely rendering-shaped concern (which panel to show),
 // so it lives here rather than in IpadBrowser.tsx, which just holds one in
 // state and passes it straight through as a prop.
+//
+// `'queue'` (Phase 5/F7b) and `'player'` are each one of four independent
+// mirrors of the wire `TabletState.view` union — `tablet.schema.ts`'s zod enum,
+// `multiplayer/store.ts`'s type + `isTabletState`, this union +
+// `IpadBrowser.tsx`'s `buildTabletState`, and `RemoteIpad.tsx`'s
+// `TabletState -> BrowseState` reconstruction are the other three
+// (ORCHESTRATE.md §3). A partial edit fails silently — a peer's tablet state
+// just stops validating or renders the wrong view — so grep the union rather
+// than trusting the type checker to connect the copies.
+//
+// Both `'queue'` and `'player'` are shaped like `'grid'` (no extra fields):
+// they're views onto flat, room-wide state read from a store, not drill-down
+// contexts. `'player'` deliberately does NOT carry the item it's showing —
+// what's playing is whatever the room's queue cursor says, and a copy held in
+// browse state could disagree with it the moment someone else jumps the queue.
 export type BrowseState =
   | { view: 'grid' }
   | { view: 'seasons'; series: TheaterItem }
   | { view: 'episodes'; series: TheaterItem; season: TheaterSeason }
+  | { view: 'queue' }
+  | { view: 'player' }
 
 const TYPE_FILTER_OPTIONS: { value: LibraryTypeFilter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'movie', label: 'Movies' },
   { value: 'series', label: 'Shows' },
 ]
+
+// Artwork widths requested from the backend's Emby image proxy for the player
+// page's hero. Both are wider than the panel's own 640px so the image still
+// looks sharp on a high-DPI display and when the poster fallback is overscanned.
+const BACKDROP_MAX_WIDTH = 1280
+const POSTER_MAX_WIDTH = 600
 
 const QUALITY_OPTIONS: { tier: QualityTier; label: string }[] = [
   { tier: 'auto', label: 'Auto' },
@@ -101,16 +129,6 @@ const QUALITY_OPTIONS: { tier: QualityTier; label: string }[] = [
   { tier: '480p', label: '480p' },
   { tier: 'datasaver', label: 'Data saver' },
 ]
-
-function formatRuntime(ticks: number | null): string | null {
-  if (ticks === null) {
-    return null
-  }
-  const totalMinutes = Math.round(ticks / TICKS_PER_MINUTE)
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`
-}
 
 function formatItemMeta(item: TheaterItem): string {
   const parts: string[] = []
@@ -217,6 +235,348 @@ function LibraryImage({
   )
 }
 
+// The scrub bar (F7a / D4 — the tablet is the only surface with seek).
+// `dragValue` is local, ephemeral DOM-interaction bookkeeping — same
+// category as `LibraryImage`'s `broken` flag above, NOT app/store state —
+// so it living here doesn't violate this file's "never reads a store" rule
+// (ORCHESTRATE.md §3): `playhead`/`duration`/`onSeek` are still the only
+// inputs, all props.
+//
+// It has to live here rather than in the caller (IpadBrowser.tsx) because
+// `onSeek` fires exactly once, on release — the container never observes an
+// in-progress drag position, so there's nothing for it to buffer. While
+// `dragValue` is non-null, this renders THAT value and ignores the
+// `playhead` prop entirely, which is what stops the container's throttled
+// ~4 Hz updates from fighting the user mid-gesture (a re-render with an
+// unchanged, pre-drag `value` would otherwise snap a controlled range
+// input's thumb back to it). `onSeek` only ever fires from the three
+// "gesture ended" DOM events below (mouse/touch/keyboard release) — never
+// from `onChange`, which fires on every drag tick.
+function ScrubBar({
+  playhead,
+  duration,
+  onSeek,
+}: {
+  playhead: number
+  duration: number
+  onSeek?: (playhead: number) => void
+}) {
+  const [dragValue, setDragValue] = useState<number | null>(null)
+
+  const max = Math.max(duration, 0)
+  const displayValue = Math.min(dragValue ?? playhead, max)
+
+  function commit(value: number): void {
+    setDragValue(null)
+    onSeek?.(value)
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 text-[9px] text-white/50">
+      <span className="w-8 shrink-0 tabular-nums">
+        {formatTimecode(displayValue)}
+      </span>
+      <input
+        type="range"
+        min={0}
+        max={max}
+        step={0.1}
+        value={displayValue}
+        onChange={event => setDragValue(Number(event.target.value))}
+        onMouseUp={event =>
+          commit(Number((event.target as HTMLInputElement).value))
+        }
+        onTouchEnd={event =>
+          commit(Number((event.target as HTMLInputElement).value))
+        }
+        onKeyUp={event =>
+          commit(Number((event.target as HTMLInputElement).value))
+        }
+        className="h-1 min-w-0 flex-1 accent-white"
+      />
+      <span className="w-8 shrink-0 tabular-nums">{formatTimecode(max)}</span>
+    </div>
+  )
+}
+
+// Transport glyphs for the player page. Inline SVG, like PlayGlyph/SeriesGlyph
+// above — at this panel's scale a glyph reads faster than a `text-[9px]` word,
+// which is why the primary control here isn't the footer's old "Play"/"Pause"
+// text pill.
+function TransportPlayGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+      <path d="M8 5v14l11-7z" className="fill-current" />
+    </svg>
+  )
+}
+
+function TransportPauseGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+      <path d="M7 5h3.5v14H7zm6.5 0H17v14h-3.5z" className="fill-current" />
+    </svg>
+  )
+}
+
+function TransportNextGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="M6 5v14l9-7z" className="fill-current" />
+      <rect x="16.5" y="5" width="2.5" height="14" className="fill-current" />
+    </svg>
+  )
+}
+
+// Wide hero artwork for the player page. Steps down through what Emby may or
+// may not have for an item: a 16:9 Backdrop, then the 2:3 Primary poster
+// (blurred and overscanned, since cropping a poster to a wide banner looks worse
+// than blurring it), then a plain gradient.
+//
+// Emby 404s an image type an item doesn't have and the backend proxy forwards
+// that status through, so `onError` is the only signal available that a backdrop
+// is missing — the same reason LibraryImage above tracks its own `broken` flag.
+// Ephemeral DOM bookkeeping like that one, so it doesn't breach this file's
+// "never reads a store" rule.
+//
+// Callers MUST pass `key={itemId}` so a new title remounts this and restarts the
+// chain — otherwise one backdrop-less item permanently demotes every later one.
+function PlayerArtwork({ itemId }: { itemId: string }) {
+  const [stage, setStage] = useState<'backdrop' | 'poster' | 'none'>('backdrop')
+
+  if (stage === 'none') {
+    return (
+      <div className="h-28 w-full rounded-md border border-white/10 bg-gradient-to-br from-white/10 via-white/5 to-transparent" />
+    )
+  }
+
+  const isBackdrop = stage === 'backdrop'
+
+  return (
+    <div className="relative h-28 w-full overflow-hidden rounded-md border border-white/10 bg-white/5">
+      <img
+        src={buildArtworkUrl(itemId, {
+          type: isBackdrop ? 'Backdrop' : 'Primary',
+          maxWidth: isBackdrop ? BACKDROP_MAX_WIDTH : POSTER_MAX_WIDTH,
+        })}
+        alt=""
+        onError={() => setStage(isBackdrop ? 'poster' : 'none')}
+        className={cns(
+          'h-full w-full object-cover',
+          !isBackdrop && 'scale-110 blur-md',
+        )}
+      />
+      {/* Keeps the overlaid title legible over arbitrary artwork. */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
+    </div>
+  )
+}
+
+type PlayerPageProps = {
+  // Now-playing metadata, resolved from the ROOM's queue cursor by the caller
+  // (playback/nowPlaying.ts) — never from `browse`, so this page can't disagree
+  // with what's actually on the screen.
+  nowPlaying: QueueEntry | null
+  // The locally-loaded item, used as an artwork fallback while the queue echo is
+  // still in flight (the optimistic load in IpadBrowser.tsx beats `queue:state`).
+  itemId: string | null
+
+  playing: boolean
+  playhead: number
+  duration: number
+  loading: boolean
+  error: string | null
+
+  volume: number
+  quality: QualityTier
+  subtitleIndex: number | null
+  textSubtitles: SubtitleTrack[]
+  // False on the last queue entry: `commandNext` there clears the room cursor
+  // and stops playback for everyone rather than wrapping (presence/queue.ts's
+  // applyNext), so the button is disabled instead of silently ending the night.
+  hasNext: boolean
+
+  onSeek?: (playhead: number) => void
+  onPlayPause?: () => void
+  onNext?: () => void
+  onVolumeChange?: (volume: number) => void
+  onQualityChange?: (quality: QualityTier) => void
+  onSubtitleChange?: (index: number | null) => void
+}
+
+// The tablet's "now playing" page — one of the `browse` views, sibling to the
+// grid/seasons/episodes/queue panels. This is where every playback control lives
+// now; the footer below is reduced to a one-line strip that navigates here.
+function PlayerPage({
+  nowPlaying,
+  itemId,
+  playing,
+  playhead,
+  duration,
+  loading,
+  error,
+  volume,
+  quality,
+  subtitleIndex,
+  textSubtitles,
+  hasNext,
+  onSeek,
+  onPlayPause,
+  onNext,
+  onVolumeChange,
+  onQualityChange,
+  onSubtitleChange,
+}: PlayerPageProps) {
+  const artworkItemId = nowPlaying?.itemId ?? itemId
+
+  if (artworkItemId === null) {
+    return (
+      <p className="p-2 text-[11px] text-white/50">
+        Nothing is playing yet — pick a title from the library.
+      </p>
+    )
+  }
+
+  const runtime = formatRuntime(nowPlaying?.runTimeTicks ?? null)
+  const metaParts = [nowPlaying?.subtitle ?? null, runtime].filter(
+    (part): part is string => part !== null && part.length > 0,
+  )
+
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        <PlayerArtwork key={artworkItemId} itemId={artworkItemId} />
+        <div className="absolute inset-x-0 bottom-0 p-2">
+          <p className="truncate text-[13px] font-medium text-white">
+            {nowPlaying?.title ?? 'Now playing'}
+          </p>
+          {metaParts.length > 0 && (
+            <p className="truncate text-[9px] text-white/60">
+              {metaParts.join(' · ')}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {nowPlaying !== null && (
+        <p className="text-[9px] text-white/40">
+          Queued by {nowPlaying.addedBy}
+        </p>
+      )}
+
+      <ScrubBar playhead={playhead} duration={duration} onSeek={onSeek} />
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onPlayPause?.()}
+          aria-label={playing ? 'Pause' : 'Play'}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-black transition hover:bg-white/90"
+        >
+          {playing ? <TransportPauseGlyph /> : <TransportPlayGlyph />}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onNext?.()}
+          disabled={!hasNext}
+          aria-label="Next in queue"
+          className={cns(
+            'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition',
+            hasNext
+              ? 'border-white/30 text-white/80 hover:border-white/60 hover:text-white'
+              : 'border-white/10 text-white/20',
+          )}
+        >
+          <TransportNextGlyph />
+        </button>
+
+        <label className="flex min-w-0 flex-1 items-center gap-1.5 text-[9px] text-white/50">
+          <span className="tracking-wide uppercase">Vol</span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={volume}
+            onChange={event => onVolumeChange?.(Number(event.target.value))}
+            className="h-1 min-w-0 flex-1 accent-white"
+          />
+        </label>
+      </div>
+
+      <div>
+        <p className="mb-1 text-[9px] tracking-wide text-white/40 uppercase">
+          Quality
+        </p>
+        <div className="flex flex-wrap gap-1">
+          {QUALITY_OPTIONS.map(option => (
+            <button
+              key={option.tier}
+              type="button"
+              aria-current={quality === option.tier}
+              onClick={() => onQualityChange?.(option.tier)}
+              className={cns(
+                'rounded-full border px-1.5 py-0.5 text-[9px] transition',
+                quality === option.tier
+                  ? 'border-white bg-white/15 text-white'
+                  : 'border-white/25 text-white/60 hover:border-white/50 hover:text-white',
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-1 text-[9px] tracking-wide text-white/40 uppercase">
+          Subtitles
+        </p>
+        <div className="flex flex-wrap gap-1">
+          <button
+            type="button"
+            aria-current={subtitleIndex === null}
+            onClick={() => onSubtitleChange?.(null)}
+            className={cns(
+              'rounded-full border px-1.5 py-0.5 text-[9px] transition',
+              subtitleIndex === null
+                ? 'border-white bg-white/15 text-white'
+                : 'border-white/25 text-white/60 hover:border-white/50 hover:text-white',
+            )}
+          >
+            Off
+          </button>
+          {textSubtitles.map(track => (
+            <button
+              key={track.index}
+              type="button"
+              aria-current={subtitleIndex === track.index}
+              onClick={() => onSubtitleChange?.(track.index)}
+              className={cns(
+                'rounded-full border px-1.5 py-0.5 text-[9px] transition',
+                subtitleIndex === track.index
+                  ? 'border-white bg-white/15 text-white'
+                  : 'border-white/25 text-white/60 hover:border-white/50 hover:text-white',
+              )}
+            >
+              {track.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading && (
+        <p className="flex items-center gap-1.5 text-[9px] text-white/50">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white/60" />
+          Buffering…
+        </p>
+      )}
+      {error !== null && <p className="text-[9px] text-red-300">{error}</p>}
+    </div>
+  )
+}
+
 export type IpadBrowserViewProps = {
   // False for a future non-interactive remote mirror (TF3): gates the root
   // panel's `pointer-events-none` and is the reason every callback below is
@@ -250,6 +610,25 @@ export type IpadBrowserViewProps = {
   loading: boolean
   error: string | null
 
+  // Scrub bar (F7a / D4). `playhead` is a ~4Hz-throttled sample of
+  // `usePlaybackStore.getTargetPlayhead()` (IpadBrowser.tsx's useFrame) —
+  // never per-frame React state, which would re-render this whole panel
+  // 60x/s. `duration` changes only when a new item loads, so the caller
+  // reads it straight from the store. `onSeek` fires exactly once per drag
+  // gesture, on release — see ScrubBar's own comment for why the drag-vs-
+  // committed distinction has to live there rather than in the caller.
+  playhead: number
+  duration: number
+  onSeek?: (playhead: number) => void
+
+  // Room-wide, shared queue state (F7b / PLAN.md D6) — the SAME queue for
+  // every viewer, unlike everything above (browse/search/scroll are this
+  // tablet's own local nav). Read from `playback/queue.ts`'s useQueueStore
+  // by the caller; this component never touches that store (or any store)
+  // itself — see the file banner's "never reads a store" rule.
+  queue: QueueEntry[]
+  currentEntryId: string | null
+
   // Controlled scroll position for the scrollable grid/list container below
   // — `undefined` (the local/interactive tablet) leaves scrolling entirely
   // to the user; a defined value (a future remote mirror, TF3) drives the
@@ -274,6 +653,27 @@ export type IpadBrowserViewProps = {
   onVolumeChange?: (volume: number) => void
   onQualityChange?: (quality: QualityTier) => void
   onSubtitleChange?: (index: number | null) => void
+
+  // Queue-tab navigation + mutation (F7b). `onQueueJump`/`onQueueRemove`/
+  // `onQueueMove` map straight onto `playback/sync.ts`'s `commandJump`/
+  // `commandRemove`/`commandMove` (ORCHESTRATE.md §1) — buttons only, never
+  // drag-and-drop (PLAN.md: reordering inside an <Html>-in-Canvas overlay
+  // with pointer-lock active is "a pointer-event fight not worth having").
+  // `onOpenQueue` is pure local nav (parallels `onBack`) — it only flips
+  // this tablet's own `BrowseState`, never a room command. A future
+  // non-interactive caller (RemoteIpad) supplies none of these four, same
+  // as every other `on*?` prop above, so a peer's mirrored queue view is
+  // read-only.
+  onOpenQueue?: () => void
+  onQueueJump?: (entryId: string) => void
+  onQueueRemove?: (entryId: string) => void
+  onQueueMove?: (entryId: string, beforeEntryId: string | null) => void
+
+  // Player-page navigation + transport. `onOpenPlayer` is pure local nav (it
+  // only flips this tablet's own `BrowseState`, like `onOpenQueue`/`onBack`);
+  // `onNext` maps onto `playback/sync.ts`'s `commandNext` and IS a room command.
+  onOpenPlayer?: () => void
+  onNext?: () => void
 }
 
 export function IpadBrowserView({
@@ -298,6 +698,11 @@ export function IpadBrowserView({
   subtitles,
   loading,
   error,
+  playhead,
+  duration,
+  onSeek,
+  queue,
+  currentEntryId,
   scrollTop,
   onSearchChange,
   onTypeFilterChange,
@@ -309,6 +714,12 @@ export function IpadBrowserView({
   onVolumeChange,
   onQualityChange,
   onSubtitleChange,
+  onOpenQueue,
+  onQueueJump,
+  onQueueRemove,
+  onQueueMove,
+  onOpenPlayer,
+  onNext,
 }: IpadBrowserViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -331,11 +742,22 @@ export function IpadBrowserView({
   // render instead of re-narrowing `browse` at every JSX use site (narrowing
   // a discriminated union doesn't reliably survive into nested closures,
   // e.g. an inline onClick, without re-checking `.view` again there too).
-  const browsingSeries = browse.view === 'grid' ? null : browse.series
+  const browsingSeries =
+    browse.view === 'seasons' || browse.view === 'episodes'
+      ? browse.series
+      : null
   const browsingSeason = browse.view === 'episodes' ? browse.season : null
 
   const textSubtitles = subtitles.filter(track => track.isText)
   const filteredItems = filterLibraryItems(items, search, typeFilter)
+
+  // Derived from the ROOM's queue + cursor props, not from `browse` — so the
+  // player page, the back-bar title and the now-playing footer strip all name
+  // whatever is actually on the screen, even if a peer jumped the queue while
+  // this tablet sat on some other view. Pure helpers, so importing them doesn't
+  // breach this file's "never reads a store" rule.
+  const nowPlaying = resolveNowPlaying(queue, currentEntryId)
+  const hasNext = findNextEntry(queue, currentEntryId) !== null
 
   return (
     <div
@@ -347,7 +769,7 @@ export function IpadBrowserView({
     >
       <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
         <span className="text-[10px] font-medium tracking-[0.2em] text-white/50 uppercase">
-          Library
+          {browse.view === 'player' ? 'Now Playing' : 'Library'}
         </span>
       </div>
 
@@ -380,6 +802,13 @@ export function IpadBrowserView({
                 {option.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => onOpenQueue?.()}
+              className="ml-auto shrink-0 rounded-full border border-white/25 px-2 py-0.5 text-[9px] text-white/60 transition hover:border-white/50 hover:text-white"
+            >
+              Queue ({queue.length})
+            </button>
           </div>
         </div>
       ) : (
@@ -392,8 +821,10 @@ export function IpadBrowserView({
             ← Back
           </button>
           <span className="truncate text-[10px] text-white/50">
-            {browsingSeries?.name}
-            {browsingSeason ? ` · ${browsingSeason.name}` : ''}
+            {browse.view === 'queue' && 'Queue'}
+            {browse.view === 'player' && (nowPlaying?.title ?? 'Player')}
+            {(browse.view === 'seasons' || browse.view === 'episodes') &&
+              `${browsingSeries?.name ?? ''}${browsingSeason ? ` · ${browsingSeason.name}` : ''}`}
           </span>
         </div>
       )}
@@ -527,108 +958,174 @@ export function IpadBrowserView({
             </div>
           </>
         )}
-      </div>
 
-      <div className="space-y-1.5 border-t border-white/10 p-2">
-        {itemId === null ? (
-          <p className="text-[9px] text-white/40">Pick a title to begin.</p>
-        ) : (
+        {browse.view === 'queue' && (
           <>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => onPlayPause?.()}
-                className="shrink-0 rounded-full border border-white/30 bg-white/10 px-3 py-1 text-[10px] font-medium text-white transition hover:bg-white/20"
-              >
-                {playing ? 'Pause' : 'Play'}
-              </button>
-              <label className="flex min-w-0 flex-1 items-center gap-1.5 text-[9px] text-white/50">
-                <span className="tracking-wide uppercase">Vol</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={volume}
-                  onChange={event =>
-                    onVolumeChange?.(Number(event.target.value))
-                  }
-                  className="h-1 min-w-0 flex-1 accent-white"
-                />
-              </label>
-            </div>
-
-            <div>
-              <p className="mb-1 text-[9px] tracking-wide text-white/40 uppercase">
-                Quality
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {QUALITY_OPTIONS.map(option => (
-                  <button
-                    key={option.tier}
-                    type="button"
-                    aria-current={quality === option.tier}
-                    onClick={() => onQualityChange?.(option.tier)}
+            {queue.length === 0 && (
+              <p className="p-2 text-[11px] text-white/50">Queue is empty.</p>
+            )}
+            <div className="flex flex-col gap-1.5">
+              {queue.map((entry, index) => {
+                const isCurrent = entry.entryId === currentEntryId
+                return (
+                  <div
+                    key={entry.entryId}
                     className={cns(
-                      'rounded-full border px-1.5 py-0.5 text-[9px] transition',
-                      quality === option.tier
-                        ? 'border-white bg-white/15 text-white'
-                        : 'border-white/25 text-white/60 hover:border-white/50 hover:text-white',
+                      'flex items-center gap-2 rounded p-1',
+                      isCurrent && 'bg-white/15',
                     )}
                   >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className="mb-1 text-[9px] tracking-wide text-white/40 uppercase">
-                Subtitles
-              </p>
-              <div className="flex flex-wrap gap-1">
-                <button
-                  type="button"
-                  aria-current={subtitleIndex === null}
-                  onClick={() => onSubtitleChange?.(null)}
-                  className={cns(
-                    'rounded-full border px-1.5 py-0.5 text-[9px] transition',
-                    subtitleIndex === null
-                      ? 'border-white bg-white/15 text-white'
-                      : 'border-white/25 text-white/60 hover:border-white/50 hover:text-white',
-                  )}
-                >
-                  Off
-                </button>
-                {textSubtitles.map(track => (
-                  <button
-                    key={track.index}
-                    type="button"
-                    aria-current={subtitleIndex === track.index}
-                    onClick={() => onSubtitleChange?.(track.index)}
-                    className={cns(
-                      'rounded-full border px-1.5 py-0.5 text-[9px] transition',
-                      subtitleIndex === track.index
-                        ? 'border-white bg-white/15 text-white'
-                        : 'border-white/25 text-white/60 hover:border-white/50 hover:text-white',
-                    )}
-                  >
-                    {track.label}
-                  </button>
-                ))}
-              </div>
+                    <div className="w-14 shrink-0">
+                      <LibraryImage
+                        src={`/api/theater/items/${entry.itemId}/image`}
+                        alt={entry.title}
+                        aspectClassName="aspect-[2/3]"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1">
+                        <p
+                          className={cns(
+                            'truncate text-[10px]',
+                            isCurrent
+                              ? 'font-medium text-white'
+                              : 'text-white/80',
+                          )}
+                        >
+                          {entry.title}
+                        </p>
+                        {isCurrent && (
+                          <span className="shrink-0 rounded-full border border-white/40 bg-white/20 px-1 text-[7px] tracking-wide text-white uppercase">
+                            Now playing
+                          </span>
+                        )}
+                      </div>
+                      {entry.subtitle && (
+                        <p className="truncate text-[8px] text-white/40">
+                          {entry.subtitle}
+                        </p>
+                      )}
+                      <p className="truncate text-[8px] text-white/30">
+                        Added by {entry.addedBy}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-col gap-0.5">
+                      <button
+                        type="button"
+                        disabled={index === 0}
+                        aria-label="Move up"
+                        onClick={() => {
+                          const previousEntry = queue[index - 1]
+                          if (previousEntry) {
+                            onQueueMove?.(entry.entryId, previousEntry.entryId)
+                          }
+                        }}
+                        className="rounded border border-white/25 px-1 text-[9px] text-white/60 transition hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        disabled={index === queue.length - 1}
+                        aria-label="Move down"
+                        onClick={() => {
+                          const afterNext = queue[index + 2]
+                          onQueueMove?.(
+                            entry.entryId,
+                            afterNext ? afterNext.entryId : null,
+                          )
+                        }}
+                        className="rounded border border-white/25 px-1 text-[9px] text-white/60 transition hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        ▼
+                      </button>
+                    </div>
+                    <div className="flex shrink-0 flex-col gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onQueueJump?.(entry.entryId)}
+                        className="rounded-full border border-white/30 bg-white/10 px-2 py-0.5 text-[9px] font-medium text-white transition hover:bg-white/20"
+                      >
+                        Play
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onQueueRemove?.(entry.entryId)}
+                        className="rounded-full border border-white/25 px-2 py-0.5 text-[9px] text-white/60 transition hover:border-white/50 hover:text-white"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </>
         )}
 
-        {loading && (
-          <p className="flex items-center gap-1.5 text-[9px] text-white/50">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white/60" />
-            Buffering…
-          </p>
+        {browse.view === 'player' && (
+          <PlayerPage
+            nowPlaying={nowPlaying}
+            itemId={itemId}
+            playing={playing}
+            playhead={playhead}
+            duration={duration}
+            loading={loading}
+            error={error}
+            volume={volume}
+            quality={quality}
+            subtitleIndex={subtitleIndex}
+            textSubtitles={textSubtitles}
+            hasNext={hasNext}
+            onSeek={onSeek}
+            onPlayPause={onPlayPause}
+            onNext={onNext}
+            onVolumeChange={onVolumeChange}
+            onQualityChange={onQualityChange}
+            onSubtitleChange={onSubtitleChange}
+          />
         )}
-        {error && <p className="text-[9px] text-red-300">{error}</p>}
       </div>
+
+      {/* Compact now-playing strip. Every real playback control moved to the
+          player page above, so this is only a status line plus two ways in: a
+          mini play/pause, and the title itself as the route to the page. Hidden
+          while the player page IS the view — it would just duplicate it. */}
+      {browse.view !== 'player' && (
+        <div className="border-t border-white/10 p-2">
+          {itemId === null ? (
+            <p className="text-[9px] text-white/40">Pick a title to begin.</p>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onPlayPause?.()}
+                aria-label={playing ? 'Pause' : 'Play'}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-black transition hover:bg-white/90"
+              >
+                {playing ? <TransportPauseGlyph /> : <TransportPlayGlyph />}
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenPlayer?.()}
+                className="min-w-0 flex-1 text-left transition hover:opacity-80"
+              >
+                <p className="truncate text-[10px] text-white">
+                  {nowPlaying?.title ?? 'Now playing'}
+                </p>
+                <p className="truncate text-[8px] text-white/40">
+                  {formatTimecode(playhead)} / {formatTimecode(duration)}
+                  {loading && ' · buffering…'}
+                </p>
+              </button>
+              <span className="shrink-0 text-[9px] text-white/30">›</span>
+            </div>
+          )}
+          {error !== null && (
+            <p className="mt-1 text-[9px] text-red-300">{error}</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

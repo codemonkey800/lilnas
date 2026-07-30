@@ -48,7 +48,6 @@ function showSharedVideo(
   video.style.opacity = '1'
   video.style.pointerEvents = 'auto'
   video.style.objectFit = 'contain'
-  video.controls = true
 }
 
 // Same `textTracks` lookup SubtitleOverlay.tsx uses for POV's overlay —

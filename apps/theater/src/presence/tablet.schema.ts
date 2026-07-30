@@ -15,7 +15,14 @@ const SEARCH_MAX_LENGTH = 200
 // covered by `z.number().nonnegative()` alone.
 export const TabletStateSchema = z.object({
   open: z.boolean(),
-  view: z.enum(['grid', 'seasons', 'episodes']),
+  // `'queue'` (Phase 5) and `'player'` are each one of four independent
+  // mirrors of this exact union — `multiplayer/store.ts`'s `isTabletState`,
+  // `IpadBrowser.tsx`'s `BrowseState` + `buildTabletState`, and
+  // `RemoteIpad.tsx`'s `TabletState → BrowseState` reconstruction are the
+  // other three (ORCHESTRATE.md §3). A partial edit fails silently — a peer's
+  // tablet state just stops validating — so grep this union rather than
+  // trusting the type checker to connect the copies.
+  view: z.enum(['grid', 'seasons', 'episodes', 'queue', 'player']),
   seriesId: z.string().max(ID_MAX_LENGTH).nullable(),
   seasonId: z.string().max(ID_MAX_LENGTH).nullable(),
   search: z.string().max(SEARCH_MAX_LENGTH),

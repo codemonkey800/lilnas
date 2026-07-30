@@ -1,280 +1,381 @@
-# Theater Phase 4 — ORCHESTRATE.md
+# Theater Phase 5 — ORCHESTRATE.md
 
-**Authoritative contracts + dispatch plan for the theater multiplayer build.** The
+**Authoritative contracts + dispatch plan for the seats / video-sync / queue build.** The
 `theater-impl` sub-agent reads this file before writing any code. `PLAN.md` is the *design
-rationale* (why each unit exists, the tradeoffs); **this file is the source of truth for
-interfaces, file ownership, and the dispatch schedule.** If the two ever disagree, this file
-wins for contracts and ownership.
+rationale* (why each unit exists, the tradeoffs, the measured seat data); **this file is the
+source of truth for interfaces, file ownership, and the dispatch schedule.** If the two ever
+disagree, this file wins for contracts and ownership.
 
-Guiding principle — **Option B everywhere**: every convergence point (the per-peer
-`RemoteAvatar`, the Socket.IO gateway) has **exactly one writer**. Features attach as
-separate files (child components; separate schema files) so parallel units never edit the
-same file. That's what makes Waves 5 and 6 fully parallel.
+Guiding principle — **Option B everywhere**, unchanged from Phase 4: every convergence point
+(the Socket.IO gateway, the tablet's container/view pair) has **exactly one writer per batch**.
+Features attach as separate files so concurrent units never edit the same file. Where two units
+genuinely must write one file, they are scheduled **sequentially on the same track**, never
+concurrently.
 
 ---
 
 ## §0 How to use this file
 
-**Orchestrator (main agent):** dispatch units in the batches of §5, one `theater-impl`
-sub-agent per unit. Between batches, run the gate (§5) and read each agent's return summary to
-confirm the exported symbols match §1 before starting the next batch.
+**Orchestrator (main agent):** dispatch units in the batches of §5, one `theater-impl` sub-agent
+per unit. Units on the same line run concurrently. Between batches, run the gate (§5) and read
+each agent's return summary to confirm the exported symbols match §1 before starting the next
+batch.
 
-**Sub-agent (`theater-impl`):** before writing, read §1 (the contracts you build against) and
-find your unit in §2 (the exact files you may write and the files you must not touch). Follow
-§6 guardrails. Your task message names your unit id (e.g. "F4"); everything you need is here.
+**Sub-agent (`theater-impl`):** before writing, read §1 (the contracts you build against) and find
+your unit in §2 (the exact files you may write, and the files you must not touch). Follow §6
+guardrails. Your task message names your unit id (e.g. "F5"); everything you need is here.
 
 ---
 
 ## §1 Frozen contracts (build exactly to these)
 
-### Wire protocol (Socket.IO)
+### Wire protocol (Socket.IO) — additive to Phase 4's, which is unchanged
 
 ```ts
-// Handshake — client → server, in socket.handshake.auth:
-{ characterId: string }                         // validated server-side vs VALID_CHARACTER_IDS
+// ── Seats ────────────────────────────────────────────────────────────────────
+// seatId format: `r{row}s{col}` — rows 0..5 (0 = front, nearest screen), cols 0..6.
+// 42 ids total. Deterministic, so the server can build the allowlist without the
+// generated seat table.
 
-// Presence — client → server, ~13 Hz, dead-banded:
-'presence'       → { p: [number,number,number]; y: number; a: AnimState }   // feet pos, yaw(rad)
+'seat:claim'   (c→s, ack'd) → { seatId: string }
+                 ack        → { ok: true } | { ok: false; reason: 'taken' | 'unknown' }
+'seat:release' (c→s, ack'd) → {}                 ack → { ok: true }
 
-// Server → the joining client, once:
-'peers:init'     → PeerSnapshot[]               // everyone already in room, excludes self
+'peer:seat'    (s→room)     → { id: string; seatId: string | null }
 
-// Server → the rest of the room:
-'peer:join'      → PeerSnapshot
-'peer:leave'     → { id: string }
-'peer:presence'  → { id: string; p: [number,number,number]; y: number; a: AnimState }
+// PeerSnapshot gains ONE field (Phase 4's other fields unchanged):
+type PeerSnapshot = { /* ...phase 4... */ seatId?: string | null }
 
-// Voice signaling (Phase 4B) — server forwards to `to`, never inspects media:
-'rtc:signal' (c→s) → { to: string;   data: RtcSignal }
-'rtc:signal' (s→t) → { from: string; data: RtcSignal }
-'peer:mute'        → { id: string; muted: boolean }        // s→room (optional icon)
-
-// Tablet mirroring (Phase 4C) — client → server, throttled ~10 Hz while open + on change:
-'tablet:state'   → TabletState
-'peer:tablet'    → { id: string } & TabletState            // s→room
-
-type AnimState = 'idle' | 'walk_fwd' | 'walk_back' | 'strafe_left' | 'strafe_right'
-
-type RtcSignal =
-  | { kind: 'offer' | 'answer'; sdp: string }
-  | { kind: 'ice'; candidate: RTCIceCandidateInit }
-
-type TabletState = {
-  open: boolean
-  view: 'grid' | 'seasons' | 'episodes'
-  seriesId: string | null
-  seasonId: string | null
-  search: string
-  typeFilter: 'all' | 'movie' | 'series'
-  scrollTop: number
+// ── Video sync + queue ───────────────────────────────────────────────────────
+type QueueEntry = {
+  entryId: string            // server-generated randomUUID — NOT the itemId
+  itemId: string             // Emby item id (movie or episode)
+  title: string
+  subtitle: string | null    // "2019" for a film, "The Bear · S2E4" for an episode
+  imageTag: string | null
+  runTimeTicks: number | null
+  addedBy: string            // server fills from the session — NEVER client-supplied
 }
 
-// Late joiners must see already-open tablets / muted peers, so PeerSnapshot carries them:
-type PeerSnapshot = {
-  id: string; username: string; characterId: string
-  p: [number,number,number]; y: number; a: AnimState
-  muted?: boolean
-  tablet?: TabletState
-}
+'video:command' (c→s) →
+  | { kind: 'enqueue'; entry: { itemId; title; subtitle; imageTag; runTimeTicks } }
+  | { kind: 'remove';  entryId: string }
+  | { kind: 'move';    entryId: string; beforeEntryId: string | null }   // null = to end
+  | { kind: 'jump';    entryId: string }
+  | { kind: 'next';    afterEntryId: string }
+  | { kind: 'play' } | { kind: 'pause' } | { kind: 'seek'; playhead: number }
+
+'video:state' (s→room, sender INCLUDED) →
+  { currentEntryId: string | null; currentItemId: string | null
+    playing: boolean; playhead: number }        // playhead already advanced to broadcast time
+'queue:state' (s→room, sender INCLUDED) → { queue: QueueEntry[] }
+
+// Tablet mirroring — Phase 4's TabletState with ONE widened member:
+view: 'grid' | 'seasons' | 'episodes' | 'queue'
 ```
 
-`id` = `socket.id`. MVP is a single hard-coded room `THEATER_ROOM`.
+**Five invariants that units must not "improve":**
+
+1. **No timestamp on the wire.** The server advances `playhead` to broadcast time; the client
+   re-anchors on its own `performance.now()`. `performance.now()` has no cross-machine meaning.
+2. **`video:state` / `queue:state` go to the whole room *including the sender*** —
+   `this.server.to(THEATER_ROOM)`, never `client.to(...)`. That is what makes everyone converge on
+   one anchor.
+3. **Entries are addressed by `entryId`, never by index**, and the cursor is `currentEntryId`,
+   never `currentIndex`.
+4. **`next` applies only if `currentEntryId === afterEntryId`.** Every client emits `next` on
+   `ended`; this check is what collapses N commands into one advance.
+5. **`seatId` — not an AnimState — means "is sitting".** Nothing named `'sitting'` crosses the
+   wire.
+
+### Seat + clip data (generated / measured, consumed by several units)
+
+```ts
+// src/components/Scene/seats.ts  (F1 — generated by scripts/seats.ts, committed)
+export type Seat = {
+  id: string                              // `r{row}s{col}`
+  row: number; col: number
+  cushion: [number, number, number]       // world-space cushion-top centre, post-recentering
+  yaw: number                             // 0 for every seat (all face +Z / the screen)
+}
+export const SEATS: Seat[]                                    // exactly 42
+export const SEATED_EYE_ABOVE_CUSHION: number                 // 0.65 — eyeballed, tune later
+export const CUSHION_ABOVE_FLOOR: number                      // 0.45 — eyeballed, tune later
+export const SEAT_TARGET_MAX_DISTANCE_M: number                // 2.2 — eyeballed, tune later
+export const SEAT_TARGET_MIN_ALIGNMENT_COS: number              // cos(35°) — the "looking at
+                                                                 // seats at all" floor, NOT the
+                                                                 // seat-vs-seat picker (that's
+                                                                 // best-alignment-wins, below)
+export function getSeat(id: string): Seat | undefined
+export function findGazedFreeSeat(         // D9 — proximity AND gaze, not proximity alone
+  camPos: Vector3,
+  camForward: Vector3,                     // camera.getWorldDirection() — full 3D, not yaw-only
+  occupied: ReadonlySet<string>,
+): Seat | null                             // best gazeAlignment (imported from ./gaze) among
+                                            // free seats within SEAT_TARGET_MAX_DISTANCE_M,
+                                            // or null if even the best misses the alignment floor
+
+// src/components/Scene/clipTimings.ts  (A1 — MEASURED off the converted GLBs, not guessed)
+export const SIT_DOWN_DURATION_S: number
+export const STAND_UP_DURATION_S: number
+
+// src/components/Scene/seatTargeting.ts  (F4 — the ONLY writer; F4 + F8 both read seatTargetRef)
+export const seatTargetRef: { current: string | null } = { current: null }
+export function useSeatTargeting(): void   // per-frame useFrame; mounted in Canvas by F8 (§2).
+                                            // If nothing mounts this, seatTargetRef never leaves
+                                            // null and `E` silently does nothing — no type error.
+```
+
+**Why `seatTargetRef` exists at all:** `viewControls.ts` handles `E` via a plain
+`window.addEventListener('keydown', ...)`, which has no camera access — it isn't rendered inside
+`<Canvas>`. `seatTargetRef` is the published answer to "which seat, if any, currently passes D9's
+gaze+proximity test," computed once a frame inside Canvas and read synchronously by both the
+keypress handler and `<SitPrompt>`'s throttled poll. This is `playerVelocity.ts`'s existing pattern
+(module-level mutable, written every frame by one `useFrame`, read from outside it) applied to a
+new value — not a new mechanism. **Both consumers must read this one ref, not call
+`findGazedFreeSeat` independently**, or the prompt and the keypress can disagree about which seat.
 
 ### Client state shapes
 
 ```ts
-// src/multiplayer/store.ts (zustand — React-visible; changes only on join/leave/nav):
-{
-  status: 'idle' | 'connecting' | 'connected' | 'error'
-  peerIds: string[]                                  // drives mount/unmount of <RemoteAvatar>
-  peerMeta: Record<string, { characterId: string; username: string }>
-  peerTablets: Record<string, TabletState>           // nav state; RemoteIpad reads by id
-  connect(characterId: string): void
-  disconnect(): void
-}
+// src/seats/store.ts (F2) — zustand, LOCAL seat state only:
+{ mySeatId: string | null; pending: boolean
+  claim(seatId: string): void      // emits seat:claim; sets mySeatId ONLY on ack { ok: true }
+  release(): void }
 
-// src/multiplayer/store.ts — MODULE-LEVEL, non-React (hot path, never triggers re-render):
-peerBuffers: Map<string, {
-  targetPos: THREE.Vector3
-  targetYaw: number
-  animState: AnimState
-  speed: number          // written by the F4 shell (smoothed render speed) for <Avatar>
-  headHeight?: number    // written once by <Avatar> on load, for <NameTag> placement
-}>
+// src/multiplayer/store.ts (F3) — one new React-visible map, mirroring peerTablets:
+{ peerSeats: Record<string, string> }     // peerId -> seatId; absent = standing
 
-// src/voice/store.ts (VF1) — zustand: { muted: boolean }; MODULE-LEVEL, non-React:
-localStream: MediaStream | null
-pcs: Map<string, RTCPeerConnection>
-inbound: Map<string, MediaStream>
+// src/playback/queue.ts (F6) — zustand, room queue state:
+{ queue: QueueEntry[]; currentEntryId: string | null; currentItemId: string | null }
+
+// src/playback/sync.ts (F6) — command emitters + the socket wiring:
+commandEnqueue(entry) · commandRemove(entryId) · commandMove(entryId, beforeEntryId)
+commandJump(entryId) · commandNext(afterEntryId) · commandPlay() · commandPause()
+commandSeek(playhead) · useVideoSync(): void      // hook; attaches listeners, rebinds on reconnect
 ```
 
-### `<RemoteAvatar>` → child component contract (Option B — do not deviate)
+### The seated state machine (shared by F4 · F5 · F8 — one definition, three consumers)
 
-Every child is a child of the interpolated `<group>` and takes **only `{ id }`**, reading its
-hot data from `peerBuffers` / the voice + tablet stores by id. The one exception is `<Avatar>`,
-which stays presentational:
+```
+                 claim ack ok            SIT_DOWN_DURATION_S elapsed
+   standing ─────────────────▶ sit_down ───────────────────────────▶ sitting
+       ▲                                                                │
+       │        STAND_UP_DURATION_S elapsed                             │ release ack
+       └──────────────────────────────── stand_up ◀─────────────────────┘
+```
+
+- **`frozen` covers `sit_down | sitting | stand_up`** — not just `sitting`. Unfreezing on the
+  first frame of `stand_up` drops the character mid-animation.
+- **`E` is inert during `sit_down` / `stand_up`.** No queueing.
+- **Remote peers run the same machine off `peer:seat`** — but a peer already seated at
+  `peers:init` / `peer:join` time enters `sitting` **directly**, with no `sit_down` replay.
+- **`<Avatar>`'s client-side `AnimState` union gains `'sit_down' | 'sitting' | 'stand_up'`.** These
+  are local render states; none of them are wire values.
+
+### `<Avatar>` props (Phase 4's contract, widened)
 
 ```tsx
-<Avatar    modelUrl={string} animState={AnimState} speed={number} />   // F3
-<NameTag   id={string} />                                             // F7
-<PeerVoice id={string} />                                             // VF3
-<RemoteIpad id={string} />                                            // TF3
+<Avatar
+  modelUrl={string}
+  animState={AnimState}             // + 'sit_down' | 'sitting' | 'stand_up'
+  speed={number}                    // 0 for all three seated states
+  onMeasured={(headHeight) => void}
+  onOneShotEnd={(state) => void}    // NEW — fires when sit_down / stand_up finishes
+/>
 ```
 
-### Env + constants
-
-```
-NEXT_PUBLIC_SOCKET_URL   dev: http://localhost:8081   prod: empty/unset (same-origin)
-NEXT_PUBLIC_STUN_URLS    optional; default 'stun:stun.l.google.com:19302'
-THEATER_ROOM             single hard-coded room id (server)
-VALID_CHARACTER_IDS      Set mirroring CHARACTERS ids in CharacterSelect/characters.ts
-PRESENCE_MIN_INTERVAL_MS per-socket rate-limit floor (server)
-```
+`onOneShotEnd` is how `<RemoteAvatar>` advances `sit_down → sitting` and `stand_up → idle`.
+`<SeatedCamera>` (F4) **cannot** use it — the local player renders no body, so there is no local
+`<Avatar>`. It keys off `clipTimings.ts` instead. Those two agree because the constants *are* the
+measured clip durations.
 
 ---
 
 ## §2 File-ownership matrix
 
-Each unit **writes only** its "Owns" files and **must not edit** anything else. "Depends on"
-means that unit's outputs (symbols in §1) must exist first.
+Each unit **writes only** its "Owns" files and **must not edit** anything else. "Depends on" means
+that unit's §1 symbols must exist first.
 
-| Unit | Wave | Owns (creates / writes) | Must NOT touch | Depends on |
-|------|------|-------------------------|----------------|------------|
-| **B1** deps | 1 | `package.json`, `pnpm-lock.yaml` | any source | — |
-| **B2** cookie | 1 | `src/auth/auth.service.ts` (+ `__tests__/auth.service.test.ts`) | presence, components | — |
-| **F3a** clipTracks | 1 | `src/components/Scene/clipTracks.ts` (+ test); import-only refactor of `CharacterSelect/CharacterModel.tsx` | Avatar, RemoteAvatars | — |
-| **A1** strafe clips | 1 | `public/animations/walk-strafe-{left,right}.glb` (via `convert` CLI) | source | — |
-| **B3+VB1+TB1** gateway | 2 | `src/presence/{presence.module,presence.gateway,presence.constants,presence.schema,rtc.schema,tablet.schema}.ts`; register in `src/app.module.ts` | frontend, auth internals | B1, B2 |
+| Unit | Batch | Owns (creates / writes) | Must NOT touch | Depends on |
+|------|-------|-------------------------|----------------|------------|
+| **A1** sit clips | 1 | `public/animations/{sitting-down,sitting-idle,stand-up}.glb` (via `convert` CLI); `src/components/Scene/clipTimings.ts` | any other source | — |
+| **F1** seat table | 1 | `scripts/seats.ts`; `src/components/Scene/seats.ts`; `Scene/__tests__/seats.test.ts`; `package.json` (one `seats` script line) | Scene components | — |
+| **B1** schemas + constants | 1 | `src/presence/{seat.schema,video.schema,tablet.schema}.ts`; `src/presence/presence.constants.ts` | `presence.gateway.ts` | — |
+| **B2** queue helpers | 1 | `src/presence/queue.ts`; `src/presence/__tests__/queue.test.ts` | gateway, schemas | — |
+| **B3** gateway | 2 | `src/presence/presence.gateway.ts` | everything else | B1, B2 |
+| ↳ *covers `PLAN.md`'s B3a (seats) + B3b (video/queue) as **one** agent — same file, one writer* | | | | |
 | **B4** gateway tests | 2 | `src/presence/__tests__/presence.gateway.test.ts` | gateway impl | B3 |
-| **F1** thread id | 3a | `src/components/TheaterApp.tsx`, `Scene/SceneView.tsx`, `Scene/Scene.tsx` (prop signatures only) | store, avatars | contracts |
-| **F2** store | 3a | `src/multiplayer/store.ts` | components | contracts |
-| **F3b** Avatar | 3a | `src/components/Scene/Avatar.tsx` | RemoteAvatars, store | F3a, A1 |
-| **F7a** gaze | 3a | `src/components/Scene/gaze.ts` (+ test) | components | contracts |
-| **F4** shell + stubs | 3b | `src/components/Scene/RemoteAvatars.tsx` (+ interp-helper test); **creates stub files** `Scene/NameTag.tsx`, `Scene/PeerVoice.tsx`, `Scene/RemoteIpad.tsx` (`return null`) | Avatar, store internals | F2, F3b |
-| **F5** local presence | 3b | `src/components/Scene/LocalPresence.tsx` | RemoteAvatars | F2 |
-| **F7** nametag fill | 3c | `src/components/Scene/NameTag.tsx` (fills F4 stub); `Scene/Theater.tsx` (env-root ref) | RemoteAvatars.tsx | F4, F7a |
-| **F6** wiring | 4 | `src/components/Scene/Scene.tsx` (render + connect) | — | F1, F2, F4, F5 |
-| **infra** | 4 | `apps/theater/deploy.yml`, `apps/theater/.env.example` | source | — |
-| **VF1/VF2** voice core | 5 | `src/voice/store.ts`, `src/voice/peerConnections.ts` | RemoteAvatars.tsx, gateway | B3(VB1), F2 |
-| **VF3** PeerVoice fill | 5 | `src/components/Scene/PeerVoice.tsx` (fills F4 stub) | RemoteAvatars.tsx | F4, VF1 |
-| **VF4** mute | 5 | `src/components/Scene/viewControls.ts` (add `M`) | — | VF1 |
-| **VF5** mic UX | 5 | `src/voice/store.ts`, a small `Scene/MicIndicator.tsx` | RemoteAvatars.tsx | VF1 |
-| **TF1** iPad split | 6 | `src/components/Scene/IpadBrowser.tsx` → also create `Scene/IpadBrowserView.tsx` | RemoteAvatars.tsx | contracts |
-| **TF2** broadcast | 6 | `src/components/Scene/IpadBrowser.tsx` (same track as TF1) | — | TF1, F2 |
-| **TF3** RemoteIpad fill | 6 | `src/components/Scene/RemoteIpad.tsx` (fills F4 stub) | RemoteAvatars.tsx | F4, TF1 |
+| **F2** seat store | 3 | `src/seats/store.ts` | `multiplayer/store.ts`, components | F1, §1 |
+| **F3** peerSeats | 3 | `src/multiplayer/store.ts` | components | §1 |
+| **F6** video sync | 3 | `src/playback/sync.ts`; `src/playback/queue.ts` | `playback/store.ts`, components | §1 |
+| **F4** seated player | 4 | `Scene/Player.tsx`; `Scene/SeatedCamera.tsx` *(new)*; `Scene/seatTargeting.ts` *(new)*; `Scene/viewControls.ts`; `Scene/LocalPresence.tsx` | `Scene.tsx`, `RemoteAvatars.tsx`, `Avatar.tsx` | A1, F1, F2, F3 |
+| **F5** seated peers | 4 | `Scene/RemoteAvatars.tsx`; `Scene/Avatar.tsx` | `Scene.tsx`, `Player.tsx` | A1, F1, F3 |
+| **F7a** tablet transport | 5 | `Scene/IpadBrowser.tsx`; `Scene/IpadBrowserView.tsx`; `components/FullscreenPlayer.tsx` | `RemoteIpad.tsx`, `Scene.tsx` | F6 |
+| **F8** wiring + prompt | 5 | `Scene/Scene.tsx`; `Scene/SitPrompt.tsx` *(new)* | everything else | F1, F2, F4, F6 |
+| **F7b** tablet queue view | 6 | `Scene/IpadBrowser.tsx`; `Scene/IpadBrowserView.tsx`; `Scene/RemoteIpad.tsx` | `Scene.tsx` | F3, F6, F7a |
 
-**Stub-handoff rule (the crux of Option B):** F4 *creates* `NameTag.tsx`, `PeerVoice.tsx`,
-`RemoteIpad.tsx` as `return null` stubs and mounts them in `RemoteAvatar`. After F4, **those
-three files change owner** — F7 owns `NameTag.tsx`, VF3 owns `PeerVoice.tsx`, TF3 owns
-`RemoteIpad.tsx`. Each filler edits only its own file; **nobody re-opens `RemoteAvatars.tsx`.**
+*(Paths under `Scene/` are `apps/theater/src/components/Scene/`.)*
 
-**Cross-wave shared files (safe because sequential):** `Scene.tsx` (F1 wave 3 → F6 wave 4);
-`IpadBrowser.tsx` (TF1 → TF2, same track). No file is written by two *concurrent* units.
+**Unit ids follow `PLAN.md`'s narrative order, not dispatch order** — so F6 (video sync) is
+dispatched in Batch 3, before F4/F5 in Batch 4. The batch column, not the number, is the schedule.
+
+**Sequential-track files (safe because never concurrent):** `IpadBrowser.tsx` /
+`IpadBrowserView.tsx` are written by **F7a (batch 5) then F7b (batch 6)** — same track, one batch
+apart. `presence.gateway.ts` is written **once**, by B3.
+
+**Two ownership decisions worth knowing (they exist to avoid a shared write):**
+
+- **`multiplayer/store.ts` is F3's alone**, and F3 makes *two* changes: `peerSeats`, **and**
+  widening the mirrored `TabletState.view` union with `'queue'` (+ its `isTabletState` validator).
+  The queue-view unit (F7b) would otherwise have to reopen this file.
+- **A1 owns `clipTimings.ts`, not F1.** The durations are a *measurement output* of the conversion,
+  so the unit that converts is the unit that records them — which lets A1 and F1 run concurrently
+  instead of A1 → F1 sequentially.
 
 ---
 
-## §3 The `RemoteAvatar` composition root (frontend Option B)
+## §3 The tablet container/view split (do not collapse it)
 
-`RemoteAvatar` is a thin shell: it interpolates the `<group>` transform from `peerBuffers` and
-mounts the four children **inside the group** (so transform inheritance places them on the
-avatar). It does not contain nametag, voice, or tablet logic — those live in the child files.
+`IpadBrowserView.tsx` is **presentational and store-free by construction** — every value and
+callback arrives as props. That is not stylistic: it is what lets `RemoteIpad.tsx` render the exact
+same component with a *peer's* mirrored state and no callbacks, so the mirror can never write to a
+store on that peer's behalf.
 
-- The shell's single `useFrame` does *only*: lerp position, wrap/slerp yaw, and write smoothed
-  `speed` into the buffer. Each child runs its **own** small `useFrame` reading `peerBuffers` /
-  stores by id.
-- Children never receive per-frame props (that would re-render). `animState` (rare) may be a
-  prop to `<Avatar>`; `speed` is read by `<Avatar>` from the buffer.
-- Cost of Option B vs. one fused loop: a few extra `useFrame` callbacks per peer — negligible
-  at ≤ 8 peers. Benefit: NameTag/voice/tablet are independent files → parallel, no collisions.
+F7a and F7b both add to this pair. Both must preserve the split:
+
+- **New state → a prop on the View, read from a store by the container** (`IpadBrowser.tsx`).
+  F7a adds `playhead` / `duration`; F7b adds the queue array + `currentEntryId`.
+- **New interaction → an optional `on*?` callback**, invoked as `on*?.()`. A `RemoteIpad` caller
+  supplies none of them, so every one is a no-op in the mirror.
+- **Never import a store into `IpadBrowserView.tsx`.** If a value seems to need one, it belongs as
+  a prop.
+
+The `'queue'` view union is mirrored in **four independent places** by this app's
+hand-mirror-across-boundaries convention: `presence/tablet.schema.ts` (B1), `multiplayer/store.ts`
+(F3), `IpadBrowser.tsx`'s `BrowseState` + `buildTabletState` (F7b), and `RemoteIpad.tsx`'s
+`TabletState → BrowseState` reconstruction (F7b). A partial edit fails **silently** — a peer's
+tablet state just stops validating. Grep the union; don't trust the type checker to connect them.
 
 ---
 
 ## §4 Gateway single-owner (backend Option B)
 
-`presence.gateway.ts` is written **once**, in Wave 2, by one agent. It implements *all three*
-relays — `presence`, `rtc:signal`/`peer:mute` (VB1), `tablet:state` (TB1) — each validated by
-its **own** schema file (`presence.schema.ts`, `rtc.schema.ts`, `tablet.schema.ts`). The rtc
-and tablet handlers are trivial validated pass-throughs; building them now (against the frozen
-§1 contracts) means the voice/tablet **frontend** waves add zero backend code and touch zero
-shared files. No later wave reopens the gateway.
+`presence.gateway.ts` is written **once**, in Batch 2, by one agent (B3). It adds *all* of Phase 5's
+handlers at once — `seat:claim`, `seat:release`, `video:command` — plus the seat release in
+`handleDisconnect` and the `video:state` / `queue:state` emits in `handleConnection`. No later
+batch reopens it.
+
+B3 stays thin because the two things worth testing are already built and tested by Batch 1:
+**B1 owns validation** (one schema file per concern) and **B2 owns the queue mutations** as pure
+exported functions (`applyEnqueue` / `applyRemove` / `applyMove` / `applyNext`). B3 holds state and
+broadcasts; it does not reimplement either.
+
+**`QueueEntry` is declared in `src/presence/queue.ts` (B2), not in a schema file.** B1's
+`video.schema.ts` defines the enqueue payload as an explicit zod object rather than importing it,
+so B1 and B2 have no compile dependency on each other and can run concurrently in Batch 1.
 
 ---
 
 ## §5 Dispatch schedule (batches + gates)
 
-Spawn one `theater-impl` sub-agent per unit. Units on the same line run **concurrently**.
-After each batch, run the **gate** before proceeding. `⛔` = hard gate (must pass).
+Spawn one `theater-impl` sub-agent per unit. Units on the same line run **concurrently**. After
+each batch, run the **gate** before proceeding. `⛔` = hard gate, `👤` = human verification.
 
 ```
-Batch 1  (Wave 1) ── 4 concurrent:  B1 · B2 · F3a · A1
-   ⛔ gate: B1 ran `pnpm install`; `pnpm --filter @lilnas/theater type-check && test` green;
-            A1 produced two GLBs that load.
+Batch 1 ── 4 concurrent:  A1 · F1 · B1 · B2
+   ⛔ gate: type-check + test green. A1 reports the two MEASURED clip durations and they are in
+            clipTimings.ts. F1's SEATS has exactly 42 entries, 6 rows × 7. B2's queue tests cover
+            the cursor-follows-removal and duplicate-`next` cases.
 
-Batch 2  (Wave 2) ── 1 agent (gateway is single-owner), then its tests:
-            B3+VB1+TB1  →  B4
-   ⛔ gate: type-check + test green; gateway appears in boot logs; the three schema files exist.
+Batch 2 ── sequential (gateway is single-owner):   B3  →  B4
+           B3 = PLAN.md's B3a + B3b in one agent (seats, then video/queue)
+   ⛔ gate: type-check + test green; the gateway boots; B4 covers seat-leak-on-disconnect and
+            the stale-`next` dedup.
 
-Batch 3  (Wave 3a) ── 4 concurrent:  F1 · F2 · F3b · F7a
-   ⛔ gate: type-check green (F2 exports match §1 store shape; F3b exports <Avatar> per §1).
+Batch 3 ── 3 concurrent:  F2 · F3 · F6
+   ⛔ gate: type-check green; exported shapes match §1 (seat store actions, `peerSeats` +
+            widened TabletState union, sync command names).
 
-Batch 4  (Wave 3b) ── 2 concurrent:  F4 · F5
-   ⛔ gate: type-check green; F4 created the 3 stub files and mounts all 4 children;
-            interp-helper unit tests pass.
+Batch 4 ── 2 concurrent:  F4 · F5
+   ⛔ gate: type-check green. `SeatedCamera` gates look input on `document.pointerLockElement`;
+            `<Avatar>` uses LoopOnce + clampWhenFinished for both one-shots; `seatTargetRef` is
+            exported from `seatTargeting.ts` and `E`'s handler reads it (not a second
+            `findGazedFreeSeat` call) — confirm both against §1, since a mismatch here is silent
+            at runtime (no prompt, `E` does nothing) rather than a build failure.
 
-Batch 5  (Wave 3c) ── 1 agent:  F7 (fills NameTag.tsx + Theater env-root ref)
-   ⛔ gate: type-check + test green.
+Batch 5 ── 2 concurrent:  F7a · F8
+   ⛔ gate: full `pnpm --filter @lilnas/theater build` (SEQUENTIALLY — see §6) + `test` green.
+            Confirm F8 actually mounts `useSeatTargeting()` inside `<Canvas>` — this is the one
+            line most likely to be missed, since nothing fails to compile without it.
+   👤 human demo: sit/stand requires BOTH proximity and looking at the seat (D9) — walking near a
+            seat while looking away must show no prompt; play/pause/seek syncs across two tabs;
+            fullscreen has no controls and Tab is inert there.
 
-Batch 6  (Wave 4) ── 3 concurrent:  F6 · deploy.yml · env
-   ⛔ gate: full `pnpm --filter @lilnas/theater build` + `test` green.
-   👤 human demo: two tabs, different characters, see each other walk/strafe; WS upgraded.
-
-Batch 7  (Waves 5 + 6 — fully parallel, no shared files):
-   7a ── 2 concurrent:  VF1+VF2 (voice core)  ‖  TF1 (iPad split)
-   7b ── concurrent:    VF3 · VF4 · VF5        ‖  TF2 · TF3
-   ⛔ gate: full build + test green.
-   👤 human demo: voice (distance in POV, stereo in fullscreen, M mute) + tablet mirroring.
+Batch 6 ── 1 agent:  F7b
+   ⛔ gate: full sequential build + test green.
+   👤 human demo: the full queue checklist in PLAN.md (items 14–27).
 ```
 
-**Peak concurrency:** 4 (Batch 1 / Batch 3). **Critical path:** B1→B3→F2→F4→(VF3‖TF3)→demo.
+**Peak concurrency:** 4 (Batch 1). **Critical path:** B1/B2 → B3 → F6 → F7a → F7b.
 
-**Verification at every gate:** `pnpm --filter @lilnas/theater type-check` + `test`; add
-`build` at Batches 6 and 7. Sub-agents self-verify their own files (type-check + eslint/prettier,
-per §6); the orchestrator runs the *integration* build/test at gates — a type error in another
-in-flight unit's file is expected mid-wave and is not a sub-agent's job to fix.
+**Verification at every gate:** `pnpm --filter @lilnas/theater type-check` + `test`; add `build` at
+Batches 5 and 6. Sub-agents self-verify their own files only (§6) — a type error in another
+in-flight unit's file is expected mid-batch and is **not** a sub-agent's job to fix.
 
 ---
 
 ## §6 Guardrails (every sub-agent)
 
-- **Scope:** write only your unit's "Owns" files (§2). Never edit a file owned by another unit.
-  If you believe you need to, stop and report it in your return summary instead.
-- **Build to §1 contracts** exactly — other units are coding against the same symbols in
-  parallel. Do not rename or reshape a shared type/event/store field; if a contract looks wrong,
-  flag it, don't unilaterally change it.
+- **Scope:** write only your unit's "Owns" files (§2). Never edit a file owned by another unit. If
+  you believe you need to, stop and report it in your return summary instead.
+- **Build to §1 contracts** exactly — other units are coding against the same symbols in parallel.
+  Do not rename or reshape a shared type/event/store field; if a contract looks wrong, flag it,
+  don't unilaterally change it. The five invariants in §1 are the ones most likely to look like
+  they could be simplified. They can't.
 - **No unrelated skills** — do not run code-review, security-review, or any other skill.
 - **No runtime verification** — do not start dev servers or use any browser/screenshot tooling.
   Rendering is verified by the human. Your verification is type-check + lint only.
-- **Match conventions** — prettier + eslint flat config, `cns()` for className composition,
-  avoid `any`, boundary-validate untrusted input with zod. Read a neighboring file first.
+- **Match conventions** — prettier + eslint flat config, `cns()` for className composition, avoid
+  `any`, boundary-validate untrusted input with zod, hand-mirror wire types across the
+  frontend/backend seam rather than importing across it (with a "keep in sync" comment naming the
+  source of truth). Read a neighbouring file first.
+- **Build sequentially when you build at all:** this package's `pnpm build` uses `run-p` and races
+  deterministically on a cold `.next/types`. Use
+  `pnpm --filter @lilnas/theater build:backend && pnpm --filter @lilnas/theater build:frontend`.
 - **Verify before hand-off:** `pnpm --filter @lilnas/theater type-check:app` (your files clean —
-  errors in other in-flight units' files are expected, note them, don't fix); then
-  `eslint --fix` + `prettier -w` on the files you changed.
+  errors in other in-flight units' files are expected; note them, don't fix), then `eslint --fix`
+  and `prettier -w` on the files you changed, then `test` if you own tests.
 
 **Return summary (your value to the orchestrator):** files changed · the exported symbols /
-interfaces you established (so the orchestrator can check them against §1 before the next wave)
-· any deviation from a §1 contract and why · the outcome of your verify commands. No preamble.
+interfaces you established (so the orchestrator can check them against §1 before the next batch) ·
+any deviation from a §1 contract and why · anything you had to leave for another unit because it
+was outside your scope · the outcome of your verify commands. No preamble.
 
 ---
 
 ## §7 Notes for the orchestrator
 
-- **Contract-drift check between waves:** read each return summary; confirm the exported store
-  shape (F2), `<Avatar>` props (F3b), gateway event names (B3), and child props (F4 stubs) match
-  §1 verbatim before dispatching dependents. A mismatch caught here is cheap; caught in Batch 7
-  it is not.
-- **Stub files must compile:** after Batch 4, `PeerVoice.tsx` / `RemoteIpad.tsx` sit as
-  `return null` through Wave 4 — that's intended; the build stays green.
-- **Waves 5 and 6 are independent** — if running low on parallelism budget, ship voice first,
-  then tablet; nothing in tablet depends on voice or vice-versa.
-- **Fallbacks live in PLAN.md** (the `/api/socket.io` polling fallback for the WS route; the
-  TURN-later note for voice) — reach for them only if the primary path misbehaves at a gate.
+- **Contract-drift check between batches:** read each return summary and confirm against §1 before
+  dispatching dependents — the seat store's actions (F2), the `peerSeats` map + widened
+  `TabletState` union (F3), the sync command names (F6), `<Avatar>`'s new `onOneShotEnd` (F5), and
+  the gateway's event names (B3). A mismatch caught at a gate is cheap; caught in Batch 6 it isn't.
+- **A1 is on the critical path for Batch 4, not Batch 1's gate.** F4 and F5 both need the measured
+  durations. If the FBX files aren't staged yet, Batch 1 can still run the other three units — but
+  do not start Batch 4 with placeholder timings.
+- **F1's seat ids and B1's `SEAT_IDS` are generated independently** — by the script from the GLB,
+  and by a 6×7 loop on the server. They agree because the id format is deterministic. If F1's
+  generator ever finds a different seat count, B1's allowlist is wrong too; treat a mismatch at the
+  Batch 1 gate as a real finding, not a rounding error.
+- **The three highest-risk units are F4, F5, and B3.** F4 owns the ecctrl camera handoff (the
+  phase's main unknown — have it prototype sit→stand→sit before building the rest); F5 owns
+  `Avatar.tsx`'s first-ever one-shot clips; B3 owns the seat-leak and auto-advance-dedup logic that
+  B4 must actually test rather than assert.
+- **`seatTargeting.ts` is a fourth silent-failure spot, alongside seat-leak-on-disconnect and
+  the `'queue'` union ripple.** All three share the same shape: nothing fails to compile or throws
+  at runtime, a feature just quietly does nothing (E does nothing; a seat vanishes forever; a peer's
+  mirrored tablet renders the wrong view). Check these explicitly at their gates rather than trusting
+  a green build — that's exactly what "build passed" can't tell you about any of them.
+- **Fallbacks live in PLAN.md** — the interpolate-the-group fallback if the root-motion-stripped
+  sit-down looks wrong, and the seed-ecctrl's-camera-state fallback if the stand-up handoff snaps.
+  Reach for them only if the primary path misbehaves at a gate.

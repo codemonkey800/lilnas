@@ -17,7 +17,11 @@ import type { Response as ExpressResponse } from 'express'
 
 import { SessionGuard } from 'src/auth/session.guard'
 
-import { EpisodesQuerySchema, PlaybackQuerySchema } from './emby.schema'
+import {
+  EpisodesQuerySchema,
+  ItemImageQuerySchema,
+  PlaybackQuerySchema,
+} from './emby.schema'
 import {
   type AudioTrackDto,
   EmbyService,
@@ -69,19 +73,34 @@ export class EmbyController {
     return this.embyService.listItems()
   }
 
-  // Poster proxy for the iPad grid — simple non-Range proxy, images aren't
-  // seekable.
+  // Artwork proxy — simple non-Range proxy, images aren't seekable. Serves both
+  // the iPad grid's posters (no query params: Primary at the service's default
+  // width) and the full-page player's wide Backdrop hero.
+  //
+  // A 404 here is expected, not exceptional: Emby has no Backdrop for plenty of
+  // items, and `forwardResponse` passing that status through unmodified is what
+  // drives the client's Backdrop -> poster -> gradient fallback via
+  // `<img onError>`.
   @Get('items/:id/image')
   async getItemImage(
     @Param('id') id: string,
+    @Query() query: unknown,
     @Res() res: ExpressResponse,
   ): Promise<void> {
+    const parsed = ItemImageQuerySchema.safeParse(query)
+    if (!parsed.success) {
+      throw new BadRequestException(
+        parsed.error.issues.map(issue => issue.message),
+      )
+    }
+
     const ac = new AbortController()
     res.on('close', () => ac.abort())
 
-    const upstream = await fetch(this.embyService.buildImageUrl(id), {
-      signal: ac.signal,
-    })
+    const upstream = await fetch(
+      this.embyService.buildImageUrl(id, parsed.data),
+      { signal: ac.signal },
+    )
     this.forwardResponse(upstream, res, ['content-type', 'content-length'])
   }
 

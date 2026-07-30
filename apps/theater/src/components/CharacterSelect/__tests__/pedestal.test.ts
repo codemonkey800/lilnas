@@ -104,7 +104,19 @@ describe('pedestal', () => {
 // siblings — the shape SkeletonUtils.clone's parallelTraverse must walk
 // correctly for skinning to survive the clone, and the shape real glTF
 // exports use (mesh and skeleton root as siblings, not mesh-owns-bones).
-function buildCharacterRig(offset: { x: number; z: number } = { x: 0, z: 0 }) {
+// `bindAfterMatrixUpdate` controls where the character's feet land relative
+// to its own local origin, which is the whole point of the two
+// rootBoneHeight cases below. Binding the Skeleton BEFORE the first
+// updateMatrixWorld (the default) leaves every bone inverse identity, so the
+// skinned bind-pose box gets shifted up by the root bone's offset and the
+// feet coincide with local zero. Binding AFTER makes the inverses real, the
+// bind-pose skinning an identity round-trip, and the box stay at the
+// geometry's own extents — the "origin is not at the feet" shape that
+// master-chief and xxxtentacion actually ship in.
+function buildCharacterRig(
+  offset: { x: number; z: number } = { x: 0, z: 0 },
+  { bindAfterMatrixUpdate = false }: { bindAfterMatrixUpdate?: boolean } = {},
+) {
   const scene = new Object3D()
 
   const rootBone = new Bone()
@@ -141,8 +153,11 @@ function buildCharacterRig(offset: { x: number; z: number } = { x: 0, z: 0 }) {
   )
 
   const mesh = new SkinnedMesh(geometry, new MeshBasicMaterial())
-  mesh.bind(new Skeleton([rootBone, footBone]))
   scene.add(mesh)
+  if (bindAfterMatrixUpdate) {
+    scene.updateMatrixWorld(true)
+  }
+  mesh.bind(new Skeleton([rootBone, footBone]))
 
   scene.updateMatrixWorld(true)
 
@@ -222,5 +237,114 @@ describe('prepareCharacterScene', () => {
       expect(Math.abs(worldCenter.x)).toBeLessThan(1e-6)
       expect(Math.abs(worldCenter.z)).toBeLessThan(1e-6)
     }
+  })
+
+  // Bugfix regression guard: a seated remote peer used to float ~0.35-0.72m
+  // above their seat cushion (measured across the 7 shipped characters).
+  // Root cause was RemoteAvatars.tsx pinning the seated group with a single
+  // guessed constant instead of each character's own bind-pose hip height.
+  // `rootBoneHeight` is the fix's measured replacement.
+  it("measures the root bone's bind-pose height above the recentred floor, independent of the turntable rotation", () => {
+    const { scene: source } = buildCharacterRig()
+
+    for (const degrees of [0, 45, 90, 180]) {
+      const scene = mountOnStage(
+        SkeletonUtils.clone(source),
+        (degrees * Math.PI) / 180,
+      )
+      const result = prepareCharacterScene(scene)
+
+      // buildCharacterRig binds its Skeleton before the first
+      // updateMatrixWorld, so the bone inverses come out identity and the
+      // skinned bind-pose box lands at y=[0, 1.8] — i.e. this fixture's feet
+      // are ALREADY at local zero (verified by measuring mesh.boundingBox
+      // directly, not assumed). Hips at local 0.9 are therefore 0.9 above
+      // the floor.
+      //
+      // Because box.min.y is exactly 0 here, this case cannot distinguish
+      // "hips above the floor" from "hips above the model's authored
+      // origin" — the two coincide. The test below covers a rig where they
+      // don't, which is the shape master-chief and xxxtentacion ship in.
+      expect(result.rootBoneHeight).toBeCloseTo(0.9, 5)
+    }
+  })
+
+  // Regression guard for the shipped-asset bug the case above structurally
+  // cannot catch. master-chief and xxxtentacion are authored with their
+  // origin at roughly hip height rather than at their feet, so their
+  // bind-pose box starts BELOW local zero (box.min.y = -1.000 / -0.987,
+  // measured off the shipped GLBs through the real GLTFLoader). Reading the
+  // root bone's scene-local Y without subtracting box.min.y then reports
+  // hips-above-origin instead of hips-above-feet, and RemoteAvatars.tsx pins
+  // them that much too high — a full metre above the cushion.
+  //
+  // Reproduced here by binding the Skeleton AFTER the first
+  // updateMatrixWorld, which makes the bone inverses real, leaves the
+  // skinned box at the geometry's own y=[-0.9, 0.9], and so puts the floor
+  // at box.min.y = -0.9 rather than 0. Pre-fix this returned 0.9.
+  it('measures hips above the FEET, not above the model origin, when the bind-pose box starts below local zero', () => {
+    const { scene } = buildCharacterRig(
+      { x: 0, z: 0 },
+      { bindAfterMatrixUpdate: true },
+    )
+    const result = prepareCharacterScene(
+      mountOnStage(SkeletonUtils.clone(scene)),
+    )
+
+    // Root bone at local y=0.9, floor (box.min.y) at local y=-0.9.
+    expect(result.rootBoneHeight).toBeCloseTo(1.8, 5)
+  })
+
+  it("is 0 when there is no skeleton to measure, matching groundY's own no-skeleton fallback", () => {
+    const scene = new Object3D()
+    const result = prepareCharacterScene(scene)
+
+    expect(result.rootBone).toBeNull()
+    expect(result.rootBoneHeight).toBe(0)
+    expect(result.rootBoneOffsetX).toBe(0)
+    expect(result.rootBoneOffsetZ).toBe(0)
+  })
+
+  // Bugfix regression guard: a seated remote peer's hips landed off-centre
+  // on the cushion -- up to 90% of the way across its depth for Kanna, whose
+  // back then sat ~12.5cm clear of the backrest -- because RemoteAvatars.tsx's
+  // seat pin matched the group's X/Z straight to the cushion's own X/Z with
+  // no correction (unlike the Y pin, which already applied `rootBoneHeight`).
+  // Root cause: the recenter above places the group origin at the bind-pose
+  // bounding box's X/Z CENTRE, which only coincides with the hips for a rig
+  // whose silhouette is symmetric around its own pelvis -- Kanna's hair and
+  // tail extend behind her and pull the box behind her actual hips.
+  // `rootBoneOffsetX`/`rootBoneOffsetZ` are the fix's measured replacement.
+  it("measures the root bone's bind-pose X/Z offset from the recentred origin, independent of the turntable rotation", () => {
+    // Same asymmetric fixture as "centres a rotated-in character on the
+    // stage axis" above -- geometry bbox centred at (0.5, _, 0.3) while the
+    // root bone itself sits at local (0, 0.9, 0), i.e. offset (-0.5, _, -0.3)
+    // from that centre, unaffected by the mesh-only offset (see that test's
+    // own comment for why the bone hierarchy never moves).
+    const { scene: source } = buildCharacterRig({ x: 0.5, z: 0.3 })
+
+    for (const degrees of [0, 45, 90, 180]) {
+      const scene = mountOnStage(
+        SkeletonUtils.clone(source),
+        (degrees * Math.PI) / 180,
+      )
+      const result = prepareCharacterScene(scene)
+
+      expect(result.rootBoneOffsetX).toBeCloseTo(-0.5, 5)
+      expect(result.rootBoneOffsetZ).toBeCloseTo(-0.3, 5)
+    }
+  })
+
+  // The complementary case: a rig whose silhouette IS already centred on its
+  // own hips (offset {x: 0, z: 0} -- the shape most of the shipped characters
+  // actually ship in) must come out at ~0. The fix has to be a no-op for
+  // them, not a new source of drift.
+  it('is ~0 when the bind-pose bounding box is already centred on the root bone', () => {
+    const { scene: source } = buildCharacterRig()
+    const scene = mountOnStage(SkeletonUtils.clone(source))
+    const result = prepareCharacterScene(scene)
+
+    expect(result.rootBoneOffsetX).toBeCloseTo(0, 5)
+    expect(result.rootBoneOffsetZ).toBeCloseTo(0, 5)
   })
 })

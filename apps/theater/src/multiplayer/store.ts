@@ -15,9 +15,9 @@ import { create } from 'zustand'
 // `create<Store>((set, get) => {...})` factory.
 //
 // Split between what re-renders and what doesn't (ORCHESTRATE.md §1/§3):
-// `status`/`peerIds`/`peerMeta`/`peerTablets` are zustand state — they only
-// change on join/leave/nav, so a React re-render on them is fine, and it's
-// how `<RemoteAvatars>` mounts/unmounts one `<RemoteAvatar>` per peer.
+// `status`/`peerIds`/`peerMeta`/`peerTablets`/`peerSeats` are zustand state —
+// they only change on join/leave/nav, so a React re-render on them is fine,
+// and it's how `<RemoteAvatars>` mounts/unmounts one `<RemoteAvatar>` per peer.
 // `peerBuffers`, below, is a plain module-level `Map`, mutated *directly* by
 // the `peer:presence` handler — never through `set()`. Presence arrives at
 // ~13 Hz; routing that through React state would re-render every peer's
@@ -60,10 +60,17 @@ const ANIM_STATES = [
 
 export type AnimState = (typeof ANIM_STATES)[number]
 
-// Keep in sync with src/presence/tablet.schema.ts's `TabletState`.
+// Keep in sync with src/presence/tablet.schema.ts's `TabletState`. `'queue'`
+// (Phase 5) and `'player'` are each one of four independent mirrors of this
+// exact union — `tablet.schema.ts`'s zod enum, this type + `isTabletState`
+// below, `IpadBrowser.tsx`'s `BrowseState` + `buildTabletState`, and
+// `RemoteIpad.tsx`'s `TabletState -> BrowseState` reconstruction
+// (ORCHESTRATE.md §2/§3). A partial edit fails silently — a peer's tablet
+// state just stops validating — so this copy is kept in sync by grepping the
+// union, not by the type checker.
 export type TabletState = {
   open: boolean
-  view: 'grid' | 'seasons' | 'episodes'
+  view: 'grid' | 'seasons' | 'episodes' | 'queue' | 'player'
   seriesId: string | null
   seasonId: string | null
   search: string
@@ -74,7 +81,8 @@ export type TabletState = {
 // Keep in sync with src/presence/presence.gateway.ts's `PeerSnapshot`
 // interface. `muted` rides along so a real snapshot still validates, but
 // nothing in this store surfaces it yet — mute state is voice's own
-// `src/voice/store.ts` (a later, separate unit) to own.
+// `src/voice/store.ts` (a later, separate unit) to own. `seatId` (Phase 5) is
+// seeded into `peerSeats` below — absent/`null` means standing.
 export type PeerSnapshot = {
   id: string
   username: string
@@ -84,6 +92,7 @@ export type PeerSnapshot = {
   a: AnimState
   muted?: boolean
   tablet?: TabletState
+  seatId?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +112,10 @@ export type MultiplayerStore = {
   peerIds: string[]
   peerMeta: Record<string, PeerMeta>
   peerTablets: Record<string, TabletState>
+  // peerId -> seatId (Phase 5); absent = standing. Seat changes are rare, so
+  // — like `peerTablets` — a plain `set()` per change is correct; this is
+  // explicitly not a hot path (contrast `peerBuffers` below).
+  peerSeats: Record<string, string>
   connect: (characterId: string) => void
   disconnect: () => void
 }
@@ -211,7 +224,13 @@ export function isTabletState(value: unknown): value is TabletState {
   if (typeof v.open !== 'boolean') {
     return false
   }
-  if (v.view !== 'grid' && v.view !== 'seasons' && v.view !== 'episodes') {
+  if (
+    v.view !== 'grid' &&
+    v.view !== 'seasons' &&
+    v.view !== 'episodes' &&
+    v.view !== 'queue' &&
+    v.view !== 'player'
+  ) {
     return false
   }
   if (v.seriesId !== null && typeof v.seriesId !== 'string') {
@@ -256,6 +275,13 @@ export function isPeerSnapshot(value: unknown): value is PeerSnapshot {
     return false
   }
   if (v.tablet !== undefined && !isTabletState(v.tablet)) {
+    return false
+  }
+  if (
+    v.seatId !== undefined &&
+    v.seatId !== null &&
+    typeof v.seatId !== 'string'
+  ) {
     return false
   }
   return true
@@ -303,6 +329,23 @@ export function isPeerTabletPayload(
   }
   const v = value as Record<string, unknown>
   return isNonEmptyString(v.id) && isTabletState(v)
+}
+
+// `peer:seat` payload (ORCHESTRATE.md §1). `seatId: null` is a distinct,
+// meaningful case ("stood up") rather than a missing field — it's what tells
+// the `peer:seat` handler below to delete the `peerSeats` entry instead of
+// storing it, keeping "absent" the one representation of "standing".
+export type PeerSeatPayload = { id: string; seatId: string | null }
+
+export function isPeerSeatPayload(value: unknown): value is PeerSeatPayload {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const v = value as Record<string, unknown>
+  return (
+    isNonEmptyString(v.id) &&
+    (v.seatId === null || typeof v.seatId === 'string')
+  )
 }
 
 // Seeds/refreshes a peer's `peerBuffers` entry from a validated snapshot.
@@ -363,6 +406,7 @@ export const useMultiplayerStore = create<MultiplayerStore>(set => {
         const peerIds = [...state.peerIds]
         const peerMeta = { ...state.peerMeta }
         const peerTablets = { ...state.peerTablets }
+        const peerSeats = { ...state.peerSeats }
 
         for (const peer of peers) {
           // Direct peerBuffers mutation, not part of the returned partial
@@ -380,9 +424,14 @@ export const useMultiplayerStore = create<MultiplayerStore>(set => {
           if (peer.tablet) {
             peerTablets[peer.id] = peer.tablet
           }
+          // Absent/`null` = standing — only a truthy seatId gets an entry
+          // (mirrors `peer:seat`'s delete-on-null handling below).
+          if (peer.seatId) {
+            peerSeats[peer.id] = peer.seatId
+          }
         }
 
-        return { peerIds, peerMeta, peerTablets }
+        return { peerIds, peerMeta, peerTablets, peerSeats }
       })
     })
 
@@ -406,6 +455,10 @@ export const useMultiplayerStore = create<MultiplayerStore>(set => {
         peerTablets: payload.tablet
           ? { ...state.peerTablets, [payload.id]: payload.tablet }
           : state.peerTablets,
+        // Absent/`null` = standing — only a truthy seatId gets an entry.
+        peerSeats: payload.seatId
+          ? { ...state.peerSeats, [payload.id]: payload.seatId }
+          : state.peerSeats,
       }))
     })
 
@@ -428,10 +481,13 @@ export const useMultiplayerStore = create<MultiplayerStore>(set => {
         delete peerMeta[id]
         const peerTablets = { ...state.peerTablets }
         delete peerTablets[id]
+        const peerSeats = { ...state.peerSeats }
+        delete peerSeats[id]
         return {
           peerIds: state.peerIds.filter(peerId => peerId !== id),
           peerMeta,
           peerTablets,
+          peerSeats,
         }
       })
     })
@@ -462,6 +518,26 @@ export const useMultiplayerStore = create<MultiplayerStore>(set => {
         peerTablets: { ...state.peerTablets, [id]: tablet },
       }))
     })
+
+    // Seat changes are rare (a keypress, not a stream) — goes through
+    // `set()`, since `peerSeats` is explicitly React-visible. `seatId: null`
+    // deletes the entry rather than storing it, so "absent" stays the one
+    // representation of "standing" (mirrors the seeding above).
+    socket.on('peer:seat', (payload: unknown) => {
+      if (!isPeerSeatPayload(payload)) {
+        return
+      }
+      const { id, seatId } = payload
+      set(state => {
+        const peerSeats = { ...state.peerSeats }
+        if (seatId === null) {
+          delete peerSeats[id]
+        } else {
+          peerSeats[id] = seatId
+        }
+        return { peerSeats }
+      })
+    })
   }
 
   return {
@@ -469,6 +545,7 @@ export const useMultiplayerStore = create<MultiplayerStore>(set => {
     peerIds: [],
     peerMeta: {},
     peerTablets: {},
+    peerSeats: {},
 
     connect: characterId => {
       if (pendingTeardown !== null) {
@@ -506,7 +583,13 @@ export const useMultiplayerStore = create<MultiplayerStore>(set => {
         // starts from a blank slate instead of briefly rendering ghosts of
         // the previous session while fresh peers:init/peer:join land.
         peerBuffers.clear()
-        set({ status: 'idle', peerIds: [], peerMeta: {}, peerTablets: {} })
+        set({
+          status: 'idle',
+          peerIds: [],
+          peerMeta: {},
+          peerTablets: {},
+          peerSeats: {},
+        })
       }, 0)
     },
   }
