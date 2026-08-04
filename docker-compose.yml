@@ -1,10 +1,13 @@
 include:
   # Infrastructure services
+  - ./infra/design.yml
   - ./infra/files.yml
   - ./infra/immich.yml
   - ./infra/media.yml
   - ./infra/monitoring.yml
   - ./infra/nexus-code-mbp.yml
+  - path: ./infra/nexus-code.yml
+    env_file: ./infra/.env.nexus-code
   - ./infra/proxy.yml
   - ./infra/shared.yml
 
@@ -13,6 +16,7 @@ include:
   - ./apps/dashcam/deploy.yml
   - ./apps/download/deploy.yml
   - ./apps/equations/deploy.yml
+  - ./apps/auth/deploy.yml
   - ./apps/me-token-tracker/deploy.yml
   - ./apps/swole/deploy.yml
   - ./apps/tdr-bot/deploy.yml

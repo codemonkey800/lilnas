@@ -3,14 +3,14 @@
   "version": "0.2.0",
   "packageManager": "pnpm@10.18.2",
   "scripts": {
-    "build": "turbo run build",
+    "build": "dotenv -e .env.turbo -- turbo run build",
     "clean": "rm -rf .turbo/{cache,cookies} && pnpm run -r clean",
     "clean:modules": "rm -rf node_modules packages/*/node_modules apps/*/node_modules",
-    "lint": "pnpm run -r lint",
+    "lint": "dotenv -e .env.turbo -- turbo run lint",
     "lint:fix": "pnpm run -r lint:fix",
-    "test": "pnpm run --recursive --if-present test",
+    "test": "dotenv -e .env.turbo -- turbo run test",
     "test:watch": "pnpm run --recursive --if-present test:watch",
-    "type-check": "pnpm run -r type-check"
+    "type-check": "dotenv -e .env.turbo -- turbo run type-check"
   },
   "devDependencies": {
     "@lilnas/eslint": "workspace:*",
@@ -36,6 +36,7 @@
     "@types/wicg-file-system-access": "2023.10.7",
     "@vitejs/plugin-react-swc": "4.1.0",
     "autoprefixer": "10.4.21",
+    "dotenv-cli": "^11.0.0",
     "eslint": "9.37.0",
     "jest": "30.2.0",
     "jest-environment-node": "30.2.0",

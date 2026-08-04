@@ -6,7 +6,8 @@
 !.env.fish
 .next/
 .pnpm-store/
-.turbo/
+.turbo/*
+!.turbo/config.json
 *.tsbuildinfo
 *.log
 coverage/

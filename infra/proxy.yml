@@ -45,7 +45,7 @@ services:
       - traefik.http.routers.traefik.tls.domains[1].main=lilnas.io
       - traefik.http.routers.traefik.tls.domains[2].main=*.dev.lilnas.io
       - traefik.http.routers.traefik.entrypoints=websecure
-      - traefik.http.routers.traefik.middlewares=forward-auth
+      - traefik.http.routers.traefik.middlewares=lilnas-auth
 
       # sts middleware
       - traefik.http.middlewares.servicestls.headers.stsincludesubdomains=false
@@ -58,22 +58,52 @@ services:
       - 'traefik.http.middlewares.testHeader.headers.framedeny=true'
       - 'traefik.http.middlewares.testHeader.headers.sslredirect=true'
 
-  traefik-forward-auth:
-    image: thomseddon/traefik-forward-auth:2.1.0
-    restart: unless-stopped
-    env_file:
-      - .env.forward-auth
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.auth.rule=Host(`auth.lilnas.io`)
-      - traefik.http.routers.auth.entrypoints=websecure
-      - traefik.http.routers.auth.tls.certresolver=le
-      - traefik.http.routers.auth.service=auth@docker
-      - traefik.http.services.auth.loadbalancer.server.port=4181
-      - traefik.http.middlewares.forward-auth.forwardauth.address=http://traefik-forward-auth:4181
-      - traefik.http.middlewares.forward-auth.forwardauth.trustForwardHeader=true
-      - traefik.http.middlewares.forward-auth.forwardauth.authResponseHeaders=X-Forwarded-User
-      - traefik.http.routers.auth.middlewares=forward-auth
+      # U10 (R18): lilnas-auth's own ForwardAuth middleware. Every
+      # previously-protected router has migrated to it (see
+      # docs/runbooks/lilnas-auth-cutover.md for the migration history),
+      # and thomseddon/traefik-forward-auth has been retired entirely.
+      #
+      # forwardauth.address points directly at the NestJS backend port
+      # and the /verify path — NOT through the lilnas-auth router/Next.js
+      # UI — per the plan's "/verify bypasses Next entirely" decision (see
+      # apps/auth/deploy.yml). authResponseHeaders=X-Forwarded-User
+      # mirrors the retired forward-auth's response header (nothing reads
+      # X-Forwarded-User today, so this is free, and
+      # apps/auth/src/verify/verify.controller.ts
+      # already sets this response header in anticipation of it).
+      # preserveLocationHeader is set true as defense in depth on top of
+      # /verify's own absolute https:// Location headers — Traefik v3's
+      # default (false) would otherwise rewrite a relative redirect into
+      # an unreachable container-internal URL.
+      #
+      # trustForwardHeader is deliberately OMITTED (defaults to false),
+      # unlike the retired thomseddon/traefik-forward-auth. VerifyService
+      # keys its entire ALLOW/DENY decision on X-Forwarded-Host, so trusting
+      # a client-supplied value here would make the authorization key itself
+      # attacker-controlled the moment any entrypoint sets
+      # forwardedHeaders.insecure (e.g. putting Cloudflare in front) — a
+      # fundamentally different risk than forward-auth's old flat WHITELIST,
+      # where a spoofed host only changed the redirect target, never the
+      # answer.
+      - traefik.http.middlewares.lilnas-auth.forwardauth.address=http://auth:8081/verify
+      # authResponseHeaders is the ONLY thing standing between "any header
+      # name" and "the specific header names Traefik will let /verify's
+      # response overwrite on the request it forwards to the real
+      # backend." For every name on this list, Traefik REPLACES whatever
+      # the original client sent with /verify's response value; every
+      # other header passes through from the client completely untouched.
+      # This list must stay a superset of every identity header any
+      # lilnas-auth consumer trusts — miss one, and a client can hand-set
+      # e.g. X-Forwarded-User-Id: <victim-id> through a valid session of
+      # their own and impersonate that victim to the backend.
+      # X-Forwarded-User-Id was added here for nexus-code
+      # (infra/nexus-code.yml), which reads it as its own user identity
+      # instead of running its own OAuth. This is the SHARED lilnas-auth
+      # middleware, so files.lilnas.io and design.lilnas.io
+      # (infra/files.yml, infra/design.yml) also start receiving the new
+      # header — harmlessly, since neither reads it.
+      - traefik.http.middlewares.lilnas-auth.forwardauth.authResponseHeaders=X-Forwarded-User,X-Forwarded-User-Id
+      - traefik.http.middlewares.lilnas-auth.forwardauth.preserveLocationHeader=true
 
   # truereflection-forward-auth:
   #   image: thomseddon/traefik-forward-auth:2.1.0

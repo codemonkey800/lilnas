@@ -1,0 +1,49 @@
+services:
+  nexus-code:
+    image: nginx:alpine
+    restart: unless-stopped
+    entrypoint: ['/bin/sh', '/local-proxy/entrypoint.sh']
+    command: ['nginx', '-g', 'daemon off;']
+    networks:
+      - lilnas-proxy
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    environment:
+      LOCAL_PORT: '8765'
+      SERVICE_LABEL: 'nexus-code'
+      UNREACHABLE_DESCRIPTION: 'The nexus-code backend is unreachable. Start the nexus-code host process and refresh.'
+      NGINX_ENVSUBST_TEMPLATE_VARS: LOCAL_PORT
+    volumes:
+      - ./local-proxy/entrypoint.sh:/local-proxy/entrypoint.sh:ro
+      - ./local-proxy/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./local-proxy/unreachable.html.template:/local-proxy/unreachable.html.template:ro
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1/nginx-health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=lilnas-proxy
+      - traefik.http.routers.nexus-code.rule=Host(`nexus-code.lilnas.io`)
+      - traefik.http.routers.nexus-code.entrypoints=websecure
+      - traefik.http.routers.nexus-code.tls.certresolver=le
+      # Order matters: lilnas-auth first, so an unauthenticated/ungranted
+      # request never reaches nexus-proxy-token or the backend.
+      - traefik.http.routers.nexus-code.middlewares=lilnas-auth,nexus-proxy-token
+      - traefik.http.services.nexus-code.loadbalancer.server.port=80
+      # nexus-code is a host process reached via host.docker.internal (the
+      # Docker bridge gateway), reachable without passing through Traefik —
+      # this middleware is what proves to nexus-code that a request actually
+      # came through Traefik. customrequestheaders overwrites any
+      # client-supplied X-Nexus-Proxy-Token, so nexus-code can trust the
+      # header only because Traefik is the one guaranteed to have set it to
+      # the real value. NEXUS_PROXY_TOKEN is never read inside this
+      # container — it's a Compose-interpolation-only value resolved from
+      # infra/.env.nexus-code via this file's own include: entry below.
+      - traefik.http.middlewares.nexus-proxy-token.headers.customrequestheaders.X-Nexus-Proxy-Token=${NEXUS_PROXY_TOKEN}
+
+networks:
+  lilnas-proxy:
+    external: true

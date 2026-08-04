@@ -1,0 +1,83 @@
+services:
+  auth:
+    build:
+      context: ../..
+      dockerfile: apps/auth/Dockerfile
+    restart: unless-stopped
+    # Matches apps/swole/deploy.yml's SQLite-flush convention: give the
+    # process up to 30s before SIGKILL on `docker-compose down` / a rolling
+    # restart. NOTE: unlike swole, this app has no explicit SIGTERM/shutdown
+    # hook yet (Nest's app.enableShutdownHooks() was not wired in this unit —
+    # not requested, and better-sqlite3's WAL mode is crash-safe regardless).
+    # The grace period is harmless either way; wiring an actual graceful
+    # shutdown hook is worth doing once there's more in-flight state to lose
+    # — see apps/swole/src/instrumentation.ts for the pattern.
+    stop_grace_period: 30s
+    env_file:
+      - .env.prod
+    environment:
+      - DATABASE_PATH=/data/lilnas-auth.db
+    volumes:
+      # Host directory must be owned by UID 1000 (the `node` user inside the
+      # container). On a fresh host run:
+      #   sudo chown 1000:1000 /storage/app-data/lilnas-auth
+      # Without this, better-sqlite3 throws SQLITE_CANTOPEN on first boot and
+      # the container restarts forever. database.module.ts's openSqlite()
+      # catches this and prints this same diagnostic (mirrors
+      # apps/swole/src/db/client.ts's identical guard).
+      - /storage/app-data/lilnas-auth:/data
+      # Read-only compose-label discovery for U8's service registry (an
+      # adaptation of getHostsFromFiles() from
+      # apps/portal/src/utils/hosts.ts — file-based, not the Docker socket;
+      # see that file's docker-socket-free rationale, echoed in this plan's
+      # Key Technical Decisions). Nothing reads these paths yet in this
+      # unit; the mount is established now so U8 is a pure code change with
+      # no deployment-config diff. Source paths are relative to this
+      # compose file's own directory (apps/auth/), matching every
+      # other deploy.yml's ../.. convention.
+      #
+      # SECURITY NOTE (flagged for the plan owner — not silently resolved
+      # here, since narrowing it is a judgment call beyond this unit's
+      # scope): each apps/*/deploy.yml sits alongside that app's own
+      # .env.prod on the deploy host. A directory-level bind mount of the
+      # whole apps/ tree means every app's production secrets are readable
+      # from inside this container's filesystem if it is ever compromised
+      # (e.g. a future admin-UI RCE) — `:ro` prevents tampering, not
+      # reading. U8's actual code only needs each deploy.yml's `labels:`
+      # (routing rules, no secrets) and infra/*.yml, so a narrower mount
+      # (or relocating .env.prod outside apps/*) would close this gap. This
+      # unit implements the mount exactly as the plan specifies rather than
+      # deviating unilaterally.
+      - ../../infra:/repo/infra:ro
+      - ../../apps:/repo/apps:ro
+    # Probes Nest's /health on :8081 directly — deliberately NOT Next's
+    # :8080. A dead/crashed Next process must never restart this container,
+    # because a restart would also interrupt /verify (once U5 exists) for
+    # every migrated service. Verified directly (not just assumed from
+    # docs): SIGKILL-ing the next-server process inside a running container
+    # left dist/main (Nest) running, /health still returning 200, and the
+    # container's Docker health status still "healthy" — run-p (used by
+    # package.json's start/dev:start scripts) does not tear down surviving
+    # siblings when one process dies.
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "const h=require(''http'');h.get(''http://localhost:8081/health'',r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    labels:
+      - traefik.enable=true
+      # UI-only router — deliberately no ForwardAuth middleware of its own,
+      # since lilnas-auth is where users sign in and can't gate itself
+      # behind the same auth it provides. `auth.lilnas.io` is this
+      # service's permanent hostname, taken over from
+      # thomseddon/traefik-forward-auth's own router once that service was
+      # retired (see docs/runbooks/lilnas-auth-cutover.md). The explicit
+      # priority sidesteps Traefik's undefined tiebreak between two
+      # byte-identical Host() rules during the brief window where both the
+      # old and new containers could otherwise be registered at once.
+      - traefik.http.routers.auth.rule=Host(`auth.lilnas.io`)
+      - traefik.http.routers.auth.entrypoints=websecure
+      - traefik.http.routers.auth.tls.certresolver=le
+      - traefik.http.routers.auth.priority=1000
+      - traefik.http.services.auth.loadbalancer.server.port=8080

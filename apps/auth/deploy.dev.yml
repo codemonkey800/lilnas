@@ -1,0 +1,36 @@
+services:
+  auth:
+    image: lilnas-dev
+    command: -c "pnpm --filter=auth dev"
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DATABASE_PATH=/source/apps/auth/lilnas-auth.db
+    volumes:
+      - ../..:/source
+      # Same read-only compose-label mounts as deploy.yml, kept at the same
+      # container paths (/repo/infra, /repo/apps) so U8's service-registry
+      # code needs no dev-vs-prod branching — see deploy.yml's comment for
+      # the full rationale and the flagged security tradeoff. Note ../..
+      # already covers this content via /source above; these are additive
+      # so the mount PATH stays identical between dev and prod.
+      - ../../infra:/repo/infra:ro
+      - ../../apps:/repo/apps:ro
+    # Not present on apps/swole or apps/download's deploy.dev.yml (neither
+    # bothers with a dev-mode healthcheck), but added here deliberately:
+    # R20's healthcheck design is the actual point of this app, so proving
+    # `docker-compose ps` reports healthy in dev too — not just in prod — is
+    # worth the small duplication. Same probe as deploy.yml, longer
+    # start_period since `nest start -w` (ts-node/swc watch compile) boots
+    # slower than the production `node dist/main`.
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "const h=require(''http'');h.get(''http://localhost:8081/health'',r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.auth.rule=Host(`auth.localhost`)
+      - traefik.http.services.auth.loadbalancer.server.port=8080
