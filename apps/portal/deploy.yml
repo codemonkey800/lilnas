@@ -11,5 +11,5 @@ services:
       - traefik.http.routers.portal.rule=Host(`portal.lilnas.io`)
       - traefik.http.routers.portal.entrypoints=websecure
       - traefik.http.routers.portal.tls.certresolver=le
-      - traefik.http.routers.portal.middlewares=forward-auth
+      - traefik.http.routers.portal.middlewares=lilnas-auth
       - traefik.http.services.portal.loadbalancer.server.port=8080

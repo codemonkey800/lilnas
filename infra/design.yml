@@ -1,0 +1,123 @@
+# Open Design (https://github.com/nexu-io/open-design) — self-hosted AI
+# agent workspace UI. Runs the published image; nothing is built from
+# source in this repo.
+services:
+  design:
+    image: ghcr.io/nexu-io/od:latest
+    restart: unless-stopped
+    # Runs as the host user's uid, not the image's built-in open-design
+    # (1001), so the mounted OAuth credentials stay readable via owner
+    # permissions even after Claude Code's own token refresh rewrites
+    # .credentials.json back to mode 600.
+    user: '1000:1001'
+    env_file:
+      - .env.design
+    environment:
+      NODE_ENV: production
+      OD_BIND_HOST: 0.0.0.0
+      OD_PORT: 7456
+      OD_ALLOWED_ORIGINS: https://design.lilnas.io
+      # Same-origin browser GETs through Traefik omit the Origin header
+      # per the Fetch spec, which od's own origin-trust check doesn't
+      # recognize in this reverse-proxy topology -- it falls through to
+      # demanding the OD_API_TOKEN bearer token even from the browser
+      # itself, breaking /api/agents with a 401 API_TOKEN_REQUIRED. od's
+      # own docs document this exact case: disable the token middleware
+      # when the proxy already authenticates every request (lilnas-auth,
+      # via the middlewares label below) and the daemon has no published
+      # port of its own (true here -- no `ports:` on this service).
+      OD_DISABLE_API_AUTH: '1'
+      # The image's /etc/passwd maps uid 1000 to its built-in "node"
+      # user (home /home/node), not the open-design user (1001) whose
+      # home is where .claude is actually mounted. HOME must be forced
+      # explicitly or claude.exe looks for credentials in the wrong place.
+      HOME: /home/open-design
+    volumes:
+      - /storage/app-data/open-design:/app/.od
+      - /home/jeremy/.claude:/home/open-design/.claude:ro
+      - /usr/lib:/mnt/host-glibc/lib:ro
+      - /usr/lib64:/mnt/host-glibc/lib64:ro
+      - ./design/claude-wrapper.sh:/usr/local/bin/claude:ro
+      # Open Design's agent detection probes Claude Code's canonical
+      # native-install path directly (~/.claude/local/claude), not just
+      # $PATH. That file is mounted verbatim from the host and hardcodes
+      # an absolute /home/jeremy/... exec target that doesn't exist in
+      # this container, so it must be overlaid too.
+      - ./design/claude-wrapper.sh:/home/open-design/.claude/local/claude:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/open-design:uid=1000,gid=1001
+      # Claude Code writes operational/ephemeral state under several of
+      # these ~/.claude subdirectories during normal agent use (Bash
+      # tool shell snapshots and per-session scratch env, conversation
+      # transcripts, edit undo history, task tracking, caches). The
+      # whole ~/.claude tree is read-only above, so each needs its own
+      # writable overlay -- as tmpfs, so writes are ephemeral and never
+      # reach the real host directory, same rationale as /home/open-design
+      # itself. agents/commands/local/plugins are deliberately excluded:
+      # those are the user's real config/install and stay read-only.
+      # First broke on session-env (EROFS on every Bash call); the rest
+      # are covered preemptively from Claude Code's known layout.
+      - /home/open-design/.claude/session-env:uid=1000,gid=1001
+      - /home/open-design/.claude/shell-snapshots:uid=1000,gid=1001
+      - /home/open-design/.claude/sessions:uid=1000,gid=1001
+      - /home/open-design/.claude/projects:uid=1000,gid=1001
+      - /home/open-design/.claude/file-history:uid=1000,gid=1001
+      - /home/open-design/.claude/tasks:uid=1000,gid=1001
+      - /home/open-design/.claude/debug:uid=1000,gid=1001
+      - /home/open-design/.claude/cache:uid=1000,gid=1001
+      - /home/open-design/.claude/backups:uid=1000,gid=1001
+      - /home/open-design/.claude/paste-cache:uid=1000,gid=1001
+      - /home/open-design/.claude/ide:uid=1000,gid=1001
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+    pids_limit: 512
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:7456/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.design.rule=Host(`design.lilnas.io`)
+      - traefik.http.routers.design.entrypoints=websecure
+      - traefik.http.routers.design.tls.certresolver=le
+      - traefik.http.routers.design.middlewares=lilnas-auth
+      - traefik.http.services.design.loadbalancer.server.port=7456
+      # Open Design's preview iframe is sandboxed (allow-scripts, no
+      # allow-same-origin) so agent-rendered HTML can never read this
+      # app's real cookies/storage -- by design. That makes the browser
+      # treat every asset the previewed page requests (e.g. a <script
+      # src="assets/x.js"> the agent wrote) as coming from a null/opaque
+      # origin, so it can't carry the lilnas-auth session cookie and
+      # gets redirected to the login page instead of the real asset --
+      # breaking any preview that references external JS/CSS. Open
+      # Design's own raw-file route already special-cases `Origin: null`
+      # with a wildcard CORS header for exactly this scenario, so this
+      # is expected/intended on their end, not something to route around
+      # differently.
+      #
+      # This router carves out ONLY that one read path from lilnas-auth,
+      # scoped tightly to GET/OPTIONS -- the same route also handles
+      # DELETE for removing project files, which must stay fully gated,
+      # so Method() explicitly excludes it. No middlewares= line at all,
+      # so matching requests bypass auth entirely. Traded-off cost: raw
+      # project files become readable by anyone holding a project's UUID
+      # without logging in -- a random v4 UUID, so practically
+      # unguessable, but not a hard authorization boundary. An explicit
+      # priority avoids relying on Traefik's implicit rule-length-based
+      # sorting for this security-relevant precedence.
+      - traefik.http.routers.design-raw.rule=Host(`design.lilnas.io`) && PathRegexp(`^/api/projects/[^/]+/raw/`) && (Method(`GET`) || Method(`OPTIONS`))
+      - traefik.http.routers.design-raw.entrypoints=websecure
+      - traefik.http.routers.design-raw.tls.certresolver=le
+      - traefik.http.routers.design-raw.priority=100
+      - traefik.http.routers.design-raw.service=design

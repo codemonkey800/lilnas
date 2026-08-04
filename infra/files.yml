@@ -22,5 +22,5 @@ services:
       - traefik.http.routers.files.rule=Host(`files.lilnas.io`)
       - traefik.http.routers.files.entrypoints=websecure
       - traefik.http.routers.files.tls.certresolver=le
-      - traefik.http.routers.files.middlewares=forward-auth
+      - traefik.http.routers.files.middlewares=lilnas-auth
       - traefik.http.services.files.loadbalancer.server.port=3923

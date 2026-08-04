@@ -32,11 +32,11 @@ services:
       start_period: 30s
     labels:
       - traefik.enable=true
-      # Internal router — UI and API, protected by forward-auth
+      # Internal router — UI and API, protected by lilnas-auth
       - traefik.http.routers.swole.rule=Host(`swole.lilnas.io`)
       - traefik.http.routers.swole.entrypoints=websecure
       - traefik.http.routers.swole.tls.certresolver=le
-      - traefik.http.routers.swole.middlewares=forward-auth
+      - traefik.http.routers.swole.middlewares=lilnas-auth
       - traefik.http.services.swole.loadbalancer.server.port=8080
       # Metrics-deny router — block external /metrics access at Traefik
       # (Prometheus scrapes via Docker network). Priority must exceed the

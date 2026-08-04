@@ -395,7 +395,7 @@ Each package includes production-ready deployment configuration:
 
 - `apps/*/deploy.yml` - Production Docker Compose for each app
 - Uses `*.lilnas.io` domains with automatic SSL via Let's Encrypt
-- Traefik authentication middleware (`forward-auth@file`)
+- Traefik authentication middleware (`lilnas-auth@docker`)
 - Restart policies: `unless-stopped` for reliability
 
 **Production Commands:**
