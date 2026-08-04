@@ -48,3 +48,8 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ['swole:8080']
+
+  - job_name: idkwiw
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['idkwiw:8080']
