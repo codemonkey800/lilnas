@@ -109,6 +109,39 @@ export function isShowDownloadJob(job: DownloadJob): job is ShowDownloadJob {
   return job.type === DownloadType.Show
 }
 
+/**
+ * Distinguishes a brand-new job (never seen before) from a status/field
+ * change on a job the subscriber may already know about. Not strictly
+ * required to reconstruct state - `DownloadJobEvent.job` is always a full,
+ * current snapshot, so a subscriber could safely upsert by `job.id` without
+ * this - but it's cheap to carry and lets a subscriber special-case a job
+ * appearing for the first time (e.g. an entrance animation) without having
+ * to infer that from whatever it happened to have cached locally.
+ */
+export enum DownloadJobEventType {
+  Created = 'created',
+  Updated = 'updated',
+}
+
+/**
+ * Broadcast over the download WebSocket gateway
+ * (`apps/download/src/download-gateway/download.gateway.ts`) as the `data`
+ * of a `DownloadGatewayMessage` whenever a job is created or has any of its
+ * fields updated - see `DownloadStateService.addJob()`/`updateJob()`, the
+ * only two places a job's state can change.
+ */
+export interface DownloadJobEvent {
+  job: DownloadJob
+  type: DownloadJobEventType
+}
+
+/**
+ * The `type` field of the `DownloadGatewayMessage` envelope used for every
+ * `DownloadJobEvent` broadcast. Shared as a constant so the backend emitter
+ * and any future frontend subscriber can't drift apart on the literal.
+ */
+export const DOWNLOAD_JOB_EVENT_TYPE = 'download-job'
+
 export type GetDownloadJobResponse = Pick<
   Extract<DownloadJob, { type: DownloadType.Video }>,
   | 'description'

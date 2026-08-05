@@ -8,6 +8,7 @@ import { Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { DownloadStateService } from 'src/download/download-state.service'
+import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { MediaPollerService } from 'src/media/media-poller.service'
 import { RadarrService } from 'src/media/radarr.service'
 import { SonarrService } from 'src/media/sonarr.service'
@@ -47,6 +48,7 @@ describe('MediaPollerService', () => {
   beforeEach(async () => {
     const mockRadarrService = { getQueue: jest.fn().mockResolvedValue([]) }
     const mockSonarrService = { getQueue: jest.fn().mockResolvedValue([]) }
+    const mockDownloadGateway = { broadcast: jest.fn() }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -54,6 +56,7 @@ describe('MediaPollerService', () => {
         DownloadStateService,
         { provide: RadarrService, useValue: mockRadarrService },
         { provide: SonarrService, useValue: mockSonarrService },
+        { provide: DownloadGateway, useValue: mockDownloadGateway },
       ],
     }).compile()
 

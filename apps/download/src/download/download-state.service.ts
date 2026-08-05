@@ -1,7 +1,15 @@
-import { DownloadJob, isVideoDownloadJob } from '@lilnas/utils/download/types'
+import {
+  DOWNLOAD_JOB_EVENT_TYPE,
+  DownloadJob,
+  DownloadJobEvent,
+  DownloadJobEventType,
+  isVideoDownloadJob,
+} from '@lilnas/utils/download/types'
 import { Queue } from '@lilnas/utils/queue'
 import { Injectable, Logger } from '@nestjs/common'
 import _ from 'lodash'
+
+import { DownloadGateway } from 'src/download-gateway/download.gateway'
 
 @Injectable()
 export class DownloadStateService {
@@ -10,6 +18,23 @@ export class DownloadStateService {
   inProgressJobs = new Set<string>()
   jobs = new Map<string, DownloadJob>()
   queue = new Queue<string>()
+
+  constructor(private readonly downloadGateway: DownloadGateway) {}
+
+  /**
+   * Inserts a brand-new job and broadcasts its creation. Job creation never
+   * goes through `updateJob()` below (there's no existing job in the map to
+   * update yet), so without this, a freshly-created job would stay
+   * invisible to other connected clients until its first status change -
+   * this is the only place that closes that gap. Every direct-insert call
+   * site (`DownloadSchedulerService.add()`, `MediaDownloadService`'s
+   * requestMovie/requestShow) must go through this method instead of
+   * touching `jobs.set()` itself.
+   */
+  addJob(job: DownloadJob): void {
+    this.jobs.set(job.id, job)
+    this.broadcastJobEvent(job, DownloadJobEventType.Created)
+  }
 
   updateJob(id: string, updates: Partial<DownloadJob>): DownloadJob {
     const action = 'updateJob'
@@ -121,6 +146,32 @@ export class DownloadStateService {
       'Job update completed',
     )
 
+    this.broadcastJobEvent(updatedJob, DownloadJobEventType.Updated)
+
     return updatedJob
+  }
+
+  private broadcastJobEvent(
+    job: DownloadJob,
+    type: DownloadJobEventType,
+  ): void {
+    // VideoDownloadJob.proc is a live ChildProcess handle - not JSON-safe
+    // (circular references would throw inside DownloadGateway.broadcast()'s
+    // JSON.stringify()) and not meaningful to a WS subscriber anyway.
+    // Stripped the same way getJobLogger() strips it before logging
+    // (download-video.service.ts): setting it to `undefined` rather than
+    // deleting the key, since JSON.stringify() omits `undefined`-valued
+    // properties entirely, and this is a fresh shallow copy so the job
+    // actually stored in `this.jobs` is untouched.
+    const broadcastableJob = isVideoDownloadJob(job)
+      ? { ...job, proc: undefined }
+      : job
+
+    const event: DownloadJobEvent = { job: broadcastableJob, type }
+
+    this.downloadGateway.broadcast({
+      data: event,
+      type: DOWNLOAD_JOB_EVENT_TYPE,
+    })
   }
 }
