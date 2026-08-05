@@ -7,6 +7,10 @@ module.exports = {
         source: '/api/:path*',
         destination: 'http://localhost:8081/:path*',
       },
+      {
+        source: '/ws/:path*',
+        destination: 'http://localhost:8081/ws/:path*',
+      },
     ]
   },
 }
