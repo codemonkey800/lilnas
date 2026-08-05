@@ -7,12 +7,14 @@ import { NestMinioModule } from 'nestjs-minio'
 import { LoggerModule } from 'nestjs-pino'
 
 import { DownloadModule } from './download/download.module'
+import { DownloadGatewayModule } from './download-gateway/download-gateway.module'
 import { EnvKeys } from './env'
 import { YtdlpUpdateModule } from './ytdlp-update/ytdlp-update.module'
 
 @Module({
   imports: [
     DownloadModule,
+    DownloadGatewayModule,
     YtdlpUpdateModule,
     LoggerModule.forRoot(),
     PrometheusModule.register({ defaultMetrics: { enabled: true } }),
