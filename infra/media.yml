@@ -16,6 +16,7 @@ services:
       - traefik.http.routers.sonarr.rule=Host(`sonarr.lilnas.io`)
       - traefik.http.routers.sonarr.entrypoints=websecure
       - traefik.http.routers.sonarr.tls.certresolver=le
+      - traefik.http.routers.sonarr.middlewares=lilnas-auth
 
   radarr:
     image: lscr.io/linuxserver/radarr
@@ -34,6 +35,7 @@ services:
       - traefik.http.routers.radarr.rule=Host(`radarr.lilnas.io`)
       - traefik.http.routers.radarr.entrypoints=websecure
       - traefik.http.routers.radarr.tls.certresolver=le
+      - traefik.http.routers.radarr.middlewares=lilnas-auth
 
   sabnzbd:
     image: lscr.io/linuxserver/sabnzbd
