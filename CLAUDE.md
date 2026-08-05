@@ -389,28 +389,31 @@ pnpm run build --dry-run
 
 ### Production Deployment
 
+Commands can be run directly on the production server via `ssh lilnas.io`.
+
+**Always deploy from the root `docker-compose.yml`. Never run the individual `apps/*/deploy.yml` or `infra/*.yml` files standalone** (e.g. `cd apps/<app-name> && docker-compose -f deploy.yml up -d`). The root compose file `include`s every app and infra file; invoking one directly isolates it from the `lilnas-proxy` network and other shared config.
+
 Each package includes production-ready deployment configuration:
 
 **Deployment Files:**
 
-- `apps/*/deploy.yml` - Production Docker Compose for each app
+- `apps/*/deploy.yml` - Production Docker Compose for each app (included by the root `docker-compose.yml`; not meant to be run standalone)
 - Uses `*.lilnas.io` domains with automatic SSL via Let's Encrypt
 - Traefik authentication middleware (`lilnas-auth@docker`)
 - Restart policies: `unless-stopped` for reliability
 
-**Production Commands:**
+**Production Commands (from repo root):**
 
 ```bash
 # Deploy a specific app
-cd apps/<app-name>
-docker-compose -f deploy.yml up -d
+docker-compose up -d <service-name>
 
 # View production logs
-docker-compose -f deploy.yml logs -f
+docker-compose logs -f <service-name>
 
 # Update and redeploy
-docker-compose -f deploy.yml pull
-docker-compose -f deploy.yml up -d
+docker-compose pull <service-name>
+docker-compose up -d <service-name>
 ```
 
 ### Environment Variables
