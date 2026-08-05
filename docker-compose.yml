@@ -3,11 +3,14 @@ include:
   - ./infra/design.yml
   - ./infra/files.yml
   - ./infra/immich.yml
+  - ./infra/l4d2.yml
   - ./infra/media.yml
+  - ./infra/minecraft.yml
   - ./infra/monitoring.yml
   - ./infra/nexus-code-mbp.yml
   - path: ./infra/nexus-code.yml
     env_file: ./infra/.env.nexus-code
+  - ./infra/palworld.yml
   - ./infra/proxy.yml
   - ./infra/shared.yml
 
