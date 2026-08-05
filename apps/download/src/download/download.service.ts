@@ -4,6 +4,7 @@ import {
   DownloadJob,
   DownloadJobStatus,
   DownloadType,
+  isVideoDownloadJob,
   VideoInfo,
 } from '@lilnas/utils/download/types'
 import { isJson } from '@lilnas/utils/json'
@@ -263,6 +264,11 @@ export class DownloadService {
     if (!job) {
       this.logger.warn({ action, id }, 'Job not found')
       throw new Error(`Job with ID '${id}' not found`)
+    }
+
+    if (!isVideoDownloadJob(job)) {
+      this.logger.warn({ action, id, type: job.type }, 'Job is not a video job')
+      throw new Error(`Job '${id}' is not a video job`)
     }
 
     const logArgs = {

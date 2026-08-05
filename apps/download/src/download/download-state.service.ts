@@ -1,4 +1,4 @@
-import { DownloadJob } from '@lilnas/utils/download/types'
+import { DownloadJob, isVideoDownloadJob } from '@lilnas/utils/download/types'
 import { Queue } from '@lilnas/utils/queue'
 import { Injectable, Logger } from '@nestjs/common'
 import _ from 'lodash'
@@ -27,7 +27,7 @@ export class DownloadStateService {
     const oldStatus = job.status
     const oldTitle = job.title
     const oldDescription = job.description
-    const hasProcess = !!job.proc
+    const hasProcess = isVideoDownloadJob(job) && !!job.proc
 
     // Extract key fields from updates for logging
     const updateKeys = Object.keys(updates)

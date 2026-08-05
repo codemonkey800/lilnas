@@ -1,5 +1,9 @@
 import { VideoInfoSchema } from '@lilnas/utils/download/schema'
-import { DownloadJobStatus, VideoInfo } from '@lilnas/utils/download/types'
+import {
+  DownloadJobStatus,
+  isVideoDownloadJob,
+  VideoInfo,
+} from '@lilnas/utils/download/types'
 import { env } from '@lilnas/utils/env'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { isJson } from '@lilnas/utils/json'
@@ -216,6 +220,13 @@ export class DownloadVideoService {
 
   async download(options: DownloadStepOptions) {
     const { job } = options
+
+    if (!isVideoDownloadJob(job)) {
+      throw new Error(
+        `Expected a video job but got a '${job.type}' job (id: '${job.id}')`,
+      )
+    }
+
     const log = this.getJobLogger(job.id)
 
     this.downloadStateService.updateJob(job.id, {
@@ -431,8 +442,11 @@ export class DownloadVideoService {
 
   private getJobLogger(jobId: string) {
     return (level: 'log' | 'error' | 'warn', data: object, message: string) => {
-      const job = { ...this.downloadStateService.jobs.get(jobId) }
-      delete job.proc
+      const currentJob = this.downloadStateService.jobs.get(jobId)
+      const job =
+        currentJob && isVideoDownloadJob(currentJob)
+          ? { ...currentJob, proc: undefined }
+          : currentJob
 
       this.logger[level]({ ...data, job }, message)
     }

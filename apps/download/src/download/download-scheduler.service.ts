@@ -175,6 +175,11 @@ export class DownloadSchedulerService {
         upload: () => this.downloadVideoService.upload(options),
         clean: () => this.downloadVideoService.clean(options),
       }))
+      .with(DownloadType.Movie, DownloadType.Show, () => {
+        throw new Error(
+          'Movie/Show jobs are not managed by DownloadSchedulerService',
+        )
+      })
       .exhaustive()
 
     try {

@@ -1,9 +1,9 @@
 'use client'
 
 import {
-  DownloadJob,
   DownloadJobStatus,
   DownloadType,
+  VideoDownloadJob,
 } from '@lilnas/utils/download/types'
 import { Chip, LinearProgress, Paper } from '@mui/material'
 import _ from 'lodash'
@@ -22,8 +22,8 @@ export function DownloadById({
   getVideoJob,
   initialJob,
 }: {
-  getVideoJob: () => Promise<DownloadJob>
-  initialJob: DownloadJob
+  getVideoJob: () => Promise<VideoDownloadJob>
+  initialJob: VideoDownloadJob
 }) {
   const [job, setJob] = useState(initialJob)
   const isPending =

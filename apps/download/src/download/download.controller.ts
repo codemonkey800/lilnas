@@ -3,6 +3,7 @@ import type {
   DownloadJob,
   GetDownloadJobResponse,
 } from '@lilnas/utils/download/types'
+import { DownloadType } from '@lilnas/utils/download/types'
 import {
   Body,
   Controller,
@@ -31,6 +32,12 @@ export class DownloadController {
   ) {}
 
   private getJobResponse(job: DownloadJob): GetDownloadJobResponse {
+    if (job.type !== DownloadType.Video) {
+      throw new Error(
+        `Expected a video job but got a '${job.type}' job (id: '${job.id}')`,
+      )
+    }
+
     return {
       description: job.description,
       downloadUrls: job.downloadUrls,
