@@ -1,7 +1,13 @@
 import { ChildProcessWithoutNullStreams } from 'child_process'
 import { z } from 'zod'
 
-import { CreateDownloadJobInputSchema, VideoInfoSchema } from './schema'
+import {
+  CreateDownloadJobInputSchema,
+  MediaSearchQuerySchema,
+  RequestMovieInputSchema,
+  RequestShowInputSchema,
+  VideoInfoSchema,
+} from './schema'
 
 export enum DownloadType {
   Movie = 'movie',
@@ -117,3 +123,67 @@ export type GetDownloadJobResponse = Pick<
 >
 
 export type VideoInfo = z.infer<typeof VideoInfoSchema>
+
+export type MediaSearchQuery = z.infer<typeof MediaSearchQuerySchema>
+export type RequestMovieInput = z.infer<typeof RequestMovieInputSchema>
+export type RequestShowInput = z.infer<typeof RequestShowInputSchema>
+
+/**
+ * A single Radarr movie-lookup result, returned by the movie search endpoint
+ * so the caller can pick which candidate to request.
+ */
+export interface MovieSearchResult {
+  overview?: string
+  posterUrl?: string
+  title: string
+  tmdbId: number
+  year?: number
+}
+
+/**
+ * A single Sonarr series-lookup result, returned by the show search endpoint
+ * so the caller can pick which candidate to request.
+ */
+export interface ShowSearchResult {
+  overview?: string
+  posterUrl?: string
+  title: string
+  tvdbId: number
+  year?: number
+}
+
+export interface SearchMoviesResponse {
+  results: MovieSearchResult[]
+}
+
+export interface SearchShowsResponse {
+  results: ShowSearchResult[]
+}
+
+export type GetMovieJobResponse = Pick<
+  MovieDownloadJob,
+  | 'description'
+  | 'error'
+  | 'id'
+  | 'mediaTitle'
+  | 'posterUrl'
+  | 'queueSnapshot'
+  | 'radarrId'
+  | 'status'
+  | 'title'
+  | 'type'
+>
+
+export type GetShowJobResponse = Pick<
+  ShowDownloadJob,
+  | 'description'
+  | 'error'
+  | 'id'
+  | 'mediaTitle'
+  | 'posterUrl'
+  | 'queueSnapshot'
+  | 'sonarrId'
+  | 'status'
+  | 'title'
+  | 'type'
+>
