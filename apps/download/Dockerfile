@@ -5,6 +5,7 @@ FROM lilnas-monorepo-builder AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/download/package.json apps/download/
 COPY packages/cli/package.json packages/cli/
+COPY packages/media/package.json packages/media/
 COPY packages/utils/package.json packages/utils/
 COPY packages/eslint-config-lilnas/package.json packages/eslint-config-lilnas/
 COPY packages/prettier-config-lilnas/package.json packages/prettier-config-lilnas/
