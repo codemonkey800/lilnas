@@ -7,8 +7,10 @@ import {
 } from '@lilnas/utils/download/types'
 import { Chip, LinearProgress, Paper } from '@mui/material'
 import _ from 'lodash'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { match } from 'ts-pattern'
+
+import { useDownloadJobSocket } from './use-download-job-socket'
 
 const PENDING_STATUSES = [
   DownloadJobStatus.Cancelling,
@@ -18,30 +20,13 @@ const PENDING_STATUSES = [
   DownloadJobStatus.Uploading,
 ] as const
 
-export function DownloadById({
-  getVideoJob,
-  initialJob,
-}: {
-  getVideoJob: () => Promise<VideoDownloadJob>
-  initialJob: VideoDownloadJob
-}) {
+export function DownloadById({ initialJob }: { initialJob: VideoDownloadJob }) {
   const [job, setJob] = useState(initialJob)
   const isPending =
     !!job?.status &&
     PENDING_STATUSES.includes(job.status as (typeof PENDING_STATUSES)[number])
 
-  useEffect(() => {
-    async function updateJob() {
-      setJob(await getVideoJob())
-    }
-
-    if (!isPending) {
-      return
-    }
-
-    const intervalId = setInterval(updateJob, 1000)
-    return () => clearInterval(intervalId)
-  }, [getVideoJob, isPending])
+  useDownloadJobSocket(initialJob.id, isPending, setJob)
 
   return (
     <div className="flex flex-auto items-center justify-center p-4">
