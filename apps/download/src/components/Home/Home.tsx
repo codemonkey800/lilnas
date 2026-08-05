@@ -1,7 +1,15 @@
 import { DownloadClient } from '@lilnas/utils/download/client'
+import { DownloadJobStatus } from '@lilnas/utils/download/types'
 import { redirect } from 'next/navigation'
 
-import { DownloadForm } from './DownloadForm'
+import { HomeTabs } from './HomeTabs'
+import type {
+  MediaRequestActionResult,
+  MediaSearchActionResult,
+} from './MediaRequestForm'
+
+const SEARCH_ERROR_MESSAGE = 'Search failed. Please try again.'
+const REQUEST_ERROR_MESSAGE = 'Request failed. Please try again.'
 
 export function Home() {
   async function createDownload(data: FormData) {
@@ -28,11 +36,103 @@ export function Home() {
     redirect(`/downloads/${job.id}`)
   }
 
+  async function searchMoviesAction(
+    query: string,
+  ): Promise<MediaSearchActionResult> {
+    'use server'
+
+    try {
+      const response = await DownloadClient.localInstance.searchMovies(query)
+
+      if (!Array.isArray(response?.results)) {
+        return { error: SEARCH_ERROR_MESSAGE, results: [] }
+      }
+
+      return {
+        results: response.results.map(result => ({
+          id: result.tmdbId,
+          overview: result.overview,
+          posterUrl: result.posterUrl,
+          title: result.title,
+          year: result.year,
+        })),
+      }
+    } catch {
+      return { error: SEARCH_ERROR_MESSAGE, results: [] }
+    }
+  }
+
+  async function requestMovieAction(
+    tmdbId: number,
+  ): Promise<MediaRequestActionResult> {
+    'use server'
+
+    try {
+      const job = await DownloadClient.localInstance.requestMovie({ tmdbId })
+
+      if (!job?.id || job.status === DownloadJobStatus.Failed) {
+        return { error: job?.error ?? REQUEST_ERROR_MESSAGE }
+      }
+
+      return {}
+    } catch {
+      return { error: REQUEST_ERROR_MESSAGE }
+    }
+  }
+
+  async function searchShowsAction(
+    query: string,
+  ): Promise<MediaSearchActionResult> {
+    'use server'
+
+    try {
+      const response = await DownloadClient.localInstance.searchShows(query)
+
+      if (!Array.isArray(response?.results)) {
+        return { error: SEARCH_ERROR_MESSAGE, results: [] }
+      }
+
+      return {
+        results: response.results.map(result => ({
+          id: result.tvdbId,
+          overview: result.overview,
+          posterUrl: result.posterUrl,
+          title: result.title,
+          year: result.year,
+        })),
+      }
+    } catch {
+      return { error: SEARCH_ERROR_MESSAGE, results: [] }
+    }
+  }
+
+  async function requestShowAction(
+    tvdbId: number,
+  ): Promise<MediaRequestActionResult> {
+    'use server'
+
+    try {
+      const job = await DownloadClient.localInstance.requestShow({ tvdbId })
+
+      if (!job?.id || job.status === DownloadJobStatus.Failed) {
+        return { error: job?.error ?? REQUEST_ERROR_MESSAGE }
+      }
+
+      return {}
+    } catch {
+      return { error: REQUEST_ERROR_MESSAGE }
+    }
+  }
+
   return (
     <div className="flex flex-auto items-center justify-center">
-      <form action={createDownload} className="flex flex-col gap-3">
-        <DownloadForm />
-      </form>
+      <HomeTabs
+        createDownload={createDownload}
+        requestMovie={requestMovieAction}
+        requestShow={requestShowAction}
+        searchMovies={searchMoviesAction}
+        searchShows={searchShowsAction}
+      />
     </div>
   )
 }
