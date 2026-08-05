@@ -9,14 +9,7 @@ export default async function DownloadByIdPage({
 }) {
   const { id } = await params
 
-  async function getVideoJob() {
-    'use server'
+  const initialJob = await DownloadClient.localInstance.getVideoJob(id)
 
-    const client = DownloadClient.localInstance
-    return client.getVideoJob(id)
-  }
-
-  const initialJob = await getVideoJob()
-
-  return <DownloadById initialJob={initialJob} getVideoJob={getVideoJob} />
+  return <DownloadById initialJob={initialJob} />
 }
