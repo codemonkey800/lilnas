@@ -41,7 +41,7 @@ export class DownloadSchedulerService {
       'Adding job to queue',
     )
 
-    this.downloadStateService.jobs.set(job.id, job)
+    this.downloadStateService.addJob(job)
     this.downloadStateService.queue.push(job.id)
 
     this.logger.log(

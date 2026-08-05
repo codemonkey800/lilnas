@@ -8,6 +8,8 @@ jest.mock('nanoid', () => ({
 }))
 
 import {
+  DOWNLOAD_JOB_EVENT_TYPE,
+  DownloadJobEventType,
   DownloadJobStatus,
   DownloadType,
   MovieDownloadJob,
@@ -17,6 +19,7 @@ import { Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { DownloadStateService } from 'src/download/download-state.service'
+import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { RadarrService } from 'src/media/radarr.service'
 import { SonarrService } from 'src/media/sonarr.service'
@@ -26,6 +29,7 @@ describe('MediaDownloadService', () => {
   let downloadStateService: DownloadStateService
   let radarrService: jest.Mocked<RadarrService>
   let sonarrService: jest.Mocked<SonarrService>
+  let downloadGateway: jest.Mocked<DownloadGateway>
 
   beforeEach(async () => {
     const mockRadarrService = {
@@ -40,6 +44,7 @@ describe('MediaDownloadService', () => {
       getQueue: jest.fn(),
       unmonitorAndDelete: jest.fn(),
     }
+    const mockDownloadGateway = { broadcast: jest.fn() }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -47,6 +52,7 @@ describe('MediaDownloadService', () => {
         DownloadStateService,
         { provide: RadarrService, useValue: mockRadarrService },
         { provide: SonarrService, useValue: mockSonarrService },
+        { provide: DownloadGateway, useValue: mockDownloadGateway },
       ],
     }).compile()
 
@@ -54,6 +60,7 @@ describe('MediaDownloadService', () => {
     downloadStateService = module.get(DownloadStateService)
     radarrService = module.get(RadarrService)
     sonarrService = module.get(SonarrService)
+    downloadGateway = module.get(DownloadGateway)
 
     jest.spyOn(Logger.prototype, 'log').mockImplementation()
     jest.spyOn(Logger.prototype, 'error').mockImplementation()
@@ -97,6 +104,30 @@ describe('MediaDownloadService', () => {
       expect(job.posterUrl).toBe('poster.jpg')
       expect(job.type).toBe(DownloadType.Movie)
       expect(downloadStateService.jobs.get(job.id)).toEqual(job)
+      // Job creation (the initial `Requested` insert) and the subsequent
+      // `Searching` status update must each broadcast - this is the real
+      // call site that closes the "job creation is invisible" gap.
+      expect(downloadGateway.broadcast).toHaveBeenCalledTimes(2)
+      expect(downloadGateway.broadcast).toHaveBeenNthCalledWith(1, {
+        data: {
+          job: expect.objectContaining({
+            id: job.id,
+            status: DownloadJobStatus.Requested,
+          }),
+          type: DownloadJobEventType.Created,
+        },
+        type: DOWNLOAD_JOB_EVENT_TYPE,
+      })
+      expect(downloadGateway.broadcast).toHaveBeenNthCalledWith(2, {
+        data: {
+          job: expect.objectContaining({
+            id: job.id,
+            status: DownloadJobStatus.Searching,
+          }),
+          type: DownloadJobEventType.Updated,
+        },
+        type: DOWNLOAD_JOB_EVENT_TYPE,
+      })
     })
 
     it('moves the job to Failed when RadarrService throws', async () => {

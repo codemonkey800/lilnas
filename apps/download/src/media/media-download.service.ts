@@ -73,7 +73,7 @@ export class MediaDownloadService {
       type: DownloadType.Movie,
       url: `radarr://tmdb/${tmdbId}`,
     }
-    this.downloadStateService.jobs.set(id, job)
+    this.downloadStateService.addJob(job)
 
     this.logger.log({ action, jobId: id, tmdbId }, 'Requesting movie download')
 
@@ -115,7 +115,7 @@ export class MediaDownloadService {
       type: DownloadType.Show,
       url: `sonarr://tvdb/${tvdbId}`,
     }
-    this.downloadStateService.jobs.set(id, job)
+    this.downloadStateService.addJob(job)
 
     this.logger.log({ action, jobId: id, tvdbId }, 'Requesting show download')
 
