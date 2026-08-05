@@ -18,3 +18,15 @@ export const VideoInfoSchema = z.object({
   playlist: z.string().nullish().optional(),
   title: z.string().nullish().optional(),
 })
+
+export const MediaSearchQuerySchema = z.object({
+  query: z.string().min(1),
+})
+
+export const RequestMovieInputSchema = z.object({
+  tmdbId: z.number().int().positive(),
+})
+
+export const RequestShowInputSchema = z.object({
+  tvdbId: z.number().int().positive(),
+})

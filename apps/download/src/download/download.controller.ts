@@ -1,12 +1,24 @@
-import { CreateDownloadJobInputSchema } from '@lilnas/utils/download/schema'
+import {
+  CreateDownloadJobInputSchema,
+  MediaSearchQuerySchema,
+  RequestMovieInputSchema,
+  RequestShowInputSchema,
+} from '@lilnas/utils/download/schema'
 import type {
   DownloadJob,
   GetDownloadJobResponse,
+  GetMovieJobResponse,
+  GetShowJobResponse,
+  MovieDownloadJob,
+  SearchMoviesResponse,
+  SearchShowsResponse,
+  ShowDownloadJob,
 } from '@lilnas/utils/download/types'
 import { DownloadType } from '@lilnas/utils/download/types'
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpException,
   HttpStatus,
@@ -14,13 +26,19 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common'
 import { createZodDto } from 'nestjs-zod'
+
+import { MediaDownloadService } from 'src/media/media-download.service'
 
 import { DownloadService } from './download.service'
 import { DownloadStateService } from './download-state.service'
 
 class CreateJobInputDto extends createZodDto(CreateDownloadJobInputSchema) {}
+class MediaSearchQueryDto extends createZodDto(MediaSearchQuerySchema) {}
+class RequestMovieInputDto extends createZodDto(RequestMovieInputSchema) {}
+class RequestShowInputDto extends createZodDto(RequestShowInputSchema) {}
 
 @Controller('/download')
 export class DownloadController {
@@ -29,6 +47,7 @@ export class DownloadController {
   constructor(
     private downloadService: DownloadService,
     private downloadStateService: DownloadStateService,
+    private mediaDownloadService: MediaDownloadService,
   ) {}
 
   private getJobResponse(job: DownloadJob): GetDownloadJobResponse {
@@ -224,6 +243,218 @@ export class DownloadController {
           status: HttpStatus.NOT_FOUND,
           error: 'Job not found',
         },
+        HttpStatus.NOT_FOUND,
+        { cause: err },
+      )
+    }
+  }
+
+  private getMovieJobResponse(job: MovieDownloadJob): GetMovieJobResponse {
+    return {
+      description: job.description,
+      error: job.error,
+      id: job.id,
+      mediaTitle: job.mediaTitle,
+      posterUrl: job.posterUrl,
+      queueSnapshot: job.queueSnapshot,
+      radarrId: job.radarrId,
+      status: job.status,
+      title: job.title,
+      type: job.type,
+    }
+  }
+
+  private getShowJobResponse(job: ShowDownloadJob): GetShowJobResponse {
+    return {
+      description: job.description,
+      error: job.error,
+      id: job.id,
+      mediaTitle: job.mediaTitle,
+      posterUrl: job.posterUrl,
+      queueSnapshot: job.queueSnapshot,
+      sonarrId: job.sonarrId,
+      status: job.status,
+      title: job.title,
+      type: job.type,
+    }
+  }
+
+  @Get('/movies/search')
+  async searchMovies(
+    @Query() query: MediaSearchQueryDto,
+  ): Promise<SearchMoviesResponse> {
+    const action = 'searchMovies'
+
+    this.logger.log(
+      { action, query: query.query },
+      'GET /movies/search - Searching Radarr',
+    )
+
+    const results = await this.mediaDownloadService.searchMovies(query.query)
+
+    this.logger.log(
+      { action, query: query.query, resultCount: results.length },
+      'Movie search completed',
+    )
+
+    return { results }
+  }
+
+  @Post('/movies')
+  async requestMovie(
+    @Body() input: RequestMovieInputDto,
+  ): Promise<GetMovieJobResponse> {
+    const action = 'requestMovie'
+
+    this.logger.log(
+      { action, tmdbId: input.tmdbId },
+      'POST /movies - Requesting movie download',
+    )
+
+    const job = await this.mediaDownloadService.requestMovie(input.tmdbId)
+
+    this.logger.log(
+      { action, jobId: job.id, tmdbId: input.tmdbId, status: job.status },
+      'Movie download requested',
+    )
+
+    return this.getMovieJobResponse(job)
+  }
+
+  @Get('/movies/:id')
+  getMovieJob(@Param('id') id: string): GetMovieJobResponse {
+    const action = 'getMovieJob'
+
+    this.logger.log({ action, jobId: id }, 'GET /movies/:id - Retrieving job')
+
+    try {
+      const job = this.mediaDownloadService.getMovieJob(id)
+      return this.getMovieJobResponse(job)
+    } catch (err) {
+      this.logger.warn(
+        { action, jobId: id, error: err instanceof Error ? err.message : err },
+        'Movie job not found',
+      )
+
+      throw new HttpException(
+        { status: HttpStatus.NOT_FOUND, error: 'Job not found' },
+        HttpStatus.NOT_FOUND,
+        { cause: err },
+      )
+    }
+  }
+
+  @Delete('/movies/:id')
+  async deleteMovieJob(@Param('id') id: string): Promise<GetMovieJobResponse> {
+    const action = 'deleteMovieJob'
+
+    this.logger.log(
+      { action, jobId: id },
+      'DELETE /movies/:id - Unmonitoring and deleting movie',
+    )
+
+    try {
+      const job = await this.mediaDownloadService.deleteMovieJob(id)
+      return this.getMovieJobResponse(job)
+    } catch (err) {
+      this.logger.warn(
+        { action, jobId: id, error: err instanceof Error ? err.message : err },
+        'Failed to delete movie job',
+      )
+
+      throw new HttpException(
+        { status: HttpStatus.NOT_FOUND, error: 'Job not found' },
+        HttpStatus.NOT_FOUND,
+        { cause: err },
+      )
+    }
+  }
+
+  @Get('/shows/search')
+  async searchShows(
+    @Query() query: MediaSearchQueryDto,
+  ): Promise<SearchShowsResponse> {
+    const action = 'searchShows'
+
+    this.logger.log(
+      { action, query: query.query },
+      'GET /shows/search - Searching Sonarr',
+    )
+
+    const results = await this.mediaDownloadService.searchShows(query.query)
+
+    this.logger.log(
+      { action, query: query.query, resultCount: results.length },
+      'Show search completed',
+    )
+
+    return { results }
+  }
+
+  @Post('/shows')
+  async requestShow(
+    @Body() input: RequestShowInputDto,
+  ): Promise<GetShowJobResponse> {
+    const action = 'requestShow'
+
+    this.logger.log(
+      { action, tvdbId: input.tvdbId },
+      'POST /shows - Requesting show download',
+    )
+
+    const job = await this.mediaDownloadService.requestShow(input.tvdbId)
+
+    this.logger.log(
+      { action, jobId: job.id, tvdbId: input.tvdbId, status: job.status },
+      'Show download requested',
+    )
+
+    return this.getShowJobResponse(job)
+  }
+
+  @Get('/shows/:id')
+  getShowJob(@Param('id') id: string): GetShowJobResponse {
+    const action = 'getShowJob'
+
+    this.logger.log({ action, jobId: id }, 'GET /shows/:id - Retrieving job')
+
+    try {
+      const job = this.mediaDownloadService.getShowJob(id)
+      return this.getShowJobResponse(job)
+    } catch (err) {
+      this.logger.warn(
+        { action, jobId: id, error: err instanceof Error ? err.message : err },
+        'Show job not found',
+      )
+
+      throw new HttpException(
+        { status: HttpStatus.NOT_FOUND, error: 'Job not found' },
+        HttpStatus.NOT_FOUND,
+        { cause: err },
+      )
+    }
+  }
+
+  @Delete('/shows/:id')
+  async deleteShowJob(@Param('id') id: string): Promise<GetShowJobResponse> {
+    const action = 'deleteShowJob'
+
+    this.logger.log(
+      { action, jobId: id },
+      'DELETE /shows/:id - Unmonitoring and deleting series',
+    )
+
+    try {
+      const job = await this.mediaDownloadService.deleteShowJob(id)
+      return this.getShowJobResponse(job)
+    } catch (err) {
+      this.logger.warn(
+        { action, jobId: id, error: err instanceof Error ? err.message : err },
+        'Failed to delete show job',
+      )
+
+      throw new HttpException(
+        { status: HttpStatus.NOT_FOUND, error: 'Job not found' },
         HttpStatus.NOT_FOUND,
         { cause: err },
       )
