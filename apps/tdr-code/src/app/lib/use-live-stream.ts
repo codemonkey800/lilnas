@@ -66,7 +66,7 @@ export interface UseLiveStreamOptions {
 }
 
 // One EventSource per mount, scoped to `topics` (the "one handle per key"
-// resource rule from docs/research/2026-06-28-tdr-code-web-ui-feature-
+// resource rule from docs/archive/research/2026-06-28-tdr-code-web-ui-feature-
 // landscape.md — created once, torn down once, never leaked or
 // duplicated). `topics` is expected to be referentially stable across
 // renders for this unit's callers (a literal array passed at each call

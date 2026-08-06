@@ -26,7 +26,7 @@ command transport, and the auth boundary posture (keep Traefik `forward-auth` in
 Phase D).
 
 This plan covers **A1–A9** from the feature landscape
-(`docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`). Phases B (observability/history),
+(`docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`). Phases B (observability/history),
 C (config/git-identity), and D (auth) are deferred to their own plans.
 
 > **Deepened 2026-06-29** — an architecture + data-integrity pass hardened the cross-process correctness
@@ -206,7 +206,7 @@ In Phase A but deliberately minimal or excluded:
 ### External References
 
 External research for Phase A's two relevant topics (Node child-process supervision; multi-process SQLite WAL)
-is already consolidated in `docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md` (versions confirmed
+is already consolidated in `docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md` (versions confirmed
 June 2026). No net-new external research was run. Key carried facts: WAL supports one writer + concurrent
 readers across processes on a **local** FS (no NFS); better-sqlite3 is synchronous so the busy handler blocks
 the event loop (keep writes short; busy-waits delay the bot's own heartbeat — see Key Decisions); detached
@@ -1255,7 +1255,7 @@ shuts down within the grace period without orphaned `claude` groups.
 
 - **Origin document:** [docs/archive/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md](docs/archive/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md)
 - **Feature landscape / research (cross-phase contracts, consolidated external research):**
-  [docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md](docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md)
+  [docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md](docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md)
 - **Sibling plans (shipped machinery / race invariants to honor):**
   `docs/archive/plans/2026-06-27-001-feat-tdr-code-stop-clear-plan.md`,
   `docs/archive/plans/2026-06-27-002-feat-tdr-code-typing-images-plan.md`

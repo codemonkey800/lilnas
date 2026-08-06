@@ -51,7 +51,7 @@ perturbing the C1–C4 cancel/drain invariants the sibling `stop-clear` and `typ
 depend on, and correctly across the two-process WAL boundary Phase A established.
 
 *(See origin: `docs/archive/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md`; feature landscape:
-`docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`.)*
+`docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`.)*
 
 ---
 
@@ -198,7 +198,7 @@ other phases.)
 
 ### External References
 
-All consolidated in the feature landscape (`docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`):
+All consolidated in the feature landscape (`docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`):
 "Multi-process SQLite WAL (R4, R5)", "Node child-process supervision", "Monorepo patterns to mirror".
 No re-research warranted. Versions in use: `drizzle-orm ^0.45.1`, `drizzle-kit ^0.31.9`,
 `better-sqlite3 ^12.10.0`, `@nestjs/schedule 6.0.1`.
@@ -1129,7 +1129,7 @@ lint pass.
 - **Origin document:** [`docs/archive/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md`](../brainstorms/2026-06-27-tdr-code-web-ui-requirements.md)
   (R5–R10, AE4, F1/F2/F4, A1–A4).
 - **Feature landscape (master catalog + consolidated research):**
-  [`docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`](../research/2026-06-28-tdr-code-web-ui-feature-landscape.md)
+  [`docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`](../research/2026-06-28-tdr-code-web-ui-feature-landscape.md)
   (B2–B5 rows; integration seams; WAL/Node-supervision/monorepo research).
 - **B1 schema plan (the locked contract this plan writes against):**
   [`docs/archive/plans/2026-06-30-001-feat-tdr-code-phase-b-persistence-schema-plan.md`](2026-06-30-001-feat-tdr-code-phase-b-persistence-schema-plan.md)

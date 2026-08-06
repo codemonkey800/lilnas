@@ -48,7 +48,7 @@ This plan closes that gap by adding the operator console's read surfaces and rec
 controls. It is the third of three Phase B plans (after `…-phase-b-persistence-schema-plan.md`
 and `…-phase-b-writers-plan.md`) and the natural next deliverable after Phase A: the read
 surfaces are mostly additive and lower-risk, and they make the substrate that already
-exists actually useful (see origin: `docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`,
+exists actually useful (see origin: `docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`,
 "Sequencing & dependencies").
 
 **Two-process boundary (load-bearing).** The **main server** (`AppModule`, port 8082) owns
@@ -181,7 +181,7 @@ bot is down → U3), AE4 (persisted transcript reconciles against claude's JSONL
 ### External References
 
 External research is already consolidated in
-`docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md` ("Consolidated research
+`docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md` ("Consolidated research
 findings"). The directly relevant items: multi-process SQLite WAL (set `busy_timeout` in
 both processes — already done; keep write transactions short — this plan's writes are only
 the teardown enqueue), the ACP→JSONL reconciliation findings (escaped-cwd dir is
@@ -1137,7 +1137,7 @@ reason instead of erroring.
 ## Sources & References
 
 - **Origin (requirements):** `docs/archive/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md`
-- **Master landscape / consolidated research:** `docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`
+- **Master landscape / consolidated research:** `docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`
 - **Prior Phase B plans:** `docs/archive/plans/2026-06-30-001-feat-tdr-code-phase-b-persistence-schema-plan.md`,
   `docs/archive/plans/2026-06-30-002-feat-tdr-code-phase-b-writers-plan.md`;
   **Phase A:** `docs/archive/plans/2026-06-29-001-feat-tdr-code-two-process-substrate-plan.md`
