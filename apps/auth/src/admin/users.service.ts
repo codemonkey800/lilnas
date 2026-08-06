@@ -77,7 +77,7 @@ export class UsersService {
    * The existing-user lookup and the pre-authorized-rows read both happen
    * INSIDE the same `tx` this method writes under (not via the plain live
    * `db`, as this used to) — per
-   * docs/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md,
+   * docs/archive/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md,
    * every other read-then-write mutation in this app already reads inside
    * its own transaction; this was the one that read outside it.
    *

@@ -35,7 +35,7 @@ const isProduction = env(EnvKeys.NODE_ENV, 'development') === 'production'
         // Redacting the credential-shaped header slots now — before any
         // route actually reads a cookie — means the hot path never needs a
         // logging change later. Per
-        // docs/solutions/conventions/tdr-code-structured-logging-convention-2026-07-03.md,
+        // docs/archive/solutions/conventions/tdr-code-structured-logging-convention-2026-07-03.md,
         // retrofitting redaction after routes exist is exactly the kind of
         // hot-path churn this plan wants to avoid. U3's OAuth callback will
         // likely need to extend this with a `req.url` censor (the callback

@@ -54,11 +54,11 @@ import {
 // dashboard for nothing.
 //
 // Both public methods below run under BEGIN IMMEDIATE, per
-// docs/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md:
+// docs/archive/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md:
 // this is a textbook read-then-write race (two concurrent status checks or
 // tab loads for the same pair must not both pass "no pending row exists" and
 // both insert). See requests.service.spec.ts's atomicity test, written per
-// docs/solutions/conventions/atomicity-tests-must-reach-the-write-phase-2026-06-03.md
+// docs/archive/solutions/conventions/atomicity-tests-must-reach-the-write-phase-2026-06-03.md
 // (seeded so both guards pass and a real write runs before the injected
 // fault, not a vacuous guard-refusal test).
 // ──────────────────────────────────────────────────────────────────────────────
@@ -150,7 +150,7 @@ export class RequestsService {
    * U7 (R11): approve a specific queue row. The DB writes (mark decided +
    * insert the grant) happen together under BEGIN IMMEDIATE — a paired
    * write per
-   * docs/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md's
+   * docs/archive/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md's
    * "createExercise" example, not a read-then-branch race — then, OUTSIDE
    * the transaction and in this exact order, the in-memory cache is
    * invalidated and the SSE bus is published. That ordering (write DB ->

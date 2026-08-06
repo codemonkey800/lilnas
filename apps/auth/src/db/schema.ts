@@ -276,7 +276,7 @@ export const accessRequest = sqliteTable(
     //     "not optional" instruction is about. A concurrent double-insert
     //     race for two simultaneous first-time requests hits this index
     //     and must fall back to an UPDATE/absorb path (U6, per
-    //     docs/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md
+    //     docs/archive/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md
     //     and .../atomicity-tests-must-reach-the-write-phase-2026-06-03.md).
     //   - R8 says a re-request after a cooldown "creates a fresh queue
     //     item" and R12 wants that history visible inline ("4th request,

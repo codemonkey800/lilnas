@@ -60,7 +60,7 @@ services:
 
       # U10 (R18): lilnas-auth's own ForwardAuth middleware. Every
       # previously-protected router has migrated to it (see
-      # docs/runbooks/lilnas-auth-cutover.md for the migration history),
+      # docs/archive/runbooks/lilnas-auth-cutover.md for the migration history),
       # and thomseddon/traefik-forward-auth has been retired entirely.
       #
       # forwardauth.address points directly at the NestJS backend port

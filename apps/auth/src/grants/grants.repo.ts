@@ -105,7 +105,7 @@ export function deleteGrant(
 // U9: every service a user currently has standing access to — what the
 // admin "edit services" action diffs the submitted desired set against.
 // Typed `Executor` (not `Db`) per
-// docs/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md
+// docs/archive/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md
 // — callers that read this then write under the SAME transaction (e.g.
 // users.service.ts's removeUser()) need to pass a `tx`, not the plain live
 // `db`.

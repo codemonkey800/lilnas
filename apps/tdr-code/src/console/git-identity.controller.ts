@@ -67,7 +67,7 @@ export class GitIdentityController {
   // (src/types/express.d.ts: "no compile-time guarantee AuthGuard already
   // ran"), so this is guarded defensively rather than asserted with `!` —
   // mirrors github-link.controller.ts's identical req.user?.id posture
-  // (docs/solutions/conventions/type-guards-over-nonnull-assertions-on-db-
+  // (docs/archive/solutions/conventions/type-guards-over-nonnull-assertions-on-db-
   // rows-2026-05-30.md's discipline, applied to a non-DB-row optional field
   // for the same reason: never trust an optional value with `!`). Should
   // never actually be undefined in practice — Discord is this app's only

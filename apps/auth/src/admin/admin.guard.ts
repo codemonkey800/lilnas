@@ -22,7 +22,7 @@ import { normalizeEmail } from './normalize-email'
 // R17: an ADMIN_EMAILS address's own admin access must survive an empty or
 // fully unreadable grants table (AE5), and must not become revocable by
 // anything an admin action itself writes to that table. This is directly
-// informed by docs/runbooks/tdr-code-phase-d-forward-auth-cutover.md §5.1 —
+// informed by docs/archive/runbooks/tdr-code-phase-d-forward-auth-cutover.md §5.1 —
 // re-adding an edge auth gate does nothing when the APP-OWNED authorization
 // layer behind it is present-but-broken; keeping admin authorization on a
 // completely separate, minimal code path is what prevents that failure mode

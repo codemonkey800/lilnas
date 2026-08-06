@@ -72,7 +72,7 @@ services:
       # behind the same auth it provides. `auth.lilnas.io` is this
       # service's permanent hostname, taken over from
       # thomseddon/traefik-forward-auth's own router once that service was
-      # retired (see docs/runbooks/lilnas-auth-cutover.md). The explicit
+      # retired (see docs/archive/runbooks/lilnas-auth-cutover.md). The explicit
       # priority sidesteps Traefik's undefined tiebreak between two
       # byte-identical Host() rules during the brief window where both the
       # old and new containers could otherwise be registered at once.
