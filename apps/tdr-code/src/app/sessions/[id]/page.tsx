@@ -21,7 +21,7 @@ import type {
 import { sessionTopic } from 'src/sse/sse.types'
 
 // Trailing-throttle window for this page's session:<id> topic (see U7 of
-// docs/plans/2026-07-05-002-feat-tdr-code-sse-push-plan.md). This is the
+// docs/archive/plans/2026-07-05-002-feat-tdr-code-sse-push-plan.md). This is the
 // highest-churn topic — an active agent turn can emit many chunks/tool-call-
 // updates per second — so unlike the low-volume live/bot-status callers,
 // this is the first useLiveStream() call site to turn the throttle on.

@@ -139,7 +139,7 @@ export function seedWhitelist(
 // `docker-compose exec auth node dist/db/seed-whitelist.js`, with
 // WHITELIST set to the REAL production value read from the deploy host's
 // infra/.env.forward-auth (this checkout's copy is a placeholder — see the
-// plan's own "Verified facts"). See docs/runbooks/lilnas-auth-cutover.md
+// plan's own "Verified facts"). See docs/archive/runbooks/lilnas-auth-cutover.md
 // for the full procedure. Guarded by `require.main === module` so
 // importing seedWhitelist()/parseWhitelist() for tests never runs this.
 // ──────────────────────────────────────────────────────────────────────────────

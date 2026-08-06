@@ -62,7 +62,7 @@ export const EnvKeys = {
   // the deploy host's former infra/.env.forward-auth to seed grants before
   // each router migrated off forward-auth. Every router has since migrated
   // and forward-auth has been retired (see
-  // docs/runbooks/lilnas-auth-cutover.md), so this script has no remaining
+  // docs/archive/runbooks/lilnas-auth-cutover.md), so this script has no remaining
   // callers in practice; it's left in place rather than deleted. Same
   // comma-separated shape as ADMIN_EMAILS (confirmed against
   // thomseddon/traefik-forward-auth's own `env-delim:","` config tag), so

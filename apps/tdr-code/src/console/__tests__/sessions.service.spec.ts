@@ -222,7 +222,7 @@ describe('SessionsService', () => {
     })
 
     // U7: diff.newText/oldText are truncated to a bounded preview in the
-    // transcript DTO (docs/plans/2026-07-05-002-feat-tdr-code-sse-push-plan.md,
+    // transcript DTO (docs/archive/plans/2026-07-05-002-feat-tdr-code-sse-push-plan.md,
     // U7) — see sessions.service.ts's DIFF_PREVIEW_MAX_CHARS and its own
     // header comment for why this is the single biggest per-refetch byte-
     // cost cut available under snapshot-refetch (Decision 2A), without

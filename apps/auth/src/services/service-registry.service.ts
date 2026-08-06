@@ -301,7 +301,7 @@ export class ServiceRegistryService {
         includeDevHosts: env(EnvKeys.NODE_ENV, 'development') !== 'production',
         onWarn: (dir, err) => {
           // Coarsened to err.name only, never err.message/err.stack — per
-          // docs/solutions/conventions/tdr-code-structured-logging-convention-2026-07-03.md's
+          // docs/archive/solutions/conventions/tdr-code-structured-logging-convention-2026-07-03.md's
           // redaction hierarchy, matching src/verify/access-cache.service.ts's
           // identical choice for its own session-lookup-failure log line.
           this.logger.warn(

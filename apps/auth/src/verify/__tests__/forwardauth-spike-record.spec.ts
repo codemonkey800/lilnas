@@ -1,6 +1,6 @@
 /**
  * Durable record of U1's empirical spike (see
- * docs/plans/2026-07-31-001-feat-lilnas-auth-forward-auth-spike-findings.md). Traefik's ForwardAuth and SSE
+ * docs/archive/plans/2026-07-31-001-feat-lilnas-auth-forward-auth-spike-findings.md). Traefik's ForwardAuth and SSE
  * behavior was proven live against a throwaway stub and a dev Traefik instance; that infrastructure was torn
  * down afterward. This file locks in the proven contract as fixtures so a future contributor (or a Traefik
  * version bump) can't silently drift from what was actually observed. It does not exercise a live Traefik or

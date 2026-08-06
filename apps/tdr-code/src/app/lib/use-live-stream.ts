@@ -20,7 +20,7 @@ const KEEPALIVE_EVENT_TYPE = 'keepalive'
 // The one client seam every migrated surface (dashboard now, bot-status
 // widget/config and session detail in later units) reuses: one EventSource
 // per mount, mapped to React Query invalidations. See the SSE push plan
-// (docs/plans/2026-07-05-002-feat-tdr-code-sse-push-plan.md, U5) for the
+// (docs/archive/plans/2026-07-05-002-feat-tdr-code-sse-push-plan.md, U5) for the
 // full design — in particular the
 // "API surface parity / session-expiry" system-wide-impact note (the
 // consecutive-onerror fallback below).

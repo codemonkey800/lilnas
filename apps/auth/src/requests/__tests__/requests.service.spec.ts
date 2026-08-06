@@ -223,7 +223,7 @@ describe('RequestsService.requestAccess (the automatic, on-load/reconnect path)'
   })
 
   // Atomicity (BEGIN IMMEDIATE), per
-  // docs/solutions/conventions/atomicity-tests-must-reach-the-write-phase-2026-06-03.md:
+  // docs/archive/solutions/conventions/atomicity-tests-must-reach-the-write-phase-2026-06-03.md:
   // this reaches the write phase twice (not a vacuous guard-refusal test)
   // and proves the SECOND call observes the FIRST's committed row rather
   // than attempting a duplicate insert. Note on what this test can and

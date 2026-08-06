@@ -511,7 +511,7 @@ export class AccessCacheService implements OnModuleInit {
           event: LOG_EVENTS.sessionCheckError,
           // Coarsened to err.name only, never err.message/err.stack/the raw
           // err object — per
-          // docs/solutions/conventions/tdr-code-structured-logging-convention-2026-07-03.md's
+          // docs/archive/solutions/conventions/tdr-code-structured-logging-convention-2026-07-03.md's
           // redaction hierarchy, call-site judgment (not a redact path) is
           // the primary defense against an unanticipated secret-bearing
           // error message reaching a log line.

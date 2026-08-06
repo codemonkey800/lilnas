@@ -34,7 +34,7 @@
 # If no identity dir exists (no active turn or non-git cwd) git runs unmodified.
 #
 # Local-write block (follow-up to Decision #10a in
-# docs/plans/2026-07-01-001-feat-tdr-code-phase-c-config-git-identity-plan.md):
+# docs/archive/plans/2026-07-01-001-feat-tdr-code-phase-c-config-git-identity-plan.md):
 # for a turn whose identity isn't configured, deny git verbs that create
 # commits under the placeholder identity or push/pull them, BEFORE exec'ing
 # real git. This is a UX nudge for the normal PATH-lookup code path, not a

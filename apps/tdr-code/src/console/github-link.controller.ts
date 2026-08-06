@@ -73,7 +73,7 @@ export class GithubLinkController {
   // undefined here since AuthGuard already ran, but the type doesn't
   // promise that, so the guard mirrors auth.guard.ts's own failure posture
   // (UnauthorizedException) rather than trusting the optional field blindly
-  // (docs/solutions/conventions/type-guards-over-nonnull-assertions-on-db-
+  // (docs/archive/solutions/conventions/type-guards-over-nonnull-assertions-on-db-
   // rows-2026-05-30.md's discipline, applied here to a non-DB-row optional
   // field for the same reason: never trust an optional value with `!`).
   @Delete()
