@@ -219,9 +219,9 @@ The server uses a semantic directory structure for organizing different types of
 - Backup tier strategy
 - Best practices for storage planning
 
-### Documented Solutions
+### Archived Planning Docs
 
-`docs/solutions/` — documented solutions to past problems (bugs, best practices, workflow patterns, architecture decisions), organized by category with YAML frontmatter (`module`, `tags`, `problem_type`, `component`). Relevant when implementing or debugging in documented areas.
+`docs/archive/` — historical brainstorms, ideation, plans, PRDs, solutions, and runbooks from the retired compound-engineering workflow. Frozen historical record, not active guidance — do not read proactively; only look there if explicitly asked to check repo history.
 
 ### Key Docker Compose Files
 
@@ -426,7 +426,7 @@ Each app owns its own environment files under `apps/<app>/`:
 
 `deploy.dev.yml` loads `.env`; `deploy.yml` loads `.env.prod` — both via Docker Compose's `env_file:`, relative to the app's own directory. The `lilnas dev` CLI (`packages/cli/src/commands/dev.ts`) loads the same `.env` for the native (non-Docker) dev flow.
 
-Not every app has environment variables — `portal` and `dashcam` have none. `tdr-code` is a special case: its processes run directly on the deploy host rather than in a container, so it uses a single `.env` for both dev and prod (see `docs/runbooks/tdr-code-phase-d-forward-auth-cutover.md`).
+Not every app has environment variables — `portal` and `dashcam` have none. `tdr-code` is a special case: its processes run directly on the deploy host rather than in a container, so it uses a single `.env` for both dev and prod (see `docs/archive/runbooks/tdr-code-phase-d-forward-auth-cutover.md`).
 
 ## Best Practices
 

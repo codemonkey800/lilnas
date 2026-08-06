@@ -3,10 +3,10 @@ title: tdr-code Web Admin Console — Feature Landscape & Research
 date: 2026-06-28
 status: reference
 type: research
-origin: docs/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md
+origin: docs/archive/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md
 related:
-  - docs/plans/2026-06-27-001-feat-tdr-code-stop-clear-plan.md
-  - docs/plans/2026-06-27-002-feat-tdr-code-typing-images-plan.md
+  - docs/archive/plans/2026-06-27-001-feat-tdr-code-stop-clear-plan.md
+  - docs/archive/plans/2026-06-27-002-feat-tdr-code-typing-images-plan.md
 ---
 
 # tdr-code Web Admin Console — Feature Landscape & Research
@@ -15,7 +15,7 @@ related:
 
 This is the **master feature catalog and grounded research** for the `@lilnas/tdr-code`
 web admin console. It is the bridge between the requirements brainstorm
-(`docs/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md`) and the per-phase
+(`docs/archive/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md`) and the per-phase
 implementation plans that will follow.
 
 **This is not an implementation plan.** It carries no implementation units, file lists, or
@@ -414,7 +414,7 @@ So future plans cite this instead of re-researching. Versions confirmed June 202
 - better-sqlite3 is **synchronous** — the busy handler **blocks the whole event loop** while waiting,
   so keep write transactions short; treat `SQLITE_BUSY` as retryable. Use `BEGIN IMMEDIATE`
   (`db.transaction(cb, { behavior: 'immediate' })`) for read-then-write mutations (see
-  `docs/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md` — note its
+  `docs/archive/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md` — note its
   "concurrency is invisible" cost model **does not hold** under two processes).
 - **Reality check on R4's "bot writes, main server reads":** the main server *also* writes (auth,
   config, reconciliation) → genuinely two writers. Acceptable under WAL + busy_timeout for this low
@@ -456,9 +456,9 @@ So future plans cite this instead of re-researching. Versions confirmed June 202
 - **Forward-auth:** production uses bare `forward-auth` (Docker-provider), not `@file`; removing it
   = drop the `...middlewares=forward-auth` label. Watch silent `Host()` shadowing; set
   `traefik.docker.network` if multi-network; set Next `allowedDevOrigins` for dev behind TLS
-  (`docs/solutions/architecture-patterns/expose-external-compose-via-lilnas-proxy-2026-06-25.md`).
+  (`docs/archive/solutions/architecture-patterns/expose-external-compose-via-lilnas-proxy-2026-06-25.md`).
 
-### Institutional learnings to honor (`docs/solutions/`)
+### Institutional learnings to honor (`docs/archive/solutions/`)
 - `begin-immediate-for-read-then-write-mutations-2026-05-27.md` — `{ behavior: 'immediate' }` for
   read-then-write; all calls through `tx`. (Cost model assumes single process — see WAL note.)
 - `atomicity-tests-must-reach-the-write-phase-2026-06-03.md` — race/atomicity tests must hit the
@@ -512,11 +512,11 @@ flowchart LR
 
 ## Sources & references
 
-- **Origin brainstorm:** `docs/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md`
-- **Sibling brainstorm:** `docs/brainstorms/2026-06-27-tdr-code-stop-clear-requirements.md`
+- **Origin brainstorm:** `docs/archive/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md`
+- **Sibling brainstorm:** `docs/archive/brainstorms/2026-06-27-tdr-code-stop-clear-requirements.md`
 - **Sibling plans (shipped machinery to honor):**
-  `docs/plans/2026-06-27-001-feat-tdr-code-stop-clear-plan.md`,
-  `docs/plans/2026-06-27-002-feat-tdr-code-typing-images-plan.md`
+  `docs/archive/plans/2026-06-27-001-feat-tdr-code-stop-clear-plan.md`,
+  `docs/archive/plans/2026-06-27-002-feat-tdr-code-typing-images-plan.md`
 - **Key current files:** `apps/tdr-code/src/agent/session-manager.service.ts`,
   `apps/tdr-code/src/discord/discord-handler.service.ts`, `apps/tdr-code/src/agent/acp-client.ts`,
   `apps/tdr-code/src/agent/agent.types.ts`, `apps/tdr-code/src/db/database.module.ts`,
@@ -528,5 +528,5 @@ flowchart LR
 - **External:** better-auth.com docs, github.com/thallesp/nestjs-better-auth, Discord developer
   docs, WiseLibs/better-sqlite3 docs, nodejs.org crypto + child_process docs, sshpk/ssh2,
   git-scm config/githooks docs
-- **Institutional:** `docs/solutions/conventions/`, `docs/solutions/architecture-patterns/`
+- **Institutional:** `docs/archive/solutions/conventions/`, `docs/archive/solutions/architecture-patterns/`
   (see [learnings](#institutional-learnings-to-honor-docssolutions))
