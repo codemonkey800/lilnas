@@ -114,7 +114,7 @@ Everything shipped so far in tdr-code is a **read/recover** surface. Phase C is 
 
 ### External References
 
-- `docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md` (§ "SSH key encryption at rest", "Per-turn git identity", "Blocking git writes") — the external research is already done and pinned here: AES-256-GCM via `createCipheriv` + `setAAD(recordId)`; master key = 32 bytes from a `chmod 600` file; `sshpk` **1.18.0** for fingerprint/validation (`parsePrivateKey(blob,'auto').toPublic().fingerprint('sha256')`, catch `KeyEncryptedError` to reject passphrase keys); per-turn `.git/config` rewrite + tmpfs key with `IdentitiesOnly=yes StrictHostKeyChecking=accept-new -F /dev/null`; client-side hooks are **not** a security boundary — withhold the key + rely on server-side branch protection.
+- `docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md` (§ "SSH key encryption at rest", "Per-turn git identity", "Blocking git writes") — the external research is already done and pinned here: AES-256-GCM via `createCipheriv` + `setAAD(recordId)`; master key = 32 bytes from a `chmod 600` file; `sshpk` **1.18.0** for fingerprint/validation (`parsePrivateKey(blob,'auto').toPublic().fingerprint('sha256')`, catch `KeyEncryptedError` to reject passphrase keys); per-turn `.git/config` rewrite + tmpfs key with `IdentitiesOnly=yes StrictHostKeyChecking=accept-new -F /dev/null`; client-side hooks are **not** a security boundary — withhold the key + rely on server-side branch protection.
 
 ---
 
@@ -749,7 +749,7 @@ flowchart LR
 ## Sources & References
 
 - **Origin document:** [docs/archive/brainstorms/2026-07-01-tdr-code-phase-c-config-git-identity-requirements.md](docs/archive/brainstorms/2026-07-01-tdr-code-phase-c-config-git-identity-requirements.md)
-- **Feature-landscape research (pinned versions/schemes):** `docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`
+- **Feature-landscape research (pinned versions/schemes):** `docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`
 - **Storage backup tiers:** `docs/semantic-storage.md`
 - **Institutional learnings:** `docs/archive/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md`, `docs/archive/solutions/conventions/type-guards-over-nonnull-assertions-on-db-rows-2026-05-30.md`, `docs/archive/solutions/architecture-patterns/pure-fsm-core-for-stateful-domain-logic-2026-05-27.md`, `docs/archive/solutions/conventions/atomicity-tests-must-reach-the-write-phase-2026-06-03.md`
 - **Key code:** `apps/tdr-code/src/agent/session-manager.service.ts`, `src/db/schema.ts`, `src/commands/command-poller.service.ts`, `src/db/command.repo.ts`, `src/console/lifecycle.controller.ts`, `src/discord/discord-handler.service.ts`, `src/bootstrap.ts`, `src/bot-bootstrap.ts`, `src/app/lib/api.ts`, `src/db/test-db.ts`

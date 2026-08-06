@@ -64,7 +64,7 @@ nobody adds a proto-consulting check that then sees `http`. This double-proxy ch
 for the cutover and the cookie config.
 
 *(Note on IDs: "D1–D10" throughout this plan are the Phase D feature ids from the feature-landscape
-catalog `docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md` §"Phase D", not a locally
+catalog `docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md` §"Phase D", not a locally
 enumerated decision list.)*
 
 The work is a **cutover**, not a greenfield feature: app-owned auth must be stood up and *verified*
@@ -72,7 +72,7 @@ while `forward-auth` still protects the host, and only then is the edge middlewa
 the ordering wrong is the dominant risk.
 
 (See origin: `docs/archive/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md`, and the master feature
-catalog `docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md` §"Phase D".)
+catalog `docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md` §"Phase D".)
 
 ---
 
@@ -1192,7 +1192,7 @@ work.
 ## Sources & References
 
 - **Origin document:** [docs/archive/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md](docs/archive/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md)
-- **Master feature catalog / research:** [docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md](docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md) (§"Phase D", §"Consolidated research → Better Auth + Discord")
+- **Master feature catalog / research:** [docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md](docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md) (§"Phase D", §"Consolidated research → Better Auth + Discord")
 - **Prior-phase plans:** `docs/archive/plans/2026-06-29-001-feat-tdr-code-two-process-substrate-plan.md` (A),
   `docs/archive/plans/2026-06-30-001..003-*-phase-b-*.md` (B),
   `docs/archive/plans/2026-07-01-001-feat-tdr-code-phase-c-config-git-identity-plan.md` (C)

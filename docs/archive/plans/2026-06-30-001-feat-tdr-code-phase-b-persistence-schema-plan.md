@@ -49,7 +49,7 @@ the feature landscape repeatedly stresses designing the full schema up front so 
 without migration churn." A wrong column or FK here propagates churn across ~25–30 downstream units.
 
 *(See origin: `docs/archive/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md`; feature landscape:
-`docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`.)*
+`docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`.)*
 
 ---
 
@@ -114,7 +114,7 @@ B7 needs; full AE4 verification is deferred to B7.
 ## Context & Research
 
 > Grounded directly against the codebase and the pre-consolidated research doc
-> (`docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`, "Consolidated research findings"),
+> (`docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`, "Consolidated research findings"),
 > which already settled the external questions (better-sqlite3 WAL multi-process, Drizzle/SQLite
 > patterns, JSON columns). No new external research or flow analysis was warranted for a pure
 > schema-extension unit built on established patterns.
@@ -447,7 +447,7 @@ erDiagram
 | `live_status` | `channel_id` text PK · `generation_id` int→`bot_generation` RESTRICT · `triggering_user_id` text? · `prompting` int(bool) · `queue_depth` int · `last_activity_at` ts · `last_heartbeat_at` ts | CHECK `prompting IN (0,1)`; **CHECK `queue_depth >= 0`**; idx `(generation_id)` (reconcile). Bounded by `maxConcurrentSessions` (~5 rows) → no `last_activity_at` index |
 
 > **Deltas from the feature-landscape schema map.** B1 is the locking unit, so these shapes supersede
-> the *directional* table in `docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md` for three
+> the *directional* table in `docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md` for three
 > columns: `turns` **gains** `generation_id` (the landscape's "Bot generation / epoch id" prose
 > mandates stamping it on every bot-written row; only its table omitted it); `turn_content` **drops**
 > `seq` (ordering is monotonic `id` — Decision 9) and **gains** `ref` (the ACP `toolCallId`).
@@ -729,7 +729,7 @@ upsert-target conflict observed; two-writer sanity holds; type-check + lint pass
 - **Origin document:** [`docs/archive/brainstorms/2026-06-27-tdr-code-web-ui-requirements.md`](../brainstorms/2026-06-27-tdr-code-web-ui-requirements.md)
   (R5–R10, AE4, F1/F2, A1–A3).
 - **Feature landscape (master catalog + consolidated research):**
-  [`docs/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`](../research/2026-06-28-tdr-code-web-ui-feature-landscape.md)
+  [`docs/archive/research/2026-06-28-tdr-code-web-ui-feature-landscape.md`](../research/2026-06-28-tdr-code-web-ui-feature-landscape.md)
   (B1 row; full schema map; WAL/Drizzle research).
 - **Phase A plan (precedent + locked decisions):**
   [`docs/archive/plans/2026-06-29-001-feat-tdr-code-two-process-substrate-plan.md`](2026-06-29-001-feat-tdr-code-two-process-substrate-plan.md)
