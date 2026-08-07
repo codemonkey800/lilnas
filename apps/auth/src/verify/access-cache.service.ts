@@ -112,6 +112,13 @@ export class AccessCacheService implements OnModuleInit {
   private readonly grantsByUser = new Map<string, Set<string>>()
   private readonly blockedUserIds = new Set<string>()
   private readonly sessionCache = new Map<string, CachedSession>()
+  // P1: in-flight dedup for resolveSession()'s cache-miss path — see that
+  // method's own comment on why this exists and lookupSession() for the
+  // deduplicated work itself.
+  private readonly inFlightLookups = new Map<
+    string,
+    Promise<{ userId: string; email: string } | null>
+  >()
   // U9 (R15): pre-authorizations awaiting a first sign-in, keyed by email
   // (not userId — there is no userId yet). See bindPreAuthorizedGrant()'s
   // own header comment for the full binding design and why it runs here,
@@ -483,6 +490,39 @@ export class AccessCacheService implements OnModuleInit {
       // genuinely revoked/expired one now correctly stops passing.
     }
 
+    // P1: in-flight dedup. MAX_SESSION_CACHE_MS's 60s clamp means every
+    // entry for a given browser expires at roughly the same moment, so the
+    // very next page load — one /verify subrequest per asset and XHR —
+    // arrives as a burst of near-simultaneous calls for the SAME cookie,
+    // all landing on the cache-miss path above at once. Measured directly:
+    // 50 concurrent cold resolveSession() calls for one cookie previously
+    // drove 50 independent getSession() calls; with this in place, one.
+    // Populated with the lookup promise BEFORE the first `await` inside it
+    // ever yields, so every concurrent caller for this cookie gets the
+    // SAME promise instead of racing its own getSession() call — cleared
+    // in `finally` so a later, non-concurrent call still starts a fresh
+    // lookup (or simply hits the now-warm cache above).
+    const inFlight = this.inFlightLookups.get(cookieHeader)
+    if (inFlight) {
+      return inFlight
+    }
+
+    const lookup = this.lookupSession(cookieHeader)
+    this.inFlightLookups.set(cookieHeader, lookup)
+    try {
+      return await lookup
+    } finally {
+      this.inFlightLookups.delete(cookieHeader)
+    }
+  }
+
+  // The actual cache-miss work resolveSession() above deduplicates: one
+  // real Better Auth getSession() call, plus caching a positive result.
+  // Never throws — every failure mode below resolves to `null` instead, so
+  // resolveSession()'s in-flight Map entry is always cleanly settled.
+  private async lookupSession(
+    cookieHeader: string,
+  ): Promise<{ userId: string; email: string } | null> {
     let result: Awaited<ReturnType<AuthService<Auth>['api']['getSession']>>
     try {
       result = await this.authService.api.getSession({

@@ -415,6 +415,85 @@ describe('AccessCacheService', () => {
     })
   })
 
+  describe('resolveSession — in-flight dedup for the cache-miss path (P1)', () => {
+    beforeEach(() => {
+      testDb = createTestDb()
+    })
+
+    it('50 concurrent cold resolveSession() calls for the SAME cookie perform exactly 1 getSession() call', async () => {
+      const { auth, authService, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const cookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-dedup', email: 'dedup@example.com' },
+      )
+      // Spy attached AFTER sign-in, matching the R2 describe block's own
+      // isolation technique above — only resolveSession()'s own calls are
+      // counted.
+      const getSessionSpy = jest.spyOn(authService.api, 'getSession')
+
+      const results = await Promise.all(
+        Array.from({ length: 50 }, () => cache.resolveSession(cookie)),
+      )
+
+      // Measured before this fix: 50 concurrent cold calls drove 50
+      // independent getSession() calls — MAX_SESSION_CACHE_MS's 60s clamp
+      // means every entry for a browser expires together, so the very
+      // next page load's burst of near-simultaneous /verify subrequests
+      // (one per asset/XHR) would stampede exactly like this.
+      expect(getSessionSpy).toHaveBeenCalledTimes(1)
+      for (const result of results) {
+        expect(result).toEqual({
+          userId: expect.any(String),
+          email: 'dedup@example.com',
+        })
+      }
+    })
+
+    it('concurrent calls for DIFFERENT cookies are never deduplicated together — each gets its own getSession() call', async () => {
+      const { auth, authService, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const cookieA = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-dedup-a', email: 'dedup-a@example.com' },
+      )
+      const cookieB = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-dedup-b', email: 'dedup-b@example.com' },
+      )
+      const getSessionSpy = jest.spyOn(authService.api, 'getSession')
+
+      const [resultA, resultB] = await Promise.all([
+        cache.resolveSession(cookieA),
+        cache.resolveSession(cookieB),
+      ])
+
+      expect(getSessionSpy).toHaveBeenCalledTimes(2)
+      expect(resultA?.email).toBe('dedup-a@example.com')
+      expect(resultB?.email).toBe('dedup-b@example.com')
+    })
+
+    it('the in-flight entry is cleared once settled — a later, non-concurrent call is a pure cache hit, not a second dedup', async () => {
+      const { auth, authService, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const cookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-dedup-sequential', email: 'sequential@example.com' },
+      )
+      const getSessionSpy = jest.spyOn(authService.api, 'getSession')
+
+      await cache.resolveSession(cookie)
+      expect(getSessionSpy).toHaveBeenCalledTimes(1)
+
+      await cache.resolveSession(cookie)
+      expect(getSessionSpy).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('resolveSession — a cached session past its own clamped cache lifetime', () => {
     beforeEach(() => {
       testDb = createTestDb()
