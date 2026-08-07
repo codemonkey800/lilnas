@@ -41,6 +41,11 @@ services:
       GF_AUTH_DISABLE_LOGIN_FORM: false
       GF_SECURITY_ALLOW_EMBEDDING: true
       GF_SERVER_ROOT_URL: https://grafana.lilnas.io
+      GF_AUTH_PROXY_ENABLED: true
+      GF_AUTH_PROXY_HEADER_NAME: X-Forwarded-User
+      GF_AUTH_PROXY_HEADER_PROPERTY: email
+      GF_AUTH_PROXY_AUTO_SIGN_UP: true
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Admin
     volumes:
       - /storage/app-data/grafana:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
