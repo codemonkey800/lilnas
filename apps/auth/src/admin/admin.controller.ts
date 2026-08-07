@@ -10,6 +10,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common'
+import type { z } from 'zod'
 
 import { DB, type Db } from 'src/db/database.module'
 import { EnvKeys } from 'src/env'
@@ -25,6 +26,11 @@ import { RequestsService } from 'src/requests/requests.service'
 import type { ServiceRegistryEntry } from 'src/services/service-registry.service'
 import { ServiceRegistryService } from 'src/services/service-registry.service'
 
+import {
+  BulkRejectBodySchema,
+  PreAuthorizeBodySchema,
+  SetUserServiceBodySchema,
+} from './admin.dto'
 import { AdminGuard, isAdminEmail } from './admin.guard'
 import { UsersService } from './users.service'
 
@@ -127,8 +133,9 @@ export class AdminController {
   // of `body.ids` this call actually rejected — see reject()'s own comment
   // above for why that matters.
   @Post('requests/bulk-reject')
-  bulkReject(@Body() body: { ids: number[] }): { ok: true; decided: number[] } {
-    const decided = this.requestsService.bulkReject(body.ids)
+  bulkReject(@Body() body: unknown): { ok: true; decided: number[] } {
+    const { ids } = this.parseBody(BulkRejectBodySchema, body)
+    const decided = this.requestsService.bulkReject(ids)
     return { ok: true, decided }
   }
 
@@ -161,11 +168,10 @@ export class AdminController {
   // error-path test scenario: "granting a service not in the registry is
   // rejected with a clear message."
   @Post('users/pre-authorize')
-  async preAuthorize(
-    @Body() body: { email: string; serviceHost: string },
-  ): Promise<{ ok: true }> {
-    await this.assertKnownServiceHost(body.serviceHost)
-    this.usersService.preAuthorize(body.email, body.serviceHost)
+  async preAuthorize(@Body() body: unknown): Promise<{ ok: true }> {
+    const { email, serviceHost } = this.parseBody(PreAuthorizeBodySchema, body)
+    await this.assertKnownServiceHost(serviceHost)
+    this.usersService.preAuthorize(email, serviceHost)
     return { ok: true }
   }
 
@@ -181,12 +187,16 @@ export class AdminController {
   @Post('users/:userId/services')
   async setUserService(
     @Param('userId') userId: string,
-    @Body() body: { serviceHost: string; grant: boolean },
+    @Body() body: unknown,
   ): Promise<{ ok: true }> {
-    if (body.grant) {
-      await this.assertKnownServiceHost(body.serviceHost)
+    const { serviceHost, grant } = this.parseBody(
+      SetUserServiceBodySchema,
+      body,
+    )
+    if (grant) {
+      await this.assertKnownServiceHost(serviceHost)
     }
-    this.usersService.setUserService(userId, body.serviceHost, body.grant)
+    this.usersService.setUserService(userId, serviceHost, grant)
     return { ok: true }
   }
 
@@ -230,5 +240,19 @@ export class AdminController {
         `"${serviceHost}" is not a known service — check the registry (GET /admin/services) for currently discovered hosts.`,
       )
     }
+  }
+
+  // S3: every mutating route's @Body() is typed `unknown` and validated
+  // here rather than trusted at face value — see admin.dto.ts's own header
+  // comment for why a TypeScript annotation alone (the previous shape of
+  // every route below) is not a real check at runtime.
+  private parseBody<T>(schema: z.ZodType<T>, body: unknown): T {
+    const parsed = schema.safeParse(body)
+    if (!parsed.success) {
+      throw new BadRequestException(
+        parsed.error.issues[0]?.message ?? 'Invalid request body',
+      )
+    }
+    return parsed.data
   }
 }

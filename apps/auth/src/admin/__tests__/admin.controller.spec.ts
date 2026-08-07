@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common'
 import BetterSqlite3 from 'better-sqlite3'
 import { and, desc, eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
@@ -396,6 +397,82 @@ describe('AdminController', () => {
         ok: true,
         sessionsRevoked: 0,
       })
+    })
+  })
+
+  describe('request-body validation (S3)', () => {
+    it('bulkReject() rejects an invalid body with BadRequestException and never reaches RequestsService', () => {
+      expect(() => controller.bulkReject({ ids: [] })).toThrow(
+        BadRequestException,
+      )
+      expect(() => controller.queue()).not.toThrow()
+      expect(controller.queue()).toEqual([])
+    })
+
+    it('preAuthorize() rejects a malformed email with BadRequestException', async () => {
+      await expect(
+        controller.preAuthorize({
+          email: 'not-an-email',
+          serviceHost: 'swole.lilnas.io',
+        }),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    // The actual bug this closes: setUserService() used to do
+    // `if (body.grant)`, and a JSON body of {"grant": "false"} deserializes
+    // to the STRING "false" — a non-empty string, so the old truthy check
+    // silently granted when the caller meant to revoke. This now fails
+    // validation outright instead of being misinterpreted.
+    it('covers the S3 fix: setUserService() rejects grant: "false" (a string) rather than treating it as truthy', async () => {
+      const userId = seedUser(testDb.db)
+
+      await expect(
+        controller.setUserService(userId, {
+          serviceHost: 'swole.lilnas.io',
+          grant: 'false',
+        }),
+      ).rejects.toThrow(BadRequestException)
+
+      // Confirms the old bug's actual consequence never happens: no grant
+      // was written for the mis-typed "revoke" request.
+      expect(
+        testDb.db
+          .select()
+          .from(schema.grant)
+          .where(eq(schema.grant.userId, userId))
+          .all(),
+      ).toHaveLength(0)
+    })
+
+    it('setUserService() still accepts a real boolean grant and writes the grant', async () => {
+      const registryController = new AdminController(
+        testDb.db,
+        requestsService,
+        fakeServiceRegistry([
+          { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
+        ]),
+        new UsersService(
+          testDb.db,
+          fakeAccessCache(),
+          new NotifyBusService(),
+          fakeLogger(),
+        ),
+      )
+      const userId = seedUser(testDb.db)
+
+      await expect(
+        registryController.setUserService(userId, {
+          serviceHost: 'swole.lilnas.io',
+          grant: true,
+        }),
+      ).resolves.toEqual({ ok: true })
+      expect(
+        testDb.db
+          .select()
+          .from(schema.grant)
+          .where(eq(schema.grant.userId, userId))
+          .all(),
+      ).toHaveLength(1)
     })
   })
 })
