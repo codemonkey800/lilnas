@@ -25,7 +25,6 @@
     "lint:fix": "run-p -l lint:*:fix",
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
-    "seed:whitelist": "node dist/db/seed-whitelist.js",
     "start": "run-p --race start:*",
     "start:backend": "node dist/main",
     "start:frontend": "node server.js",

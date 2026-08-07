@@ -56,17 +56,4 @@ export const EnvKeys = {
   // duplicated by accident) since email casing isn't a security boundary
   // and a stray space in this env var shouldn't silently lock an admin out.
   ADMIN_EMAILS: 'ADMIN_EMAILS',
-  // U10 (R19): read ONLY by src/db/seed-whitelist.ts's standalone CLI
-  // entrypoint, never by the running app in steady state — this was the
-  // legacy thomseddon/traefik-forward-auth WHITELIST value, read once from
-  // the deploy host's former infra/.env.forward-auth to seed grants before
-  // each router migrated off forward-auth. Every router has since migrated
-  // and forward-auth has been retired (see
-  // docs/archive/runbooks/lilnas-auth-cutover.md), so this script has no remaining
-  // callers in practice; it's left in place rather than deleted. Same
-  // comma-separated shape as ADMIN_EMAILS (confirmed against
-  // thomseddon/traefik-forward-auth's own `env-delim:","` config tag), so
-  // parseWhitelist() there reuses admin.guard.ts's isAdminEmail()
-  // normalization verbatim.
-  WHITELIST: 'WHITELIST',
 } as const

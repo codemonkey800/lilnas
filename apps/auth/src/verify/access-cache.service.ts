@@ -263,11 +263,10 @@ export class AccessCacheService implements OnModuleInit {
     forwardedHost: string,
   ): boolean {
     // Normalized once and reused for both the in-memory lookup and every
-    // DB call below — UsersService.preAuthorize() and seed-whitelist.ts
-    // both normalize before writing, so this is the form every pending row
-    // actually exists under; `email` here is whatever a real sign-in
-    // reports (Google's own `email` claim), which must be normalized the
-    // same way to ever match.
+    // DB call below — UsersService.preAuthorize() normalizes before
+    // writing too, so this is the form every pending row actually exists
+    // under; `email` here is whatever a real sign-in reports (Google's own
+    // `email` claim), which must be normalized the same way to ever match.
     const normalizedEmail = normalizeEmail(email)
     const pendingHosts = this.preAuthorizedByEmail.get(normalizedEmail)
     if (!pendingHosts || pendingHosts.size === 0) {

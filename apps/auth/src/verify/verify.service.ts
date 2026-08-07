@@ -249,11 +249,8 @@ function buildOriginalUrl(
 // not an import of it — admin.guard.ts imports AccessCacheService, and this
 // file already constructor-injects AccessCacheService itself, so importing
 // isAdminEmail from admin.guard.ts here would create a real circular module
-// dependency. src/db/seed-whitelist.ts already hit this identical tension
-// for a different env var (WHITELIST) and duplicated the same check locally
-// rather than importing admin.guard.ts — this follows that precedent, and
-// is named distinctly so there's no ambiguity at call sites about which
-// file's check is in play. Shares normalizeEmail() (src/admin/
+// dependency. Named distinctly so there's no ambiguity at call sites about
+// which file's check is in play. Shares normalizeEmail() (src/admin/
 // normalize-email.ts) with isAdminEmail() so both stay on the same
 // normalization rule without sharing a module edge back to admin.guard.ts.
 //

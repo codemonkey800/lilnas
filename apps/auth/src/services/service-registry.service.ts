@@ -38,10 +38,11 @@ const ROUTER_MIDDLEWARES_LABEL =
 // existing precedent rather than re-deriving it from scratch.
 const HOST_BLOCKLIST = new Set(['auth', 'edge'])
 
-// Exported (unlike the constants below staying private) so U10's
-// seed-whitelist.ts CLI entrypoint scans the exact same compose-label
-// bind-mount paths this service does, rather than duplicating the literal
-// strings and risking the two drifting apart.
+// Exported (unlike the constants below staying private) so
+// compose-mount-coverage.spec.ts (S1's guard test) can build the exact
+// same absolute paths this service scans when checking each compose
+// file's bind mounts, rather than duplicating the literal strings and
+// risking the two drifting apart.
 export const DEFAULT_APPS_DIR = '/repo/apps'
 export const DEFAULT_INFRA_DIR = '/repo/infra'
 const CACHE_TTL_MS = 30_000

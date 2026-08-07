@@ -95,9 +95,9 @@ export class UsersService {
    *
    * `rawEmail` is normalized (trim + lowercase) before ANY use — the
    * lookup, the DB write, and the cache write all key off the SAME
-   * normalized form, matching seed-whitelist.ts's identical normalization
-   * and what AccessCacheService.bindPreAuthorizedGrant()'s own lookup now
-   * requires to ever match a real sign-in's Google-provided email.
+   * normalized form, matching what AccessCacheService.
+   * bindPreAuthorizedGrant()'s own lookup requires to ever match a real
+   * sign-in's Google-provided email.
    */
   preAuthorize(rawEmail: string, serviceHost: string): void {
     const email = normalizeEmail(rawEmail)
