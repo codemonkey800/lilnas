@@ -2,19 +2,19 @@
 
 import { cns } from '@lilnas/utils/cns'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 
 import {
   approveRequest,
   blockUser,
   bulkRejectRequests,
-  preAuthorizeUser,
   rejectRequest,
   removeUser,
   revokeSessions,
-  setUserService,
   unblockUser,
 } from 'src/app/admin/actions'
+import { AddPersonModal } from 'src/app/admin/add-person-modal'
+import { EditAccessModal } from 'src/app/admin/edit-access-modal'
 import type {
   AdminQueueEntry,
   AdminServiceEntry,
@@ -25,28 +25,13 @@ import { Icon } from 'src/app/components/icons'
 import { Toast, useToast } from 'src/app/components/toast'
 import { getInitials } from 'src/app/lib/initials'
 import { timeAgo } from 'src/app/lib/time-ago'
+import { toggleInSet } from 'src/app/lib/toggle-in-set'
 import { getServiceMeta } from 'src/app/service-meta'
 
 export type AdminDashboardClientProps = {
   initialQueue: AdminQueueEntry[]
   initialUsers: AdminUserEntry[]
   services: AdminServiceEntry[]
-}
-
-// The union of the registry's current hosts and a given user's own current
-// grants — not the registry alone — so a grant for a host that has since
-// left the registry (e.g. this app's own cutover, which renamed
-// login.lilnas.io to auth.lilnas.io) still shows up, checked, with a
-// checkbox available to uncheck it. Ported from the pre-merge
-// users-client.tsx's identical helper; see that file's own history for the
-// "why."
-function visibleServiceHosts(
-  userServices: string[],
-  services: AdminServiceEntry[],
-): string[] {
-  return [...new Set([...services.map(s => s.host), ...userServices])].sort(
-    (a, b) => a.localeCompare(b),
-  )
 }
 
 function ServiceChips({ hosts }: { hosts: string[] }) {
@@ -117,55 +102,6 @@ function PersonStatusChip({ user }: { user: AdminUserEntry }) {
   )
 }
 
-function ServiceCheckGrid({
-  hosts,
-  selected,
-  onToggle,
-  disabled,
-}: {
-  hosts: string[]
-  selected: Set<string>
-  onToggle: (host: string, checked: boolean) => void
-  disabled: boolean
-}) {
-  if (hosts.length === 0) {
-    return <p className="caption">No services discovered yet.</p>
-  }
-  return (
-    <div className="service-check-grid">
-      {hosts.map(host => {
-        const meta = getServiceMeta(host)
-        return (
-          <label key={host} className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={selected.has(host)}
-              onChange={event => onToggle(host, event.target.checked)}
-              disabled={disabled}
-            />
-            <span className="service-tile__icon h-[26px] w-[26px]">
-              <Icon name={meta.icon} />
-            </span>
-            <span className="small font-medium">{meta.name}</span>
-          </label>
-        )
-      })}
-    </div>
-  )
-}
-
-function toggleInSet<T>(set: Set<T>, value: T, present: boolean): Set<T> {
-  const next = new Set(set)
-  if (present) {
-    next.add(value)
-  } else {
-    next.delete(value)
-  }
-  return next
-}
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
 // ──────────────────────────────────────────────────────────────────────────────
 // The merged admin dashboard — replaces the pre-redesign /admin,
 // /admin/queue, and /admin/users pages with one screen (stat tiles,
@@ -186,6 +122,15 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 //     cards is a deliberate ADDITION beyond the mockups (which have no
 //     bulk affordance at all) — preserving a feature the pre-merge
 //     queue-client.tsx already had.
+//   - M2: the Add-person and Edit-access modals live in their own sibling
+//     files (add-person-modal.tsx, edit-access-modal.tsx) — each owns its
+//     own form state and submit handler, mounted below with a `key` that
+//     changes whenever it should reset (see each file's own header comment
+//     for why `key` rather than an effect). This component still owns
+//     `isAddModalOpen`/`accessModalUser` themselves, since both the
+//     Escape-key handler below and each modal's trigger points need to
+//     know which modal (if any) is open independently of the modal's own
+//     internals.
 //   - The Edit-access modal diffs against its own OPENING snapshot and
 //     calls setUserService() only for boxes that actually changed — never
 //     a full-set resubmit. This is load-bearing: users.service.ts's own
@@ -246,17 +191,9 @@ export function AdminDashboardClient({
   const { message, showToast } = useToast()
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
-  const [addEmail, setAddEmail] = useState('')
-  const [addEmailHasError, setAddEmailHasError] = useState(false)
-  const [addSelected, setAddSelected] = useState<Set<string>>(new Set())
-  const [addModalError, setAddModalError] = useState<string | null>(null)
-
   const [accessModalUser, setAccessModalUser] = useState<AdminUserEntry | null>(
     null,
   )
-  const [accessSelected, setAccessSelected] = useState<Set<string>>(new Set())
-  const [accessModalError, setAccessModalError] = useState<string | null>(null)
-  const accessSnapshotRef = useRef<Set<string>>(new Set())
 
   // A write-only trigger, bumped only by the SSE effect's own 'error'
   // handler below — see pending-client.tsx's identical `epoch` for the
@@ -491,13 +428,9 @@ export function AdminDashboardClient({
     })
   }
 
-  // ── Add-person modal ──────────────────────────────────────────────────
+  // ── Modals ────────────────────────────────────────────────────────────
 
   function openAddModal() {
-    setAddEmail('')
-    setAddEmailHasError(false)
-    setAddSelected(new Set())
-    setAddModalError(null)
     setIsAddModalOpen(true)
   }
 
@@ -505,88 +438,12 @@ export function AdminDashboardClient({
     setIsAddModalOpen(false)
   }
 
-  function handleAddConfirm() {
-    const email = addEmail.trim()
-    const valid = EMAIL_PATTERN.test(email)
-    setAddEmailHasError(!valid)
-    if (!valid) return
-
-    setAddModalError(null)
-    startTransition(async () => {
-      try {
-        for (const host of addSelected) {
-          await preAuthorizeUser(email, host)
-        }
-        // Only reconciles an EXISTING row (someone who has already signed
-        // in before) — a brand-new email correctly stays invisible in
-        // People until they actually sign in and materialize a `user` row
-        // (see UsersService.preAuthorize()'s own header comment). Nothing
-        // further to do for that case; the grant is real on the backend
-        // either way.
-        setUsers(prev =>
-          prev.map(u =>
-            u.email === email
-              ? {
-                  ...u,
-                  services: [...new Set([...u.services, ...addSelected])],
-                }
-              : u,
-          ),
-        )
-        showToast(`Access granted to ${email}`)
-        setIsAddModalOpen(false)
-      } catch (err) {
-        setAddModalError(
-          err instanceof Error ? err.message : 'Failed to add person',
-        )
-      }
-    })
-  }
-
-  // ── Edit-access modal ─────────────────────────────────────────────────
-
   function openAccessModal(user: AdminUserEntry) {
-    const current = new Set(user.services)
     setAccessModalUser(user)
-    setAccessSelected(current)
-    accessSnapshotRef.current = current
-    setAccessModalError(null)
   }
 
   function closeAccessModal() {
     setAccessModalUser(null)
-  }
-
-  function handleAccessConfirm() {
-    const user = accessModalUser
-    if (!user) return
-    const snapshot = accessSnapshotRef.current
-    const selected = accessSelected
-    const toGrant = [...selected].filter(host => !snapshot.has(host))
-    const toRevoke = [...snapshot].filter(host => !selected.has(host))
-
-    setAccessModalError(null)
-    startTransition(async () => {
-      try {
-        for (const host of toGrant) {
-          await setUserService(user.id, host, true)
-        }
-        for (const host of toRevoke) {
-          await setUserService(user.id, host, false)
-        }
-        setUsers(prev =>
-          prev.map(u =>
-            u.id === user.id ? { ...u, services: [...selected] } : u,
-          ),
-        )
-        showToast('Access updated')
-        setAccessModalUser(null)
-      } catch (err) {
-        setAccessModalError(
-          err instanceof Error ? err.message : 'Failed to update access',
-        )
-      }
-    })
   }
 
   // Escape closes whichever modal is open — mirrors the design mockups'
@@ -951,164 +808,29 @@ export function AdminDashboardClient({
         </div>
       </div>
 
-      <div
-        className={cns('modal-overlay', isAddModalOpen && 'is-open')}
-        onClick={event => {
-          if (event.target === event.currentTarget) closeAddModal()
-        }}
-      >
-        <div className="modal">
-          <div className="row between">
-            <h2 className="h2">Add a person</h2>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              aria-label="Close"
-              onClick={closeAddModal}
-            >
-              <Icon name="x" />
-            </button>
-          </div>
-          <p className="body-text muted">
-            Grant access directly without waiting for a request — useful for
-            onboarding family or friends ahead of time.
-          </p>
-          <div className={cns('field', addEmailHasError && 'has-error')}>
-            <label htmlFor="add-email">Email address</label>
-            <input
-              id="add-email"
-              className="input"
-              type="email"
-              placeholder="name@example.com"
-              value={addEmail}
-              onChange={event => setAddEmail(event.target.value)}
-            />
-            <span className="field-error">Enter a valid email address.</span>
-          </div>
-          <div className="field">
-            <label>Grant access to</label>
-            <ServiceCheckGrid
-              hosts={services.map(s => s.host)}
-              selected={addSelected}
-              onToggle={(host, checked) =>
-                setAddSelected(prev => toggleInSet(prev, host, checked))
-              }
-              disabled={isPending}
-            />
-          </div>
-          {addModalError ? (
-            <p role="alert" className="text-sm text-red-400">
-              {addModalError}
-            </p>
-          ) : null}
-          <div className="row justify-end gap-2.5">
-            <button
-              type="button"
-              className="btn btn-outline"
-              onClick={closeAddModal}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleAddConfirm}
-              disabled={isPending}
-            >
-              Grant access
-            </button>
-          </div>
-        </div>
-      </div>
+      <AddPersonModal
+        key={isAddModalOpen ? 'open' : 'closed'}
+        isOpen={isAddModalOpen}
+        onClose={closeAddModal}
+        services={services}
+        isPending={isPending}
+        startTransition={startTransition}
+        setUsers={setUsers}
+        showToast={showToast}
+      />
 
-      <div
-        className={cns('modal-overlay', accessModalUser && 'is-open')}
-        onClick={event => {
-          if (event.target === event.currentTarget) closeAccessModal()
-        }}
-      >
-        <div className="modal">
-          <div className="row between">
-            <h2 className="h2">Edit access</h2>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              aria-label="Close"
-              onClick={closeAccessModal}
-            >
-              <Icon name="x" />
-            </button>
-          </div>
-          {accessModalUser ? (
-            <div className="row-user">
-              <span className="avatar">
-                {getInitials(accessModalUser.email)}
-              </span>
-              <div className="row-user__text">
-                <span className="row-user__name">{accessModalUser.email}</span>
-              </div>
-            </div>
-          ) : null}
-          <div className="field">
-            <label>Services</label>
-            <ServiceCheckGrid
-              hosts={visibleServiceHosts(
-                accessModalUser?.services ?? [],
-                services,
-              )}
-              selected={accessSelected}
-              onToggle={(host, checked) =>
-                setAccessSelected(prev => toggleInSet(prev, host, checked))
-              }
-              disabled={isPending}
-            />
-          </div>
-          {accessModalError ? (
-            <p role="alert" className="text-sm text-red-400">
-              {accessModalError}
-            </p>
-          ) : null}
-          <div className="row between">
-            {accessModalUser ? (
-              <div className="row gap-2">
-                <button
-                  type="button"
-                  className="btn btn-outline btn-sm"
-                  onClick={() => handleSignOutEverywhere(accessModalUser.id)}
-                  disabled={isPending}
-                >
-                  Sign out everywhere
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost text-red-400 hover:bg-red-950/30 hover:text-red-300"
-                  onClick={() => handleRemove(accessModalUser.id)}
-                  disabled={isPending}
-                >
-                  Remove access
-                </button>
-              </div>
-            ) : null}
-            <div className="row gap-2.5">
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={closeAccessModal}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleAccessConfirm}
-                disabled={isPending}
-              >
-                Save access
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <EditAccessModal
+        key={accessModalUser?.id ?? 'none'}
+        user={accessModalUser}
+        onClose={closeAccessModal}
+        services={services}
+        isPending={isPending}
+        startTransition={startTransition}
+        setUsers={setUsers}
+        showToast={showToast}
+        onRemove={handleRemove}
+        onSignOutEverywhere={handleSignOutEverywhere}
+      />
 
       <Toast message={message} />
     </>

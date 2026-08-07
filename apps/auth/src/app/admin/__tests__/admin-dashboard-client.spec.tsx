@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 
 import { AdminDashboardClient } from 'src/app/admin/admin-dashboard-client'
 import type {
@@ -65,6 +71,11 @@ const SERVICES: AdminServiceEntry[] = [
   { host: 'swole.lilnas.io', gatedBy: 'forward-auth' },
 ]
 
+const TWO_SERVICES: AdminServiceEntry[] = [
+  { host: 'swole.lilnas.io', gatedBy: 'forward-auth' },
+  { host: 'tdr.lilnas.io', gatedBy: 'lilnas-auth' },
+]
+
 function buildUser(overrides: Partial<AdminUserEntry>): AdminUserEntry {
   return {
     id: 'user_1',
@@ -74,6 +85,19 @@ function buildUser(overrides: Partial<AdminUserEntry>): AdminUserEntry {
     isAdmin: false,
     ...overrides,
   }
+}
+
+// People/Blocked rows render TWICE (a desktop <table> row and a mobile
+// .person-card, for the responsive layout) with a duplicate "Edit access"
+// button each — anchoring on the row/card containing this specific email
+// (rather than an index into getAllByRole) finds the right one regardless
+// of how many other users are rendered or in what order.
+function editAccessButtonFor(email: string): HTMLElement {
+  const row = screen.getAllByText(email)[0]!.closest('tr, .person-card')
+  if (!row) throw new Error(`no row/card found for ${email}`)
+  return within(row as HTMLElement).getByRole('button', {
+    name: /edit access/i,
+  })
 }
 
 beforeEach(() => {
@@ -488,5 +512,212 @@ describe('AdminDashboardClient — Sign out everywhere (S2b)', () => {
         screen.getByText('No active sessions to sign out'),
       ).toBeInTheDocument()
     })
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────────────────
+// M2 split AddPersonModal/EditAccessModal out of this file into their own
+// sibling files (add-person-modal.tsx, edit-access-modal.tsx), moving their
+// state and submit handlers as-is. The pre-existing tests above already
+// cover Remove access/Sign out everywhere/Block/Unblock through the
+// Edit-access modal, so a broken prop hookup there would already fail one
+// of them — but neither the Add-person flow nor the Edit-access modal's own
+// base grant/revoke checkbox flow had any coverage before this split, and
+// the one thing that's genuinely NEW rather than moved (each modal resets
+// its own state via a `key` change instead of an imperative reset function
+// — see each file's own header comment) had no coverage at all. These
+// tests close both gaps.
+// ──────────────────────────────────────────────────────────────────────────────
+describe('AdminDashboardClient — Add person modal (M2)', () => {
+  it('a valid email with a service selected calls preAuthorizeUser and shows a success toast', async () => {
+    mockPreAuthorizeUser.mockResolvedValue(undefined)
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[]}
+        services={SERVICES}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /add person/i }))
+    const modal = screen
+      .getByRole('heading', { name: /add a person/i })
+      .closest('.modal') as HTMLElement
+    fireEvent.change(within(modal).getByLabelText('Email address'), {
+      target: { value: 'new.person@example.com' },
+    })
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
+    fireEvent.click(
+      within(modal).getByRole('button', { name: /grant access/i }),
+    )
+
+    await waitFor(() => {
+      expect(mockPreAuthorizeUser).toHaveBeenCalledWith(
+        'new.person@example.com',
+        'swole.lilnas.io',
+      )
+    })
+    await waitFor(() => {
+      expect(
+        screen.getByText('Access granted to new.person@example.com'),
+      ).toBeInTheDocument()
+    })
+  })
+
+  it('an invalid email is rejected without ever calling preAuthorizeUser', () => {
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[]}
+        services={SERVICES}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /add person/i }))
+    const modal = screen
+      .getByRole('heading', { name: /add a person/i })
+      .closest('.modal') as HTMLElement
+    fireEvent.change(within(modal).getByLabelText('Email address'), {
+      target: { value: 'not-an-email' },
+    })
+    fireEvent.click(
+      within(modal).getByRole('button', { name: /grant access/i }),
+    )
+
+    expect(mockPreAuthorizeUser).not.toHaveBeenCalled()
+  })
+
+  it('closing without submitting and reopening shows a blank form again, not the previously-typed value', () => {
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[]}
+        services={SERVICES}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /add person/i }))
+    const firstOpen = screen
+      .getByRole('heading', { name: /add a person/i })
+      .closest('.modal') as HTMLElement
+    fireEvent.change(within(firstOpen).getByLabelText('Email address'), {
+      target: { value: 'typed-but-not-submitted@example.com' },
+    })
+    expect(within(firstOpen).getByLabelText('Email address')).toHaveValue(
+      'typed-but-not-submitted@example.com',
+    )
+    fireEvent.click(within(firstOpen).getByRole('button', { name: /close/i }))
+
+    fireEvent.click(screen.getByRole('button', { name: /add person/i }))
+    const secondOpen = screen
+      .getByRole('heading', { name: /add a person/i })
+      .closest('.modal') as HTMLElement
+    expect(within(secondOpen).getByLabelText('Email address')).toHaveValue('')
+  })
+})
+
+describe('AdminDashboardClient — Edit access modal checkbox diffing (M2)', () => {
+  it('checking a not-yet-granted service and saving calls setUserService to grant exactly that service', async () => {
+    mockSetUserService.mockResolvedValue(undefined)
+    const user = buildUser({
+      id: 'user_1',
+      email: 'user@example.com',
+      services: [],
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[user]}
+        services={SERVICES}
+      />,
+    )
+
+    fireEvent.click(editAccessButtonFor('user@example.com'))
+    const modal = screen
+      .getByRole('heading', { name: /^edit access$/i })
+      .closest('.modal') as HTMLElement
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
+    fireEvent.click(within(modal).getByRole('button', { name: /save access/i }))
+
+    await waitFor(() => {
+      expect(mockSetUserService).toHaveBeenCalledWith(
+        'user_1',
+        'swole.lilnas.io',
+        true,
+      )
+    })
+    expect(mockSetUserService).toHaveBeenCalledTimes(1)
+  })
+
+  it('unchecking a currently-granted service and saving calls setUserService to revoke exactly that service', async () => {
+    mockSetUserService.mockResolvedValue(undefined)
+    const user = buildUser({
+      id: 'user_1',
+      email: 'user@example.com',
+      services: ['swole.lilnas.io'],
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[user]}
+        services={SERVICES}
+      />,
+    )
+
+    fireEvent.click(editAccessButtonFor('user@example.com'))
+    const modal = screen
+      .getByRole('heading', { name: /^edit access$/i })
+      .closest('.modal') as HTMLElement
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
+    fireEvent.click(within(modal).getByRole('button', { name: /save access/i }))
+
+    await waitFor(() => {
+      expect(mockSetUserService).toHaveBeenCalledWith(
+        'user_1',
+        'swole.lilnas.io',
+        false,
+      )
+    })
+    expect(mockSetUserService).toHaveBeenCalledTimes(1)
+  })
+
+  it("editing one user then a different user without saving shows the second user's own services, not the first user's uncommitted edits", () => {
+    const userA = buildUser({
+      id: 'user_a',
+      email: 'a@example.com',
+      services: ['swole.lilnas.io'],
+    })
+    const userB = buildUser({
+      id: 'user_b',
+      email: 'b@example.com',
+      services: ['tdr.lilnas.io'],
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[userA, userB]}
+        services={TWO_SERVICES}
+      />,
+    )
+
+    fireEvent.click(editAccessButtonFor('a@example.com'))
+    let modal = screen
+      .getByRole('heading', { name: /^edit access$/i })
+      .closest('.modal') as HTMLElement
+    // Flip both checkboxes for A — never saved, only Cancel below.
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /tdr/i }))
+    fireEvent.click(within(modal).getByRole('button', { name: /^cancel$/i }))
+
+    fireEvent.click(editAccessButtonFor('b@example.com'))
+    modal = screen
+      .getByRole('heading', { name: /^edit access$/i })
+      .closest('.modal') as HTMLElement
+    // B's own real services (tdr, not swole) — if A's uncommitted edits had
+    // leaked, this would show the opposite of both checkboxes.
+    expect(
+      within(modal).getByRole('checkbox', { name: /swole/i }),
+    ).not.toBeChecked()
+    expect(within(modal).getByRole('checkbox', { name: /tdr/i })).toBeChecked()
   })
 })
