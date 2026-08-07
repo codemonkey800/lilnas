@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull } from 'drizzle-orm'
+import { and, count, desc, eq, isNotNull } from 'drizzle-orm'
 
 import type { Db } from 'src/db/database.module'
 import { accessRequest, type AccessRequestRow, user } from 'src/db/schema'
@@ -169,15 +169,17 @@ export function countPriorDecisions(
   userId: string,
   serviceHost: string,
 ): number {
-  return db
-    .select()
-    .from(accessRequest)
-    .where(
-      and(
-        eq(accessRequest.userId, userId),
-        eq(accessRequest.serviceHost, serviceHost),
-        isNotNull(accessRequest.decidedAt),
-      ),
-    )
-    .all().length
+  return (
+    db
+      .select({ count: count() })
+      .from(accessRequest)
+      .where(
+        and(
+          eq(accessRequest.userId, userId),
+          eq(accessRequest.serviceHost, serviceHost),
+          isNotNull(accessRequest.decidedAt),
+        ),
+      )
+      .get()?.count ?? 0
+  )
 }

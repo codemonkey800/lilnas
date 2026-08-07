@@ -162,12 +162,26 @@ export function findUserById(
 // schema.ts's own comment on this column is explicit that null IS "never
 // blocked" (not a separate boolean), so clearing it is a real unblock, not
 // a soft-delete of a "blocked" record.
+//
+// S6: returns the row count an UPDATE against a nonexistent userId is a
+// silent no-op in SQLite, not an error — so without this, UsersService.
+// blockUser()/unblockUser() had no way to tell "blocked a real user" from
+// "matched nothing," and would go on to add that userId into
+// AccessCacheService's in-memory blockedUserIds Set regardless — a
+// permanent phantom entry with no real user behind it, since nothing ever
+// removes it short of a process restart (onModuleInit() reloads from the
+// DB, which correctly omits it).
 export function setBlockedAt(
   executor: Executor,
   userId: string,
   blockedAt: Date | null,
-): void {
-  executor.update(user).set({ blockedAt }).where(eq(user.id, userId)).run()
+): number {
+  const result = executor
+    .update(user)
+    .set({ blockedAt })
+    .where(eq(user.id, userId))
+    .run()
+  return result.changes
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

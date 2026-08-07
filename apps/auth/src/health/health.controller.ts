@@ -27,6 +27,11 @@ import { DB, type Db, type WithSqliteClient } from 'src/db/database.module'
 // call — this is the same pattern @nestjs/terminus itself uses for health
 // checks, and keeps this controller on Nest's normal response pipeline
 // (interceptors, serialization) instead of the escape hatch.
+//
+// S5: also deliberately NO @UseGuards(ThrottlerGuard) — a liveness probe
+// polling continuously (autoLogging already excludes this route for the
+// same reason) must never itself start failing under its own load. See
+// app.module.ts's ThrottlerModule.forRoot() comment.
 @Controller('health')
 export class HealthController {
   constructor(@Inject(DB) private readonly db: Db) {}

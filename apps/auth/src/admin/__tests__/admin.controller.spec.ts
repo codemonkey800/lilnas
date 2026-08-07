@@ -1,6 +1,8 @@
+import { BadRequestException } from '@nestjs/common'
 import BetterSqlite3 from 'better-sqlite3'
 import { and, desc, eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
+import type { PinoLogger } from 'nestjs-pino'
 
 import { AdminController } from 'src/admin/admin.controller'
 import { UsersService } from 'src/admin/users.service'
@@ -22,6 +24,14 @@ function createTestDb() {
   return { db, sqlite, close: () => sqlite.close() }
 }
 
+// UsersService's own S2b session-revocation audit trail is not this suite's
+// concern (this file only proves AdminController's own route wiring — see
+// its header comment) — a bare stand-in is enough to satisfy the
+// constructor.
+function fakeLogger(): PinoLogger {
+  return { warn: jest.fn() } as unknown as PinoLogger
+}
+
 // Same stand-in pattern as requests.service.spec.ts/sse.controller.spec.ts —
 // AdminController's own routes never call any of these (they only exist so
 // RequestsService's constructor is satisfiable), which is itself part of
@@ -33,6 +43,7 @@ function fakeAccessCache(): AccessCacheService {
     isBlocked: jest.fn().mockReturnValue(false),
     hasGrant: jest.fn().mockReturnValue(false),
     resolveSession: jest.fn(),
+    invalidateSessionsForUser: jest.fn(),
   } as unknown as AccessCacheService
 }
 
@@ -64,6 +75,22 @@ function seedUser(db: Db, email?: string): string {
     })
     .run()
   return id
+}
+
+let sessionCounter = 0
+function seedSession(db: Db, userId: string): void {
+  const id = `session_${sessionCounter++}`
+  const now = new Date()
+  db.insert(schema.session)
+    .values({
+      id,
+      userId,
+      token: `token_${id}`,
+      expiresAt: new Date(now.getTime() + 60_000),
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run()
 }
 
 function seedPendingRow(db: Db, userId: string, serviceHost: string): number {
@@ -142,7 +169,12 @@ describe('AdminController', () => {
       testDb.db,
       requestsService,
       fakeServiceRegistry(),
-      new UsersService(testDb.db, fakeAccessCache(), new NotifyBusService()),
+      new UsersService(
+        testDb.db,
+        fakeAccessCache(),
+        new NotifyBusService(),
+        fakeLogger(),
+      ),
     )
   })
 
@@ -230,7 +262,12 @@ describe('AdminController', () => {
         testDb.db,
         requestsService,
         fakeServiceRegistry(entries),
-        new UsersService(testDb.db, fakeAccessCache(), new NotifyBusService()),
+        new UsersService(
+          testDb.db,
+          fakeAccessCache(),
+          new NotifyBusService(),
+          fakeLogger(),
+        ),
       )
 
       await expect(registryController.services()).resolves.toEqual(entries)
@@ -332,6 +369,181 @@ describe('AdminController', () => {
       const result = controller.bulkReject({ ids: [idA, idB] })
 
       expect(result).toEqual({ ok: true, decided: [idA] })
+    })
+  })
+
+  describe('revoke-sessions route wiring (S2b)', () => {
+    it('revokeSessions() delegates to UsersService and actually deletes the session rows (real DB, not a mock)', () => {
+      const userId = seedUser(testDb.db)
+      seedSession(testDb.db, userId)
+      seedSession(testDb.db, userId)
+
+      const result = controller.revokeSessions(userId)
+
+      expect(result).toEqual({ ok: true, sessionsRevoked: 2 })
+      expect(
+        testDb.db
+          .select()
+          .from(schema.session)
+          .all()
+          .filter(row => row.userId === userId),
+      ).toHaveLength(0)
+    })
+
+    it('reports 0 for a user with no active sessions, rather than throwing', () => {
+      const userId = seedUser(testDb.db)
+
+      expect(controller.revokeSessions(userId)).toEqual({
+        ok: true,
+        sessionsRevoked: 0,
+      })
+    })
+  })
+
+  describe('request-body validation (S3)', () => {
+    it('bulkReject() rejects an invalid body with BadRequestException and never reaches RequestsService', () => {
+      expect(() => controller.bulkReject({ ids: [] })).toThrow(
+        BadRequestException,
+      )
+      expect(() => controller.queue()).not.toThrow()
+      expect(controller.queue()).toEqual([])
+    })
+
+    it('preAuthorize() rejects a malformed email with BadRequestException', async () => {
+      await expect(
+        controller.preAuthorize({
+          email: 'not-an-email',
+          serviceHosts: ['swole.lilnas.io'],
+        }),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    // The actual bug this closes: setUserServices() used to do
+    // `if (body.grant)`, and a JSON body of {"grant": "false"} deserializes
+    // to the STRING "false" — a non-empty string, so the old truthy check
+    // silently granted when the caller meant to revoke. This now fails
+    // validation outright instead of being misinterpreted.
+    it('covers the S3 fix: setUserServices() rejects grant: "false" (a string) rather than treating it as truthy', async () => {
+      const userId = seedUser(testDb.db)
+
+      await expect(
+        controller.setUserServices(userId, {
+          changes: [{ serviceHost: 'swole.lilnas.io', grant: 'false' }],
+        }),
+      ).rejects.toThrow(BadRequestException)
+
+      // Confirms the old bug's actual consequence never happens: no grant
+      // was written for the mis-typed "revoke" request.
+      expect(
+        testDb.db
+          .select()
+          .from(schema.grant)
+          .where(eq(schema.grant.userId, userId))
+          .all(),
+      ).toHaveLength(0)
+    })
+
+    it('setUserServices() still accepts a real boolean grant and writes the grant', async () => {
+      const registryController = new AdminController(
+        testDb.db,
+        requestsService,
+        fakeServiceRegistry([
+          { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
+        ]),
+        new UsersService(
+          testDb.db,
+          fakeAccessCache(),
+          new NotifyBusService(),
+          fakeLogger(),
+        ),
+      )
+      const userId = seedUser(testDb.db)
+
+      await expect(
+        registryController.setUserServices(userId, {
+          changes: [{ serviceHost: 'swole.lilnas.io', grant: true }],
+        }),
+      ).resolves.toEqual({ ok: true })
+      expect(
+        testDb.db
+          .select()
+          .from(schema.grant)
+          .where(eq(schema.grant.userId, userId))
+          .all(),
+      ).toHaveLength(1)
+    })
+
+    // M3: the whole point of the batched shape — one call carries every
+    // change the admin made, not one call per checkbox.
+    it('setUserServices() with multiple changes writes every one of them in a single call', async () => {
+      const registryController = new AdminController(
+        testDb.db,
+        requestsService,
+        fakeServiceRegistry([
+          { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
+          { host: 'tdr.lilnas.io', gatedBy: 'lilnas-auth' },
+        ]),
+        new UsersService(
+          testDb.db,
+          fakeAccessCache(),
+          new NotifyBusService(),
+          fakeLogger(),
+        ),
+      )
+      const userId = seedUser(testDb.db)
+
+      await expect(
+        registryController.setUserServices(userId, {
+          changes: [
+            { serviceHost: 'swole.lilnas.io', grant: true },
+            { serviceHost: 'tdr.lilnas.io', grant: true },
+          ],
+        }),
+      ).resolves.toEqual({ ok: true })
+      expect(
+        testDb.db
+          .select()
+          .from(schema.grant)
+          .where(eq(schema.grant.userId, userId))
+          .all(),
+      ).toHaveLength(2)
+    })
+
+    // M3: registry validation runs on EVERY grant:true entry before any of
+    // them are written — an unknown host anywhere in the batch fails the
+    // whole request, even alongside an otherwise-valid, known host, rather
+    // than partially applying the known ones first.
+    it('setUserServices() rejects the whole batch if any grant:true entry names an unknown host, writing nothing — not even the known one', async () => {
+      const registryController = new AdminController(
+        testDb.db,
+        requestsService,
+        fakeServiceRegistry([
+          { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
+        ]),
+        new UsersService(
+          testDb.db,
+          fakeAccessCache(),
+          new NotifyBusService(),
+          fakeLogger(),
+        ),
+      )
+      const userId = seedUser(testDb.db)
+
+      await expect(
+        registryController.setUserServices(userId, {
+          changes: [
+            { serviceHost: 'swole.lilnas.io', grant: true },
+            { serviceHost: 'not-a-real-service.lilnas.io', grant: true },
+          ],
+        }),
+      ).rejects.toThrow(/not a known service/)
+      expect(
+        testDb.db
+          .select()
+          .from(schema.grant)
+          .where(eq(schema.grant.userId, userId))
+          .all(),
+      ).toHaveLength(0)
     })
   })
 })

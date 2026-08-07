@@ -26,30 +26,47 @@ services:
       # catches this and prints this same diagnostic (mirrors
       # apps/swole/src/db/client.ts's identical guard).
       - /storage/app-data/lilnas-auth:/data
-      # Read-only compose-label discovery for U8's service registry (an
-      # adaptation of getHostsFromFiles() from
-      # apps/portal/src/utils/hosts.ts — file-based, not the Docker socket;
-      # see that file's docker-socket-free rationale, echoed in this plan's
-      # Key Technical Decisions). Nothing reads these paths yet in this
-      # unit; the mount is established now so U8 is a pure code change with
-      # no deployment-config diff. Source paths are relative to this
-      # compose file's own directory (apps/auth/), matching every
-      # other deploy.yml's ../.. convention.
-      #
-      # SECURITY NOTE (flagged for the plan owner — not silently resolved
-      # here, since narrowing it is a judgment call beyond this unit's
-      # scope): each apps/*/deploy.yml sits alongside that app's own
-      # .env.prod on the deploy host. A directory-level bind mount of the
-      # whole apps/ tree means every app's production secrets are readable
-      # from inside this container's filesystem if it is ever compromised
-      # (e.g. a future admin-UI RCE) — `:ro` prevents tampering, not
-      # reading. U8's actual code only needs each deploy.yml's `labels:`
-      # (routing rules, no secrets) and infra/*.yml, so a narrower mount
-      # (or relocating .env.prod outside apps/*) would close this gap. This
-      # unit implements the mount exactly as the plan specifies rather than
-      # deviating unilaterally.
-      - ../../infra:/repo/infra:ro
-      - ../../apps:/repo/apps:ro
+      # Per-file, read-only compose-label discovery for the service
+      # registry (src/services/service-registry.service.ts) — an adaptation
+      # of getHostsFromFiles() from apps/portal/src/utils/hosts.ts,
+      # deliberately file-based rather than the Docker socket (a docker.sock
+      # mount would grant this internet-facing container effective host
+      # root). Only `labels:` are ever read from these files, but each
+      # deploy.yml sits alongside that app's own .env.prod on the deploy
+      # host, and infra/ holds several real secret files
+      # (.env.storage, .env.forward-auth, etc.) — a directory-level mount of
+      # either tree would make every one of those readable from inside this
+      # container if it were ever compromised (e.g. an admin-UI RCE). Each
+      # compose file this app's registry actually scans is mounted
+      # individually instead, so no other file in apps/ or infra/ — secret
+      # or otherwise — is ever reachable through this container's
+      # filesystem. src/services/__tests__/compose-mount-coverage.spec.ts
+      # fails the build if a new apps/*/deploy.yml or infra/*.yml is added
+      # here without a matching line below. Docker creates the intermediate
+      # /repo/apps/<name>/ and /repo/infra/ directories for these file
+      # mounts automatically, so scanServiceRegistry()'s own directory
+      # listing needs no code change.
+      - ../../infra/design.yml:/repo/infra/design.yml:ro
+      - ../../infra/files.yml:/repo/infra/files.yml:ro
+      - ../../infra/immich.yml:/repo/infra/immich.yml:ro
+      - ../../infra/l4d2.yml:/repo/infra/l4d2.yml:ro
+      - ../../infra/media.yml:/repo/infra/media.yml:ro
+      - ../../infra/minecraft.yml:/repo/infra/minecraft.yml:ro
+      - ../../infra/monitoring.yml:/repo/infra/monitoring.yml:ro
+      - ../../infra/nexus-code-mbp.yml:/repo/infra/nexus-code-mbp.yml:ro
+      - ../../infra/nexus-code.yml:/repo/infra/nexus-code.yml:ro
+      - ../../infra/palworld.yml:/repo/infra/palworld.yml:ro
+      - ../../infra/proxy.yml:/repo/infra/proxy.yml:ro
+      - ../../infra/shared.yml:/repo/infra/shared.yml:ro
+      - ../../apps/auth/deploy.yml:/repo/apps/auth/deploy.yml:ro
+      - ../../apps/dashcam/deploy.yml:/repo/apps/dashcam/deploy.yml:ro
+      - ../../apps/download/deploy.yml:/repo/apps/download/deploy.yml:ro
+      - ../../apps/equations/deploy.yml:/repo/apps/equations/deploy.yml:ro
+      - ../../apps/me-token-tracker/deploy.yml:/repo/apps/me-token-tracker/deploy.yml:ro
+      - ../../apps/portal/deploy.yml:/repo/apps/portal/deploy.yml:ro
+      - ../../apps/swole/deploy.yml:/repo/apps/swole/deploy.yml:ro
+      - ../../apps/tdr-bot/deploy.yml:/repo/apps/tdr-bot/deploy.yml:ro
+      - ../../apps/tdr-code/deploy.yml:/repo/apps/tdr-code/deploy.yml:ro
     # Probes Nest's /health on :8081 directly — deliberately NOT Next's
     # :8080. A dead/crashed Next process must never restart this container,
     # because a restart would also interrupt /verify (once U5 exists) for

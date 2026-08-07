@@ -1,5 +1,5 @@
 import BetterSqlite3 from 'better-sqlite3'
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 
 import { applyPragmas, type Db, runMigrations } from 'src/db/database.module'
@@ -382,6 +382,9 @@ describe('RequestsService.approveRequest / rejectRequest / bulkReject (U7)', () 
         lastSeenAt: now,
       })
       .run()
+    // Ordered desc by id: a pair can accumulate prior decided rows (R12
+    // history), so without this a plain match-and-.get() can return an
+    // older row instead of the pending one this call just inserted.
     const row = testDb.db
       .select()
       .from(schema.accessRequest)
@@ -391,6 +394,8 @@ describe('RequestsService.approveRequest / rejectRequest / bulkReject (U7)', () 
           eq(schema.accessRequest.serviceHost, serviceHost),
         ),
       )
+      .orderBy(desc(schema.accessRequest.id))
+      .limit(1)
       .get()
     if (!row) throw new Error('expected the row just inserted')
     return row.id
@@ -567,5 +572,28 @@ describe('RequestsService.approveRequest / rejectRequest / bulkReject (U7)', () 
     expect(
       requestsRepo.countPriorDecisions(testDb.db, userId, 'swole.lilnas.io'),
     ).toBe(1)
+  })
+
+  it('P3: countPriorDecisions aggregates multiple decisions but excludes pending rows and other (userId, serviceHost) pairs', () => {
+    const userId = seedUser(testDb.db)
+    const otherUserId = seedUser(testDb.db)
+
+    // Three prior decisions for the exact pair under test.
+    service.rejectRequest(seedPendingRow(userId, 'swole.lilnas.io'))
+    service.approveRequest(seedPendingRow(userId, 'swole.lilnas.io'))
+    service.rejectRequest(seedPendingRow(userId, 'swole.lilnas.io'))
+
+    // A still-pending row for the same pair must not count as "decided".
+    seedPendingRow(userId, 'swole.lilnas.io')
+
+    // A decision for a different serviceHost, same user, must not count.
+    service.rejectRequest(seedPendingRow(userId, 'tdr.lilnas.io'))
+
+    // A decision for a different user, same serviceHost, must not count.
+    service.rejectRequest(seedPendingRow(otherUserId, 'swole.lilnas.io'))
+
+    expect(
+      requestsRepo.countPriorDecisions(testDb.db, userId, 'swole.lilnas.io'),
+    ).toBe(3)
   })
 })
