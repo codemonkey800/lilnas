@@ -16,28 +16,29 @@ import {
 } from 'src/grants/grants.repo'
 
 // ──────────────────────────────────────────────────────────────────────────────
-// U5 (R2, R4, R16 enforcement half): the preloaded, write-through-invalidated
-// in-memory cache backing every /verify decision. Three independent things
-// live here, all zero-I/O once warm:
+// The preloaded, write-through-invalidated in-memory cache backing every
+// /verify decision. Three independent things live here, all zero-I/O once
+// warm:
 //
-//   1. grantsByUser — who can reach what (R1-R4). Preloaded at boot from
+//   1. grantsByUser — who can reach what. Preloaded at boot from
 //      grants.repo.ts; mutated in place by addGrant/removeGrant, the write-
-//      through invalidation surface U7 (approve) and U9 (revoke/edit) will
-//      call after their own DB writes.
-//   2. blockedUserIds — R16's enforcement half. Preloaded at boot; mutated
-//      in place by blockUser/unblockUser, U9's future write-through surface.
-//      Read fresh on every decision (never itself session-cached), which is
-//      exactly what makes a blocked account with a stale grant still reach
-//      nothing (AE6) — blocking takes effect independent of whatever is
-//      cached in sessionCache below.
+//      through invalidation surface requests.service.ts's approveRequest()
+//      and users.service.ts's edit/revoke actions call after their own DB
+//      writes.
+//   2. blockedUserIds — the block/unblock enforcement half. Preloaded at
+//      boot; mutated in place by blockUser/unblockUser, users.service.ts's
+//      write-through surface. Read fresh on every decision (never itself
+//      session-cached), which is exactly what makes a blocked account with
+//      a stale grant still reach nothing — blocking takes effect
+//      independent of whatever is cached in sessionCache below.
 //   3. sessionCache — resolveSession()'s own cache. See that method's
 //      comment for the full session-cache design and why it diverges from
-//      the plan's `databaseHooks.session.create.after` sketch.
+//      a `databaseHooks.session.create.after`-based design that seems
+//      obvious at first.
 //
-// U7's admin.controller.ts (approve/reject) and U9's users.service.ts
-// (block/unblock/grant edits) are this file's actual write-through
-// invalidation callers — see addGrant/removeGrant/blockUser/unblockUser
-// below.
+// admin.controller.ts (approve/reject) and users.service.ts (block/unblock/
+// grant edits) are this file's actual write-through invalidation callers —
+// see addGrant/removeGrant/blockUser/unblockUser below.
 // ──────────────────────────────────────────────────────────────────────────────
 
 // A resolved, POSITIVE session result only, cached by the EXTRACTED
@@ -125,7 +126,7 @@ export class AccessCacheService implements OnModuleInit {
     string,
     Promise<{ userId: string; email: string } | null>
   >()
-  // U9 (R15): pre-authorizations awaiting a first sign-in, keyed by email
+  // Pre-authorizations awaiting a first sign-in, keyed by email
   // (not userId — there is no userId yet). See bindPreAuthorizedGrant()'s
   // own header comment for the full binding design and why it runs here,
   // lazily, rather than from a databaseHooks.user.create.after auth-time
@@ -140,9 +141,9 @@ export class AccessCacheService implements OnModuleInit {
 
   // Preloads grants, blocked accounts, and pending pre-authorizations once,
   // at boot — the ONE DB read this whole cache pays outside of a session
-  // cache miss or a pre-authorization bind (R2's "no I/O in steady state"
-  // is about the STEADY STATE, not process startup or the rare one-time
-  // event a specific user's very first post-pre-authorization verify is).
+  // cache miss or a pre-authorization bind ("no I/O in steady state" is
+  // about the STEADY STATE, not process startup or the rare one-time event
+  // a specific user's very first post-pre-authorization verify is).
   onModuleInit(): void {
     for (const { userId, serviceHost } of listAllGrants(this.db)) {
       this.addGrant(userId, serviceHost)
@@ -155,15 +156,15 @@ export class AccessCacheService implements OnModuleInit {
     }
   }
 
-  // ── Grants (R1-R4) ──────────────────────────────────────────────────
+  // ── Grants ────────────────────────────────────────────────────────────
 
   hasGrant(userId: string, serviceHost: string): boolean {
     return this.grantsByUser.get(userId)?.has(serviceHost) ?? false
   }
 
-  // Write-through invalidation surface for U7's approve action and U9's
-  // "edit a user's services" / pre-authorize-by-email actions. Idempotent
-  // — granting an already-granted pair is a no-op on the underlying Set.
+  // Write-through invalidation surface for the approve action and "edit a
+  // user's services" / pre-authorize-by-email actions. Idempotent —
+  // granting an already-granted pair is a no-op on the underlying Set.
   addGrant(userId: string, serviceHost: string): void {
     let hosts = this.grantsByUser.get(userId)
     if (!hosts) {
@@ -173,15 +174,15 @@ export class AccessCacheService implements OnModuleInit {
     hosts.add(serviceHost)
   }
 
-  // Write-through invalidation surface for U9's revoke / "edit a user's
+  // Write-through invalidation surface for the revoke / "edit a user's
   // services" actions. Removing a pair that was never granted is a no-op.
   removeGrant(userId: string, serviceHost: string): void {
     this.grantsByUser.get(userId)?.delete(serviceHost)
   }
 
-  // ── Pre-authorization (R15) ──────────────────────────────────────────
+  // ── Pre-authorization ─────────────────────────────────────────────────
 
-  // Write-through invalidation surface for U9's "pre-authorize by email"
+  // Write-through invalidation surface for the "pre-authorize by email"
   // admin action, called AFTER that action's own DB insert (mirrors
   // addGrant's own write-then-cache-update ordering). Idempotent, matching
   // the underlying table's own unique index.
@@ -215,7 +216,7 @@ export class AccessCacheService implements OnModuleInit {
   }
 
   /**
-   * U9 (R15): "the grant binds on first sign-in." Called by
+   * "The grant binds on first sign-in." Called by
    * VerifyService.decide() ONLY on the already-rare "no grant found"
    * branch (never on the hot, already-granted path), so this is checked
    * for every unauthorized request but only ever WRITES for the specific,
@@ -238,8 +239,8 @@ export class AccessCacheService implements OnModuleInit {
    * whose factory would need AccessCacheService — finishes constructing.
    * A hook that only writes the DB without also updating this cache would
    * leave a genuinely new user's first verify reading a stale (empty)
-   * in-memory grant set, silently reintroducing the pending page R15
-   * explicitly says must not appear.
+   * in-memory grant set, silently sending a pre-authorized user to the
+   * pending page instead of straight through.
    *
    * This method sidesteps that circularity entirely: AccessCacheService
    * already has both the DB and its own in-memory maps, so it can bind a
@@ -309,22 +310,22 @@ export class AccessCacheService implements OnModuleInit {
     return hostsToBind.includes(forwardedHost)
   }
 
-  // ── Blocked status (R16 enforcement half) ───────────────────────────
+  // ── Blocked status ────────────────────────────────────────────────────
 
   isBlocked(userId: string): boolean {
     return this.blockedUserIds.has(userId)
   }
 
-  // Write-through invalidation surface for U9's block action. Takes effect
+  // Write-through invalidation surface for the block action. Takes effect
   // on the very next verify for this user, no restart — VerifyService
   // checks this Set fresh on every decision (never itself session-cached),
-  // which is exactly what makes AE6 hold: a blocked account's session can
-  // still be a warm cache hit while its blocked status is read live.
+  // so a blocked account's session can still be a warm cache hit while its
+  // blocked status is read live.
   blockUser(userId: string): void {
     this.blockedUserIds.add(userId)
   }
 
-  // Write-through invalidation surface for U9's unblock action.
+  // Write-through invalidation surface for the unblock action.
   unblockUser(userId: string): void {
     this.blockedUserIds.delete(userId)
   }
@@ -370,14 +371,14 @@ export class AccessCacheService implements OnModuleInit {
 
   /**
    * Resolves a raw `Cookie` header to `{ userId, email }`, or `null` if it
-   * carries no valid session — zero I/O on a cache hit (R2).
+   * carries no valid session — zero I/O on a cache hit.
    *
-   * DESIGN, AND WHY IT DIVERGES FROM THE PLAN'S HOOK-BASED SKETCH:
+   * DESIGN, AND WHY IT DIVERGES FROM A HOOK-BASED APPROACH:
    *
-   * The plan's Key Technical Decisions describe sessions populating via a
-   * better-auth `databaseHooks.session.create.after` hook plus a lazy
-   * DB-read fallback. That mechanism cannot work as described: the hook
-   * fires with the RAW, UNSIGNED `session.token` at creation time — before
+   * A `databaseHooks.session.create.after` hook plus a lazy DB-read
+   * fallback might seem like the obvious way to populate this cache. That
+   * mechanism cannot work as described: the hook fires with the RAW,
+   * UNSIGNED `session.token` at creation time — before
    * Better Auth ever constructs the SIGNED cookie value a browser actually
    * carries (name `better-auth.session_token`, or
    * `__Secure-better-auth.session_token` when AUTH_HOST is https —
@@ -390,11 +391,7 @@ export class AccessCacheService implements OnModuleInit {
    * looked up by anything /verify can cheaply derive from an incoming
    * SIGNED cookie without reimplementing that private signing/verification
    * scheme ourselves, which would duplicate crypto internals with no
-   * compatibility guarantee across better-auth versions. The plan's own
-   * "Deferred to Implementation" section explicitly flagged this exact
-   * mechanism as something to determine by reading the installed source
-   * during this unit, not a fixed spec — reading that source is exactly
-   * what surfaced this problem.
+   * compatibility guarantee across better-auth versions.
    *
    * ACTUAL DESIGN: cache by extractSessionCookieValue()'s result — the
    * Better Auth session cookie's OWN value, not the whole raw `Cookie`
@@ -461,9 +458,9 @@ export class AccessCacheService implements OnModuleInit {
    * means revocation converges within `MAX_SESSION_CACHE_MS` regardless of
    * how long the session itself is configured to live, at the cost of one
    * DB read per session per clamp interval in steady state — still
-   * effectively zero-I/O (R2's "no I/O in steady state" is about request
-   * VOLUME, not about a fixed, small number of reads per session per
-   * minute).
+   * effectively zero-I/O: the "no I/O in steady state" property is about
+   * request VOLUME, not about a fixed, small number of reads per session
+   * per minute.
    *
    * On lookup, an entry whose `expiresAtMs` has passed falls through to a
    * REAL getSession() call — deliberately, not an oversight, and NOT the
@@ -560,10 +557,9 @@ export class AccessCacheService implements OnModuleInit {
         // `disableRefresh: true` is NOT optional polish — without it this
         // "read-only" cache-miss path silently performs a WRITE. Found by
         // reading installed better-auth@1.6.23's dist/api/routes/
-        // session.mjs (not assumed from the plan's prose, which asserts
-        // "Zero I/O means updateAge never fires on the verify path" as
-        // though that followed automatically from this cache design — it
-        // does not): getSession() computes `shouldBeUpdated =
+        // session.mjs — not assumed to follow automatically from this
+        // cache's zero-I/O design, because it does not follow
+        // automatically: getSession() computes `shouldBeUpdated =
         // session.expiresAt - expiresIn*1000 + updateAge*1000 <=
         // Date.now()` and, whenever that holds (i.e. the session is within
         // `updateAge` — 1440*60s = 1 DAY by default, confirmed in
@@ -575,22 +571,21 @@ export class AccessCacheService implements OnModuleInit {
         // ONE deliberate DB read on a cold miss would, for a large and
         // entirely normal slice of real traffic, quietly become a DB
         // WRITE too — precisely the "no rolling session refresh from
-        // /verify" property the plan's Key Technical Decisions require,
-        // silently violated by the library's own default. `disableRefresh`
-        // (documented in better-auth's own getSessionQuerySchema as
-        // "Useful for checking session status, without updating the
-        // session") makes getSession() return the CURRENT row's real
-        // session.expiresAt unmodified — exactly the semantics
-        // resolveSession()'s own expiresAtMs cache-lifetime design below
-        // depends on. Discovered via this unit's own "session past its
-        // cached expiresAt" test: forcing the DB row to a near-future
-        // expiresAt and expecting it to read back unmodified only works
-        // with this flag set — without it, the forced near-expiry
-        // triggered exactly the refresh path above, silently extending the
-        // session back out to a fresh 30-day expiresAt and defeating the
-        // entire test (and, in production, defeating any attempt to reason
-        // about this cache's TTL from the session's own configured
-        // lifetime at all).
+        // /verify" property this cache depends on, silently violated by
+        // the library's own default. `disableRefresh` (documented in
+        // better-auth's own getSessionQuerySchema as "Useful for checking
+        // session status, without updating the session") makes
+        // getSession() return the CURRENT row's real session.expiresAt
+        // unmodified — exactly the semantics resolveSession()'s own
+        // expiresAtMs cache-lifetime design below depends on. Discovered
+        // via the "session past its cached expiresAt" test: forcing the DB
+        // row to a near-future expiresAt and expecting it to read back
+        // unmodified only works with this flag set — without it, the
+        // forced near-expiry triggered exactly the refresh path above,
+        // silently extending the session back out to a fresh 30-day
+        // expiresAt and defeating the entire test (and, in production,
+        // defeating any attempt to reason about this cache's TTL from the
+        // session's own configured lifetime at all).
         query: { disableRefresh: true },
       })
     } catch (err) {

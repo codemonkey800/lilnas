@@ -42,8 +42,8 @@ export type QueueEntry = {
   serviceHost: string
   createdAt: string
   lastSeenAt: string
-  // R12: "4th request, rejected 3x" — the count of prior DECIDED rows for
-  // this same (userId, serviceHost) pair, the only recovery route for a
+  // "4th request, rejected 3x" — the count of prior DECIDED rows for this
+  // same (userId, serviceHost) pair, the only recovery route for a
   // mis-clicked rejection.
   priorDecisions: number
 }
@@ -70,12 +70,11 @@ export type AdminUserEntry = {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// U7 (R10, R11, R12, R17; F2, F3; AE5): the admin API surface. Authorization
-// is AdminGuard alone — see that file's header comment for why it never
-// touches the grants table. ThrottlerGuard (S5) is layered on top of that,
-// not instead of it — see app.module.ts's ThrottlerModule.forRoot() comment
-// for the tier values and why this controller gets one but VerifyController
-// does not.
+// The admin API surface. Authorization is AdminGuard alone — see that
+// file's header comment for why it never touches the grants table.
+// ThrottlerGuard (S5) is layered on top of that, not instead of it — see
+// app.module.ts's ThrottlerModule.forRoot() comment for the tier values
+// and why this controller gets one but VerifyController does not.
 // ──────────────────────────────────────────────────────────────────────────────
 @UseGuards(AdminGuard, ThrottlerGuard)
 @Controller('admin')
@@ -87,8 +86,8 @@ export class AdminController {
     private readonly usersService: UsersService,
   ) {}
 
-  // U8 (R13): the admin dashboard's service registry — every Traefik-routed
-  // host discovered from the read-only compose-label bind mount, with which
+  // The admin dashboard's service registry — every Traefik-routed host
+  // discovered from the read-only compose-label bind mount, with which
   // middleware (if any) currently gates it. See
   // src/services/service-registry.service.ts's own header comment for why
   // this reads compose files rather than the Docker socket.
@@ -118,10 +117,10 @@ export class AdminController {
 
   // `decided` reports whether this call ACTUALLY changed the row (false
   // for an already-decided one) — passed straight through from
-  // RequestsService.rejectRequest()'s own return value (#24 from
-  // REVIEW.md) so a caller (queue-client.tsx, via actions.ts) can tell a
-  // genuine rejection from a silent no-op, rather than every response
-  // reporting the same `{ ok: true }` regardless.
+  // RequestsService.rejectRequest()'s own return value so a caller
+  // (queue-client.tsx, via actions.ts) can tell a genuine rejection from a
+  // silent no-op, rather than every response reporting the same
+  // `{ ok: true }` regardless.
   @Post('requests/:id/reject')
   reject(@Param('id', ParseIntPipe) id: number): {
     ok: true
@@ -131,7 +130,7 @@ export class AdminController {
     return { ok: true, decided }
   }
 
-  // The queue's bulk-dismiss action (R10) — "dismiss" means reject, never
+  // The queue's bulk-dismiss action — "dismiss" means reject, never
   // approve; there is no bulk-approve action (approving is deliberately a
   // one-at-a-time, look-before-you-grant action). `decided` is the subset
   // of `body.ids` this call actually rejected — see reject()'s own comment
@@ -143,10 +142,10 @@ export class AdminController {
     return { ok: true, decided }
   }
 
-  // ── U9 (R14, R15, R16; AE6): user and grant management ────────────────
+  // ── User and grant management ──────────────────────────────────────────
 
-  // R14: every user who has at least one grant, current or historical —
-  // see grants.repo.ts's own comment on listUsersWithGrantHistory for the
+  // Every user who has at least one grant, current or historical — see
+  // grants.repo.ts's own comment on listUsersWithGrantHistory for the
   // everGrantedAt mechanism. Inline repo-calling + DTO mapping here rather
   // than delegated to UsersService, matching queue()'s own precedent
   // above: a plain read with no transaction/cache-invalidation to
@@ -166,17 +165,16 @@ export class AdminController {
     }))
   }
 
-  // R15's "add by email," M3's batched form — one call for every service
-  // the admin checked, not one call per checkbox (see
+  // "Add by email," M3's batched form — one call for every service the
+  // admin checked, not one call per checkbox (see
   // UsersService.preAuthorizeMany()'s own comment for the "one transaction
   // for the whole batch" half of this fix). EVERY host is validated
-  // against U8's service registry BEFORE any of them are written (mirrors
+  // against the service registry BEFORE any of them are written (mirrors
   // requests.controller.ts's own parseServiceHost() precedent of validating
-  // at the controller layer, not inside the service) — U9's own error-path
-  // test scenario, "granting a service not in the registry is rejected
-  // with a clear message," now applies per host: one unknown host in the
-  // batch fails the whole request, rather than partially applying the
-  // known ones first.
+  // at the controller layer, not inside the service) — granting a service
+  // not in the registry is rejected with a clear message, and that now
+  // applies per host: one unknown host in the batch fails the whole
+  // request, rather than partially applying the known ones first.
   @Post('users/pre-authorize')
   async preAuthorize(@Body() body: unknown): Promise<{ ok: true }> {
     const { email, serviceHosts } = this.parseBody(PreAuthorizeBodySchema, body)
@@ -187,7 +185,7 @@ export class AdminController {
     return { ok: true }
   }
 
-  // R15's "edit a user's services," M3's batched form — a set of explicit
+  // "Edit a user's services," M3's batched form — a set of explicit
   // (serviceHost, grant) deltas applied in one call (see
   // UsersService.setUserServices()'s own comment for why this replaced the
   // earlier complete-desired-set shape, and for the "one transaction for
@@ -214,9 +212,8 @@ export class AdminController {
     return { ok: true }
   }
 
-  // R15's "remove" — revokes every current grant; see
-  // UsersService.removeUser()'s own comment for why this is NOT the same
-  // as R16's block() below.
+  // "Remove" — revokes every current grant; see UsersService.removeUser()'s
+  // own comment for why this is NOT the same as block() below.
   @Post('users/:userId/remove')
   remove(@Param('userId') userId: string): { ok: true } {
     this.usersService.removeUser(userId)

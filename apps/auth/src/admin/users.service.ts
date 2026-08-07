@@ -31,20 +31,15 @@ const LOG_EVENTS = {
 } as const
 
 // ──────────────────────────────────────────────────────────────────────────────
-// U9 (R14, R15, R16; AE6): the admin user-management write surface. Not in
-// the plan's literal file list (which names only "Modify:
-// admin.controller.ts, grants.repo.ts, access-cache.service.ts") — added as
-// the necessary home for these mutations' own transaction + cache-
-// invalidation orchestration, the same "flagged, necessary addition"
-// pattern U6's requests.controller.ts and U7's admin.controller.ts already
-// established for this app. Mirrors requests.service.ts's own shape: every
-// method here wraps its DB write(s) in one BEGIN IMMEDIATE transaction,
-// then — outside the transaction, in that order — updates
-// AccessCacheService's in-memory maps. AdminController stays the thin
-// caller (and owns service-host-against-the-registry validation, mirroring
-// requests.controller.ts's own parseServiceHost() precedent of validating
-// at the controller layer) — this class assumes its inputs are already
-// valid.
+// The admin user-management write surface — home for these mutations' own
+// transaction + cache-invalidation orchestration. Mirrors
+// requests.service.ts's own shape: every method here wraps its DB write(s)
+// in one BEGIN IMMEDIATE transaction, then — outside the transaction, in
+// that order — updates AccessCacheService's in-memory maps. AdminController
+// stays the thin caller (and owns service-host-against-the-registry
+// validation, mirroring requests.controller.ts's own parseServiceHost()
+// precedent of validating at the controller layer) — this class assumes
+// its inputs are already valid.
 //
 // Admin dashboard live updates: every mutation below also calls
 // NotifyBusService.publishAdminChange() — the SAME bus and topic
@@ -67,28 +62,28 @@ export class UsersService {
   ) {}
 
   /**
-   * R15's "add by email," M3's batched form — every serviceHost in ONE
-   * BEGIN IMMEDIATE transaction rather than the admin dashboard's old
+   * "Add by email," in M3's batched form — every serviceHost in ONE BEGIN
+   * IMMEDIATE transaction rather than the admin dashboard's old
    * per-checkbox loop (one HTTP round trip and one transaction per host).
    * Two branches, both idempotent, now applied per host:
    *
    * - The email already has a `user` row (a real, signed-in identity) —
    *   write a REAL grant immediately, exactly like an admin approving a
-   *   request (U7). "Attaches to the existing user rather than creating a
-   *   duplicate" (U9's own edge-case wording) is this branch's entire
-   *   point: there is no reason to route through the pending-by-email
-   *   mechanism for someone who has already signed in. Also consumes any
-   *   pre_authorized_grant row already pending for this exact (email,
-   *   serviceHost) pair — without this, a later
-   *   AccessCacheService.bindPreAuthorizedGrant() call for the same pair
-   *   would find a real grant AND a pending row both present and throw on
-   *   grant's own unique index (see that method's own comment on the
-   *   grantExists guard it needs specifically because of this).
+   *   request. Attaching to the existing user rather than creating a
+   *   duplicate is this branch's entire point: there is no reason to
+   *   route through the pending-by-email mechanism for someone who has
+   *   already signed in. Also consumes any pre_authorized_grant row
+   *   already pending for this exact (email, serviceHost) pair — without
+   *   this, a later AccessCacheService.bindPreAuthorizedGrant() call for
+   *   the same pair would find a real grant AND a pending row both
+   *   present and throw on grant's own unique index (see that method's
+   *   own comment on the grantExists guard it needs specifically because
+   *   of this).
    * - No `user` row yet — insert a pending, email-keyed
    *   pre_authorized_grant row (schema.ts's own table for exactly this
-   *   case) and register it with AccessCacheService so R15's "first
-   *   sign-in passes straight through" holds from the very next verify —
-   *   see AccessCacheService.bindPreAuthorizedGrant()'s own header comment
+   *   case) and register it with AccessCacheService so a first sign-in
+   *   passes straight through from the very next verify — see
+   *   AccessCacheService.bindPreAuthorizedGrant()'s own header comment
    *   for the full binding design.
    *
    * The existing-user lookup and the pre-authorized-rows read both happen
@@ -153,9 +148,9 @@ export class UsersService {
   }
 
   /**
-   * R15's "edit a user's services" — a set of EXPLICIT (serviceHost,
-   * grant) deltas, not a full-desired-set diff, applied in ONE BEGIN
-   * IMMEDIATE transaction (M3: the admin dashboard used to call the
+   * "Edit a user's services" — a set of EXPLICIT (serviceHost, grant)
+   * deltas, not a full-desired-set diff, applied in ONE BEGIN IMMEDIATE
+   * transaction (M3: the admin dashboard used to call the
    * single-host form of this once per checkbox — one HTTP round trip and
    * one transaction per host). This replaces the earlier
    * editServices(userId, string[]) design, which took the admin UI's
@@ -232,17 +227,16 @@ export class UsersService {
   }
 
   /**
-   * R15's "remove" — revokes every CURRENT grant, but deliberately leaves
-   * the `user` row (and its permanent everGrantedAt marker, schema.ts's
-   * own R14 mechanism) untouched. This is "un-authorize," not "ban": a
+   * "Remove" — revokes every CURRENT grant, but deliberately leaves the
+   * `user` row (and its permanent everGrantedAt marker, schema.ts's own
+   * mechanism for that) untouched. This is "un-authorize," not "ban": a
    * removed user falls back to the normal no-grant flow (pending page,
    * can request again) exactly like someone who was never granted
-   * anything — R16's block() below is the separate, stronger action for
-   * "must never reach anything again." Confirmed as the right reading by
-   * this unit's own edge-case wording ("removing a user with an active
-   * session immediately stops that session from passing verify") — that
-   * claim is only interesting if the user ROW and SESSION still exist; if
-   * "remove" deleted the user row, the session would already be gone via
+   * anything — block() below is the separate, stronger action for "must
+   * never reach anything again." The claim "removing a user with an
+   * active session immediately stops that session from passing verify" is
+   * only interesting if the user ROW and SESSION still exist; if "remove"
+   * deleted the user row, the session would already be gone via
    * schema.ts's own ON DELETE CASCADE, making the claim trivially true for
    * an uninteresting reason.
    */
@@ -277,10 +271,9 @@ export class UsersService {
   }
 
   /**
-   * R16 (AE6): writes user.blockedAt, then updates
-   * AccessCacheService.blockUser()'s in-memory Set — "it must take effect
-   * on the very next verify" (this unit's own Verification bullet) is
-   * exactly what that in-memory write buys, matching U5's own
+   * Writes user.blockedAt, then updates AccessCacheService.blockUser()'s
+   * in-memory Set — "it must take effect on the very next verify" is
+   * exactly what that in-memory write buys, matching VerifyService's own
    * checked-fresh-every-decision design for isBlocked().
    *
    * S2b: also revokes every session this user currently holds (see

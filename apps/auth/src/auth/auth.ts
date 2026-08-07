@@ -24,24 +24,24 @@ import { EnvKeys } from 'src/env'
 // receives the exact same '/api/auth/...' path the browser sent. There is
 // one path, not two, and therefore one constant, not two, and no rewriting
 // middleware hook (see auth.module.ts). This is verified, not assumed —
-// see __tests__/auth-mount.spec.ts's basePath/baseURL invariant test and
-// this unit's final report for the live curl check through the real Next
-// dev server + rewrite.
+// see __tests__/auth-mount.spec.ts's basePath/baseURL invariant test,
+// confirmed against a live curl check through the real Next dev server +
+// rewrite.
 export const AUTH_PATH_SEGMENT = '/api/auth'
 
 // Builds the betterAuth() instance on the app's shared DB client (no second
 // better-sqlite3 handle, matching apps/tdr-code/src/auth/auth.ts's
 // identical Two-writer-WAL rationale).
 //
-// This config is deliberately LEAN — U3's scope is "sign in with Google,
-// get a cross-subdomain cookie" (R1) only. None of tdr-code's guild-gate,
+// This config is deliberately LEAN — "sign in with Google, get a
+// cross-subdomain cookie" only. None of tdr-code's guild-gate,
 // GitHub-linking, dev-login, or disabledPaths machinery applies here: this
 // app has no guild/membership concept, no second linkable provider, and no
 // dev-only bypass. Don't port that complexity into an app that doesn't have
 // the problem it solves.
 export function buildAuth(db: Db) {
   const authHost = env(EnvKeys.AUTH_HOST)
-  // Parsed once and reused below for trustedOrigins' scheme prefix (U4) —
+  // Parsed once and reused below for trustedOrigins' scheme prefix —
   // AUTH_HOST is trusted deployment config, not user input, so a malformed
   // value throwing here at buildAuth() time is the same fail-fast posture
   // env() itself takes, not a reason to defer parsing.
@@ -74,21 +74,20 @@ export function buildAuth(db: Db) {
     baseURL: `${authHost}${AUTH_PATH_SEGMENT}`,
     secret: env(EnvKeys.BETTER_AUTH_SECRET),
 
-    // U4 correction to this comment's original (U3) claim: this app's login
-    // page does NOT only ever pass a same-origin relative `callbackURL`
-    // anymore — src/auth/redirect.ts's resolveRedirectTarget() can return a
-    // validated CROSS-SUBDOMAIN absolute URL (e.g.
-    // `https://swole.lilnas.io/...`), which is the entire point of R3
-    // ("post-sign-in return to the originally requested URL"). Better Auth's
-    // own origin-check middleware (confirmed against installed
-    // better-auth@1.6.23's dist/api/middlewares/origin-check.mjs) validates
-    // `callbackURL` against `trustedOrigins` independently of whatever this
-    // app's own redirect.ts already decided — without an entry here, a
-    // real cross-subdomain callbackURL that redirect.ts correctly approved
-    // would still be REJECTED by Better Auth itself with
-    // `INVALID_CALLBACK_URL`, silently breaking R3 for its actual primary
-    // case (a user always starts on a DIFFERENT subdomain than the auth
-    // host — that is what forward-auth means).
+    // This app's login page does NOT only ever pass a same-origin relative
+    // `callbackURL` — src/auth/redirect.ts's resolveRedirectTarget() can
+    // return a validated CROSS-SUBDOMAIN absolute URL (e.g.
+    // `https://swole.lilnas.io/...`), which is the whole point of
+    // returning a user to the originally requested URL post-sign-in.
+    // Better Auth's own origin-check middleware (confirmed against
+    // installed better-auth@1.6.23's dist/api/middlewares/origin-check.mjs)
+    // validates `callbackURL` against `trustedOrigins` independently of
+    // whatever this app's own redirect.ts already decided — without an
+    // entry here, a real cross-subdomain callbackURL that redirect.ts
+    // correctly approved would still be REJECTED by Better Auth itself
+    // with `INVALID_CALLBACK_URL`, silently breaking that for its actual
+    // primary case (a user always starts on a DIFFERENT subdomain than the
+    // auth host — that is what forward-auth means).
     //
     // Both entries are FULL ORIGINS (scheme + host, no wildcard on the
     // apex; `*.` prefix on the host segment for subdomains), not bare
@@ -134,10 +133,10 @@ export function buildAuth(db: Db) {
     // it solves a problem this app doesn't have.
 
     advanced: {
-      // R1: the whole point of this unit — a session cookie valid across
-      // every *.lilnas.io host (dev: *.localhost). domain is configurable
-      // (COOKIE_DOMAIN), never hardcoded '.lilnas.io' in code, because dev
-      // sign-in testing runs on *.localhost.
+      // The whole point of this app's auth setup: a session cookie valid
+      // across every *.lilnas.io host (dev: *.localhost). domain is
+      // configurable (COOKIE_DOMAIN), never hardcoded '.lilnas.io' in code,
+      // because dev sign-in testing runs on *.localhost.
       crossSubDomainCookies: {
         enabled: true,
         domain: env(EnvKeys.COOKIE_DOMAIN),
@@ -147,15 +146,14 @@ export function buildAuth(db: Db) {
       // documents a `@default false` and warns that `true` disables
       // callbackURL/redirectTo/errorCallbackURL/newUserCallbackURL
       // validation against trustedOrigins — exactly the open-redirect
-      // surface U4's src/auth/redirect.ts exists to close, so this must
-      // never be `true`.
+      // surface src/auth/redirect.ts exists to close, so this must never be
+      // `true`.
       //
-      // U4 correction (found while testing the trustedOrigins fix below,
-      // not merely read from a type declaration): the DOCUMENTED default is
-      // NOT the actual runtime default when this option is left unset.
-      // Confirmed against installed better-auth@1.6.23's
-      // dist/context/create-context.mjs: `skipOriginCheck:
-      // options.advanced?.disableOriginCheck !== void 0 ?
+      // Found while testing the trustedOrigins fix below, not merely read
+      // from a type declaration: the DOCUMENTED default is NOT the actual
+      // runtime default when this option is left unset. Confirmed against
+      // installed better-auth@1.6.23's dist/context/create-context.mjs:
+      // `skipOriginCheck: options.advanced?.disableOriginCheck !== void 0 ?
       // options.advanced.disableOriginCheck : isTest() ? true : false` —
       // i.e. leaving this unset makes origin/CSRF checking silently
       // conditional on `isTest()` (@better-auth/core's env helper:
@@ -168,7 +166,7 @@ export function buildAuth(db: Db) {
       // (2) every test in __tests__/auth-mount.spec.ts runs under Jest's own
       //     NODE_ENV=test, so origin-check was SILENTLY SKIPPED in every
       //     test exercising a real POST through the mount until this line
-      //     was added — including this unit's own "trustedOrigins covers
+      //     was added — including the "trustedOrigins covers
       //     cross-subdomain callbackURLs" tests below, which could not have
       //     actually proven anything before this fix (they would have
       //     passed identically with an empty trustedOrigins array). Setting
@@ -208,30 +206,29 @@ export function buildAuth(db: Db) {
 
     user: {
       additionalFields: {
-        // Round-trips schema.ts's user.blockedAt (added by U2) through the
-        // adapter so it survives reads/writes via the Better Auth API
-        // surface, not just raw Drizzle queries. Shape confirmed against
-        // installed @better-auth/core's dist/db/type.d.mts
-        // DBFieldAttribute: { type, required, input, ... }.
+        // Round-trips schema.ts's user.blockedAt through the adapter so it
+        // survives reads/writes via the Better Auth API surface, not just
+        // raw Drizzle queries. Shape confirmed against installed
+        // @better-auth/core's dist/db/type.d.mts DBFieldAttribute: { type,
+        // required, input, ... }.
         blockedAt: {
           type: 'date',
           // Not required — most users are never blocked.
           required: false,
           // Not settable via user input (sign-up body, profile update,
-          // etc.) — this field is admin-only, written later by U9's
-          // block/unblock endpoint directly through the repo layer, never
-          // by Better Auth's own user-facing routes.
+          // etc.) — this field is admin-only, written by the admin
+          // block/unblock endpoint (users.service.ts) directly through the
+          // repo layer, never by Better Auth's own user-facing routes.
           input: false,
         },
       },
     },
 
-    // Generous and ABSOLUTE. U5's /verify is zero-I/O by design (plan's Key
-    // Technical Decision: "No rolling session refresh from /verify") — it
-    // will never call anything that rolls this forward via `updateAge`, so
-    // there is no UI-path traffic compensating for a short TTL the way
-    // there is in a design where every authenticated request refreshes the
-    // session.
+    // Generous and ABSOLUTE. /verify is zero-I/O by design — "no rolling
+    // session refresh from /verify" — it will never call anything that
+    // rolls this forward via `updateAge`, so there is no UI-path traffic
+    // compensating for a short TTL the way there is in a design where
+    // every authenticated request refreshes the session.
     //
     // 30 days here, NOT apps/tdr-code's 12h — that number comes from a
     // materially different threat model: tdr-code's session gates a
@@ -239,7 +236,7 @@ export function buildAuth(db: Db) {
     // kicked/compromised member keeps access to an RCE-equivalent surface
     // (an agent console) until the session expires; a short absolute TTL is
     // the compensating control for that specific risk. This app's session
-    // gates access to a per-service grants table (R16's block/unblock is
+    // gates access to a per-service grants table (block/unblock is
     // enforced independently at /verify, on every request, not via session
     // expiry) for a homelab-scale set of trusted household/friend accounts
     // — there is no equivalent "session outlives a revoked authorization"
@@ -247,15 +244,14 @@ export function buildAuth(db: Db) {
     // 30 days trades "a stolen session cookie is valid for longer" against
     // "every family member re-authenticates with Google multiple times a
     // day" — the right tradeoff for this app's actual risk profile, not a
-    // number copied from a different one. Judgment call — flagged in this
-    // unit's final report.
+    // number copied from a different one. Judgment call.
     //
     // No `updateAge` override: the library default (1 day rolling refresh)
     // only matters for UI-path session reads (Better Auth's own
     // get-session handler can still roll it forward there); /verify itself
-    // never calls anything that would trigger it, per the plan's decision
-    // above. No stated requirement either way from the plan beyond that, so
-    // this is left at the library default rather than invented.
+    // never calls anything that would trigger it, per the zero-I/O design
+    // above. No stated requirement either way beyond that, so this is left
+    // at the library default rather than invented.
     session: {
       expiresIn: 60 * 60 * 24 * 30,
     },
@@ -278,7 +274,8 @@ export function buildAuth(db: Db) {
 
     // No plugins, no databaseHooks, no disabledPaths — none of tdr-code's
     // guild-gate / GitHub-linking / dev-login machinery applies to this
-    // app. Keep this config exactly as lean as R1 requires.
+    // app. Keep this config exactly as lean as "sign in with Google, get a
+    // cross-subdomain cookie" requires.
   })
 }
 
