@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common'
+import { Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 
 import { revokeSessionsForUser } from 'src/db/auth-session.repo'
@@ -247,15 +247,21 @@ export class UsersService {
    * session would keep full, unrestricted /admin access indefinitely,
    * since AdminGuard's own session check is deliberately independent of
    * blockedAt (see verify.service.ts's S2a header comment).
+   *
+   * S6: throws NotFoundException instead of silently succeeding when
+   * `userId` matches no row — see grants.repo.ts's own comment on
+   * setBlockedAt's return value for why: without this check, a nonexistent
+   * userId would still add a permanent phantom entry to
+   * AccessCacheService's blockedUserIds Set.
    */
   blockUser(userId: string): void {
     const now = new Date()
-    this.db.transaction(
-      tx => {
-        setBlockedAt(tx, userId, now)
-      },
-      { behavior: 'immediate' },
-    )
+    const changed = this.db.transaction(tx => setBlockedAt(tx, userId, now), {
+      behavior: 'immediate',
+    })
+    if (changed === 0) {
+      throw new NotFoundException(`user ${userId} not found`)
+    }
     this.accessCache.blockUser(userId)
     this.revokeSessions(userId)
     this.notifyBus.publishAdminChange()
@@ -290,13 +296,15 @@ export class UsersService {
     return sessionsRevoked
   }
 
+  // S6: same NotFoundException-on-zero-rows guard as blockUser() above —
+  // see that method's own comment.
   unblockUser(userId: string): void {
-    this.db.transaction(
-      tx => {
-        setBlockedAt(tx, userId, null)
-      },
-      { behavior: 'immediate' },
-    )
+    const changed = this.db.transaction(tx => setBlockedAt(tx, userId, null), {
+      behavior: 'immediate',
+    })
+    if (changed === 0) {
+      throw new NotFoundException(`user ${userId} not found`)
+    }
     this.accessCache.unblockUser(userId)
     this.notifyBus.publishAdminChange()
   }

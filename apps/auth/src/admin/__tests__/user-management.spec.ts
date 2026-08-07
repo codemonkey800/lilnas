@@ -1,5 +1,5 @@
 import type { ExecutionContext } from '@nestjs/common'
-import { UnauthorizedException } from '@nestjs/common'
+import { NotFoundException, UnauthorizedException } from '@nestjs/common'
 import { AuthService } from '@thallesp/nestjs-better-auth'
 import BetterSqlite3 from 'better-sqlite3'
 import { eq } from 'drizzle-orm'
@@ -576,6 +576,38 @@ describe('U9: user and grant management', () => {
         // S2a alone only ever gated /verify, never /admin.
         await expect(guard.canActivate(contextFor(cookie))).rejects.toThrow(
           UnauthorizedException,
+        )
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('S6: blockUser() on a nonexistent userId throws NotFoundException rather than silently succeeding, and never marks the phantom id as blocked', async () => {
+      const testDb = createTestDb()
+      try {
+        const { accessCache, usersService } = createHarness(testDb)
+
+        expect(() => usersService.blockUser('no-such-user')).toThrow(
+          NotFoundException,
+        )
+        // The actual bug this closes: a silent no-op UPDATE used to still
+        // reach accessCache.blockUser(), permanently marking a userId with
+        // no real user behind it — a phantom that onModuleInit() would
+        // correctly omit on restart, but that nothing ever cleans up
+        // in-process.
+        expect(accessCache.isBlocked('no-such-user')).toBe(false)
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('S6: unblockUser() on a nonexistent userId throws NotFoundException rather than silently succeeding', async () => {
+      const testDb = createTestDb()
+      try {
+        const { usersService } = createHarness(testDb)
+
+        expect(() => usersService.unblockUser('no-such-user')).toThrow(
+          NotFoundException,
         )
       } finally {
         testDb.close()
