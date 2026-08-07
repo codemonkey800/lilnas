@@ -40,44 +40,50 @@ import {
 // below.
 // ──────────────────────────────────────────────────────────────────────────────
 
-// A resolved, POSITIVE session result only, cached by the RAW Cookie
-// header string the browser presented (see resolveSession's own comment
-// for why the entire header — not just the one session cookie's value —
-// is the key). There is no negative-cache marker: a Cookie header that
-// resolves to no session (never signed a valid cookie at all, or a
-// getSession() call confirms it is genuinely expired/revoked) is never
-// written to this Map — see resolveSession's own CACHE LIFETIME comment
-// for why caching that outcome is exactly the attacker-controlled-growth
-// vector this design avoids. `Map.get()`'s `undefined` is therefore the
-// ONLY "not a currently-known-good session" signal this cache has.
+// A resolved, POSITIVE session result only, cached by the EXTRACTED
+// session cookie value (extractSessionCookieValue() below) — see
+// resolveSession's own comment for why P2 moved this off the raw Cookie
+// header. There is no negative-cache marker: a Cookie header that resolves
+// to no session (never signed a valid cookie at all, or a getSession()
+// call confirms it is genuinely expired/revoked) is never written to this
+// Map — see resolveSession's own CACHE LIFETIME comment for why caching
+// that outcome is exactly the attacker-controlled-growth vector this
+// design avoids. `Map.get()`'s `undefined` is therefore the ONLY "not a
+// currently-known-good session" signal this cache has.
 type CachedSession = {
   userId: string
   email: string
   expiresAtMs: number
 }
 
-// The literal, un-prefixed session cookie name Better Auth mints for this
-// app: `${cookiePrefix}.${cookieName}`, with cookiePrefix defaulting to
-// 'better-auth' and cookieName being 'session_token' — confirmed against
-// installed better-auth@1.6.23's dist/cookies/index.mjs
-// (createCookieGetter/getCookies: `` `${prefix}.${cookieName}` `` with
-// `prefix = options.advanced?.cookiePrefix || 'better-auth'`).
-// src/auth/auth.ts does not set `advanced.cookiePrefix`, so the default
-// applies. There is no shared export of this literal today (auth.ts has no
-// reason to expose cookie-naming internals to callers that only ever go
-// through better-auth's own session/cookie APIs) — if auth.ts ever sets a
-// custom cookiePrefix, this constant must change with it.
-//
-// Checked as a BARE `.session_token=` marker, deliberately WITHOUT the
-// `__Secure-` prefix better-auth also conditionally prepends (secure
-// whenever AUTH_HOST's own configured scheme is https — the same
-// derivation src/auth/auth.ts's "Secure cookie attribute" comment
-// documents and __tests__/auth-mount.spec.ts verifies): confirmed against
-// the same installed source, `__Secure-better-auth.session_token=` still
-// contains `better-auth.session_token=` as a substring, so one check
-// covers both dev (http, no prefix) and prod (https, `__Secure-` prefix)
-// without this file needing to re-derive the Secure/prefix logic itself.
-const SESSION_COOKIE_MARKER = 'better-auth.session_token='
+// Better Auth mints this session cookie as `${cookiePrefix}.session_token`,
+// `__Secure-`-prefixed whenever AUTH_HOST's configured scheme is https —
+// confirmed against installed better-auth@1.6.23's dist/cookies/index.mjs;
+// src/auth/auth.ts never overrides cookiePrefix, so the default
+// ('better-auth') applies. Both forms are matched by exact cookie name
+// (not a substring marker) so extractSessionCookieValue() below works
+// correctly in both dev (http, unprefixed) and prod (https, `__Secure-`).
+const SESSION_COOKIE_NAMES = [
+  'better-auth.session_token',
+  '__Secure-better-auth.session_token',
+] as const
+
+// P2: the ONE place that parses a raw `Cookie` header down to just the
+// Better Auth session cookie's VALUE — used for both resolveSession()'s
+// admission gate and its cache key (see that method's own comment for why
+// keying on the whole header was a real bug, not just imprecise). Returns
+// null if the header carries neither of SESSION_COOKIE_NAMES's two forms.
+export function extractSessionCookieValue(cookieHeader: string): string | null {
+  for (const pair of cookieHeader.split(';')) {
+    const separatorIndex = pair.indexOf('=')
+    if (separatorIndex === -1) continue
+    const name = pair.slice(0, separatorIndex).trim()
+    if ((SESSION_COOKIE_NAMES as readonly string[]).includes(name)) {
+      return pair.slice(separatorIndex + 1).trim()
+    }
+  }
+  return null
+}
 
 // Kept local rather than graduated into a shared cross-file registry (the
 // tdr-code `src/logging/log-events.ts` convention this app will likely
@@ -335,9 +341,9 @@ export class AccessCacheService implements OnModuleInit {
   // otherwise still honor. Safe to delete the CURRENT key while iterating
   // a Map — well-defined per spec, and does not skip entries.
   invalidateSessionsForUser(userId: string): void {
-    for (const [cookieHeader, cached] of this.sessionCache) {
+    for (const [sessionCookieValue, cached] of this.sessionCache) {
       if (cached.userId === userId) {
-        this.sessionCache.delete(cookieHeader)
+        this.sessionCache.delete(sessionCookieValue)
       }
     }
   }
@@ -391,15 +397,26 @@ export class AccessCacheService implements OnModuleInit {
    * during this unit, not a fixed spec — reading that source is exactly
    * what surfaced this problem.
    *
-   * ACTUAL DESIGN: cache by the ENTIRE raw `Cookie` header string as
-   * received (not just the one session cookie's value — simplest, and
-   * correct because the SAME browser session presents the SAME raw Cookie
-   * header on every request until something rotates it, which nothing on
-   * /verify's own zero-I/O path ever does). A header with no `Cookie` at
-   * all, or none of whose cookies could possibly be a Better Auth session
-   * (SESSION_COOKIE_MARKER absent), is trivially "no session" — checked
-   * BEFORE ever touching the cache, so a totally anonymous request never
-   * grows this Map.
+   * ACTUAL DESIGN: cache by extractSessionCookieValue()'s result — the
+   * Better Auth session cookie's OWN value, not the whole raw `Cookie`
+   * header. P2 moved this off the whole-header key that shipped originally,
+   * which had two real bugs: (1) this app's cookies use
+   * `crossSubDomainCookies` (Domain=.lilnas.io, see auth.ts), so any OTHER
+   * cookie set by ANY *.lilnas.io subdomain — Grafana, a UI preference, a
+   * feature flag — rides along on every request's Cookie header; a change
+   * to any of them changed the cache KEY even though the session itself
+   * was unchanged, forcing a real getSession() re-verification for no
+   * reason. (2) cacheSession()'s FIFO eviction assumed one entry per
+   * session; keyed by the whole header, one signed-in user visiting
+   * several subdomains (each mutating some unrelated cookie differently)
+   * could mint many distinct entries for their OWN single session, capable
+   * of evicting a meaningful fraction of the whole 5,000-entry cache by
+   * themselves. Verified: 20 unrelated-cookie variants of one real session
+   * produced 20 cache entries and 20 getSession() calls before this fix.
+   * A header with no `Cookie` at all, or none of whose cookies match
+   * either of SESSION_COOKIE_NAMES's two forms, is trivially "no session"
+   * — checked BEFORE ever touching the cache, so a totally anonymous
+   * request never grows this Map.
    *
    * On a cache miss, calls Better Auth's own PUBLIC `auth.api.getSession()`
    * exactly once — the SAME `auth` instance `buildAuth(db)` produces
@@ -463,18 +480,21 @@ export class AccessCacheService implements OnModuleInit {
    * life. Neither outcome of that re-check is ever cached negatively — see
    * the cold-miss handling below, which this re-check shares entirely.
    * There is no negative-cache path anywhere in this method: the only way
-   * a given raw Cookie header string can ever become a POSITIVE cache
-   * entry is a real, current getSession() success, and the only way it
-   * stops being one is the clamp elapsing and re-verification failing.
+   * a given session cookie value can ever become a POSITIVE cache entry is
+   * a real, current getSession() success, and the only way it stops being
+   * one is the clamp elapsing and re-verification failing.
    */
   async resolveSession(
     cookieHeader: string | undefined,
   ): Promise<{ userId: string; email: string } | null> {
-    if (!cookieHeader || !cookieHeader.includes(SESSION_COOKIE_MARKER)) {
+    const sessionCookieValue = cookieHeader
+      ? extractSessionCookieValue(cookieHeader)
+      : null
+    if (!cookieHeader || !sessionCookieValue) {
       return null
     }
 
-    const cached = this.sessionCache.get(cookieHeader)
+    const cached = this.sessionCache.get(sessionCookieValue)
     if (cached !== undefined) {
       if (cached.expiresAtMs > Date.now()) {
         return { userId: cached.userId, email: cached.email }
@@ -490,29 +510,35 @@ export class AccessCacheService implements OnModuleInit {
       // genuinely revoked/expired one now correctly stops passing.
     }
 
-    // P1: in-flight dedup. MAX_SESSION_CACHE_MS's 60s clamp means every
-    // entry for a given browser expires at roughly the same moment, so the
-    // very next page load — one /verify subrequest per asset and XHR —
-    // arrives as a burst of near-simultaneous calls for the SAME cookie,
-    // all landing on the cache-miss path above at once. Measured directly:
-    // 50 concurrent cold resolveSession() calls for one cookie previously
-    // drove 50 independent getSession() calls; with this in place, one.
-    // Populated with the lookup promise BEFORE the first `await` inside it
-    // ever yields, so every concurrent caller for this cookie gets the
-    // SAME promise instead of racing its own getSession() call — cleared
-    // in `finally` so a later, non-concurrent call still starts a fresh
-    // lookup (or simply hits the now-warm cache above).
-    const inFlight = this.inFlightLookups.get(cookieHeader)
+    // P1: in-flight dedup, keyed by the SAME sessionCookieValue as the
+    // cache above (not the raw header — see this method's own ACTUAL
+    // DESIGN comment for why). MAX_SESSION_CACHE_MS's 60s clamp means
+    // every entry for a given browser expires at roughly the same moment,
+    // so the very next page load — one /verify subrequest per asset and
+    // XHR — arrives as a burst of near-simultaneous calls for the SAME
+    // session, all landing on the cache-miss path above at once. Measured
+    // directly: 50 concurrent cold resolveSession() calls for one session
+    // previously drove 50 independent getSession() calls; with this in
+    // place, one. Populated with the lookup promise BEFORE the first
+    // `await` inside it ever yields, so every concurrent caller for this
+    // session gets the SAME promise instead of racing its own getSession()
+    // call — cleared in `finally` so a later, non-concurrent call still
+    // starts a fresh lookup (or simply hits the now-warm cache above).
+    const inFlight = this.inFlightLookups.get(sessionCookieValue)
     if (inFlight) {
       return inFlight
     }
 
-    const lookup = this.lookupSession(cookieHeader)
-    this.inFlightLookups.set(cookieHeader, lookup)
+    // The FULL raw cookieHeader (not sessionCookieValue alone) is what
+    // getSession() below actually needs — better-auth does its own cookie
+    // parsing/verification from the complete header. Only the cache/
+    // in-flight KEYS use the narrower extracted value.
+    const lookup = this.lookupSession(cookieHeader, sessionCookieValue)
+    this.inFlightLookups.set(sessionCookieValue, lookup)
     try {
       return await lookup
     } finally {
-      this.inFlightLookups.delete(cookieHeader)
+      this.inFlightLookups.delete(sessionCookieValue)
     }
   }
 
@@ -520,8 +546,13 @@ export class AccessCacheService implements OnModuleInit {
   // real Better Auth getSession() call, plus caching a positive result.
   // Never throws — every failure mode below resolves to `null` instead, so
   // resolveSession()'s in-flight Map entry is always cleanly settled.
+  // Takes BOTH the full raw header (getSession() needs it for its own
+  // cookie parsing) and the already-extracted sessionCookieValue (the
+  // cache key) — the caller resolves both once rather than this method
+  // re-deriving the latter from the former a second time.
   private async lookupSession(
     cookieHeader: string,
+    sessionCookieValue: string,
   ): Promise<{ userId: string; email: string } | null> {
     let result: Awaited<ReturnType<AuthService<Auth>['api']['getSession']>>
     try {
@@ -583,17 +614,18 @@ export class AccessCacheService implements OnModuleInit {
     if (!result) {
       // Deliberately NOT cached. Caching this outcome is exactly the
       // unauthenticated remote-memory-exhaustion vector this cache used to
-      // have: the sole admission gate above (SESSION_COOKIE_MARKER) is an
-      // attacker-controlled substring, so any distinct forged cookie value
-      // would otherwise mint its own permanent entry. Leaving it uncached
-      // costs a repeat forged request one HMAC verification (no DB read —
-      // see this method's own comment on getSession()'s forged-cookie
+      // have: the sole admission gate above (extractSessionCookieValue()
+      // finding no match) still lets an attacker present arbitrarily many
+      // distinct forged session-cookie VALUES, each of which would
+      // otherwise mint its own permanent entry. Leaving it uncached costs
+      // a repeat forged request one HMAC verification (no DB read — see
+      // this method's own comment on getSession()'s forged-cookie
       // contract) instead of a hash-map lookup, which is an acceptable
       // trade for closing an unbounded, unauthenticated growth path.
       return null
     }
 
-    this.cacheSession(cookieHeader, {
+    this.cacheSession(sessionCookieValue, {
       userId: result.user.id,
       email: result.user.email,
       // Clamped to at most MAX_SESSION_CACHE_MS from now, NOT the

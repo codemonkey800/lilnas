@@ -494,6 +494,56 @@ describe('AccessCacheService', () => {
     })
   })
 
+  describe('resolveSession — cache keyed on the session cookie value only, not the whole header (P2)', () => {
+    beforeEach(() => {
+      testDb = createTestDb()
+    })
+
+    it('20 unrelated-cookie variants of the SAME session produce exactly 1 getSession() call — measured at 20 calls before this fix', async () => {
+      const { auth, authService, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const cookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-p2-variants', email: 'p2-variants@example.com' },
+      )
+      const getSessionSpy = jest.spyOn(authService.api, 'getSession')
+
+      // Sequential, not concurrent — isolates P2's cache-KEY fix from P1's
+      // in-flight dedup, which would also collapse concurrent calls to 1
+      // regardless of whether the cache key itself is correct. Each
+      // variant carries a DIFFERENT unrelated cookie alongside the SAME
+      // session cookie, simulating Domain=.lilnas.io cookies set by other
+      // subdomains (Grafana, a UI preference, ...).
+      for (let i = 0; i < 20; i++) {
+        const variantCookie = `unrelated-pref-${i}=value-${i}; ${cookie}; another-${i}=x`
+        const result = await cache.resolveSession(variantCookie)
+        expect(result?.email).toBe('p2-variants@example.com')
+      }
+
+      expect(getSessionSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('a change to an unrelated cookie (e.g. Grafana, a UI preference, under the same Domain=.lilnas.io) does not force re-verification', async () => {
+      const { auth, authService, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const cookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-p2-unrelated', email: 'p2-unrelated@example.com' },
+      )
+      await cache.resolveSession(cookie)
+
+      const getSessionSpy = jest.spyOn(authService.api, 'getSession')
+      const withGrafanaCookie = `grafana_session=abc123; ${cookie}`
+
+      const result = await cache.resolveSession(withGrafanaCookie)
+
+      expect(result?.email).toBe('p2-unrelated@example.com')
+      expect(getSessionSpy).not.toHaveBeenCalled()
+    })
+  })
+
   describe('resolveSession — a cached session past its own clamped cache lifetime', () => {
     beforeEach(() => {
       testDb = createTestDb()
