@@ -211,6 +211,18 @@ export class AdminController {
     return { ok: true }
   }
 
+  // S2b: the standalone "revoke all sessions" break-glass action — see
+  // UsersService.revokeSessions()'s own comment for why this exists as its
+  // own route rather than only ever firing implicitly through block().
+  @Post('users/:userId/revoke-sessions')
+  revokeSessions(@Param('userId') userId: string): {
+    ok: true
+    sessionsRevoked: number
+  } {
+    const sessionsRevoked = this.usersService.revokeSessions(userId)
+    return { ok: true, sessionsRevoked }
+  }
+
   private async assertKnownServiceHost(serviceHost: string): Promise<void> {
     const services = await this.serviceRegistry.getServices()
     if (!services.some(service => service.host === serviceHost)) {

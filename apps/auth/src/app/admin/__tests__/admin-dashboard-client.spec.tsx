@@ -12,6 +12,7 @@ const mockBulkRejectRequests = jest.fn()
 const mockPreAuthorizeUser = jest.fn()
 const mockRejectRequest = jest.fn()
 const mockRemoveUser = jest.fn()
+const mockRevokeSessions = jest.fn()
 const mockSetUserService = jest.fn()
 const mockUnblockUser = jest.fn()
 
@@ -22,6 +23,7 @@ jest.mock('src/app/admin/actions', () => ({
   preAuthorizeUser: (...args: unknown[]) => mockPreAuthorizeUser(...args),
   rejectRequest: (...args: unknown[]) => mockRejectRequest(...args),
   removeUser: (...args: unknown[]) => mockRemoveUser(...args),
+  revokeSessions: (...args: unknown[]) => mockRevokeSessions(...args),
   setUserService: (...args: unknown[]) => mockSetUserService(...args),
   unblockUser: (...args: unknown[]) => mockUnblockUser(...args),
 }))
@@ -387,6 +389,104 @@ describe('AdminDashboardClient — blocking an admin (S2a)', () => {
     expect(window.confirm).not.toHaveBeenCalled()
     await waitFor(() => {
       expect(mockBlockUser).toHaveBeenCalledWith('user_active')
+    })
+  })
+})
+
+describe('AdminDashboardClient — Sign out everywhere (S2b)', () => {
+  it('clicking "Sign out everywhere" in the Edit-access modal after confirming calls revokeSessions and shows the session count', async () => {
+    window.confirm = jest.fn().mockReturnValue(true)
+    mockRevokeSessions.mockResolvedValue({ ok: true, sessionsRevoked: 2 })
+    const active = buildUser({
+      id: 'user_active',
+      email: 'active@example.com',
+      services: ['swole.lilnas.io'],
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[active]}
+        services={SERVICES}
+      />,
+    )
+
+    const [editAccessButton] = screen.getAllByRole('button', {
+      name: /edit access/i,
+    })
+    fireEvent.click(editAccessButton!)
+    const signOutButton = screen.getByRole('button', {
+      name: /sign out everywhere/i,
+    })
+    fireEvent.click(signOutButton)
+
+    await waitFor(() => {
+      expect(mockRevokeSessions).toHaveBeenCalledWith('user_active')
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Signed out of 2 sessions')).toBeInTheDocument()
+    })
+  })
+
+  it('clicking "Sign out everywhere" without confirming never calls revokeSessions', () => {
+    window.confirm = jest.fn().mockReturnValue(false)
+    const active = buildUser({
+      id: 'user_active',
+      email: 'active@example.com',
+      services: ['swole.lilnas.io'],
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[active]}
+        services={SERVICES}
+      />,
+    )
+
+    const [editAccessButton] = screen.getAllByRole('button', {
+      name: /edit access/i,
+    })
+    fireEvent.click(editAccessButton!)
+    const signOutButton = screen.getByRole('button', {
+      name: /sign out everywhere/i,
+    })
+    fireEvent.click(signOutButton)
+
+    expect(mockRevokeSessions).not.toHaveBeenCalled()
+  })
+
+  it('the Blocked panel\'s Edit-access modal also has a working "Sign out everywhere" action', async () => {
+    window.confirm = jest.fn().mockReturnValue(true)
+    mockRevokeSessions.mockResolvedValue({ ok: true, sessionsRevoked: 0 })
+    const blocked = buildUser({
+      id: 'user_blocked',
+      email: 'blocked@example.com',
+      blockedAt: '2026-01-01T00:00:00.000Z',
+      services: ['swole.lilnas.io'],
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[blocked]}
+        services={SERVICES}
+      />,
+    )
+
+    const [editAccessButton] = screen.getAllByRole('button', {
+      name: /edit access/i,
+    })
+    fireEvent.click(editAccessButton!)
+    const signOutButton = screen.getByRole('button', {
+      name: /sign out everywhere/i,
+    })
+    fireEvent.click(signOutButton)
+
+    await waitFor(() => {
+      expect(mockRevokeSessions).toHaveBeenCalledWith('user_blocked')
+    })
+    await waitFor(() => {
+      expect(
+        screen.getByText('No active sessions to sign out'),
+      ).toBeInTheDocument()
     })
   })
 })

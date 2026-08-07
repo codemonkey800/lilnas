@@ -1,6 +1,7 @@
 import BetterSqlite3 from 'better-sqlite3'
 import { and, desc, eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
+import type { PinoLogger } from 'nestjs-pino'
 
 import { AdminController } from 'src/admin/admin.controller'
 import { UsersService } from 'src/admin/users.service'
@@ -22,6 +23,14 @@ function createTestDb() {
   return { db, sqlite, close: () => sqlite.close() }
 }
 
+// UsersService's own S2b session-revocation audit trail is not this suite's
+// concern (this file only proves AdminController's own route wiring — see
+// its header comment) — a bare stand-in is enough to satisfy the
+// constructor.
+function fakeLogger(): PinoLogger {
+  return { warn: jest.fn() } as unknown as PinoLogger
+}
+
 // Same stand-in pattern as requests.service.spec.ts/sse.controller.spec.ts —
 // AdminController's own routes never call any of these (they only exist so
 // RequestsService's constructor is satisfiable), which is itself part of
@@ -33,6 +42,7 @@ function fakeAccessCache(): AccessCacheService {
     isBlocked: jest.fn().mockReturnValue(false),
     hasGrant: jest.fn().mockReturnValue(false),
     resolveSession: jest.fn(),
+    invalidateSessionsForUser: jest.fn(),
   } as unknown as AccessCacheService
 }
 
@@ -64,6 +74,22 @@ function seedUser(db: Db, email?: string): string {
     })
     .run()
   return id
+}
+
+let sessionCounter = 0
+function seedSession(db: Db, userId: string): void {
+  const id = `session_${sessionCounter++}`
+  const now = new Date()
+  db.insert(schema.session)
+    .values({
+      id,
+      userId,
+      token: `token_${id}`,
+      expiresAt: new Date(now.getTime() + 60_000),
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run()
 }
 
 function seedPendingRow(db: Db, userId: string, serviceHost: string): number {
@@ -142,7 +168,12 @@ describe('AdminController', () => {
       testDb.db,
       requestsService,
       fakeServiceRegistry(),
-      new UsersService(testDb.db, fakeAccessCache(), new NotifyBusService()),
+      new UsersService(
+        testDb.db,
+        fakeAccessCache(),
+        new NotifyBusService(),
+        fakeLogger(),
+      ),
     )
   })
 
@@ -230,7 +261,12 @@ describe('AdminController', () => {
         testDb.db,
         requestsService,
         fakeServiceRegistry(entries),
-        new UsersService(testDb.db, fakeAccessCache(), new NotifyBusService()),
+        new UsersService(
+          testDb.db,
+          fakeAccessCache(),
+          new NotifyBusService(),
+          fakeLogger(),
+        ),
       )
 
       await expect(registryController.services()).resolves.toEqual(entries)
@@ -332,6 +368,34 @@ describe('AdminController', () => {
       const result = controller.bulkReject({ ids: [idA, idB] })
 
       expect(result).toEqual({ ok: true, decided: [idA] })
+    })
+  })
+
+  describe('revoke-sessions route wiring (S2b)', () => {
+    it('revokeSessions() delegates to UsersService and actually deletes the session rows (real DB, not a mock)', () => {
+      const userId = seedUser(testDb.db)
+      seedSession(testDb.db, userId)
+      seedSession(testDb.db, userId)
+
+      const result = controller.revokeSessions(userId)
+
+      expect(result).toEqual({ ok: true, sessionsRevoked: 2 })
+      expect(
+        testDb.db
+          .select()
+          .from(schema.session)
+          .all()
+          .filter(row => row.userId === userId),
+      ).toHaveLength(0)
+    })
+
+    it('reports 0 for a user with no active sessions, rather than throwing', () => {
+      const userId = seedUser(testDb.db)
+
+      expect(controller.revokeSessions(userId)).toEqual({
+        ok: true,
+        sessionsRevoked: 0,
+      })
     })
   })
 })

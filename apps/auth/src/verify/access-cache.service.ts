@@ -317,6 +317,24 @@ export class AccessCacheService implements OnModuleInit {
     this.blockedUserIds.delete(userId)
   }
 
+  // ── Session invalidation (S2b) ───────────────────────────────────────
+
+  // Write-through invalidation surface for UsersService.revokeSessions()
+  // (and, through it, blockUser()) — evicts every sessionCache entry
+  // currently resolving to this user, so a DB-level session revocation
+  // (auth-session.repo.ts's revokeSessionsForUser) takes effect on this
+  // zero-I/O cache immediately, rather than an already-warm entry riding
+  // out the up-to-MAX_SESSION_CACHE_MS clamp resolveSession() would
+  // otherwise still honor. Safe to delete the CURRENT key while iterating
+  // a Map — well-defined per spec, and does not skip entries.
+  invalidateSessionsForUser(userId: string): void {
+    for (const [cookieHeader, cached] of this.sessionCache) {
+      if (cached.userId === userId) {
+        this.sessionCache.delete(cookieHeader)
+      }
+    }
+  }
+
   // ── Session resolution ───────────────────────────────────────────────
 
   // Routes every sessionCache WRITE through one place so the size cap

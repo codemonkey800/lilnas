@@ -11,6 +11,7 @@ import {
   preAuthorizeUser,
   rejectRequest,
   removeUser,
+  revokeSessions,
   setUserService,
   unblockUser,
 } from 'src/app/admin/actions'
@@ -464,6 +465,29 @@ export function AdminDashboardClient({
       )
       showToast('Access removed')
       closeAccessModal()
+    })
+  }
+
+  // S2b: the "revoke all sessions" break-glass action — see
+  // UsersService.revokeSessions()'s own comment for the full rationale.
+  // Confirmed like Remove access above: unlike a single Block toggle, this
+  // immediately signs the person out of every device they're currently
+  // signed in on.
+  function handleSignOutEverywhere(userId: string) {
+    if (
+      !window.confirm(
+        "Sign this person out everywhere? Their current sessions are revoked immediately — they can sign back in right away, so this doesn't otherwise restrict their access.",
+      )
+    ) {
+      return
+    }
+    runAction(async () => {
+      const result = await revokeSessions(userId)
+      showToast(
+        result.sessionsRevoked > 0
+          ? `Signed out of ${result.sessionsRevoked} session${result.sessionsRevoked === 1 ? '' : 's'}`
+          : 'No active sessions to sign out',
+      )
     })
   }
 
@@ -1046,14 +1070,24 @@ export function AdminDashboardClient({
           ) : null}
           <div className="row between">
             {accessModalUser ? (
-              <button
-                type="button"
-                className="btn btn-ghost text-red-400 hover:bg-red-950/30 hover:text-red-300"
-                onClick={() => handleRemove(accessModalUser.id)}
-                disabled={isPending}
-              >
-                Remove access
-              </button>
+              <div className="row gap-2">
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={() => handleSignOutEverywhere(accessModalUser.id)}
+                  disabled={isPending}
+                >
+                  Sign out everywhere
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost text-red-400 hover:bg-red-950/30 hover:text-red-300"
+                  onClick={() => handleRemove(accessModalUser.id)}
+                  disabled={isPending}
+                >
+                  Remove access
+                </button>
+              </div>
             ) : null}
             <div className="row gap-2.5">
               <button

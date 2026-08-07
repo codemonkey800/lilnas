@@ -562,6 +562,82 @@ describe('AccessCacheService', () => {
     })
   })
 
+  describe('invalidateSessionsForUser (S2b)', () => {
+    beforeEach(() => {
+      testDb = createTestDb()
+    })
+
+    it('evicts a warm sessionCache entry for the given user, so a revoked session stops passing immediately — no clamp window to wait out (contrast with the out-of-band case above)', async () => {
+      const { auth, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const cookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-invalidate', email: 'invalidate@example.com' },
+      )
+      const resolved = await cache.resolveSession(cookie)
+      expect(resolved).not.toBeNull()
+
+      // Mirrors UsersService.revokeSessions()'s own ordering: the DB
+      // session row is deleted first, then this cache is told — the
+      // ADMIN-INITIATED path has a real call site to notify the cache
+      // from, unlike the out-of-band sign-out case above.
+      testDb.db.delete(schema.session).run()
+      cache.invalidateSessionsForUser(resolved!.userId)
+
+      // No clamp window to wait out — the very next call misses the cache
+      // entirely, re-verifies against the DB, and correctly finds nothing.
+      await expect(cache.resolveSession(cookie)).resolves.toBeNull()
+    })
+
+    it("only evicts entries for the given user, leaving another user's warm session untouched", async () => {
+      const { auth, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const targetCookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-target', email: 'target@example.com' },
+      )
+      const otherCookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-other', email: 'other@example.com' },
+      )
+      const targetSession = await cache.resolveSession(targetCookie)
+      const otherSession = await cache.resolveSession(otherCookie)
+      expect(targetSession).not.toBeNull()
+      expect(otherSession).not.toBeNull()
+
+      cache.invalidateSessionsForUser(targetSession!.userId)
+
+      // The target's entry is gone — deleting its underlying row too means
+      // this can only pass because the cache was actually evicted, not by
+      // coincidentally still finding a valid row.
+      testDb.db
+        .delete(schema.session)
+        .where(eq(schema.session.userId, targetSession!.userId))
+        .run()
+      await expect(cache.resolveSession(targetCookie)).resolves.toBeNull()
+
+      // The other user's warm entry is untouched — deleting ITS underlying
+      // row too and still getting a positive result proves this is a
+      // genuine cache hit, not a fresh DB read that happened to succeed.
+      testDb.db.delete(schema.session).run()
+      await expect(cache.resolveSession(otherCookie)).resolves.toEqual(
+        otherSession,
+      )
+    })
+
+    it('calling it for a userId with no cached sessions is a harmless no-op', () => {
+      const { cache } = createHarness(testDb)
+      cache.onModuleInit()
+
+      expect(() =>
+        cache.invalidateSessionsForUser('no-such-user'),
+      ).not.toThrow()
+    })
+  })
+
   describe('resolveSession — malformed or forged session cookie', () => {
     beforeEach(() => {
       testDb = createTestDb()

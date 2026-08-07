@@ -1,5 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 
+import { revokeSessionsForUser } from 'src/db/auth-session.repo'
 import { DB, type Db } from 'src/db/database.module'
 import {
   deleteGrant,
@@ -16,6 +18,15 @@ import { NotifyBusService } from 'src/sse/notify-bus.service'
 import { AccessCacheService } from 'src/verify/access-cache.service'
 
 import { normalizeEmail } from './normalize-email'
+
+// Kept local rather than graduated into a shared cross-file registry —
+// matches access-cache.service.ts's own established per-file convention
+// (see that file's LOG_EVENTS comment) for the same reason: not enough
+// call sites yet to warrant a shared registry.
+const LOG_EVENTS = {
+  sessionRevokeRequested: 'admin-session-revoke-requested',
+  sessionRevokeCompleted: 'admin-session-revoke-completed',
+} as const
 
 // ──────────────────────────────────────────────────────────────────────────────
 // U9 (R14, R15, R16; AE6): the admin user-management write surface. Not in
@@ -50,6 +61,7 @@ export class UsersService {
     @Inject(DB) private readonly db: Db,
     private readonly accessCache: AccessCacheService,
     private readonly notifyBus: NotifyBusService,
+    private readonly logger: PinoLogger,
   ) {}
 
   /**
@@ -228,6 +240,13 @@ export class UsersService {
    * on the very next verify" (this unit's own Verification bullet) is
    * exactly what that in-memory write buys, matching U5's own
    * checked-fresh-every-decision design for isBlocked().
+   *
+   * S2b: also revokes every session this user currently holds (see
+   * revokeSessions() below) — what makes Block a real kill switch rather
+   * than a /verify-only gate. Without this, a blocked ADMIN's existing
+   * session would keep full, unrestricted /admin access indefinitely,
+   * since AdminGuard's own session check is deliberately independent of
+   * blockedAt (see verify.service.ts's S2a header comment).
    */
   blockUser(userId: string): void {
     const now = new Date()
@@ -238,7 +257,37 @@ export class UsersService {
       { behavior: 'immediate' },
     )
     this.accessCache.blockUser(userId)
+    this.revokeSessions(userId)
     this.notifyBus.publishAdminChange()
+  }
+
+  /**
+   * S2b: the "revoke all sessions" break-glass action — mirrors
+   * apps/tdr-code/src/console/auth-admin.controller.ts's identical
+   * logger.warn-before/logger.warn-after audit-trail shape around the
+   * actual repo call (src/db/auth-session.repo.ts's revokeSessionsForUser).
+   * Exposed both as a standalone admin action (an operator can revoke
+   * sessions without also blocking future access — e.g. "this one cookie
+   * looks stolen, but the account itself is fine") and called from
+   * blockUser() above, so blocking someone is always a full kill switch.
+   *
+   * Deliberately does NOT call notifyBus.publishAdminChange() — unlike
+   * every other mutation in this file, revoking a session changes no
+   * queue/grant/blockedAt state the dashboard renders, so there is nothing
+   * for another open admin tab to refresh.
+   */
+  revokeSessions(userId: string): number {
+    this.logger.warn(
+      { userId, event: LOG_EVENTS.sessionRevokeRequested },
+      'Admin session-revoke requested',
+    )
+    const sessionsRevoked = revokeSessionsForUser(this.db, userId)
+    this.accessCache.invalidateSessionsForUser(userId)
+    this.logger.warn(
+      { userId, sessionsRevoked, event: LOG_EVENTS.sessionRevokeCompleted },
+      'Admin session-revoke completed',
+    )
+    return sessionsRevoked
   }
 
   unblockUser(userId: string): void {

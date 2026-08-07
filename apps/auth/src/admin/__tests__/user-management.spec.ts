@@ -1,11 +1,14 @@
+import type { ExecutionContext } from '@nestjs/common'
+import { UnauthorizedException } from '@nestjs/common'
 import { AuthService } from '@thallesp/nestjs-better-auth'
 import BetterSqlite3 from 'better-sqlite3'
 import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
+import type { Request } from 'express'
 import { PinoLogger } from 'nestjs-pino'
 
 import { AdminController } from 'src/admin/admin.controller'
-import { isAdminEmail } from 'src/admin/admin.guard'
+import { AdminGuard, isAdminEmail } from 'src/admin/admin.guard'
 import { UsersService } from 'src/admin/users.service'
 import { buildAuth } from 'src/auth/auth'
 import { applyPragmas, type Db, runMigrations } from 'src/db/database.module'
@@ -84,7 +87,12 @@ function createHarness(testDb: ReturnType<typeof createTestDb>) {
   )
   accessCache.onModuleInit()
   const notifyBus = new NotifyBusService()
-  const usersService = new UsersService(testDb.db, accessCache, notifyBus)
+  const usersService = new UsersService(
+    testDb.db,
+    accessCache,
+    notifyBus,
+    fakeLogger(),
+  )
   const verifyService = new VerifyService(accessCache)
   return { auth, accessCache, notifyBus, usersService, verifyService }
 }
@@ -335,8 +343,68 @@ describe('U9: user and grant management', () => {
     })
   })
 
+  describe('S2b: the standalone revokeSessions() action', () => {
+    it('signs a user out immediately without blocking their future access — services and blockedAt stay untouched, but the existing cookie stops resolving to a session', async () => {
+      const testDb = createTestDb()
+      try {
+        const { auth, usersService, verifyService } = createHarness(testDb)
+        const cookie = await signIn(auth, {
+          sub: 'google-sub-revoke-only',
+          email: 'revokeonly@example.com',
+        })
+        const userRow = mustFindUser(testDb.db, 'revokeonly@example.com')
+        usersService.setUserService(userRow.id, 'swole.lilnas.io', true)
+        expect(
+          (
+            await verifyService.decide(
+              verifyInputFor(cookie, 'swole.lilnas.io'),
+            )
+          ).outcome,
+        ).toBe('allow')
+
+        const sessionsRevoked = usersService.revokeSessions(userRow.id)
+
+        expect(sessionsRevoked).toBe(1)
+        expect(testDb.db.select().from(schema.session).all()).toHaveLength(0)
+        // Not blocked — a fresh sign-in is immediately allowed again, no
+        // admin unblock action required, since revokeSessions() alone
+        // never touches blockedAt or the grants table.
+        const freshCookie = await signIn(auth, {
+          sub: 'google-sub-revoke-only',
+          email: 'revokeonly@example.com',
+        })
+        expect(
+          (
+            await verifyService.decide(
+              verifyInputFor(freshCookie, 'swole.lilnas.io'),
+            )
+          ).outcome,
+        ).toBe('allow')
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('returns 0 for a user with no active sessions, rather than throwing', async () => {
+      const testDb = createTestDb()
+      try {
+        const { auth, usersService } = createHarness(testDb)
+        await signIn(auth, {
+          sub: 'google-sub-no-session',
+          email: 'nosession@example.com',
+        })
+        const userRow = mustFindUser(testDb.db, 'nosession@example.com')
+        usersService.revokeSessions(userRow.id)
+
+        expect(usersService.revokeSessions(userRow.id)).toBe(0)
+      } finally {
+        testDb.close()
+      }
+    })
+  })
+
   describe('R16 / AE6: block and unblock, from the admin action entry point', () => {
-    it('happy path: blocking means no new request row for any service and reaches nothing, on the next verify with no restart', async () => {
+    it('S2b: blocking revokes the existing session outright — the same cookie now hits the login redirect (no session), not /blocked, and no access_request row is created', async () => {
       const testDb = createTestDb()
       try {
         const { auth, usersService, verifyService } = createHarness(testDb)
@@ -356,13 +424,16 @@ describe('U9: user and grant management', () => {
         const after = await verifyService.decide(
           verifyInputFor(cookie, 'swole.lilnas.io'),
         )
+        // S2b: blockUser() now also revokes every session (see
+        // UsersService.revokeSessions()'s own comment) — the ORIGINAL
+        // cookie no longer resolves to a session at all, so this redirects
+        // to /login (the "no session" branch), never /blocked. See the
+        // next test for a FRESH session on this same, still-blocked user.
         expect(after.outcome).toBe('redirect')
-        // Reversed post-launch (see verify.service.ts's own
-        // REDIRECT_PATHS.blocked comment) — a blocked account now
-        // redirects to its own dedicated page, not /pending.
         expect(
           (after as { outcome: 'redirect'; location: string }).location,
-        ).toContain('/blocked')
+        ).toContain('/login')
+        expect(testDb.db.select().from(schema.session).all()).toHaveLength(0)
         expect(
           testDb.db.select().from(schema.accessRequest).all(),
         ).toHaveLength(0)
@@ -371,7 +442,38 @@ describe('U9: user and grant management', () => {
       }
     })
 
-    it('happy path: unblocking restores the prior behavior', async () => {
+    it('S2b: a freshly re-signed-in session for a still-blocked user correctly redirects to /blocked', async () => {
+      const testDb = createTestDb()
+      try {
+        const { auth, usersService, verifyService } = createHarness(testDb)
+        await signIn(auth, {
+          sub: 'google-sub-block-fresh',
+          email: 'blockmefresh@example.com',
+        })
+        const userRow = mustFindUser(testDb.db, 'blockmefresh@example.com')
+        usersService.blockUser(userRow.id)
+
+        // A brand-new sign-in mints a brand-new session row/cookie —
+        // unaffected by the earlier revocation, which only ever deletes
+        // rows that existed at the time it ran.
+        const freshCookie = await signIn(auth, {
+          sub: 'google-sub-block-fresh',
+          email: 'blockmefresh@example.com',
+        })
+
+        const decision = await verifyService.decide(
+          verifyInputFor(freshCookie, 'swole.lilnas.io'),
+        )
+        expect(decision.outcome).toBe('redirect')
+        expect(
+          (decision as { outcome: 'redirect'; location: string }).location,
+        ).toContain('/blocked')
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('happy path: unblocking clears blockedAt, but does not resurrect the session S2b already revoked — a fresh sign-in is required, and THEN access is restored', async () => {
       const testDb = createTestDb()
       try {
         const { auth, usersService, verifyService } = createHarness(testDb)
@@ -392,8 +494,26 @@ describe('U9: user and grant management', () => {
 
         usersService.unblockUser(userRow.id)
 
-        const after = await verifyService.decide(
+        // The ORIGINAL cookie's session was already revoked by blockUser()
+        // (S2b) — unblocking clears blockedAt but does not, and should not,
+        // reissue the deleted session. Still a redirect, now to /login
+        // rather than /blocked, since there is genuinely no session left.
+        const staleCookieResult = await verifyService.decide(
           verifyInputFor(cookie, 'swole.lilnas.io'),
+        )
+        expect(staleCookieResult.outcome).toBe('redirect')
+        expect(
+          (staleCookieResult as { outcome: 'redirect'; location: string })
+            .location,
+        ).toContain('/login')
+
+        // A fresh sign-in, however, is fully restored.
+        const freshCookie = await signIn(auth, {
+          sub: 'google-sub-unblock',
+          email: 'unblockme@example.com',
+        })
+        const after = await verifyService.decide(
+          verifyInputFor(freshCookie, 'swole.lilnas.io'),
         )
         expect(after.outcome).toBe('allow')
       } finally {
@@ -421,6 +541,42 @@ describe('U9: user and grant management', () => {
         expect(
           isAdminEmail('admin@example.com', process.env.ADMIN_EMAILS ?? ''),
         ).toBe(true)
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('S2b closes the gap the test above leaves open: blocking a compromised ADMIN also revokes their session, so AdminGuard now denies (401) via resolveSession — before isAdminEmail is ever consulted', async () => {
+      const testDb = createTestDb()
+      try {
+        const { auth, accessCache, usersService } = createHarness(testDb)
+        const cookie = await signIn(auth, {
+          sub: 'google-sub-compromised-admin',
+          email: 'admin@example.com',
+        })
+        const userRow = mustFindUser(testDb.db, 'admin@example.com')
+        const guard = new AdminGuard(accessCache)
+        const contextFor = (cookieHeader: string): ExecutionContext =>
+          ({
+            switchToHttp: () => ({
+              getRequest: () =>
+                ({ headers: { cookie: cookieHeader } }) as unknown as Request,
+            }),
+          }) as unknown as ExecutionContext
+
+        await expect(guard.canActivate(contextFor(cookie))).resolves.toBe(true)
+
+        usersService.blockUser(userRow.id)
+
+        // isAdminEmail() itself is still true (the test above proves that
+        // in isolation) — but the underlying SESSION is gone, so
+        // AdminGuard's own resolveSession() call now finds nothing at all
+        // and throws 401 before isAdminEmail is ever reached. This is what
+        // actually closes the "no way to revoke a compromised admin" gap:
+        // S2a alone only ever gated /verify, never /admin.
+        await expect(guard.canActivate(contextFor(cookie))).rejects.toThrow(
+          UnauthorizedException,
+        )
       } finally {
         testDb.close()
       }

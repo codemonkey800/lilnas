@@ -155,3 +155,16 @@ export async function blockUser(userId: string): Promise<void> {
 export async function unblockUser(userId: string): Promise<void> {
   await callBackend(`/admin/users/${requireUserId(userId)}/unblock`)
 }
+
+// S2b: the "revoke all sessions" break-glass action — see
+// UsersService.revokeSessions()'s own comment for the full rationale.
+// `sessionsRevoked` is passed straight through so the calling client
+// component can report a specific count rather than an undifferentiated
+// success.
+export async function revokeSessions(
+  userId: string,
+): Promise<{ ok: true; sessionsRevoked: number }> {
+  return callBackend<{ ok: true; sessionsRevoked: number }>(
+    `/admin/users/${requireUserId(userId)}/revoke-sessions`,
+  )
+}
