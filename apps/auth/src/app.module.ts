@@ -1,5 +1,6 @@
 import { env } from '@lilnas/utils/env'
 import { Module } from '@nestjs/common'
+import { ThrottlerModule } from '@nestjs/throttler'
 import { LoggerModule } from 'nestjs-pino'
 
 import { AdminController } from './admin/admin.controller'
@@ -26,6 +27,34 @@ const isProduction = env(EnvKeys.NODE_ENV, 'development') === 'production'
     AuthModule,
     AccessCacheModule,
     SseModule,
+    // S5: three named tiers, copied verbatim from
+    // apps/equations/src/app.module.ts (the only other lilnas app already
+    // using @nestjs/throttler) — burst, sustained, and hourly ceilings
+    // stacked together rather than a single limit. Applied via
+    // @UseGuards(ThrottlerGuard) on AdminController/RequestsController/
+    // MeController only — NOT VerifyController or HealthController. See
+    // those two controllers' own comments for why: /verify is the hot path
+    // for every gated host on the box, and a shared per-IP (or, behind
+    // Traefik, effectively per-upstream) counter in front of it is a
+    // single failure mode for the whole deployment, not a per-route
+    // concern. This is a deliberate omission, not an oversight.
+    ThrottlerModule.forRoot([
+      {
+        name: 'short',
+        ttl: 60000, // 1 minute
+        limit: 5, // 5 requests per minute
+      },
+      {
+        name: 'medium',
+        ttl: 900000, // 15 minutes
+        limit: 20, // 20 requests per 15 minutes
+      },
+      {
+        name: 'long',
+        ttl: 3600000, // 1 hour
+        limit: 50, // 50 requests per hour
+      },
+    ]),
     LoggerModule.forRoot({
       pinoHttp: {
         level: isProduction ? 'info' : 'debug',

@@ -45,6 +45,13 @@ function firstHeaderValue(
 // blocking an already-authenticated user's POST/PUT/DELETE to a migrated
 // service purely because of an unrelated infra config change this
 // controller has no visibility into.
+//
+// S5: deliberately NO @UseGuards(ThrottlerGuard) here, unlike every other
+// controller in this app — see app.module.ts's ThrottlerModule.forRoot()
+// comment. This is the ForwardAuth hot path for every gated host on the
+// box; a shared rate limiter in front of it is a single failure mode for
+// the whole deployment, not a per-route concern. The omission is
+// intentional, not an oversight.
 // ──────────────────────────────────────────────────────────────────────────────
 @Controller('verify')
 export class VerifyController {

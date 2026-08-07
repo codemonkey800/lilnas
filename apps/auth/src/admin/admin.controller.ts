@@ -10,6 +10,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common'
+import { ThrottlerGuard } from '@nestjs/throttler'
 import type { z } from 'zod'
 
 import { DB, type Db } from 'src/db/database.module'
@@ -69,11 +70,14 @@ export type AdminUserEntry = {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// U7 (R10, R11, R12, R17; F2, F3; AE5): the admin API surface. Every route
-// is gated by AdminGuard alone — see that file's header comment for why it
-// never touches the grants table.
+// U7 (R10, R11, R12, R17; F2, F3; AE5): the admin API surface. Authorization
+// is AdminGuard alone — see that file's header comment for why it never
+// touches the grants table. ThrottlerGuard (S5) is layered on top of that,
+// not instead of it — see app.module.ts's ThrottlerModule.forRoot() comment
+// for the tier values and why this controller gets one but VerifyController
+// does not.
 // ──────────────────────────────────────────────────────────────────────────────
-@UseGuards(AdminGuard)
+@UseGuards(AdminGuard, ThrottlerGuard)
 @Controller('admin')
 export class AdminController {
   constructor(

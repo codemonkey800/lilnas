@@ -5,7 +5,9 @@ import {
   Inject,
   Req,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common'
+import { ThrottlerGuard } from '@nestjs/throttler'
 import type { Request } from 'express'
 
 import { isAdminEmail } from 'src/admin/admin.guard'
@@ -51,6 +53,11 @@ export type MeResponse = {
   pendingRequests: { serviceHost: string; createdAt: string }[]
 }
 
+// S5: throttled — a self-service, browser-facing route, not the
+// ForwardAuth hot path (see app.module.ts's ThrottlerModule.forRoot()
+// comment for why VerifyController is the one controller that never gets
+// this guard).
+@UseGuards(ThrottlerGuard)
 @Controller()
 export class MeController {
   constructor(

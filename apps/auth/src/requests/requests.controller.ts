@@ -5,7 +5,9 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common'
+import { ThrottlerGuard } from '@nestjs/throttler'
 import type { Request } from 'express'
 
 import { normalizeHost } from 'src/services/normalize-host'
@@ -60,6 +62,11 @@ function parseServiceHost(redirect: unknown): string {
   }
 }
 
+// S5: throttled — this is a Server-Action-callable internal surface, not
+// the ForwardAuth hot path, so a per-route rate limit is a normal defense
+// here (unlike VerifyController — see app.module.ts's ThrottlerModule.forRoot()
+// comment).
+@UseGuards(ThrottlerGuard)
 @Controller('requests')
 export class RequestsController {
   constructor(
