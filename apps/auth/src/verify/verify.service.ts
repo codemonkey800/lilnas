@@ -17,18 +17,24 @@ import { AccessCacheService } from './access-cache.service'
 // AccessCacheService.bindPreAuthorizedGrant()'s own header comment for why
 // that write lives there and not here.
 //
-// The decision order is LOAD-BEARING for AE6: session -> admin bypass ->
-// blocked -> grant. Blocked is checked BEFORE grant so a blocked account
-// with an existing, valid grant still reaches nothing — checking grant
-// first would let a stale grant paper over a block.
+// The decision order is LOAD-BEARING for AE6: session -> blocked -> admin
+// bypass -> grant. Blocked is checked BEFORE the admin bypass AND before
+// the grant lookup — a blocked ADMIN_EMAILS address is denied here exactly
+// like any other blocked account, and a blocked account with an existing,
+// valid grant still reaches nothing (checking grant first would let a
+// stale grant paper over a block).
 //
-// The admin bypass sits BEFORE blocked, deliberately overriding AE6 rather
-// than honoring it: an ADMIN_EMAILS address is allowed unconditionally,
-// including while blocked. This mirrors admin.guard.ts's own R17 posture
-// (isAdminEmail() is checked with no awareness of blocked/grant state at
-// all) and user-management.spec.ts's existing regression test proving a
-// blocked admin still passes admin authorization today — this just extends
-// that same "admin trumps everything" guarantee to /verify.
+// This is a deliberate ASYMMETRY with admin.guard.ts, not an oversight.
+// AdminGuard's isAdminEmail() check stays completely independent of
+// blocked/grant state (R17/AE5 — an admin's OWN access to /admin must
+// survive an empty or corrupted grants table, and must not become
+// revocable by anything an admin action itself writes to it, including its
+// own block action), so a blocked admin still reaches /admin and can
+// unblock themselves there. If AdminGuard also denied a blocked admin,
+// blocking your own admin account would be a self-inflicted, unrecoverable
+// lockout with no path back in — there is deliberately no separate
+// "unlock" mechanism beyond /admin itself. See admin.guard.ts's own header
+// comment for the R17/AE5 rationale this mirrors on the /admin side.
 //
 // Request creation (turning "no grant" into a written access_request row)
 // is explicitly NOT this unit's job — U6 owns requests.service.ts. The
@@ -124,26 +130,10 @@ export class VerifyService {
       }
     }
 
-    // Admin bypass — unconditional, and deliberately checked BEFORE the
-    // blocked check below. An ADMIN_EMAILS address already has
-    // unrestricted control over the whole system (approves/rejects every
-    // other user, can block/unblock any account), so gating its own access
-    // to an ordinary protected host behind a grant is friction with no
-    // security benefit — see this file's header comment for the full
-    // rationale and its relationship to AE6. This does NOT bypass
-    // authentication: an admin who isn't signed in at all still hit the
-    // `!session` branch above like anyone else. It never calls
-    // hasGrant/isBlocked/bindPreAuthorizedGrant, and it never writes a
-    // grant row — see isAdminBypassEmail()'s own comment for the
-    // consequence of that (no everGrantedAt, so an admin-only identity
-    // never appears in /admin/users).
-    if (isAdminBypassEmail(session.email, this.adminEmailsEnv)) {
-      return { outcome: 'allow', email: session.email, userId: session.userId }
-    }
-
-    // Checked BEFORE the grant lookup — see this file's header comment;
-    // this ordering is what makes AE6 hold. The DESTINATION is /blocked,
-    // not /pending — reversed post-launch (see REDIRECT_PATHS.blocked's own
+    // Checked BEFORE the admin bypass AND the grant lookup — see this
+    // file's header comment for why this ordering is what makes AE6 hold
+    // even for an ADMIN_EMAILS address. The DESTINATION is /blocked, not
+    // /pending — reversed post-launch (see REDIRECT_PATHS.blocked's own
     // comment) so a blocked account is told plainly rather than left
     // staring at "waiting for approval" forever.
     if (this.accessCache.isBlocked(session.userId)) {
@@ -151,6 +141,22 @@ export class VerifyService {
         outcome: 'redirect',
         location: this.buildRedirectUrl(REDIRECT_PATHS.blocked, originalUrl),
       }
+    }
+
+    // Admin bypass — unconditional for a NOT-blocked admin, and checked
+    // AFTER the blocked check above (see this file's header comment for
+    // why). An ADMIN_EMAILS address already has unrestricted control over
+    // the whole system (approves/rejects every other user, can block/
+    // unblock any account), so gating its own access to an ordinary
+    // protected host behind a grant is friction with no security benefit.
+    // This does NOT bypass authentication: an admin who isn't signed in at
+    // all still hits the `!session` branch above like anyone else. It never
+    // calls hasGrant/bindPreAuthorizedGrant, and it never writes a grant
+    // row — see isAdminBypassEmail()'s own comment for the consequence of
+    // that (no everGrantedAt, so an admin-only identity never appears in
+    // /admin/users).
+    if (isAdminBypassEmail(session.email, this.adminEmailsEnv)) {
+      return { outcome: 'allow', email: session.email, userId: session.userId }
     }
 
     if (this.accessCache.hasGrant(session.userId, forwardedHost)) {

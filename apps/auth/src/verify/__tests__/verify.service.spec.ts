@@ -1,13 +1,16 @@
 import http from 'node:http'
 
+import type { ExecutionContext } from '@nestjs/common'
 import { Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { AuthService } from '@thallesp/nestjs-better-auth'
 import BetterSqlite3 from 'better-sqlite3'
 import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
+import type { Request } from 'express'
 import { PinoLogger } from 'nestjs-pino'
 
+import { AdminGuard } from 'src/admin/admin.guard'
 import { buildAuth } from 'src/auth/auth'
 import { AuthModule } from 'src/auth/auth.module'
 import {
@@ -372,7 +375,7 @@ describe('VerifyService.decide (direct construction, real DB, real buildAuth())'
     })
   })
 
-  it('covers the admin bypass: an ADMIN_EMAILS address is allowed unconditionally, with no grant ever added, and never reaches hasGrant/isBlocked/bindPreAuthorizedGrant', async () => {
+  it('covers the admin bypass: a non-blocked ADMIN_EMAILS address is allowed unconditionally, with no grant ever added, and never reaches hasGrant/bindPreAuthorizedGrant', async () => {
     testDb = createTestDb()
     const { auth, cache, verifyService } = createHarness(testDb)
     const cookie = await signInAndGetSessionCookiePair(auth, AUTH_HOST, {
@@ -400,11 +403,14 @@ describe('VerifyService.decide (direct construction, real DB, real buildAuth())'
       userId,
     })
     expect(hasGrantSpy).not.toHaveBeenCalled()
-    expect(isBlockedSpy).not.toHaveBeenCalled()
     expect(bindSpy).not.toHaveBeenCalled()
+    // S2a: isBlocked now runs BEFORE the admin bypass (see verify.service.ts's
+    // own header comment) — called once, returning false for this
+    // never-blocked admin, and the bypass proceeds exactly as before.
+    expect(isBlockedSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('covers R17 parity extended to /verify: a blocked ADMIN_EMAILS address still passes unconditionally', async () => {
+  it('S2a: a BLOCKED ADMIN_EMAILS address is denied /verify (the admin bypass no longer overrides a block), but AdminGuard still admits it', async () => {
     testDb = createTestDb()
     const { auth, cache, verifyService } = createHarness(testDb)
     const cookie = await signInAndGetSessionCookiePair(auth, AUTH_HOST, {
@@ -421,11 +427,24 @@ describe('VerifyService.decide (direct construction, real DB, real buildAuth())'
       forwardedUri: '/',
     })
 
-    expect(decision).toEqual({
-      outcome: 'allow',
-      email: 'admin@example.com',
-      userId,
-    })
+    expect(decision.outcome).toBe('redirect')
+    expect(decision.outcome === 'redirect' && decision.location).toContain(
+      '/blocked',
+    )
+
+    // Companion assertion for the deliberate asymmetry this inverts: unlike
+    // /verify, AdminGuard (src/admin/admin.guard.ts) stays completely
+    // independent of blocked/grant state, so the SAME blocked admin, using
+    // the SAME cache instance, still reaches /admin — see verify.service.ts's
+    // own header comment for why (this is the no-lockout property: a blocked
+    // admin can always unblock themselves).
+    const guard = new AdminGuard(cache)
+    const context = {
+      switchToHttp: () => ({
+        getRequest: () => ({ headers: { cookie } }) as unknown as Request,
+      }),
+    } as unknown as ExecutionContext
+    await expect(guard.canActivate(context)).resolves.toBe(true)
   })
 
   it('regression guard: a configured ADMIN_EMAILS does not over-match a non-admin email, which still redirects to pending with no grant', async () => {

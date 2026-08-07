@@ -131,7 +131,7 @@ describe('AdminDashboardClient — People/Blocked split', () => {
     expect(screen.queryByText('No blocked users.')).not.toBeInTheDocument()
   })
 
-  it('a blocked ADMIN user still renders in People, never in the Blocked panel', () => {
+  it('S2a: a blocked ADMIN user renders in the Blocked panel, not People — blocking an admin is now a real action', () => {
     const blockedAdmin = buildUser({
       id: 'user_admin',
       email: 'admin@example.com',
@@ -146,8 +146,14 @@ describe('AdminDashboardClient — People/Blocked split', () => {
       />,
     )
 
-    expect(screen.getByText('No blocked users.')).toBeInTheDocument()
+    expect(screen.getByText('No one matches your search.')).toBeInTheDocument()
+    expect(screen.queryByText('No blocked users.')).not.toBeInTheDocument()
     expect(screen.getAllByText('admin@example.com').length).toBeGreaterThan(0)
+    // PersonStatusChip still shows "Admin" (not "Blocked") even in the
+    // Blocked panel — isAdmin stays the higher-priority fact (a blocked
+    // admin keeps full /admin access via AdminGuard's own independent
+    // check) — see that component's own priority-order comment.
+    expect(screen.getAllByText('Admin').length).toBeGreaterThan(0)
   })
 
   it('clicking "Unblock" in the Blocked panel calls unblockUser and moves the row into People', async () => {
@@ -286,7 +292,7 @@ describe('AdminDashboardClient — Remove access', () => {
     })
   })
 
-  it('an admin row shows no actions at all — no Remove access, no Block/Unblock', () => {
+  it('S2a: an admin row hides Edit access (and so Remove access, reachable only from that modal), but still shows Block', () => {
     const admin = buildUser({
       id: 'user_admin',
       email: 'admin@example.com',
@@ -302,10 +308,85 @@ describe('AdminDashboardClient — Remove access', () => {
     )
 
     expect(
+      screen.queryByRole('button', { name: /edit access/i }),
+    ).not.toBeInTheDocument()
+    expect(
       screen.queryByRole('button', { name: /remove access/i }),
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: /^block$/i }),
-    ).not.toBeInTheDocument()
+      screen.getAllByRole('button', { name: /^block$/i }).length,
+    ).toBeGreaterThan(0)
+  })
+})
+
+describe('AdminDashboardClient — blocking an admin (S2a)', () => {
+  it('clicking "Block" on an admin row asks for confirmation; confirming calls blockUser and moves the row into the Blocked panel', async () => {
+    window.confirm = jest.fn().mockReturnValue(true)
+    mockBlockUser.mockResolvedValue(undefined)
+    const admin = buildUser({
+      id: 'user_admin',
+      email: 'admin@example.com',
+      isAdmin: true,
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[admin]}
+        services={SERVICES}
+      />,
+    )
+
+    const [blockButton] = screen.getAllByRole('button', { name: /^block$/i })
+    fireEvent.click(blockButton!)
+
+    expect(window.confirm).toHaveBeenCalled()
+    await waitFor(() => {
+      expect(mockBlockUser).toHaveBeenCalledWith('user_admin')
+    })
+  })
+
+  it('clicking "Block" on an admin row without confirming never calls blockUser', () => {
+    window.confirm = jest.fn().mockReturnValue(false)
+    const admin = buildUser({
+      id: 'user_admin',
+      email: 'admin@example.com',
+      isAdmin: true,
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[admin]}
+        services={SERVICES}
+      />,
+    )
+
+    const [blockButton] = screen.getAllByRole('button', { name: /^block$/i })
+    fireEvent.click(blockButton!)
+
+    expect(mockBlockUser).not.toHaveBeenCalled()
+  })
+
+  it('clicking "Block" on a non-admin row never asks for confirmation', async () => {
+    window.confirm = jest.fn()
+    mockBlockUser.mockResolvedValue(undefined)
+    const active = buildUser({
+      id: 'user_active',
+      email: 'active@example.com',
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[active]}
+        services={SERVICES}
+      />,
+    )
+
+    const [blockButton] = screen.getAllByRole('button', { name: /^block$/i })
+    fireEvent.click(blockButton!)
+
+    expect(window.confirm).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(mockBlockUser).toHaveBeenCalledWith('user_active')
+    })
   })
 })
