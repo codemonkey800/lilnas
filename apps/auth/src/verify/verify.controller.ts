@@ -1,6 +1,8 @@
 import { All, Controller, Req, Res } from '@nestjs/common'
 import type { Request, Response } from 'express'
 
+import { normalizeHost } from 'src/services/normalize-host'
+
 import { VerifyService } from './verify.service'
 
 // Express types a repeated header as `string[]`; every header this
@@ -50,9 +52,19 @@ export class VerifyController {
 
   @All()
   async verify(@Req() req: Request, @Res() res: Response): Promise<void> {
+    // S4: normalized BEFORE it ever reaches decide() — Traefik's Host(`...`)
+    // rule matches case-insensitively, so a client can present
+    // `X-Forwarded-Host: SWOLE.lilnas.io` for the same backend as
+    // `swole.lilnas.io`, but grants are always stored lowercase (see
+    // normalize-host.ts's own header comment). Without this, hasGrant()'s
+    // case-sensitive Set lookup would miss an existing grant and bounce an
+    // already-granted user to /pending.
+    const rawForwardedHost = firstHeaderValue(req.headers['x-forwarded-host'])
     const decision = await this.verifyService.decide({
       cookieHeader: req.headers.cookie,
-      forwardedHost: firstHeaderValue(req.headers['x-forwarded-host']),
+      forwardedHost: rawForwardedHost
+        ? normalizeHost(rawForwardedHost)
+        : undefined,
       forwardedProto: firstHeaderValue(req.headers['x-forwarded-proto']),
       forwardedUri: firstHeaderValue(req.headers['x-forwarded-uri']),
     })

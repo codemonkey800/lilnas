@@ -732,6 +732,62 @@ describe('VerifyController integration (real NestJS app, real HTTP, real DB)', (
     }
   })
 
+  it("S4: a granted user is still allowed when X-Forwarded-Host differs only in case, or carries a port — Traefik's own case-insensitive Host() matching means both can reach this endpoint for the same backend", async () => {
+    const testDb = createTestDb()
+    try {
+      const { moduleRef, app, port } = await startTestApp(testDb.db)
+      try {
+        const accessCache = moduleRef.get(AccessCacheService)
+        const mintingAuth = buildAuth(testDb.db)
+        const cookie = await signInAndGetSessionCookiePair(
+          mintingAuth,
+          AUTH_HOST,
+          {
+            sub: 'integration-case-port',
+            email: 'integration-case-port@example.com',
+          },
+        )
+        const userId = getUserIdByEmail(
+          testDb.db,
+          'integration-case-port@example.com',
+        )
+        // The grant is stored in the SAME lowercase form
+        // service-registry.service.ts's own hosts always take.
+        accessCache.addGrant(userId, 'granted-service.localhost.test')
+
+        const mixedCaseRes = await httpRequest(port, {
+          method: 'GET',
+          path: '/verify',
+          headers: {
+            cookie,
+            'x-forwarded-host': 'GRANTED-SERVICE.localhost.test',
+            'x-forwarded-proto': 'https',
+            'x-forwarded-uri': '/dashboard',
+          },
+        })
+        expect(mixedCaseRes.status).toBe(200)
+        expect(mixedCaseRes.headers['x-forwarded-user-id']).toBe(userId)
+
+        const portedRes = await httpRequest(port, {
+          method: 'GET',
+          path: '/verify',
+          headers: {
+            cookie,
+            'x-forwarded-host': 'granted-service.localhost.test:8443',
+            'x-forwarded-proto': 'https',
+            'x-forwarded-uri': '/dashboard',
+          },
+        })
+        expect(portedRes.status).toBe(200)
+        expect(portedRes.headers['x-forwarded-user-id']).toBe(userId)
+      } finally {
+        await app.close()
+      }
+    } finally {
+      testDb.close()
+    }
+  })
+
   it('an ungranted, signed-in user is redirected to the pending page with the original URL preserved', async () => {
     const testDb = createTestDb()
     try {
