@@ -1,13 +1,16 @@
 import http from 'node:http'
 
+import type { ExecutionContext } from '@nestjs/common'
 import { Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { AuthService } from '@thallesp/nestjs-better-auth'
 import BetterSqlite3 from 'better-sqlite3'
 import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
+import type { Request } from 'express'
 import { PinoLogger } from 'nestjs-pino'
 
+import { AdminGuard } from 'src/admin/admin.guard'
 import { buildAuth } from 'src/auth/auth'
 import { AuthModule } from 'src/auth/auth.module'
 import {
@@ -372,7 +375,7 @@ describe('VerifyService.decide (direct construction, real DB, real buildAuth())'
     })
   })
 
-  it('covers the admin bypass: an ADMIN_EMAILS address is allowed unconditionally, with no grant ever added, and never reaches hasGrant/isBlocked/bindPreAuthorizedGrant', async () => {
+  it('covers the admin bypass: a non-blocked ADMIN_EMAILS address is allowed unconditionally, with no grant ever added, and never reaches hasGrant/bindPreAuthorizedGrant', async () => {
     testDb = createTestDb()
     const { auth, cache, verifyService } = createHarness(testDb)
     const cookie = await signInAndGetSessionCookiePair(auth, AUTH_HOST, {
@@ -400,11 +403,14 @@ describe('VerifyService.decide (direct construction, real DB, real buildAuth())'
       userId,
     })
     expect(hasGrantSpy).not.toHaveBeenCalled()
-    expect(isBlockedSpy).not.toHaveBeenCalled()
     expect(bindSpy).not.toHaveBeenCalled()
+    // S2a: isBlocked now runs BEFORE the admin bypass (see verify.service.ts's
+    // own header comment) — called once, returning false for this
+    // never-blocked admin, and the bypass proceeds exactly as before.
+    expect(isBlockedSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('covers R17 parity extended to /verify: a blocked ADMIN_EMAILS address still passes unconditionally', async () => {
+  it('S2a: a BLOCKED ADMIN_EMAILS address is denied /verify (the admin bypass no longer overrides a block), but AdminGuard still admits it', async () => {
     testDb = createTestDb()
     const { auth, cache, verifyService } = createHarness(testDb)
     const cookie = await signInAndGetSessionCookiePair(auth, AUTH_HOST, {
@@ -421,11 +427,24 @@ describe('VerifyService.decide (direct construction, real DB, real buildAuth())'
       forwardedUri: '/',
     })
 
-    expect(decision).toEqual({
-      outcome: 'allow',
-      email: 'admin@example.com',
-      userId,
-    })
+    expect(decision.outcome).toBe('redirect')
+    expect(decision.outcome === 'redirect' && decision.location).toContain(
+      '/blocked',
+    )
+
+    // Companion assertion for the deliberate asymmetry this inverts: unlike
+    // /verify, AdminGuard (src/admin/admin.guard.ts) stays completely
+    // independent of blocked/grant state, so the SAME blocked admin, using
+    // the SAME cache instance, still reaches /admin — see verify.service.ts's
+    // own header comment for why (this is the no-lockout property: a blocked
+    // admin can always unblock themselves).
+    const guard = new AdminGuard(cache)
+    const context = {
+      switchToHttp: () => ({
+        getRequest: () => ({ headers: { cookie } }) as unknown as Request,
+      }),
+    } as unknown as ExecutionContext
+    await expect(guard.canActivate(context)).resolves.toBe(true)
   })
 
   it('regression guard: a configured ADMIN_EMAILS does not over-match a non-admin email, which still redirects to pending with no grant', async () => {
@@ -705,6 +724,62 @@ describe('VerifyController integration (real NestJS app, real HTTP, real DB)', (
         // outcomes below (redirect-to-pending, redirect-to-login, 5xx
         // fail-closed) — the complete set of shapes /verify can return.
         expect(res.headers['set-cookie']).toBeUndefined()
+      } finally {
+        await app.close()
+      }
+    } finally {
+      testDb.close()
+    }
+  })
+
+  it("S4: a granted user is still allowed when X-Forwarded-Host differs only in case, or carries a port — Traefik's own case-insensitive Host() matching means both can reach this endpoint for the same backend", async () => {
+    const testDb = createTestDb()
+    try {
+      const { moduleRef, app, port } = await startTestApp(testDb.db)
+      try {
+        const accessCache = moduleRef.get(AccessCacheService)
+        const mintingAuth = buildAuth(testDb.db)
+        const cookie = await signInAndGetSessionCookiePair(
+          mintingAuth,
+          AUTH_HOST,
+          {
+            sub: 'integration-case-port',
+            email: 'integration-case-port@example.com',
+          },
+        )
+        const userId = getUserIdByEmail(
+          testDb.db,
+          'integration-case-port@example.com',
+        )
+        // The grant is stored in the SAME lowercase form
+        // service-registry.service.ts's own hosts always take.
+        accessCache.addGrant(userId, 'granted-service.localhost.test')
+
+        const mixedCaseRes = await httpRequest(port, {
+          method: 'GET',
+          path: '/verify',
+          headers: {
+            cookie,
+            'x-forwarded-host': 'GRANTED-SERVICE.localhost.test',
+            'x-forwarded-proto': 'https',
+            'x-forwarded-uri': '/dashboard',
+          },
+        })
+        expect(mixedCaseRes.status).toBe(200)
+        expect(mixedCaseRes.headers['x-forwarded-user-id']).toBe(userId)
+
+        const portedRes = await httpRequest(port, {
+          method: 'GET',
+          path: '/verify',
+          headers: {
+            cookie,
+            'x-forwarded-host': 'granted-service.localhost.test:8443',
+            'x-forwarded-proto': 'https',
+            'x-forwarded-uri': '/dashboard',
+          },
+        })
+        expect(portedRes.status).toBe(200)
+        expect(portedRes.headers['x-forwarded-user-id']).toBe(userId)
       } finally {
         await app.close()
       }

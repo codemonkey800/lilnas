@@ -1,6 +1,8 @@
 import { All, Controller, Req, Res } from '@nestjs/common'
 import type { Request, Response } from 'express'
 
+import { normalizeHost } from 'src/services/normalize-host'
+
 import { VerifyService } from './verify.service'
 
 // Express types a repeated header as `string[]`; every header this
@@ -14,6 +16,23 @@ function firstHeaderValue(
 ): string | undefined {
   return Array.isArray(value) ? value[0] : value
 }
+
+// S7: the ONLY thing standing between "any header name" and "the specific
+// header names Traefik will let this response overwrite on the request it
+// forwards to the real backend" is infra/proxy.yml's own
+// authResponseHeaders= value on the lilnas-auth middleware — miss one here,
+// or drift from what that label actually lists, and a client can hand-set
+// e.g. `X-Forwarded-User-Id: <victim-id>` through a valid session of their
+// own and impersonate that victim (infra/nexus-code.yml trusts this header
+// as identity). Exported so
+// src/verify/__tests__/auth-response-headers.spec.ts can parse
+// infra/proxy.yml's real label value and assert the two sets match exactly
+// — this was previously enforced only by a comment, which a routine edit to
+// either file could silently break.
+export const VERIFY_RESPONSE_HEADERS = [
+  'X-Forwarded-User',
+  'X-Forwarded-User-Id',
+] as const
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Traefik's ForwardAuth entry point (R2, R4, R16 enforcement half, R20; F4).
@@ -43,6 +62,13 @@ function firstHeaderValue(
 // blocking an already-authenticated user's POST/PUT/DELETE to a migrated
 // service purely because of an unrelated infra config change this
 // controller has no visibility into.
+//
+// S5: deliberately NO @UseGuards(ThrottlerGuard) here, unlike every other
+// controller in this app — see app.module.ts's ThrottlerModule.forRoot()
+// comment. This is the ForwardAuth hot path for every gated host on the
+// box; a shared rate limiter in front of it is a single failure mode for
+// the whole deployment, not a per-route concern. The omission is
+// intentional, not an oversight.
 // ──────────────────────────────────────────────────────────────────────────────
 @Controller('verify')
 export class VerifyController {
@@ -50,23 +76,39 @@ export class VerifyController {
 
   @All()
   async verify(@Req() req: Request, @Res() res: Response): Promise<void> {
+    // S4: normalized BEFORE it ever reaches decide() — Traefik's Host(`...`)
+    // rule matches case-insensitively, so a client can present
+    // `X-Forwarded-Host: SWOLE.lilnas.io` for the same backend as
+    // `swole.lilnas.io`, but grants are always stored lowercase (see
+    // normalize-host.ts's own header comment). Without this, hasGrant()'s
+    // case-sensitive Set lookup would miss an existing grant and bounce an
+    // already-granted user to /pending.
+    const rawForwardedHost = firstHeaderValue(req.headers['x-forwarded-host'])
     const decision = await this.verifyService.decide({
       cookieHeader: req.headers.cookie,
-      forwardedHost: firstHeaderValue(req.headers['x-forwarded-host']),
+      forwardedHost: rawForwardedHost
+        ? normalizeHost(rawForwardedHost)
+        : undefined,
       forwardedProto: firstHeaderValue(req.headers['x-forwarded-proto']),
       forwardedUri: firstHeaderValue(req.headers['x-forwarded-uri']),
     })
 
     if (decision.outcome === 'allow') {
-      // Parity with the middleware being replaced — nothing in the repo
-      // reads this today (confirmed repo-wide by the plan's own research),
-      // so this is free and cannot break a migrating router. Traefik's own
-      // (U10-owned) middleware config is what actually copies this
-      // response header onto the request it forwards to the real backend,
-      // via forwardauth.authResponseHeaders=X-Forwarded-User — mirroring
-      // infra/proxy.yml's existing forward-auth definition.
-      res.setHeader('X-Forwarded-User', decision.email)
-      res.setHeader('X-Forwarded-User-Id', decision.userId)
+      // Traefik's own (U10-owned) middleware config is what actually copies
+      // these response headers onto the request it forwards to the real
+      // backend, via authResponseHeaders= — see VERIFY_RESPONSE_HEADERS's
+      // own comment above for why this reads from that shared constant
+      // instead of two hardcoded setHeader() calls.
+      const headerValues: Record<
+        (typeof VERIFY_RESPONSE_HEADERS)[number],
+        string
+      > = {
+        'X-Forwarded-User': decision.email,
+        'X-Forwarded-User-Id': decision.userId,
+      }
+      for (const header of VERIFY_RESPONSE_HEADERS) {
+        res.setHeader(header, headerValues[header])
+      }
       res.status(200).end()
       return
     }

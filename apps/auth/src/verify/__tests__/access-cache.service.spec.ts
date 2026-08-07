@@ -415,6 +415,135 @@ describe('AccessCacheService', () => {
     })
   })
 
+  describe('resolveSession — in-flight dedup for the cache-miss path (P1)', () => {
+    beforeEach(() => {
+      testDb = createTestDb()
+    })
+
+    it('50 concurrent cold resolveSession() calls for the SAME cookie perform exactly 1 getSession() call', async () => {
+      const { auth, authService, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const cookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-dedup', email: 'dedup@example.com' },
+      )
+      // Spy attached AFTER sign-in, matching the R2 describe block's own
+      // isolation technique above — only resolveSession()'s own calls are
+      // counted.
+      const getSessionSpy = jest.spyOn(authService.api, 'getSession')
+
+      const results = await Promise.all(
+        Array.from({ length: 50 }, () => cache.resolveSession(cookie)),
+      )
+
+      // Measured before this fix: 50 concurrent cold calls drove 50
+      // independent getSession() calls — MAX_SESSION_CACHE_MS's 60s clamp
+      // means every entry for a browser expires together, so the very
+      // next page load's burst of near-simultaneous /verify subrequests
+      // (one per asset/XHR) would stampede exactly like this.
+      expect(getSessionSpy).toHaveBeenCalledTimes(1)
+      for (const result of results) {
+        expect(result).toEqual({
+          userId: expect.any(String),
+          email: 'dedup@example.com',
+        })
+      }
+    })
+
+    it('concurrent calls for DIFFERENT cookies are never deduplicated together — each gets its own getSession() call', async () => {
+      const { auth, authService, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const cookieA = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-dedup-a', email: 'dedup-a@example.com' },
+      )
+      const cookieB = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-dedup-b', email: 'dedup-b@example.com' },
+      )
+      const getSessionSpy = jest.spyOn(authService.api, 'getSession')
+
+      const [resultA, resultB] = await Promise.all([
+        cache.resolveSession(cookieA),
+        cache.resolveSession(cookieB),
+      ])
+
+      expect(getSessionSpy).toHaveBeenCalledTimes(2)
+      expect(resultA?.email).toBe('dedup-a@example.com')
+      expect(resultB?.email).toBe('dedup-b@example.com')
+    })
+
+    it('the in-flight entry is cleared once settled — a later, non-concurrent call is a pure cache hit, not a second dedup', async () => {
+      const { auth, authService, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const cookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-dedup-sequential', email: 'sequential@example.com' },
+      )
+      const getSessionSpy = jest.spyOn(authService.api, 'getSession')
+
+      await cache.resolveSession(cookie)
+      expect(getSessionSpy).toHaveBeenCalledTimes(1)
+
+      await cache.resolveSession(cookie)
+      expect(getSessionSpy).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('resolveSession — cache keyed on the session cookie value only, not the whole header (P2)', () => {
+    beforeEach(() => {
+      testDb = createTestDb()
+    })
+
+    it('20 unrelated-cookie variants of the SAME session produce exactly 1 getSession() call — measured at 20 calls before this fix', async () => {
+      const { auth, authService, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const cookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-p2-variants', email: 'p2-variants@example.com' },
+      )
+      const getSessionSpy = jest.spyOn(authService.api, 'getSession')
+
+      // Sequential, not concurrent — isolates P2's cache-KEY fix from P1's
+      // in-flight dedup, which would also collapse concurrent calls to 1
+      // regardless of whether the cache key itself is correct. Each
+      // variant carries a DIFFERENT unrelated cookie alongside the SAME
+      // session cookie, simulating Domain=.lilnas.io cookies set by other
+      // subdomains (Grafana, a UI preference, ...).
+      for (let i = 0; i < 20; i++) {
+        const variantCookie = `unrelated-pref-${i}=value-${i}; ${cookie}; another-${i}=x`
+        const result = await cache.resolveSession(variantCookie)
+        expect(result?.email).toBe('p2-variants@example.com')
+      }
+
+      expect(getSessionSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('a change to an unrelated cookie (e.g. Grafana, a UI preference, under the same Domain=.lilnas.io) does not force re-verification', async () => {
+      const { auth, authService, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const cookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-p2-unrelated', email: 'p2-unrelated@example.com' },
+      )
+      await cache.resolveSession(cookie)
+
+      const getSessionSpy = jest.spyOn(authService.api, 'getSession')
+      const withGrafanaCookie = `grafana_session=abc123; ${cookie}`
+
+      const result = await cache.resolveSession(withGrafanaCookie)
+
+      expect(result?.email).toBe('p2-unrelated@example.com')
+      expect(getSessionSpy).not.toHaveBeenCalled()
+    })
+  })
+
   describe('resolveSession — a cached session past its own clamped cache lifetime', () => {
     beforeEach(() => {
       testDb = createTestDb()
@@ -559,6 +688,82 @@ describe('AccessCacheService', () => {
       } finally {
         nowSpy.mockRestore()
       }
+    })
+  })
+
+  describe('invalidateSessionsForUser (S2b)', () => {
+    beforeEach(() => {
+      testDb = createTestDb()
+    })
+
+    it('evicts a warm sessionCache entry for the given user, so a revoked session stops passing immediately — no clamp window to wait out (contrast with the out-of-band case above)', async () => {
+      const { auth, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const cookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-invalidate', email: 'invalidate@example.com' },
+      )
+      const resolved = await cache.resolveSession(cookie)
+      expect(resolved).not.toBeNull()
+
+      // Mirrors UsersService.revokeSessions()'s own ordering: the DB
+      // session row is deleted first, then this cache is told — the
+      // ADMIN-INITIATED path has a real call site to notify the cache
+      // from, unlike the out-of-band sign-out case above.
+      testDb.db.delete(schema.session).run()
+      cache.invalidateSessionsForUser(resolved!.userId)
+
+      // No clamp window to wait out — the very next call misses the cache
+      // entirely, re-verifies against the DB, and correctly finds nothing.
+      await expect(cache.resolveSession(cookie)).resolves.toBeNull()
+    })
+
+    it("only evicts entries for the given user, leaving another user's warm session untouched", async () => {
+      const { auth, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const targetCookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-target', email: 'target@example.com' },
+      )
+      const otherCookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-other', email: 'other@example.com' },
+      )
+      const targetSession = await cache.resolveSession(targetCookie)
+      const otherSession = await cache.resolveSession(otherCookie)
+      expect(targetSession).not.toBeNull()
+      expect(otherSession).not.toBeNull()
+
+      cache.invalidateSessionsForUser(targetSession!.userId)
+
+      // The target's entry is gone — deleting its underlying row too means
+      // this can only pass because the cache was actually evicted, not by
+      // coincidentally still finding a valid row.
+      testDb.db
+        .delete(schema.session)
+        .where(eq(schema.session.userId, targetSession!.userId))
+        .run()
+      await expect(cache.resolveSession(targetCookie)).resolves.toBeNull()
+
+      // The other user's warm entry is untouched — deleting ITS underlying
+      // row too and still getting a positive result proves this is a
+      // genuine cache hit, not a fresh DB read that happened to succeed.
+      testDb.db.delete(schema.session).run()
+      await expect(cache.resolveSession(otherCookie)).resolves.toEqual(
+        otherSession,
+      )
+    })
+
+    it('calling it for a userId with no cached sessions is a harmless no-op', () => {
+      const { cache } = createHarness(testDb)
+      cache.onModuleInit()
+
+      expect(() =>
+        cache.invalidateSessionsForUser('no-such-user'),
+      ).not.toThrow()
     })
   })
 

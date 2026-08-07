@@ -5,9 +5,12 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common'
+import { ThrottlerGuard } from '@nestjs/throttler'
 import type { Request } from 'express'
 
+import { normalizeHost } from 'src/services/normalize-host'
 import { ServiceRegistryService } from 'src/services/service-registry.service'
 import { AccessCacheService } from 'src/verify/access-cache.service'
 
@@ -48,12 +51,22 @@ function parseServiceHost(redirect: unknown): string {
     throw new BadRequestException('missing redirect')
   }
   try {
-    return new URL(redirect).hostname
+    // S4: routed through the SAME normalizeHost() verify.controller.ts
+    // applies to X-Forwarded-Host, rather than relying on `new URL()`'s own
+    // incidental lowercasing as an independently-arrived-at equivalent —
+    // see normalize-host.ts's own header comment for why the two call
+    // sites must share one explicit rule instead of two.
+    return normalizeHost(new URL(redirect).hostname)
   } catch {
     throw new BadRequestException('malformed redirect')
   }
 }
 
+// S5: throttled — this is a Server-Action-callable internal surface, not
+// the ForwardAuth hot path, so a per-route rate limit is a normal defense
+// here (unlike VerifyController — see app.module.ts's ThrottlerModule.forRoot()
+// comment).
+@UseGuards(ThrottlerGuard)
 @Controller('requests')
 export class RequestsController {
   constructor(

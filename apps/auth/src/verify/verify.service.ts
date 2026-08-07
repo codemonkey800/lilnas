@@ -7,32 +7,37 @@ import { EnvKeys } from 'src/env'
 import { AccessCacheService } from './access-cache.service'
 
 // ──────────────────────────────────────────────────────────────────────────────
-// U5 (R2, R4, R16 enforcement half, R20; F4): the /verify decision itself.
-// Pure orchestration over AccessCacheService's zero-I/O lookups — this
-// class calls no repo function directly and performs no I/O of its own.
-// U9 (R15) adds ONE narrow exception: on the no-grant branch, it asks
-// AccessCacheService to bind a pending pre-authorization, which — only in
-// the rare case one actually exists for this email — performs a one-time
-// DB write entirely inside that service. See
+// The /verify decision itself. Pure orchestration over AccessCacheService's
+// zero-I/O lookups — this class calls no repo function directly and
+// performs no I/O of its own. One narrow exception: on the no-grant
+// branch, it asks AccessCacheService to bind a pending pre-authorization,
+// which — only in the rare case one actually exists for this email —
+// performs a one-time DB write entirely inside that service. See
 // AccessCacheService.bindPreAuthorizedGrant()'s own header comment for why
 // that write lives there and not here.
 //
-// The decision order is LOAD-BEARING for AE6: session -> admin bypass ->
-// blocked -> grant. Blocked is checked BEFORE grant so a blocked account
-// with an existing, valid grant still reaches nothing — checking grant
-// first would let a stale grant paper over a block.
+// The decision order is LOAD-BEARING: session -> blocked -> admin bypass
+// -> grant. Blocked is checked BEFORE the admin bypass AND before the
+// grant lookup — a blocked ADMIN_EMAILS address is denied here exactly
+// like any other blocked account, and a blocked account with an existing,
+// valid grant still reaches nothing (checking grant first would let a
+// stale grant paper over a block).
 //
-// The admin bypass sits BEFORE blocked, deliberately overriding AE6 rather
-// than honoring it: an ADMIN_EMAILS address is allowed unconditionally,
-// including while blocked. This mirrors admin.guard.ts's own R17 posture
-// (isAdminEmail() is checked with no awareness of blocked/grant state at
-// all) and user-management.spec.ts's existing regression test proving a
-// blocked admin still passes admin authorization today — this just extends
-// that same "admin trumps everything" guarantee to /verify.
+// This is a deliberate ASYMMETRY with admin.guard.ts, not an oversight.
+// AdminGuard's isAdminEmail() check stays completely independent of
+// blocked/grant state — an admin's OWN access to /admin must survive an
+// empty or corrupted grants table, and must not become revocable by
+// anything an admin action itself writes to it, including its own block
+// action — so a blocked admin still reaches /admin and can unblock
+// themselves there. If AdminGuard also denied a blocked admin, blocking
+// your own admin account would be a self-inflicted, unrecoverable lockout
+// with no path back in — there is deliberately no separate "unlock"
+// mechanism beyond /admin itself. See admin.guard.ts's own header comment
+// for the matching rationale on the /admin side.
 //
 // Request creation (turning "no grant" into a written access_request row)
-// is explicitly NOT this unit's job — U6 owns requests.service.ts. The
-// no-grant branch here only redirects to the pending URL after the
+// is explicitly NOT this service's job — requests.service.ts owns that.
+// The no-grant branch here only redirects to the pending URL after the
 // pre-authorization check above finds nothing to bind; it never writes
 // directly itself.
 // ──────────────────────────────────────────────────────────────────────────────
@@ -52,13 +57,10 @@ export type VerifyDecision =
 const REDIRECT_PATHS = {
   login: '/login',
   pending: '/pending',
-  // A dedicated destination for a blocked account — added when R16's
-  // original "blocked stays indistinguishable from pending" decision was
-  // deliberately reversed (see requests.controller.ts's own header comment
-  // for the ordinary-HTTP-status-check half of this same reversal). Only
-  // the DESTINATION changed; the decision order and the fact that this
-  // never touches RequestsService are unchanged — see decide()'s own
-  // isBlocked branch below.
+  // A destination dedicated to a blocked account, distinct from /pending —
+  // see requests.controller.ts's own header comment for the matching
+  // ordinary-HTTP-status-check on that side. This never touches
+  // RequestsService — see decide()'s own isBlocked branch below.
   blocked: '/blocked',
 } as const
 
@@ -97,11 +99,11 @@ export class VerifyService {
     // misconfiguration, NOT an anonymous user — an anonymous user still
     // carries a real X-Forwarded-Host (the service they're trying to
     // reach); there is no legitimate request shape missing this header.
-    // Per R20, ForwardAuth must never fail open, and a loud 5xx (rather
-    // than quietly treating this like "no session" and redirecting to
-    // login) is what makes this failure class visible to an operator
-    // instead of masquerading as routine, high-volume anonymous traffic.
-    // No access_request row is created on this path either — there is no
+    // ForwardAuth must never fail open, and a loud 5xx (rather than
+    // quietly treating this like "no session" and redirecting to login) is
+    // what makes this failure class visible to an operator instead of
+    // masquerading as routine, high-volume anonymous traffic. No
+    // access_request row is created on this path either — there is no
     // valid serviceHost to key one on.
     if (!forwardedHost) {
       return {
@@ -124,28 +126,10 @@ export class VerifyService {
       }
     }
 
-    // Admin bypass — unconditional, and deliberately checked BEFORE the
-    // blocked check below. An ADMIN_EMAILS address already has
-    // unrestricted control over the whole system (approves/rejects every
-    // other user, can block/unblock any account), so gating its own access
-    // to an ordinary protected host behind a grant is friction with no
-    // security benefit — see this file's header comment for the full
-    // rationale and its relationship to AE6. This does NOT bypass
-    // authentication: an admin who isn't signed in at all still hit the
-    // `!session` branch above like anyone else. It never calls
-    // hasGrant/isBlocked/bindPreAuthorizedGrant, and it never writes a
-    // grant row — see isAdminBypassEmail()'s own comment for the
-    // consequence of that (no everGrantedAt, so an admin-only identity
-    // never appears in /admin/users).
-    if (isAdminBypassEmail(session.email, this.adminEmailsEnv)) {
-      return { outcome: 'allow', email: session.email, userId: session.userId }
-    }
-
-    // Checked BEFORE the grant lookup — see this file's header comment;
-    // this ordering is what makes AE6 hold. The DESTINATION is /blocked,
-    // not /pending — reversed post-launch (see REDIRECT_PATHS.blocked's own
-    // comment) so a blocked account is told plainly rather than left
-    // staring at "waiting for approval" forever.
+    // Checked BEFORE the admin bypass AND the grant lookup — see this
+    // file's header comment for why this ordering holds even for an
+    // ADMIN_EMAILS address. The destination is /blocked, not /pending —
+    // see REDIRECT_PATHS.blocked's own comment for why.
     if (this.accessCache.isBlocked(session.userId)) {
       return {
         outcome: 'redirect',
@@ -153,17 +137,33 @@ export class VerifyService {
       }
     }
 
-    if (this.accessCache.hasGrant(session.userId, forwardedHost)) {
-      // Parity with the middleware being replaced (nothing in the repo
-      // reads X-Forwarded-User today — confirmed repo-wide by the plan's
-      // own research — so this is free and cannot break a migrating
-      // router). VerifyController is what actually sets the response
-      // header; this method only decides the value.
+    // Admin bypass — unconditional for a NOT-blocked admin, and checked
+    // AFTER the blocked check above (see this file's header comment for
+    // why). An ADMIN_EMAILS address already has unrestricted control over
+    // the whole system (approves/rejects every other user, can block/
+    // unblock any account), so gating its own access to an ordinary
+    // protected host behind a grant is friction with no security benefit.
+    // This does NOT bypass authentication: an admin who isn't signed in at
+    // all still hits the `!session` branch above like anyone else. It never
+    // calls hasGrant/bindPreAuthorizedGrant, and it never writes a grant
+    // row — see isAdminBypassEmail()'s own comment for the consequence of
+    // that (no everGrantedAt, so an admin-only identity never appears in
+    // /admin/users).
+    if (isAdminBypassEmail(session.email, this.adminEmailsEnv)) {
       return { outcome: 'allow', email: session.email, userId: session.userId }
     }
 
-    // U9 (R15): "the grant binds on first sign-in." Checked only here, on
-    // the already-uncommon no-grant branch — see
+    if (this.accessCache.hasGrant(session.userId, forwardedHost)) {
+      // Parity with the middleware being replaced (nothing in the repo
+      // reads X-Forwarded-User today (confirmed repo-wide), so this is
+      // free and cannot break a migrating router). VerifyController is
+      // what actually sets the response header; this method only decides
+      // the value.
+      return { outcome: 'allow', email: session.email, userId: session.userId }
+    }
+
+    // "the grant binds on first sign-in." Checked only here, on the
+    // already-uncommon no-grant branch — see
     // AccessCacheService.bindPreAuthorizedGrant()'s own header comment for
     // the full design and why this is the one narrowly-scoped exception to
     // this class's "never writes" claim (the write it triggers happens
@@ -180,8 +180,9 @@ export class VerifyService {
       return { outcome: 'allow', email: session.email, userId: session.userId }
     }
 
-    // No grant. U6 owns turning this into a created-or-absorbed
-    // access_request row — this unit only redirects, it never writes.
+    // No grant. requests.service.ts owns turning this into a
+    // created-or-absorbed access_request row — this service only
+    // redirects, it never writes.
     return {
       outcome: 'redirect',
       location: this.buildRedirectUrl(REDIRECT_PATHS.pending, originalUrl),
@@ -191,10 +192,9 @@ export class VerifyService {
   /**
    * Builds an ABSOLUTE `${AUTH_HOST}${path}?redirect=<originalUrl>` URL.
    *
-   * Absolute, never relative — U1's proven finding: Traefik's
-   * `preserveLocationHeader` defaults to `false`, so a relative Location
-   * out of /verify would be rewritten by Traefik into a container-internal,
-   * browser-unreachable URL
+   * Absolute, never relative — Traefik's `preserveLocationHeader` defaults
+   * to `false`, so a relative Location out of /verify would be rewritten
+   * by Traefik into a container-internal, browser-unreachable URL
    * (`http://auth:8081/relative-target`-shaped) instead of reaching
    * the browser as intended. Every non-allow outcome from this service
    * must therefore carry a full origin, derived from AUTH_HOST the same
@@ -207,7 +207,7 @@ export class VerifyService {
    * now blocked) page can derive the service host from
    * `new URL(redirect).hostname`, so one param serves the login page
    * (where the whole URL is needed to return the user to their original
-   * destination, R3) and the pending/blocked pages (where only the host is
+   * destination) and the pending/blocked pages (where only the host is
    * needed) without two params that could drift out of sync.
    */
   private buildRedirectUrl(
@@ -221,14 +221,14 @@ export class VerifyService {
 }
 
 // Reconstructs the original browser-facing URL from the three headers
-// Traefik synthesizes on every ForwardAuth subrequest — proven correct in
-// U1's spike (forwardauth-contract.spec.ts's "synthesizes X-Forwarded-*
-// headers that reconstruct the original request byte-for-byte" test).
-// forwardedHost is guaranteed non-empty by VerifyService.decide()'s own
-// early return before this is ever called; forwardedProto/forwardedUri are
-// defended with sane fallbacks even though Traefik always sets them, since
-// this function has no way to independently re-assert VerifyService's own
-// precondition.
+// Traefik synthesizes on every ForwardAuth subrequest — empirically
+// verified, not assumed (forwardauth-contract.spec.ts's "synthesizes
+// X-Forwarded-* headers that reconstruct the original request
+// byte-for-byte" test). forwardedHost is guaranteed non-empty by
+// VerifyService.decide()'s own early return before this is ever called;
+// forwardedProto/forwardedUri are defended with sane fallbacks even though
+// Traefik always sets them, since this function has no way to
+// independently re-assert VerifyService's own precondition.
 function buildOriginalUrl(
   forwardedHost: string,
   forwardedProto: string | undefined,
@@ -243,11 +243,8 @@ function buildOriginalUrl(
 // not an import of it — admin.guard.ts imports AccessCacheService, and this
 // file already constructor-injects AccessCacheService itself, so importing
 // isAdminEmail from admin.guard.ts here would create a real circular module
-// dependency. src/db/seed-whitelist.ts already hit this identical tension
-// for a different env var (WHITELIST) and duplicated the same check locally
-// rather than importing admin.guard.ts — this follows that precedent, and
-// is named distinctly so there's no ambiguity at call sites about which
-// file's check is in play. Shares normalizeEmail() (src/admin/
+// dependency. Named distinctly so there's no ambiguity at call sites about
+// which file's check is in play. Shares normalizeEmail() (src/admin/
 // normalize-email.ts) with isAdminEmail() so both stay on the same
 // normalization rule without sharing a module edge back to admin.guard.ts.
 //

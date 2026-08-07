@@ -16,68 +16,75 @@ import {
 } from 'src/grants/grants.repo'
 
 // ──────────────────────────────────────────────────────────────────────────────
-// U5 (R2, R4, R16 enforcement half): the preloaded, write-through-invalidated
-// in-memory cache backing every /verify decision. Three independent things
-// live here, all zero-I/O once warm:
+// The preloaded, write-through-invalidated in-memory cache backing every
+// /verify decision. Three independent things live here, all zero-I/O once
+// warm:
 //
-//   1. grantsByUser — who can reach what (R1-R4). Preloaded at boot from
+//   1. grantsByUser — who can reach what. Preloaded at boot from
 //      grants.repo.ts; mutated in place by addGrant/removeGrant, the write-
-//      through invalidation surface U7 (approve) and U9 (revoke/edit) will
-//      call after their own DB writes.
-//   2. blockedUserIds — R16's enforcement half. Preloaded at boot; mutated
-//      in place by blockUser/unblockUser, U9's future write-through surface.
-//      Read fresh on every decision (never itself session-cached), which is
-//      exactly what makes a blocked account with a stale grant still reach
-//      nothing (AE6) — blocking takes effect independent of whatever is
-//      cached in sessionCache below.
+//      through invalidation surface requests.service.ts's approveRequest()
+//      and users.service.ts's edit/revoke actions call after their own DB
+//      writes.
+//   2. blockedUserIds — the block/unblock enforcement half. Preloaded at
+//      boot; mutated in place by blockUser/unblockUser, users.service.ts's
+//      write-through surface. Read fresh on every decision (never itself
+//      session-cached), which is exactly what makes a blocked account with
+//      a stale grant still reach nothing — blocking takes effect
+//      independent of whatever is cached in sessionCache below.
 //   3. sessionCache — resolveSession()'s own cache. See that method's
 //      comment for the full session-cache design and why it diverges from
-//      the plan's `databaseHooks.session.create.after` sketch.
+//      a `databaseHooks.session.create.after`-based design that seems
+//      obvious at first.
 //
-// U7's admin.controller.ts (approve/reject) and U9's users.service.ts
-// (block/unblock/grant edits) are this file's actual write-through
-// invalidation callers — see addGrant/removeGrant/blockUser/unblockUser
-// below.
+// admin.controller.ts (approve/reject) and users.service.ts (block/unblock/
+// grant edits) are this file's actual write-through invalidation callers —
+// see addGrant/removeGrant/blockUser/unblockUser below.
 // ──────────────────────────────────────────────────────────────────────────────
 
-// A resolved, POSITIVE session result only, cached by the RAW Cookie
-// header string the browser presented (see resolveSession's own comment
-// for why the entire header — not just the one session cookie's value —
-// is the key). There is no negative-cache marker: a Cookie header that
-// resolves to no session (never signed a valid cookie at all, or a
-// getSession() call confirms it is genuinely expired/revoked) is never
-// written to this Map — see resolveSession's own CACHE LIFETIME comment
-// for why caching that outcome is exactly the attacker-controlled-growth
-// vector this design avoids. `Map.get()`'s `undefined` is therefore the
-// ONLY "not a currently-known-good session" signal this cache has.
+// A resolved, POSITIVE session result only, cached by the EXTRACTED
+// session cookie value (extractSessionCookieValue() below) — see
+// resolveSession's own comment for why P2 moved this off the raw Cookie
+// header. There is no negative-cache marker: a Cookie header that resolves
+// to no session (never signed a valid cookie at all, or a getSession()
+// call confirms it is genuinely expired/revoked) is never written to this
+// Map — see resolveSession's own CACHE LIFETIME comment for why caching
+// that outcome is exactly the attacker-controlled-growth vector this
+// design avoids. `Map.get()`'s `undefined` is therefore the ONLY "not a
+// currently-known-good session" signal this cache has.
 type CachedSession = {
   userId: string
   email: string
   expiresAtMs: number
 }
 
-// The literal, un-prefixed session cookie name Better Auth mints for this
-// app: `${cookiePrefix}.${cookieName}`, with cookiePrefix defaulting to
-// 'better-auth' and cookieName being 'session_token' — confirmed against
-// installed better-auth@1.6.23's dist/cookies/index.mjs
-// (createCookieGetter/getCookies: `` `${prefix}.${cookieName}` `` with
-// `prefix = options.advanced?.cookiePrefix || 'better-auth'`).
-// src/auth/auth.ts does not set `advanced.cookiePrefix`, so the default
-// applies. There is no shared export of this literal today (auth.ts has no
-// reason to expose cookie-naming internals to callers that only ever go
-// through better-auth's own session/cookie APIs) — if auth.ts ever sets a
-// custom cookiePrefix, this constant must change with it.
-//
-// Checked as a BARE `.session_token=` marker, deliberately WITHOUT the
-// `__Secure-` prefix better-auth also conditionally prepends (secure
-// whenever AUTH_HOST's own configured scheme is https — the same
-// derivation src/auth/auth.ts's "Secure cookie attribute" comment
-// documents and __tests__/auth-mount.spec.ts verifies): confirmed against
-// the same installed source, `__Secure-better-auth.session_token=` still
-// contains `better-auth.session_token=` as a substring, so one check
-// covers both dev (http, no prefix) and prod (https, `__Secure-` prefix)
-// without this file needing to re-derive the Secure/prefix logic itself.
-const SESSION_COOKIE_MARKER = 'better-auth.session_token='
+// Better Auth mints this session cookie as `${cookiePrefix}.session_token`,
+// `__Secure-`-prefixed whenever AUTH_HOST's configured scheme is https —
+// confirmed against installed better-auth@1.6.23's dist/cookies/index.mjs;
+// src/auth/auth.ts never overrides cookiePrefix, so the default
+// ('better-auth') applies. Both forms are matched by exact cookie name
+// (not a substring marker) so extractSessionCookieValue() below works
+// correctly in both dev (http, unprefixed) and prod (https, `__Secure-`).
+const SESSION_COOKIE_NAMES = [
+  'better-auth.session_token',
+  '__Secure-better-auth.session_token',
+] as const
+
+// P2: the ONE place that parses a raw `Cookie` header down to just the
+// Better Auth session cookie's VALUE — used for both resolveSession()'s
+// admission gate and its cache key (see that method's own comment for why
+// keying on the whole header was a real bug, not just imprecise). Returns
+// null if the header carries neither of SESSION_COOKIE_NAMES's two forms.
+export function extractSessionCookieValue(cookieHeader: string): string | null {
+  for (const pair of cookieHeader.split(';')) {
+    const separatorIndex = pair.indexOf('=')
+    if (separatorIndex === -1) continue
+    const name = pair.slice(0, separatorIndex).trim()
+    if ((SESSION_COOKIE_NAMES as readonly string[]).includes(name)) {
+      return pair.slice(separatorIndex + 1).trim()
+    }
+  }
+  return null
+}
 
 // Kept local rather than graduated into a shared cross-file registry (the
 // tdr-code `src/logging/log-events.ts` convention this app will likely
@@ -112,7 +119,14 @@ export class AccessCacheService implements OnModuleInit {
   private readonly grantsByUser = new Map<string, Set<string>>()
   private readonly blockedUserIds = new Set<string>()
   private readonly sessionCache = new Map<string, CachedSession>()
-  // U9 (R15): pre-authorizations awaiting a first sign-in, keyed by email
+  // P1: in-flight dedup for resolveSession()'s cache-miss path — see that
+  // method's own comment on why this exists and lookupSession() for the
+  // deduplicated work itself.
+  private readonly inFlightLookups = new Map<
+    string,
+    Promise<{ userId: string; email: string } | null>
+  >()
+  // Pre-authorizations awaiting a first sign-in, keyed by email
   // (not userId — there is no userId yet). See bindPreAuthorizedGrant()'s
   // own header comment for the full binding design and why it runs here,
   // lazily, rather than from a databaseHooks.user.create.after auth-time
@@ -127,9 +141,9 @@ export class AccessCacheService implements OnModuleInit {
 
   // Preloads grants, blocked accounts, and pending pre-authorizations once,
   // at boot — the ONE DB read this whole cache pays outside of a session
-  // cache miss or a pre-authorization bind (R2's "no I/O in steady state"
-  // is about the STEADY STATE, not process startup or the rare one-time
-  // event a specific user's very first post-pre-authorization verify is).
+  // cache miss or a pre-authorization bind ("no I/O in steady state" is
+  // about the STEADY STATE, not process startup or the rare one-time event
+  // a specific user's very first post-pre-authorization verify is).
   onModuleInit(): void {
     for (const { userId, serviceHost } of listAllGrants(this.db)) {
       this.addGrant(userId, serviceHost)
@@ -142,15 +156,15 @@ export class AccessCacheService implements OnModuleInit {
     }
   }
 
-  // ── Grants (R1-R4) ──────────────────────────────────────────────────
+  // ── Grants ────────────────────────────────────────────────────────────
 
   hasGrant(userId: string, serviceHost: string): boolean {
     return this.grantsByUser.get(userId)?.has(serviceHost) ?? false
   }
 
-  // Write-through invalidation surface for U7's approve action and U9's
-  // "edit a user's services" / pre-authorize-by-email actions. Idempotent
-  // — granting an already-granted pair is a no-op on the underlying Set.
+  // Write-through invalidation surface for the approve action and "edit a
+  // user's services" / pre-authorize-by-email actions. Idempotent —
+  // granting an already-granted pair is a no-op on the underlying Set.
   addGrant(userId: string, serviceHost: string): void {
     let hosts = this.grantsByUser.get(userId)
     if (!hosts) {
@@ -160,15 +174,15 @@ export class AccessCacheService implements OnModuleInit {
     hosts.add(serviceHost)
   }
 
-  // Write-through invalidation surface for U9's revoke / "edit a user's
+  // Write-through invalidation surface for the revoke / "edit a user's
   // services" actions. Removing a pair that was never granted is a no-op.
   removeGrant(userId: string, serviceHost: string): void {
     this.grantsByUser.get(userId)?.delete(serviceHost)
   }
 
-  // ── Pre-authorization (R15) ──────────────────────────────────────────
+  // ── Pre-authorization ─────────────────────────────────────────────────
 
-  // Write-through invalidation surface for U9's "pre-authorize by email"
+  // Write-through invalidation surface for the "pre-authorize by email"
   // admin action, called AFTER that action's own DB insert (mirrors
   // addGrant's own write-then-cache-update ordering). Idempotent, matching
   // the underlying table's own unique index.
@@ -202,7 +216,7 @@ export class AccessCacheService implements OnModuleInit {
   }
 
   /**
-   * U9 (R15): "the grant binds on first sign-in." Called by
+   * "The grant binds on first sign-in." Called by
    * VerifyService.decide() ONLY on the already-rare "no grant found"
    * branch (never on the hot, already-granted path), so this is checked
    * for every unauthorized request but only ever WRITES for the specific,
@@ -225,8 +239,8 @@ export class AccessCacheService implements OnModuleInit {
    * whose factory would need AccessCacheService — finishes constructing.
    * A hook that only writes the DB without also updating this cache would
    * leave a genuinely new user's first verify reading a stale (empty)
-   * in-memory grant set, silently reintroducing the pending page R15
-   * explicitly says must not appear.
+   * in-memory grant set, silently sending a pre-authorized user to the
+   * pending page instead of straight through.
    *
    * This method sidesteps that circularity entirely: AccessCacheService
    * already has both the DB and its own in-memory maps, so it can bind a
@@ -250,11 +264,10 @@ export class AccessCacheService implements OnModuleInit {
     forwardedHost: string,
   ): boolean {
     // Normalized once and reused for both the in-memory lookup and every
-    // DB call below — UsersService.preAuthorize() and seed-whitelist.ts
-    // both normalize before writing, so this is the form every pending row
-    // actually exists under; `email` here is whatever a real sign-in
-    // reports (Google's own `email` claim), which must be normalized the
-    // same way to ever match.
+    // DB call below — UsersService.preAuthorize() normalizes before
+    // writing too, so this is the form every pending row actually exists
+    // under; `email` here is whatever a real sign-in reports (Google's own
+    // `email` claim), which must be normalized the same way to ever match.
     const normalizedEmail = normalizeEmail(email)
     const pendingHosts = this.preAuthorizedByEmail.get(normalizedEmail)
     if (!pendingHosts || pendingHosts.size === 0) {
@@ -297,24 +310,42 @@ export class AccessCacheService implements OnModuleInit {
     return hostsToBind.includes(forwardedHost)
   }
 
-  // ── Blocked status (R16 enforcement half) ───────────────────────────
+  // ── Blocked status ────────────────────────────────────────────────────
 
   isBlocked(userId: string): boolean {
     return this.blockedUserIds.has(userId)
   }
 
-  // Write-through invalidation surface for U9's block action. Takes effect
+  // Write-through invalidation surface for the block action. Takes effect
   // on the very next verify for this user, no restart — VerifyService
   // checks this Set fresh on every decision (never itself session-cached),
-  // which is exactly what makes AE6 hold: a blocked account's session can
-  // still be a warm cache hit while its blocked status is read live.
+  // so a blocked account's session can still be a warm cache hit while its
+  // blocked status is read live.
   blockUser(userId: string): void {
     this.blockedUserIds.add(userId)
   }
 
-  // Write-through invalidation surface for U9's unblock action.
+  // Write-through invalidation surface for the unblock action.
   unblockUser(userId: string): void {
     this.blockedUserIds.delete(userId)
+  }
+
+  // ── Session invalidation (S2b) ───────────────────────────────────────
+
+  // Write-through invalidation surface for UsersService.revokeSessions()
+  // (and, through it, blockUser()) — evicts every sessionCache entry
+  // currently resolving to this user, so a DB-level session revocation
+  // (auth-session.repo.ts's revokeSessionsForUser) takes effect on this
+  // zero-I/O cache immediately, rather than an already-warm entry riding
+  // out the up-to-MAX_SESSION_CACHE_MS clamp resolveSession() would
+  // otherwise still honor. Safe to delete the CURRENT key while iterating
+  // a Map — well-defined per spec, and does not skip entries.
+  invalidateSessionsForUser(userId: string): void {
+    for (const [sessionCookieValue, cached] of this.sessionCache) {
+      if (cached.userId === userId) {
+        this.sessionCache.delete(sessionCookieValue)
+      }
+    }
   }
 
   // ── Session resolution ───────────────────────────────────────────────
@@ -340,14 +371,14 @@ export class AccessCacheService implements OnModuleInit {
 
   /**
    * Resolves a raw `Cookie` header to `{ userId, email }`, or `null` if it
-   * carries no valid session — zero I/O on a cache hit (R2).
+   * carries no valid session — zero I/O on a cache hit.
    *
-   * DESIGN, AND WHY IT DIVERGES FROM THE PLAN'S HOOK-BASED SKETCH:
+   * DESIGN, AND WHY IT DIVERGES FROM A HOOK-BASED APPROACH:
    *
-   * The plan's Key Technical Decisions describe sessions populating via a
-   * better-auth `databaseHooks.session.create.after` hook plus a lazy
-   * DB-read fallback. That mechanism cannot work as described: the hook
-   * fires with the RAW, UNSIGNED `session.token` at creation time — before
+   * A `databaseHooks.session.create.after` hook plus a lazy DB-read
+   * fallback might seem like the obvious way to populate this cache. That
+   * mechanism cannot work as described: the hook fires with the RAW,
+   * UNSIGNED `session.token` at creation time — before
    * Better Auth ever constructs the SIGNED cookie value a browser actually
    * carries (name `better-auth.session_token`, or
    * `__Secure-better-auth.session_token` when AUTH_HOST is https —
@@ -360,21 +391,28 @@ export class AccessCacheService implements OnModuleInit {
    * looked up by anything /verify can cheaply derive from an incoming
    * SIGNED cookie without reimplementing that private signing/verification
    * scheme ourselves, which would duplicate crypto internals with no
-   * compatibility guarantee across better-auth versions. The plan's own
-   * "Deferred to Implementation" section explicitly flagged this exact
-   * mechanism as something to determine by reading the installed source
-   * during this unit, not a fixed spec — reading that source is exactly
-   * what surfaced this problem.
+   * compatibility guarantee across better-auth versions.
    *
-   * ACTUAL DESIGN: cache by the ENTIRE raw `Cookie` header string as
-   * received (not just the one session cookie's value — simplest, and
-   * correct because the SAME browser session presents the SAME raw Cookie
-   * header on every request until something rotates it, which nothing on
-   * /verify's own zero-I/O path ever does). A header with no `Cookie` at
-   * all, or none of whose cookies could possibly be a Better Auth session
-   * (SESSION_COOKIE_MARKER absent), is trivially "no session" — checked
-   * BEFORE ever touching the cache, so a totally anonymous request never
-   * grows this Map.
+   * ACTUAL DESIGN: cache by extractSessionCookieValue()'s result — the
+   * Better Auth session cookie's OWN value, not the whole raw `Cookie`
+   * header. P2 moved this off the whole-header key that shipped originally,
+   * which had two real bugs: (1) this app's cookies use
+   * `crossSubDomainCookies` (Domain=.lilnas.io, see auth.ts), so any OTHER
+   * cookie set by ANY *.lilnas.io subdomain — Grafana, a UI preference, a
+   * feature flag — rides along on every request's Cookie header; a change
+   * to any of them changed the cache KEY even though the session itself
+   * was unchanged, forcing a real getSession() re-verification for no
+   * reason. (2) cacheSession()'s FIFO eviction assumed one entry per
+   * session; keyed by the whole header, one signed-in user visiting
+   * several subdomains (each mutating some unrelated cookie differently)
+   * could mint many distinct entries for their OWN single session, capable
+   * of evicting a meaningful fraction of the whole 5,000-entry cache by
+   * themselves. Verified: 20 unrelated-cookie variants of one real session
+   * produced 20 cache entries and 20 getSession() calls before this fix.
+   * A header with no `Cookie` at all, or none of whose cookies match
+   * either of SESSION_COOKIE_NAMES's two forms, is trivially "no session"
+   * — checked BEFORE ever touching the cache, so a totally anonymous
+   * request never grows this Map.
    *
    * On a cache miss, calls Better Auth's own PUBLIC `auth.api.getSession()`
    * exactly once — the SAME `auth` instance `buildAuth(db)` produces
@@ -420,9 +458,9 @@ export class AccessCacheService implements OnModuleInit {
    * means revocation converges within `MAX_SESSION_CACHE_MS` regardless of
    * how long the session itself is configured to live, at the cost of one
    * DB read per session per clamp interval in steady state — still
-   * effectively zero-I/O (R2's "no I/O in steady state" is about request
-   * VOLUME, not about a fixed, small number of reads per session per
-   * minute).
+   * effectively zero-I/O: the "no I/O in steady state" property is about
+   * request VOLUME, not about a fixed, small number of reads per session
+   * per minute.
    *
    * On lookup, an entry whose `expiresAtMs` has passed falls through to a
    * REAL getSession() call — deliberately, not an oversight, and NOT the
@@ -438,18 +476,21 @@ export class AccessCacheService implements OnModuleInit {
    * life. Neither outcome of that re-check is ever cached negatively — see
    * the cold-miss handling below, which this re-check shares entirely.
    * There is no negative-cache path anywhere in this method: the only way
-   * a given raw Cookie header string can ever become a POSITIVE cache
-   * entry is a real, current getSession() success, and the only way it
-   * stops being one is the clamp elapsing and re-verification failing.
+   * a given session cookie value can ever become a POSITIVE cache entry is
+   * a real, current getSession() success, and the only way it stops being
+   * one is the clamp elapsing and re-verification failing.
    */
   async resolveSession(
     cookieHeader: string | undefined,
   ): Promise<{ userId: string; email: string } | null> {
-    if (!cookieHeader || !cookieHeader.includes(SESSION_COOKIE_MARKER)) {
+    const sessionCookieValue = cookieHeader
+      ? extractSessionCookieValue(cookieHeader)
+      : null
+    if (!cookieHeader || !sessionCookieValue) {
       return null
     }
 
-    const cached = this.sessionCache.get(cookieHeader)
+    const cached = this.sessionCache.get(sessionCookieValue)
     if (cached !== undefined) {
       if (cached.expiresAtMs > Date.now()) {
         return { userId: cached.userId, email: cached.email }
@@ -465,6 +506,50 @@ export class AccessCacheService implements OnModuleInit {
       // genuinely revoked/expired one now correctly stops passing.
     }
 
+    // P1: in-flight dedup, keyed by the SAME sessionCookieValue as the
+    // cache above (not the raw header — see this method's own ACTUAL
+    // DESIGN comment for why). MAX_SESSION_CACHE_MS's 60s clamp means
+    // every entry for a given browser expires at roughly the same moment,
+    // so the very next page load — one /verify subrequest per asset and
+    // XHR — arrives as a burst of near-simultaneous calls for the SAME
+    // session, all landing on the cache-miss path above at once. Measured
+    // directly: 50 concurrent cold resolveSession() calls for one session
+    // previously drove 50 independent getSession() calls; with this in
+    // place, one. Populated with the lookup promise BEFORE the first
+    // `await` inside it ever yields, so every concurrent caller for this
+    // session gets the SAME promise instead of racing its own getSession()
+    // call — cleared in `finally` so a later, non-concurrent call still
+    // starts a fresh lookup (or simply hits the now-warm cache above).
+    const inFlight = this.inFlightLookups.get(sessionCookieValue)
+    if (inFlight) {
+      return inFlight
+    }
+
+    // The FULL raw cookieHeader (not sessionCookieValue alone) is what
+    // getSession() below actually needs — better-auth does its own cookie
+    // parsing/verification from the complete header. Only the cache/
+    // in-flight KEYS use the narrower extracted value.
+    const lookup = this.lookupSession(cookieHeader, sessionCookieValue)
+    this.inFlightLookups.set(sessionCookieValue, lookup)
+    try {
+      return await lookup
+    } finally {
+      this.inFlightLookups.delete(sessionCookieValue)
+    }
+  }
+
+  // The actual cache-miss work resolveSession() above deduplicates: one
+  // real Better Auth getSession() call, plus caching a positive result.
+  // Never throws — every failure mode below resolves to `null` instead, so
+  // resolveSession()'s in-flight Map entry is always cleanly settled.
+  // Takes BOTH the full raw header (getSession() needs it for its own
+  // cookie parsing) and the already-extracted sessionCookieValue (the
+  // cache key) — the caller resolves both once rather than this method
+  // re-deriving the latter from the former a second time.
+  private async lookupSession(
+    cookieHeader: string,
+    sessionCookieValue: string,
+  ): Promise<{ userId: string; email: string } | null> {
     let result: Awaited<ReturnType<AuthService<Auth>['api']['getSession']>>
     try {
       result = await this.authService.api.getSession({
@@ -472,10 +557,9 @@ export class AccessCacheService implements OnModuleInit {
         // `disableRefresh: true` is NOT optional polish — without it this
         // "read-only" cache-miss path silently performs a WRITE. Found by
         // reading installed better-auth@1.6.23's dist/api/routes/
-        // session.mjs (not assumed from the plan's prose, which asserts
-        // "Zero I/O means updateAge never fires on the verify path" as
-        // though that followed automatically from this cache design — it
-        // does not): getSession() computes `shouldBeUpdated =
+        // session.mjs — not assumed to follow automatically from this
+        // cache's zero-I/O design, because it does not follow
+        // automatically: getSession() computes `shouldBeUpdated =
         // session.expiresAt - expiresIn*1000 + updateAge*1000 <=
         // Date.now()` and, whenever that holds (i.e. the session is within
         // `updateAge` — 1440*60s = 1 DAY by default, confirmed in
@@ -487,22 +571,21 @@ export class AccessCacheService implements OnModuleInit {
         // ONE deliberate DB read on a cold miss would, for a large and
         // entirely normal slice of real traffic, quietly become a DB
         // WRITE too — precisely the "no rolling session refresh from
-        // /verify" property the plan's Key Technical Decisions require,
-        // silently violated by the library's own default. `disableRefresh`
-        // (documented in better-auth's own getSessionQuerySchema as
-        // "Useful for checking session status, without updating the
-        // session") makes getSession() return the CURRENT row's real
-        // session.expiresAt unmodified — exactly the semantics
-        // resolveSession()'s own expiresAtMs cache-lifetime design below
-        // depends on. Discovered via this unit's own "session past its
-        // cached expiresAt" test: forcing the DB row to a near-future
-        // expiresAt and expecting it to read back unmodified only works
-        // with this flag set — without it, the forced near-expiry
-        // triggered exactly the refresh path above, silently extending the
-        // session back out to a fresh 30-day expiresAt and defeating the
-        // entire test (and, in production, defeating any attempt to reason
-        // about this cache's TTL from the session's own configured
-        // lifetime at all).
+        // /verify" property this cache depends on, silently violated by
+        // the library's own default. `disableRefresh` (documented in
+        // better-auth's own getSessionQuerySchema as "Useful for checking
+        // session status, without updating the session") makes
+        // getSession() return the CURRENT row's real session.expiresAt
+        // unmodified — exactly the semantics resolveSession()'s own
+        // expiresAtMs cache-lifetime design below depends on. Discovered
+        // via the "session past its cached expiresAt" test: forcing the DB
+        // row to a near-future expiresAt and expecting it to read back
+        // unmodified only works with this flag set — without it, the
+        // forced near-expiry triggered exactly the refresh path above,
+        // silently extending the session back out to a fresh 30-day
+        // expiresAt and defeating the entire test (and, in production,
+        // defeating any attempt to reason about this cache's TTL from the
+        // session's own configured lifetime at all).
         query: { disableRefresh: true },
       })
     } catch (err) {
@@ -525,17 +608,18 @@ export class AccessCacheService implements OnModuleInit {
     if (!result) {
       // Deliberately NOT cached. Caching this outcome is exactly the
       // unauthenticated remote-memory-exhaustion vector this cache used to
-      // have: the sole admission gate above (SESSION_COOKIE_MARKER) is an
-      // attacker-controlled substring, so any distinct forged cookie value
-      // would otherwise mint its own permanent entry. Leaving it uncached
-      // costs a repeat forged request one HMAC verification (no DB read —
-      // see this method's own comment on getSession()'s forged-cookie
+      // have: the sole admission gate above (extractSessionCookieValue()
+      // finding no match) still lets an attacker present arbitrarily many
+      // distinct forged session-cookie VALUES, each of which would
+      // otherwise mint its own permanent entry. Leaving it uncached costs
+      // a repeat forged request one HMAC verification (no DB read — see
+      // this method's own comment on getSession()'s forged-cookie
       // contract) instead of a hash-map lookup, which is an acceptable
       // trade for closing an unbounded, unauthenticated growth path.
       return null
     }
 
-    this.cacheSession(cookieHeader, {
+    this.cacheSession(sessionCookieValue, {
       userId: result.user.id,
       email: result.user.email,
       // Clamped to at most MAX_SESSION_CACHE_MS from now, NOT the

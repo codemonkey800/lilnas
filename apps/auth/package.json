@@ -25,13 +25,12 @@
     "lint:fix": "run-p -l lint:*:fix",
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
-    "seed:whitelist": "node dist/db/seed-whitelist.js",
     "start": "run-p --race start:*",
     "start:backend": "node dist/main",
     "start:frontend": "node server.js",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
+    "test:cov": "jest --coverage && node scripts/print-coverage-summary.js",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
@@ -40,6 +39,7 @@
     "@nestjs/common": "11.1.6",
     "@nestjs/core": "11.1.6",
     "@nestjs/platform-express": "11.1.6",
+    "@nestjs/throttler": "^6.4.0",
     "@thallesp/nestjs-better-auth": "2.6.1",
     "better-auth": "1.6.23",
     "better-sqlite3": "^12.10.0",
@@ -54,7 +54,8 @@
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.1",
     "source-map-support": "0.5.21",
-    "yaml": "^2.8.2"
+    "yaml": "^2.8.2",
+    "zod": "4.1.12"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",

@@ -144,6 +144,27 @@ describe('RequestsController', () => {
       expect(requestsService.requestAccess).not.toHaveBeenCalled()
     })
 
+    it('S4: a redirect hostname differing only in case is normalized to lowercase before ever reaching hasGrant() — the same lowercase form grants are always stored in', async () => {
+      const requestsService = fakeRequestsService()
+      const accessCache = fakeAccessCache(
+        { userId: 'user_1', email: 'granted@example.com' },
+        { hasGrant: true },
+      )
+      const controller = new RequestsController(
+        requestsService,
+        accessCache,
+        fakeServiceRegistry(KNOWN_REGISTRY),
+      )
+
+      const result = await controller.status(
+        fakeRequest('cookie=x'),
+        `https://${KNOWN_HOST.toUpperCase()}/dashboard`,
+      )
+
+      expect(result).toEqual({ outcome: 'granted' })
+      expect(accessCache.hasGrant).toHaveBeenCalledWith('user_1', KNOWN_HOST)
+    })
+
     it('covers #6: an unknown (off-registry) host reports the same pending shape and never creates a request row', async () => {
       const requestsService = fakeRequestsService()
       const controller = new RequestsController(

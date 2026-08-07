@@ -1,4 +1,4 @@
-// U4: parse-then-check redirect validation (R3, AE4).
+// Parse-then-check redirect validation.
 //
 // The one property every check below exists to protect: no crafted
 // `redirect` value can send a signed-in user to an origin outside this
@@ -59,7 +59,7 @@ export type RedirectValidationConfig = {
 // though the raw string ends with the substring "lilnas.io": as a suffix
 // check, "." + "lilnas.io" is ".lilnas.io", and "evil-lilnas.io" does not
 // end with that (it ends with "-lilnas.io"). Drop the dot and this becomes
-// exactly the well-known `.endsWith(suffix)` bug this unit's tests exist to
+// exactly the well-known `.endsWith(suffix)` bug this file's tests exist to
 // catch.
 function isAllowedHostname(hostname: string, suffix: string): boolean {
   return hostname === suffix || hostname.endsWith(`.${suffix}`)
@@ -108,28 +108,23 @@ export function resolveRedirectTarget(
   const authOrigin = new URL(config.authHost)
 
   // Step 2: scheme must match THIS DEPLOYMENT'S OWN configured scheme,
-  // derived from authOrigin's protocol rather than a hardcoded "https:".
+  // derived from authOrigin's protocol rather than a hardcoded "https:" —
+  // dev domains here are plain http://*.localhost (root CLAUDE.md's Domain
+  // Configuration section) with no TLS entrypoint at all, so a hardcoded
+  // "https:" would reject every legitimate dev redirect, not just
+  // malicious ones.
   //
-  // Judgment call (flagged per this unit's own instructions): the plan's
-  // prose describes a hardcoded "https:" requirement, which would reject
-  // every dev redirect outright — this repo's dev domains are plain
-  // http://*.localhost (root CLAUDE.md's Domain Configuration section),
-  // and U1's own spike found dev Traefik has no TLS entrypoint at all.
-  // Hardcoding "https:" would make this validator untestable against real
-  // dev URLs and would reject every legitimate dev redirect target, not
-  // just malicious ones.
-  //
-  // Resolution: reuse the exact pattern src/auth/auth.ts already
-  // established for the analogous prod-vs-dev scheme question (the Secure
-  // cookie attribute) — derive the required scheme from AUTH_HOST's own
-  // configured protocol, decided once per deployment, rather than a fixed
-  // literal or a second env var. AUTH_HOST is `https://auth.lilnas.io` in
-  // production and `http://auth.localhost` in dev (see .env.example), so
-  // this one value already encodes "this deployment's own scheme," and
-  // requiring every candidate to match it gives exactly: https-only in
-  // production, http-allowed in dev, with no new configuration surface to
-  // keep in sync with AUTH_HOST. A genuinely downgraded candidate (http
-  // under an https-configured deployment) is still rejected — see
+  // Mirrors the exact pattern src/auth/auth.ts already established for the
+  // analogous prod-vs-dev scheme question (the Secure cookie attribute):
+  // derive the required scheme from AUTH_HOST's own configured protocol,
+  // decided once per deployment, rather than a fixed literal or a second
+  // env var. AUTH_HOST is `https://auth.lilnas.io` in production and
+  // `http://auth.localhost` in dev (see .env.example), so this one value
+  // already encodes "this deployment's own scheme," and requiring every
+  // candidate to match it gives exactly: https-only in production,
+  // http-allowed in dev, with no new configuration surface to keep in sync
+  // with AUTH_HOST. A genuinely downgraded candidate (http under an
+  // https-configured deployment) is still rejected — see
   // __tests__/redirect.spec.ts's "scheme downgrade" case, run against a
   // fixture where authHost itself is https, which is the configuration
   // this rejection is meant to hold under. This same comparison also

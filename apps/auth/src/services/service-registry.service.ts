@@ -7,25 +7,23 @@ import path from 'path'
 import { EnvKeys } from 'src/env'
 
 // ──────────────────────────────────────────────────────────────────────────────
-// U8 (R13): "adding a Traefik label is sufficient for a service to appear in
-// the admin UI." Adapted from apps/portal/src/utils/hosts.ts's
+// "Adding a Traefik label is sufficient for a service to appear in the
+// admin UI." Adapted from apps/portal/src/utils/hosts.ts's
 // getHostsFromFiles()/extractHostsFromLabels — deliberately NOT
 // getHostsFromDocker(), whose docker.sock mount would grant this
-// internet-facing container effective host root (plan's Key Technical
-// Decisions: "Compose-file label parsing, not the Docker socket"). Reads the
-// read-only compose-label bind mount U2 already established
-// (deploy.yml/deploy.dev.yml's /repo/apps, /repo/infra — the SAME container
-// paths in both dev and prod, so this file needs no dev-vs-prod branching on
-// WHERE it reads from, only on which HOSTS it keeps — see includeDevHosts
-// below).
+// internet-facing container effective host root; compose-file label
+// parsing, not the Docker socket, is the safer read here. Reads the
+// read-only compose-label bind mounts (deploy.yml/deploy.dev.yml's
+// /repo/apps, /repo/infra — the SAME container paths in both dev and prod,
+// so this file needs no dev-vs-prod branching on WHERE it reads from, only
+// on which HOSTS it keeps — see includeDevHosts below).
 //
 // Extends portal's own extraction with the one thing it does not do:
 // correlating each ROUTER's `rule` (for its Host(...)) with that SAME
 // router's own `middlewares` value, so the admin UI can distinguish a host
 // still on the old `forward-auth` middleware from one already migrated to
-// `lilnas-auth` — the entire point of this unit, and what makes the admin UI
-// useful during a staged, per-router migration (R18) rather than only after
-// it completes.
+// `lilnas-auth` — what makes the admin UI useful during a staged,
+// per-router migration rather than only after it completes.
 // ──────────────────────────────────────────────────────────────────────────────
 
 const HOST_REGEX = /Host\(`([\S]+\.lilnas\.io)`\)/
@@ -33,15 +31,16 @@ const ROUTER_RULE_LABEL = /^traefik\.http\.routers\.([^.]+)\.rule=(.*)$/
 const ROUTER_MIDDLEWARES_LABEL =
   /^traefik\.http\.routers\.([^.]+)\.middlewares=(.*)$/
 
-// Ported verbatim from apps/portal/src/utils/hosts.ts's HOST_BLOCKLIST — U8's
-// own test scenarios require these stay filtered here too, matching portal's
-// existing precedent rather than re-deriving it from scratch.
+// Ported verbatim from apps/portal/src/utils/hosts.ts's HOST_BLOCKLIST —
+// these must stay filtered here too, matching portal's existing precedent
+// rather than re-deriving it from scratch.
 const HOST_BLOCKLIST = new Set(['auth', 'edge'])
 
-// Exported (unlike the constants below staying private) so U10's
-// seed-whitelist.ts CLI entrypoint scans the exact same compose-label
-// bind-mount paths this service does, rather than duplicating the literal
-// strings and risking the two drifting apart.
+// Exported (unlike the constants below staying private) so
+// compose-mount-coverage.spec.ts (S1's guard test) can build the exact
+// same absolute paths this service scans when checking each compose
+// file's bind mounts, rather than duplicating the literal strings and
+// risking the two drifting apart.
 export const DEFAULT_APPS_DIR = '/repo/apps'
 export const DEFAULT_INFRA_DIR = '/repo/infra'
 const CACHE_TTL_MS = 30_000
@@ -110,7 +109,7 @@ function parseRouters(labels: string[]): Map<string, RouterInfo> {
   return routers
 }
 
-// R18's per-router migration ordering means a host can, correctly, carry a
+// Per-router migration ordering means a host can, correctly, carry a
 // router still on `forward-auth` — that is the expected, safe steady state
 // for every host not yet migrated, not an error condition. `lilnas-auth`
 // takes precedence whenever present across a host's routers (the
@@ -221,11 +220,11 @@ async function listComposeFilePaths(
 }
 
 export type ScanOptions = {
-  // U8's own test scenario: "*.dev.lilnas.io hosts are excluded in
-  // production and included in development." Passed explicitly rather than
-  // read from process.env inside this function — mirrors
-  // src/auth/redirect.ts's resolveRedirectTarget()'s own "no env reads
-  // inside this module" rationale, for the same test-predictability reason.
+  // "*.dev.lilnas.io hosts are excluded in production and included in
+  // development." Passed explicitly rather than read from process.env
+  // inside this function — mirrors src/auth/redirect.ts's
+  // resolveRedirectTarget()'s own "no env reads inside this module"
+  // rationale, for the same test-predictability reason.
   includeDevHosts: boolean
   // Error path: "the bind mount being missing degrades to an empty registry
   // with a logged warning, and does not crash the process." A plain
@@ -283,12 +282,11 @@ export class ServiceRegistryService {
 
   // "A filesystem walk per admin page load is fine, per verify request is
   // not — though the verify path never calls this." The cache exists
-  // anyway, as the plan asks, so a page that fetches this more than once
-  // (or a burst of near-simultaneous admin page loads) doesn't repeat the
-  // walk needlessly; CACHE_TTL_MS is a fixed constant rather than a new
-  // env-tunable, since the plan does not ask for one and 30s already
-  // satisfies "adding a label is visible on the next admin page load"
-  // without a config knob nobody requested.
+  // anyway, so a page that fetches this more than once (or a burst of
+  // near-simultaneous admin page loads) doesn't repeat the walk needlessly;
+  // CACHE_TTL_MS is a fixed constant rather than a new env-tunable, since
+  // 30s already satisfies "adding a label is visible on the next admin
+  // page load" without a config knob nobody requested.
   async getServices(): Promise<ServiceRegistryEntry[]> {
     if (this.cache && this.cache.expiresAtMs > Date.now()) {
       return this.cache.entries

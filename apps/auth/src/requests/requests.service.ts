@@ -16,32 +16,22 @@ import {
 } from './requests.repo'
 
 // ──────────────────────────────────────────────────────────────────────────────
-// U6 (R5, R6, R8, R12): the request lifecycle's write side. VerifyService
-// (U5) never writes here directly — it only redirects to the pending page;
-// this service's methods are the ones the pending page's own status check
-// and re-request action call. See requestAccess()'s own comment for the full
-// reasoning on why an "automatic on load" path and an "explicit action" path
-// are kept distinct, rather than the single "no-grant branch now creates or
-// absorbs" merge the plan's file list describes.
+// The request lifecycle's write side. VerifyService never writes here
+// directly — it only redirects to the pending page; this service's methods
+// are the ones the pending page's own status check and re-request action
+// call. See requestAccess()'s own comment for the full reasoning on why an
+// "automatic on load" path and an "explicit action" path are kept distinct.
 //
-// Rejection visibility (post-launch revision): R7's original design made a
-// rejection completely invisible (see git history for that version of this
-// file/its comments). That call was deliberately reversed after the first
-// real cutover — a rejected user is now told inline, on the pending page
+// Rejection visibility: a rejected user is told inline, on the pending page
 // itself, via a live SSE push, and signing in again always starts a fresh
 // request with no cooldown. `RequestStatus`'s `'rejected'` outcome and the
-// removal of `canReRequest`/the cooldown machinery below are the result.
+// absence of a `canReRequest`/cooldown mechanism below reflect this.
 //
-// Blocked-account opacity (second post-launch revision): R16's original
-// design kept a BLOCKED account fully indistinguishable from an ordinary
-// pending request — see requests.controller.ts's own header comment for
-// where that separate mechanism is checked, BEFORE this service is ever
-// reached. That opacity was also deliberately reversed: a blocked user is
-// now told, on a dedicated /blocked page. This service's own methods are
-// unaffected either way (isBlocked is checked in requests.controller.ts,
-// never here), but is noted here since a reader of THIS file's history
-// would otherwise see only the still-accurate rejection-visibility story
-// above and wrongly assume blocked accounts are still opaque too.
+// Blocked-account handling: a blocked user is told on a dedicated /blocked
+// page — see requests.controller.ts's own header comment for where that
+// check happens, before this service is ever reached. This service's own
+// methods are unaffected either way; isBlocked is checked in
+// requests.controller.ts, never here.
 //
 // Admin dashboard live updates: every method below that actually creates or
 // decides a row also calls NotifyBusService.publishAdminChange() — the same
@@ -76,15 +66,15 @@ export class RequestsService {
   /**
    * The AUTOMATIC path — called on every pending-page load and every SSE
    * reconnect (never on a bare keepalive). Absorbs a repeat visit into an
-   * existing pending row (R6/AE1) and reports a decided rejection as-is, but
-   * NEVER itself creates a fresh row once the current row is a decided
-   * rejection — creating that fresh row is reRequestAccess()'s job alone,
-   * gated on the explicit sign-in-again action on `/login`. If this path
-   * minted a fresh row the instant a status check discovered a rejection,
-   * the live SSE push would put the request right back in the admin's queue
-   * within moments of them rejecting it.
+   * existing pending row and reports a decided rejection as-is, but NEVER
+   * itself creates a fresh row once the current row is a decided rejection
+   * — creating that fresh row is reRequestAccess()'s job alone, gated on
+   * the explicit sign-in-again action on `/login`. If this path minted a
+   * fresh row the instant a status check discovered a rejection, the live
+   * SSE push would put the request right back in the admin's queue within
+   * moments of them rejecting it.
    *
-   * Also the FIRST-EVER request's entry point (R5): no prior row at all
+   * Also the FIRST-EVER request's entry point: no prior row at all
    * unconditionally creates one.
    */
   requestAccess(userId: string, serviceHost: string): RequestStatus {
@@ -106,7 +96,7 @@ export class RequestsService {
    * The EXPLICIT path — called only from the `/login` sign-in click when the
    * user is returning after a rejection (see login-form.tsx). No cooldown:
    * a rejected row always starts a fresh pending request immediately, and
-   * the prior rejected row is left in place as history (R12). Still guards
+   * the prior rejected row is left in place as history. Still guards
    * against duplicating a row that's already pending (a double-click, or a
    * race with the automatic absorb path) — that guard is what keeps removing
    * the cooldown from becoming a self-service spam vector, since minting a
@@ -147,19 +137,17 @@ export class RequestsService {
   }
 
   /**
-   * U7 (R11): approve a specific queue row. The DB writes (mark decided +
-   * insert the grant) happen together under BEGIN IMMEDIATE — a paired
-   * write per
+   * Approve a specific queue row. The DB writes (mark decided + insert the
+   * grant) happen together under BEGIN IMMEDIATE — a paired write per
    * docs/archive/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md's
    * "createExercise" example, not a read-then-branch race — then, OUTSIDE
    * the transaction and in this exact order, the in-memory cache is
    * invalidated and the SSE bus is published. That ordering (write DB ->
-   * invalidate cache -> publish) is the plan's own Key Technical Decision:
-   * publishing before invalidating would race the waiting user's redirect
-   * against a stale cache and bounce them straight back to pending.
-   * Idempotent: approving an already-approved row, or one whose grant
-   * already exists (e.g. a concurrent U9 edit), re-publishes but writes
-   * nothing new.
+   * invalidate cache -> publish) matters: publishing before invalidating
+   * would race the waiting user's redirect against a stale cache and
+   * bounce them straight back to pending. Idempotent: approving an
+   * already-approved row, or one whose grant already exists (e.g. a
+   * concurrent admin edit), re-publishes but writes nothing new.
    */
   approveRequest(id: number): void {
     const request = this.db.transaction(
@@ -186,11 +174,11 @@ export class RequestsService {
   }
 
   /**
-   * U7 (R11), revised for rejection visibility: reject a specific queue row.
-   * Writes the decision and, on a genuine decision only, publishes a live
-   * SSE signal on the same bus approve uses — an already-open `/pending` tab
-   * redirects to `/login` immediately rather than waiting for its next poll.
-   * No cache-invalidation step here (unlike approve) — the rejected-outcome
+   * Reject a specific queue row. Writes the decision and, on a genuine
+   * decision only, publishes a live SSE signal on the same bus approve
+   * uses — an already-open `/pending` tab redirects to `/login`
+   * immediately rather than waiting for its next poll. No
+   * cache-invalidation step here (unlike approve) — the rejected-outcome
    * read path is never cached. Only a currently-PENDING row is actually
    * decided; rejecting an already-decided row (approved or already
    * rejected) is a no-op rather than an error, since the queue UI only
@@ -203,7 +191,7 @@ export class RequestsService {
    * value stays a plain `boolean` — whether a decision was ACTUALLY made
    * (`false` for the no-op case) — matching admin.controller.ts's existing
    * `{ ok: true, decided: boolean }` contract and queue-client.tsx's own
-   * comment on why that distinction matters (#24 from REVIEW.md).
+   * comment on why that distinction matters.
    */
   rejectRequest(id: number): boolean {
     const decidedRow = this.db.transaction(
@@ -232,8 +220,8 @@ export class RequestsService {
   }
 
   /**
-   * U7 (R10): the queue's bulk-dismiss action. One transaction for the
-   * whole batch (all-or-nothing) rather than N independent ones. Silently
+   * The queue's bulk-dismiss action. One transaction for the whole batch
+   * (all-or-nothing) rather than N independent ones. Silently
    * skips any id that no longer exists or is no longer pending (e.g.
    * another admin already decided it) instead of throwing — a bulk action
    * over a batch the admin selected a moment ago should not fail entirely
@@ -300,8 +288,8 @@ export class RequestsService {
     }
 
     // 'approved' should not be reachable here in practice — VerifyService's
-    // own grant check (U5) would already have allowed the request before
-    // ever redirecting to pending. Handled defensively (report the
+    // own grant check would already have allowed the request before ever
+    // redirecting to pending. Handled defensively (report the
     // pending-equivalent "nothing to do" shape) rather than assumed
     // impossible, matching this app's general fail-safe posture.
     return { status: { outcome: 'pending' }, isNewRequest: false }
