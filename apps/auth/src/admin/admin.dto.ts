@@ -22,14 +22,21 @@ export const BulkRejectBodySchema = z.object({
 })
 export type BulkRejectBodyDto = z.infer<typeof BulkRejectBodySchema>
 
+// M3: both bodies below take an ARRAY (serviceHosts / changes) rather than
+// a single host — the admin dashboard's Add-person and Edit-access modals
+// used to call their single-host counterparts once per checkbox, each a
+// separate HTTP round trip and a separate backend transaction. See
+// UsersService.preAuthorizeMany()/setUserServices()'s own comments for the
+// "one transaction for the whole batch" half of this fix.
 export const PreAuthorizeBodySchema = z.object({
   email: z.string().email(),
-  serviceHost: z.string().min(1),
+  serviceHosts: z.array(z.string().min(1)).min(1),
 })
 export type PreAuthorizeBodyDto = z.infer<typeof PreAuthorizeBodySchema>
 
-export const SetUserServiceBodySchema = z.object({
-  serviceHost: z.string().min(1),
-  grant: z.boolean(),
+export const SetUserServicesBodySchema = z.object({
+  changes: z
+    .array(z.object({ serviceHost: z.string().min(1), grant: z.boolean() }))
+    .min(1),
 })
-export type SetUserServiceBodyDto = z.infer<typeof SetUserServiceBodySchema>
+export type SetUserServicesBodyDto = z.infer<typeof SetUserServicesBodySchema>

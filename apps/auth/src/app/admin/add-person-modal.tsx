@@ -1,14 +1,11 @@
 'use client'
 
 import { cns } from '@lilnas/utils/cns'
-import type { Dispatch, SetStateAction, TransitionStartFunction } from 'react'
+import type { TransitionStartFunction } from 'react'
 import { useState } from 'react'
 
-import { preAuthorizeUser } from 'src/app/admin/actions'
-import type {
-  AdminServiceEntry,
-  AdminUserEntry,
-} from 'src/app/admin/require-admin'
+import { preAuthorizeUsers } from 'src/app/admin/actions'
+import type { AdminServiceEntry } from 'src/app/admin/require-admin'
 import { Icon } from 'src/app/components/icons'
 import { ServiceCheckGrid } from 'src/app/components/service-check-grid'
 import { toggleInSet } from 'src/app/lib/toggle-in-set'
@@ -21,7 +18,6 @@ export type AddPersonModalProps = {
   services: AdminServiceEntry[]
   isPending: boolean
   startTransition: TransitionStartFunction
-  setUsers: Dispatch<SetStateAction<AdminUserEntry[]>>
   showToast: (message: string) => void
 }
 
@@ -37,13 +33,22 @@ export type AddPersonModalProps = {
 // version's guarantee that opening never shows a stale value from a
 // previous session (an effect-based reset would run one paint later,
 // risking a one-frame flash of stale state).
+//
+// M3: no more optimistic setUsers() call after a successful grant — every
+// mutation this app makes already publishes to the admin broadcast topic
+// (see users.service.ts's own header comment), which this SAME browser's
+// own SSE subscription also receives, triggering router.refresh() and a
+// fresh `users` prop from the server. There is no local copy left for this
+// modal to keep in sync by hand. `addSelected` is sent as ONE batched
+// preAuthorizeUsers() call rather than one call per checkbox — see
+// UsersService.preAuthorizeMany()'s own comment for the "one transaction
+// for the whole batch" rationale.
 export function AddPersonModal({
   isOpen,
   onClose,
   services,
   isPending,
   startTransition,
-  setUsers,
   showToast,
 }: AddPersonModalProps) {
   const [addEmail, setAddEmail] = useState('')
@@ -60,25 +65,14 @@ export function AddPersonModal({
     setAddModalError(null)
     startTransition(async () => {
       try {
-        for (const host of addSelected) {
-          await preAuthorizeUser(email, host)
+        // Matches the old per-host loop's own behavior when nothing is
+        // checked: zero iterations, zero network calls, and the toast
+        // still confirms the (empty) grant — preAuthorizeUsers() itself
+        // requires at least one host, so an empty selection must skip the
+        // call rather than send an invalid empty array.
+        if (addSelected.size > 0) {
+          await preAuthorizeUsers(email, [...addSelected])
         }
-        // Only reconciles an EXISTING row (someone who has already signed
-        // in before) — a brand-new email correctly stays invisible in
-        // People until they actually sign in and materialize a `user` row
-        // (see UsersService.preAuthorize()'s own header comment). Nothing
-        // further to do for that case; the grant is real on the backend
-        // either way.
-        setUsers(prev =>
-          prev.map(u =>
-            u.email === email
-              ? {
-                  ...u,
-                  services: [...new Set([...u.services, ...addSelected])],
-                }
-              : u,
-          ),
-        )
         showToast(`Access granted to ${email}`)
         onClose()
       } catch (err) {

@@ -30,7 +30,7 @@ import { ServiceRegistryService } from 'src/services/service-registry.service'
 import {
   BulkRejectBodySchema,
   PreAuthorizeBodySchema,
-  SetUserServiceBodySchema,
+  SetUserServicesBodySchema,
 } from './admin.dto'
 import { AdminGuard, isAdminEmail } from './admin.guard'
 import { UsersService } from './users.service'
@@ -53,7 +53,7 @@ export type AdminUserEntry = {
   email: string
   blockedAt: string | null
   // The user's FULL current grant set — read-only from this route's own
-  // perspective (mutations go through setUserService()'s single-host
+  // perspective (mutations go through setUserServices()'s explicit-deltas
   // shape below, never a resubmission of this array). Seeds which
   // checkboxes the admin UI's service list starts checked, INCLUDING any
   // host the user holds a grant for that has since left the service
@@ -166,41 +166,51 @@ export class AdminController {
     }))
   }
 
-  // R15's "add by email." Validated against U8's service registry here
-  // (mirrors requests.controller.ts's own parseServiceHost() precedent of
-  // validating at the controller layer, not inside the service) — U9's own
-  // error-path test scenario: "granting a service not in the registry is
-  // rejected with a clear message."
+  // R15's "add by email," M3's batched form — one call for every service
+  // the admin checked, not one call per checkbox (see
+  // UsersService.preAuthorizeMany()'s own comment for the "one transaction
+  // for the whole batch" half of this fix). EVERY host is validated
+  // against U8's service registry BEFORE any of them are written (mirrors
+  // requests.controller.ts's own parseServiceHost() precedent of validating
+  // at the controller layer, not inside the service) — U9's own error-path
+  // test scenario, "granting a service not in the registry is rejected
+  // with a clear message," now applies per host: one unknown host in the
+  // batch fails the whole request, rather than partially applying the
+  // known ones first.
   @Post('users/pre-authorize')
   async preAuthorize(@Body() body: unknown): Promise<{ ok: true }> {
-    const { email, serviceHost } = this.parseBody(PreAuthorizeBodySchema, body)
-    await this.assertKnownServiceHost(serviceHost)
-    this.usersService.preAuthorize(email, serviceHost)
+    const { email, serviceHosts } = this.parseBody(PreAuthorizeBodySchema, body)
+    await Promise.all(
+      serviceHosts.map(serviceHost => this.assertKnownServiceHost(serviceHost)),
+    )
+    this.usersService.preAuthorizeMany(email, serviceHosts)
     return { ok: true }
   }
 
-  // R15's "edit a user's services" — a single-host grant/revoke mutation
-  // (see UsersService.setUserService()'s own comment for why this replaced
-  // the earlier complete-desired-set shape). Registry validation runs ONLY
-  // when granting: a revoke never re-validates the host being removed, so
-  // an existing grant for a host that has since left the registry (e.g.
-  // this app's own cutover, which renamed login.lilnas.io to
-  // auth.lilnas.io) stays revocable rather than permanently stuck —
-  // validation exists to keep NEW grants confined to known hosts, not to
-  // gate removing old ones.
+  // R15's "edit a user's services," M3's batched form — a set of explicit
+  // (serviceHost, grant) deltas applied in one call (see
+  // UsersService.setUserServices()'s own comment for why this replaced the
+  // earlier complete-desired-set shape, and for the "one transaction for
+  // the whole batch" half of this fix that replaces the admin dashboard's
+  // old per-checkbox loop). Registry validation runs ONLY on entries with
+  // `grant: true`, and ALL of those are validated before anything is
+  // written: a revoke never re-validates the host being removed, so an
+  // existing grant for a host that has since left the registry (e.g. this
+  // app's own cutover, which renamed login.lilnas.io to auth.lilnas.io)
+  // stays revocable rather than permanently stuck — validation exists to
+  // keep NEW grants confined to known hosts, not to gate removing old ones.
   @Post('users/:userId/services')
-  async setUserService(
+  async setUserServices(
     @Param('userId') userId: string,
     @Body() body: unknown,
   ): Promise<{ ok: true }> {
-    const { serviceHost, grant } = this.parseBody(
-      SetUserServiceBodySchema,
-      body,
+    const { changes } = this.parseBody(SetUserServicesBodySchema, body)
+    await Promise.all(
+      changes
+        .filter(change => change.grant)
+        .map(change => this.assertKnownServiceHost(change.serviceHost)),
     )
-    if (grant) {
-      await this.assertKnownServiceHost(serviceHost)
-    }
-    this.usersService.setUserService(userId, serviceHost, grant)
+    this.usersService.setUserServices(userId, changes)
     return { ok: true }
   }
 

@@ -282,10 +282,10 @@ describe('U9: user and grant management', () => {
         )
         expect(swoleAllowed.outcome).toBe('allow')
 
-        // Swap swole for yacht — two atomic single-host actions now (revoke,
-        // then grant), matching how the admin UI actually invokes this one
-        // checkbox at a time (setUserService(), not a complete-desired-set
-        // diff).
+        // Swap swole for yacht via the single-host convenience wrapper —
+        // see the "batched service edits" describe block below for the
+        // same swap via setUserServices() in one call, which is what the
+        // admin UI itself invokes since M3.
         usersService.setUserService(userRow.id, 'swole.lilnas.io', false)
         usersService.setUserService(userRow.id, 'yacht.lilnas.io', true)
 
@@ -297,6 +297,145 @@ describe('U9: user and grant management', () => {
           verifyInputFor(cookie, 'yacht.lilnas.io'),
         )
         expect(afterYacht.outcome).toBe('allow')
+      } finally {
+        testDb.close()
+      }
+    })
+  })
+
+  describe('M3: batched service edits and pre-authorization', () => {
+    it('setUserServices() applies a grant and a revoke for the same user in one call, both taking effect', async () => {
+      const testDb = createTestDb()
+      try {
+        const { auth, usersService, verifyService } = createHarness(testDb)
+        const cookie = await signIn(auth, {
+          sub: 'google-sub-batch-edit',
+          email: 'batch-edit@example.com',
+        })
+        const userRow = mustFindUser(testDb.db, 'batch-edit@example.com')
+        usersService.setUserService(userRow.id, 'swole.lilnas.io', true)
+
+        // One call, not two — the swap the admin UI now sends as a single
+        // POST /admin/users/:userId/services request.
+        usersService.setUserServices(userRow.id, [
+          { serviceHost: 'swole.lilnas.io', grant: false },
+          { serviceHost: 'yacht.lilnas.io', grant: true },
+        ])
+
+        const afterSwole = await verifyService.decide(
+          verifyInputFor(cookie, 'swole.lilnas.io'),
+        )
+        expect(afterSwole.outcome).toBe('redirect')
+        const afterYacht = await verifyService.decide(
+          verifyInputFor(cookie, 'yacht.lilnas.io'),
+        )
+        expect(afterYacht.outcome).toBe('allow')
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('setUserServices() publishes exactly once for a batch with multiple real changes, not once per change', async () => {
+      const testDb = createTestDb()
+      try {
+        const { auth, notifyBus, usersService } = createHarness(testDb)
+        await signIn(auth, {
+          sub: 'google-sub-batch-notify',
+          email: 'batch-notify@example.com',
+        })
+        const userRow = mustFindUser(testDb.db, 'batch-notify@example.com')
+        const publishedTopics: string[] = []
+        notifyBus.stream$.subscribe(signal =>
+          publishedTopics.push(signal.topic),
+        )
+
+        usersService.setUserServices(userRow.id, [
+          { serviceHost: 'swole.lilnas.io', grant: true },
+          { serviceHost: 'yacht.lilnas.io', grant: true },
+        ])
+
+        expect(publishedTopics).toEqual([ADMIN_TOPIC])
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('setUserServices() does not publish when every change in the batch is a no-op', async () => {
+      const testDb = createTestDb()
+      try {
+        const { auth, notifyBus, usersService } = createHarness(testDb)
+        await signIn(auth, {
+          sub: 'google-sub-batch-noop',
+          email: 'batch-noop@example.com',
+        })
+        const userRow = mustFindUser(testDb.db, 'batch-noop@example.com')
+        usersService.setUserService(userRow.id, 'swole.lilnas.io', true)
+        const publishedTopics: string[] = []
+        notifyBus.stream$.subscribe(signal =>
+          publishedTopics.push(signal.topic),
+        )
+
+        // Already granted — granting it again in a batch is a no-op, same
+        // as the single-host wrapper's own no-op behavior.
+        usersService.setUserServices(userRow.id, [
+          { serviceHost: 'swole.lilnas.io', grant: true },
+        ])
+
+        expect(publishedTopics).toEqual([])
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('preAuthorizeMany() pre-authorizes every host for a not-yet-signed-in email in one call', async () => {
+      const testDb = createTestDb()
+      try {
+        const { auth, usersService, verifyService } = createHarness(testDb)
+
+        usersService.preAuthorizeMany('waiting-many@example.com', [
+          'swole.lilnas.io',
+          'yacht.lilnas.io',
+        ])
+        const cookie = await signIn(auth, {
+          sub: 'google-sub-preauth-many',
+          email: 'waiting-many@example.com',
+        })
+
+        const swole = await verifyService.decide(
+          verifyInputFor(cookie, 'swole.lilnas.io'),
+        )
+        const yacht = await verifyService.decide(
+          verifyInputFor(cookie, 'yacht.lilnas.io'),
+        )
+        expect(swole.outcome).toBe('allow')
+        expect(yacht.outcome).toBe('allow')
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('preAuthorizeMany() grants every host in one call for an email that already has a user row', async () => {
+      const testDb = createTestDb()
+      try {
+        const { auth, usersService, verifyService } = createHarness(testDb)
+        const cookie = await signIn(auth, {
+          sub: 'google-sub-preauth-many-existing',
+          email: 'preauth-many-existing@example.com',
+        })
+
+        usersService.preAuthorizeMany('preauth-many-existing@example.com', [
+          'swole.lilnas.io',
+          'yacht.lilnas.io',
+        ])
+
+        const swole = await verifyService.decide(
+          verifyInputFor(cookie, 'swole.lilnas.io'),
+        )
+        const yacht = await verifyService.decide(
+          verifyInputFor(cookie, 'yacht.lilnas.io'),
+        )
+        expect(swole.outcome).toBe('allow')
+        expect(yacht.outcome).toBe('allow')
       } finally {
         testDb.close()
       }
@@ -640,7 +779,7 @@ describe('U9: user and grant management', () => {
         await expect(
           controller.preAuthorize({
             email: 'someone@example.com',
-            serviceHost: 'not-a-real-service.lilnas.io',
+            serviceHosts: ['not-a-real-service.lilnas.io'],
           }),
         ).rejects.toThrow(/not a known service/)
       } finally {
@@ -672,9 +811,10 @@ describe('U9: user and grant management', () => {
         )
 
         await expect(
-          controller.setUserService(userRow.id, {
-            serviceHost: 'not-a-real-service.lilnas.io',
-            grant: true,
+          controller.setUserServices(userRow.id, {
+            changes: [
+              { serviceHost: 'not-a-real-service.lilnas.io', grant: true },
+            ],
           }),
         ).rejects.toThrow(/not a known service/)
       } finally {

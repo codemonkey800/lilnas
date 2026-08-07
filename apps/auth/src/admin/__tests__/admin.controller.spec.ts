@@ -413,23 +413,22 @@ describe('AdminController', () => {
       await expect(
         controller.preAuthorize({
           email: 'not-an-email',
-          serviceHost: 'swole.lilnas.io',
+          serviceHosts: ['swole.lilnas.io'],
         }),
       ).rejects.toThrow(BadRequestException)
     })
 
-    // The actual bug this closes: setUserService() used to do
+    // The actual bug this closes: setUserServices() used to do
     // `if (body.grant)`, and a JSON body of {"grant": "false"} deserializes
     // to the STRING "false" — a non-empty string, so the old truthy check
     // silently granted when the caller meant to revoke. This now fails
     // validation outright instead of being misinterpreted.
-    it('covers the S3 fix: setUserService() rejects grant: "false" (a string) rather than treating it as truthy', async () => {
+    it('covers the S3 fix: setUserServices() rejects grant: "false" (a string) rather than treating it as truthy', async () => {
       const userId = seedUser(testDb.db)
 
       await expect(
-        controller.setUserService(userId, {
-          serviceHost: 'swole.lilnas.io',
-          grant: 'false',
+        controller.setUserServices(userId, {
+          changes: [{ serviceHost: 'swole.lilnas.io', grant: 'false' }],
         }),
       ).rejects.toThrow(BadRequestException)
 
@@ -444,7 +443,7 @@ describe('AdminController', () => {
       ).toHaveLength(0)
     })
 
-    it('setUserService() still accepts a real boolean grant and writes the grant', async () => {
+    it('setUserServices() still accepts a real boolean grant and writes the grant', async () => {
       const registryController = new AdminController(
         testDb.db,
         requestsService,
@@ -461,9 +460,8 @@ describe('AdminController', () => {
       const userId = seedUser(testDb.db)
 
       await expect(
-        registryController.setUserService(userId, {
-          serviceHost: 'swole.lilnas.io',
-          grant: true,
+        registryController.setUserServices(userId, {
+          changes: [{ serviceHost: 'swole.lilnas.io', grant: true }],
         }),
       ).resolves.toEqual({ ok: true })
       expect(
@@ -473,6 +471,79 @@ describe('AdminController', () => {
           .where(eq(schema.grant.userId, userId))
           .all(),
       ).toHaveLength(1)
+    })
+
+    // M3: the whole point of the batched shape — one call carries every
+    // change the admin made, not one call per checkbox.
+    it('setUserServices() with multiple changes writes every one of them in a single call', async () => {
+      const registryController = new AdminController(
+        testDb.db,
+        requestsService,
+        fakeServiceRegistry([
+          { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
+          { host: 'tdr.lilnas.io', gatedBy: 'lilnas-auth' },
+        ]),
+        new UsersService(
+          testDb.db,
+          fakeAccessCache(),
+          new NotifyBusService(),
+          fakeLogger(),
+        ),
+      )
+      const userId = seedUser(testDb.db)
+
+      await expect(
+        registryController.setUserServices(userId, {
+          changes: [
+            { serviceHost: 'swole.lilnas.io', grant: true },
+            { serviceHost: 'tdr.lilnas.io', grant: true },
+          ],
+        }),
+      ).resolves.toEqual({ ok: true })
+      expect(
+        testDb.db
+          .select()
+          .from(schema.grant)
+          .where(eq(schema.grant.userId, userId))
+          .all(),
+      ).toHaveLength(2)
+    })
+
+    // M3: registry validation runs on EVERY grant:true entry before any of
+    // them are written — an unknown host anywhere in the batch fails the
+    // whole request, even alongside an otherwise-valid, known host, rather
+    // than partially applying the known ones first.
+    it('setUserServices() rejects the whole batch if any grant:true entry names an unknown host, writing nothing — not even the known one', async () => {
+      const registryController = new AdminController(
+        testDb.db,
+        requestsService,
+        fakeServiceRegistry([
+          { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
+        ]),
+        new UsersService(
+          testDb.db,
+          fakeAccessCache(),
+          new NotifyBusService(),
+          fakeLogger(),
+        ),
+      )
+      const userId = seedUser(testDb.db)
+
+      await expect(
+        registryController.setUserServices(userId, {
+          changes: [
+            { serviceHost: 'swole.lilnas.io', grant: true },
+            { serviceHost: 'not-a-real-service.lilnas.io', grant: true },
+          ],
+        }),
+      ).rejects.toThrow(/not a known service/)
+      expect(
+        testDb.db
+          .select()
+          .from(schema.grant)
+          .where(eq(schema.grant.userId, userId))
+          .all(),
+      ).toHaveLength(0)
     })
   })
 })

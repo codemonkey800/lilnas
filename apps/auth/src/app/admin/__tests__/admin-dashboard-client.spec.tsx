@@ -15,22 +15,22 @@ import type {
 const mockApproveRequest = jest.fn()
 const mockBlockUser = jest.fn()
 const mockBulkRejectRequests = jest.fn()
-const mockPreAuthorizeUser = jest.fn()
+const mockPreAuthorizeUsers = jest.fn()
 const mockRejectRequest = jest.fn()
 const mockRemoveUser = jest.fn()
 const mockRevokeSessions = jest.fn()
-const mockSetUserService = jest.fn()
+const mockSetUserServices = jest.fn()
 const mockUnblockUser = jest.fn()
 
 jest.mock('src/app/admin/actions', () => ({
   approveRequest: (...args: unknown[]) => mockApproveRequest(...args),
   blockUser: (...args: unknown[]) => mockBlockUser(...args),
   bulkRejectRequests: (...args: unknown[]) => mockBulkRejectRequests(...args),
-  preAuthorizeUser: (...args: unknown[]) => mockPreAuthorizeUser(...args),
+  preAuthorizeUsers: (...args: unknown[]) => mockPreAuthorizeUsers(...args),
   rejectRequest: (...args: unknown[]) => mockRejectRequest(...args),
   removeUser: (...args: unknown[]) => mockRemoveUser(...args),
   revokeSessions: (...args: unknown[]) => mockRevokeSessions(...args),
-  setUserService: (...args: unknown[]) => mockSetUserService(...args),
+  setUserServices: (...args: unknown[]) => mockSetUserServices(...args),
   unblockUser: (...args: unknown[]) => mockUnblockUser(...args),
 }))
 
@@ -114,6 +114,15 @@ beforeEach(() => {
 // suite deliberately does not re-test. `services` and `initialQueue` are
 // kept minimal/empty throughout since neither feature under test reads
 // them.
+//
+// M3: `queue`/`users` are the raw `initialQueue`/`initialUsers` props now
+// (see admin-dashboard-client.tsx's own header comment) — a real UI update
+// after an action is Next.js's own prop-refresh doing its job, which this
+// component no longer drives itself and which this render()-once test
+// harness has no way to simulate (mockRefresh is a bare spy, not a real
+// re-render with new props). Tests below assert on the SERVER ACTION CALL
+// an action makes, not on a resulting DOM change — the DOM change is real
+// in the browser, just out of this component's own testable scope now.
 // ──────────────────────────────────────────────────────────────────────────────
 describe('AdminDashboardClient — People/Blocked split', () => {
   it('renders an active user in People, and the Blocked panel stays empty', () => {
@@ -182,7 +191,7 @@ describe('AdminDashboardClient — People/Blocked split', () => {
     expect(screen.getAllByText('Admin').length).toBeGreaterThan(0)
   })
 
-  it('clicking "Unblock" in the Blocked panel calls unblockUser and moves the row into People', async () => {
+  it('clicking "Unblock" in the Blocked panel calls unblockUser with the right id', async () => {
     mockUnblockUser.mockResolvedValue(undefined)
     const blocked = buildUser({
       id: 'user_blocked',
@@ -202,17 +211,18 @@ describe('AdminDashboardClient — People/Blocked split', () => {
     })
     fireEvent.click(unblockButton!)
 
+    // M3: moving the row into People is now router.refresh()'s job (the
+    // acting browser's own SSE subscription echoes the mutation's admin
+    // broadcast back to it) — not something this component does with a
+    // local optimistic update, so there is nothing further to assert here.
     await waitFor(() => {
       expect(mockUnblockUser).toHaveBeenCalledWith('user_blocked')
-    })
-    await waitFor(() => {
-      expect(screen.getByText('No blocked users.')).toBeInTheDocument()
     })
   })
 })
 
 describe('AdminDashboardClient — Remove access', () => {
-  it('clicking "Remove access" in the Edit-access modal after confirming calls removeUser, clears the shown services, and closes the modal', async () => {
+  it('clicking "Remove access" in the Edit-access modal after confirming calls removeUser and closes the modal', async () => {
     // Assigned directly rather than jest.spyOn(window, 'confirm') — jsdom's
     // own confirm() stub is a "not implemented" no-op whose exact shape has
     // varied across versions; a direct assignment works regardless.
@@ -242,11 +252,9 @@ describe('AdminDashboardClient — Remove access', () => {
     await waitFor(() => {
       expect(mockRemoveUser).toHaveBeenCalledWith('user_active')
     })
-    await waitFor(() => {
-      expect(screen.getAllByText('No services granted').length).toBeGreaterThan(
-        0,
-      )
-    })
+    // Closing the modal is this component's OWN local UI state
+    // (accessModalUser), not a server-data mirror — still directly
+    // testable, unlike the now-optimistic-free `services` list (M3).
     await waitFor(() => {
       expect(
         screen.queryByRole('button', { name: /remove access/i }),
@@ -518,19 +526,20 @@ describe('AdminDashboardClient — Sign out everywhere (S2b)', () => {
 // ──────────────────────────────────────────────────────────────────────────────
 // M2 split AddPersonModal/EditAccessModal out of this file into their own
 // sibling files (add-person-modal.tsx, edit-access-modal.tsx), moving their
-// state and submit handlers as-is. The pre-existing tests above already
-// cover Remove access/Sign out everywhere/Block/Unblock through the
-// Edit-access modal, so a broken prop hookup there would already fail one
-// of them — but neither the Add-person flow nor the Edit-access modal's own
-// base grant/revoke checkbox flow had any coverage before this split, and
-// the one thing that's genuinely NEW rather than moved (each modal resets
-// its own state via a `key` change instead of an imperative reset function
-// — see each file's own header comment) had no coverage at all. These
-// tests close both gaps.
+// state and submit handlers as-is. M3 then replaced each modal's per-host
+// Server Action loop with a single batched call — see each modal file's
+// own header comment for the "one transaction for the whole batch"
+// rationale. The pre-existing tests above already cover Remove
+// access/Sign out everywhere/Block/Unblock through the Edit-access modal,
+// so a broken prop hookup there would already fail one of them — but
+// neither the Add-person flow nor the Edit-access modal's own base
+// grant/revoke checkbox flow had any coverage before M2, and the two
+// things genuinely NEW rather than moved (M2's key-based reset, M3's
+// batching) had no coverage at all. These tests close both gaps.
 // ──────────────────────────────────────────────────────────────────────────────
-describe('AdminDashboardClient — Add person modal (M2)', () => {
-  it('a valid email with a service selected calls preAuthorizeUser and shows a success toast', async () => {
-    mockPreAuthorizeUser.mockResolvedValue(undefined)
+describe('AdminDashboardClient — Add person modal (M2/M3)', () => {
+  it('a valid email with a service selected calls preAuthorizeUsers with that one host and shows a success toast', async () => {
+    mockPreAuthorizeUsers.mockResolvedValue(undefined)
     render(
       <AdminDashboardClient
         initialQueue={[]}
@@ -552,9 +561,9 @@ describe('AdminDashboardClient — Add person modal (M2)', () => {
     )
 
     await waitFor(() => {
-      expect(mockPreAuthorizeUser).toHaveBeenCalledWith(
+      expect(mockPreAuthorizeUsers).toHaveBeenCalledWith(
         'new.person@example.com',
-        'swole.lilnas.io',
+        ['swole.lilnas.io'],
       )
     })
     await waitFor(() => {
@@ -564,7 +573,44 @@ describe('AdminDashboardClient — Add person modal (M2)', () => {
     })
   })
 
-  it('an invalid email is rejected without ever calling preAuthorizeUser', () => {
+  // M3: the whole point of batching — checking multiple services sends ONE
+  // preAuthorizeUsers() call with every host, not one call per checkbox.
+  it('checking two services and confirming calls preAuthorizeUsers exactly once, with both hosts in one array', async () => {
+    mockPreAuthorizeUsers.mockResolvedValue(undefined)
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[]}
+        services={TWO_SERVICES}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /add person/i }))
+    const modal = screen
+      .getByRole('heading', { name: /add a person/i })
+      .closest('.modal') as HTMLElement
+    fireEvent.change(within(modal).getByLabelText('Email address'), {
+      target: { value: 'both@example.com' },
+    })
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /tdr/i }))
+    fireEvent.click(
+      within(modal).getByRole('button', { name: /grant access/i }),
+    )
+
+    await waitFor(() => {
+      expect(mockPreAuthorizeUsers).toHaveBeenCalledTimes(1)
+    })
+    const [, hostsArg] = mockPreAuthorizeUsers.mock.calls[0] as [
+      string,
+      string[],
+    ]
+    expect(new Set(hostsArg)).toEqual(
+      new Set(['swole.lilnas.io', 'tdr.lilnas.io']),
+    )
+  })
+
+  it('an invalid email is rejected without ever calling preAuthorizeUsers', () => {
     render(
       <AdminDashboardClient
         initialQueue={[]}
@@ -584,7 +630,7 @@ describe('AdminDashboardClient — Add person modal (M2)', () => {
       within(modal).getByRole('button', { name: /grant access/i }),
     )
 
-    expect(mockPreAuthorizeUser).not.toHaveBeenCalled()
+    expect(mockPreAuthorizeUsers).not.toHaveBeenCalled()
   })
 
   it('closing without submitting and reopening shows a blank form again, not the previously-typed value', () => {
@@ -616,9 +662,9 @@ describe('AdminDashboardClient — Add person modal (M2)', () => {
   })
 })
 
-describe('AdminDashboardClient — Edit access modal checkbox diffing (M2)', () => {
-  it('checking a not-yet-granted service and saving calls setUserService to grant exactly that service', async () => {
-    mockSetUserService.mockResolvedValue(undefined)
+describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', () => {
+  it('checking a not-yet-granted service and saving calls setUserServices with one grant:true change', async () => {
+    mockSetUserServices.mockResolvedValue(undefined)
     const user = buildUser({
       id: 'user_1',
       email: 'user@example.com',
@@ -640,17 +686,15 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2)', () 
     fireEvent.click(within(modal).getByRole('button', { name: /save access/i }))
 
     await waitFor(() => {
-      expect(mockSetUserService).toHaveBeenCalledWith(
-        'user_1',
-        'swole.lilnas.io',
-        true,
-      )
+      expect(mockSetUserServices).toHaveBeenCalledWith('user_1', [
+        { serviceHost: 'swole.lilnas.io', grant: true },
+      ])
     })
-    expect(mockSetUserService).toHaveBeenCalledTimes(1)
+    expect(mockSetUserServices).toHaveBeenCalledTimes(1)
   })
 
-  it('unchecking a currently-granted service and saving calls setUserService to revoke exactly that service', async () => {
-    mockSetUserService.mockResolvedValue(undefined)
+  it('unchecking a currently-granted service and saving calls setUserServices with one grant:false change', async () => {
+    mockSetUserServices.mockResolvedValue(undefined)
     const user = buildUser({
       id: 'user_1',
       email: 'user@example.com',
@@ -672,13 +716,85 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2)', () 
     fireEvent.click(within(modal).getByRole('button', { name: /save access/i }))
 
     await waitFor(() => {
-      expect(mockSetUserService).toHaveBeenCalledWith(
-        'user_1',
-        'swole.lilnas.io',
-        false,
-      )
+      expect(mockSetUserServices).toHaveBeenCalledWith('user_1', [
+        { serviceHost: 'swole.lilnas.io', grant: false },
+      ])
     })
-    expect(mockSetUserService).toHaveBeenCalledTimes(1)
+    expect(mockSetUserServices).toHaveBeenCalledTimes(1)
+  })
+
+  // M3: the whole point of batching — granting one service AND revoking
+  // another in the same save sends ONE setUserServices() call carrying
+  // both deltas, not two sequential calls.
+  it('granting one service and revoking another in the same save calls setUserServices exactly once, with both changes in one array', async () => {
+    mockSetUserServices.mockResolvedValue(undefined)
+    const user = buildUser({
+      id: 'user_1',
+      email: 'user@example.com',
+      services: ['swole.lilnas.io'],
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[user]}
+        services={TWO_SERVICES}
+      />,
+    )
+
+    fireEvent.click(editAccessButtonFor('user@example.com'))
+    const modal = screen
+      .getByRole('heading', { name: /^edit access$/i })
+      .closest('.modal') as HTMLElement
+    // swole starts checked (revoke it), tdr starts unchecked (grant it).
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /tdr/i }))
+    fireEvent.click(within(modal).getByRole('button', { name: /save access/i }))
+
+    await waitFor(() => {
+      expect(mockSetUserServices).toHaveBeenCalledTimes(1)
+    })
+    const [userIdArg, changesArg] = mockSetUserServices.mock.calls[0] as [
+      string,
+      { serviceHost: string; grant: boolean }[],
+    ]
+    expect(userIdArg).toBe('user_1')
+    expect(
+      [...changesArg].sort((a, b) =>
+        a.serviceHost.localeCompare(b.serviceHost),
+      ),
+    ).toEqual([
+      { serviceHost: 'swole.lilnas.io', grant: false },
+      { serviceHost: 'tdr.lilnas.io', grant: true },
+    ])
+  })
+
+  it('saving with no checkboxes touched never calls setUserServices', async () => {
+    const user = buildUser({
+      id: 'user_1',
+      email: 'user@example.com',
+      services: ['swole.lilnas.io'],
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[user]}
+        services={SERVICES}
+      />,
+    )
+
+    fireEvent.click(editAccessButtonFor('user@example.com'))
+    const modal = screen
+      .getByRole('heading', { name: /^edit access$/i })
+      .closest('.modal') as HTMLElement
+    fireEvent.click(within(modal).getByRole('button', { name: /save access/i }))
+
+    // handleAccessConfirm still enters startTransition()'s async callback
+    // even with an empty diff (it just skips the network call inside it) —
+    // waitFor lets that microtask settle before asserting, same as every
+    // other test here that clicks a button wired to a Server Action.
+    await waitFor(() => {
+      expect(mockSetUserServices).not.toHaveBeenCalled()
+    })
   })
 
   it("editing one user then a different user without saving shows the second user's own services, not the first user's uncommitted edits", () => {

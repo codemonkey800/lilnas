@@ -132,24 +132,36 @@ function PersonStatusChip({ user }: { user: AdminUserEntry }) {
 //     know which modal (if any) is open independently of the modal's own
 //     internals.
 //   - The Edit-access modal diffs against its own OPENING snapshot and
-//     calls setUserService() only for boxes that actually changed — never
-//     a full-set resubmit. This is load-bearing: users.service.ts's own
-//     header comment documents the real bug (a stale snapshot silently
-//     revoking an unrelated, just-granted service) that setUserService()'s
-//     single-host design replaced; this modal must not reintroduce it by
-//     resubmitting every checkbox regardless of whether it changed.
+//     sends only the boxes that actually changed as one batched
+//     setUserServices() call — never a full-set resubmit. This is
+//     load-bearing: users.service.ts's own header comment documents the
+//     real bug (a stale snapshot silently revoking an unrelated,
+//     just-granted service) that explicit deltas replaced; this modal must
+//     not reintroduce it by resubmitting every checkbox regardless of
+//     whether it changed.
 //
+//   - M3: `queue`/`users` are the `initialQueue`/`initialUsers` PROPS
+//     directly, not a local useState mirror — every mutation below already
+//     publishes to the admin broadcast topic (see the live-updates bullet
+//     next), which router.refresh() reacts to by re-running page.tsx's
+//     Server Component and handing this component fresh props. A local
+//     optimistic copy had nothing left to buy once that loop existed, and
+//     was itself a second source of truth that could drift from what the
+//     server actually persisted. `selectedRequestIds`/`searchTerm`/the
+//     modal-open state below stay local — they're this component's OWN
+//     ephemeral UI state, never mirrored from the server.
 //   - Live updates (below): the WHOLE dashboard reacts to a single
 //     broadcast SSE topic (src/sse/notify-bus.service.ts's ADMIN_TOPIC) —
-//     every mutation listed above, from ANY admin's tab, and a brand-new
-//     incoming request, all publish to it. This component's own reaction
-//     is uniform regardless of which mutation fired: router.refresh(),
-//     which re-runs page.tsx's Server Component and re-fetches
-//     queue/users/services via the existing requireAdminQueue()/
-//     fetchAdminUsers()/fetchAdminServices() calls — never a bespoke
-//     per-mutation Server Action. See the SSE effect below for the
-//     reconnect-backoff/poll-floor mechanics, ported verbatim from
-//     src/app/pending/pending-client.tsx.
+//     every mutation listed above, from ANY admin's tab (including this
+//     one — the acting browser's own EventSource subscription receives the
+//     same broadcast it just caused), and a brand-new incoming request,
+//     all publish to it. This component's own reaction is uniform
+//     regardless of which mutation fired: router.refresh(), which re-runs
+//     page.tsx's Server Component and re-fetches queue/users/services via
+//     the existing requireAdminQueue()/fetchAdminUsers()/
+//     fetchAdminServices() calls — never a bespoke per-mutation Server
+//     Action. See the SSE effect below for the reconnect-backoff/poll-floor
+//     mechanics, ported verbatim from src/app/pending/pending-client.tsx.
 //   - People/Blocked split: `users` is partitioned into `activeUsers` and
 //     `blockedUsers` (below) on `blockedAt` ALONE — a blocked person, admin
 //     or not, renders in their own "Blocked" panel, never in People. S2a
@@ -180,8 +192,10 @@ export function AdminDashboardClient({
   services,
 }: AdminDashboardClientProps) {
   const router = useRouter()
-  const [queue, setQueue] = useState(initialQueue)
-  const [users, setUsers] = useState(initialUsers)
+  // M3: no local copy — see this component's own header comment for why
+  // the props are the whole story now.
+  const queue = initialQueue
+  const users = initialUsers
   const [selectedRequestIds, setSelectedRequestIds] = useState<Set<number>>(
     new Set(),
   )
@@ -200,20 +214,6 @@ export function AdminDashboardClient({
   // full rationale (forces the effect to tear down a terminally-dead
   // EventSource and open a fresh one after a backoff).
   const [sseEpoch, setSseEpoch] = useState(0)
-
-  // useState(initialQueue)/useState(initialUsers) above only consume their
-  // initial value on MOUNT — without these, a router.refresh()-driven prop
-  // change (see the SSE effect below) would re-run page.tsx's Server
-  // Component but never reach this component's own visible state. Local,
-  // ephemeral UI state (search term, modals, selection) is untouched by
-  // this — only the server-sourced lists resync.
-  useEffect(() => {
-    setQueue(initialQueue)
-  }, [initialQueue])
-
-  useEffect(() => {
-    setUsers(initialUsers)
-  }, [initialUsers])
 
   // Live dashboard updates — see this component's own header comment above
   // for what publishes to this one broadcast topic and why router.refresh()
@@ -278,8 +278,12 @@ export function AdminDashboardClient({
     setSelectedRequestIds(prev => toggleInSet(prev, id, !prev.has(id)))
   }
 
-  function dropFromQueue(ids: Set<number>) {
-    setQueue(prev => prev.filter(entry => !ids.has(entry.id)))
+  // M3: no more optimistic setQueue() removal — the row's actual
+  // disappearance is now router.refresh()'s job (see this component's own
+  // header comment). This is purely local UI cleanup: a request id that's
+  // about to be decided shouldn't linger in the bulk-selection Set once
+  // it's gone from the next refreshed `queue`.
+  function clearSelectedRequests(ids: Set<number>) {
     setSelectedRequestIds(prev => {
       const next = new Set(prev)
       for (const id of ids) next.delete(id)
@@ -290,7 +294,7 @@ export function AdminDashboardClient({
   function handleApprove(id: number) {
     runAction(async () => {
       await approveRequest(id)
-      dropFromQueue(new Set([id]))
+      clearSelectedRequests(new Set([id]))
       showToast('Access granted')
     })
   }
@@ -299,7 +303,7 @@ export function AdminDashboardClient({
     runAction(async () => {
       const result = await rejectRequest(id)
       if (result.decided) {
-        dropFromQueue(new Set([id]))
+        clearSelectedRequests(new Set([id]))
         showToast('Request declined')
       }
     })
@@ -310,7 +314,7 @@ export function AdminDashboardClient({
     const ids = Array.from(selectedRequestIds)
     runAction(async () => {
       const result = await bulkRejectRequests(ids)
-      dropFromQueue(new Set(result.decided))
+      clearSelectedRequests(new Set(result.decided))
       showToast('Selected requests declined')
     })
   }
@@ -345,11 +349,6 @@ export function AdminDashboardClient({
   function handleBlock(userId: string) {
     runAction(async () => {
       await blockUser(userId)
-      setUsers(prev =>
-        prev.map(u =>
-          u.id === userId ? { ...u, blockedAt: new Date().toISOString() } : u,
-        ),
-      )
       showToast('Access blocked')
     })
   }
@@ -376,9 +375,6 @@ export function AdminDashboardClient({
   function handleUnblock(userId: string) {
     runAction(async () => {
       await unblockUser(userId)
-      setUsers(prev =>
-        prev.map(u => (u.id === userId ? { ...u, blockedAt: null } : u)),
-      )
       showToast('Access unblocked')
     })
   }
@@ -397,9 +393,6 @@ export function AdminDashboardClient({
     }
     runAction(async () => {
       await removeUser(userId)
-      setUsers(prev =>
-        prev.map(u => (u.id === userId ? { ...u, services: [] } : u)),
-      )
       showToast('Access removed')
       closeAccessModal()
     })
@@ -815,7 +808,6 @@ export function AdminDashboardClient({
         services={services}
         isPending={isPending}
         startTransition={startTransition}
-        setUsers={setUsers}
         showToast={showToast}
       />
 
@@ -826,7 +818,6 @@ export function AdminDashboardClient({
         services={services}
         isPending={isPending}
         startTransition={startTransition}
-        setUsers={setUsers}
         showToast={showToast}
         onRemove={handleRemove}
         onSignOutEverywhere={handleSignOutEverywhere}

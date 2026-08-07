@@ -1,10 +1,10 @@
 'use client'
 
 import { cns } from '@lilnas/utils/cns'
-import type { Dispatch, SetStateAction, TransitionStartFunction } from 'react'
+import type { TransitionStartFunction } from 'react'
 import { useRef, useState } from 'react'
 
-import { setUserService } from 'src/app/admin/actions'
+import { setUserServices } from 'src/app/admin/actions'
 import type {
   AdminServiceEntry,
   AdminUserEntry,
@@ -36,7 +36,6 @@ export type EditAccessModalProps = {
   services: AdminServiceEntry[]
   isPending: boolean
   startTransition: TransitionStartFunction
-  setUsers: Dispatch<SetStateAction<AdminUserEntry[]>>
   showToast: (message: string) => void
   onRemove: (userId: string) => void
   onSignOutEverywhere: (userId: string) => void
@@ -46,23 +45,30 @@ export type EditAccessModalProps = {
 // state/JSX inline before growing past ~1000 lines. Moved as-is — see that
 // file's own header comment for the feature-level "why" behind this modal,
 // including the load-bearing "diff against the opening snapshot, never a
-// full-set resubmit" behavior handleAccessConfirm below still has (M3 is
-// what replaces the per-host setUserService() loop with a batched
-// endpoint — this commit only relocates the existing behavior). The parent
-// mounts this component with a `key` derived from the edited user's id
-// (`user?.id ?? 'none'`, see admin-dashboard-client.tsx's own usage) rather
-// than this component resetting its own state via an effect keyed on
-// `user` — a key change forces React to remount with fresh initial state
-// SYNCHRONOUSLY, in the same commit that opens the modal for a given user,
-// matching the original inline version's guarantee that opening never shows
-// a stale selection from a previous editing session.
+// full-set resubmit" behavior handleAccessConfirm below still has. The
+// parent mounts this component with a `key` derived from the edited user's
+// id (`user?.id ?? 'none'`, see admin-dashboard-client.tsx's own usage)
+// rather than this component resetting its own state via an effect keyed
+// on `user` — a key change forces React to remount with fresh initial
+// state SYNCHRONOUSLY, in the same commit that opens the modal for a given
+// user, matching the original inline version's guarantee that opening
+// never shows a stale selection from a previous editing session.
+//
+// M3: no more optimistic setUsers() call after a successful save — every
+// mutation this app makes already publishes to the admin broadcast topic
+// (see users.service.ts's own header comment), which this SAME browser's
+// own SSE subscription also receives, triggering router.refresh() and a
+// fresh `users` prop from the server. There is no local copy left for this
+// modal to keep in sync by hand. The diff against the opening snapshot is
+// sent as ONE batched setUserServices() call rather than one call per
+// checkbox — see UsersService.setUserServices()'s own comment for the
+// "one transaction for the whole batch" rationale.
 export function EditAccessModal({
   user,
   onClose,
   services,
   isPending,
   startTransition,
-  setUsers,
   showToast,
   onRemove,
   onSignOutEverywhere,
@@ -79,21 +85,21 @@ export function EditAccessModal({
     const selected = accessSelected
     const toGrant = [...selected].filter(host => !snapshot.has(host))
     const toRevoke = [...snapshot].filter(host => !selected.has(host))
+    const changes = [
+      ...toGrant.map(serviceHost => ({ serviceHost, grant: true })),
+      ...toRevoke.map(serviceHost => ({ serviceHost, grant: false })),
+    ]
 
     setAccessModalError(null)
     startTransition(async () => {
       try {
-        for (const host of toGrant) {
-          await setUserService(user.id, host, true)
+        // Matches the old per-host loops' own behavior when nothing
+        // changed: zero iterations, zero network calls — setUserServices()
+        // itself requires at least one change, so an empty diff must skip
+        // the call rather than send an invalid empty array.
+        if (changes.length > 0) {
+          await setUserServices(user.id, changes)
         }
-        for (const host of toRevoke) {
-          await setUserService(user.id, host, false)
-        }
-        setUsers(prev =>
-          prev.map(u =>
-            u.id === user.id ? { ...u, services: [...selected] } : u,
-          ),
-        )
         showToast('Access updated')
         onClose()
       } catch (err) {

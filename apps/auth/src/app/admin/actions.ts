@@ -118,29 +118,33 @@ export async function bulkRejectRequests(
   )
 }
 
-// U9 (R15): "add by email." A clear, specific error (e.g. "not a known
-// service") surfaces from the backend's own BadRequestException message —
-// see callBackend()'s own `detail` extraction above.
-export async function preAuthorizeUser(
+// U9 (R15): "add by email," M3's batched form — one call for every
+// service the admin checked, not one call per checkbox. A clear, specific
+// error (e.g. "not a known service") surfaces from the backend's own
+// BadRequestException message — see callBackend()'s own `detail`
+// extraction above.
+export async function preAuthorizeUsers(
   email: string,
-  serviceHost: string,
+  serviceHosts: string[],
 ): Promise<void> {
   await callBackend('/admin/users/pre-authorize', {
-    body: { email, serviceHost },
+    body: { email, serviceHosts },
   })
 }
 
-// U9 (R15): a single-host grant/revoke mutation — see
-// src/admin/users.service.ts's setUserService() for why this replaced an
-// earlier complete-desired-set shape (a stale client snapshot could
-// silently revoke an unrelated, just-granted service).
-export async function setUserService(
+// U9 (R15), M3's batched form — a set of explicit (serviceHost, grant)
+// deltas in one call, replacing a per-checkbox loop of the old single-host
+// shape — see src/admin/users.service.ts's setUserServices() for why
+// explicit deltas replaced an earlier complete-desired-set shape (a stale
+// client snapshot could silently revoke an unrelated, just-granted
+// service) and for the "one transaction for the whole batch" half of this
+// fix.
+export async function setUserServices(
   userId: string,
-  serviceHost: string,
-  grant: boolean,
+  changes: { serviceHost: string; grant: boolean }[],
 ): Promise<void> {
   await callBackend(`/admin/users/${requireUserId(userId)}/services`, {
-    body: { serviceHost, grant },
+    body: { changes },
   })
 }
 

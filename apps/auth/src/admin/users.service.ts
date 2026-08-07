@@ -19,6 +19,8 @@ import { AccessCacheService } from 'src/verify/access-cache.service'
 
 import { normalizeEmail } from './normalize-email'
 
+export type ServiceChange = { serviceHost: string; grant: boolean }
+
 // Kept local rather than graduated into a shared cross-file registry —
 // matches access-cache.service.ts's own established per-file convention
 // (see that file's LOG_EVENTS comment) for the same reason: not enough
@@ -65,7 +67,10 @@ export class UsersService {
   ) {}
 
   /**
-   * R15's "add by email." Two branches, both idempotent:
+   * R15's "add by email," M3's batched form — every serviceHost in ONE
+   * BEGIN IMMEDIATE transaction rather than the admin dashboard's old
+   * per-checkbox loop (one HTTP round trip and one transaction per host).
+   * Two branches, both idempotent, now applied per host:
    *
    * - The email already has a `user` row (a real, signed-in identity) —
    *   write a REAL grant immediately, exactly like an admin approving a
@@ -99,50 +104,68 @@ export class UsersService {
    * bindPreAuthorizedGrant()'s own lookup requires to ever match a real
    * sign-in's Google-provided email.
    */
-  preAuthorize(rawEmail: string, serviceHost: string): void {
+  preAuthorizeMany(rawEmail: string, serviceHosts: string[]): void {
     const email = normalizeEmail(rawEmail)
 
     const result = this.db.transaction(
       tx => {
         const existingUser = findUserByEmail(tx, email)
         if (existingUser) {
-          if (!grantExists(tx, existingUser.id, serviceHost)) {
-            insertGrant(tx, existingUser.id, serviceHost, new Date())
-          }
-          for (const row of findPreAuthorizedGrantsByEmail(tx, email)) {
-            if (row.serviceHost === serviceHost) {
-              deletePreAuthorizedGrant(tx, row.id)
+          for (const serviceHost of serviceHosts) {
+            if (!grantExists(tx, existingUser.id, serviceHost)) {
+              insertGrant(tx, existingUser.id, serviceHost, new Date())
+            }
+            for (const row of findPreAuthorizedGrantsByEmail(tx, email)) {
+              if (row.serviceHost === serviceHost) {
+                deletePreAuthorizedGrant(tx, row.id)
+              }
             }
           }
           return { kind: 'granted' as const, userId: existingUser.id }
         }
 
-        insertPreAuthorizedGrant(tx, email, serviceHost, new Date())
+        for (const serviceHost of serviceHosts) {
+          insertPreAuthorizedGrant(tx, email, serviceHost, new Date())
+        }
         return { kind: 'pre-authorized' as const }
       },
       { behavior: 'immediate' },
     )
 
     if (result.kind === 'granted') {
-      this.accessCache.addGrant(result.userId, serviceHost)
-      this.accessCache.removePreAuthorization(email, serviceHost)
+      for (const serviceHost of serviceHosts) {
+        this.accessCache.addGrant(result.userId, serviceHost)
+        this.accessCache.removePreAuthorization(email, serviceHost)
+      }
     } else {
-      this.accessCache.addPreAuthorization(email, serviceHost)
+      for (const serviceHost of serviceHosts) {
+        this.accessCache.addPreAuthorization(email, serviceHost)
+      }
     }
     this.notifyBus.publishAdminChange()
   }
 
+  // Single-host convenience wrapper — kept for callers (this file's own
+  // test suite included) that only ever have one host in hand. Every real
+  // behavior lives in preAuthorizeMany() above.
+  preAuthorize(rawEmail: string, serviceHost: string): void {
+    this.preAuthorizeMany(rawEmail, [serviceHost])
+  }
+
   /**
-   * R15's "edit a user's services" — a SINGLE-HOST mutation (grant or
-   * revoke exactly one (userId, serviceHost) pair), not a full-desired-set
-   * diff. This replaces the earlier editServices(userId, string[]) design,
-   * which took the admin UI's complete checkbox-list state and computed
-   * the add/remove diff against current grants itself — a shape that made
-   * every checkbox toggle implicitly authoritative over every OTHER
-   * service that same user holds. Two ways that went wrong in practice:
+   * R15's "edit a user's services" — a set of EXPLICIT (serviceHost,
+   * grant) deltas, not a full-desired-set diff, applied in ONE BEGIN
+   * IMMEDIATE transaction (M3: the admin dashboard used to call the
+   * single-host form of this once per checkbox — one HTTP round trip and
+   * one transaction per host). This replaces the earlier
+   * editServices(userId, string[]) design, which took the admin UI's
+   * complete checkbox-list state and computed the add/remove diff against
+   * current grants itself — a shape that made every checkbox toggle
+   * implicitly authoritative over every OTHER service that same user
+   * holds. Two ways that went wrong in practice:
    *
    * - A stale client-side `user.services` snapshot (e.g. right after
-   *   preAuthorizeUser() granted a service directly, with no revalidation
+   *   preAuthorizeMany() granted a service directly, with no revalidation
    *   anywhere in this app) meant the NEXT unrelated checkbox toggle would
    *   silently revoke that just-granted service — it was simply missing
    *   from the "desired" array the stale client sent.
@@ -154,39 +177,58 @@ export class UsersService {
    *   subsequent toggle for that user, permanently locking their whole row
    *   from further edits.
    *
-   * A single-host mutation has no wire-level way to express either
+   * A set of explicit deltas has no wire-level way to express either
    * failure mode: there is no "complete set" a stale snapshot could get
    * wrong, and revoking an off-registry stale grant never re-validates
-   * hosts the admin isn't touching (AdminController only validates when
-   * `grant: true` — see that file's own comment).
+   * hosts the admin isn't touching (AdminController only validates a
+   * change with `grant: true` — see that file's own comment). Each change
+   * is applied independently and in array order; a grant that's already
+   * held, or a revoke of a host never granted, is a no-op for that one
+   * entry rather than an error for the whole batch.
    */
-  setUserService(userId: string, serviceHost: string, grant: boolean): void {
-    if (grant) {
-      const granted = this.db.transaction(
-        tx => {
-          if (grantExists(tx, userId, serviceHost)) {
-            return false
-          }
-          insertGrant(tx, userId, serviceHost, new Date())
-          return true
-        },
-        { behavior: 'immediate' },
-      )
-      if (granted) {
-        this.accessCache.addGrant(userId, serviceHost)
-        this.notifyBus.publishAdminChange()
-      }
-      return
-    }
+  setUserServices(userId: string, changes: ServiceChange[]): void {
+    const grantedHosts: string[] = []
+    const revokedHosts: string[] = []
 
     this.db.transaction(
       tx => {
-        deleteGrant(tx, userId, serviceHost)
+        for (const { serviceHost, grant } of changes) {
+          if (grant) {
+            if (!grantExists(tx, userId, serviceHost)) {
+              insertGrant(tx, userId, serviceHost, new Date())
+              grantedHosts.push(serviceHost)
+            }
+          } else {
+            deleteGrant(tx, userId, serviceHost)
+            revokedHosts.push(serviceHost)
+          }
+        }
       },
       { behavior: 'immediate' },
     )
-    this.accessCache.removeGrant(userId, serviceHost)
-    this.notifyBus.publishAdminChange()
+
+    for (const serviceHost of grantedHosts) {
+      this.accessCache.addGrant(userId, serviceHost)
+    }
+    for (const serviceHost of revokedHosts) {
+      this.accessCache.removeGrant(userId, serviceHost)
+    }
+    // Same "only publish on a genuine change" gate as removeUser() below —
+    // a batch where every grant was already held and every revoke target
+    // was already absent has nothing new to tell the dashboard. A revoke
+    // entry always counts as a change regardless of whether the grant
+    // actually existed (deleteGrant is a no-op DELETE either way, but the
+    // admin's intent — "this box is now unchecked" — is a real action).
+    if (grantedHosts.length > 0 || revokedHosts.length > 0) {
+      this.notifyBus.publishAdminChange()
+    }
+  }
+
+  // Single-host convenience wrapper — kept for callers (this file's own
+  // test suite included) that only ever have one (serviceHost, grant) pair
+  // in hand. Every real behavior lives in setUserServices() above.
+  setUserService(userId: string, serviceHost: string, grant: boolean): void {
+    this.setUserServices(userId, [{ serviceHost, grant }])
   }
 
   /**
