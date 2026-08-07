@@ -7,58 +7,39 @@
 // instead of switching testEnvironment globally" rationale (short version:
 // every existing backend test must keep running under 'node', and jsdom is
 // a strictly different global environment with no per-file override).
-const backendProject = {
-  displayName: 'backend',
-  preset: 'ts-jest',
-  testEnvironment: 'node',
-  rootDir: '.',
-  roots: ['<rootDir>/src'],
-  testMatch: [
-    '**/__tests__/**/*.ts',
-    '**/?(*.)+(spec|test).ts',
-    '!**/__tests__/setup.ts',
-    '!**/__tests__/test-utils.ts',
-    '!**/__tests__/fixtures/**/*',
-    '!**/__tests__/helpers/**/*',
-    // U6: the frontend project's own .tsx specs never match this .ts-only
-    // testMatch (a .tsx file never matches a '*.ts' glob), but excluded
-    // explicitly rather than relying on that alone — mirrors
-    // apps/tdr-code/jest.config.js's identical belt-and-suspenders entry.
-    '!**/app/**/__tests__/**/*.tsx',
+//
+// Jest's `projects` entries are independent, fully resolved configs with no
+// config-inheritance/`extends` mechanism between them, so anything the two
+// projects need identically has to be assembled here and spread into both
+// rather than declared once — `shared` below (M5) is that assembly, split
+// from the two projects' own genuinely-different settings (testEnvironment,
+// roots, testMatch, and each project's own ts-jest transform entry).
+const mjsBabelTransform = {
+  // U3: the Better Auth package family ships pure ESM only
+  // (`"type": "module"`, no CJS build) — Jest's CJS-based require() can't
+  // load their .mjs files directly. ts-jest/tsc CANNOT be used for this
+  // despite `allowJs` + forcing `module: "commonjs"` — TypeScript treats a
+  // `.mjs` file's EXTENSION as authoritative for module kind and preserves
+  // import/export syntax regardless of the module compiler option.
+  // babel-jest doesn't have this extension-based restriction — its
+  // CommonJS transform plugin rewrites import/export based on the SOURCE
+  // SYNTAX, not the file extension. Ported verbatim from
+  // apps/tdr-code/jest.config.js, which hit and solved this exact problem
+  // first for the exact same package family (see that file's own header
+  // comment for the full "why", including the cache-key rationale for
+  // referencing the plugin by path below rather than inline).
+  '^.+\\.m?js$': [
+    'babel-jest',
+    {
+      presets: [['@babel/preset-env', { targets: { node: 'current' } }]],
+      plugins: [require.resolve('./babel-plugin-import-meta-to-commonjs')],
+      babelrc: false,
+      configFile: false,
+    },
   ],
-  transform: {
-    '^.+\\.ts$': [
-      'ts-jest',
-      {
-        tsconfig: {
-          experimentalDecorators: true,
-          emitDecoratorMetadata: true,
-        },
-      },
-    ],
-    // U3: the Better Auth package family ships pure ESM only
-    // (`"type": "module"`, no CJS build) — Jest's CJS-based require() can't
-    // load their .mjs files directly. ts-jest/tsc CANNOT be used for this
-    // despite `allowJs` + forcing `module: "commonjs"` — TypeScript treats a
-    // `.mjs` file's EXTENSION as authoritative for module kind and preserves
-    // import/export syntax regardless of the module compiler option.
-    // babel-jest doesn't have this extension-based restriction — its
-    // CommonJS transform plugin rewrites import/export based on the SOURCE
-    // SYNTAX, not the file extension. Ported verbatim from
-    // apps/tdr-code/jest.config.js, which hit and solved this exact problem
-    // first for the exact same package family (see that file's own header
-    // comment for the full "why", including the cache-key rationale for
-    // referencing the plugin by path below rather than inline).
-    '^.+\\.m?js$': [
-      'babel-jest',
-      {
-        presets: [['@babel/preset-env', { targets: { node: 'current' } }]],
-        plugins: [require.resolve('./babel-plugin-import-meta-to-commonjs')],
-        babelrc: false,
-        configFile: false,
-      },
-    ],
-  },
+}
+
+const shared = {
   transformIgnorePatterns: [
     // better-auth, its scoped @better-auth/* packages, @thallesp/nestjs-
     // better-auth, and their own pure-ESM-only dependencies are un-ignored
@@ -93,14 +74,43 @@ const backendProject = {
   },
 }
 
+const backendProject = {
+  displayName: 'backend',
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  rootDir: '.',
+  roots: ['<rootDir>/src'],
+  testMatch: [
+    '**/__tests__/**/*.ts',
+    '**/?(*.)+(spec|test).ts',
+    '!**/__tests__/setup.ts',
+    '!**/__tests__/test-utils.ts',
+    '!**/__tests__/fixtures/**/*',
+    '!**/__tests__/helpers/**/*',
+    // U6: the frontend project's own .tsx specs never match this .ts-only
+    // testMatch (a .tsx file never matches a '*.ts' glob), but excluded
+    // explicitly rather than relying on that alone — mirrors
+    // apps/tdr-code/jest.config.js's identical belt-and-suspenders entry.
+    '!**/app/**/__tests__/**/*.tsx',
+  ],
+  transform: {
+    '^.+\\.ts$': [
+      'ts-jest',
+      {
+        tsconfig: {
+          experimentalDecorators: true,
+          emitDecoratorMetadata: true,
+        },
+      },
+    ],
+    ...mjsBabelTransform,
+  },
+  ...shared,
+}
+
 // U6: frontend project — scoped to pending-page.spec.tsx only. jsdom is
 // required because that spec renders PendingClient via
 // @testing-library/react, which needs a real DOM to mount into.
-// Everything NOT overridden here is duplicated from backendProject rather
-// than shared by reference, because Jest's `projects` entries are
-// independent, fully resolved configs with no config-inheritance/`extends`
-// mechanism between them — same as apps/tdr-code/jest.config.js's identical
-// split.
 const frontendProject = {
   displayName: 'frontend',
   preset: 'ts-jest',
@@ -118,23 +128,9 @@ const frontendProject = {
         },
       },
     ],
-    '^.+\\.m?js$': [
-      'babel-jest',
-      {
-        presets: [['@babel/preset-env', { targets: { node: 'current' } }]],
-        plugins: [require.resolve('./babel-plugin-import-meta-to-commonjs')],
-        babelrc: false,
-        configFile: false,
-      },
-    ],
+    ...mjsBabelTransform,
   },
-  transformIgnorePatterns: [
-    '/node_modules/(?!.*(@lilnas|nanoid|lru-cache|better-auth|@better-auth|@thallesp|better-call|@better-fetch|@noble|nanostores|defu|jose|kysely|rou3)/)',
-  ],
-  moduleNameMapper: {
-    '^src/(.*)$': '<rootDir>/src/$1',
-    '^@lilnas/utils/(.*)$': '<rootDir>/../../packages/utils/src/$1',
-  },
+  ...shared,
 }
 
 module.exports = {
