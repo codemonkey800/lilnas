@@ -9,14 +9,33 @@ services:
       - DATABASE_PATH=/source/apps/auth/lilnas-auth.db
     volumes:
       - ../..:/source
-      # Same read-only compose-label mounts as deploy.yml, kept at the same
-      # container paths (/repo/infra, /repo/apps) so U8's service-registry
-      # code needs no dev-vs-prod branching — see deploy.yml's comment for
-      # the full rationale and the flagged security tradeoff. Note ../..
-      # already covers this content via /source above; these are additive
-      # so the mount PATH stays identical between dev and prod.
-      - ../../infra:/repo/infra:ro
-      - ../../apps:/repo/apps:ro
+      # Same per-file, read-only compose-label mounts as deploy.yml, kept at
+      # the same container paths (/repo/infra/..., /repo/apps/.../deploy.yml)
+      # so the service-registry code needs no dev-vs-prod branching — see
+      # deploy.yml's comment for the full narrow-mount rationale. Note ../..
+      # already covers this content via /source above; these are additive so
+      # the mount PATH stays identical between dev and prod.
+      - ../../infra/design.yml:/repo/infra/design.yml:ro
+      - ../../infra/files.yml:/repo/infra/files.yml:ro
+      - ../../infra/immich.yml:/repo/infra/immich.yml:ro
+      - ../../infra/l4d2.yml:/repo/infra/l4d2.yml:ro
+      - ../../infra/media.yml:/repo/infra/media.yml:ro
+      - ../../infra/minecraft.yml:/repo/infra/minecraft.yml:ro
+      - ../../infra/monitoring.yml:/repo/infra/monitoring.yml:ro
+      - ../../infra/nexus-code-mbp.yml:/repo/infra/nexus-code-mbp.yml:ro
+      - ../../infra/nexus-code.yml:/repo/infra/nexus-code.yml:ro
+      - ../../infra/palworld.yml:/repo/infra/palworld.yml:ro
+      - ../../infra/proxy.yml:/repo/infra/proxy.yml:ro
+      - ../../infra/shared.yml:/repo/infra/shared.yml:ro
+      - ../../apps/auth/deploy.yml:/repo/apps/auth/deploy.yml:ro
+      - ../../apps/dashcam/deploy.yml:/repo/apps/dashcam/deploy.yml:ro
+      - ../../apps/download/deploy.yml:/repo/apps/download/deploy.yml:ro
+      - ../../apps/equations/deploy.yml:/repo/apps/equations/deploy.yml:ro
+      - ../../apps/me-token-tracker/deploy.yml:/repo/apps/me-token-tracker/deploy.yml:ro
+      - ../../apps/portal/deploy.yml:/repo/apps/portal/deploy.yml:ro
+      - ../../apps/swole/deploy.yml:/repo/apps/swole/deploy.yml:ro
+      - ../../apps/tdr-bot/deploy.yml:/repo/apps/tdr-bot/deploy.yml:ro
+      - ../../apps/tdr-code/deploy.yml:/repo/apps/tdr-code/deploy.yml:ro
     # Not present on apps/swole or apps/download's deploy.dev.yml (neither
     # bothers with a dev-mode healthcheck), but added here deliberately:
     # R20's healthcheck design is the actual point of this app, so proving
