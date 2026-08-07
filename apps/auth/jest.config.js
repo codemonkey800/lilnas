@@ -147,17 +147,38 @@ module.exports = {
     '!src/app/**/*',
   ],
   coverageDirectory: 'coverage',
-  coverageReporters: ['text', 'lcov', 'html'],
+  // M4: 'text' writes straight to stdout, which forceExit's process.exit()
+  // below can race and truncate when stdout is piped/redirected rather than
+  // a TTY (`pnpm test:cov > file` reliably loses it; an interactive
+  // terminal usually doesn't) — Node's piped-stdout writes aren't
+  // guaranteed synchronous, so a forced exit can fire before they land.
+  // 'json-summary' has no such race: istanbul writes it with a plain
+  // synchronous fs call before Jest's own "done" point, so
+  // scripts/print-coverage-summary.js (chained after `jest --coverage` in
+  // the test:cov script) always has real data to read regardless of how
+  // forceExit's timing lands. Kept 'text' anyway for interactive/TTY runs
+  // and IDE integrations that invoke `jest --coverage` directly — it's
+  // harmless when it races (test:cov's own reliable table still prints
+  // right after), and correct the rest of the time.
+  coverageReporters: ['text', 'lcov', 'html', 'json-summary'],
   clearMocks: true,
   restoreMocks: true,
   testTimeout: 10000,
-  // U6: sse.controller.spec.ts's keepalive tests use RxJS's timer() (the
-  // same apps/tdr-code/src/sse/sse.controller.ts pattern), whose
-  // underlying setInterval isn't always torn down the instant a test's
-  // take(N) completes, even though every test itself passes — a Jest
-  // worker process warns "failed to exit gracefully" without this.
-  // apps/tdr-code/jest.config.js carries the identical forceExit: true for
-  // the identical reason (its own sse-hub.service.ts and sse.controller.ts
-  // tests hit the same RxJS-timer-lifecycle class of issue).
+  // M4: without this, a worker warns "failed to exit gracefully" (every
+  // test still passes) and gets force-exited anyway once its own timeout
+  // hits — the only effect of removing this line would be a slower, noisier
+  // exit, not a real fix. This was originally attributed to
+  // sse.controller.spec.ts's RxJS timer()-based keepalive not always
+  // tearing down its setInterval the instant a test's take(N) completes,
+  // matching apps/tdr-code/jest.config.js's identical forceExit for its own
+  // sse-hub.service.ts/sse.controller.ts tests. That's now confirmed stale:
+  // running with that spec file excluded (or any other single spec file
+  // excluded) still needs forceExit, while `jest --runInBand` (no worker
+  // pool at all) never does — the lingering handle is in jest-worker's own
+  // child-process pool teardown, not a leak in this app's code. See
+  // coverageReporters above and scripts/print-coverage-summary.js for why
+  // this matters beyond the warning noise: the interaction between this
+  // forced exit and non-TTY stdout is what made `pnpm test:cov`'s own
+  // coverage table unreliable.
   forceExit: true,
 }

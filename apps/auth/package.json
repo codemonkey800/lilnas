@@ -30,7 +30,7 @@
     "start:frontend": "node server.js",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
+    "test:cov": "jest --coverage && node scripts/print-coverage-summary.js",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
