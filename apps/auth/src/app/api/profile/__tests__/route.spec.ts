@@ -67,6 +67,39 @@ describe('GET /api/profile', () => {
     fetchSpy.mockRestore()
   })
 
+  it('logs the rejected origin when Origin is present but not allowlisted', async () => {
+    process.env.PROFILE_ALLOWED_ORIGINS =
+      'http://localhost:5173,http://localhost:8765'
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 401 }))
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await GET(makeRequest({ origin: 'https://evil.example.com' }))
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy.mock.calls[0]?.[0]).toContain('https://evil.example.com')
+    expect(warnSpy.mock.calls[0]?.[0]).not.toContain('http://localhost:5173')
+
+    fetchSpy.mockRestore()
+    warnSpy.mockRestore()
+  })
+
+  it('distinguishes an unset allowlist from a configured-but-non-matching one in the rejection log', async () => {
+    delete process.env.PROFILE_ALLOWED_ORIGINS
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 401 }))
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await GET(makeRequest({ origin: 'http://localhost:5173' }))
+
+    expect(warnSpy.mock.calls[0]?.[0]).toContain('unset')
+
+    fetchSpy.mockRestore()
+    warnSpy.mockRestore()
+  })
+
   it('still serves a same-origin request with no CORS headers when there is no Origin header', async () => {
     process.env.PROFILE_ALLOWED_ORIGINS =
       'http://localhost:5173,http://localhost:8765'
@@ -83,6 +116,23 @@ describe('GET /api/profile', () => {
     expect(res.headers.get('Vary')).toBeNull()
 
     fetchSpy.mockRestore()
+  })
+
+  it('does not log anything when there is no Origin header at all — an ordinary same-origin call, not a rejection', async () => {
+    process.env.PROFILE_ALLOWED_ORIGINS = 'http://localhost:5173'
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(
+        new Response(JSON.stringify(ME_RESPONSE), { status: 200 }),
+      )
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await GET(makeRequest({}))
+
+    expect(warnSpy).not.toHaveBeenCalled()
+
+    fetchSpy.mockRestore()
+    warnSpy.mockRestore()
   })
 
   it('fails closed with no Access-Control-Allow-Origin when PROFILE_ALLOWED_ORIGINS is unset', async () => {
