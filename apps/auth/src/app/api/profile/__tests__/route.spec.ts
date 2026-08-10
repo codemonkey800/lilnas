@@ -307,4 +307,57 @@ describe('OPTIONS /api/profile', () => {
     expect(res.headers.get('Access-Control-Allow-Methods')).toBe('GET')
     expect(res.headers.get('Access-Control-Max-Age')).toBe('86400')
   })
+
+  it('sets Cache-Control: no-store, matching every GET response', () => {
+    process.env.PROFILE_ALLOWED_ORIGINS = 'http://localhost:5173'
+
+    const res = OPTIONS(makeRequest({ origin: 'http://localhost:5173' }))
+
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+  })
+
+  it('echoes Access-Control-Request-Headers back as Access-Control-Allow-Headers, so a future caller adding a request header does not fail preflight', () => {
+    process.env.PROFILE_ALLOWED_ORIGINS = 'http://localhost:5173'
+
+    const res = OPTIONS(
+      makeRequest({
+        origin: 'http://localhost:5173',
+        'access-control-request-headers': 'x-custom-header',
+      }),
+    )
+
+    expect(res.headers.get('Access-Control-Allow-Headers')).toBe(
+      'x-custom-header',
+    )
+  })
+
+  it('omits Access-Control-Allow-Headers when the preflight requested none', () => {
+    process.env.PROFILE_ALLOWED_ORIGINS = 'http://localhost:5173'
+
+    const res = OPTIONS(makeRequest({ origin: 'http://localhost:5173' }))
+
+    expect(res.headers.get('Access-Control-Allow-Headers')).toBeNull()
+  })
+
+  it('omits Access-Control-Allow-Origin and Allow-Credentials for an unlisted origin, same as GET', () => {
+    process.env.PROFILE_ALLOWED_ORIGINS = 'http://localhost:5173'
+
+    const res = OPTIONS(makeRequest({ origin: 'https://evil.example.com' }))
+
+    expect(res.status).toBe(204)
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull()
+    expect(res.headers.get('Access-Control-Allow-Credentials')).toBeNull()
+  })
+
+  it('logs the rejected origin on an unlisted-origin preflight, same as GET', () => {
+    process.env.PROFILE_ALLOWED_ORIGINS = 'http://localhost:5173'
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    OPTIONS(makeRequest({ origin: 'https://evil.example.com' }))
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy.mock.calls[0]?.[0]).toContain('https://evil.example.com')
+
+    warnSpy.mockRestore()
+  })
 })
