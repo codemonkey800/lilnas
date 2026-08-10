@@ -32,11 +32,33 @@ function profileHeaders(allowedOrigin: string | null): Record<string, string> {
   }
 }
 
+// Shared by GET and OPTIONS so the reject-and-log behavior below can't drift
+// between the two handlers. A non-empty Origin that fails to resolve is the
+// one outcome this route previously produced with zero signal anywhere: the
+// caller (nexus-code's readProfile.ts) swallows every failure by design, so
+// a typo'd PROFILE_ALLOWED_ORIGINS entry meant the user silently never got a
+// name/avatar, forever, with nothing to grep. A request with NO Origin header
+// at all is an ordinary same-origin or server-side call, not a rejection —
+// logging that would be pure noise on every same-origin page load.
+function resolveOrigin(request: Request): string | null {
+  const requestOrigin = request.headers.get('origin')
+  const rawAllowlist = env(EnvKeys.PROFILE_ALLOWED_ORIGINS, '')
+  const allowedOrigin = resolveAllowedOrigin(requestOrigin, rawAllowlist)
+
+  if (requestOrigin && !allowedOrigin) {
+    console.warn(
+      `/api/profile: rejected cross-origin request from Origin "${requestOrigin}" — ` +
+        (rawAllowlist.trim()
+          ? 'not present in PROFILE_ALLOWED_ORIGINS'
+          : 'PROFILE_ALLOWED_ORIGINS is unset'),
+    )
+  }
+
+  return allowedOrigin
+}
+
 export async function GET(request: Request): Promise<Response> {
-  const allowedOrigin = resolveAllowedOrigin(
-    request.headers.get('origin'),
-    env(EnvKeys.PROFILE_ALLOWED_ORIGINS, ''),
-  )
+  const allowedOrigin = resolveOrigin(request)
 
   try {
     const cookie = request.headers.get('cookie') ?? ''
