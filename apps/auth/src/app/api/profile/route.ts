@@ -111,19 +111,24 @@ export async function GET(request: Request): Promise<Response> {
 
 // Not strictly required today — a plain GET with no custom request headers
 // is a CORS "simple request" and triggers no browser preflight — but this
-// is cheap insurance against the route silently breaking if a future
-// caller adds a request header.
+// is cheap insurance against the route silently breaking if a future caller
+// adds a request header: Access-Control-Allow-Headers below echoes back
+// whatever Access-Control-Request-Headers the browser sent, so that
+// caller's preflight succeeds without this file needing another edit.
 export function OPTIONS(request: Request): Response {
-  const allowedOrigin = resolveAllowedOrigin(
-    request.headers.get('origin'),
-    env(EnvKeys.PROFILE_ALLOWED_ORIGINS, ''),
-  )
+  const allowedOrigin = resolveOrigin(request)
+  const requestedHeaders = request.headers.get('access-control-request-headers')
 
   return new Response(null, {
     status: 204,
     headers: {
-      ...corsHeaders(allowedOrigin),
+      // Same as every GET response — a preflight result is per-caller (it
+      // varies on Origin below) and must never be cached across callers.
+      ...profileHeaders(allowedOrigin),
       'Access-Control-Allow-Methods': 'GET',
+      ...(requestedHeaders
+        ? { 'Access-Control-Allow-Headers': requestedHeaders }
+        : {}),
       'Access-Control-Max-Age': '86400',
     },
   })
