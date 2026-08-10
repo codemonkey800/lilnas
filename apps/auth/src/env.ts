@@ -53,4 +53,20 @@ export const EnvKeys = {
   // duplicated by accident) since email casing isn't a security boundary
   // and a stray space in this env var shouldn't silently lock an admin out.
   ADMIN_EMAILS: 'ADMIN_EMAILS',
+  // src/app/api/profile/route.ts's own CORS allowlist — comma-separated,
+  // same parsing shape as ADMIN_EMAILS above, but NOT an
+  // app-wide CORS knob. Deliberately prefixed PROFILE_ rather than CORS_:
+  // it gates exactly one route (GET /api/profile, a slim {name, email,
+  // image} projection of /me built for nexus-code to read cross-origin),
+  // never the Nest API surface. Entries are exact origins (scheme + host)
+  // with NO wildcard support — see src/auth/auth.ts's trustedOrigins
+  // comment for the trap a `*.lilnas.io`-style entry falls into with a
+  // plain string-equality matcher; this env var's own parser
+  // (src/app/api/profile/cors.ts's resolveAllowedOrigin()) is exactly that
+  // kind of matcher, on purpose. Read with a '' default so an unset value
+  // fails closed (no cross-origin access) rather than throwing — same
+  // reasoning as VerifyService's own ADMIN_EMAILS default above: this path
+  // should degrade to "cross-origin callers get nothing," never take the
+  // route down.
+  PROFILE_ALLOWED_ORIGINS: 'PROFILE_ALLOWED_ORIGINS',
 } as const

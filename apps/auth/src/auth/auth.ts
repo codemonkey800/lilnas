@@ -131,6 +131,32 @@ export function buildAuth(db: Db) {
     // this API), so not a reason to avoid setting the option above. Don't
     // cargo-cult tdr-code's ALLOWED_ORIGIN pattern;
     // it solves a problem this app doesn't have.
+    //
+    // AMENDED: the paragraph above was true when written; it no longer is.
+    // nexus-code (infra/nexus-code.yml, infra/nexus-code-mbp.yml) is now an
+    // external browser consumer that reads the signed-in user's name and
+    // avatar cross-origin. That need is served by
+    // src/app/api/profile/route.ts, which owns its own narrowly-scoped CORS
+    // at the Next layer — NOT by widening trustedOrigins here, since this
+    // array is Better Auth's CSRF trust boundary and widening it would also
+    // hand app-wide Nest CORS (see below) to the same origins.
+    //
+    // That app-wide Nest CORS is still real, and its effective allowlist is
+    // narrower than trustedOrigins itself suggests: @thallesp's
+    // AuthModule.configure() calls this Express app's own `enableCors({
+    // origin: trustedOrigins, credentials: true })` unscoped (not limited to
+    // /api/auth), but installed cors@2.8.5 matches array entries with plain
+    // `origin === allowedOrigin` string equality and never enters its
+    // wildcard-matching branch on the Express path (that branch is
+    // Fastify-only). So the literal `https://*.${REDIRECT_ALLOWED_SUFFIX}`
+    // entry above matches nothing at this layer — only the bare
+    // `https://${REDIRECT_ALLOWED_SUFFIX}` entry (e.g. exactly
+    // "https://lilnas.io") ever does, even though Better Auth's OWN
+    // origin-check middleware (the actual reason both entries exist) DOES
+    // honor that wildcard. Do not "fix" cross-origin CORS by adding a
+    // wildcard here expecting it to widen this Nest-level allowlist — it
+    // won't; that is exactly the gap src/app/api/profile/route.ts's own
+    // allowlist was built to fill instead.
 
     advanced: {
       // The whole point of this app's auth setup: a session cookie valid
