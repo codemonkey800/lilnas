@@ -51,11 +51,38 @@ describe('resolveAllowedOrigin', () => {
     ).toBeNull()
   })
 
-  it('is case-sensitive, unlike email allowlist matching elsewhere in this app', () => {
+  it('is case-insensitive, matching email allowlist matching elsewhere in this app — and echoes the request Origin verbatim, not the normalized form', () => {
     expect(
       resolveAllowedOrigin(
         'https://Nexus-Code.lilnas.io',
         'https://nexus-code.lilnas.io',
+      ),
+    ).toBe('https://Nexus-Code.lilnas.io')
+  })
+
+  it('tolerates a single trailing slash on an allowlist entry — a real Origin header never has one', () => {
+    expect(
+      resolveAllowedOrigin(
+        'https://nexus-code.lilnas.io',
+        'https://nexus-code.lilnas.io/',
+      ),
+    ).toBe('https://nexus-code.lilnas.io')
+  })
+
+  it('tolerates both case and a trailing slash at once', () => {
+    expect(
+      resolveAllowedOrigin(
+        'https://Nexus-Code.lilnas.io',
+        'https://nexus-code.lilnas.io/',
+      ),
+    ).toBe('https://Nexus-Code.lilnas.io')
+  })
+
+  it('does not tolerate more than one trailing slash on an allowlist entry', () => {
+    expect(
+      resolveAllowedOrigin(
+        'https://nexus-code.lilnas.io',
+        'https://nexus-code.lilnas.io//',
       ),
     ).toBeNull()
   })

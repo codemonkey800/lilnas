@@ -148,6 +148,23 @@ describe('GET /api/profile', () => {
     fetchSpy.mockRestore()
   })
 
+  it('matches an allowlist entry that differs only by case or a trailing slash', async () => {
+    process.env.PROFILE_ALLOWED_ORIGINS = 'https://nexus-code.lilnas.io/'
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 401 }))
+
+    const res = await GET(
+      makeRequest({ origin: 'https://nexus-code.lilnas.io' }),
+    )
+
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(
+      'https://nexus-code.lilnas.io',
+    )
+
+    fetchSpy.mockRestore()
+  })
+
   it('a literal wildcard allowlist entry matches nothing — the trustedOrigins trap', async () => {
     process.env.PROFILE_ALLOWED_ORIGINS = 'https://*.lilnas.io'
     const fetchSpy = jest

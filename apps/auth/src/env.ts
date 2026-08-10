@@ -58,15 +58,17 @@ export const EnvKeys = {
   // app-wide CORS knob. Deliberately prefixed PROFILE_ rather than CORS_:
   // it gates exactly one route (GET /api/profile, a slim {name, email,
   // image} projection of /me built for nexus-code to read cross-origin),
-  // never the Nest API surface. Entries are exact origins (scheme + host)
-  // with NO wildcard support — see src/auth/auth.ts's trustedOrigins
-  // comment for the trap a `*.lilnas.io`-style entry falls into with a
-  // plain string-equality matcher; this env var's own parser
-  // (src/app/api/profile/cors.ts's resolveAllowedOrigin()) is exactly that
-  // kind of matcher, on purpose. Read with a '' default so an unset value
-  // fails closed (no cross-origin access) rather than throwing — same
-  // reasoning as VerifyService's own ADMIN_EMAILS default above: this path
-  // should degrade to "cross-origin callers get nothing," never take the
-  // route down.
+  // never the Nest API surface. Entries are origins (scheme + host),
+  // matched case-insensitively with a single trailing slash tolerated
+  // (typo-forgiveness for a human-edited env file — a real Origin header is
+  // already canonical), but with NO wildcard support — see
+  // src/auth/auth.ts's trustedOrigins comment for the trap a
+  // `*.lilnas.io`-style entry falls into with a plain string-equality
+  // matcher; this env var's own parser (src/app/api/profile/cors.ts's
+  // resolveAllowedOrigin()) is exactly that kind of matcher, on purpose.
+  // Read with a '' default so an unset value fails closed (no cross-origin
+  // access) rather than throwing — same reasoning as VerifyService's own
+  // ADMIN_EMAILS default above: this path should degrade to "cross-origin
+  // callers get nothing," never take the route down.
   PROFILE_ALLOWED_ORIGINS: 'PROFILE_ALLOWED_ORIGINS',
 } as const
