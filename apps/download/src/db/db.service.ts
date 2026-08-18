@@ -10,11 +10,6 @@ import {
   runMigrations as runDbMigrations,
 } from './migrate'
 import { applyPragmas } from './pragmas'
-// schema.ts has zero table exports until Phase 1 adds the first one (see
-// that file's header comment) — import/namespace flags a namespace import
-// with no exported names at all, which is exactly this phase's deliberate
-// empty-schema state.
-// eslint-disable-next-line import/namespace
 import * as schema from './schema'
 
 export type Db = BetterSQLite3Database<typeof schema>

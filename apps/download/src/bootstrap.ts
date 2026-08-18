@@ -5,6 +5,7 @@ import { Logger } from 'nestjs-pino'
 
 import { AppModule } from './app.module'
 import { DbService } from './db/db.service'
+import { reconcileInterruptedJobs } from './db/reconcile-interrupted-jobs'
 import { EnvKeys } from './env'
 
 export async function bootstrap() {
@@ -20,6 +21,11 @@ export async function bootstrap() {
     const dbService = app.get(DbService)
     dbService.runMigrations()
     dbService.checkIntegrity()
+    // After integrity is confirmed sound, but before serving any traffic -
+    // any row left at a non-terminal status belongs to the previous
+    // process, which is gone along with its in-memory DownloadStateService
+    // Map.
+    reconcileInterruptedJobs(dbService.db)
 
     const port = +env(EnvKeys.BACKEND_PORT)
     await app.listen(port)

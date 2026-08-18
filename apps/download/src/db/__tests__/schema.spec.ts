@@ -3,21 +3,13 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 
 import { checkIntegrity, runMigrations } from 'src/db/migrate'
 import { applyPragmas } from 'src/db/pragmas'
-// See db.service.ts's identical comment: schema.ts has zero table exports
-// until Phase 1.
-// eslint-disable-next-line import/namespace
 import * as schema from 'src/db/schema'
+import { jobs } from 'src/db/schema'
 
-function createTestDb() {
-  const sqlite = new BetterSqlite3(':memory:')
-  applyPragmas(sqlite)
-  const db = drizzle(sqlite, { schema })
-  runMigrations(db)
-  return { db, sqlite, close: () => sqlite.close() }
-}
+import { createTestDb } from './test-utils'
 
 describe('schema + migrations', () => {
-  it('applies migrations cleanly with zero app-level tables (Phase 1 adds `jobs`)', () => {
+  it('applies migrations cleanly, creating exactly the `jobs` table', () => {
     const { sqlite, close } = createTestDb()
     try {
       const tableNames = sqlite
@@ -27,7 +19,97 @@ describe('schema + migrations', () => {
         .all()
         .map(row => (row as { name: string }).name)
 
-      expect(tableNames).toEqual([])
+      expect(tableNames).toEqual(['jobs'])
+    } finally {
+      close()
+    }
+  })
+
+  it('round-trips every column kind on the `jobs` table (JSON, boolean, nullable timestamp, enums)', () => {
+    const { db, close } = createTestDb()
+    try {
+      const now = new Date('2026-01-01T00:00:00.000Z')
+
+      db.insert(jobs)
+        .values({
+          completedAt: now,
+          description: 'a description',
+          downloadUrls: ['https://example.com/a.mp4'],
+          error: undefined,
+          filePath: '/videos/a.mp4',
+          hiddenAttribution: true,
+          id: 'job-1',
+          mediaTitle: 'A Movie',
+          origin: 'web',
+          overview: 'an overview',
+          posterUrl: 'https://example.com/poster.jpg',
+          queueSnapshot: { progress: 42, status: 'downloading' },
+          radarrId: 7,
+          requesterEmail: 'alice@example.com',
+          requesterUserId: 'user_1',
+          sonarrId: undefined,
+          status: 'completed',
+          timeRange: { start: '00:00:00', end: '00:01:00' },
+          title: 'A title',
+          type: 'movie',
+          updatedAt: now,
+          url: 'radarr://tmdb/1',
+        })
+        .run()
+
+      const row = db.select().from(jobs).all()[0]
+
+      expect(row).toMatchObject({
+        completedAt: now,
+        description: 'a description',
+        downloadUrls: ['https://example.com/a.mp4'],
+        filePath: '/videos/a.mp4',
+        hiddenAttribution: true,
+        id: 'job-1',
+        mediaTitle: 'A Movie',
+        origin: 'web',
+        overview: 'an overview',
+        posterUrl: 'https://example.com/poster.jpg',
+        queueSnapshot: { progress: 42, status: 'downloading' },
+        radarrId: 7,
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'user_1',
+        sonarrId: null,
+        status: 'completed',
+        timeRange: { start: '00:00:00', end: '00:01:00' },
+        title: 'A title',
+        type: 'movie',
+        updatedAt: now,
+        url: 'radarr://tmdb/1',
+      })
+    } finally {
+      close()
+    }
+  })
+
+  it('defaults `hiddenAttribution` to false and leaves optional columns null', () => {
+    const { db, close } = createTestDb()
+    try {
+      db.insert(jobs)
+        .values({
+          id: 'job-2',
+          origin: 'service',
+          status: 'pending',
+          type: 'video',
+          url: 'https://example.com/video',
+        })
+        .run()
+
+      const row = db.select().from(jobs).all()[0]
+
+      expect(row).toMatchObject({
+        completedAt: null,
+        hiddenAttribution: false,
+        requesterEmail: null,
+        requesterUserId: null,
+      })
+      expect(row?.createdAt).toBeInstanceOf(Date)
+      expect(row?.updatedAt).toBeInstanceOf(Date)
     } finally {
       close()
     }
