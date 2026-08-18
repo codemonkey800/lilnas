@@ -6,6 +6,7 @@ import { PrometheusModule } from '@willsoto/nestjs-prometheus'
 import { NestMinioModule } from 'nestjs-minio'
 import { LoggerModule } from 'nestjs-pino'
 
+import { AuthModule } from './auth/auth.module'
 import { DbModule } from './db/db.module'
 import { DownloadModule } from './download/download.module'
 import { DownloadGatewayModule } from './download-gateway/download-gateway.module'
@@ -14,6 +15,7 @@ import { YtdlpUpdateModule } from './ytdlp-update/ytdlp-update.module'
 
 @Module({
   imports: [
+    AuthModule,
     DbModule,
     DownloadModule,
     DownloadGatewayModule,
