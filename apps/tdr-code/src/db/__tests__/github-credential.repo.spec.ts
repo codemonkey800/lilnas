@@ -6,7 +6,7 @@ import {
   deleteGithubCredential,
   getGithubCredential,
   getGithubCredentialByDiscordUserId,
-  listGithubCredentialStatuses,
+  listGithubCredentialRows,
   upsertGithubCredential,
   type UpsertGithubCredentialInput,
 } from 'src/db/github-credential.repo'
@@ -293,10 +293,10 @@ describe('github-credential.repo — upsertGithubCredential', () => {
 
       // Exactly one row for this userId — the PK enforces this, but assert
       // it directly via the roster too (no second row leaking through).
-      const statuses = listGithubCredentialStatuses(db).filter(
-        s => s.userId === 'user-4',
+      const rows = listGithubCredentialRows(db).filter(
+        r => r.userId === 'user-4',
       )
-      expect(statuses).toHaveLength(0) // user-4 has no discord account row
+      expect(rows).toHaveLength(0) // user-4 has no discord account row
     } finally {
       close()
     }
@@ -337,8 +337,8 @@ describe('github-credential.repo — deleteGithubCredential', () => {
   })
 })
 
-describe('github-credential.repo — listGithubCredentialStatuses', () => {
-  it('includes users with no github_credential row (not-linked) alongside linked users', () => {
+describe('github-credential.repo — listGithubCredentialRows', () => {
+  it('includes users with no github_credential row (credential: undefined) alongside linked users', () => {
     const { db, close } = createTestDb()
     try {
       // Linked user: discord + github accounts + a credential row.
@@ -370,30 +370,25 @@ describe('github-credential.repo — listGithubCredentialStatuses', () => {
         userId: 'user-not-linked',
       })
 
-      const statuses = listGithubCredentialStatuses(db)
-      expect(statuses).toHaveLength(2)
+      const rows = listGithubCredentialRows(db)
+      expect(rows).toHaveLength(2)
 
-      const linked = statuses.find(s => s.userId === 'user-linked')
-      expect(linked).toEqual({
-        userId: 'user-linked',
-        discordUserId: 'discord-linked',
-        githubLogin: 'linked-login',
-        linked: true,
-      })
+      const linked = rows.find(r => r.userId === 'user-linked')
+      expect(linked?.discordUserId).toBe('discord-linked')
+      expect(linked?.credential?.githubLogin).toBe('linked-login')
 
-      const notLinked = statuses.find(s => s.userId === 'user-not-linked')
+      const notLinked = rows.find(r => r.userId === 'user-not-linked')
       expect(notLinked).toEqual({
         userId: 'user-not-linked',
         discordUserId: 'discord-not-linked',
-        githubLogin: undefined,
-        linked: false,
+        credential: undefined,
       })
     } finally {
       close()
     }
   })
 
-  it('excludes an orphaned github_credential row (no matching github account row) from "linked"', () => {
+  it('excludes an orphaned github_credential row (no matching github account row) — credential: undefined', () => {
     const { db, close } = createTestDb()
     try {
       insertUser(db, 'user-orphan-3')
@@ -406,14 +401,13 @@ describe('github-credential.repo — listGithubCredentialStatuses', () => {
       // No providerId:'github' account row — orphan case.
       upsertGithubCredential(db, upsertInput('user-orphan-3'))
 
-      const statuses = listGithubCredentialStatuses(db)
-      const status = statuses.find(s => s.userId === 'user-orphan-3')
+      const rows = listGithubCredentialRows(db)
+      const row = rows.find(r => r.userId === 'user-orphan-3')
 
-      expect(status).toEqual({
+      expect(row).toEqual({
         userId: 'user-orphan-3',
         discordUserId: 'discord-orphan-3',
-        githubLogin: undefined,
-        linked: false,
+        credential: undefined,
       })
     } finally {
       close()
@@ -423,7 +417,7 @@ describe('github-credential.repo — listGithubCredentialStatuses', () => {
   it('returns an empty array when there are no discord-linked users at all', () => {
     const { db, close } = createTestDb()
     try {
-      expect(listGithubCredentialStatuses(db)).toEqual([])
+      expect(listGithubCredentialRows(db)).toEqual([])
     } finally {
       close()
     }

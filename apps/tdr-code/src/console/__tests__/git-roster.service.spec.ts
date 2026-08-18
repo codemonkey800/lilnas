@@ -303,4 +303,44 @@ describe('GitRosterService.listRoster', () => {
       },
     ])
   })
+
+  // Regression coverage for the "console/roster shows Linked but the bot
+  // blocks every gh call" incident (see github-link.dto.ts's
+  // GithubStatusResponseSchema comment) — a github_credential row encrypted
+  // under a DIFFERENT master key than the mocked loadMasterKey() returns at
+  // roster-read time must show github: 'decrypt-failed', never 'linked',
+  // and must still carry betterAuthUserId so it remains break-glass-
+  // clearable from the roster table.
+  it('shows github: decrypt-failed (not linked, and does not throw) for a github_credential row encrypted under a different master key', async () => {
+    const { db } = testDb
+
+    seedUser(db, 'user-corrupt-github')
+    seedDiscordAccount(db, {
+      userId: 'user-corrupt-github',
+      discordUserId: 'discord-corrupt-github',
+    })
+    const wrongKey = Buffer.alloc(32, 223)
+    linkGithub(db, 'user-corrupt-github', wrongKey)
+
+    const discordDirectory = makeDiscordDirectoryService([
+      {
+        id: 'discord-corrupt-github',
+        username: 'corrupt-github',
+        displayName: 'Corrupt GitHub',
+      },
+    ])
+
+    const service = new GitRosterService(db, discordDirectory)
+    const roster = await service.listRoster()
+
+    expect(roster).toEqual([
+      {
+        discordUserId: 'discord-corrupt-github',
+        displayName: 'Corrupt GitHub',
+        github: 'decrypt-failed',
+        ssh: 'not-configured',
+        betterAuthUserId: 'user-corrupt-github',
+      },
+    ])
+  })
 })

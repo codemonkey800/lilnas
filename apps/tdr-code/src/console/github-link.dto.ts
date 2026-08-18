@@ -46,12 +46,34 @@ export type UnlinkGithubResponseDto = z.infer<typeof UnlinkGithubResponseSchema>
 // sent back to those endpoints, but is still useful here for the page to
 // show which Discord identity its SSH section is scoped to.
 //
-// `derivedName`/`derivedEmail` are present only when `linked` is true —
+// `status` is a three-state result, NOT a boolean — a bare "does a
+// github_credential row exist" check (what this endpoint originally
+// returned as `linked: boolean`) cannot distinguish a genuinely linked user
+// from one whose stored token no longer decrypts (e.g. after a
+// TDR_CODE_MASTER_KEY_FILE rotation — see github-credential.repo.ts's header
+// comment). That gap let the console show a green "Linked" badge for a user
+// the bot's own per-turn `resolveGithubToken()` check treated as fully
+// unlinked, blocking every `gh` call with no way for the user to tell why.
+// `getStatus()` now calls the SAME resolveGithubToken() the bot uses at turn
+// time, so this field can never drift from what actually gates `gh`/`git`
+// access — mirrors GitRosterService's pre-existing SSH-status resolution
+// (identity-resolution.ts's resolveIdentity), which already made this exact
+// distinction for the SSH axis.
+//   - 'linked': row exists and the token decrypts — matches what the bot
+//     will use this turn.
+//   - 'not-linked': no row (or an orphaned one — see the inner-join
+//     invariant), or a Discord user with no GitHub link at all.
+//   - 'decrypt-failed': a row exists but the stored token no longer
+//     decrypts under the current master key — the bot blocks `gh` for this
+//     user exactly as if unlinked; re-linking (re-running the OAuth flow)
+//     overwrites the row with a freshly-encrypted token and fixes it.
+//
+// `derivedName`/`derivedEmail` are present only when `status` is 'linked' —
 // never returns tokenCiphertext/tokenIv/tokenAuthTag or a decrypted token
 // (R7), same posture as UnlinkGithubResponseSchema above.
 export const GithubStatusResponseSchema = z.object({
   discordUserId: z.string().optional(),
-  linked: z.boolean(),
+  status: z.enum(['linked', 'not-linked', 'decrypt-failed']),
   derivedName: z.string().optional(),
   derivedEmail: z.string().optional(),
 })

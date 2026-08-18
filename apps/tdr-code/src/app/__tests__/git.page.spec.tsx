@@ -22,14 +22,19 @@ jest.mock('src/app/lib/auth-client', () => ({
 
 const NOT_LINKED_STATUS: GithubStatusResponseDto = {
   discordUserId: '111111111111111111',
-  linked: false,
+  status: 'not-linked',
 }
 
 const LINKED_STATUS: GithubStatusResponseDto = {
   discordUserId: '111111111111111111',
-  linked: true,
+  status: 'linked',
   derivedName: 'octocat',
   derivedEmail: '12345+octocat@users.noreply.github.com',
+}
+
+const DECRYPT_FAILED_STATUS: GithubStatusResponseDto = {
+  discordUserId: '111111111111111111',
+  status: 'decrypt-failed',
 }
 
 const EMPTY_IDENTITIES: GitIdentityListResponseDto = []
@@ -169,6 +174,47 @@ describe('GitPage — AE1: linked GitHub status', () => {
     await user.click(unlinkButton)
 
     await waitFor(() => expect(unlinkSpy).toHaveBeenCalledTimes(1))
+  })
+})
+
+// Regression coverage for the "console shows Linked but the bot blocks
+// every gh call" incident (see github-link.dto.ts's
+// GithubStatusResponseSchema comment) — a 'decrypt-failed' status must
+// render distinctly from both 'linked' and 'not-linked': a red chip, an
+// explanatory message, a "Relink GitHub" CTA (not "Link GitHub"), and an
+// "Unlink" button still available (the row exists and is clearable).
+describe('GitPage — decrypt-failed GitHub status', () => {
+  it('shows a broken-token message, "Relink GitHub", and "Unlink" — never "Linked as ..." or "Link GitHub"', async () => {
+    jest.spyOn(api, 'getGithubStatus').mockResolvedValue(DECRYPT_FAILED_STATUS)
+    renderPage()
+
+    await screen.findByRole('heading', { name: 'GitHub' })
+
+    expect(
+      await screen.findByRole('button', { name: 'Relink GitHub' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Link GitHub' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Unlink' })).toBeInTheDocument()
+
+    expect(screen.getByText(/can't be decrypted/i)).toBeInTheDocument()
+    expect(screen.queryByText(/^Linked as /)).not.toBeInTheDocument()
+  })
+
+  it('clicking Relink GitHub calls authClient.linkSocial, same as a fresh link', async () => {
+    jest.spyOn(api, 'getGithubStatus').mockResolvedValue(DECRYPT_FAILED_STATUS)
+    mockUseSession.mockReturnValue({
+      data: { user: { id: 'u1', name: 'Some User', image: null } },
+      isPending: false,
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    const button = await screen.findByRole('button', { name: 'Relink GitHub' })
+    await user.click(button)
+
+    expect(mockLinkSocial).toHaveBeenCalledTimes(1)
   })
 })
 

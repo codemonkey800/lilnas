@@ -1,6 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common'
 
 import {
+  isGithubConfigured,
+  resolveGithubToken,
+} from 'src/crypto/github-token-resolution'
+import {
   isConfigured,
   isDecryptFailed,
   resolveIdentity,
@@ -9,30 +13,33 @@ import { loadMasterKey } from 'src/crypto/master-key'
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
 import { listIdentities } from 'src/db/git-identity.repo'
-import { listGithubCredentialStatuses } from 'src/db/github-credential.repo'
+import { listGithubCredentialRows } from 'src/db/github-credential.repo'
 
 import { DiscordDirectoryService } from './discord-directory.service'
 import type {
+  GithubRosterStatus,
   RosterEntryDto,
   RosterResponseDto,
   SshRosterStatus,
 } from './git-roster.dto'
 
-// Joins listGithubCredentialStatuses (U1) with DiscordDirectoryService's
-// guild member list into one roster row per guild member. GitHub status is
-// matched by discordUserId (listGithubCredentialStatuses' own
-// account.accountId for providerId 'discord'); a guild member absent from
-// that list entirely (no account row of ANY kind, GitHub or otherwise) is
-// 'not-linked' — the same "missing means not configured" posture
-// listGithubCredentialStatuses itself already applies to a user with no
+// Joins listGithubCredentialRows (U1) with DiscordDirectoryService's guild
+// member list into one roster row per guild member. GitHub status is
+// matched by discordUserId (listGithubCredentialRows' own account.accountId
+// for providerId 'discord'); a guild member absent from that list entirely
+// (no account row of ANY kind, GitHub or otherwise) is 'not-linked' — the
+// same "missing means not configured" posture applied to a user with no
 // github_credential row.
 //
-// SSH status mirrors GitTurnContext.begin()'s EXACT resolution call shape
-// (loadMasterKey() -> getIdentity(db, userId) -> resolveIdentity(row,
-// masterKey)) so a decrypt failure is distinguishable from not-configured
-// on the roster exactly as it would be at turn time — never a raw
-// row-exists-or-not check (which cannot tell "no SSH key" apart from "SSH
-// key exists but its master-key-encrypted blob no longer decrypts").
+// BOTH axes mirror GitTurnContext.begin()'s EXACT resolution call shape
+// (loadMasterKey() -> get*(db, userId) -> resolve*(row, masterKey)) so a
+// decrypt failure is distinguishable from not-configured on the roster
+// exactly as it would be at turn time — never a raw row-exists-or-not check
+// (which cannot tell "no key/token" apart from "key/token exists but its
+// master-key-encrypted blob no longer decrypts"). GitHub status previously
+// WAS a raw row-exists-or-not check (listGithubCredentialStatuses' old
+// `linked: credential !== undefined`); see github-link.dto.ts's
+// GithubStatusResponseSchema comment for the incident that gap caused.
 @Injectable()
 export class GitRosterService {
   constructor(
@@ -42,18 +49,18 @@ export class GitRosterService {
 
   async listRoster(): Promise<RosterResponseDto> {
     const members = await this.discordDirectory.listGuildMembers()
-    const githubStatuses = listGithubCredentialStatuses(this.db)
+    const githubRows = listGithubCredentialRows(this.db)
 
-    // Keyed by discordUserId, values carry BOTH linked and the Better Auth
-    // userId behind that link (betterAuthUserId on RosterEntryDto — see that
-    // field's own doc comment for why break-glass-clear needs it: the
-    // route takes a Better Auth userId, never a Discord snowflake).
+    // Keyed by discordUserId — carries the raw credential row (or
+    // undefined) plus the Better Auth userId behind it, so status can be
+    // resolved below via the SAME resolveGithubToken() call GitTurnContext
+    // makes at turn time, not a row-exists-or-not check.
     const githubByDiscordUserId = new Map(
-      githubStatuses
-        .filter(status => status.discordUserId !== undefined)
-        .map(status => [
-          status.discordUserId as string,
-          { linked: status.linked, userId: status.userId },
+      githubRows
+        .filter(row => row.discordUserId !== undefined)
+        .map(row => [
+          row.discordUserId as string,
+          { credential: row.credential, userId: row.userId },
         ]),
     )
 
@@ -67,8 +74,23 @@ export class GitRosterService {
     )
 
     return members.map(member => {
-      const githubStatus = githubByDiscordUserId.get(member.id)
-      const linked = githubStatus?.linked ?? false
+      const githubEntry = githubByDiscordUserId.get(member.id)
+
+      let github: GithubRosterStatus
+      if (!githubEntry?.credential) {
+        github = 'not-linked'
+      } else {
+        const resolution = resolveGithubToken(githubEntry.credential, masterKey)
+        if (isGithubConfigured(resolution)) {
+          // Best-effort zeroize (mirrors this file's own SSH-axis handling
+          // below and GithubLinkService.getStatus/unlink) — the roster only
+          // needs status, never the plaintext token bytes themselves.
+          resolution.tokenPlaintext.fill(0)
+          github = 'linked'
+        } else {
+          github = 'decrypt-failed'
+        }
+      }
 
       const identityRow = identityByDiscordUserId.get(member.id)
       const resolution = resolveIdentity(identityRow, masterKey)
@@ -88,12 +110,13 @@ export class GitRosterService {
       return {
         discordUserId: member.id,
         displayName: member.displayName,
-        github: linked ? 'linked' : 'not-linked',
+        github,
         ssh,
-        // Only meaningful when linked — an unlinked member's githubStatus
-        // entry (if any exists at all, e.g. a Discord sign-in with no
-        // GitHub link) has no credential to break-glass-clear.
-        betterAuthUserId: linked ? githubStatus?.userId : undefined,
+        // Present whenever a credential row exists, linked or
+        // decrypt-failed — a broken row must still be break-glass-clearable
+        // (see git-roster.dto.ts's betterAuthUserId doc comment).
+        betterAuthUserId:
+          github === 'not-linked' ? undefined : githubEntry?.userId,
       } satisfies RosterEntryDto
     })
   }
