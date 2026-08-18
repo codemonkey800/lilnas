@@ -4,6 +4,7 @@ import {
   DownloadType,
   isMovieDownloadJob,
   isShowDownloadJob,
+  JobRequester,
   MovieDownloadJob,
   MovieSearchResult,
   ShowDownloadJob,
@@ -63,12 +64,16 @@ export class MediaDownloadService {
     return this.sonarrService.search(query)
   }
 
-  async requestMovie(tmdbId: number): Promise<MovieDownloadJob> {
+  async requestMovie(
+    tmdbId: number,
+    requester?: JobRequester | null,
+  ): Promise<MovieDownloadJob> {
     const action = 'requestMovie'
     const id = nanoid()
 
     const job: MovieDownloadJob = {
       id,
+      requester: requester ?? null,
       status: DownloadJobStatus.Requested,
       type: DownloadType.Movie,
       url: `radarr://tmdb/${tmdbId}`,
@@ -82,6 +87,7 @@ export class MediaDownloadService {
 
       const updated = this.downloadStateService.updateJob(id, {
         mediaTitle: result.title,
+        overview: result.overview,
         posterUrl: result.posterUrl,
         radarrId: result.radarrId,
         status: DownloadJobStatus.Searching,
@@ -105,12 +111,16 @@ export class MediaDownloadService {
     }
   }
 
-  async requestShow(tvdbId: number): Promise<ShowDownloadJob> {
+  async requestShow(
+    tvdbId: number,
+    requester?: JobRequester | null,
+  ): Promise<ShowDownloadJob> {
     const action = 'requestShow'
     const id = nanoid()
 
     const job: ShowDownloadJob = {
       id,
+      requester: requester ?? null,
       status: DownloadJobStatus.Requested,
       type: DownloadType.Show,
       url: `sonarr://tvdb/${tvdbId}`,
@@ -124,6 +134,7 @@ export class MediaDownloadService {
 
       const updated = this.downloadStateService.updateJob(id, {
         mediaTitle: result.title,
+        overview: result.overview,
         posterUrl: result.posterUrl,
         sonarrId: result.sonarrId,
         status: DownloadJobStatus.Searching,

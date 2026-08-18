@@ -16,6 +16,8 @@ import {
 import { HttpException, Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { AdminCheckService } from 'src/auth/admin-check.service'
+import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
 import { DownloadStateService } from 'src/download/download-state.service'
@@ -29,6 +31,7 @@ import { MediaDownloadService } from 'src/media/media-download.service'
 describe('DownloadController - media endpoints', () => {
   let controller: DownloadController
   let mediaDownloadService: jest.Mocked<MediaDownloadService>
+  let adminCheckService: jest.Mocked<AdminCheckService>
 
   beforeEach(async () => {
     const mockMediaDownloadService = {
@@ -41,10 +44,12 @@ describe('DownloadController - media endpoints', () => {
       deleteMovieJob: jest.fn(),
       deleteShowJob: jest.fn(),
     }
+    const mockAdminCheckService = { checkIsAdmin: jest.fn() }
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DownloadController],
       providers: [
+        { provide: AdminCheckService, useValue: mockAdminCheckService },
         { provide: DownloadService, useValue: {} },
         { provide: DownloadStateService, useValue: { jobs: new Map() } },
         { provide: MediaDownloadService, useValue: mockMediaDownloadService },
@@ -53,6 +58,8 @@ describe('DownloadController - media endpoints', () => {
 
     controller = module.get(DownloadController)
     mediaDownloadService = module.get(MediaDownloadService)
+    adminCheckService = module.get(AdminCheckService)
+    adminCheckService.checkIsAdmin.mockResolvedValue(false)
 
     jest.spyOn(Logger.prototype, 'log').mockImplementation()
     jest.spyOn(Logger.prototype, 'error').mockImplementation()
@@ -67,6 +74,7 @@ describe('DownloadController - media endpoints', () => {
     posterUrl: 'poster.jpg',
     queueSnapshot: { progress: 50 },
     radarrId: 42,
+    requester: null,
     status: DownloadJobStatus.Downloading,
     title: undefined,
     type: DownloadType.Movie,
@@ -80,6 +88,7 @@ describe('DownloadController - media endpoints', () => {
     mediaTitle: 'A Show',
     posterUrl: 'poster.jpg',
     queueSnapshot: { progress: 25 },
+    requester: null,
     sonarrId: 9,
     status: DownloadJobStatus.Importing,
     title: undefined,
@@ -104,44 +113,60 @@ describe('DownloadController - media endpoints', () => {
     it('maps the created job to GetMovieJobResponse (excluding url)', async () => {
       mediaDownloadService.requestMovie.mockResolvedValue(movieJob)
 
-      const response = await controller.requestMovie({ tmdbId: 123 })
+      const response = await controller.requestMovie({ tmdbId: 123 }, undefined)
 
-      expect(mediaDownloadService.requestMovie).toHaveBeenCalledWith(123)
+      expect(mediaDownloadService.requestMovie).toHaveBeenCalledWith(
+        123,
+        undefined,
+      )
       expect(response).toEqual({
         description: undefined,
         error: undefined,
+        hiddenAttribution: undefined,
         id: 'movie-1',
         mediaTitle: 'A Movie',
         posterUrl: 'poster.jpg',
         queueSnapshot: { progress: 50 },
         radarrId: 42,
+        requester: null,
         status: DownloadJobStatus.Downloading,
         title: undefined,
         type: DownloadType.Movie,
       })
       expect(response).not.toHaveProperty('url')
     })
+
+    it('threads the resolved requester through to MediaDownloadService', async () => {
+      const user: ForwardedUser = { email: 'alice@example.com', userId: 'u1' }
+      mediaDownloadService.requestMovie.mockResolvedValue(movieJob)
+
+      await controller.requestMovie({ tmdbId: 123 }, user)
+
+      expect(mediaDownloadService.requestMovie).toHaveBeenCalledWith(123, user)
+    })
   })
 
   describe('getMovieJob', () => {
-    it('returns the mapped job on success', () => {
+    it('returns the mapped job on success', async () => {
       mediaDownloadService.getMovieJob.mockReturnValue(movieJob)
 
-      const response = controller.getMovieJob('movie-1')
+      const response = await controller.getMovieJob('movie-1', undefined)
 
       expect(response.id).toBe('movie-1')
       expect(response.radarrId).toBe(42)
     })
 
-    it('converts a MediaDownloadService error into a 404 HttpException', () => {
+    it('converts a MediaDownloadService error into a 404 HttpException', async () => {
       mediaDownloadService.getMovieJob.mockImplementation(() => {
         throw new Error("Job with ID 'missing' not found")
       })
 
-      expect(() => controller.getMovieJob('missing')).toThrow(HttpException)
+      await expect(
+        controller.getMovieJob('missing', undefined),
+      ).rejects.toThrow(HttpException)
 
       try {
-        controller.getMovieJob('missing')
+        await controller.getMovieJob('missing', undefined)
       } catch (err) {
         expect(err).toBeInstanceOf(HttpException)
         expect((err as HttpException).getStatus()).toBe(404)
@@ -156,7 +181,7 @@ describe('DownloadController - media endpoints', () => {
         status: DownloadJobStatus.Cancelled,
       })
 
-      const response = await controller.deleteMovieJob('movie-1')
+      const response = await controller.deleteMovieJob('movie-1', undefined)
 
       expect(mediaDownloadService.deleteMovieJob).toHaveBeenCalledWith(
         'movie-1',
@@ -169,9 +194,9 @@ describe('DownloadController - media endpoints', () => {
         new Error('not found'),
       )
 
-      await expect(controller.deleteMovieJob('missing')).rejects.toThrow(
-        HttpException,
-      )
+      await expect(
+        controller.deleteMovieJob('missing', undefined),
+      ).rejects.toThrow(HttpException)
     })
   })
 
@@ -185,19 +210,54 @@ describe('DownloadController - media endpoints', () => {
       })
 
       mediaDownloadService.requestShow.mockResolvedValue(showJob)
-      const requested = await controller.requestShow({ tvdbId: 456 })
+      const requested = await controller.requestShow({ tvdbId: 456 }, undefined)
       expect(requested.sonarrId).toBe(9)
       expect(requested).not.toHaveProperty('url')
+      expect(mediaDownloadService.requestShow).toHaveBeenCalledWith(
+        456,
+        undefined,
+      )
 
       mediaDownloadService.getShowJob.mockReturnValue(showJob)
-      expect(controller.getShowJob('show-1').id).toBe('show-1')
+      expect((await controller.getShowJob('show-1', undefined)).id).toBe(
+        'show-1',
+      )
 
       mediaDownloadService.deleteShowJob.mockResolvedValue({
         ...showJob,
         status: DownloadJobStatus.Cancelled,
       })
-      const deleted = await controller.deleteShowJob('show-1')
+      const deleted = await controller.deleteShowJob('show-1', undefined)
       expect(deleted.status).toBe(DownloadJobStatus.Cancelled)
+    })
+  })
+
+  describe('isAdmin resolution', () => {
+    it('resolves isAdmin from the current user (movie/show jobs are always attributed)', async () => {
+      const admin: ForwardedUser = { email: 'admin@example.com', userId: 'a1' }
+      adminCheckService.checkIsAdmin.mockResolvedValue(true)
+      mediaDownloadService.getMovieJob.mockReturnValue({
+        ...movieJob,
+        requester: { email: 'alice@example.com', userId: 'u1' },
+      })
+
+      const response = await controller.getMovieJob('movie-1', admin)
+
+      expect(adminCheckService.checkIsAdmin).toHaveBeenCalledWith(
+        'admin@example.com',
+      )
+      expect(response.requester).toEqual({
+        email: 'alice@example.com',
+        userId: 'u1',
+      })
+    })
+
+    it('never calls checkIsAdmin when there is no current user', async () => {
+      mediaDownloadService.getMovieJob.mockReturnValue(movieJob)
+
+      await controller.getMovieJob('movie-1', undefined)
+
+      expect(adminCheckService.checkIsAdmin).not.toHaveBeenCalled()
     })
   })
 })

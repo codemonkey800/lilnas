@@ -32,6 +32,7 @@ import { generateTitleSlug } from 'src/media/title-slug.util'
 type MoviesSearchCommand = CommandResourceWritable & { movieIds?: number[] }
 
 export interface RequestMovieResult {
+  overview?: string
   posterUrl?: string
   radarrId: number
   title: string
@@ -136,6 +137,7 @@ export class RadarrService {
     )?.remoteUrl
 
     return {
+      overview: movie.overview ?? undefined,
       posterUrl: posterUrl ?? undefined,
       radarrId: movie.id,
       title: movie.title ?? `Movie ${tmdbId}`,

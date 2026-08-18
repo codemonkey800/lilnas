@@ -5,6 +5,7 @@ import {
   DownloadJobStatus,
   DownloadType,
   isVideoDownloadJob,
+  JobRequester,
   VideoInfo,
 } from '@lilnas/utils/download/types'
 import { isJson } from '@lilnas/utils/json'
@@ -201,10 +202,10 @@ export class DownloadService {
     })
   }
 
-  async createVideoDownloadJob({
-    timeRange,
-    url,
-  }: CreateDownloadJobInput): Promise<DownloadJob> {
+  async createVideoDownloadJob(
+    { hiddenAttribution, timeRange, url }: CreateDownloadJobInput,
+    requester?: JobRequester | null,
+  ): Promise<DownloadJob> {
     const action = 'createVideoDownloadJob'
     const jobId = nanoid()
 
@@ -217,11 +218,14 @@ export class DownloadService {
         jobId,
         url: sanitizedUrl,
         hasTimeRange: !!timeRange,
+        hasRequester: !!requester,
       },
       'Creating video download job',
     )
 
     const job: DownloadJob = {
+      hiddenAttribution: hiddenAttribution ?? false,
+      requester: requester ?? null,
       timeRange,
       url,
       id: jobId,
