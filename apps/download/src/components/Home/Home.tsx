@@ -1,6 +1,7 @@
-import { DownloadClient } from '@lilnas/utils/download/client'
 import { DownloadJobStatus } from '@lilnas/utils/download/types'
 import { redirect } from 'next/navigation'
+
+import { getIdentifiedDownloadClient } from 'src/lib/download-client'
 
 import { HomeTabs } from './HomeTabs'
 import type {
@@ -19,7 +20,7 @@ export function Home() {
     const start = data.get('start') as string
     const end = data.get('end') as string
 
-    const client = DownloadClient.localInstance
+    const client = await getIdentifiedDownloadClient()
     const job = await client.createVideoJob({
       url,
 
@@ -42,7 +43,8 @@ export function Home() {
     'use server'
 
     try {
-      const response = await DownloadClient.localInstance.searchMovies(query)
+      const client = await getIdentifiedDownloadClient()
+      const response = await client.searchMovies(query)
 
       if (!Array.isArray(response?.results)) {
         return { error: SEARCH_ERROR_MESSAGE, results: [] }
@@ -68,7 +70,8 @@ export function Home() {
     'use server'
 
     try {
-      const job = await DownloadClient.localInstance.requestMovie({ tmdbId })
+      const client = await getIdentifiedDownloadClient()
+      const job = await client.requestMovie({ tmdbId })
 
       if (!job?.id || job.status === DownloadJobStatus.Failed) {
         return { error: job?.error ?? REQUEST_ERROR_MESSAGE }
@@ -86,7 +89,8 @@ export function Home() {
     'use server'
 
     try {
-      const response = await DownloadClient.localInstance.searchShows(query)
+      const client = await getIdentifiedDownloadClient()
+      const response = await client.searchShows(query)
 
       if (!Array.isArray(response?.results)) {
         return { error: SEARCH_ERROR_MESSAGE, results: [] }
@@ -112,7 +116,8 @@ export function Home() {
     'use server'
 
     try {
-      const job = await DownloadClient.localInstance.requestShow({ tvdbId })
+      const client = await getIdentifiedDownloadClient()
+      const job = await client.requestShow({ tvdbId })
 
       if (!job?.id || job.status === DownloadJobStatus.Failed) {
         return { error: job?.error ?? REQUEST_ERROR_MESSAGE }

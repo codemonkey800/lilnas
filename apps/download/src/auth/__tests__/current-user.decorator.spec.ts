@@ -39,4 +39,39 @@ describe('extractCurrentUser', () => {
       UnauthorizedException,
     )
   })
+
+  describe('dev fallback', () => {
+    const originalEnv = { ...process.env }
+
+    // See forwarded-user.spec.ts's identical helper for why whole-object
+    // reassignment is required rather than mutating process.env in place.
+    function setEnv(overrides: Record<string, string | undefined>): void {
+      const next: Record<string, string | undefined> = { ...process.env }
+      for (const [key, value] of Object.entries(overrides)) {
+        if (value === undefined) {
+          delete next[key]
+        } else {
+          next[key] = value
+        }
+      }
+      process.env = next as typeof process.env
+    }
+
+    afterEach(() => {
+      process.env = { ...originalEnv }
+    })
+
+    it('falls back to DEV_USER_EMAIL/DEV_USER_ID when headers are absent, matching @OptionalCurrentUser()', () => {
+      setEnv({
+        NODE_ENV: 'development',
+        DEV_USER_EMAIL: 'dev@example.com',
+        DEV_USER_ID: 'dev-1',
+      })
+
+      expect(extractCurrentUser(buildContext({}))).toEqual({
+        email: 'dev@example.com',
+        userId: 'dev-1',
+      })
+    })
+  })
 })
