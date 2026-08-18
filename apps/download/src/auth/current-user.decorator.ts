@@ -5,14 +5,14 @@ import {
 } from '@nestjs/common'
 import type { Request } from 'express'
 
-import { type ForwardedUser, getForwardedUser } from './forwarded-user'
+import { type ForwardedUser, resolveForwardedUser } from './forwarded-user'
 
 // Exported separately so a unit test can call it directly with a minimal
 // fake ExecutionContext, without going through createParamDecorator()'s
 // wrapper.
 export function extractCurrentUser(ctx: ExecutionContext): ForwardedUser {
   const req = ctx.switchToHttp().getRequest<Request>()
-  const user = getForwardedUser(req)
+  const user = resolveForwardedUser(req)
   if (!user) {
     throw new UnauthorizedException(
       'Missing X-Forwarded-User / X-Forwarded-User-Id',

@@ -1,6 +1,11 @@
 export const EnvKeys = {
   BACKEND_PORT: 'BACKEND_PORT',
   DATABASE_PATH: 'DATABASE_PATH',
+  // Dev-only fallback identity — see forwarded-user.ts's
+  // resolveForwardedUser(). Never set in production (.env.prod on the
+  // deploy host has no reason to define these).
+  DEV_USER_EMAIL: 'DEV_USER_EMAIL',
+  DEV_USER_ID: 'DEV_USER_ID',
   DOWNLOAD_POLL_DURATION_MS: 'DOWNLOAD_POLL_DURATION_MS',
   DOWNLOAD_POLL_RETRIES: 'DOWNLOAD_POLL_RETRIES',
   LOG_FILE_PATH: 'LOG_FILE_PATH',
