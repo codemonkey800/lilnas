@@ -118,17 +118,33 @@ export class GithubLinkService implements OnModuleInit {
   // does — an orphaned row must read as not-linked here too. No log call:
   // mirrors git-identity.controller.ts's own GET routes, which are
   // read-only and log nothing.
+  //
+  // Row existence alone is NOT sufficient to report 'linked' — this must
+  // call resolveGithubToken() (the SAME resolution GitTurnContext.begin()
+  // calls at turn time) so the console can never show a green "Linked"
+  // badge for a user the bot actually blocks. See github-link.dto.ts's
+  // GithubStatusResponseSchema comment for the full incident this closes.
   getStatus(userId: string): GithubStatusResponseDto {
     const discordUserId = getDiscordUserIdForUser(this.db, userId)
     const row = getGithubCredential(this.db, userId)
 
     if (!row) {
-      return { discordUserId, linked: false }
+      return { discordUserId, status: 'not-linked' }
     }
+
+    const masterKey = loadMasterKey()
+    const resolution = resolveGithubToken(row, masterKey)
+    if (!isGithubConfigured(resolution)) {
+      return { discordUserId, status: 'decrypt-failed' }
+    }
+    // Best-effort zeroize (mirrors this class's own unlink()/onModuleInit()
+    // discipline) — this call only needs to know the decrypt succeeded,
+    // never the plaintext token bytes themselves.
+    resolution.tokenPlaintext.fill(0)
 
     return {
       discordUserId,
-      linked: true,
+      status: 'linked',
       derivedName: row.derivedName,
       derivedEmail: row.derivedEmail,
     }

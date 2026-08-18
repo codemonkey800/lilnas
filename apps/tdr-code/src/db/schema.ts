@@ -614,7 +614,7 @@ export const gitIdentity = sqliteTable('git_identity', {
 // `sweepAccountlessUsers`), the fix is never trusting write-side atomicity
 // across a Better Auth hook boundary: every read site
 // (`github-credential.repo.ts`'s getGithubCredential /
-// getGithubCredentialByDiscordUserId / listGithubCredentialStatuses) must
+// getGithubCredentialByDiscordUserId / listGithubCredentialRows) must
 // INNER JOIN against `account` (providerId = 'github') before reporting a
 // user as linked — a bare `SELECT * FROM github_credential` is never
 // sufficient to answer "is this user linked?". An orphaned row is invisible

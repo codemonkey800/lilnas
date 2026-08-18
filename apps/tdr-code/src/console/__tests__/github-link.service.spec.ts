@@ -406,7 +406,7 @@ describe('GithubLinkService.getStatus', () => {
     testDb.close()
   })
 
-  it('returns linked: true with derived identity and discordUserId for a linked user', () => {
+  it("returns status: 'linked' with derived identity and discordUserId for a linked user", () => {
     const { db } = testDb
     seedLinkedGithubUser(db, {
       userId: 'u-status-linked',
@@ -418,13 +418,13 @@ describe('GithubLinkService.getStatus', () => {
 
     expect(status).toEqual({
       discordUserId: 'discord-status-linked',
-      linked: true,
+      status: 'linked',
       derivedName: 'Octocat u-status-linked',
       derivedEmail: 'u-status-linked@users.noreply.github.com',
     })
   })
 
-  it('returns linked: false with discordUserId (no derived fields) for a user with a Discord account but no GitHub link', () => {
+  it("returns status: 'not-linked' with discordUserId (no derived fields) for a user with a Discord account but no GitHub link", () => {
     const { db } = testDb
     seedUser(db, 'u-status-unlinked')
     seedDiscordAccount(db, {
@@ -437,21 +437,24 @@ describe('GithubLinkService.getStatus', () => {
 
     expect(status).toEqual({
       discordUserId: 'discord-status-unlinked',
-      linked: false,
+      status: 'not-linked',
     })
   })
 
-  it('returns linked: false and discordUserId: undefined for a userId with no Discord account row at all', () => {
+  it("returns status: 'not-linked' and discordUserId: undefined for a userId with no Discord account row at all", () => {
     const { db } = testDb
     seedUser(db, 'u-status-no-discord')
 
     const service = makeService(db)
     const status = service.getStatus('u-status-no-discord')
 
-    expect(status).toEqual({ discordUserId: undefined, linked: false })
+    expect(status).toEqual({
+      discordUserId: undefined,
+      status: 'not-linked',
+    })
   })
 
-  it('returns linked: false for an orphaned github_credential row (no matching account(github) row)', () => {
+  it("returns status: 'not-linked' for an orphaned github_credential row (no matching account(github) row)", () => {
     const { db } = testDb
     seedUser(db, 'u-status-orphan')
     seedDiscordAccount(db, {
@@ -483,7 +486,50 @@ describe('GithubLinkService.getStatus', () => {
 
     expect(status).toEqual({
       discordUserId: 'discord-status-orphan',
-      linked: false,
+      status: 'not-linked',
+    })
+  })
+
+  // Regression coverage for the "console shows Linked but the bot blocks
+  // every gh call" incident (see github-link.dto.ts's
+  // GithubStatusResponseSchema comment) — a github_credential row that
+  // exists but was encrypted under a DIFFERENT master key than the one
+  // loadMasterKey() resolves at status-check time (e.g. after
+  // TDR_CODE_MASTER_KEY_FILE was rotated/replaced) must report
+  // 'decrypt-failed', never 'linked'.
+  it("returns status: 'decrypt-failed' (never 'linked') for a github_credential row that cannot be decrypted under the current master key", () => {
+    const { db } = testDb
+    seedUser(db, 'u-status-corrupt')
+    seedDiscordAccount(db, {
+      userId: 'u-status-corrupt',
+      discordUserId: 'discord-status-corrupt',
+    })
+    seedGithubAccount(db, 'u-status-corrupt')
+
+    const wrongKey = Buffer.alloc(32, 201)
+    const encrypted = encryptKey(
+      Buffer.from('unreachable-status-token', 'utf8'),
+      'u-status-corrupt:github',
+      wrongKey,
+    )
+    upsertGithubCredential(db, {
+      userId: 'u-status-corrupt',
+      githubUserId: 'gh-status-corrupt',
+      githubLogin: 'corrupt-status-login',
+      derivedName: 'Corrupt Status',
+      derivedEmail: 'corrupt-status@users.noreply.github.com',
+      tokenCiphertext: encrypted.ciphertext,
+      tokenIv: encrypted.iv,
+      tokenAuthTag: encrypted.authTag,
+      scope: 'repo,workflow',
+    })
+
+    const service = makeService(db)
+    const status = service.getStatus('u-status-corrupt')
+
+    expect(status).toEqual({
+      discordUserId: 'discord-status-corrupt',
+      status: 'decrypt-failed',
     })
   })
 })

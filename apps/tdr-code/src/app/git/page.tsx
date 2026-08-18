@@ -128,9 +128,15 @@ function GithubSection({
         <div className="space-y-2">
           <div className="flex items-center gap-3">
             <StatusChip
-              status={statusQuery.data?.linked ? 'linked' : 'not-linked'}
+              status={
+                statusQuery.data?.status === 'linked'
+                  ? 'linked'
+                  : statusQuery.data?.status === 'decrypt-failed'
+                    ? 'decrypt-failed'
+                    : 'not-linked'
+              }
             />
-            {!statusQuery.data?.linked && (
+            {statusQuery.data?.status !== 'linked' && (
               <button
                 type="button"
                 onClick={handleLink}
@@ -144,10 +150,12 @@ function GithubSection({
                     : 'bg-blue-700 text-blue-100 hover:bg-blue-600',
                 )}
               >
-                Link GitHub
+                {statusQuery.data?.status === 'decrypt-failed'
+                  ? 'Relink GitHub'
+                  : 'Link GitHub'}
               </button>
             )}
-            {statusQuery.data?.linked && (
+            {statusQuery.data?.status !== 'not-linked' && (
               <button
                 type="button"
                 onClick={() => unlinkMutation.mutate()}
@@ -160,7 +168,14 @@ function GithubSection({
             )}
           </div>
 
-          {statusQuery.data?.linked && (
+          {statusQuery.data?.status === 'decrypt-failed' && (
+            <p className="text-xs text-red-400">
+              Your linked token can&apos;t be decrypted — <code>gh</code> and
+              pushes are blocked. Click Relink GitHub to fix it.
+            </p>
+          )}
+
+          {statusQuery.data?.status === 'linked' && (
             <p className="text-xs text-gray-400">
               Linked as {statusQuery.data.derivedName} (
               {statusQuery.data.derivedEmail})
@@ -213,7 +228,7 @@ function SshSection({ discordUserId }: { discordUserId: string | undefined }) {
     retry: false,
   })
 
-  const githubLinked = githubStatusQuery.data?.linked ?? false
+  const githubLinked = githubStatusQuery.data?.status === 'linked'
   const githubName = githubStatusQuery.data?.derivedName ?? ''
   const githubEmail = githubStatusQuery.data?.derivedEmail ?? ''
 
@@ -551,7 +566,7 @@ function RosterRow({
       <td className="py-3 pr-4">
         <div className="flex items-center gap-2">
           <StatusChip status={entry.github} />
-          {entry.github === 'linked' &&
+          {entry.github !== 'not-linked' &&
             entry.betterAuthUserId !== undefined &&
             renderClearControl(githubKey, 'Clear', anyPending, () =>
               onClearGithub(entry.betterAuthUserId!),

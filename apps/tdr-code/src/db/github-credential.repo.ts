@@ -199,25 +199,34 @@ export function listOrphanedGithubCredentials(db: Db): GithubCredentialRow[] {
     .map(row => row.githubCredential)
 }
 
-export interface GithubCredentialStatus {
+export interface GithubCredentialRosterRow {
   userId: string
   discordUserId: string | undefined
-  githubLogin: string | undefined
-  linked: boolean
+  // The full credential row (or undefined if none/orphaned), NOT a
+  // precomputed linked/not-linked boolean — deciding "linked" requires
+  // actually attempting to decrypt tokenCiphertext (via resolveGithubToken),
+  // which this DB-only repo layer must not do itself (mirrors
+  // git-identity.repo.ts's own row-only posture; GitRosterService is where
+  // resolveGithubToken() + loadMasterKey() live, exactly as it already does
+  // for the SSH axis via resolveIdentity()). A row-existence-only "linked"
+  // boolean here previously let the console report a user as linked whose
+  // stored token could no longer decrypt (e.g. after a master-key rotation)
+  // — see github-link.dto.ts's GithubStatusResponseSchema comment for the
+  // full incident this replacement closes.
+  credential: GithubCredentialRow | undefined
 }
 
 // Roster source: one row per known Discord-linked user (every account row
-// with providerId 'discord'), each resolved to a linked/not-linked status
-// via getGithubCredential — so a user with no github_credential row at all
-// (or an orphaned one, see this file's header invariant) still appears with
-// linked: false, rather than being silently absent from the roster or
-// falsely reported as linked. Deliberately reuses getGithubCredential's
-// query (rather than a second, hand-rolled LEFT JOIN over
-// account+account+github_credential) so "linked" here can never drift from
-// what getGithubCredential/getGithubCredentialByDiscordUserId themselves
-// report for the same userId — one inner-join implementation, not two that
-// must be kept in sync.
-export function listGithubCredentialStatuses(db: Db): GithubCredentialStatus[] {
+// with providerId 'discord'), each resolved via getGithubCredential — so a
+// user with no github_credential row at all (or an orphaned one, see this
+// file's header invariant) still appears with credential: undefined, rather
+// than being silently absent from the roster or falsely reported as linked.
+// Deliberately reuses getGithubCredential's query (rather than a second,
+// hand-rolled LEFT JOIN over account+account+github_credential) so this can
+// never drift from what getGithubCredential/getGithubCredentialByDiscordUserId
+// themselves report for the same userId — one inner-join implementation,
+// not two that must be kept in sync.
+export function listGithubCredentialRows(db: Db): GithubCredentialRosterRow[] {
   const discordAccounts = db
     .select({ userId: account.userId, discordUserId: account.accountId })
     .from(account)
@@ -232,13 +241,9 @@ export function listGithubCredentialStatuses(db: Db): GithubCredentialStatus[] {
   // discord-directory.service.ts's own "not worth paging past 1000 members"
   // precedent), so one lookup per known Discord user id is not a meaningful
   // cost versus a second, hand-rolled join query (see the header comment).
-  return discordAccounts.map(({ userId, discordUserId }) => {
-    const credential = getGithubCredential(db, userId)
-    return {
-      userId,
-      discordUserId,
-      githubLogin: credential?.githubLogin,
-      linked: credential !== undefined,
-    }
-  })
+  return discordAccounts.map(({ userId, discordUserId }) => ({
+    userId,
+    discordUserId,
+    credential: getGithubCredential(db, userId),
+  }))
 }
