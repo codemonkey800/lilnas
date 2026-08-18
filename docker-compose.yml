@@ -12,6 +12,7 @@ include:
     env_file: ./infra/.env.nexus-code
   - ./infra/palworld.yml
   - ./infra/proxy.yml
+  - ./infra/rustdesk.yml
   - ./infra/shared.yml
 
   # App services
