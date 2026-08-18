@@ -9,6 +9,7 @@ import { Module } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { NestMinioModule } from 'nestjs-minio'
 
+import { DbModule } from 'src/db/db.module'
 import { DownloadModule } from 'src/download/download.module'
 
 // DownloadModule <-> MediaModule is a genuine circular module dependency
@@ -18,9 +19,12 @@ import { DownloadModule } from 'src/download/download.module'
 // real module resolution entirely - this test is the one place that boots
 // the actual module graph (including the forwardRef cycle) to prove NestJS
 // can actually wire it up, not just that the mocked units behave correctly
-// in isolation.
+// in isolation. DbModule is @Global(), but still needs to be imported once
+// somewhere in the graph (mirrors app.module.ts) for DownloadStateService's
+// DbService dependency to resolve.
 @Module({
   imports: [
+    DbModule,
     NestMinioModule.register({
       accessKey: 'test-access-key',
       endPoint: 'test-minio-host',
@@ -40,6 +44,7 @@ describe('DownloadModule <-> MediaModule wiring', () => {
   beforeEach(() => {
     process.env = {
       ...originalEnv,
+      DATABASE_PATH: ':memory:',
       RADARR_API_KEY: 'test-radarr-key',
       RADARR_URL: 'http://localhost:7878',
       SONARR_API_KEY: 'test-sonarr-key',

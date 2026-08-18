@@ -18,6 +18,8 @@ import {
 import { Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { createTestDbService } from 'src/db/__tests__/test-utils'
+import { DbService } from 'src/db/db.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { MediaDownloadService } from 'src/media/media-download.service'
@@ -30,8 +32,10 @@ describe('MediaDownloadService', () => {
   let radarrService: jest.Mocked<RadarrService>
   let sonarrService: jest.Mocked<SonarrService>
   let downloadGateway: jest.Mocked<DownloadGateway>
+  let dbService: DbService
 
   beforeEach(async () => {
+    dbService = createTestDbService()
     const mockRadarrService = {
       search: jest.fn(),
       requestMovie: jest.fn(),
@@ -44,12 +48,13 @@ describe('MediaDownloadService', () => {
       getQueue: jest.fn(),
       unmonitorAndDelete: jest.fn(),
     }
-    const mockDownloadGateway = { broadcast: jest.fn() }
+    const mockDownloadGateway = { broadcastPerViewer: jest.fn() }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MediaDownloadService,
         DownloadStateService,
+        { provide: DbService, useValue: dbService },
         { provide: RadarrService, useValue: mockRadarrService },
         { provide: SonarrService, useValue: mockSonarrService },
         { provide: DownloadGateway, useValue: mockDownloadGateway },
@@ -66,6 +71,10 @@ describe('MediaDownloadService', () => {
     jest.spyOn(Logger.prototype, 'error').mockImplementation()
     jest.spyOn(Logger.prototype, 'warn').mockImplementation()
     jest.spyOn(Logger.prototype, 'debug').mockImplementation()
+  })
+
+  afterEach(() => {
+    dbService.onModuleDestroy()
   })
 
   describe('searchMovies / searchShows', () => {
@@ -107,8 +116,12 @@ describe('MediaDownloadService', () => {
       // Job creation (the initial `Requested` insert) and the subsequent
       // `Searching` status update must each broadcast - this is the real
       // call site that closes the "job creation is invisible" gap.
-      expect(downloadGateway.broadcast).toHaveBeenCalledTimes(2)
-      expect(downloadGateway.broadcast).toHaveBeenNthCalledWith(1, {
+      expect(downloadGateway.broadcastPerViewer).toHaveBeenCalledTimes(2)
+      const [firstBuild] =
+        downloadGateway.broadcastPerViewer.mock.calls[0] ?? []
+      const [secondBuild] =
+        downloadGateway.broadcastPerViewer.mock.calls[1] ?? []
+      expect(firstBuild?.(false)).toEqual({
         data: {
           job: expect.objectContaining({
             id: job.id,
@@ -118,7 +131,7 @@ describe('MediaDownloadService', () => {
         },
         type: DOWNLOAD_JOB_EVENT_TYPE,
       })
-      expect(downloadGateway.broadcast).toHaveBeenNthCalledWith(2, {
+      expect(secondBuild?.(false)).toEqual({
         data: {
           job: expect.objectContaining({
             id: job.id,

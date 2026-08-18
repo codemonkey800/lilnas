@@ -7,6 +7,8 @@ import {
 import { Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { createTestDbService } from 'src/db/__tests__/test-utils'
+import { DbService } from 'src/db/db.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { MediaPollerService } from 'src/media/media-poller.service'
@@ -44,16 +46,19 @@ describe('MediaPollerService', () => {
   let downloadStateService: DownloadStateService
   let radarrService: jest.Mocked<RadarrService>
   let sonarrService: jest.Mocked<SonarrService>
+  let dbService: DbService
 
   beforeEach(async () => {
+    dbService = createTestDbService()
     const mockRadarrService = { getQueue: jest.fn().mockResolvedValue([]) }
     const mockSonarrService = { getQueue: jest.fn().mockResolvedValue([]) }
-    const mockDownloadGateway = { broadcast: jest.fn() }
+    const mockDownloadGateway = { broadcastPerViewer: jest.fn() }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MediaPollerService,
         DownloadStateService,
+        { provide: DbService, useValue: dbService },
         { provide: RadarrService, useValue: mockRadarrService },
         { provide: SonarrService, useValue: mockSonarrService },
         { provide: DownloadGateway, useValue: mockDownloadGateway },
@@ -69,6 +74,10 @@ describe('MediaPollerService', () => {
     jest.spyOn(Logger.prototype, 'error').mockImplementation()
     jest.spyOn(Logger.prototype, 'warn').mockImplementation()
     jest.spyOn(Logger.prototype, 'debug').mockImplementation()
+  })
+
+  afterEach(() => {
+    dbService.onModuleDestroy()
   })
 
   describe('tick gating', () => {

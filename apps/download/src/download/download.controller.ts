@@ -30,8 +30,12 @@ import {
 } from '@nestjs/common'
 import { createZodDto } from 'nestjs-zod'
 
+import { AdminCheckService } from 'src/auth/admin-check.service'
+import type { ForwardedUser } from 'src/auth/forwarded-user'
+import { OptionalCurrentUser } from 'src/auth/optional-current-user.decorator'
 import { MediaDownloadService } from 'src/media/media-download.service'
 
+import { projectJobForViewer } from './attribution'
 import { DownloadService } from './download.service'
 import { DownloadStateService } from './download-state.service'
 
@@ -45,33 +49,52 @@ export class DownloadController {
   private logger = new Logger(DownloadController.name)
 
   constructor(
+    private adminCheckService: AdminCheckService,
     private downloadService: DownloadService,
     private downloadStateService: DownloadStateService,
     private mediaDownloadService: MediaDownloadService,
   ) {}
 
-  private getJobResponse(job: DownloadJob): GetDownloadJobResponse {
+  // No forwarded identity (e.g. apps/tdr-bot's DownloadClient.dockerInstance
+  // calls) resolves to isAdmin: false without a network round trip -
+  // AdminCheckService.checkIsAdmin() only ever needs to run for a real
+  // email.
+  private async resolveIsAdmin(user: ForwardedUser | undefined) {
+    return user ? this.adminCheckService.checkIsAdmin(user.email) : false
+  }
+
+  private getJobResponse(
+    job: DownloadJob,
+    isAdmin: boolean,
+  ): GetDownloadJobResponse {
     if (job.type !== DownloadType.Video) {
       throw new Error(
         `Expected a video job but got a '${job.type}' job (id: '${job.id}')`,
       )
     }
 
+    const projected = projectJobForViewer(job, isAdmin)
+
     return {
-      description: job.description,
-      downloadUrls: job.downloadUrls,
-      error: job.error,
-      id: job.id,
-      status: job.status,
-      timeRange: job.timeRange,
-      title: job.title,
-      type: job.type,
-      url: job.url,
+      description: projected.description,
+      downloadUrls: projected.downloadUrls,
+      error: projected.error,
+      hiddenAttribution: projected.hiddenAttribution,
+      id: projected.id,
+      requester: projected.requester,
+      status: projected.status,
+      timeRange: projected.timeRange,
+      title: projected.title,
+      type: projected.type,
+      url: projected.url,
     }
   }
 
   @Get('/videos/:id')
-  getVideoJob(@Param('id') id: string): GetDownloadJobResponse {
+  async getVideoJob(
+    @Param('id') id: string,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<GetDownloadJobResponse> {
     const action = 'getVideoJob'
     const startTime = Date.now()
 
@@ -104,9 +127,10 @@ export class DownloadController {
       )
     }
 
+    const isAdmin = await this.resolveIsAdmin(user)
     const sanitizedUrl = job.url.split('?')[0]
     const duration = Date.now() - startTime
-    const response = this.getJobResponse(job)
+    const response = this.getJobResponse(job, isAdmin)
 
     this.logger.log(
       {
@@ -129,6 +153,7 @@ export class DownloadController {
   @Post('/videos')
   async createVideoJob(
     @Body() input: CreateJobInputDto,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
   ): Promise<GetDownloadJobResponse> {
     const action = 'createVideoJob'
     const startTime = Date.now()
@@ -140,6 +165,7 @@ export class DownloadController {
         url: sanitizedUrl,
         hasTimeRange: !!input.timeRange,
         timeRange: input.timeRange,
+        hasRequester: !!user,
         currentJobs: this.downloadStateService.jobs.size,
         queueSize: this.downloadStateService.queue.size(),
       },
@@ -147,9 +173,12 @@ export class DownloadController {
     )
 
     try {
-      const job = await this.downloadService.createVideoDownloadJob(input)
+      const [job, isAdmin] = await Promise.all([
+        this.downloadService.createVideoDownloadJob(input, user),
+        this.resolveIsAdmin(user),
+      ])
       const duration = Date.now() - startTime
-      const response = this.getJobResponse(job)
+      const response = this.getJobResponse(job, isAdmin)
 
       this.logger.log(
         {
@@ -186,7 +215,10 @@ export class DownloadController {
   }
 
   @Patch('/videos/:id/cancel')
-  cancelVideoJob(@Param('id') id: string): GetDownloadJobResponse {
+  async cancelVideoJob(
+    @Param('id') id: string,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<GetDownloadJobResponse> {
     const action = 'cancelVideoJob'
     const startTime = Date.now()
 
@@ -201,10 +233,13 @@ export class DownloadController {
     )
 
     try {
-      const job = this.downloadService.cancelVideoDownloadJob(id)
+      const [job, isAdmin] = await Promise.all([
+        Promise.resolve(this.downloadService.cancelVideoDownloadJob(id)),
+        this.resolveIsAdmin(user),
+      ])
       const duration = Date.now() - startTime
       const sanitizedUrl = job.url.split('?')[0]
-      const response = this.getJobResponse(job)
+      const response = this.getJobResponse(job, isAdmin)
 
       this.logger.log(
         {
@@ -249,33 +284,45 @@ export class DownloadController {
     }
   }
 
-  private getMovieJobResponse(job: MovieDownloadJob): GetMovieJobResponse {
+  private getMovieJobResponse(
+    job: MovieDownloadJob,
+    isAdmin: boolean,
+  ): GetMovieJobResponse {
+    const projected = projectJobForViewer(job, isAdmin)
+
     return {
-      description: job.description,
-      error: job.error,
-      id: job.id,
-      mediaTitle: job.mediaTitle,
-      posterUrl: job.posterUrl,
-      queueSnapshot: job.queueSnapshot,
-      radarrId: job.radarrId,
-      status: job.status,
-      title: job.title,
-      type: job.type,
+      description: projected.description,
+      error: projected.error,
+      id: projected.id,
+      mediaTitle: projected.mediaTitle,
+      posterUrl: projected.posterUrl,
+      queueSnapshot: projected.queueSnapshot,
+      radarrId: projected.radarrId,
+      requester: projected.requester,
+      status: projected.status,
+      title: projected.title,
+      type: projected.type,
     }
   }
 
-  private getShowJobResponse(job: ShowDownloadJob): GetShowJobResponse {
+  private getShowJobResponse(
+    job: ShowDownloadJob,
+    isAdmin: boolean,
+  ): GetShowJobResponse {
+    const projected = projectJobForViewer(job, isAdmin)
+
     return {
-      description: job.description,
-      error: job.error,
-      id: job.id,
-      mediaTitle: job.mediaTitle,
-      posterUrl: job.posterUrl,
-      queueSnapshot: job.queueSnapshot,
-      sonarrId: job.sonarrId,
-      status: job.status,
-      title: job.title,
-      type: job.type,
+      description: projected.description,
+      error: projected.error,
+      id: projected.id,
+      mediaTitle: projected.mediaTitle,
+      posterUrl: projected.posterUrl,
+      queueSnapshot: projected.queueSnapshot,
+      requester: projected.requester,
+      sonarrId: projected.sonarrId,
+      status: projected.status,
+      title: projected.title,
+      type: projected.type,
     }
   }
 
@@ -303,33 +350,43 @@ export class DownloadController {
   @Post('/movies')
   async requestMovie(
     @Body() input: RequestMovieInputDto,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
   ): Promise<GetMovieJobResponse> {
     const action = 'requestMovie'
 
     this.logger.log(
-      { action, tmdbId: input.tmdbId },
+      { action, tmdbId: input.tmdbId, hasRequester: !!user },
       'POST /movies - Requesting movie download',
     )
 
-    const job = await this.mediaDownloadService.requestMovie(input.tmdbId)
+    const [job, isAdmin] = await Promise.all([
+      this.mediaDownloadService.requestMovie(input.tmdbId, user),
+      this.resolveIsAdmin(user),
+    ])
 
     this.logger.log(
       { action, jobId: job.id, tmdbId: input.tmdbId, status: job.status },
       'Movie download requested',
     )
 
-    return this.getMovieJobResponse(job)
+    return this.getMovieJobResponse(job, isAdmin)
   }
 
   @Get('/movies/:id')
-  getMovieJob(@Param('id') id: string): GetMovieJobResponse {
+  async getMovieJob(
+    @Param('id') id: string,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<GetMovieJobResponse> {
     const action = 'getMovieJob'
 
     this.logger.log({ action, jobId: id }, 'GET /movies/:id - Retrieving job')
 
     try {
-      const job = this.mediaDownloadService.getMovieJob(id)
-      return this.getMovieJobResponse(job)
+      const [job, isAdmin] = await Promise.all([
+        Promise.resolve(this.mediaDownloadService.getMovieJob(id)),
+        this.resolveIsAdmin(user),
+      ])
+      return this.getMovieJobResponse(job, isAdmin)
     } catch (err) {
       this.logger.warn(
         { action, jobId: id, error: err instanceof Error ? err.message : err },
@@ -345,7 +402,10 @@ export class DownloadController {
   }
 
   @Delete('/movies/:id')
-  async deleteMovieJob(@Param('id') id: string): Promise<GetMovieJobResponse> {
+  async deleteMovieJob(
+    @Param('id') id: string,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<GetMovieJobResponse> {
     const action = 'deleteMovieJob'
 
     this.logger.log(
@@ -354,8 +414,11 @@ export class DownloadController {
     )
 
     try {
-      const job = await this.mediaDownloadService.deleteMovieJob(id)
-      return this.getMovieJobResponse(job)
+      const [job, isAdmin] = await Promise.all([
+        this.mediaDownloadService.deleteMovieJob(id),
+        this.resolveIsAdmin(user),
+      ])
+      return this.getMovieJobResponse(job, isAdmin)
     } catch (err) {
       this.logger.warn(
         { action, jobId: id, error: err instanceof Error ? err.message : err },
@@ -394,33 +457,43 @@ export class DownloadController {
   @Post('/shows')
   async requestShow(
     @Body() input: RequestShowInputDto,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
   ): Promise<GetShowJobResponse> {
     const action = 'requestShow'
 
     this.logger.log(
-      { action, tvdbId: input.tvdbId },
+      { action, tvdbId: input.tvdbId, hasRequester: !!user },
       'POST /shows - Requesting show download',
     )
 
-    const job = await this.mediaDownloadService.requestShow(input.tvdbId)
+    const [job, isAdmin] = await Promise.all([
+      this.mediaDownloadService.requestShow(input.tvdbId, user),
+      this.resolveIsAdmin(user),
+    ])
 
     this.logger.log(
       { action, jobId: job.id, tvdbId: input.tvdbId, status: job.status },
       'Show download requested',
     )
 
-    return this.getShowJobResponse(job)
+    return this.getShowJobResponse(job, isAdmin)
   }
 
   @Get('/shows/:id')
-  getShowJob(@Param('id') id: string): GetShowJobResponse {
+  async getShowJob(
+    @Param('id') id: string,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<GetShowJobResponse> {
     const action = 'getShowJob'
 
     this.logger.log({ action, jobId: id }, 'GET /shows/:id - Retrieving job')
 
     try {
-      const job = this.mediaDownloadService.getShowJob(id)
-      return this.getShowJobResponse(job)
+      const [job, isAdmin] = await Promise.all([
+        Promise.resolve(this.mediaDownloadService.getShowJob(id)),
+        this.resolveIsAdmin(user),
+      ])
+      return this.getShowJobResponse(job, isAdmin)
     } catch (err) {
       this.logger.warn(
         { action, jobId: id, error: err instanceof Error ? err.message : err },
@@ -436,7 +509,10 @@ export class DownloadController {
   }
 
   @Delete('/shows/:id')
-  async deleteShowJob(@Param('id') id: string): Promise<GetShowJobResponse> {
+  async deleteShowJob(
+    @Param('id') id: string,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<GetShowJobResponse> {
     const action = 'deleteShowJob'
 
     this.logger.log(
@@ -445,8 +521,11 @@ export class DownloadController {
     )
 
     try {
-      const job = await this.mediaDownloadService.deleteShowJob(id)
-      return this.getShowJobResponse(job)
+      const [job, isAdmin] = await Promise.all([
+        this.mediaDownloadService.deleteShowJob(id),
+        this.resolveIsAdmin(user),
+      ])
+      return this.getShowJobResponse(job, isAdmin)
     } catch (err) {
       this.logger.warn(
         { action, jobId: id, error: err instanceof Error ? err.message : err },

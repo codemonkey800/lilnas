@@ -32,6 +32,7 @@ import { generateTitleSlug } from 'src/media/title-slug.util'
 type SeriesSearchCommand = CommandResourceWritable & { seriesId?: number }
 
 export interface RequestShowResult {
+  overview?: string
   posterUrl?: string
   sonarrId: number
   title: string
@@ -147,6 +148,7 @@ export class SonarrService {
     )?.remoteUrl
 
     return {
+      overview: series.overview ?? undefined,
       posterUrl: posterUrl ?? undefined,
       sonarrId: series.id,
       title: series.title ?? `Show ${tvdbId}`,
