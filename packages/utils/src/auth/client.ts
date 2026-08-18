@@ -22,6 +22,7 @@ export class AuthClient {
 
   private request(url: string, options: RequestInit = {}): Promise<Response> {
     return fetch(`${this.baseUrl}${url}`, {
+      signal: AbortSignal.timeout(2_000),
       ...options,
 
       headers: {
@@ -35,6 +36,22 @@ export class AuthClient {
     const response = await this.request(
       `/admin/check?email=${encodeURIComponent(email)}`,
     )
-    return response.json()
+
+    if (!response.ok) {
+      throw new Error(
+        `GET /admin/check failed with ${response.status} ${response.statusText}`,
+      )
+    }
+
+    const body: unknown = await response.json()
+    if (
+      typeof body !== 'object' ||
+      body === null ||
+      typeof (body as { isAdmin?: unknown }).isAdmin !== 'boolean'
+    ) {
+      throw new Error('GET /admin/check returned an unexpected body shape')
+    }
+
+    return body as AdminCheckResponse
   }
 }
