@@ -35,6 +35,18 @@ export type CreateDownloadJobInput = z.infer<
 >
 
 /**
+ * The identity of whoever asked for a job, threaded down from the
+ * `X-Forwarded-User`/`X-Forwarded-User-Id` headers set by Traefik's
+ * `lilnas-auth` middleware (see `apps/download/src/auth/forwarded-user.ts`).
+ * `null`/absent means a service caller with no forwarded identity (e.g.
+ * `apps/tdr-bot`'s `DownloadClient.dockerInstance` calls).
+ */
+export interface JobRequester {
+  email: string
+  userId: string
+}
+
+/**
  * A snapshot of a movie/show job's last-known Radarr/Sonarr queue entry.
  * The queue poller (built in a later unit) keeps one of these per tracked
  * job and diffs it against the latest queue response each tick, only
@@ -51,12 +63,14 @@ export interface DownloadQueueSnapshot {
 // from `DownloadType` to the `DownloadType.Video` literal. Zero shape change
 // for existing callers.
 export interface VideoDownloadJob extends CreateDownloadJobInput {
+  completedAt?: Date
   description?: string
   downloadUrls?: string[]
   error?: string
   file?: string
   id: string
   proc?: ChildProcessWithoutNullStreams
+  requester?: JobRequester | null
   status: DownloadJobStatus
   timeRange?: {
     start: string
@@ -68,13 +82,17 @@ export interface VideoDownloadJob extends CreateDownloadJobInput {
 }
 
 export interface MovieDownloadJob {
+  completedAt?: Date
   description?: string
   error?: string
+  filePath?: string
   id: string
   mediaTitle?: string
+  overview?: string
   posterUrl?: string
   queueSnapshot?: DownloadQueueSnapshot
   radarrId?: number
+  requester?: JobRequester | null
   status: DownloadJobStatus
   title?: string
   type: DownloadType.Movie
@@ -82,12 +100,16 @@ export interface MovieDownloadJob {
 }
 
 export interface ShowDownloadJob {
+  completedAt?: Date
   description?: string
   error?: string
+  filePath?: string
   id: string
   mediaTitle?: string
+  overview?: string
   posterUrl?: string
   queueSnapshot?: DownloadQueueSnapshot
+  requester?: JobRequester | null
   sonarrId?: number
   status: DownloadJobStatus
   title?: string
@@ -147,7 +169,9 @@ export type GetDownloadJobResponse = Pick<
   | 'description'
   | 'downloadUrls'
   | 'error'
+  | 'hiddenAttribution'
   | 'id'
+  | 'requester'
   | 'status'
   | 'timeRange'
   | 'title'
@@ -202,6 +226,7 @@ export type GetMovieJobResponse = Pick<
   | 'posterUrl'
   | 'queueSnapshot'
   | 'radarrId'
+  | 'requester'
   | 'status'
   | 'title'
   | 'type'
@@ -215,6 +240,7 @@ export type GetShowJobResponse = Pick<
   | 'mediaTitle'
   | 'posterUrl'
   | 'queueSnapshot'
+  | 'requester'
   | 'sonarrId'
   | 'status'
   | 'title'

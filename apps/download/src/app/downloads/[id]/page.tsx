@@ -1,6 +1,5 @@
-import { DownloadClient } from '@lilnas/utils/download/client'
-
 import { DownloadById } from 'src/components/DownloadById'
+import { getIdentifiedDownloadClient } from 'src/lib/download-client'
 
 export default async function DownloadByIdPage({
   params,
@@ -9,7 +8,8 @@ export default async function DownloadByIdPage({
 }) {
   const { id } = await params
 
-  const initialJob = await DownloadClient.localInstance.getVideoJob(id)
+  const client = await getIdentifiedDownloadClient()
+  const initialJob = await client.getVideoJob(id)
 
   return <DownloadById initialJob={initialJob} />
 }

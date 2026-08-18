@@ -1,6 +1,6 @@
-import { type ExecutionContext, UnauthorizedException } from '@nestjs/common'
+import { type ExecutionContext } from '@nestjs/common'
 
-import { extractCurrentUser } from 'src/auth/current-user.decorator'
+import { extractOptionalCurrentUser } from 'src/auth/optional-current-user.decorator'
 
 function buildContext(headers: Record<string, string | undefined>) {
   return {
@@ -8,10 +8,10 @@ function buildContext(headers: Record<string, string | undefined>) {
   } as unknown as ExecutionContext
 }
 
-describe('extractCurrentUser', () => {
+describe('extractOptionalCurrentUser', () => {
   it('returns { email, userId } when both headers are present', () => {
     expect(
-      extractCurrentUser(
+      extractOptionalCurrentUser(
         buildContext({
           'x-forwarded-user': 'alice@example.com',
           'x-forwarded-user-id': 'user_1',
@@ -20,24 +20,16 @@ describe('extractCurrentUser', () => {
     ).toEqual({ email: 'alice@example.com', userId: 'user_1' })
   })
 
-  it('throws UnauthorizedException when x-forwarded-user is missing', () => {
-    expect(() =>
-      extractCurrentUser(buildContext({ 'x-forwarded-user-id': 'user_1' })),
-    ).toThrow(UnauthorizedException)
+  it('returns undefined (not a throw) for a service caller with no headers at all', () => {
+    expect(extractOptionalCurrentUser(buildContext({}))).toBeUndefined()
   })
 
-  it('throws UnauthorizedException when x-forwarded-user-id is missing', () => {
-    expect(() =>
-      extractCurrentUser(
+  it('returns undefined when only one of the two headers is present', () => {
+    expect(
+      extractOptionalCurrentUser(
         buildContext({ 'x-forwarded-user': 'alice@example.com' }),
       ),
-    ).toThrow(UnauthorizedException)
-  })
-
-  it('throws UnauthorizedException when both headers are missing', () => {
-    expect(() => extractCurrentUser(buildContext({}))).toThrow(
-      UnauthorizedException,
-    )
+    ).toBeUndefined()
   })
 
   describe('dev fallback', () => {
@@ -61,17 +53,27 @@ describe('extractCurrentUser', () => {
       process.env = { ...originalEnv }
     })
 
-    it('falls back to DEV_USER_EMAIL/DEV_USER_ID when headers are absent, matching @OptionalCurrentUser()', () => {
+    it('falls back to DEV_USER_EMAIL/DEV_USER_ID when headers are absent and NODE_ENV is not production', () => {
       setEnv({
         NODE_ENV: 'development',
         DEV_USER_EMAIL: 'dev@example.com',
         DEV_USER_ID: 'dev-1',
       })
 
-      expect(extractCurrentUser(buildContext({}))).toEqual({
+      expect(extractOptionalCurrentUser(buildContext({}))).toEqual({
         email: 'dev@example.com',
         userId: 'dev-1',
       })
+    })
+
+    it('stays undefined (not a throw) when NODE_ENV is production, even with dev vars set', () => {
+      setEnv({
+        NODE_ENV: 'production',
+        DEV_USER_EMAIL: 'dev@example.com',
+        DEV_USER_ID: 'dev-1',
+      })
+
+      expect(extractOptionalCurrentUser(buildContext({}))).toBeUndefined()
     })
   })
 })
