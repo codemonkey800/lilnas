@@ -1,7 +1,10 @@
 import { AuthClient } from 'src/auth/client'
 
-function mockFetchJson(body: unknown): jest.SpyInstance {
+function mockFetchJson(body: unknown, ok = true): jest.SpyInstance {
   return jest.spyOn(global, 'fetch').mockResolvedValue({
+    ok,
+    status: ok ? 200 : 500,
+    statusText: ok ? 'OK' : 'Internal Server Error',
     json: () => Promise.resolve(body),
   } as unknown as Response)
 }
@@ -17,7 +20,7 @@ describe('AuthClient', () => {
 
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/admin/check?email=alice%40example.com',
-        { headers: JSON_HEADERS },
+        { headers: JSON_HEADERS, signal: expect.any(AbortSignal) },
       )
     })
 
@@ -28,7 +31,7 @@ describe('AuthClient', () => {
 
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://auth:8081/admin/check?email=alice%40example.com',
-        { headers: JSON_HEADERS },
+        { headers: JSON_HEADERS, signal: expect.any(AbortSignal) },
       )
     })
   })
@@ -40,6 +43,22 @@ describe('AuthClient', () => {
       const result = await AuthClient.localInstance.checkIsAdmin('a b@x.com')
 
       expect(result).toEqual({ isAdmin: true })
+    })
+
+    it('throws when the response is not ok', async () => {
+      mockFetchJson({ statusCode: 500, message: 'boom' }, false)
+
+      await expect(
+        AuthClient.localInstance.checkIsAdmin('alice@example.com'),
+      ).rejects.toThrow('GET /admin/check failed with 500')
+    })
+
+    it('throws when the response body has an unexpected shape', async () => {
+      mockFetchJson({ notIsAdmin: true })
+
+      await expect(
+        AuthClient.localInstance.checkIsAdmin('alice@example.com'),
+      ).rejects.toThrow('GET /admin/check returned an unexpected body shape')
     })
   })
 })

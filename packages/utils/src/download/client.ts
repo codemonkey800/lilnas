@@ -10,7 +10,10 @@ import {
 } from './types'
 
 export class DownloadClient {
-  constructor(private baseUrl = 'http://localhost:8081') {}
+  constructor(
+    private baseUrl = 'http://localhost:8081',
+    private forwardedHeaders: Record<string, string> = {},
+  ) {}
 
   static get localInstance() {
     return new DownloadClient()
@@ -24,12 +27,26 @@ export class DownloadClient {
     return new DownloadClient('https://download.lilnas.io')
   }
 
+  // Returns a new client that threads the given identity onto every
+  // request as X-Forwarded-User/X-Forwarded-User-Id — for server-side
+  // callers (Next.js server actions/route handlers) that received these
+  // headers on their own inbound request and need to forward them onto
+  // this same-container backend, which has no Traefik ForwardAuth hop of
+  // its own to set them.
+  withForwardedIdentity(user: { email: string; userId: string }) {
+    return new DownloadClient(this.baseUrl, {
+      'x-forwarded-user': user.email,
+      'x-forwarded-user-id': user.userId,
+    })
+  }
+
   private request(url: string, options: RequestInit = {}): Promise<Response> {
     return fetch(`${this.baseUrl}${url}`, {
       ...options,
 
       headers: {
         'Content-Type': 'application/json',
+        ...this.forwardedHeaders,
         ...options.headers,
       },
     })
