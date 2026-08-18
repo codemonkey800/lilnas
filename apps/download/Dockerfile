@@ -44,6 +44,18 @@ RUN if [ -d /app/.next/static ]; then \
 # Verify the standalone server was copied correctly
 RUN test -f /app/server.js || (echo "ERROR: Standalone server not found" && exit 1)
 
+# Copy migrations into the runtime image so DbService can apply them on
+# boot. resolveMigrationsFolder() resolves the path via process.cwd() +
+# src/db/migrations (WORKDIR is /app), so the folder must live at
+# /app/src/db/migrations. Mirrors apps/auth/Dockerfile's identical
+# requirement.
+RUN mkdir -p /app/src/db && \
+    cp -r /source/apps/download/src/db/migrations /app/src/db/migrations
+
+# Verify the Nest backend build output landed where start:backend expects
+# it (node dist/main) — fail the build loudly here rather than at boot.
+RUN test -f /app/dist/main.js || (echo "ERROR: dist/main.js not found" && exit 1)
+
 # Production stage
 FROM lilnas-nextjs-runtime AS production
 
@@ -58,9 +70,11 @@ RUN curl \
     chmod a+rx /usr/bin/yt-dlp
 
 # Copy built application from builder stage
-COPY --from=builder /app /app
+COPY --from=builder --chown=node:node /app /app
 
 WORKDIR /app
+
+USER node
 
 # Add OCI image source label
 LABEL org.opencontainers.image.source=https://github.com/codemonkey800/lilnas

@@ -326,6 +326,9 @@ importers:
       axios:
         specifier: 1.12.2
         version: 1.12.2(debug@4.4.3)
+      better-sqlite3:
+        specifier: ^12.10.0
+        version: 12.10.0
       cheerio:
         specifier: 1.1.2
         version: 1.1.2
@@ -344,6 +347,9 @@ importers:
       dotenv:
         specifier: 17.2.3
         version: 17.2.3
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.10.0)(kysely@0.29.2)(pg@8.18.0)
       fs-extra:
         specifier: 11.3.2
         version: 11.3.2
@@ -423,12 +429,18 @@ importers:
       '@lilnas/cli':
         specifier: workspace:*
         version: file:packages/cli
+      '@types/better-sqlite3':
+        specifier: ^7.6.13
+        version: 7.6.13
       '@types/jest':
         specifier: 29.5.14
         version: 29.5.14
       '@types/ws':
         specifier: 8.18.1
         version: 8.18.1
+      drizzle-kit:
+        specifier: ^0.31.9
+        version: 0.31.9
       jest:
         specifier: 29.7.0
         version: 29.7.0(@types/node@24.7.2)(babel-plugin-macros@3.1.0)
