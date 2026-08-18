@@ -4,6 +4,7 @@ import { LoggerModule } from 'nestjs-pino'
 
 import { AdminController } from './admin/admin.controller'
 import { AdminGuard } from './admin/admin.guard'
+import { AdminCheckController } from './admin/admin-check.controller'
 import { UsersService } from './admin/users.service'
 import { AuthModule } from './auth/auth.module'
 import { DatabaseModule } from './db/database.module'
@@ -76,6 +77,7 @@ const isProduction = env(EnvKeys.NODE_ENV, 'development') === 'production'
     VerifyController,
     RequestsController,
     AdminController,
+    AdminCheckController,
     MeController,
   ],
   providers: [
