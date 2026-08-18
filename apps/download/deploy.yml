@@ -6,6 +6,13 @@ services:
     restart: unless-stopped
     env_file:
       - .env.prod
+    environment:
+      - DATABASE_PATH=/data/download.db
+    # Host directory must be owned by UID 1000 (the `node` user inside the
+    # container): sudo chown 1000:1000 /storage/app-data/download
+    # Without this, better-sqlite3 throws SQLITE_CANTOPEN on first boot.
+    volumes:
+      - /storage/app-data/download:/data
     labels:
       - traefik.enable=true
       - traefik.http.routers.download.rule=Host(`download.lilnas.io`)
