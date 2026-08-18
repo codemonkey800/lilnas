@@ -53,6 +53,63 @@ describe('DownloadClient', () => {
     })
   })
 
+  describe('withForwardedIdentity', () => {
+    it('merges x-forwarded-user/x-forwarded-user-id into every request', async () => {
+      const fetchSpy = mockFetchJson({})
+      const client = DownloadClient.localInstance.withForwardedIdentity({
+        email: 'alice@example.com',
+        userId: 'user_1',
+      })
+
+      await client.getVideoJob('1')
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/videos/1',
+        {
+          headers: {
+            ...JSON_HEADERS,
+            'x-forwarded-user': 'alice@example.com',
+            'x-forwarded-user-id': 'user_1',
+          },
+        },
+      )
+    })
+
+    it('threads the forwarded identity onto a POST request alongside its body', async () => {
+      const fetchSpy = mockFetchJson({})
+      const client = DownloadClient.localInstance.withForwardedIdentity({
+        email: 'alice@example.com',
+        userId: 'user_1',
+      })
+
+      await client.createVideoJob({ url: 'https://example.com/video' })
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/videos',
+        {
+          body: JSON.stringify({ url: 'https://example.com/video' }),
+          method: 'POST',
+          headers: {
+            ...JSON_HEADERS,
+            'x-forwarded-user': 'alice@example.com',
+            'x-forwarded-user-id': 'user_1',
+          },
+        },
+      )
+    })
+
+    it('leaves the default instance unaffected (empty forwardedHeaders)', async () => {
+      const fetchSpy = mockFetchJson({})
+
+      await DownloadClient.localInstance.getVideoJob('1')
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/videos/1',
+        { headers: JSON_HEADERS },
+      )
+    })
+  })
+
   describe('video jobs', () => {
     const client = DownloadClient.localInstance
 
