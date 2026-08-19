@@ -21,6 +21,8 @@ import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
 import { DownloadStateService } from 'src/download/download-state.service'
+import { JobQueryService } from 'src/download/job-query.service'
+import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 
 // This exercises DownloadController's new movie/show endpoints only. It
@@ -50,8 +52,10 @@ describe('DownloadController - media endpoints', () => {
       controllers: [DownloadController],
       providers: [
         { provide: AdminCheckService, useValue: mockAdminCheckService },
+        { provide: DiscoveryService, useValue: {} },
         { provide: DownloadService, useValue: {} },
         { provide: DownloadStateService, useValue: { jobs: new Map() } },
+        { provide: JobQueryService, useValue: {} },
         { provide: MediaDownloadService, useValue: mockMediaDownloadService },
       ],
     }).compile()

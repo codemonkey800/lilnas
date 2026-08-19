@@ -10,6 +10,7 @@ import { DownloadMetricsService } from './download-metrics.service'
 import { DownloadSchedulerService } from './download-scheduler.service'
 import { DownloadStateService } from './download-state.service'
 import { DownloadVideoService } from './download-video.service'
+import { JobQueryService } from './job-query.service'
 
 // MediaModule needs DownloadStateService (for MediaPollerService and
 // MediaDownloadService) and this module needs MediaModule's
@@ -28,8 +29,9 @@ import { DownloadVideoService } from './download-video.service'
     DownloadService,
     DownloadStateService,
     DownloadVideoService,
+    JobQueryService,
   ],
   controllers: [DownloadController],
-  exports: [DownloadMetricsService, DownloadStateService],
+  exports: [DownloadMetricsService, DownloadStateService, JobQueryService],
 })
 export class DownloadModule {}

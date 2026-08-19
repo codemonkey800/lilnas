@@ -159,7 +159,10 @@ export class MediaDownloadService {
   }
 
   getMovieJob(id: string): MovieDownloadJob {
-    const job = this.downloadStateService.jobs.get(id)
+    // Falls back to the durable `jobs` row when the in-memory Map has no
+    // entry (e.g. after a restart) - see DownloadStateService.resolveJob()'s
+    // own comment.
+    const job = this.downloadStateService.resolveJob(id)
 
     if (!job) {
       throw new Error(`Job with ID '${id}' not found`)
@@ -169,7 +172,7 @@ export class MediaDownloadService {
   }
 
   getShowJob(id: string): ShowDownloadJob {
-    const job = this.downloadStateService.jobs.get(id)
+    const job = this.downloadStateService.resolveJob(id)
 
     if (!job) {
       throw new Error(`Job with ID '${id}' not found`)

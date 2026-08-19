@@ -406,4 +406,43 @@ describe('DownloadStateService', () => {
       expect(adminFrame).toContain(requesterEmail)
     })
   })
+
+  describe('resolveJob', () => {
+    it('returns the live job from the Map without querying the DB', () => {
+      const job = buildMovieJob()
+      service.addJob(job)
+      const selectSpy = jest.spyOn(dbService.db, 'select')
+
+      const resolved = service.resolveJob(job.id)
+
+      expect(resolved).toEqual(job)
+      // The Map hit must win outright - a live job carries fields (a video
+      // job's `proc` handle, in-flight progress) the row can never
+      // reconstruct, so a hit there must never be second-guessed by a DB
+      // read.
+      expect(selectSpy).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the durable row when the Map has no entry (simulating a post-restart lookup)', () => {
+      const job = buildMovieJob({ mediaTitle: 'A Movie', radarrId: 7 })
+      // Persist without touching the Map, mirroring what a restart leaves
+      // behind: a row survives, but the Map starts out empty.
+      service.addJob(job)
+      service.jobs.delete(job.id)
+      expect(service.jobs.has(job.id)).toBe(false)
+
+      const resolved = service.resolveJob(job.id)
+
+      expect(resolved).toMatchObject({
+        id: job.id,
+        mediaTitle: 'A Movie',
+        radarrId: 7,
+        type: DownloadType.Movie,
+      })
+    })
+
+    it('returns undefined when the job exists in neither the Map nor the DB', () => {
+      expect(service.resolveJob('missing')).toBeUndefined()
+    })
+  })
 })
