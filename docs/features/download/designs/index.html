@@ -1,0 +1,720 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>download — UI mockups · lilnas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!--
+      Type: Figtree + IBM Plex Mono only. Bricolage Grotesque (the display
+      face) is deliberately NOT loaded — foundations.md's type table lists
+      "download" as one of the two apps that skip it. (This reads slightly
+      against adoption.md's aside about giving the existing hero
+      `font-display` — that note predates the table and looks stale.
+      Following the table, since it's the more current, canonical rule.)
+    -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ═══════════════════════════════════════════════════════════════════
+         ULTRAVIOLET — token layer (verbatim from docs/designs/preview/index.html)
+         ═══════════════════════════════════════════════════════════════════ */
+      :root {
+        --bg: oklch(14% 0.021 300);
+        --bg-sunk: oklch(11% 0.018 300);
+        --surface: oklch(18.5% 0.027 300);
+        --surface-2: oklch(23% 0.032 300);
+        --surface-3: oklch(28% 0.038 300);
+
+        --line: oklch(29% 0.038 300);
+        --line-soft: oklch(23.5% 0.031 300);
+        --line-loud: oklch(41% 0.055 300);
+
+        --ink: oklch(97% 0.008 300);
+        --ink-2: oklch(79% 0.02 300);
+        --ink-3: oklch(63% 0.026 300);
+        --ink-4: oklch(50% 0.028 300);
+
+        --uv: oklch(68% 0.21 300);
+        --uv-hi: oklch(75% 0.195 300);
+        --uv-press: oklch(62% 0.225 300);
+        --uv-dim: oklch(42% 0.14 300);
+        --uv-ghost: oklch(68% 0.21 300 / 0.13);
+        --uv-ink: oklch(15% 0.045 300);
+
+        --ok: oklch(76% 0.17 155);
+        --ok-ghost: oklch(76% 0.17 155 / 0.14);
+        --warn: oklch(82% 0.15 85);
+        --warn-ghost: oklch(82% 0.15 85 / 0.14);
+        --bad: oklch(66% 0.2 22);
+        --bad-ghost: oklch(66% 0.2 22 / 0.14);
+
+        --r-xs: 6px;
+        --r-md: 10px;
+        --r-lg: 14px;
+        --r-xl: 20px;
+
+        --lift: 0 16px 40px -12px oklch(6% 0.02 300 / 0.7);
+
+        --ease: cubic-bezier(0.32, 0.72, 0, 1);
+        --spring: linear(
+          0,
+          0.006,
+          0.025 2.8%,
+          0.101 6.1%,
+          0.539 18.9%,
+          0.721 25.3%,
+          0.849 31.5%,
+          0.937 38.1%,
+          0.968 41.8%,
+          0.991 45.7%,
+          1.006 50.1%,
+          1.015 60%,
+          1.006 76.2%,
+          1
+        );
+        --t-fast: 120ms;
+        --t: 200ms;
+        --t-slow: 380ms;
+
+        --font-sans: "Figtree", system-ui, sans-serif;
+        --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+      }
+
+      /* ── base ─────────────────────────────────────────────────────────── */
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--font-sans);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+        border: none;
+        background: none;
+      }
+      svg {
+        display: block;
+      }
+      :focus-visible {
+        outline: 2px solid var(--uv);
+        outline-offset: 2px;
+        border-radius: var(--r-xs);
+      }
+      img {
+        display: block;
+        max-width: 100%;
+      }
+
+      /* ── type roles ───────────────────────────────────────────────────── */
+      .h1 {
+        font-size: 23px;
+        font-weight: 650;
+        letter-spacing: -0.015em;
+        line-height: 1.25;
+      }
+      .h2 {
+        font-size: 18px;
+        font-weight: 620;
+        letter-spacing: -0.01em;
+        line-height: 1.3;
+      }
+      .h3 {
+        font-size: 15.5px;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+      .sm {
+        font-size: 13.5px;
+        line-height: 1.55;
+      }
+      .cap {
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--ink-3);
+      }
+      .dim {
+        color: var(--ink-3);
+      }
+      .dimmer {
+        color: var(--ink-4);
+      }
+      .mono {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 450;
+        letter-spacing: -0.01em;
+      }
+      .mono-sm {
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        font-weight: 450;
+      }
+      .label {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        font-weight: 500;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: var(--ink-4);
+      }
+      .num {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ── layout helpers ───────────────────────────────────────────────── */
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .wrap {
+        flex-wrap: wrap;
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+      }
+      .between {
+        justify-content: space-between;
+      }
+
+      /* ── doorplate — byte-identical everywhere ───────────────────────── */
+      .doorplate {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        height: 32px;
+        padding: 0 12px 0 4px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        background: transparent;
+        transition:
+          border-color var(--t) var(--ease),
+          background-color var(--t) var(--ease);
+      }
+      .doorplate:hover {
+        border-color: var(--uv-dim);
+        background: var(--surface-2);
+      }
+      .doorplate__badge {
+        width: 24px;
+        height: 24px;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+      }
+      .doorplate__badge svg {
+        width: 100%;
+        height: 100%;
+      }
+      .doorplate__name {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+      }
+
+      /* ── card ──────────────────────────────────────────────────────────── */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--r-lg);
+        padding: 20px;
+      }
+      .card--sunk {
+        background: var(--bg-sunk);
+      }
+
+      /* ── buttons ──────────────────────────────────────────────────────── */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        height: 38px;
+        padding: 0 15px;
+        border-radius: var(--r-md);
+        border: 1px solid transparent;
+        font-size: 14px;
+        font-weight: 550;
+        letter-spacing: -0.005em;
+        white-space: nowrap;
+        transition:
+          background-color var(--t) var(--ease),
+          border-color var(--t) var(--ease),
+          color var(--t) var(--ease),
+          transform var(--t-fast) var(--spring);
+      }
+      .btn:active {
+        transform: scale(0.96);
+      }
+      .btn svg {
+        width: 15px;
+        height: 15px;
+        flex-shrink: 0;
+      }
+      .btn--uv {
+        background: var(--uv);
+        color: var(--uv-ink);
+        font-weight: 620;
+      }
+      .btn--uv:hover {
+        background: var(--uv-hi);
+      }
+      .btn--uv:active {
+        background: var(--uv-press);
+      }
+      .btn--outline {
+        border-color: var(--line);
+        color: var(--ink);
+        background: var(--surface);
+      }
+      .btn--outline:hover {
+        border-color: var(--uv-dim);
+        background: var(--surface-2);
+      }
+      .btn--ghost {
+        color: var(--ink-3);
+        padding: 0 11px;
+      }
+      .btn--ghost:hover {
+        color: var(--ink);
+        background: var(--surface-2);
+      }
+      .btn--bad {
+        color: var(--bad);
+        border-color: transparent;
+        padding: 0 11px;
+      }
+      .btn--bad:hover {
+        background: var(--bad-ghost);
+      }
+      .btn--sm {
+        height: 30px;
+        padding: 0 11px;
+        font-size: 13px;
+      }
+      .btn--lg {
+        height: 46px;
+        padding: 0 22px;
+        font-size: 15.5px;
+      }
+      .btn--full {
+        width: 100%;
+      }
+      .btn[disabled] {
+        opacity: 0.38;
+        pointer-events: none;
+      }
+
+      /* ── chips ────────────────────────────────────────────────────────── */
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 23px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        border: 1px solid transparent;
+        white-space: nowrap;
+      }
+      .chip svg {
+        width: 11px;
+        height: 11px;
+      }
+      .chip--uv {
+        background: var(--uv-ghost);
+        color: var(--uv-hi);
+        border-color: oklch(68% 0.21 300 / 0.3);
+      }
+      .chip--ok {
+        background: var(--ok-ghost);
+        color: var(--ok);
+        border-color: oklch(76% 0.17 155 / 0.3);
+      }
+      .chip--warn {
+        background: var(--warn-ghost);
+        color: var(--warn);
+        border-color: oklch(82% 0.15 85 / 0.3);
+      }
+      .chip--bad {
+        background: var(--bad-ghost);
+        color: var(--bad);
+        border-color: oklch(66% 0.2 22 / 0.32);
+      }
+      .chip--mute {
+        background: var(--surface-2);
+        color: var(--ink-3);
+        border-color: var(--line);
+      }
+
+      /* ── the live dot ─────────────────────────────────────────────────── */
+      .dot {
+        position: relative;
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        flex-shrink: 0;
+        background: var(--ink-4);
+      }
+      .dot--live {
+        background: var(--ok);
+      }
+      .dot--live::after {
+        content: "";
+        position: absolute;
+        inset: -3px;
+        border-radius: 999px;
+        border: 1.5px solid var(--ok);
+        animation: breathe 2.4s var(--ease) infinite;
+      }
+      @keyframes breathe {
+        0% {
+          transform: scale(0.7);
+          opacity: 0.9;
+        }
+        70% {
+          transform: scale(2.1);
+          opacity: 0;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+
+      /* ── motion ───────────────────────────────────────────────────────── */
+      .stagger > * {
+        opacity: 0;
+        transform: translateY(6px);
+        animation: rise 420ms var(--ease) forwards;
+      }
+      .stagger > *:nth-child(1) {
+        animation-delay: 0ms;
+      }
+      .stagger > *:nth-child(2) {
+        animation-delay: 40ms;
+      }
+      .stagger > *:nth-child(3) {
+        animation-delay: 80ms;
+      }
+      .stagger > *:nth-child(4) {
+        animation-delay: 120ms;
+      }
+      .stagger > *:nth-child(5) {
+        animation-delay: 160ms;
+      }
+      .stagger > *:nth-child(6) {
+        animation-delay: 200ms;
+      }
+      .stagger > *:nth-child(7) {
+        animation-delay: 240ms;
+      }
+      .stagger > *:nth-child(n + 8) {
+        animation-delay: 280ms;
+      }
+      @keyframes rise {
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      .reveal {
+        opacity: 0;
+        transform: translateY(6px);
+        animation: rise var(--t-slow) var(--ease) forwards;
+      }
+
+      /* ── tile ─────────────────────────────────────────────────────────── */
+      .tile {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 15px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        background: var(--surface);
+        transition:
+          border-color var(--t) var(--ease),
+          background-color var(--t) var(--ease),
+          transform var(--t) var(--ease);
+      }
+      .tile:hover {
+        border-color: var(--uv);
+        background: oklch(22% 0.055 300);
+        transform: translateY(-2px);
+      }
+      .tile__icon {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: var(--surface-3);
+        display: grid;
+        place-items: center;
+        color: var(--ink-2);
+      }
+      .tile__icon svg {
+        width: 15px;
+        height: 15px;
+      }
+      .tile:hover .tile__icon {
+        background: var(--uv-ghost);
+        color: var(--uv-hi);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+        .reveal,
+        .stagger > * {
+          opacity: 1;
+          transform: none;
+        }
+      }
+
+      /* ── doc chrome ───────────────────────────────────────────────────── */
+      .mock-page {
+        max-width: 1328px;
+        margin: 0 auto;
+        padding: 56px 24px 140px;
+      }
+      .mock-head {
+        max-width: 74ch;
+        margin-bottom: 44px;
+      }
+
+      /* landing-page-only: a slightly larger tile so three screen links
+         read as destinations, not a nav list */
+      .screen-tile {
+        padding: 20px;
+        gap: 12px;
+      }
+      .screen-tile__icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+      }
+      .screen-tile__icon svg {
+        width: 17px;
+        height: 17px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ══════════════════════════════════════════════════════════════════
+         icon sprite — pepe badge is byte-identical to
+         docs/designs/preview/index.html. Line icons match its 16×16,
+         stroke-based visual language.
+         ══════════════════════════════════════════════════════════════ -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="pepe" viewBox="96 38 240 240">
+        <rect x="96" y="38" width="240" height="240" fill="#5a8d3e" />
+        <path
+          fill="#5a8d3e"
+          d="M17.727 228.459c-7.057-7.804-10.4-18.556-13.062-28.734l-.205-.794c-2.5-9.709-4.46-20.114-2.407-29.9 1.98-9.437 9.546-16.774 13.714-25.469 6.97-14.539 9.869-30.19 18.843-44.55 0 0 .5-.789.749-1.164 4.51-6.8 10.718-12.4 16.98-17.632 2.408-2.013 7.836-5.225 7.836-5.225S67.99 62.352 71.93 56.053c6.278-10.036 11.035-21.228 18.938-30.04 6.31-7.036 13.827-13.258 22.204-17.633 8.058-4.208 17.046-7.33 26.122-7.837 9.72-.543 19.517 2.094 28.735 5.225 8.112 2.755 16.466 6.048 22.857 11.755 1.756 1.568 3.918 5.877 3.918 5.877s22.644-12.651 34.448-15.02c11.805-2.369 26.351-3.257 34.775 0 8.425 3.257 9.902 7.614 14.368 13.061 4.465 5.448 9.722 12.252 11.755 19.592.58 2.098 0 6.53 0 6.53s21.953 10.684 30.693 18.939c4.49 4.24 7.402 10.625 10.612 15.183 2.237 3.177 6.186 4.88 6.79 8.119.287 1.53-.357 3.556-1.116 5.267-.847 1.911-3.222 1.814-3.222 1.814-3.635 3.664-2.615 13.371-2.615 13.371s-.593 5.735-3.187 8.11c-2.54 2.325-5.686 1.473-8.162 3.888-1.972 3.709-3.245 4.834-4.977 6.94-4.947 6.016-20.898 10.45-20.898 10.45s-.507 3.134 0 4.571c.88 2.492 2.34 4.647 4.067 6.652 3.938 4.572 9.264 8.363 12.26 13.593 4.28 7.472 9.142 24.163 9.142 24.163s-18.17 34.975-32.653 47.672c-13.03 11.424-29.934 18.01-46.366 23.51-11.743 3.93-24.23 5.52-36.571 6.53-16.49 1.352-33.127.499-49.632-.652-31.083-2.168-63.16-1.945-92.734-11.755-15.322-5.082-29.67-11.847-42.158-23.83a32.344 32.344 0 01-1.596-1.64z"
+        />
+        <path
+          fill="#5a8d3e"
+          d="M28.748 240.698l13.06 20.244s36.4 11.093 54.857 15.673c15.332 3.805 30.64 8.327 46.367 9.797 19.944 1.86 40.532 3.06 60.081-1.31 8.37-1.868 23.51-10.446 23.51-10.446l12.558-14.522c-44.226 11.354-111.596 9.127-210.433-19.436h0z"
+        />
+        <path
+          fill="#9f5935"
+          d="M106.061 213.297c-2.878-2.695-1.819-5.673-1.306-8.49.715-3.932 3.054-7.621 5.877-10.45 3.345-3.35 7.817-5.68 12.368-6.985 10.905-3.125 22.942-2.7 34-1.504 12.488 1.35 22.883 7.996 35.264 10.123 15.274 2.623 47.673 4.244 47.673 4.244s18.776.39 28.081-.653c16.334-1.83 34.78-.487 48.326-9.795 2.34-1.608 2.82-1.84 4.782-1.88 2.93-.061 3.068 3.48 3.57 7.299.607 4.634-1.449 6.642-4.899 9.795-2.089 1.91-2.635 1.917-5.182 3.15-2.017.977-6.108 1.88-6.108 1.88s.87 7.383-.755 10.489c-1.815 3.468-5.563 5.782-9.14 7.37-8.429 3.747-27.329 4.345-27.329 4.345s-61.899-1.984-94.04-7.184c-9.277-1.5-18.12-5.226-27.428-6.53-14.458-2.026-33.096 4.753-43.754-5.224h0z"
+        />
+        <path
+          fill="#fff"
+          d="M226.31 108.73c1.15-3.608 3.925-5.4 6.812-7.85 5.16-4.379 14.987-7.171 22.985-9.213 9.71-2.478 19.844-3.086 29.855-3.556 10.278-.483 20.838-1.578 30.857.763 6.249 1.459 13.23 3.276 17.464 8.097 1.753 1.996 3.056 4.581 2.393 7.603-.65 2.965-2.106 3.742-5.271 5.891-3.165 2.15-9.738 4.265-14.124 5.192-9.4 2.107-18.561 5.748-28.168 6.465-14.01 1.044-28.479-.177-42.484-2.425-4.144-.665-8.5-1.205-12.165-3.252-3.266-1.825-8.767-5.786-8.153-7.715z"
+        />
+        <path
+          fill="#fff"
+          d="M121.025 105.036s24.656 14.498 38.328 18.01c9.412 2.416 19.419 2.765 29.092 1.846 14.086-1.338 27.063-2.232 36.833-12.468 4.669-4.891 7.978-9.79 6.465-16.162-.423-1.778-.413-4.888-2.26-5.35-1.848-.462-23.162-2.083-36.42-.191-16.453 2.347-31.606 10.822-48.025 13.391-7.914 1.238-24.013.924-24.013.924z"
+        />
+        <path
+          fill="#000"
+          d="M314.895 114.548c0 .857-18.226 7.628-34.938 7.183-11.461-.305-14.589 1.162-15.438-1.525-.22-.694-.502-2.635-.483-3.811.128-7.784 6.4-18.405 13.675-24.09 3.62-2.83 8.995-3.119 13.275-3.705 14.294-1.956 23.91 11.517 23.91 25.948z"
+        />
+        <path
+          fill="#0446fc"
+          d="M17.243 251.696l.227-9.213s3.27-1.65 5.03-2.1c2.494-.636 7.682-.805 7.682-.805s5.913 5.632 18.626 13.849c12.713 8.217 45.85 16.14 69.55 21.224 18.883 4.05 34.753 7.46 54.056 7.127 15.745-1.077 31.418-2.67 44.086-7.55 5.28-2.085 18.062-8.218 18.062-8.218s12.217 4.95 14.166 5.98c13.113 6.923 13.893 11.682 24.588 21.182 5.296 4.7 14.694 15.34 14.694 15.34l-271.375-2.82.608-53.996z"
+        />
+        <path
+          fill="#000"
+          d="M210.08 121.078s-15.287 3.755-29.714 3.755c-14.426 0-22.819-2.89-22.819-2.89.072-14.424 16.152-28.095 28.207-27.967 6.81.073 13.645 2.79 18.092 7.07 4.972 4.788 5.41 12.461 6.234 20.032z"
+        />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" ry="5.08" rx="4.156" cy="822.576" cx="180.903" />
+        <circle transform="translate(-4.65 -716.318)" fill="#fff" r="7.158" cy="829.897" cx="196.097" />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" cx="180.292" cy="834.284" rx="3.337" ry="3.232" />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" cx="284.743" cy="819.428" rx="3.087" ry="3.773" />
+        <circle transform="translate(-4.65 -716.318)" fill="#fff" cx="299.848" cy="824.137" r="6.015" />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" ry="2.45" rx="2.529" cy="830.269" cx="285.301" />
+        <path
+          fill="#5a8d3e"
+          d="M226.06 113.507c.833-1.056.91-1.476 2.102-1.551.978-.062 1.92 1.219 2.143 2.224.163.737-.3 1.525-.735 2.143-1.058 1.504-4.306 3.449-4.306 3.449s-.038-5.21.796-6.265z"
+        />
+      </symbol>
+
+      <symbol id="i-download" viewBox="0 0 16 16">
+        <path d="M8 2.5v8m0 0L5 7.5m3 3 3-3M3 13h10" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-play" viewBox="0 0 16 16">
+        <path d="M5 3.5v9l7.5-4.5z" fill="currentColor" />
+      </symbol>
+      <symbol id="i-grid" viewBox="0 0 16 16">
+        <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4" fill="none" />
+        <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4" fill="none" />
+        <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4" fill="none" />
+        <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4" fill="none" />
+      </symbol>
+      <symbol id="i-arrow" viewBox="0 0 16 16">
+        <path d="M3 8h10m0 0-4-4m4 4-4 4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-film" viewBox="0 0 16 16">
+        <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.4" fill="none" />
+        <path d="M5.5 3v10M10.5 3v10" stroke="currentColor" stroke-width="1.4" />
+      </symbol>
+      <symbol id="i-tv" viewBox="0 0 16 16">
+        <rect x="1.5" y="3" width="13" height="9" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none" />
+        <path d="M6 14.5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-activity" viewBox="0 0 16 16">
+        <path d="M1.5 8h3l2-4.5 3 9 2-4.5h3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-shield" viewBox="0 0 16 16">
+        <path d="M8 1.5l5.5 2v4c0 4-2.5 6.2-5.5 7-3-.8-5.5-3-5.5-7v-4l5.5-2Z" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 16 16">
+        <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4" fill="none" />
+        <path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+      </symbol>
+    </svg>
+
+    <div class="mock-page">
+      <header class="mock-head reveal" style="margin-bottom: 48px">
+        <span class="doorplate" style="margin-bottom: 24px">
+          <span class="doorplate__badge"><svg><use href="#pepe" /></svg></span>
+          <span class="doorplate__name">Download</span>
+        </span>
+        <p class="label" style="color: var(--uv); margin: 22px 0 10px">lilnas · download</p>
+        <h1 class="h1" style="font-size: 30px; margin-bottom: 12px">UI mockups — round 1</h1>
+        <p class="sm dim">
+          Nine screens against the Ultraviolet system, most with their own desktop/mobile switch (the nav-bar
+          field's reference doesn't need one — it renders identically everywhere): the homepage's quick access
+          and recently added, that nav-bar field's full state and flow reference, a dedicated search page for
+          movies and shows, movie and show detail pages, the unified gallery, a video's own detail page, the
+          downloads-activity feed, and the admin dashboard. The video, movie, and show detail pages each carry
+          their own download lifecycle — progress, pause/cancel, queued, failed — inline, with no separate status
+          page to navigate to.
+        </p>
+      </header>
+
+      <div class="grid stagger" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px">
+        <a class="tile screen-tile" href="home.html">
+          <span class="tile__icon screen-tile__icon"><svg><use href="#i-download" /></svg></span>
+          <span>
+            <span class="h3" style="display: block; margin-bottom: 4px">Home</span>
+            <span class="sm dim">Library overview, quick access, and recently added.</span>
+          </span>
+        </a>
+        <a class="tile screen-tile" href="nav-search.html">
+          <span class="tile__icon screen-tile__icon"><svg><use href="#i-search" /></svg></span>
+          <span>
+            <span class="h3" style="display: block; margin-bottom: 4px">Nav-bar search</span>
+            <span class="sm dim">The entry-point field on every page — every state, and the full flow to a download or a search.</span>
+          </span>
+        </a>
+        <a class="tile screen-tile" href="search.html">
+          <span class="tile__icon screen-tile__icon"><svg><use href="#i-search" /></svg></span>
+          <span>
+            <span class="h3" style="display: block; margin-bottom: 4px">Search</span>
+            <span class="sm dim">Movie and show discovery's dedicated home — title, year, cast, or genre, with filters.</span>
+          </span>
+        </a>
+        <a class="tile screen-tile" href="gallery.html">
+          <span class="tile__icon screen-tile__icon"><svg><use href="#i-grid" /></svg></span>
+          <span>
+            <span class="h3" style="display: block; margin-bottom: 4px">Unified gallery</span>
+            <span class="sm dim">Videos, movies and shows in one filterable grid.</span>
+          </span>
+        </a>
+        <a class="tile screen-tile" href="movie-detail.html">
+          <span class="tile__icon screen-tile__icon"><svg><use href="#i-film" /></svg></span>
+          <span>
+            <span class="h3" style="display: block; margin-bottom: 4px">Movie detail</span>
+            <span class="sm dim">Trailer, cast, and cover art — plus every download state, queued to failed.</span>
+          </span>
+        </a>
+        <a class="tile screen-tile" href="show-detail.html">
+          <span class="tile__icon screen-tile__icon"><svg><use href="#i-tv" /></svg></span>
+          <span>
+            <span class="h3" style="display: block; margin-bottom: 4px">Show detail</span>
+            <span class="sm dim">Seasons and episodes — download, delete, replace, or track progress live.</span>
+          </span>
+        </a>
+        <a class="tile screen-tile" href="video-detail.html">
+          <span class="tile__icon screen-tile__icon"><svg><use href="#i-play" /></svg></span>
+          <span>
+            <span class="h3" style="display: block; margin-bottom: 4px">Video detail</span>
+            <span class="sm dim">Cover art, source link, and the download's progress, right on the page.</span>
+          </span>
+        </a>
+        <a class="tile screen-tile" href="downloads-activity.html">
+          <span class="tile__icon screen-tile__icon"><svg><use href="#i-activity" /></svg></span>
+          <span>
+            <span class="h3" style="display: block; margin-bottom: 4px">Downloads activity</span>
+            <span class="sm dim">Every download in flight, across every user, live.</span>
+          </span>
+        </a>
+        <a class="tile screen-tile" href="admin-dashboard.html">
+          <span class="tile__icon screen-tile__icon"><svg><use href="#i-shield" /></svg></span>
+          <span>
+            <span class="h3" style="display: block; margin-bottom: 4px">Admin dashboard</span>
+            <span class="sm dim">System metrics, unmasked attribution, top downloaders, and the audit log.</span>
+          </span>
+        </a>
+      </div>
+
+      <footer style="margin-top: 80px; padding-top: 28px; border-top: 1px solid var(--line-soft)">
+        <p class="cap">
+          Tokens and components reused from <code class="mono-sm">docs/designs/preview/index.html</code> — no new
+          colours, radii, type sizes or motion curves introduced here. Poster art is a CSS placeholder (same
+          fallback idea as the real app's <code class="mono-sm">MediaResultCard</code>), so each file below is
+          fully self-contained: its own inline styles, no shared file to keep in sync, and no external image
+          requests. There's no JavaScript at all — the desktop/mobile switch on each screen (all but the nav-bar
+          field's own reference, which needs only one) is a native radio input plus
+          <code class="mono-sm">:has()</code>, since a sandboxed preview viewer can never run a
+          script this file provides for itself. Open any of them directly; nothing else needs to load first.
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>
