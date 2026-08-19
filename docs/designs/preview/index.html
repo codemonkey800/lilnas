@@ -1,0 +1,2233 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ultraviolet — the lilnas design system</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Figtree:ital,wght@0,300..900;1,300..900&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ═══════════════════════════════════════════════════════════════════
+         ULTRAVIOLET — token layer
+         One hue (300). Everything is purple; only the chroma changes.
+         ═══════════════════════════════════════════════════════════════════ */
+      :root {
+        /* ── surfaces: hue 300, chroma 0.018 → 0.040 ────────────────────── */
+        --bg: oklch(14% 0.021 300);
+        --bg-sunk: oklch(11% 0.018 300);
+        --surface: oklch(18.5% 0.027 300);
+        --surface-2: oklch(23% 0.032 300);
+        --surface-3: oklch(28% 0.038 300);
+
+        /* ── lines ──────────────────────────────────────────────────────── */
+        --line: oklch(29% 0.038 300);
+        --line-soft: oklch(23.5% 0.031 300);
+        --line-loud: oklch(41% 0.055 300);
+
+        /* ── text: same hue, almost no chroma ───────────────────────────── */
+        --ink: oklch(97% 0.008 300);
+        --ink-2: oklch(79% 0.02 300);
+        --ink-3: oklch(63% 0.026 300);
+        --ink-4: oklch(50% 0.028 300);
+
+        /* ── the accent: same hue, all the chroma ───────────────────────── */
+        --uv: oklch(68% 0.21 300);
+        --uv-hi: oklch(
+          75% 0.195 300
+        ); /* hover — the accent has no chroma
+                                          left to gain, so it gains light */
+        --uv-press: oklch(62% 0.225 300);
+        --uv-lo: oklch(55% 0.2 300);
+        --uv-dim: oklch(42% 0.14 300);
+        --uv-ghost: oklch(68% 0.21 300 / 0.13);
+        --uv-ink: oklch(15% 0.045 300); /* text ON accent — dark, not white */
+
+        /* ── the only non-300 hues in the system. they mean something. ──── */
+        --ok: oklch(76% 0.17 155);
+        --ok-ghost: oklch(76% 0.17 155 / 0.14);
+        --warn: oklch(82% 0.15 85);
+        --warn-ghost: oklch(82% 0.15 85 / 0.14);
+        --bad: oklch(66% 0.2 22);
+        --bad-ghost: oklch(66% 0.2 22 / 0.14);
+
+        /* ── shape ──────────────────────────────────────────────────────── */
+        --r-xs: 6px;
+        --r-md: 10px;
+        --r-lg: 14px;
+        --r-xl: 20px;
+
+        /* ── the one shadow. only for things that truly float. ──────────── */
+        --lift: 0 16px 40px -12px oklch(6% 0.02 300 / 0.7);
+
+        /* ── motion ─────────────────────────────────────────────────────── */
+        --ease: cubic-bezier(0.32, 0.72, 0, 1);
+        --spring: linear(
+          0,
+          0.006,
+          0.025 2.8%,
+          0.101 6.1%,
+          0.539 18.9%,
+          0.721 25.3%,
+          0.849 31.5%,
+          0.937 38.1%,
+          0.968 41.8%,
+          0.991 45.7%,
+          1.006 50.1%,
+          1.015 60%,
+          1.006 76.2%,
+          1
+        );
+        --t-fast: 120ms;
+        --t: 200ms;
+        --t-slow: 380ms;
+
+        --font-display: "Bricolage Grotesque", system-ui, sans-serif;
+        --font-sans: "Figtree", system-ui, sans-serif;
+        --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+      }
+
+      /* ═══════════════════════════════════════════════════════════════════
+         base
+         ═══════════════════════════════════════════════════════════════════ */
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--font-sans);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+        border: none;
+        background: none;
+      }
+      svg {
+        display: block;
+      }
+      :focus-visible {
+        outline: 2px solid var(--uv);
+        outline-offset: 2px;
+        border-radius: var(--r-xs);
+      }
+
+      /* ── type roles ─────────────────────────────────────────────────── */
+      .display {
+        font-family: var(--font-display);
+        font-variation-settings:
+          "wdth" 87,
+          "opsz" 72;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+        line-height: 1.02;
+        font-size: clamp(32px, 5.2vw, 50px);
+      }
+      .display-2 {
+        font-family: var(--font-display);
+        font-variation-settings:
+          "wdth" 87,
+          "opsz" 32;
+        font-weight: 650;
+        letter-spacing: -0.015em;
+        line-height: 1.1;
+        font-size: 30px;
+      }
+      .h1 {
+        font-size: 23px;
+        font-weight: 650;
+        letter-spacing: -0.015em;
+        line-height: 1.25;
+      }
+      .h2 {
+        font-size: 18px;
+        font-weight: 620;
+        letter-spacing: -0.01em;
+        line-height: 1.3;
+      }
+      .h3 {
+        font-size: 15.5px;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+      .body {
+        font-size: 15px;
+        line-height: 1.6;
+      }
+      .sm {
+        font-size: 13.5px;
+        line-height: 1.55;
+      }
+      .cap {
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--ink-3);
+      }
+      .dim {
+        color: var(--ink-3);
+      }
+      .dimmer {
+        color: var(--ink-4);
+      }
+
+      /* machine voice */
+      .mono {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 450;
+        letter-spacing: -0.01em;
+      }
+      .mono-sm {
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        font-weight: 450;
+      }
+      .label {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        font-weight: 500;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: var(--ink-4);
+      }
+      .num {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ═══════════════════════════════════════════════════════════════════
+         page scaffold
+         ═══════════════════════════════════════════════════════════════════ */
+      .page {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 0 28px 140px;
+      }
+      section {
+        padding-top: 88px;
+      }
+      .sec-head {
+        display: flex;
+        align-items: baseline;
+        gap: 14px;
+        padding-bottom: 8px;
+        margin-bottom: 28px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .sec-head .label {
+        color: var(--uv);
+      }
+      .lede {
+        max-width: 62ch;
+        color: var(--ink-2);
+      }
+      .grid {
+        display: grid;
+        gap: 14px;
+      }
+      .g2 {
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      }
+      .g3 {
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .wrap {
+        flex-wrap: wrap;
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+      }
+      .between {
+        justify-content: space-between;
+      }
+
+      /* ═══════════════════════════════════════════════════════════════════
+         masthead
+         ═══════════════════════════════════════════════════════════════════ */
+      .masthead {
+        padding: 92px 0 8px;
+        position: relative;
+      }
+      .masthead .display {
+        max-width: 16ch;
+      }
+      .uvword {
+        color: var(--uv);
+      }
+      .thesis {
+        margin-top: 26px;
+        max-width: 56ch;
+        font-size: 17px;
+        line-height: 1.6;
+        color: var(--ink-2);
+      }
+      .thesis b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      /* doorplate — THE signature element */
+      .doorplate {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        height: 32px;
+        padding: 0 12px 0 4px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--surface);
+        transition:
+          border-color var(--t) var(--ease),
+          background-color var(--t) var(--ease);
+      }
+      .doorplate:hover {
+        border-color: var(--uv-dim);
+        background: var(--surface-2);
+      }
+      .doorplate__badge {
+        width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        background: var(--surface-3);
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        overflow: hidden;
+      }
+      /* The badge mark carries its own full-bleed backdrop, so it fills the
+         circle rather than floating inside it. The surface-3 background below
+         only shows for a beat before the SVG paints. */
+      .doorplate__badge svg {
+        width: 100%;
+        height: 100%;
+      }
+      .doorplate__name {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+      }
+      .doorplate__name .tld {
+        color: var(--ink-4);
+      }
+
+      /* ═══════════════════════════════════════════════════════════════════
+         chroma ramp
+         ═══════════════════════════════════════════════════════════════════ */
+      .ramp {
+        display: grid;
+        grid-template-columns: repeat(10, 1fr);
+        border-radius: var(--r-lg);
+        overflow: hidden;
+        border: 1px solid var(--line);
+      }
+      .ramp div {
+        aspect-ratio: 1 / 1.5;
+        display: flex;
+        align-items: flex-end;
+        padding: 8px;
+      }
+      .ramp span {
+        font-family: var(--font-mono);
+        font-size: 9.5px;
+        opacity: 0.72;
+      }
+      .rampaxis {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 10px;
+      }
+      /* Below ~sm the 10 columns are ~35px wide — narrower than the numeric
+         label. Drop the labels and let the ramp read purely as a gradient;
+         the exact values are in the swatch grid immediately below. */
+      @media (max-width: 640px) {
+        .ramp span {
+          display: none;
+        }
+        .ramp div {
+          aspect-ratio: 1 / 3;
+        }
+      }
+
+      .swatches {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+        gap: 10px;
+      }
+      .sw {
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        overflow: hidden;
+      }
+      .sw__chip {
+        height: 56px;
+      }
+      .sw__meta {
+        padding: 9px 11px;
+        background: var(--surface);
+        border-top: 1px solid var(--line-soft);
+      }
+      .sw__name {
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        font-weight: 500;
+      }
+      .sw__val {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--ink-4);
+        margin-top: 1px;
+      }
+
+      /* ═══════════════════════════════════════════════════════════════════
+         components
+         ═══════════════════════════════════════════════════════════════════ */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--r-lg);
+        padding: 20px;
+      }
+      .card--sunk {
+        background: var(--bg-sunk);
+      }
+      .demo {
+        background: var(--bg-sunk);
+        border: 1px solid var(--line-soft);
+        border-radius: var(--r-lg);
+        padding: 26px;
+      }
+
+      /* buttons */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        height: 38px;
+        padding: 0 15px;
+        border-radius: var(--r-md);
+        border: 1px solid transparent;
+        font-size: 14px;
+        font-weight: 550;
+        letter-spacing: -0.005em;
+        white-space: nowrap;
+        transition:
+          background-color var(--t) var(--ease),
+          border-color var(--t) var(--ease),
+          color var(--t) var(--ease),
+          transform var(--t-fast) var(--spring);
+      }
+      .btn:active {
+        transform: scale(0.96);
+      }
+      .btn svg {
+        width: 15px;
+        height: 15px;
+      }
+      .btn--uv {
+        background: var(--uv);
+        color: var(--uv-ink);
+        font-weight: 620;
+      }
+      .btn--uv:hover {
+        background: var(--uv-hi);
+      }
+      .btn--uv:active {
+        background: var(--uv-press);
+      }
+      .btn--outline {
+        border-color: var(--line);
+        color: var(--ink);
+        background: var(--surface);
+      }
+      .btn--outline:hover {
+        border-color: var(--uv-dim);
+        background: var(--surface-2);
+      }
+      .btn--ghost {
+        color: var(--ink-3);
+        padding: 0 11px;
+      }
+      .btn--ghost:hover {
+        color: var(--ink);
+        background: var(--surface-2);
+      }
+      .btn--bad {
+        color: var(--bad);
+        border-color: transparent;
+        padding: 0 11px;
+      }
+      .btn--bad:hover {
+        background: var(--bad-ghost);
+      }
+      .btn--sm {
+        height: 30px;
+        padding: 0 11px;
+        font-size: 13px;
+      }
+      .btn--lg {
+        height: 46px;
+        padding: 0 22px;
+        font-size: 15.5px;
+      }
+      .btn[disabled] {
+        opacity: 0.38;
+        pointer-events: none;
+      }
+
+      /* inputs */
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .field > label {
+        font-size: 13px;
+        font-weight: 560;
+        color: var(--ink-2);
+      }
+      .input {
+        height: 38px;
+        padding: 0 12px;
+        border-radius: var(--r-md);
+        border: 1px solid var(--line);
+        background: var(--bg-sunk);
+        width: 100%;
+        font-size: 14px;
+        transition:
+          border-color var(--t) var(--ease),
+          box-shadow var(--t) var(--ease);
+      }
+      .input::placeholder {
+        color: var(--ink-4);
+      }
+      .input:focus {
+        outline: none;
+        border-color: var(--uv);
+        box-shadow: 0 0 0 3px var(--uv-ghost);
+      }
+      .input--mono {
+        font-family: var(--font-mono);
+        font-size: 13px;
+      }
+
+      /* chips — round, because a chip is a label, not a control */
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 23px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        border: 1px solid transparent;
+      }
+      .chip--uv {
+        background: var(--uv-ghost);
+        color: var(--uv-hi);
+        border-color: oklch(68% 0.21 300 / 0.3);
+      }
+      .chip--ok {
+        background: var(--ok-ghost);
+        color: var(--ok);
+        border-color: oklch(76% 0.17 155 / 0.3);
+      }
+      .chip--warn {
+        background: var(--warn-ghost);
+        color: var(--warn);
+        border-color: oklch(82% 0.15 85 / 0.3);
+      }
+      .chip--bad {
+        background: var(--bad-ghost);
+        color: var(--bad);
+        border-color: oklch(66% 0.2 22 / 0.32);
+      }
+      .chip--mute {
+        background: var(--surface-2);
+        color: var(--ink-3);
+        border-color: var(--line);
+      }
+
+      /* the live dot */
+      .dot {
+        position: relative;
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        flex-shrink: 0;
+        background: var(--ink-4);
+      }
+      .dot--live {
+        background: var(--ok);
+      }
+      .dot--live::after {
+        content: "";
+        position: absolute;
+        inset: -3px;
+        border-radius: 999px;
+        border: 1.5px solid var(--ok);
+        animation: breathe 2.4s var(--ease) infinite;
+      }
+      .dot--uv {
+        background: var(--uv);
+      }
+      .dot--uv::after {
+        content: "";
+        position: absolute;
+        inset: -3px;
+        border-radius: 999px;
+        border: 1.5px solid var(--uv);
+        animation: breathe 2.4s var(--ease) infinite;
+      }
+      .dot--warn {
+        background: var(--warn);
+      }
+      .dot--bad {
+        background: var(--bad);
+      }
+      @keyframes breathe {
+        0% {
+          transform: scale(0.7);
+          opacity: 0.9;
+        }
+        70% {
+          transform: scale(2.1);
+          opacity: 0;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+
+      /* table */
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th {
+        text-align: left;
+        padding: 0 12px 10px;
+        border-bottom: 1px solid var(--line);
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        font-weight: 500;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: var(--ink-4);
+      }
+      td {
+        padding: 11px 12px;
+        border-bottom: 1px solid var(--line-soft);
+        font-size: 13.5px;
+      }
+      tbody tr {
+        transition: background-color var(--t-fast) var(--ease);
+      }
+      tbody tr:hover {
+        background: var(--surface-2);
+      }
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+
+      /* toast */
+      .toast {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        padding: 10px 15px;
+        border-radius: var(--r-md);
+        background: var(--surface-3);
+        border: 1px solid var(--line-loud);
+        box-shadow: var(--lift);
+        font-size: 13.5px;
+        font-weight: 520;
+      }
+
+      /* empty state */
+      .empty {
+        text-align: center;
+        padding: 40px 24px;
+      }
+      .empty__pepe {
+        width: 46px;
+        height: 46px;
+        margin: 0 auto 14px;
+        opacity: 0.55;
+      }
+
+      /* skeleton */
+      .skel {
+        border-radius: var(--r-xs);
+        background: linear-gradient(
+          100deg,
+          var(--surface-2) 30%,
+          oklch(30% 0.055 300) 50%,
+          var(--surface-2) 70%
+        );
+        background-size: 300% 100%;
+        animation: shimmer 1.5s linear infinite;
+      }
+      @keyframes shimmer {
+        to {
+          background-position: -200% 0;
+        }
+      }
+
+      /* progress */
+      .bar {
+        height: 5px;
+        border-radius: 999px;
+        background: var(--surface-3);
+        overflow: hidden;
+      }
+      .bar > i {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: var(--uv);
+        transition: width var(--t-slow) var(--ease);
+      }
+
+      /* tabs */
+      .tabs {
+        display: flex;
+        gap: 22px;
+        border-bottom: 1px solid var(--line);
+      }
+      .tab {
+        position: relative;
+        padding: 9px 1px;
+        font-size: 14px;
+        font-weight: 550;
+        color: var(--ink-3);
+        transition: color var(--t) var(--ease);
+      }
+      .tab:hover {
+        color: var(--ink-2);
+      }
+      .tab[aria-selected="true"] {
+        color: var(--ink);
+      }
+      .tab[aria-selected="true"]::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: -1px;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--uv);
+      }
+
+      /* ═══════════════════════════════════════════════════════════════════
+         motion demo helpers
+         ═══════════════════════════════════════════════════════════════════ */
+      .reveal {
+        opacity: 0;
+        transform: translateY(6px);
+        animation: rise var(--t-slow) var(--ease) forwards;
+      }
+      @keyframes rise {
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      .stagger > * {
+        opacity: 0;
+        transform: translateY(6px);
+        animation: rise 420ms var(--ease) forwards;
+      }
+      .stagger > *:nth-child(1) {
+        animation-delay: 0ms;
+      }
+      .stagger > *:nth-child(2) {
+        animation-delay: 40ms;
+      }
+      .stagger > *:nth-child(3) {
+        animation-delay: 80ms;
+      }
+      .stagger > *:nth-child(4) {
+        animation-delay: 120ms;
+      }
+      .stagger > *:nth-child(5) {
+        animation-delay: 160ms;
+      }
+      .stagger > *:nth-child(6) {
+        animation-delay: 200ms;
+      }
+
+      /* chroma-warm demo tile */
+      .warmtile {
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        background: var(--surface);
+        padding: 16px;
+        transition:
+          border-color var(--t) var(--ease),
+          background-color var(--t) var(--ease),
+          transform var(--t) var(--ease);
+      }
+      .warmtile:hover {
+        border-color: var(--uv);
+        background: oklch(22% 0.06 300);
+        transform: translateY(-2px);
+      }
+
+      /* ═══════════════════════════════════════════════════════════════════
+         app vignettes
+         ═══════════════════════════════════════════════════════════════════ */
+      .app {
+        border: 1px solid var(--line);
+        border-radius: var(--r-xl);
+        overflow: hidden;
+        background: var(--bg);
+      }
+      .app__bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 11px 16px;
+        border-bottom: 1px solid var(--line-soft);
+        background: var(--bg-sunk);
+      }
+      .app__body {
+        padding: 22px 20px 26px;
+      }
+
+      .tile {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 15px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        background: var(--surface);
+        transition:
+          border-color var(--t) var(--ease),
+          background-color var(--t) var(--ease),
+          transform var(--t) var(--ease);
+      }
+      .tile:hover {
+        border-color: var(--uv);
+        background: oklch(22% 0.055 300);
+        transform: translateY(-2px);
+      }
+      .tile__icon {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: var(--surface-3);
+        display: grid;
+        place-items: center;
+        color: var(--ink-2);
+      }
+      .tile__icon svg {
+        width: 15px;
+        height: 15px;
+      }
+      .tile:hover .tile__icon {
+        background: var(--uv-ghost);
+        color: var(--uv-hi);
+      }
+
+      /* swole set card */
+      .setcard {
+        border: 1px solid var(--line);
+        border-radius: var(--r-lg);
+        background: var(--surface);
+        padding: 22px;
+        text-align: center;
+      }
+      .bignum {
+        font-family: var(--font-display);
+        font-size: 52px;
+        font-weight: 700;
+        letter-spacing: -0.035em;
+        line-height: 1;
+        color: var(--uv);
+      }
+      .actiongrid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .bigbtn {
+        height: 54px;
+        border-radius: var(--r-md);
+        font-size: 15px;
+        font-weight: 600;
+        transition:
+          transform var(--t-fast) var(--spring),
+          background-color var(--t) var(--ease);
+      }
+      .bigbtn:active {
+        transform: scale(0.96);
+      }
+
+      /* log row */
+      .logrow {
+        display: grid;
+        grid-template-columns: 74px 58px 1fr;
+        gap: 12px;
+        padding: 6px 10px;
+        border-radius: var(--r-xs);
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        align-items: baseline;
+        transition: background-color var(--t-fast) var(--ease);
+      }
+      .logrow:hover {
+        background: var(--surface-2);
+      }
+      .lvl {
+        font-weight: 600;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+      }
+
+      hr.rule {
+        border: none;
+        border-top: 1px solid var(--line-soft);
+        margin: 26px 0;
+      }
+
+      .note {
+        display: flex;
+        gap: 10px;
+        padding: 13px 15px;
+        border-radius: var(--r-md);
+        border: 1px solid var(--line);
+        background: var(--surface);
+        font-size: 13.5px;
+        line-height: 1.55;
+        color: var(--ink-2);
+      }
+      .note--uv {
+        border-color: oklch(68% 0.21 300 / 0.32);
+        background: var(--uv-ghost);
+      }
+      .note svg {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+        margin-top: 2px;
+        color: var(--uv);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
+        .reveal,
+        .stagger > * {
+          opacity: 1;
+          transform: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ══════════════════════════════════════════════════════════════════
+         sad pepe, as a reusable symbol
+         ══════════════════════════════════════════════════════════════ -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <!-- BADGE MARK — simplified from sad-pepe.svg for ≤32px.
+           Keeps the four things that survive at 24px: the wide green
+           dome, two oversized white eyes, downcast pupils, and the
+           wide brown lip. Uses the source file's own #5a8d3e / #9f5935. -->
+      <!-- BADGE MARK — DERIVED from sad-pepe.svg, not redrawn: the 9 stroke-only
+           detail paths dropped, strokes removed, viewBox cropped to the face.
+           Same geometry as the full mark. Canonical file:
+           docs/designs/assets/pepe-badge.svg -->
+      <symbol id="pepe" viewBox="96 38 240 240">
+        <rect x="96" y="38" width="240" height="240" fill="#5a8d3e" />
+        <path
+          fill="#5a8d3e"
+          d="M17.727 228.459c-7.057-7.804-10.4-18.556-13.062-28.734l-.205-.794c-2.5-9.709-4.46-20.114-2.407-29.9 1.98-9.437 9.546-16.774 13.714-25.469 6.97-14.539 9.869-30.19 18.843-44.55 0 0 .5-.789.749-1.164 4.51-6.8 10.718-12.4 16.98-17.632 2.408-2.013 7.836-5.225 7.836-5.225S67.99 62.352 71.93 56.053c6.278-10.036 11.035-21.228 18.938-30.04 6.31-7.036 13.827-13.258 22.204-17.633 8.058-4.208 17.046-7.33 26.122-7.837 9.72-.543 19.517 2.094 28.735 5.225 8.112 2.755 16.466 6.048 22.857 11.755 1.756 1.568 3.918 5.877 3.918 5.877s22.644-12.651 34.448-15.02c11.805-2.369 26.351-3.257 34.775 0 8.425 3.257 9.902 7.614 14.368 13.061 4.465 5.448 9.722 12.252 11.755 19.592.58 2.098 0 6.53 0 6.53s21.953 10.684 30.693 18.939c4.49 4.24 7.402 10.625 10.612 15.183 2.237 3.177 6.186 4.88 6.79 8.119.287 1.53-.357 3.556-1.116 5.267-.847 1.911-3.222 1.814-3.222 1.814-3.635 3.664-2.615 13.371-2.615 13.371s-.593 5.735-3.187 8.11c-2.54 2.325-5.686 1.473-8.162 3.888-1.972 3.709-3.245 4.834-4.977 6.94-4.947 6.016-20.898 10.45-20.898 10.45s-.507 3.134 0 4.571c.88 2.492 2.34 4.647 4.067 6.652 3.938 4.572 9.264 8.363 12.26 13.593 4.28 7.472 9.142 24.163 9.142 24.163s-18.17 34.975-32.653 47.672c-13.03 11.424-29.934 18.01-46.366 23.51-11.743 3.93-24.23 5.52-36.571 6.53-16.49 1.352-33.127.499-49.632-.652-31.083-2.168-63.16-1.945-92.734-11.755-15.322-5.082-29.67-11.847-42.158-23.83a32.344 32.344 0 01-1.596-1.64z"
+        />
+        <path
+          fill="#5a8d3e"
+          d="M28.748 240.698l13.06 20.244s36.4 11.093 54.857 15.673c15.332 3.805 30.64 8.327 46.367 9.797 19.944 1.86 40.532 3.06 60.081-1.31 8.37-1.868 23.51-10.446 23.51-10.446l12.558-14.522c-44.226 11.354-111.596 9.127-210.433-19.436h0z"
+        />
+        <path
+          fill="#9f5935"
+          d="M106.061 213.297c-2.878-2.695-1.819-5.673-1.306-8.49.715-3.932 3.054-7.621 5.877-10.45 3.345-3.35 7.817-5.68 12.368-6.985 10.905-3.125 22.942-2.7 34-1.504 12.488 1.35 22.883 7.996 35.264 10.123 15.274 2.623 47.673 4.244 47.673 4.244s18.776.39 28.081-.653c16.334-1.83 34.78-.487 48.326-9.795 2.34-1.608 2.82-1.84 4.782-1.88 2.93-.061 3.068 3.48 3.57 7.299.607 4.634-1.449 6.642-4.899 9.795-2.089 1.91-2.635 1.917-5.182 3.15-2.017.977-6.108 1.88-6.108 1.88s.87 7.383-.755 10.489c-1.815 3.468-5.563 5.782-9.14 7.37-8.429 3.747-27.329 4.345-27.329 4.345s-61.899-1.984-94.04-7.184c-9.277-1.5-18.12-5.226-27.428-6.53-14.458-2.026-33.096 4.753-43.754-5.224h0z"
+        />
+        <path
+          fill="#fff"
+          d="M226.31 108.73c1.15-3.608 3.925-5.4 6.812-7.85 5.16-4.379 14.987-7.171 22.985-9.213 9.71-2.478 19.844-3.086 29.855-3.556 10.278-.483 20.838-1.578 30.857.763 6.249 1.459 13.23 3.276 17.464 8.097 1.753 1.996 3.056 4.581 2.393 7.603-.65 2.965-2.106 3.742-5.271 5.891-3.165 2.15-9.738 4.265-14.124 5.192-9.4 2.107-18.561 5.748-28.168 6.465-14.01 1.044-28.479-.177-42.484-2.425-4.144-.665-8.5-1.205-12.165-3.252-3.266-1.825-8.767-5.786-8.153-7.715z"
+        />
+        <path
+          fill="#fff"
+          d="M121.025 105.036s24.656 14.498 38.328 18.01c9.412 2.416 19.419 2.765 29.092 1.846 14.086-1.338 27.063-2.232 36.833-12.468 4.669-4.891 7.978-9.79 6.465-16.162-.423-1.778-.413-4.888-2.26-5.35-1.848-.462-23.162-2.083-36.42-.191-16.453 2.347-31.606 10.822-48.025 13.391-7.914 1.238-24.013.924-24.013.924z"
+        />
+        <path
+          fill="#000"
+          d="M314.895 114.548c0 .857-18.226 7.628-34.938 7.183-11.461-.305-14.589 1.162-15.438-1.525-.22-.694-.502-2.635-.483-3.811.128-7.784 6.4-18.405 13.675-24.09 3.62-2.83 8.995-3.119 13.275-3.705 14.294-1.956 23.91 11.517 23.91 25.948z"
+        />
+        <path
+          fill="#0446fc"
+          d="M17.243 251.696l.227-9.213s3.27-1.65 5.03-2.1c2.494-.636 7.682-.805 7.682-.805s5.913 5.632 18.626 13.849c12.713 8.217 45.85 16.14 69.55 21.224 18.883 4.05 34.753 7.46 54.056 7.127 15.745-1.077 31.418-2.67 44.086-7.55 5.28-2.085 18.062-8.218 18.062-8.218s12.217 4.95 14.166 5.98c13.113 6.923 13.893 11.682 24.588 21.182 5.296 4.7 14.694 15.34 14.694 15.34l-271.375-2.82.608-53.996z"
+        />
+        <path
+          fill="#000"
+          d="M210.08 121.078s-15.287 3.755-29.714 3.755c-14.426 0-22.819-2.89-22.819-2.89.072-14.424 16.152-28.095 28.207-27.967 6.81.073 13.645 2.79 18.092 7.07 4.972 4.788 5.41 12.461 6.234 20.032z"
+        />
+        <ellipse
+          transform="translate(-4.65 -716.318)"
+          fill="#fff"
+          ry="5.08"
+          rx="4.156"
+          cy="822.576"
+          cx="180.903"
+        />
+        <circle
+          transform="translate(-4.65 -716.318)"
+          fill="#fff"
+          r="7.158"
+          cy="829.897"
+          cx="196.097"
+        />
+        <ellipse
+          transform="translate(-4.65 -716.318)"
+          fill="#fff"
+          cx="180.292"
+          cy="834.284"
+          rx="3.337"
+          ry="3.232"
+        />
+        <ellipse
+          transform="translate(-4.65 -716.318)"
+          fill="#fff"
+          cx="284.743"
+          cy="819.428"
+          rx="3.087"
+          ry="3.773"
+        />
+        <circle
+          transform="translate(-4.65 -716.318)"
+          fill="#fff"
+          cx="299.848"
+          cy="824.137"
+          r="6.015"
+        />
+        <ellipse
+          transform="translate(-4.65 -716.318)"
+          fill="#fff"
+          ry="2.45"
+          rx="2.529"
+          cy="830.269"
+          cx="285.301"
+        />
+        <path
+          fill="#5a8d3e"
+          d="M226.06 113.507c.833-1.056.91-1.476 2.102-1.551.978-.062 1.92 1.219 2.143 2.224.163.737-.3 1.525-.735 2.143-1.058 1.504-4.306 3.449-4.306 3.449s-.038-5.21.796-6.265z"
+        />
+      </symbol>
+
+      <!-- FULL MARK — the real illustration. ≥40px only. -->
+      <symbol id="pepe-full" viewBox="0 0 338 309">
+        <path
+          fill="#5a8d3e"
+          fill-rule="evenodd"
+          stroke="#000"
+          stroke-width="1.829"
+          d="M17.727 228.459c-7.057-7.804-10.4-18.556-13.062-28.734l-.205-.794c-2.5-9.709-4.46-20.114-2.407-29.9 1.98-9.437 9.546-16.774 13.714-25.469 6.97-14.539 9.869-30.19 18.843-44.55 0 0 .5-.789.749-1.164 4.51-6.8 10.718-12.4 16.98-17.632 2.408-2.013 7.836-5.225 7.836-5.225S67.99 62.352 71.93 56.053c6.278-10.036 11.035-21.228 18.938-30.04 6.31-7.036 13.827-13.258 22.204-17.633 8.058-4.208 17.046-7.33 26.122-7.837 9.72-.543 19.517 2.094 28.735 5.225 8.112 2.755 16.466 6.048 22.857 11.755 1.756 1.568 3.918 5.877 3.918 5.877s22.644-12.651 34.448-15.02c11.805-2.369 26.351-3.257 34.775 0 8.425 3.257 9.902 7.614 14.368 13.061 4.465 5.448 9.722 12.252 11.755 19.592.58 2.098 0 6.53 0 6.53s21.953 10.684 30.693 18.939c4.49 4.24 7.402 10.625 10.612 15.183 2.237 3.177 6.186 4.88 6.79 8.119.287 1.53-.357 3.556-1.116 5.267-.847 1.911-3.222 1.814-3.222 1.814-3.635 3.664-2.615 13.371-2.615 13.371s-.593 5.735-3.187 8.11c-2.54 2.325-5.686 1.473-8.162 3.888-1.972 3.709-3.245 4.834-4.977 6.94-4.947 6.016-20.898 10.45-20.898 10.45s-.507 3.134 0 4.571c.88 2.492 2.34 4.647 4.067 6.652 3.938 4.572 9.264 8.363 12.26 13.593 4.28 7.472 9.142 24.163 9.142 24.163s-18.17 34.975-32.653 47.672c-13.03 11.424-29.934 18.01-46.366 23.51-11.743 3.93-24.23 5.52-36.571 6.53-16.49 1.352-33.127.499-49.632-.652-31.083-2.168-63.16-1.945-92.734-11.755-15.322-5.082-29.67-11.847-42.158-23.83a32.344 32.344 0 01-1.596-1.64z"
+        />
+        <path
+          fill="#5a8d3e"
+          fill-rule="evenodd"
+          stroke="#000"
+          stroke-width="1.097"
+          d="M28.748 240.698l13.06 20.244s36.4 11.093 54.857 15.673c15.332 3.805 30.64 8.327 46.367 9.797 19.944 1.86 40.532 3.06 60.081-1.31 8.37-1.868 23.51-10.446 23.51-10.446l12.558-14.522c-44.226 11.354-111.596 9.127-210.433-19.436h0z"
+        />
+        <path
+          fill="#9f5935"
+          stroke="#000"
+          stroke-width="1.829"
+          d="M106.061 213.297c-2.878-2.695-1.819-5.673-1.306-8.49.715-3.932 3.054-7.621 5.877-10.45 3.345-3.35 7.817-5.68 12.368-6.985 10.905-3.125 22.942-2.7 34-1.504 12.488 1.35 22.883 7.996 35.264 10.123 15.274 2.623 47.673 4.244 47.673 4.244s18.776.39 28.081-.653c16.334-1.83 34.78-.487 48.326-9.795 2.34-1.608 2.82-1.84 4.782-1.88 2.93-.061 3.068 3.48 3.57 7.299.607 4.634-1.449 6.642-4.899 9.795-2.089 1.91-2.635 1.917-5.182 3.15-2.017.977-6.108 1.88-6.108 1.88s.87 7.383-.755 10.489c-1.815 3.468-5.563 5.782-9.14 7.37-8.429 3.747-27.329 4.345-27.329 4.345s-61.899-1.984-94.04-7.184c-9.277-1.5-18.12-5.226-27.428-6.53-14.458-2.026-33.096 4.753-43.754-5.224h0z"
+        />
+        <path
+          fill="#fff"
+          stroke="#000"
+          stroke-width="1.829"
+          d="M226.31 108.73c1.15-3.608 3.925-5.4 6.812-7.85 5.16-4.379 14.987-7.171 22.985-9.213 9.71-2.478 19.844-3.086 29.855-3.556 10.278-.483 20.838-1.578 30.857.763 6.249 1.459 13.23 3.276 17.464 8.097 1.753 1.996 3.056 4.581 2.393 7.603-.65 2.965-2.106 3.742-5.271 5.891-3.165 2.15-9.738 4.265-14.124 5.192-9.4 2.107-18.561 5.748-28.168 6.465-14.01 1.044-28.479-.177-42.484-2.425-4.144-.665-8.5-1.205-12.165-3.252-3.266-1.825-8.767-5.786-8.153-7.715z"
+        />
+        <path
+          fill="#fff"
+          stroke="#000"
+          stroke-width="1.829"
+          d="M121.025 105.036s24.656 14.498 38.328 18.01c9.412 2.416 19.419 2.765 29.092 1.846 14.086-1.338 27.063-2.232 36.833-12.468 4.669-4.891 7.978-9.79 6.465-16.162-.423-1.778-.413-4.888-2.26-5.35-1.848-.462-23.162-2.083-36.42-.191-16.453 2.347-31.606 10.822-48.025 13.391-7.914 1.238-24.013.924-24.013.924z"
+        />
+        <path
+          stroke="#000"
+          stroke-width="1.097"
+          d="M314.895 114.548c0 .857-18.226 7.628-34.938 7.183-11.461-.305-14.589 1.162-15.438-1.525-.22-.694-.502-2.635-.483-3.811.128-7.784 6.4-18.405 13.675-24.09 3.62-2.83 8.995-3.119 13.275-3.705 14.294-1.956 23.91 11.517 23.91 25.948z"
+        />
+        <path
+          fill="#0446fc"
+          stroke="#000"
+          stroke-width="1.829"
+          d="M17.243 251.696l.227-9.213s3.27-1.65 5.03-2.1c2.494-.636 7.682-.805 7.682-.805s5.913 5.632 18.626 13.849c12.713 8.217 45.85 16.14 69.55 21.224 18.883 4.05 34.753 7.46 54.056 7.127 15.745-1.077 31.418-2.67 44.086-7.55 5.28-2.085 18.062-8.218 18.062-8.218s12.217 4.95 14.166 5.98c13.113 6.923 13.893 11.682 24.588 21.182 5.296 4.7 14.694 15.34 14.694 15.34l-271.375-2.82.608-53.996z"
+        />
+        <path
+          stroke="#000"
+          stroke-width="1.097"
+          d="M210.08 121.078s-15.287 3.755-29.714 3.755c-14.426 0-22.819-2.89-22.819-2.89.072-14.424 16.152-28.095 28.207-27.967 6.81.073 13.645 2.79 18.092 7.07 4.972 4.788 5.41 12.461 6.234 20.032z"
+        />
+        <ellipse
+          transform="translate(-4.65 -716.318)"
+          fill="#fff"
+          ry="5.08"
+          rx="4.156"
+          cy="822.576"
+          cx="180.903"
+        />
+        <circle
+          transform="translate(-4.65 -716.318)"
+          fill="#fff"
+          r="7.158"
+          cy="829.897"
+          cx="196.097"
+        />
+        <ellipse
+          transform="translate(-4.65 -716.318)"
+          fill="#fff"
+          cx="180.292"
+          cy="834.284"
+          rx="3.337"
+          ry="3.232"
+        />
+        <ellipse
+          transform="translate(-4.65 -716.318)"
+          fill="#fff"
+          cx="284.743"
+          cy="819.428"
+          rx="3.087"
+          ry="3.773"
+        />
+        <circle
+          transform="translate(-4.65 -716.318)"
+          fill="#fff"
+          cx="299.848"
+          cy="824.137"
+          r="6.015"
+        />
+        <ellipse
+          transform="translate(-4.65 -716.318)"
+          fill="#fff"
+          ry="2.45"
+          rx="2.529"
+          cy="830.269"
+          cx="285.301"
+        />
+        <path
+          fill="none"
+          stroke="#000"
+          stroke-width="1.097"
+          stroke-linecap="round"
+          d="M308.805 208.808c-7.4 3.695-26.895 7.023-40.44 7.29-22.226.436-43.323-.34-65.468-2.286-13.771-1.21-31.304-10.62-45.068-11.914-10.64-1-33.038 2.312-33.038 2.312M60.94 74.461c-4.942 8.009-5.684 20.97-8.239 31.366"
+        />
+        <path
+          fill="none"
+          stroke="#000"
+          stroke-width="1.097"
+          d="M194.475 23.86c3.811 6.296 5.94 13.736 3.034 24.892 7.79 5.042 5.034 7.972 9.11 13.839M290.814 48.263c-2.827-.987-9.524-3.607-14.533-4.07-26.248-2.423-50.011-2.02-79.262 4.396M197.38 48.585c-13.238-6.028-18.542-12.275-41.784-12.168-21.368.098-43.292 16.243-50.105 21.464M294.324 139.133c-13.993 2.603-24.944 5.352-43.656 3.113M238.488 135.935c3.435 2.083 14.527 5.467 20.408 14.04M227.386 110.548s1.908.335 2.857 1.795c2.337 3.596-2.982 8.354-6.204 11.184-8.504 5.55-18.214 6.313-27.145 7.29-15.792 1.728-32.148 2.522-47.548-1.25-9.881-2.42-27.428-13.387-27.428-13.387"
+        />
+        <path
+          fill="#5a8d3e"
+          d="M226.06 113.507c.833-1.056.91-1.476 2.102-1.551.978-.062 1.92 1.219 2.143 2.224.163.737-.3 1.525-.735 2.143-1.058 1.504-4.306 3.449-4.306 3.449s-.038-5.21.796-6.265z"
+        />
+        <path
+          fill="none"
+          stroke="#000"
+          stroke-width="1.097"
+          d="M121.714 104.71s-9.015-.038-12.857-2.897c-1.823-1.357-3.382-2.107-2.612-4.245.798-2.215 3.583-3.39 5.877-3.918 4.71-1.084 8.941.076 14.53-1.633 5.59-1.709 12.806-6.45 18.123-9.47 5.317-3.018 5.68-5.63 13.835-8.506 8.155-2.876 20.12-1.136 20.12-1.136M121.918 85.16s8.956-2.859 13.166-4.91c6.915-3.37 12.604-9.033 19.675-12.061 7.167-3.07 14.879-4.973 22.608-5.997 8.22-1.088 19.22-.679 24.873-.102 5.413.568 14.03 1.76 18.289 3.348 4.26 1.587 4.998 5.135 4.245 7.184-.753 2.048-2.76 1.254-4.49 1.55"
+        />
+        <path
+          fill="none"
+          stroke="#000"
+          stroke-width="1.097"
+          stroke-linecap="round"
+          d="M230.57 90.874s1.345-2.15 1.306-3.347c-.122-3.723-2.913-7.238-4.735-10.122-2.362-3.74-7.64-2.87-9.796-3.918M229.273 79.903s18.147-5.657 27.827-7.15c11.206-1.73 22.67-3.02 33.959-1.96 11.617 1.091 22.264 4.832 33.381 8.374 4.378 1.395 9.803 5.4 9.803 5.4M235.813 68.626s23.108-6.53 35.001-7.302c12.854-.834 26.13-.546 38.53 2.938 5.764 1.62 16 8.164 16 8.164M172.236 154.272c35.703-12.027 38.912-21.54 45.987-27.663M84.727 214.915s2.63 7.644 5.669 10.9c4.344 5.054 12.315 7.535 12.315 7.535"
+        />
+      </symbol>
+      <symbol id="i-arrow" viewBox="0 0 16 16">
+        <path
+          d="M3 8h10m0 0-4-4m4 4-4 4"
+          stroke="currentColor"
+          stroke-width="1.6"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 16 16">
+        <path
+          d="m3 8.5 3.5 3.5L13 4.5"
+          stroke="currentColor"
+          stroke-width="1.9"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-play" viewBox="0 0 16 16">
+        <path d="M5 3.5v9l7.5-4.5z" fill="currentColor" />
+      </symbol>
+      <symbol id="i-dumbbell" viewBox="0 0 16 16">
+        <path
+          d="M3 6v4M5.5 4.5v7M10.5 4.5v7M13 6v4M5.5 8h5"
+          stroke="currentColor"
+          stroke-width="1.5"
+          fill="none"
+          stroke-linecap="round"
+        />
+      </symbol>
+      <symbol id="i-film" viewBox="0 0 16 16">
+        <rect
+          x="2"
+          y="3"
+          width="12"
+          height="10"
+          rx="1.5"
+          stroke="currentColor"
+          stroke-width="1.4"
+          fill="none"
+        />
+        <path
+          d="M5.5 3v10M10.5 3v10"
+          stroke="currentColor"
+          stroke-width="1.4"
+        />
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 16 16">
+        <path
+          d="M8 2.5v8m0 0L5 7.5m3 3 3-3M3 13h10"
+          stroke="currentColor"
+          stroke-width="1.5"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-term" viewBox="0 0 16 16">
+        <rect
+          x="2"
+          y="3"
+          width="12"
+          height="10"
+          rx="1.5"
+          stroke="currentColor"
+          stroke-width="1.4"
+          fill="none"
+        />
+        <path
+          d="m5 7 2 1.5L5 10M8.5 10.5H11"
+          stroke="currentColor"
+          stroke-width="1.4"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-shield" viewBox="0 0 16 16">
+        <path
+          d="M8 2.2 13 4v4.2c0 3-2.1 5.1-5 5.9-2.9-.8-5-2.9-5-5.9V4z"
+          stroke="currentColor"
+          stroke-width="1.4"
+          fill="none"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-cam" viewBox="0 0 16 16">
+        <rect
+          x="1.5"
+          y="4.5"
+          width="9"
+          height="7"
+          rx="1.5"
+          stroke="currentColor"
+          stroke-width="1.4"
+          fill="none"
+        />
+        <path
+          d="m10.5 8 4-2.2v4.4z"
+          stroke="currentColor"
+          stroke-width="1.4"
+          fill="none"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-sparkle" viewBox="0 0 16 16">
+        <path
+          d="M8 1.8 9.5 6 14 7.5 9.5 9 8 13.2 6.5 9 2 7.5 6.5 6z"
+          fill="currentColor"
+        />
+      </symbol>
+    </svg>
+
+    <div class="page">
+      <!-- ════════════════════════ MASTHEAD ════════════════════════ -->
+      <header class="masthead reveal">
+        <div class="row" style="margin-bottom: 34px">
+          <span class="doorplate">
+            <span class="doorplate__badge"
+              ><svg><use href="#pepe" /></svg
+            ></span>
+            <span class="doorplate__name"
+              >lilnas<span class="tld">.io</span></span
+            >
+          </span>
+          <span class="chip chip--uv"
+            ><span class="dot dot--uv"></span>design system</span
+          >
+        </div>
+
+        <h1 class="display">
+          Eight apps.<br />One&nbsp;<span class="uvword">wavelength</span>.
+        </h1>
+
+        <p class="thesis">
+          lilnas isn't a product suite — it's a house with rooms. A front door,
+          a gym, a cinema, a workshop. <b>Ultraviolet</b> is the thing that
+          makes walking between them feel like walking through a doorway instead
+          of launching a different product.
+        </p>
+
+        <div class="row wrap" style="margin-top: 30px; gap: 8px">
+          <span class="chip chip--mute">one hue · 300</span>
+          <span class="chip chip--mute">chroma is energy</span>
+          <span class="chip chip--mute">mono = machine</span>
+          <span class="chip chip--mute">springs for you, eases for it</span>
+        </div>
+      </header>
+
+      <!-- ════════════════════════ THE IDEA ════════════════════════ -->
+      <section>
+        <div class="sec-head">
+          <span class="label">01</span>
+          <h2 class="h1">The one idea</h2>
+        </div>
+
+        <p class="lede" style="margin-bottom: 26px">
+          Most dark-purple interfaces are a neutral grey UI with a violet button
+          glued on. Ultraviolet inverts that: the background, the borders, the
+          text and the accent are all the same hue. Only the
+          <em>chroma</em> changes — from 0.008 in body copy to 0.21 in the
+          accent. Nothing is grey. Everything is purple, most of it just very
+          quietly.
+        </p>
+
+        <div class="ramp">
+          <div style="background: oklch(11% 0.018 300)"><span>0.018</span></div>
+          <div style="background: oklch(14% 0.021 300)"><span>0.021</span></div>
+          <div style="background: oklch(18.5% 0.027 300)">
+            <span>0.027</span>
+          </div>
+          <div style="background: oklch(23% 0.032 300)"><span>0.032</span></div>
+          <div style="background: oklch(29% 0.038 300)"><span>0.038</span></div>
+          <div style="background: oklch(42% 0.14 300)"><span>0.140</span></div>
+          <div style="background: oklch(55% 0.2 300)"><span>0.200</span></div>
+          <div style="background: oklch(68% 0.21 300)">
+            <span style="color: oklch(15% 0.045 300)">0.210</span>
+          </div>
+          <div style="background: oklch(75% 0.195 300)">
+            <span style="color: oklch(15% 0.045 300)">0.195</span>
+          </div>
+          <div style="background: oklch(97% 0.008 300)">
+            <span style="color: oklch(15% 0.045 300)">0.008</span>
+          </div>
+        </div>
+        <div class="rampaxis">
+          <span class="label">quiet · surfaces</span>
+          <span class="label" style="color: var(--uv)">loud · action</span>
+        </div>
+
+        <div class="grid g3" style="margin-top: 34px">
+          <div class="card">
+            <span class="label">rule 01</span>
+            <h3 class="h3" style="margin: 8px 0 6px">Chroma is energy</h3>
+            <p class="sm dim">
+              Quiet things don't change colour when you touch them — they get
+              <em>more purple</em>. The accent is already at maximum chroma, so
+              it's the one thing that brightens instead.
+            </p>
+          </div>
+          <div class="card">
+            <span class="label">rule 02</span>
+            <h3 class="h3" style="margin: 8px 0 6px">Any other hue is news</h3>
+            <p class="sm dim">
+              Green, amber and red are the only non-300 hues in the system, and
+              they only ever mean status. That's why they read so loudly.
+            </p>
+          </div>
+          <div class="card">
+            <span class="label">rule 03</span>
+            <h3 class="h3" style="margin: 8px 0 6px">Dark ink on the accent</h3>
+            <p class="sm dim">
+              White on bright purple is ~3:1 — it fails AA and looks muddy.
+              Near-black gives 7:1. The accessible choice is also the flatter,
+              more poster-like one.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════════════════════ PALETTE ════════════════════════ -->
+      <section>
+        <div class="sec-head">
+          <span class="label">02</span>
+          <h2 class="h1">Palette</h2>
+        </div>
+
+        <span class="label"
+          >Surfaces — stacked by lightness, never by shadow</span
+        >
+        <div class="swatches" style="margin: 12px 0 26px">
+          <div class="sw">
+            <div
+              class="sw__chip"
+              style="background: oklch(11% 0.018 300)"
+            ></div>
+            <div class="sw__meta">
+              <div class="sw__name">bg-sunk</div>
+              <div class="sw__val">11% .018 300</div>
+            </div>
+          </div>
+          <div class="sw">
+            <div
+              class="sw__chip"
+              style="background: oklch(14% 0.021 300)"
+            ></div>
+            <div class="sw__meta">
+              <div class="sw__name">bg</div>
+              <div class="sw__val">14% .021 300</div>
+            </div>
+          </div>
+          <div class="sw">
+            <div
+              class="sw__chip"
+              style="background: oklch(18.5% 0.027 300)"
+            ></div>
+            <div class="sw__meta">
+              <div class="sw__name">surface</div>
+              <div class="sw__val">18.5% .027 300</div>
+            </div>
+          </div>
+          <div class="sw">
+            <div
+              class="sw__chip"
+              style="background: oklch(23% 0.032 300)"
+            ></div>
+            <div class="sw__meta">
+              <div class="sw__name">surface-2</div>
+              <div class="sw__val">23% .032 300</div>
+            </div>
+          </div>
+          <div class="sw">
+            <div
+              class="sw__chip"
+              style="background: oklch(28% 0.038 300)"
+            ></div>
+            <div class="sw__meta">
+              <div class="sw__name">surface-3</div>
+              <div class="sw__val">28% .038 300</div>
+            </div>
+          </div>
+        </div>
+
+        <span class="label">Accent — the same hue, all the chroma</span>
+        <div class="swatches" style="margin: 12px 0 26px">
+          <div class="sw">
+            <div class="sw__chip" style="background: oklch(42% 0.14 300)"></div>
+            <div class="sw__meta">
+              <div class="sw__name">uv-dim</div>
+              <div class="sw__val">42% .14 300</div>
+            </div>
+          </div>
+          <div class="sw">
+            <div
+              class="sw__chip"
+              style="background: oklch(62% 0.225 300)"
+            ></div>
+            <div class="sw__meta">
+              <div class="sw__name">uv-press</div>
+              <div class="sw__val">62% .225 300</div>
+            </div>
+          </div>
+          <div class="sw">
+            <div class="sw__chip" style="background: oklch(68% 0.21 300)"></div>
+            <div class="sw__meta">
+              <div class="sw__name">uv</div>
+              <div class="sw__val">68% .21 300</div>
+            </div>
+          </div>
+          <div class="sw">
+            <div
+              class="sw__chip"
+              style="background: oklch(75% 0.195 300)"
+            ></div>
+            <div class="sw__meta">
+              <div class="sw__name">uv-hi</div>
+              <div class="sw__val">75% .195 300</div>
+            </div>
+          </div>
+          <div class="sw">
+            <div
+              class="sw__chip"
+              style="
+                background: oklch(68% 0.21 300 / 0.13);
+                border-bottom: 1px solid var(--line);
+              "
+            ></div>
+            <div class="sw__meta">
+              <div class="sw__name">uv-ghost</div>
+              <div class="sw__val">uv / 13%</div>
+            </div>
+          </div>
+        </div>
+
+        <span class="label">Status — the only other hues that exist</span>
+        <div class="swatches" style="margin: 12px 0 0">
+          <div class="sw">
+            <div class="sw__chip" style="background: oklch(76% 0.17 155)"></div>
+            <div class="sw__meta">
+              <div class="sw__name">ok</div>
+              <div class="sw__val">76% .17 155</div>
+            </div>
+          </div>
+          <div class="sw">
+            <div class="sw__chip" style="background: oklch(82% 0.15 85)"></div>
+            <div class="sw__meta">
+              <div class="sw__name">warn</div>
+              <div class="sw__val">82% .15 85</div>
+            </div>
+          </div>
+          <div class="sw">
+            <div class="sw__chip" style="background: oklch(66% 0.2 22)"></div>
+            <div class="sw__meta">
+              <div class="sw__name">bad</div>
+              <div class="sw__val">66% .20 22</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════════════════════ TYPE ════════════════════════ -->
+      <section>
+        <div class="sec-head">
+          <span class="label">03</span>
+          <h2 class="h1">Two voices</h2>
+        </div>
+
+        <p class="lede" style="margin-bottom: 28px">
+          Monospace is the machine talking: subdomains, IDs, statuses, counts,
+          timestamps, paths, keys. Sans is the interface talking to you:
+          descriptions, empty states, errors, help. If you can't decide which a
+          string is, ask whether a human wrote it or a process emitted it.
+        </p>
+
+        <div class="grid g2">
+          <div class="demo">
+            <span class="label" style="color: var(--uv)">human voice</span>
+            <p class="cap" style="margin: 6px 0 18px">
+              Figtree — warm, open, sentence case
+            </p>
+            <p class="display-2" style="margin-bottom: 4px">
+              Bricolage Grotesque
+            </p>
+            <p class="cap" style="margin-bottom: 16px">
+              display · 30–46px · titles only
+            </p>
+            <p class="h1" style="margin-bottom: 3px">Your workout is ready</p>
+            <p class="cap" style="margin-bottom: 16px">h1 · 23px · 650</p>
+            <p class="h3" style="margin-bottom: 3px">Push day — 6 exercises</p>
+            <p class="cap" style="margin-bottom: 16px">h3 · 15.5px · 600</p>
+            <p class="body" style="margin-bottom: 3px">
+              Pick up where you left off, or start something new. Nothing here
+              is saved until you finish a set.
+            </p>
+            <p class="cap">body · 15px · 400</p>
+          </div>
+
+          <div class="demo">
+            <span class="label" style="color: var(--uv)">machine voice</span>
+            <p class="cap" style="margin: 6px 0 18px">
+              IBM Plex Mono — facts, never prose
+            </p>
+            <p class="mono" style="margin-bottom: 3px">swole.lilnas.io</p>
+            <p class="cap" style="margin-bottom: 16px">
+              mono · 13px · identity
+            </p>
+            <p class="mono num" style="margin-bottom: 3px">
+              185&nbsp;lb × 8 · 00:42 · 4/12
+            </p>
+            <p class="cap" style="margin-bottom: 16px">
+              mono + tabular-nums · data
+            </p>
+            <p class="label" style="margin-bottom: 3px">last synced</p>
+            <p class="cap" style="margin-bottom: 16px">
+              label · 10.5px · 0.11em · uppercase
+            </p>
+            <div class="row wrap" style="gap: 6px">
+              <span class="chip chip--ok"
+                ><span class="dot dot--live"></span>running</span
+              >
+              <span class="chip chip--warn">degraded</span>
+              <span class="chip chip--bad">failed</span>
+              <span class="chip chip--mute">idle</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="note note--uv" style="margin-top: 16px">
+          <svg><use href="#i-sparkle" /></svg>
+          <div>
+            <b style="color: var(--ink)"
+              >Why this matters more than it sounds.</b
+            >
+            Eight apps written months apart drift because every screen
+            re-decides what a timestamp looks like. One rule —
+            <i>emitted or written?</i> — settles that everywhere, forever,
+            without a component.
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════════════════════ COMPONENTS ════════════════════════ -->
+      <section>
+        <div class="sec-head">
+          <span class="label">04</span>
+          <h2 class="h1">Components</h2>
+        </div>
+
+        <span class="label"
+          >Buttons — rectangular, because a button is a control</span
+        >
+        <div class="demo" style="margin: 12px 0 22px">
+          <div class="row wrap" style="gap: 10px; margin-bottom: 16px">
+            <button class="btn btn--uv">
+              Start workout <svg><use href="#i-arrow" /></svg>
+            </button>
+            <button class="btn btn--outline">Browse library</button>
+            <button class="btn btn--ghost">Cancel</button>
+            <button class="btn btn--bad">Delete</button>
+            <button class="btn btn--outline" disabled>Unavailable</button>
+          </div>
+          <div class="row wrap" style="gap: 10px">
+            <button class="btn btn--uv btn--lg">
+              <svg><use href="#i-play" /></svg> Enter theater
+            </button>
+            <button class="btn btn--uv btn--sm">Approve</button>
+            <button class="btn btn--outline btn--sm">Deny</button>
+          </div>
+        </div>
+
+        <div class="grid g2">
+          <div>
+            <span class="label">Fields</span>
+            <div class="demo" style="margin-top: 12px">
+              <div class="stack" style="gap: 14px">
+                <div class="field">
+                  <label for="d1">Routine name</label>
+                  <input
+                    id="d1"
+                    class="input"
+                    placeholder="Push day"
+                    value="Push day"
+                  />
+                </div>
+                <div class="field">
+                  <label for="d2">Video URL</label>
+                  <input
+                    id="d2"
+                    class="input input--mono"
+                    placeholder="https://…"
+                  />
+                  <span class="cap">Paste any link yt-dlp can read.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <span class="label">Status &amp; progress</span>
+            <div class="demo" style="margin-top: 12px">
+              <div class="stack" style="gap: 16px">
+                <div class="row between">
+                  <span class="row" style="gap: 8px">
+                    <span class="dot dot--live"></span>
+                    <span class="mono">tdr-code · session 8f2a</span>
+                  </span>
+                  <span class="chip chip--ok">live</span>
+                </div>
+                <div>
+                  <div class="row between" style="margin-bottom: 7px">
+                    <span class="mono-sm dim">downloading</span>
+                    <span class="mono-sm num" style="color: var(--uv-hi)"
+                      >64%</span
+                    >
+                  </div>
+                  <div class="bar"><i style="width: 64%"></i></div>
+                </div>
+                <div class="stack" style="gap: 7px">
+                  <div class="skel" style="height: 9px; width: 78%"></div>
+                  <div class="skel" style="height: 9px; width: 54%"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid g2" style="margin-top: 14px">
+          <div>
+            <span class="label">Tabs</span>
+            <div class="demo" style="margin-top: 12px">
+              <div class="tabs">
+                <button class="tab" aria-selected="true">Video</button>
+                <button class="tab">Movie</button>
+                <button class="tab">Show</button>
+              </div>
+              <p class="sm dim" style="margin-top: 16px">
+                Paste a link and we'll pull it down. Trim it first if you only
+                want part.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <span class="label">Feedback</span>
+            <div class="demo" style="margin-top: 12px">
+              <div class="stack" style="gap: 12px; align-items: flex-start">
+                <span class="toast">
+                  <svg style="width: 15px; height: 15px; color: var(--ok)">
+                    <use href="#i-check" /></svg
+                  >Routine saved
+                </span>
+                <div class="note">
+                  <svg style="color: var(--warn)">
+                    <use href="#i-sparkle" />
+                  </svg>
+                  <div>
+                    <b style="color: var(--ink)">yt-dlp is out of date.</b> Some
+                    sites may fail until it updates — that happens nightly at
+                    3am.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <span class="label" style="display: block; margin-top: 22px"
+          >Table — headers are machine voice</span
+        >
+        <div class="card" style="margin-top: 12px; padding: 4px 6px 6px">
+          <table>
+            <thead>
+              <tr>
+                <th>person</th>
+                <th>access</th>
+                <th>last seen</th>
+                <th style="text-align: right">state</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Jeremy Asuncion</td>
+                <td class="mono-sm dim">all services</td>
+                <td class="mono-sm num dim">2m ago</td>
+                <td style="text-align: right">
+                  <span class="chip chip--uv">admin</span>
+                </td>
+              </tr>
+              <tr>
+                <td>Sam Rivera</td>
+                <td class="mono-sm dim">theater, swole</td>
+                <td class="mono-sm num dim">4h ago</td>
+                <td style="text-align: right">
+                  <span class="chip chip--ok">granted</span>
+                </td>
+              </tr>
+              <tr>
+                <td>Alex Chen</td>
+                <td class="mono-sm dimmer">—</td>
+                <td class="mono-sm num dim">just now</td>
+                <td style="text-align: right">
+                  <span class="chip chip--warn">pending</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <span class="label" style="display: block; margin-top: 22px"
+          >Empty state — the one place the mascot is allowed out</span
+        >
+        <div class="card" style="margin-top: 12px">
+          <div class="empty">
+            <svg class="empty__pepe" viewBox="0 0 338 309">
+              <use href="#pepe-full" />
+            </svg>
+            <p class="h3" style="margin-bottom: 4px">No routines yet</p>
+            <p class="sm dim" style="max-width: 34ch; margin: 0 auto 16px">
+              Build one and it'll show up here, ready to run.
+            </p>
+            <button class="btn btn--uv btn--sm">Create a routine</button>
+          </div>
+        </div>
+
+        <span class="label" style="display: block; margin-top: 22px"
+          >The mark — two cuts of one drawing</span
+        >
+        <div class="demo" style="margin-top: 12px">
+          <p class="sm dim" style="max-width: 64ch; margin-bottom: 20px">
+            <b style="color: var(--ink)">The badge is derived, not redrawn.</b>
+            It's <code class="mono-sm">sad-pepe.svg</code> with the nine
+            stroke-only detail paths dropped, strokes removed, and the viewBox
+            cropped to the face. Those hairlines were what turned the mark to
+            mud; losing them and doubling the effective scale of the features is
+            what buys legibility. Same geometry, same character.
+          </p>
+          <div class="row wrap" style="gap: 34px; align-items: flex-end">
+            <div class="stack" style="gap: 10px; align-items: center">
+              <svg style="width: 72px; height: 72px" viewBox="0 0 338 309">
+                <use href="#pepe-full" />
+              </svg>
+              <span class="mono-sm dim">pepe-full</span>
+              <span class="cap">40px+ · empty states, hero</span>
+            </div>
+            <div class="stack" style="gap: 10px; align-items: center">
+              <span class="doorplate__badge" style="width: 48px; height: 48px"
+                ><svg><use href="#pepe" /></svg
+              ></span>
+              <span class="mono-sm dim">pepe-badge</span>
+              <span class="cap">≤32px · doorplate, avatar, favicon</span>
+            </div>
+            <div
+              class="stack"
+              style="gap: 10px; align-items: center; opacity: 0.55"
+            >
+              <svg style="width: 24px; height: 24px" viewBox="0 0 338 309">
+                <use href="#pepe-full" />
+              </svg>
+              <span class="mono-sm dim">don't</span>
+              <span class="cap">full mark at 24 — soft, dark, crowded</span>
+            </div>
+          </div>
+          <div class="row wrap" style="gap: 18px; margin-top: 24px">
+            <span class="label" style="width: 100%">badge, true size</span>
+            <span class="stack" style="gap: 6px; align-items: center"
+              ><span class="doorplate__badge" style="width: 16px; height: 16px"
+                ><svg>
+                  <use href="#pepe" /></svg
+              ></span>
+              <span class="cap">16</span></span
+            >
+            <span class="stack" style="gap: 6px; align-items: center"
+              ><span class="doorplate__badge" style="width: 20px; height: 20px"
+                ><svg>
+                  <use href="#pepe" /></svg
+              ></span>
+              <span class="cap">20</span></span
+            >
+            <span class="stack" style="gap: 6px; align-items: center"
+              ><span class="doorplate__badge"
+                ><svg>
+                  <use href="#pepe" /></svg
+              ></span>
+              <span class="cap">24 · the doorplate</span></span
+            >
+            <span class="stack" style="gap: 6px; align-items: center"
+              ><span class="doorplate__badge" style="width: 32px; height: 32px"
+                ><svg>
+                  <use href="#pepe" /></svg
+              ></span>
+              <span class="cap">32</span></span
+            >
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════════════════════ MOTION ════════════════════════ -->
+      <section>
+        <div class="sec-head">
+          <span class="label">05</span>
+          <h2 class="h1">Motion</h2>
+        </div>
+
+        <p class="lede" style="margin-bottom: 26px">
+          One entry motion, used everywhere: fade up 6px. Volume comes from
+          <em>staggering</em> it, not from inventing new animations. And a split
+          that mirrors the type rule —
+          <b style="color: var(--ink)"
+            >you get springs, the machine gets eases</b
+          >. Anything you pressed responds like a physical object; anything the
+          system did glides in.
+        </p>
+
+        <div class="grid g2">
+          <div class="demo">
+            <span class="label"
+              >stagger · 40ms · the machine delivered this</span
+            >
+            <div class="stack stagger" style="gap: 8px; margin-top: 14px">
+              <div class="warmtile row between">
+                <span class="mono-sm">theater.lilnas.io</span
+                ><span class="dot dot--live"></span>
+              </div>
+              <div class="warmtile row between">
+                <span class="mono-sm">swole.lilnas.io</span
+                ><span class="dot dot--live"></span>
+              </div>
+              <div class="warmtile row between">
+                <span class="mono-sm">download.lilnas.io</span
+                ><span class="dot dot--warn"></span>
+              </div>
+              <div class="warmtile row between">
+                <span class="mono-sm">equations.lilnas.io</span
+                ><span class="dot"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="demo">
+            <span class="label">chroma warms on hover — try it</span>
+            <p class="sm dim" style="margin: 8px 0 14px">
+              The border and fill don't change hue, they gain chroma. Hover the
+              tiles on the left, or press a button — that's a spring, because
+              you caused it.
+            </p>
+            <div class="stack" style="gap: 12px">
+              <div class="row wrap" style="gap: 8px">
+                <button class="btn btn--uv">Press me</button>
+                <button class="btn btn--outline">And me</button>
+              </div>
+              <hr class="rule" style="margin: 4px 0" />
+              <div class="stack" style="gap: 9px">
+                <div class="row between">
+                  <span class="mono-sm dim">entry / exit</span
+                  ><span class="mono-sm">200ms · ease</span>
+                </div>
+                <div class="row between">
+                  <span class="mono-sm dim">press / release</span
+                  ><span class="mono-sm">120ms · spring</span>
+                </div>
+                <div class="row between">
+                  <span class="mono-sm dim">page / route</span
+                  ><span class="mono-sm">380ms · ease</span>
+                </div>
+                <div class="row between">
+                  <span class="mono-sm dim">live pulse</span
+                  ><span class="mono-sm">2.4s · loop</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════════════════════ IN SITU ════════════════════════ -->
+      <section>
+        <div class="sec-head">
+          <span class="label">06</span>
+          <h2 class="h1">In situ</h2>
+        </div>
+        <p class="lede" style="margin-bottom: 26px">
+          The same tokens across three apps that have nothing else in common.
+          Notice the doorplate is byte-for-byte identical in each — that's the
+          doorway.
+        </p>
+
+        <!-- portal -->
+        <div class="app" style="margin-bottom: 18px">
+          <div class="app__bar">
+            <span class="doorplate">
+              <span class="doorplate__badge"
+                ><svg><use href="#pepe" /></svg
+              ></span>
+              <span class="doorplate__name"
+                >lilnas<span class="tld">.io</span></span
+              >
+            </span>
+            <span class="row" style="gap: 8px">
+              <span class="chip chip--ok"
+                ><span class="dot dot--live"></span>8 up</span
+              >
+            </span>
+          </div>
+          <div class="app__body">
+            <p class="display-2" style="margin-bottom: 4px">
+              Everything's here
+            </p>
+            <p class="sm dim" style="margin-bottom: 20px">
+              Eight services, all reachable. Pick a room.
+            </p>
+            <div class="grid g3 stagger">
+              <a class="tile">
+                <span class="tile__icon"
+                  ><svg><use href="#i-shield" /></svg
+                ></span>
+                <span>
+                  <span class="h3" style="display: block">auth</span>
+                  <span class="mono-sm dim">auth.lilnas.io</span>
+                </span>
+              </a>
+              <a class="tile">
+                <span class="tile__icon"
+                  ><svg><use href="#i-dumbbell" /></svg
+                ></span>
+                <span>
+                  <span class="h3" style="display: block">swole</span>
+                  <span class="mono-sm dim">swole.lilnas.io</span>
+                </span>
+              </a>
+              <a class="tile">
+                <span class="tile__icon"
+                  ><svg><use href="#i-film" /></svg
+                ></span>
+                <span>
+                  <span class="h3" style="display: block">theater</span>
+                  <span class="mono-sm dim">theater.lilnas.io</span>
+                </span>
+              </a>
+              <a class="tile">
+                <span class="tile__icon"
+                  ><svg><use href="#i-download" /></svg
+                ></span>
+                <span>
+                  <span class="h3" style="display: block">download</span>
+                  <span class="mono-sm dim">download.lilnas.io</span>
+                </span>
+              </a>
+              <a class="tile">
+                <span class="tile__icon"
+                  ><svg><use href="#i-term" /></svg
+                ></span>
+                <span>
+                  <span class="h3" style="display: block">tdr-code</span>
+                  <span class="mono-sm dim">tdr.lilnas.io</span>
+                </span>
+              </a>
+              <a class="tile">
+                <span class="tile__icon"
+                  ><svg><use href="#i-cam" /></svg
+                ></span>
+                <span>
+                  <span class="h3" style="display: block">dashcam</span>
+                  <span class="mono-sm dim">dashcam.lilnas.io</span>
+                </span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid g2">
+          <!-- swole -->
+          <div class="app">
+            <div class="app__bar">
+              <span class="doorplate">
+                <span class="doorplate__badge"
+                  ><svg><use href="#pepe" /></svg
+                ></span>
+                <span class="doorplate__name"
+                  >swole<span class="tld">.lilnas.io</span></span
+                >
+              </span>
+              <span class="mono-sm num dim">4 / 12</span>
+            </div>
+            <div class="app__body">
+              <div class="setcard" style="margin-bottom: 10px">
+                <span class="label">set 3 of 4</span>
+                <p class="h2" style="margin: 10px 0 14px">Bench press</p>
+                <p class="bignum">185</p>
+                <p class="mono num dim" style="margin-top: 6px">lb × 8 reps</p>
+              </div>
+              <div class="actiongrid">
+                <button class="btn btn--uv bigbtn">
+                  <svg><use href="#i-check" /></svg> Done
+                </button>
+                <button class="btn btn--outline bigbtn">Failed</button>
+              </div>
+              <p class="cap" style="text-align: center; margin-top: 12px">
+                Last time you hit 8, 8, 7. Beat the last one.
+              </p>
+            </div>
+          </div>
+
+          <!-- tdr-code -->
+          <div class="app">
+            <div class="app__bar">
+              <span class="doorplate">
+                <span class="doorplate__badge"
+                  ><svg><use href="#pepe" /></svg
+                ></span>
+                <span class="doorplate__name"
+                  >tdr<span class="tld">.lilnas.io</span></span
+                >
+              </span>
+              <span class="chip chip--ok"
+                ><span class="dot dot--live"></span>tailing</span
+              >
+            </div>
+            <div class="app__body" style="padding: 14px 10px">
+              <div class="stack stagger" style="gap: 1px">
+                <div class="logrow">
+                  <span class="num dimmer">09:14:02</span
+                  ><span class="lvl" style="color: var(--ink-4)">DEBUG</span
+                  ><span class="dim">session.attach ch=general</span>
+                </div>
+                <div class="logrow">
+                  <span class="num dimmer">09:14:02</span
+                  ><span class="lvl" style="color: var(--ok)">INFO</span
+                  ><span>agent ready in 412ms</span>
+                </div>
+                <div class="logrow">
+                  <span class="num dimmer">09:14:07</span
+                  ><span class="lvl" style="color: var(--ok)">INFO</span
+                  ><span>tool:Read src/app/page.tsx</span>
+                </div>
+                <div class="logrow">
+                  <span class="num dimmer">09:14:19</span
+                  ><span class="lvl" style="color: var(--warn)">WARN</span
+                  ><span>rate limit 80% — backing off</span>
+                </div>
+                <div class="logrow">
+                  <span class="num dimmer">09:14:31</span
+                  ><span class="lvl" style="color: var(--bad)">ERROR</span
+                  ><span>fetch ETIMEDOUT api.github.com</span>
+                </div>
+                <div class="logrow">
+                  <span class="num dimmer">09:14:33</span
+                  ><span class="lvl" style="color: var(--ok)">INFO</span
+                  ><span>retry 1/3 succeeded</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════════════════════ VOICE ════════════════════════ -->
+      <section>
+        <div class="sec-head">
+          <span class="label">07</span>
+          <h2 class="h1">Friendly is a writing problem</h2>
+        </div>
+        <p class="lede" style="margin-bottom: 24px">
+          Most of "delightful UX" isn't animation — it's not being weird at
+          people. Same voice in all eight apps.
+        </p>
+
+        <div class="grid g2">
+          <div class="card">
+            <span class="chip chip--bad" style="margin-bottom: 12px"
+              >don't</span
+            >
+            <div class="stack" style="gap: 11px; margin-top: 4px">
+              <p class="mono-sm dim">Error: request failed with status 500</p>
+              <p class="mono-sm dim">Submit</p>
+              <p class="mono-sm dim">No data available</p>
+              <p class="mono-sm dim">Are you sure you want to proceed?</p>
+              <p class="mono-sm dim">Oops! Something went wrong 😬</p>
+            </div>
+          </div>
+          <div class="card" style="border-color: oklch(68% 0.21 300 / 0.3)">
+            <span class="chip chip--uv" style="margin-bottom: 12px">do</span>
+            <div class="stack" style="gap: 11px; margin-top: 4px">
+              <p class="sm">
+                Radarr didn't answer. It may be restarting — try again in a
+                minute.
+              </p>
+              <p class="sm">Save routine</p>
+              <p class="sm">
+                No sessions yet. Start one from Discord and it'll appear here.
+              </p>
+              <p class="sm">Delete "Push day"? Its 14 logged sessions stay.</p>
+              <p class="sm">That link isn't one yt-dlp recognizes.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid g3" style="margin-top: 16px">
+          <div class="note">
+            <svg><use href="#i-check" /></svg>
+            <div>
+              <b style="color: var(--ink)">Name the action, keep the name.</b>
+              The button says Publish, the toast says Published.
+            </div>
+          </div>
+          <div class="note">
+            <svg><use href="#i-check" /></svg>
+            <div>
+              <b style="color: var(--ink)">Errors don't apologise.</b> Say what
+              happened and what to do next.
+            </div>
+          </div>
+          <div class="note">
+            <svg><use href="#i-check" /></svg>
+            <div>
+              <b style="color: var(--ink)">Empty is an invitation.</b> Never a
+              dead end — always one thing to press.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer
+        style="
+          margin-top: 96px;
+          padding-top: 26px;
+          border-top: 1px solid var(--line-soft);
+        "
+        class="row between wrap"
+      >
+        <span class="mono-sm dimmer">ultraviolet · v0.1 · docs/designs</span>
+        <span class="row" style="gap: 8px">
+          <span class="dot dot--uv"></span>
+          <span class="mono-sm dim">one hue, all the chroma</span>
+        </span>
+      </footer>
+    </div>
+  </body>
+</html>
