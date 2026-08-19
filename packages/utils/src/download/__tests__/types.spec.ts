@@ -3,11 +3,14 @@ import {
   DownloadJobStatus,
   DownloadType,
   GetDownloadJobResponse,
+  IN_PROGRESS_DOWNLOAD_JOB_STATUSES,
   isMovieDownloadJob,
   isShowDownloadJob,
+  isTerminalDownloadJobStatus,
   isVideoDownloadJob,
   MovieDownloadJob,
   ShowDownloadJob,
+  TERMINAL_DOWNLOAD_JOB_STATUSES,
   VideoDownloadJob,
 } from 'src/download/types'
 
@@ -72,6 +75,43 @@ describe('DownloadJobStatus', () => {
     expect(DownloadJobStatus.Requested).toBe('requested')
     expect(DownloadJobStatus.Searching).toBe('searching')
     expect(DownloadJobStatus.Importing).toBe('importing')
+  })
+})
+
+describe('TERMINAL_DOWNLOAD_JOB_STATUSES / IN_PROGRESS_DOWNLOAD_JOB_STATUSES', () => {
+  const allStatuses = Object.values(DownloadJobStatus)
+
+  it('partition all status members exactly - no overlap, no gaps', () => {
+    const terminal = new Set<DownloadJobStatus>(TERMINAL_DOWNLOAD_JOB_STATUSES)
+    const inProgress = new Set<DownloadJobStatus>(
+      IN_PROGRESS_DOWNLOAD_JOB_STATUSES,
+    )
+
+    expect(terminal.size + inProgress.size).toBe(allStatuses.length)
+    for (const status of allStatuses) {
+      expect(terminal.has(status) !== inProgress.has(status)).toBe(true)
+    }
+  })
+
+  it('marks cancelled/completed/failed as terminal', () => {
+    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toEqual(
+      expect.arrayContaining([
+        DownloadJobStatus.Cancelled,
+        DownloadJobStatus.Completed,
+        DownloadJobStatus.Failed,
+      ]),
+    )
+    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toHaveLength(3)
+  })
+
+  it('isTerminalDownloadJobStatus agrees with the two sets', () => {
+    for (const status of allStatuses) {
+      expect(isTerminalDownloadJobStatus(status)).toBe(
+        (
+          TERMINAL_DOWNLOAD_JOB_STATUSES as readonly DownloadJobStatus[]
+        ).includes(status),
+      )
+    }
   })
 })
 
