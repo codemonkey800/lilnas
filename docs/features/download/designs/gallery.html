@@ -1,0 +1,2035 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Unified gallery — download UI mockups · lilnas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ═══════════════════════════════════════════════════════════════════
+         ULTRAVIOLET — token layer (verbatim from docs/designs/preview/index.html)
+         ═══════════════════════════════════════════════════════════════════ */
+      :root {
+        --bg: oklch(14% 0.021 300);
+        --bg-sunk: oklch(11% 0.018 300);
+        --surface: oklch(18.5% 0.027 300);
+        --surface-2: oklch(23% 0.032 300);
+        --surface-3: oklch(28% 0.038 300);
+
+        --line: oklch(29% 0.038 300);
+        --line-soft: oklch(23.5% 0.031 300);
+        --line-loud: oklch(41% 0.055 300);
+
+        --ink: oklch(97% 0.008 300);
+        --ink-2: oklch(79% 0.02 300);
+        --ink-3: oklch(63% 0.026 300);
+        --ink-4: oklch(50% 0.028 300);
+
+        --uv: oklch(68% 0.21 300);
+        --uv-hi: oklch(75% 0.195 300);
+        --uv-press: oklch(62% 0.225 300);
+        --uv-dim: oklch(42% 0.14 300);
+        --uv-ghost: oklch(68% 0.21 300 / 0.13);
+        --uv-ink: oklch(15% 0.045 300);
+
+        --ok: oklch(76% 0.17 155);
+        --ok-ghost: oklch(76% 0.17 155 / 0.14);
+        --warn: oklch(82% 0.15 85);
+        --warn-ghost: oklch(82% 0.15 85 / 0.14);
+        --bad: oklch(66% 0.2 22);
+        --bad-ghost: oklch(66% 0.2 22 / 0.14);
+
+        --r-xs: 6px;
+        --r-md: 10px;
+        --r-lg: 14px;
+        --r-xl: 20px;
+
+        --lift: 0 16px 40px -12px oklch(6% 0.02 300 / 0.7);
+
+        --ease: cubic-bezier(0.32, 0.72, 0, 1);
+        --spring: linear(
+          0,
+          0.006,
+          0.025 2.8%,
+          0.101 6.1%,
+          0.539 18.9%,
+          0.721 25.3%,
+          0.849 31.5%,
+          0.937 38.1%,
+          0.968 41.8%,
+          0.991 45.7%,
+          1.006 50.1%,
+          1.015 60%,
+          1.006 76.2%,
+          1
+        );
+        --t-fast: 120ms;
+        --t: 200ms;
+        --t-slow: 380ms;
+
+        --font-sans: "Figtree", system-ui, sans-serif;
+        --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+      }
+
+      /* ── base ─────────────────────────────────────────────────────────── */
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--font-sans);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+        border: none;
+        background: none;
+      }
+      svg {
+        display: block;
+      }
+      :focus-visible {
+        outline: 2px solid var(--uv);
+        outline-offset: 2px;
+        border-radius: var(--r-xs);
+      }
+      img {
+        display: block;
+        max-width: 100%;
+      }
+
+      /* ── type roles ───────────────────────────────────────────────────── */
+      .h1 {
+        font-size: 23px;
+        font-weight: 650;
+        letter-spacing: -0.015em;
+        line-height: 1.25;
+      }
+      .h2 {
+        font-size: 18px;
+        font-weight: 620;
+        letter-spacing: -0.01em;
+        line-height: 1.3;
+      }
+      .h3 {
+        font-size: 15.5px;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+      .sm {
+        font-size: 13.5px;
+        line-height: 1.55;
+      }
+      .cap {
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--ink-3);
+      }
+      .dim {
+        color: var(--ink-3);
+      }
+      .dimmer {
+        color: var(--ink-4);
+      }
+      .mono {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 450;
+        letter-spacing: -0.01em;
+      }
+      .mono-sm {
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        font-weight: 450;
+      }
+      .label {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        font-weight: 500;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: var(--ink-4);
+      }
+      .num {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ── layout helpers ───────────────────────────────────────────────── */
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .wrap {
+        flex-wrap: wrap;
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+      }
+      .between {
+        justify-content: space-between;
+      }
+
+      /* ── doorplate — byte-identical everywhere ───────────────────────── */
+      .doorplate {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        height: 32px;
+        padding: 0 12px 0 4px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        background: transparent;
+        transition:
+          border-color var(--t) var(--ease),
+          background-color var(--t) var(--ease);
+      }
+      .doorplate:hover {
+        border-color: var(--uv-dim);
+        background: var(--surface-2);
+      }
+      .doorplate__badge {
+        width: 24px;
+        height: 24px;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+      }
+      .doorplate__badge svg {
+        width: 100%;
+        height: 100%;
+      }
+      .doorplate__name {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+      }
+
+      /* ── card ──────────────────────────────────────────────────────────── */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--r-lg);
+        padding: 20px;
+      }
+      .card--sunk {
+        background: var(--bg-sunk);
+      }
+
+      /* ── buttons ──────────────────────────────────────────────────────── */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        height: 38px;
+        padding: 0 15px;
+        border-radius: var(--r-md);
+        border: 1px solid transparent;
+        font-size: 14px;
+        font-weight: 550;
+        letter-spacing: -0.005em;
+        white-space: nowrap;
+        transition:
+          background-color var(--t) var(--ease),
+          border-color var(--t) var(--ease),
+          color var(--t) var(--ease),
+          transform var(--t-fast) var(--spring);
+      }
+      .btn:active {
+        transform: scale(0.96);
+      }
+      .btn svg {
+        width: 15px;
+        height: 15px;
+        flex-shrink: 0;
+      }
+      .btn--uv {
+        background: var(--uv);
+        color: var(--uv-ink);
+        font-weight: 620;
+      }
+      .btn--uv:hover {
+        background: var(--uv-hi);
+      }
+      .btn--uv:active {
+        background: var(--uv-press);
+      }
+      .btn--outline {
+        border-color: var(--line);
+        color: var(--ink);
+        background: var(--surface);
+      }
+      .btn--outline:hover {
+        border-color: var(--uv-dim);
+        background: var(--surface-2);
+      }
+      .btn--ghost {
+        color: var(--ink-3);
+        padding: 0 11px;
+      }
+      .btn--ghost:hover {
+        color: var(--ink);
+        background: var(--surface-2);
+      }
+      .btn--bad {
+        color: var(--bad);
+        border-color: transparent;
+        padding: 0 11px;
+      }
+      .btn--bad:hover {
+        background: var(--bad-ghost);
+      }
+      .btn--sm {
+        height: 30px;
+        padding: 0 11px;
+        font-size: 13px;
+      }
+      .btn--lg {
+        height: 46px;
+        padding: 0 22px;
+        font-size: 15.5px;
+      }
+      .btn--full {
+        width: 100%;
+      }
+      .btn[disabled] {
+        opacity: 0.38;
+        pointer-events: none;
+      }
+
+      /* ── fields / inputs ──────────────────────────────────────────────── */
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .field > label {
+        font-size: 13px;
+        font-weight: 560;
+        color: var(--ink-2);
+      }
+      .input {
+        height: 38px;
+        padding: 0 12px;
+        border-radius: var(--r-md);
+        border: 1px solid var(--line);
+        background: var(--bg-sunk);
+        width: 100%;
+        font-size: 14px;
+        transition:
+          border-color var(--t) var(--ease),
+          box-shadow var(--t) var(--ease);
+      }
+      .input::placeholder {
+        color: var(--ink-4);
+      }
+      .input:focus {
+        outline: none;
+        border-color: var(--uv);
+        box-shadow: 0 0 0 3px var(--uv-ghost);
+      }
+      .input--mono {
+        font-family: var(--font-mono);
+        font-size: 13px;
+      }
+
+      /* ── chips ────────────────────────────────────────────────────────── */
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 23px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        border: 1px solid transparent;
+        white-space: nowrap;
+      }
+      .chip svg {
+        width: 11px;
+        height: 11px;
+      }
+      .chip--uv {
+        background: var(--uv-ghost);
+        color: var(--uv-hi);
+        border-color: oklch(68% 0.21 300 / 0.3);
+      }
+      .chip--ok {
+        background: var(--ok-ghost);
+        color: var(--ok);
+        border-color: oklch(76% 0.17 155 / 0.3);
+      }
+      .chip--warn {
+        background: var(--warn-ghost);
+        color: var(--warn);
+        border-color: oklch(82% 0.15 85 / 0.3);
+      }
+      .chip--bad {
+        background: var(--bad-ghost);
+        color: var(--bad);
+        border-color: oklch(66% 0.2 22 / 0.32);
+      }
+      .chip--mute {
+        background: var(--surface-2);
+        color: var(--ink-3);
+        border-color: var(--line);
+      }
+
+      /* ── the live dot ─────────────────────────────────────────────────── */
+      .dot {
+        position: relative;
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        flex-shrink: 0;
+        background: var(--ink-4);
+      }
+      .dot--live {
+        background: var(--ok);
+      }
+      .dot--live::after {
+        content: "";
+        position: absolute;
+        inset: -3px;
+        border-radius: 999px;
+        border: 1.5px solid var(--ok);
+        animation: breathe 2.4s var(--ease) infinite;
+      }
+      .dot--warn {
+        background: var(--warn);
+      }
+      .dot--bad {
+        background: var(--bad);
+      }
+      @keyframes breathe {
+        0% {
+          transform: scale(0.7);
+          opacity: 0.9;
+        }
+        70% {
+          transform: scale(2.1);
+          opacity: 0;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+
+      /* ── progress ─────────────────────────────────────────────────────── */
+      .bar {
+        height: 5px;
+        border-radius: 999px;
+        background: var(--surface-3);
+        overflow: hidden;
+      }
+      .bar > i {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: var(--uv);
+        transition: width var(--t-slow) var(--ease);
+      }
+
+      /* ── tabs ─────────────────────────────────────────────────────────── */
+      .tabs {
+        display: flex;
+        gap: 22px;
+        border-bottom: 1px solid var(--line);
+      }
+      .tabs--stretch {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0;
+      }
+      .tab {
+        position: relative;
+        padding: 9px 1px;
+        font-size: 14px;
+        font-weight: 550;
+        color: var(--ink-3);
+        transition: color var(--t) var(--ease);
+        text-align: left;
+      }
+      .tabs--stretch .tab {
+        text-align: center;
+      }
+      .tab:hover {
+        color: var(--ink-2);
+      }
+      .tab[aria-selected="true"] {
+        color: var(--ink);
+      }
+      .tab[aria-selected="true"]::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: -1px;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--uv);
+      }
+
+      /* ── note ─────────────────────────────────────────────────────────── */
+      .note {
+        display: flex;
+        gap: 10px;
+        padding: 13px 15px;
+        border-radius: var(--r-md);
+        border: 1px solid var(--line);
+        background: var(--surface);
+        font-size: 13.5px;
+        line-height: 1.55;
+        color: var(--ink-2);
+      }
+      .note svg {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+
+      /* ── motion ───────────────────────────────────────────────────────── */
+      .stagger > * {
+        opacity: 0;
+        transform: translateY(6px);
+        animation: rise 420ms var(--ease) forwards;
+      }
+      .stagger > *:nth-child(1) {
+        animation-delay: 0ms;
+      }
+      .stagger > *:nth-child(2) {
+        animation-delay: 40ms;
+      }
+      .stagger > *:nth-child(3) {
+        animation-delay: 80ms;
+      }
+      .stagger > *:nth-child(4) {
+        animation-delay: 120ms;
+      }
+      .stagger > *:nth-child(5) {
+        animation-delay: 160ms;
+      }
+      .stagger > *:nth-child(6) {
+        animation-delay: 200ms;
+      }
+      .stagger > *:nth-child(7) {
+        animation-delay: 240ms;
+      }
+      .stagger > *:nth-child(8) {
+        animation-delay: 280ms;
+      }
+      .stagger > *:nth-child(n + 9) {
+        animation-delay: 280ms;
+      }
+      @keyframes rise {
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      .reveal {
+        opacity: 0;
+        transform: translateY(6px);
+        animation: rise var(--t-slow) var(--ease) forwards;
+      }
+
+      /* ── app vignette (the frame each mocked screen sits in) ───────────── */
+      .app {
+        border: 1px solid var(--line);
+        border-radius: var(--r-xl);
+        overflow: hidden;
+        background: var(--bg);
+      }
+      .app__bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 11px 16px;
+        border-bottom: 1px solid var(--line-soft);
+        background: var(--bg-sunk);
+      }
+      .app__body {
+        padding: 22px 20px 26px;
+      }
+
+      /* ── tile ─────────────────────────────────────────────────────────── */
+      .tile {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 15px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        background: var(--surface);
+        transition:
+          border-color var(--t) var(--ease),
+          background-color var(--t) var(--ease),
+          transform var(--t) var(--ease);
+      }
+      .tile:hover {
+        border-color: var(--uv);
+        background: oklch(22% 0.055 300);
+        transform: translateY(-2px);
+      }
+      .tile__icon {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: var(--surface-3);
+        display: grid;
+        place-items: center;
+        color: var(--ink-2);
+      }
+      .tile__icon svg {
+        width: 15px;
+        height: 15px;
+      }
+      .tile:hover .tile__icon {
+        background: var(--uv-ghost);
+        color: var(--uv-hi);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+        .reveal,
+        .stagger > * {
+          opacity: 1;
+          transform: none;
+        }
+      }
+
+      /* ═══════════════════════════════════════════════════════════════════
+         MOCKUP-SPECIFIC
+         ═══════════════════════════════════════════════════════════════════ */
+      .mock-page {
+        max-width: 1328px;
+        margin: 0 auto;
+        padding: 56px 24px 140px;
+      }
+      .mock-head {
+        max-width: 74ch;
+        margin-bottom: 44px;
+      }
+      .mock-head__back {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 22px;
+      }
+      .mock-head__back svg {
+        width: 12px;
+        height: 12px;
+        color: var(--ink-4);
+        transform: scaleX(-1);
+      }
+      .mock-screen__desc {
+        max-width: 62ch;
+        margin: 8px 0 28px;
+      }
+
+      /* content column — foundations.md "Content column: 1080px max" /
+         "Dense/table app: 1120px max" — centred inside the wider app frame
+         instead of hugging its left edge */
+      .content-col {
+        max-width: 1080px;
+        margin: 0 auto;
+      }
+      .content-col--dense {
+        max-width: 1120px;
+      }
+
+      /* nav-bar search — canonical entry point on every page. search.html
+         omits this field: its hero already IS the search. */
+      .navsearch {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 32px;
+        padding: 0 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--bg-sunk);
+        flex: 1;
+        max-width: 320px;
+        min-width: 0;
+        transition:
+          border-color var(--t) var(--ease),
+          box-shadow var(--t) var(--ease);
+      }
+      .navsearch:focus-within {
+        border-color: var(--uv);
+        box-shadow: 0 0 0 3px var(--uv-ghost);
+      }
+      .navsearch__icon {
+        width: 14px;
+        height: 14px;
+        color: var(--ink-4);
+        flex-shrink: 0;
+      }
+      .navsearch__input {
+        flex: 1;
+        min-width: 0;
+        border: none;
+        background: none;
+        outline: none;
+        font-size: 13px;
+        color: var(--ink);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .navsearch__input::placeholder {
+        color: var(--ink-4);
+      }
+
+      /* wraps a gcard's poster + identity row(s) so it's a real link, while
+         "Watch" stays a sibling button — no nested interactive elements */
+      .gcard__link {
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+      }
+
+      .vptoggle {
+        display: inline-flex;
+        gap: 4px;
+        padding: 4px;
+        border-radius: 999px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+      }
+      /* Nexus's HtmlPreview sandboxes mockups in a srcDoc iframe with a
+         per-mount CSP script-src nonce this file can never know, so any
+         <script> it writes is inert there — verified empirically. This
+         toggle is therefore CSS-only: a real (visually hidden) radio per
+         option, `:has()` on the shared scope decides which frame shows and
+         which button reads as active. No JS, so it works identically over
+         file:// and inside Nexus's sandbox. */
+      .vp-radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        margin: 0;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .vptoggle__btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        height: 32px;
+        padding: 0 15px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 550;
+        color: var(--ink-3);
+        cursor: pointer;
+        transition:
+          background-color var(--t) var(--ease),
+          color var(--t) var(--ease);
+      }
+      .vptoggle__btn span {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        color: var(--ink-4);
+      }
+      .vptoggle__btn:hover {
+        color: var(--ink);
+      }
+      .vptoggle__btn:has(.vp-radio:checked) {
+        background: var(--uv);
+        color: var(--uv-ink);
+        font-weight: 620;
+      }
+      .vptoggle__btn:has(.vp-radio:checked) span {
+        color: var(--uv-ink);
+        opacity: 0.75;
+      }
+      .vptoggle__btn:has(.vp-radio:checked):hover {
+        background: var(--uv-hi);
+      }
+      .vptoggle__btn:has(.vp-radio:focus-visible) {
+        outline: 2px solid var(--uv);
+        outline-offset: 2px;
+      }
+
+      /* ── filters panel — two separate, always-visible static mockups
+         (closed / open) rather than one interactive disclosure, so both
+         states are reviewable at a glance without clicking anything ─────── */
+      .filters-scope {
+        position: relative;
+      }
+      .filters-btn--active {
+        border-color: oklch(68% 0.21 300 / 0.35);
+        background: var(--uv-ghost);
+        color: var(--uv-hi);
+      }
+      .filters-btn--active .chev {
+        transform: rotate(180deg);
+      }
+      .filters-btn__badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 16px;
+        height: 16px;
+        padding: 0 4px;
+        border-radius: 999px;
+        background: var(--uv);
+        color: var(--uv-ink);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 700;
+      }
+      .afchip {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        height: 27px;
+        padding: 0 8px 0 11px;
+        border-radius: 999px;
+        background: var(--uv-ghost);
+        border: 1px solid oklch(68% 0.21 300 / 0.3);
+        color: var(--uv-hi);
+        font-size: 12.5px;
+        font-weight: 550;
+      }
+      .afchip button {
+        display: flex;
+        color: inherit;
+        opacity: 0.7;
+        transition: opacity var(--t) var(--ease);
+      }
+      .afchip button:hover {
+        opacity: 1;
+      }
+      .afchip button svg {
+        width: 12px;
+        height: 12px;
+      }
+      .fpanel {
+        padding: 20px 22px 18px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-lg);
+        background: var(--surface);
+        box-shadow: var(--lift);
+      }
+      .fpanel__grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        gap: 22px 28px;
+      }
+      .fpanel__group {
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+      }
+      /* a spanned track needs 2+ columns to exist at all — forcing that on the
+         narrow mobile panel (which wants a single column) would overflow it,
+         so the span only applies inside the wide desktop frame */
+      .app--desktop .fpanel__group--wide {
+        grid-column: span 2;
+      }
+      .fpanel__foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        margin-top: 20px;
+        padding-top: 16px;
+        border-top: 1px solid var(--line-soft);
+      }
+
+      /* ── select / menu — components.md: trigger matches Input; content is
+         surface-3 + line-loud + rounded-lg + shadow-lift; items are h-8
+         rounded-xs, hover surface-2, selected uv-ghost/uv-hi ──────────────── */
+      .menu-trigger {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        text-align: left;
+      }
+      .menu-trigger .chev {
+        width: 13px;
+        height: 13px;
+        color: var(--ink-3);
+        flex-shrink: 0;
+      }
+      .menu {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        padding: 4px;
+        border: 1px solid var(--line-loud);
+        border-radius: var(--r-lg);
+        background: var(--surface-3);
+        box-shadow: var(--lift);
+      }
+      .menu__item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 32px;
+        padding: 0 10px;
+        border-radius: var(--r-xs);
+        font-size: 14px;
+        color: var(--ink-2);
+        text-align: left;
+        width: 100%;
+        transition: background-color var(--t) var(--ease);
+      }
+      .menu__item:hover {
+        background: var(--surface-2);
+      }
+      .menu__item--selected {
+        background: var(--uv-ghost);
+        color: var(--uv-hi);
+        font-weight: 550;
+      }
+      .menu__item svg {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+        color: var(--uv-hi);
+      }
+
+      /* the viewport panels themselves — shown/hidden by the same :has()
+         switch, keyed off the .vp-scope wrapper around toggle + both frames */
+      .vp-scope [data-viewport-panel] {
+        display: none;
+      }
+      .vp-scope:has(.vp-radio[value="desktop"]:checked) [data-viewport-panel="desktop"] {
+        display: flex;
+      }
+      .vp-scope:has(.vp-radio[value="mobile"]:checked) [data-viewport-panel="mobile"] {
+        display: flex;
+      }
+
+      .frame-stack {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+      }
+      .frame-label {
+        display: block;
+        text-align: center;
+      }
+      .frame-label--pair {
+        margin-top: 12px;
+      }
+
+      .app--desktop {
+        width: 1280px;
+        max-width: 100%;
+      }
+      .app--mobile {
+        width: 390px;
+        max-width: 100%;
+      }
+      .app--desktop .app__body {
+        padding: 30px 32px 44px;
+      }
+      .app--mobile .app__body {
+        padding: 18px 24px 30px;
+      }
+      .app--mobile .app__bar {
+        padding: 10px 14px 10px 16px;
+      }
+
+      .slot {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        border-bottom: 2px solid var(--line);
+        padding-bottom: 16px;
+        transition: border-color var(--t) var(--ease);
+      }
+      .slot:focus-within,
+      .slot--filled {
+        border-color: var(--uv);
+      }
+      .slot__icon {
+        width: 22px;
+        height: 22px;
+        color: var(--ink-4);
+        flex-shrink: 0;
+      }
+      .slot__input {
+        flex: 1;
+        min-width: 0;
+        border: none;
+        background: none;
+        outline: none;
+        font-family: var(--font-mono);
+        color: var(--ink);
+      }
+      .slot__input::placeholder {
+        color: var(--ink-4);
+      }
+      .slot--lg .slot__input {
+        font-size: 25px;
+      }
+      .slot--md .slot__input {
+        font-size: 18px;
+      }
+      .dropline {
+        font-family: var(--font-sans);
+        font-weight: 780;
+        letter-spacing: -0.025em;
+        line-height: 1.03;
+        color: var(--ink);
+      }
+      .dropline--lg {
+        font-size: 54px;
+      }
+      .dropline--md {
+        font-size: 32px;
+      }
+
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 32px;
+        padding: 0 13px 0 11px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+        font-size: 12.5px;
+        color: var(--ink-3);
+        cursor: pointer;
+        user-select: none;
+        transition:
+          border-color var(--t) var(--ease),
+          background-color var(--t) var(--ease),
+          color var(--t) var(--ease);
+      }
+      .toggle input {
+        appearance: none;
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        border: 1.5px solid var(--line-loud);
+        background: var(--bg-sunk);
+        cursor: pointer;
+        position: relative;
+        flex-shrink: 0;
+        transition:
+          background-color var(--t) var(--ease),
+          border-color var(--t) var(--ease);
+      }
+      .toggle input:checked {
+        background: var(--uv);
+        border-color: var(--uv);
+      }
+      .toggle input:checked::after {
+        content: "";
+        position: absolute;
+        left: 3px;
+        top: -0.5px;
+        width: 4px;
+        height: 7px;
+        border: solid var(--uv-ink);
+        border-width: 0 1.6px 1.6px 0;
+        transform: rotate(45deg);
+      }
+      .toggle:has(input:checked) {
+        border-color: oklch(68% 0.21 300 / 0.35);
+        background: var(--uv-ghost);
+        color: var(--uv-hi);
+      }
+
+      .poster {
+        position: relative;
+        border-radius: var(--r-md);
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .poster--tall {
+        aspect-ratio: 2 / 3;
+      }
+      .poster--wide {
+        aspect-ratio: 16 / 9;
+      }
+      .poster__label {
+        padding: 10px;
+        text-align: center;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--ink-2);
+        line-height: 1.3;
+      }
+      .poster__play {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(180deg, transparent 48%, oklch(6% 0.02 300 / 0.5));
+      }
+      .poster__play svg {
+        width: 28px;
+        height: 28px;
+        color: var(--ink);
+      }
+      .poster--v1 {
+        background: linear-gradient(155deg, oklch(25% 0.05 300), oklch(31% 0.065 300));
+      }
+      .poster--v2 {
+        background: linear-gradient(155deg, oklch(23% 0.045 300), oklch(29% 0.06 300));
+      }
+      .poster--v3 {
+        background: linear-gradient(155deg, oklch(27% 0.055 300), oklch(20% 0.04 300));
+      }
+      .poster--v4 {
+        background: linear-gradient(155deg, oklch(24% 0.048 300), oklch(33% 0.07 300));
+      }
+      .poster--v5 {
+        background: linear-gradient(155deg, oklch(21% 0.04 300), oklch(28% 0.058 300));
+      }
+
+      /* ── video thumbnail — fixed width, aspect-ratio owns the height, so a
+         9:16 clip renders narrow+tall instead of forcing every video card to
+         the same silhouette as a 16:9 one ─────────────────────────────────── */
+      .vthumb {
+        position: relative;
+        flex-shrink: 0;
+        border-radius: var(--r-md);
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .vthumb--wide {
+        width: 160px;
+        aspect-ratio: 16 / 9;
+      }
+      .vthumb--portrait {
+        width: 96px;
+        aspect-ratio: 9 / 16;
+      }
+      .vthumb .poster__play svg {
+        width: 22px;
+        height: 22px;
+      }
+      .vthumb__dur {
+        position: absolute;
+        right: 6px;
+        bottom: 6px;
+        padding: 2px 6px;
+        border-radius: 5px;
+        background: oklch(6% 0.02 300 / 0.72);
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        font-weight: 500;
+        color: var(--ink);
+      }
+      .vcard-row {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .vmeta {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+      }
+
+      .gcard {
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+        padding: 9px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-lg);
+        background: var(--surface);
+        transition:
+          border-color var(--t) var(--ease),
+          background-color var(--t) var(--ease),
+          transform var(--t) var(--ease);
+      }
+      .gcard:hover {
+        border-color: var(--uv);
+        background: oklch(22% 0.055 300);
+        transform: translateY(-2px);
+      }
+      .gcard__title {
+        font-size: 13.5px;
+        font-weight: 600;
+        line-height: 1.35;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .gcard__row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        padding: 0 1px;
+      }
+      .gcard__attrib {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        min-width: 0;
+        white-space: nowrap;
+      }
+
+      .avatar {
+        width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        background: var(--surface-3);
+        border: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10.5px;
+        font-weight: 600;
+        color: var(--ink-2);
+        flex-shrink: 0;
+      }
+      .avatar--ring {
+        box-shadow:
+          0 0 0 2px var(--bg-sunk),
+          0 0 0 4px var(--uv);
+      }
+      .avatar--hidden {
+        border-style: dashed;
+        color: var(--ink-4);
+      }
+      .avatar--xs {
+        width: 18px;
+        height: 18px;
+        font-size: 8.5px;
+      }
+
+      .ggrid {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 16px;
+      }
+      .gitem--poster {
+        width: 158px;
+      }
+      .gitem--video {
+        width: 360px;
+      }
+      .gitem--video-full {
+        width: 100%;
+      }
+      .gitem--poster-half {
+        width: calc(50% - 8px);
+      }
+
+      .mchip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .mchip svg {
+        width: 11px;
+        height: 11px;
+        flex-shrink: 0;
+      }
+
+      .stline {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 13px 2px;
+      }
+      .stline + .stline {
+        border-top: 1px solid var(--line-soft);
+      }
+      .stline__body {
+        flex: 1;
+        min-width: 0;
+      }
+      .stline--mobile {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 9px;
+      }
+      .stline--mobile .stline__actions {
+        width: 100%;
+        display: flex;
+        gap: 8px;
+      }
+      .stline--mobile .stline__actions .btn {
+        flex: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- icon sprite — see index.html for provenance notes -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="pepe" viewBox="96 38 240 240">
+        <rect x="96" y="38" width="240" height="240" fill="#5a8d3e" />
+        <path
+          fill="#5a8d3e"
+          d="M17.727 228.459c-7.057-7.804-10.4-18.556-13.062-28.734l-.205-.794c-2.5-9.709-4.46-20.114-2.407-29.9 1.98-9.437 9.546-16.774 13.714-25.469 6.97-14.539 9.869-30.19 18.843-44.55 0 0 .5-.789.749-1.164 4.51-6.8 10.718-12.4 16.98-17.632 2.408-2.013 7.836-5.225 7.836-5.225S67.99 62.352 71.93 56.053c6.278-10.036 11.035-21.228 18.938-30.04 6.31-7.036 13.827-13.258 22.204-17.633 8.058-4.208 17.046-7.33 26.122-7.837 9.72-.543 19.517 2.094 28.735 5.225 8.112 2.755 16.466 6.048 22.857 11.755 1.756 1.568 3.918 5.877 3.918 5.877s22.644-12.651 34.448-15.02c11.805-2.369 26.351-3.257 34.775 0 8.425 3.257 9.902 7.614 14.368 13.061 4.465 5.448 9.722 12.252 11.755 19.592.58 2.098 0 6.53 0 6.53s21.953 10.684 30.693 18.939c4.49 4.24 7.402 10.625 10.612 15.183 2.237 3.177 6.186 4.88 6.79 8.119.287 1.53-.357 3.556-1.116 5.267-.847 1.911-3.222 1.814-3.222 1.814-3.635 3.664-2.615 13.371-2.615 13.371s-.593 5.735-3.187 8.11c-2.54 2.325-5.686 1.473-8.162 3.888-1.972 3.709-3.245 4.834-4.977 6.94-4.947 6.016-20.898 10.45-20.898 10.45s-.507 3.134 0 4.571c.88 2.492 2.34 4.647 4.067 6.652 3.938 4.572 9.264 8.363 12.26 13.593 4.28 7.472 9.142 24.163 9.142 24.163s-18.17 34.975-32.653 47.672c-13.03 11.424-29.934 18.01-46.366 23.51-11.743 3.93-24.23 5.52-36.571 6.53-16.49 1.352-33.127.499-49.632-.652-31.083-2.168-63.16-1.945-92.734-11.755-15.322-5.082-29.67-11.847-42.158-23.83a32.344 32.344 0 01-1.596-1.64z"
+        />
+        <path
+          fill="#5a8d3e"
+          d="M28.748 240.698l13.06 20.244s36.4 11.093 54.857 15.673c15.332 3.805 30.64 8.327 46.367 9.797 19.944 1.86 40.532 3.06 60.081-1.31 8.37-1.868 23.51-10.446 23.51-10.446l12.558-14.522c-44.226 11.354-111.596 9.127-210.433-19.436h0z"
+        />
+        <path
+          fill="#9f5935"
+          d="M106.061 213.297c-2.878-2.695-1.819-5.673-1.306-8.49.715-3.932 3.054-7.621 5.877-10.45 3.345-3.35 7.817-5.68 12.368-6.985 10.905-3.125 22.942-2.7 34-1.504 12.488 1.35 22.883 7.996 35.264 10.123 15.274 2.623 47.673 4.244 47.673 4.244s18.776.39 28.081-.653c16.334-1.83 34.78-.487 48.326-9.795 2.34-1.608 2.82-1.84 4.782-1.88 2.93-.061 3.068 3.48 3.57 7.299.607 4.634-1.449 6.642-4.899 9.795-2.089 1.91-2.635 1.917-5.182 3.15-2.017.977-6.108 1.88-6.108 1.88s.87 7.383-.755 10.489c-1.815 3.468-5.563 5.782-9.14 7.37-8.429 3.747-27.329 4.345-27.329 4.345s-61.899-1.984-94.04-7.184c-9.277-1.5-18.12-5.226-27.428-6.53-14.458-2.026-33.096 4.753-43.754-5.224h0z"
+        />
+        <path
+          fill="#fff"
+          d="M226.31 108.73c1.15-3.608 3.925-5.4 6.812-7.85 5.16-4.379 14.987-7.171 22.985-9.213 9.71-2.478 19.844-3.086 29.855-3.556 10.278-.483 20.838-1.578 30.857.763 6.249 1.459 13.23 3.276 17.464 8.097 1.753 1.996 3.056 4.581 2.393 7.603-.65 2.965-2.106 3.742-5.271 5.891-3.165 2.15-9.738 4.265-14.124 5.192-9.4 2.107-18.561 5.748-28.168 6.465-14.01 1.044-28.479-.177-42.484-2.425-4.144-.665-8.5-1.205-12.165-3.252-3.266-1.825-8.767-5.786-8.153-7.715z"
+        />
+        <path
+          fill="#fff"
+          d="M121.025 105.036s24.656 14.498 38.328 18.01c9.412 2.416 19.419 2.765 29.092 1.846 14.086-1.338 27.063-2.232 36.833-12.468 4.669-4.891 7.978-9.79 6.465-16.162-.423-1.778-.413-4.888-2.26-5.35-1.848-.462-23.162-2.083-36.42-.191-16.453 2.347-31.606 10.822-48.025 13.391-7.914 1.238-24.013.924-24.013.924z"
+        />
+        <path
+          fill="#000"
+          d="M314.895 114.548c0 .857-18.226 7.628-34.938 7.183-11.461-.305-14.589 1.162-15.438-1.525-.22-.694-.502-2.635-.483-3.811.128-7.784 6.4-18.405 13.675-24.09 3.62-2.83 8.995-3.119 13.275-3.705 14.294-1.956 23.91 11.517 23.91 25.948z"
+        />
+        <path
+          fill="#0446fc"
+          d="M17.243 251.696l.227-9.213s3.27-1.65 5.03-2.1c2.494-.636 7.682-.805 7.682-.805s5.913 5.632 18.626 13.849c12.713 8.217 45.85 16.14 69.55 21.224 18.883 4.05 34.753 7.46 54.056 7.127 15.745-1.077 31.418-2.67 44.086-7.55 5.28-2.085 18.062-8.218 18.062-8.218s12.217 4.95 14.166 5.98c13.113 6.923 13.893 11.682 24.588 21.182 5.296 4.7 14.694 15.34 14.694 15.34l-271.375-2.82.608-53.996z"
+        />
+        <path
+          fill="#000"
+          d="M210.08 121.078s-15.287 3.755-29.714 3.755c-14.426 0-22.819-2.89-22.819-2.89.072-14.424 16.152-28.095 28.207-27.967 6.81.073 13.645 2.79 18.092 7.07 4.972 4.788 5.41 12.461 6.234 20.032z"
+        />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" ry="5.08" rx="4.156" cy="822.576" cx="180.903" />
+        <circle transform="translate(-4.65 -716.318)" fill="#fff" r="7.158" cy="829.897" cx="196.097" />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" cx="180.292" cy="834.284" rx="3.337" ry="3.232" />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" cx="284.743" cy="819.428" rx="3.087" ry="3.773" />
+        <circle transform="translate(-4.65 -716.318)" fill="#fff" cx="299.848" cy="824.137" r="6.015" />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" ry="2.45" rx="2.529" cy="830.269" cx="285.301" />
+        <path
+          fill="#5a8d3e"
+          d="M226.06 113.507c.833-1.056.91-1.476 2.102-1.551.978-.062 1.92 1.219 2.143 2.224.163.737-.3 1.525-.735 2.143-1.058 1.504-4.306 3.449-4.306 3.449s-.038-5.21.796-6.265z"
+        />
+      </symbol>
+
+      <symbol id="i-arrow" viewBox="0 0 16 16">
+        <path d="M3 8h10m0 0-4-4m4 4-4 4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-play" viewBox="0 0 16 16">
+        <path d="M5 3.5v9l7.5-4.5z" fill="currentColor" />
+      </symbol>
+      <symbol id="i-film" viewBox="0 0 16 16">
+        <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.4" fill="none" />
+        <path d="M5.5 3v10M10.5 3v10" stroke="currentColor" stroke-width="1.4" />
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 16 16">
+        <path d="M8 2.5v8m0 0L5 7.5m3 3 3-3M3 13h10" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-tv" viewBox="0 0 16 16">
+        <rect x="1.5" y="3" width="13" height="9" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none" />
+        <path d="M6 14.5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 16 16">
+        <circle cx="7" cy="7" r="4.25" stroke="currentColor" stroke-width="1.4" fill="none" />
+        <path d="M10.2 10.2 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-filter" viewBox="0 0 16 16">
+        <path d="M2.5 4h11M4.5 8h7M6.5 12h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-chevron" viewBox="0 0 16 16">
+        <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 16 16">
+        <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 16 16">
+        <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+    </svg>
+
+    <div class="mock-page">
+      <header class="mock-head reveal">
+        <a class="mock-head__back sm dim" href="index.html">
+          <svg><use href="#i-arrow" /></svg> All mockups
+        </a>
+        <p class="label" style="color: var(--uv); margin-bottom: 10px">lilnas · download</p>
+        <h1 class="h1" style="font-size: 30px; margin-bottom: 12px">Unified gallery</h1>
+        <p class="sm dim mock-screen__desc" style="margin-bottom: 0">
+          Videos, movies and shows in one grid. Posters keep their tall 2:3 shape; video cards are a distinct
+          horizontal shape — a fixed-width thumbnail beside the title, so a 16:9 clip and a 9:16 clip both render at
+          their own aspect ratio instead of one stretching to match the other. Filters open into a panel below the
+          header; both the closed and open states are mocked separately below so each is reviewable on its own.
+        </p>
+      </header>
+
+      <div class="vp-scope">
+        <div class="vptoggle" role="radiogroup" aria-label="Viewport" style="margin-bottom: 32px">
+          <label class="vptoggle__btn">
+            <input class="vp-radio" type="radio" name="viewport" value="desktop" checked />
+            Desktop <span>1280</span>
+          </label>
+          <label class="vptoggle__btn">
+            <input class="vp-radio" type="radio" name="viewport" value="mobile" />
+            Mobile <span>390</span>
+          </label>
+        </div>
+
+        <!-- desktop -->
+        <div class="frame-stack" data-viewport-panel="desktop">
+        <p class="label frame-label">Filters closed</p>
+        <div class="app app--desktop">
+          <div class="app__bar">
+            <div class="row" style="gap: 14px; flex: 1; min-width: 0">
+              <a class="doorplate" href="https://lilnas.io">
+                <span class="doorplate__badge"><svg><use href="#pepe" /></svg></span>
+                <span class="doorplate__name">Download</span>
+              </a>
+              <div class="navsearch">
+                <svg class="navsearch__icon"><use href="#i-search" /></svg>
+                <input class="navsearch__input" placeholder="Search or paste a link…" />
+              </div>
+            </div>
+            <span class="row" style="gap: 10px; flex-shrink: 0">
+              <span class="avatar avatar--ring" title="Jeremy · you" style="width: 30px; height: 30px; font-size: 11.5px">JA</span>
+            </span>
+          </div>
+
+          <div class="app__body">
+            <div class="content-col">
+            <div class="row between wrap" style="margin-bottom: 18px; gap: 16px">
+              <div class="tabs">
+                <button class="tab" aria-selected="true">All</button>
+                <button class="tab" aria-selected="false">Videos</button>
+                <button class="tab" aria-selected="false">Movies</button>
+                <button class="tab" aria-selected="false">Shows</button>
+              </div>
+              <div class="row" style="gap: 10px">
+                <input class="input" name="q" style="width: 240px" placeholder="Search the library…" />
+                <button class="btn btn--ghost" aria-label="Search"><svg><use href="#i-search" /></svg></button>
+                <button class="btn btn--outline filters-btn">
+                  Filters <span class="filters-btn__badge">2</span>
+                  <svg class="chev"><use href="#i-chevron" /></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="row wrap" style="gap: 9px; margin-bottom: 22px" aria-label="Active filters">
+              <span class="afchip">2019–2024 <button aria-label="Remove year filter"><svg><use href="#i-x" /></svg></button></span>
+              <span class="afchip">Jeremy <button aria-label="Remove uploaded by filter"><svg><use href="#i-x" /></svg></button></span>
+              <button class="btn btn--ghost btn--sm" style="height: 27px; padding: 0 10px; font-size: 12px">Clear all</button>
+            </div>
+
+            <div class="ggrid stagger">
+              <div class="gcard gitem--video">
+                <a class="vcard-row" href="video-detail.html">
+                  <div class="vthumb vthumb--wide poster--v2">
+                    <div class="poster__play"><svg><use href="#i-play" /></svg></div>
+                    <span class="vthumb__dur">14:02</span>
+                  </div>
+                  <div class="vmeta">
+                    <p class="gcard__title">Sourdough starter, day one to seven</p>
+                    <span class="gcard__attrib"><span class="avatar">JA</span><span class="mono-sm dimmer">12m ago</span></span>
+                  </div>
+                </a>
+              </div>
+
+              <div class="gcard gitem--poster">
+                <a class="gcard__link" href="movie-detail.html">
+                  <div class="poster poster--tall poster--v1"><span class="poster__label">Salt &amp; Ceremony</span></div>
+                  <div class="gcard__row"><p class="gcard__title" style="flex: 1">Salt &amp; Ceremony</p></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-film" /></svg>movie · 2024</span></div>
+                </a>
+                <div class="gcard__row">
+                  <span class="gcard__attrib"><span class="avatar">JA</span><span class="mono-sm dimmer">12m ago</span></span>
+                  <button class="btn btn--ghost btn--sm" style="padding: 0 8px; height: 24px; font-size: 11.5px">Watch</button>
+                </div>
+              </div>
+
+              <div class="gcard gitem--poster">
+                <a class="gcard__link" href="show-detail.html">
+                  <div class="poster poster--tall poster--v3"><span class="poster__label">Harbor Watch</span></div>
+                  <div class="gcard__row"><p class="gcard__title" style="flex: 1">Harbor Watch</p></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-tv" /></svg>show · s2</span></div>
+                </a>
+                <div class="gcard__row">
+                  <span class="gcard__attrib"><span class="avatar">SR</span><span class="mono-sm dimmer">1h ago</span></span>
+                  <button class="btn btn--ghost btn--sm" style="padding: 0 8px; height: 24px; font-size: 11.5px">Watch</button>
+                </div>
+              </div>
+
+              <div class="gcard gitem--video">
+                <a class="vcard-row" href="video-detail.html">
+                  <div class="vthumb vthumb--portrait poster--v4">
+                    <div class="poster__play"><svg><use href="#i-play" /></svg></div>
+                    <span class="vthumb__dur">0:58</span>
+                  </div>
+                  <div class="vmeta">
+                    <p class="gcard__title">the only kettlebell move you need</p>
+                    <span class="gcard__attrib"><span class="avatar avatar--hidden">–</span><span class="mono-sm dimmer">hidden · 3h ago</span></span>
+                  </div>
+                </a>
+              </div>
+
+              <div class="gcard gitem--poster">
+                <a class="gcard__link" href="movie-detail.html">
+                  <div class="poster poster--tall poster--v4"><span class="poster__label">The Long Corridor</span></div>
+                  <div class="gcard__row"><p class="gcard__title" style="flex: 1">The Long Corridor</p></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-film" /></svg>movie · 2019</span></div>
+                </a>
+                <div class="gcard__row">
+                  <span class="gcard__attrib"><span class="avatar">AC</span><span class="mono-sm dimmer">4h ago</span></span>
+                  <button class="btn btn--ghost btn--sm" style="padding: 0 8px; height: 24px; font-size: 11.5px">Watch</button>
+                </div>
+              </div>
+
+              <div class="gcard gitem--poster">
+                <a class="gcard__link" href="show-detail.html">
+                  <div class="poster poster--tall poster--v5"><span class="poster__label">Late Kitchen</span></div>
+                  <div class="gcard__row"><p class="gcard__title" style="flex: 1">Late Kitchen</p></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-tv" /></svg>show · s1</span></div>
+                </a>
+                <div class="gcard__row">
+                  <span class="gcard__attrib"><span class="avatar">JA</span><span class="mono-sm dimmer">6h ago</span></span>
+                </div>
+                <div class="gcard__row">
+                  <span class="chip chip--warn" style="height: 20px; font-size: 10px">indexing…</span>
+                </div>
+              </div>
+
+              <div class="gcard gitem--poster">
+                <a class="gcard__link" href="show-detail.html">
+                  <div class="poster poster--tall poster--v2"><span class="poster__label">Municipal</span></div>
+                  <div class="gcard__row"><p class="gcard__title" style="flex: 1">Municipal</p></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-tv" /></svg>show · s3</span></div>
+                </a>
+                <div class="gcard__row">
+                  <span class="gcard__attrib"><span class="avatar">SR</span><span class="mono-sm dimmer">8h ago</span></span>
+                  <button class="btn btn--ghost btn--sm" style="padding: 0 8px; height: 24px; font-size: 11.5px">Watch</button>
+                </div>
+              </div>
+
+              <div class="gcard gitem--video">
+                <a class="vcard-row" href="video-detail.html">
+                  <div class="vthumb vthumb--wide poster--v3">
+                    <div class="poster__play"><svg><use href="#i-play" /></svg></div>
+                    <span class="vthumb__dur">9:41</span>
+                  </div>
+                  <div class="vmeta">
+                    <p class="gcard__title">fixing a leaking pipe (finally)</p>
+                    <span class="gcard__attrib"><span class="avatar">AC</span><span class="mono-sm dimmer">1d ago</span></span>
+                  </div>
+                </a>
+              </div>
+
+              <div class="gcard gitem--poster">
+                <a class="gcard__link" href="movie-detail.html">
+                  <div class="poster poster--tall poster--v1"><span class="poster__label">Paper Weather</span></div>
+                  <div class="gcard__row"><p class="gcard__title" style="flex: 1">Paper Weather</p></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-film" /></svg>movie · 2021</span></div>
+                </a>
+                <div class="gcard__row">
+                  <span class="gcard__attrib"><span class="avatar">JA</span><span class="mono-sm dimmer">2d ago</span></span>
+                  <button class="btn btn--ghost btn--sm" style="padding: 0 8px; height: 24px; font-size: 11.5px">Watch</button>
+                </div>
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+
+        <p class="label frame-label frame-label--pair">Filters open</p>
+        <div class="app app--desktop">
+          <div class="app__bar">
+            <div class="row" style="gap: 14px; flex: 1; min-width: 0">
+              <a class="doorplate" href="https://lilnas.io">
+                <span class="doorplate__badge"><svg><use href="#pepe" /></svg></span>
+                <span class="doorplate__name">Download</span>
+              </a>
+              <div class="navsearch">
+                <svg class="navsearch__icon"><use href="#i-search" /></svg>
+                <input class="navsearch__input" placeholder="Search or paste a link…" />
+              </div>
+            </div>
+            <span class="row" style="gap: 10px; flex-shrink: 0">
+              <span class="avatar avatar--ring" title="Jeremy · you" style="width: 30px; height: 30px; font-size: 11.5px">JA</span>
+            </span>
+          </div>
+
+          <div class="app__body">
+            <div class="content-col">
+            <div class="row between wrap" style="margin-bottom: 18px; gap: 16px">
+              <div class="tabs">
+                <button class="tab" aria-selected="true">All</button>
+                <button class="tab" aria-selected="false">Videos</button>
+                <button class="tab" aria-selected="false">Movies</button>
+                <button class="tab" aria-selected="false">Shows</button>
+              </div>
+              <div class="row" style="gap: 10px">
+                <input class="input" name="q" style="width: 240px" placeholder="Search the library…" />
+                <button class="btn btn--ghost" aria-label="Search"><svg><use href="#i-search" /></svg></button>
+                <div class="filters-scope">
+                  <button class="btn btn--outline filters-btn filters-btn--active">
+                    Filters <span class="filters-btn__badge">2</span>
+                    <svg class="chev"><use href="#i-chevron" /></svg>
+                  </button>
+
+                  <div style="position: absolute; right: 0; top: calc(100% + 10px); width: 480px; z-index: 5">
+                    <div class="fpanel">
+                      <div class="fpanel__grid">
+                        <div class="fpanel__group fpanel__group--wide">
+                          <span class="label">date added</span>
+                          <div class="row" style="gap: 8px">
+                            <input class="input input--mono" type="date" style="flex: 1; min-width: 0" />
+                            <span class="dim">–</span>
+                            <input class="input input--mono" type="date" style="flex: 1; min-width: 0" />
+                          </div>
+                        </div>
+                        <div class="fpanel__group">
+                          <span class="label">year</span>
+                          <div class="row" style="gap: 8px">
+                            <input class="input input--mono" style="width: 76px" value="2019" />
+                            <span class="dim">–</span>
+                            <input class="input input--mono" style="width: 76px" value="2024" />
+                          </div>
+                        </div>
+                        <div class="fpanel__group">
+                          <span class="label">uploaded by</span>
+                          <div class="row wrap" style="gap: 8px">
+                            <label class="toggle" style="border-color: oklch(68% 0.21 300 / 0.35); background: var(--uv-ghost); color: var(--uv-hi)"><span class="avatar avatar--xs">JA</span>Jeremy</label>
+                            <label class="toggle"><span class="avatar avatar--xs">SR</span>Sarah</label>
+                            <label class="toggle"><span class="avatar avatar--xs">AC</span>Alex</label>
+                          </div>
+                        </div>
+                        <div class="fpanel__group">
+                          <span class="label">sort by</span>
+                          <button class="input menu-trigger">
+                            Recently added
+                            <svg class="chev"><use href="#i-chevron" /></svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="fpanel__foot">
+                        <button class="btn btn--ghost btn--sm">Clear all</button>
+                        <button class="btn btn--uv btn--sm">Show 128 results</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="row wrap" style="gap: 9px; margin-bottom: 22px" aria-label="Active filters">
+              <span class="afchip">2019–2024 <button aria-label="Remove year filter"><svg><use href="#i-x" /></svg></button></span>
+              <span class="afchip">Jeremy <button aria-label="Remove uploaded by filter"><svg><use href="#i-x" /></svg></button></span>
+              <button class="btn btn--ghost btn--sm" style="height: 27px; padding: 0 10px; font-size: 12px">Clear all</button>
+            </div>
+
+            <div class="ggrid stagger">
+              <div class="gcard gitem--video">
+                <a class="vcard-row" href="video-detail.html">
+                  <div class="vthumb vthumb--wide poster--v2">
+                    <div class="poster__play"><svg><use href="#i-play" /></svg></div>
+                    <span class="vthumb__dur">14:02</span>
+                  </div>
+                  <div class="vmeta">
+                    <p class="gcard__title">Sourdough starter, day one to seven</p>
+                    <span class="gcard__attrib"><span class="avatar">JA</span><span class="mono-sm dimmer">12m ago</span></span>
+                  </div>
+                </a>
+              </div>
+
+              <div class="gcard gitem--poster">
+                <a class="gcard__link" href="movie-detail.html">
+                  <div class="poster poster--tall poster--v1"><span class="poster__label">Salt &amp; Ceremony</span></div>
+                  <div class="gcard__row"><p class="gcard__title" style="flex: 1">Salt &amp; Ceremony</p></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-film" /></svg>movie · 2024</span></div>
+                </a>
+                <div class="gcard__row">
+                  <span class="gcard__attrib"><span class="avatar">JA</span><span class="mono-sm dimmer">12m ago</span></span>
+                  <button class="btn btn--ghost btn--sm" style="padding: 0 8px; height: 24px; font-size: 11.5px">Watch</button>
+                </div>
+              </div>
+
+              <div class="gcard gitem--poster">
+                <a class="gcard__link" href="show-detail.html">
+                  <div class="poster poster--tall poster--v3"><span class="poster__label">Harbor Watch</span></div>
+                  <div class="gcard__row"><p class="gcard__title" style="flex: 1">Harbor Watch</p></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-tv" /></svg>show · s2</span></div>
+                </a>
+                <div class="gcard__row">
+                  <span class="gcard__attrib"><span class="avatar">SR</span><span class="mono-sm dimmer">1h ago</span></span>
+                  <button class="btn btn--ghost btn--sm" style="padding: 0 8px; height: 24px; font-size: 11.5px">Watch</button>
+                </div>
+              </div>
+
+              <div class="gcard gitem--video">
+                <a class="vcard-row" href="video-detail.html">
+                  <div class="vthumb vthumb--portrait poster--v4">
+                    <div class="poster__play"><svg><use href="#i-play" /></svg></div>
+                    <span class="vthumb__dur">0:58</span>
+                  </div>
+                  <div class="vmeta">
+                    <p class="gcard__title">the only kettlebell move you need</p>
+                    <span class="gcard__attrib"><span class="avatar avatar--hidden">–</span><span class="mono-sm dimmer">hidden · 3h ago</span></span>
+                  </div>
+                </a>
+              </div>
+
+              <div class="gcard gitem--poster">
+                <a class="gcard__link" href="movie-detail.html">
+                  <div class="poster poster--tall poster--v4"><span class="poster__label">The Long Corridor</span></div>
+                  <div class="gcard__row"><p class="gcard__title" style="flex: 1">The Long Corridor</p></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-film" /></svg>movie · 2019</span></div>
+                </a>
+                <div class="gcard__row">
+                  <span class="gcard__attrib"><span class="avatar">AC</span><span class="mono-sm dimmer">4h ago</span></span>
+                  <button class="btn btn--ghost btn--sm" style="padding: 0 8px; height: 24px; font-size: 11.5px">Watch</button>
+                </div>
+              </div>
+
+              <div class="gcard gitem--poster">
+                <a class="gcard__link" href="show-detail.html">
+                  <div class="poster poster--tall poster--v5"><span class="poster__label">Late Kitchen</span></div>
+                  <div class="gcard__row"><p class="gcard__title" style="flex: 1">Late Kitchen</p></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-tv" /></svg>show · s1</span></div>
+                </a>
+                <div class="gcard__row">
+                  <span class="gcard__attrib"><span class="avatar">JA</span><span class="mono-sm dimmer">6h ago</span></span>
+                </div>
+                <div class="gcard__row">
+                  <span class="chip chip--warn" style="height: 20px; font-size: 10px">indexing…</span>
+                </div>
+              </div>
+
+              <div class="gcard gitem--poster">
+                <a class="gcard__link" href="show-detail.html">
+                  <div class="poster poster--tall poster--v2"><span class="poster__label">Municipal</span></div>
+                  <div class="gcard__row"><p class="gcard__title" style="flex: 1">Municipal</p></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-tv" /></svg>show · s3</span></div>
+                </a>
+                <div class="gcard__row">
+                  <span class="gcard__attrib"><span class="avatar">SR</span><span class="mono-sm dimmer">8h ago</span></span>
+                  <button class="btn btn--ghost btn--sm" style="padding: 0 8px; height: 24px; font-size: 11.5px">Watch</button>
+                </div>
+              </div>
+
+              <div class="gcard gitem--video">
+                <a class="vcard-row" href="video-detail.html">
+                  <div class="vthumb vthumb--wide poster--v3">
+                    <div class="poster__play"><svg><use href="#i-play" /></svg></div>
+                    <span class="vthumb__dur">9:41</span>
+                  </div>
+                  <div class="vmeta">
+                    <p class="gcard__title">fixing a leaking pipe (finally)</p>
+                    <span class="gcard__attrib"><span class="avatar">AC</span><span class="mono-sm dimmer">1d ago</span></span>
+                  </div>
+                </a>
+              </div>
+
+              <div class="gcard gitem--poster">
+                <a class="gcard__link" href="movie-detail.html">
+                  <div class="poster poster--tall poster--v1"><span class="poster__label">Paper Weather</span></div>
+                  <div class="gcard__row"><p class="gcard__title" style="flex: 1">Paper Weather</p></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-film" /></svg>movie · 2021</span></div>
+                </a>
+                <div class="gcard__row">
+                  <span class="gcard__attrib"><span class="avatar">JA</span><span class="mono-sm dimmer">2d ago</span></span>
+                  <button class="btn btn--ghost btn--sm" style="padding: 0 8px; height: 24px; font-size: 11.5px">Watch</button>
+                </div>
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- mobile -->
+      <div class="frame-stack" data-viewport-panel="mobile">
+        <p class="label frame-label">Filters closed</p>
+        <div class="app app--mobile">
+          <div class="app__bar">
+            <a class="doorplate" href="https://lilnas.io">
+              <span class="doorplate__badge"><svg><use href="#pepe" /></svg></span>
+              <span class="doorplate__name">Download</span>
+            </a>
+            <span class="row" style="gap: 6px; flex-shrink: 0">
+              <span class="chip chip--ok"><span class="dot dot--live"></span>2</span>
+              <button class="btn btn--ghost" style="padding: 0; width: 30px; height: 30px" aria-label="Search">
+                <svg><use href="#i-search" /></svg>
+              </button>
+              <button class="btn btn--ghost" style="padding: 0; width: 32px; height: 32px" aria-label="Your account">
+                <span class="avatar avatar--ring">JA</span>
+              </button>
+            </span>
+          </div>
+
+          <div class="app__body">
+            <div class="tabs" style="margin-bottom: 16px">
+              <button class="tab" aria-selected="true">All</button>
+              <button class="tab" aria-selected="false">Videos</button>
+              <button class="tab" aria-selected="false">Movies</button>
+              <button class="tab" aria-selected="false">Shows</button>
+            </div>
+            <div class="row" style="gap: 8px; margin-bottom: 18px">
+              <input class="input" name="q" style="flex: 1" placeholder="Search the library…" />
+              <button class="btn btn--ghost filters-btn" style="padding: 0; width: 38px" aria-label="Filters">
+                <svg><use href="#i-filter" /></svg>
+              </button>
+            </div>
+
+            <div class="row wrap" style="gap: 8px; margin-bottom: 20px" aria-label="Active filters">
+              <span class="afchip">2019–2024 <button aria-label="Remove year filter"><svg><use href="#i-x" /></svg></button></span>
+              <span class="afchip">Jeremy <button aria-label="Remove uploaded by filter"><svg><use href="#i-x" /></svg></button></span>
+            </div>
+
+            <div class="ggrid stagger">
+              <div class="gcard gitem--video-full">
+                <a class="vcard-row" href="video-detail.html" style="gap: 10px">
+                  <div class="vthumb vthumb--wide poster--v2" style="width: 108px">
+                    <div class="poster__play"><svg style="width: 20px; height: 20px"><use href="#i-play" /></svg></div>
+                    <span class="vthumb__dur">14:02</span>
+                  </div>
+                  <div class="vmeta" style="gap: 5px">
+                    <p class="gcard__title">Sourdough starter, day one to seven</p>
+                    <span class="gcard__attrib"><span class="avatar">JA</span><span class="mono-sm dimmer">12m ago</span></span>
+                  </div>
+                </a>
+              </div>
+
+              <div class="gcard gitem--poster-half">
+                <a class="gcard__link" href="movie-detail.html">
+                  <div class="poster poster--tall poster--v1"><span class="poster__label">Salt &amp; Ceremony</span></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-film" /></svg>movie</span><span class="mono-sm dimmer">2024</span></div>
+                </a>
+              </div>
+              <div class="gcard gitem--poster-half">
+                <a class="gcard__link" href="show-detail.html">
+                  <div class="poster poster--tall poster--v3"><span class="poster__label">Harbor Watch</span></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-tv" /></svg>show</span><span class="mono-sm dimmer">s2</span></div>
+                </a>
+              </div>
+
+              <div class="gcard gitem--video-full">
+                <a class="vcard-row" href="video-detail.html" style="gap: 10px">
+                  <div class="vthumb vthumb--portrait poster--v4" style="width: 64px">
+                    <div class="poster__play"><svg style="width: 18px; height: 18px"><use href="#i-play" /></svg></div>
+                    <span class="vthumb__dur">0:58</span>
+                  </div>
+                  <div class="vmeta" style="gap: 5px">
+                    <p class="gcard__title">the only kettlebell move you need</p>
+                    <span class="gcard__attrib"><span class="avatar avatar--hidden">–</span><span class="mono-sm dimmer">hidden · 3h ago</span></span>
+                  </div>
+                </a>
+              </div>
+
+              <div class="gcard gitem--poster-half">
+                <a class="gcard__link" href="show-detail.html">
+                  <div class="poster poster--tall poster--v5"><span class="poster__label">Late Kitchen</span></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-tv" /></svg>show</span><span class="chip chip--warn" style="height: 18px; font-size: 9.5px">indexing…</span></div>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p class="label frame-label frame-label--pair">Filters open</p>
+        <div class="app app--mobile">
+          <div class="app__bar">
+            <a class="doorplate" href="https://lilnas.io">
+              <span class="doorplate__badge"><svg><use href="#pepe" /></svg></span>
+              <span class="doorplate__name">Download</span>
+            </a>
+            <span class="row" style="gap: 6px; flex-shrink: 0">
+              <span class="chip chip--ok"><span class="dot dot--live"></span>2</span>
+              <button class="btn btn--ghost" style="padding: 0; width: 30px; height: 30px" aria-label="Search">
+                <svg><use href="#i-search" /></svg>
+              </button>
+              <button class="btn btn--ghost" style="padding: 0; width: 32px; height: 32px" aria-label="Your account">
+                <span class="avatar avatar--ring">JA</span>
+              </button>
+            </span>
+          </div>
+
+          <div class="app__body">
+            <div class="tabs" style="margin-bottom: 16px">
+              <button class="tab" aria-selected="true">All</button>
+              <button class="tab" aria-selected="false">Videos</button>
+              <button class="tab" aria-selected="false">Movies</button>
+              <button class="tab" aria-selected="false">Shows</button>
+            </div>
+            <div class="filters-scope row" style="gap: 8px; margin-bottom: 18px">
+              <input class="input" name="q" style="flex: 1" placeholder="Search the library…" />
+              <button class="btn btn--ghost filters-btn filters-btn--active" style="padding: 0; width: 38px" aria-label="Filters">
+                <svg><use href="#i-filter" /></svg>
+              </button>
+
+              <div style="position: absolute; left: 0; right: 0; top: calc(100% + 10px); z-index: 5">
+                <div class="fpanel">
+                  <div class="fpanel__grid">
+                    <div class="fpanel__group fpanel__group--wide">
+                      <span class="label">date added</span>
+                      <div class="row" style="gap: 8px">
+                        <input class="input input--mono" type="date" style="flex: 1; min-width: 0" />
+                        <span class="dim">–</span>
+                        <input class="input input--mono" type="date" style="flex: 1; min-width: 0" />
+                      </div>
+                    </div>
+                    <div class="fpanel__group">
+                      <span class="label">year</span>
+                      <div class="row" style="gap: 8px">
+                        <input class="input input--mono" style="width: 76px" value="2019" />
+                        <span class="dim">–</span>
+                        <input class="input input--mono" style="width: 76px" value="2024" />
+                      </div>
+                    </div>
+                    <div class="fpanel__group">
+                      <span class="label">uploaded by</span>
+                      <div class="row wrap" style="gap: 7px">
+                        <label class="toggle" style="border-color: oklch(68% 0.21 300 / 0.35); background: var(--uv-ghost); color: var(--uv-hi)"><span class="avatar avatar--xs">JA</span>Jeremy</label>
+                        <label class="toggle"><span class="avatar avatar--xs">SR</span>Sarah</label>
+                        <label class="toggle"><span class="avatar avatar--xs">AC</span>Alex</label>
+                      </div>
+                    </div>
+                    <div class="fpanel__group">
+                      <span class="label">sort by</span>
+                      <button class="input menu-trigger">
+                        Recently added
+                        <svg class="chev"><use href="#i-chevron" /></svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="fpanel__foot">
+                    <button class="btn btn--ghost btn--sm">Clear all</button>
+                    <button class="btn btn--uv btn--sm">Show 128 results</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="row wrap" style="gap: 8px; margin-bottom: 20px" aria-label="Active filters">
+              <span class="afchip">2019–2024 <button aria-label="Remove year filter"><svg><use href="#i-x" /></svg></button></span>
+              <span class="afchip">Jeremy <button aria-label="Remove uploaded by filter"><svg><use href="#i-x" /></svg></button></span>
+            </div>
+
+            <div class="ggrid stagger">
+              <div class="gcard gitem--video-full">
+                <a class="vcard-row" href="video-detail.html" style="gap: 10px">
+                  <div class="vthumb vthumb--wide poster--v2" style="width: 108px">
+                    <div class="poster__play"><svg style="width: 20px; height: 20px"><use href="#i-play" /></svg></div>
+                    <span class="vthumb__dur">14:02</span>
+                  </div>
+                  <div class="vmeta" style="gap: 5px">
+                    <p class="gcard__title">Sourdough starter, day one to seven</p>
+                    <span class="gcard__attrib"><span class="avatar">JA</span><span class="mono-sm dimmer">12m ago</span></span>
+                  </div>
+                </a>
+              </div>
+
+              <div class="gcard gitem--poster-half">
+                <a class="gcard__link" href="movie-detail.html">
+                  <div class="poster poster--tall poster--v1"><span class="poster__label">Salt &amp; Ceremony</span></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-film" /></svg>movie</span><span class="mono-sm dimmer">2024</span></div>
+                </a>
+              </div>
+              <div class="gcard gitem--poster-half">
+                <a class="gcard__link" href="show-detail.html">
+                  <div class="poster poster--tall poster--v3"><span class="poster__label">Harbor Watch</span></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-tv" /></svg>show</span><span class="mono-sm dimmer">s2</span></div>
+                </a>
+              </div>
+
+              <div class="gcard gitem--video-full">
+                <a class="vcard-row" href="video-detail.html" style="gap: 10px">
+                  <div class="vthumb vthumb--portrait poster--v4" style="width: 64px">
+                    <div class="poster__play"><svg style="width: 18px; height: 18px"><use href="#i-play" /></svg></div>
+                    <span class="vthumb__dur">0:58</span>
+                  </div>
+                  <div class="vmeta" style="gap: 5px">
+                    <p class="gcard__title">the only kettlebell move you need</p>
+                    <span class="gcard__attrib"><span class="avatar avatar--hidden">–</span><span class="mono-sm dimmer">hidden · 3h ago</span></span>
+                  </div>
+                </a>
+              </div>
+
+              <div class="gcard gitem--poster-half">
+                <a class="gcard__link" href="show-detail.html">
+                  <div class="poster poster--tall poster--v5"><span class="poster__label">Late Kitchen</span></div>
+                  <div class="gcard__row"><span class="mchip mono-sm dim"><svg><use href="#i-tv" /></svg>show</span><span class="chip chip--warn" style="height: 18px; font-size: 9.5px">indexing…</span></div>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <section style="margin-top: 48px">
+        <p class="label" style="margin-bottom: 16px">Sort by — all options</p>
+        <div class="card" style="width: 240px; padding: 16px">
+          <div class="stack" style="gap: 8px">
+            <span class="label">sort by</span>
+            <button class="input menu-trigger" style="border-color: var(--uv); box-shadow: 0 0 0 3px var(--uv-ghost)">
+              Recently added
+              <svg class="chev" style="transform: rotate(180deg)"><use href="#i-chevron" /></svg>
+            </button>
+            <div class="menu" style="margin-top: 2px">
+              <button class="menu__item menu__item--selected">Recently added <svg><use href="#i-check" /></svg></button>
+              <button class="menu__item">Title A–Z</button>
+              <button class="menu__item">Oldest first</button>
+              <button class="menu__item">Duration</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer style="margin-top: 80px; padding-top: 28px; border-top: 1px solid var(--line-soft)">
+        <p class="cap">
+          Tokens and components reused from <code class="mono-sm">docs/designs/preview/index.html</code>. Poster art
+          is a CSS placeholder — no external image requests. Filters: year, date added, uploaded by, sort.
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>

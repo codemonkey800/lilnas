@@ -1,0 +1,1230 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nav-bar search — download UI mockups · lilnas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!--
+      Type: Figtree + IBM Plex Mono only. Bricolage Grotesque (the display
+      face) is deliberately NOT loaded — foundations.md's type table lists
+      "download" as one of the two apps that skip it.
+    -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ═══════════════════════════════════════════════════════════════════
+         ULTRAVIOLET — token layer (verbatim from docs/designs/preview/index.html)
+         ═══════════════════════════════════════════════════════════════════ */
+      :root {
+        --bg: oklch(14% 0.021 300);
+        --bg-sunk: oklch(11% 0.018 300);
+        --surface: oklch(18.5% 0.027 300);
+        --surface-2: oklch(23% 0.032 300);
+        --surface-3: oklch(28% 0.038 300);
+
+        --line: oklch(29% 0.038 300);
+        --line-soft: oklch(23.5% 0.031 300);
+        --line-loud: oklch(41% 0.055 300);
+
+        --ink: oklch(97% 0.008 300);
+        --ink-2: oklch(79% 0.02 300);
+        --ink-3: oklch(63% 0.026 300);
+        --ink-4: oklch(50% 0.028 300);
+
+        --uv: oklch(68% 0.21 300);
+        --uv-hi: oklch(75% 0.195 300);
+        --uv-press: oklch(62% 0.225 300);
+        --uv-dim: oklch(42% 0.14 300);
+        --uv-ghost: oklch(68% 0.21 300 / 0.13);
+        --uv-ink: oklch(15% 0.045 300);
+
+        --ok: oklch(76% 0.17 155);
+        --ok-ghost: oklch(76% 0.17 155 / 0.14);
+        --warn: oklch(82% 0.15 85);
+        --warn-ghost: oklch(82% 0.15 85 / 0.14);
+        --bad: oklch(66% 0.2 22);
+        --bad-ghost: oklch(66% 0.2 22 / 0.14);
+
+        --r-xs: 6px;
+        --r-md: 10px;
+        --r-lg: 14px;
+        --r-xl: 20px;
+
+        --lift: 0 16px 40px -12px oklch(6% 0.02 300 / 0.7);
+
+        --ease: cubic-bezier(0.32, 0.72, 0, 1);
+        --spring: linear(
+          0,
+          0.006,
+          0.025 2.8%,
+          0.101 6.1%,
+          0.539 18.9%,
+          0.721 25.3%,
+          0.849 31.5%,
+          0.937 38.1%,
+          0.968 41.8%,
+          0.991 45.7%,
+          1.006 50.1%,
+          1.015 60%,
+          1.006 76.2%,
+          1
+        );
+        --t-fast: 120ms;
+        --t: 200ms;
+        --t-slow: 380ms;
+
+        --font-sans: "Figtree", system-ui, sans-serif;
+        --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+      }
+
+      /* ── base ─────────────────────────────────────────────────────────── */
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--font-sans);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+        border: none;
+        background: none;
+      }
+      svg {
+        display: block;
+      }
+      :focus-visible {
+        outline: 2px solid var(--uv);
+        outline-offset: 2px;
+        border-radius: var(--r-xs);
+      }
+      img {
+        display: block;
+        max-width: 100%;
+      }
+
+      /* ── type roles ───────────────────────────────────────────────────── */
+      .h1 {
+        font-size: 23px;
+        font-weight: 650;
+        letter-spacing: -0.015em;
+        line-height: 1.25;
+      }
+      .h2 {
+        font-size: 18px;
+        font-weight: 620;
+        letter-spacing: -0.01em;
+        line-height: 1.3;
+      }
+      .h3 {
+        font-size: 15.5px;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+      .sm {
+        font-size: 13.5px;
+        line-height: 1.55;
+      }
+      .cap {
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--ink-3);
+      }
+      .dim {
+        color: var(--ink-3);
+      }
+      .dimmer {
+        color: var(--ink-4);
+      }
+      .mono {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 450;
+        letter-spacing: -0.01em;
+      }
+      .mono-sm {
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        font-weight: 450;
+      }
+      .label {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        font-weight: 500;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: var(--ink-4);
+      }
+      .num {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ── layout helpers ───────────────────────────────────────────────── */
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .wrap {
+        flex-wrap: wrap;
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+      }
+      .between {
+        justify-content: space-between;
+      }
+
+      /* ── doorplate — byte-identical everywhere ───────────────────────── */
+      .doorplate {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        height: 32px;
+        padding: 0 12px 0 4px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        background: transparent;
+        transition:
+          border-color var(--t) var(--ease),
+          background-color var(--t) var(--ease);
+      }
+      .doorplate:hover {
+        border-color: var(--uv-dim);
+        background: var(--surface-2);
+      }
+      .doorplate__badge {
+        width: 24px;
+        height: 24px;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+      }
+      .doorplate__badge svg {
+        width: 100%;
+        height: 100%;
+      }
+      .doorplate__name {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+      }
+
+      /* ── card ──────────────────────────────────────────────────────────── */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--r-lg);
+        padding: 20px;
+      }
+      .card--sunk {
+        background: var(--bg-sunk);
+      }
+
+      /* ── buttons ──────────────────────────────────────────────────────── */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        height: 38px;
+        padding: 0 15px;
+        border-radius: var(--r-md);
+        border: 1px solid transparent;
+        font-size: 14px;
+        font-weight: 550;
+        letter-spacing: -0.005em;
+        white-space: nowrap;
+        transition:
+          background-color var(--t) var(--ease),
+          border-color var(--t) var(--ease),
+          color var(--t) var(--ease),
+          transform var(--t-fast) var(--spring);
+      }
+      .btn:active {
+        transform: scale(0.96);
+      }
+      .btn svg {
+        width: 15px;
+        height: 15px;
+        flex-shrink: 0;
+      }
+      .btn--uv {
+        background: var(--uv);
+        color: var(--uv-ink);
+        font-weight: 620;
+      }
+      .btn--uv:hover {
+        background: var(--uv-hi);
+      }
+      .btn--uv:active {
+        background: var(--uv-press);
+      }
+      .btn--outline {
+        border-color: var(--line);
+        color: var(--ink);
+        background: var(--surface);
+      }
+      .btn--outline:hover {
+        border-color: var(--uv-dim);
+        background: var(--surface-2);
+      }
+      .btn--ghost {
+        color: var(--ink-3);
+        padding: 0 11px;
+      }
+      .btn--ghost:hover {
+        color: var(--ink);
+        background: var(--surface-2);
+      }
+      .btn--sm {
+        height: 30px;
+        padding: 0 11px;
+        font-size: 13px;
+      }
+      .btn--full {
+        width: 100%;
+      }
+
+      /* ── chips ────────────────────────────────────────────────────────── */
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 23px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        border: 1px solid transparent;
+        white-space: nowrap;
+      }
+      .chip svg {
+        width: 11px;
+        height: 11px;
+      }
+      .chip--mute {
+        background: var(--surface-2);
+        color: var(--ink-3);
+        border-color: var(--line);
+      }
+      .chip--ok {
+        background: var(--ok-ghost);
+        color: var(--ok);
+        border-color: oklch(76% 0.17 155 / 0.3);
+      }
+
+      /* ── the live dot ─────────────────────────────────────────────────── */
+      .dot {
+        position: relative;
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        flex-shrink: 0;
+        background: var(--ink-4);
+      }
+      .dot--live {
+        background: var(--ok);
+      }
+      .dot--live::after {
+        content: "";
+        position: absolute;
+        inset: -3px;
+        border-radius: 999px;
+        border: 1.5px solid var(--ok);
+        animation: breathe 2.4s var(--ease) infinite;
+      }
+      @keyframes breathe {
+        0% {
+          transform: scale(0.7);
+          opacity: 0.9;
+        }
+        70% {
+          transform: scale(2.1);
+          opacity: 0;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+
+      /* ── progress ─────────────────────────────────────────────────────── */
+      .bar {
+        height: 5px;
+        border-radius: 999px;
+        background: var(--surface-3);
+        overflow: hidden;
+      }
+      .bar > i {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: var(--uv);
+        transition: width var(--t-slow) var(--ease);
+      }
+
+      /* ── note ─────────────────────────────────────────────────────────── */
+      .note {
+        display: flex;
+        gap: 10px;
+        padding: 13px 15px;
+        border-radius: var(--r-md);
+        border: 1px solid var(--line);
+        background: var(--surface);
+        font-size: 13.5px;
+        line-height: 1.55;
+        color: var(--ink-2);
+      }
+      .note svg {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+        margin-top: 2px;
+        color: var(--ink-3);
+      }
+
+      /* ── app vignette (the frame a mocked screen sits in) ────────────────── */
+      .app {
+        border: 1px solid var(--line);
+        border-radius: var(--r-xl);
+        overflow: hidden;
+        background: var(--bg);
+      }
+      .app__bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 11px 16px;
+        border-bottom: 1px solid var(--line-soft);
+        background: var(--bg-sunk);
+      }
+      .app__body {
+        padding: 22px 20px 26px;
+      }
+
+      /* ── motion ───────────────────────────────────────────────────────── */
+      .stagger > * {
+        opacity: 0;
+        transform: translateY(6px);
+        animation: rise 420ms var(--ease) forwards;
+      }
+      .stagger > *:nth-child(1) {
+        animation-delay: 0ms;
+      }
+      .stagger > *:nth-child(2) {
+        animation-delay: 40ms;
+      }
+      .stagger > *:nth-child(3) {
+        animation-delay: 80ms;
+      }
+      .stagger > *:nth-child(4) {
+        animation-delay: 120ms;
+      }
+      @keyframes rise {
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      .reveal {
+        opacity: 0;
+        transform: translateY(6px);
+        animation: rise var(--t-slow) var(--ease) forwards;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+        .reveal,
+        .stagger > * {
+          animation: none !important;
+          opacity: 1;
+          transform: none;
+        }
+      }
+
+      /* ═══════════════════════════════════════════════════════════════════
+         MOCKUP-SPECIFIC
+         ═══════════════════════════════════════════════════════════════════
+         Mostly a component reference, not a screen — but the field does NOT
+         render identically everywhere: mobile has no room for it inline
+         alongside the doorplate, the live-download chip and the avatar, so
+         it collapses to an icon and expands to take over the bar on tap.
+         That collapse is real chrome, so it gets a real app frame and a
+         desktop/mobile switch, same as every other mockup here. Once it's
+         visible — inline on desktop, or expanded on mobile — the field
+         itself is identical regardless of viewport, which is why everything
+         below the app-bar section still needs only one reference. */
+      .mock-page {
+        max-width: 1328px;
+        margin: 0 auto;
+        padding: 56px 24px 140px;
+      }
+      .mock-head {
+        max-width: 74ch;
+        margin-bottom: 44px;
+      }
+      .mock-head__back {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 22px;
+      }
+      .mock-head__back svg {
+        width: 12px;
+        height: 12px;
+        color: var(--ink-4);
+        transform: scaleX(-1);
+      }
+      .mock-screen__desc {
+        max-width: 62ch;
+        margin: 8px 0 28px;
+      }
+
+      .avatar {
+        width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        background: var(--surface-3);
+        border: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10.5px;
+        font-weight: 600;
+        color: var(--ink-2);
+        flex-shrink: 0;
+      }
+      .avatar--ring {
+        box-shadow:
+          0 0 0 2px var(--bg-sunk),
+          0 0 0 4px var(--uv);
+      }
+
+      /* viewport switch — CSS-only, same trick as every other mockup here:
+         a real (visually hidden) radio per option, :has() on the shared
+         scope decides which frame shows and which button reads as active.
+         Works identically over file:// and inside a sandboxed preview. */
+      .vp-radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        margin: 0;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .vptoggle {
+        display: inline-flex;
+        gap: 4px;
+        padding: 4px;
+        border-radius: 999px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+      }
+      .vptoggle__btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        height: 32px;
+        padding: 0 15px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 550;
+        color: var(--ink-3);
+        cursor: pointer;
+        transition:
+          background-color var(--t) var(--ease),
+          color var(--t) var(--ease);
+      }
+      .vptoggle__btn span {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        color: var(--ink-4);
+      }
+      .vptoggle__btn:hover {
+        color: var(--ink);
+      }
+      .vptoggle__btn:has(.vp-radio:checked) {
+        background: var(--uv);
+        color: var(--uv-ink);
+        font-weight: 620;
+      }
+      .vptoggle__btn:has(.vp-radio:checked) span {
+        color: var(--uv-ink);
+        opacity: 0.75;
+      }
+      .vptoggle__btn:has(.vp-radio:checked):hover {
+        background: var(--uv-hi);
+      }
+      .vptoggle__btn:has(.vp-radio:focus-visible) {
+        outline: 2px solid var(--uv);
+        outline-offset: 2px;
+      }
+      .vp-scope [data-viewport-panel] {
+        display: none;
+      }
+      .vp-scope:has(.vp-radio[value="desktop"]:checked) [data-viewport-panel="desktop"] {
+        display: flex;
+      }
+      .vp-scope:has(.vp-radio[value="mobile"]:checked) [data-viewport-panel="mobile"] {
+        display: flex;
+      }
+
+      .frame-stack {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+      }
+      .frame-label {
+        display: block;
+        text-align: center;
+      }
+      .frame-label--pair {
+        margin-top: 12px;
+      }
+      .app--desktop {
+        width: 1280px;
+        max-width: 100%;
+      }
+      .app--mobile {
+        width: 390px;
+        max-width: 100%;
+      }
+      .app--desktop .app__body {
+        padding: 30px 32px 44px;
+      }
+      .app--mobile .app__body {
+        padding: 18px 24px 30px;
+      }
+      .app--mobile .app__bar {
+        padding: 10px 14px 10px 16px;
+      }
+
+      /* hero states — mutually exclusive, so drawn side by side in one row
+         of columns instead of each claiming its own full-width block. Three
+         states, three columns: the horizontal space was sitting empty
+         while "Idle" and "A link is detected" stacked vertically. */
+      .state-cols {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 32px;
+      }
+      .state-col {
+        min-width: 0;
+      }
+      .state-card {
+        max-width: 400px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-lg);
+        background: var(--bg-sunk);
+        padding: 18px;
+      }
+
+      /* full flow — a connected storyboard, distinct from the states
+         catalog above: that's a reference (every state in isolation);
+         this is the happy-path narrative, in order */
+      .flowstep {
+        display: flex;
+        gap: 18px;
+        align-items: flex-start;
+      }
+      .flowstep__num {
+        width: 26px;
+        height: 26px;
+        border-radius: 999px;
+        background: var(--surface-3);
+        color: var(--ink-2);
+        display: grid;
+        place-items: center;
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        font-weight: 600;
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+      .flowstep__frame {
+        flex-shrink: 0;
+        width: 280px;
+      }
+      .flowstep__body {
+        flex: 1;
+        min-width: 0;
+        padding-top: 5px;
+      }
+      .flow-connector {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin: 10px 0 10px 13px;
+      }
+      .flow-connector svg {
+        width: 12px;
+        height: 12px;
+        color: var(--ink-4);
+        flex-shrink: 0;
+        transform: rotate(90deg);
+      }
+      .track-head {
+        margin: 44px 0 18px;
+        padding-top: 24px;
+        border-top: 1px solid var(--line-soft);
+      }
+      .legend {
+        margin: 24px 0 40px;
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-lg);
+        background: var(--surface);
+      }
+
+      /* nav-bar search — canonical entry point on every page, for both
+         title search and paste-a-link. search.html omits this field: its
+         hero already IS the search. This is the field's own reference. */
+      .navsearch {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 32px;
+        padding: 0 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--bg-sunk);
+        flex: 1;
+        max-width: 320px;
+        min-width: 0;
+        transition:
+          border-color var(--t) var(--ease),
+          box-shadow var(--t) var(--ease);
+      }
+      .navsearch:focus-within {
+        border-color: var(--uv);
+        box-shadow: 0 0 0 3px var(--uv-ghost);
+      }
+      .navsearch__icon {
+        width: 14px;
+        height: 14px;
+        color: var(--ink-4);
+        flex-shrink: 0;
+      }
+      .navsearch__input {
+        flex: 1;
+        min-width: 0;
+        border: none;
+        background: none;
+        outline: none;
+        font-size: 13px;
+        color: var(--ink);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .navsearch__input::placeholder {
+        color: var(--ink-4);
+      }
+
+      /* link detected — a compact Download button appears inline, right in
+         the pill. No dropdown, no preview card. Wider cap so icon + a full
+         example URL + button don't truncate. */
+      .navsearch--ready {
+        max-width: 360px;
+      }
+      .navsearch__icon--ready {
+        color: var(--uv-hi);
+      }
+      .navsearch__go {
+        display: inline-flex;
+        align-items: center;
+        height: 24px;
+        padding: 0 10px;
+        border-radius: 999px;
+        background: var(--uv);
+        color: var(--uv-ink);
+        font-size: 11.5px;
+        font-weight: 620;
+        flex-shrink: 0;
+        white-space: nowrap;
+        transition:
+          background-color var(--t) var(--ease),
+          transform var(--t-fast) var(--spring);
+      }
+      .navsearch__go:hover {
+        background: var(--uv-hi);
+      }
+      .navsearch__go:active {
+        transform: scale(0.96);
+      }
+    </style>
+  </head>
+  <body>
+    <!-- icon sprite — see index.html for provenance notes -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="pepe" viewBox="96 38 240 240">
+        <rect x="96" y="38" width="240" height="240" fill="#5a8d3e" />
+        <path
+          fill="#5a8d3e"
+          d="M17.727 228.459c-7.057-7.804-10.4-18.556-13.062-28.734l-.205-.794c-2.5-9.709-4.46-20.114-2.407-29.9 1.98-9.437 9.546-16.774 13.714-25.469 6.97-14.539 9.869-30.19 18.843-44.55 0 0 .5-.789.749-1.164 4.51-6.8 10.718-12.4 16.98-17.632 2.408-2.013 7.836-5.225 7.836-5.225S67.99 62.352 71.93 56.053c6.278-10.036 11.035-21.228 18.938-30.04 6.31-7.036 13.827-13.258 22.204-17.633 8.058-4.208 17.046-7.33 26.122-7.837 9.72-.543 19.517 2.094 28.735 5.225 8.112 2.755 16.466 6.048 22.857 11.755 1.756 1.568 3.918 5.877 3.918 5.877s22.644-12.651 34.448-15.02c11.805-2.369 26.351-3.257 34.775 0 8.425 3.257 9.902 7.614 14.368 13.061 4.465 5.448 9.722 12.252 11.755 19.592.58 2.098 0 6.53 0 6.53s21.953 10.684 30.693 18.939c4.49 4.24 7.402 10.625 10.612 15.183 2.237 3.177 6.186 4.88 6.79 8.119.287 1.53-.357 3.556-1.116 5.267-.847 1.911-3.222 1.814-3.222 1.814-3.635 3.664-2.615 13.371-2.615 13.371s-.593 5.735-3.187 8.11c-2.54 2.325-5.686 1.473-8.162 3.888-1.972 3.709-3.245 4.834-4.977 6.94-4.947 6.016-20.898 10.45-20.898 10.45s-.507 3.134 0 4.571c.88 2.492 2.34 4.647 4.067 6.652 3.938 4.572 9.264 8.363 12.26 13.593 4.28 7.472 9.142 24.163 9.142 24.163s-18.17 34.975-32.653 47.672c-13.03 11.424-29.934 18.01-46.366 23.51-11.743 3.93-24.23 5.52-36.571 6.53-16.49 1.352-33.127.499-49.632-.652-31.083-2.168-63.16-1.945-92.734-11.755-15.322-5.082-29.67-11.847-42.158-23.83a32.344 32.344 0 01-1.596-1.64z"
+        />
+        <path
+          fill="#5a8d3e"
+          d="M28.748 240.698l13.06 20.244s36.4 11.093 54.857 15.673c15.332 3.805 30.64 8.327 46.367 9.797 19.944 1.86 40.532 3.06 60.081-1.31 8.37-1.868 23.51-10.446 23.51-10.446l12.558-14.522c-44.226 11.354-111.596 9.127-210.433-19.436h0z"
+        />
+        <path
+          fill="#9f5935"
+          d="M106.061 213.297c-2.878-2.695-1.819-5.673-1.306-8.49.715-3.932 3.054-7.621 5.877-10.45 3.345-3.35 7.817-5.68 12.368-6.985 10.905-3.125 22.942-2.7 34-1.504 12.488 1.35 22.883 7.996 35.264 10.123 15.274 2.623 47.673 4.244 47.673 4.244s18.776.39 28.081-.653c16.334-1.83 34.78-.487 48.326-9.795 2.34-1.608 2.82-1.84 4.782-1.88 2.93-.061 3.068 3.48 3.57 7.299.607 4.634-1.449 6.642-4.899 9.795-2.089 1.91-2.635 1.917-5.182 3.15-2.017.977-6.108 1.88-6.108 1.88s.87 7.383-.755 10.489c-1.815 3.468-5.563 5.782-9.14 7.37-8.429 3.747-27.329 4.345-27.329 4.345s-61.899-1.984-94.04-7.184c-9.277-1.5-18.12-5.226-27.428-6.53-14.458-2.026-33.096 4.753-43.754-5.224h0z"
+        />
+        <path
+          fill="#fff"
+          d="M226.31 108.73c1.15-3.608 3.925-5.4 6.812-7.85 5.16-4.379 14.987-7.171 22.985-9.213 9.71-2.478 19.844-3.086 29.855-3.556 10.278-.483 20.838-1.578 30.857.763 6.249 1.459 13.23 3.276 17.464 8.097 1.753 1.996 3.056 4.581 2.393 7.603-.65 2.965-2.106 3.742-5.271 5.891-3.165 2.15-9.738 4.265-14.124 5.192-9.4 2.107-18.561 5.748-28.168 6.465-14.01 1.044-28.479-.177-42.484-2.425-4.144-.665-8.5-1.205-12.165-3.252-3.266-1.825-8.767-5.786-8.153-7.715z"
+        />
+        <path
+          fill="#fff"
+          d="M121.025 105.036s24.656 14.498 38.328 18.01c9.412 2.416 19.419 2.765 29.092 1.846 14.086-1.338 27.063-2.232 36.833-12.468 4.669-4.891 7.978-9.79 6.465-16.162-.423-1.778-.413-4.888-2.26-5.35-1.848-.462-23.162-2.083-36.42-.191-16.453 2.347-31.606 10.822-48.025 13.391-7.914 1.238-24.013.924-24.013.924z"
+        />
+        <path
+          fill="#000"
+          d="M314.895 114.548c0 .857-18.226 7.628-34.938 7.183-11.461-.305-14.589 1.162-15.438-1.525-.22-.694-.502-2.635-.483-3.811.128-7.784 6.4-18.405 13.675-24.09 3.62-2.83 8.995-3.119 13.275-3.705 14.294-1.956 23.91 11.517 23.91 25.948z"
+        />
+        <path
+          fill="#0446fc"
+          d="M17.243 251.696l.227-9.213s3.27-1.65 5.03-2.1c2.494-.636 7.682-.805 7.682-.805s5.913 5.632 18.626 13.849c12.713 8.217 45.85 16.14 69.55 21.224 18.883 4.05 34.753 7.46 54.056 7.127 15.745-1.077 31.418-2.67 44.086-7.55 5.28-2.085 18.062-8.218 18.062-8.218s12.217 4.95 14.166 5.98c13.113 6.923 13.893 11.682 24.588 21.182 5.296 4.7 14.694 15.34 14.694 15.34l-271.375-2.82.608-53.996z"
+        />
+        <path
+          fill="#000"
+          d="M210.08 121.078s-15.287 3.755-29.714 3.755c-14.426 0-22.819-2.89-22.819-2.89.072-14.424 16.152-28.095 28.207-27.967 6.81.073 13.645 2.79 18.092 7.07 4.972 4.788 5.41 12.461 6.234 20.032z"
+        />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" ry="5.08" rx="4.156" cy="822.576" cx="180.903" />
+        <circle transform="translate(-4.65 -716.318)" fill="#fff" r="7.158" cy="829.897" cx="196.097" />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" cx="180.292" cy="834.284" rx="3.337" ry="3.232" />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" cx="284.743" cy="819.428" rx="3.087" ry="3.773" />
+        <circle transform="translate(-4.65 -716.318)" fill="#fff" cx="299.848" cy="824.137" r="6.015" />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" ry="2.45" rx="2.529" cy="830.269" cx="285.301" />
+        <path
+          fill="#5a8d3e"
+          d="M226.06 113.507c.833-1.056.91-1.476 2.102-1.551.978-.062 1.92 1.219 2.143 2.224.163.737-.3 1.525-.735 2.143-1.058 1.504-4.306 3.449-4.306 3.449s-.038-5.21.796-6.265z"
+        />
+      </symbol>
+      <symbol id="i-arrow" viewBox="0 0 16 16">
+        <path d="M3 8h10m0 0-4-4m4 4-4 4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 16 16">
+        <path d="M8 2.5v8m0 0L5 7.5m3 3 3-3M3 13h10" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 16 16">
+        <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4" fill="none" />
+        <path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 16 16">
+        <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+    </svg>
+
+    <div class="mock-page">
+      <header class="mock-head reveal">
+        <a class="mock-head__back sm dim" href="index.html">
+          <svg><use href="#i-arrow" /></svg> All mockups
+        </a>
+        <p class="label" style="color: var(--uv); margin-bottom: 10px">lilnas · download</p>
+        <h1 class="h1" style="font-size: 30px; margin-bottom: 12px">Nav-bar search</h1>
+        <p class="sm dim mock-screen__desc" style="margin-bottom: 0">
+          The single entry point for both jobs — paste a video link, or search for a movie or show — reachable
+          from the nav bar on every page except <code class="mono-sm">search.html</code>, whose own hero already
+          IS the search. On desktop it sits inline in the bar; on mobile it collapses to an icon and expands to
+          take over the bar on tap. It classifies what's typed and branches automatically: once there's
+          something to act on, a compact button appears right in the pill — Download for a detected link,
+          Search for a title query of 2+ characters — so pressing Enter and clicking the button do the same
+          thing. Below: where it lives in the bar at each width, then every state the field itself can be in,
+          then the full sequence for both branches, up to the redirect. What each destination looks like lives
+          in that page's own file, not here.
+        </p>
+      </header>
+
+      <!-- ═══════════════════════ where it lives — the bar itself, at both
+           widths. Distinct from the states catalog below: this is about
+           reaching the field at all, not what it does once visible. ═══ -->
+      <section id="chrome" style="margin-bottom: 56px">
+        <h2 class="h1" style="font-size: 22px; margin-bottom: 6px">In the app bar: desktop vs. mobile</h2>
+        <p class="sm dim" style="max-width: 62ch; margin-bottom: 24px">
+          Desktop has room for the field inline, next to the doorplate. Mobile doesn't — competing against the
+          doorplate, the live-download chip, and the account avatar in one row, the field loses and collapses to
+          an icon, expanding to take over the bar on tap.
+        </p>
+
+        <div class="vp-scope">
+          <div class="vptoggle" role="radiogroup" aria-label="Viewport" style="margin-bottom: 28px">
+            <label class="vptoggle__btn">
+              <input class="vp-radio" type="radio" name="viewport" value="desktop" checked />
+              Desktop <span>1280</span>
+            </label>
+            <label class="vptoggle__btn">
+              <input class="vp-radio" type="radio" name="viewport" value="mobile" />
+              Mobile <span>390</span>
+            </label>
+          </div>
+
+          <!-- desktop -->
+          <div class="frame-stack" data-viewport-panel="desktop">
+            <p class="label frame-label">Inline, always</p>
+            <div class="app app--desktop">
+              <div class="app__bar">
+                <div class="row" style="gap: 14px; flex: 1; min-width: 0">
+                  <a class="doorplate" href="https://lilnas.io">
+                    <span class="doorplate__badge"><svg><use href="#pepe" /></svg></span>
+                    <span class="doorplate__name">Download</span>
+                  </a>
+                  <div class="navsearch">
+                    <svg class="navsearch__icon"><use href="#i-search" /></svg>
+                    <input class="navsearch__input" placeholder="Search or paste a link…" />
+                  </div>
+                </div>
+                <span class="row" style="gap: 10px; flex-shrink: 0">
+                  <span class="avatar avatar--ring" title="Jeremy · you" style="width: 30px; height: 30px; font-size: 11.5px">JA</span>
+                </span>
+              </div>
+              <div class="app__body">
+                <p class="sm dim">
+                  Never leaves the bar — no tap needed to reach it. Same field, same states as "One field, every
+                  state" below.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- mobile -->
+          <div class="frame-stack" data-viewport-panel="mobile">
+            <p class="label frame-label">Collapsed, at rest</p>
+            <div class="app app--mobile">
+              <div class="app__bar">
+                <a class="doorplate" href="https://lilnas.io">
+                  <span class="doorplate__badge"><svg><use href="#pepe" /></svg></span>
+                  <span class="doorplate__name">Download</span>
+                </a>
+                <span class="row" style="gap: 6px; flex-shrink: 0">
+                  <span class="chip chip--ok"><span class="dot dot--live"></span>2</span>
+                  <button class="btn btn--ghost" style="padding: 0; width: 30px; height: 30px" aria-label="Search">
+                    <svg><use href="#i-search" /></svg>
+                  </button>
+                  <button class="btn btn--ghost" style="padding: 0; width: 32px; height: 32px" aria-label="Your account">
+                    <span class="avatar avatar--ring">JA</span>
+                  </button>
+                </span>
+              </div>
+              <div class="app__body">
+                <p class="sm dim">
+                  The doorplate, live status, and account all need the row — the field loses that fight, so it's
+                  an icon until tapped. Every other mockup's mobile frame shows this exact resting state.
+                </p>
+              </div>
+            </div>
+
+            <p class="label frame-label frame-label--pair">Expanded, on tap</p>
+            <div class="app app--mobile">
+              <div class="app__bar">
+                <button class="btn btn--ghost" style="padding: 0; width: 30px; height: 30px; flex-shrink: 0" aria-label="Close search">
+                  <svg><use href="#i-x" /></svg>
+                </button>
+                <div class="navsearch">
+                  <svg class="navsearch__icon"><use href="#i-search" /></svg>
+                  <input class="navsearch__input" placeholder="Search or paste a link…" />
+                </div>
+              </div>
+              <div class="app__body">
+                <p class="sm dim">
+                  Takes over the bar full-width — doorplate, status, and avatar step aside until it closes. Same
+                  field, same states as below; closing it, or a redirect firing, hands the bar back.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════ states catalog — a reference: every state
+           in isolation. Mutually exclusive, so each gets its own card, never
+           stacked into one scroll (see history above). ═══ -->
+      <section id="states">
+        <h2 class="h1" style="font-size: 22px; margin-bottom: 6px">One field, every state</h2>
+        <p class="sm dim" style="max-width: 62ch; margin-bottom: 8px">
+          Grouped by what caused it, not by how it looks. The field is always in exactly one of these.
+        </p>
+
+        <div class="state-cols">
+          <div class="state-col">
+            <p class="h3" id="state-idle" style="margin-bottom: 10px">Idle</p>
+            <p class="sm dim" style="margin-bottom: 14px">
+              Nothing typed yet. Identical whether what comes next turns out to be a link or a title.
+            </p>
+            <div class="state-card">
+              <div class="navsearch">
+                <svg class="navsearch__icon"><use href="#i-search" /></svg>
+                <input class="navsearch__input" placeholder="Search or paste a link…" />
+              </div>
+            </div>
+          </div>
+
+          <div class="state-col">
+            <p class="h3" id="state-link" style="margin-bottom: 10px">A link is detected</p>
+            <p class="sm dim" style="margin-bottom: 14px">
+              Classification is instant and client-side — no network round-trip, so no separate "resolving"
+              state. The icon swaps and a compact Download button appears right in the pill.
+            </p>
+            <div class="state-card">
+              <div class="navsearch navsearch--ready">
+                <svg class="navsearch__icon navsearch__icon--ready"><use href="#i-download" /></svg>
+                <input class="navsearch__input" value="youtube.com/watch?v=7f2k9dQ" />
+                <button class="navsearch__go">Download</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="state-col">
+            <p class="h3" id="state-query" style="margin-bottom: 10px">A title query is ready</p>
+            <p class="sm dim" style="margin-bottom: 14px">
+              Anything that isn't a link, once it clears 2+ characters — the same threshold §3's search uses.
+              Same treatment as a detected link: the icon tints and a compact Search button appears.
+            </p>
+            <div class="state-card">
+              <div class="navsearch navsearch--ready">
+                <svg class="navsearch__icon navsearch__icon--ready"><use href="#i-search" /></svg>
+                <input class="navsearch__input" value="the office" />
+                <button class="navsearch__go">Search</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════ full flow — the happy-path narrative,
+           connected in order. Failure states live in the catalog above
+           (this page) and on video-detail.html, not here. ═══ -->
+      <section id="flow" style="margin-top: 56px; padding-top: 30px; border-top: 1px solid var(--line-soft)">
+        <h2 class="h1" style="font-size: 22px; margin-bottom: 6px">Full flow, start to finish</h2>
+        <p class="sm dim" style="max-width: 62ch; margin-bottom: 20px">
+          Both branches start in the exact same nav-bar field — paste a link for a video, or type a title for a
+          movie or show. From there they diverge: a video redirects straight to its own detail page, where the
+          download starts; a title search redirects to the search results page. Nothing downloads, and no
+          results render, inside the field itself.
+        </p>
+
+        <div class="legend">
+          <p class="sm dim">
+            Captions cite <code class="mono-sm">docs/designs/motion.md</code>. Two motions only:
+            <b style="color: var(--ink)">spring</b> — the user pressed or dragged something (120ms) — and
+            <b style="color: var(--ink)">ease</b> — the system reacting to data or a route (200–380ms).
+            <code class="mono-sm">var(--ease)</code> / <code class="mono-sm">var(--spring)</code> below are this
+            file's local names for motion.md's <code class="mono-sm">--ease-uv</code> /
+            <code class="mono-sm">--ease-spring</code>.
+          </p>
+        </div>
+
+        <div class="flowstep">
+          <span class="flowstep__num">0</span>
+          <div class="flowstep__frame">
+            <div class="state-card" style="max-width: 320px">
+              <div class="navsearch">
+                <svg class="navsearch__icon"><use href="#i-search" /></svg>
+                <input class="navsearch__input" placeholder="Search or paste a link…" disabled />
+              </div>
+            </div>
+          </div>
+          <div class="flowstep__body">
+            <p class="h3">At rest</p>
+            <p class="sm dim">
+              Both branches start here, in the nav bar — on every page, not just one. See "Idle" above.
+            </p>
+          </div>
+        </div>
+
+        <div class="flow-connector">
+          <svg><use href="#i-arrow" /></svg>
+          <span class="mono-sm" style="color: var(--uv-hi)"
+            >classifies instantly, client-side — a link swaps the icon and shows Download; anything else is a
+            title, and shows Search once it's 2+ characters</span
+          >
+        </div>
+
+        <div class="track-head" style="margin-top: 30px; padding-top: 0; border-top: none">
+          <p class="label" style="color: var(--uv); margin-bottom: 4px">Branch A</p>
+          <h3 class="h3">Fetch a video</h3>
+        </div>
+
+        <div class="flowstep">
+          <span class="flowstep__num">1</span>
+          <div class="flowstep__frame">
+            <div class="state-card" style="max-width: 320px">
+              <div class="navsearch">
+                <svg class="navsearch__icon"><use href="#i-search" /></svg>
+                <input class="navsearch__input" value="youtub" readonly />
+              </div>
+            </div>
+          </div>
+          <div class="flowstep__body">
+            <p class="h3">Typing</p>
+            <p class="sm dim">Still just text — search icon, no button yet. Not host-shaped, so not a link. Yet.</p>
+          </div>
+        </div>
+
+        <div class="flow-connector">
+          <svg><use href="#i-arrow" /></svg>
+          <span class="mono-sm" style="color: var(--uv-hi)">no network round-trip — classification is a client-side check, not a fetch</span>
+        </div>
+
+        <div class="flowstep">
+          <span class="flowstep__num">2</span>
+          <div class="flowstep__frame">
+            <div class="state-card" style="max-width: 400px">
+              <div class="navsearch navsearch--ready reveal">
+                <svg class="navsearch__icon navsearch__icon--ready"><use href="#i-download" /></svg>
+                <input class="navsearch__input" value="youtube.com/watch?v=7f2k9dQ" readonly />
+                <button class="navsearch__go">Download</button>
+              </div>
+            </div>
+          </div>
+          <div class="flowstep__body">
+            <p class="h3">Link detected</p>
+            <p class="sm dim">
+              Icon swaps, button appears — no dropdown, no preview card. See "A link is detected" above.
+            </p>
+          </div>
+        </div>
+
+        <div class="flow-connector">
+          <svg><use href="#i-arrow" /></svg>
+          <span class="mono-sm" style="color: var(--uv-hi)"
+            >press Download: 120ms spring, scale(0.96) → route change: 380ms rise</span
+          >
+        </div>
+
+        <div class="note reveal">
+          <svg><use href="#i-download" /></svg>
+          <div>
+            <b style="color: var(--ink)">Redirects to the video's detail page.</b> Extraction and the download
+            both start the moment it loads — no separate preview-before-committing step. If yt-dlp doesn't
+            recognize the link after all, that page shows a "not recognized" state instead of progress. See
+            <a href="video-detail.html" style="color: var(--ink); text-decoration: underline">video-detail.html</a>.
+          </div>
+        </div>
+
+        <div class="track-head" style="margin-top: 44px; padding-top: 26px; border-top: 1px solid var(--line-soft)">
+          <p class="label" style="color: var(--uv); margin-bottom: 4px">Branch B</p>
+          <h3 class="h3">Find a movie or show</h3>
+        </div>
+
+        <div class="flowstep">
+          <span class="flowstep__num">1</span>
+          <div class="flowstep__frame">
+            <div class="state-card" style="max-width: 320px">
+              <div class="navsearch">
+                <svg class="navsearch__icon"><use href="#i-search" /></svg>
+                <input class="navsearch__input" value="t" readonly />
+              </div>
+            </div>
+          </div>
+          <div class="flowstep__body">
+            <p class="h3">Typing</p>
+            <p class="sm dim">
+              Same field as Branch A, reachable from every page. Under 2 characters — still just text, no button
+              yet.
+            </p>
+          </div>
+        </div>
+
+        <div class="flow-connector">
+          <svg><use href="#i-arrow" /></svg>
+          <span class="mono-sm" style="color: var(--uv-hi)"
+            >same client-side check as the link branch — counting length instead of parsing a host</span
+          >
+        </div>
+
+        <div class="flowstep">
+          <span class="flowstep__num">2</span>
+          <div class="flowstep__frame">
+            <div class="state-card" style="max-width: 400px">
+              <div class="navsearch navsearch--ready reveal">
+                <svg class="navsearch__icon navsearch__icon--ready"><use href="#i-search" /></svg>
+                <input class="navsearch__input" value="the office" readonly />
+                <button class="navsearch__go">Search</button>
+              </div>
+            </div>
+          </div>
+          <div class="flowstep__body">
+            <p class="h3">Query ready</p>
+            <p class="sm dim">
+              2+ characters — icon tints, a compact Search button appears. Pressing Enter does the same thing as
+              clicking it. See "A title query is ready" above.
+            </p>
+          </div>
+        </div>
+
+        <div class="flow-connector">
+          <svg><use href="#i-arrow" /></svg>
+          <span class="mono-sm" style="color: var(--uv-hi)"
+            >press Enter or click Search: 120ms spring on the button → route change: 380ms rise</span
+          >
+        </div>
+
+        <div class="note reveal">
+          <svg><use href="#i-search" /></svg>
+          <div>
+            <b style="color: var(--ink)">Redirects to the search page.</b> Results are already loading by the
+            time the route lands — <code class="mono-sm">search.html</code> owns the results list, filters, and
+            sort from there. See <a href="search.html" style="color: var(--ink); text-decoration: underline">search.html</a>.
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 40px">
+          <div class="row" style="gap: 10px">
+            <span class="dot dot--live"></span>
+            <p class="sm">
+              A download shows up on
+              <a href="downloads-activity.html" style="color: var(--uv-hi); text-decoration: underline">downloads-activity.html</a>
+              the instant it starts — immediately for Branch A, or once a result's picked and Download's pressed
+              for Branch B.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <footer style="margin-top: 80px; padding-top: 28px; border-top: 1px solid var(--line-soft)">
+        <p class="cap">
+          Tokens and components reused from <code class="mono-sm">docs/designs/preview/index.html</code>. No
+          external image requests, no JavaScript. Extracted from <code class="mono-sm">home.html</code>, which
+          used to host this reference despite the field appearing identically on every other page too; see
+          <code class="mono-sm">home.html</code> for the actual homepage content (quick access, recently added)
+          and every other file's own nav bar for the field in situ.
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>
