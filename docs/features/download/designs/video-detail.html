@@ -1,0 +1,999 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Video detail — download UI mockups · lilnas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ═══════════════════════════════════════════════════════════════════
+         ULTRAVIOLET — token layer (verbatim from docs/designs/preview/index.html)
+         ═══════════════════════════════════════════════════════════════════ */
+      :root {
+        --bg: oklch(14% 0.021 300);
+        --bg-sunk: oklch(11% 0.018 300);
+        --surface: oklch(18.5% 0.027 300);
+        --surface-2: oklch(23% 0.032 300);
+        --surface-3: oklch(28% 0.038 300);
+
+        --line: oklch(29% 0.038 300);
+        --line-soft: oklch(23.5% 0.031 300);
+        --line-loud: oklch(41% 0.055 300);
+
+        --ink: oklch(97% 0.008 300);
+        --ink-2: oklch(79% 0.02 300);
+        --ink-3: oklch(63% 0.026 300);
+        --ink-4: oklch(50% 0.028 300);
+
+        --uv: oklch(68% 0.21 300);
+        --uv-hi: oklch(75% 0.195 300);
+        --uv-press: oklch(62% 0.225 300);
+        --uv-dim: oklch(42% 0.14 300);
+        --uv-ghost: oklch(68% 0.21 300 / 0.13);
+        --uv-ink: oklch(15% 0.045 300);
+
+        --ok: oklch(76% 0.17 155);
+        --ok-ghost: oklch(76% 0.17 155 / 0.14);
+        --warn: oklch(82% 0.15 85);
+        --warn-ghost: oklch(82% 0.15 85 / 0.14);
+        --bad: oklch(66% 0.2 22);
+        --bad-ghost: oklch(66% 0.2 22 / 0.14);
+
+        --r-xs: 6px;
+        --r-md: 10px;
+        --r-lg: 14px;
+        --r-xl: 20px;
+
+        --ease: cubic-bezier(0.32, 0.72, 0, 1);
+        --spring: linear(
+          0,
+          0.006,
+          0.025 2.8%,
+          0.101 6.1%,
+          0.539 18.9%,
+          0.721 25.3%,
+          0.849 31.5%,
+          0.937 38.1%,
+          0.968 41.8%,
+          0.991 45.7%,
+          1.006 50.1%,
+          1.015 60%,
+          1.006 76.2%,
+          1
+        );
+        --t-fast: 120ms;
+        --t: 200ms;
+        --t-slow: 380ms;
+
+        --font-sans: "Figtree", system-ui, sans-serif;
+        --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+      }
+
+      /* ── base ─────────────────────────────────────────────────────────── */
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--font-sans);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+        border: none;
+        background: none;
+      }
+      svg {
+        display: block;
+      }
+      :focus-visible {
+        outline: 2px solid var(--uv);
+        outline-offset: 2px;
+        border-radius: var(--r-xs);
+      }
+
+      /* ── type roles ───────────────────────────────────────────────────── */
+      .h1 {
+        font-size: 23px;
+        font-weight: 650;
+        letter-spacing: -0.015em;
+        line-height: 1.25;
+      }
+      .h2 {
+        font-size: 18px;
+        font-weight: 620;
+        letter-spacing: -0.01em;
+        line-height: 1.3;
+      }
+      .sm {
+        font-size: 13.5px;
+        line-height: 1.55;
+      }
+      .dim {
+        color: var(--ink-3);
+      }
+      .dimmer {
+        color: var(--ink-4);
+      }
+      .mono-sm {
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        font-weight: 450;
+      }
+      .label {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        font-weight: 500;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: var(--ink-4);
+      }
+      .num {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ── layout helpers ───────────────────────────────────────────────── */
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+      }
+      .between {
+        justify-content: space-between;
+      }
+
+      /* ── doorplate ────────────────────────────────────────────────────── */
+      .doorplate {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        height: 32px;
+        padding: 0 12px 0 4px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        background: transparent;
+        transition:
+          border-color var(--t) var(--ease),
+          background-color var(--t) var(--ease);
+      }
+      .doorplate:hover {
+        border-color: var(--uv-dim);
+        background: var(--surface-2);
+      }
+      .doorplate__badge {
+        width: 24px;
+        height: 24px;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+      }
+      .doorplate__badge svg {
+        width: 100%;
+        height: 100%;
+      }
+      .doorplate__name {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+      }
+
+      /* ── card ─────────────────────────────────────────────────────────── */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--r-lg);
+        padding: 20px;
+      }
+      .card--sunk {
+        background: var(--bg-sunk);
+      }
+
+      /* ── buttons ──────────────────────────────────────────────────────── */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        height: 38px;
+        padding: 0 15px;
+        border-radius: var(--r-md);
+        border: 1px solid transparent;
+        font-size: 14px;
+        font-weight: 550;
+        letter-spacing: -0.005em;
+        white-space: nowrap;
+        transition:
+          background-color var(--t) var(--ease),
+          border-color var(--t) var(--ease),
+          color var(--t) var(--ease),
+          transform var(--t-fast) var(--spring);
+      }
+      .btn:active {
+        transform: scale(0.96);
+      }
+      .btn svg {
+        width: 15px;
+        height: 15px;
+        flex-shrink: 0;
+      }
+      .btn--uv {
+        background: var(--uv);
+        color: var(--uv-ink);
+        font-weight: 620;
+      }
+      .btn--uv:hover {
+        background: var(--uv-hi);
+      }
+      .btn--outline {
+        border-color: var(--line);
+        color: var(--ink);
+        background: var(--surface);
+      }
+      .btn--outline:hover {
+        border-color: var(--uv-dim);
+        background: var(--surface-2);
+      }
+      .btn--ghost {
+        color: var(--ink-3);
+        padding: 0 11px;
+      }
+      .btn--ghost:hover {
+        color: var(--ink);
+        background: var(--surface-2);
+      }
+      .btn--lg {
+        height: 46px;
+        padding: 0 22px;
+        font-size: 15.5px;
+      }
+      .btn--full {
+        width: 100%;
+      }
+      .btn--bad {
+        color: var(--bad);
+        border-color: transparent;
+        padding: 0 11px;
+      }
+      .btn--bad:hover {
+        background: var(--bad-ghost);
+      }
+      .btn--sm {
+        height: 30px;
+        padding: 0 11px;
+        font-size: 13px;
+      }
+
+      /* ── chips ────────────────────────────────────────────────────────── */
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 23px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        border: 1px solid transparent;
+        white-space: nowrap;
+      }
+      .chip svg {
+        width: 11px;
+        height: 11px;
+      }
+      .chip--uv {
+        background: var(--uv-ghost);
+        color: var(--uv-hi);
+        border-color: oklch(68% 0.21 300 / 0.3);
+      }
+      .chip--ok {
+        background: var(--ok-ghost);
+        color: var(--ok);
+        border-color: oklch(76% 0.17 155 / 0.3);
+      }
+      .chip--warn {
+        background: var(--warn-ghost);
+        color: var(--warn);
+        border-color: oklch(82% 0.15 85 / 0.3);
+      }
+      .chip--bad {
+        background: var(--bad-ghost);
+        color: var(--bad);
+        border-color: oklch(66% 0.2 22 / 0.32);
+      }
+      .chip--mute {
+        background: var(--surface-2);
+        color: var(--ink-3);
+        border-color: var(--line);
+      }
+
+      /* ── the live dot ─────────────────────────────────────────────────── */
+      .dot {
+        position: relative;
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        flex-shrink: 0;
+        background: var(--ink-4);
+      }
+      .dot--live {
+        background: var(--ok);
+      }
+      .dot--live::after {
+        content: "";
+        position: absolute;
+        inset: -3px;
+        border-radius: 999px;
+        border: 1.5px solid var(--ok);
+        animation: breathe 2.4s var(--ease) infinite;
+      }
+      @keyframes breathe {
+        0% {
+          transform: scale(0.7);
+          opacity: 0.9;
+        }
+        70% {
+          transform: scale(2.1);
+          opacity: 0;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+
+      /* ── progress ─────────────────────────────────────────────────────── */
+      .bar {
+        height: 5px;
+        border-radius: 999px;
+        background: var(--surface-3);
+        overflow: hidden;
+      }
+      .bar > i {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: var(--uv);
+        transition: width var(--t-slow) var(--ease);
+      }
+
+      /* ── motion ───────────────────────────────────────────────────────── */
+      .reveal {
+        opacity: 0;
+        transform: translateY(6px);
+        animation: rise var(--t-slow) var(--ease) forwards;
+      }
+      @keyframes rise {
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+
+      /* ── app vignette ─────────────────────────────────────────────────── */
+      .app {
+        border: 1px solid var(--line);
+        border-radius: var(--r-xl);
+        overflow: hidden;
+        background: var(--bg);
+      }
+      .app__bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 11px 16px;
+        border-bottom: 1px solid var(--line-soft);
+        background: var(--bg-sunk);
+      }
+      .app__body {
+        padding: 22px 20px 26px;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
+        .reveal {
+          opacity: 1;
+          transform: none;
+        }
+      }
+
+      /* ═══════════════════════════════════════════════════════════════════
+         MOCKUP-SPECIFIC
+         ═══════════════════════════════════════════════════════════════════ */
+      .mock-page {
+        max-width: 1328px;
+        margin: 0 auto;
+        padding: 56px 24px 140px;
+      }
+      .mock-head {
+        max-width: 74ch;
+        margin-bottom: 44px;
+      }
+      .mock-head__back {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 22px;
+      }
+      .mock-head__back svg {
+        width: 12px;
+        height: 12px;
+        color: var(--ink-4);
+        transform: scaleX(-1);
+      }
+      .mock-screen__desc {
+        max-width: 62ch;
+        margin: 8px 0 28px;
+      }
+
+      /* content column — foundations.md "Content column: 1080px max" /
+         "Dense/table app: 1120px max" — centred inside the wider app frame
+         instead of hugging its left edge */
+      .content-col {
+        max-width: 1080px;
+        margin: 0 auto;
+      }
+      .content-col--dense {
+        max-width: 1120px;
+      }
+
+      /* nav-bar search — canonical entry point on every page */
+      .navsearch {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 32px;
+        padding: 0 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--bg-sunk);
+        flex: 1;
+        max-width: 320px;
+        min-width: 0;
+        transition:
+          border-color var(--t) var(--ease),
+          box-shadow var(--t) var(--ease);
+      }
+      .navsearch:focus-within {
+        border-color: var(--uv);
+        box-shadow: 0 0 0 3px var(--uv-ghost);
+      }
+      .navsearch__icon {
+        width: 14px;
+        height: 14px;
+        color: var(--ink-4);
+        flex-shrink: 0;
+      }
+      .navsearch__input {
+        flex: 1;
+        min-width: 0;
+        border: none;
+        background: none;
+        outline: none;
+        font-size: 13px;
+        color: var(--ink);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .navsearch__input::placeholder {
+        color: var(--ink-4);
+      }
+
+      /* viewport switch — CSS-only, see home.html's header comment for why */
+      .vp-radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        margin: 0;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .vptoggle {
+        display: inline-flex;
+        gap: 4px;
+        padding: 4px;
+        border-radius: 999px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+      }
+      .vptoggle__btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        height: 32px;
+        padding: 0 15px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 550;
+        color: var(--ink-3);
+        cursor: pointer;
+        transition:
+          background-color var(--t) var(--ease),
+          color var(--t) var(--ease);
+      }
+      .vptoggle__btn span {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        color: var(--ink-4);
+      }
+      .vptoggle__btn:hover {
+        color: var(--ink);
+      }
+      .vptoggle__btn:has(.vp-radio:checked) {
+        background: var(--uv);
+        color: var(--uv-ink);
+        font-weight: 620;
+      }
+      .vptoggle__btn:has(.vp-radio:checked) span {
+        color: var(--uv-ink);
+        opacity: 0.75;
+      }
+      .vptoggle__btn:has(.vp-radio:checked):hover {
+        background: var(--uv-hi);
+      }
+      .vptoggle__btn:has(.vp-radio:focus-visible) {
+        outline: 2px solid var(--uv);
+        outline-offset: 2px;
+      }
+      .vp-scope [data-viewport-panel] {
+        display: none;
+      }
+      .vp-scope:has(.vp-radio[value="desktop"]:checked) [data-viewport-panel="desktop"] {
+        display: flex;
+      }
+      .vp-scope:has(.vp-radio[value="mobile"]:checked) [data-viewport-panel="mobile"] {
+        display: flex;
+      }
+
+      .frame-stack {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+      }
+      .app--desktop {
+        width: 1280px;
+        max-width: 100%;
+      }
+      .app--mobile {
+        width: 390px;
+        max-width: 100%;
+      }
+      .app--desktop .app__body {
+        padding: 30px 32px 44px;
+      }
+      .app--mobile .app__body {
+        padding: 18px 24px 30px;
+      }
+      .app--mobile .app__bar {
+        padding: 10px 14px 10px 16px;
+      }
+
+      .poster {
+        position: relative;
+        border-radius: var(--r-md);
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .poster--wide {
+        aspect-ratio: 16 / 9;
+      }
+      .poster__play {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(180deg, transparent 48%, oklch(6% 0.02 300 / 0.5));
+      }
+      .poster__play svg {
+        width: 30px;
+        height: 30px;
+        color: var(--ink);
+      }
+      .poster--v2 {
+        background: linear-gradient(155deg, oklch(23% 0.045 300), oklch(29% 0.06 300));
+      }
+
+      .avatar {
+        width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        background: var(--surface-3);
+        border: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10.5px;
+        font-weight: 600;
+        color: var(--ink-2);
+        flex-shrink: 0;
+      }
+
+      /* ── legend rows — "other states on this page" ───────────────────── */
+      .stline {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 13px 2px;
+      }
+      .stline + .stline {
+        border-top: 1px solid var(--line-soft);
+      }
+      .stline__body {
+        flex: 1;
+        min-width: 0;
+      }
+      .stline--mobile {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 9px;
+      }
+      .stline--mobile .stline__actions {
+        width: 100%;
+        display: flex;
+        gap: 8px;
+      }
+      .stline--mobile .stline__actions .btn {
+        flex: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="pepe" viewBox="96 38 240 240">
+        <rect x="96" y="38" width="240" height="240" fill="#5a8d3e" />
+        <path
+          fill="#5a8d3e"
+          d="M17.727 228.459c-7.057-7.804-10.4-18.556-13.062-28.734l-.205-.794c-2.5-9.709-4.46-20.114-2.407-29.9 1.98-9.437 9.546-16.774 13.714-25.469 6.97-14.539 9.869-30.19 18.843-44.55 0 0 .5-.789.749-1.164 4.51-6.8 10.718-12.4 16.98-17.632 2.408-2.013 7.836-5.225 7.836-5.225S67.99 62.352 71.93 56.053c6.278-10.036 11.035-21.228 18.938-30.04 6.31-7.036 13.827-13.258 22.204-17.633 8.058-4.208 17.046-7.33 26.122-7.837 9.72-.543 19.517 2.094 28.735 5.225 8.112 2.755 16.466 6.048 22.857 11.755 1.756 1.568 3.918 5.877 3.918 5.877s22.644-12.651 34.448-15.02c11.805-2.369 26.351-3.257 34.775 0 8.425 3.257 9.902 7.614 14.368 13.061 4.465 5.448 9.722 12.252 11.755 19.592.58 2.098 0 6.53 0 6.53s21.953 10.684 30.693 18.939c4.49 4.24 7.402 10.625 10.612 15.183 2.237 3.177 6.186 4.88 6.79 8.119.287 1.53-.357 3.556-1.116 5.267-.847 1.911-3.222 1.814-3.222 1.814-3.635 3.664-2.615 13.371-2.615 13.371s-.593 5.735-3.187 8.11c-2.54 2.325-5.686 1.473-8.162 3.888-1.972 3.709-3.245 4.834-4.977 6.94-4.947 6.016-20.898 10.45-20.898 10.45s-.507 3.134 0 4.571c.88 2.492 2.34 4.647 4.067 6.652 3.938 4.572 9.264 8.363 12.26 13.593 4.28 7.472 9.142 24.163 9.142 24.163s-18.17 34.975-32.653 47.672c-13.03 11.424-29.934 18.01-46.366 23.51-11.743 3.93-24.23 5.52-36.571 6.53-16.49 1.352-33.127.499-49.632-.652-31.083-2.168-63.16-1.945-92.734-11.755-15.322-5.082-29.67-11.847-42.158-23.83a32.344 32.344 0 01-1.596-1.64z"
+        />
+        <path
+          fill="#5a8d3e"
+          d="M28.748 240.698l13.06 20.244s36.4 11.093 54.857 15.673c15.332 3.805 30.64 8.327 46.367 9.797 19.944 1.86 40.532 3.06 60.081-1.31 8.37-1.868 23.51-10.446 23.51-10.446l12.558-14.522c-44.226 11.354-111.596 9.127-210.433-19.436h0z"
+        />
+        <path
+          fill="#9f5935"
+          d="M106.061 213.297c-2.878-2.695-1.819-5.673-1.306-8.49.715-3.932 3.054-7.621 5.877-10.45 3.345-3.35 7.817-5.68 12.368-6.985 10.905-3.125 22.942-2.7 34-1.504 12.488 1.35 22.883 7.996 35.264 10.123 15.274 2.623 47.673 4.244 47.673 4.244s18.776.39 28.081-.653c16.334-1.83 34.78-.487 48.326-9.795 2.34-1.608 2.82-1.84 4.782-1.88 2.93-.061 3.068 3.48 3.57 7.299.607 4.634-1.449 6.642-4.899 9.795-2.089 1.91-2.635 1.917-5.182 3.15-2.017.977-6.108 1.88-6.108 1.88s.87 7.383-.755 10.489c-1.815 3.468-5.563 5.782-9.14 7.37-8.429 3.747-27.329 4.345-27.329 4.345s-61.899-1.984-94.04-7.184c-9.277-1.5-18.12-5.226-27.428-6.53-14.458-2.026-33.096 4.753-43.754-5.224h0z"
+        />
+        <path
+          fill="#fff"
+          d="M226.31 108.73c1.15-3.608 3.925-5.4 6.812-7.85 5.16-4.379 14.987-7.171 22.985-9.213 9.71-2.478 19.844-3.086 29.855-3.556 10.278-.483 20.838-1.578 30.857.763 6.249 1.459 13.23 3.276 17.464 8.097 1.753 1.996 3.056 4.581 2.393 7.603-.65 2.965-2.106 3.742-5.271 5.891-3.165 2.15-9.738 4.265-14.124 5.192-9.4 2.107-18.561 5.748-28.168 6.465-14.01 1.044-28.479-.177-42.484-2.425-4.144-.665-8.5-1.205-12.165-3.252-3.266-1.825-8.767-5.786-8.153-7.715z"
+        />
+        <path
+          fill="#fff"
+          d="M121.025 105.036s24.656 14.498 38.328 18.01c9.412 2.416 19.419 2.765 29.092 1.846 14.086-1.338 27.063-2.232 36.833-12.468 4.669-4.891 7.978-9.79 6.465-16.162-.423-1.778-.413-4.888-2.26-5.35-1.848-.462-23.162-2.083-36.42-.191-16.453 2.347-31.606 10.822-48.025 13.391-7.914 1.238-24.013.924-24.013.924z"
+        />
+        <path
+          fill="#000"
+          d="M314.895 114.548c0 .857-18.226 7.628-34.938 7.183-11.461-.305-14.589 1.162-15.438-1.525-.22-.694-.502-2.635-.483-3.811.128-7.784 6.4-18.405 13.675-24.09 3.62-2.83 8.995-3.119 13.275-3.705 14.294-1.956 23.91 11.517 23.91 25.948z"
+        />
+        <path
+          fill="#0446fc"
+          d="M17.243 251.696l.227-9.213s3.27-1.65 5.03-2.1c2.494-.636 7.682-.805 7.682-.805s5.913 5.632 18.626 13.849c12.713 8.217 45.85 16.14 69.55 21.224 18.883 4.05 34.753 7.46 54.056 7.127 15.745-1.077 31.418-2.67 44.086-7.55 5.28-2.085 18.062-8.218 18.062-8.218s12.217 4.95 14.166 5.98c13.113 6.923 13.893 11.682 24.588 21.182 5.296 4.7 14.694 15.34 14.694 15.34l-271.375-2.82.608-53.996z"
+        />
+        <path
+          fill="#000"
+          d="M210.08 121.078s-15.287 3.755-29.714 3.755c-14.426 0-22.819-2.89-22.819-2.89.072-14.424 16.152-28.095 28.207-27.967 6.81.073 13.645 2.79 18.092 7.07 4.972 4.788 5.41 12.461 6.234 20.032z"
+        />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" ry="5.08" rx="4.156" cy="822.576" cx="180.903" />
+        <circle transform="translate(-4.65 -716.318)" fill="#fff" r="7.158" cy="829.897" cx="196.097" />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" cx="180.292" cy="834.284" rx="3.337" ry="3.232" />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" cx="284.743" cy="819.428" rx="3.087" ry="3.773" />
+        <circle transform="translate(-4.65 -716.318)" fill="#fff" cx="299.848" cy="824.137" r="6.015" />
+        <ellipse transform="translate(-4.65 -716.318)" fill="#fff" ry="2.45" rx="2.529" cy="830.269" cx="285.301" />
+        <path
+          fill="#5a8d3e"
+          d="M226.06 113.507c.833-1.056.91-1.476 2.102-1.551.978-.062 1.92 1.219 2.143 2.224.163.737-.3 1.525-.735 2.143-1.058 1.504-4.306 3.449-4.306 3.449s-.038-5.21.796-6.265z"
+        />
+      </symbol>
+      <symbol id="i-arrow" viewBox="0 0 16 16">
+        <path d="M3 8h10m0 0-4-4m4 4-4 4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-play" viewBox="0 0 16 16">
+        <path d="M5 3.5v9l7.5-4.5z" fill="currentColor" />
+      </symbol>
+      <symbol id="i-pause" viewBox="0 0 16 16">
+        <path d="M5 3.5v9M11 3.5v9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 16 16">
+        <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-eye" viewBox="0 0 16 16">
+        <path d="M1.3 8S3.9 3.7 8 3.7 14.7 8 14.7 8 12.1 12.3 8 12.3 1.3 8 1.3 8Z" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linejoin="round" />
+        <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.3" fill="none" />
+      </symbol>
+      <symbol id="i-device" viewBox="0 0 16 16">
+        <rect x="4.5" y="1.5" width="7" height="13" rx="1.6" stroke="currentColor" stroke-width="1.4" fill="none" />
+        <path d="M7 12.6h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 16 16">
+        <path d="M8 2.5v8m0 0L5 7.5m3 3 3-3M3 13h10" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-external" viewBox="0 0 16 16">
+        <path
+          d="M6.5 3H3.6c-.6 0-1.1.5-1.1 1.1v8.3c0 .6.5 1.1 1.1 1.1h8.3c.6 0 1.1-.5 1.1-1.1V9.5"
+          stroke="currentColor"
+          stroke-width="1.3"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <path d="M9 3h4v4M12.7 3.3 7.3 8.7" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 16 16">
+        <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4" fill="none" />
+        <path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+      </symbol>
+    </svg>
+
+    <div class="mock-page">
+      <header class="mock-head reveal">
+        <a class="mock-head__back sm dim" href="index.html">
+          <svg><use href="#i-arrow" /></svg> All mockups
+        </a>
+        <p class="label" style="color: var(--uv); margin-bottom: 10px">lilnas · download</p>
+        <h1 class="h1" style="font-size: 30px; margin-bottom: 12px">Video detail</h1>
+        <p class="sm dim mock-screen__desc" style="margin-bottom: 0">
+          The permalink for a video someone shared, distinct from its own author's post: a self-contained page
+          with the source, who grabbed it internally, and — where pause/resume becomes real — the download's
+          progress right on the page, with a compact legend beneath it showing how every other state reads.
+        </p>
+      </header>
+
+      <div class="vp-scope">
+        <div class="vptoggle" role="radiogroup" aria-label="Viewport" style="margin-bottom: 32px">
+          <label class="vptoggle__btn">
+            <input class="vp-radio" type="radio" name="viewport" value="desktop" checked />
+            Desktop <span>1280</span>
+          </label>
+          <label class="vptoggle__btn">
+            <input class="vp-radio" type="radio" name="viewport" value="mobile" />
+            Mobile <span>390</span>
+          </label>
+        </div>
+
+        <!-- desktop -->
+        <div class="frame-stack" data-viewport-panel="desktop">
+          <div class="app app--desktop">
+            <div class="app__bar">
+              <div class="row" style="gap: 14px; flex: 1; min-width: 0">
+                <button class="btn btn--ghost" style="padding: 0; width: 32px; height: 32px; flex-shrink: 0" aria-label="Back to library">
+                  <svg style="width: 15px; height: 15px; transform: scaleX(-1)"><use href="#i-arrow" /></svg>
+                </button>
+                <a class="doorplate" href="https://lilnas.io">
+                  <span class="doorplate__badge"><svg><use href="#pepe" /></svg></span>
+                  <span class="doorplate__name">Download</span>
+                </a>
+                <div class="navsearch">
+                  <svg class="navsearch__icon"><use href="#i-search" /></svg>
+                  <input class="navsearch__input" placeholder="Search or paste a link…" />
+                </div>
+              </div>
+              <span class="row" style="gap: 10px; flex-shrink: 0">
+                <span class="avatar avatar--ring" title="Jeremy · you" style="width: 30px; height: 30px; font-size: 11.5px">JA</span>
+              </span>
+            </div>
+
+            <div class="app__body">
+              <div class="content-col">
+              <a class="row" href="#" style="gap: 6px; margin-bottom: 22px">
+                <svg style="width: 13px; height: 13px; color: var(--ink-4); transform: scaleX(-1)"><use href="#i-arrow" /></svg>
+                <span class="sm dim">Library</span>
+              </a>
+
+              <div class="row" style="gap: 24px; align-items: flex-start">
+                <div class="poster poster--wide poster--v2" style="width: 340px">
+                  <div class="poster__play"><svg><use href="#i-play" /></svg></div>
+                </div>
+                <div class="stack" style="gap: 14px; padding-top: 2px; flex: 1">
+                  <div>
+                    <p class="h1" style="margin-bottom: 6px">Sourdough starter, day one to seven</p>
+                    <p class="mono-sm dim">@slowferment · 14:02</p>
+                  </div>
+                  <a class="row" href="#" style="gap: 6px">
+                    <svg style="width: 12px; height: 12px; color: var(--ink-4)"><use href="#i-external" /></svg>
+                    <span class="sm">View original post</span>
+                  </a>
+                  <div class="row" style="gap: 8px">
+                    <span class="avatar" style="width: 20px; height: 20px; font-size: 9px">JA</span>
+                    <span class="mono-sm dimmer">downloaded by Jeremy · 12m ago</span>
+                  </div>
+                  <span class="chip chip--ok" style="margin-top: 2px"><span class="dot dot--live"></span>downloading</span>
+
+                  <div class="card" style="margin-top: 6px; max-width: 480px">
+                    <div class="stack" style="gap: 16px">
+                      <div>
+                        <div class="row between" style="margin-bottom: 8px">
+                          <span class="mono-sm dim">fragment 4 of 9</span>
+                          <span class="mono-sm num" style="color: var(--uv-hi)">64%</span>
+                        </div>
+                        <div class="bar"><i style="width: 64%"></i></div>
+                      </div>
+                      <p class="mono-sm num dim">412&nbsp;MB / 640&nbsp;MB &nbsp;·&nbsp; 3.1&nbsp;MB/s &nbsp;·&nbsp; ~2m left</p>
+                      <div class="row" style="gap: 10px">
+                        <button class="btn btn--outline">Pause <svg><use href="#i-pause" /></svg></button>
+                        <button class="btn btn--bad">Cancel <svg><use href="#i-x" /></svg></button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <p class="label" style="margin: 32px 0 10px">Other states on this page</p>
+              <div class="card card--sunk" style="padding: 4px 16px">
+                <div class="stline">
+                  <span class="chip chip--mute" style="width: 108px; justify-content: center">not downloaded</span>
+                  <span class="sm dim stline__body">Ready to grab whenever.</span>
+                  <button class="btn btn--outline btn--sm">Download <svg><use href="#i-download" /></svg></button>
+                </div>
+                <div class="stline">
+                  <span class="chip chip--mute" style="width: 108px; justify-content: center">queued</span>
+                  <span class="sm dim stline__body">Waiting for a slot — usually seconds.</span>
+                </div>
+                <div class="stline">
+                  <span class="chip chip--mute" style="width: 108px; justify-content: center">paused</span>
+                  <span class="sm dim stline__body">64% — resume anytime, nothing's lost.</span>
+                  <button class="btn btn--uv btn--sm">Resume</button>
+                </div>
+                <div class="stline">
+                  <span class="chip chip--ok" style="width: 108px; justify-content: center">completed</span>
+                  <span class="sm dim stline__body">Ready to watch.</span>
+                  <button class="btn btn--outline btn--sm">Watch <svg><use href="#i-eye" /></svg></button>
+                  <button class="btn btn--ghost btn--sm">Save to device <svg><use href="#i-device" /></svg></button>
+                </div>
+                <div class="stline">
+                  <span class="chip chip--bad" style="width: 108px; justify-content: center">failed</span>
+                  <span class="sm dim stline__body">That link stopped responding halfway through. <span class="mono-sm dimmer">ETIMEDOUT</span></span>
+                  <button class="btn btn--outline btn--sm">Retry</button>
+                </div>
+                <div class="stline">
+                  <span class="chip chip--bad" style="width: 108px; justify-content: center">not recognized</span>
+                  <span class="sm dim stline__body">That link isn't one yt-dlp recognises — try a different link from the nav bar.</span>
+                </div>
+              </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- mobile -->
+        <div class="frame-stack" data-viewport-panel="mobile">
+          <div class="app app--mobile">
+            <div class="app__bar">
+              <div class="row" style="gap: 10px; min-width: 0">
+                <button class="btn btn--ghost" style="padding: 0; width: 30px; height: 30px; flex-shrink: 0" aria-label="Back to library">
+                  <svg style="width: 15px; height: 15px; transform: scaleX(-1)"><use href="#i-arrow" /></svg>
+                </button>
+                <a class="doorplate" href="https://lilnas.io">
+                  <span class="doorplate__badge"><svg><use href="#pepe" /></svg></span>
+                  <span class="doorplate__name">Download</span>
+                </a>
+              </div>
+              <span class="row" style="gap: 6px; flex-shrink: 0">
+                <button class="btn btn--ghost" style="padding: 0; width: 30px; height: 30px" aria-label="Search">
+                  <svg><use href="#i-search" /></svg>
+                </button>
+                <button class="btn btn--ghost" style="padding: 0; width: 32px; height: 32px" aria-label="Your account">
+                  <span class="avatar avatar--ring">JA</span>
+                </button>
+              </span>
+            </div>
+
+            <div class="app__body">
+              <div class="poster poster--wide poster--v2" style="margin-bottom: 16px">
+                <div class="poster__play"><svg><use href="#i-play" /></svg></div>
+              </div>
+              <p class="h1" style="margin-bottom: 6px">Sourdough starter, day one to seven</p>
+              <p class="mono-sm dim" style="margin-bottom: 12px">@slowferment · 14:02</p>
+              <a class="row" href="#" style="gap: 6px; margin-bottom: 14px">
+                <svg style="width: 12px; height: 12px; color: var(--ink-4)"><use href="#i-external" /></svg>
+                <span class="sm">View original post</span>
+              </a>
+              <div class="row" style="gap: 8px; margin-bottom: 14px">
+                <span class="avatar" style="width: 20px; height: 20px; font-size: 9px">JA</span>
+                <span class="mono-sm dimmer">downloaded by Jeremy · 12m ago</span>
+              </div>
+              <span class="chip chip--ok" style="margin-bottom: 16px"><span class="dot dot--live"></span>downloading</span>
+
+              <div class="card" style="padding: 16px">
+                <div class="stack" style="gap: 14px">
+                  <div>
+                    <div class="row between" style="margin-bottom: 8px">
+                      <span class="mono-sm dim">fragment 4 of 9</span>
+                      <span class="mono-sm num" style="color: var(--uv-hi)">64%</span>
+                    </div>
+                    <div class="bar"><i style="width: 64%"></i></div>
+                  </div>
+                  <p class="mono-sm num dim">412&nbsp;MB / 640&nbsp;MB &nbsp;·&nbsp; 3.1&nbsp;MB/s &nbsp;·&nbsp; ~2m left</p>
+                </div>
+              </div>
+
+              <div class="stack" style="gap: 8px; margin-top: 14px">
+                <button class="btn btn--outline btn--full">Pause <svg><use href="#i-pause" /></svg></button>
+                <button class="btn btn--bad btn--full">Cancel <svg><use href="#i-x" /></svg></button>
+              </div>
+
+              <p class="label" style="margin: 30px 0 10px">Other states on this page</p>
+              <div class="card card--sunk" style="padding: 4px 14px">
+                <div class="stline stline--mobile">
+                  <span class="chip chip--mute">not downloaded</span>
+                  <span class="sm dim">Ready to grab whenever.</span>
+                  <span class="stline__actions"><button class="btn btn--outline btn--sm">Download <svg><use href="#i-download" /></svg></button></span>
+                </div>
+                <div class="stline stline--mobile">
+                  <span class="chip chip--mute">queued</span>
+                  <span class="sm dim">Waiting for a slot — usually seconds.</span>
+                </div>
+                <div class="stline stline--mobile">
+                  <span class="chip chip--mute">paused</span>
+                  <span class="sm dim">64% — resume anytime, nothing's lost.</span>
+                  <span class="stline__actions"><button class="btn btn--uv btn--sm">Resume</button></span>
+                </div>
+                <div class="stline stline--mobile">
+                  <span class="chip chip--ok">completed</span>
+                  <span class="sm dim">Ready to watch.</span>
+                  <span class="stline__actions">
+                    <button class="btn btn--outline btn--sm">Watch <svg><use href="#i-eye" /></svg></button>
+                    <button class="btn btn--ghost btn--sm">Save to device <svg><use href="#i-device" /></svg></button>
+                  </span>
+                </div>
+                <div class="stline stline--mobile">
+                  <span class="chip chip--bad">failed</span>
+                  <span class="sm dim">Stopped responding halfway through. <span class="mono-sm dimmer">ETIMEDOUT</span></span>
+                  <span class="stline__actions"><button class="btn btn--outline btn--sm">Retry</button></span>
+                </div>
+                <div class="stline stline--mobile">
+                  <span class="chip chip--bad">not recognized</span>
+                  <span class="sm dim">That link isn't one yt-dlp recognises — try a different link from the nav bar.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer style="margin-top: 80px; padding-top: 28px; border-top: 1px solid var(--line-soft)">
+        <p class="cap" style="font-size: 12px; color: var(--ink-3)">
+          Tokens and components reused from <code class="mono-sm">docs/designs/preview/index.html</code>. Poster art
+          is a CSS placeholder — no external image requests, no JavaScript.
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>

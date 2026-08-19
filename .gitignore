@@ -26,3 +26,9 @@ player.html
 
 # Helm chart dependencies
 k8s/charts/*/charts/*.tgz
+
+# real Emby posters + YouTube thumbnails for the download-app mockup —
+# studio/uploader-owned art, regenerated locally instead of committed to
+# this public repo; see docs/features/download/designs/assets/README.md
+docs/features/download/designs/assets/emby/
+docs/features/download/designs/assets/video/
