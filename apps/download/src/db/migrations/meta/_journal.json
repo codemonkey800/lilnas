@@ -8,6 +8,13 @@
       "when": 1787087996609,
       "tag": "0000_late_reavers",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787099025952,
+      "tag": "0001_daffy_mordo",
+      "breakpoints": true
     }
   ]
 }

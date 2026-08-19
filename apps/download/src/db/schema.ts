@@ -138,6 +138,13 @@ export const jobs = sqliteTable(
     index('jobs_status_idx').on(t.status),
     index('jobs_requester_email_idx').on(t.requesterEmail),
     index('jobs_created_at_idx').on(t.createdAt),
+    // Every Phase 2 list endpoint shares the identical
+    // `ORDER BY created_at DESC, id DESC` (see jobs.repo.ts's cursor
+    // predicate) - this composite index turns that into a bare ordered
+    // index scan instead of a full table scan plus a temp b-tree sort.
+    // `jobs_created_at_idx` above stays for query shapes that only ever
+    // filter/sort on `created_at` alone.
+    index('jobs_created_at_id_idx').on(t.createdAt, t.id),
     // Ties `origin` to the requester columns' nullability so the two can't
     // drift apart at the DB layer - `origin` is otherwise a write-only
     // derived column (see download-state.service.ts's buildJobRow()) with

@@ -156,4 +156,68 @@ describe('schema + migrations', () => {
       close()
     }
   })
+
+  it('creates the `jobs_created_at_id_idx` composite index', () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      const indexNames = sqlite
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'jobs'`,
+        )
+        .all()
+        .map(row => (row as { name: string }).name)
+
+      expect(indexNames).toContain('jobs_created_at_id_idx')
+    } finally {
+      close()
+    }
+  })
+
+  it("plans every list endpoint's cursor query as an ordered index scan, not a temp b-tree sort", () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      // Mirrors jobs.repo.ts's cursor predicate/order exactly: descending
+      // row-value comparison on `(created_at, id)`, ordered the same way.
+      const plan = sqlite
+        .prepare(
+          `EXPLAIN QUERY PLAN
+           SELECT * FROM jobs
+           WHERE (created_at, id) < (9999999999999, 'x')
+           ORDER BY created_at DESC, id DESC`,
+        )
+        .all()
+        .map(row => (row as { detail: string }).detail)
+        .join('\n')
+
+      expect(plan).toContain('jobs_created_at_id_idx')
+      expect(plan).not.toContain('TEMP B-TREE')
+    } finally {
+      close()
+    }
+  })
+
+  it('plans the unfiltered list query (no WHERE) as a bare ordered index scan', () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      const plan = sqlite
+        .prepare(
+          `EXPLAIN QUERY PLAN
+           SELECT * FROM jobs
+           ORDER BY created_at DESC, id DESC`,
+        )
+        .all()
+        .map(row => (row as { detail: string }).detail)
+        .join('\n')
+
+      // A plain, unfiltered scan still avoids a separate sort step by
+      // walking the composite index in its natural order - reported as
+      // "SCAN jobs USING INDEX ..." rather than "SEARCH", since there's no
+      // WHERE clause to seek on, but it's still the index doing the
+      // ordering, not a temp b-tree.
+      expect(plan).toContain('USING INDEX jobs_created_at_id_idx')
+      expect(plan).not.toContain('TEMP B-TREE')
+    } finally {
+      close()
+    }
+  })
 })
