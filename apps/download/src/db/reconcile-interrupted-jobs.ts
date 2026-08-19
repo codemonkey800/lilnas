@@ -1,16 +1,8 @@
+import { TERMINAL_DOWNLOAD_JOB_STATUSES } from '@lilnas/utils/download/types'
 import { notInArray } from 'drizzle-orm'
 
 import type { Db } from './db.service'
-import { DOWNLOAD_JOB_STATUSES, jobs } from './schema'
-
-// Typed against DOWNLOAD_JOB_STATUSES's own element type (not a bare string
-// array) so a status rename in schema.ts fails this file's compile rather
-// than silently narrowing which rows count as terminal.
-const TERMINAL_STATUSES: Array<(typeof DOWNLOAD_JOB_STATUSES)[number]> = [
-  'cancelled',
-  'completed',
-  'failed',
-]
+import { jobs } from './schema'
 
 // Every non-terminal status is process-lifetime state: `DownloadStateService`
 // keeps the live progress in its in-memory Map, and this table is only a
@@ -27,7 +19,7 @@ export function reconcileInterruptedJobs(db: Db): number {
       status: 'failed',
       updatedAt: new Date(),
     })
-    .where(notInArray(jobs.status, TERMINAL_STATUSES))
+    .where(notInArray(jobs.status, [...TERMINAL_DOWNLOAD_JOB_STATUSES]))
     .run()
 
   return result.changes
