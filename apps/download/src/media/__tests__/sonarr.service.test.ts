@@ -95,6 +95,125 @@ describe('SonarrService', () => {
     })
   })
 
+  describe('searchDetailed', () => {
+    it('maps every kept field from a fully-populated lookup result', async () => {
+      mockGetApiV3SeriesLookup.mockResolvedValue({
+        data: [
+          {
+            certification: 'TV-14',
+            firstAired: '2019-01-01',
+            genres: ['Drama', 'Mystery'],
+            images: [
+              { coverType: 'fanart', url: 'fanart.jpg' },
+              { coverType: 'poster', url: 'poster.jpg' },
+            ],
+            overview: 'A show',
+            ratings: { value: 8.4, votes: 100 },
+            runtime: 45,
+            title: 'Some Show',
+            tvdbId: 456,
+            year: 2019,
+          },
+        ],
+      })
+
+      const result = await service.searchDetailed('some show')
+
+      expect(getApiV3SeriesLookup).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { term: 'some show' } }),
+      )
+      expect(result).toEqual([
+        {
+          certification: 'TV-14',
+          genres: ['Drama', 'Mystery'],
+          overview: 'A show',
+          posterUrl: 'poster.jpg',
+          ratingValue: 8.4,
+          releaseDate: '2019-01-01',
+          releaseYear: 2019,
+          runtime: 45,
+          title: 'Some Show',
+          tvdbId: 456,
+          type: 'show',
+          year: 2019,
+        },
+      ])
+    })
+
+    it('maps every optional field to a defined default when absent', async () => {
+      mockGetApiV3SeriesLookup.mockResolvedValue({ data: [{}] })
+
+      const result = await service.searchDetailed('x')
+
+      expect(result).toEqual([
+        {
+          certification: undefined,
+          genres: [],
+          overview: undefined,
+          posterUrl: undefined,
+          ratingValue: undefined,
+          releaseDate: undefined,
+          releaseYear: undefined,
+          runtime: undefined,
+          title: 'Unknown title',
+          tvdbId: 0,
+          type: 'show',
+          year: undefined,
+        },
+      ])
+    })
+
+    it('derives releaseYear from firstAired when present', async () => {
+      mockGetApiV3SeriesLookup.mockResolvedValue({
+        data: [{ firstAired: '2015-06-15', year: 1999 }],
+      })
+
+      const [result] = await service.searchDetailed('x')
+
+      expect(result?.releaseDate).toBe('2015-06-15')
+      expect(result?.releaseYear).toBe(2015)
+    })
+
+    it('falls back to `year` when firstAired is absent', async () => {
+      mockGetApiV3SeriesLookup.mockResolvedValue({
+        data: [{ year: 2001 }],
+      })
+
+      const [result] = await service.searchDetailed('x')
+
+      expect(result?.releaseDate).toBeUndefined()
+      expect(result?.releaseYear).toBe(2001)
+    })
+
+    it('picks the poster image, not fanart', async () => {
+      mockGetApiV3SeriesLookup.mockResolvedValue({
+        data: [
+          {
+            images: [
+              { coverType: 'fanart', url: 'fanart.jpg' },
+              { coverType: 'poster', url: 'poster.jpg' },
+            ],
+          },
+        ],
+      })
+
+      const [result] = await service.searchDetailed('x')
+
+      expect(result?.posterUrl).toBe('poster.jpg')
+    })
+
+    it('propagates an SDK error the same way search() does', async () => {
+      mockGetApiV3SeriesLookup.mockResolvedValue({
+        error: { message: 'boom' },
+        response: { status: 500 },
+      })
+
+      await expect(service.searchDetailed('x')).rejects.toThrow(
+        'searchShowsDetailed failed',
+      )
+    })
+  })
+
   describe('requestShow', () => {
     it('triggers a search directly when the series is already in the library', async () => {
       mockGetApiV3Series.mockResolvedValue({
