@@ -98,6 +98,169 @@ describe('RadarrService', () => {
     })
   })
 
+  describe('searchDetailed', () => {
+    it('maps every kept field from a fully-populated lookup result', async () => {
+      mockGetApiV3MovieLookup.mockResolvedValue({
+        data: [
+          {
+            certification: 'PG-13',
+            digitalRelease: '2020-02-01',
+            genres: ['Action', 'Comedy'],
+            images: [
+              { coverType: 'fanart', url: 'fanart.jpg' },
+              { coverType: 'poster', url: 'poster.jpg' },
+            ],
+            inCinemas: '2020-01-15',
+            overview: 'A movie',
+            physicalRelease: '2020-03-01',
+            ratings: { imdb: { value: 7.5 }, tmdb: { value: 8.1 } },
+            releaseDate: '2020-01-01',
+            runtime: 120,
+            title: 'Some Movie',
+            tmdbId: 123,
+            year: 2020,
+          },
+        ],
+      })
+
+      const result = await service.searchDetailed('some movie')
+
+      expect(getApiV3MovieLookup).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { term: 'some movie' } }),
+      )
+      expect(result).toEqual([
+        {
+          certification: 'PG-13',
+          genres: ['Action', 'Comedy'],
+          overview: 'A movie',
+          posterUrl: 'poster.jpg',
+          ratingValue: 8.1,
+          releaseDate: '2020-01-01',
+          releaseYear: 2020,
+          runtime: 120,
+          title: 'Some Movie',
+          tmdbId: 123,
+          type: 'movie',
+          year: 2020,
+        },
+      ])
+    })
+
+    it('maps every optional field to a defined default when absent', async () => {
+      mockGetApiV3MovieLookup.mockResolvedValue({
+        data: [{}],
+      })
+
+      const result = await service.searchDetailed('x')
+
+      expect(result).toEqual([
+        {
+          certification: undefined,
+          genres: [],
+          overview: undefined,
+          posterUrl: undefined,
+          ratingValue: undefined,
+          releaseDate: undefined,
+          releaseYear: undefined,
+          runtime: undefined,
+          title: 'Unknown title',
+          tmdbId: 0,
+          type: 'movie',
+          year: undefined,
+        },
+      ])
+    })
+
+    it('prefers releaseDate over inCinemas, digitalRelease, and physicalRelease', () => {
+      return expectReleaseYear(
+        {
+          digitalRelease: '2019-01-01',
+          inCinemas: '2018-01-01',
+          physicalRelease: '2017-01-01',
+          releaseDate: '2020-06-15',
+        },
+        '2020-06-15',
+        2020,
+      )
+    })
+
+    it('falls back to inCinemas when releaseDate is absent', () => {
+      return expectReleaseYear(
+        {
+          digitalRelease: '2019-01-01',
+          inCinemas: '2018-06-15',
+          physicalRelease: '2017-01-01',
+        },
+        '2018-06-15',
+        2018,
+      )
+    })
+
+    it('falls back to digitalRelease when releaseDate/inCinemas are absent', () => {
+      return expectReleaseYear(
+        { digitalRelease: '2019-06-15', physicalRelease: '2017-01-01' },
+        '2019-06-15',
+        2019,
+      )
+    })
+
+    it('falls back to physicalRelease when all other date fields are absent', () => {
+      return expectReleaseYear(
+        { physicalRelease: '2017-06-15' },
+        '2017-06-15',
+        2017,
+      )
+    })
+
+    it('falls back to `year` when no release-date field is present at all', () => {
+      return expectReleaseYear({}, undefined, 1999, 1999)
+    })
+
+    async function expectReleaseYear(
+      dateFields: Record<string, string>,
+      expectedReleaseDate: string | undefined,
+      expectedReleaseYear: number | undefined,
+      year?: number,
+    ) {
+      mockGetApiV3MovieLookup.mockResolvedValue({
+        data: [{ ...dateFields, year }],
+      })
+
+      const [result] = await service.searchDetailed('x')
+
+      expect(result?.releaseDate).toBe(expectedReleaseDate)
+      expect(result?.releaseYear).toBe(expectedReleaseYear)
+    }
+
+    it('picks the poster image, not fanart', async () => {
+      mockGetApiV3MovieLookup.mockResolvedValue({
+        data: [
+          {
+            images: [
+              { coverType: 'fanart', url: 'fanart.jpg' },
+              { coverType: 'poster', url: 'poster.jpg' },
+            ],
+          },
+        ],
+      })
+
+      const [result] = await service.searchDetailed('x')
+
+      expect(result?.posterUrl).toBe('poster.jpg')
+    })
+
+    it('propagates an SDK error the same way search() does', async () => {
+      mockGetApiV3MovieLookup.mockResolvedValue({
+        error: { message: 'boom' },
+        response: { status: 500 },
+      })
+
+      await expect(service.searchDetailed('x')).rejects.toThrow(
+        'searchMoviesDetailed failed',
+      )
+    })
+  })
+
   describe('requestMovie', () => {
     it('triggers a search directly when the movie is already in the library', async () => {
       mockGetApiV3Movie.mockResolvedValue({

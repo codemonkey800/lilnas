@@ -4,8 +4,6 @@ import {
   DownloadJobEvent,
   DownloadJobEventType,
   DownloadJobStatus,
-  isMovieDownloadJob,
-  isShowDownloadJob,
   isVideoDownloadJob,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
@@ -13,81 +11,12 @@ import { Queue } from '@lilnas/utils/queue'
 import { Injectable, Logger } from '@nestjs/common'
 
 import { DbService } from 'src/db/db.service'
-import { JOB_ORIGINS, jobs } from 'src/db/schema'
+import { buildJobRow, hydrateJobRow } from 'src/db/job-row'
+import { getJobById } from 'src/db/jobs.repo'
+import { jobs } from 'src/db/schema'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 
 import { projectJobForViewer } from './attribution'
-
-/**
- * Maps a `DownloadJob` (whichever member of the union) onto the `jobs`
- * table's row shape. Fields that don't apply to a given job type (e.g.
- * `radarrId` on a video job) are written as `null` rather than omitted -
- * this is a full upsert, not a partial patch, so every column must have an
- * explicit value on every write.
- */
-function buildJobRow(job: DownloadJob): typeof jobs.$inferInsert {
-  // Fields common to every member of the union. `completedAt` is carried on
-  // the job itself (stamped once by updateJob() on the Completed
-  // transition, see there) rather than re-derived from `job.status` here -
-  // that re-derivation used to clear the timestamp on any later write,
-  // including a Completed -> Cancelled transition.
-  const base = {
-    completedAt: job.completedAt ?? null,
-    description: job.description ?? null,
-    error: job.error ?? null,
-    id: job.id,
-    // A service caller (e.g. apps/tdr-bot) never carries a requester, and
-    // this is the only place `origin` is derived - never set on the
-    // DownloadJob TS type itself, since it's fully determined by
-    // `requester`'s presence on the source-of-truth job. Explicitly typed
-    // against JOB_ORIGINS's own element type (not left to infer as `string`)
-    // since `base` itself has no annotation for the branches below to
-    // contextually type this literal against.
-    origin: (job.requester ? 'web' : 'service') as (typeof JOB_ORIGINS)[number],
-    requesterEmail: job.requester?.email ?? null,
-    requesterUserId: job.requester?.userId ?? null,
-    status: job.status,
-    title: job.title ?? null,
-    type: job.type,
-    updatedAt: new Date(),
-    url: job.url,
-  }
-
-  // Branch once on the discriminant, rather than repeating
-  // `isVideoDownloadJob(job)` per-field in both polarities - each arm below
-  // supplies every video-only/media-only column exactly once, narrowed by a
-  // single guard call, so a mirror-image slip (e.g. `radarrId` written into
-  // the `sonarrId` slot) can't hide behind an unrelated field's polarity.
-  if (isVideoDownloadJob(job)) {
-    return {
-      ...base,
-      downloadUrls: job.downloadUrls ?? null,
-      filePath: null,
-      hiddenAttribution: job.hiddenAttribution ?? false,
-      mediaTitle: null,
-      overview: null,
-      posterUrl: null,
-      queueSnapshot: null,
-      radarrId: null,
-      sonarrId: null,
-      timeRange: job.timeRange ?? null,
-    }
-  }
-
-  return {
-    ...base,
-    downloadUrls: null,
-    filePath: job.filePath ?? null,
-    hiddenAttribution: false,
-    mediaTitle: job.mediaTitle ?? null,
-    overview: job.overview ?? null,
-    posterUrl: job.posterUrl ?? null,
-    queueSnapshot: job.queueSnapshot ?? null,
-    radarrId: isMovieDownloadJob(job) ? (job.radarrId ?? null) : null,
-    sonarrId: isShowDownloadJob(job) ? (job.sonarrId ?? null) : null,
-    timeRange: null,
-  }
-}
 
 @Injectable()
 export class DownloadStateService {
@@ -124,6 +53,23 @@ export class DownloadStateService {
     this.persistJob(job)
     this.jobs.set(job.id, job)
     this.broadcastJobEvent(job, DownloadJobEventType.Created)
+  }
+
+  /**
+   * Resolves a job by id for the three detail routes
+   * (`/videos/:id`, `/movies/:id`, `/shows/:id`), falling back to the
+   * durable `jobs` row when the in-memory Map has no entry - the only way
+   * those routes survive a restart, since the Map itself is emptied by
+   * one. The Map always wins when it has an entry: it carries live,
+   * in-flight fields (a video job's `proc` handle) the row can never
+   * reconstruct, so a hit there must never be second-guessed by a DB read.
+   */
+  resolveJob(id: string): DownloadJob | undefined {
+    const liveJob = this.jobs.get(id)
+    if (liveJob) return liveJob
+
+    const row = getJobById(this.dbService.db, id)
+    return row ? hydrateJobRow(row) : undefined
   }
 
   updateJob(id: string, updates: Partial<DownloadJob>): DownloadJob {

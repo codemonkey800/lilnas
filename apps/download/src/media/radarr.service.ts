@@ -15,7 +15,11 @@ import {
   postApiV3Command,
   postApiV3Movie,
 } from '@lilnas/media/radarr'
-import type { MovieSearchResult } from '@lilnas/utils/download/types'
+import {
+  type DiscoveryMovieResult,
+  DownloadType,
+  type MovieSearchResult,
+} from '@lilnas/utils/download/types'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 
 import type { RadarrMediaClient } from 'src/media/clients'
@@ -50,6 +54,51 @@ function toMovieSearchResult(movie: MovieResource): MovieSearchResult {
   }
 }
 
+// Radarr surfaces up to four release-date-shaped fields depending on the
+// movie's lifecycle stage (announced -> in cinemas -> digital -> physical) -
+// none of them are guaranteed present, so the first one that is wins.
+function pickMovieReleaseDate(movie: MovieResource): string | undefined {
+  return (
+    movie.releaseDate ??
+    movie.inCinemas ??
+    movie.digitalRelease ??
+    movie.physicalRelease ??
+    undefined
+  )
+}
+
+function releaseYearFromDate(dateStr: string | undefined): number | undefined {
+  if (!dateStr) return undefined
+  const year = new Date(dateStr).getUTCFullYear()
+  return Number.isNaN(year) ? undefined : year
+}
+
+/**
+ * Fuller mapping than `toMovieSearchResult()` above, for the discovery
+ * endpoint - kept as a separate function (not a widening of
+ * `MovieSearchResult`) so the existing `/movies/search` response bytes,
+ * and `apps/tdr-bot`'s existing calls against it, can never regress.
+ */
+function toDiscoveryMovieResult(movie: MovieResource): DiscoveryMovieResult {
+  const posterUrl = movie.images?.find(img => img.coverType === 'poster')?.url
+  const releaseDate = pickMovieReleaseDate(movie)
+
+  return {
+    certification: movie.certification ?? undefined,
+    genres: movie.genres ?? [],
+    overview: movie.overview ?? undefined,
+    posterUrl: posterUrl ?? undefined,
+    ratingValue: movie.ratings?.tmdb?.value ?? movie.ratings?.imdb?.value,
+    releaseDate,
+    releaseYear: releaseYearFromDate(releaseDate) ?? movie.year,
+    runtime: movie.runtime,
+    title: movie.title ?? 'Unknown title',
+    tmdbId: movie.tmdbId ?? 0,
+    type: DownloadType.Movie,
+    year: movie.year,
+  }
+}
+
 @Injectable()
 export class RadarrService {
   private logger = new Logger(RadarrService.name)
@@ -68,6 +117,24 @@ export class RadarrService {
     )
 
     return movies.map(toMovieSearchResult)
+  }
+
+  /**
+   * Same underlying Radarr lookup call as `search()` above - only the
+   * mapper differs, extracting the extra fields discovery's filter/sort
+   * need (genres, ratings, release-date candidates, certification, runtime)
+   * that `toMovieSearchResult()` discards.
+   */
+  async searchDetailed(query: string): Promise<DiscoveryMovieResult[]> {
+    const movies = unwrapSdkResult(
+      await getApiV3MovieLookup({
+        client: this.client,
+        query: { term: query },
+      }),
+      'searchMoviesDetailed',
+    )
+
+    return movies.map(toDiscoveryMovieResult)
   }
 
   /**

@@ -15,7 +15,11 @@ import {
   postApiV3Command,
   postApiV3Series,
 } from '@lilnas/media/sonarr'
-import type { ShowSearchResult } from '@lilnas/utils/download/types'
+import {
+  type DiscoveryShowResult,
+  DownloadType,
+  type ShowSearchResult,
+} from '@lilnas/utils/download/types'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 
 import type { SonarrMediaClient } from 'src/media/clients'
@@ -50,6 +54,42 @@ function toShowSearchResult(series: SeriesResource): ShowSearchResult {
   }
 }
 
+function releaseYearFromDate(dateStr: string | undefined): number | undefined {
+  if (!dateStr) return undefined
+  const year = new Date(dateStr).getUTCFullYear()
+  return Number.isNaN(year) ? undefined : year
+}
+
+/**
+ * Fuller mapping than `toShowSearchResult()` above, for the discovery
+ * endpoint - kept as a separate function (not a widening of
+ * `ShowSearchResult`) so the existing `/shows/search` response bytes, and
+ * `apps/tdr-bot`'s existing calls against it, can never regress. Unlike
+ * Radarr's movie mapper, Sonarr has exactly one release-date-shaped field
+ * (`firstAired`) rather than a four-field lifecycle chain.
+ */
+function toDiscoveryShowResult(series: SeriesResource): DiscoveryShowResult {
+  const posterUrl = series.images?.find(img => img.coverType === 'poster')?.url
+  const releaseDate = series.firstAired ?? undefined
+
+  return {
+    certification: series.certification ?? undefined,
+    genres: series.genres ?? [],
+    overview: series.overview ?? undefined,
+    posterUrl: posterUrl ?? undefined,
+    // Unlike Radarr's per-provider Ratings breakdown, Sonarr's is already a
+    // single flat { votes, value } pair.
+    ratingValue: series.ratings?.value,
+    releaseDate,
+    releaseYear: releaseYearFromDate(releaseDate) ?? series.year,
+    runtime: series.runtime,
+    title: series.title ?? 'Unknown title',
+    tvdbId: series.tvdbId ?? 0,
+    type: DownloadType.Show,
+    year: series.year,
+  }
+}
+
 @Injectable()
 export class SonarrService {
   private logger = new Logger(SonarrService.name)
@@ -68,6 +108,24 @@ export class SonarrService {
     )
 
     return series.map(toShowSearchResult)
+  }
+
+  /**
+   * Same underlying Sonarr lookup call as `search()` above - only the
+   * mapper differs, extracting the extra fields discovery's filter/sort
+   * need (genres, ratings, firstAired, certification, runtime) that
+   * `toShowSearchResult()` discards.
+   */
+  async searchDetailed(query: string): Promise<DiscoveryShowResult[]> {
+    const series = unwrapSdkResult(
+      await getApiV3SeriesLookup({
+        client: this.client,
+        query: { term: query },
+      }),
+      'searchShowsDetailed',
+    )
+
+    return series.map(toDiscoveryShowResult)
   }
 
   /**

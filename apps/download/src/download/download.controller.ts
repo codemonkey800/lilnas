@@ -1,24 +1,31 @@
 import {
+  ActivityQuerySchema,
   CreateDownloadJobInputSchema,
+  DiscoverQuerySchema,
+  GalleryFacetsQuerySchema,
+  GalleryQuerySchema,
+  HistoryQuerySchema,
   MediaSearchQuerySchema,
   RequestMovieInputSchema,
   RequestShowInputSchema,
 } from '@lilnas/utils/download/schema'
 import type {
-  DownloadJob,
+  DiscoveryPage,
+  DownloadGalleryFacets,
+  DownloadJobListItem,
+  DownloadPage,
+  DownloadType,
   GetDownloadJobResponse,
   GetMovieJobResponse,
   GetShowJobResponse,
-  MovieDownloadJob,
   SearchMoviesResponse,
   SearchShowsResponse,
-  ShowDownloadJob,
 } from '@lilnas/utils/download/types'
-import { DownloadType } from '@lilnas/utils/download/types'
 import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpException,
   HttpStatus,
@@ -27,19 +34,33 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common'
-import { createZodDto } from 'nestjs-zod'
+import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
 
 import { AdminCheckService } from 'src/auth/admin-check.service'
+import { CurrentUser } from 'src/auth/current-user.decorator'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
+import { ForwardedUserGuard } from 'src/auth/forwarded-user.guard'
 import { OptionalCurrentUser } from 'src/auth/optional-current-user.decorator'
+import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 
-import { projectJobForViewer } from './attribution'
 import { DownloadService } from './download.service'
 import { DownloadStateService } from './download-state.service'
+import { JobQueryService } from './job-query.service'
+import {
+  getJobResponse,
+  getMovieJobResponse,
+  getShowJobResponse,
+} from './job-serializers'
 
+class ActivityQueryDto extends createZodDto(ActivityQuerySchema) {}
 class CreateJobInputDto extends createZodDto(CreateDownloadJobInputSchema) {}
+class DiscoverQueryDto extends createZodDto(DiscoverQuerySchema) {}
+class GalleryFacetsQueryDto extends createZodDto(GalleryFacetsQuerySchema) {}
+class GalleryQueryDto extends createZodDto(GalleryQuerySchema) {}
+class HistoryQueryDto extends createZodDto(HistoryQuerySchema) {}
 class MediaSearchQueryDto extends createZodDto(MediaSearchQuerySchema) {}
 class RequestMovieInputDto extends createZodDto(RequestMovieInputSchema) {}
 class RequestShowInputDto extends createZodDto(RequestShowInputSchema) {}
@@ -50,8 +71,10 @@ export class DownloadController {
 
   constructor(
     private adminCheckService: AdminCheckService,
+    private discoveryService: DiscoveryService,
     private downloadService: DownloadService,
     private downloadStateService: DownloadStateService,
+    private jobQueryService: JobQueryService,
     private mediaDownloadService: MediaDownloadService,
   ) {}
 
@@ -63,31 +86,213 @@ export class DownloadController {
     return user ? this.adminCheckService.checkIsAdmin(user.email) : false
   }
 
-  private getJobResponse(
-    job: DownloadJob,
-    isAdmin: boolean,
-  ): GetDownloadJobResponse {
-    if (job.type !== DownloadType.Video) {
-      throw new Error(
-        `Expected a video job but got a '${job.type}' job (id: '${job.id}')`,
+  // No guard: the container is reachable ungated on the shared Docker
+  // network regardless of any guard here (see forwarded-user.ts's
+  // ForwardedUser comment) - public-but-attribution-masked is the spec'd
+  // behaviour, and a guard would only add a false sense of restriction.
+  @Get('/activity')
+  async getActivity(
+    @Query(new ZodValidationPipe(ActivityQueryDto)) query: ActivityQueryDto,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<DownloadPage<DownloadJobListItem>> {
+    const action = 'getActivity'
+    const startTime = Date.now()
+
+    // The DB read inside listActivity() is synchronous (better-sqlite3) -
+    // nothing to Promise.all() against, unlike the movie/show handlers
+    // below which do have a second async call to race.
+    const isAdmin = await this.resolveIsAdmin(user)
+    const page = this.jobQueryService.listActivity({
+      cursor: query.cursor,
+      isAdmin,
+      limit: query.limit,
+      types: query.type as DownloadType[] | undefined,
+    })
+
+    const duration = Date.now() - startTime
+    this.logger.log(
+      {
+        action,
+        duration,
+        resultCount: page.items.length,
+        statusCode: HttpStatus.OK,
+        total: page.total,
+      },
+      'GET /activity - listed in-progress jobs',
+    )
+
+    return page
+  }
+
+  @Get('/gallery')
+  async getGallery(
+    @Query(new ZodValidationPipe(GalleryQueryDto)) query: GalleryQueryDto,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<DownloadPage<DownloadJobListItem>> {
+    const action = 'getGallery'
+    const startTime = Date.now()
+
+    const isAdmin = await this.resolveIsAdmin(user)
+    // excludeHiddenVideos (the attribution-oracle guard for a
+    // requester-scoped lookup) is computed inside JobQueryService.listGallery
+    // itself from `requesterEmail`/`isAdmin`, not here - keeping it there
+    // means it can never be forgotten by a future caller of that method.
+    const page = this.jobQueryService.listGallery({
+      createdFrom: query.from,
+      createdTo: query.to,
+      cursor: query.cursor,
+      isAdmin,
+      limit: query.limit,
+      requesterEmail: query.requester,
+      types: query.type as DownloadType[] | undefined,
+    })
+
+    const duration = Date.now() - startTime
+    this.logger.log(
+      {
+        action,
+        duration,
+        resultCount: page.items.length,
+        total: page.total,
+        statusCode: HttpStatus.OK,
+      },
+      'GET /gallery - listed completed jobs',
+    )
+
+    return page
+  }
+
+  @Get('/gallery/facets')
+  async getGalleryFacets(
+    @Query(new ZodValidationPipe(GalleryFacetsQueryDto))
+    query: GalleryFacetsQueryDto,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<DownloadGalleryFacets> {
+    const action = 'getGalleryFacets'
+    const startTime = Date.now()
+
+    const isAdmin = await this.resolveIsAdmin(user)
+    const facets = this.jobQueryService.getGalleryFacets({
+      createdFrom: query.from,
+      createdTo: query.to,
+      isAdmin,
+    })
+
+    const duration = Date.now() - startTime
+    this.logger.log(
+      {
+        action,
+        duration,
+        statusCode: HttpStatus.OK,
+        typeCount: facets.types.length,
+        uploaderCount: facets.uploaders.length,
+      },
+      'GET /gallery/facets - listed gallery facets',
+    )
+
+    return facets
+  }
+
+  // No identity param, unlike every route above - discovery touches no
+  // attribution and no DB at all, consistent with the existing
+  // /movies/search, /shows/search endpoints. An unused param would trip
+  // noUnusedParameters.
+  @Get('/discover')
+  async discover(
+    @Query(new ZodValidationPipe(DiscoverQueryDto)) query: DiscoverQueryDto,
+  ): Promise<DiscoveryPage> {
+    const action = 'discover'
+    const startTime = Date.now()
+
+    const page = await this.discoveryService.search({
+      cursor: query.cursor,
+      genres: query.genre,
+      limit: query.limit,
+      query: query.query,
+      sort: query.sort,
+      yearFrom: query.yearFrom,
+      yearTo: query.yearTo,
+    })
+
+    const duration = Date.now() - startTime
+    this.logger.log(
+      {
+        action,
+        degradedSources: page.degradedSources,
+        duration,
+        query: query.query,
+        resultCount: page.items.length,
+        statusCode: HttpStatus.OK,
+        total: page.total,
+      },
+      'GET /discover - listed discovery results',
+    )
+
+    return page
+  }
+
+  // ForwardedUserGuard (not @OptionalCurrentUser()) - a service caller with
+  // no forwarded identity has no "own history" to default to, so 401 is the
+  // honest answer here, unlike activity/gallery above.
+  @Get('/history')
+  @UseGuards(ForwardedUserGuard)
+  async getHistory(
+    @Query(new ZodValidationPipe(HistoryQueryDto)) query: HistoryQueryDto,
+    @CurrentUser() user: ForwardedUser,
+  ): Promise<DownloadPage<DownloadJobListItem>> {
+    const action = 'getHistory'
+    const startTime = Date.now()
+
+    const isSelfScope =
+      !query.requester ||
+      query.requester.toLowerCase() === user.email.toLowerCase()
+
+    // Resolved unconditionally (not only for the other-user branch) -
+    // masking applies the same way regardless of scope, so isAdmin is
+    // needed either way.
+    const isAdmin = await this.resolveIsAdmin(user)
+
+    if (!isSelfScope && !isAdmin) {
+      this.logger.warn(
+        {
+          action,
+          requestedRequester: query.requester,
+          statusCode: HttpStatus.FORBIDDEN,
+          viewer: user.email,
+        },
+        "GET /history - non-admin attempted to view another user's history",
+      )
+
+      throw new ForbiddenException(
+        "Only admins may view another user's download history",
       )
     }
 
-    const projected = projectJobForViewer(job, isAdmin)
+    const requesterEmail = isSelfScope
+      ? user.email
+      : (query.requester as string)
 
-    return {
-      description: projected.description,
-      downloadUrls: projected.downloadUrls,
-      error: projected.error,
-      hiddenAttribution: projected.hiddenAttribution,
-      id: projected.id,
-      requester: projected.requester,
-      status: projected.status,
-      timeRange: projected.timeRange,
-      title: projected.title,
-      type: projected.type,
-      url: projected.url,
-    }
+    const page = this.jobQueryService.listHistory({
+      cursor: query.cursor,
+      isAdmin,
+      limit: query.limit,
+      requesterEmail,
+    })
+
+    const duration = Date.now() - startTime
+    this.logger.log(
+      {
+        action,
+        duration,
+        resultCount: page.items.length,
+        scopedTo: requesterEmail,
+        statusCode: HttpStatus.OK,
+        total: page.total,
+      },
+      'GET /history - listed download history',
+    )
+
+    return page
   }
 
   @Get('/videos/:id')
@@ -103,7 +308,9 @@ export class DownloadController {
       'GET /videos/:id - Retrieving video job',
     )
 
-    const job = this.downloadStateService.jobs.get(id)
+    // Falls back to the durable `jobs` row when the in-memory Map has no
+    // entry (e.g. after a restart) - see resolveJob()'s own comment.
+    const job = this.downloadStateService.resolveJob(id)
 
     if (!job) {
       const duration = Date.now() - startTime
@@ -130,7 +337,7 @@ export class DownloadController {
     const isAdmin = await this.resolveIsAdmin(user)
     const sanitizedUrl = job.url.split('?')[0]
     const duration = Date.now() - startTime
-    const response = this.getJobResponse(job, isAdmin)
+    const response = getJobResponse(job, isAdmin)
 
     this.logger.log(
       {
@@ -178,7 +385,7 @@ export class DownloadController {
         this.resolveIsAdmin(user),
       ])
       const duration = Date.now() - startTime
-      const response = this.getJobResponse(job, isAdmin)
+      const response = getJobResponse(job, isAdmin)
 
       this.logger.log(
         {
@@ -239,7 +446,7 @@ export class DownloadController {
       ])
       const duration = Date.now() - startTime
       const sanitizedUrl = job.url.split('?')[0]
-      const response = this.getJobResponse(job, isAdmin)
+      const response = getJobResponse(job, isAdmin)
 
       this.logger.log(
         {
@@ -281,48 +488,6 @@ export class DownloadController {
         HttpStatus.NOT_FOUND,
         { cause: err },
       )
-    }
-  }
-
-  private getMovieJobResponse(
-    job: MovieDownloadJob,
-    isAdmin: boolean,
-  ): GetMovieJobResponse {
-    const projected = projectJobForViewer(job, isAdmin)
-
-    return {
-      description: projected.description,
-      error: projected.error,
-      id: projected.id,
-      mediaTitle: projected.mediaTitle,
-      posterUrl: projected.posterUrl,
-      queueSnapshot: projected.queueSnapshot,
-      radarrId: projected.radarrId,
-      requester: projected.requester,
-      status: projected.status,
-      title: projected.title,
-      type: projected.type,
-    }
-  }
-
-  private getShowJobResponse(
-    job: ShowDownloadJob,
-    isAdmin: boolean,
-  ): GetShowJobResponse {
-    const projected = projectJobForViewer(job, isAdmin)
-
-    return {
-      description: projected.description,
-      error: projected.error,
-      id: projected.id,
-      mediaTitle: projected.mediaTitle,
-      posterUrl: projected.posterUrl,
-      queueSnapshot: projected.queueSnapshot,
-      requester: projected.requester,
-      sonarrId: projected.sonarrId,
-      status: projected.status,
-      title: projected.title,
-      type: projected.type,
     }
   }
 
@@ -369,7 +534,7 @@ export class DownloadController {
       'Movie download requested',
     )
 
-    return this.getMovieJobResponse(job, isAdmin)
+    return getMovieJobResponse(job, isAdmin)
   }
 
   @Get('/movies/:id')
@@ -386,7 +551,7 @@ export class DownloadController {
         Promise.resolve(this.mediaDownloadService.getMovieJob(id)),
         this.resolveIsAdmin(user),
       ])
-      return this.getMovieJobResponse(job, isAdmin)
+      return getMovieJobResponse(job, isAdmin)
     } catch (err) {
       this.logger.warn(
         { action, jobId: id, error: err instanceof Error ? err.message : err },
@@ -418,7 +583,7 @@ export class DownloadController {
         this.mediaDownloadService.deleteMovieJob(id),
         this.resolveIsAdmin(user),
       ])
-      return this.getMovieJobResponse(job, isAdmin)
+      return getMovieJobResponse(job, isAdmin)
     } catch (err) {
       this.logger.warn(
         { action, jobId: id, error: err instanceof Error ? err.message : err },
@@ -476,7 +641,7 @@ export class DownloadController {
       'Show download requested',
     )
 
-    return this.getShowJobResponse(job, isAdmin)
+    return getShowJobResponse(job, isAdmin)
   }
 
   @Get('/shows/:id')
@@ -493,7 +658,7 @@ export class DownloadController {
         Promise.resolve(this.mediaDownloadService.getShowJob(id)),
         this.resolveIsAdmin(user),
       ])
-      return this.getShowJobResponse(job, isAdmin)
+      return getShowJobResponse(job, isAdmin)
     } catch (err) {
       this.logger.warn(
         { action, jobId: id, error: err instanceof Error ? err.message : err },
@@ -525,7 +690,7 @@ export class DownloadController {
         this.mediaDownloadService.deleteShowJob(id),
         this.resolveIsAdmin(user),
       ])
-      return this.getShowJobResponse(job, isAdmin)
+      return getShowJobResponse(job, isAdmin)
     } catch (err) {
       this.logger.warn(
         { action, jobId: id, error: err instanceof Error ? err.message : err },

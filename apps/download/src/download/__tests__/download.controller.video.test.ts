@@ -19,6 +19,8 @@ import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
 import { DownloadStateService } from 'src/download/download-state.service'
+import { JobQueryService } from 'src/download/job-query.service'
+import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 
 // This exercises DownloadController's video endpoints — the only ones
@@ -66,8 +68,14 @@ describe('DownloadController - video endpoints', () => {
             jobs: jobsMap,
             queue: { size: () => 0 },
             inProgressJobs: new Set<string>(),
+            // Mirrors the real resolveJob()'s Map-hit behaviour - the
+            // DB-fallback path itself is covered by
+            // download-state.service.test.ts's dedicated tests.
+            resolveJob: (id: string) => jobsMap.get(id),
           },
         },
+        { provide: DiscoveryService, useValue: {} },
+        { provide: JobQueryService, useValue: {} },
         { provide: MediaDownloadService, useValue: {} },
       ],
     }).compile()
