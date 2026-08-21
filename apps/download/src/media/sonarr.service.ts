@@ -18,12 +18,15 @@ import {
 import {
   type DiscoveryShowResult,
   DownloadType,
+  type Show,
   type ShowSearchResult,
 } from '@lilnas/utils/download/types'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 
+import { mediaId } from 'src/db/media-id'
 import type { SonarrMediaClient } from 'src/media/clients'
 import { SONARR_CLIENT } from 'src/media/clients'
+import { releaseYearFromDate } from 'src/media/release-date.util'
 import { checkSdkError, unwrapSdkResult } from 'src/media/sdk-result.util'
 import { generateTitleSlug } from 'src/media/title-slug.util'
 
@@ -54,12 +57,6 @@ function toShowSearchResult(series: SeriesResource): ShowSearchResult {
   }
 }
 
-function releaseYearFromDate(dateStr: string | undefined): number | undefined {
-  if (!dateStr) return undefined
-  const year = new Date(dateStr).getUTCFullYear()
-  return Number.isNaN(year) ? undefined : year
-}
-
 /**
  * Fuller mapping than `toShowSearchResult()` above, for the discovery
  * endpoint - kept as a separate function (not a widening of
@@ -85,6 +82,37 @@ function toDiscoveryShowResult(series: SeriesResource): DiscoveryShowResult {
     runtime: series.runtime,
     title: series.title ?? 'Unknown title',
     tvdbId: series.tvdbId ?? 0,
+    type: DownloadType.Show,
+    year: series.year,
+  }
+}
+
+/**
+ * The single Sonarr -> `Media` mapper (plan §4.1/§4.2) - see
+ * `radarr.service.ts`'s `toMovie()` for why this doesn't yet replace
+ * `search()`/`searchDetailed()` above. `SeriesResource.path` is the series
+ * folder (not a per-episode file, unlike Radarr's `movieFile.path`) - Phase
+ * 4's episode work will need `episodeFile` separately.
+ */
+export function toShow(series: SeriesResource): Show {
+  const posterUrl = series.images?.find(img => img.coverType === 'poster')?.url
+  const releaseDate = series.firstAired ?? undefined
+  const tvdbId = series.tvdbId ?? 0
+
+  return {
+    certification: series.certification ?? undefined,
+    filePath: series.path ?? undefined,
+    genres: series.genres ?? [],
+    id: mediaId({ tvdbId, type: DownloadType.Show }),
+    overview: series.overview ?? undefined,
+    posterUrl: posterUrl ?? undefined,
+    ratingValue: series.ratings?.value,
+    releaseDate,
+    // Sonarr reports minutes; `Media.runtime` is seconds (see MediaBaseSchema).
+    runtime: series.runtime != null ? series.runtime * 60 : undefined,
+    sonarrId: series.id ?? undefined,
+    title: series.title ?? 'Unknown title',
+    tvdbId,
     type: DownloadType.Show,
     year: series.year,
   }
@@ -126,6 +154,44 @@ export class SonarrService {
     )
 
     return series.map(toDiscoveryShowResult)
+  }
+
+  /**
+   * The whole Sonarr library, mapped to `Media` - `MediaResolverService`'s
+   * library cache is built from this (one call per TTL window rather than
+   * one per job). Same underlying call as `requestShow()`'s existing
+   * library-first lookup (`getApiV3Series`).
+   */
+  async getLibrary(): Promise<Show[]> {
+    const series = unwrapSdkResult(
+      await getApiV3Series({ client: this.client }),
+      'getSeries',
+    )
+
+    return series.map(toShow)
+  }
+
+  /**
+   * Per-id fallback for `MediaResolverService` when a tvdbId isn't in the
+   * library cache - metadata-only, no `sonarrId`/`filePath` (this is the
+   * *discover* lookup, not a library query, so a title requested but since
+   * removed from Sonarr still resolves).
+   */
+  async lookupByTvdbId(tvdbId: number): Promise<Show> {
+    const searchResults = unwrapSdkResult(
+      await getApiV3SeriesLookup({
+        client: this.client,
+        query: { term: `tvdb:${tvdbId}` },
+      }),
+      'lookupSeriesByTvdbId',
+    )
+
+    const lookup = searchResults.find(s => s.tvdbId === tvdbId)
+    if (!lookup) {
+      throw new Error(`Series with TVDB ID ${tvdbId} not found`)
+    }
+
+    return toShow(lookup)
   }
 
   /**

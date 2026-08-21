@@ -6,6 +6,7 @@ import { radarrClientProvider, sonarrClientProvider } from './clients'
 import { DiscoveryService } from './discovery.service'
 import { MediaDownloadService } from './media-download.service'
 import { MediaPollerService } from './media-poller.service'
+import { MediaResolverService } from './media-resolver.service'
 import { RadarrService } from './radarr.service'
 import { SonarrService } from './sonarr.service'
 
@@ -26,10 +27,12 @@ import { SonarrService } from './sonarr.service'
     SonarrService,
     MediaDownloadService,
     MediaPollerService,
+    MediaResolverService,
   ],
   exports: [
     DiscoveryService,
     MediaDownloadService,
+    MediaResolverService,
     RadarrService,
     SonarrService,
   ],
