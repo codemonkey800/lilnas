@@ -8,11 +8,9 @@ jest.mock('nanoid', () => ({
 }))
 
 import {
+  DownloadJobRecord,
   DownloadJobStatus,
   DownloadType,
-  MovieDownloadJob,
-  ShowDownloadJob,
-  VideoDownloadJob,
 } from '@lilnas/utils/download/types'
 import { HttpException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
@@ -26,8 +24,10 @@ import { DownloadService } from 'src/download/download.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { JobQueryService } from 'src/download/job-query.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
+import { createFakeMediaResolver } from 'src/media/__tests__/helpers/fake-media-resolver'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
+import { MediaResolverService } from 'src/media/media-resolver.service'
 import { RadarrService } from 'src/media/radarr.service'
 import { SonarrService } from 'src/media/sonarr.service'
 
@@ -39,6 +39,7 @@ describe('DownloadController - detail-route restart fallback', () => {
   let controller: DownloadController
   let downloadStateService: DownloadStateService
   let adminCheckService: jest.Mocked<AdminCheckService>
+  let mediaResolver: ReturnType<typeof createFakeMediaResolver>
 
   const admin: ForwardedUser = { email: 'admin@example.com', userId: 'a1' }
   const nonAdmin: ForwardedUser = { email: 'bob@example.com', userId: 'u2' }
@@ -46,6 +47,7 @@ describe('DownloadController - detail-route restart fallback', () => {
   beforeEach(async () => {
     const dbService = createTestDbService()
     const mockAdminCheckService = { checkIsAdmin: jest.fn() }
+    mediaResolver = createFakeMediaResolver()
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DownloadController],
@@ -63,6 +65,7 @@ describe('DownloadController - detail-route restart fallback', () => {
         MediaDownloadService,
         { provide: RadarrService, useValue: {} },
         { provide: SonarrService, useValue: {} },
+        { provide: MediaResolverService, useValue: mediaResolver },
       ],
     }).compile()
 
@@ -72,23 +75,38 @@ describe('DownloadController - detail-route restart fallback', () => {
     adminCheckService.checkIsAdmin.mockResolvedValue(false)
   })
 
-  function seedThenDropFromMap<T extends { id: string }>(job: T): void {
+  const NOW_ISO = '2026-08-20T12:00:00.000Z'
+
+  function buildRecord(
+    overrides: Partial<DownloadJobRecord> &
+      Pick<DownloadJobRecord, 'id' | 'mediaId' | 'type'>,
+  ): DownloadJobRecord {
+    return {
+      completedAt: null,
+      createdAt: NOW_ISO,
+      hiddenAttribution: false,
+      requester: { email: 'alice@example.com', userId: 'u1' },
+      status: DownloadJobStatus.Completed,
+      updatedAt: NOW_ISO,
+      ...overrides,
+    }
+  }
+
+  function seedThenDropFromMap(record: DownloadJobRecord): void {
     // Mirrors what a restart leaves behind: a durable row survives, but the
     // in-memory Map starts out empty. persistJob() is private, so route
     // through addJob() (which writes both) and then remove the Map entry.
-    downloadStateService.addJob(job as never)
-    downloadStateService.jobs.delete(job.id)
+    downloadStateService.addJob(record)
+    downloadStateService.jobs.delete(record.id)
   }
 
   describe('GET /videos/:id', () => {
-    const job: VideoDownloadJob = {
+    const job = buildRecord({
       hiddenAttribution: true,
       id: 'video-restart-1',
-      requester: { email: 'alice@example.com', userId: 'u1' },
-      status: DownloadJobStatus.Completed,
+      mediaId: 'video:v1',
       type: DownloadType.Video,
-      url: 'https://example.com/video',
-    }
+    })
 
     it('resolves a job absent from the Map but present in the DB', async () => {
       seedThenDropFromMap(job)
@@ -120,15 +138,11 @@ describe('DownloadController - detail-route restart fallback', () => {
   })
 
   describe('GET /movies/:id', () => {
-    const job: MovieDownloadJob = {
+    const job = buildRecord({
       id: 'movie-restart-1',
-      mediaTitle: 'A Movie',
-      radarrId: 7,
-      requester: { email: 'alice@example.com', userId: 'u1' },
-      status: DownloadJobStatus.Completed,
+      mediaId: 'tmdb:1',
       type: DownloadType.Movie,
-      url: 'radarr://tmdb/1',
-    }
+    })
 
     it('resolves a job absent from the Map but present in the DB', async () => {
       seedThenDropFromMap(job)
@@ -136,7 +150,9 @@ describe('DownloadController - detail-route restart fallback', () => {
       const response = await controller.getMovieJob(job.id, nonAdmin)
 
       expect(response.id).toBe(job.id)
-      expect(response.radarrId).toBe(7)
+      // The metadata is re-derived from Radarr rather than read back off
+      // the row - the row only ever held the key.
+      expect(response.media).toMatchObject({ id: 'tmdb:1', title: 'A Movie' })
       // Movies are always attributed - no masking toggle exists for them.
       expect(response.requester).toEqual({
         email: 'alice@example.com',
@@ -152,15 +168,11 @@ describe('DownloadController - detail-route restart fallback', () => {
   })
 
   describe('GET /shows/:id', () => {
-    const job: ShowDownloadJob = {
+    const job = buildRecord({
       id: 'show-restart-1',
-      mediaTitle: 'A Show',
-      requester: { email: 'alice@example.com', userId: 'u1' },
-      sonarrId: 9,
-      status: DownloadJobStatus.Completed,
+      mediaId: 'tvdb:1',
       type: DownloadType.Show,
-      url: 'sonarr://tvdb/1',
-    }
+    })
 
     it('resolves a job absent from the Map but present in the DB', async () => {
       seedThenDropFromMap(job)
@@ -168,7 +180,7 @@ describe('DownloadController - detail-route restart fallback', () => {
       const response = await controller.getShowJob(job.id, nonAdmin)
 
       expect(response.id).toBe(job.id)
-      expect(response.sonarrId).toBe(9)
+      expect(response.media).toMatchObject({ id: 'tvdb:1', title: 'A Show' })
     })
 
     it('still 404s when the job exists in neither the Map nor the DB', async () => {

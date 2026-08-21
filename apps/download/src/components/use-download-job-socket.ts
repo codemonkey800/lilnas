@@ -1,8 +1,7 @@
+import { DownloadJobSchema } from '@lilnas/utils/download/schema'
 import {
   DOWNLOAD_JOB_EVENT_TYPE,
-  DownloadJobEvent,
-  isVideoDownloadJob,
-  VideoDownloadJob,
+  DownloadJob,
 } from '@lilnas/utils/download/types'
 import { useEffect } from 'react'
 
@@ -29,10 +28,6 @@ function isDownloadGatewayEnvelope(
   )
 }
 
-function isDownloadJobEvent(value: unknown): value is DownloadJobEvent {
-  return typeof value === 'object' && value !== null && 'job' in value
-}
-
 /**
  * Builds the same-origin WebSocket URL for the download gateway. Takes
  * `location` as a parameter (rather than reading `window.location` itself)
@@ -49,16 +44,22 @@ export function getDownloadSocketUrl(
 
 /**
  * Parses one raw WebSocket message from the download gateway and returns
- * the video job it describes, or `undefined` if the message doesn't
- * describe an update to the video job identified by `jobId` (wrong envelope
- * type, a movie/show job, malformed JSON, or some other job's event - the
- * gateway broadcasts every event to every client with no server-side
- * filtering, so this is the only place that narrows it back down).
+ * the job it describes, or `undefined` if the message doesn't describe an
+ * update to the job identified by `jobId` (wrong envelope type, malformed
+ * JSON, or some other job's event - the gateway broadcasts every event to
+ * every client with no server-side filtering, so this is the only place
+ * that narrows it back down).
+ *
+ * The payload goes through `DownloadJobSchema.safeParse()` rather than a
+ * hand-rolled `'job' in value` duck-type: the schema is the same one the
+ * backend's wire type is inferred from, so this can't drift from it. Not
+ * filtered to video jobs any more, so the same hook serves the movie/show
+ * detail pages.
  */
-export function parseVideoJobMessage(
+export function parseJobMessage(
   rawData: unknown,
   jobId: string,
-): VideoDownloadJob | undefined {
+): DownloadJob | undefined {
   if (typeof rawData !== 'string') return undefined
 
   let parsed: unknown
@@ -70,18 +71,21 @@ export function parseVideoJobMessage(
 
   if (!isDownloadGatewayEnvelope(parsed)) return undefined
   if (parsed.type !== DOWNLOAD_JOB_EVENT_TYPE) return undefined
-  if (!isDownloadJobEvent(parsed.data)) return undefined
-  if (!isVideoDownloadJob(parsed.data.job)) return undefined
-  if (parsed.data.job.id !== jobId) return undefined
+  if (typeof parsed.data !== 'object' || parsed.data === null) return undefined
+  if (!('job' in parsed.data)) return undefined
 
-  return parsed.data.job
+  const job = DownloadJobSchema.safeParse(parsed.data.job)
+  if (!job.success) return undefined
+  if (job.data.id !== jobId) return undefined
+
+  return job.data
 }
 
 export interface StartDownloadJobSocketOptions {
   createSocket?: (url: string) => WebSocket
   jobId: string
   location?: Pick<Location, 'host' | 'protocol'>
-  onJobUpdate: (job: VideoDownloadJob) => void
+  onJobUpdate: (job: DownloadJob) => void
   reconnectDelayMs?: number
 }
 
@@ -114,7 +118,7 @@ export function startDownloadJobSocket({
 
     socket.onmessage = event => {
       if (stopped) return
-      const job = parseVideoJobMessage(event.data, jobId)
+      const job = parseJobMessage(event.data, jobId)
       if (job) onJobUpdate(job)
     }
 
@@ -146,7 +150,7 @@ export function startDownloadJobSocket({
 export function useDownloadJobSocket(
   jobId: string,
   active: boolean,
-  onJobUpdate: (job: VideoDownloadJob) => void,
+  onJobUpdate: (job: DownloadJob) => void,
 ): void {
   useEffect(() => {
     if (!active) return

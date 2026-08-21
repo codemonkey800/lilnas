@@ -15,18 +15,12 @@ import {
   postApiV3Command,
   postApiV3Series,
 } from '@lilnas/media/sonarr'
-import {
-  type DiscoveryShowResult,
-  DownloadType,
-  type Show,
-  type ShowSearchResult,
-} from '@lilnas/utils/download/types'
+import { DownloadType, type Show } from '@lilnas/utils/download/types'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 
 import { mediaId } from 'src/db/media-id'
 import type { SonarrMediaClient } from 'src/media/clients'
 import { SONARR_CLIENT } from 'src/media/clients'
-import { releaseYearFromDate } from 'src/media/release-date.util'
 import { checkSdkError, unwrapSdkResult } from 'src/media/sdk-result.util'
 import { generateTitleSlug } from 'src/media/title-slug.util'
 
@@ -45,54 +39,13 @@ export interface RequestShowResult {
   title: string
 }
 
-function toShowSearchResult(series: SeriesResource): ShowSearchResult {
-  const posterUrl = series.images?.find(img => img.coverType === 'poster')?.url
-
-  return {
-    overview: series.overview ?? undefined,
-    posterUrl: posterUrl ?? undefined,
-    title: series.title ?? 'Unknown title',
-    tvdbId: series.tvdbId ?? 0,
-    year: series.year,
-  }
-}
-
-/**
- * Fuller mapping than `toShowSearchResult()` above, for the discovery
- * endpoint - kept as a separate function (not a widening of
- * `ShowSearchResult`) so the existing `/shows/search` response bytes, and
- * `apps/tdr-bot`'s existing calls against it, can never regress. Unlike
- * Radarr's movie mapper, Sonarr has exactly one release-date-shaped field
- * (`firstAired`) rather than a four-field lifecycle chain.
- */
-function toDiscoveryShowResult(series: SeriesResource): DiscoveryShowResult {
-  const posterUrl = series.images?.find(img => img.coverType === 'poster')?.url
-  const releaseDate = series.firstAired ?? undefined
-
-  return {
-    certification: series.certification ?? undefined,
-    genres: series.genres ?? [],
-    overview: series.overview ?? undefined,
-    posterUrl: posterUrl ?? undefined,
-    // Unlike Radarr's per-provider Ratings breakdown, Sonarr's is already a
-    // single flat { votes, value } pair.
-    ratingValue: series.ratings?.value,
-    releaseDate,
-    releaseYear: releaseYearFromDate(releaseDate) ?? series.year,
-    runtime: series.runtime,
-    title: series.title ?? 'Unknown title',
-    tvdbId: series.tvdbId ?? 0,
-    type: DownloadType.Show,
-    year: series.year,
-  }
-}
-
 /**
  * The single Sonarr -> `Media` mapper (plan §4.1/§4.2) - see
- * `radarr.service.ts`'s `toMovie()` for why this doesn't yet replace
- * `search()`/`searchDetailed()` above. `SeriesResource.path` is the series
- * folder (not a per-episode file, unlike Radarr's `movieFile.path`) - Phase
- * 4's episode work will need `episodeFile` separately.
+ * `radarr.service.ts`'s `toMovie()` for the shape of the collapse.
+ * `SeriesResource.path` is the series folder (not a per-episode file,
+ * unlike Radarr's `movieFile.path`) - Phase 4's episode work will need
+ * `episodeFile` separately. Unlike Radarr's per-provider Ratings breakdown,
+ * Sonarr's is already a single flat `{ votes, value }` pair.
  */
 export function toShow(series: SeriesResource): Show {
   const posterUrl = series.images?.find(img => img.coverType === 'poster')?.url
@@ -110,7 +63,9 @@ export function toShow(series: SeriesResource): Show {
     releaseDate,
     // Sonarr reports minutes; `Media.runtime` is seconds (see MediaBaseSchema).
     runtime: series.runtime != null ? series.runtime * 60 : undefined,
-    sonarrId: series.id ?? undefined,
+    // Falsy-guarded rather than nullish-guarded: Sonarr returns `id: 0` for
+    // a lookup result that isn't in the library (see toMovie()).
+    sonarrId: series.id || undefined,
     title: series.title ?? 'Unknown title',
     tvdbId,
     type: DownloadType.Show,
@@ -126,7 +81,12 @@ export class SonarrService {
     @Inject(SONARR_CLIENT) private readonly client: SonarrMediaClient,
   ) {}
 
-  async search(query: string): Promise<ShowSearchResult[]> {
+  /**
+   * Sonarr's lookup, mapped to `Media` - backs both `/shows/search` and
+   * `/discover`. See `RadarrService.search()` for why those were ever two
+   * methods.
+   */
+  async search(query: string): Promise<Show[]> {
     const series = unwrapSdkResult(
       await getApiV3SeriesLookup({
         client: this.client,
@@ -135,25 +95,7 @@ export class SonarrService {
       'searchShows',
     )
 
-    return series.map(toShowSearchResult)
-  }
-
-  /**
-   * Same underlying Sonarr lookup call as `search()` above - only the
-   * mapper differs, extracting the extra fields discovery's filter/sort
-   * need (genres, ratings, firstAired, certification, runtime) that
-   * `toShowSearchResult()` discards.
-   */
-  async searchDetailed(query: string): Promise<DiscoveryShowResult[]> {
-    const series = unwrapSdkResult(
-      await getApiV3SeriesLookup({
-        client: this.client,
-        query: { term: query },
-      }),
-      'searchShowsDetailed',
-    )
-
-    return series.map(toDiscoveryShowResult)
+    return series.map(toShow)
   }
 
   /**

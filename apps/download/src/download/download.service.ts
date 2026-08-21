@@ -2,9 +2,9 @@ import { VideoInfoSchema } from '@lilnas/utils/download/schema'
 import {
   CreateDownloadJobInput,
   DownloadJob,
+  DownloadJobRecord,
   DownloadJobStatus,
   DownloadType,
-  isVideoDownloadJob,
   JobRequester,
   VideoInfo,
 } from '@lilnas/utils/download/types'
@@ -13,6 +13,8 @@ import { Injectable, Logger } from '@nestjs/common'
 import { spawn } from 'child_process'
 import { ensureDir } from 'fs-extra'
 import { nanoid } from 'nanoid'
+
+import { mediaId } from 'src/db/media-id'
 
 import { DownloadMetricsService } from './download-metrics.service'
 import { DownloadSchedulerService } from './download-scheduler.service'
@@ -223,19 +225,29 @@ export class DownloadService {
       'Creating video download job',
     )
 
-    const job: DownloadJob = {
-      hiddenAttribution: hiddenAttribution ?? false,
-      requester: requester ?? null,
+    // The `videos` row is the video's identity and must exist before the
+    // job can name it - `jobs.media_id` points at it. Two requests for the
+    // same URL+range collapse onto one row (and therefore one media id)
+    // while staying two independent jobs, which is exactly the intent.
+    const video = this.downloadStateService.ensureVideo({
+      sourceUrl: url,
       timeRange,
-      url,
+    })
+
+    const now = new Date().toISOString()
+    const record: DownloadJobRecord = {
+      completedAt: null,
+      createdAt: now,
+      hiddenAttribution: hiddenAttribution ?? false,
       id: jobId,
+      mediaId: mediaId({ id: video.id, type: DownloadType.Video }),
+      requester: requester ?? null,
       status: DownloadJobStatus.Pending,
       type: DownloadType.Video,
-      title: undefined, // Will be populated during download phase
-      description: undefined, // Will be populated during download phase
+      updatedAt: now,
     }
 
-    await ensureDir(`${VIDEO_DIR}/${job.id}`)
+    await ensureDir(`${VIDEO_DIR}/${record.id}`)
 
     this.logger.log(
       {
@@ -246,22 +258,23 @@ export class DownloadService {
       'Created job directory, adding to scheduler',
     )
 
-    this.downloadScheduler.add(job)
+    this.downloadScheduler.add(record)
     this.metrics.jobCreated(url)
 
     this.logger.log(
       {
         action,
         jobId,
+        mediaId: record.mediaId,
         url: sanitizedUrl,
       },
       'Video download job created successfully',
     )
 
-    return job
+    return this.downloadStateService.hydrateOne(record)
   }
 
-  cancelVideoDownloadJob(id: string): DownloadJob {
+  async cancelVideoDownloadJob(id: string): Promise<DownloadJob> {
     const action = 'cancelVideoDownloadJob'
     const job = this.downloadStateService.jobs.get(id)
 
@@ -270,7 +283,7 @@ export class DownloadService {
       throw new Error(`Job with ID '${id}' not found`)
     }
 
-    if (!isVideoDownloadJob(job)) {
+    if (job.type !== DownloadType.Video) {
       this.logger.warn({ action, id, type: job.type }, 'Job is not a video job')
       throw new Error(`Job '${id}' is not a video job`)
     }
@@ -278,7 +291,7 @@ export class DownloadService {
     const logArgs = {
       action,
       id,
-      url: job.url,
+      mediaId: job.mediaId,
       type: job.type,
     }
 
@@ -301,8 +314,10 @@ export class DownloadService {
     this.metrics.jobCompleted('cancelled')
 
     this.downloadScheduler.delete(id)
-    return this.downloadStateService.updateJob(id, {
+    const cancelling = this.downloadStateService.updateJob(id, {
       status: DownloadJobStatus.Cancelling,
     })
+
+    return this.downloadStateService.hydrateOne(cancelling)
   }
 }

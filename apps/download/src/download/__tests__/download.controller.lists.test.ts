@@ -18,6 +18,9 @@ import { DownloadStateService } from 'src/download/download-state.service'
 import { JobQueryService } from 'src/download/job-query.service'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
+import { MediaResolverService } from 'src/media/media-resolver.service'
+
+import { buildJob, buildVideo } from './helpers/job-fixtures'
 
 describe('DownloadController - activity/gallery list endpoints', () => {
   let controller: DownloadController
@@ -48,6 +51,7 @@ describe('DownloadController - activity/gallery list endpoints', () => {
         { provide: DownloadStateService, useValue: { jobs: new Map() } },
         { provide: JobQueryService, useValue: mockJobQueryService },
         { provide: MediaDownloadService, useValue: {} },
+        { provide: MediaResolverService, useValue: { resolve: jest.fn() } },
       ],
     }).compile()
 
@@ -83,23 +87,34 @@ describe('DownloadController - activity/gallery list endpoints', () => {
       )
     })
 
-    it('returns the { items, nextCursor, total } shape verbatim', async () => {
-      const page = {
-        items: [{ id: 'x' }],
+    // Activity/history are per-job feeds, so the controller applies the
+    // attribution mask over the page - the envelope passes through, the
+    // items do not.
+    it('returns the { items, nextCursor, total } envelope, with each item attribution-masked', async () => {
+      const hiddenJob = buildJob(buildVideo(), {
+        hiddenAttribution: true,
+        id: 'x',
+        requester: { email: 'alice@example.com', userId: 'u1' },
+      })
+      jobQueryService.listActivity.mockResolvedValue({
+        items: [hiddenJob],
         nextCursor: 'next-cursor',
         total: 5,
-      }
-      jobQueryService.listActivity.mockReturnValue(page as never)
+      } as never)
 
       const result = await controller.getActivity({ limit: 24 }, undefined)
 
-      expect(result).toBe(page)
+      expect(result).toEqual({
+        items: [{ ...hiddenJob, requester: null }],
+        nextCursor: 'next-cursor',
+        total: 5,
+      })
     })
 
     it('propagates a BadRequestException from a bad cursor as-is', async () => {
-      jobQueryService.listActivity.mockImplementation(() => {
-        throw new BadRequestException('bad cursor')
-      })
+      jobQueryService.listActivity.mockRejectedValue(
+        new BadRequestException('bad cursor'),
+      )
 
       await expect(
         controller.getActivity({ cursor: 'bogus', limit: 24 }, undefined),
@@ -146,7 +161,7 @@ describe('DownloadController - activity/gallery list endpoints', () => {
 
     it('returns the { items, nextCursor, total } shape verbatim', async () => {
       const page = { items: [{ id: 'y' }], nextCursor: null, total: 1 }
-      jobQueryService.listGallery.mockReturnValue(page as never)
+      jobQueryService.listGallery.mockResolvedValue(page as never)
 
       const result = await controller.getGallery({ limit: 24 }, undefined)
 
@@ -154,9 +169,9 @@ describe('DownloadController - activity/gallery list endpoints', () => {
     })
 
     it('propagates a BadRequestException from a bad cursor as-is', async () => {
-      jobQueryService.listGallery.mockImplementation(() => {
-        throw new BadRequestException('bad cursor')
-      })
+      jobQueryService.listGallery.mockRejectedValue(
+        new BadRequestException('bad cursor'),
+      )
 
       await expect(
         controller.getGallery({ cursor: 'bogus', limit: 24 }, undefined),

@@ -1,9 +1,8 @@
 'use client'
 
 import { cns } from '@lilnas/utils/cns'
+import type { Media } from '@lilnas/utils/download/types'
 import { CircularProgress } from '@mui/material'
-
-import type { MediaSearchResultItem } from './MediaRequestForm'
 
 export function MediaResultCard({
   disabled,
@@ -12,9 +11,9 @@ export function MediaResultCard({
   result,
 }: {
   disabled: boolean
-  onSelect: (result: MediaSearchResultItem) => void
+  onSelect: (result: Media) => void
   pending: boolean
-  result: MediaSearchResultItem
+  result: Media
 }) {
   return (
     <button

@@ -1,7 +1,7 @@
 import { VideoInfoSchema } from '@lilnas/utils/download/schema'
 import {
   DownloadJobStatus,
-  isVideoDownloadJob,
+  DownloadType,
   VideoInfo,
 } from '@lilnas/utils/download/types'
 import { env } from '@lilnas/utils/env'
@@ -221,12 +221,15 @@ export class DownloadVideoService {
   async download(options: DownloadStepOptions) {
     const { job } = options
 
-    if (!isVideoDownloadJob(job)) {
+    if (job.type !== DownloadType.Video) {
       throw new Error(
         `Expected a video job but got a '${job.type}' job (id: '${job.id}')`,
       )
     }
 
+    // The source URL and clip range live on the `videos` row now, not on
+    // the job - a job is the event, the video is the thing.
+    const video = this.downloadStateService.requireVideo(job.mediaId)
     const log = this.getJobLogger(job.id)
 
     this.downloadStateService.updateJob(job.id, {
@@ -236,12 +239,13 @@ export class DownloadVideoService {
     // Fetch video info as first step (non-blocking - continue download if this fails)
     try {
       log('log', options, 'Fetching video metadata')
-      const videoInfo = await this.getVideoInfo(job.url)
+      const videoInfo = await this.getVideoInfo(video.sourceUrl)
 
-      // Update job with video info
-      this.downloadStateService.updateJob(job.id, {
+      // Overwrites the placeholder title `ensureVideo()` seeded from the
+      // source URL, on the `videos` row rather than the job.
+      this.downloadStateService.updateVideo(job.id, {
+        overview: videoInfo.description ?? undefined,
         title: videoInfo.title ?? undefined,
-        description: videoInfo.description ?? undefined,
       })
 
       log(
@@ -266,14 +270,14 @@ export class DownloadVideoService {
     }
 
     const args = [
-      ...(job.timeRange
+      ...(video.timeRange
         ? [
             '--download-sections',
-            `*${job.timeRange.start}-${job.timeRange.end}`,
+            `*${video.timeRange.start}-${video.timeRange.end}`,
             '--force-keyframes-at-cuts',
           ]
         : []),
-      job.url,
+      video.sourceUrl,
     ]
 
     log('log', options, 'Started download')
@@ -411,11 +415,7 @@ export class DownloadVideoService {
 
     log('log', { ...options, downloadUrls }, 'Updating job with download URLs')
 
-    this.downloadStateService.updateJob(job.id, {
-      downloadUrls: files.map(
-        file => `${env(EnvKeys.MINIO_PUBLIC_URL)}/videos/${getFileKey(file)}`,
-      ),
-    })
+    this.downloadStateService.updateVideo(job.id, { downloadUrls })
   }
 
   async clean(options: DownloadStepOptions) {

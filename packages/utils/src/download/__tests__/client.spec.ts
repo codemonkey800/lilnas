@@ -1,12 +1,13 @@
-import { DownloadClient } from 'src/download/client'
 import {
+  DownloadClient,
+  flattenToLegacyVideoResponse,
+} from 'src/download/client'
+import {
+  DownloadJob,
   DownloadJobStatus,
   DownloadType,
-  GetDownloadJobResponse,
-  GetMovieJobResponse,
-  GetShowJobResponse,
-  SearchMoviesResponse,
-  SearchShowsResponse,
+  Media,
+  SearchMediaResponse,
 } from 'src/download/types'
 
 function mockFetchJson(body: unknown): jest.SpyInstance {
@@ -17,12 +18,43 @@ function mockFetchJson(body: unknown): jest.SpyInstance {
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
+function buildJob(media: Media, overrides: Partial<DownloadJob> = {}) {
+  return {
+    completedAt: null,
+    createdAt: '2026-08-20T12:00:00.000Z',
+    hiddenAttribution: false,
+    id: 'job-1',
+    media,
+    requester: null,
+    status: DownloadJobStatus.Completed,
+    updatedAt: '2026-08-20T12:00:00.000Z',
+    ...overrides,
+  } satisfies DownloadJob
+}
+
+const VIDEO_MEDIA: Media = {
+  downloadUrls: ['https://example.com/a.mp4'],
+  id: 'video:v1',
+  overview: 'a video',
+  sourceUrl: 'https://example.com/video',
+  timeRange: { start: '00:00:00', end: '00:01:00' },
+  title: 'A video',
+  type: DownloadType.Video,
+}
+
+const MOVIE_MEDIA: Media = {
+  id: 'tmdb:42',
+  title: 'A Movie',
+  tmdbId: 42,
+  type: DownloadType.Movie,
+}
+
 describe('DownloadClient', () => {
   describe('instance factories', () => {
     it('localInstance targets localhost:8081', async () => {
-      const fetchSpy = mockFetchJson({})
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
 
-      await DownloadClient.localInstance.getVideoJob('1')
+      await DownloadClient.localInstance.getJob('1')
 
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/download/videos/1',
@@ -31,9 +63,9 @@ describe('DownloadClient', () => {
     })
 
     it('dockerInstance targets the internal docker hostname', async () => {
-      const fetchSpy = mockFetchJson({})
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
 
-      await DownloadClient.dockerInstance.getVideoJob('1')
+      await DownloadClient.dockerInstance.getJob('1')
 
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://download:8081/download/videos/1',
@@ -42,9 +74,9 @@ describe('DownloadClient', () => {
     })
 
     it('remoteInstance targets the public domain', async () => {
-      const fetchSpy = mockFetchJson({})
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
 
-      await DownloadClient.remoteInstance.getVideoJob('1')
+      await DownloadClient.remoteInstance.getJob('1')
 
       expect(fetchSpy).toHaveBeenCalledWith(
         'https://download.lilnas.io/download/videos/1',
@@ -55,13 +87,13 @@ describe('DownloadClient', () => {
 
   describe('withForwardedIdentity', () => {
     it('merges x-forwarded-user/x-forwarded-user-id into every request', async () => {
-      const fetchSpy = mockFetchJson({})
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
       const client = DownloadClient.localInstance.withForwardedIdentity({
         email: 'alice@example.com',
         userId: 'user_1',
       })
 
-      await client.getVideoJob('1')
+      await client.getJob('1')
 
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/download/videos/1',
@@ -76,13 +108,13 @@ describe('DownloadClient', () => {
     })
 
     it('threads the forwarded identity onto a POST request alongside its body', async () => {
-      const fetchSpy = mockFetchJson({})
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
       const client = DownloadClient.localInstance.withForwardedIdentity({
         email: 'alice@example.com',
         userId: 'user_1',
       })
 
-      await client.createVideoJob({ url: 'https://example.com/video' })
+      await client.createJob({ url: 'https://example.com/video' })
 
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/download/videos',
@@ -97,59 +129,28 @@ describe('DownloadClient', () => {
         },
       )
     })
-
-    it('leaves the default instance unaffected (empty forwardedHeaders)', async () => {
-      const fetchSpy = mockFetchJson({})
-
-      await DownloadClient.localInstance.getVideoJob('1')
-
-      expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:8081/download/videos/1',
-        { headers: JSON_HEADERS },
-      )
-    })
   })
 
-  describe('video jobs', () => {
+  describe('jobs', () => {
     const client = DownloadClient.localInstance
 
-    it('getVideoJob issues a GET to /download/videos/:id', async () => {
-      const job: GetDownloadJobResponse = {
-        description: undefined,
-        downloadUrls: undefined,
-        error: undefined,
-        id: 'job-1',
-        status: DownloadJobStatus.Completed,
-        timeRange: undefined,
-        title: undefined,
-        type: DownloadType.Video,
-        url: 'https://example.com/video',
-      }
+    it('getJob issues a GET to /download/videos/:id', async () => {
+      const job = buildJob(VIDEO_MEDIA)
       const fetchSpy = mockFetchJson(job)
 
-      await expect(client.getVideoJob('job-1')).resolves.toEqual(job)
+      await expect(client.getJob('job-1')).resolves.toEqual(job)
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/download/videos/job-1',
         { headers: JSON_HEADERS },
       )
     })
 
-    it('createVideoJob issues a POST to /download/videos with the input body', async () => {
+    it('createJob issues a POST to /download/videos with the input body', async () => {
       const input = { url: 'https://example.com/video' }
-      const job: GetDownloadJobResponse = {
-        description: undefined,
-        downloadUrls: undefined,
-        error: undefined,
-        id: 'job-1',
-        status: DownloadJobStatus.Pending,
-        timeRange: undefined,
-        title: undefined,
-        type: DownloadType.Video,
-        url: input.url,
-      }
+      const job = buildJob(VIDEO_MEDIA, { status: DownloadJobStatus.Pending })
       const fetchSpy = mockFetchJson(job)
 
-      await expect(client.createVideoJob(input)).resolves.toEqual(job)
+      await expect(client.createJob(input)).resolves.toEqual(job)
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/download/videos',
         {
@@ -160,21 +161,13 @@ describe('DownloadClient', () => {
       )
     })
 
-    it('cancelVideoJob issues a PATCH to /download/videos/:id/cancel', async () => {
-      const job: GetDownloadJobResponse = {
-        description: undefined,
-        downloadUrls: undefined,
-        error: undefined,
-        id: 'job-1',
+    it('cancelJob issues a PATCH to /download/videos/:id/cancel', async () => {
+      const job = buildJob(VIDEO_MEDIA, {
         status: DownloadJobStatus.Cancelling,
-        timeRange: undefined,
-        title: undefined,
-        type: DownloadType.Video,
-        url: 'https://example.com/video',
-      }
+      })
       const fetchSpy = mockFetchJson(job)
 
-      await expect(client.cancelVideoJob('job-1')).resolves.toEqual(job)
+      await expect(client.cancelJob('job-1')).resolves.toEqual(job)
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/download/videos/job-1/cancel',
         { headers: JSON_HEADERS, method: 'PATCH' },
@@ -182,13 +175,90 @@ describe('DownloadClient', () => {
     })
   })
 
-  describe('movie jobs', () => {
+  describe('media detail and list endpoints', () => {
+    const client = DownloadClient.localInstance
+
+    it('getMedia URL-encodes the key so the `:` survives the path segment', async () => {
+      const fetchSpy = mockFetchJson({ jobs: [], media: MOVIE_MEDIA })
+
+      await client.getMedia('tmdb:438631')
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/media/tmdb%3A438631',
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    it('getActivity serializes repeated and comma-free list params', async () => {
+      const fetchSpy = mockFetchJson({ items: [], nextCursor: null, total: 0 })
+
+      await client.getActivity({
+        limit: 10,
+        type: [DownloadType.Movie, DownloadType.Video],
+      })
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/activity?limit=10&type=movie&type=video',
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    it('getGallery serializes Date bounds as date-only strings', async () => {
+      const fetchSpy = mockFetchJson({ items: [], nextCursor: null, total: 0 })
+
+      await client.getGallery({ from: new Date('2026-03-01T00:00:00.000Z') })
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/gallery?from=2026-03-01',
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    it('getGalleryFacets issues a GET to /download/gallery/facets', async () => {
+      const fetchSpy = mockFetchJson({ types: [], uploaders: [] })
+
+      await client.getGalleryFacets()
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/gallery/facets',
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    it('getHistory issues a GET to /download/history', async () => {
+      const fetchSpy = mockFetchJson({ items: [], nextCursor: null, total: 0 })
+
+      await client.getHistory({ requester: 'alice@example.com' })
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/history?requester=alice%40example.com',
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    it('getDiscover issues a GET to /download/discover', async () => {
+      const fetchSpy = mockFetchJson({
+        degradedSources: [],
+        facets: { genres: [] },
+        items: [],
+        nextCursor: null,
+        total: 0,
+      })
+
+      await client.getDiscover({ limit: 24, query: 'dune', sort: 'relevance' })
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/discover?limit=24&query=dune&sort=relevance',
+        { headers: JSON_HEADERS },
+      )
+    })
+  })
+
+  describe('movie and show jobs', () => {
     const client = DownloadClient.localInstance
 
     it('searchMovies issues a GET to /download/movies/search with an encoded query', async () => {
-      const result: SearchMoviesResponse = {
-        results: [{ title: 'A Movie', tmdbId: 1 }],
-      }
+      const result: SearchMediaResponse = { results: [MOVIE_MEDIA] }
       const fetchSpy = mockFetchJson(result)
 
       await expect(client.searchMovies('a movie & friends')).resolves.toEqual(
@@ -201,18 +271,9 @@ describe('DownloadClient', () => {
     })
 
     it('requestMovie issues a POST to /download/movies with the tmdbId body', async () => {
-      const job: GetMovieJobResponse = {
-        description: undefined,
-        error: undefined,
-        id: 'job-1',
-        mediaTitle: undefined,
-        posterUrl: undefined,
-        queueSnapshot: undefined,
-        radarrId: undefined,
+      const job = buildJob(MOVIE_MEDIA, {
         status: DownloadJobStatus.Requested,
-        title: undefined,
-        type: DownloadType.Movie,
-      }
+      })
       const fetchSpy = mockFetchJson(job)
 
       await expect(client.requestMovie({ tmdbId: 42 })).resolves.toEqual(job)
@@ -227,21 +288,10 @@ describe('DownloadClient', () => {
     })
 
     it('getMovieJob issues a GET to /download/movies/:id', async () => {
-      const job: GetMovieJobResponse = {
-        description: undefined,
-        error: undefined,
-        id: 'job-1',
-        mediaTitle: 'A Movie',
-        posterUrl: undefined,
-        queueSnapshot: undefined,
-        radarrId: 42,
-        status: DownloadJobStatus.Downloading,
-        title: undefined,
-        type: DownloadType.Movie,
-      }
-      const fetchSpy = mockFetchJson(job)
+      const fetchSpy = mockFetchJson(buildJob(MOVIE_MEDIA))
 
-      await expect(client.getMovieJob('job-1')).resolves.toEqual(job)
+      await client.getMovieJob('job-1')
+
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/download/movies/job-1',
         { headers: JSON_HEADERS },
@@ -249,40 +299,21 @@ describe('DownloadClient', () => {
     })
 
     it('deleteMovieJob issues a DELETE to /download/movies/:id', async () => {
-      const job: GetMovieJobResponse = {
-        description: undefined,
-        error: undefined,
-        id: 'job-1',
-        mediaTitle: 'A Movie',
-        posterUrl: undefined,
-        queueSnapshot: undefined,
-        radarrId: 42,
-        status: DownloadJobStatus.Cancelled,
-        title: undefined,
-        type: DownloadType.Movie,
-      }
-      const fetchSpy = mockFetchJson(job)
+      const fetchSpy = mockFetchJson(buildJob(MOVIE_MEDIA))
 
-      await expect(client.deleteMovieJob('job-1')).resolves.toEqual(job)
+      await client.deleteMovieJob('job-1')
+
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/download/movies/job-1',
         { headers: JSON_HEADERS, method: 'DELETE' },
       )
     })
-  })
-
-  describe('show jobs', () => {
-    const client = DownloadClient.localInstance
 
     it('searchShows issues a GET to /download/shows/search with an encoded query', async () => {
-      const result: SearchShowsResponse = {
-        results: [{ title: 'A Show', tvdbId: 2 }],
-      }
-      const fetchSpy = mockFetchJson(result)
+      const fetchSpy = mockFetchJson({ results: [] })
 
-      await expect(client.searchShows('a show & friends')).resolves.toEqual(
-        result,
-      )
+      await client.searchShows('a show & friends')
+
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/download/shows/search?query=a%20show%20%26%20friends',
         { headers: JSON_HEADERS },
@@ -290,21 +321,10 @@ describe('DownloadClient', () => {
     })
 
     it('requestShow issues a POST to /download/shows with the tvdbId body', async () => {
-      const job: GetShowJobResponse = {
-        description: undefined,
-        error: undefined,
-        id: 'job-1',
-        mediaTitle: undefined,
-        posterUrl: undefined,
-        queueSnapshot: undefined,
-        sonarrId: undefined,
-        status: DownloadJobStatus.Requested,
-        title: undefined,
-        type: DownloadType.Show,
-      }
-      const fetchSpy = mockFetchJson(job)
+      const fetchSpy = mockFetchJson(buildJob(MOVIE_MEDIA))
 
-      await expect(client.requestShow({ tvdbId: 9 })).resolves.toEqual(job)
+      await client.requestShow({ tvdbId: 9 })
+
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/download/shows',
         {
@@ -316,21 +336,10 @@ describe('DownloadClient', () => {
     })
 
     it('getShowJob issues a GET to /download/shows/:id', async () => {
-      const job: GetShowJobResponse = {
-        description: undefined,
-        error: undefined,
-        id: 'job-1',
-        mediaTitle: 'A Show',
-        posterUrl: undefined,
-        queueSnapshot: undefined,
-        sonarrId: 9,
-        status: DownloadJobStatus.Importing,
-        title: undefined,
-        type: DownloadType.Show,
-      }
-      const fetchSpy = mockFetchJson(job)
+      const fetchSpy = mockFetchJson(buildJob(MOVIE_MEDIA))
 
-      await expect(client.getShowJob('job-1')).resolves.toEqual(job)
+      await client.getShowJob('job-1')
+
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/download/shows/job-1',
         { headers: JSON_HEADERS },
@@ -338,24 +347,87 @@ describe('DownloadClient', () => {
     })
 
     it('deleteShowJob issues a DELETE to /download/shows/:id', async () => {
-      const job: GetShowJobResponse = {
-        description: undefined,
-        error: undefined,
-        id: 'job-1',
-        mediaTitle: 'A Show',
-        posterUrl: undefined,
-        queueSnapshot: undefined,
-        sonarrId: 9,
-        status: DownloadJobStatus.Cancelled,
-        title: undefined,
-        type: DownloadType.Show,
-      }
-      const fetchSpy = mockFetchJson(job)
+      const fetchSpy = mockFetchJson(buildJob(MOVIE_MEDIA))
 
-      await expect(client.deleteShowJob('job-1')).resolves.toEqual(job)
+      await client.deleteShowJob('job-1')
+
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/download/shows/job-1',
         { headers: JSON_HEADERS, method: 'DELETE' },
+      )
+    })
+  })
+
+  // TODO(tdr-bot-migration): delete this block with the shim it covers.
+  //
+  // tdr-bot mocks DownloadClient wholesale in its own tests, so nothing on
+  // that side would catch a wrong field mapping here - a bad flattening
+  // shows up as a Discord message with a missing link, not a compile error.
+  // This is the only direct test of it.
+  describe('legacy video-job shim (tdr-bot)', () => {
+    const client = DownloadClient.localInstance
+
+    it('flattens media.sourceUrl/title/overview/downloadUrls/timeRange onto the flat shape', () => {
+      const job = buildJob(VIDEO_MEDIA, {
+        error: 'boom',
+        hiddenAttribution: true,
+        requester: { email: 'alice@example.com', userId: 'user_1' },
+      })
+
+      expect(flattenToLegacyVideoResponse(job)).toEqual({
+        description: 'a video',
+        downloadUrls: ['https://example.com/a.mp4'],
+        error: 'boom',
+        hiddenAttribution: true,
+        id: 'job-1',
+        requester: { email: 'alice@example.com', userId: 'user_1' },
+        status: DownloadJobStatus.Completed,
+        timeRange: { start: '00:00:00', end: '00:01:00' },
+        title: 'A video',
+        type: DownloadType.Video,
+        url: 'https://example.com/video',
+      })
+    })
+
+    it('throws rather than silently emitting a video shape for a movie job', () => {
+      expect(() => flattenToLegacyVideoResponse(buildJob(MOVIE_MEDIA))).toThrow(
+        /Expected a video job/,
+      )
+    })
+
+    it('getVideoJob returns the flattened shape from the new endpoint', async () => {
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
+
+      await expect(client.getVideoJob('job-1')).resolves.toMatchObject({
+        title: 'A video',
+        url: 'https://example.com/video',
+      })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/videos/job-1',
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    it('createVideoJob posts the same body it always did', async () => {
+      const input = { url: 'https://example.com/video' }
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
+
+      await client.createVideoJob(input)
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/videos',
+        { body: JSON.stringify(input), headers: JSON_HEADERS, method: 'POST' },
+      )
+    })
+
+    it('cancelVideoJob patches the same route it always did', async () => {
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
+
+      await client.cancelVideoJob('job-1')
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/videos/job-1/cancel',
+        { headers: JSON_HEADERS, method: 'PATCH' },
       )
     })
   })

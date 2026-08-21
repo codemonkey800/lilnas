@@ -1,27 +1,35 @@
 import {
   DOWNLOAD_JOB_EVENT_TYPE,
+  DownloadJob,
   DownloadJobEvent,
   DownloadJobEventType,
   DownloadJobStatus,
   DownloadType,
-  MovieDownloadJob,
-  VideoDownloadJob,
 } from '@lilnas/utils/download/types'
 
 import {
   getDownloadSocketUrl,
-  parseVideoJobMessage,
+  parseJobMessage,
   startDownloadJobSocket,
 } from 'src/components/use-download-job-socket'
 
-function buildVideoJob(
-  overrides: Partial<VideoDownloadJob> = {},
-): VideoDownloadJob {
+const NOW_ISO = '2026-08-20T12:00:00.000Z'
+
+function buildVideoJob(overrides: Partial<DownloadJob> = {}): DownloadJob {
   return {
+    completedAt: null,
+    createdAt: NOW_ISO,
+    hiddenAttribution: false,
     id: 'video-1',
+    media: {
+      id: 'video:v1',
+      sourceUrl: 'https://example.com/video',
+      title: 'A video',
+      type: DownloadType.Video,
+    },
+    requester: null,
     status: DownloadJobStatus.Pending,
-    type: DownloadType.Video,
-    url: 'https://example.com/video',
+    updatedAt: NOW_ISO,
     ...overrides,
   }
 }
@@ -81,12 +89,12 @@ describe('getDownloadSocketUrl', () => {
   })
 })
 
-describe('parseVideoJobMessage', () => {
+describe('parseJobMessage', () => {
   it('returns the job for a matching video job event', () => {
     const job = buildVideoJob({ status: DownloadJobStatus.Downloading })
     const event: DownloadJobEvent = { job, type: DownloadJobEventType.Updated }
 
-    expect(parseVideoJobMessage(buildEnvelope(event), 'video-1')).toEqual(job)
+    expect(parseJobMessage(buildEnvelope(event), 'video-1')).toEqual(job)
   })
 
   it('returns undefined when the outer envelope type does not match', () => {
@@ -96,22 +104,39 @@ describe('parseVideoJobMessage', () => {
     }
 
     expect(
-      parseVideoJobMessage(buildEnvelope(event, 'some-other-type'), 'video-1'),
+      parseJobMessage(buildEnvelope(event, 'some-other-type'), 'video-1'),
     ).toBeUndefined()
   })
 
-  it('returns undefined for a movie job event', () => {
-    const movieJob: MovieDownloadJob = {
-      id: 'video-1',
-      status: DownloadJobStatus.Pending,
-      type: DownloadType.Movie,
-      url: 'https://example.com/movie',
+  // No longer filtered to video jobs - the same hook serves the movie/show
+  // detail pages, and the id check is what narrows the broadcast down.
+  it('returns a movie job event for the matching id', () => {
+    const movieJob = buildVideoJob({
+      media: {
+        id: 'tmdb:1',
+        title: 'A Movie',
+        tmdbId: 1,
+        type: DownloadType.Movie,
+      },
+    })
+    const event: DownloadJobEvent = {
+      job: movieJob,
+      type: DownloadJobEventType.Updated,
     }
-    const event = { job: movieJob, type: DownloadJobEventType.Updated }
 
-    expect(
-      parseVideoJobMessage(buildEnvelope(event), 'video-1'),
-    ).toBeUndefined()
+    expect(parseJobMessage(buildEnvelope(event), 'video-1')).toEqual(movieJob)
+  })
+
+  // The duck-type this replaced (`'job' in value`) accepted anything with a
+  // `job` key; the schema is the same one the backend's wire type is
+  // inferred from, so the two can't drift.
+  it('returns undefined when the payload does not parse as a DownloadJob', () => {
+    const event = {
+      job: { id: 'video-1', status: 'not-a-real-status' },
+      type: DownloadJobEventType.Updated,
+    }
+
+    expect(parseJobMessage(buildEnvelope(event), 'video-1')).toBeUndefined()
   })
 
   it("returns undefined for a different job's event", () => {
@@ -120,18 +145,16 @@ describe('parseVideoJobMessage', () => {
       type: DownloadJobEventType.Updated,
     }
 
-    expect(
-      parseVideoJobMessage(buildEnvelope(event), 'video-1'),
-    ).toBeUndefined()
+    expect(parseJobMessage(buildEnvelope(event), 'video-1')).toBeUndefined()
   })
 
   it('returns undefined for malformed JSON', () => {
-    expect(parseVideoJobMessage('{not json', 'video-1')).toBeUndefined()
+    expect(parseJobMessage('{not json', 'video-1')).toBeUndefined()
   })
 
   it('returns undefined when the envelope has no data', () => {
     expect(
-      parseVideoJobMessage(
+      parseJobMessage(
         JSON.stringify({ type: DOWNLOAD_JOB_EVENT_TYPE }),
         'video-1',
       ),
@@ -139,7 +162,7 @@ describe('parseVideoJobMessage', () => {
   })
 
   it('returns undefined for non-string message data', () => {
-    expect(parseVideoJobMessage({ not: 'a string' }, 'video-1')).toBeUndefined()
+    expect(parseJobMessage({ not: 'a string' }, 'video-1')).toBeUndefined()
   })
 })
 

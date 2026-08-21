@@ -1,8 +1,8 @@
 import {
   DiscoveryPage,
-  DiscoveryResult,
   DiscoverySource,
   DownloadType,
+  Media,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import {
@@ -12,7 +12,7 @@ import {
   Logger,
 } from '@nestjs/common'
 
-import { computeFilterKey } from 'src/db/job-cursor'
+import { computeFilterKey } from 'src/db/list-cursor'
 
 import {
   applyDiscoveryFilters,
@@ -64,7 +64,7 @@ function decodeDiscoveryCursor(
   return Number.isInteger(offset) ? offset : undefined
 }
 
-function stripSourceRank(result: RankedDiscoveryResult): DiscoveryResult {
+function stripSourceRank(result: RankedDiscoveryResult): Media {
   const { sourceRank: _sourceRank, ...rest } = result
   // Referenced only to satisfy no-unused-vars - see the destructure above.
   void _sourceRank
@@ -96,8 +96,8 @@ export class DiscoveryService {
     const action = 'search'
 
     const [movieResult, showResult] = await Promise.allSettled([
-      this.radarrService.searchDetailed(params.query),
-      this.sonarrService.searchDetailed(params.query),
+      this.radarrService.search(params.query),
+      this.sonarrService.search(params.query),
     ])
 
     const degradedSources: DiscoverySource[] = []
@@ -155,10 +155,9 @@ export class DiscoveryService {
     })
 
     // Explicit type argument: TS's control-flow type-predicate inference
-    // would otherwise narrow these two `.filter()` calls to
-    // `DiscoveryMovieResult[]`/`DiscoveryShowResult[]` respectively, and
-    // `interleaveByRank<T>` can't unify two incompatible sibling members of
-    // the `DiscoveryResult` union into one `T`.
+    // would otherwise narrow these two `.filter()` calls to the `Movie` and
+    // `Show` arms respectively, and `interleaveByRank<T>` can't unify two
+    // incompatible sibling members of the `Media` union into one `T`.
     const ordered =
       params.sort === 'relevance'
         ? interleaveByRank<RankedDiscoveryResult>(

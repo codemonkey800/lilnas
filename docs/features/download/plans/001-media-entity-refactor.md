@@ -1288,113 +1288,173 @@ resolver-backed, `media-download.service.ts`'s no-metadata-write rewrite,
 `media-poller.service.ts`'s live-queueSnapshot rewrite, and the controller
 adapter that shape change will require.
 
-### Phase 6 (C5b) — Response reshape · `apps/download` + `packages/utils`
+### Phase 6 (C5b) — Response reshape · `apps/download` + `packages/utils` · ✅ COMPLETE
 
-**Carried over from Phase 5** (see that phase's findings — each was blocked by
-a hard DI/type constraint that only clears once this phase's reshape lands):
+**Scope change: Phase 8 (the frontend) was folded into this phase.** Deleting
+`VideoDownloadJob`/`isVideoDownloadJob` from `packages/utils` breaks
+`DownloadById.tsx` and `use-download-job-socket.ts` at compile time, and the
+minimum needed to keep them compiling *is* Phase 8's checklist — a
+`GetDownloadJobResponse`-shaped stopgap would have meant writing throwaway
+code to defer work already specified. The Phase 8 items are checked off in
+place below, and the Next.js build gate was run.
 
-- [ ] `media/radarr.service.ts`/`sonarr.service.ts`: fold `search()`/
-      `searchDetailed()` onto `toMovie()`/`toShow()` (added in Phase 5),
-      deleting `toMovieSearchResult`/`toDiscoveryMovieResult` and their Sonarr
-      twins, done together with the `discovery.service.ts`/`discovery-ranking.ts`
-      reshape below (which is what unblocks this — see Phase 5 finding 2).
-- [ ] `download/download-state.service.ts`: swap `jobs`'s value type from the
-      legacy `DownloadJob` union to `DownloadJobRecord` (added in Phase 5);
-      `resolveJob(id)` becomes resolver-backed (inject `MediaResolverService`);
-      `updateJob` signature becomes `Partial<DownloadJobRecord>`. This is what
-      requires the adapter below, and what unblocks rewriting
-      `download.controller.detail-fallback.test.ts`/`download.controller.video.test.ts`
-      onto the new shape (they were the reason this couldn't move in Phase 5 —
-      see finding 1).
-- [ ] `media/media-download.service.ts`: `requestMovie`/`requestShow` write
-      **no metadata** — just `addJob({type, mediaId: 'tmdb:'+id, …})`. Collapse
-      `assertMovieJob`/`assertShowJob` into `assertJobMediaType(job, type)`.
-- [ ] `media/media-poller.service.ts`: write only `status`/`error`; drop the
-      `queueSnapshot` persistence and the hand-rolled `Partial<Movie & Show>`
-      workaround + comment.
-- [ ] Add the temporary shape adapter in `download.controller.ts` if the
-      reshape below doesn't land in the same commit as the Map-type swap above
-      — clearly comment-marked as deleted-next-commit either way.
+**Carried over from Phase 5** (each was blocked by a hard DI/type constraint
+that only cleared once this phase's reshape landed):
+
+- [x] `media/radarr.service.ts`/`sonarr.service.ts`: folded `search()`/
+      `searchDetailed()` onto `toMovie()`/`toShow()`, deleting
+      `toMovieSearchResult`/`toDiscoveryMovieResult` and their Sonarr twins.
+      `searchDetailed()` is gone entirely — it was the same upstream call as
+      `search()` with a fuller mapper, so one method now backs both
+      `/movies/search` and `/discover`.
+- [x] `download/download-state.service.ts`: `jobs` now holds
+      `DownloadJobRecord`; `resolveJob(id)` is resolver-backed and async
+      (`resolveJobRecord()` is the sync record-only half);
+      `updateJob`'s signature is
+      `Partial<Omit<DownloadJobRecord, 'id' | 'mediaId' | 'type'>>` —
+      narrower than the plan's `Partial<DownloadJobRecord>`, since a job's
+      identity and media key are fixed at creation and letting an update
+      change them would silently re-point a job at another title.
+- [x] `media/media-download.service.ts`: `requestMovie`/`requestShow` write
+      **no metadata at all** — `addJob({type, mediaId, requester, status})`
+      and nothing else. `assertMovieJob`/`assertShowJob` collapsed into
+      `assertJobMediaType(job, type, id)`.
+- [x] `media/media-poller.service.ts`: writes only `status`/`error`; the
+      hand-rolled `Partial<Movie & Show>` workaround and its comment are gone.
+- [x] **No adapter was needed.** The plan hedged that the Map-type swap and
+      the response reshape might land in separate commits and need a
+      comment-marked adapter between them. They landed together, so the
+      adapter was never written.
 
 **Original Phase 6 scope:**
 
-- [ ] Delete the Phase-5 adapter.
-- [ ] Delete `download/job-serializers.ts` and its
-      `download/__tests__/job-serializers.spec.ts`.
-- [ ] `download/attribution.ts`: `showTrueRequester` keys off
-      `job.media.type !== DownloadType.Video`; keep the explicit branch and its
-      spec-rule comment.
-- [ ] New `GET /download/media/:id` route in `download.controller.ts` (§3.1) —
-      URL-decode the key, resolve, attach jobs, 404 an unknown `video:` key.
-- [ ] `download/job-query.service.ts`:
-  - [ ] `listActivity` / `listHistory` → `DownloadPage<DownloadJob>`, resolving
-        media per page
-  - [ ] `listGallery` → `DownloadPage<GalleryItem>` via the `GROUP BY (type,
-        media_id)` query (§3.2), plus the `lastRequester` follow-up query
-  - [ ] `getGalleryFacets` unchanged (already groups on `jobs.type` /
-        `jobs.requester_email`)
-- [ ] `db/jobs.repo.ts`: add `listMediaGroupsPage()` for the gallery; keep
-      `listJobsPage()` for activity/history.
-- [ ] `db/job-cursor.ts` → `db/list-cursor.ts`; rename `JobCursor` →
-      `ListCursor`, `createdAtMs` → `sortKeyMs`; update `discovery.service.ts`'s
-      `computeFilterKey` import.
-- [ ] `media/discovery.service.ts` + `discovery-ranking.ts`:
-      `RankedDiscoveryResult` → `Media & { sourceRank }`; `discoveryId()` →
-      `media.id`.
-- [ ] Search routes return `{ results: Media[] }`; discover returns
-      `DownloadPage<Media> + facets + degradedSources`.
-- [ ] The twelve job routes return `DownloadJob`.
-- [ ] `download-gateway/download.gateway.ts` — verify the broadcast path now
-      just calls `projectJobForViewer`.
-- [ ] `packages/utils/src/download/client.ts`: add `getJob` / `createJob` /
-      `cancelJob` returning `DownloadJob`; update the movie/show/search method
-      return types; add `getMedia(id)` and the five missing Phase-2 list methods
+- [x] ~~Delete the Phase-5 adapter~~ — never existed (see above).
+- [x] Deleted `download/job-serializers.ts` and its spec.
+- [x] `download/attribution.ts`: keys off `job.media.type`. Split into
+      `showTrueAttribution(type, hiddenAttribution, isAdmin)` +
+      `showTrueRequester(job, isAdmin)` — **not in the plan**, but the
+      media-centric gallery has `(type, media_id)` groups and a
+      last-requester with no `DownloadJob` anywhere, and a second hand-rolled
+      copy of the spec rule for that path is exactly what this file exists to
+      prevent.
+- [x] New `GET /download/media/:id` — URL-decodes the key, maps its prefix to
+      a type via `mediaTypeFromKey()`, resolves, attaches jobs, 404s an
+      unknown `video:` key **and** an unrecognized prefix (the latter isn't in
+      the plan; without it a garbage `:id` would reach Radarr).
+- [x] `download/job-query.service.ts`: `listActivity`/`listHistory` →
+      `Promise<DownloadPage<DownloadJob>>` resolving media once per page;
+      `listGallery` → `Promise<DownloadPage<GalleryItem>>`;
+      `getGalleryFacets` unchanged; new `listJobsForMedia(mediaId)` for
+      `/media/:id`.
+- [x] `db/jobs.repo.ts`: added `listMediaGroupsPage()` (the gallery's
+      `GROUP BY (type, media_id)`), `listLatestJobsForMediaIds()` (the
+      `lastRequester` follow-up), and `listJobsByMediaId()`.
+- [x] `db/job-cursor.ts` → `db/list-cursor.ts`; `JobCursor` → `ListCursor`,
+      `createdAtMs` → `sortKeyMs`, `encode/decodeJobCursor` →
+      `encode/decodeListCursor`. `computeFilterKey`'s import in
+      `discovery.service.ts` updated.
+- [x] `media/discovery.service.ts` + `discovery-ranking.ts`:
+      `RankedDiscoveryResult` is now `Media & { sourceRank }`; `discoveryId()`
+      deleted in favour of `media.id`.
+- [x] Search routes return `{ results: Media[] }` (`SearchMediaResponse`);
+      discover returns `DownloadPage<Media>` + `facets` + `degradedSources`.
+- [x] The twelve job routes return `DownloadJob`.
+- [x] `download.gateway.ts` needed **no change** — it was already payload-
+      agnostic; `DownloadStateService.broadcastJobEvent` calls
+      `projectJobForViewer` directly.
+- [x] `packages/utils/src/download/client.ts`: added `getJob`/`createJob`/
+      `cancelJob`/`getMedia` plus the five missing list methods
       (`getActivity`, `getGallery`, `getGalleryFacets`, `getHistory`,
-      `getDiscover`) — the frontend has no typed path to them today.
-- [ ] **tdr-bot compatibility shim** (§5.2):
-  - [ ] keep `createVideoJob` / `getVideoJob` / `cancelVideoJob` with their
-        exact current signatures and return type, as wrappers over the new
-        methods
-  - [ ] write `flattenToLegacyVideoResponse(job: DownloadJob): GetDownloadJobResponse`
-        — `media.sourceUrl` → `url`, `media.title` → `title`, `media.overview` →
-        `description`, `media.downloadUrls` → `downloadUrls`, `media.timeRange`
-        → `timeRange`
-  - [ ] retype `GetDownloadJobResponse` in `types.ts` as a hand-written
-        interface (its source union is gone, so `Pick<>` no longer works)
-  - [ ] add the **`TODO(tdr-bot-migration)` block** above the three legacy
-        methods in `client.ts`, verbatim per §5.2 — sole consumer, why it
-        exists, removal steps, and the "new code must use getJob" rule
-  - [ ] add the **`@deprecated` JSDoc** on `GetDownloadJobResponse` pointing at
-        `{@link DownloadJob}` and naming the same TODO tag
-  - [ ] `grep -rn "TODO(tdr-bot-migration)"` returns exactly the two sites —
-        the marker is the handle the follow-up change greps for
-  - [ ] `grep -rn "getVideoJob\|createVideoJob\|cancelVideoJob"` returns only
-        `client.ts`, its spec, and `apps/tdr-bot` — no new caller crept in
-  - [ ] unit-test the flattener directly in `__tests__/client.spec.ts` — tdr-bot
-        mocks the client, so nothing else will catch a wrong mapping
-- [ ] **Delete from `packages/utils/src/download/types.ts`:**
-      `VideoDownloadJob`, `MovieDownloadJob`, `ShowDownloadJob`, `DownloadJob`
-      (old union), `is*DownloadJob` ×3, `GetMovieJobResponse`,
-      `GetShowJobResponse`, `DownloadJobListFields`, `DownloadJobListItem`,
-      `MovieSearchResult`, `ShowSearchResult`, `SearchMoviesResponse`,
-      `SearchShowsResponse`, `DiscoveryResultBase`, `DiscoveryMovieResult`,
-      `DiscoveryShowResult`, `DiscoveryResult`.
-- [ ] Delete `import { ChildProcessWithoutNullStreams } from 'child_process'`
-      (`types.ts:1`).
-- [ ] Delete the "kept intentionally separate … response bytes" comment
-      (`types.ts:251-256`).
-- [ ] Tests: rewrite all five `download.controller.*.test.ts`,
-      `media/__tests__/download.controller.media.test.ts`,
-      `download/__tests__/attribution.spec.ts`,
-      `download/__tests__/job-query.service.test.ts`,
-      `download-gateway/__tests__/download.gateway.spec.ts`,
-      `packages/utils/src/download/__tests__/client.spec.ts`.
-- [ ] New tests: `/media/:id` for downloaded / never-downloaded / unknown-video
-      404 / upstream-down; gallery grouping with a repeat download; gallery
-      `?requester=` oracle guard as non-admin (rows **and** `total`).
-- [ ] **Gate:** `pnpm --filter @lilnas/tdr-bot type-check test` green with
-      `git diff --stat apps/tdr-bot` **empty**. If anything under `apps/tdr-bot`
-      needs to change, the shim is wrong — fix the shim, not tdr-bot.
+      `getDiscover`) with a shared `toQueryString()` helper; movie/show/search
+      return types updated.
+- [x] **tdr-bot compatibility shim** (§5.2) — all six sub-items done: the
+      three legacy methods kept verbatim as wrappers,
+      `flattenToLegacyVideoResponse()` written and unit-tested,
+      `GetDownloadJobResponse` retyped as a hand-written `@deprecated`
+      interface, and the `TODO(tdr-bot-migration)` block added at both sites.
+- [x] Deleted the sixteen old types from `packages/utils/src/download/types.ts`,
+      the `child_process` import, and the "kept intentionally separate …
+      response bytes" comment.
+- [x] Renamed `DownloadJobV2` → `DownloadJob` (Phase 2's placeholder name,
+      as planned).
+- [x] Tests rewritten: all five `download.controller.*.test.ts`,
+      `download.controller.media.test.ts`, `attribution.spec.ts`,
+      `job-query.service.test.ts`, `download-state.service.test.ts`,
+      `media-download.service.test.ts`, `media-poller.service.test.ts`,
+      `radarr`/`sonarr`/`discovery`/`discovery-ranking`, `job-row.spec.ts`,
+      `use-download-job-socket.test.ts`, and `client.spec.ts`/`types.spec.ts`
+      in `packages/utils`. `download.gateway.spec.ts` passed **unchanged**.
+- [x] New tests: `/media/:id` for downloaded / never-downloaded /
+      unknown-video 404 / unrecognized-prefix 404 / upstream-down; gallery
+      grouping with a repeat download; the gallery `?requester=` oracle guard
+      as non-admin (rows **and** `total`); the one-resolver-call-per-page
+      assertion.
+- [x] **Gate met:** `pnpm --filter @lilnas/tdr-bot type-check test` green
+      (1129/1129) with `git diff --stat apps/tdr-bot` **empty**.
+
+**Two shared test helpers were added** rather than repeating fixtures across
+a dozen rewritten specs: `download/__tests__/helpers/job-fixtures.ts`
+(`buildVideo`/`buildMovie`/`buildShow`/`buildRecord`/`buildJob`) and
+`media/__tests__/helpers/fake-media-resolver.ts` (a `MediaResolverService`
+stand-in answering from a fixture map, plus `flushAsync()`). Follows the
+existing `ytdlp-update/__tests__/helpers/` precedent.
+
+**Four design decisions taken during implementation that the plan didn't
+anticipate:**
+
+1. **The queue snapshot needed somewhere to live.** The plan says
+   `MediaPollerService` stops persisting `queueSnapshot` because it's "read
+   live off the queue" — but `MediaResolverService` derives `Movie`/`Show`
+   from the Radarr/Sonarr *library*, which carries no queue progress, so
+   dropping the column with nothing replacing it would have silently killed
+   the progress bar on every movie/show job. Resolved with
+   `DownloadStateService.queueSnapshots: Map<jobId, DownloadQueueSnapshot>` —
+   keyed by **job**, not by title, because two requests for the same movie
+   have independent progress. `setQueueSnapshot()` broadcasts on its own (a
+   progress tick is not a job-row change), `hydrate()` grafts it onto the
+   resolved media on the way out, and a terminal transition drops it.
+2. **`MediaResolverService.resolve()` now answers for every key it is
+   given**, emitting a placeholder for a `video:` key with no row rather than
+   a gap. `media_id` has no foreign key (§8.4), so a dangling video key is
+   structurally possible, and a gap would have meant a list endpoint silently
+   dropping a job it knows about. `/media/:id` still 404s such a key — it
+   checks the `videos` row directly instead of going through the resolver.
+3. **`MediaResolverService.invalidate(key)`** — new. With `filePath` derived,
+   `DELETE /movies/:id` no longer needs to null anything (§4.2's
+   "bug that disappears"), but the library cache still holds the pre-delete
+   entry for up to a TTL window. Evicting the one key the app itself just
+   mutated is the difference between "bounded staleness" and "serving a copy
+   we know is wrong."
+4. **`VideoSchema.sourceUrl` relaxed from `z.string().url()` to
+   `z.string()`.** URL *validation* belongs on the request boundary
+   (`CreateDownloadJobInputSchema.url`, which keeps `.url()`), not on the
+   derived read model. With the stricter schema, the degraded placeholder
+   from finding 2 would fail the frontend's new
+   `DownloadJobSchema.safeParse()` and silently drop that job's live updates
+   instead of rendering it degraded.
+
+**Verification notes:**
+
+- `pnpm --filter @lilnas/download test` — 381/419 green. The 38 failures are
+  the same three pre-existing `ytdlp-update` DI suites documented in every
+  prior phase (confirmed by the identical error text: *"Nest can't resolve
+  dependencies of the YtdlpUpdateService (DownloadStateService, ?) …
+  DownloadMetricsService at index [1]"* — unrelated to this phase).
+- `pnpm --filter @lilnas/utils test` — 103/103 green.
+- Full-repo `pnpm run lint` — 14/14 tasks green.
+- Full-repo `pnpm run type-check` — 12/12 tasks green, `@lilnas/tdr-bot`
+  included.
+- `pnpm --filter @lilnas/download build` — the Next.js production build
+  succeeds (Phase 8's real gate).
+- `grep -rn "TODO(tdr-bot-migration)"` returns five sites: the two the plan
+  requires (`client.ts`'s block, `types.ts`'s `@deprecated` JSDoc), plus
+  `client.ts`'s doc comment on the flattener and two test-file comments
+  marking the specs that die with the shim.
+- `grep -rn "getVideoJob\|createVideoJob\|cancelVideoJob"` returns
+  `client.ts`, its spec, `apps/tdr-bot`, **and** `download.controller.ts` +
+  its specs — the last group is the controller's own *route handler* names
+  (`GET /videos/:id` etc.), which coincidentally share the identifier and are
+  unrelated to the client shim. No new caller of the shim crept in.
 
 ### Phase 7 (C6) — Drop the moved job columns · `apps/download`
 
@@ -1417,29 +1477,41 @@ a hard DI/type constraint that only clears once this phase's reshape lands):
 - [ ] Check `db/reconcile-interrupted-jobs.ts` is unaffected (it only touches
       `status`/`error`/`updated_at`) and its spec still passes.
 
-### Phase 8 (C7) — Frontend · `apps/download`
+### Phase 8 (C7) — Frontend · `apps/download` · ✅ COMPLETE (folded into Phase 6)
 
-- [ ] `components/DownloadById.tsx`: reads move under `job.media.*`; fix
-      `PENDING_STATUSES` (`:15-21`) via `isInProgressDownloadJobStatus` +
-      ts-pattern `.when()`; route the multi-line class strings through `cns()`.
-- [ ] `components/use-download-job-socket.ts`: `parseVideoJobMessage` →
-      `parseJobMessage`; drop the `isVideoDownloadJob` filter (`:74`); replace
-      the `'job' in value` duck-type (`:32-34`) with `DownloadJobSchema.safeParse`;
-      widen `onJobUpdate` to `(job: DownloadJob) => void`.
-- [ ] `components/__tests__/use-download-job-socket.test.ts`: reshape fixtures.
-- [ ] `components/Home/HomeTabs.tsx`: `TAB_VALUES` → tuple of enum members;
+Landed in the Phase 6 commit rather than its own — see that phase's scope
+note for why the split wasn't achievable (deleting `VideoDownloadJob` breaks
+these files at compile time, and the minimum fix *is* this list).
+
+- [x] `components/DownloadById.tsx`: reads moved under `job.media.*`;
+      `PENDING_STATUSES` deleted in favour of `isInProgressDownloadJobStatus`
+      via ts-pattern `.when()` (the local list was missing
+      `cleaning`/`importing`/`requested`/`searching`, so a job in `searching`
+      rendered with no progress bar); the multi-line class string routed
+      through `cns()`.
+- [x] `components/use-download-job-socket.ts`: `parseVideoJobMessage` →
+      `parseJobMessage`; the `isVideoDownloadJob` filter dropped so the hook
+      can serve movie/show pages; the `'job' in value` duck-type replaced
+      with `DownloadJobSchema.safeParse`; `onJobUpdate` widened to
+      `(job: DownloadJob) => void`.
+- [x] `components/__tests__/use-download-job-socket.test.ts`: fixtures
+      reshaped; the "returns undefined for a movie job event" test inverted
+      (it now asserts a movie job *is* returned) and a new negative test
+      added for a payload that fails schema validation — the concrete win
+      from parsing rather than duck-typing.
+- [x] `components/Home/HomeTabs.tsx`: `TAB_VALUES` → a tuple of enum members;
       `TAB_LABELS` → `Record<DownloadType, string>`.
-- [ ] `components/Home/MediaRequestForm.tsx`: `MediaType` →
-      `Exclude<DownloadType, DownloadType.Video>`; delete `MediaSearchResultItem`
-      in favour of `Media`.
-- [ ] `components/Home/MediaResultCard.tsx`: retype against `Media`.
-- [ ] `components/Home/Home.tsx`: delete both `tmdbId → id` / `tvdbId → id`
-      remapping blocks (`:53-61`, `:99-107`).
-- [ ] `app/downloads/[id]/page.tsx`: retype `initialJob` as `DownloadJob` (it
-      currently passes a wire type into a slot typed as the domain type and only
-      compiles by accident).
-- [ ] `pnpm --filter @lilnas/download build` — the Next.js build is the real
-      gate here.
+- [x] `components/Home/MediaRequestForm.tsx`: `MediaType` →
+      `Exclude<DownloadType, DownloadType.Video>`; `MediaSearchResultItem`
+      deleted in favour of `Media`, with a local `upstreamId(result)` reading
+      `tmdbId`/`tvdbId` off the arm.
+- [x] `components/Home/MediaResultCard.tsx`: retyped against `Media`.
+- [x] `components/Home/Home.tsx`: both `tmdbId → id` / `tvdbId → id`
+      remapping blocks deleted; `createVideoJob` → `createJob`.
+- [x] `app/downloads/[id]/page.tsx`: `client.getVideoJob` → `client.getJob`,
+      so `initialJob` is a real `DownloadJob` rather than a wire type that
+      only type-checked by accident.
+- [x] `pnpm --filter @lilnas/download build` — green.
 
 ### Phase 9 — Ship
 
@@ -1450,6 +1522,8 @@ a hard DI/type constraint that only clears once this phase's reshape lands):
       superseded, describe the media/job split, and note that Phase 6's
       Emby-match path no longer needs a persisted `filePath` column.
 - [ ] Delete `PLAN.md` (or move it to `docs/features/download/`) before merge.
+- [ ] Also carry over Phase 4's deferred item: sanity-check migration `0003`
+      against a **copy** of the real production DB before the release runs it.
 - [ ] PR description must call out: the breaking response reshape, that
       **cursors invalidate on deploy**, the **DB backup requirement** before the
       release carrying `0004`, and the **tdr-bot shim** with its deletion

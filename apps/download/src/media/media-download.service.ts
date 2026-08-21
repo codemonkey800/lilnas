@@ -1,38 +1,37 @@
 import {
   DownloadJob,
+  DownloadJobRecord,
   DownloadJobStatus,
   DownloadType,
-  isMovieDownloadJob,
-  isShowDownloadJob,
+  isManagedMedia,
   JobRequester,
-  MovieDownloadJob,
-  MovieSearchResult,
-  ShowDownloadJob,
-  ShowSearchResult,
+  Media,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 import { nanoid } from 'nanoid'
 
+import { mediaId } from 'src/db/media-id'
 import { DownloadStateService } from 'src/download/download-state.service'
 
+import { MediaResolverService } from './media-resolver.service'
 import { RadarrService } from './radarr.service'
 import { SonarrService } from './sonarr.service'
 
-function assertMovieJob(job: DownloadJob, id: string): MovieDownloadJob {
-  if (!isMovieDownloadJob(job)) {
+/**
+ * One assertion for both media types, replacing the byte-identical
+ * `assertMovieJob`/`assertShowJob` twins - now that a job is a plain object
+ * with the union nested at `media`, the only thing that varied between them
+ * was the literal in the message.
+ */
+function assertJobMediaType(
+  job: DownloadJobRecord,
+  type: DownloadType,
+  id: string,
+): DownloadJobRecord {
+  if (job.type !== type) {
     throw new Error(
-      `Expected a movie job but got a '${job.type}' job (id: '${id}')`,
-    )
-  }
-
-  return job
-}
-
-function assertShowJob(job: DownloadJob, id: string): ShowDownloadJob {
-  if (!isShowDownloadJob(job)) {
-    throw new Error(
-      `Expected a show job but got a '${job.type}' job (id: '${id}')`,
+      `Expected a ${type} job but got a '${job.type}' job (id: '${id}')`,
     )
   }
 
@@ -45,6 +44,11 @@ function assertShowJob(job: DownloadJob, id: string): ShowDownloadJob {
  * calls to RadarrService/SonarrService. Movie/show jobs are tracked entirely
  * by polling (see MediaPollerService) - they're never handed to
  * DownloadSchedulerService, which is video-pipeline-only.
+ *
+ * Requesting a title writes **no metadata at all**: Radarr/Sonarr are the
+ * system of record for it, so a job stores only the derived `media_id` and
+ * every read re-derives the title/poster/overview through
+ * `MediaResolverService`.
  */
 @Injectable()
 export class MediaDownloadService {
@@ -52,170 +56,179 @@ export class MediaDownloadService {
 
   constructor(
     private readonly downloadStateService: DownloadStateService,
+    private readonly mediaResolverService: MediaResolverService,
     private readonly radarrService: RadarrService,
     private readonly sonarrService: SonarrService,
   ) {}
 
-  async searchMovies(query: string): Promise<MovieSearchResult[]> {
+  async searchMovies(query: string): Promise<Media[]> {
     return this.radarrService.search(query)
   }
 
-  async searchShows(query: string): Promise<ShowSearchResult[]> {
+  async searchShows(query: string): Promise<Media[]> {
     return this.sonarrService.search(query)
   }
 
   async requestMovie(
     tmdbId: number,
     requester?: JobRequester | null,
-  ): Promise<MovieDownloadJob> {
-    const action = 'requestMovie'
-    const id = nanoid()
-
-    const job: MovieDownloadJob = {
-      id,
-      requester: requester ?? null,
-      status: DownloadJobStatus.Requested,
+  ): Promise<DownloadJob> {
+    return this.request({
+      action: 'requestMovie',
+      mediaId: mediaId({ tmdbId, type: DownloadType.Movie }),
+      requester,
+      submit: () => this.radarrService.requestMovie(tmdbId),
       type: DownloadType.Movie,
-      url: `radarr://tmdb/${tmdbId}`,
-    }
-    this.downloadStateService.addJob(job)
-
-    this.logger.log({ action, jobId: id, tmdbId }, 'Requesting movie download')
-
-    try {
-      const result = await this.radarrService.requestMovie(tmdbId)
-
-      const updated = this.downloadStateService.updateJob(id, {
-        mediaTitle: result.title,
-        overview: result.overview,
-        posterUrl: result.posterUrl,
-        radarrId: result.radarrId,
-        status: DownloadJobStatus.Searching,
-      })
-
-      return assertMovieJob(updated, id)
-    } catch (err) {
-      const error = getErrorMessage(err)
-
-      this.logger.error(
-        { action, jobId: id, tmdbId, error },
-        'Failed to request movie download',
-      )
-
-      const updated = this.downloadStateService.updateJob(id, {
-        error,
-        status: DownloadJobStatus.Failed,
-      })
-
-      return assertMovieJob(updated, id)
-    }
+      upstreamId: tmdbId,
+    })
   }
 
   async requestShow(
     tvdbId: number,
     requester?: JobRequester | null,
-  ): Promise<ShowDownloadJob> {
-    const action = 'requestShow'
-    const id = nanoid()
+  ): Promise<DownloadJob> {
+    return this.request({
+      action: 'requestShow',
+      mediaId: mediaId({ tvdbId, type: DownloadType.Show }),
+      requester,
+      submit: () => this.sonarrService.requestShow(tvdbId),
+      type: DownloadType.Show,
+      upstreamId: tvdbId,
+    })
+  }
 
-    const job: ShowDownloadJob = {
+  getMovieJob(id: string): Promise<DownloadJob> {
+    return this.getJob(id, DownloadType.Movie)
+  }
+
+  getShowJob(id: string): Promise<DownloadJob> {
+    return this.getJob(id, DownloadType.Show)
+  }
+
+  async deleteMovieJob(id: string): Promise<DownloadJob> {
+    return this.deleteJob(id, DownloadType.Movie, radarrId =>
+      this.radarrService.unmonitorAndDelete(radarrId),
+    )
+  }
+
+  async deleteShowJob(id: string): Promise<DownloadJob> {
+    return this.deleteJob(id, DownloadType.Show, sonarrId =>
+      this.sonarrService.unmonitorAndDelete(sonarrId),
+    )
+  }
+
+  private async request({
+    action,
+    mediaId: jobMediaId,
+    requester,
+    submit,
+    type,
+    upstreamId,
+  }: {
+    action: string
+    mediaId: string
+    requester?: JobRequester | null
+    submit: () => Promise<unknown>
+    type: DownloadType
+    upstreamId: number
+  }): Promise<DownloadJob> {
+    const id = nanoid()
+    const now = new Date().toISOString()
+
+    const record: DownloadJobRecord = {
+      completedAt: null,
+      createdAt: now,
+      // Movies/shows are always attributed - there's no hiding toggle for
+      // them by design (spec §Core Concepts).
+      hiddenAttribution: false,
       id,
+      mediaId: jobMediaId,
       requester: requester ?? null,
       status: DownloadJobStatus.Requested,
-      type: DownloadType.Show,
-      url: `sonarr://tvdb/${tvdbId}`,
+      type,
+      updatedAt: now,
     }
-    this.downloadStateService.addJob(job)
+    this.downloadStateService.addJob(record)
 
-    this.logger.log({ action, jobId: id, tvdbId }, 'Requesting show download')
+    this.logger.log({ action, jobId: id, upstreamId }, 'Requesting download')
 
     try {
-      const result = await this.sonarrService.requestShow(tvdbId)
+      await submit()
 
-      const updated = this.downloadStateService.updateJob(id, {
-        mediaTitle: result.title,
-        overview: result.overview,
-        posterUrl: result.posterUrl,
-        sonarrId: result.sonarrId,
-        status: DownloadJobStatus.Searching,
-      })
-
-      return assertShowJob(updated, id)
+      return this.downloadStateService.hydrateOne(
+        this.downloadStateService.updateJob(id, {
+          status: DownloadJobStatus.Searching,
+        }),
+      )
     } catch (err) {
       const error = getErrorMessage(err)
 
       this.logger.error(
-        { action, jobId: id, tvdbId, error },
-        'Failed to request show download',
+        { action, jobId: id, upstreamId, error },
+        'Failed to request download',
       )
 
-      const updated = this.downloadStateService.updateJob(id, {
-        error,
-        status: DownloadJobStatus.Failed,
-      })
-
-      return assertShowJob(updated, id)
+      return this.downloadStateService.hydrateOne(
+        this.downloadStateService.updateJob(id, {
+          error,
+          status: DownloadJobStatus.Failed,
+        }),
+      )
     }
   }
 
-  getMovieJob(id: string): MovieDownloadJob {
+  private async getJob(id: string, type: DownloadType): Promise<DownloadJob> {
     // Falls back to the durable `jobs` row when the in-memory Map has no
-    // entry (e.g. after a restart) - see DownloadStateService.resolveJob()'s
-    // own comment.
-    const job = this.downloadStateService.resolveJob(id)
+    // entry (e.g. after a restart) - see DownloadStateService's own comment.
+    const record = this.downloadStateService.resolveJobRecord(id)
 
-    if (!job) {
+    if (!record) {
       throw new Error(`Job with ID '${id}' not found`)
     }
 
-    return assertMovieJob(job, id)
+    return this.downloadStateService.hydrateOne(
+      assertJobMediaType(record, type, id),
+    )
   }
 
-  getShowJob(id: string): ShowDownloadJob {
-    const job = this.downloadStateService.resolveJob(id)
+  /**
+   * Unmonitors and deletes upstream, then cancels the job. The upstream id
+   * (`radarrId`/`sonarrId`) is read off the *resolved* media rather than a
+   * persisted column - it's Radarr's own primary key, so Radarr is the only
+   * honest place to get it, and a title that has since been removed from the
+   * library simply resolves without one and skips the upstream call.
+   */
+  private async deleteJob(
+    id: string,
+    type: DownloadType,
+    remove: (upstreamId: number) => Promise<void>,
+  ): Promise<DownloadJob> {
+    const action = 'deleteJob'
+    const job = await this.getJob(id, type)
 
-    if (!job) {
-      throw new Error(`Job with ID '${id}' not found`)
-    }
+    const upstreamId = isManagedMedia(job.media)
+      ? job.media.type === DownloadType.Movie
+        ? job.media.radarrId
+        : job.media.sonarrId
+      : undefined
 
-    return assertShowJob(job, id)
-  }
-
-  async deleteMovieJob(id: string): Promise<MovieDownloadJob> {
-    const action = 'deleteMovieJob'
-    const job = this.getMovieJob(id)
-
-    if (job.radarrId != null) {
+    if (upstreamId != null) {
       this.logger.log(
-        { action, jobId: id, radarrId: job.radarrId },
-        'Unmonitoring and deleting movie from Radarr',
+        { action, jobId: id, type, upstreamId },
+        'Unmonitoring and deleting from the upstream library',
       )
-      await this.radarrService.unmonitorAndDelete(job.radarrId)
+      await remove(upstreamId)
     }
 
-    const updated = this.downloadStateService.updateJob(id, {
-      status: DownloadJobStatus.Cancelled,
-    })
+    // The library cache still holds the pre-delete entry, so drop it - the
+    // next read must see Radarr's post-delete truth (no `filePath`), not a
+    // stale one from up to a TTL window ago.
+    this.mediaResolverService.invalidate(job.media.id)
 
-    return assertMovieJob(updated, id)
-  }
-
-  async deleteShowJob(id: string): Promise<ShowDownloadJob> {
-    const action = 'deleteShowJob'
-    const job = this.getShowJob(id)
-
-    if (job.sonarrId != null) {
-      this.logger.log(
-        { action, jobId: id, sonarrId: job.sonarrId },
-        'Unmonitoring and deleting series from Sonarr',
-      )
-      await this.sonarrService.unmonitorAndDelete(job.sonarrId)
-    }
-
-    const updated = this.downloadStateService.updateJob(id, {
-      status: DownloadJobStatus.Cancelled,
-    })
-
-    return assertShowJob(updated, id)
+    return this.downloadStateService.hydrateOne(
+      this.downloadStateService.updateJob(id, {
+        status: DownloadJobStatus.Cancelled,
+      }),
+    )
   }
 }

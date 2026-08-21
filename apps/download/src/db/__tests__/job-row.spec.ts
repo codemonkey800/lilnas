@@ -1,3 +1,4 @@
+import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 import { eq } from 'drizzle-orm'
 
 import { buildJobRow, hydrateJobRow } from 'src/db/job-row'
@@ -19,185 +20,102 @@ function insertAndRead(
   return inserted
 }
 
-// Everything except `origin` (dropped by hydrateJobRow - see its own
-// comment) and the two timestamp columns (buildJobRow doesn't emit
-// `createdAt` at all, and stamps `updatedAt` fresh on every call) must
+// The columns a `DownloadJobRecord` actually carries. `origin` is excluded
+// (write-only, re-derived from `requester`) and `updatedAt` is excluded
+// (stamped fresh on every buildJobRow call). Everything else here must
 // survive a row -> hydrateJobRow -> buildJobRow round trip unchanged.
-function withoutRoundTripExclusions(row: RowInsert | JobRow) {
-  const {
-    createdAt: _createdAt,
-    origin: _origin,
-    updatedAt: _updatedAt,
-    ...rest
-  } = row as JobRow
-  // Referenced only to satisfy no-unused-vars - see the destructure above.
-  void _createdAt
-  void _origin
-  void _updatedAt
-  return rest
+const ROUND_TRIP_COLUMNS = [
+  'completedAt',
+  'createdAt',
+  'error',
+  'hiddenAttribution',
+  'id',
+  'mediaId',
+  'requesterEmail',
+  'requesterUserId',
+  'status',
+  'type',
+] as const
+
+function roundTripSubset(row: RowInsert | JobRow) {
+  return Object.fromEntries(
+    ROUND_TRIP_COLUMNS.map(key => [key, (row as JobRow)[key]]),
+  )
 }
 
 describe('job-row codec', () => {
   const fixtures: Record<string, RowInsert> = {
-    'video-full (web origin, hidden)': {
+    'video (web origin, hidden, completed)': {
       completedAt: new Date('2026-01-01T00:00:00.000Z'),
-      description: 'a video description',
-      downloadUrls: ['https://example.com/a.mp4'],
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
       error: null,
-      filePath: null,
       hiddenAttribution: true,
       id: 'video-full',
-      mediaTitle: null,
+      mediaId: 'video:v1',
       origin: 'web',
-      overview: null,
-      posterUrl: null,
-      queueSnapshot: null,
-      radarrId: null,
       requesterEmail: 'alice@example.com',
       requesterUserId: 'user_1',
-      sonarrId: null,
       status: 'completed',
-      timeRange: { start: '00:00:00', end: '00:01:00' },
-      title: 'A video',
       type: 'video',
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-      url: 'https://example.com/video',
+      url: 'video:v1',
     },
-    'video-minimal (service origin)': {
+    'video (service origin, minimal)': {
       completedAt: null,
-      description: null,
-      downloadUrls: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
       error: null,
-      filePath: null,
       hiddenAttribution: false,
       id: 'video-minimal',
-      mediaTitle: null,
+      mediaId: 'video:v2',
       origin: 'service',
-      overview: null,
-      posterUrl: null,
-      queueSnapshot: null,
-      radarrId: null,
       requesterEmail: null,
       requesterUserId: null,
-      sonarrId: null,
       status: 'pending',
-      timeRange: null,
-      title: null,
       type: 'video',
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-      url: 'https://example.com/video-minimal',
+      url: 'video:v2',
     },
-    'movie-full (web origin)': {
+    'movie (web origin)': {
       completedAt: new Date('2026-01-02T00:00:00.000Z'),
-      description: 'a movie description',
-      downloadUrls: null,
+      createdAt: new Date('2026-01-02T00:00:00.000Z'),
       error: null,
-      filePath: '/movies/a.mkv',
       hiddenAttribution: false,
       id: 'movie-full',
-      mediaTitle: 'A Movie',
+      mediaId: 'tmdb:1',
       origin: 'web',
-      overview: 'a movie overview',
-      posterUrl: 'https://example.com/poster.jpg',
-      queueSnapshot: { progress: 42, status: 'downloading' },
-      radarrId: 7,
       requesterEmail: 'bob@example.com',
       requesterUserId: 'user_2',
-      sonarrId: null,
       status: 'downloading',
-      timeRange: null,
-      title: 'A Movie Title',
       type: 'movie',
       updatedAt: new Date('2026-01-02T00:00:00.000Z'),
-      url: 'radarr://tmdb/1',
+      url: 'tmdb:1',
     },
-    'show-full (web origin)': {
+    'show (web origin, errored)': {
       completedAt: null,
-      description: 'a show description',
-      downloadUrls: null,
+      createdAt: new Date('2026-01-03T00:00:00.000Z'),
       error: 'transient error',
-      filePath: '/shows/a',
       hiddenAttribution: false,
       id: 'show-full',
-      mediaTitle: 'A Show',
+      mediaId: 'tvdb:1',
       origin: 'web',
-      overview: 'a show overview',
-      posterUrl: 'https://example.com/show-poster.jpg',
-      queueSnapshot: { progress: 10, timeLeft: '5m' },
-      radarrId: null,
       requesterEmail: 'carol@example.com',
       requesterUserId: 'user_3',
-      sonarrId: 9,
       status: 'importing',
-      timeRange: null,
-      title: 'A Show Title',
       type: 'show',
       updatedAt: new Date('2026-01-03T00:00:00.000Z'),
-      url: 'sonarr://tvdb/1',
-    },
-    'service-origin (show, no requester)': {
-      completedAt: null,
-      description: null,
-      downloadUrls: null,
-      error: null,
-      filePath: null,
-      hiddenAttribution: false,
-      id: 'show-service-origin',
-      mediaTitle: 'A Service Show',
-      origin: 'service',
-      overview: null,
-      posterUrl: null,
-      queueSnapshot: null,
-      radarrId: null,
-      requesterEmail: null,
-      requesterUserId: null,
-      sonarrId: 11,
-      status: 'searching',
-      timeRange: null,
-      title: null,
-      type: 'show',
-      updatedAt: new Date('2026-01-04T00:00:00.000Z'),
-      url: 'sonarr://tvdb/2',
-    },
-    'web-origin (video, not hidden)': {
-      completedAt: null,
-      description: null,
-      downloadUrls: ['https://example.com/b.mp4'],
-      error: null,
-      filePath: null,
-      hiddenAttribution: false,
-      id: 'video-web-origin',
-      mediaTitle: null,
-      origin: 'web',
-      overview: null,
-      posterUrl: null,
-      queueSnapshot: null,
-      radarrId: null,
-      requesterEmail: 'dave@example.com',
-      requesterUserId: 'user_4',
-      sonarrId: null,
-      status: 'uploading',
-      timeRange: { start: '00:00:05', end: '00:00:10' },
-      title: null,
-      type: 'video',
-      updatedAt: new Date('2026-01-05T00:00:00.000Z'),
-      url: 'https://example.com/web-origin',
+      url: 'tvdb:1',
     },
   }
 
   it.each(Object.entries(fixtures))(
-    'round-trips %s through hydrateJobRow -> buildJobRow, modulo createdAt/updatedAt/origin',
+    'round-trips %s through hydrateJobRow -> buildJobRow, modulo updatedAt/origin',
     (_name, fixture) => {
       const { db, close } = createTestDb()
       try {
         const row = insertAndRead(db, fixture)
+        const rebuilt = buildJobRow(hydrateJobRow(row))
 
-        const job = hydrateJobRow(row)
-        const rebuilt = buildJobRow(job)
-
-        expect(withoutRoundTripExclusions(rebuilt)).toEqual(
-          withoutRoundTripExclusions(row),
-        )
+        expect(roundTripSubset(rebuilt)).toEqual(roundTripSubset(row))
         // The property that makes dropping `origin` on hydrate safe: it's
         // fully re-derivable from `requester`'s presence on the way back.
         expect(rebuilt.origin).toBe(row.origin)
@@ -210,9 +128,11 @@ describe('job-row codec', () => {
   it('reconstructs requester as null (not undefined) when both requester columns are null', () => {
     const { db, close } = createTestDb()
     try {
-      const row = insertAndRead(db, fixtures['video-minimal (service origin)']!)
-      const job = hydrateJobRow(row)
-      expect(job.requester).toBeNull()
+      const row = insertAndRead(
+        db,
+        fixtures['video (service origin, minimal)']!,
+      )
+      expect(hydrateJobRow(row).requester).toBeNull()
     } finally {
       close()
     }
@@ -221,9 +141,8 @@ describe('job-row codec', () => {
   it('reconstructs requester as an object when both requester columns are set', () => {
     const { db, close } = createTestDb()
     try {
-      const row = insertAndRead(db, fixtures['movie-full (web origin)']!)
-      const job = hydrateJobRow(row)
-      expect(job.requester).toEqual({
+      const row = insertAndRead(db, fixtures['movie (web origin)']!)
+      expect(hydrateJobRow(row).requester).toEqual({
         email: 'bob@example.com',
         userId: 'user_2',
       })
@@ -232,53 +151,93 @@ describe('job-row codec', () => {
     }
   })
 
-  it('maps every null optional column to undefined (video-minimal)', () => {
+  it('carries timestamps as ISO strings, not Dates', () => {
     const { db, close } = createTestDb()
     try {
-      const row = insertAndRead(db, fixtures['video-minimal (service origin)']!)
-      const job = hydrateJobRow(row)
+      const row = insertAndRead(
+        db,
+        fixtures['video (web origin, hidden, completed)']!,
+      )
+      const record = hydrateJobRow(row)
 
-      if (job.type !== 'video') throw new Error('expected a video job')
-      expect(job.completedAt).toBeUndefined()
-      expect(job.description).toBeUndefined()
-      expect(job.downloadUrls).toBeUndefined()
-      expect(job.error).toBeUndefined()
-      expect(job.timeRange).toBeUndefined()
-      expect(job.title).toBeUndefined()
+      expect(record.createdAt).toBe('2026-01-01T00:00:00.000Z')
+      expect(record.completedAt).toBe('2026-01-01T00:00:00.000Z')
+      expect(record.status).toBe(DownloadJobStatus.Completed)
+      expect(record.type).toBe(DownloadType.Video)
     } finally {
       close()
     }
   })
 
-  it('ignores hiddenAttribution on a movie row and re-serializes it as false', () => {
+  it('leaves completedAt null (not undefined) when the column is null', () => {
+    const { db, close } = createTestDb()
+    try {
+      const row = insertAndRead(db, fixtures['show (web origin, errored)']!)
+      expect(hydrateJobRow(row).completedAt).toBeNull()
+    } finally {
+      close()
+    }
+  })
+
+  // The backfill migration populates `media_id` for every pre-existing row,
+  // but a row written between the schema migration and the backfill (or by
+  // an older build mid-deploy) can still have it null. Recovering the key
+  // from the legacy synthetic `url` means such a row hydrates correctly
+  // rather than resolving to an empty media key.
+  it('recovers media_id from a legacy synthetic url when the column is null', () => {
     const { sqlite, db, close } = createTestDb()
     try {
-      // Inserted via raw SQL rather than drizzle's typed insert - the
-      // `hidden_attribution` column has no per-type constraint at the DB
-      // layer even though it's video-only on the domain types, so this
-      // simulates a row that (in practice) should never occur but must
-      // still hydrate safely if it did.
       const nowMs = Date.now()
       sqlite
         .prepare(
           `INSERT INTO jobs (id, type, status, origin, hidden_attribution, url, created_at, updated_at)
-           VALUES (?, 'movie', 'requested', 'service', 1, ?, ?, ?)`,
+           VALUES (?, 'movie', 'requested', 'service', 0, ?, ?, ?)`,
         )
-        .run('movie-hidden-flag', 'radarr://tmdb/99', nowMs, nowMs)
+        .run('legacy-movie', 'radarr://tmdb/438631', nowMs, nowMs)
 
       const row = db
         .select()
         .from(jobs)
-        .where(eq(jobs.id, 'movie-hidden-flag'))
+        .where(eq(jobs.id, 'legacy-movie'))
         .all()[0]
       if (!row) throw new Error('failed to read back raw-inserted row')
-      expect(row.hiddenAttribution).toBe(true)
+      expect(row.mediaId).toBeNull()
 
-      const job = hydrateJobRow(row)
-      expect(job).not.toHaveProperty('hiddenAttribution')
+      expect(hydrateJobRow(row).mediaId).toBe('tmdb:438631')
+    } finally {
+      close()
+    }
+  })
 
-      const rebuilt = buildJobRow(job)
-      expect(rebuilt.hiddenAttribution).toBe(false)
+  // The twelve columns the next migration deletes are written as explicit
+  // nulls rather than omitted, because drizzle's upsert `set:` makes every
+  // key optional - omitting them would leave a pre-Media row's stale
+  // title/poster/overview in place forever.
+  it('nulls every legacy media column so an upsert cannot leave a stale value', () => {
+    const { db, close } = createTestDb()
+    try {
+      const row = insertAndRead(db, fixtures['movie (web origin)']!)
+      const rebuilt = buildJobRow(hydrateJobRow(row))
+
+      for (const column of [
+        'description',
+        'downloadUrls',
+        'filePath',
+        'mediaTitle',
+        'overview',
+        'posterUrl',
+        'queueSnapshot',
+        'radarrId',
+        'sonarrId',
+        'timeRange',
+        'title',
+      ] as const) {
+        expect(rebuilt[column]).toBeNull()
+      }
+
+      // `url` is the one legacy column that's still NOT NULL, so it carries
+      // the media key. Nothing reads it.
+      expect(rebuilt.url).toBe('tmdb:1')
     } finally {
       close()
     }
