@@ -5,35 +5,21 @@ import {
   ActivityQuerySchema,
   CreateDownloadJobInputSchema,
   DiscoverQuerySchema,
+  DownloadJobStatus,
+  DownloadQueueSnapshotSchema,
+  DownloadType,
   GalleryFacetsQuerySchema,
   GalleryQuerySchema,
   HistoryQuerySchema,
+  JobRequesterSchema,
   MediaSearchQuerySchema,
   RequestMovieInputSchema,
   RequestShowInputSchema,
+  TimeRangeSchema,
   VideoInfoSchema,
 } from './schema'
 
-export enum DownloadType {
-  Movie = 'movie',
-  Show = 'show',
-  Video = 'video',
-}
-
-export enum DownloadJobStatus {
-  Cancelled = 'cancelled',
-  Cancelling = 'cancelling',
-  Cleaning = 'cleaning',
-  Completed = 'completed',
-  Converting = 'converting',
-  Downloading = 'downloading',
-  Failed = 'failed',
-  Importing = 'importing',
-  Pending = 'pending',
-  Requested = 'requested',
-  Searching = 'searching',
-  Uploading = 'uploading',
-}
+export { DownloadJobStatus, DownloadType }
 
 // Terminal = a status that will never change again on its own (see
 // reconcile-interrupted-jobs.ts, the original owner of this exact list).
@@ -63,6 +49,8 @@ export type CreateDownloadJobInput = z.infer<
   typeof CreateDownloadJobInputSchema
 >
 
+export type TimeRange = z.infer<typeof TimeRangeSchema>
+
 /**
  * The identity of whoever asked for a job, threaded down from the
  * `X-Forwarded-User`/`X-Forwarded-User-Id` headers set by Traefik's
@@ -70,22 +58,15 @@ export type CreateDownloadJobInput = z.infer<
  * `null`/absent means a service caller with no forwarded identity (e.g.
  * `apps/tdr-bot`'s `DownloadClient.dockerInstance` calls).
  */
-export interface JobRequester {
-  email: string
-  userId: string
-}
+export type JobRequester = z.infer<typeof JobRequesterSchema>
 
 /**
  * A snapshot of a movie/show job's last-known Radarr/Sonarr queue entry.
- * The queue poller (built in a later unit) keeps one of these per tracked
- * job and diffs it against the latest queue response each tick, only
- * emitting an update when something has changed.
+ * The queue poller keeps one of these per tracked job and diffs it against
+ * the latest queue response each tick, only emitting an update when
+ * something has changed.
  */
-export interface DownloadQueueSnapshot {
-  progress?: number
-  status?: string
-  timeLeft?: string
-}
+export type DownloadQueueSnapshot = z.infer<typeof DownloadQueueSnapshotSchema>
 
 // The `Video` member intentionally has the exact same fields/names/types as
 // the original (pre-union) `DownloadJob` interface - only `type` narrows

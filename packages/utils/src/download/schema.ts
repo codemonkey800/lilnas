@@ -1,6 +1,56 @@
 import { z } from 'zod'
 
+export enum DownloadType {
+  Movie = 'movie',
+  Show = 'show',
+  Video = 'video',
+}
+
+export enum DownloadJobStatus {
+  Cancelled = 'cancelled',
+  Cancelling = 'cancelling',
+  Cleaning = 'cleaning',
+  Completed = 'completed',
+  Converting = 'converting',
+  Downloading = 'downloading',
+  Failed = 'failed',
+  Importing = 'importing',
+  Pending = 'pending',
+  Requested = 'requested',
+  Searching = 'searching',
+  Uploading = 'uploading',
+}
+
 export const TIME_REGEX = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$/
+
+export const TimeRangeSchema = z.object({
+  start: z.string().regex(TIME_REGEX),
+  end: z.string().regex(TIME_REGEX),
+})
+
+/**
+ * A snapshot of a movie/show job's last-known Radarr/Sonarr queue entry.
+ * The queue poller keeps one of these per tracked job and diffs it against
+ * the latest queue response each tick, only emitting an update when
+ * something has changed.
+ */
+export const DownloadQueueSnapshotSchema = z.object({
+  progress: z.number().optional(),
+  status: z.string().optional(),
+  timeLeft: z.string().optional(),
+})
+
+/**
+ * The identity of whoever asked for a job, threaded down from the
+ * `X-Forwarded-User`/`X-Forwarded-User-Id` headers set by Traefik's
+ * `lilnas-auth` middleware (see `apps/download/src/auth/forwarded-user.ts`).
+ * `null`/absent means a service caller with no forwarded identity (e.g.
+ * `apps/tdr-bot`'s `DownloadClient.dockerInstance` calls).
+ */
+export const JobRequesterSchema = z.object({
+  email: z.string(),
+  userId: z.string(),
+})
 
 export const CreateDownloadJobInputSchema = z.object({
   // Deliberately `.optional()` with NO `.default(false)`: this schema is
@@ -12,12 +62,7 @@ export const CreateDownloadJobInputSchema = z.object({
   // (`DownloadService.createVideoDownloadJob`).
   hiddenAttribution: z.boolean().optional(),
 
-  timeRange: z
-    .object({
-      start: z.string().regex(TIME_REGEX),
-      end: z.string().regex(TIME_REGEX),
-    })
-    .optional(),
+  timeRange: TimeRangeSchema.optional(),
 
   url: z.string().url(),
 })
@@ -66,32 +111,12 @@ function csvStringList() {
 }
 
 /** Same normalization as `csvStringList()`, restricted to a fixed vocabulary. */
-function csvEnum<T extends readonly [string, ...string[]]>(values: T) {
+function csvEnum<T extends z.util.EnumLike>(enumObject: T) {
   return z
-    .preprocess(csvRaw, z.array(z.enum(values)))
+    .preprocess(csvRaw, z.array(z.enum(enumObject)))
     .transform(parsed => (parsed.length > 0 ? parsed : undefined))
     .optional()
 }
-
-const DOWNLOAD_TYPE_VALUES = ['movie', 'show', 'video'] as const
-
-type AssertSameUnion<A, B> = [A] extends [B]
-  ? [B] extends [A]
-    ? true
-    : never
-  : never
-
-// Compile-time-only guard that this tuple never silently drifts from
-// `DownloadType` in `./types` - this file must not import *from* `./types`
-// (types.ts already imports the schemas above out of this one, and a
-// second import back would make it a two-way module dependency), so the
-// pin uses an inline `import('./types').DownloadType` type reference
-// instead of a top-level `import type` statement. Inline type-only imports
-// like this are fully erased and never become a real module edge.
-export const downloadTypeValuesPin: AssertSameUnion<
-  (typeof DOWNLOAD_TYPE_VALUES)[number],
-  `${import('./types').DownloadType}`
-> = true
 
 const LimitSchema = z.coerce.number().int().min(1).max(100).default(24)
 
@@ -106,7 +131,7 @@ function endOfDayUtc(dateOnly: string): Date {
 export const ActivityQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: LimitSchema,
-  type: csvEnum(DOWNLOAD_TYPE_VALUES),
+  type: csvEnum(DownloadType),
 })
 
 export const GalleryQuerySchema = z
@@ -116,7 +141,7 @@ export const GalleryQuerySchema = z
     limit: LimitSchema,
     requester: z.string().min(1).optional(),
     to: z.iso.date().transform(endOfDayUtc).optional(),
-    type: csvEnum(DOWNLOAD_TYPE_VALUES),
+    type: csvEnum(DownloadType),
   })
   // An inverted range (`from` after `to`) would otherwise just look like an
   // empty result set, indistinguishable from "no data in that window" - a
