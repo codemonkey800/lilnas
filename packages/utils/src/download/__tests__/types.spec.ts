@@ -1,16 +1,26 @@
 import {
   DownloadJob,
   DownloadJobStatus,
+  DownloadJobV2,
   DownloadType,
   GetDownloadJobResponse,
   IN_PROGRESS_DOWNLOAD_JOB_STATUSES,
+  isInProgressDownloadJobStatus,
+  isManagedMedia,
+  isMovie,
   isMovieDownloadJob,
+  isShow,
   isShowDownloadJob,
   isTerminalDownloadJobStatus,
+  isVideo,
   isVideoDownloadJob,
+  Media,
+  Movie,
   MovieDownloadJob,
+  Show,
   ShowDownloadJob,
   TERMINAL_DOWNLOAD_JOB_STATUSES,
+  Video,
   VideoDownloadJob,
 } from 'src/download/types'
 
@@ -47,6 +57,50 @@ function buildShowJob(
     status: overrides.status ?? DownloadJobStatus.Requested,
     type: DownloadType.Show,
     url: overrides.url ?? 'https://example.com/show',
+  }
+}
+
+function buildVideo(overrides: Partial<Video> = {}): Video {
+  return {
+    id: overrides.id ?? 'video:1',
+    sourceUrl: overrides.sourceUrl ?? 'https://example.com/video',
+    title: overrides.title ?? 'A video',
+    type: DownloadType.Video,
+    ...overrides,
+  }
+}
+
+function buildMovie(overrides: Partial<Movie> = {}): Movie {
+  return {
+    id: overrides.id ?? 'tmdb:1',
+    title: overrides.title ?? 'Dune',
+    tmdbId: overrides.tmdbId ?? 1,
+    type: DownloadType.Movie,
+    ...overrides,
+  }
+}
+
+function buildShow(overrides: Partial<Show> = {}): Show {
+  return {
+    id: overrides.id ?? 'tvdb:1',
+    title: overrides.title ?? 'Some Show',
+    tvdbId: overrides.tvdbId ?? 1,
+    type: DownloadType.Show,
+    ...overrides,
+  }
+}
+
+function buildJob(overrides: Partial<DownloadJobV2> = {}): DownloadJobV2 {
+  return {
+    completedAt: overrides.completedAt ?? null,
+    createdAt: overrides.createdAt ?? '2026-08-20T12:00:00.000Z',
+    hiddenAttribution: overrides.hiddenAttribution ?? false,
+    id: overrides.id ?? 'job-1',
+    media: overrides.media ?? buildVideo(),
+    requester: overrides.requester ?? null,
+    status: overrides.status ?? DownloadJobStatus.Requested,
+    updatedAt: overrides.updatedAt ?? '2026-08-20T12:00:00.000Z',
+    ...overrides,
   }
 }
 
@@ -237,5 +291,105 @@ describe('GetDownloadJobResponse', () => {
     }
 
     expect(response.downloadUrls).toEqual(videoJob.downloadUrls)
+  })
+})
+
+describe('isInProgressDownloadJobStatus', () => {
+  it('agrees with the IN_PROGRESS_DOWNLOAD_JOB_STATUSES set', () => {
+    for (const status of Object.values(DownloadJobStatus)) {
+      expect(isInProgressDownloadJobStatus(status)).toBe(
+        (
+          IN_PROGRESS_DOWNLOAD_JOB_STATUSES as readonly DownloadJobStatus[]
+        ).includes(status),
+      )
+    }
+  })
+
+  it('is the negation of isTerminalDownloadJobStatus', () => {
+    for (const status of Object.values(DownloadJobStatus)) {
+      expect(isInProgressDownloadJobStatus(status)).toBe(
+        !isTerminalDownloadJobStatus(status),
+      )
+    }
+  })
+})
+
+describe('Media guards', () => {
+  const video: Media = buildVideo()
+  const movie: Media = buildMovie()
+  const show: Media = buildShow()
+  const media = [video, movie, show]
+
+  describe('isVideo', () => {
+    it('matches only the video arm', () => {
+      expect(media.filter(isVideo)).toEqual([video])
+    })
+
+    it('narrows to Video-only fields', () => {
+      if (!isVideo(video)) {
+        throw new Error('expected video to narrow to Video')
+      }
+      expect(video.sourceUrl).toBe('https://example.com/video')
+    })
+  })
+
+  describe('isMovie', () => {
+    it('matches only the movie arm', () => {
+      expect(media.filter(isMovie)).toEqual([movie])
+    })
+
+    it('narrows to Movie-only fields', () => {
+      if (!isMovie(movie)) {
+        throw new Error('expected movie to narrow to Movie')
+      }
+      expect(movie.tmdbId).toBe(1)
+    })
+  })
+
+  describe('isShow', () => {
+    it('matches only the show arm', () => {
+      expect(media.filter(isShow)).toEqual([show])
+    })
+
+    it('narrows to Show-only fields', () => {
+      if (!isShow(show)) {
+        throw new Error('expected show to narrow to Show')
+      }
+      expect(show.tvdbId).toBe(1)
+    })
+  })
+
+  describe('isManagedMedia', () => {
+    it('matches movie and show but not video', () => {
+      expect(media.filter(isManagedMedia)).toEqual([movie, show])
+    })
+  })
+})
+
+describe('DownloadJobV2', () => {
+  it('nests a Media object at .media and carries the shared job facts', () => {
+    const job = buildJob({ media: buildMovie({ radarrId: 42 }) })
+
+    expect(job.media.type).toBe(DownloadType.Movie)
+    if (!isMovie(job.media)) {
+      throw new Error('expected job.media to narrow to Movie')
+    }
+    expect(job.media.radarrId).toBe(42)
+    expect(job.status).toBe(DownloadJobStatus.Requested)
+    expect(job.completedAt).toBeNull()
+  })
+
+  it('accepts each media arm without a discriminant on DownloadJobV2 itself', () => {
+    const jobs = [
+      buildJob({ media: buildVideo() }),
+      buildJob({ media: buildMovie() }),
+      buildJob({ media: buildShow() }),
+    ]
+
+    expect(jobs.map(job => job.media.type)).toEqual([
+      DownloadType.Video,
+      DownloadType.Movie,
+      DownloadType.Show,
+    ])
   })
 })

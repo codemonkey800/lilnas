@@ -950,38 +950,67 @@ inventing one.
 - `git diff --stat` confirms exactly the expected file set: `apps/download/src/db/schema.ts`,
   `packages/utils/src/download/schema.ts`, `packages/utils/src/download/types.ts`.
 
-### Phase 2 (C2) — The Media schema hierarchy · `packages/utils`
+### Phase 2 (C2) — The Media schema hierarchy · `packages/utils` · ✅ COMPLETE
 
-- [ ] Add `MediaBaseSchema`, `VideoSchema`, `ManagedMediaBaseSchema`,
+- [x] Add `MediaBaseSchema`, `VideoSchema`, `ManagedMediaBaseSchema`,
       `MovieSchema`, `ShowSchema`, `MediaSchema` to `schema.ts` (§1.3).
-- [ ] Add `DownloadJobSchema` to `schema.ts` (§1.4).
-- [ ] Add `GalleryItemSchema` to `schema.ts` (§3.2).
-- [ ] Derive `MediaBase`, `Video`, `ManagedMediaBase`, `Movie`, `Show`, `Media`,
-      `DownloadJob`, `GalleryItem` in `types.ts` via `z.infer`.
-- [ ] Add `isVideo`, `isMovie`, `isShow`, `isManagedMedia` guards to `types.ts`.
-- [ ] Add `isInProgressDownloadJobStatus()` to `types.ts` (needed by the
+- [x] Add `DownloadJobSchema` to `schema.ts` (§1.4).
+- [x] Add `GalleryItemSchema` to `schema.ts` (§3.2).
+- [x] Derive `MediaBase`, `Video`, `ManagedMediaBase`, `Movie`, `Show`, `Media`,
+      `DownloadJobV2`, `GalleryItem` in `types.ts` via `z.infer`. **Named
+      `DownloadJobV2`, not `DownloadJob`** — the plan text names it
+      `DownloadJob`, but that identifier is already taken by the
+      `VideoDownloadJob | MovieDownloadJob | ShowDownloadJob` union this same
+      checklist item requires staying in place, and TypeScript rejects two
+      exported types of the same name in one module. Renaming the *old* union
+      instead would have broken every existing importer, contradicting "zero
+      call-site churn this commit." `DownloadJobV2` is deliberately a
+      placeholder name — greppable, and honest that it's temporary — deleted
+      in favor of `DownloadJob` in Phase 6, which is already the commit that
+      deletes the old union and touches every consumer. Documented at the
+      definition site in `types.ts`.
+- [x] Add `isVideo`, `isMovie`, `isShow`, `isManagedMedia` guards to `types.ts`.
+- [x] Add `isInProgressDownloadJobStatus()` to `types.ts` (needed by the
       frontend's ts-pattern `.when()` in Phase 8).
-- [ ] Add `MediaDetailResponse` (`{ media: Media; jobs: DownloadJob[] }`) —
+- [x] Add `MediaDetailResponse` (`{ media: Media; jobs: DownloadJobV2[] }`) —
       hand-written interface, not a schema.
-- [ ] **Leave the old types in place** this commit; nothing consumes the new
+- [x] **Left the old types in place** this commit; nothing consumes the new
       ones yet, so both sets coexist and the repo stays green.
-- [ ] Tests in `packages/utils/src/download/__tests__/schema.spec.ts`:
-  - [ ] each arm parses a valid payload; each rejects another arm's key fields
-  - [ ] `MediaSchema.parse()` narrows correctly per `type`
-  - [ ] an exhaustive `switch (media.type)` with no `default` compiles
-  - [ ] **permanent type assertion** that `z.infer<typeof VideoSchema>['type']`
+- [x] Tests in `packages/utils/src/download/__tests__/schema.spec.ts`:
+  - [x] each arm parses a valid payload; each rejects another arm's key fields
+  - [x] `MediaSchema.parse()` narrows correctly per `type`
+  - [x] an exhaustive `switch (media.type)` with no `default` compiles
+        (`describeMedia()` + a permanent `assertNever` fallthrough)
+  - [x] **permanent type assertion** that `z.infer<typeof VideoSchema>['type']`
         is `DownloadType.Video`, not `DownloadType` — a `@ts-expect-error` on
         the widened assignment, verified in Phase 0 to fire `TS2578` if the
         override ever regresses. This is the compile-time tripwire for a
         forgotten override on a future arm, whose only other symptom is a
-        `Duplicate discriminator value` throw at first request.
-  - [ ] assert a bare `'video'` string literal is **not** assignable to
+        `Duplicate discriminator value` throw at first request. **Re-verified
+        with a live negative control in this phase**: temporarily changing
+        `VideoSchema`'s `type: z.literal(DownloadType.Video)` back to
+        `z.enum(DownloadType)` reproduced exactly the documented failure —
+        `TS2578` on the `@ts-expect-error` line, plus `TS2339` on every
+        `media.tmdbId`/`media.tvdbId` narrowing access elsewhere in the same
+        file — then reverted.
+  - [x] assert a bare `'video'` string literal is **not** assignable to
         `Video['type']` — the nominal-enum property that forces `DownloadType`
         to live in `schema.ts` (Phase 1) rather than being re-declared
-  - [ ] `DownloadJobSchema` round-trips a full job with each media arm nested
-- [ ] Add `buildVideo` / `buildMovie` / `buildShow` / `buildJob` fixture
+  - [x] `DownloadJobSchema` round-trips a full job with each media arm nested
+- [x] Add `buildVideo` / `buildMovie` / `buildShow` / `buildJob` fixture
       factories to `__tests__/types.spec.ts`, matching the existing
-      `buildVideoJob`-style convention.
+      `buildVideoJob`-style convention. Also exercised the four `Media` guards
+      and `isInProgressDownloadJobStatus()` against them.
+
+**Verification notes:**
+- `pnpm --filter @lilnas/utils lint type-check test` — green (101/101 tests,
+  49 new in `schema.spec.ts` + fixture/guard coverage in `types.spec.ts`).
+- Full-repo `pnpm run type-check` — green across all 14 packages; only
+  `@lilnas/utils` re-executed (cache miss), every other package replayed from
+  cache — confirming zero other files needed to change.
+- `git diff --stat` confirms exactly the expected file set:
+  `packages/utils/src/download/schema.ts`,
+  `packages/utils/src/download/types.ts`, and their two spec files.
 
 ### Phase 3 (C3) — `videos` table + media-id derivation · `apps/download`
 
