@@ -26,7 +26,7 @@ describe('schema + migrations', () => {
     }
   })
 
-  it('round-trips every column kind on the `jobs` table (JSON, boolean, nullable timestamp, enums)', () => {
+  it('round-trips every column kind on the `jobs` table (boolean, nullable timestamp, enums)', () => {
     const { db, close } = createTestDb()
     try {
       const now = new Date('2026-01-01T00:00:00.000Z')
@@ -34,27 +34,16 @@ describe('schema + migrations', () => {
       db.insert(jobs)
         .values({
           completedAt: now,
-          description: 'a description',
-          downloadUrls: ['https://example.com/a.mp4'],
-          error: undefined,
-          filePath: '/videos/a.mp4',
+          error: 'a transient error',
           hiddenAttribution: true,
           id: 'job-1',
-          mediaTitle: 'A Movie',
+          mediaId: 'tmdb:1',
           origin: 'web',
-          overview: 'an overview',
-          posterUrl: 'https://example.com/poster.jpg',
-          queueSnapshot: { progress: 42, status: 'downloading' },
-          radarrId: 7,
           requesterEmail: 'alice@example.com',
           requesterUserId: 'user_1',
-          sonarrId: undefined,
           status: 'completed',
-          timeRange: { start: '00:00:00', end: '00:01:00' },
-          title: 'A title',
           type: 'movie',
           updatedAt: now,
-          url: 'radarr://tmdb/1',
         })
         .run()
 
@@ -62,27 +51,44 @@ describe('schema + migrations', () => {
 
       expect(row).toMatchObject({
         completedAt: now,
-        description: 'a description',
-        downloadUrls: ['https://example.com/a.mp4'],
-        filePath: '/videos/a.mp4',
+        error: 'a transient error',
         hiddenAttribution: true,
         id: 'job-1',
-        mediaTitle: 'A Movie',
+        mediaId: 'tmdb:1',
         origin: 'web',
-        overview: 'an overview',
-        posterUrl: 'https://example.com/poster.jpg',
-        queueSnapshot: { progress: 42, status: 'downloading' },
-        radarrId: 7,
         requesterEmail: 'alice@example.com',
         requesterUserId: 'user_1',
-        sonarrId: null,
         status: 'completed',
-        timeRange: { start: '00:00:00', end: '00:01:00' },
-        title: 'A title',
         type: 'movie',
         updatedAt: now,
-        url: 'radarr://tmdb/1',
       })
+    } finally {
+      close()
+    }
+  })
+
+  it('has exactly the final `jobs` column list (Phase 7 dropped the twelve legacy media columns)', () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      const columnNames = sqlite
+        .prepare(`PRAGMA table_info(jobs)`)
+        .all()
+        .map(row => (row as { name: string }).name)
+
+      expect(columnNames).toEqual([
+        'id',
+        'type',
+        'status',
+        'requester_email',
+        'requester_user_id',
+        'origin',
+        'hidden_attribution',
+        'error',
+        'media_id',
+        'created_at',
+        'updated_at',
+        'completed_at',
+      ])
     } finally {
       close()
     }
@@ -94,10 +100,10 @@ describe('schema + migrations', () => {
       db.insert(jobs)
         .values({
           id: 'job-2',
+          mediaId: 'video:v1',
           origin: 'service',
           status: 'pending',
           type: 'video',
-          url: 'https://example.com/video',
         })
         .run()
 
@@ -222,6 +228,104 @@ describe('schema + migrations', () => {
     }
   })
 
+  it("plans the activity feed's combined filter (status IN + type IN + cursor) with a temp b-tree sort, unlike the single-status list queries above", () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      // Mirrors listActivity()'s filter (job-query.service.ts): every
+      // in-progress status, optionally narrowed by type, plus the same
+      // `(created_at, id)` cursor as listJobsPage(). A multi-value `IN`
+      // filter gives SQLite a seekable index of its own
+      // (`jobs_status_idx`/`jobs_type_media_id_idx`) to satisfy the WHERE
+      // clause with, which it prefers over walking
+      // `jobs_created_at_id_idx` for the ORDER BY - so unlike the bare
+      // cursor query above, this shape pays for a temp b-tree sort. An
+      // accepted cost at a home-NAS row count, not a regression to chase.
+      const plan = sqlite
+        .prepare(
+          `EXPLAIN QUERY PLAN
+           SELECT * FROM jobs
+           WHERE status IN ('cancelling', 'cleaning', 'converting', 'downloading', 'importing', 'pending', 'requested', 'searching', 'uploading')
+             AND type IN ('movie', 'video')
+             AND (created_at, id) < (9999999999999, 'x')
+           ORDER BY created_at DESC, id DESC`,
+        )
+        .all()
+        .map(row => (row as { detail: string }).detail)
+        .join('\n')
+
+      expect(plan).toContain('TEMP B-TREE')
+    } finally {
+      close()
+    }
+  })
+
+  it("plans the gallery's `GROUP BY (type, media_id)` with a temp b-tree sort - `ORDER BY MAX(created_at) DESC` can't be answered from an index", () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      // Mirrors listMediaGroupsPage()'s grouped query (jobs.repo.ts). Unlike
+      // every plan test above, this one deliberately asserts the *presence*
+      // of a temp b-tree rather than its absence: the sort key is an
+      // aggregate (MAX(created_at)) that only exists once a group's rows
+      // have all been scanned, so no index can pre-sort it. This is an
+      // accepted, documented cost at a home-NAS row count (plan §3.2), not
+      // an oversight to fix.
+      const plan = sqlite
+        .prepare(
+          `EXPLAIN QUERY PLAN
+           SELECT type, media_id, count(*), max(created_at)
+           FROM jobs
+           GROUP BY type, media_id
+           ORDER BY max(created_at) DESC, media_id DESC`,
+        )
+        .all()
+        .map(row => (row as { detail: string }).detail)
+        .join('\n')
+
+      expect(plan).toContain('jobs_type_media_id_idx')
+      expect(plan).toContain('TEMP B-TREE')
+    } finally {
+      close()
+    }
+  })
+
+  it('plans both gallery-facet `GROUP BY`s (requester, type) as covering index scans, without a temp b-tree sort', () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      // Mirrors countJobsByRequester() and countJobsByType() (jobs.repo.ts).
+      // Neither has an ORDER BY of its own - each GROUP BY's key is a
+      // leftmost prefix of an existing index (`jobs_requester_email_idx`,
+      // `jobs_type_media_id_idx`), so SQLite satisfies the grouping by
+      // walking the index in order rather than sorting a temp b-tree.
+      const requesterPlan = sqlite
+        .prepare(
+          `EXPLAIN QUERY PLAN
+           SELECT requester_email, count(*) FROM jobs
+           WHERE requester_email IS NOT NULL
+           GROUP BY requester_email`,
+        )
+        .all()
+        .map(row => (row as { detail: string }).detail)
+        .join('\n')
+
+      const typePlan = sqlite
+        .prepare(
+          `EXPLAIN QUERY PLAN
+           SELECT type, count(*) FROM jobs
+           GROUP BY type`,
+        )
+        .all()
+        .map(row => (row as { detail: string }).detail)
+        .join('\n')
+
+      expect(requesterPlan).toContain('jobs_requester_email_idx')
+      expect(requesterPlan).not.toContain('TEMP B-TREE')
+      expect(typePlan).toContain('jobs_type_media_id_idx')
+      expect(typePlan).not.toContain('TEMP B-TREE')
+    } finally {
+      close()
+    }
+  })
+
   it('round-trips every column kind on the `videos` table, including both JSON columns', () => {
     const { db, close } = createTestDb()
     try {
@@ -303,7 +407,6 @@ describe('schema + migrations', () => {
             origin: 'service',
             status: 'pending',
             type: 'movie',
-            url: 'radarr://tmdb/1',
           })
           .run(),
       ).toThrow(/CHECK constraint failed/)
@@ -322,7 +425,6 @@ describe('schema + migrations', () => {
           origin: 'service',
           status: 'pending',
           type: 'movie',
-          url: 'radarr://tmdb/438631',
         })
         .run()
 
@@ -333,21 +435,20 @@ describe('schema + migrations', () => {
     }
   })
 
-  it('`jobs_media_id_matches_type` still allows a NULL media_id (pre-backfill rows)', () => {
+  it('`media_id` is `NOT NULL` - an insert omitting it fails outright rather than landing a pre-Media row', () => {
     const { db, close } = createTestDb()
     try {
-      db.insert(jobs)
-        .values({
-          id: 'job-1',
-          origin: 'service',
-          status: 'pending',
-          type: 'video',
-          url: 'https://example.com/video',
-        })
-        .run()
-
-      const row = db.select().from(jobs).all()[0]
-      expect(row?.mediaId).toBeNull()
+      expect(() =>
+        db
+          .insert(jobs)
+          .values({
+            id: 'job-1',
+            origin: 'service',
+            status: 'pending',
+            type: 'video',
+          } as unknown as typeof jobs.$inferInsert)
+          .run(),
+      ).toThrow(/NOT NULL constraint failed/)
     } finally {
       close()
     }

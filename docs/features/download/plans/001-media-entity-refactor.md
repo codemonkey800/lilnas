@@ -1456,26 +1456,69 @@ anticipate:**
   (`GET /videos/:id` etc.), which coincidentally share the identifier and are
   unrelated to the client shim. No new caller of the shim crept in.
 
-### Phase 7 (C6) — Drop the moved job columns · `apps/download`
+### Phase 7 (C6) — Drop the moved job columns · `apps/download` · ✅ COMPLETE
 
-- [ ] `jobs.mediaId` → `.notNull()`.
-- [ ] Delete the twelve columns from `db/schema.ts`: `url`, `title`,
+- [x] `jobs.mediaId` → `.notNull()`.
+- [x] Delete the twelve columns from `db/schema.ts`: `url`, `title`,
       `description`, `mediaTitle`, `posterUrl`, `overview`, `radarrId`,
       `sonarrId`, `queueSnapshot`, `timeRange`, `downloadUrls`, `filePath`.
-- [ ] `db:generate` → migration `0004`. **Hand-review**: complete
-      `INSERT ... SELECT` column list, both CHECKs survive onto `__new_jobs`,
-      all six indexes recreated.
-- [ ] `db/__tests__/schema.spec.ts`: assert the exact final `jobs` column list.
-- [ ] Confirm the two existing `EXPLAIN QUERY PLAN` tests (`schema.spec.ts:176-222`)
-      still pass **unchanged**.
-- [ ] Add a plan test for the gallery `GROUP BY` that documents its sort step
-      rather than asserting no `TEMP B-TREE`, with a comment explaining why this
-      one query is different.
-- [ ] Add plan coverage for the shapes currently untested: the activity filter
-      (`status IN (…) AND type IN (…) AND cursor`) and both facet `GROUP BY`s.
-- [ ] Re-run `db:generate` and confirm it produces an **empty** diff.
-- [ ] Check `db/reconcile-interrupted-jobs.ts` is unaffected (it only touches
-      `status`/`error`/`updated_at`) and its spec still passes.
+- [x] `db:generate` → migration `0004` (`0004_glossy_rumiko_fujikawa.sql`).
+      **Hand-reviewed**: complete 12-column `INSERT ... SELECT`, both CHECKs
+      (`jobs_origin_matches_requester`, `jobs_media_id_matches_type`) survive
+      onto `__new_jobs`, all five `jobs`-table indexes recreated (the "six
+      indexes" this item names includes `videos_natural_key_idx` on the
+      untouched `videos` table, not a `jobs`-table miscount).
+- [x] `db/__tests__/schema.spec.ts`: added a `PRAGMA table_info(jobs)`
+      exact-column-list test.
+- [x] Confirmed the two existing `EXPLAIN QUERY PLAN` tests
+      (`schema.spec.ts:176-222`) still pass **unchanged**.
+- [x] Added a plan test for the gallery `GROUP BY (type, media_id)` that
+      documents its `TEMP B-TREE` (no index can pre-sort for `MAX(created_at)`),
+      with a comment explaining why this query is different from the
+      cursor-only ones.
+- [x] Added plan coverage for the activity filter
+      (`status IN (…) AND type IN (…) AND cursor` — documents `TEMP B-TREE`,
+      since SQLite prefers the filtering index over the ordering index once
+      IN-lists are present) and both facet `GROUP BY`s
+      (`countJobsByRequester`/`countJobsByType` — confirmed **no**
+      `TEMP B-TREE`, both ride a covering index). All plan assertions were
+      verified empirically against the real migrated schema with a standalone
+      `better-sqlite3` script before being written.
+- [x] Re-ran `db:generate` and confirmed an **empty** diff
+      ("No schema changes, nothing to migrate").
+- [x] Checked `db/reconcile-interrupted-jobs.ts` is unaffected (it only
+      touches `status`/`error`/`updated_at`) — file itself has zero diff;
+      only its spec's `seed()` helper changed (`mediaId` instead of `url`),
+      and it still passes.
+- [x] **Unplanned fix required by this phase**:
+      `download-state.service.test.ts`'s `'keeps the snapshot out of the
+      persisted row entirely'` test asserted `readRow(id)?.queueSnapshot` was
+      `null` — with `queueSnapshot` dropped from `JobRow` entirely (not just
+      nulled), that assertion no longer type-checks. Deleted it; the
+      preceding `not.toHaveProperty('queue_snapshot', …)` assertion already
+      proves the snapshot isn't persisted, so nothing is lost. This file
+      wasn't in the phase's original file list — surfaced only when
+      `type-check` was run.
+
+**Verification notes:**
+
+- `pnpm --filter @lilnas/download test` — 383/421 green. The 38 failures are
+  the same three pre-existing `ytdlp-update` DI suites documented in every
+  prior phase (`Nest can't resolve dependencies of the YtdlpUpdateService
+  (DownloadStateService, ?) … DownloadMetricsService at index [1]` +
+  `EACCES: permission denied, open '/usr/bin/yt-dlp'`) — unrelated to this
+  phase.
+- `pnpm --filter @lilnas/download type-check` — green.
+- Full-repo `pnpm run lint` — 14/14 tasks green.
+- Full-repo `pnpm run type-check` — 12/12 tasks green, `@lilnas/tdr-bot`
+  included as an untouched cache hit (`git diff --stat apps/tdr-bot` empty).
+- `git diff --stat apps/download` — 9 files changed: `db/job-row.ts`,
+  `db/media-id.ts`, `db/schema.ts`, `db/migrations/meta/_journal.json`, four
+  `__tests__` specs under `db/`, and the two `download/__tests__` specs
+  touched by the unplanned fix above and the earlier `seedJob` cleanup. Plus
+  two new untracked migration files
+  (`db/migrations/0004_glossy_rumiko_fujikawa.sql`,
+  `db/migrations/meta/0004_snapshot.json`).
 
 ### Phase 8 (C7) — Frontend · `apps/download` · ✅ COMPLETE (folded into Phase 6)
 

@@ -59,31 +59,3 @@ export function mediaId(input: MediaIdInput): string {
 export function mediaIdSuffix(id: string): string {
   return id.slice(id.indexOf(':') + 1)
 }
-
-/**
- * Recovers a `Media.id` from a legacy `MovieDownloadJob`/`ShowDownloadJob`'s
- * synthetic `url` (`radarr://tmdb/438631`, `sonarr://tvdb/121361`) - the pre-
- * Media encoding of the same identity `mediaId()` now derives directly.
- * `null` for a video job (its `url` is the real source URL, not a synthetic
- * one) or any unrecognized shape.
- */
-export function mediaIdFromLegacyJobUrl(
-  type: DownloadType,
-  url: string,
-): string | null {
-  if (type === DownloadType.Movie && url.startsWith('radarr://tmdb/')) {
-    return mediaId({
-      tmdbId: Number(url.slice('radarr://tmdb/'.length)),
-      type,
-    })
-  }
-
-  if (type === DownloadType.Show && url.startsWith('sonarr://tvdb/')) {
-    return mediaId({
-      tvdbId: Number(url.slice('sonarr://tvdb/'.length)),
-      type,
-    })
-  }
-
-  return null
-}
