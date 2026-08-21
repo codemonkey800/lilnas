@@ -14,12 +14,20 @@ import { createTestDb } from './test-utils'
 type RowInsert = typeof jobs.$inferInsert
 
 function seedJob(db: Db, overrides: Partial<RowInsert> & { id: string }): void {
+  const type = overrides.type ?? 'video'
+  const mediaId =
+    type === 'movie'
+      ? `tmdb:${overrides.id}`
+      : type === 'show'
+        ? `tvdb:${overrides.id}`
+        : `video:${overrides.id}`
+
   db.insert(jobs)
     .values({
+      mediaId,
       origin: 'service',
       status: 'completed',
       type: 'video',
-      url: `https://example.com/${overrides.id}`,
       ...overrides,
     })
     .run()

@@ -36,7 +36,6 @@ describe('JobQueryService', () => {
         origin: 'service',
         status: 'completed',
         type: 'video',
-        url: `https://example.com/${overrides.id}`,
         ...overrides,
       })
       .run()

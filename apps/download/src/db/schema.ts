@@ -20,7 +20,6 @@
 //   - JSON columns: `text({ mode: 'json' }).$type<T>()`.
 import type {
   DownloadJobStatus,
-  DownloadQueueSnapshot,
   DownloadType,
   TimeRange,
 } from '@lilnas/utils/download/types'
@@ -103,41 +102,16 @@ export const jobs = sqliteTable(
       .notNull()
       .default(false),
 
-    url: text('url').notNull(),
-    title: text('title'),
-    description: text('description'),
     error: text('error'),
 
     // The derived media key (`tmdb:438631` / `tvdb:121361` / `video:<id>`,
-    // see `media-id.ts`). Nullable only until Phase 4's backfill migration
-    // populates every existing row - Phase 7 tightens this to `.notNull()`
-    // once the twelve columns above it are dropped. Deliberately **not** a
-    // foreign key: it points at `videos` for a third of rows and at
-    // TMDB/TVDB for the rest, and SQLite FKs can't be conditional on
-    // another column. Referential integrity for the `video:` case rests on
-    // `videos.repo.ts`'s `upsertVideoByNaturalKey` being the only writer of
-    // `videos`, plus the `jobs_media_id_matches_type` CHECK below.
-    mediaId: text('media_id'),
-
-    // Movie/show source metadata — currently re-fetched from Radarr/Sonarr on
-    // every request and discarded; persisting it is a spec requirement.
-    mediaTitle: text('media_title'),
-    posterUrl: text('poster_url'),
-    overview: text('overview'),
-    radarrId: integer('radarr_id'),
-    sonarrId: integer('sonarr_id'),
-    queueSnapshot: text('queue_snapshot', {
-      mode: 'json',
-    }).$type<DownloadQueueSnapshot>(),
-
-    // File locations
-    timeRange: text('time_range', {
-      mode: 'json',
-    }).$type<TimeRange>(),
-    downloadUrls: text('download_urls', { mode: 'json' }).$type<string[]>(),
-    // Phase 6's Emby-match path. Column added now so Phase 6 needs no second
-    // migration; nothing populates it in Phase 1.
-    filePath: text('file_path'),
+    // see `media-id.ts`). Deliberately **not** a foreign key: it points at
+    // `videos` for a third of rows and at TMDB/TVDB for the rest, and
+    // SQLite FKs can't be conditional on another column. Referential
+    // integrity for the `video:` case rests on `videos.repo.ts`'s
+    // `upsertVideoByNaturalKey` being the only writer of `videos`, plus the
+    // `jobs_media_id_matches_type` CHECK below.
+    mediaId: text('media_id').notNull(),
 
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .$defaultFn(() => new Date())
@@ -173,9 +147,10 @@ export const jobs = sqliteTable(
     ),
     // Ties `media_id`'s prefix to `type`, the DB-level expression of the
     // same invariant `mediaId()` (media-id.ts) enforces in code. `IS NULL`
-    // stays part of the expression even after Phase 7's `.notNull()` lands -
+    // stays part of the expression even though the column is `.notNull()` -
     // harmless once the column can never be null, and it means this CHECK
-    // doesn't have to change shape between phases.
+    // didn't have to change shape between Phase 3 (nullable) and Phase 7
+    // (`.notNull()`).
     check(
       'jobs_media_id_matches_type',
       sql`(

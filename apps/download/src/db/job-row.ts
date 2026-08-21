@@ -5,7 +5,6 @@ import {
   JobRequester,
 } from '@lilnas/utils/download/types'
 
-import { mediaIdFromLegacyJobUrl } from './media-id'
 import { JOB_ORIGINS, type JobRow, jobs } from './schema'
 
 /**
@@ -13,12 +12,6 @@ import { JOB_ORIGINS, type JobRow, jobs } from './schema'
  * `type` anymore and no per-type column fillers: every media-shaped field
  * moved either onto the `videos` table or into a live Radarr/Sonarr lookup,
  * leaving `jobs` as a flat event log keyed to a title by `(type, media_id)`.
- *
- * The twelve legacy media columns are still written - as explicit `null`s -
- * rather than omitted, because this is a full upsert and drizzle's `set:`
- * type makes every key optional, so an omission would silently leave a
- * pre-Media row's stale `title`/`url`/`poster_url` in place. They are
- * dropped outright by the next migration.
  */
 export function buildJobRow(
   record: DownloadJobRecord,
@@ -44,23 +37,6 @@ export function buildJobRow(
     status: record.status,
     type: record.type,
     updatedAt: new Date(),
-
-    // ---- Dropped by the next migration; written null so no stale
-    // pre-Media value can survive an upsert. `url` is the one that can't be
-    // null yet (NOT NULL until the drop), so it carries the media key -
-    // nothing reads this column anymore.
-    description: null,
-    downloadUrls: null,
-    filePath: null,
-    mediaTitle: null,
-    overview: null,
-    posterUrl: null,
-    queueSnapshot: null,
-    radarrId: null,
-    sonarrId: null,
-    timeRange: null,
-    title: null,
-    url: record.mediaId,
   }
 }
 
@@ -71,10 +47,6 @@ export function buildJobRow(
  * the two other round-trip caveats this function used to carry are gone:
  * `createdAt`/`updatedAt` are on the record now, and there is no longer a
  * `proc`/`file` field with no column behind it.
- *
- * `media_id` is read through `mediaIdFromLegacyJobUrl()` as a fallback for
- * the window before the backfill migration has run against a given database
- * - the column is nullable until the next migration tightens it.
  */
 export function hydrateJobRow(row: JobRow): DownloadJobRecord {
   const requester: JobRequester | null =
@@ -82,18 +54,16 @@ export function hydrateJobRow(row: JobRow): DownloadJobRecord {
       ? { email: row.requesterEmail, userId: row.requesterUserId }
       : null
 
-  const type = row.type as DownloadType
-
   return {
     completedAt: row.completedAt ? row.completedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
     error: row.error ?? undefined,
     hiddenAttribution: row.hiddenAttribution,
     id: row.id,
-    mediaId: row.mediaId ?? mediaIdFromLegacyJobUrl(type, row.url) ?? '',
+    mediaId: row.mediaId,
     requester,
     status: row.status as DownloadJobStatus,
-    type,
+    type: row.type as DownloadType,
     updatedAt: row.updatedAt.toISOString(),
   }
 }

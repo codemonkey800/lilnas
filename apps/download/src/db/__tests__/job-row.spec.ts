@@ -58,7 +58,6 @@ describe('job-row codec', () => {
       status: 'completed',
       type: 'video',
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-      url: 'video:v1',
     },
     'video (service origin, minimal)': {
       completedAt: null,
@@ -73,7 +72,6 @@ describe('job-row codec', () => {
       status: 'pending',
       type: 'video',
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-      url: 'video:v2',
     },
     'movie (web origin)': {
       completedAt: new Date('2026-01-02T00:00:00.000Z'),
@@ -88,7 +86,6 @@ describe('job-row codec', () => {
       status: 'downloading',
       type: 'movie',
       updatedAt: new Date('2026-01-02T00:00:00.000Z'),
-      url: 'tmdb:1',
     },
     'show (web origin, errored)': {
       completedAt: null,
@@ -103,7 +100,6 @@ describe('job-row codec', () => {
       status: 'importing',
       type: 'show',
       updatedAt: new Date('2026-01-03T00:00:00.000Z'),
-      url: 'tvdb:1',
     },
   }
 
@@ -174,70 +170,6 @@ describe('job-row codec', () => {
     try {
       const row = insertAndRead(db, fixtures['show (web origin, errored)']!)
       expect(hydrateJobRow(row).completedAt).toBeNull()
-    } finally {
-      close()
-    }
-  })
-
-  // The backfill migration populates `media_id` for every pre-existing row,
-  // but a row written between the schema migration and the backfill (or by
-  // an older build mid-deploy) can still have it null. Recovering the key
-  // from the legacy synthetic `url` means such a row hydrates correctly
-  // rather than resolving to an empty media key.
-  it('recovers media_id from a legacy synthetic url when the column is null', () => {
-    const { sqlite, db, close } = createTestDb()
-    try {
-      const nowMs = Date.now()
-      sqlite
-        .prepare(
-          `INSERT INTO jobs (id, type, status, origin, hidden_attribution, url, created_at, updated_at)
-           VALUES (?, 'movie', 'requested', 'service', 0, ?, ?, ?)`,
-        )
-        .run('legacy-movie', 'radarr://tmdb/438631', nowMs, nowMs)
-
-      const row = db
-        .select()
-        .from(jobs)
-        .where(eq(jobs.id, 'legacy-movie'))
-        .all()[0]
-      if (!row) throw new Error('failed to read back raw-inserted row')
-      expect(row.mediaId).toBeNull()
-
-      expect(hydrateJobRow(row).mediaId).toBe('tmdb:438631')
-    } finally {
-      close()
-    }
-  })
-
-  // The twelve columns the next migration deletes are written as explicit
-  // nulls rather than omitted, because drizzle's upsert `set:` makes every
-  // key optional - omitting them would leave a pre-Media row's stale
-  // title/poster/overview in place forever.
-  it('nulls every legacy media column so an upsert cannot leave a stale value', () => {
-    const { db, close } = createTestDb()
-    try {
-      const row = insertAndRead(db, fixtures['movie (web origin)']!)
-      const rebuilt = buildJobRow(hydrateJobRow(row))
-
-      for (const column of [
-        'description',
-        'downloadUrls',
-        'filePath',
-        'mediaTitle',
-        'overview',
-        'posterUrl',
-        'queueSnapshot',
-        'radarrId',
-        'sonarrId',
-        'timeRange',
-        'title',
-      ] as const) {
-        expect(rebuilt[column]).toBeNull()
-      }
-
-      // `url` is the one legacy column that's still NOT NULL, so it carries
-      // the media key. Nothing reads it.
-      expect(rebuilt.url).toBe('tmdb:1')
     } finally {
       close()
     }
