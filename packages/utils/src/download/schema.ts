@@ -85,6 +85,84 @@ export const RequestShowInputSchema = z.object({
   tvdbId: z.number().int().positive(),
 })
 
+// ---- The Media hierarchy ----
+
+export const MediaBaseSchema = z.object({
+  certification: z.string().optional(),
+  genres: z.array(z.string()).optional(),
+  /** Derived by `mediaId()` — e.g. `tmdb:438631` — never minted directly. */
+  id: z.string(),
+  overview: z.string().optional(),
+  posterUrl: z.string().optional(),
+  /**
+   * `ratings.tmdb.value` upstream — `ratings` is a nested per-source object,
+   * never a scalar, so the source is picked explicitly at the mapper.
+   */
+  ratingValue: z.number().optional(),
+  /** Radarr `releaseDate` / Sonarr `firstAired`. */
+  releaseDate: z.string().optional(),
+  /**
+   * **Seconds.** Radarr/Sonarr report minutes, so `toMovie()`/`toShow()`
+   * multiply by 60 — the one place the conversion happens. Seconds is the
+   * lossless direction: the gallery shows video durations to the second
+   * (`14:02`, `0:58`) while movie/show detail renders `2h 04m`.
+   */
+  runtime: z.number().int().optional(),
+  title: z.string(),
+  type: z.enum(DownloadType),
+  year: z.number().int().optional(),
+})
+
+export const VideoSchema = MediaBaseSchema.extend({
+  downloadUrls: z.array(z.string()).optional(),
+  sourceUrl: z.string().url(),
+  timeRange: TimeRangeSchema.optional(),
+  type: z.literal(DownloadType.Video),
+})
+
+export const ManagedMediaBaseSchema = MediaBaseSchema.extend({
+  filePath: z.string().optional(),
+  queueSnapshot: DownloadQueueSnapshotSchema.optional(),
+})
+
+export const MovieSchema = ManagedMediaBaseSchema.extend({
+  radarrId: z.number().int().positive().optional(),
+  tmdbId: z.number().int().positive(),
+  type: z.literal(DownloadType.Movie),
+})
+
+export const ShowSchema = ManagedMediaBaseSchema.extend({
+  sonarrId: z.number().int().positive().optional(),
+  tvdbId: z.number().int().positive(),
+  type: z.literal(DownloadType.Show),
+})
+
+export const MediaSchema = z.discriminatedUnion('type', [
+  MovieSchema,
+  ShowSchema,
+  VideoSchema,
+])
+
+export const DownloadJobSchema = z.object({
+  completedAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+  error: z.string().optional(),
+  hiddenAttribution: z.boolean(),
+  id: z.string(),
+  media: MediaSchema,
+  requester: JobRequesterSchema.nullable(),
+  status: z.enum(DownloadJobStatus),
+  updatedAt: z.iso.datetime(),
+})
+
+export const GalleryItemSchema = z.object({
+  downloadCount: z.number().int(),
+  lastDownloadedAt: z.iso.datetime(),
+  /** Masked per the attribution-oracle rules — see `attribution.ts`. */
+  lastRequester: JobRequesterSchema.nullable(),
+  media: MediaSchema,
+})
+
 // ---- Phase 2: list/query endpoint schemas ----
 
 function csvRaw(raw: unknown): string[] {
