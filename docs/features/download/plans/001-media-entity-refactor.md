@@ -1556,32 +1556,63 @@ these files at compile time, and the minimum fix *is* this list).
       only type-checked by accident.
 - [x] `pnpm --filter @lilnas/download build` — green.
 
-### Phase 9 — Ship
+### Phase 9 — Ship · ⚠️ PARTIAL — repo-side items done, live/deploy items need the user
 
-- [ ] Run the full §7 manual checklist against the dev stack, including the
-      **Radarr-down** test (step 5) and the **upstream call count** test (step 6).
-- [ ] `pnpm run lint && pnpm run type-check && pnpm test` at the repo root.
-- [ ] Update `docs/features/download/backend.md`: mark the Phase 2 note as
-      superseded, describe the media/job split, and note that Phase 6's
-      Emby-match path no longer needs a persisted `filePath` column.
-- [ ] Delete `PLAN.md` (or move it to `docs/features/download/`) before merge.
-- [ ] Also carry over Phase 4's deferred item: sanity-check migration `0003`
-      against a **copy** of the real production DB before the release runs it.
+- [x] `pnpm run lint && pnpm run type-check` at the repo root — green across
+      all packages (14/14 lint, 12/12 type-check tasks, `@lilnas/tdr-bot`
+      included as an unaffected cache hit).
+- [x] `pnpm test`, scoped: repo-root `pnpm test` itself aborts because turbo
+      cancels sibling tasks the moment one fails, and `@lilnas/equations` has
+      3 pre-existing failing suites (8/332 tests) unrelated to this branch —
+      confirmed via `git log --oneline -- apps/equations` showing no commits
+      on `jeremy/download` touch that package. Ran the three packages this
+      refactor actually touches directly instead:
+      `@lilnas/utils` 103/103, `@lilnas/tdr-bot` 1129/1129 (the Phase 6 gate),
+      `@lilnas/download` 383/421 — the 38 failures are the same three
+      pre-existing `ytdlp-update` NestJS DI-resolution suites documented in
+      every phase's verification notes since Phase 1. All match expectations;
+      nothing new broke.
+- [x] Updated `docs/features/download/backend.md`: Phase 2 marked
+      "done, response shapes since superseded"; new "The media/job split"
+      section added describing the `DownloadJob`/`Media` split, the derived
+      key, and the Radarr/Sonarr read-through trade-off; Phase 6's
+      indexed-check rewritten to read `media.filePath` off the resolved
+      `Media` instead of a persisted `jobs` column.
+- [x] `PLAN.md` doesn't exist at the repo root in this worktree — nothing to
+      delete or move.
+- [ ] **Not done — needs live infra access this session doesn't have:**
+      sanity-check migration `0003` against a **copy** of the real production
+      DB (Phase 4's deferred item). `/storage/app-data/download/download.db`
+      is not reachable from this environment.
+- [ ] **Not done — found the wrong stack running, deferred to the user:** the
+      full §7 manual checklist needs a stack to run it against. The only
+      `download`/`radarr`/`sonarr` containers currently up on this host
+      (`lilnas-download-1` etc.) are the **production** stack — confirmed via
+      `docker inspect` (`config_files: /home/jeremy/lilnas/docker-compose.yml`,
+      `NODE_ENV=production`) — not a dev stack. Running the checklist as
+      written (real yt-dlp jobs, stopping Radarr to test the degraded path)
+      against production wasn't something to do without explicit sign-off.
+      Needs the user to either point at/bring up a real dev stack
+      (`docker-compose -f docker-compose.dev.yml up -d download`) or run the
+      checklist themselves.
 - [ ] PR description must call out: the breaking response reshape, that
       **cursors invalidate on deploy**, the **DB backup requirement** before the
       release carrying `0004`, and the **tdr-bot shim** with its deletion
-      trigger.
+      trigger. (Drafted when the PR is opened.)
 - [ ] File the follow-up issue, titled to match the marker
       (`TODO(tdr-bot-migration)`) so `grep` finds the code from the issue and
       vice versa: migrate `apps/tdr-bot` off `GetDownloadJobResponse`/
       `getVideoJob` onto `DownloadJob`/`getJob`, then delete the shim block, the
       flattener, and the deprecated type. Two files —
       `src/commands/download-command.service.ts` (field reads move under
-      `job.media`) and its test (fixtures nest `media`).
+      `job.media`) and its test (fixtures nest `media`). **Not filed yet** —
+      creating a GitHub issue is visible to others; needs the user to say go.
 - [ ] **Back up `/storage/app-data/download/download.db` + `-wal` + `-shm` on
       the deploy host** before running the release. Column drops are not
-      reversible.
+      reversible. **Not done** — production database, needs the user.
 - [ ] Deploy from the repo root (`docker-compose up -d download`), never from
-      `apps/download/deploy.yml` directly.
+      `apps/download/deploy.yml` directly. **Not done** — production deploy,
+      needs explicit user go-ahead.
 - [ ] Post-deploy: confirm migrations `0002`–`0004` applied, `SELECT count(*)
       FROM videos` is non-zero, and no job has a NULL/malformed `media_id`.
+      **Not done** — depends on the deploy step above.

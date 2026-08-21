@@ -2,19 +2,20 @@
 
 Companion to [`spec.md`](spec.md) and [`user-stories.md`](user-stories.md).
 Covers what the backend needs to build to support the full spec — the
-frontend is being rebuilt against the spec in parallel. This is a design/
-sequencing document, not a build log — nothing below has been implemented
-yet.
+frontend is being rebuilt against the spec in parallel. This started as a
+design/sequencing document; Phases 0–2 have since been implemented (see
+their status notes below), so treat this as a living plan, not a frozen
+spec — check current code before assuming a later phase is still pending.
 
 ## Context
 
-Today's backend only covers a fraction of the spec: a yt-dlp pipeline and
-Radarr/Sonarr request/delete, both tracked in a single **in-memory `Map`**
-(`DownloadStateService`) with no persistence, no user identity, and no list
-endpoints — every read is `GET /:id` by a known ID. Almost every remaining
-spec section (gallery, search, activity feed, per-user stats, audit log)
-requires durable, queryable history that doesn't exist yet. That gap, plus
-identity (nothing reads who's asking), is what most of this plan builds.
+Originally, the backend covered only a fraction of the spec: a yt-dlp
+pipeline and Radarr/Sonarr request/delete, both tracked in a single
+**in-memory `Map`** (`DownloadStateService`) with no persistence, no user
+identity, and no list endpoints — every read was `GET /:id` by a known ID.
+Phases 0–2 below closed that gap (durable SQLite persistence, forwarded-user
+identity, admin check, attributed job history, list/query endpoints).
+Phases 3–8 are still pending.
 
 Four foundational decisions were made before planning:
 1. **Persistence**: drizzle-orm + better-sqlite3, matching `apps/swole`'s
@@ -35,6 +36,10 @@ once 0–2 are in place.
 ---
 
 ## Phase 0 — Foundation: persistence, identity, admin check
+
+**Status: done.** SQLite persistence (`7a32820d`), forwarded-identity
+primitive (`625ac4df`), and the stateless auth admin-check endpoint
+(`6883859c`) all shipped.
 
 **Persistence** (confirmed pattern from `apps/swole/src/db/*`, adapted for a
 real NestJS app — swole is Next.js-only with a module-level singleton and no
@@ -103,6 +108,11 @@ Smallest correct addition:
 
 ## Phase 1 — Job persistence & attribution
 
+**Status: done.** Jobs table as system of record (`7a5cf18d`), attribution
+masking threaded through (`85ccfa8a`), WS gateway re-validates admin status
+on every broadcast rather than trusting a stale connection-time flag
+(`41b53efe`) — closes the privacy gap described below.
+
 - `jobs` table: id, type, requester user id/email, hidden-attribution flag
   (video only), status, title, timestamps, file location(s) (including the
   Phase-6 Emby-match path for movies/shows), source metadata (poster,
@@ -138,6 +148,19 @@ Smallest correct addition:
 
 ## Phase 2 — List/query endpoints
 
+**Status: done, response shapes since superseded.** List/query schemas
+(`bdcd51f0`), DB query layer for job listing and pagination (`9419e4fd`), and
+activity/gallery/history/discover endpoints (`5c376921`) all shipped as
+described below. The **media entity refactor**
+(`docs/features/download/plans/001-media-entity-refactor.md`) then reshaped
+every response on top of the same endpoints: the gallery became
+media-centric (one card per title, grouped by `(type, media_id)` instead of
+one row per job), and search/discover now return the unified `Media` type
+instead of the type-specific `MovieSearchResult`/`ShowSearchResult`/
+`DiscoveryResult` shapes this phase originally introduced. See "The
+media/job split" below for what changed and why; the list/pagination
+mechanics this phase built (cursors, filters, facets) are unaffected.
+
 Built entirely on Phase 1's durable `jobs` table:
 - Downloads Activity Page: `GET` all in-progress jobs across all users
   (doesn't exist today — every read is by known ID). Admin variant reuses
@@ -152,7 +175,56 @@ Built entirely on Phase 1's durable `jobs` table:
 
 ---
 
+## The media/job split (media entity refactor)
+
+**Status: done.** Full design and phase-by-phase history in
+`docs/features/download/plans/001-media-entity-refactor.md`.
+
+Phase 1's `jobs` table originally carried both the *event* (who requested,
+when, what happened) and the *metadata* (title, poster, overview, …) on one
+wide row, duplicated per download — downloading the same movie twice produced
+two disconnected copies of its title and poster. The refactor splits those
+two concerns:
+
+- **`DownloadJob`** stays a plain, uniform row: id, status, error, requester,
+  hidden-attribution, timestamps, plus a `(type, mediaId)` pointer. It no
+  longer carries any title/poster/overview/etc. fields itself.
+- **`Media`** is a discriminated union (`Video | Movie | Show`) describing the
+  title. Movies and shows have **no table** — Radarr/Sonarr are already the
+  system of record for that metadata, so it's resolved live through the new
+  `MediaResolverService` (whole-library cache, 60s success / 10s failure TTL)
+  rather than persisted a second time. Only **videos** get a table
+  (`videos`), since nothing upstream tracks them.
+- `Media.id` is a **derived key** (`tmdb:438631`, `tvdb:121361`,
+  `video:V1StGXR8_Z5`), minted by one function and never stored as a
+  separate identity — a search hit, a discovery result, and a downloaded
+  movie are now literally the same `Movie` object.
+
+This is why the gallery (Phase 2, above) became media-centric: with no media
+table, `GET /gallery` groups the job log itself (`GROUP BY type, media_id`)
+and hydrates each group's title through the resolver, rather than joining to
+a metadata table that no longer exists. Activity and history stay job-centric
+— they're event feeds by nature, unaffected by the split.
+
+**The trade-off, stated plainly:** movie/show metadata is now
+read-through-dependent on Radarr/Sonarr. If Radarr is down, a movie card
+degrades to its bare key instead of 500ing (`degradedSources` names the
+outage), but it can't render a title until Radarr answers again. Accepted —
+see the plan's §8.2 for the full reasoning — because a persisted copy would
+just drift from Radarr/Sonarr's own record the way the pre-refactor `jobs`
+row already did.
+
+`apps/tdr-bot` is intentionally untouched by this refactor (§5.2 of the
+plan): a compatibility shim in `packages/utils/src/download/client.ts` keeps
+its exact pre-refactor wire shape alive, tagged
+`TODO(tdr-bot-migration)`, until a follow-up change migrates it onto
+`DownloadJob`/`Media` directly.
+
+---
+
 ## Phase 3 — File selection, replacement, bad-file reporting
+
+**Status: not started** (next up after Phase 0–2).
 
 The generated SDK already exposes the primitives, just unwired:
 `getApiV3Release`/`postApiV3Release` (Radarr) and their Sonarr equivalents
@@ -227,15 +299,25 @@ module should be written fresh and small, reusing only:
   entirely.)
 - Env vars: `EMBY_API_KEY`, `EMBY_URL`, `EMBY_USERNAME` (unchanged shape).
 
-**Indexed-check**: once Radarr/Sonarr report the imported file's on-disk
-path, store it on the `jobs` row (Phase 1 schema), then poll Emby's
-`GET /Items` for an entry whose `Path` matches. No match yet → "Indexing…";
-match found → "Watch" with a deep link built from the matched item's ID.
-This is entirely new logic — the old theater code never had an
-indexed/pending concept (confirmed: it assumed the whole library was
-already present). Path-based matching was chosen over title/year matching
-for reliability — Emby can render/sanitize titles differently than
-Radarr/Sonarr, risking a missed match even after indexing.
+**Indexed-check**: poll Emby's `GET /Items` for an entry whose `Path` matches
+the imported file's on-disk path, then match found → "Watch" with a deep link
+built from the matched item's ID; no match yet → "Indexing…". This is
+entirely new logic — the old theater code never had an indexed/pending
+concept (confirmed: it assumed the whole library was already present).
+Path-based matching was chosen over title/year matching for reliability —
+Emby can render/sanitize titles differently than Radarr/Sonarr, risking a
+missed match even after indexing.
+
+**Updated by the media entity refactor (above): `filePath` is no longer a
+persisted `jobs` column.** The original plan had this phase store Radarr/
+Sonarr's reported path on the job row; post-refactor, `filePath` is derived
+live off the Radarr/Sonarr library through `MediaResolverService` /
+`toMovie()`/`toShow()` the same way every other movie/show metadata field is.
+Whichever service performs the indexed-check should read `media.filePath`
+off the resolved `Media` rather than a `jobs` column. This also means the
+refactor's "bug that disappears" applies here too: there's nothing to null
+out on delete, since Radarr simply stops reporting the path and the next
+resolve is correct by construction.
 
 **Auth**: swap theater's signed-cookie `SessionGuard` for the same
 forwarded-header decorator/guard built in Phase 0 — no login flow, no
