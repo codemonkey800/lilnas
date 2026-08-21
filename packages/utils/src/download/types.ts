@@ -5,18 +5,26 @@ import {
   ActivityQuerySchema,
   CreateDownloadJobInputSchema,
   DiscoverQuerySchema,
+  DownloadJobSchema,
   DownloadJobStatus,
   DownloadQueueSnapshotSchema,
   DownloadType,
   GalleryFacetsQuerySchema,
+  GalleryItemSchema,
   GalleryQuerySchema,
   HistoryQuerySchema,
   JobRequesterSchema,
+  ManagedMediaBaseSchema,
+  MediaBaseSchema,
+  MediaSchema,
   MediaSearchQuerySchema,
+  MovieSchema,
   RequestMovieInputSchema,
   RequestShowInputSchema,
+  ShowSchema,
   TimeRangeSchema,
   VideoInfoSchema,
+  VideoSchema,
 } from './schema'
 
 export { DownloadJobStatus, DownloadType }
@@ -45,6 +53,14 @@ export const IN_PROGRESS_DOWNLOAD_JOB_STATUSES = Object.values(
   DownloadJobStatus,
 ).filter(status => !isTerminalDownloadJobStatus(status))
 
+export function isInProgressDownloadJobStatus(
+  status: DownloadJobStatus,
+): boolean {
+  return (
+    IN_PROGRESS_DOWNLOAD_JOB_STATUSES as readonly DownloadJobStatus[]
+  ).includes(status)
+}
+
 export type CreateDownloadJobInput = z.infer<
   typeof CreateDownloadJobInputSchema
 >
@@ -67,6 +83,51 @@ export type JobRequester = z.infer<typeof JobRequesterSchema>
  * something has changed.
  */
 export type DownloadQueueSnapshot = z.infer<typeof DownloadQueueSnapshotSchema>
+
+// ---- The Media hierarchy (see docs/features/download/plans/001-media-entity-refactor.md §1) ----
+
+export type MediaBase = z.infer<typeof MediaBaseSchema>
+export type Video = z.infer<typeof VideoSchema>
+export type ManagedMediaBase = z.infer<typeof ManagedMediaBaseSchema>
+export type Movie = z.infer<typeof MovieSchema>
+export type Show = z.infer<typeof ShowSchema>
+export type Media = z.infer<typeof MediaSchema>
+
+export function isVideo(media: Media): media is Video {
+  return media.type === DownloadType.Video
+}
+
+export function isMovie(media: Media): media is Movie {
+  return media.type === DownloadType.Movie
+}
+
+export function isShow(media: Media): media is Show {
+  return media.type === DownloadType.Show
+}
+
+export function isManagedMedia(media: Media): media is Movie | Show {
+  return media.type === DownloadType.Movie || media.type === DownloadType.Show
+}
+
+/**
+ * The event-shaped replacement for the `VideoDownloadJob | MovieDownloadJob |
+ * ShowDownloadJob` union below - a plain, non-union object whose only
+ * type-varying part is nested at `media`. Named `DownloadJobV2` rather than
+ * `DownloadJob` purely to avoid colliding with the identifier already taken
+ * by the union type this phase leaves in place (Phase 2 of the plan linked
+ * above adds this hierarchy *alongside* the old types with zero call-site
+ * churn). Renamed to `DownloadJob` - and the old union deleted - in Phase 6,
+ * which is the commit that migrates every consumer over anyway.
+ */
+export type DownloadJobV2 = z.infer<typeof DownloadJobSchema>
+
+export type GalleryItem = z.infer<typeof GalleryItemSchema>
+
+/** `GET /download/media/:id`'s response - see plan §3.1. */
+export interface MediaDetailResponse {
+  jobs: DownloadJobV2[]
+  media: Media
+}
 
 // The `Video` member intentionally has the exact same fields/names/types as
 // the original (pre-union) `DownloadJob` interface - only `type` narrows
