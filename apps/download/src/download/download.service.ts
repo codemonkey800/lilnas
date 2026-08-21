@@ -282,13 +282,14 @@ export class DownloadService {
       type: job.type,
     }
 
-    if (!job.proc) {
+    const proc = this.downloadStateService.getProc(id)
+    if (!proc) {
       this.logger.warn(logArgs, 'Job not started')
       throw new Error(`Job '${id}' has not started`)
     }
 
-    job.proc.removeAllListeners('close')
-    job.proc.once('close', () => {
+    proc.removeAllListeners('close')
+    proc.once('close', () => {
       this.downloadStateService.updateJob(job.id, {
         status: DownloadJobStatus.Cancelled,
       })
@@ -296,7 +297,7 @@ export class DownloadService {
       this.logger.log(logArgs, 'Job closed')
     })
 
-    job.proc.kill()
+    proc.kill()
     this.metrics.jobCompleted('cancelled')
 
     this.downloadScheduler.delete(id)

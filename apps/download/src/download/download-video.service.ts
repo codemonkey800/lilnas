@@ -284,9 +284,7 @@ export class DownloadVideoService {
       logFile: `${job.id}/download.log`,
     })
 
-    this.downloadStateService.updateJob(job.id, {
-      proc: downloadProcess.proc,
-    })
+    this.downloadStateService.setProc(job.id, downloadProcess.proc)
 
     try {
       const { code, stderrTail } = await downloadProcess.promise
@@ -355,9 +353,7 @@ export class DownloadVideoService {
         logFile: `${job.id}/render.log`,
       })
 
-      this.downloadStateService.updateJob(job.id, {
-        proc: convertProcess.proc,
-      })
+      this.downloadStateService.setProc(job.id, convertProcess.proc)
 
       try {
         const { code, stderrTail } = await convertProcess.promise
@@ -442,11 +438,7 @@ export class DownloadVideoService {
 
   private getJobLogger(jobId: string) {
     return (level: 'log' | 'error' | 'warn', data: object, message: string) => {
-      const currentJob = this.downloadStateService.jobs.get(jobId)
-      const job =
-        currentJob && isVideoDownloadJob(currentJob)
-          ? { ...currentJob, proc: undefined }
-          : currentJob
+      const job = this.downloadStateService.jobs.get(jobId)
 
       this.logger[level]({ ...data, job }, message)
     }
