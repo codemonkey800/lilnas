@@ -115,7 +115,16 @@ export const MediaBaseSchema = z.object({
 
 export const VideoSchema = MediaBaseSchema.extend({
   downloadUrls: z.array(z.string()).optional(),
-  sourceUrl: z.string().url(),
+  /**
+   * Plain `z.string()`, not `.url()` — URL *validation* belongs on the
+   * request boundary (`CreateDownloadJobInputSchema.url`, which does have
+   * `.url()`), not on the derived read model. `MediaResolverService` emits a
+   * degraded placeholder `Video` for a `video:` key with no row behind it,
+   * and a stricter schema here would make the frontend's
+   * `DownloadJobSchema.safeParse()` silently drop that job's live updates
+   * instead of rendering it degraded.
+   */
+  sourceUrl: z.string(),
   timeRange: TimeRangeSchema.optional(),
   type: z.literal(DownloadType.Video),
 })

@@ -6,11 +6,7 @@ jest.mock('nanoid', () => ({
   nanoid: jest.fn(() => 'mock-id'),
 }))
 
-import {
-  DownloadJobStatus,
-  DownloadType,
-  VideoDownloadJob,
-} from '@lilnas/utils/download/types'
+import { DownloadJob, DownloadJobStatus } from '@lilnas/utils/download/types'
 import { HttpException, Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
@@ -22,6 +18,9 @@ import { DownloadStateService } from 'src/download/download-state.service'
 import { JobQueryService } from 'src/download/job-query.service'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
+import { MediaResolverService } from 'src/media/media-resolver.service'
+
+import { buildJob, buildVideo } from './helpers/job-fixtures'
 
 // This exercises DownloadController's video endpoints — the only ones
 // `projectJobForViewer` can ever change the output of, since masking is
@@ -31,22 +30,18 @@ import { MediaDownloadService } from 'src/media/media-download.service'
 describe('DownloadController - video endpoints', () => {
   let controller: DownloadController
   let downloadService: jest.Mocked<DownloadService>
-  let downloadStateService: { jobs: Map<string, VideoDownloadJob> }
+  let downloadStateService: { jobs: Map<string, DownloadJob> }
   let adminCheckService: jest.Mocked<AdminCheckService>
 
   const admin: ForwardedUser = { email: 'admin@example.com', userId: 'a1' }
   const nonAdmin: ForwardedUser = { email: 'bob@example.com', userId: 'u2' }
 
-  function buildVideoJob(
-    overrides: Partial<VideoDownloadJob> = {},
-  ): VideoDownloadJob {
-    return {
+  function buildVideoJob(overrides: Partial<DownloadJob> = {}): DownloadJob {
+    return buildJob(buildVideo(), {
       id: 'video-1',
       status: DownloadJobStatus.Completed,
-      type: DownloadType.Video,
-      url: 'https://example.com/video',
       ...overrides,
-    }
+    })
   }
 
   beforeEach(async () => {
@@ -55,7 +50,7 @@ describe('DownloadController - video endpoints', () => {
       cancelVideoDownloadJob: jest.fn(),
     }
     const mockAdminCheckService = { checkIsAdmin: jest.fn() }
-    const jobsMap = new Map<string, VideoDownloadJob>()
+    const jobsMap = new Map<string, DownloadJob>()
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DownloadController],
@@ -71,12 +66,13 @@ describe('DownloadController - video endpoints', () => {
             // Mirrors the real resolveJob()'s Map-hit behaviour - the
             // DB-fallback path itself is covered by
             // download-state.service.test.ts's dedicated tests.
-            resolveJob: (id: string) => jobsMap.get(id),
+            resolveJob: (id: string) => Promise.resolve(jobsMap.get(id)),
           },
         },
         { provide: DiscoveryService, useValue: {} },
         { provide: JobQueryService, useValue: {} },
         { provide: MediaDownloadService, useValue: {} },
+        { provide: MediaResolverService, useValue: { resolve: jest.fn() } },
       ],
     }).compile()
 
@@ -195,7 +191,7 @@ describe('DownloadController - video endpoints', () => {
         hiddenAttribution: true,
         requester: { email: 'alice@example.com', userId: 'u1' },
       })
-      downloadService.cancelVideoDownloadJob.mockReturnValue(job)
+      downloadService.cancelVideoDownloadJob.mockResolvedValue(job)
       adminCheckService.checkIsAdmin.mockResolvedValue(false)
 
       const res = await controller.cancelVideoJob(job.id, nonAdmin)
@@ -209,7 +205,7 @@ describe('DownloadController - video endpoints', () => {
         hiddenAttribution: true,
         requester: { email: 'alice@example.com', userId: 'u1' },
       })
-      downloadService.cancelVideoDownloadJob.mockReturnValue(job)
+      downloadService.cancelVideoDownloadJob.mockResolvedValue(job)
       adminCheckService.checkIsAdmin.mockResolvedValue(true)
 
       const res = await controller.cancelVideoJob(job.id, admin)

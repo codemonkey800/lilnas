@@ -1,22 +1,26 @@
 import { createHash } from 'crypto'
 
 /**
- * Opaque cursor for descending `(created_at, id)` pagination over `jobs`
- * (see `jobs.repo.ts`). Opaque rather than a plain integer - unlike
- * tdr-code's `sessions.repo.ts`, which pages over an autoincrement integer
- * PK that's already a total order, `jobs.id` is a nanoid with no order,
- * which is exactly why a composite `(createdAtMs, id)` key is needed here.
- * Being opaque also signals "don't construct this by hand" and leaves room
- * to add a sort key later without any client having parsed the format.
+ * Opaque cursor for descending `(sortKey, id)` pagination over `jobs` (see
+ * `jobs.repo.ts`). Opaque rather than a plain integer - unlike tdr-code's
+ * `sessions.repo.ts`, which pages over an autoincrement integer PK that's
+ * already a total order, neither of this file's two sort keys is: `jobs.id`
+ * is a nanoid with no order, and the gallery's `media_id` is a derived
+ * string. That's exactly why a composite `(sortKeyMs, id)` key is needed.
+ *
+ * Deliberately generic over *which* millisecond timestamp and *which* id -
+ * the per-job list endpoints page on `(jobs.created_at, jobs.id)` while the
+ * gallery pages on `(MAX(jobs.created_at), jobs.media_id)`. One codec for
+ * both, rather than a third near-identical one alongside discovery's.
  */
-export interface JobCursor {
-  createdAtMs: number
+export interface ListCursor {
+  sortKeyMs: number
   id: string
   filterKey: string
 }
 
-export function encodeJobCursor(cursor: JobCursor): string {
-  const raw = `${cursor.createdAtMs}:${cursor.id}:${cursor.filterKey}`
+export function encodeListCursor(cursor: ListCursor): string {
+  const raw = `${cursor.sortKeyMs}:${cursor.id}:${cursor.filterKey}`
   return Buffer.from(raw, 'utf8').toString('base64url')
 }
 
@@ -37,10 +41,10 @@ export function encodeJobCursor(cursor: JobCursor): string {
  * outer two colons unambiguously delimit exactly three fields even though
  * neither `id` nor `filterKey` is escaped.
  */
-export function decodeJobCursor(
+export function decodeListCursor(
   encoded: string,
   expectedFilterKey: string,
-): JobCursor | undefined {
+): ListCursor | undefined {
   const raw = Buffer.from(encoded, 'base64url').toString('utf8')
 
   const firstColon = raw.indexOf(':')
@@ -49,7 +53,7 @@ export function decodeJobCursor(
     return undefined
   }
 
-  const createdAtMsRaw = raw.slice(0, firstColon)
+  const sortKeyMsRaw = raw.slice(0, firstColon)
   const id = raw.slice(firstColon + 1, lastColon)
   const filterKey = raw.slice(lastColon + 1)
 
@@ -57,21 +61,21 @@ export function decodeJobCursor(
     return undefined
   }
 
-  // A plain `Number(createdAtMsRaw)` isn't enough on its own - `Number('')`
+  // A plain `Number(sortKeyMsRaw)` isn't enough on its own - `Number('')`
   // and `Number('  ')` both coerce to `0` rather than `NaN`, which would
   // otherwise let an empty timestamp field silently validate as midnight
   // 1970. Requiring the raw field to already look like an integer closes
   // that gap before the numeric conversion ever runs.
-  if (!/^-?\d+$/.test(createdAtMsRaw)) {
+  if (!/^-?\d+$/.test(sortKeyMsRaw)) {
     return undefined
   }
 
-  const createdAtMs = Number(createdAtMsRaw)
-  if (!Number.isInteger(createdAtMs)) {
+  const sortKeyMs = Number(sortKeyMsRaw)
+  if (!Number.isInteger(sortKeyMs)) {
     return undefined
   }
 
-  return { createdAtMs, filterKey, id }
+  return { sortKeyMs, filterKey, id }
 }
 
 /**

@@ -16,7 +16,7 @@ import {
 } from 'drizzle-orm'
 
 import type { Db } from './db.service'
-import type { JobCursor } from './job-cursor'
+import type { ListCursor } from './list-cursor'
 import { type JobRow, jobs } from './schema'
 
 /**
@@ -50,7 +50,7 @@ export interface JobListFilter {
 }
 
 export interface JobPageQuery {
-  cursor?: JobCursor
+  cursor?: ListCursor
   filter: JobListFilter
   limit: number
 }
@@ -104,7 +104,7 @@ function buildJobWhere(filter: JobListFilter): SQL | undefined {
  * `(created_at, id)`, matching `jobs_created_at_id_idx`
  * (schema.ts) exactly - `id` breaks ties between rows sharing the same
  * `created_at` millisecond, which a plain `created_at <` predicate would
- * silently drop or duplicate across a page boundary. `cursor.createdAtMs`
+ * silently drop or duplicate across a page boundary. `cursor.sortKeyMs`
  * is bound as a plain number (not a `Date`) because this is a raw `sql`
  * template - unlike `gte`/`lte` above, a raw template bypasses the
  * `timestamp_ms` column mapper entirely, and better-sqlite3 cannot bind a
@@ -118,7 +118,7 @@ export function listJobsPage(db: Db, query: JobPageQuery): JobPageResult {
     const pageConditions: Array<SQL | undefined> = [
       whereClause,
       cursor
-        ? sql`(${jobs.createdAt}, ${jobs.id}) < (${cursor.createdAtMs}, ${cursor.id})`
+        ? sql`(${jobs.createdAt}, ${jobs.id}) < (${cursor.sortKeyMs}, ${cursor.id})`
         : undefined,
     ]
     const pageWhere = and(...pageConditions)
@@ -155,6 +155,156 @@ export function listJobsPage(db: Db, query: JobPageQuery): JobPageResult {
  */
 export function getJobById(db: Db, id: string): JobRow | undefined {
   return db.select().from(jobs).where(eq(jobs.id, id)).get()
+}
+
+/**
+ * Every job for one title, newest first - `GET /download/media/:id`'s
+ * `jobs[]`. An empty array is the endpoint's "not downloaded yet" state,
+ * not an error: a movie has a detail page whether or not anyone has ever
+ * requested it (plan §3.1).
+ */
+export function listJobsByMediaId(db: Db, mediaId: string): JobRow[] {
+  return db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.mediaId, mediaId))
+    .orderBy(desc(jobs.createdAt), desc(jobs.id))
+    .all()
+}
+
+export interface MediaGroupRow {
+  downloadCount: number
+  lastJobAtMs: number
+  mediaId: string
+  type: DownloadType
+}
+
+export interface MediaGroupPageResult {
+  groups: MediaGroupRow[]
+  hasMore: boolean
+  total: number
+}
+
+/**
+ * The media-centric gallery: one row per *title*, derived straight from the
+ * job log rather than from a media table (plan §3.2). Because
+ * `lastJobAt`/`downloadCount` are aggregates over the same `WHERE` the
+ * filters apply to, `?requester=alice&from=2026-03-01` means "titles alice
+ * downloaded in March" - the natural reading - and there is no denormalized
+ * `last_job_at` column that can drift.
+ *
+ * `ORDER BY MAX(created_at) DESC` cannot be answered from an index, so
+ * unlike `listJobsPage()` this one query gets a temp b-tree sort. That's an
+ * accepted, documented cost at a home-NAS row count (see the plan test in
+ * `schema.spec.ts`), not an oversight.
+ *
+ * The cursor is a descending row-value comparison on
+ * `(lastJobAt, media_id)`, applied in `HAVING` rather than `WHERE` because
+ * `lastJobAt` is an aggregate - a `WHERE` on it would filter the rows going
+ * *into* each group instead of the groups coming out, silently splitting a
+ * title's history across pages.
+ */
+export function listMediaGroupsPage(
+  db: Db,
+  query: JobPageQuery,
+): MediaGroupPageResult {
+  const { cursor, filter, limit } = query
+  const whereClause = buildJobWhere(filter)
+  const lastJobAt = sql<number>`max(${jobs.createdAt})`
+
+  return db.transaction(() => {
+    const base = db
+      .select({
+        downloadCount: count(),
+        lastJobAtMs: lastJobAt,
+        mediaId: jobs.mediaId,
+        type: jobs.type,
+      })
+      .from(jobs)
+
+    const grouped = (whereClause ? base.where(whereClause) : base).groupBy(
+      jobs.type,
+      jobs.mediaId,
+    )
+
+    const fetched = (
+      cursor
+        ? grouped.having(
+            sql`(${lastJobAt}, ${jobs.mediaId}) < (${cursor.sortKeyMs}, ${cursor.id})`,
+          )
+        : grouped
+    )
+      .orderBy(desc(lastJobAt), desc(jobs.mediaId))
+      .limit(limit + 1)
+      .all()
+
+    // One extra row to detect a further page without a second round-trip -
+    // same technique as listJobsPage().
+    const hasMore = fetched.length > limit
+    const page = hasMore ? fetched.slice(0, limit) : fetched
+
+    // `total` is the number of *groups*, not of jobs - the gallery counts
+    // titles. A plain `count()` over the grouped select would count rows per
+    // group instead, hence the subquery.
+    const totalBase = db
+      .select({ one: sql<number>`1` })
+      .from(jobs)
+      .groupBy(jobs.type, jobs.mediaId)
+    const totalSubquery = (
+      whereClause ? totalBase.where(whereClause) : totalBase
+    ).as('groups')
+    const totalRow = db.select({ total: count() }).from(totalSubquery).get() as
+      | { total: number }
+      | undefined
+
+    return {
+      groups: page.flatMap(row =>
+        row.mediaId
+          ? [
+              {
+                downloadCount: row.downloadCount,
+                lastJobAtMs: Number(row.lastJobAtMs),
+                mediaId: row.mediaId,
+                type: row.type as DownloadType,
+              },
+            ]
+          : [],
+      ),
+      hasMore,
+      total: totalRow?.total ?? 0,
+    }
+  })
+}
+
+/**
+ * Every job matching `filter` whose `media_id` is in `mediaIds`, newest
+ * first - the gallery's `lastRequester` follow-up query. One query for the
+ * whole page (≤100 keys) rather than one per card; the caller takes the
+ * first row it sees per `(type, media_id)`, which the ordering makes the
+ * most recent.
+ *
+ * Runs under the *same* filter as the grouping query, so the requester
+ * shown is the last one within the filtered window rather than the last one
+ * overall - consistent with what `downloadCount` counts.
+ */
+export function listLatestJobsForMediaIds(
+  db: Db,
+  filter: JobListFilter,
+  mediaIds: readonly string[],
+): JobRow[] {
+  if (mediaIds.length === 0) return []
+
+  const conditions: Array<SQL | undefined> = [
+    buildJobWhere(filter),
+    inArray(jobs.mediaId, [...mediaIds]),
+  ]
+
+  return db
+    .select()
+    .from(jobs)
+    .where(and(...conditions))
+    .orderBy(desc(jobs.createdAt), desc(jobs.id))
+    .all()
 }
 
 export interface RequesterFacetCount {

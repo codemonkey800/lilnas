@@ -12,15 +12,14 @@ import {
 import type {
   DiscoveryPage,
   DownloadGalleryFacets,
-  DownloadJobListItem,
+  DownloadJob,
   DownloadPage,
   DownloadType,
-  GetDownloadJobResponse,
-  GetMovieJobResponse,
-  GetShowJobResponse,
-  SearchMoviesResponse,
-  SearchShowsResponse,
+  GalleryItem,
+  MediaDetailResponse,
+  SearchMediaResponse,
 } from '@lilnas/utils/download/types'
+import { DownloadType as DownloadTypeEnum } from '@lilnas/utils/download/types'
 import {
   Body,
   Controller,
@@ -30,6 +29,7 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -45,15 +45,12 @@ import { ForwardedUserGuard } from 'src/auth/forwarded-user.guard'
 import { OptionalCurrentUser } from 'src/auth/optional-current-user.decorator'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
+import { MediaResolverService } from 'src/media/media-resolver.service'
 
+import { projectJobForViewer } from './attribution'
 import { DownloadService } from './download.service'
 import { DownloadStateService } from './download-state.service'
 import { JobQueryService } from './job-query.service'
-import {
-  getJobResponse,
-  getMovieJobResponse,
-  getShowJobResponse,
-} from './job-serializers'
 
 class ActivityQueryDto extends createZodDto(ActivityQuerySchema) {}
 class CreateJobInputDto extends createZodDto(CreateDownloadJobInputSchema) {}
@@ -76,6 +73,7 @@ export class DownloadController {
     private downloadStateService: DownloadStateService,
     private jobQueryService: JobQueryService,
     private mediaDownloadService: MediaDownloadService,
+    private mediaResolverService: MediaResolverService,
   ) {}
 
   // No forwarded identity (e.g. apps/tdr-bot's DownloadClient.dockerInstance
@@ -94,15 +92,12 @@ export class DownloadController {
   async getActivity(
     @Query(new ZodValidationPipe(ActivityQueryDto)) query: ActivityQueryDto,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
-  ): Promise<DownloadPage<DownloadJobListItem>> {
+  ): Promise<DownloadPage<DownloadJob>> {
     const action = 'getActivity'
     const startTime = Date.now()
 
-    // The DB read inside listActivity() is synchronous (better-sqlite3) -
-    // nothing to Promise.all() against, unlike the movie/show handlers
-    // below which do have a second async call to race.
     const isAdmin = await this.resolveIsAdmin(user)
-    const page = this.jobQueryService.listActivity({
+    const page = await this.jobQueryService.listActivity({
       cursor: query.cursor,
       isAdmin,
       limit: query.limit,
@@ -121,14 +116,14 @@ export class DownloadController {
       'GET /activity - listed in-progress jobs',
     )
 
-    return page
+    return projectPage(page, isAdmin)
   }
 
   @Get('/gallery')
   async getGallery(
     @Query(new ZodValidationPipe(GalleryQueryDto)) query: GalleryQueryDto,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
-  ): Promise<DownloadPage<DownloadJobListItem>> {
+  ): Promise<DownloadPage<GalleryItem>> {
     const action = 'getGallery'
     const startTime = Date.now()
 
@@ -137,7 +132,7 @@ export class DownloadController {
     // requester-scoped lookup) is computed inside JobQueryService.listGallery
     // itself from `requesterEmail`/`isAdmin`, not here - keeping it there
     // means it can never be forgotten by a future caller of that method.
-    const page = this.jobQueryService.listGallery({
+    const page = await this.jobQueryService.listGallery({
       createdFrom: query.from,
       createdTo: query.to,
       cursor: query.cursor,
@@ -156,7 +151,7 @@ export class DownloadController {
         total: page.total,
         statusCode: HttpStatus.OK,
       },
-      'GET /gallery - listed completed jobs',
+      'GET /gallery - listed downloaded titles',
     )
 
     return page
@@ -239,7 +234,7 @@ export class DownloadController {
   async getHistory(
     @Query(new ZodValidationPipe(HistoryQueryDto)) query: HistoryQueryDto,
     @CurrentUser() user: ForwardedUser,
-  ): Promise<DownloadPage<DownloadJobListItem>> {
+  ): Promise<DownloadPage<DownloadJob>> {
     const action = 'getHistory'
     const startTime = Date.now()
 
@@ -272,7 +267,7 @@ export class DownloadController {
       ? user.email
       : (query.requester as string)
 
-    const page = this.jobQueryService.listHistory({
+    const page = await this.jobQueryService.listHistory({
       cursor: query.cursor,
       isAdmin,
       limit: query.limit,
@@ -292,14 +287,79 @@ export class DownloadController {
       'GET /history - listed download history',
     )
 
-    return page
+    return projectPage(page, isAdmin)
+  }
+
+  /**
+   * The library view: a title's metadata plus every job that ever fetched
+   * it. `jobs: []` **is** the "not downloaded yet" state - a movie has a
+   * detail page whether or not anyone has requested it, which is what makes
+   * "selecting any movie/show surface opens that title's detail page"
+   * (spec §Navigation) possible at all. Job-keyed routes stay job-keyed;
+   * this is the media-keyed one.
+   */
+  @Get('/media/:id')
+  async getMediaDetail(
+    @Param('id') id: string,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<MediaDetailResponse> {
+    const action = 'getMediaDetail'
+
+    // A video can't exist before it's downloaded (spec §8 reaches its
+    // detail page from the nav bar with the download already under way), so
+    // an unknown `video:` key is a genuine 404 rather than a metadata
+    // lookup - unlike a tmdb/tvdb key, which always resolves.
+    if (
+      id.startsWith(`${DownloadTypeEnum.Video}:`) &&
+      !this.downloadStateService.getVideo(id)
+    ) {
+      this.logger.warn(
+        { action, mediaId: id, statusCode: HttpStatus.NOT_FOUND },
+        'GET /media/:id - unknown video key',
+      )
+
+      throw new NotFoundException('Media not found')
+    }
+
+    const type = mediaTypeFromKey(id)
+    if (!type) {
+      throw new NotFoundException('Media not found')
+    }
+
+    const [isAdmin, { media }] = await Promise.all([
+      this.resolveIsAdmin(user),
+      this.mediaResolverService.resolve([{ mediaId: id, type }]),
+    ])
+
+    const resolved = media.get(id)
+    if (!resolved) {
+      throw new NotFoundException('Media not found')
+    }
+
+    const jobs = await this.jobQueryService.listJobsForMedia(id)
+
+    this.logger.log(
+      {
+        action,
+        mediaId: id,
+        jobCount: jobs.length,
+        statusCode: HttpStatus.OK,
+        type,
+      },
+      'GET /media/:id - resolved media detail',
+    )
+
+    return {
+      jobs: jobs.map(job => projectJobForViewer(job, isAdmin)),
+      media: resolved,
+    }
   }
 
   @Get('/videos/:id')
   async getVideoJob(
     @Param('id') id: string,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
-  ): Promise<GetDownloadJobResponse> {
+  ): Promise<DownloadJob> {
     const action = 'getVideoJob'
     const startTime = Date.now()
 
@@ -310,7 +370,10 @@ export class DownloadController {
 
     // Falls back to the durable `jobs` row when the in-memory Map has no
     // entry (e.g. after a restart) - see resolveJob()'s own comment.
-    const job = this.downloadStateService.resolveJob(id)
+    const [job, isAdmin] = await Promise.all([
+      this.downloadStateService.resolveJob(id),
+      this.resolveIsAdmin(user),
+    ])
 
     if (!job) {
       const duration = Date.now() - startTime
@@ -334,34 +397,26 @@ export class DownloadController {
       )
     }
 
-    const isAdmin = await this.resolveIsAdmin(user)
-    const sanitizedUrl = job.url.split('?')[0]
-    const duration = Date.now() - startTime
-    const response = getJobResponse(job, isAdmin)
-
     this.logger.log(
       {
         action,
         jobId: id,
-        url: sanitizedUrl,
+        mediaId: job.media.id,
         status: job.status,
-        duration,
+        duration: Date.now() - startTime,
         statusCode: HttpStatus.OK,
-        hasTitle: !!response.title,
-        hasDescription: !!response.description,
-        hasDownloadUrls: !!response.downloadUrls?.length,
       },
       'Video job retrieved successfully',
     )
 
-    return response
+    return projectJobForViewer(job, isAdmin)
   }
 
   @Post('/videos')
   async createVideoJob(
     @Body() input: CreateJobInputDto,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
-  ): Promise<GetDownloadJobResponse> {
+  ): Promise<DownloadJob> {
     const action = 'createVideoJob'
     const startTime = Date.now()
     const sanitizedUrl = input.url.split('?')[0]
@@ -384,8 +439,6 @@ export class DownloadController {
         this.downloadService.createVideoDownloadJob(input, user),
         this.resolveIsAdmin(user),
       ])
-      const duration = Date.now() - startTime
-      const response = getJobResponse(job, isAdmin)
 
       this.logger.log(
         {
@@ -393,7 +446,7 @@ export class DownloadController {
           jobId: job.id,
           url: sanitizedUrl,
           status: job.status,
-          duration,
+          duration: Date.now() - startTime,
           statusCode: HttpStatus.CREATED,
           totalJobs: this.downloadStateService.jobs.size,
           queueSize: this.downloadStateService.queue.size(),
@@ -401,7 +454,7 @@ export class DownloadController {
         'Video download job created successfully',
       )
 
-      return response
+      return projectJobForViewer(job, isAdmin)
     } catch (err) {
       const duration = Date.now() - startTime
       const error = err instanceof Error ? err.message : String(err)
@@ -425,7 +478,7 @@ export class DownloadController {
   async cancelVideoJob(
     @Param('id') id: string,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
-  ): Promise<GetDownloadJobResponse> {
+  ): Promise<DownloadJob> {
     const action = 'cancelVideoJob'
     const startTime = Date.now()
 
@@ -441,21 +494,17 @@ export class DownloadController {
 
     try {
       const [job, isAdmin] = await Promise.all([
-        Promise.resolve(this.downloadService.cancelVideoDownloadJob(id)),
+        this.downloadService.cancelVideoDownloadJob(id),
         this.resolveIsAdmin(user),
       ])
-      const duration = Date.now() - startTime
-      const sanitizedUrl = job.url.split('?')[0]
-      const response = getJobResponse(job, isAdmin)
 
       this.logger.log(
         {
           action,
           jobId: id,
-          url: sanitizedUrl,
-          oldStatus: job.status === 'cancelling' ? 'in_progress' : job.status, // Status was already updated
+          mediaId: job.media.id,
           newStatus: job.status,
-          duration,
+          duration: Date.now() - startTime,
           statusCode: HttpStatus.OK,
           inProgressJobsRemaining:
             this.downloadStateService.inProgressJobs.size,
@@ -463,7 +512,7 @@ export class DownloadController {
         'Video job cancellation initiated successfully',
       )
 
-      return response
+      return projectJobForViewer(job, isAdmin)
     } catch (err) {
       const duration = Date.now() - startTime
       const error = err instanceof Error ? err.message : String(err)
@@ -494,7 +543,7 @@ export class DownloadController {
   @Get('/movies/search')
   async searchMovies(
     @Query() query: MediaSearchQueryDto,
-  ): Promise<SearchMoviesResponse> {
+  ): Promise<SearchMediaResponse> {
     const action = 'searchMovies'
 
     this.logger.log(
@@ -516,7 +565,7 @@ export class DownloadController {
   async requestMovie(
     @Body() input: RequestMovieInputDto,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
-  ): Promise<GetMovieJobResponse> {
+  ): Promise<DownloadJob> {
     const action = 'requestMovie'
 
     this.logger.log(
@@ -534,74 +583,41 @@ export class DownloadController {
       'Movie download requested',
     )
 
-    return getMovieJobResponse(job, isAdmin)
+    return projectJobForViewer(job, isAdmin)
   }
 
   @Get('/movies/:id')
   async getMovieJob(
     @Param('id') id: string,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
-  ): Promise<GetMovieJobResponse> {
-    const action = 'getMovieJob'
-
-    this.logger.log({ action, jobId: id }, 'GET /movies/:id - Retrieving job')
-
-    try {
-      const [job, isAdmin] = await Promise.all([
-        Promise.resolve(this.mediaDownloadService.getMovieJob(id)),
-        this.resolveIsAdmin(user),
-      ])
-      return getMovieJobResponse(job, isAdmin)
-    } catch (err) {
-      this.logger.warn(
-        { action, jobId: id, error: err instanceof Error ? err.message : err },
-        'Movie job not found',
-      )
-
-      throw new HttpException(
-        { status: HttpStatus.NOT_FOUND, error: 'Job not found' },
-        HttpStatus.NOT_FOUND,
-        { cause: err },
-      )
-    }
+  ): Promise<DownloadJob> {
+    return this.mediaJobRoute({
+      action: 'getMovieJob',
+      id,
+      notFoundMessage: 'Movie job not found',
+      run: () => this.mediaDownloadService.getMovieJob(id),
+      user,
+    })
   }
 
   @Delete('/movies/:id')
   async deleteMovieJob(
     @Param('id') id: string,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
-  ): Promise<GetMovieJobResponse> {
-    const action = 'deleteMovieJob'
-
-    this.logger.log(
-      { action, jobId: id },
-      'DELETE /movies/:id - Unmonitoring and deleting movie',
-    )
-
-    try {
-      const [job, isAdmin] = await Promise.all([
-        this.mediaDownloadService.deleteMovieJob(id),
-        this.resolveIsAdmin(user),
-      ])
-      return getMovieJobResponse(job, isAdmin)
-    } catch (err) {
-      this.logger.warn(
-        { action, jobId: id, error: err instanceof Error ? err.message : err },
-        'Failed to delete movie job',
-      )
-
-      throw new HttpException(
-        { status: HttpStatus.NOT_FOUND, error: 'Job not found' },
-        HttpStatus.NOT_FOUND,
-        { cause: err },
-      )
-    }
+  ): Promise<DownloadJob> {
+    return this.mediaJobRoute({
+      action: 'deleteMovieJob',
+      id,
+      notFoundMessage: 'Failed to delete movie job',
+      run: () => this.mediaDownloadService.deleteMovieJob(id),
+      user,
+    })
   }
 
   @Get('/shows/search')
   async searchShows(
     @Query() query: MediaSearchQueryDto,
-  ): Promise<SearchShowsResponse> {
+  ): Promise<SearchMediaResponse> {
     const action = 'searchShows'
 
     this.logger.log(
@@ -623,7 +639,7 @@ export class DownloadController {
   async requestShow(
     @Body() input: RequestShowInputDto,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
-  ): Promise<GetShowJobResponse> {
+  ): Promise<DownloadJob> {
     const action = 'requestShow'
 
     this.logger.log(
@@ -641,28 +657,69 @@ export class DownloadController {
       'Show download requested',
     )
 
-    return getShowJobResponse(job, isAdmin)
+    return projectJobForViewer(job, isAdmin)
   }
 
   @Get('/shows/:id')
   async getShowJob(
     @Param('id') id: string,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
-  ): Promise<GetShowJobResponse> {
-    const action = 'getShowJob'
+  ): Promise<DownloadJob> {
+    return this.mediaJobRoute({
+      action: 'getShowJob',
+      id,
+      notFoundMessage: 'Show job not found',
+      run: () => this.mediaDownloadService.getShowJob(id),
+      user,
+    })
+  }
 
-    this.logger.log({ action, jobId: id }, 'GET /shows/:id - Retrieving job')
+  @Delete('/shows/:id')
+  async deleteShowJob(
+    @Param('id') id: string,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<DownloadJob> {
+    return this.mediaJobRoute({
+      action: 'deleteShowJob',
+      id,
+      notFoundMessage: 'Failed to delete show job',
+      run: () => this.mediaDownloadService.deleteShowJob(id),
+      user,
+    })
+  }
+
+  /**
+   * The four movie/show job routes were byte-identical apart from their
+   * `action` string and which service method they called - now that all
+   * four return the same `DownloadJob`, that duplication has nothing left
+   * to justify it.
+   */
+  private async mediaJobRoute({
+    action,
+    id,
+    notFoundMessage,
+    run,
+    user,
+  }: {
+    action: string
+    id: string
+    notFoundMessage: string
+    run: () => Promise<DownloadJob>
+    user: ForwardedUser | undefined
+  }): Promise<DownloadJob> {
+    this.logger.log({ action, jobId: id }, `${action} - Retrieving job`)
 
     try {
       const [job, isAdmin] = await Promise.all([
-        Promise.resolve(this.mediaDownloadService.getShowJob(id)),
+        run(),
         this.resolveIsAdmin(user),
       ])
-      return getShowJobResponse(job, isAdmin)
+
+      return projectJobForViewer(job, isAdmin)
     } catch (err) {
       this.logger.warn(
         { action, jobId: id, error: err instanceof Error ? err.message : err },
-        'Show job not found',
+        notFoundMessage,
       )
 
       throw new HttpException(
@@ -672,36 +729,28 @@ export class DownloadController {
       )
     }
   }
+}
 
-  @Delete('/shows/:id')
-  async deleteShowJob(
-    @Param('id') id: string,
-    @OptionalCurrentUser() user: ForwardedUser | undefined,
-  ): Promise<GetShowJobResponse> {
-    const action = 'deleteShowJob'
+/**
+ * The media type a derived key names, or `undefined` for an unrecognized
+ * prefix. The inverse of `mediaId()`'s prefix choice (`db/media-id.ts`) -
+ * the only place a raw path param becomes a type, and the reason a garbage
+ * `:id` 404s rather than reaching Radarr.
+ */
+function mediaTypeFromKey(key: string): DownloadType | undefined {
+  if (key.startsWith('tmdb:')) return DownloadTypeEnum.Movie
+  if (key.startsWith('tvdb:')) return DownloadTypeEnum.Show
+  if (key.startsWith('video:')) return DownloadTypeEnum.Video
+  return undefined
+}
 
-    this.logger.log(
-      { action, jobId: id },
-      'DELETE /shows/:id - Unmonitoring and deleting series',
-    )
-
-    try {
-      const [job, isAdmin] = await Promise.all([
-        this.mediaDownloadService.deleteShowJob(id),
-        this.resolveIsAdmin(user),
-      ])
-      return getShowJobResponse(job, isAdmin)
-    } catch (err) {
-      this.logger.warn(
-        { action, jobId: id, error: err instanceof Error ? err.message : err },
-        'Failed to delete show job',
-      )
-
-      throw new HttpException(
-        { status: HttpStatus.NOT_FOUND, error: 'Job not found' },
-        HttpStatus.NOT_FOUND,
-        { cause: err },
-      )
-    }
+/** Applies the attribution mask across a whole page of jobs. */
+function projectPage(
+  page: DownloadPage<DownloadJob>,
+  isAdmin: boolean,
+): DownloadPage<DownloadJob> {
+  return {
+    ...page,
+    items: page.items.map(job => projectJobForViewer(job, isAdmin)),
   }
 }

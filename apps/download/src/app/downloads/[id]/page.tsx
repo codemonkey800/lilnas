@@ -9,7 +9,7 @@ export default async function DownloadByIdPage({
   const { id } = await params
 
   const client = await getIdentifiedDownloadClient()
-  const initialJob = await client.getVideoJob(id)
+  const initialJob = await client.getJob(id)
 
   return <DownloadById initialJob={initialJob} />
 }

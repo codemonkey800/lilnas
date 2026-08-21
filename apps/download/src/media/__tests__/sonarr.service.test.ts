@@ -56,46 +56,6 @@ describe('SonarrService', () => {
   })
 
   describe('search', () => {
-    it('maps lookup results to ShowSearchResult', async () => {
-      mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [
-          {
-            tvdbId: 456,
-            title: 'Some Show',
-            year: 2019,
-            overview: 'A show',
-            images: [{ coverType: 'poster', url: 'poster.jpg' }],
-          },
-        ],
-      })
-
-      const result = await service.search('some show')
-
-      expect(getApiV3SeriesLookup).toHaveBeenCalledWith(
-        expect.objectContaining({ query: { term: 'some show' } }),
-      )
-      expect(result).toEqual([
-        {
-          overview: 'A show',
-          posterUrl: 'poster.jpg',
-          title: 'Some Show',
-          tvdbId: 456,
-          year: 2019,
-        },
-      ])
-    })
-
-    it('throws a descriptive error when the SDK call fails', async () => {
-      mockGetApiV3SeriesLookup.mockResolvedValue({
-        error: { message: 'boom' },
-        response: { status: 500 },
-      })
-
-      await expect(service.search('x')).rejects.toThrow('searchShows failed')
-    })
-  })
-
-  describe('searchDetailed', () => {
     it('maps every kept field from a fully-populated lookup result', async () => {
       mockGetApiV3SeriesLookup.mockResolvedValue({
         data: [
@@ -117,7 +77,7 @@ describe('SonarrService', () => {
         ],
       })
 
-      const result = await service.searchDetailed('some show')
+      const result = await service.search('some show')
 
       expect(getApiV3SeriesLookup).toHaveBeenCalledWith(
         expect.objectContaining({ query: { term: 'some show' } }),
@@ -125,13 +85,18 @@ describe('SonarrService', () => {
       expect(result).toEqual([
         {
           certification: 'TV-14',
+          filePath: undefined,
           genres: ['Drama', 'Mystery'],
+          id: 'tvdb:456',
           overview: 'A show',
           posterUrl: 'poster.jpg',
+          // Sonarr's ratings are already a flat { votes, value } pair,
+          // unlike Radarr's per-provider breakdown.
           ratingValue: 8.4,
           releaseDate: '2019-01-01',
-          releaseYear: 2019,
-          runtime: 45,
+          // Sonarr reports minutes; Media.runtime is seconds.
+          runtime: 2700,
+          sonarrId: undefined,
           title: 'Some Show',
           tvdbId: 456,
           type: 'show',
@@ -143,18 +108,20 @@ describe('SonarrService', () => {
     it('maps every optional field to a defined default when absent', async () => {
       mockGetApiV3SeriesLookup.mockResolvedValue({ data: [{}] })
 
-      const result = await service.searchDetailed('x')
+      const result = await service.search('x')
 
       expect(result).toEqual([
         {
           certification: undefined,
+          filePath: undefined,
           genres: [],
+          id: 'tvdb:0',
           overview: undefined,
           posterUrl: undefined,
           ratingValue: undefined,
           releaseDate: undefined,
-          releaseYear: undefined,
           runtime: undefined,
+          sonarrId: undefined,
           title: 'Unknown title',
           tvdbId: 0,
           type: 'show',
@@ -163,26 +130,31 @@ describe('SonarrService', () => {
       ])
     })
 
-    it('derives releaseYear from firstAired when present', async () => {
+    // See RadarrService.search()'s equivalent test: Sonarr returns `id: 0`
+    // for a lookup hit that isn't in the library, and zero is falsy but not
+    // nullish.
+    it('leaves sonarrId undefined for a lookup hit with id 0', async () => {
       mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [{ firstAired: '2015-06-15', year: 1999 }],
+        data: [{ id: 0, tvdbId: 5 }],
       })
 
-      const [result] = await service.searchDetailed('x')
+      const [result] = await service.search('x')
 
-      expect(result?.releaseDate).toBe('2015-06-15')
-      expect(result?.releaseYear).toBe(2015)
+      expect(result?.sonarrId).toBeUndefined()
     })
 
-    it('falls back to `year` when firstAired is absent', async () => {
+    // `SeriesResource.path` is the series *folder*, not a per-episode file
+    // (unlike Radarr's movieFile.path) - Phase 4's episode work needs
+    // `episodeFile` separately.
+    it('carries sonarrId and the series folder through for a library item', async () => {
       mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [{ year: 2001 }],
+        data: [{ id: 9, path: '/shows/some-show', tvdbId: 5 }],
       })
 
-      const [result] = await service.searchDetailed('x')
+      const [result] = await service.search('x')
 
-      expect(result?.releaseDate).toBeUndefined()
-      expect(result?.releaseYear).toBe(2001)
+      expect(result?.sonarrId).toBe(9)
+      expect(result?.filePath).toBe('/shows/some-show')
     })
 
     it('picks the poster image, not fanart', async () => {
@@ -197,20 +169,18 @@ describe('SonarrService', () => {
         ],
       })
 
-      const [result] = await service.searchDetailed('x')
+      const [result] = await service.search('x')
 
       expect(result?.posterUrl).toBe('poster.jpg')
     })
 
-    it('propagates an SDK error the same way search() does', async () => {
+    it('throws a descriptive error when the SDK call fails', async () => {
       mockGetApiV3SeriesLookup.mockResolvedValue({
         error: { message: 'boom' },
         response: { status: 500 },
       })
 
-      await expect(service.searchDetailed('x')).rejects.toThrow(
-        'searchShowsDetailed failed',
-      )
+      await expect(service.search('x')).rejects.toThrow('searchShows failed')
     })
   })
 

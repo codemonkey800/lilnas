@@ -10,11 +10,16 @@ import {
   sortDiscoveryResults,
 } from 'src/media/discovery-ranking'
 
+// `releaseYear` is no longer a field - it's derived from
+// `releaseDate ?? year` inside discovery-ranking, so the fixtures set the
+// underlying `year` instead and the assertions read it back through the
+// same derivation.
 function movie(
   overrides: Partial<RankedDiscoveryResult> = {},
 ): RankedDiscoveryResult {
   return {
     genres: [],
+    id: 'tmdb:1',
     sourceRank: 0,
     title: 'A Movie',
     tmdbId: 1,
@@ -28,6 +33,7 @@ function show(
 ): RankedDiscoveryResult {
   return {
     genres: [],
+    id: 'tvdb:1',
     sourceRank: 0,
     title: 'A Show',
     tvdbId: 1,
@@ -36,8 +42,8 @@ function show(
   } as RankedDiscoveryResult
 }
 
-function discoveryId(r: RankedDiscoveryResult): number {
-  return r.type === DownloadType.Movie ? r.tmdbId : r.tvdbId
+function discoveryId(r: RankedDiscoveryResult): string {
+  return r.id
 }
 
 describe('rankBySourceOrder', () => {
@@ -92,9 +98,9 @@ describe('applyDiscoveryFilters', () => {
   })
 
   it('applies inclusive year bounds', () => {
-    const y2000 = movie({ releaseYear: 2000, title: '2000' })
-    const y2010 = movie({ releaseYear: 2010, title: '2010' })
-    const y2020 = movie({ releaseYear: 2020, title: '2020' })
+    const y2000 = movie({ year: 2000, title: '2000' })
+    const y2010 = movie({ year: 2010, title: '2010' })
+    const y2020 = movie({ year: 2020, title: '2020' })
 
     const result = applyDiscoveryFilters([y2000, y2010, y2020], {
       yearFrom: 2000,
@@ -104,9 +110,9 @@ describe('applyDiscoveryFilters', () => {
     expect(result.map(r => r.title).sort()).toEqual(['2000', '2010'])
   })
 
-  it('excludes rows with no releaseYear when a year bound is set', () => {
-    const noYear = movie({ releaseYear: undefined, title: 'no-year' })
-    const withYear = movie({ releaseYear: 2015, title: 'with-year' })
+  it('excludes rows with no derivable release year when a year bound is set', () => {
+    const noYear = movie({ title: 'no-year', year: undefined })
+    const withYear = movie({ title: 'with-year', year: 2015 })
 
     const result = applyDiscoveryFilters([noYear, withYear], {
       yearFrom: 2000,
@@ -178,11 +184,13 @@ describe('sortDiscoveryResults', () => {
 
   it('breaks a title tie deterministically via sourceRank, then type, then id', () => {
     const first = movie({
+      id: 'tmdb:1',
       sourceRank: 0,
       tmdbId: 1,
       title: 'Same Title',
     })
     const second = movie({
+      id: 'tmdb:2',
       sourceRank: 1,
       tmdbId: 2,
       title: 'Same Title',
@@ -192,13 +200,23 @@ describe('sortDiscoveryResults', () => {
     const resultB = sortDiscoveryResults([first, second], 'title')
 
     // Same order regardless of input order - the tie-break makes it total.
-    expect(resultA.map(discoveryId)).toEqual([1, 2])
-    expect(resultB.map(discoveryId)).toEqual([1, 2])
+    expect(resultA.map(discoveryId)).toEqual(['tmdb:1', 'tmdb:2'])
+    expect(resultB.map(discoveryId)).toEqual(['tmdb:1', 'tmdb:2'])
   })
 
   it('breaks a cross-type tie via type (movie before show alphabetically)', () => {
-    const theShow = show({ sourceRank: 0, title: 'Same Title', tvdbId: 5 })
-    const theMovie = movie({ sourceRank: 0, title: 'Same Title', tmdbId: 5 })
+    const theShow = show({
+      id: 'tvdb:5',
+      sourceRank: 0,
+      title: 'Same Title',
+      tvdbId: 5,
+    })
+    const theMovie = movie({
+      id: 'tmdb:5',
+      sourceRank: 0,
+      title: 'Same Title',
+      tmdbId: 5,
+    })
 
     const result = sortDiscoveryResults([theShow, theMovie], 'title')
 
@@ -210,9 +228,9 @@ describe('sortDiscoveryResults', () => {
 
   it('produces the same order across repeated calls (deterministic)', () => {
     const items = [
-      movie({ sourceRank: 0, title: 'Same', tmdbId: 1 }),
-      movie({ sourceRank: 0, title: 'Same', tmdbId: 2 }),
-      show({ sourceRank: 0, title: 'Same', tvdbId: 3 }),
+      movie({ id: 'tmdb:1', sourceRank: 0, title: 'Same', tmdbId: 1 }),
+      movie({ id: 'tmdb:2', sourceRank: 0, title: 'Same', tmdbId: 2 }),
+      show({ id: 'tvdb:3', sourceRank: 0, title: 'Same', tvdbId: 3 }),
     ]
 
     const first = sortDiscoveryResults(items, 'title').map(discoveryId)

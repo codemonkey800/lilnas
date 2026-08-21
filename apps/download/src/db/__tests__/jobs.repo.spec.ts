@@ -1,12 +1,12 @@
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 
 import type { Db } from 'src/db/db.service'
-import type { JobCursor } from 'src/db/job-cursor'
 import {
   countJobsByRequester,
   countJobsByType,
   listJobsPage,
 } from 'src/db/jobs.repo'
+import type { ListCursor } from 'src/db/list-cursor'
 import { jobs } from 'src/db/schema'
 
 import { createTestDb } from './test-utils'
@@ -28,9 +28,9 @@ function seedJob(db: Db, overrides: Partial<RowInsert> & { id: string }): void {
 const FILTER_KEY = 'test-filter-key'
 const T0 = new Date('2026-01-01T00:00:00.000Z').getTime()
 
-function cursorFrom(row: { createdAt: Date; id: string }): JobCursor {
+function cursorFrom(row: { createdAt: Date; id: string }): ListCursor {
   return {
-    createdAtMs: row.createdAt.getTime(),
+    sortKeyMs: row.createdAt.getTime(),
     filterKey: FILTER_KEY,
     id: row.id,
   }

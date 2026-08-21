@@ -15,18 +15,12 @@ import {
   postApiV3Command,
   postApiV3Movie,
 } from '@lilnas/media/radarr'
-import {
-  type DiscoveryMovieResult,
-  DownloadType,
-  type Movie,
-  type MovieSearchResult,
-} from '@lilnas/utils/download/types'
+import { DownloadType, type Movie } from '@lilnas/utils/download/types'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 
 import { mediaId } from 'src/db/media-id'
 import type { RadarrMediaClient } from 'src/media/clients'
 import { RADARR_CLIENT } from 'src/media/clients'
-import { releaseYearFromDate } from 'src/media/release-date.util'
 import { checkSdkError, unwrapSdkResult } from 'src/media/sdk-result.util'
 import { generateTitleSlug } from 'src/media/title-slug.util'
 
@@ -45,18 +39,6 @@ export interface RequestMovieResult {
   title: string
 }
 
-function toMovieSearchResult(movie: MovieResource): MovieSearchResult {
-  const posterUrl = movie.images?.find(img => img.coverType === 'poster')?.url
-
-  return {
-    overview: movie.overview ?? undefined,
-    posterUrl: posterUrl ?? undefined,
-    title: movie.title ?? 'Unknown title',
-    tmdbId: movie.tmdbId ?? 0,
-    year: movie.year,
-  }
-}
-
 // Radarr surfaces up to four release-date-shaped fields depending on the
 // movie's lifecycle stage (announced -> in cinemas -> digital -> physical) -
 // none of them are guaranteed present, so the first one that is wins.
@@ -71,40 +53,13 @@ function pickMovieReleaseDate(movie: MovieResource): string | undefined {
 }
 
 /**
- * Fuller mapping than `toMovieSearchResult()` above, for the discovery
- * endpoint - kept as a separate function (not a widening of
- * `MovieSearchResult`) so the existing `/movies/search` response bytes,
- * and `apps/tdr-bot`'s existing calls against it, can never regress.
- */
-function toDiscoveryMovieResult(movie: MovieResource): DiscoveryMovieResult {
-  const posterUrl = movie.images?.find(img => img.coverType === 'poster')?.url
-  const releaseDate = pickMovieReleaseDate(movie)
-
-  return {
-    certification: movie.certification ?? undefined,
-    genres: movie.genres ?? [],
-    overview: movie.overview ?? undefined,
-    posterUrl: posterUrl ?? undefined,
-    ratingValue: movie.ratings?.tmdb?.value ?? movie.ratings?.imdb?.value,
-    releaseDate,
-    releaseYear: releaseYearFromDate(releaseDate) ?? movie.year,
-    runtime: movie.runtime,
-    title: movie.title ?? 'Unknown title',
-    tmdbId: movie.tmdbId ?? 0,
-    type: DownloadType.Movie,
-    year: movie.year,
-  }
-}
-
-/**
- * The single Radarr -> `Media` mapper (plan §4.1/§4.2), feeding
- * `MediaResolverService`'s library cache and per-id fallback. Deliberately
- * NOT yet used by `search()`/`searchDetailed()` above - those still back
- * `toMovieSearchResult()`/`toDiscoveryMovieResult()` because
- * `discovery.service.ts`/`discovery-ranking.ts` (Phase 6 files) key off
- * `DiscoveryMovieResult.releaseYear`, a field `Media` doesn't carry. Folding
- * `search()`/`searchDetailed()` onto this mapper is Phase 6 work, done
- * together with that reshape - see the plan doc's Phase 5 status note.
+ * The single Radarr -> `Media` mapper (plan §4.1/§4.2). Everything that
+ * turns a Radarr payload into a domain object goes through here: the
+ * resolver's library cache and per-id fallback, `/movies/search`,
+ * `/discover`, and `/media/:id`. A search hit, a discovery hit and a
+ * library item are now literally the same type, differing only in which
+ * optional fields are populated - which is what let three near-identical
+ * mappers collapse into this one.
  */
 export function toMovie(movie: MovieResource): Movie {
   const posterUrl = movie.images?.find(img => img.coverType === 'poster')?.url
@@ -118,7 +73,10 @@ export function toMovie(movie: MovieResource): Movie {
     id: mediaId({ tmdbId, type: DownloadType.Movie }),
     overview: movie.overview ?? undefined,
     posterUrl: posterUrl ?? undefined,
-    radarrId: movie.id ?? undefined,
+    // Radarr returns `id: 0` for a lookup result that isn't in the library
+    // - falsy rather than absent - so `|| undefined` (not `?? undefined`)
+    // is what keeps a non-library hit from claiming radarrId 0.
+    radarrId: movie.id || undefined,
     ratingValue: movie.ratings?.tmdb?.value ?? movie.ratings?.imdb?.value,
     releaseDate,
     // Radarr reports minutes; `Media.runtime` is seconds (see MediaBaseSchema).
@@ -138,7 +96,14 @@ export class RadarrService {
     @Inject(RADARR_CLIENT) private readonly client: RadarrMediaClient,
   ) {}
 
-  async search(query: string): Promise<MovieSearchResult[]> {
+  /**
+   * Radarr's lookup, mapped to `Media`. Backs both `/movies/search` and
+   * `/discover` - they were two methods and two mappers over the identical
+   * upstream call purely because their response types differed, and the
+   * search mapper dropped genres/ratings/runtime/certification on the floor
+   * even though the same response carried them.
+   */
+  async search(query: string): Promise<Movie[]> {
     const movies = unwrapSdkResult(
       await getApiV3MovieLookup({
         client: this.client,
@@ -147,25 +112,7 @@ export class RadarrService {
       'searchMovies',
     )
 
-    return movies.map(toMovieSearchResult)
-  }
-
-  /**
-   * Same underlying Radarr lookup call as `search()` above - only the
-   * mapper differs, extracting the extra fields discovery's filter/sort
-   * need (genres, ratings, release-date candidates, certification, runtime)
-   * that `toMovieSearchResult()` discards.
-   */
-  async searchDetailed(query: string): Promise<DiscoveryMovieResult[]> {
-    const movies = unwrapSdkResult(
-      await getApiV3MovieLookup({
-        client: this.client,
-        query: { term: query },
-      }),
-      'searchMoviesDetailed',
-    )
-
-    return movies.map(toDiscoveryMovieResult)
+    return movies.map(toMovie)
   }
 
   /**

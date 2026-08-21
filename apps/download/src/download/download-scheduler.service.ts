@@ -1,5 +1,5 @@
 import {
-  DownloadJob,
+  DownloadJobRecord,
   DownloadJobStatus,
   DownloadType,
 } from '@lilnas/utils/download/types'
@@ -25,15 +25,15 @@ export class DownloadSchedulerService {
     private readonly metrics: DownloadMetricsService,
   ) {}
 
-  add(job: DownloadJob) {
+  add(job: DownloadJobRecord) {
     const action = 'addJob'
-    const sanitizedUrl = job.url.split('?')[0]
+    const jobMediaId = job.mediaId
 
     this.logger.log(
       {
         action,
         jobId: job.id,
-        url: sanitizedUrl,
+        mediaId: jobMediaId,
         jobType: job.type,
         queueSizeBefore: this.downloadStateService.queue.size(),
         inProgressJobs: this.downloadStateService.inProgressJobs.size,
@@ -48,7 +48,7 @@ export class DownloadSchedulerService {
       {
         action,
         jobId: job.id,
-        url: sanitizedUrl,
+        mediaId: jobMediaId,
         queueSizeAfter: this.downloadStateService.queue.size(),
       },
       'Job added to queue successfully',
@@ -58,7 +58,7 @@ export class DownloadSchedulerService {
     this.maybeProcessNextJob()
   }
 
-  delete(id: string): DownloadJob | undefined {
+  delete(id: string): DownloadJobRecord | undefined {
     const action = 'deleteJob'
     const job = this.downloadStateService.jobs.get(id)
 
@@ -67,13 +67,13 @@ export class DownloadSchedulerService {
       return undefined
     }
 
-    const sanitizedUrl = job.url.split('?')[0]
+    const jobMediaId = job.mediaId
 
     this.logger.log(
       {
         action,
         jobId: id,
-        url: sanitizedUrl,
+        mediaId: jobMediaId,
         status: job.status,
         queueSizeBefore: this.downloadStateService.queue.size(),
         inProgressJobs: this.downloadStateService.inProgressJobs.size,
@@ -87,7 +87,7 @@ export class DownloadSchedulerService {
       {
         action,
         jobId: id,
-        url: sanitizedUrl,
+        mediaId: jobMediaId,
         queueSizeAfter: this.downloadStateService.queue.size(),
       },
       'Job deleted from queue successfully',
@@ -151,14 +151,14 @@ export class DownloadSchedulerService {
       throw new Error(`Unable to process job with ID '${id}'`)
     }
 
-    const sanitizedUrl = job.url.split('?')[0]
+    const jobMediaId = job.mediaId
     const jobStartTime = Date.now()
 
     this.logger.log(
       {
         action,
         jobId: id,
-        url: sanitizedUrl,
+        mediaId: jobMediaId,
         jobType: job.type,
         queueSizeRemaining: queue.size(),
         inProgressJobs: inProgressJobs.size + 1, // +1 because we're about to add this job
@@ -193,7 +193,7 @@ export class DownloadSchedulerService {
         {
           action,
           jobId: id,
-          url: sanitizedUrl,
+          mediaId: jobMediaId,
           duration: downloadDuration,
           phase: 'download',
         },
@@ -209,7 +209,7 @@ export class DownloadSchedulerService {
         {
           action,
           jobId: id,
-          url: sanitizedUrl,
+          mediaId: jobMediaId,
           duration: convertDuration,
           phase: 'convert',
         },
@@ -225,7 +225,7 @@ export class DownloadSchedulerService {
         {
           action,
           jobId: id,
-          url: sanitizedUrl,
+          mediaId: jobMediaId,
           duration: uploadDuration,
           phase: 'upload',
         },
@@ -241,7 +241,7 @@ export class DownloadSchedulerService {
         {
           action,
           jobId: id,
-          url: sanitizedUrl,
+          mediaId: jobMediaId,
           duration: cleanDuration,
           phase: 'clean',
         },
@@ -262,7 +262,7 @@ export class DownloadSchedulerService {
         {
           action,
           jobId: id,
-          url: sanitizedUrl,
+          mediaId: jobMediaId,
           totalDuration,
           downloadDuration,
           convertDuration,
@@ -279,7 +279,7 @@ export class DownloadSchedulerService {
         {
           action,
           jobId: id,
-          url: sanitizedUrl,
+          mediaId: jobMediaId,
           error,
           totalDuration,
           jobType: job.type,
@@ -304,7 +304,7 @@ export class DownloadSchedulerService {
         {
           action,
           jobId: id,
-          url: sanitizedUrl,
+          mediaId: jobMediaId,
           inProgressJobsRemaining: inProgressJobs.size,
           queueSizeRemaining: queue.size(),
         },

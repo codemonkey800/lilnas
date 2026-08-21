@@ -1,4 +1,3 @@
-import { ChildProcessWithoutNullStreams } from 'child_process'
 import { z } from 'zod'
 
 import {
@@ -78,9 +77,9 @@ export type JobRequester = z.infer<typeof JobRequesterSchema>
 
 /**
  * A snapshot of a movie/show job's last-known Radarr/Sonarr queue entry.
- * The queue poller keeps one of these per tracked job and diffs it against
- * the latest queue response each tick, only emitting an update when
- * something has changed.
+ * Read live off the Radarr/Sonarr queue by `MediaPollerService` and attached
+ * to the resolved `Movie`/`Show` - never persisted, since the queue is where
+ * it was always coming from.
  */
 export type DownloadQueueSnapshot = z.infer<typeof DownloadQueueSnapshotSchema>
 
@@ -110,27 +109,24 @@ export function isManagedMedia(media: Media): media is Movie | Show {
 }
 
 /**
- * The event-shaped replacement for the `VideoDownloadJob | MovieDownloadJob |
- * ShowDownloadJob` union below - a plain, non-union object whose only
- * type-varying part is nested at `media`. Named `DownloadJobV2` rather than
- * `DownloadJob` purely to avoid colliding with the identifier already taken
- * by the union type this phase leaves in place (Phase 2 of the plan linked
- * above adds this hierarchy *alongside* the old types with zero call-site
- * churn). Renamed to `DownloadJob` - and the old union deleted - in Phase 6,
- * which is the commit that migrates every consumer over anyway.
+ * A download *event*: who asked, when, and what happened. A plain,
+ * non-union object - the only type-varying part is nested at `media`, which
+ * is the discriminated union. This is simultaneously the domain type, the
+ * REST body, and the WebSocket frame payload, so there is no serializer
+ * layer between them; the only read-path transform is attribution masking
+ * (`projectJobForViewer`).
  */
-export type DownloadJobV2 = z.infer<typeof DownloadJobSchema>
+export type DownloadJob = z.infer<typeof DownloadJobSchema>
 
 /**
- * The app-internal storage shape the Phase 5 state layer is moving towards:
- * `DownloadJobV2` with `media` (a live, re-derived lookup) replaced by the
- * durable `mediaId` key it's derived from. Not yet the in-memory `Map`'s
- * value type - `DownloadStateService.jobs` still holds the legacy
- * `DownloadJob` union (below) until Phase 6 wires `MediaResolverService`
- * into the read path; this type exists now so Phase 6 lands as a type swap
- * rather than a from-scratch design.
+ * The app-internal storage shape: a `DownloadJob` with `media` (a live,
+ * re-derived lookup) replaced by the durable `mediaId` key it's derived
+ * from, plus the `type` needed to know *how* to derive it. This is what
+ * `DownloadStateService.jobs` holds and what the `jobs` table stores -
+ * caching a resolved `Media` copy per job would just be a second cache with
+ * its own staleness.
  */
-export type DownloadJobRecord = Omit<DownloadJobV2, 'media'> & {
+export type DownloadJobRecord = Omit<DownloadJob, 'media'> & {
   mediaId: string
   type: DownloadType
 }
@@ -139,81 +135,8 @@ export type GalleryItem = z.infer<typeof GalleryItemSchema>
 
 /** `GET /download/media/:id`'s response - see plan §3.1. */
 export interface MediaDetailResponse {
-  jobs: DownloadJobV2[]
+  jobs: DownloadJob[]
   media: Media
-}
-
-// The `Video` member intentionally has the exact same fields/names/types as
-// the original (pre-union) `DownloadJob` interface - only `type` narrows
-// from `DownloadType` to the `DownloadType.Video` literal. Zero shape change
-// for existing callers.
-export interface VideoDownloadJob extends CreateDownloadJobInput {
-  completedAt?: Date
-  description?: string
-  downloadUrls?: string[]
-  error?: string
-  file?: string
-  id: string
-  proc?: ChildProcessWithoutNullStreams
-  requester?: JobRequester | null
-  status: DownloadJobStatus
-  timeRange?: {
-    start: string
-    end: string
-  }
-  title?: string
-  type: DownloadType.Video
-  url: string
-}
-
-export interface MovieDownloadJob {
-  completedAt?: Date
-  description?: string
-  error?: string
-  filePath?: string
-  id: string
-  mediaTitle?: string
-  overview?: string
-  posterUrl?: string
-  queueSnapshot?: DownloadQueueSnapshot
-  radarrId?: number
-  requester?: JobRequester | null
-  status: DownloadJobStatus
-  title?: string
-  type: DownloadType.Movie
-  url: string
-}
-
-export interface ShowDownloadJob {
-  completedAt?: Date
-  description?: string
-  error?: string
-  filePath?: string
-  id: string
-  mediaTitle?: string
-  overview?: string
-  posterUrl?: string
-  queueSnapshot?: DownloadQueueSnapshot
-  requester?: JobRequester | null
-  sonarrId?: number
-  status: DownloadJobStatus
-  title?: string
-  type: DownloadType.Show
-  url: string
-}
-
-export type DownloadJob = VideoDownloadJob | MovieDownloadJob | ShowDownloadJob
-
-export function isVideoDownloadJob(job: DownloadJob): job is VideoDownloadJob {
-  return job.type === DownloadType.Video
-}
-
-export function isMovieDownloadJob(job: DownloadJob): job is MovieDownloadJob {
-  return job.type === DownloadType.Movie
-}
-
-export function isShowDownloadJob(job: DownloadJob): job is ShowDownloadJob {
-  return job.type === DownloadType.Show
 }
 
 /**
@@ -249,20 +172,26 @@ export interface DownloadJobEvent {
  */
 export const DOWNLOAD_JOB_EVENT_TYPE = 'download-job'
 
-export type GetDownloadJobResponse = Pick<
-  Extract<DownloadJob, { type: DownloadType.Video }>,
-  | 'description'
-  | 'downloadUrls'
-  | 'error'
-  | 'hiddenAttribution'
-  | 'id'
-  | 'requester'
-  | 'status'
-  | 'timeRange'
-  | 'title'
-  | 'type'
-  | 'url'
->
+/**
+ * @deprecated Pre-Media wire shape, retained only for `apps/tdr-bot`. Use
+ * {@link DownloadJob}. Removed by TODO(tdr-bot-migration) in ./client.
+ *
+ * Hand-written rather than a `Pick<>` because the union it used to be
+ * picked from no longer exists.
+ */
+export interface GetDownloadJobResponse {
+  description?: string
+  downloadUrls?: string[]
+  error?: string
+  hiddenAttribution: boolean
+  id: string
+  requester: JobRequester | null
+  status: DownloadJobStatus
+  timeRange?: TimeRange
+  title?: string
+  type: DownloadType.Video
+  url: string
+}
 
 export type VideoInfo = z.infer<typeof VideoInfoSchema>
 
@@ -277,104 +206,20 @@ export type HistoryQuery = z.infer<typeof HistoryQuerySchema>
 export type DiscoverQuery = z.infer<typeof DiscoverQuerySchema>
 
 /**
- * A single Radarr movie-lookup result, returned by the movie search endpoint
- * so the caller can pick which candidate to request.
+ * `GET /download/movies/search` and `GET /download/shows/search`. Both
+ * return the same `Media` shape every other endpoint does - a search hit, a
+ * discovery hit, and a downloaded title differ only in which optional
+ * fields are populated, so they are literally the same type.
  */
-export interface MovieSearchResult {
-  overview?: string
-  posterUrl?: string
-  title: string
-  tmdbId: number
-  year?: number
+export interface SearchMediaResponse {
+  results: Media[]
 }
-
-/**
- * A single Sonarr series-lookup result, returned by the show search endpoint
- * so the caller can pick which candidate to request.
- */
-export interface ShowSearchResult {
-  overview?: string
-  posterUrl?: string
-  title: string
-  tvdbId: number
-  year?: number
-}
-
-export interface SearchMoviesResponse {
-  results: MovieSearchResult[]
-}
-
-/**
- * Fields shared by every discovery result, regardless of source - kept
- * intentionally separate from `MovieSearchResult`/`ShowSearchResult` above
- * (which back the existing `/movies/search`, `/shows/search` endpoints) so
- * widening this shape can never change those endpoints' response bytes.
- */
-interface DiscoveryResultBase {
-  certification?: string
-  // Normalized `null` -> `[]` at the mapper (never left as `null | undefined`)
-  // so discovery-ranking.ts's genre filter never has to null-check.
-  genres: string[]
-  overview?: string
-  posterUrl?: string
-  ratingValue?: number
-  releaseDate?: string
-  releaseYear?: number
-  runtime?: number
-  title: string
-  year?: number
-}
-
-export interface DiscoveryMovieResult extends DiscoveryResultBase {
-  tmdbId: number
-  type: DownloadType.Movie
-}
-
-export interface DiscoveryShowResult extends DiscoveryResultBase {
-  tvdbId: number
-  type: DownloadType.Show
-}
-
-export type DiscoveryResult = DiscoveryMovieResult | DiscoveryShowResult
 
 export type DiscoverySource = 'movies' | 'shows'
 
 export interface DiscoveryFacets {
   genres: Array<{ count: number; genre: string }>
 }
-
-/**
- * `GET /download/discover`'s response. Extends the same `DownloadPage`
- * envelope every other list endpoint uses, plus discovery-only fields:
- * `facets` (the genre chip vocabulary, computed server-side) and
- * `degradedSources` - non-empty when one upstream (Radarr or Sonarr) failed
- * and the page was served from the other alone. An empty array here is not
- * the same as "everything is fine" being unstated - it's the explicit
- * signal that both sources answered.
- */
-export interface DiscoveryPage extends DownloadPage<DiscoveryResult> {
-  degradedSources: DiscoverySource[]
-  facets: DiscoveryFacets
-}
-
-export interface SearchShowsResponse {
-  results: ShowSearchResult[]
-}
-
-export type GetMovieJobResponse = Pick<
-  MovieDownloadJob,
-  | 'description'
-  | 'error'
-  | 'id'
-  | 'mediaTitle'
-  | 'posterUrl'
-  | 'queueSnapshot'
-  | 'radarrId'
-  | 'requester'
-  | 'status'
-  | 'title'
-  | 'type'
->
 
 /**
  * The shared envelope for every cursor-paginated list endpoint (activity,
@@ -389,6 +234,20 @@ export interface DownloadPage<T> {
 }
 
 /**
+ * `GET /download/discover`'s response. Extends the same `DownloadPage`
+ * envelope every other list endpoint uses, plus discovery-only fields:
+ * `facets` (the genre chip vocabulary, computed server-side) and
+ * `degradedSources` - non-empty when one upstream (Radarr or Sonarr) failed
+ * and the page was served from the other alone. An empty array here is not
+ * the same as "everything is fine" being unstated - it's the explicit
+ * signal that both sources answered.
+ */
+export interface DiscoveryPage extends DownloadPage<Media> {
+  degradedSources: DiscoverySource[]
+  facets: DiscoveryFacets
+}
+
+/**
  * The gallery's chip vocabulary - `GET /download/gallery/facets`. Computed
  * over only the date range (never the currently-selected type/uploader), so
  * narrowing by one facet never makes the others disappear. The uploader
@@ -400,41 +259,3 @@ export interface DownloadGalleryFacets {
   types: Array<{ count: number; type: DownloadType }>
   uploaders: Array<{ count: number; email: string }>
 }
-
-export type GetShowJobResponse = Pick<
-  ShowDownloadJob,
-  | 'description'
-  | 'error'
-  | 'id'
-  | 'mediaTitle'
-  | 'posterUrl'
-  | 'queueSnapshot'
-  | 'requester'
-  | 'sonarrId'
-  | 'status'
-  | 'title'
-  | 'type'
->
-
-/**
- * The two fields every list endpoint needs that don't exist on `DownloadJob`
- * itself - `createdAt` has no home there at all (see `hydrateJobRow()`'s own
- * comment), and `completedAt` needs to travel as an ISO string rather than a
- * `Date` for the wire, matching every other timestamp-shaped field in these
- * response types.
- */
-export interface DownloadJobListFields {
-  completedAt: string | null
-  createdAt: string
-}
-
-/**
- * A gallery card and a detail page cannot drift field-for-field, because
- * they're literally built from the same `Get*JobResponse` types - this only
- * adds the two fields a list needs on top. Discriminated on `type`, which
- * all three already carry.
- */
-export type DownloadJobListItem =
-  | (GetDownloadJobResponse & DownloadJobListFields)
-  | (GetMovieJobResponse & DownloadJobListFields)
-  | (GetShowJobResponse & DownloadJobListFields)

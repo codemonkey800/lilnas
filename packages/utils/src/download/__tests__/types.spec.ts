@@ -1,64 +1,21 @@
 import {
   DownloadJob,
   DownloadJobStatus,
-  DownloadJobV2,
   DownloadType,
   GetDownloadJobResponse,
   IN_PROGRESS_DOWNLOAD_JOB_STATUSES,
   isInProgressDownloadJobStatus,
   isManagedMedia,
   isMovie,
-  isMovieDownloadJob,
   isShow,
-  isShowDownloadJob,
   isTerminalDownloadJobStatus,
   isVideo,
-  isVideoDownloadJob,
   Media,
   Movie,
-  MovieDownloadJob,
   Show,
-  ShowDownloadJob,
   TERMINAL_DOWNLOAD_JOB_STATUSES,
   Video,
-  VideoDownloadJob,
 } from 'src/download/types'
-
-function buildVideoJob(
-  overrides: Partial<VideoDownloadJob> = {},
-): VideoDownloadJob {
-  return {
-    ...overrides,
-    id: overrides.id ?? 'video-1',
-    status: overrides.status ?? DownloadJobStatus.Pending,
-    type: DownloadType.Video,
-    url: overrides.url ?? 'https://example.com/video',
-  }
-}
-
-function buildMovieJob(
-  overrides: Partial<MovieDownloadJob> = {},
-): MovieDownloadJob {
-  return {
-    ...overrides,
-    id: overrides.id ?? 'movie-1',
-    status: overrides.status ?? DownloadJobStatus.Requested,
-    type: DownloadType.Movie,
-    url: overrides.url ?? 'https://example.com/movie',
-  }
-}
-
-function buildShowJob(
-  overrides: Partial<ShowDownloadJob> = {},
-): ShowDownloadJob {
-  return {
-    ...overrides,
-    id: overrides.id ?? 'show-1',
-    status: overrides.status ?? DownloadJobStatus.Requested,
-    type: DownloadType.Show,
-    url: overrides.url ?? 'https://example.com/show',
-  }
-}
 
 function buildVideo(overrides: Partial<Video> = {}): Video {
   return {
@@ -90,7 +47,7 @@ function buildShow(overrides: Partial<Show> = {}): Show {
   }
 }
 
-function buildJob(overrides: Partial<DownloadJobV2> = {}): DownloadJobV2 {
+function buildJob(overrides: Partial<DownloadJob> = {}): DownloadJob {
   return {
     completedAt: overrides.completedAt ?? null,
     createdAt: overrides.createdAt ?? '2026-08-20T12:00:00.000Z',
@@ -169,85 +126,18 @@ describe('TERMINAL_DOWNLOAD_JOB_STATUSES / IN_PROGRESS_DOWNLOAD_JOB_STATUSES', (
   })
 })
 
-describe('DownloadJob discriminated union', () => {
-  const videoJob: DownloadJob = buildVideoJob({
-    downloadUrls: ['https://example.com/file.mp4'],
-    timeRange: { start: '00:00:00', end: '00:01:00' },
-  })
-  const movieJob: DownloadJob = buildMovieJob({
-    mediaTitle: 'Some Movie',
-    radarrId: 42,
-  })
-  const showJob: DownloadJob = buildShowJob({
-    mediaTitle: 'Some Show',
-    sonarrId: 7,
-  })
-  const jobs = [videoJob, movieJob, showJob]
-
-  describe('isVideoDownloadJob', () => {
-    it('matches only video jobs', () => {
-      expect(jobs.filter(isVideoDownloadJob)).toEqual([videoJob])
-    })
-
-    it('narrows to VideoDownloadJob-only fields', () => {
-      if (!isVideoDownloadJob(videoJob)) {
-        throw new Error('expected videoJob to be narrowed to VideoDownloadJob')
-      }
-
-      expect(videoJob.downloadUrls).toEqual(['https://example.com/file.mp4'])
-      expect(videoJob.timeRange).toEqual({
-        start: '00:00:00',
-        end: '00:01:00',
-      })
-    })
-  })
-
-  describe('isMovieDownloadJob', () => {
-    it('matches only movie jobs', () => {
-      expect(jobs.filter(isMovieDownloadJob)).toEqual([movieJob])
-    })
-
-    it('narrows to MovieDownloadJob-only fields', () => {
-      if (!isMovieDownloadJob(movieJob)) {
-        throw new Error('expected movieJob to be narrowed to MovieDownloadJob')
-      }
-
-      expect(movieJob.radarrId).toBe(42)
-      expect(movieJob.mediaTitle).toBe('Some Movie')
-    })
-  })
-
-  describe('isShowDownloadJob', () => {
-    it('matches only show jobs', () => {
-      expect(jobs.filter(isShowDownloadJob)).toEqual([showJob])
-    })
-
-    it('narrows to ShowDownloadJob-only fields', () => {
-      if (!isShowDownloadJob(showJob)) {
-        throw new Error('expected showJob to be narrowed to ShowDownloadJob')
-      }
-
-      expect(showJob.sonarrId).toBe(7)
-      expect(showJob.mediaTitle).toBe('Some Show')
-    })
-  })
-
-  it('every job carries the fields shared across all job types', () => {
-    for (const job of jobs) {
-      expect(typeof job.id).toBe('string')
-      expect(typeof job.status).toBe('string')
-      expect(typeof job.url).toBe('string')
-    }
-  })
-})
-
 describe('GetDownloadJobResponse', () => {
-  it('accepts exactly the picked video-job fields', () => {
+  // The deprecated tdr-bot compatibility shape (see client.ts's
+  // TODO(tdr-bot-migration) block). Pinned here so a field can't quietly
+  // disappear from under tdr-bot while it still reads this shape.
+  it('carries exactly the flat pre-Media video fields', () => {
     const response: GetDownloadJobResponse = {
       description: 'a video',
       downloadUrls: ['https://example.com/a.mp4'],
       error: undefined,
+      hiddenAttribution: false,
       id: 'video-1',
+      requester: null,
       status: DownloadJobStatus.Completed,
       timeRange: undefined,
       title: 'A video',
@@ -261,7 +151,9 @@ describe('GetDownloadJobResponse', () => {
         'description',
         'downloadUrls',
         'error',
+        'hiddenAttribution',
         'id',
+        'requester',
         'status',
         'timeRange',
         'title',
@@ -269,28 +161,6 @@ describe('GetDownloadJobResponse', () => {
         'url',
       ].sort(),
     )
-  })
-
-  it('is satisfied by a full VideoDownloadJob (minus file/proc)', () => {
-    const videoJob = buildVideoJob({
-      description: 'a video',
-      downloadUrls: ['https://example.com/a.mp4'],
-      title: 'A video',
-    })
-
-    const response: GetDownloadJobResponse = {
-      description: videoJob.description,
-      downloadUrls: videoJob.downloadUrls,
-      error: videoJob.error,
-      id: videoJob.id,
-      status: videoJob.status,
-      timeRange: videoJob.timeRange,
-      title: videoJob.title,
-      type: videoJob.type,
-      url: videoJob.url,
-    }
-
-    expect(response.downloadUrls).toEqual(videoJob.downloadUrls)
   })
 })
 
@@ -366,7 +236,7 @@ describe('Media guards', () => {
   })
 })
 
-describe('DownloadJobV2', () => {
+describe('DownloadJob', () => {
   it('nests a Media object at .media and carries the shared job facts', () => {
     const job = buildJob({ media: buildMovie({ radarrId: 42 }) })
 
@@ -379,7 +249,7 @@ describe('DownloadJobV2', () => {
     expect(job.completedAt).toBeNull()
   })
 
-  it('accepts each media arm without a discriminant on DownloadJobV2 itself', () => {
+  it('accepts each media arm without a discriminant on DownloadJob itself', () => {
     const jobs = [
       buildJob({ media: buildVideo() }),
       buildJob({ media: buildMovie() }),

@@ -1,4 +1,6 @@
-import { DiscoveryResult, DownloadType } from '@lilnas/utils/download/types'
+import { Media } from '@lilnas/utils/download/types'
+
+import { releaseYearFromDate } from './release-date.util'
 
 /**
  * A discovery result tagged with its 0-based position within its own
@@ -11,12 +13,23 @@ import { DiscoveryResult, DownloadType } from '@lilnas/utils/download/types'
  * `sortDiscoveryResults()` can still recover each item's original per-source
  * order after movies and shows have been concatenated into one array.
  */
-export type RankedDiscoveryResult = DiscoveryResult & { sourceRank: number }
+export type RankedDiscoveryResult = Media & { sourceRank: number }
 
 export function rankBySourceOrder<T>(
   items: readonly T[],
 ): Array<T & { sourceRank: number }> {
   return items.map((item, sourceRank) => ({ ...item, sourceRank }))
+}
+
+/**
+ * The year to filter on: the release date's year when there is one,
+ * otherwise the upstream `year`. Derived rather than carried as a field -
+ * `Media` has `releaseDate` and `year`, and the old `DiscoveryResultBase`
+ * carried a third, precomputed `releaseYear` that was exactly this
+ * expression.
+ */
+function releaseYear(result: Media): number | undefined {
+  return releaseYearFromDate(result.releaseDate) ?? result.year
 }
 
 /**
@@ -48,12 +61,13 @@ export interface DiscoveryFilterParams {
 
 /**
  * Filters by genre (case-insensitive, OR across selections) and/or by
- * inclusive release-year bounds. A row with no `releaseYear` is excluded
- * whenever either year bound is set - it can't be known to fall inside an
- * unknown range, so silently keeping it would be the wrong default. Called
- * twice by the discovery service with disjoint slices of `DiscoveryFilterParams`
- * (year-only, then genre-only) so genre facets can be computed from the
- * year-filtered-but-not-yet-genre-filtered set in between.
+ * inclusive release-year bounds. A row with no derivable release year is
+ * excluded whenever either year bound is set - it can't be known to fall
+ * inside an unknown range, so silently keeping it would be the wrong
+ * default. Called twice by the discovery service with disjoint slices of
+ * `DiscoveryFilterParams` (year-only, then genre-only) so genre facets can
+ * be computed from the year-filtered-but-not-yet-genre-filtered set in
+ * between.
  */
 export function applyDiscoveryFilters(
   results: readonly RankedDiscoveryResult[],
@@ -65,21 +79,22 @@ export function applyDiscoveryFilters(
 
   return results.filter(result => {
     if (wantedGenres && wantedGenres.length > 0) {
-      const matchesGenre = result.genres.some(genre =>
+      // `Media.genres` is optional (a video has none), unlike the old
+      // discovery-only type which normalized it to `[]` at the mapper - so
+      // a genre filter excludes a genre-less result rather than throwing.
+      const matchesGenre = (result.genres ?? []).some(genre =>
         wantedGenres.includes(genre.toLowerCase()),
       )
       if (!matchesGenre) return false
     }
 
     if (hasYearBound) {
-      if (result.releaseYear === undefined) return false
-      if (
-        filters.yearFrom !== undefined &&
-        result.releaseYear < filters.yearFrom
-      ) {
+      const year = releaseYear(result)
+      if (year === undefined) return false
+      if (filters.yearFrom !== undefined && year < filters.yearFrom) {
         return false
       }
-      if (filters.yearTo !== undefined && result.releaseYear > filters.yearTo) {
+      if (filters.yearTo !== undefined && year > filters.yearTo) {
         return false
       }
     }
@@ -106,7 +121,7 @@ export function collectGenreFacets(
   const counts = new Map<string, number>()
 
   for (const result of results) {
-    for (const genre of result.genres) {
+    for (const genre of result.genres ?? []) {
       counts.set(genre, (counts.get(genre) ?? 0) + 1)
     }
   }
@@ -116,21 +131,19 @@ export function collectGenreFacets(
     .sort((a, b) => b.count - a.count || a.genre.localeCompare(b.genre))
 }
 
-function discoveryId(result: RankedDiscoveryResult): number {
-  return result.type === DownloadType.Movie ? result.tmdbId : result.tvdbId
-}
-
 /**
  * The tail every comparator below ends with, so no two distinct results can
  * ever compare equal - cursor pagination over an array is unstable if any
  * tie is left unbroken. `sourceRank` mostly discriminates same-type ties
  * (two movies with the same title); cross-type ties fall through to `type`
- * (alphabetical: "movie" < "show"), then to the upstream numeric id.
+ * (alphabetical: "movie" < "show"), then to `Media.id` - the derived key,
+ * which replaces the old hand-rolled `discoveryId()` and its second
+ * tmdb-vs-tvdb identity scheme.
  */
 function tieBreak(a: RankedDiscoveryResult, b: RankedDiscoveryResult): number {
   if (a.sourceRank !== b.sourceRank) return a.sourceRank - b.sourceRank
   if (a.type !== b.type) return a.type.localeCompare(b.type)
-  return discoveryId(a) - discoveryId(b)
+  return a.id.localeCompare(b.id)
 }
 
 export type DiscoverySort = 'releaseDate' | 'title'

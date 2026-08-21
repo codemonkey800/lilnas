@@ -16,6 +16,7 @@ import { DownloadStateService } from 'src/download/download-state.service'
 import { JobQueryService } from 'src/download/job-query.service'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
+import { MediaResolverService } from 'src/media/media-resolver.service'
 
 describe('DownloadController - discover', () => {
   let controller: DownloadController
@@ -43,6 +44,7 @@ describe('DownloadController - discover', () => {
         { provide: DownloadStateService, useValue: { jobs: new Map() } },
         { provide: JobQueryService, useValue: {} },
         { provide: MediaDownloadService, useValue: {} },
+        { provide: MediaResolverService, useValue: { resolve: jest.fn() } },
       ],
     }).compile()
 

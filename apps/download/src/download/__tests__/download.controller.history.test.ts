@@ -17,6 +17,9 @@ import { DownloadStateService } from 'src/download/download-state.service'
 import { JobQueryService } from 'src/download/job-query.service'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
+import { MediaResolverService } from 'src/media/media-resolver.service'
+
+import { buildJob, buildVideo } from './helpers/job-fixtures'
 
 describe('DownloadController - getHistory', () => {
   let controller: DownloadController
@@ -43,6 +46,7 @@ describe('DownloadController - getHistory', () => {
         { provide: DownloadStateService, useValue: { jobs: new Map() } },
         { provide: JobQueryService, useValue: mockJobQueryService },
         { provide: MediaDownloadService, useValue: {} },
+        { provide: MediaResolverService, useValue: { resolve: jest.fn() } },
       ],
     }).compile()
 
@@ -100,12 +104,26 @@ describe('DownloadController - getHistory', () => {
     })
   })
 
-  it('returns the { items, nextCursor, total } shape verbatim', async () => {
-    const page = { items: [{ id: 'z' }], nextCursor: null, total: 1 }
-    jobQueryService.listHistory.mockReturnValue(page as never)
+  // Like activity, history is a per-job feed and the controller applies
+  // the attribution mask over the page.
+  it('returns the { items, nextCursor, total } envelope, with each item attribution-masked', async () => {
+    const hiddenJob = buildJob(buildVideo(), {
+      hiddenAttribution: true,
+      id: 'z',
+      requester: { email: 'someone@example.com', userId: 'u9' },
+    })
+    jobQueryService.listHistory.mockResolvedValue({
+      items: [hiddenJob],
+      nextCursor: null,
+      total: 1,
+    } as never)
 
     const result = await controller.getHistory({ limit: 24 }, alice)
 
-    expect(result).toBe(page)
+    expect(result).toEqual({
+      items: [{ ...hiddenJob, requester: null }],
+      nextCursor: null,
+      total: 1,
+    })
   })
 })

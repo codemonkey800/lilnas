@@ -1,7 +1,7 @@
-import { DownloadJob } from '@lilnas/utils/download/types'
+import { DownloadJobRecord } from '@lilnas/utils/download/types'
 
 export interface DownloadStepOptions {
   action: string
   id: string
-  job: DownloadJob
+  job: DownloadJobRecord
 }

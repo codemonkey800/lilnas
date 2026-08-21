@@ -16,8 +16,8 @@ describe('DiscoveryService', () => {
   let sonarrService: jest.Mocked<SonarrService>
 
   beforeEach(async () => {
-    const mockRadarrService = { searchDetailed: jest.fn() }
-    const mockSonarrService = { searchDetailed: jest.fn() }
+    const mockRadarrService = { search: jest.fn() }
+    const mockSonarrService = { search: jest.fn() }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -36,24 +36,29 @@ describe('DiscoveryService', () => {
     jest.spyOn(Logger.prototype, 'warn').mockImplementation()
   })
 
+  // `releaseYear` is derived from `releaseDate ?? year` now rather than
+  // carried as its own field (see discovery-ranking.ts), so the fixtures
+  // set `year`.
   const movieA = {
     genres: ['Action'],
-    releaseYear: 2020,
+    id: 'tmdb:1',
     title: 'Movie A',
     tmdbId: 1,
     type: DownloadType.Movie as const,
+    year: 2020,
   }
   const showA = {
     genres: ['Drama'],
-    releaseYear: 2019,
+    id: 'tvdb:2',
     title: 'Show A',
     tvdbId: 2,
     type: DownloadType.Show as const,
+    year: 2019,
   }
 
   it('merges both sources when both succeed, with no degraded sources', async () => {
-    radarrService.searchDetailed.mockResolvedValue([movieA])
-    sonarrService.searchDetailed.mockResolvedValue([showA])
+    radarrService.search.mockResolvedValue([movieA])
+    sonarrService.search.mockResolvedValue([showA])
 
     const page = await service.search({
       limit: 24,
@@ -67,8 +72,8 @@ describe('DiscoveryService', () => {
   })
 
   it('returns movie-only results with degradedSources: ["shows"] when Sonarr rejects', async () => {
-    radarrService.searchDetailed.mockResolvedValue([movieA])
-    sonarrService.searchDetailed.mockRejectedValue(new Error('sonarr down'))
+    radarrService.search.mockResolvedValue([movieA])
+    sonarrService.search.mockRejectedValue(new Error('sonarr down'))
 
     const page = await service.search({
       limit: 24,
@@ -81,8 +86,8 @@ describe('DiscoveryService', () => {
   })
 
   it('returns show-only results with degradedSources: ["movies"] when Radarr rejects', async () => {
-    radarrService.searchDetailed.mockRejectedValue(new Error('radarr down'))
-    sonarrService.searchDetailed.mockResolvedValue([showA])
+    radarrService.search.mockRejectedValue(new Error('radarr down'))
+    sonarrService.search.mockResolvedValue([showA])
 
     const page = await service.search({
       limit: 24,
@@ -95,8 +100,8 @@ describe('DiscoveryService', () => {
   })
 
   it('throws BadGatewayException when both sources reject', async () => {
-    radarrService.searchDetailed.mockRejectedValue(new Error('radarr down'))
-    sonarrService.searchDetailed.mockRejectedValue(new Error('sonarr down'))
+    radarrService.search.mockRejectedValue(new Error('radarr down'))
+    sonarrService.search.mockRejectedValue(new Error('sonarr down'))
 
     await expect(
       service.search({ limit: 24, query: 'x', sort: 'relevance' }),
@@ -104,8 +109,8 @@ describe('DiscoveryService', () => {
   })
 
   it('returns an empty page (not an error) when both sources return no results', async () => {
-    radarrService.searchDetailed.mockResolvedValue([])
-    sonarrService.searchDetailed.mockResolvedValue([])
+    radarrService.search.mockResolvedValue([])
+    sonarrService.search.mockResolvedValue([])
 
     const page = await service.search({
       limit: 24,
@@ -117,8 +122,8 @@ describe('DiscoveryService', () => {
   })
 
   it('never leaks the internal sourceRank field onto returned items', async () => {
-    radarrService.searchDetailed.mockResolvedValue([movieA])
-    sonarrService.searchDetailed.mockResolvedValue([])
+    radarrService.search.mockResolvedValue([movieA])
+    sonarrService.search.mockResolvedValue([])
 
     const page = await service.search({
       limit: 24,
@@ -130,11 +135,11 @@ describe('DiscoveryService', () => {
   })
 
   it('filters by genre and year, and reports facets from the year-filtered (not genre-filtered) set', async () => {
-    radarrService.searchDetailed.mockResolvedValue([
+    radarrService.search.mockResolvedValue([
       movieA,
       { ...movieA, genres: ['Comedy'], title: 'Movie B', tmdbId: 3 },
     ])
-    sonarrService.searchDetailed.mockResolvedValue([])
+    sonarrService.search.mockResolvedValue([])
 
     const page = await service.search({
       genres: ['Action'],
@@ -152,11 +157,11 @@ describe('DiscoveryService', () => {
   })
 
   it('sorts by title when requested', async () => {
-    radarrService.searchDetailed.mockResolvedValue([
+    radarrService.search.mockResolvedValue([
       { ...movieA, title: 'Zebra' },
       { ...movieA, title: 'Apple', tmdbId: 9 },
     ])
-    sonarrService.searchDetailed.mockResolvedValue([])
+    sonarrService.search.mockResolvedValue([])
 
     const page = await service.search({ limit: 24, query: 'x', sort: 'title' })
 
@@ -164,12 +169,12 @@ describe('DiscoveryService', () => {
   })
 
   it('paginates via cursor and round-trips into the correct page 2', async () => {
-    radarrService.searchDetailed.mockResolvedValue([
+    radarrService.search.mockResolvedValue([
       { ...movieA, title: 'One', tmdbId: 1 },
       { ...movieA, title: 'Two', tmdbId: 2 },
       { ...movieA, title: 'Three', tmdbId: 3 },
     ])
-    sonarrService.searchDetailed.mockResolvedValue([])
+    sonarrService.search.mockResolvedValue([])
 
     const page1 = await service.search({
       limit: 2,
@@ -190,8 +195,8 @@ describe('DiscoveryService', () => {
   })
 
   it('throws BadRequestException for a malformed cursor', async () => {
-    radarrService.searchDetailed.mockResolvedValue([movieA])
-    sonarrService.searchDetailed.mockResolvedValue([])
+    radarrService.search.mockResolvedValue([movieA])
+    sonarrService.search.mockResolvedValue([])
 
     await expect(
       service.search({
@@ -204,10 +209,10 @@ describe('DiscoveryService', () => {
   })
 
   it('throws BadRequestException for a cursor minted under a different query', async () => {
-    radarrService.searchDetailed.mockResolvedValue([movieA])
-    sonarrService.searchDetailed.mockResolvedValue([])
+    radarrService.search.mockResolvedValue([movieA])
+    sonarrService.search.mockResolvedValue([])
 
-    radarrService.searchDetailed.mockResolvedValue([
+    radarrService.search.mockResolvedValue([
       { ...movieA, title: 'One', tmdbId: 1 },
       { ...movieA, title: 'Two', tmdbId: 2 },
     ])
