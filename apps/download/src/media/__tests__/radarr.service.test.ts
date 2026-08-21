@@ -59,46 +59,6 @@ describe('RadarrService', () => {
   })
 
   describe('search', () => {
-    it('maps lookup results to MovieSearchResult', async () => {
-      mockGetApiV3MovieLookup.mockResolvedValue({
-        data: [
-          {
-            tmdbId: 123,
-            title: 'Some Movie',
-            year: 2020,
-            overview: 'A movie',
-            images: [{ coverType: 'poster', url: 'poster.jpg' }],
-          },
-        ],
-      })
-
-      const result = await service.search('some movie')
-
-      expect(getApiV3MovieLookup).toHaveBeenCalledWith(
-        expect.objectContaining({ query: { term: 'some movie' } }),
-      )
-      expect(result).toEqual([
-        {
-          overview: 'A movie',
-          posterUrl: 'poster.jpg',
-          title: 'Some Movie',
-          tmdbId: 123,
-          year: 2020,
-        },
-      ])
-    })
-
-    it('throws a descriptive error when the SDK call fails', async () => {
-      mockGetApiV3MovieLookup.mockResolvedValue({
-        error: { message: 'boom' },
-        response: { status: 500 },
-      })
-
-      await expect(service.search('x')).rejects.toThrow('searchMovies failed')
-    })
-  })
-
-  describe('searchDetailed', () => {
     it('maps every kept field from a fully-populated lookup result', async () => {
       mockGetApiV3MovieLookup.mockResolvedValue({
         data: [
@@ -123,21 +83,27 @@ describe('RadarrService', () => {
         ],
       })
 
-      const result = await service.searchDetailed('some movie')
+      const result = await service.search('some movie')
 
       expect(getApiV3MovieLookup).toHaveBeenCalledWith(
         expect.objectContaining({ query: { term: 'some movie' } }),
       )
+      // The search endpoint used to discard genres/ratings/runtime/
+      // certification even though the same response carried them - that
+      // loss is what the single `toMovie()` mapper removes.
       expect(result).toEqual([
         {
           certification: 'PG-13',
+          filePath: undefined,
           genres: ['Action', 'Comedy'],
+          id: 'tmdb:123',
           overview: 'A movie',
           posterUrl: 'poster.jpg',
+          radarrId: undefined,
           ratingValue: 8.1,
           releaseDate: '2020-01-01',
-          releaseYear: 2020,
-          runtime: 120,
+          // Radarr reports minutes; Media.runtime is seconds.
+          runtime: 7200,
           title: 'Some Movie',
           tmdbId: 123,
           type: 'movie',
@@ -147,21 +113,21 @@ describe('RadarrService', () => {
     })
 
     it('maps every optional field to a defined default when absent', async () => {
-      mockGetApiV3MovieLookup.mockResolvedValue({
-        data: [{}],
-      })
+      mockGetApiV3MovieLookup.mockResolvedValue({ data: [{}] })
 
-      const result = await service.searchDetailed('x')
+      const result = await service.search('x')
 
       expect(result).toEqual([
         {
           certification: undefined,
+          filePath: undefined,
           genres: [],
+          id: 'tmdb:0',
           overview: undefined,
           posterUrl: undefined,
+          radarrId: undefined,
           ratingValue: undefined,
           releaseDate: undefined,
-          releaseYear: undefined,
           runtime: undefined,
           title: 'Unknown title',
           tmdbId: 0,
@@ -171,8 +137,52 @@ describe('RadarrService', () => {
       ])
     })
 
+    // Radarr returns `id: 0` for a lookup hit that isn't in the library.
+    // Zero is falsy but not nullish, so a `??` guard would have let it
+    // through as a real radarrId - and `MovieSchema` requires a *positive*
+    // integer, so it would have failed validation at the boundary.
+    it('leaves radarrId undefined for a lookup hit with id 0', async () => {
+      mockGetApiV3MovieLookup.mockResolvedValue({
+        data: [{ id: 0, tmdbId: 5 }],
+      })
+
+      const [result] = await service.search('x')
+
+      expect(result?.radarrId).toBeUndefined()
+    })
+
+    it('carries radarrId and filePath through for a library item with a file', async () => {
+      mockGetApiV3MovieLookup.mockResolvedValue({
+        data: [
+          {
+            hasFile: true,
+            id: 7,
+            movieFile: { path: '/movies/a.mkv', relativePath: 'a.mkv' },
+            tmdbId: 5,
+          },
+        ],
+      })
+
+      const [result] = await service.search('x')
+
+      expect(result?.radarrId).toBe(7)
+      // The absolute path, not the folder-relative one - Phase 6's Emby
+      // match needs to compare against a real filesystem path.
+      expect(result?.filePath).toBe('/movies/a.mkv')
+    })
+
+    it('omits filePath when the library item has no file yet', async () => {
+      mockGetApiV3MovieLookup.mockResolvedValue({
+        data: [{ hasFile: false, id: 7, movieFile: { path: '/movies/a.mkv' } }],
+      })
+
+      const [result] = await service.search('x')
+
+      expect(result?.filePath).toBeUndefined()
+    })
+
     it('prefers releaseDate over inCinemas, digitalRelease, and physicalRelease', () => {
-      return expectReleaseYear(
+      return expectReleaseDate(
         {
           digitalRelease: '2019-01-01',
           inCinemas: '2018-01-01',
@@ -180,56 +190,44 @@ describe('RadarrService', () => {
           releaseDate: '2020-06-15',
         },
         '2020-06-15',
-        2020,
       )
     })
 
     it('falls back to inCinemas when releaseDate is absent', () => {
-      return expectReleaseYear(
+      return expectReleaseDate(
         {
           digitalRelease: '2019-01-01',
           inCinemas: '2018-06-15',
           physicalRelease: '2017-01-01',
         },
         '2018-06-15',
-        2018,
       )
     })
 
     it('falls back to digitalRelease when releaseDate/inCinemas are absent', () => {
-      return expectReleaseYear(
+      return expectReleaseDate(
         { digitalRelease: '2019-06-15', physicalRelease: '2017-01-01' },
         '2019-06-15',
-        2019,
       )
     })
 
     it('falls back to physicalRelease when all other date fields are absent', () => {
-      return expectReleaseYear(
-        { physicalRelease: '2017-06-15' },
-        '2017-06-15',
-        2017,
-      )
+      return expectReleaseDate({ physicalRelease: '2017-06-15' }, '2017-06-15')
     })
 
-    it('falls back to `year` when no release-date field is present at all', () => {
-      return expectReleaseYear({}, undefined, 1999, 1999)
+    it('leaves releaseDate undefined when no date field is present at all', () => {
+      return expectReleaseDate({}, undefined)
     })
 
-    async function expectReleaseYear(
+    async function expectReleaseDate(
       dateFields: Record<string, string>,
       expectedReleaseDate: string | undefined,
-      expectedReleaseYear: number | undefined,
-      year?: number,
     ) {
-      mockGetApiV3MovieLookup.mockResolvedValue({
-        data: [{ ...dateFields, year }],
-      })
+      mockGetApiV3MovieLookup.mockResolvedValue({ data: [{ ...dateFields }] })
 
-      const [result] = await service.searchDetailed('x')
+      const [result] = await service.search('x')
 
       expect(result?.releaseDate).toBe(expectedReleaseDate)
-      expect(result?.releaseYear).toBe(expectedReleaseYear)
     }
 
     it('picks the poster image, not fanart', async () => {
@@ -244,20 +242,18 @@ describe('RadarrService', () => {
         ],
       })
 
-      const [result] = await service.searchDetailed('x')
+      const [result] = await service.search('x')
 
       expect(result?.posterUrl).toBe('poster.jpg')
     })
 
-    it('propagates an SDK error the same way search() does', async () => {
+    it('throws a descriptive error when the SDK call fails', async () => {
       mockGetApiV3MovieLookup.mockResolvedValue({
         error: { message: 'boom' },
         response: { status: 500 },
       })
 
-      await expect(service.searchDetailed('x')).rejects.toThrow(
-        'searchMoviesDetailed failed',
-      )
+      await expect(service.search('x')).rejects.toThrow('searchMovies failed')
     })
   })
 

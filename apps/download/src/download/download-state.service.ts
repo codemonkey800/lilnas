@@ -3,10 +3,12 @@ import {
   DownloadJob,
   DownloadJobEvent,
   DownloadJobEventType,
+  DownloadJobRecord,
   DownloadJobStatus,
+  DownloadQueueSnapshot,
   DownloadType,
   isTerminalDownloadJobStatus,
-  isVideoDownloadJob,
+  type Media,
   type TimeRange,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
@@ -18,14 +20,16 @@ import { nanoid } from 'nanoid'
 import { DbService } from 'src/db/db.service'
 import { buildJobRow, hydrateJobRow } from 'src/db/job-row'
 import { getJobById } from 'src/db/jobs.repo'
-import {
-  mediaId,
-  mediaIdFromLegacyJobUrl,
-  videoNaturalKey,
-} from 'src/db/media-id'
+import { mediaIdSuffix, videoNaturalKey } from 'src/db/media-id'
 import { jobs, type VideoRow } from 'src/db/schema'
-import { upsertVideoByNaturalKey } from 'src/db/videos.repo'
+import {
+  getVideoById,
+  updateVideoById,
+  type UpdateVideoPatch,
+  upsertVideoByNaturalKey,
+} from 'src/db/videos.repo'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
+import { MediaResolverService } from 'src/media/media-resolver.service'
 
 import { projectJobForViewer } from './attribution'
 
@@ -42,19 +46,26 @@ export class DownloadStateService {
   private logger = new Logger(DownloadStateService.name)
 
   inProgressJobs = new Set<string>()
-  jobs = new Map<string, DownloadJob>()
+  // The durable, media-free half of a job. `media` is derived on read via
+  // MediaResolverService rather than cached here - a per-job copy would just
+  // be a second cache with its own staleness.
+  jobs = new Map<string, DownloadJobRecord>()
   // A video job's live `ChildProcess` handle, tracked out-of-band from the
   // job object itself - not JSON-safe (circular refs would throw inside
   // JSON.stringify()) and not meaningful to a WS subscriber, so it never
-  // belongs on a broadcast/persisted job. Replaces `VideoDownloadJob.proc`
-  // as the source of truth for the process handle; the field stays on the
-  // type for now (removed in Phase 6) but nothing writes to it anymore.
+  // belongs on a broadcast/persisted job.
   procs = new Map<string, ChildProcessWithoutNullStreams>()
+  // A movie/show job's last-known Radarr/Sonarr queue entry, keyed by job id
+  // and never persisted - it's live upstream state, which is where it was
+  // always coming from. MediaPollerService writes it; `hydrate()` below
+  // grafts it onto the resolved Movie/Show on the way out.
+  queueSnapshots = new Map<string, DownloadQueueSnapshot>()
   queue = new Queue<string>()
 
   constructor(
     private readonly dbService: DbService,
     private readonly downloadGateway: DownloadGateway,
+    private readonly mediaResolverService: MediaResolverService,
   ) {}
 
   setProc(id: string, proc: ChildProcessWithoutNullStreams): void {
@@ -70,13 +81,30 @@ export class DownloadStateService {
   }
 
   /**
-   * Upserts a `videos` row for a video job's current known fields - the
-   * only writer of the `videos` table (plan §4.2). Called on every video
-   * job persist (see `resolveMediaId()` below), not just at creation:
-   * `title`/`overview`/`downloadUrls` start out as placeholders and are
-   * overwritten in place as the download pipeline learns the real values
-   * (plan §2.1), so the row must track the job's fields as they fill in.
-   * Idempotent on `(sourceUrl, timeRange)` via `videos_natural_key_idx`.
+   * Records the live queue snapshot for a movie/show job and re-broadcasts
+   * it. Separate from `updateJob()` because a snapshot change is not a
+   * change to the job row at all - nothing here is persisted - but
+   * subscribers still need the progress tick.
+   */
+  setQueueSnapshot(id: string, snapshot: DownloadQueueSnapshot): void {
+    this.queueSnapshots.set(id, snapshot)
+
+    const record = this.jobs.get(id)
+    if (record) {
+      this.broadcastJobEvent(record, DownloadJobEventType.Updated)
+    }
+  }
+
+  getQueueSnapshot(id: string): DownloadQueueSnapshot | undefined {
+    return this.queueSnapshots.get(id)
+  }
+
+  /**
+   * Upserts a `videos` row for a video's identifying fields - the only
+   * writer of the `videos` table (plan §4.2), called once per video job at
+   * creation to mint the `video:<id>` key. Idempotent on
+   * `(sourceUrl, timeRange)` via `videos_natural_key_idx`, so requesting the
+   * same clip twice yields two jobs pointing at one row.
    */
   ensureVideo(input: EnsureVideoInput): VideoRow {
     return upsertVideoByNaturalKey(this.dbService.db, {
@@ -89,8 +117,41 @@ export class DownloadStateService {
       overview: input.overview,
       sourceUrl: input.sourceUrl,
       timeRange: input.timeRange,
+      // NOT NULL, so it's seeded from the source URL and overwritten by
+      // `updateVideo()` the moment yt-dlp reports the real one - no UI
+      // surface needs a `?? sourceUrl` fallback.
       title: input.title ?? input.sourceUrl,
     })
+  }
+
+  /** The `videos` row behind a `video:<id>` key, or `undefined`. */
+  getVideo(videoMediaId: string): VideoRow | undefined {
+    return getVideoById(this.dbService.db, mediaIdSuffix(videoMediaId))
+  }
+
+  requireVideo(videoMediaId: string): VideoRow {
+    const row = this.getVideo(videoMediaId)
+    if (!row) {
+      throw new Error(`No videos row for media id '${videoMediaId}'`)
+    }
+
+    return row
+  }
+
+  /**
+   * Patches the `videos` row a job points at as the pipeline learns real
+   * values, then re-broadcasts the job so subscribers see the new title /
+   * download URLs. The job row itself is untouched - none of this is job
+   * state anymore.
+   */
+  updateVideo(id: string, patch: UpdateVideoPatch): void {
+    const record = this.jobs.get(id)
+    if (!record) {
+      throw new Error(`Job with ID '${id}' not found`)
+    }
+
+    updateVideoById(this.dbService.db, mediaIdSuffix(record.mediaId), patch)
+    this.broadcastJobEvent(record, DownloadJobEventType.Updated)
   }
 
   /**
@@ -103,31 +164,30 @@ export class DownloadStateService {
    * requestMovie/requestShow) must go through this method instead of
    * touching `jobs.set()` itself.
    */
-  addJob(job: DownloadJob): void {
+  addJob(record: DownloadJobRecord): void {
     // Persist FIRST: on a write failure the caller gets an error and no
     // in-memory state exists at all, rather than an unqueued, unbroadcast
-    // job stranded in the Map. buildJobRow() reads only `job`, never the
+    // job stranded in the Map. buildJobRow() reads only `record`, never the
     // Map, so this reorder is behaviour-preserving on the success path.
     // Deliberately NOT caught: this call is request-scoped (the HTTP
     // handler that created the job is still on the stack), so a write
     // failure should surface to the caller rather than silently losing the
     // system of record. Contrast with updateJob() below.
-    this.persistJob(job)
-    this.jobs.set(job.id, job)
-    this.broadcastJobEvent(job, DownloadJobEventType.Created)
+    this.persistJob(record)
+    this.jobs.set(record.id, record)
+    this.broadcastJobEvent(record, DownloadJobEventType.Created)
   }
 
   /**
-   * Resolves a job by id for the three detail routes
-   * (`/videos/:id`, `/movies/:id`, `/shows/:id`), falling back to the
-   * durable `jobs` row when the in-memory Map has no entry - the only way
-   * those routes survive a restart, since the Map itself is emptied by
-   * one. The Map always wins when it has an entry: a restart also empties
-   * `procs` (see `setProc()`), so there is nothing left to reconstruct
-   * either way, but the Map may still carry other in-flight state the row
-   * can't - a hit there must never be second-guessed by a DB read.
+   * Resolves a job *record* by id, falling back to the durable `jobs` row
+   * when the in-memory Map has no entry - the only way the detail routes
+   * survive a restart, since the Map itself is emptied by one. The Map
+   * always wins when it has an entry: a restart also empties `procs` (see
+   * `setProc()`), so there is nothing left to reconstruct either way, but
+   * the Map may still carry other in-flight state the row can't - a hit
+   * there must never be second-guessed by a DB read.
    */
-  resolveJob(id: string): DownloadJob | undefined {
+  resolveJobRecord(id: string): DownloadJobRecord | undefined {
     const liveJob = this.jobs.get(id)
     if (liveJob) return liveJob
 
@@ -135,11 +195,82 @@ export class DownloadStateService {
     return row ? hydrateJobRow(row) : undefined
   }
 
-  updateJob(id: string, updates: Partial<DownloadJob>): DownloadJob {
-    const action = 'updateJob'
-    const job = this.jobs.get(id)
+  /** `resolveJobRecord()` with its `media` resolved - the wire shape. */
+  async resolveJob(id: string): Promise<DownloadJob | undefined> {
+    const record = this.resolveJobRecord(id)
+    return record ? this.hydrateOne(record) : undefined
+  }
 
+  /**
+   * `hydrate()` for a single record. `hydrate()` never drops a record (an
+   * unresolvable key degrades to a placeholder), so the empty case here is
+   * unreachable - it exists only to satisfy `noUncheckedIndexedAccess`
+   * without an assertion that would hide a real regression.
+   */
+  async hydrateOne(record: DownloadJobRecord): Promise<DownloadJob> {
+    const [job] = await this.hydrate([record])
     if (!job) {
+      throw new Error(`Failed to hydrate job '${record.id}'`)
+    }
+
+    return job
+  }
+
+  /**
+   * Joins a batch of records to their `Media` in one resolver call - one
+   * upstream Radarr/Sonarr round trip per page rather than per job (plan
+   * §4.1). Records whose media can't be resolved still come back, carrying
+   * the resolver's degraded placeholder, so a list endpoint never drops a
+   * job it knows about just because Radarr is down.
+   */
+  async hydrate(records: readonly DownloadJobRecord[]): Promise<DownloadJob[]> {
+    if (records.length === 0) return []
+
+    const { media } = await this.mediaResolverService.resolve(
+      records.map(record => ({
+        mediaId: record.mediaId,
+        type: record.type,
+      })),
+    )
+
+    return records.map(record => this.toJob(record, media.get(record.mediaId)))
+  }
+
+  private toJob(
+    record: DownloadJobRecord,
+    resolved: Media | undefined,
+  ): DownloadJob {
+    const { mediaId: recordMediaId, type, ...jobFields } = record
+    const base: Media = resolved ?? {
+      id: recordMediaId,
+      title: recordMediaId,
+      ...(type === DownloadType.Movie
+        ? { tmdbId: Number(mediaIdSuffix(recordMediaId)) || 1, type }
+        : type === DownloadType.Show
+          ? { tvdbId: Number(mediaIdSuffix(recordMediaId)) || 1, type }
+          : { sourceUrl: '', type: DownloadType.Video }),
+    }
+
+    // The queue snapshot is per-*job* (two requests for the same movie have
+    // independent progress) while everything else on `Media` is per-title,
+    // so it's grafted on here rather than inside the resolver.
+    const snapshot = this.queueSnapshots.get(record.id)
+    const media =
+      snapshot && base.type !== DownloadType.Video
+        ? { ...base, queueSnapshot: snapshot }
+        : base
+
+    return { ...jobFields, media }
+  }
+
+  updateJob(
+    id: string,
+    updates: Partial<Omit<DownloadJobRecord, 'id' | 'mediaId' | 'type'>>,
+  ): DownloadJobRecord {
+    const action = 'updateJob'
+    const record = this.jobs.get(id)
+
+    if (!record) {
       this.logger.error(
         { action, jobId: id, totalJobs: this.jobs.size },
         'Job not found for update',
@@ -147,39 +278,14 @@ export class DownloadStateService {
       throw new Error(`Job with ID '${id}' not found`)
     }
 
-    const sanitizedUrl = job.url.split('?')[0]
-    const oldStatus = job.status
-    const oldTitle = job.title
-    const oldDescription = job.description
-
-    // Extract key fields from updates for logging
+    const oldStatus = record.status
     const updateKeys = Object.keys(updates)
     const newStatus = updates.status
-    const hasNewTitle = 'title' in updates
-    const hasNewDescription = 'description' in updates
 
-    this.logger.log(
-      {
-        action,
-        jobId: id,
-        url: sanitizedUrl,
-        updateKeys,
-        statusTransition: newStatus
-          ? `${oldStatus} -> ${newStatus}`
-          : undefined,
-        titleUpdate: hasNewTitle ? (oldTitle ? 'updated' : 'added') : undefined,
-        descriptionUpdate: hasNewDescription
-          ? oldDescription
-            ? 'updated'
-            : 'added'
-          : undefined,
-      },
-      'Updating job state',
-    )
-
-    const updatedJob: DownloadJob = {
-      ...job,
+    const updatedJob: DownloadJobRecord = {
+      ...record,
       ...updates,
+      updatedAt: new Date().toISOString(),
     }
 
     // Stamp the completion time exactly once, on the transition into
@@ -191,7 +297,7 @@ export class DownloadStateService {
       updates.status === DownloadJobStatus.Completed &&
       oldStatus !== DownloadJobStatus.Completed
     ) {
-      updatedJob.completedAt = new Date()
+      updatedJob.completedAt = new Date().toISOString()
     }
 
     // The process handle (tracked in `procs`, not on the job itself - see
@@ -201,6 +307,7 @@ export class DownloadStateService {
     // releases it without every call site having to remember to.
     if (newStatus && isTerminalDownloadJobStatus(newStatus)) {
       this.clearProc(id)
+      this.queueSnapshots.delete(id)
     }
 
     this.jobs.set(id, updatedJob)
@@ -221,13 +328,12 @@ export class DownloadStateService {
       )
     }
 
-    // Log the result based on what was changed
     if (newStatus && newStatus !== oldStatus) {
       this.logger.log(
         {
           action,
           jobId: id,
-          url: sanitizedUrl,
+          mediaId: record.mediaId,
           oldStatus,
           newStatus,
           totalJobs: this.jobs.size,
@@ -238,24 +344,11 @@ export class DownloadStateService {
       )
     }
 
-    if (hasNewTitle || hasNewDescription) {
-      this.logger.log(
-        {
-          action,
-          jobId: id,
-          url: sanitizedUrl,
-          titleAdded: hasNewTitle && !oldTitle,
-          descriptionAdded: hasNewDescription && !oldDescription,
-        },
-        'Job metadata updated',
-      )
-    }
-
     this.logger.debug(
       {
         action,
         jobId: id,
-        url: sanitizedUrl,
+        mediaId: record.mediaId,
         updateKeys,
         totalJobs: this.jobs.size,
       },
@@ -268,7 +361,7 @@ export class DownloadStateService {
   }
 
   /**
-   * Upserts `job` into the `jobs` table. better-sqlite3 is fully
+   * Upserts `record` into the `jobs` table. better-sqlite3 is fully
    * synchronous, so this (and therefore addJob()/updateJob()) never needs
    * to be async. An upsert rather than a plain insert/update because
    * media/__tests__ seeds state via direct `jobs.set(...)` at several
@@ -276,7 +369,7 @@ export class DownloadStateService {
    * those, and an upsert is idempotent against a Map entry whose row is
    * missing for any other reason too.
    */
-  private persistJob(job: DownloadJob): void {
+  private persistJob(record: DownloadJobRecord): void {
     // `id` is the conflict target and `createdAt` must never be overwritten
     // on update — named explicitly here so both exclusions stay visible,
     // while every other column is carried across automatically. This makes
@@ -284,71 +377,59 @@ export class DownloadStateService {
     // impossible, which matters more than the (harmless) alternative
     // mistake of including one - `tsc` can't catch an omission here since
     // drizzle's update `set:` type makes every key optional.
-
     const {
       createdAt: _createdAt,
       id: _id,
       ...updatableColumns
-    } = buildJobRow(job)
+    } = buildJobRow(record)
     // Referenced only to satisfy no-unused-vars - see the destructure above.
     void _createdAt
     void _id
 
-    const jobMediaId = this.resolveMediaId(job)
-
     this.dbService.db
       .insert(jobs)
-      .values({ ...updatableColumns, id: job.id, mediaId: jobMediaId })
-      .onConflictDoUpdate({
-        target: jobs.id,
-        set: { ...updatableColumns, mediaId: jobMediaId },
-      })
+      .values(buildJobRow(record))
+      .onConflictDoUpdate({ target: jobs.id, set: updatableColumns })
       .run()
   }
 
   /**
-   * The derived `jobs.media_id` key (plan §2.2/§4.2) for a job being
-   * persisted - populated for every new/updated row from here on, ahead of
-   * Phase 6's read-side wiring and Phase 7's `.notNull()`. A video job's key
-   * depends on its `videos` row, so `ensureVideo()` runs as a side effect of
-   * every persist (see its own comment on why that's not just a
-   * creation-time call). A movie/show job's key is parsed straight out of
-   * its legacy `radarr://tmdb/…` / `sonarr://tvdb/…` synthetic `url` - the
-   * same encoding migration `0003`'s backfill already reads.
+   * Resolves the record's media and broadcasts it. Fire-and-forget: the
+   * callers are HTTP handlers and background pipeline steps that must not
+   * block on (or fail because of) a Radarr lookup, and the resolver never
+   * throws - it degrades to a placeholder - so the only thing that can go
+   * wrong here is the broadcast itself.
    */
-  private resolveMediaId(job: DownloadJob): string | null {
-    if (isVideoDownloadJob(job)) {
-      const row = this.ensureVideo({
-        downloadUrls: job.downloadUrls,
-        overview: job.description,
-        sourceUrl: job.url,
-        timeRange: job.timeRange,
-        title: job.title,
-      })
-      return mediaId({ id: row.id, type: DownloadType.Video })
-    }
-
-    return mediaIdFromLegacyJobUrl(job.type, job.url)
-  }
-
   private broadcastJobEvent(
-    job: DownloadJob,
+    record: DownloadJobRecord,
     type: DownloadJobEventType,
   ): void {
-    // Two serializations at most (one per isAdmin value), not one per
-    // client - see DownloadGateway.broadcastPerViewer(). This is the WS
-    // half of the spec's attribution rule; DownloadController's REST
-    // serializers apply the same projectJobForViewer() on the read path.
-    // Not awaited: broadcastPerViewer() resolves each connected client's
-    // admin status fresh (see DownloadGateway), but this is a
-    // fire-and-forget broadcast, not a request the caller is waiting on.
-    this.downloadGateway.broadcastPerViewer(isAdmin => {
-      const event: DownloadJobEvent = {
-        job: projectJobForViewer(job, isAdmin),
-        type,
-      }
+    void this.hydrate([record])
+      .then(([job]) => {
+        if (!job) return
 
-      return { data: event, type: DOWNLOAD_JOB_EVENT_TYPE }
-    })
+        // Two serializations at most (one per isAdmin value), not one per
+        // client - see DownloadGateway.broadcastPerViewer(). This is the WS
+        // half of the spec's attribution rule; DownloadController applies
+        // the same projectJobForViewer() on the REST read path.
+        return this.downloadGateway.broadcastPerViewer(isAdmin => {
+          const event: DownloadJobEvent = {
+            job: projectJobForViewer(job, isAdmin),
+            type,
+          }
+
+          return { data: event, type: DOWNLOAD_JOB_EVENT_TYPE }
+        })
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          {
+            action: 'broadcastJobEvent',
+            jobId: record.id,
+            error: getErrorMessage(err),
+          },
+          'Failed to broadcast job event',
+        )
+      })
   }
 }

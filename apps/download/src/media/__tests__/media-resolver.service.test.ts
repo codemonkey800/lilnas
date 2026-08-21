@@ -92,12 +92,23 @@ describe('MediaResolverService', () => {
       })
     })
 
-    it('omits a video key with no matching row, rather than throwing', async () => {
+    // `jobs.media_id` has no foreign key (it points at `videos` for some
+    // rows and at TMDB/TVDB for others), so a dangling video key is
+    // structurally possible. Answering with a placeholder rather than a gap
+    // means a list endpoint degrades one card instead of dropping a job it
+    // knows about - `/media/:id` still 404s such a key, by checking the row
+    // directly rather than going through here.
+    it('answers a video key with no matching row with a placeholder, rather than throwing or omitting it', async () => {
       const { media } = await service.resolve([
         { mediaId: 'video:missing', type: DownloadType.Video },
       ])
 
-      expect(media.has('video:missing')).toBe(false)
+      expect(media.get('video:missing')).toEqual({
+        id: 'video:missing',
+        sourceUrl: '',
+        title: 'video:missing',
+        type: DownloadType.Video,
+      })
     })
   })
 

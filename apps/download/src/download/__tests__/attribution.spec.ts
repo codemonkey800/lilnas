@@ -1,95 +1,55 @@
-import {
-  DownloadJobStatus,
-  DownloadType,
-  MovieDownloadJob,
-  ShowDownloadJob,
-  VideoDownloadJob,
-} from '@lilnas/utils/download/types'
+import { DownloadJobStatus } from '@lilnas/utils/download/types'
 
 import {
   projectJobForViewer,
   showTrueRequester,
 } from 'src/download/attribution'
 
-const REQUESTER = { email: 'alice@example.com', userId: 'user_1' }
+import {
+  buildJob,
+  buildMovie,
+  buildShow,
+  buildVideo,
+  REQUESTER,
+} from './helpers/job-fixtures'
 
-function buildVideoJob(
-  overrides: Partial<VideoDownloadJob> = {},
-): VideoDownloadJob {
-  return {
-    id: 'video-1',
-    requester: REQUESTER,
+const videoJob = (hiddenAttribution: boolean) =>
+  buildJob(buildVideo(), {
+    hiddenAttribution,
     status: DownloadJobStatus.Completed,
-    type: DownloadType.Video,
-    url: 'https://example.com/video',
-    ...overrides,
-  }
-}
-
-function buildMovieJob(
-  overrides: Partial<MovieDownloadJob> = {},
-): MovieDownloadJob {
-  return {
-    id: 'movie-1',
-    requester: REQUESTER,
-    status: DownloadJobStatus.Downloading,
-    type: DownloadType.Movie,
-    url: 'radarr://tmdb/1',
-    ...overrides,
-  }
-}
-
-function buildShowJob(
-  overrides: Partial<ShowDownloadJob> = {},
-): ShowDownloadJob {
-  return {
-    id: 'show-1',
-    requester: REQUESTER,
-    status: DownloadJobStatus.Importing,
-    type: DownloadType.Show,
-    url: 'sonarr://tvdb/1',
-    ...overrides,
-  }
-}
+  })
 
 describe('showTrueRequester', () => {
   describe('video jobs', () => {
     it('is true when not hidden, regardless of admin status', () => {
-      const job = buildVideoJob({ hiddenAttribution: false })
+      const job = videoJob(false)
 
       expect(showTrueRequester(job, false)).toBe(true)
       expect(showTrueRequester(job, true)).toBe(true)
     })
 
     it('is false for a non-admin viewer when hidden', () => {
-      const job = buildVideoJob({ hiddenAttribution: true })
-
-      expect(showTrueRequester(job, false)).toBe(false)
+      expect(showTrueRequester(videoJob(true), false)).toBe(false)
     })
 
     it('is true for an admin viewer even when hidden', () => {
-      const job = buildVideoJob({ hiddenAttribution: true })
-
-      expect(showTrueRequester(job, true)).toBe(true)
-    })
-
-    it('treats an unset hiddenAttribution the same as false', () => {
-      const job = buildVideoJob({ hiddenAttribution: undefined })
-
-      expect(showTrueRequester(job, false)).toBe(true)
+      expect(showTrueRequester(videoJob(true), true)).toBe(true)
     })
   })
 
   describe('movie/show jobs', () => {
-    it('is always true for a movie job, regardless of admin status', () => {
-      const job = buildMovieJob()
+    // hiddenAttribution is deliberately set here: movies/shows have no
+    // hiding toggle by design, so the media-type branch - not the flag -
+    // must be what decides. Setting the flag is the negative control.
+    it('is always true for a movie job, even with the flag set', () => {
+      const job = buildJob(buildMovie(), { hiddenAttribution: true })
 
       expect(showTrueRequester(job, false)).toBe(true)
       expect(showTrueRequester(job, true)).toBe(true)
     })
 
-    it('is always true for a show job, regardless of admin status', () => {
-      const job = buildShowJob()
+    it('is always true for a show job, even with the flag set', () => {
+      const job = buildJob(buildShow(), { hiddenAttribution: true })
 
       expect(showTrueRequester(job, false)).toBe(true)
       expect(showTrueRequester(job, true)).toBe(true)
@@ -99,15 +59,13 @@ describe('showTrueRequester', () => {
 
 describe('projectJobForViewer', () => {
   it('returns the job unchanged (same requester) when not hidden', () => {
-    const job = buildVideoJob({ hiddenAttribution: false })
-
-    expect(projectJobForViewer(job, false).requester).toEqual(REQUESTER)
+    expect(projectJobForViewer(videoJob(false), false).requester).toEqual(
+      REQUESTER,
+    )
   })
 
   it('masks the requester for a non-admin viewer of a hidden video job', () => {
-    const job = buildVideoJob({ hiddenAttribution: true })
-
-    const projected = projectJobForViewer(job, false)
+    const projected = projectJobForViewer(videoJob(true), false)
 
     expect(projected.requester).toBeNull()
     // hiddenAttribution itself must survive - non-admin viewers still need
@@ -116,17 +74,15 @@ describe('projectJobForViewer', () => {
   })
 
   it('reveals the true requester to an admin viewer of a hidden video job', () => {
-    const job = buildVideoJob({ hiddenAttribution: true })
-
-    const projected = projectJobForViewer(job, true)
+    const projected = projectJobForViewer(videoJob(true), true)
 
     expect(projected.requester).toEqual(REQUESTER)
     expect(projected.hiddenAttribution).toBe(true)
   })
 
   it('never mutates the original job object', () => {
-    const job = buildVideoJob({ hiddenAttribution: true })
-    const original = { ...job }
+    const job = videoJob(true)
+    const original = structuredClone(job)
 
     projectJobForViewer(job, false)
 
@@ -134,18 +90,14 @@ describe('projectJobForViewer', () => {
   })
 
   it('never masks a movie job', () => {
-    const job = buildMovieJob()
+    const job = buildJob(buildMovie(), { hiddenAttribution: true })
 
-    const projected = projectJobForViewer(job, false)
-
-    expect(projected.requester).toEqual(REQUESTER)
+    expect(projectJobForViewer(job, false).requester).toEqual(REQUESTER)
   })
 
   it('never masks a show job', () => {
-    const job = buildShowJob()
+    const job = buildJob(buildShow(), { hiddenAttribution: true })
 
-    const projected = projectJobForViewer(job, false)
-
-    expect(projected.requester).toEqual(REQUESTER)
+    expect(projectJobForViewer(job, false).requester).toEqual(REQUESTER)
   })
 })

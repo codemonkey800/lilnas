@@ -21,7 +21,7 @@ export function Home() {
     const end = data.get('end') as string
 
     const client = await getIdentifiedDownloadClient()
-    const job = await client.createVideoJob({
+    const job = await client.createJob({
       url,
 
       ...(start && end
@@ -50,15 +50,10 @@ export function Home() {
         return { error: SEARCH_ERROR_MESSAGE, results: [] }
       }
 
-      return {
-        results: response.results.map(result => ({
-          id: result.tmdbId,
-          overview: result.overview,
-          posterUrl: result.posterUrl,
-          title: result.title,
-          year: result.year,
-        })),
-      }
+      // No remapping: `Media` is what the search endpoint returns and what
+      // the form consumes, and `MediaRequestForm` reads the upstream id off
+      // the arm itself.
+      return { results: response.results }
     } catch {
       return { error: SEARCH_ERROR_MESSAGE, results: [] }
     }
@@ -96,15 +91,7 @@ export function Home() {
         return { error: SEARCH_ERROR_MESSAGE, results: [] }
       }
 
-      return {
-        results: response.results.map(result => ({
-          id: result.tvdbId,
-          overview: result.overview,
-          posterUrl: result.posterUrl,
-          title: result.title,
-          year: result.year,
-        })),
-      }
+      return { results: response.results }
     } catch {
       return { error: SEARCH_ERROR_MESSAGE, results: [] }
     }

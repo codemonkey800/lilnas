@@ -8,10 +8,9 @@ jest.mock('nanoid', () => ({
 }))
 
 import {
+  DownloadJobRecord,
   DownloadJobStatus,
   DownloadType,
-  MovieDownloadJob,
-  ShowDownloadJob,
 } from '@lilnas/utils/download/types'
 import { Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
@@ -21,36 +20,49 @@ import { DbService } from 'src/db/db.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { MediaPollerService } from 'src/media/media-poller.service'
+import { MediaResolverService } from 'src/media/media-resolver.service'
 import { RadarrService } from 'src/media/radarr.service'
 import { SonarrService } from 'src/media/sonarr.service'
 
-function buildMovieJob(
-  overrides: Partial<MovieDownloadJob> = {},
-): MovieDownloadJob {
+const NOW_ISO = '2026-08-20T12:00:00.000Z'
+
+function buildRecord(
+  type: DownloadType,
+  mediaId: string,
+  overrides: Partial<DownloadJobRecord> = {},
+): DownloadJobRecord {
   return {
-    id: overrides.id ?? 'movie-1',
-    radarrId: overrides.radarrId ?? 42,
-    status: overrides.status ?? DownloadJobStatus.Searching,
-    type: DownloadType.Movie,
-    url: 'radarr://tmdb/1',
+    completedAt: null,
+    createdAt: NOW_ISO,
+    hiddenAttribution: false,
+    id: type === DownloadType.Movie ? 'movie-1' : 'show-1',
+    mediaId,
+    requester: null,
+    status: DownloadJobStatus.Searching,
+    type,
+    updatedAt: NOW_ISO,
     ...overrides,
   }
+}
+
+function buildMovieJob(
+  overrides: Partial<DownloadJobRecord> = {},
+): DownloadJobRecord {
+  return buildRecord(DownloadType.Movie, 'tmdb:1', overrides)
 }
 
 function buildShowJob(
-  overrides: Partial<ShowDownloadJob> = {},
-): ShowDownloadJob {
-  return {
-    id: overrides.id ?? 'show-1',
-    sonarrId: overrides.sonarrId ?? 9,
-    status: overrides.status ?? DownloadJobStatus.Searching,
-    type: DownloadType.Show,
-    url: 'sonarr://tvdb/1',
-    ...overrides,
-  }
+  overrides: Partial<DownloadJobRecord> = {},
+): DownloadJobRecord {
+  return buildRecord(DownloadType.Show, 'tvdb:1', overrides)
 }
 
 describe('MediaPollerService', () => {
+  // Which upstream library id each media key resolves to. A key absent from
+  // this map resolves to a media with no radarrId/sonarrId, i.e. a title
+  // that isn't in the library yet and therefore isn't pollable.
+  let upstreamIds: Map<string, number>
+
   let service: MediaPollerService
   let downloadStateService: DownloadStateService
   let radarrService: jest.Mocked<RadarrService>
@@ -58,10 +70,45 @@ describe('MediaPollerService', () => {
   let dbService: DbService
 
   beforeEach(async () => {
+    upstreamIds = new Map([
+      ['tmdb:1', 42],
+      ['tvdb:1', 9],
+    ])
     dbService = createTestDbService()
     const mockRadarrService = { getQueue: jest.fn().mockResolvedValue([]) }
     const mockSonarrService = { getQueue: jest.fn().mockResolvedValue([]) }
     const mockDownloadGateway = { broadcastPerViewer: jest.fn() }
+    // `radarrId`/`sonarrId` are no longer persisted on the job - the poller
+    // reads them off the resolved media, so the resolver is what supplies
+    // "which upstream id do I poll this by".
+    const mockMediaResolverService = {
+      invalidate: jest.fn(),
+      resolve: jest.fn(
+        (keys: Array<{ mediaId: string; type: DownloadType }>) => ({
+          degradedSources: [],
+          media: new Map(
+            keys.map(key => [
+              key.mediaId,
+              key.type === DownloadType.Movie
+                ? {
+                    id: key.mediaId,
+                    radarrId: upstreamIds.get(key.mediaId),
+                    title: 'A Movie',
+                    tmdbId: 1,
+                    type: DownloadType.Movie,
+                  }
+                : {
+                    id: key.mediaId,
+                    sonarrId: upstreamIds.get(key.mediaId),
+                    title: 'A Show',
+                    tvdbId: 1,
+                    type: DownloadType.Show,
+                  },
+            ]),
+          ),
+        }),
+      ),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -71,6 +118,7 @@ describe('MediaPollerService', () => {
         { provide: RadarrService, useValue: mockRadarrService },
         { provide: SonarrService, useValue: mockSonarrService },
         { provide: DownloadGateway, useValue: mockDownloadGateway },
+        { provide: MediaResolverService, useValue: mockMediaResolverService },
       ],
     }).compile()
 
@@ -147,16 +195,17 @@ describe('MediaPollerService', () => {
       })
       const completedJob = buildMovieJob({
         id: 'done',
-        radarrId: 1,
         status: DownloadJobStatus.Completed,
       })
-      const noRadarrIdJob = buildMovieJob({
+      // A title that has been requested but isn't in Radarr's library yet
+      // resolves without a radarrId, so there is nothing to poll it by.
+      const notInLibraryJob = buildMovieJob({
         id: 'no-id',
-        radarrId: undefined,
+        mediaId: 'tmdb:999',
       })
       downloadStateService.jobs.set(trackedJob.id, trackedJob)
       downloadStateService.jobs.set(completedJob.id, completedJob)
-      downloadStateService.jobs.set(noRadarrIdJob.id, noRadarrIdJob)
+      downloadStateService.jobs.set(notInLibraryJob.id, notInLibraryJob)
 
       radarrService.getQueue.mockResolvedValue([])
 
@@ -180,9 +229,11 @@ describe('MediaPollerService', () => {
 
       await service.poll()
 
-      const updated = downloadStateService.jobs.get(job.id) as MovieDownloadJob
-      expect(updated.status).toBe(DownloadJobStatus.Downloading)
-      expect(updated.queueSnapshot).toEqual({
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Downloading)
+      // The snapshot lives in DownloadStateService's side map now, not on
+      // the job - it's live upstream state and is never persisted.
+      expect(downloadStateService.getQueueSnapshot(job.id)).toEqual({
         progress: 50,
         status: 'downloading',
         timeLeft: undefined,
@@ -190,11 +241,12 @@ describe('MediaPollerService', () => {
     })
 
     it('does not call updateJob when nothing has changed', async () => {
-      const job = buildMovieJob({
-        status: DownloadJobStatus.Downloading,
-        queueSnapshot: { progress: 50, status: 'downloading' },
-      })
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
       downloadStateService.jobs.set(job.id, job)
+      downloadStateService.queueSnapshots.set(job.id, {
+        progress: 50,
+        status: 'downloading',
+      })
       const updateJobSpy = jest.spyOn(downloadStateService, 'updateJob')
 
       radarrService.getQueue.mockResolvedValue([
@@ -214,8 +266,9 @@ describe('MediaPollerService', () => {
 
       await service.poll()
 
-      const updated = downloadStateService.jobs.get(job.id) as MovieDownloadJob
-      expect(updated.status).toBe(DownloadJobStatus.Completed)
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Completed,
+      )
     })
 
     it('captures an error message when the queue reports a failure', async () => {
@@ -232,9 +285,9 @@ describe('MediaPollerService', () => {
 
       await service.poll()
 
-      const updated = downloadStateService.jobs.get(job.id) as MovieDownloadJob
-      expect(updated.status).toBe(DownloadJobStatus.Failed)
-      expect(updated.error).toBe('no seeds found')
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Failed)
+      expect(updated?.error).toBe('no seeds found')
     })
   })
 
@@ -243,7 +296,6 @@ describe('MediaPollerService', () => {
       const trackedJob = buildShowJob({ status: DownloadJobStatus.Downloading })
       const failedJob = buildShowJob({
         id: 'failed',
-        sonarrId: 5,
         status: DownloadJobStatus.Failed,
       })
       downloadStateService.jobs.set(trackedJob.id, trackedJob)
@@ -266,8 +318,9 @@ describe('MediaPollerService', () => {
 
       await service.poll()
 
-      const updated = downloadStateService.jobs.get(job.id) as ShowDownloadJob
-      expect(updated.status).toBe(DownloadJobStatus.Importing)
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Importing,
+      )
     })
   })
 })

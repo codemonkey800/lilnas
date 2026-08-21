@@ -1,33 +1,40 @@
 'use client'
 
+import { DownloadType, Media } from '@lilnas/utils/download/types'
 import { Search } from '@mui/icons-material'
 import { CircularProgress, IconButton, TextField } from '@mui/material'
 import { FormEvent, useState } from 'react'
 
 import { MediaResultCard } from './MediaResultCard'
 
-export interface MediaSearchResultItem {
-  id: number
-  overview?: string
-  posterUrl?: string
-  title: string
-  year?: number
-}
-
 export interface MediaSearchActionResult {
   error?: string
-  results: MediaSearchResultItem[]
+  results: Media[]
 }
 
 export interface MediaRequestActionResult {
   error?: string
 }
 
-type MediaType = 'movie' | 'show'
+// The two requestable types. Expressed as an exclusion rather than a
+// re-declared union so a new DownloadType member lands here automatically.
+type MediaType = Exclude<DownloadType, DownloadType.Video>
 
 const MEDIA_TYPE_LABEL: Record<MediaType, string> = {
-  movie: 'movie',
-  show: 'show',
+  [DownloadType.Movie]: 'movie',
+  [DownloadType.Show]: 'show',
+}
+
+/**
+ * The upstream id the request endpoints take - `tmdbId` for a movie,
+ * `tvdbId` for a show. Read off the `Media` arm rather than remapped onto a
+ * synthetic `id` at the server action, which is what the two near-identical
+ * remapping blocks in `Home.tsx` used to do.
+ */
+function upstreamId(result: Media): number {
+  if (result.type === DownloadType.Movie) return result.tmdbId
+  if (result.type === DownloadType.Show) return result.tvdbId
+  throw new Error(`A ${result.type} cannot be requested from this form`)
 }
 
 export function MediaRequestForm({
@@ -43,10 +50,10 @@ export function MediaRequestForm({
   const [searchedQuery, setSearchedQuery] = useState('')
   const [isSearching, setIsSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
-  const [results, setResults] = useState<MediaSearchResultItem[] | null>(null)
+  const [results, setResults] = useState<Media[] | null>(null)
   const [requestingId, setRequestingId] = useState<number | null>(null)
   const [requestError, setRequestError] = useState<string | null>(null)
-  const [confirmed, setConfirmed] = useState<MediaSearchResultItem | null>(null)
+  const [confirmed, setConfirmed] = useState<Media | null>(null)
 
   const label = MEDIA_TYPE_LABEL[mediaType]
 
@@ -76,15 +83,16 @@ export function MediaRequestForm({
     setResults(response.results)
   }
 
-  async function handleRequest(result: MediaSearchResultItem) {
+  async function handleRequest(result: Media) {
     if (requestingId !== null) {
       return
     }
 
-    setRequestingId(result.id)
+    const id = upstreamId(result)
+    setRequestingId(id)
     setRequestError(null)
 
-    const response = await requestAction(result.id)
+    const response = await requestAction(id)
 
     setRequestingId(null)
 
@@ -174,7 +182,7 @@ export function MediaRequestForm({
               disabled={requestingId !== null}
               key={result.id}
               onSelect={handleRequest}
-              pending={requestingId === result.id}
+              pending={requestingId === upstreamId(result)}
               result={result}
             />
           ))}

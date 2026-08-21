@@ -47,10 +47,8 @@ function hydrateVideo(row: VideoRow): Video {
 
 /**
  * `(type, mediaId)[] -> Media[]` - the single place a key becomes a `Media`
- * (plan §4.1). Not yet wired into any request path: `DownloadStateService`'s
- * `resolveJob()` and the controller's job routes still return the pre-Media
- * `DownloadJob` shapes (see the plan doc's Phase 5 status note for why that
- * wiring is Phase 6 work, done together with the response reshape).
+ * (plan §4.1). Everything that renders a job or a gallery card goes through
+ * here, so there is exactly one place that knows how a key becomes a media.
  *
  * A `video:` key resolves via one `videos` query; a `tmdb:`/`tvdb:` key via
  * a whole-library cache
@@ -111,6 +109,29 @@ export class MediaResolverService {
         mediaId({ id: row.id, type: DownloadType.Video }),
         hydrateVideo(row),
       )
+    }
+
+    // `jobs.media_id` has no foreign key (it points at `videos` for a third
+    // of rows and at TMDB/TVDB for the rest, and SQLite FKs can't be
+    // conditional), so a dangling `video:` key is structurally possible even
+    // though `ensureVideo()` is the only writer of either table. Emitting a
+    // placeholder rather than a gap means `resolve()` always answers for
+    // every key it was given, and a list endpoint degrades one card instead
+    // of failing the page. `/media/:id` still 404s a missing video - it
+    // checks the row directly rather than going through this path.
+    for (const key of keys) {
+      if (media.has(key.mediaId)) continue
+
+      this.logger.warn(
+        { action: 'resolveVideos', mediaId: key.mediaId },
+        'No videos row for media id - returning a placeholder',
+      )
+      media.set(key.mediaId, {
+        id: key.mediaId,
+        sourceUrl: '',
+        title: key.mediaId,
+        type: DownloadType.Video,
+      })
     }
   }
 
@@ -216,6 +237,20 @@ export class MediaResolverService {
         }
       }),
     )
+  }
+
+  /**
+   * Evicts one key from whichever library cache holds it, so the next read
+   * goes back upstream. Called after a mutation the app itself made (a
+   * delete), where waiting out the TTL would serve a copy the app already
+   * knows is wrong - normal staleness is still bounded by the TTL alone.
+   */
+  invalidate(key: string): void {
+    const suffix = Number(mediaIdSuffix(key))
+    if (Number.isNaN(suffix)) return
+
+    this.movieLibraryCache?.entries.delete(suffix)
+    this.showLibraryCache?.entries.delete(suffix)
   }
 
   private async getMovieLibrary(): Promise<Map<number, Movie>> {

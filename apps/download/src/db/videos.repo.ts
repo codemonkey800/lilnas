@@ -20,6 +20,39 @@ export function getVideosByIds(db: Db, ids: readonly string[]): VideoRow[] {
     .all()
 }
 
+export interface UpdateVideoPatch {
+  downloadUrls?: string[]
+  overview?: string
+  posterUrl?: string
+  runtime?: number
+  title?: string
+}
+
+/**
+ * Patches the fields the download pipeline learns as it goes - yt-dlp
+ * reports the real title/description partway through, MinIO hands back the
+ * download URLs at the end (plan §2.1). Only keys actually present in
+ * `patch` are written, so a later step can't blank out an earlier one's
+ * value by simply not knowing it.
+ *
+ * Returns the updated row, or `undefined` if no such video exists.
+ */
+export function updateVideoById(
+  db: Db,
+  id: string,
+  patch: UpdateVideoPatch,
+): VideoRow | undefined {
+  const set: Partial<typeof videos.$inferInsert> = { updatedAt: new Date() }
+
+  if (patch.downloadUrls !== undefined) set.downloadUrls = patch.downloadUrls
+  if (patch.overview !== undefined) set.overview = patch.overview
+  if (patch.posterUrl !== undefined) set.posterUrl = patch.posterUrl
+  if (patch.runtime !== undefined) set.runtime = patch.runtime
+  if (patch.title !== undefined) set.title = patch.title
+
+  return db.update(videos).set(set).where(eq(videos.id, id)).returning().get()
+}
+
 export interface UpsertVideoInput {
   downloadUrls?: string[]
   // Minted by the caller (nanoid()) before the row exists - required even
