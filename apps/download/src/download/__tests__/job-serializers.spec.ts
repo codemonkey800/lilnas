@@ -18,6 +18,7 @@ function buildRow(overrides: Partial<JobRow> = {}): JobRow {
     filePath: null,
     hiddenAttribution: false,
     id: 'row-1',
+    mediaId: null,
     mediaTitle: null,
     origin: 'service',
     overview: null,

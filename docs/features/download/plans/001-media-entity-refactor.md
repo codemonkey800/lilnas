@@ -1012,35 +1012,77 @@ inventing one.
   `packages/utils/src/download/schema.ts`,
   `packages/utils/src/download/types.ts`, and their two spec files.
 
-### Phase 3 (C3) — `videos` table + media-id derivation · `apps/download`
+### Phase 3 (C3) — `videos` table + media-id derivation · `apps/download` · ✅ COMPLETE
 
-- [ ] New `apps/download/src/db/media-id.ts`: `videoNaturalKey({sourceUrl, timeRange})`
+- [x] New `apps/download/src/db/media-id.ts`: `videoNaturalKey({sourceUrl, timeRange})`
       and `mediaId(media)` — the only derivation point for either key.
-- [ ] Add the `videos` table to `apps/download/src/db/schema.ts` (§2.1) with
+- [x] Add the `videos` table to `apps/download/src/db/schema.ts` (§2.1) with
       `uniqueIndex('videos_natural_key_idx')`. Add `uniqueIndex` to the
       `drizzle-orm/sqlite-core` import.
-- [ ] Export `VideoRow = typeof videos.$inferSelect`.
-- [ ] Add `mediaId: text('media_id')` to `jobs` — **nullable** for now.
-- [ ] Add `index('jobs_type_media_id_idx').on(t.type, t.mediaId)`.
-- [ ] Add `check('jobs_media_id_matches_type', ...)` tying the key prefix to
+- [x] Export `VideoRow = typeof videos.$inferSelect`.
+- [x] Add `mediaId: text('media_id')` to `jobs` — **nullable** for now.
+- [x] Add `index('jobs_type_media_id_idx').on(t.type, t.mediaId)`.
+- [x] Add `check('jobs_media_id_matches_type', ...)` tying the key prefix to
       `type`, modelled on the existing `jobs_origin_matches_requester`
       (`db/schema.ts:152-158`).
-- [ ] Comment the `media_id` column explaining why it is deliberately **not** a
+- [x] Comment the `media_id` column explaining why it is deliberately **not** a
       foreign key.
-- [ ] New `apps/download/src/db/videos.repo.ts`: `getVideoById`,
+- [x] New `apps/download/src/db/videos.repo.ts`: `getVideoById`,
       `getVideosByIds`, `upsertVideoByNaturalKey`.
-- [ ] Run `pnpm --filter @lilnas/download db:generate` → migration `0002`.
+- [x] Run `pnpm --filter @lilnas/download db:generate` → migration `0002`.
       Review the generated SQL by hand.
-- [ ] Tests:
-  - [ ] new `db/__tests__/media-id.spec.ts` — all three key forms round-trip;
+- [x] Tests:
+  - [x] new `db/__tests__/media-id.spec.ts` — all three key forms round-trip;
         a clip and its full-length sibling produce different keys; an absent
         `timeRange` produces a stable `#-` suffix
-  - [ ] `db/__tests__/schema.spec.ts` — table list is `['jobs','videos']`;
+  - [x] `db/__tests__/schema.spec.ts` — table list is `['jobs','videos']`;
         `videos` column round-trip incl. the two JSON columns; unique index
         rejects a duplicate natural key; the new CHECK rejects `type='movie'`
         with a `video:` media_id
-  - [ ] new `db/__tests__/videos.repo.spec.ts` — upsert is idempotent on the
+  - [x] new `db/__tests__/videos.repo.spec.ts` — upsert is idempotent on the
         natural key and returns the same row id twice
+
+**Verification notes:**
+- **Hand-review caught a real migration bug** (the task list's "Review the
+  generated SQL by hand" step, working as intended): drizzle-kit's generated
+  `0002` recreated `jobs` (SQLite's copy-and-swap for a `CHECK`-bearing table)
+  with an `INSERT INTO __new_jobs(...) SELECT ... FROM jobs` that included
+  `media_id` in **both** the target and source column lists. But `media_id` is
+  a column being *added* in this same migration — the pre-migration `jobs`
+  table has no such column — so the generated SQL failed at migration time
+  with `SqliteError: no such column: "media_id"`. Fixed by hand-removing
+  `media_id` from both column lists in that one `INSERT` statement, so it now
+  correctly defaults to `NULL` on every pre-existing row (nullable at this
+  phase by design; Phase 4 backfills it). Confirmed in the final SQL
+  (`0002_sticky_miss_america.sql`): both `CHECK` constraints present on
+  `__new_jobs`, `jobs_type_media_id_idx` and `videos_natural_key_idx` both
+  created, and the `INSERT...SELECT` column list matches the pre-migration
+  schema exactly.
+- `buildJobRow()` in `db/job-row.ts` (Phase 5's file, not this phase's) needed
+  a one-line addition in each branch — `mediaId: null` — so its output keeps
+  matching the `jobs` row shape now that `mediaId` exists as a column;
+  `hydrateJobRow`/`buildJobRow` don't become media-aware until Phase 5, so
+  this is a filler, not a derivation.
+- `pnpm --filter @lilnas/download test` — all `src/db` suites green (76/76),
+  and the full app suite is green except the same 3 pre-existing
+  `ytdlp-update` suites (38 failures, NestJS DI resolution errors) already
+  documented as unrelated pre-existing failures in the Phase 1 verification
+  notes — confirmed identical failure set, nothing new introduced by this
+  phase.
+- `pnpm --filter @lilnas/download lint` — green (one file needed a
+  `prettier --write` pass after being authored).
+- Full-repo `pnpm run type-check` — green across all 14 packages; only
+  `@lilnas/download` re-executed (cache miss), every other package replayed
+  from cache.
+- `git diff --stat` / `git status` confirms the expected file set: new
+  `apps/download/src/db/media-id.ts`, `apps/download/src/db/videos.repo.ts`,
+  `apps/download/src/db/migrations/0002_sticky_miss_america.sql` +
+  `meta/0002_snapshot.json`, `db/__tests__/media-id.spec.ts`,
+  `db/__tests__/videos.repo.spec.ts`; modified
+  `apps/download/src/db/schema.ts`, `apps/download/src/db/job-row.ts`,
+  `apps/download/src/db/migrations/meta/_journal.json`,
+  `db/__tests__/schema.spec.ts`,
+  `download/__tests__/job-serializers.spec.ts`.
 
 ### Phase 4 (C4) — Backfill migration · `apps/download`
 
