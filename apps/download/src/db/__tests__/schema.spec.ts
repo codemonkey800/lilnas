@@ -4,12 +4,12 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { checkIntegrity, runMigrations } from 'src/db/migrate'
 import { applyPragmas } from 'src/db/pragmas'
 import * as schema from 'src/db/schema'
-import { jobs } from 'src/db/schema'
+import { jobs, videos } from 'src/db/schema'
 
 import { createTestDb } from './test-utils'
 
 describe('schema + migrations', () => {
-  it('applies migrations cleanly, creating exactly the `jobs` table', () => {
+  it('applies migrations cleanly, creating exactly the `jobs` and `videos` tables', () => {
     const { sqlite, close } = createTestDb()
     try {
       const tableNames = sqlite
@@ -18,8 +18,9 @@ describe('schema + migrations', () => {
         )
         .all()
         .map(row => (row as { name: string }).name)
+        .sort()
 
-      expect(tableNames).toEqual(['jobs'])
+      expect(tableNames).toEqual(['jobs', 'videos'])
     } finally {
       close()
     }
@@ -216,6 +217,153 @@ describe('schema + migrations', () => {
       // ordering, not a temp b-tree.
       expect(plan).toContain('USING INDEX jobs_created_at_id_idx')
       expect(plan).not.toContain('TEMP B-TREE')
+    } finally {
+      close()
+    }
+  })
+
+  it('round-trips every column kind on the `videos` table, including both JSON columns', () => {
+    const { db, close } = createTestDb()
+    try {
+      const now = new Date('2026-01-01T00:00:00.000Z')
+
+      db.insert(videos)
+        .values({
+          createdAt: now,
+          downloadUrls: ['https://example.com/a.mp4'],
+          id: 'video-1',
+          naturalKey: 'https://example.com/a#00:00:00-00:01:00',
+          overview: 'an overview',
+          posterUrl: 'https://example.com/poster.jpg',
+          runtime: 62,
+          sourceUrl: 'https://example.com/a',
+          timeRange: { end: '00:01:00', start: '00:00:00' },
+          title: 'A title',
+          updatedAt: now,
+        })
+        .run()
+
+      const row = db.select().from(videos).all()[0]
+
+      expect(row).toMatchObject({
+        createdAt: now,
+        downloadUrls: ['https://example.com/a.mp4'],
+        id: 'video-1',
+        naturalKey: 'https://example.com/a#00:00:00-00:01:00',
+        overview: 'an overview',
+        posterUrl: 'https://example.com/poster.jpg',
+        runtime: 62,
+        sourceUrl: 'https://example.com/a',
+        timeRange: { end: '00:01:00', start: '00:00:00' },
+        title: 'A title',
+        updatedAt: now,
+      })
+    } finally {
+      close()
+    }
+  })
+
+  it('`videos_natural_key_idx` rejects a duplicate natural key', () => {
+    const { db, close } = createTestDb()
+    try {
+      db.insert(videos)
+        .values({
+          id: 'video-1',
+          naturalKey: 'https://example.com/a#-',
+          sourceUrl: 'https://example.com/a',
+          title: 'A',
+        })
+        .run()
+
+      expect(() =>
+        db
+          .insert(videos)
+          .values({
+            id: 'video-2',
+            naturalKey: 'https://example.com/a#-',
+            sourceUrl: 'https://example.com/a',
+            title: 'A again',
+          })
+          .run(),
+      ).toThrow(/UNIQUE constraint failed/)
+    } finally {
+      close()
+    }
+  })
+
+  it('`jobs_media_id_matches_type` rejects a `movie` row with a `video:` media_id', () => {
+    const { db, close } = createTestDb()
+    try {
+      expect(() =>
+        db
+          .insert(jobs)
+          .values({
+            id: 'job-1',
+            mediaId: 'video:should-be-tmdb',
+            origin: 'service',
+            status: 'pending',
+            type: 'movie',
+            url: 'radarr://tmdb/1',
+          })
+          .run(),
+      ).toThrow(/CHECK constraint failed/)
+    } finally {
+      close()
+    }
+  })
+
+  it('`jobs_media_id_matches_type` accepts a `movie` row with a `tmdb:` media_id', () => {
+    const { db, close } = createTestDb()
+    try {
+      db.insert(jobs)
+        .values({
+          id: 'job-1',
+          mediaId: 'tmdb:438631',
+          origin: 'service',
+          status: 'pending',
+          type: 'movie',
+          url: 'radarr://tmdb/438631',
+        })
+        .run()
+
+      const row = db.select().from(jobs).all()[0]
+      expect(row?.mediaId).toBe('tmdb:438631')
+    } finally {
+      close()
+    }
+  })
+
+  it('`jobs_media_id_matches_type` still allows a NULL media_id (pre-backfill rows)', () => {
+    const { db, close } = createTestDb()
+    try {
+      db.insert(jobs)
+        .values({
+          id: 'job-1',
+          origin: 'service',
+          status: 'pending',
+          type: 'video',
+          url: 'https://example.com/video',
+        })
+        .run()
+
+      const row = db.select().from(jobs).all()[0]
+      expect(row?.mediaId).toBeNull()
+    } finally {
+      close()
+    }
+  })
+
+  it('creates the `jobs_type_media_id_idx` composite index', () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      const indexNames = sqlite
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'jobs'`,
+        )
+        .all()
+        .map(row => (row as { name: string }).name)
+
+      expect(indexNames).toContain('jobs_type_media_id_idx')
     } finally {
       close()
     }

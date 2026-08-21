@@ -31,6 +31,7 @@ import {
   integer,
   sqliteTable,
   text,
+  uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
 
 export const DOWNLOAD_TYPES = ['movie', 'show', 'video'] as const
@@ -107,6 +108,17 @@ export const jobs = sqliteTable(
     description: text('description'),
     error: text('error'),
 
+    // The derived media key (`tmdb:438631` / `tvdb:121361` / `video:<id>`,
+    // see `media-id.ts`). Nullable only until Phase 4's backfill migration
+    // populates every existing row - Phase 7 tightens this to `.notNull()`
+    // once the twelve columns above it are dropped. Deliberately **not** a
+    // foreign key: it points at `videos` for a third of rows and at
+    // TMDB/TVDB for the rest, and SQLite FKs can't be conditional on
+    // another column. Referential integrity for the `video:` case rests on
+    // `videos.repo.ts`'s `upsertVideoByNaturalKey` being the only writer of
+    // `videos`, plus the `jobs_media_id_matches_type` CHECK below.
+    mediaId: text('media_id'),
+
     // Movie/show source metadata — currently re-fetched from Radarr/Sonarr on
     // every request and discarded; persisting it is a spec requirement.
     mediaTitle: text('media_title'),
@@ -146,6 +158,8 @@ export const jobs = sqliteTable(
     // `jobs_created_at_idx` above stays for query shapes that only ever
     // filter/sort on `created_at` alone.
     index('jobs_created_at_id_idx').on(t.createdAt, t.id),
+    // The gallery's `GROUP BY (type, media_id)` (plan §3.2).
+    index('jobs_type_media_id_idx').on(t.type, t.mediaId),
     // Ties `origin` to the requester columns' nullability so the two can't
     // drift apart at the DB layer - `origin` is otherwise a write-only
     // derived column (see download-state.service.ts's buildJobRow()) with
@@ -157,7 +171,57 @@ export const jobs = sqliteTable(
         (${t.origin} = 'service' AND ${t.requesterEmail} IS NULL     AND ${t.requesterUserId} IS NULL)
       )`,
     ),
+    // Ties `media_id`'s prefix to `type`, the DB-level expression of the
+    // same invariant `mediaId()` (media-id.ts) enforces in code. `IS NULL`
+    // stays part of the expression even after Phase 7's `.notNull()` lands -
+    // harmless once the column can never be null, and it means this CHECK
+    // doesn't have to change shape between phases.
+    check(
+      'jobs_media_id_matches_type',
+      sql`(
+        ${t.mediaId} IS NULL OR
+        (${t.type} = 'movie' AND ${t.mediaId} LIKE 'tmdb:%') OR
+        (${t.type} = 'show'  AND ${t.mediaId} LIKE 'tvdb:%') OR
+        (${t.type} = 'video' AND ${t.mediaId} LIKE 'video:%')
+      )`,
+    ),
   ],
 )
 
 export type JobRow = typeof jobs.$inferSelect
+
+// Phase 3: the only media type nothing upstream (Radarr/Sonarr) tracks -
+// movies and shows are always derived from a live lookup (plan §"What
+// 'derived' means"). A nanoid PK (rather than the natural key itself) keeps
+// `/media/video:V1StGXR8_Z5` a sane URL, while `videos_natural_key_idx`
+// still gives dedupe on re-request.
+export const videos = sqliteTable(
+  'videos',
+  {
+    id: text('id').primaryKey(),
+    // The dedupe key - `{sourceUrl}#{start}-{end}`, computed by
+    // `videoNaturalKey()` (media-id.ts) and nowhere else. A clip is a
+    // distinct video from its full-length download, so the range is part
+    // of the key.
+    naturalKey: text('natural_key').notNull(),
+    sourceUrl: text('source_url').notNull(),
+    timeRange: text('time_range', { mode: 'json' }).$type<TimeRange>(),
+    // NOT NULL, seeded from the source URL at request time and overwritten
+    // the moment yt-dlp reports the real one - so no UI surface needs a
+    // `?? sourceUrl` fallback.
+    title: text('title').notNull(),
+    overview: text('overview'),
+    posterUrl: text('poster_url'),
+    runtime: integer('runtime'),
+    downloadUrls: text('download_urls', { mode: 'json' }).$type<string[]>(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  t => [uniqueIndex('videos_natural_key_idx').on(t.naturalKey)],
+)
+
+export type VideoRow = typeof videos.$inferSelect
