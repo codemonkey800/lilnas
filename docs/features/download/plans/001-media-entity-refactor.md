@@ -1084,28 +1084,55 @@ inventing one.
   `db/__tests__/schema.spec.ts`,
   `download/__tests__/job-serializers.spec.ts`.
 
-### Phase 4 (C4) — Backfill migration · `apps/download`
+### Phase 4 (C4) — Backfill migration · `apps/download` · ✅ COMPLETE
 
-- [ ] `pnpm --filter @lilnas/download db:generate --custom` → migration `0003`.
-- [ ] Write the `CREATE TEMP VIEW job_video_key` + `INSERT INTO videos` +
+- [x] `pnpm --filter @lilnas/download db:generate --custom` → migration `0003`
+      (`0003_backfill_videos_and_media_ids.sql`).
+- [x] Write the `CREATE TEMP VIEW job_video_key` + `INSERT INTO videos` +
       `UPDATE jobs SET media_id` + `DROP VIEW` sequence (§2.3), keeping the
       natural-key expression in exactly one place.
-- [ ] Add an `applyMigrationFiles(sqlite, tags[])` helper to
+- [x] Add an `applyMigrationFiles(sqlite, tags[])` helper to
       `db/__tests__/test-utils.ts` that `exec()`s the real `.sql` files in order.
-- [ ] New `db/__tests__/media-backfill.spec.ts`, seeding legacy rows before
+- [x] New `db/__tests__/media-backfill.spec.ts`, seeding legacy rows before
       applying `0002`+`0003`:
-  - [ ] a video with a `time_range` and one without → two `videos` rows
-  - [ ] two video jobs sharing a URL **and** range → **one** `videos` row, two
+  - [x] a video with a `time_range` and one without → two `videos` rows
+  - [x] two video jobs sharing a URL **and** range → **one** `videos` row, two
         jobs pointing at it, `created_at` = the earlier job's
-  - [ ] two video jobs sharing a URL with **different** ranges → two rows
-  - [ ] a movie job → `media_id = 'tmdb:<id>'`, no `videos` row
-  - [ ] a show job → `media_id = 'tvdb:<id>'`
-  - [ ] a video job with NULL `title` → `videos.title` falls back to the URL
+  - [x] two video jobs sharing a URL with **different** ranges → two rows
+  - [x] a movie job → `media_id = 'tmdb:<id>'`, no `videos` row
+  - [x] a show job → `media_id = 'tvdb:<id>'`
+  - [x] a video job with NULL `title` → `videos.title` falls back to the URL
         (the column is NOT NULL)
-  - [ ] every `jobs.media_id` is non-NULL and well-formed afterward
+  - [x] every `jobs.media_id` is non-NULL and well-formed afterward
 - [ ] Sanity-check against a **copy** of the real production DB pulled from
       `/storage/app-data/download/download.db` — row counts before/after, and
-      no aborted CHECK.
+      no aborted CHECK. **Not done in this session** — no access to the deploy
+      host or the production DB file from this environment; deferred to a
+      pre-deploy manual step (folded into Phase 9's checklist, which already
+      requires a DB backup before the release carrying `0004`).
+
+**Verification notes:**
+- The natural-key expression lives in exactly one place — the temp view's
+  `SELECT` — and both the `INSERT INTO videos` (`GROUP BY natural_key`) and
+  the `UPDATE jobs` (`JOIN ... ON v.natural_key = jvk.natural_key`) read it
+  from there rather than recomputing it, so the two can't drift apart the way
+  the plan's inline two-copy draft could have.
+- `pnpm --filter @lilnas/download test` (full app suite) — 350/388 green; the
+  38 failures are the same three `ytdlp-update` suites already documented as
+  pre-existing/unrelated in the Phase 1 and Phase 3 verification notes
+  (confirmed by suite name match, not just count).
+- `pnpm --filter @lilnas/download lint type-check` — green.
+- Full-repo `pnpm run type-check` — green across all 12 packages; only
+  `@lilnas/download` re-executed (cache miss), everything else replayed from
+  cache.
+- `pnpm --filter @lilnas/download db:generate` (no `--custom`) afterward
+  reports "No schema changes, nothing to migrate" — confirms `0003` is purely
+  a data migration with zero schema drift from what `0002` already declared.
+- `git status`/`git diff --stat` confirms the expected file set: new
+  `apps/download/src/db/migrations/0003_backfill_videos_and_media_ids.sql` +
+  `meta/0003_snapshot.json`, `db/__tests__/media-backfill.spec.ts`; modified
+  `apps/download/src/db/__tests__/test-utils.ts` (the new
+  `applyMigrationFiles` helper) and `migrations/meta/_journal.json`.
 
 ### Phase 5 (C5a) — Media resolver + state layer · `apps/download`
 
