@@ -1,8 +1,11 @@
+import fs from 'node:fs'
+import path from 'node:path'
+
 import BetterSqlite3 from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 
 import { Db, DbService } from 'src/db/db.service'
-import { runMigrations } from 'src/db/migrate'
+import { resolveMigrationsFolder, runMigrations } from 'src/db/migrate'
 import { applyPragmas } from 'src/db/pragmas'
 import * as schema from 'src/db/schema'
 
@@ -28,6 +31,26 @@ export function createTestDb(): TestDb {
   const db = drizzle(sqlite, { schema })
   runMigrations(db)
   return { db, sqlite, close: () => sqlite.close() }
+}
+
+/**
+ * Applies the real, on-disk `.sql` migration files (identified by their file
+ * name minus extension, e.g. `'0002_sticky_miss_america'`) to `sqlite` in
+ * the given order - for tests that need to seed pre-backfill rows against an
+ * intermediate schema state (e.g. `0000`+`0001` applied, `0002`+`0003` not
+ * yet), which `runMigrations()`'s "apply everything" behavior can't produce.
+ */
+export function applyMigrationFiles(
+  sqlite: BetterSqlite3.Database,
+  tags: string[],
+): void {
+  const migrationsFolder = resolveMigrationsFolder()
+  for (const tag of tags) {
+    const sql = fs.readFileSync(path.join(migrationsFolder, `${tag}.sql`), {
+      encoding: 'utf8',
+    })
+    sqlite.exec(sql)
+  }
 }
 
 /**
