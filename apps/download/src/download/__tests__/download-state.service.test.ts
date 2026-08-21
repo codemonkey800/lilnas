@@ -410,7 +410,6 @@ describe('DownloadStateService', () => {
       expect(readRow(record.id)).not.toHaveProperty('queue_snapshot', {
         progress: 50,
       })
-      expect(readRow(record.id)?.queueSnapshot).toBeNull()
       expect(service.getQueueSnapshot(record.id)).toEqual({ progress: 50 })
     })
 

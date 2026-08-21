@@ -29,6 +29,13 @@
       "when": 1787293715640,
       "tag": "0003_backfill_videos_and_media_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787344131606,
+      "tag": "0004_glossy_rumiko_fujikawa",
+      "breakpoints": true
     }
   ]
 }

@@ -14,10 +14,10 @@ describe('reconcileInterruptedJobs', () => {
     db.insert(jobs)
       .values({
         id,
+        mediaId: `video:${id}`,
         origin: 'service',
         status,
         type: 'video',
-        url: `https://example.com/${id}`,
       })
       .run()
   }
