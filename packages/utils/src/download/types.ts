@@ -121,6 +121,20 @@ export function isManagedMedia(media: Media): media is Movie | Show {
  */
 export type DownloadJobV2 = z.infer<typeof DownloadJobSchema>
 
+/**
+ * The app-internal storage shape the Phase 5 state layer is moving towards:
+ * `DownloadJobV2` with `media` (a live, re-derived lookup) replaced by the
+ * durable `mediaId` key it's derived from. Not yet the in-memory `Map`'s
+ * value type - `DownloadStateService.jobs` still holds the legacy
+ * `DownloadJob` union (below) until Phase 6 wires `MediaResolverService`
+ * into the read path; this type exists now so Phase 6 lands as a type swap
+ * rather than a from-scratch design.
+ */
+export type DownloadJobRecord = Omit<DownloadJobV2, 'media'> & {
+  mediaId: string
+  type: DownloadType
+}
+
 export type GalleryItem = z.infer<typeof GalleryItemSchema>
 
 /** `GET /download/media/:id`'s response - see plan §3.1. */

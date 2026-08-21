@@ -4,19 +4,38 @@ import {
   DownloadJobEvent,
   DownloadJobEventType,
   DownloadJobStatus,
+  DownloadType,
+  isTerminalDownloadJobStatus,
   isVideoDownloadJob,
+  type TimeRange,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Queue } from '@lilnas/utils/queue'
 import { Injectable, Logger } from '@nestjs/common'
+import { ChildProcessWithoutNullStreams } from 'child_process'
+import { nanoid } from 'nanoid'
 
 import { DbService } from 'src/db/db.service'
 import { buildJobRow, hydrateJobRow } from 'src/db/job-row'
 import { getJobById } from 'src/db/jobs.repo'
-import { jobs } from 'src/db/schema'
+import {
+  mediaId,
+  mediaIdFromLegacyJobUrl,
+  videoNaturalKey,
+} from 'src/db/media-id'
+import { jobs, type VideoRow } from 'src/db/schema'
+import { upsertVideoByNaturalKey } from 'src/db/videos.repo'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 
 import { projectJobForViewer } from './attribution'
+
+export interface EnsureVideoInput {
+  downloadUrls?: string[]
+  overview?: string
+  sourceUrl: string
+  timeRange?: TimeRange
+  title?: string
+}
 
 @Injectable()
 export class DownloadStateService {
@@ -24,12 +43,55 @@ export class DownloadStateService {
 
   inProgressJobs = new Set<string>()
   jobs = new Map<string, DownloadJob>()
+  // A video job's live `ChildProcess` handle, tracked out-of-band from the
+  // job object itself - not JSON-safe (circular refs would throw inside
+  // JSON.stringify()) and not meaningful to a WS subscriber, so it never
+  // belongs on a broadcast/persisted job. Replaces `VideoDownloadJob.proc`
+  // as the source of truth for the process handle; the field stays on the
+  // type for now (removed in Phase 6) but nothing writes to it anymore.
+  procs = new Map<string, ChildProcessWithoutNullStreams>()
   queue = new Queue<string>()
 
   constructor(
     private readonly dbService: DbService,
     private readonly downloadGateway: DownloadGateway,
   ) {}
+
+  setProc(id: string, proc: ChildProcessWithoutNullStreams): void {
+    this.procs.set(id, proc)
+  }
+
+  getProc(id: string): ChildProcessWithoutNullStreams | undefined {
+    return this.procs.get(id)
+  }
+
+  clearProc(id: string): void {
+    this.procs.delete(id)
+  }
+
+  /**
+   * Upserts a `videos` row for a video job's current known fields - the
+   * only writer of the `videos` table (plan §4.2). Called on every video
+   * job persist (see `resolveMediaId()` below), not just at creation:
+   * `title`/`overview`/`downloadUrls` start out as placeholders and are
+   * overwritten in place as the download pipeline learns the real values
+   * (plan §2.1), so the row must track the job's fields as they fill in.
+   * Idempotent on `(sourceUrl, timeRange)` via `videos_natural_key_idx`.
+   */
+  ensureVideo(input: EnsureVideoInput): VideoRow {
+    return upsertVideoByNaturalKey(this.dbService.db, {
+      downloadUrls: input.downloadUrls,
+      id: nanoid(),
+      naturalKey: videoNaturalKey({
+        sourceUrl: input.sourceUrl,
+        timeRange: input.timeRange,
+      }),
+      overview: input.overview,
+      sourceUrl: input.sourceUrl,
+      timeRange: input.timeRange,
+      title: input.title ?? input.sourceUrl,
+    })
+  }
 
   /**
    * Inserts a brand-new job and broadcasts its creation. Job creation never
@@ -60,9 +122,10 @@ export class DownloadStateService {
    * (`/videos/:id`, `/movies/:id`, `/shows/:id`), falling back to the
    * durable `jobs` row when the in-memory Map has no entry - the only way
    * those routes survive a restart, since the Map itself is emptied by
-   * one. The Map always wins when it has an entry: it carries live,
-   * in-flight fields (a video job's `proc` handle) the row can never
-   * reconstruct, so a hit there must never be second-guessed by a DB read.
+   * one. The Map always wins when it has an entry: a restart also empties
+   * `procs` (see `setProc()`), so there is nothing left to reconstruct
+   * either way, but the Map may still carry other in-flight state the row
+   * can't - a hit there must never be second-guessed by a DB read.
    */
   resolveJob(id: string): DownloadJob | undefined {
     const liveJob = this.jobs.get(id)
@@ -88,14 +151,12 @@ export class DownloadStateService {
     const oldStatus = job.status
     const oldTitle = job.title
     const oldDescription = job.description
-    const hasProcess = isVideoDownloadJob(job) && !!job.proc
 
     // Extract key fields from updates for logging
     const updateKeys = Object.keys(updates)
     const newStatus = updates.status
     const hasNewTitle = 'title' in updates
     const hasNewDescription = 'description' in updates
-    const hasNewProcess = 'proc' in updates
 
     this.logger.log(
       {
@@ -109,11 +170,6 @@ export class DownloadStateService {
         titleUpdate: hasNewTitle ? (oldTitle ? 'updated' : 'added') : undefined,
         descriptionUpdate: hasNewDescription
           ? oldDescription
-            ? 'updated'
-            : 'added'
-          : undefined,
-        processUpdate: hasNewProcess
-          ? hasProcess
             ? 'updated'
             : 'added'
           : undefined,
@@ -136,6 +192,15 @@ export class DownloadStateService {
       oldStatus !== DownloadJobStatus.Completed
     ) {
       updatedJob.completedAt = new Date()
+    }
+
+    // The process handle (tracked in `procs`, not on the job itself - see
+    // `setProc()`) has nothing left to reference once a job reaches a
+    // terminal status; clearing it here means every terminal transition
+    // (Cancelled from a user action, Completed/Failed from the pipeline)
+    // releases it without every call site having to remember to.
+    if (newStatus && isTerminalDownloadJobStatus(newStatus)) {
+      this.clearProc(id)
     }
 
     this.jobs.set(id, updatedJob)
@@ -186,19 +251,6 @@ export class DownloadStateService {
       )
     }
 
-    if (hasNewProcess) {
-      this.logger.debug(
-        {
-          action,
-          jobId: id,
-          url: sanitizedUrl,
-          processAdded: !!updates.proc,
-          processRemoved: updates.proc === undefined,
-        },
-        'Job process reference updated',
-      )
-    }
-
     this.logger.debug(
       {
         action,
@@ -242,29 +294,47 @@ export class DownloadStateService {
     void _createdAt
     void _id
 
+    const jobMediaId = this.resolveMediaId(job)
+
     this.dbService.db
       .insert(jobs)
-      .values({ ...updatableColumns, id: job.id })
-      .onConflictDoUpdate({ target: jobs.id, set: updatableColumns })
+      .values({ ...updatableColumns, id: job.id, mediaId: jobMediaId })
+      .onConflictDoUpdate({
+        target: jobs.id,
+        set: { ...updatableColumns, mediaId: jobMediaId },
+      })
       .run()
+  }
+
+  /**
+   * The derived `jobs.media_id` key (plan §2.2/§4.2) for a job being
+   * persisted - populated for every new/updated row from here on, ahead of
+   * Phase 6's read-side wiring and Phase 7's `.notNull()`. A video job's key
+   * depends on its `videos` row, so `ensureVideo()` runs as a side effect of
+   * every persist (see its own comment on why that's not just a
+   * creation-time call). A movie/show job's key is parsed straight out of
+   * its legacy `radarr://tmdb/…` / `sonarr://tvdb/…` synthetic `url` - the
+   * same encoding migration `0003`'s backfill already reads.
+   */
+  private resolveMediaId(job: DownloadJob): string | null {
+    if (isVideoDownloadJob(job)) {
+      const row = this.ensureVideo({
+        downloadUrls: job.downloadUrls,
+        overview: job.description,
+        sourceUrl: job.url,
+        timeRange: job.timeRange,
+        title: job.title,
+      })
+      return mediaId({ id: row.id, type: DownloadType.Video })
+    }
+
+    return mediaIdFromLegacyJobUrl(job.type, job.url)
   }
 
   private broadcastJobEvent(
     job: DownloadJob,
     type: DownloadJobEventType,
   ): void {
-    // VideoDownloadJob.proc is a live ChildProcess handle - not JSON-safe
-    // (circular references would throw inside JSON.stringify()) and not
-    // meaningful to a WS subscriber anyway. Stripped the same way
-    // getJobLogger() strips it before logging (download-video.service.ts):
-    // setting it to `undefined` rather than deleting the key, since
-    // JSON.stringify() omits `undefined`-valued properties entirely, and
-    // this is a fresh shallow copy so the job actually stored in
-    // `this.jobs` is untouched.
-    const broadcastableJob = isVideoDownloadJob(job)
-      ? { ...job, proc: undefined }
-      : job
-
     // Two serializations at most (one per isAdmin value), not one per
     // client - see DownloadGateway.broadcastPerViewer(). This is the WS
     // half of the spec's attribution rule; DownloadController's REST
@@ -274,7 +344,7 @@ export class DownloadStateService {
     // fire-and-forget broadcast, not a request the caller is waiting on.
     this.downloadGateway.broadcastPerViewer(isAdmin => {
       const event: DownloadJobEvent = {
-        job: projectJobForViewer(broadcastableJob, isAdmin),
+        job: projectJobForViewer(job, isAdmin),
         type,
       }
 

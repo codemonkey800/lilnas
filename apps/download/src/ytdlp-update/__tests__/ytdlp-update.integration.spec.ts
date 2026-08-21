@@ -34,6 +34,15 @@
  * @see YtdlpTestHelper for test utilities and constants
  * @see packages/download/src/ytdlp-update/__tests__/Dockerfile.test for Docker setup
  */
+// nanoid v5 ships ESM-only; this codebase's ts-jest transform doesn't cover
+// it, so any test that transitively imports code using nanoid (like
+// DownloadStateService, since Phase 5's ensureVideo()) must mock it first
+// (see media/__tests__/download.controller.media.test.ts for the same
+// pattern).
+jest.mock('nanoid', () => ({
+  nanoid: jest.fn(() => 'mock-id'),
+}))
+
 import { Test, TestingModule } from '@nestjs/testing'
 import axios from 'axios'
 import { existsSync } from 'fs'

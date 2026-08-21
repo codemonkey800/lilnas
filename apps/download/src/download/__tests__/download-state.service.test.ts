@@ -1,3 +1,12 @@
+// nanoid v5 ships ESM-only; this codebase's ts-jest transform doesn't cover
+// it, so any test that transitively imports code using nanoid (like
+// DownloadStateService, since Phase 5's ensureVideo()) must mock it first
+// (see media/__tests__/download.controller.media.test.ts for the same
+// pattern).
+jest.mock('nanoid', () => ({
+  nanoid: jest.fn(() => 'mock-id'),
+}))
+
 import {
   DOWNLOAD_JOB_EVENT_TYPE,
   DownloadJobEvent,
@@ -14,7 +23,7 @@ import { eq } from 'drizzle-orm'
 
 import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { DbService } from 'src/db/db.service'
-import { jobs } from 'src/db/schema'
+import { jobs, videos } from 'src/db/schema'
 import { DownloadStateService } from 'src/download/download-state.service'
 import {
   DownloadGateway,
@@ -306,28 +315,27 @@ describe('DownloadStateService', () => {
       expect(downloadGateway.broadcastPerViewer).toHaveBeenCalled()
     })
 
-    it('strips the live child process handle from a video job before broadcasting, without touching the stored job', () => {
+    it('never carries a process handle in a broadcast payload, since proc lives in the procs side map', () => {
       const job = buildVideoJob()
       service.addJob(job)
-      downloadGateway.broadcastPerViewer.mockClear()
 
       // A real ChildProcess has circular internal references (sockets,
       // streams, etc.) that make JSON.stringify throw - reproduce that
       // shape here rather than a flat mock object, so this test actually
-      // proves the strip prevents the crash rather than passing by
-      // accident because a flat object happens to stringify fine anyway.
+      // proves nothing proc-shaped reaches the payload rather than passing
+      // by accident because a flat object happens to stringify fine anyway.
       const fakeProc = {} as unknown as ChildProcessWithoutNullStreams
       ;(fakeProc as unknown as { self: unknown }).self = fakeProc
+      service.setProc(job.id, fakeProc)
+      downloadGateway.broadcastPerViewer.mockClear()
 
-      const updated = service.updateJob(job.id, { proc: fakeProc })
+      const updated = service.updateJob(job.id, {
+        status: DownloadJobStatus.Converting,
+      })
 
-      // The real job in the map (and the returned job) keep the live handle...
-      expect(
-        (service.jobs.get(job.id) as VideoDownloadJob | undefined)?.proc,
-      ).toBe(fakeProc)
-      expect((updated as VideoDownloadJob).proc).toBe(fakeProc)
-
-      // ...but the broadcast payload must not carry it, for either viewer.
+      // setProc() never touches the job object itself - it was never there
+      // to strip.
+      expect((updated as VideoDownloadJob).proc).toBeUndefined()
       expect(downloadGateway.broadcastPerViewer).toHaveBeenCalledTimes(1)
       const build = firstBroadcastBuild()
 
@@ -342,29 +350,26 @@ describe('DownloadStateService', () => {
       }
     })
 
-    it('keeps stripping proc on every subsequent update once it has been set', () => {
+    it('clears the tracked process handle once a job reaches a terminal status', () => {
       const job = buildVideoJob()
       service.addJob(job)
+      service.setProc(job.id, {} as unknown as ChildProcessWithoutNullStreams)
+      expect(service.getProc(job.id)).toBeDefined()
 
+      service.updateJob(job.id, { status: DownloadJobStatus.Completed })
+
+      expect(service.getProc(job.id)).toBeUndefined()
+    })
+
+    it('leaves the tracked process handle alone across a non-terminal status change', () => {
+      const job = buildVideoJob()
+      service.addJob(job)
       const fakeProc = {} as unknown as ChildProcessWithoutNullStreams
-      ;(fakeProc as unknown as { self: unknown }).self = fakeProc
-      service.updateJob(job.id, { proc: fakeProc })
-      downloadGateway.broadcastPerViewer.mockClear()
+      service.setProc(job.id, fakeProc)
 
-      // A later update (e.g. a plain status change) doesn't touch `proc`,
-      // but the stored job still carries it via the prior merge - the
-      // broadcast copy must keep stripping it on every call, not just the
-      // update that first introduced it.
       service.updateJob(job.id, { status: DownloadJobStatus.Converting })
 
-      const build = firstBroadcastBuild()
-      const payload = build(false)
-      const event = payload.data as DownloadJobEvent
-      const broadcastJob = event.job as VideoDownloadJob
-
-      expect(broadcastJob.proc).toBeUndefined()
-      expect(broadcastJob.status).toBe(DownloadJobStatus.Converting)
-      expect(() => JSON.stringify(payload)).not.toThrow()
+      expect(service.getProc(job.id)).toBe(fakeProc)
     })
 
     it('broadcasts movie/show jobs as-is, since they have no proc field to strip', () => {
@@ -443,6 +448,71 @@ describe('DownloadStateService', () => {
 
     it('returns undefined when the job exists in neither the Map nor the DB', () => {
       expect(service.resolveJob('missing')).toBeUndefined()
+    })
+  })
+
+  describe('setProc / getProc / clearProc', () => {
+    it('tracks a process handle out-of-band, never touching the job object', () => {
+      const job = buildVideoJob()
+      service.addJob(job)
+      const fakeProc = {} as unknown as ChildProcessWithoutNullStreams
+
+      service.setProc(job.id, fakeProc)
+
+      expect(service.getProc(job.id)).toBe(fakeProc)
+      expect(service.jobs.get(job.id)).toEqual(job)
+    })
+
+    it('returns undefined for a job with no tracked process', () => {
+      expect(service.getProc('missing')).toBeUndefined()
+    })
+
+    it('clearProc is a no-op when nothing was tracked', () => {
+      expect(() => service.clearProc('missing')).not.toThrow()
+    })
+  })
+
+  describe('ensureVideo / media id persistence', () => {
+    function readVideoRows() {
+      return dbService.db.select().from(videos).all()
+    }
+
+    it('creates one videos row and a matching jobs.media_id for a new video job', () => {
+      const job = buildVideoJob()
+
+      service.addJob(job)
+
+      const rows = readVideoRows()
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({ sourceUrl: job.url })
+      expect(readRow(job.id)?.mediaId).toBe(`video:${rows[0]?.id}`)
+    })
+
+    it('collapses two jobs for the same (url, timeRange) onto one videos row', () => {
+      service.addJob(buildVideoJob({ id: 'video-a' }))
+      service.addJob(buildVideoJob({ id: 'video-b' }))
+
+      expect(readVideoRows()).toHaveLength(1)
+    })
+
+    it('overwrites the placeholder title once the real one is known, without duplicating the row', () => {
+      const job = buildVideoJob()
+      service.addJob(job)
+      expect(readVideoRows()[0]?.title).toBe(job.url)
+
+      service.updateJob(job.id, { title: 'The Real Title' })
+
+      const rows = readVideoRows()
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.title).toBe('The Real Title')
+    })
+
+    it("derives jobs.media_id from a movie/show job's legacy synthetic url", () => {
+      service.addJob(buildMovieJob({ url: 'radarr://tmdb/438631' }))
+      service.addJob(buildShowJob({ url: 'sonarr://tvdb/121361' }))
+
+      expect(readRow('movie-1')?.mediaId).toBe('tmdb:438631')
+      expect(readRow('show-1')?.mediaId).toBe('tvdb:121361')
     })
   })
 })
