@@ -1134,65 +1134,189 @@ inventing one.
   `apps/download/src/db/__tests__/test-utils.ts` (the new
   `applyMigrationFiles` helper) and `migrations/meta/_journal.json`.
 
-### Phase 5 (C5a) — Media resolver + state layer · `apps/download`
+### Phase 5 (C5a) — Media resolver + state layer · `apps/download` · ⚠️ PARTIAL — scope narrowed, see findings
 
 The behavior-preserving half. Controller responses stay on their old shapes via
 one explicitly comment-marked adapter, so the controller tests are the safety net.
 
-- [ ] New `apps/download/src/media/media-resolver.service.ts`:
-  - [ ] `resolve(keys: Array<{type, mediaId}>): Promise<Map<string, Media>>`
-  - [ ] group by type; one `getVideosByIds` call for videos
-  - [ ] whole-library cache (`getApiV3Movie` / `getApiV3Series`) keyed by
-        tmdbId/tvdbId behind a TTL, mirroring `auth/admin-check.service.ts`
-  - [ ] per-id fallback on cache miss (`getApiV3MovieLookupTmdb`,
-        `getApiV3SeriesLookup({term: 'tvdb:…'})`)
-  - [ ] placeholder `Media` + a degraded-source signal when upstream throws —
-        never propagate the error to a list endpoint
-- [ ] Register it in `media.module.ts`; export for `download.module.ts`.
-- [ ] `media/radarr.service.ts`: collapse `toMovieSearchResult` + `toDiscoveryMovieResult`
-      into one `toMovie(lookup): Movie`; add `lookupByTmdbId`. Same for
-      `sonarr.service.ts` → `toShow`, `lookupByTvdbId`.
-- [ ] New `media/release-date.util.ts` — extract the byte-identical
-      `releaseYearFromDate` from `radarr.service.ts:70-74` and
-      `sonarr.service.ts:57-61`.
-- [ ] `download/types.ts`: add `DownloadJobRecord = Omit<DownloadJob, 'media'> & { mediaId: string; type: DownloadType }`.
-- [ ] `db/job-row.ts`: `buildJobRow` becomes one flat object (delete both
-      branches and the fourteen `: null` fillers); `hydrateJobRow(row)` →
-      `hydrateJob(row, media)`. Prune the stale round-trip caveats in the doc
-      comment (`proc`/`file` and the media fields).
-- [ ] `download/download-state.service.ts`:
-  - [ ] `procs: Map<string, ChildProcessWithoutNullStreams>` + `setProc` /
-        `getProc` / `clearProc`; clear on terminal status
-  - [ ] delete `hasProcess` (`:91`), the `hasNewProcess` logging branch
-        (`:98`, `:189-200`), and the `{...job, proc: undefined}` strip in
-        `broadcastJobEvent` (`:264-266`)
-  - [ ] `ensureVideo(input)` — the only writer of the `videos` table
-  - [ ] Map holds `DownloadJobRecord`; `resolveJob(id)` joins via the resolver
-  - [ ] `updateJob` signature becomes `Partial<DownloadJobRecord>`
-- [ ] `download/download-video.service.ts`: `updateJob(id, {proc})` at `:287`
-      and `:358` → `setProc(...)`; delete the strip in `getJobLogger`
-      (`:445-449`).
-- [ ] `download/download.service.ts`: `getProc(id)` at `:285-299`; the job
-      literal at `:226-236` becomes `ensureVideo(...)` + `addJob({type, mediaId, …})`.
-- [ ] `media/media-download.service.ts`: `requestMovie`/`requestShow` write **no
-      metadata** — just `addJob({type, mediaId: 'tmdb:'+id, …})`. Collapse
+**Three findings that changed the plan** (discovered mid-implementation, not
+anticipated in Phase 0 — each is a hard DI/type-checking constraint, not a
+difficulty judgment call):
+
+1. **`DownloadStateService.jobs`'s value type can't become `DownloadJobRecord`
+   yet.** `download.controller.detail-fallback.test.ts` and
+   `download.controller.video.test.ts` — both on the "pass unchanged" gate —
+   construct a **real** `DownloadStateService` (or a bare-object mock) and
+   seed/read it with legacy `VideoDownloadJob`/`MovieDownloadJob`/`ShowDownloadJob`
+   values, asserting fields (`radarrId`, `hiddenAttribution`, `requester`) that
+   only exist on the old union. Swapping the Map's value type — or making
+   `resolveJob()` async so it can join through `MediaResolverService` — needs
+   `MediaResolverService` (and therefore `RadarrService`/`SonarrService`/
+   `DbService`) wired into `DownloadStateService`'s constructor. Neither
+   unchanged test file's fixed provider list includes `MediaResolverService`,
+   so that wiring fails NestJS DI at `Test.createTestingModule().compile()` —
+   not a difficulty problem, a hard compile-time/DI wall against a file this
+   phase is not allowed to touch.
+2. **`radarr.service.ts`/`sonarr.service.ts` can't fold `search()`/
+   `searchDetailed()` onto `toMovie()`/`toShow()` yet.** `discovery.service.ts`
+   and `discovery-ranking.ts` (explicitly Phase 6 files) key off
+   `DiscoveryMovieResult.releaseYear` and `DiscoveryShowResult.releaseYear` —
+   a field `Media`/`Movie`/`Show` doesn't carry (only `releaseDate`).
+   Redirecting `searchDetailed()` through the new mapper would break
+   `discovery-ranking.ts`'s compile *today*, ahead of the Phase 6 commit that's
+   supposed to update it. `toMovie()`/`toShow()` were added as new, additional
+   exports instead — the existing mappers/methods are untouched.
+3. **`media-download.service.ts`'s "no metadata write" and
+   `media-poller.service.ts`'s "stop persisting `queueSnapshot`"** both
+   describe behavior that only makes sense once something reads that metadata
+   back *live* via the resolver — which finding 1 shows isn't wired in yet.
+   Doing the write-side removal now, without the read-side replacement, would
+   be a silent regression (movie/show titles and queue progress stop updating
+   in the Map with nothing filling the gap), not a refactor. Both files are
+   untouched this phase.
+
+**What actually shipped this phase** (the parts with no such blocker):
+
+- [x] New `apps/download/src/media/media-resolver.service.ts` — `resolve(keys):
+      Promise<{degradedSources, media}>`, grouped by type; one `getVideosByIds`
+      call for videos; a whole-library cache for movies/shows (60s success /
+      10s failure TTL, mirroring `auth/admin-check.service.ts`) with a per-id
+      fallback on a cache miss; a placeholder `Media` + degraded-source flag
+      when an upstream call throws, never propagated as an error. **Not yet
+      wired into any request path** — see finding 1. Registered and exported
+      from `media.module.ts` (pure addition; `media.module.test.ts`'s real
+      module-graph boot confirms it resolves cleanly).
+- [x] `media/radarr.service.ts` / `sonarr.service.ts`: added `toMovie(lookup):
+      Movie` / `toShow(lookup): Show` (the mapper the resolver and Phase 6's
+      `/media/:id` will share) and `lookupByTmdbId` / `lookupByTvdbId` +
+      `getLibrary()`, all net-new exports. `toMovieSearchResult`/
+      `toDiscoveryMovieResult`/`search()`/`searchDetailed()` — and their
+      Sonarr twins — are untouched (see finding 2; the collapse is now a
+      Phase 6 item, done together with `discovery.service.ts`'s reshape).
+- [x] New `media/release-date.util.ts` — extracted the byte-identical
+      `releaseYearFromDate`; both the old and new mappers import it.
+- [x] `download/types.ts`: added `DownloadJobRecord = Omit<DownloadJobV2,
+      'media'> & { mediaId: string; type: DownloadType }` — documented,
+      type-checked, not yet the Map's value type (see finding 1). Sets up
+      Phase 6 as a type swap instead of a from-scratch design.
+- [x] `download/download-state.service.ts`:
+  - [x] `procs: Map<string, ChildProcessWithoutNullStreams>` + `setProc` /
+        `getProc` / `clearProc`; cleared automatically on any terminal status
+        transition inside `updateJob`
+  - [x] deleted `hasProcess`, the `hasNewProcess` logging branch, and the
+        `{...job, proc: undefined}` strip in `broadcastJobEvent` — dead code
+        once nothing writes `proc` through `updateJob` anymore
+  - [x] `ensureVideo(input)` — the only writer of the `videos` table; called
+        on every persist of a video job (not just creation), so
+        `title`/`overview`/`downloadUrls` progressively overwrite the
+        placeholder as the pipeline learns them (plan §2.1), matching the
+        idempotent-upsert design already in `videos.repo.ts`
+  - [x] `persistJob` now derives and writes `jobs.media_id` for every job
+        going forward — `ensureVideo()`'s row id for video, a parse of the
+        legacy `radarr://tmdb/…`/`sonarr://tvdb/…` synthetic `url` for
+        movie/show (`mediaIdFromLegacyJobUrl`, new in `db/media-id.ts`,
+        mirroring migration `0003`'s own backfill expression). This closes
+        the "only backfilled historically" gap ahead of Phase 7's `.notNull()`
+        without changing anything any consumer reads.
+  - [ ] Map still holds the legacy `DownloadJob` union; `resolveJob(id)` does
+        not yet join through the resolver — **deferred to Phase 6** (finding 1)
+  - [ ] `updateJob` signature is still `Partial<DownloadJob>` — **deferred to
+        Phase 6**
+- [x] `download/download-video.service.ts`: both `updateJob(id, {proc})`
+      call sites → `setProc(...)`; `getJobLogger`'s strip deleted (nothing to
+      strip once `proc` never reaches the job object).
+- [x] `download/download.service.ts`: `cancelVideoDownloadJob` reads
+      `getProc(id)` instead of `job.proc`. Job-creation literal **unchanged**
+      — `ensureVideo`/`mediaId` derivation now happens centrally inside
+      `persistJob` (see above) rather than at the call site, which covers the
+      same ground without touching `createVideoDownloadJob`'s return shape.
+- [ ] `media/media-download.service.ts` — **untouched, deferred to Phase 6**
+      (finding 3).
+- [ ] `media/media-poller.service.ts` — **untouched, deferred to Phase 6**
+      (finding 3).
+- [x] `db/jobs.repo.ts`: added `mediaId` to `JobListFilter` (+ `buildJobWhere`
+      condition) for Phase 6's `/media/:id` job lookup — additive, inactive
+      until a caller sets it, `jobs.repo.spec.ts` passes unchanged.
+- [ ] Temporary shape adapter in `download.controller.ts` — **not needed this
+      phase**: since the Map's value type didn't change (finding 1),
+      `DownloadStateService`/`MediaDownloadService`/`DownloadService` still
+      speak the legacy `DownloadJob` type end-to-end, so there is no shape
+      mismatch yet to adapt. This lands in Phase 6 alongside the Map swap.
+- [x] **Gate met:** all five `download.controller.*.test.ts` files and
+      `media/__tests__/download.controller.media.test.ts` pass **unchanged**
+      (verified by re-running the suite with zero edits to those six files).
+- [x] New `media/__tests__/media-resolver.service.test.ts`: batch grouping
+      (video/movie/show in one call), cache hit vs miss, per-id fallback,
+      TTL reuse across calls, upstream-throws → placeholder + degraded signal
+      (both a full library-lookup failure and a single per-id failure inside
+      a larger batch), mixed-type key list.
+- [x] Updated `download/__tests__/download-state.service.test.ts` (proc tests
+      rewritten against `setProc`/`getProc`/`clearProc`; new coverage for
+      `ensureVideo` dedup, placeholder-title overwrite, and legacy-url
+      `mediaId` derivation) and added the required `jest.mock('nanoid', …)`
+      stub to `media/__tests__/media-poller.service.test.ts` and all three
+      `ytdlp-update/__tests__/*.spec.ts` files — `DownloadStateService` now
+      transitively imports `nanoid` (for `ensureVideo`'s scratch row id) and
+      nanoid v5 is ESM-only, so every test that pulls in `DownloadStateService`
+      needs the existing mock convention, not just the files this phase
+      already touches. `db/__tests__/job-row.spec.ts`,
+      `media/__tests__/{media-download,radarr,sonarr}.service.test.ts` needed
+      **no changes** — those files' subjects weren't touched this phase.
+
+**Verification notes:**
+
+- `pnpm --filter @lilnas/download test` — 367/405 green; the 38 failures are
+  the same three pre-existing `ytdlp-update` DI-resolution suites documented
+  in every prior phase's verification notes (confirmed by suite name and
+  count match, not just total).
+- `pnpm --filter @lilnas/download lint type-check` — green.
+- `pnpm --filter @lilnas/utils lint type-check test` — green (101/101,
+  unaffected — `DownloadJobRecord` is additive).
+- Full-repo `pnpm run lint && pnpm run type-check` — green across all 14
+  packages, `@lilnas/tdr-bot` included; `git diff --stat apps/tdr-bot` is
+  empty.
+- `media.module.test.ts` (the one test that boots the real module graph,
+  forwardRef cycle included) still passes with `MediaResolverService`
+  registered — confirms its DI wiring is sound even though nothing calls it
+  yet.
+
+**Remaining Phase 5 scope, rolled into Phase 6** (the task list below has been
+updated to include these): the `toMovie`/`toShow`+`search()`/`searchDetailed()`
+collapse (with `discovery.service.ts`'s matching reshape), swapping
+`DownloadStateService.jobs` to `DownloadJobRecord` and making `resolveJob`
+resolver-backed, `media-download.service.ts`'s no-metadata-write rewrite,
+`media-poller.service.ts`'s live-queueSnapshot rewrite, and the controller
+adapter that shape change will require.
+
+### Phase 6 (C5b) — Response reshape · `apps/download` + `packages/utils`
+
+**Carried over from Phase 5** (see that phase's findings — each was blocked by
+a hard DI/type constraint that only clears once this phase's reshape lands):
+
+- [ ] `media/radarr.service.ts`/`sonarr.service.ts`: fold `search()`/
+      `searchDetailed()` onto `toMovie()`/`toShow()` (added in Phase 5),
+      deleting `toMovieSearchResult`/`toDiscoveryMovieResult` and their Sonarr
+      twins, done together with the `discovery.service.ts`/`discovery-ranking.ts`
+      reshape below (which is what unblocks this — see Phase 5 finding 2).
+- [ ] `download/download-state.service.ts`: swap `jobs`'s value type from the
+      legacy `DownloadJob` union to `DownloadJobRecord` (added in Phase 5);
+      `resolveJob(id)` becomes resolver-backed (inject `MediaResolverService`);
+      `updateJob` signature becomes `Partial<DownloadJobRecord>`. This is what
+      requires the adapter below, and what unblocks rewriting
+      `download.controller.detail-fallback.test.ts`/`download.controller.video.test.ts`
+      onto the new shape (they were the reason this couldn't move in Phase 5 —
+      see finding 1).
+- [ ] `media/media-download.service.ts`: `requestMovie`/`requestShow` write
+      **no metadata** — just `addJob({type, mediaId: 'tmdb:'+id, …})`. Collapse
       `assertMovieJob`/`assertShowJob` into `assertJobMediaType(job, type)`.
 - [ ] `media/media-poller.service.ts`: write only `status`/`error`; drop the
       `queueSnapshot` persistence and the hand-rolled `Partial<Movie & Show>`
-      workaround + comment at `:143-152`.
-- [ ] `db/jobs.repo.ts`: `JobListFilter` unchanged; add `mediaId` to the filter
-      for `/media/:id`'s job lookup.
-- [ ] Add the temporary shape adapter in `download.controller.ts`, clearly
-      comment-marked as deleted-next-commit.
-- [ ] **Gate:** `download.controller.*.test.ts` (all five) and
-      `media/__tests__/download.controller.media.test.ts` pass **unchanged**.
-- [ ] New `media/__tests__/media-resolver.service.test.ts`: batch grouping,
-      cache hit vs miss, per-id fallback, upstream-throws → placeholder +
-      degraded signal, mixed-type key list.
-- [ ] Update `db/__tests__/job-row.spec.ts`, `download/__tests__/download-state.service.test.ts`,
-      `media/__tests__/{media-download,media-poller,radarr,sonarr}.service.test.ts`.
+      workaround + comment.
+- [ ] Add the temporary shape adapter in `download.controller.ts` if the
+      reshape below doesn't land in the same commit as the Map-type swap above
+      — clearly comment-marked as deleted-next-commit either way.
 
-### Phase 6 (C5b) — Response reshape · `apps/download` + `packages/utils`
+**Original Phase 6 scope:**
 
 - [ ] Delete the Phase-5 adapter.
 - [ ] Delete `download/job-serializers.ts` and its
