@@ -22,6 +22,7 @@ import type {
   DownloadJobStatus,
   DownloadQueueSnapshot,
   DownloadType,
+  TimeRange,
 } from '@lilnas/utils/download/types'
 import { sql } from 'drizzle-orm'
 import {
@@ -120,7 +121,7 @@ export const jobs = sqliteTable(
     // File locations
     timeRange: text('time_range', {
       mode: 'json',
-    }).$type<{ start: string; end: string }>(),
+    }).$type<TimeRange>(),
     downloadUrls: text('download_urls', { mode: 'json' }).$type<string[]>(),
     // Phase 6's Emby-match path. Column added now so Phase 6 needs no second
     // migration; nothing populates it in Phase 1.
