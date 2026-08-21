@@ -18,12 +18,15 @@ import {
 import {
   type DiscoveryMovieResult,
   DownloadType,
+  type Movie,
   type MovieSearchResult,
 } from '@lilnas/utils/download/types'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 
+import { mediaId } from 'src/db/media-id'
 import type { RadarrMediaClient } from 'src/media/clients'
 import { RADARR_CLIENT } from 'src/media/clients'
+import { releaseYearFromDate } from 'src/media/release-date.util'
 import { checkSdkError, unwrapSdkResult } from 'src/media/sdk-result.util'
 import { generateTitleSlug } from 'src/media/title-slug.util'
 
@@ -67,12 +70,6 @@ function pickMovieReleaseDate(movie: MovieResource): string | undefined {
   )
 }
 
-function releaseYearFromDate(dateStr: string | undefined): number | undefined {
-  if (!dateStr) return undefined
-  const year = new Date(dateStr).getUTCFullYear()
-  return Number.isNaN(year) ? undefined : year
-}
-
 /**
  * Fuller mapping than `toMovieSearchResult()` above, for the discovery
  * endpoint - kept as a separate function (not a widening of
@@ -94,6 +91,40 @@ function toDiscoveryMovieResult(movie: MovieResource): DiscoveryMovieResult {
     runtime: movie.runtime,
     title: movie.title ?? 'Unknown title',
     tmdbId: movie.tmdbId ?? 0,
+    type: DownloadType.Movie,
+    year: movie.year,
+  }
+}
+
+/**
+ * The single Radarr -> `Media` mapper (plan §4.1/§4.2), feeding
+ * `MediaResolverService`'s library cache and per-id fallback. Deliberately
+ * NOT yet used by `search()`/`searchDetailed()` above - those still back
+ * `toMovieSearchResult()`/`toDiscoveryMovieResult()` because
+ * `discovery.service.ts`/`discovery-ranking.ts` (Phase 6 files) key off
+ * `DiscoveryMovieResult.releaseYear`, a field `Media` doesn't carry. Folding
+ * `search()`/`searchDetailed()` onto this mapper is Phase 6 work, done
+ * together with that reshape - see the plan doc's Phase 5 status note.
+ */
+export function toMovie(movie: MovieResource): Movie {
+  const posterUrl = movie.images?.find(img => img.coverType === 'poster')?.url
+  const releaseDate = pickMovieReleaseDate(movie)
+  const tmdbId = movie.tmdbId ?? 0
+
+  return {
+    certification: movie.certification ?? undefined,
+    filePath: movie.hasFile ? (movie.movieFile?.path ?? undefined) : undefined,
+    genres: movie.genres ?? [],
+    id: mediaId({ tmdbId, type: DownloadType.Movie }),
+    overview: movie.overview ?? undefined,
+    posterUrl: posterUrl ?? undefined,
+    radarrId: movie.id ?? undefined,
+    ratingValue: movie.ratings?.tmdb?.value ?? movie.ratings?.imdb?.value,
+    releaseDate,
+    // Radarr reports minutes; `Media.runtime` is seconds (see MediaBaseSchema).
+    runtime: movie.runtime != null ? movie.runtime * 60 : undefined,
+    title: movie.title ?? 'Unknown title',
+    tmdbId,
     type: DownloadType.Movie,
     year: movie.year,
   }
@@ -135,6 +166,39 @@ export class RadarrService {
     )
 
     return movies.map(toDiscoveryMovieResult)
+  }
+
+  /**
+   * The whole Radarr library, mapped to `Media` - `MediaResolverService`'s
+   * library cache is built from this (one call per TTL window rather than
+   * one per job). Same underlying call as `requestMovie()`'s existing
+   * library-first lookup (`getApiV3Movie`).
+   */
+  async getLibrary(): Promise<Movie[]> {
+    const movies = unwrapSdkResult(
+      await getApiV3Movie({ client: this.client }),
+      'getMovies',
+    )
+
+    return movies.map(toMovie)
+  }
+
+  /**
+   * Per-id fallback for `MediaResolverService` when a tmdbId isn't in the
+   * library cache - metadata-only, no `radarrId`/`filePath` (this is the
+   * *discover* lookup, not a library query, so a title requested but since
+   * removed from Radarr still resolves).
+   */
+  async lookupByTmdbId(tmdbId: number): Promise<Movie> {
+    const lookup = unwrapSdkResult(
+      await getApiV3MovieLookupTmdb({
+        client: this.client,
+        query: { tmdbId },
+      }),
+      'lookupMovieByTmdbId',
+    )
+
+    return toMovie(lookup)
   }
 
   /**
