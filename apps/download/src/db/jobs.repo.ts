@@ -37,6 +37,10 @@ export interface JobListFilter {
   // is counted in `total`) leaks the hidden requester's identity just as
   // surely as showing it would.
   excludeHiddenVideos?: boolean
+  // The derived `(type, mediaId)` key (plan §"What 'derived' means") -
+  // `/media/:id`'s job lookup (Phase 6) filters on this instead of a job id,
+  // since a title's jobs span every request for it, not just one.
+  mediaId?: string
   requesterEmail?: string
   statuses?: readonly DownloadJobStatus[]
   // Plural/array, not a single value - the query schema accepts
@@ -72,6 +76,7 @@ function buildJobWhere(filter: JobListFilter): SQL | undefined {
     filter.types && filter.types.length > 0
       ? inArray(jobs.type, [...filter.types])
       : undefined,
+    filter.mediaId ? eq(jobs.mediaId, filter.mediaId) : undefined,
     // Case-insensitive: the stored value is whatever casing arrived on the
     // `X-Forwarded-User` header verbatim (see forwarded-user.ts), which may
     // not match the casing a caller passes on `?requester=`.
