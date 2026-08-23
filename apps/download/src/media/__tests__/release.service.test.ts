@@ -78,6 +78,7 @@ describe('ReleaseService', () => {
       deleteEpisodeFile: jest.fn(),
       ensureSeries: jest.fn(),
       getEpisodeFiles: jest.fn(),
+      getEpisodes: jest.fn(),
       getReleases: jest.fn(),
       grabRelease: jest.fn(),
       setEpisodesMonitored: jest.fn(),
@@ -506,6 +507,220 @@ describe('ReleaseService', () => {
 
       expect(job.status).toBe(DownloadJobStatus.Failed)
       expect(radarrService.grabRelease).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('replaceRelease', () => {
+    const input = { guid: 'indexer://new', indexerId: 3 }
+
+    beforeEach(() => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasMonitored: true,
+      })
+      sonarrService.ensureSeries.mockResolvedValue({
+        series: {},
+        sonarrId: 9,
+        turnedOnEpisodeIds: [],
+        wasMonitored: true,
+      })
+    })
+
+    it('deletes every existing movie file, invalidates, then grabs - in that order', async () => {
+      const order: string[] = []
+      radarrService.getMovieFiles.mockResolvedValue([{ id: 11 }, { id: 12 }])
+      radarrService.deleteMovieFile.mockImplementation(async id => {
+        order.push(`delete:${id}`)
+      })
+      mediaResolverService.invalidate.mockImplementation(() => {
+        order.push('invalidate')
+      })
+      radarrService.grabRelease.mockImplementation(async () => {
+        order.push('grab')
+      })
+
+      const job = await service.replaceRelease(MOVIE_ID, input, ALICE)
+
+      expect(order).toEqual(['delete:11', 'delete:12', 'invalidate', 'grab'])
+      expect(mediaResolverService.invalidate).toHaveBeenCalledWith(MOVIE_ID)
+      expect(job.status).toBe(DownloadJobStatus.Searching)
+      expect(captured?.action).toBe('replaceRelease')
+    })
+
+    // Per-file deletes only. unmonitorAndDelete would take the whole movie
+    // with it, leaving the replacement nowhere to import to.
+    it('never reaches for the whole-title delete', async () => {
+      radarrService.getMovieFiles.mockResolvedValue([{ id: 11 }])
+
+      await service.replaceRelease(MOVIE_ID, input, ALICE)
+
+      expect(radarrService.deleteMovieFile).toHaveBeenCalledWith(11)
+      expect(
+        (radarrService as unknown as { unmonitorAndDelete?: jest.Mock })
+          .unmonitorAndDelete,
+      ).toBeUndefined()
+    })
+
+    it('treats zero existing files as a plain grab, not an error', async () => {
+      radarrService.getMovieFiles.mockResolvedValue([])
+
+      const job = await service.replaceRelease(MOVIE_ID, input, ALICE)
+
+      expect(radarrService.deleteMovieFile).not.toHaveBeenCalled()
+      expect(radarrService.grabRelease).toHaveBeenCalledWith('indexer://new', 3)
+      expect(job.status).toBe(DownloadJobStatus.Searching)
+    })
+
+    it('skips a file Radarr returned with no id', async () => {
+      radarrService.getMovieFiles.mockResolvedValue([{}, { id: 12 }])
+
+      await service.replaceRelease(MOVIE_ID, input, ALICE)
+
+      expect(radarrService.deleteMovieFile).toHaveBeenCalledTimes(1)
+      expect(radarrService.deleteMovieFile).toHaveBeenCalledWith(12)
+    })
+
+    // The grab is what the user asked for; if it fails after the delete
+    // landed, the job says so rather than the API pretending it worked.
+    it('surfaces a grab failure on the job even though the delete succeeded', async () => {
+      radarrService.getMovieFiles.mockResolvedValue([{ id: 11 }])
+      radarrService.grabRelease.mockRejectedValue(new Error('Indexer refused'))
+
+      const job = await service.replaceRelease(MOVIE_ID, input, ALICE)
+
+      expect(radarrService.deleteMovieFile).toHaveBeenCalledWith(11)
+      expect(job.status).toBe(DownloadJobStatus.Failed)
+      expect(job.error).toContain('Indexer refused')
+    })
+
+    it('does not grab when the delete itself fails', async () => {
+      radarrService.getMovieFiles.mockResolvedValue([{ id: 11 }])
+      radarrService.deleteMovieFile.mockRejectedValue(new Error('locked'))
+
+      const job = await service.replaceRelease(MOVIE_ID, input, ALICE)
+
+      expect(radarrService.grabRelease).not.toHaveBeenCalled()
+      expect(job.status).toBe(DownloadJobStatus.Failed)
+      expect(job.error).toContain('locked')
+    })
+
+    it('refuses a flagged replacement guid with a 409, deleting nothing', async () => {
+      insertBadFile(dbService.db, {
+        flaggedByEmail: 'alice@example.com',
+        flaggedByUserId: 'user_1',
+        mediaId: MOVIE_ID,
+        mediaType: DownloadType.Movie,
+        releaseGuid: 'indexer://new',
+      })
+
+      await expect(
+        service.replaceRelease(MOVIE_ID, input, ALICE),
+      ).rejects.toThrow(ConflictException)
+      expect(radarrService.getMovieFiles).not.toHaveBeenCalled()
+      expect(radarrService.deleteMovieFile).not.toHaveBeenCalled()
+    })
+
+    // A downloaded-then-manually-unmonitored title would otherwise fail the
+    // grab, which is why replace still goes through withMonitoring.
+    it('re-monitors an unmonitored movie and does not restore it afterwards', async () => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasMonitored: false,
+      })
+      radarrService.getMovieFiles.mockResolvedValue([])
+
+      await service.replaceRelease(MOVIE_ID, input, ALICE)
+
+      expect(radarrService.setMonitored).not.toHaveBeenCalled()
+    })
+
+    describe('shows', () => {
+      it('deletes only the requested season when one is given', async () => {
+        sonarrService.getEpisodeFiles.mockResolvedValue([
+          { id: 21, seasonNumber: 1 },
+          { id: 22, seasonNumber: 2 },
+          { id: 23, seasonNumber: 2 },
+        ])
+
+        await service.replaceRelease(
+          SHOW_ID,
+          { ...input, seasonNumber: 2 },
+          ALICE,
+        )
+
+        expect(sonarrService.deleteEpisodeFile.mock.calls.flat()).toEqual([
+          22, 23,
+        ])
+      })
+
+      it('deletes every season when no season is given', async () => {
+        sonarrService.getEpisodeFiles.mockResolvedValue([
+          { id: 21, seasonNumber: 1 },
+          { id: 22, seasonNumber: 2 },
+        ])
+
+        await service.replaceRelease(SHOW_ID, input, ALICE)
+
+        expect(sonarrService.deleteEpisodeFile.mock.calls.flat()).toEqual([
+          21, 22,
+        ])
+      })
+
+      // Sonarr's episode-file list carries seasonNumber but no episode id, so
+      // a single-episode scope has to resolve the file the other way round.
+      it('resolves a single episode to its file before deleting', async () => {
+        sonarrService.getEpisodes.mockResolvedValue([
+          { episodeFileId: 31, id: 4411 },
+          { episodeFileId: 32, id: 4412 },
+        ])
+
+        await service.replaceRelease(
+          SHOW_ID,
+          { ...input, episodeId: 4412, seasonNumber: 2 },
+          ALICE,
+        )
+
+        expect(sonarrService.getEpisodes).toHaveBeenCalledWith(9, {
+          seasonNumber: 2,
+        })
+        expect(sonarrService.deleteEpisodeFile).toHaveBeenCalledTimes(1)
+        expect(sonarrService.deleteEpisodeFile).toHaveBeenCalledWith(32)
+        expect(sonarrService.getEpisodeFiles).not.toHaveBeenCalled()
+      })
+
+      // Sonarr reports `episodeFileId: 0` for an episode with no file - a
+      // null guard would have tried to delete file 0.
+      it('deletes nothing when the target episode has no file yet', async () => {
+        sonarrService.getEpisodes.mockResolvedValue([
+          { episodeFileId: 0, id: 4412 },
+        ])
+
+        const job = await service.replaceRelease(
+          SHOW_ID,
+          { ...input, episodeId: 4412 },
+          ALICE,
+        )
+
+        expect(sonarrService.deleteEpisodeFile).not.toHaveBeenCalled()
+        expect(sonarrService.grabRelease).toHaveBeenCalled()
+        expect(job.status).toBe(DownloadJobStatus.Searching)
+      })
+
+      it('deletes nothing when the scoped episode is not in the season at all', async () => {
+        sonarrService.getEpisodes.mockResolvedValue([
+          { episodeFileId: 31, id: 4411 },
+        ])
+
+        await service.replaceRelease(
+          SHOW_ID,
+          { ...input, episodeId: 9999 },
+          ALICE,
+        )
+
+        expect(sonarrService.deleteEpisodeFile).not.toHaveBeenCalled()
+      })
     })
   })
 })
