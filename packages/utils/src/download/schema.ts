@@ -272,3 +272,124 @@ export const DiscoverQuerySchema = z
       q.yearFrom <= q.yearTo,
     { message: '`yearFrom` must not be after `yearTo`', path: ['yearFrom'] },
   )
+
+// ---- Phase 3: release selection, replacement, bad-file reporting ----
+
+/** Mirrors the generated `DownloadProtocol` shared by both SDKs. */
+export const ReleaseProtocolSchema = z.enum(['unknown', 'usenet', 'torrent'])
+
+/**
+ * The two fields anyone actually renders out of the SDK's nested
+ * `QualityModel { quality: { name, resolution, source, modifier }, revision }`
+ * - kept as a small object rather than two sibling `quality`/`resolution`
+ * columns so a release row can show "1080p WEBDL" as one unit without the
+ * caller re-associating them.
+ */
+export const ReleaseQualitySchema = z.object({
+  name: z.string(),
+  resolution: z.number().int().optional(),
+})
+
+/**
+ * One wire type for a Radarr *or* Sonarr interactive-search result. The two
+ * generated `ReleaseResource` types are only nominally distinct - Sonarr adds
+ * `fullSeason`/`seasonNumber`/`episodeNumbers` and types `imdbId` as a string
+ * where Radarr uses a number - so rather than leak either generated shape to
+ * the frontend, each service maps into this hand-written schema via its own
+ * `toRelease()`.
+ *
+ * `flaggedBad` is *not* an upstream field: it's this app's own annotation,
+ * joined on in `ReleaseService.listReleases()` from the `bad_files` table.
+ * Radarr/Sonarr know nothing about it (see the spec's accepted gap - a search
+ * started from their UI can still re-pick a flagged release).
+ */
+export const ReleaseSchema = z.object({
+  /** Days since publish, as Radarr/Sonarr compute it. */
+  age: z.number().optional(),
+  customFormatScore: z.number().optional(),
+  downloadAllowed: z.boolean(),
+  /** Show-only. */
+  episodeNumbers: z.array(z.number().int()).optional(),
+  /** This app's annotation, never upstream's - see the schema doc above. */
+  flaggedBad: z.boolean(),
+  /** Show-only. */
+  fullSeason: z.boolean().optional(),
+  /** The indexer's stable id for this release - the grab key. */
+  guid: z.string(),
+  indexer: z.string().optional(),
+  indexerId: z.number().int(),
+  /** Flattened from the SDK's `Array<Language>` to just the names. */
+  languages: z.array(z.string()).optional(),
+  leechers: z.number().int().optional(),
+  protocol: ReleaseProtocolSchema.optional(),
+  publishDate: z.string().optional(),
+  quality: ReleaseQualitySchema.optional(),
+  rejected: z.boolean(),
+  rejections: z.array(z.string()).optional(),
+  releaseGroup: z.string().optional(),
+  /** Show-only. */
+  seasonNumber: z.number().int().optional(),
+  seeders: z.number().int().optional(),
+  /** Bytes. */
+  size: z.number().optional(),
+  title: z.string(),
+})
+
+/**
+ * `GET /download/media/:id/releases`. Both params are Sonarr-only - Radarr's
+ * release endpoint keys on `movieId` alone - and are passed straight through
+ * to it. `seasonNumber` allows 0 because Sonarr numbers specials as season 0.
+ */
+export const ListReleasesQuerySchema = z.object({
+  episodeId: z.coerce.number().int().positive().optional(),
+  seasonNumber: z.coerce.number().int().min(0).optional(),
+})
+
+/**
+ * `POST /download/media/:id/releases/grab`. `postApiV3Release` takes a whole
+ * `ReleaseResource` body upstream, but `{ guid, indexerId }` is all either
+ * service actually needs to grab - so the client sends the identity of its
+ * pick, not the release it was handed back.
+ *
+ * `seasonNumber`/`episodeId` are show-only and carried for the same reason
+ * they're on the list query: they scope which episodes stay monitored after
+ * the grab, and (for replace) which existing files get deleted first.
+ */
+export const GrabReleaseInputSchema = z.object({
+  episodeId: z.number().int().positive().optional(),
+  guid: z.string().min(1),
+  indexerId: z.number().int().nonnegative(),
+  seasonNumber: z.number().int().min(0).optional(),
+})
+
+/**
+ * `POST /download/media/:id/releases/replace` - deliberately the identical
+ * shape to a grab, because a replace *is* a grab with a delete in front of
+ * it. Aliased rather than re-declared so the two can never drift.
+ */
+export const ReplaceReleaseInputSchema = GrabReleaseInputSchema
+
+/**
+ * `POST /download/media/:id/bad-files`. Only `guid` is required - the rest
+ * are denormalized copies of what the user was looking at when they flagged
+ * it, kept so a flag stays readable after the release ages out of the
+ * indexer and can no longer be looked up.
+ */
+export const FlagBadFileInputSchema = z.object({
+  guid: z.string().min(1),
+  indexerId: z.number().int().nonnegative().optional(),
+  reason: z.string().max(500).optional(),
+  title: z.string().max(500).optional(),
+})
+
+/** A persisted `bad_files` row on the wire. */
+export const BadFileSchema = z.object({
+  createdAt: z.iso.datetime(),
+  flaggedBy: JobRequesterSchema,
+  id: z.number().int(),
+  indexerId: z.number().int().nullable(),
+  mediaId: z.string(),
+  reason: z.string().nullable(),
+  releaseGuid: z.string(),
+  releaseTitle: z.string().nullable(),
+})
