@@ -18,6 +18,7 @@ identity, admin check, attributed job history, list/query endpoints).
 Phases 3–8 are still pending.
 
 Four foundational decisions were made before planning:
+
 1. **Persistence**: drizzle-orm + better-sqlite3, matching `apps/swole`'s
    existing pattern (no shared Postgres).
 2. **Admin status**: sourced from `apps/auth`, not a duplicated local
@@ -44,6 +45,7 @@ primitive (`625ac4df`), and the stateless auth admin-check endpoint
 **Persistence** (confirmed pattern from `apps/swole/src/db/*`, adapted for a
 real NestJS app — swole is Next.js-only with a module-level singleton and no
 DI container; download needs a proper injectable):
+
 - `apps/download/src/db/schema.ts` — one flat file, all tables (mirrors
   swole's convention). camelCase TS props, explicit snake_case column names,
   JSON columns via `text({ mode: 'json' }).$type<T>()`, timestamps via
@@ -69,6 +71,7 @@ DI container; download needs a proper injectable):
 **Identity** — confirmed via repo-wide grep that **no NestJS code anywhere in
 lilnas currently reads `X-Forwarded-User`/`X-Forwarded-User-Id`** (only
 Grafana trusts them, via native auth-proxy config, not app code). New:
+
 - A request-scoped decorator/guard in `apps/download` reading
   `req.headers['x-forwarded-user']` / `['x-forwarded-user-id']`, 401ing if
   absent — trusted for the same reason Grafana trusts it (Traefik's
@@ -79,6 +82,7 @@ Grafana trusts them, via native auth-proxy config, not app code). New:
 **Admin check** — confirmed no existing apps/auth endpoint answers "is this
 email an admin" statelessly (the only admin-aware routes are cookie-gated).
 Smallest correct addition:
+
 - `apps/auth/src/admin/admin-check.controller.ts` — new, **guard-free**
   controller (can't hang off the existing `AdminController`, which is
   `@UseGuards(AdminGuard)` at the class level and requires a live session
@@ -119,7 +123,7 @@ on every broadcast rather than trusting a stale connection-time flag
   overview — currently re-fetched from Radarr/Sonarr on every request).
 - Write to `jobs` from the two existing choke points that already centralize
   every job mutation — `DownloadStateService.addJob()` / `updateJob()`
-  (confirmed these are the *only* two places job state changes anywhere
+  (confirmed these are the _only_ two places job state changes anywhere
   today, including the video pipeline, `MediaDownloadService`, and
   `MediaPollerService`). The in-memory `Map` stays as the live/hot
   coordination structure (queue, in-progress tracking, the video job's
@@ -134,7 +138,7 @@ on every broadcast rather than trusting a stale connection-time flag
   identical JSON payload to every client — confirmed by reading
   `download.gateway.ts`. That's a real privacy gap: the spec requires hidden
   attribution to be invisible to regular users, and broadcasting the true
-  requester to every socket (even if the frontend only *renders* it for
+  requester to every socket (even if the frontend only _renders_ it for
   admins) leaks it in the raw WS frame, inspectable via devtools. Fix: read
   the forwarded-user header at WS handshake time, track
   `Map<WebSocket, { isAdmin: boolean }>` instead of a bare `Set`, and have
@@ -162,6 +166,7 @@ media/job split" below for what changed and why; the list/pagination
 mechanics this phase built (cursors, filters, facets) are unaffected.
 
 Built entirely on Phase 1's durable `jobs` table:
+
 - Downloads Activity Page: `GET` all in-progress jobs across all users
   (doesn't exist today — every read is by known ID). Admin variant reuses
   the same attribution-aware serialization from Phase 1.
@@ -180,8 +185,8 @@ Built entirely on Phase 1's durable `jobs` table:
 **Status: done.** Full design and phase-by-phase history in
 `docs/features/download/plans/001-media-entity-refactor.md`.
 
-Phase 1's `jobs` table originally carried both the *event* (who requested,
-when, what happened) and the *metadata* (title, poster, overview, …) on one
+Phase 1's `jobs` table originally carried both the _event_ (who requested,
+when, what happened) and the _metadata_ (title, poster, overview, …) on one
 wide row, duplicated per download — downloading the same movie twice produced
 two disconnected copies of its title and poster. The refactor splits those
 two concerns:
@@ -224,19 +229,154 @@ its exact pre-refactor wire shape alive, tagged
 
 ## Phase 3 — File selection, replacement, bad-file reporting
 
-**Status: not started** (next up after Phase 0–2).
+**Status: done** (backend only — no frontend surface yet). Full plan in
+`docs/features/download/plans/003-phase-3-file-selection.md`. Commits, in
+order: `e2a673c3` (wire contract), `b8662002` (`bad_files` table + migration
+0005), `10ec51c6` (repo), `817eb346` (Radarr wrappers), `f6bac26b` (Sonarr
+wrappers), `be66eec1` (`ReleaseService` + list), `e6c28899` (grab),
+`782431f3` (replace), `072cc031` (flag + enforcement), `05579b8a`
+(endpoints), `4baa6e26` (test wiring).
 
-The generated SDK already exposes the primitives, just unwired:
-`getApiV3Release`/`postApiV3Release` (Radarr) and their Sonarr equivalents
-exist in `packages/media` today but aren't called anywhere in
-`RadarrService`/`SonarrService`.
-- New endpoints: list available releases for a movie/episode; download a
-  specific chosen release (not just trigger the existing generic
-  `MoviesSearch`/`SeriesSearch` command).
-- Replace flow: one action — delete old file, download the new release.
-- `bad_files` table: which release was flagged, by whom, when. Checked
-  before auto-selecting a release on re-download — enforced only inside the
-  app, per spec (doesn't touch Radarr/Sonarr's own selection logic).
+### What shipped
+
+| Route                                       | Auth                     | Does                                               |
+| ------------------------------------------- | ------------------------ | -------------------------------------------------- |
+| `GET /download/media/:id/releases`          | none                     | Interactive-search results, `flaggedBad`-annotated |
+| `POST /download/media/:id/releases/grab`    | `@OptionalCurrentUser()` | Grabs one chosen release as a `DownloadJob`        |
+| `POST /download/media/:id/releases/replace` | `@OptionalCurrentUser()` | Deletes current file(s), then grabs                |
+| `POST /download/media/:id/bad-files`        | `ForwardedUserGuard`     | Flags a release as bad                             |
+| `GET /download/media/:id/bad-files`         | none                     | Lists a title's flags                              |
+
+Routes key on **media** id, not job id — releases belong to a title, not to a
+download event, and browsing them for a title nobody has requested yet is the
+primary use case. Flagging is the one route that requires identity: a flag
+records a judgement _someone_ made.
+
+### Monitoring is borrowed, not kept
+
+The load-bearing constraint: Radarr/Sonarr won't surface (or let you grab)
+releases for a title that isn't **in the library and monitored**. So listing
+releases for a not-yet-requested title has to add and monitor it first —
+and leaving it that way would let an RSS sync grab something nobody asked
+for.
+
+`ReleaseService.withMonitoring()` therefore captures, monitors, acts, and
+restores. The rule that makes it safe: **if it was already monitored, change
+nothing — on the way in or on the way out.** A title with a pending
+`requestMovie` is monitored on purpose, and blindly unmonitoring after a
+release listing would silently kill that request. A failed restore logs a
+warning and is swallowed; failing the caller's read because the cleanup
+didn't take would be the wrong trade.
+
+Sonarr needs one extra layer: series-level `monitored` isn't enough, because
+a series added with `monitor: 'none'` has a monitored series row and
+unmonitored episodes. `ensureSeries` reports back **only the episodes it
+switched on**, so the restore can't clobber ones the user monitored
+deliberately.
+
+**Grab and replace opt out of the restore.** Once the user has picked a
+release the title stays monitored, so Radarr/Sonarr manage the import and
+future upgrades — exactly the state `requestMovie` already leaves behind.
+
+> **Accepted race:** the borrow window spans one interactive indexer search
+> (seconds to ~a minute). If an RSS sync ticks inside that window _and_ the
+> feed carries a matching release, Radarr can self-grab. Small, and strictly
+> better than the permanently-monitored state `requestMovie` already leaves.
+
+One side effect worth knowing: Sonarr's add path now passes
+`searchForMissingEpisodes: false`. The search moved to the explicit
+`SeriesSearch` command `requestShow` was _already_ sending afterwards, so a
+request still searches exactly once — but browsing releases for a
+not-yet-added show no longer kicks off a series-wide grab as a side effect.
+
+### Auto-select enforcement
+
+`requestMovie`/`requestShow` **ensure first, then decide**:
+
+- **No flags** → fire the same generic `MoviesSearch`/`SeriesSearch` command
+  as before, byte for byte. Radarr/Sonarr's own scoring still picks.
+- **Flags present** → the app fetches releases itself, drops flagged and
+  upstream-`rejected` ones, and grabs the best of what's left
+  (`pickBestRelease`: custom-format score, then seeders, then publish date —
+  all descending, fully deterministic). Nothing left fails the job with a
+  message saying why, rather than leaving it in `Searching` forever.
+
+That selector isn't trying to out-think Radarr/Sonarr's scoring, which still
+runs for every unflagged title. It only has to beat the alternative, which is
+failing the request outright.
+
+Enforcement is **app-side only** — Radarr's and Sonarr's own selection logic
+is untouched, so a search started from _their_ UI can still re-pick a flagged
+release. That's the spec's accepted gap, not an oversight.
+
+### Deferred
+
+- **No frontend.** Every route above is backend-only; nothing in the Next.js
+  app calls them yet.
+- **No unflag route.** `deleteBadFile` exists in the repo and is tested, but
+  no endpoint exposes it — a route away, not a schema change away.
+- **Per-episode download/delete UX** stays Phase 4. Phase 3 passes
+  `seasonNumber`/`episodeId` straight through to Sonarr where it supports
+  them, but doesn't build the UI concept.
+
+### Manual verification (needs live Radarr/Sonarr)
+
+Not covered by the unit suite — the monitoring borrow/restore in particular
+can only be proven against real instances. Run from inside the Docker
+network, or against `https://download.lilnas.io`:
+
+```bash
+BASE=http://download:8081/download
+
+# 1. Releases for a movie ALREADY in the library.
+curl -s "$BASE/media/tmdb:27205/releases" | jq '.releases | length'
+
+# 2. Releases for a NOT-YET-ADDED movie. Should return results, and the
+#    movie should be left UNMONITORED afterwards - the borrow/restore.
+curl -s "$BASE/media/tmdb:157336/releases" | jq '.releases[0]'
+#    Then confirm in Radarr: the movie exists, monitored = false.
+
+# 3. Releases for a movie with a PENDING request (monitored on purpose).
+#    Must be left STILL MONITORED - this is the branch that would
+#    otherwise silently kill the pending request.
+curl -s -XPOST "$BASE/movies" -H 'content-type: application/json' \
+  -d '{"tmdbId":157336}'
+curl -s "$BASE/media/tmdb:157336/releases" >/dev/null
+#    Then confirm in Radarr: monitored = true, still.
+
+# 4. Grab a specific release. The title must stay MONITORED afterwards.
+GUID=$(curl -s "$BASE/media/tmdb:27205/releases" | jq -r '.releases[0].guid')
+IDX=$(curl -s "$BASE/media/tmdb:27205/releases" | jq -r '.releases[0].indexerId')
+curl -s -XPOST "$BASE/media/tmdb:27205/releases/grab" \
+  -H 'content-type: application/json' \
+  -d "{\"guid\":\"$GUID\",\"indexerId\":$IDX}" | jq '.status'
+
+# 5. Replace: deletes the current file(s), then grabs.
+curl -s -XPOST "$BASE/media/tmdb:27205/releases/replace" \
+  -H 'content-type: application/json' \
+  -d "{\"guid\":\"$GUID\",\"indexerId\":$IDX}" | jq '.status'
+
+# 6. Flag it, then confirm the loop closes.
+curl -s -XPOST "$BASE/media/tmdb:27205/bad-files" \
+  -H 'content-type: application/json' \
+  -H "x-forwarded-user: you@example.com" -H 'x-forwarded-user-id: u1' \
+  -d "{\"guid\":\"$GUID\",\"reason\":\"audio desync\"}" | jq
+
+#    a) The listing now marks it.
+curl -s "$BASE/media/tmdb:27205/releases" \
+  | jq --arg g "$GUID" '.releases[] | select(.guid==$g) | .flaggedBad'   # true
+
+#    b) Grabbing it is refused with a 409.
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -XPOST "$BASE/media/tmdb:27205/releases/grab" \
+  -H 'content-type: application/json' \
+  -d "{\"guid\":\"$GUID\",\"indexerId\":$IDX}"                            # 409
+
+#    c) A plain re-request now takes the fetch-and-pick path and grabs
+#       something OTHER than the flagged release (check Radarr's history).
+curl -s -XPOST "$BASE/movies" -H 'content-type: application/json' \
+  -d '{"tmdbId":27205}' | jq '.status'
+```
 
 ---
 
@@ -252,6 +392,7 @@ before triggering it). Sonarr's command API also supports `EpisodeSearch`/
 the already-used `SeriesSearch`/`MoviesSearch` — extend locally the same way
 `SeriesSearchCommand`/`MoviesSearchCommand` already do); verify the exact
 name against a running instance during implementation.
+
 - New endpoints: download/delete a single episode, a full season, or the
   whole series (series-level already exists).
 
@@ -279,10 +420,11 @@ intact on the unmerged local branch `feat/theater-app`
 (`apps/theater/src/emby/{emby.module,emby.controller,emby.service,emby.schema}.ts`,
 recoverable via `git show feat/theater-app:apps/theater/src/emby/<file>`),
 not lost history. It's much bigger than what download needs, though: ~90%
-of it is streaming/HLS-proxy/subtitle plumbing for an *embedded* player.
+of it is streaming/HLS-proxy/subtitle plumbing for an _embedded_ player.
 Per the spec, download's "Watch" is a pure **handoff** ("navigates to the
 item in Emby"), not embedded playback — so the new `apps/download/src/emby`
 module should be written fresh and small, reusing only:
+
 - The `resolveUserId()` pattern (resolve `EMBY_USERNAME` to a real Emby
   `UserId` via `GET /Users`, cache it) — confirmed still needed, Emby uses
   one static shared service account regardless of which lilnas user is
@@ -339,7 +481,7 @@ file at the path stored on the `jobs` row from Phase 1/6).
 
 - `audit_log` table (decoupled from `jobs`): `actor`, `action` (string, e.g.
   `video.download.create`, `file.flag_bad`, `movie.delete`), `target_type`
-  + `target_id` (nullable), `metadata` (JSON), `timestamp`.
+  - `target_id` (nullable), `metadata` (JSON), `timestamp`.
 - A small `AuditLogService.record()` called from each controller action
   needing an entry — centralize the write path the same way
   `DownloadStateService.addJob()`/`updateJob()` already centralizes job
