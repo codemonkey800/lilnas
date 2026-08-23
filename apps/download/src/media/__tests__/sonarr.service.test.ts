@@ -3,27 +3,43 @@ import { Test, TestingModule } from '@nestjs/testing'
 
 // Mock SDK module BEFORE any imports that reference it
 jest.mock('@lilnas/media/sonarr', () => ({
+  deleteApiV3EpisodefileById: jest.fn(),
   deleteApiV3QueueById: jest.fn(),
   deleteApiV3SeriesById: jest.fn(),
+  getApiV3Episode: jest.fn(),
+  getApiV3Episodefile: jest.fn(),
   getApiV3Qualityprofile: jest.fn(),
   getApiV3Queue: jest.fn(),
+  getApiV3Release: jest.fn(),
   getApiV3Rootfolder: jest.fn(),
   getApiV3Series: jest.fn(),
+  getApiV3SeriesById: jest.fn(),
   getApiV3SeriesLookup: jest.fn(),
   postApiV3Command: jest.fn(),
+  postApiV3Release: jest.fn(),
   postApiV3Series: jest.fn(),
+  putApiV3EpisodeMonitor: jest.fn(),
+  putApiV3SeriesById: jest.fn(),
 }))
 
 import {
+  deleteApiV3EpisodefileById,
   deleteApiV3QueueById,
   deleteApiV3SeriesById,
+  getApiV3Episode,
+  getApiV3Episodefile,
   getApiV3Qualityprofile,
   getApiV3Queue,
+  getApiV3Release,
   getApiV3Rootfolder,
   getApiV3Series,
+  getApiV3SeriesById,
   getApiV3SeriesLookup,
   postApiV3Command,
+  postApiV3Release,
   postApiV3Series,
+  putApiV3EpisodeMonitor,
+  putApiV3SeriesById,
 } from '@lilnas/media/sonarr'
 
 import { SONARR_CLIENT } from 'src/media/clients'
@@ -35,9 +51,17 @@ const mockGetApiV3Rootfolder = getApiV3Rootfolder as jest.Mock
 const mockPostApiV3Series = postApiV3Series as jest.Mock
 const mockPostApiV3Command = postApiV3Command as jest.Mock
 const mockGetApiV3Series = getApiV3Series as jest.Mock
+const mockGetApiV3SeriesById = getApiV3SeriesById as jest.Mock
 const mockDeleteApiV3SeriesById = deleteApiV3SeriesById as jest.Mock
 const mockGetApiV3Queue = getApiV3Queue as jest.Mock
 const mockDeleteApiV3QueueById = deleteApiV3QueueById as jest.Mock
+const mockGetApiV3Release = getApiV3Release as jest.Mock
+const mockPostApiV3Release = postApiV3Release as jest.Mock
+const mockGetApiV3Episode = getApiV3Episode as jest.Mock
+const mockGetApiV3Episodefile = getApiV3Episodefile as jest.Mock
+const mockDeleteApiV3EpisodefileById = deleteApiV3EpisodefileById as jest.Mock
+const mockPutApiV3SeriesById = putApiV3SeriesById as jest.Mock
+const mockPutApiV3EpisodeMonitor = putApiV3EpisodeMonitor as jest.Mock
 
 describe('SonarrService', () => {
   let service: SonarrService
@@ -187,13 +211,27 @@ describe('SonarrService', () => {
   describe('requestShow', () => {
     it('triggers a search directly when the series is already in the library', async () => {
       mockGetApiV3Series.mockResolvedValue({
-        data: [{ id: 9, tvdbId: 456, title: 'Existing Show', images: [] }],
+        data: [
+          {
+            id: 9,
+            images: [],
+            monitored: true,
+            title: 'Existing Show',
+            tvdbId: 456,
+          },
+        ],
       })
       mockPostApiV3Command.mockResolvedValue({ data: { id: 1 } })
 
       const result = await service.requestShow(456)
 
       expect(postApiV3Series).not.toHaveBeenCalled()
+      // An already-monitored title is left strictly alone, and requestShow
+      // passes no `monitorEpisodes` scope - so a user who has monitored only
+      // season 3 does not silently get all ten seasons switched on.
+      expect(putApiV3SeriesById).not.toHaveBeenCalled()
+      expect(getApiV3Episode).not.toHaveBeenCalled()
+      expect(putApiV3EpisodeMonitor).not.toHaveBeenCalled()
       expect(postApiV3Command).toHaveBeenCalledWith(
         expect.objectContaining({
           body: { name: 'SeriesSearch', seriesId: 9 },
@@ -290,6 +328,431 @@ describe('SonarrService', () => {
         expect.objectContaining({
           body: expect.objectContaining({ qualityProfileId: 2 }),
         }),
+      )
+    })
+  })
+
+  describe('ensureSeries', () => {
+    it('touches nothing when the series is already in the library and monitored', async () => {
+      mockGetApiV3Series.mockResolvedValue({
+        data: [{ id: 9, monitored: true, tvdbId: 456 }],
+      })
+
+      const result = await service.ensureSeries(456)
+
+      expect(result).toMatchObject({
+        sonarrId: 9,
+        turnedOnEpisodeIds: [],
+        wasMonitored: true,
+      })
+      expect(postApiV3Series).not.toHaveBeenCalled()
+      expect(putApiV3SeriesById).not.toHaveBeenCalled()
+      expect(postApiV3Command).not.toHaveBeenCalled()
+    })
+
+    it('flips series-level monitoring on for a library series that is unmonitored', async () => {
+      mockGetApiV3Series.mockResolvedValue({
+        data: [{ id: 9, monitored: false, tvdbId: 456 }],
+      })
+      mockGetApiV3SeriesById.mockResolvedValue({
+        data: { id: 9, monitored: false, qualityProfileId: 2, tvdbId: 456 },
+      })
+      mockPutApiV3SeriesById.mockResolvedValue({ data: {} })
+
+      const result = await service.ensureSeries(456)
+
+      expect(result).toMatchObject({ sonarrId: 9, wasMonitored: false })
+      expect(putApiV3SeriesById).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({ monitored: true }),
+          path: { id: '9' },
+        }),
+      )
+    })
+
+    it('adds an absent series monitored, without searching for it', async () => {
+      mockGetApiV3Series.mockResolvedValue({ data: [] })
+      mockGetApiV3SeriesLookup.mockResolvedValue({
+        data: [{ title: 'New Show', titleSlug: 'new-show', tvdbId: 456 }],
+      })
+      mockGetApiV3Qualityprofile.mockResolvedValue({
+        data: [{ id: 2, name: 'Any' }],
+      })
+      mockGetApiV3Rootfolder.mockResolvedValue({
+        data: [{ accessible: true, id: 1, path: '/tv' }],
+      })
+      mockPostApiV3Series.mockResolvedValue({
+        data: { id: 77, monitored: true, title: 'New Show', tvdbId: 456 },
+      })
+
+      const result = await service.ensureSeries(456)
+
+      expect(result).toMatchObject({
+        sonarrId: 77,
+        // `monitor: 'all'` already covered every episode, so this call turned
+        // nothing on individually and a restore has nothing episode-level to
+        // undo.
+        turnedOnEpisodeIds: [],
+        wasMonitored: false,
+      })
+      expect(postApiV3Series).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({
+            addOptions: {
+              monitor: 'all',
+              // Both false - the search moved to the explicit SeriesSearch
+              // command, so browsing releases for a not-yet-added show no
+              // longer kicks off a series-wide grab as a side effect.
+              searchForCutoffUnmetEpisodes: false,
+              searchForMissingEpisodes: false,
+            },
+            monitored: true,
+          }),
+        }),
+      )
+      expect(postApiV3Command).not.toHaveBeenCalled()
+    })
+
+    it('monitors only the unmonitored episodes in the requested season, and reports just those', async () => {
+      mockGetApiV3Series.mockResolvedValue({
+        data: [{ id: 9, monitored: true, tvdbId: 456 }],
+      })
+      mockGetApiV3Episode.mockResolvedValue({
+        data: [
+          { id: 100, monitored: true, seasonNumber: 2 },
+          { id: 101, monitored: false, seasonNumber: 2 },
+          { id: 102, monitored: false, seasonNumber: 2 },
+        ],
+      })
+      mockPutApiV3EpisodeMonitor.mockResolvedValue({ data: {} })
+
+      const result = await service.ensureSeries(456, {
+        monitorEpisodes: { seasonNumber: 2 },
+      })
+
+      expect(getApiV3Episode).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { seasonNumber: 2, seriesId: 9 } }),
+      )
+      // Episode 100 was already on - restoring it to unmonitored later would
+      // clobber a choice the user made, so it is deliberately not in the set.
+      expect(result.turnedOnEpisodeIds).toEqual([101, 102])
+      expect(putApiV3EpisodeMonitor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: { episodeIds: [101, 102], monitored: true },
+        }),
+      )
+    })
+
+    it('narrows to a single episode when the scope names one', async () => {
+      mockGetApiV3Series.mockResolvedValue({
+        data: [{ id: 9, monitored: true, tvdbId: 456 }],
+      })
+      mockGetApiV3Episode.mockResolvedValue({
+        data: [
+          { id: 100, monitored: false, seasonNumber: 2 },
+          { id: 101, monitored: false, seasonNumber: 2 },
+        ],
+      })
+      mockPutApiV3EpisodeMonitor.mockResolvedValue({ data: {} })
+
+      const result = await service.ensureSeries(456, {
+        monitorEpisodes: { episodeId: 101, seasonNumber: 2 },
+      })
+
+      expect(result.turnedOnEpisodeIds).toEqual([101])
+    })
+
+    it('makes no monitor call when every scoped episode is already monitored', async () => {
+      mockGetApiV3Series.mockResolvedValue({
+        data: [{ id: 9, monitored: true, tvdbId: 456 }],
+      })
+      mockGetApiV3Episode.mockResolvedValue({
+        data: [{ id: 100, monitored: true, seasonNumber: 2 }],
+      })
+
+      const result = await service.ensureSeries(456, {
+        monitorEpisodes: { seasonNumber: 2 },
+      })
+
+      expect(result.turnedOnEpisodeIds).toEqual([])
+      expect(putApiV3EpisodeMonitor).not.toHaveBeenCalled()
+    })
+
+    it('skips the episode pass entirely when no scope is given', async () => {
+      mockGetApiV3Series.mockResolvedValue({
+        data: [{ id: 9, monitored: true, tvdbId: 456 }],
+      })
+
+      await service.ensureSeries(456)
+
+      expect(getApiV3Episode).not.toHaveBeenCalled()
+    })
+
+    it('throws when Sonarr returns a library series with no id', async () => {
+      mockGetApiV3Series.mockResolvedValue({ data: [{ tvdbId: 456 }] })
+
+      await expect(service.ensureSeries(456)).rejects.toThrow(
+        'Sonarr did not return an id for series tvdbId=456',
+      )
+    })
+
+    it('throws when the series cannot be found in Sonarr search results', async () => {
+      mockGetApiV3Series.mockResolvedValue({ data: [] })
+      mockGetApiV3SeriesLookup.mockResolvedValue({ data: [] })
+
+      await expect(service.ensureSeries(456)).rejects.toThrow(
+        'Series with TVDB ID 456 not found',
+      )
+    })
+  })
+
+  describe('setSeriesMonitored / setEpisodesMonitored', () => {
+    it('re-sends the whole series resource with only `monitored` changed', async () => {
+      mockGetApiV3SeriesById.mockResolvedValue({
+        data: {
+          id: 9,
+          monitored: true,
+          qualityProfileId: 2,
+          rootFolderPath: '/tv',
+          tags: [3],
+        },
+      })
+      mockPutApiV3SeriesById.mockResolvedValue({ data: {} })
+
+      await service.setSeriesMonitored(9, false)
+
+      expect(putApiV3SeriesById).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: {
+            id: 9,
+            monitored: false,
+            qualityProfileId: 2,
+            rootFolderPath: '/tv',
+            tags: [3],
+          },
+          path: { id: '9' },
+        }),
+      )
+    })
+
+    it('throws a descriptive error when the series write fails', async () => {
+      mockGetApiV3SeriesById.mockResolvedValue({ data: { id: 9 } })
+      mockPutApiV3SeriesById.mockResolvedValue({ error: { message: 'boom' } })
+
+      await expect(service.setSeriesMonitored(9, true)).rejects.toThrow(
+        'setSeriesMonitored failed',
+      )
+    })
+
+    it('bulk-sets episode monitoring', async () => {
+      mockPutApiV3EpisodeMonitor.mockResolvedValue({ data: {} })
+
+      await service.setEpisodesMonitored([1, 2, 3], false)
+
+      expect(putApiV3EpisodeMonitor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: { episodeIds: [1, 2, 3], monitored: false },
+        }),
+      )
+    })
+
+    // The restore path hits this with an empty list whenever it had nothing
+    // to turn on, which is the common case.
+    it('makes no call at all for an empty episode list', async () => {
+      await service.setEpisodesMonitored([], true)
+
+      expect(putApiV3EpisodeMonitor).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('getEpisodes', () => {
+    it('scopes to one season when a season number is given', async () => {
+      mockGetApiV3Episode.mockResolvedValue({ data: [{ id: 100 }] })
+
+      await service.getEpisodes(9, { seasonNumber: 2 })
+
+      expect(getApiV3Episode).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { seasonNumber: 2, seriesId: 9 } }),
+      )
+    })
+
+    it('omits the season filter when none is given', async () => {
+      mockGetApiV3Episode.mockResolvedValue({ data: [] })
+
+      await service.getEpisodes(9)
+
+      expect(mockGetApiV3Episode.mock.calls[0][0].query).not.toHaveProperty(
+        'seasonNumber',
+      )
+    })
+
+    // Season 0 is Sonarr's specials season - a truthiness check here would
+    // silently widen the scope to the whole series.
+    it('keeps season 0 (specials) as a real filter', async () => {
+      mockGetApiV3Episode.mockResolvedValue({ data: [] })
+
+      await service.getEpisodes(9, { seasonNumber: 0 })
+
+      expect(getApiV3Episode).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { seasonNumber: 0, seriesId: 9 } }),
+      )
+    })
+  })
+
+  describe('getReleases', () => {
+    it('maps the show-only fields on top of the shared release shape', async () => {
+      mockGetApiV3Release.mockResolvedValue({
+        data: [
+          {
+            downloadAllowed: true,
+            episodeNumbers: [1, 2],
+            fullSeason: true,
+            guid: 'indexer://abc',
+            indexer: 'Some Indexer',
+            indexerId: 3,
+            languages: [{ id: 1, name: 'English' }],
+            protocol: 'usenet',
+            quality: { quality: { name: 'WEBDL-1080p', resolution: 1080 } },
+            rejected: false,
+            seasonNumber: 2,
+            seeders: 10,
+            title: 'Some.Show.S02.1080p',
+          },
+        ],
+      })
+
+      const [result] = await service.getReleases(9)
+
+      expect(result).toEqual({
+        age: undefined,
+        customFormatScore: undefined,
+        downloadAllowed: true,
+        episodeNumbers: [1, 2],
+        flaggedBad: false,
+        fullSeason: true,
+        guid: 'indexer://abc',
+        indexer: 'Some Indexer',
+        indexerId: 3,
+        languages: ['English'],
+        leechers: undefined,
+        protocol: 'usenet',
+        publishDate: undefined,
+        quality: { name: 'WEBDL-1080p', resolution: 1080 },
+        rejected: false,
+        rejections: undefined,
+        releaseGroup: undefined,
+        seasonNumber: 2,
+        seeders: 10,
+        size: undefined,
+        title: 'Some.Show.S02.1080p',
+      })
+    })
+
+    it('leaves the show-only fields undefined when absent', async () => {
+      mockGetApiV3Release.mockResolvedValue({ data: [{}] })
+
+      const [result] = await service.getReleases(9)
+
+      expect(result?.episodeNumbers).toBeUndefined()
+      expect(result?.fullSeason).toBeUndefined()
+      expect(result?.seasonNumber).toBeUndefined()
+    })
+
+    it('passes seasonNumber and episodeId straight through to Sonarr', async () => {
+      mockGetApiV3Release.mockResolvedValue({ data: [] })
+
+      await service.getReleases(9, { episodeId: 4412, seasonNumber: 2 })
+
+      expect(getApiV3Release).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: { episodeId: 4412, seasonNumber: 2, seriesId: 9 },
+        }),
+      )
+    })
+
+    it('omits both scope params when neither is given', async () => {
+      mockGetApiV3Release.mockResolvedValue({ data: [] })
+
+      await service.getReleases(9)
+
+      expect(mockGetApiV3Release.mock.calls[0][0].query).toEqual({
+        seriesId: 9,
+      })
+    })
+
+    it('returns an empty list when the indexer search found nothing', async () => {
+      mockGetApiV3Release.mockResolvedValue({ data: [] })
+
+      await expect(service.getReleases(9)).resolves.toEqual([])
+    })
+
+    it('throws a descriptive error when the SDK call fails', async () => {
+      mockGetApiV3Release.mockResolvedValue({ error: { message: 'boom' } })
+
+      await expect(service.getReleases(9)).rejects.toThrow('getReleases failed')
+    })
+  })
+
+  describe('grabRelease', () => {
+    it('posts just the release identity, not a whole ReleaseResource', async () => {
+      mockPostApiV3Release.mockResolvedValue({ data: {} })
+
+      await service.grabRelease('indexer://abc', 3)
+
+      expect(postApiV3Release).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: { guid: 'indexer://abc', indexerId: 3 },
+        }),
+      )
+    })
+
+    it('throws a descriptive error when the grab is refused', async () => {
+      mockPostApiV3Release.mockResolvedValue({ error: { message: 'nope' } })
+
+      await expect(service.grabRelease('g', 1)).rejects.toThrow(
+        'grabRelease failed',
+      )
+    })
+  })
+
+  describe('getEpisodeFiles / deleteEpisodeFile', () => {
+    it('lists the files for one series', async () => {
+      mockGetApiV3Episodefile.mockResolvedValue({
+        data: [{ id: 11, seasonNumber: 2, seriesId: 9 }],
+      })
+
+      const result = await service.getEpisodeFiles(9)
+
+      expect(getApiV3Episodefile).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { seriesId: 9 } }),
+      )
+      expect(result).toEqual([{ id: 11, seasonNumber: 2, seriesId: 9 }])
+    })
+
+    it('returns an empty list for a series with no files yet', async () => {
+      mockGetApiV3Episodefile.mockResolvedValue({ data: [] })
+
+      await expect(service.getEpisodeFiles(9)).resolves.toEqual([])
+    })
+
+    it('deletes one file by id without touching the series', async () => {
+      mockDeleteApiV3EpisodefileById.mockResolvedValue({ data: undefined })
+
+      await service.deleteEpisodeFile(11)
+
+      expect(deleteApiV3EpisodefileById).toHaveBeenCalledWith(
+        expect.objectContaining({ path: { id: 11 } }),
+      )
+      expect(deleteApiV3SeriesById).not.toHaveBeenCalled()
+    })
+
+    it('throws a descriptive error when the file delete fails', async () => {
+      mockDeleteApiV3EpisodefileById.mockResolvedValue({
+        error: { message: 'not found' },
+      })
+
+      await expect(service.deleteEpisodeFile(11)).rejects.toThrow(
+        'deleteEpisodeFile failed',
       )
     })
   })
