@@ -2,22 +2,30 @@ import { z } from 'zod'
 
 import {
   ActivityQuerySchema,
+  BadFileSchema,
   CreateDownloadJobInputSchema,
   DiscoverQuerySchema,
   DownloadJobSchema,
   DownloadJobStatus,
   DownloadQueueSnapshotSchema,
   DownloadType,
+  FlagBadFileInputSchema,
   GalleryFacetsQuerySchema,
   GalleryItemSchema,
   GalleryQuerySchema,
+  GrabReleaseInputSchema,
   HistoryQuerySchema,
   JobRequesterSchema,
+  ListReleasesQuerySchema,
   ManagedMediaBaseSchema,
   MediaBaseSchema,
   MediaSchema,
   MediaSearchQuerySchema,
   MovieSchema,
+  ReleaseProtocolSchema,
+  ReleaseQualitySchema,
+  ReleaseSchema,
+  ReplaceReleaseInputSchema,
   RequestMovieInputSchema,
   RequestShowInputSchema,
   ShowSchema,
@@ -245,6 +253,50 @@ export interface DownloadPage<T> {
 export interface DiscoveryPage extends DownloadPage<Media> {
   degradedSources: DiscoverySource[]
   facets: DiscoveryFacets
+}
+
+// ---- Phase 3: release selection, replacement, bad-file reporting ----
+
+export type ReleaseProtocol = z.infer<typeof ReleaseProtocolSchema>
+export type ReleaseQuality = z.infer<typeof ReleaseQualitySchema>
+
+/**
+ * One interactive-search result from Radarr *or* Sonarr, already annotated
+ * with this app's own `flaggedBad`. See `ReleaseSchema` for why the two
+ * nominally-distinct generated `ReleaseResource` types collapse into one
+ * hand-written wire type here.
+ */
+export type Release = z.infer<typeof ReleaseSchema>
+
+export type ListReleasesQuery = z.infer<typeof ListReleasesQuerySchema>
+export type GrabReleaseInput = z.infer<typeof GrabReleaseInputSchema>
+export type ReplaceReleaseInput = z.infer<typeof ReplaceReleaseInputSchema>
+export type FlagBadFileInput = z.infer<typeof FlagBadFileInputSchema>
+
+/**
+ * A flagged release. Exclusion is enforced only inside this app - Radarr's
+ * and Sonarr's own selection logic is untouched, so a search started from
+ * their UI can still re-pick a flagged release (accepted gap, spec §6).
+ */
+export type BadFile = z.infer<typeof BadFileSchema>
+
+/** `GET /download/media/:id/releases`. */
+export interface ListReleasesResponse {
+  releases: Release[]
+}
+
+/** `GET /download/media/:id/bad-files`. */
+export interface ListBadFilesResponse {
+  badFiles: BadFile[]
+}
+
+/**
+ * `POST /download/media/:id/bad-files`. Idempotent on
+ * `(mediaId, releaseGuid)` - re-flagging an already-flagged release returns
+ * the original row rather than erroring, so a double-click is harmless.
+ */
+export interface FlagBadFileResponse {
+  badFile: BadFile
 }
 
 /**
