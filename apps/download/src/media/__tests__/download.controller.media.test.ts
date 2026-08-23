@@ -8,12 +8,19 @@ jest.mock('nanoid', () => ({
 }))
 
 import {
+  type BadFile,
   DownloadJob,
   DownloadJobStatus,
   DownloadType,
   Media,
+  type Release,
 } from '@lilnas/utils/download/types'
-import { HttpException, Logger } from '@nestjs/common'
+import {
+  ConflictException,
+  HttpException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { AdminCheckService } from 'src/auth/admin-check.service'
@@ -25,6 +32,7 @@ import { JobQueryService } from 'src/download/job-query.service'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { ReleaseService } from 'src/media/release.service'
 
 import { createFakeMediaResolver } from './helpers/fake-media-resolver'
 
@@ -39,6 +47,7 @@ describe('DownloadController - media endpoints', () => {
   let adminCheckService: jest.Mocked<AdminCheckService>
   let mediaResolver: ReturnType<typeof createFakeMediaResolver>
   let jobQueryService: { listJobsForMedia: jest.Mock }
+  let releaseService: jest.Mocked<ReleaseService>
   let videosById: Map<string, unknown>
 
   beforeEach(async () => {
@@ -53,6 +62,13 @@ describe('DownloadController - media endpoints', () => {
       deleteShowJob: jest.fn(),
     }
     const mockAdminCheckService = { checkIsAdmin: jest.fn() }
+    const mockReleaseService = {
+      flagBadFile: jest.fn(),
+      grabRelease: jest.fn(),
+      listBadFiles: jest.fn(),
+      listReleases: jest.fn(),
+      replaceRelease: jest.fn(),
+    }
     mediaResolver = createFakeMediaResolver()
     jobQueryService = { listJobsForMedia: jest.fn().mockResolvedValue([]) }
     videosById = new Map()
@@ -73,11 +89,13 @@ describe('DownloadController - media endpoints', () => {
         { provide: JobQueryService, useValue: jobQueryService },
         { provide: MediaDownloadService, useValue: mockMediaDownloadService },
         { provide: MediaResolverService, useValue: mediaResolver },
+        { provide: ReleaseService, useValue: mockReleaseService },
       ],
     }).compile()
 
     controller = module.get(DownloadController)
     mediaDownloadService = module.get(MediaDownloadService)
+    releaseService = module.get(ReleaseService)
     adminCheckService = module.get(AdminCheckService)
     adminCheckService.checkIsAdmin.mockResolvedValue(false)
 
@@ -363,6 +381,166 @@ describe('DownloadController - media endpoints', () => {
 
       expect(response.media.title).toBe('tmdb:5')
       expect(response.jobs).toHaveLength(1)
+    })
+  })
+
+  // ---- Phase 3 ----
+
+  const alice: ForwardedUser = { email: 'alice@example.com', userId: 'u1' }
+
+  const sampleRelease: Release = {
+    downloadAllowed: true,
+    flaggedBad: false,
+    guid: 'indexer://abc',
+    indexerId: 3,
+    rejected: false,
+    title: 'Some.Movie.2020.1080p',
+  }
+
+  const sampleBadFile: BadFile = {
+    createdAt: '2026-08-20T12:00:00.000Z',
+    flaggedBy: alice,
+    id: 1,
+    indexerId: 3,
+    mediaId: 'tmdb:1',
+    reason: null,
+    releaseGuid: 'indexer://abc',
+    releaseTitle: 'Some.Movie.2020.1080p',
+  }
+
+  describe('listReleases', () => {
+    it('wraps the service results in a releases envelope', async () => {
+      releaseService.listReleases.mockResolvedValue([sampleRelease])
+
+      const response = await controller.listReleases('tmdb:1', {})
+
+      expect(releaseService.listReleases).toHaveBeenCalledWith('tmdb:1', {
+        episodeId: undefined,
+        seasonNumber: undefined,
+      })
+      expect(response).toEqual({ releases: [sampleRelease] })
+    })
+
+    it('passes the season/episode scope through', async () => {
+      releaseService.listReleases.mockResolvedValue([])
+
+      await controller.listReleases('tvdb:1', {
+        episodeId: 4412,
+        seasonNumber: 2,
+      })
+
+      expect(releaseService.listReleases).toHaveBeenCalledWith('tvdb:1', {
+        episodeId: 4412,
+        seasonNumber: 2,
+      })
+    })
+
+    it('returns an empty envelope rather than 404ing when nothing was found', async () => {
+      releaseService.listReleases.mockResolvedValue([])
+
+      await expect(controller.listReleases('tmdb:1', {})).resolves.toEqual({
+        releases: [],
+      })
+    })
+
+    // Unlike the job routes, a service error is not laundered into a 404 -
+    // ReleaseService already throws the right HttpException for a bad media
+    // id, and anything else is a real failure.
+    it('lets a service error propagate untouched', async () => {
+      releaseService.listReleases.mockRejectedValue(
+        new NotFoundException('nope'),
+      )
+
+      await expect(controller.listReleases('video:x', {})).rejects.toThrow(
+        NotFoundException,
+      )
+    })
+  })
+
+  describe('grabRelease / replaceRelease', () => {
+    const input = { guid: 'indexer://abc', indexerId: 3 }
+
+    it('returns the created job for a grab, threading the requester through', async () => {
+      releaseService.grabRelease.mockResolvedValue(movieJob)
+
+      const response = await controller.grabRelease('tmdb:1', input, alice)
+
+      expect(releaseService.grabRelease).toHaveBeenCalledWith(
+        'tmdb:1',
+        input,
+        alice,
+      )
+      expect(response).toEqual(movieJob)
+    })
+
+    it('accepts a grab with no forwarded identity', async () => {
+      releaseService.grabRelease.mockResolvedValue(movieJob)
+
+      await controller.grabRelease('tmdb:1', input, undefined)
+
+      expect(releaseService.grabRelease).toHaveBeenCalledWith(
+        'tmdb:1',
+        input,
+        undefined,
+      )
+    })
+
+    it('returns the created job for a replace', async () => {
+      releaseService.replaceRelease.mockResolvedValue(movieJob)
+
+      const response = await controller.replaceRelease('tmdb:1', input, alice)
+
+      expect(releaseService.replaceRelease).toHaveBeenCalledWith(
+        'tmdb:1',
+        input,
+        alice,
+      )
+      expect(response).toEqual(movieJob)
+    })
+
+    // A flagged guid must stay a 409. mediaJobRoute() would have turned it
+    // into a 404, which is why these routes deliberately don't use it.
+    it('lets a ConflictException through as-is rather than laundering it to a 404', async () => {
+      releaseService.grabRelease.mockRejectedValue(
+        new ConflictException('flagged'),
+      )
+
+      await expect(
+        controller.grabRelease('tmdb:1', input, alice),
+      ).rejects.toThrow(ConflictException)
+    })
+  })
+
+  describe('flagBadFile / listBadFiles', () => {
+    it('records the flag with the guard-supplied identity', () => {
+      releaseService.flagBadFile.mockReturnValue(sampleBadFile)
+
+      const response = controller.flagBadFile(
+        'tmdb:1',
+        { guid: 'indexer://abc' },
+        alice,
+      )
+
+      expect(releaseService.flagBadFile).toHaveBeenCalledWith(
+        'tmdb:1',
+        { guid: 'indexer://abc' },
+        alice,
+      )
+      expect(response).toEqual({ badFile: sampleBadFile })
+    })
+
+    it('wraps the flag list in a badFiles envelope', () => {
+      releaseService.listBadFiles.mockReturnValue([sampleBadFile])
+
+      expect(controller.listBadFiles('tmdb:1')).toEqual({
+        badFiles: [sampleBadFile],
+      })
+    })
+
+    it('returns an empty envelope for a title with no flags', () => {
+      releaseService.listBadFiles.mockReturnValue([])
+
+      expect(controller.listBadFiles('tmdb:1')).toEqual({ badFiles: [] })
     })
   })
 })
