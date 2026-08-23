@@ -1,26 +1,39 @@
 import type {
   CommandResourceWritable,
+  MovieFileResource,
   MovieResource,
   QueueResource,
+  ReleaseResource,
 } from '@lilnas/media/radarr'
 import {
   deleteApiV3MovieById,
+  deleteApiV3MoviefileById,
   deleteApiV3QueueById,
   getApiV3Movie,
+  getApiV3MovieById,
+  getApiV3Moviefile,
   getApiV3MovieLookup,
   getApiV3MovieLookupTmdb,
   getApiV3Qualityprofile,
   getApiV3Queue,
+  getApiV3Release,
   getApiV3Rootfolder,
   postApiV3Command,
   postApiV3Movie,
+  postApiV3Release,
+  putApiV3MovieById,
 } from '@lilnas/media/radarr'
-import { DownloadType, type Movie } from '@lilnas/utils/download/types'
+import {
+  DownloadType,
+  type Movie,
+  type Release,
+} from '@lilnas/utils/download/types'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 
 import { mediaId } from 'src/db/media-id'
 import type { RadarrMediaClient } from 'src/media/clients'
 import { RADARR_CLIENT } from 'src/media/clients'
+import { toCommonRelease } from 'src/media/release-mapper.util'
 import { checkSdkError, unwrapSdkResult } from 'src/media/sdk-result.util'
 import { generateTitleSlug } from 'src/media/title-slug.util'
 
@@ -37,6 +50,33 @@ export interface RequestMovieResult {
   posterUrl?: string
   radarrId: number
   title: string
+}
+
+/**
+ * What `ensureMovie()` hands back. `wasMonitored` is the state **before**
+ * the call - `false` for a fresh add - and is the whole point of the return
+ * shape: `ReleaseService.withMonitoring()` needs to know whether it borrowed
+ * monitoring (and must therefore put it back) or found it already on (and
+ * must leave it strictly alone, since a pending request depends on it).
+ *
+ * `movie` rides along because `requestMovie()` needs the resource's
+ * title/overview/poster for its own result, and re-fetching what
+ * `ensureMovie` already had in hand would be a wasted round trip.
+ */
+export interface EnsureMovieResult {
+  movie: MovieResource
+  radarrId: number
+  wasMonitored: boolean
+}
+
+/**
+ * Radarr's half of the shared `Release` mapper. Radarr adds nothing to the
+ * common shape - `fullSeason`/`seasonNumber`/`episodeNumbers` are Sonarr-only
+ * - so this is a pass-through, kept as a named export purely so both
+ * services expose the same mapper name.
+ */
+export function toRelease(resource: ReleaseResource): Release {
+  return toCommonRelease(resource)
 }
 
 // Radarr surfaces up to four release-date-shaped fields depending on the
@@ -149,66 +189,192 @@ export class RadarrService {
   }
 
   /**
-   * Adds (if needed) and triggers a search for a movie by TMDB ID.
-   * Simplified relative to tdr-bot's monitorAndDownloadMovie: no
-   * retry/circuit-breaker wrapper, no granular options, just enough to get
-   * the movie monitored in Radarr and a search command queued.
+   * Gets the movie into a state where Radarr will actually surface and grab
+   * releases for it: present in the library **and** monitored. Radarr's
+   * release endpoint keys on `movieId`, so a title nobody has requested yet
+   * has to be added before its releases can even be listed.
+   *
+   * Three branches, and `wasMonitored` distinguishes them for the caller:
+   * absent (add it, `false`), present-but-unmonitored (flip it on, `false`),
+   * present-and-monitored (**touch nothing**, `true`). That last branch is
+   * load-bearing: a title with a pending `requestMovie` is monitored on
+   * purpose, and a caller that later "restored" it to unmonitored would
+   * silently kill that request.
+   *
+   * Extracted verbatim from `requestMovie()`'s add-if-missing half - the one
+   * new behaviour is the monitoring flip, which a plain search on an
+   * unmonitored movie would otherwise have quietly no-op'd.
    */
-  async requestMovie(tmdbId: number): Promise<RequestMovieResult> {
+  async ensureMovie(tmdbId: number): Promise<EnsureMovieResult> {
     const existingMovies = unwrapSdkResult(
       await getApiV3Movie({ client: this.client }),
       'getMovies',
     )
 
-    let movie = existingMovies.find(m => m.tmdbId === tmdbId)
+    const existing = existingMovies.find(m => m.tmdbId === tmdbId)
 
-    if (!movie) {
-      const lookup = unwrapSdkResult(
-        await getApiV3MovieLookupTmdb({
-          client: this.client,
-          query: { tmdbId },
-        }),
-        'lookupMovieByTmdbId',
-      )
+    if (existing) {
+      if (existing.id == null) {
+        throw new Error(
+          `Radarr did not return an id for movie tmdbId=${tmdbId}`,
+        )
+      }
 
-      const { qualityProfileId, rootFolderPath } =
-        await this.getDefaultConfiguration()
+      const wasMonitored = existing.monitored === true
+      if (!wasMonitored) {
+        await this.setMonitored(existing.id, true)
+      }
 
-      const title = lookup.title ?? `Movie ${tmdbId}`
-
-      movie = unwrapSdkResult(
-        await postApiV3Movie({
-          client: this.client,
-          // Domain fields line up 1:1 with MovieResource; addOptions is the
-          // only nested writable-only shape, so a targeted cast covers it.
-          body: {
-            tmdbId,
-            title,
-            titleSlug: generateTitleSlug(title),
-            year: lookup.year,
-            qualityProfileId,
-            rootFolderPath,
-            monitored: true,
-            minimumAvailability: 'released',
-            addOptions: { searchForMovie: false },
-          } as unknown as MovieResource,
-        }),
-        'addMovie',
-      )
+      return { movie: existing, radarrId: existing.id, wasMonitored }
     }
 
-    if (movie.id == null) {
+    const lookup = unwrapSdkResult(
+      await getApiV3MovieLookupTmdb({
+        client: this.client,
+        query: { tmdbId },
+      }),
+      'lookupMovieByTmdbId',
+    )
+
+    const { qualityProfileId, rootFolderPath } =
+      await this.getDefaultConfiguration()
+
+    const title = lookup.title ?? `Movie ${tmdbId}`
+
+    const added = unwrapSdkResult(
+      await postApiV3Movie({
+        client: this.client,
+        // Domain fields line up 1:1 with MovieResource; addOptions is the
+        // only nested writable-only shape, so a targeted cast covers it.
+        body: {
+          tmdbId,
+          title,
+          titleSlug: generateTitleSlug(title),
+          year: lookup.year,
+          qualityProfileId,
+          rootFolderPath,
+          monitored: true,
+          minimumAvailability: 'released',
+          addOptions: { searchForMovie: false },
+        } as unknown as MovieResource,
+      }),
+      'addMovie',
+    )
+
+    if (added.id == null) {
       throw new Error(`Radarr did not return an id for movie tmdbId=${tmdbId}`)
     }
 
-    const command: MoviesSearchCommand = {
-      name: 'MoviesSearch',
-      movieIds: [movie.id],
-    }
-    checkSdkError(
-      await postApiV3Command({ client: this.client, body: command }),
-      'triggerMovieSearch',
+    // `false`, not `true`: a movie that didn't exist a moment ago was not
+    // monitored *before this call*, which is exactly what a caller restoring
+    // borrowed monitoring needs to know.
+    return { movie: added, radarrId: added.id, wasMonitored: false }
+  }
+
+  /**
+   * Flips a movie's `monitored` flag. Radarr's `PUT /movie/{id}` replaces the
+   * whole resource, so the current one is read back first and re-sent with
+   * the single field changed - anything else would blank out the movie's
+   * quality profile, root folder and tags.
+   */
+  async setMonitored(radarrId: number, monitored: boolean): Promise<void> {
+    const movie = unwrapSdkResult(
+      await getApiV3MovieById({ client: this.client, path: { id: radarrId } }),
+      'getMovie',
     )
+
+    checkSdkError(
+      await putApiV3MovieById({
+        client: this.client,
+        // The generated path type is a string here (unlike the GET above,
+        // which takes a number) - an inconsistency in Radarr's spec, not a
+        // choice on this side.
+        path: { id: String(radarrId) },
+        body: { ...movie, monitored },
+      }),
+      'setMovieMonitored',
+    )
+  }
+
+  /**
+   * Radarr's interactive indexer search for one movie, mapped to the shared
+   * `Release` DTO. Every result comes back with `flaggedBad: false` -
+   * annotation against `bad_files` happens in `ReleaseService`, which is the
+   * only layer that has a DB.
+   *
+   * The movie must be in the library and monitored first (see
+   * `ensureMovie()`), otherwise Radarr has nothing to search for.
+   */
+  async getReleases(radarrId: number): Promise<Release[]> {
+    const releases = unwrapSdkResult(
+      await getApiV3Release({
+        client: this.client,
+        query: { movieId: radarrId },
+      }),
+      'getReleases',
+    )
+
+    return releases.map(toRelease)
+  }
+
+  /**
+   * Hands one specific release to Radarr to download. `postApiV3Release`
+   * takes a whole `ReleaseResource` body upstream, but `{ guid, indexerId }`
+   * is all Radarr actually needs to re-find and grab it - so the caller
+   * sends the identity of its pick rather than round-tripping the entire
+   * release it was handed.
+   */
+  async grabRelease(guid: string, indexerId: number): Promise<void> {
+    checkSdkError(
+      await postApiV3Release({
+        client: this.client,
+        body: { guid, indexerId },
+      }),
+      'grabRelease',
+    )
+  }
+
+  /** Every file Radarr currently holds for a movie - the replace path's input. */
+  async getMovieFiles(radarrId: number): Promise<MovieFileResource[]> {
+    return unwrapSdkResult(
+      await getApiV3Moviefile({
+        client: this.client,
+        query: { movieId: [radarrId] },
+      }),
+      'getMovieFiles',
+    )
+  }
+
+  /**
+   * Deletes one movie file, leaving the movie itself in the library and
+   * **monitored**. Deliberately not `unmonitorAndDelete`, which removes the
+   * whole movie - a replace has to keep the title so the replacement release
+   * has somewhere to import to.
+   */
+  async deleteMovieFile(fileId: number): Promise<void> {
+    checkSdkError(
+      await deleteApiV3MoviefileById({
+        client: this.client,
+        path: { id: fileId },
+      }),
+      'deleteMovieFile',
+    )
+  }
+
+  /**
+   * Adds (if needed) and triggers a search for a movie by TMDB ID.
+   * Simplified relative to tdr-bot's monitorAndDownloadMovie: no
+   * retry/circuit-breaker wrapper, no granular options, just enough to get
+   * the movie monitored in Radarr and a search command queued.
+   *
+   * Now literally `ensureMovie()` + the search command - the add-if-missing
+   * half moved out so `ReleaseService` can reach it without also triggering
+   * a search it doesn't want.
+   */
+  async requestMovie(tmdbId: number): Promise<RequestMovieResult> {
+    const { movie, radarrId } = await this.ensureMovie(tmdbId)
+
+    await this.triggerSearch(radarrId)
 
     const posterUrl = movie.images?.find(
       img => img.coverType === 'poster',
@@ -217,9 +383,27 @@ export class RadarrService {
     return {
       overview: movie.overview ?? undefined,
       posterUrl: posterUrl ?? undefined,
-      radarrId: movie.id,
+      radarrId,
       title: movie.title ?? `Movie ${tmdbId}`,
     }
+  }
+
+  /**
+   * Radarr's generic "go find something for this movie" command - the
+   * unflagged auto-select path. When a title *does* have flagged releases,
+   * `MediaDownloadService` fetches and picks itself instead, because this
+   * command gives the app no say in what Radarr grabs.
+   */
+  async triggerSearch(radarrId: number): Promise<void> {
+    const command: MoviesSearchCommand = {
+      name: 'MoviesSearch',
+      movieIds: [radarrId],
+    }
+
+    checkSdkError(
+      await postApiV3Command({ client: this.client, body: command }),
+      'triggerMovieSearch',
+    )
   }
 
   /**
