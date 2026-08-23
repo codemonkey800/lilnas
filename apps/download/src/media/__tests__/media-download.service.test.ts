@@ -14,11 +14,13 @@ import {
   DownloadJobStatus,
   DownloadType,
   Media,
+  type Release,
 } from '@lilnas/utils/download/types'
 import { Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { createTestDbService } from 'src/db/__tests__/test-utils'
+import { insertBadFile } from 'src/db/bad-files.repo'
 import { DbService } from 'src/db/db.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
@@ -66,15 +68,21 @@ describe('MediaDownloadService', () => {
     dbService = createTestDbService()
     mediaResolver = createFakeMediaResolver()
     const mockRadarrService = {
-      search: jest.fn(),
-      requestMovie: jest.fn(),
+      ensureMovie: jest.fn().mockResolvedValue({ movie: {}, radarrId: 42 }),
       getQueue: jest.fn(),
+      getReleases: jest.fn(),
+      grabRelease: jest.fn(),
+      search: jest.fn(),
+      triggerSearch: jest.fn(),
       unmonitorAndDelete: jest.fn(),
     }
     const mockSonarrService = {
-      search: jest.fn(),
-      requestShow: jest.fn(),
+      ensureSeries: jest.fn().mockResolvedValue({ series: {}, sonarrId: 9 }),
       getQueue: jest.fn(),
+      getReleases: jest.fn(),
+      grabRelease: jest.fn(),
+      search: jest.fn(),
+      triggerSearch: jest.fn(),
       unmonitorAndDelete: jest.fn(),
     }
     const mockDownloadGateway = { broadcastPerViewer: jest.fn() }
@@ -133,12 +141,6 @@ describe('MediaDownloadService', () => {
 
   describe('requestMovie', () => {
     it('creates a Requested job keyed only by media id, then moves it to Searching', async () => {
-      radarrService.requestMovie.mockResolvedValue({
-        radarrId: 42,
-        title: 'A Movie',
-        posterUrl: 'poster.jpg',
-      })
-
       const job = await service.requestMovie(123)
 
       expect(job.status).toBe(DownloadJobStatus.Searching)
@@ -163,11 +165,6 @@ describe('MediaDownloadService', () => {
     })
 
     it('broadcasts both the creation and the status change', async () => {
-      radarrService.requestMovie.mockResolvedValue({
-        radarrId: 42,
-        title: 'A Movie',
-      })
-
       const job = await service.requestMovie(123)
       await flushAsync()
 
@@ -203,8 +200,19 @@ describe('MediaDownloadService', () => {
       })
     })
 
+    // The unflagged path is the pre-Phase-3 path: ensure the movie exists,
+    // then hand the choice to Radarr's own scoring via the generic command.
+    it('triggers the generic search command when the title has no flagged releases', async () => {
+      await service.requestMovie(123)
+
+      expect(radarrService.ensureMovie).toHaveBeenCalledWith(123)
+      expect(radarrService.triggerSearch).toHaveBeenCalledWith(42)
+      expect(radarrService.getReleases).not.toHaveBeenCalled()
+      expect(radarrService.grabRelease).not.toHaveBeenCalled()
+    })
+
     it('moves the job to Failed when RadarrService throws', async () => {
-      radarrService.requestMovie.mockRejectedValue(new Error('radarr down'))
+      radarrService.ensureMovie.mockRejectedValue(new Error('radarr down'))
 
       const job = await service.requestMovie(123)
 
@@ -215,12 +223,6 @@ describe('MediaDownloadService', () => {
 
   describe('requestShow', () => {
     it('creates a Requested job, then moves it to Searching on success', async () => {
-      sonarrService.requestShow.mockResolvedValue({
-        sonarrId: 9,
-        title: 'A Show',
-        posterUrl: 'poster.jpg',
-      })
-
       const job = await service.requestShow(456)
 
       expect(job.status).toBe(DownloadJobStatus.Searching)
@@ -228,13 +230,128 @@ describe('MediaDownloadService', () => {
       expect(job.media.id).toBe('tvdb:456')
     })
 
+    it('triggers the generic search command when the title has no flagged releases', async () => {
+      await service.requestShow(456)
+
+      expect(sonarrService.ensureSeries).toHaveBeenCalledWith(456)
+      expect(sonarrService.triggerSearch).toHaveBeenCalledWith(9)
+      expect(sonarrService.getReleases).not.toHaveBeenCalled()
+    })
+
     it('moves the job to Failed when SonarrService throws', async () => {
-      sonarrService.requestShow.mockRejectedValue(new Error('sonarr down'))
+      sonarrService.ensureSeries.mockRejectedValue(new Error('sonarr down'))
 
       const job = await service.requestShow(456)
 
       expect(job.status).toBe(DownloadJobStatus.Failed)
       expect(job.error).toBe('sonarr down')
+    })
+  })
+
+  // The whole point of Phase 3's enforcement: a title with flagged releases
+  // can't go through the generic command, because that command has no way to
+  // be told "anything but that one".
+  describe('auto-select enforcement for flagged titles', () => {
+    function flag(mediaId: string, releaseGuid: string) {
+      insertBadFile(dbService.db, {
+        flaggedByEmail: 'alice@example.com',
+        flaggedByUserId: 'user_1',
+        mediaId,
+        mediaType: mediaId.startsWith('tmdb:')
+          ? DownloadType.Movie
+          : DownloadType.Show,
+        releaseGuid,
+      })
+    }
+
+    function release(overrides: Partial<Release> = {}): Release {
+      return {
+        downloadAllowed: true,
+        flaggedBad: false,
+        guid: 'indexer://a',
+        indexerId: 1,
+        rejected: false,
+        title: 'A release',
+        ...overrides,
+      }
+    }
+
+    it('fetches and grabs the best unflagged release instead of searching', async () => {
+      flag('tmdb:123', 'indexer://bad')
+      radarrService.getReleases.mockResolvedValue([
+        release({ customFormatScore: 10, guid: 'indexer://bad' }),
+        release({ customFormatScore: 5, guid: 'indexer://ok' }),
+      ])
+
+      const job = await service.requestMovie(123)
+
+      expect(radarrService.triggerSearch).not.toHaveBeenCalled()
+      expect(radarrService.getReleases).toHaveBeenCalledWith(42)
+      expect(radarrService.grabRelease).toHaveBeenCalledWith('indexer://ok', 1)
+      expect(job.status).toBe(DownloadJobStatus.Searching)
+    })
+
+    it('skips releases the upstream service already rejected', async () => {
+      flag('tmdb:123', 'indexer://bad')
+      radarrService.getReleases.mockResolvedValue([
+        release({
+          customFormatScore: 99,
+          guid: 'indexer://rejected',
+          rejected: true,
+        }),
+        release({ customFormatScore: 1, guid: 'indexer://ok' }),
+      ])
+
+      await service.requestMovie(123)
+
+      expect(radarrService.grabRelease).toHaveBeenCalledWith('indexer://ok', 1)
+    })
+
+    it('fails the job with a descriptive error when nothing survives the filter', async () => {
+      flag('tmdb:123', 'indexer://bad')
+      radarrService.getReleases.mockResolvedValue([
+        release({ guid: 'indexer://bad' }),
+      ])
+
+      const job = await service.requestMovie(123)
+
+      expect(job.status).toBe(DownloadJobStatus.Failed)
+      expect(job.error).toContain('No usable release for tmdb:123')
+      expect(radarrService.grabRelease).not.toHaveBeenCalled()
+    })
+
+    it('fails the job when the indexer returned nothing at all', async () => {
+      flag('tmdb:123', 'indexer://bad')
+      radarrService.getReleases.mockResolvedValue([])
+
+      const job = await service.requestMovie(123)
+
+      expect(job.status).toBe(DownloadJobStatus.Failed)
+      expect(job.error).toContain('all 0 release(s)')
+    })
+
+    // Flags are scoped to one title - another movie's flags must not push
+    // this one off the command path.
+    it('ignores flags recorded against a different title', async () => {
+      flag('tmdb:999', 'indexer://bad')
+
+      await service.requestMovie(123)
+
+      expect(radarrService.triggerSearch).toHaveBeenCalledWith(42)
+      expect(radarrService.getReleases).not.toHaveBeenCalled()
+    })
+
+    it('applies the same branch to shows', async () => {
+      flag('tvdb:456', 'indexer://bad')
+      sonarrService.getReleases.mockResolvedValue([
+        release({ guid: 'indexer://bad' }),
+        release({ guid: 'indexer://ok', seeders: 50 }),
+      ])
+
+      await service.requestShow(456)
+
+      expect(sonarrService.triggerSearch).not.toHaveBeenCalled()
+      expect(sonarrService.grabRelease).toHaveBeenCalledWith('indexer://ok', 1)
     })
   })
 

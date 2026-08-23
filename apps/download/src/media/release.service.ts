@@ -1,6 +1,8 @@
 import {
+  type BadFile,
   type DownloadJob,
   DownloadType,
+  type FlagBadFileInput,
   type GrabReleaseInput,
   type JobRequester,
   type Release,
@@ -14,9 +16,15 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 
-import { getBadFileByGuid, listBadFilesByMediaId } from 'src/db/bad-files.repo'
+import type { ForwardedUser } from 'src/auth/forwarded-user'
+import {
+  getBadFileByGuid,
+  insertBadFile,
+  listBadFilesByMediaId,
+} from 'src/db/bad-files.repo'
 import { DbService } from 'src/db/db.service'
 import { mediaIdSuffix } from 'src/db/media-id'
+import type { BadFileRow } from 'src/db/schema'
 
 import { MediaDownloadService } from './media-download.service'
 import { MediaResolverService } from './media-resolver.service'
@@ -68,6 +76,24 @@ export function parseReleaseTarget(mediaId: string): ReleaseTarget {
   throw new NotFoundException(
     `Releases are only available for movies and shows, not '${mediaId}'`,
   )
+}
+
+/**
+ * A `bad_files` row on the wire. The two flagger columns collapse into one
+ * nested `flaggedBy` so the shape matches `DownloadJob.requester` - both
+ * answer "who did this", and having them differ would be gratuitous.
+ */
+function toBadFile(row: BadFileRow): BadFile {
+  return {
+    createdAt: row.createdAt.toISOString(),
+    flaggedBy: { email: row.flaggedByEmail, userId: row.flaggedByUserId },
+    id: row.id,
+    indexerId: row.indexerId,
+    mediaId: row.mediaId,
+    reason: row.reason,
+    releaseGuid: row.releaseGuid,
+    releaseTitle: row.releaseTitle,
+  }
 }
 
 /**
@@ -322,6 +348,54 @@ export class ReleaseService {
     }
 
     return fileIds.length
+  }
+
+  /**
+   * Records a release as bad for this title. Idempotent on
+   * `(mediaId, releaseGuid)` - re-flagging returns the original row rather
+   * than erroring, so a double-click is harmless and the first flagger's
+   * identity is the one that sticks.
+   *
+   * Flagging is the one action here gated behind `ForwardedUserGuard`,
+   * because a flag records a judgement *someone* made and an anonymous one
+   * would be unattributable.
+   */
+  flagBadFile(
+    mediaId: string,
+    input: FlagBadFileInput,
+    user: ForwardedUser,
+  ): BadFile {
+    const target = parseReleaseTarget(mediaId)
+
+    const row = insertBadFile(this.dbService.db, {
+      flaggedByEmail: user.email,
+      flaggedByUserId: user.userId,
+      indexerId: input.indexerId,
+      mediaId,
+      mediaType: target.type,
+      reason: input.reason,
+      releaseGuid: input.guid,
+      releaseTitle: input.title,
+    })
+
+    this.logger.log(
+      {
+        action: 'flagBadFile',
+        flaggedBy: user.email,
+        guid: input.guid,
+        mediaId,
+      },
+      'Flagged a release as a bad file',
+    )
+
+    return toBadFile(row)
+  }
+
+  /** Every flag recorded against a title, newest first. */
+  listBadFiles(mediaId: string): BadFile[] {
+    parseReleaseTarget(mediaId)
+
+    return listBadFilesByMediaId(this.dbService.db, mediaId).map(toBadFile)
   }
 
   /**
