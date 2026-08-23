@@ -4,6 +4,7 @@ import {
   type GrabReleaseInput,
   type JobRequester,
   type Release,
+  type ReplaceReleaseInput,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import {
@@ -18,6 +19,7 @@ import { DbService } from 'src/db/db.service'
 import { mediaIdSuffix } from 'src/db/media-id'
 
 import { MediaDownloadService } from './media-download.service'
+import { MediaResolverService } from './media-resolver.service'
 import { RadarrService } from './radarr.service'
 import { SonarrService } from './sonarr.service'
 
@@ -87,6 +89,7 @@ export class ReleaseService {
   constructor(
     private readonly dbService: DbService,
     private readonly mediaDownloadService: MediaDownloadService,
+    private readonly mediaResolverService: MediaResolverService,
     private readonly radarrService: RadarrService,
     private readonly sonarrService: SonarrService,
   ) {}
@@ -146,23 +149,89 @@ export class ReleaseService {
     const target = parseReleaseTarget(mediaId)
     this.assertNotFlagged(mediaId, input.guid)
 
-    return this.runGrab('grabRelease', mediaId, target, input, requester)
+    return this.runGrab({
+      action: 'grabRelease',
+      input,
+      mediaId,
+      requester,
+      target,
+    })
+  }
+
+  /**
+   * Swaps what's on disk for a different release: delete the current file(s),
+   * then grab the chosen one. One action, so the user isn't left with a
+   * deleted movie and no replacement if they wander off halfway.
+   *
+   * The delete uses the **per-file** endpoints, never `unmonitorAndDelete` -
+   * that removes the whole movie/series, and the replacement release needs
+   * somewhere to import to. Monitoring normally no-ops here (a title with
+   * files is already in the library and monitored), but the grab still goes
+   * through `withMonitoring` because a downloaded-then-manually-unmonitored
+   * title is possible and would otherwise fail the grab.
+   *
+   * Deleting zero files is **not** an error - nothing to replace just means
+   * this is a plain grab.
+   */
+  async replaceRelease(
+    mediaId: string,
+    input: ReplaceReleaseInput,
+    requester?: JobRequester | null,
+  ): Promise<DownloadJob> {
+    const target = parseReleaseTarget(mediaId)
+    this.assertNotFlagged(mediaId, input.guid)
+
+    return this.runGrab({
+      action: 'replaceRelease',
+      input,
+      mediaId,
+      prepare: async upstreamId => {
+        const deleted = await this.deleteExistingFiles(target, upstreamId, {
+          episodeId: input.episodeId,
+          seasonNumber: input.seasonNumber,
+        })
+
+        // The library cache still holds the pre-delete entry, so drop it -
+        // the next read of `filePath` must see the post-delete truth, not a
+        // copy from up to a TTL window ago that this app already knows is
+        // wrong.
+        this.mediaResolverService.invalidate(mediaId)
+
+        this.logger.log(
+          { action: 'replaceRelease', deleted, mediaId, upstreamId },
+          'Deleted existing files before grabbing the replacement',
+        )
+      },
+      requester,
+      target,
+    })
   }
 
   /**
    * The shared tail of `grabRelease` and `replaceRelease` - everything from
    * "monitor the title" through "hand the pick to Radarr/Sonarr" wrapped in
-   * the tracking job. Split out so replace can delete files first without
-   * duplicating any of it, and so both paths can never diverge on
-   * `restore: false`.
+   * the tracking job. `prepare` is replace's delete step, run *inside* the
+   * monitoring borrow so it gets the same resolved upstream id the grab uses
+   * rather than resolving it twice.
+   *
+   * Split out so the two paths can never diverge on `restore: false` or on
+   * which choke point mints the job.
    */
-  private async runGrab(
-    action: string,
-    mediaId: string,
-    target: ReleaseTarget,
-    input: GrabReleaseInput,
-    requester?: JobRequester | null,
-  ): Promise<DownloadJob> {
+  private async runGrab({
+    action,
+    input,
+    mediaId,
+    prepare,
+    requester,
+    target,
+  }: {
+    action: string
+    input: GrabReleaseInput
+    mediaId: string
+    prepare?: (upstreamId: number) => Promise<void>
+    requester?: JobRequester | null
+    target: ReleaseTarget
+  }): Promise<DownloadJob> {
     return this.mediaDownloadService.request({
       action,
       mediaId,
@@ -176,15 +245,83 @@ export class ReleaseService {
             restore: false,
             seasonNumber: input.seasonNumber,
           },
-          () =>
-            target.type === DownloadType.Movie
+          async upstreamId => {
+            await prepare?.(upstreamId)
+
+            return target.type === DownloadType.Movie
               ? this.radarrService.grabRelease(input.guid, input.indexerId)
-              : this.sonarrService.grabRelease(input.guid, input.indexerId),
+              : this.sonarrService.grabRelease(input.guid, input.indexerId)
+          },
         ),
       type: target.type,
       upstreamId:
         target.type === DownloadType.Movie ? target.tmdbId : target.tvdbId,
     })
+  }
+
+  /**
+   * Deletes the files currently backing a title, scoped the same way the
+   * release listing was, and returns how many it removed.
+   *
+   * Sequential rather than `Promise.all`: these are destructive calls against
+   * a service that also has to rescan the folder afterwards, and a
+   * half-succeeded parallel batch is much harder to reason about than a
+   * half-finished sequential one.
+   */
+  private async deleteExistingFiles(
+    target: ReleaseTarget,
+    upstreamId: number,
+    scope: ReleaseScope,
+  ): Promise<number> {
+    if (target.type === DownloadType.Movie) {
+      const files = await this.radarrService.getMovieFiles(upstreamId)
+      const fileIds = files
+        .map(file => file.id)
+        .filter((id): id is number => id != null)
+
+      for (const id of fileIds) {
+        await this.radarrService.deleteMovieFile(id)
+      }
+
+      return fileIds.length
+    }
+
+    // Sonarr's episode-file list carries `seasonNumber` but no episode id, so
+    // a single-episode scope has to go the other way round: find the episode,
+    // then delete the file it points at.
+    if (scope.episodeId != null) {
+      const episodes = await this.sonarrService.getEpisodes(upstreamId, {
+        seasonNumber: scope.seasonNumber,
+      })
+      // `episodeFileId: 0` is Sonarr's "no file", so truthiness is the right
+      // check here rather than a null guard.
+      const fileId = episodes.find(
+        episode => episode.id === scope.episodeId,
+      )?.episodeFileId
+
+      if (!fileId) {
+        return 0
+      }
+
+      await this.sonarrService.deleteEpisodeFile(fileId)
+      return 1
+    }
+
+    const files = await this.sonarrService.getEpisodeFiles(upstreamId)
+    const fileIds = files
+      .filter(
+        file =>
+          scope.seasonNumber == null ||
+          file.seasonNumber === scope.seasonNumber,
+      )
+      .map(file => file.id)
+      .filter((id): id is number => id != null)
+
+    for (const id of fileIds) {
+      await this.sonarrService.deleteEpisodeFile(id)
+    }
+
+    return fileIds.length
   }
 
   /**
