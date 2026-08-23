@@ -6,16 +6,20 @@ import {
   isManagedMedia,
   JobRequester,
   Media,
+  type Release,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 import { nanoid } from 'nanoid'
 
+import { listBadFilesByMediaId } from 'src/db/bad-files.repo'
+import { DbService } from 'src/db/db.service'
 import { mediaId } from 'src/db/media-id'
 import { DownloadStateService } from 'src/download/download-state.service'
 
 import { MediaResolverService } from './media-resolver.service'
 import { RadarrService } from './radarr.service'
+import { pickBestRelease } from './release-selection.util'
 import { SonarrService } from './sonarr.service'
 
 /**
@@ -55,6 +59,7 @@ export class MediaDownloadService {
   private logger = new Logger(MediaDownloadService.name)
 
   constructor(
+    private readonly dbService: DbService,
     private readonly downloadStateService: DownloadStateService,
     private readonly mediaResolverService: MediaResolverService,
     private readonly radarrService: RadarrService,
@@ -73,11 +78,32 @@ export class MediaDownloadService {
     tmdbId: number,
     requester?: JobRequester | null,
   ): Promise<DownloadJob> {
+    const jobMediaId = mediaId({ tmdbId, type: DownloadType.Movie })
+
     return this.request({
       action: 'requestMovie',
-      mediaId: mediaId({ tmdbId, type: DownloadType.Movie }),
+      mediaId: jobMediaId,
       requester,
-      submit: () => this.radarrService.requestMovie(tmdbId),
+      // Ensure first, *then* decide - the upstream id doesn't exist until
+      // the title is in the library, and both branches need it.
+      submit: async () => {
+        const { radarrId } = await this.radarrService.ensureMovie(tmdbId)
+        const flagged = this.flaggedGuids(jobMediaId)
+
+        if (flagged.size === 0) {
+          // Byte-for-byte the pre-Phase-3 path: hand it to Radarr's own
+          // scoring and let it pick.
+          await this.radarrService.triggerSearch(radarrId)
+          return
+        }
+
+        const release = this.pickUnflaggedRelease(
+          jobMediaId,
+          await this.radarrService.getReleases(radarrId),
+          flagged,
+        )
+        await this.radarrService.grabRelease(release.guid, release.indexerId)
+      },
       type: DownloadType.Movie,
       upstreamId: tmdbId,
     })
@@ -87,14 +113,82 @@ export class MediaDownloadService {
     tvdbId: number,
     requester?: JobRequester | null,
   ): Promise<DownloadJob> {
+    const jobMediaId = mediaId({ tvdbId, type: DownloadType.Show })
+
     return this.request({
       action: 'requestShow',
-      mediaId: mediaId({ tvdbId, type: DownloadType.Show }),
+      mediaId: jobMediaId,
       requester,
-      submit: () => this.sonarrService.requestShow(tvdbId),
+      submit: async () => {
+        const { sonarrId } = await this.sonarrService.ensureSeries(tvdbId)
+        const flagged = this.flaggedGuids(jobMediaId)
+
+        if (flagged.size === 0) {
+          await this.sonarrService.triggerSearch(sonarrId)
+          return
+        }
+
+        const release = this.pickUnflaggedRelease(
+          jobMediaId,
+          await this.sonarrService.getReleases(sonarrId),
+          flagged,
+        )
+        await this.sonarrService.grabRelease(release.guid, release.indexerId)
+      },
       type: DownloadType.Show,
       upstreamId: tvdbId,
     })
+  }
+
+  /**
+   * Every release guid flagged as bad for a title. An empty set is the
+   * common case and the one that matters most - it's what keeps a title with
+   * no flags on the untouched command path.
+   */
+  private flaggedGuids(jobMediaId: string): Set<string> {
+    return new Set(
+      listBadFilesByMediaId(this.dbService.db, jobMediaId).map(
+        row => row.releaseGuid,
+      ),
+    )
+  }
+
+  /**
+   * The app's own pick, used only once a title has flagged releases: the
+   * generic `MoviesSearch`/`SeriesSearch` command has no way to be told
+   * "anything but that one", so this app has to do the choosing itself.
+   *
+   * Throws when nothing survives the filter. That failure lands on the job
+   * (via `request()`'s catch) with a message that says *why* - which beats a
+   * job that sits in `Searching` forever waiting for a grab that will never
+   * come.
+   */
+  private pickUnflaggedRelease(
+    jobMediaId: string,
+    releases: Release[],
+    flagged: ReadonlySet<string>,
+  ): Release {
+    const release = pickBestRelease(releases, flagged)
+
+    if (!release) {
+      throw new Error(
+        `No usable release for ${jobMediaId}: all ${releases.length} ` +
+          `release(s) were either rejected upstream or flagged as bad files`,
+      )
+    }
+
+    this.logger.log(
+      {
+        action: 'pickUnflaggedRelease',
+        candidates: releases.length,
+        flaggedCount: flagged.size,
+        guid: release.guid,
+        mediaId: jobMediaId,
+      },
+      'Picked a release ourselves - this title has flagged bad files',
+    )
+
+    return release
   }
 
   getMovieJob(id: string): Promise<DownloadJob> {
