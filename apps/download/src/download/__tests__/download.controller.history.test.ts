@@ -18,6 +18,7 @@ import { JobQueryService } from 'src/download/job-query.service'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { ReleaseService } from 'src/media/release.service'
 
 import { buildJob, buildVideo } from './helpers/job-fixtures'
 
@@ -47,6 +48,10 @@ describe('DownloadController - getHistory', () => {
         { provide: JobQueryService, useValue: mockJobQueryService },
         { provide: MediaDownloadService, useValue: {} },
         { provide: MediaResolverService, useValue: { resolve: jest.fn() } },
+        // Phase 3: DownloadController injects ReleaseService for the release
+        // and bad-file routes. Unused by this file's routes, but DI still has
+        // to satisfy the constructor.
+        { provide: ReleaseService, useValue: {} },
       ],
     }).compile()
 
