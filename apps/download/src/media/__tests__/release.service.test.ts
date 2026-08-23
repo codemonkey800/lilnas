@@ -723,4 +723,110 @@ describe('ReleaseService', () => {
       })
     })
   })
+
+  describe('flagBadFile / listBadFiles', () => {
+    it('records the flag with the flagger identity and the display fields', () => {
+      const flag = service.flagBadFile(
+        MOVIE_ID,
+        {
+          guid: 'indexer://bad',
+          indexerId: 3,
+          reason: 'Audio desyncs at 40m',
+          title: 'Some.Movie.2020.1080p',
+        },
+        ALICE,
+      )
+
+      expect(flag).toMatchObject({
+        flaggedBy: ALICE,
+        indexerId: 3,
+        mediaId: MOVIE_ID,
+        reason: 'Audio desyncs at 40m',
+        releaseGuid: 'indexer://bad',
+        releaseTitle: 'Some.Movie.2020.1080p',
+      })
+      // Serialized, not a Date - this is the wire shape.
+      expect(typeof flag.createdAt).toBe('string')
+    })
+
+    it('nulls the optional fields rather than dropping them', () => {
+      const flag = service.flagBadFile(MOVIE_ID, { guid: 'g' }, ALICE)
+
+      expect(flag).toMatchObject({
+        indexerId: null,
+        reason: null,
+        releaseTitle: null,
+      })
+    })
+
+    it('is idempotent - re-flagging returns the original row and its flagger', () => {
+      const first = service.flagBadFile(MOVIE_ID, { guid: 'g' }, ALICE)
+      const second = service.flagBadFile(
+        MOVIE_ID,
+        { guid: 'g' },
+        {
+          email: 'bob@example.com',
+          userId: 'user_2',
+        },
+      )
+
+      expect(second.id).toBe(first.id)
+      expect(second.flaggedBy).toEqual(ALICE)
+      expect(service.listBadFiles(MOVIE_ID)).toHaveLength(1)
+    })
+
+    it('derives mediaType from the media id', () => {
+      service.flagBadFile(SHOW_ID, { guid: 'g' }, ALICE)
+
+      // A `tvdb:` id under mediaType 'movie' would trip the table's CHECK,
+      // so surviving the insert is the assertion.
+      expect(service.listBadFiles(SHOW_ID)).toHaveLength(1)
+    })
+
+    it('404s for a media id that can have no releases', () => {
+      expect(() =>
+        service.flagBadFile('video:V1StGXR8_Z5', { guid: 'g' }, ALICE),
+      ).toThrow(NotFoundException)
+      expect(() => service.listBadFiles('video:V1StGXR8_Z5')).toThrow(
+        NotFoundException,
+      )
+    })
+
+    it('lists only the requested title, newest first', () => {
+      service.flagBadFile(MOVIE_ID, { guid: 'first' }, ALICE)
+      service.flagBadFile(MOVIE_ID, { guid: 'second' }, ALICE)
+      service.flagBadFile('tmdb:438631', { guid: 'other-title' }, ALICE)
+
+      expect(service.listBadFiles(MOVIE_ID).map(f => f.releaseGuid)).toEqual([
+        'second',
+        'first',
+      ])
+    })
+
+    it('returns an empty list for a title with no flags', () => {
+      expect(service.listBadFiles(MOVIE_ID)).toEqual([])
+    })
+
+    // The end-to-end loop Phase 3 exists for: flag a release, and the next
+    // listing marks it so the UI can hide it and the grab path refuses it.
+    it('makes a freshly-flagged release show up as flaggedBad on the next listing', async () => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasMonitored: true,
+      })
+      radarrService.getReleases.mockResolvedValue([
+        release({ guid: 'indexer://bad' }),
+      ])
+
+      expect((await service.listReleases(MOVIE_ID))[0]?.flaggedBad).toBe(false)
+
+      service.flagBadFile(MOVIE_ID, { guid: 'indexer://bad' }, ALICE)
+
+      expect((await service.listReleases(MOVIE_ID))[0]?.flaggedBad).toBe(true)
+      await expect(
+        service.grabRelease(MOVIE_ID, { guid: 'indexer://bad', indexerId: 3 }),
+      ).rejects.toThrow(ConflictException)
+    })
+  })
 })
