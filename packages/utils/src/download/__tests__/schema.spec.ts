@@ -1,19 +1,25 @@
 import {
   ActivityQuerySchema,
+  BadFileSchema,
   DiscoverQuerySchema,
   DownloadJobSchema,
   DownloadJobStatus,
   DownloadType,
+  FlagBadFileInputSchema,
   GalleryFacetsQuerySchema,
   GalleryItemSchema,
   GalleryQuerySchema,
+  GrabReleaseInputSchema,
   HistoryQuerySchema,
+  ListReleasesQuerySchema,
   MediaSchema,
   MovieSchema,
+  ReleaseSchema,
+  ReplaceReleaseInputSchema,
   ShowSchema,
   VideoSchema,
 } from 'src/download/schema'
-import { Media, Movie, Show, Video } from 'src/download/types'
+import { Media, Movie, Release, Show, Video } from 'src/download/types'
 
 describe('ActivityQuerySchema', () => {
   it('defaults limit to 24 and leaves type undefined when omitted', () => {
@@ -437,5 +443,230 @@ describe('Media / Movie / Show types stay in sync with their schemas', () => {
       type: DownloadType.Show,
     }
     expect(ShowSchema.safeParse(show).success).toBe(true)
+  })
+})
+
+// ---- Phase 3 ----
+
+const minimalRelease = {
+  downloadAllowed: true,
+  flaggedBad: false,
+  guid: 'indexer://abc',
+  indexerId: 3,
+  rejected: false,
+  title: 'Some.Movie.2020.1080p',
+}
+
+/** A shallow copy of `source` with `field` removed. */
+function without(
+  source: Record<string, unknown>,
+  field: string,
+): Record<string, unknown> {
+  const copy = { ...source }
+  delete copy[field]
+  return copy
+}
+
+describe('ReleaseSchema', () => {
+  it('parses a release carrying only the required fields', () => {
+    expect(ReleaseSchema.parse(minimalRelease)).toEqual(minimalRelease)
+  })
+
+  it.each(['downloadAllowed', 'flaggedBad', 'guid', 'indexerId', 'rejected'])(
+    'rejects a release missing %s',
+    field => {
+      expect(
+        ReleaseSchema.safeParse(without(minimalRelease, field)).success,
+      ).toBe(false)
+    },
+  )
+
+  it('parses the flattened quality object', () => {
+    const result = ReleaseSchema.parse({
+      ...minimalRelease,
+      quality: { name: 'WEBDL-1080p', resolution: 1080 },
+    })
+    expect(result.quality).toEqual({ name: 'WEBDL-1080p', resolution: 1080 })
+  })
+
+  it('accepts a quality with no resolution', () => {
+    expect(
+      ReleaseSchema.safeParse({
+        ...minimalRelease,
+        quality: { name: 'Unknown' },
+      }).success,
+    ).toBe(true)
+  })
+
+  it('carries the show-only fields through when present', () => {
+    const result = ReleaseSchema.parse({
+      ...minimalRelease,
+      episodeNumbers: [1, 2],
+      fullSeason: true,
+      seasonNumber: 2,
+    })
+    expect(result).toMatchObject({
+      episodeNumbers: [1, 2],
+      fullSeason: true,
+      seasonNumber: 2,
+    })
+  })
+
+  it.each(['unknown', 'usenet', 'torrent'])('accepts protocol %s', protocol => {
+    expect(
+      ReleaseSchema.safeParse({ ...minimalRelease, protocol }).success,
+    ).toBe(true)
+  })
+
+  it('rejects an unknown protocol', () => {
+    expect(
+      ReleaseSchema.safeParse({ ...minimalRelease, protocol: 'carrier-pigeon' })
+        .success,
+    ).toBe(false)
+  })
+
+  it('a hand-built Release object satisfies both the TS type and the schema', () => {
+    const release: Release = {
+      downloadAllowed: true,
+      flaggedBad: true,
+      guid: 'g',
+      indexerId: 1,
+      rejected: false,
+      title: 't',
+    }
+    expect(ReleaseSchema.safeParse(release).success).toBe(true)
+  })
+})
+
+describe('ListReleasesQuerySchema', () => {
+  it('leaves both params undefined when omitted', () => {
+    expect(ListReleasesQuerySchema.parse({})).toEqual({})
+  })
+
+  it('coerces numeric-string query params', () => {
+    expect(
+      ListReleasesQuerySchema.parse({ episodeId: '4412', seasonNumber: '2' }),
+    ).toEqual({ episodeId: 4412, seasonNumber: 2 })
+  })
+
+  // Sonarr numbers specials as season 0, so 0 has to be a legal season -
+  // unlike episodeId, where 0 is never a real id.
+  it('accepts season 0 (specials)', () => {
+    expect(ListReleasesQuerySchema.parse({ seasonNumber: '0' })).toEqual({
+      seasonNumber: 0,
+    })
+  })
+
+  it('rejects a negative seasonNumber', () => {
+    expect(
+      ListReleasesQuerySchema.safeParse({ seasonNumber: '-1' }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a zero episodeId', () => {
+    expect(ListReleasesQuerySchema.safeParse({ episodeId: '0' }).success).toBe(
+      false,
+    )
+  })
+})
+
+describe('GrabReleaseInputSchema', () => {
+  it('parses the minimal { guid, indexerId } body', () => {
+    expect(
+      GrabReleaseInputSchema.parse({ guid: 'indexer://abc', indexerId: 3 }),
+    ).toEqual({ guid: 'indexer://abc', indexerId: 3 })
+  })
+
+  it('carries the show-only scoping params through', () => {
+    expect(
+      GrabReleaseInputSchema.parse({
+        episodeId: 4412,
+        guid: 'g',
+        indexerId: 1,
+        seasonNumber: 2,
+      }),
+    ).toEqual({ episodeId: 4412, guid: 'g', indexerId: 1, seasonNumber: 2 })
+  })
+
+  it('rejects an empty guid', () => {
+    expect(
+      GrabReleaseInputSchema.safeParse({ guid: '', indexerId: 1 }).success,
+    ).toBe(false)
+  })
+
+  it('does not coerce a string indexerId - this is a JSON body, not a query', () => {
+    expect(
+      GrabReleaseInputSchema.safeParse({ guid: 'g', indexerId: '1' }).success,
+    ).toBe(false)
+  })
+
+  // A replace *is* a grab with a delete in front of it, so the schemas are
+  // aliased rather than re-declared.
+  it('is the same schema as ReplaceReleaseInputSchema', () => {
+    expect(ReplaceReleaseInputSchema).toBe(GrabReleaseInputSchema)
+  })
+})
+
+describe('FlagBadFileInputSchema', () => {
+  it('requires only a guid', () => {
+    expect(FlagBadFileInputSchema.parse({ guid: 'g' })).toEqual({ guid: 'g' })
+  })
+
+  it('accepts the denormalized display fields', () => {
+    expect(
+      FlagBadFileInputSchema.parse({
+        guid: 'g',
+        indexerId: 3,
+        reason: 'Audio out of sync',
+        title: 'Some.Movie.2020.1080p',
+      }),
+    ).toEqual({
+      guid: 'g',
+      indexerId: 3,
+      reason: 'Audio out of sync',
+      title: 'Some.Movie.2020.1080p',
+    })
+  })
+
+  it('rejects an over-long reason', () => {
+    expect(
+      FlagBadFileInputSchema.safeParse({ guid: 'g', reason: 'x'.repeat(501) })
+        .success,
+    ).toBe(false)
+  })
+})
+
+describe('BadFileSchema', () => {
+  const validBadFile = {
+    createdAt: '2026-08-20T12:00:00.000Z',
+    flaggedBy: { email: 'alice@example.com', userId: 'u1' },
+    id: 1,
+    indexerId: null,
+    mediaId: 'tmdb:27205',
+    reason: null,
+    releaseGuid: 'indexer://abc',
+    releaseTitle: null,
+  }
+
+  it('parses a row whose optional columns are all null', () => {
+    expect(BadFileSchema.parse(validBadFile)).toEqual(validBadFile)
+  })
+
+  // Nullable, not optional: these are DB columns, and a missing key would
+  // mean the serializer forgot one rather than that the column was empty.
+  it.each(['indexerId', 'reason', 'releaseTitle'])(
+    'rejects an omitted (rather than null) %s',
+    field => {
+      expect(
+        BadFileSchema.safeParse(without(validBadFile, field)).success,
+      ).toBe(false)
+    },
+  )
+
+  it('rejects a non-datetime createdAt', () => {
+    expect(
+      BadFileSchema.safeParse({ ...validBadFile, createdAt: '2026-08-20' })
+        .success,
+    ).toBe(false)
   })
 })
