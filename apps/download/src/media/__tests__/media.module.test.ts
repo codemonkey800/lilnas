@@ -10,7 +10,9 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { NestMinioModule } from 'nestjs-minio'
 
 import { DbModule } from 'src/db/db.module'
+import { DownloadController } from 'src/download/download.controller'
 import { DownloadModule } from 'src/download/download.module'
+import { ReleaseService } from 'src/media/release.service'
 
 // DownloadModule <-> MediaModule is a genuine circular module dependency
 // (see download.module.ts and media.module.ts for why), resolved with
@@ -62,6 +64,26 @@ describe('DownloadModule <-> MediaModule wiring', () => {
     }).compile()
 
     expect(module).toBeDefined()
+
+    await module.close()
+  })
+
+  // ReleaseService sits on the awkward side of the cycle: it's provided by
+  // MediaModule, depends on MediaDownloadService (same module) and DbService
+  // (global), and is injected into DownloadController across the forwardRef.
+  // Resolving it from the booted graph is what proves that chain actually
+  // wires up rather than only type-checking.
+  it('instantiates ReleaseService with its cross-module dependencies satisfied', async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [RootTestModule],
+    }).compile()
+
+    const releaseService = module.get(ReleaseService, { strict: false })
+    expect(releaseService).toBeInstanceOf(ReleaseService)
+
+    // The controller is the far side of the forwardRef - if MediaModule
+    // failed to export ReleaseService, this is where it would show up.
+    expect(module.get(DownloadController, { strict: false })).toBeDefined()
 
     await module.close()
   })

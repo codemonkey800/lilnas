@@ -29,6 +29,7 @@ import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { RadarrService } from 'src/media/radarr.service'
+import { ReleaseService } from 'src/media/release.service'
 import { SonarrService } from 'src/media/sonarr.service'
 
 // Exercises the U14 restart-fallback fix on all three detail routes with a
@@ -66,6 +67,10 @@ describe('DownloadController - detail-route restart fallback', () => {
         { provide: RadarrService, useValue: {} },
         { provide: SonarrService, useValue: {} },
         { provide: MediaResolverService, useValue: mediaResolver },
+        // Phase 3: DownloadController injects ReleaseService for the release
+        // and bad-file routes. Unused by this file's routes, but DI still has
+        // to satisfy the constructor.
+        { provide: ReleaseService, useValue: {} },
       ],
     }).compile()
 
