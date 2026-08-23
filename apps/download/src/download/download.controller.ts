@@ -2,10 +2,14 @@ import {
   ActivityQuerySchema,
   CreateDownloadJobInputSchema,
   DiscoverQuerySchema,
+  FlagBadFileInputSchema,
   GalleryFacetsQuerySchema,
   GalleryQuerySchema,
+  GrabReleaseInputSchema,
   HistoryQuerySchema,
+  ListReleasesQuerySchema,
   MediaSearchQuerySchema,
+  ReplaceReleaseInputSchema,
   RequestMovieInputSchema,
   RequestShowInputSchema,
 } from '@lilnas/utils/download/schema'
@@ -15,7 +19,10 @@ import type {
   DownloadJob,
   DownloadPage,
   DownloadType,
+  FlagBadFileResponse,
   GalleryItem,
+  ListBadFilesResponse,
+  ListReleasesResponse,
   MediaDetailResponse,
   SearchMediaResponse,
 } from '@lilnas/utils/download/types'
@@ -46,6 +53,7 @@ import { OptionalCurrentUser } from 'src/auth/optional-current-user.decorator'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { ReleaseService } from 'src/media/release.service'
 
 import { projectJobForViewer } from './attribution'
 import { DownloadService } from './download.service'
@@ -55,10 +63,14 @@ import { JobQueryService } from './job-query.service'
 class ActivityQueryDto extends createZodDto(ActivityQuerySchema) {}
 class CreateJobInputDto extends createZodDto(CreateDownloadJobInputSchema) {}
 class DiscoverQueryDto extends createZodDto(DiscoverQuerySchema) {}
+class FlagBadFileInputDto extends createZodDto(FlagBadFileInputSchema) {}
 class GalleryFacetsQueryDto extends createZodDto(GalleryFacetsQuerySchema) {}
 class GalleryQueryDto extends createZodDto(GalleryQuerySchema) {}
+class GrabReleaseInputDto extends createZodDto(GrabReleaseInputSchema) {}
 class HistoryQueryDto extends createZodDto(HistoryQuerySchema) {}
+class ListReleasesQueryDto extends createZodDto(ListReleasesQuerySchema) {}
 class MediaSearchQueryDto extends createZodDto(MediaSearchQuerySchema) {}
+class ReplaceReleaseInputDto extends createZodDto(ReplaceReleaseInputSchema) {}
 class RequestMovieInputDto extends createZodDto(RequestMovieInputSchema) {}
 class RequestShowInputDto extends createZodDto(RequestShowInputSchema) {}
 
@@ -74,6 +86,7 @@ export class DownloadController {
     private jobQueryService: JobQueryService,
     private mediaDownloadService: MediaDownloadService,
     private mediaResolverService: MediaResolverService,
+    private releaseService: ReleaseService,
   ) {}
 
   // No forwarded identity (e.g. apps/tdr-bot's DownloadClient.dockerInstance
@@ -353,6 +366,129 @@ export class DownloadController {
       jobs: jobs.map(job => projectJobForViewer(job, isAdmin)),
       media: resolved,
     }
+  }
+
+  /**
+   * The interactive-search results for a title, annotated with this app's own
+   * `flaggedBad`. Keyed on **media** id rather than job id: releases belong
+   * to a title, not to a download event, and the primary use case is browsing
+   * them for something nobody has requested yet.
+   *
+   * No identity param, like `/discover` - a release list carries no
+   * attribution to mask.
+   *
+   * Note this route can *write* upstream despite being a GET: Radarr/Sonarr
+   * won't surface releases for an unmonitored title, so it borrows monitoring
+   * and puts it back (see `ReleaseService.withMonitoring`).
+   */
+  @Get('/media/:id/releases')
+  async listReleases(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(ListReleasesQueryDto))
+    query: ListReleasesQueryDto,
+  ): Promise<ListReleasesResponse> {
+    const action = 'listReleases'
+    const startTime = Date.now()
+
+    const releases = await this.releaseService.listReleases(id, {
+      episodeId: query.episodeId,
+      seasonNumber: query.seasonNumber,
+    })
+
+    this.logger.log(
+      {
+        action,
+        duration: Date.now() - startTime,
+        flaggedCount: releases.filter(r => r.flaggedBad).length,
+        mediaId: id,
+        resultCount: releases.length,
+        statusCode: HttpStatus.OK,
+      },
+      'GET /media/:id/releases - listed indexer releases',
+    )
+
+    return { releases }
+  }
+
+  // @OptionalCurrentUser() rather than a guard, matching POST /movies: a
+  // service caller with no forwarded identity can still grab, it just lands
+  // an unattributed job.
+  @Post('/media/:id/releases/grab')
+  async grabRelease(
+    @Param('id') id: string,
+    @Body() input: GrabReleaseInputDto,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<DownloadJob> {
+    return this.releaseActionRoute({
+      action: 'grabRelease',
+      id,
+      run: () => this.releaseService.grabRelease(id, input, user),
+      user,
+    })
+  }
+
+  /**
+   * Delete what's on disk, then grab the chosen release - one action, so the
+   * user can't be left with a deleted file and no replacement.
+   */
+  @Post('/media/:id/releases/replace')
+  async replaceRelease(
+    @Param('id') id: string,
+    @Body() input: ReplaceReleaseInputDto,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<DownloadJob> {
+    return this.releaseActionRoute({
+      action: 'replaceRelease',
+      id,
+      run: () => this.releaseService.replaceRelease(id, input, user),
+      user,
+    })
+  }
+
+  // ForwardedUserGuard (not @OptionalCurrentUser()) - a flag records a
+  // judgement *someone* made, and an anonymous one would be unattributable.
+  // The only Phase 3 route that requires identity.
+  @Post('/media/:id/bad-files')
+  @UseGuards(ForwardedUserGuard)
+  flagBadFile(
+    @Param('id') id: string,
+    @Body() input: FlagBadFileInputDto,
+    @CurrentUser() user: ForwardedUser,
+  ): FlagBadFileResponse {
+    const badFile = this.releaseService.flagBadFile(id, input, user)
+
+    this.logger.log(
+      {
+        action: 'flagBadFile',
+        flaggedBy: user.email,
+        guid: input.guid,
+        mediaId: id,
+        statusCode: HttpStatus.CREATED,
+      },
+      'POST /media/:id/bad-files - flagged a release as bad',
+    )
+
+    return { badFile }
+  }
+
+  // Admin-agnostic and unmasked: a flag is a statement about a *release*,
+  // not about a download, so the attribution-oracle rules that govern
+  // job listings don't apply to it.
+  @Get('/media/:id/bad-files')
+  listBadFiles(@Param('id') id: string): ListBadFilesResponse {
+    const badFiles = this.releaseService.listBadFiles(id)
+
+    this.logger.log(
+      {
+        action: 'listBadFiles',
+        mediaId: id,
+        resultCount: badFiles.length,
+        statusCode: HttpStatus.OK,
+      },
+      'GET /media/:id/bad-files - listed flagged releases',
+    )
+
+    return { badFiles }
   }
 
   @Get('/videos/:id')
@@ -686,6 +822,47 @@ export class DownloadController {
       run: () => this.mediaDownloadService.deleteShowJob(id),
       user,
     })
+  }
+
+  /**
+   * The grab and replace routes, which differ only in which service method
+   * they call.
+   *
+   * Deliberately **not** `mediaJobRoute()`: that helper turns every failure
+   * into a 404, which is the right answer for "fetch this job by id" and the
+   * wrong one here. A flagged guid must surface as the 409 `ReleaseService`
+   * raised, and an upstream failure is already recorded on the returned job
+   * rather than thrown - so anything that does escape is a real error and is
+   * left to Nest's exception filter to map honestly.
+   */
+  private async releaseActionRoute({
+    action,
+    id,
+    run,
+    user,
+  }: {
+    action: string
+    id: string
+    run: () => Promise<DownloadJob>
+    user: ForwardedUser | undefined
+  }): Promise<DownloadJob> {
+    const startTime = Date.now()
+
+    const [job, isAdmin] = await Promise.all([run(), this.resolveIsAdmin(user)])
+
+    this.logger.log(
+      {
+        action,
+        duration: Date.now() - startTime,
+        jobId: job.id,
+        mediaId: id,
+        status: job.status,
+        statusCode: HttpStatus.CREATED,
+      },
+      `POST /media/:id/releases - ${action} accepted`,
+    )
+
+    return projectJobForViewer(job, isAdmin)
   }
 
   /**
