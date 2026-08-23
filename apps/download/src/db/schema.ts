@@ -200,3 +200,69 @@ export const videos = sqliteTable(
 )
 
 export type VideoRow = typeof videos.$inferSelect
+
+// Phase 3: releases a user marked as bad, so the app stops picking them.
+// Enforcement is app-side only (`MediaDownloadService.requestMovie`/
+// `requestShow` branch here before choosing a release) - Radarr's and
+// Sonarr's own selection logic is untouched, so a search started from their
+// UI can still re-pick a flagged release. That's the spec's accepted gap,
+// not an oversight.
+export const badFiles = sqliteTable(
+  'bad_files',
+  {
+    // Autoincrement integer, this file's default PK - unlike `jobs.id` and
+    // `videos.id`, nothing outside the DB mints a flag id or routes on it.
+    id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
+    // `mediaType`, not `jobs`' bare `type` - this row is about a *release*,
+    // so an unqualified `type` here would read as the release's own kind.
+    // Same `DOWNLOAD_TYPES` tuple either way.
+    mediaType: text('media_type', { enum: DOWNLOAD_TYPES }).notNull(),
+    // Same non-FK reasoning as `jobs.media_id`, and deliberately the same
+    // column shape so the two join cleanly - see that column's comment.
+    // Videos have no releases at all, so in practice this is only ever a
+    // `tmdb:`/`tvdb:` key; the CHECK below is what says so.
+    mediaId: text('media_id').notNull(),
+    // The indexer's stable id for the release - the thing actually matched
+    // against when annotating and filtering, and the other half of the
+    // unique index that makes re-flagging idempotent.
+    releaseGuid: text('release_guid').notNull(),
+    // Nullable: the flag is keyed on the guid alone, and a client that only
+    // has the guid to hand can still file one.
+    indexerId: integer('indexer_id'),
+    // Denormalized copies of what the user was looking at when they
+    // flagged, kept so an old flag stays readable after the release ages
+    // out of the indexer and can no longer be looked up.
+    releaseTitle: text('release_title'),
+    reason: text('reason'),
+    // Who flagged it. NOT NULL on both, unlike `jobs`' nullable requester
+    // columns: flagging is gated behind ForwardedUserGuard precisely
+    // because a flag records a judgement someone made.
+    flaggedByEmail: text('flagged_by_email').notNull(),
+    flaggedByUserId: text('flagged_by_user_id').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  t => [
+    // Makes `insertBadFile` idempotent via insert-or-ignore rather than a
+    // read-then-write race (bad-files.repo.ts).
+    uniqueIndex('bad_files_media_id_release_guid_idx').on(
+      t.mediaId,
+      t.releaseGuid,
+    ),
+    // The annotate/filter read path is always "every flag for this one
+    // media id" - see `listBadFilesByMediaId`.
+    index('bad_files_media_id_idx').on(t.mediaId),
+    // The same prefix invariant `jobs_media_id_matches_type` enforces,
+    // minus the `video` arm: a video has no indexer releases to flag.
+    check(
+      'bad_files_media_id_matches_type',
+      sql`(
+        (${t.mediaType} = 'movie' AND ${t.mediaId} LIKE 'tmdb:%') OR
+        (${t.mediaType} = 'show'  AND ${t.mediaId} LIKE 'tvdb:%')
+      )`,
+    ),
+  ],
+)
+
+export type BadFileRow = typeof badFiles.$inferSelect
