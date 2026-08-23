@@ -1,10 +1,24 @@
-import { DownloadType } from '@lilnas/utils/download/types'
-import { Logger, NotFoundException } from '@nestjs/common'
+// nanoid v5 ships ESM-only; this codebase's ts-jest transform doesn't cover
+// it, so any test that transitively imports code using nanoid (like
+// MediaDownloadService) must mock it first - see
+// media-download.service.test.ts for the same pattern.
+jest.mock('nanoid', () => ({
+  nanoid: jest.fn(() => 'mock-id'),
+}))
+
+import {
+  type DownloadJob,
+  DownloadJobStatus,
+  DownloadType,
+} from '@lilnas/utils/download/types'
+import { getErrorMessage } from '@lilnas/utils/error'
+import { ConflictException, Logger, NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { insertBadFile } from 'src/db/bad-files.repo'
 import { DbService } from 'src/db/db.service'
+import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { RadarrService } from 'src/media/radarr.service'
 import { ReleaseService } from 'src/media/release.service'
@@ -12,6 +26,8 @@ import { SonarrService } from 'src/media/sonarr.service'
 
 const MOVIE_ID = 'tmdb:27205'
 const SHOW_ID = 'tvdb:81189'
+
+const ALICE = { email: 'alice@example.com', userId: 'user_1' }
 
 function release(overrides: Record<string, unknown> = {}) {
   return {
@@ -25,12 +41,23 @@ function release(overrides: Record<string, unknown> = {}) {
   }
 }
 
+/** The arguments the last `MediaDownloadService.request()` call received. */
+interface CapturedRequest {
+  action: string
+  mediaId: string
+  requester?: { email: string; userId: string } | null
+  type: DownloadType
+  upstreamId: number
+}
+
 describe('ReleaseService', () => {
   let service: ReleaseService
   let dbService: DbService
   let radarrService: jest.Mocked<RadarrService>
   let sonarrService: jest.Mocked<SonarrService>
   let mediaResolverService: jest.Mocked<MediaResolverService>
+  let mediaDownloadService: jest.Mocked<MediaDownloadService>
+  let captured: CapturedRequest | undefined
 
   beforeEach(async () => {
     // A real in-memory DbService rather than a mocked drizzle chain: the
@@ -61,10 +88,43 @@ describe('ReleaseService', () => {
       invalidate: jest.fn(),
     } as unknown as jest.Mocked<MediaResolverService>
 
+    captured = undefined
+    // Mirrors the real `request()` contract rather than stubbing it out: it
+    // runs `submit()`, and a submit failure becomes a Failed job rather than
+    // a throw - which is exactly how requestMovie already behaves, and what
+    // "the grab reuses the same choke point" has to mean to be worth
+    // asserting.
+    mediaDownloadService = {
+      request: jest.fn(async ({ submit, ...rest }) => {
+        captured = rest as CapturedRequest
+        const base = {
+          completedAt: null,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          hiddenAttribution: false,
+          id: 'job-1',
+          media: { id: rest.mediaId, title: 't', tmdbId: 1, type: rest.type },
+          requester: rest.requester ?? null,
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        }
+
+        try {
+          await submit()
+          return { ...base, status: DownloadJobStatus.Searching } as DownloadJob
+        } catch (err) {
+          return {
+            ...base,
+            error: getErrorMessage(err),
+            status: DownloadJobStatus.Failed,
+          } as DownloadJob
+        }
+      }),
+    } as unknown as jest.Mocked<MediaDownloadService>
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReleaseService,
         { provide: DbService, useValue: dbService },
+        { provide: MediaDownloadService, useValue: mediaDownloadService },
         { provide: MediaResolverService, useValue: mediaResolverService },
         { provide: RadarrService, useValue: radarrService },
         { provide: SonarrService, useValue: sonarrService },
@@ -302,6 +362,150 @@ describe('ReleaseService', () => {
       const [result] = await service.listReleases(MOVIE_ID)
 
       expect(result?.flaggedBad).toBe(false)
+    })
+  })
+
+  describe('grabRelease', () => {
+    const input = { guid: 'indexer://abc', indexerId: 3 }
+
+    it('creates the job through MediaDownloadService with the right attribution', async () => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasMonitored: true,
+      })
+
+      const job = await service.grabRelease(MOVIE_ID, input, ALICE)
+
+      expect(mediaDownloadService.request).toHaveBeenCalledTimes(1)
+      expect(captured).toEqual({
+        action: 'grabRelease',
+        mediaId: MOVIE_ID,
+        requester: ALICE,
+        type: DownloadType.Movie,
+        upstreamId: 27205,
+      })
+      expect(radarrService.grabRelease).toHaveBeenCalledWith('indexer://abc', 3)
+      expect(job.status).toBe(DownloadJobStatus.Searching)
+    })
+
+    it('creates an unattributed job for a service caller with no identity', async () => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasMonitored: true,
+      })
+
+      const job = await service.grabRelease(MOVIE_ID, input)
+
+      expect(captured?.requester).toBeUndefined()
+      expect(job.requester).toBeNull()
+    })
+
+    // The one place the restore is skipped: the user picked this release, so
+    // the title stays monitored and Radarr manages the import and upgrades.
+    it('leaves a freshly-added movie monitored after a successful grab', async () => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasMonitored: false,
+      })
+
+      await service.grabRelease(MOVIE_ID, input, ALICE)
+
+      expect(radarrService.setMonitored).not.toHaveBeenCalled()
+    })
+
+    it('leaves the target episodes monitored after a successful show grab', async () => {
+      sonarrService.ensureSeries.mockResolvedValue({
+        series: {},
+        sonarrId: 9,
+        turnedOnEpisodeIds: [101],
+        wasMonitored: false,
+      })
+
+      await service.grabRelease(
+        SHOW_ID,
+        { ...input, episodeId: 4412, seasonNumber: 2 },
+        ALICE,
+      )
+
+      expect(sonarrService.ensureSeries).toHaveBeenCalledWith(81189, {
+        monitorEpisodes: { episodeId: 4412, seasonNumber: 2 },
+      })
+      expect(sonarrService.grabRelease).toHaveBeenCalledWith('indexer://abc', 3)
+      expect(sonarrService.setEpisodesMonitored).not.toHaveBeenCalled()
+      expect(sonarrService.setSeriesMonitored).not.toHaveBeenCalled()
+    })
+
+    it('refuses a flagged guid with a 409, before any job exists', async () => {
+      insertBadFile(dbService.db, {
+        flaggedByEmail: 'alice@example.com',
+        flaggedByUserId: 'user_1',
+        mediaId: MOVIE_ID,
+        mediaType: DownloadType.Movie,
+        releaseGuid: 'indexer://abc',
+        releaseTitle: 'Some.Movie.2020.1080p',
+      })
+
+      await expect(service.grabRelease(MOVIE_ID, input, ALICE)).rejects.toThrow(
+        ConflictException,
+      )
+      expect(mediaDownloadService.request).not.toHaveBeenCalled()
+      expect(radarrService.grabRelease).not.toHaveBeenCalled()
+    })
+
+    it('allows a guid flagged only under a different title', async () => {
+      insertBadFile(dbService.db, {
+        flaggedByEmail: 'alice@example.com',
+        flaggedByUserId: 'user_1',
+        mediaId: 'tmdb:438631',
+        mediaType: DownloadType.Movie,
+        releaseGuid: 'indexer://abc',
+      })
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasMonitored: true,
+      })
+
+      await expect(
+        service.grabRelease(MOVIE_ID, input, ALICE),
+      ).resolves.toMatchObject({ status: DownloadJobStatus.Searching })
+    })
+
+    it('404s for a video media id without touching either service', async () => {
+      await expect(
+        service.grabRelease('video:V1StGXR8_Z5', input, ALICE),
+      ).rejects.toThrow(NotFoundException)
+      expect(mediaDownloadService.request).not.toHaveBeenCalled()
+    })
+
+    // Same shape requestMovie already has: the failure lands on the job, so
+    // the caller sees *which* request failed and why rather than a bare 500.
+    it('records an upstream grab failure on the job rather than throwing', async () => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasMonitored: true,
+      })
+      radarrService.grabRelease.mockRejectedValue(
+        new Error('Indexer unavailable'),
+      )
+
+      const job = await service.grabRelease(MOVIE_ID, input, ALICE)
+
+      expect(job.status).toBe(DownloadJobStatus.Failed)
+      expect(job.error).toContain('Indexer unavailable')
+    })
+
+    it('records an ensureMovie failure on the job too', async () => {
+      radarrService.ensureMovie.mockRejectedValue(new Error('radarr down'))
+
+      const job = await service.grabRelease(MOVIE_ID, input, ALICE)
+
+      expect(job.status).toBe(DownloadJobStatus.Failed)
+      expect(radarrService.grabRelease).not.toHaveBeenCalled()
     })
   })
 })

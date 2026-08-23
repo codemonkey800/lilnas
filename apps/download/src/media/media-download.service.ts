@@ -117,7 +117,20 @@ export class MediaDownloadService {
     )
   }
 
-  private async request({
+  /**
+   * The single job-creation choke point for movies and shows: mint a
+   * `Requested` job, run `submit()`, then move it to `Searching` or `Failed`.
+   * Everything downstream - requester attribution, `hiddenAttribution`, the
+   * WS `created`/`updated` events, `MediaPollerService` picking the job up
+   * off the queue - hangs off `DownloadStateService.addJob()` happening here
+   * and nowhere else.
+   *
+   * Public (rather than private, as it was before Phase 3) so
+   * `ReleaseService`'s grab path can reuse it verbatim with a different
+   * `submit`. A second job-creation path would have had to re-derive all of
+   * the above and would drift the first time either side changed.
+   */
+  async request({
     action,
     mediaId: jobMediaId,
     requester,

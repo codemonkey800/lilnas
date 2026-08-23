@@ -1,11 +1,23 @@
-import { DownloadType, type Release } from '@lilnas/utils/download/types'
+import {
+  type DownloadJob,
+  DownloadType,
+  type GrabReleaseInput,
+  type JobRequester,
+  type Release,
+} from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
-import { Injectable, Logger, NotFoundException } from '@nestjs/common'
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common'
 
-import { listBadFilesByMediaId } from 'src/db/bad-files.repo'
+import { getBadFileByGuid, listBadFilesByMediaId } from 'src/db/bad-files.repo'
 import { DbService } from 'src/db/db.service'
 import { mediaIdSuffix } from 'src/db/media-id'
 
+import { MediaDownloadService } from './media-download.service'
 import { RadarrService } from './radarr.service'
 import { SonarrService } from './sonarr.service'
 
@@ -74,6 +86,7 @@ export class ReleaseService {
 
   constructor(
     private readonly dbService: DbService,
+    private readonly mediaDownloadService: MediaDownloadService,
     private readonly radarrService: RadarrService,
     private readonly sonarrService: SonarrService,
   ) {}
@@ -104,6 +117,89 @@ export class ReleaseService {
     )
 
     return this.annotateFlagged(mediaId, releases)
+  }
+
+  /**
+   * Downloads one specific release the user picked, tracked as an ordinary
+   * `DownloadJob`.
+   *
+   * Two things distinguish it from `listReleases`:
+   *
+   * 1. **Monitoring is not restored.** A grab is a real choice, so the title
+   *    (and, for shows, the target episodes) stays monitored afterwards so
+   *    Radarr/Sonarr manage the import and future upgrades - exactly the
+   *    state `requestMovie` already leaves behind.
+   * 2. **The job goes through `MediaDownloadService.request()`**, the same
+   *    choke point `requestMovie`/`requestShow` use, so requester
+   *    attribution, `hiddenAttribution`, the WS events and the queue poller
+   *    all behave identically. There is deliberately no second
+   *    job-creation path.
+   *
+   * A flagged guid is refused outright with a `ConflictException` before any
+   * job exists - no override path, by design.
+   */
+  async grabRelease(
+    mediaId: string,
+    input: GrabReleaseInput,
+    requester?: JobRequester | null,
+  ): Promise<DownloadJob> {
+    const target = parseReleaseTarget(mediaId)
+    this.assertNotFlagged(mediaId, input.guid)
+
+    return this.runGrab('grabRelease', mediaId, target, input, requester)
+  }
+
+  /**
+   * The shared tail of `grabRelease` and `replaceRelease` - everything from
+   * "monitor the title" through "hand the pick to Radarr/Sonarr" wrapped in
+   * the tracking job. Split out so replace can delete files first without
+   * duplicating any of it, and so both paths can never diverge on
+   * `restore: false`.
+   */
+  private async runGrab(
+    action: string,
+    mediaId: string,
+    target: ReleaseTarget,
+    input: GrabReleaseInput,
+    requester?: JobRequester | null,
+  ): Promise<DownloadJob> {
+    return this.mediaDownloadService.request({
+      action,
+      mediaId,
+      requester,
+      submit: () =>
+        this.withMonitoring(
+          target,
+          {
+            episodeId: input.episodeId,
+            // A grab is an explicit choice - the title stays monitored.
+            restore: false,
+            seasonNumber: input.seasonNumber,
+          },
+          () =>
+            target.type === DownloadType.Movie
+              ? this.radarrService.grabRelease(input.guid, input.indexerId)
+              : this.sonarrService.grabRelease(input.guid, input.indexerId),
+        ),
+      type: target.type,
+      upstreamId:
+        target.type === DownloadType.Movie ? target.tmdbId : target.tvdbId,
+    })
+  }
+
+  /**
+   * Refuses a release the user (or someone else) already marked as bad.
+   * Checked before the job is minted, so a refusal is a plain 409 rather than
+   * a job that exists only to record a failure.
+   */
+  private assertNotFlagged(mediaId: string, guid: string): void {
+    const flagged = getBadFileByGuid(this.dbService.db, mediaId, guid)
+
+    if (flagged) {
+      throw new ConflictException(
+        `Release '${flagged.releaseTitle ?? guid}' is flagged as a bad file for this title`,
+      )
+    }
   }
 
   /**
