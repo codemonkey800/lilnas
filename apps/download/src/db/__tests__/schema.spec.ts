@@ -4,12 +4,12 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { checkIntegrity, runMigrations } from 'src/db/migrate'
 import { applyPragmas } from 'src/db/pragmas'
 import * as schema from 'src/db/schema'
-import { jobs, videos } from 'src/db/schema'
+import { badFiles, jobs, videos } from 'src/db/schema'
 
 import { createTestDb } from './test-utils'
 
 describe('schema + migrations', () => {
-  it('applies migrations cleanly, creating exactly the `jobs` and `videos` tables', () => {
+  it('applies migrations cleanly, creating exactly the `jobs`, `videos` and `bad_files` tables', () => {
     const { sqlite, close } = createTestDb()
     try {
       const tableNames = sqlite
@@ -20,7 +20,10 @@ describe('schema + migrations', () => {
         .map(row => (row as { name: string }).name)
         .sort()
 
-      expect(tableNames).toEqual(['jobs', 'videos'])
+      // `sqlite_sequence` is excluded by the `sqlite_%` filter above -
+      // `bad_files` is the first AUTOINCREMENT table in this schema, so
+      // migration 0005 is what makes SQLite create it at all.
+      expect(tableNames).toEqual(['bad_files', 'jobs', 'videos'])
     } finally {
       close()
     }
@@ -465,6 +468,197 @@ describe('schema + migrations', () => {
         .map(row => (row as { name: string }).name)
 
       expect(indexNames).toContain('jobs_type_media_id_idx')
+    } finally {
+      close()
+    }
+  })
+
+  // ---- Phase 3: bad_files ----
+
+  it('round-trips every column kind on the `bad_files` table', () => {
+    const { db, close } = createTestDb()
+    try {
+      const now = new Date('2026-01-01T00:00:00.000Z')
+
+      db.insert(badFiles)
+        .values({
+          createdAt: now,
+          flaggedByEmail: 'alice@example.com',
+          flaggedByUserId: 'user_1',
+          indexerId: 3,
+          mediaId: 'tmdb:27205',
+          mediaType: 'movie',
+          reason: 'Audio desyncs at 40m',
+          releaseGuid: 'indexer://abc',
+          releaseTitle: 'Inception.2010.1080p',
+        })
+        .run()
+
+      const row = db.select().from(badFiles).all()[0]
+
+      expect(row).toMatchObject({
+        createdAt: now,
+        flaggedByEmail: 'alice@example.com',
+        flaggedByUserId: 'user_1',
+        indexerId: 3,
+        mediaId: 'tmdb:27205',
+        mediaType: 'movie',
+        reason: 'Audio desyncs at 40m',
+        releaseGuid: 'indexer://abc',
+        releaseTitle: 'Inception.2010.1080p',
+      })
+      // Autoincrement integer PK, unlike jobs/videos' app-minted TEXT ids.
+      expect(typeof row?.id).toBe('number')
+    } finally {
+      close()
+    }
+  })
+
+  it('has exactly the expected `bad_files` column list', () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      const columnNames = sqlite
+        .prepare(`PRAGMA table_info(bad_files)`)
+        .all()
+        .map(row => (row as { name: string }).name)
+
+      expect(columnNames).toEqual([
+        'id',
+        'media_type',
+        'media_id',
+        'release_guid',
+        'indexer_id',
+        'release_title',
+        'reason',
+        'flagged_by_email',
+        'flagged_by_user_id',
+        'created_at',
+      ])
+    } finally {
+      close()
+    }
+  })
+
+  it('leaves the optional `bad_files` columns null and defaults `createdAt`', () => {
+    const { db, close } = createTestDb()
+    try {
+      db.insert(badFiles)
+        .values({
+          flaggedByEmail: 'alice@example.com',
+          flaggedByUserId: 'user_1',
+          mediaId: 'tvdb:81189',
+          mediaType: 'show',
+          releaseGuid: 'indexer://abc',
+        })
+        .run()
+
+      const row = db.select().from(badFiles).all()[0]
+
+      expect(row).toMatchObject({
+        indexerId: null,
+        reason: null,
+        releaseTitle: null,
+      })
+      expect(row?.createdAt).toBeInstanceOf(Date)
+    } finally {
+      close()
+    }
+  })
+
+  it('`bad_files_media_id_release_guid_idx` rejects a duplicate (media_id, guid) - what makes flagging idempotent', () => {
+    const { db, close } = createTestDb()
+    try {
+      const values = {
+        flaggedByEmail: 'alice@example.com',
+        flaggedByUserId: 'user_1',
+        mediaId: 'tmdb:27205',
+        mediaType: 'movie' as const,
+        releaseGuid: 'indexer://abc',
+      }
+
+      db.insert(badFiles).values(values).run()
+
+      expect(() =>
+        db
+          .insert(badFiles)
+          .values({ ...values, flaggedByEmail: 'bob@example.com' })
+          .run(),
+      ).toThrow(/UNIQUE constraint failed/)
+    } finally {
+      close()
+    }
+  })
+
+  it('allows the same guid under two different media ids - the unique index is on the pair', () => {
+    const { db, close } = createTestDb()
+    try {
+      db.insert(badFiles)
+        .values([
+          {
+            flaggedByEmail: 'alice@example.com',
+            flaggedByUserId: 'user_1',
+            mediaId: 'tmdb:27205',
+            mediaType: 'movie',
+            releaseGuid: 'indexer://abc',
+          },
+          {
+            flaggedByEmail: 'alice@example.com',
+            flaggedByUserId: 'user_1',
+            mediaId: 'tmdb:438631',
+            mediaType: 'movie',
+            releaseGuid: 'indexer://abc',
+          },
+        ])
+        .run()
+
+      expect(db.select().from(badFiles).all()).toHaveLength(2)
+    } finally {
+      close()
+    }
+  })
+
+  it.each([
+    ['a `movie` row with a `tvdb:` media_id', 'movie', 'tvdb:81189'],
+    ['a `show` row with a `tmdb:` media_id', 'show', 'tmdb:27205'],
+    // No `video` arm at all in the CHECK: a video has no indexer releases
+    // to flag, so this is rejected rather than merely unused.
+    ['a `video` row', 'video', 'video:V1StGXR8_Z5'],
+  ])('`bad_files_media_id_matches_type` rejects %s', (_label, type, id) => {
+    const { db, close } = createTestDb()
+    try {
+      expect(() =>
+        db
+          .insert(badFiles)
+          .values({
+            flaggedByEmail: 'alice@example.com',
+            flaggedByUserId: 'user_1',
+            mediaId: id,
+            mediaType: type as 'movie' | 'show' | 'video',
+            releaseGuid: 'indexer://abc',
+          })
+          .run(),
+      ).toThrow(/CHECK constraint failed/)
+    } finally {
+      close()
+    }
+  })
+
+  it('creates both `bad_files` indexes', () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      const indexNames = sqlite
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'bad_files'`,
+        )
+        .all()
+        .map(row => (row as { name: string }).name)
+
+      expect(indexNames).toEqual(
+        expect.arrayContaining([
+          'bad_files_media_id_idx',
+          'bad_files_media_id_release_guid_idx',
+        ]),
+      )
     } finally {
       close()
     }
