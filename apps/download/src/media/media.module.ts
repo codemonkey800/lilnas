@@ -9,6 +9,7 @@ import { MediaPollerService } from './media-poller.service'
 import { MediaResolverService } from './media-resolver.service'
 import { RadarrService } from './radarr.service'
 import { ReleaseService } from './release.service'
+import { ShowService } from './show.service'
 import { SonarrService } from './sonarr.service'
 
 // MediaPollerService and MediaDownloadService both need DownloadStateService,
@@ -30,6 +31,7 @@ import { SonarrService } from './sonarr.service'
     MediaPollerService,
     MediaResolverService,
     ReleaseService,
+    ShowService,
   ],
   exports: [
     DiscoveryService,
@@ -37,6 +39,7 @@ import { SonarrService } from './sonarr.service'
     MediaResolverService,
     RadarrService,
     ReleaseService,
+    ShowService,
     SonarrService,
   ],
 })
