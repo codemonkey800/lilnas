@@ -12,6 +12,9 @@ import { NestMinioModule } from 'nestjs-minio'
 import { DbModule } from 'src/db/db.module'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadModule } from 'src/download/download.module'
+import { EmbyService } from 'src/emby/emby.service'
+import { EmbyStatusService } from 'src/emby/emby-status.service'
+import { MediaResolverService } from 'src/media/media-resolver.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
 
@@ -48,6 +51,14 @@ describe('DownloadModule <-> MediaModule wiring', () => {
     process.env = {
       ...originalEnv,
       DATABASE_PATH: ':memory:',
+      // EmbyService and EmbyStatusService both read env in their
+      // constructors, so all four must be set for MediaModule's EmbyModule
+      // import to boot - a missing one surfaces only as the single var that
+      // happens to be read first.
+      EMBY_API_KEY: 'test-emby-key',
+      EMBY_EXTERNAL_URL: 'http://emby.localhost',
+      EMBY_URL: 'http://localhost:8096',
+      EMBY_USERNAME: 'test-emby-user',
       RADARR_API_KEY: 'test-radarr-key',
       RADARR_URL: 'http://localhost:7878',
       SONARR_API_KEY: 'test-sonarr-key',
@@ -103,6 +114,35 @@ describe('DownloadModule <-> MediaModule wiring', () => {
       ShowService,
     )
     expect(module.get(DownloadController, { strict: false })).toBeDefined()
+
+    await module.close()
+  })
+
+  // Phase 6's EmbyStatusService is injected into MediaResolverService, which
+  // MediaModule reaches through its EmbyModule import. Every other test in
+  // this unit mocks MediaResolverService's collaborators by DI token, so this
+  // is the only place that exercises the real EmbyModule wiring: drop
+  // EmbyStatusService from EmbyModule's exports and every unit test still
+  // passes while the whole graph fails to compile here (verified by doing
+  // exactly that). Both services also read env in their constructors, so
+  // resolving them proves the four EMBY_* vars above are what boot needs.
+  it('resolves EmbyModule providers through MediaModule at boot', async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [RootTestModule],
+    }).compile()
+
+    expect(module.get(EmbyStatusService, { strict: false })).toBeInstanceOf(
+      EmbyStatusService,
+    )
+    expect(module.get(EmbyService, { strict: false })).toBeInstanceOf(
+      EmbyService,
+    )
+
+    // MediaResolverService is the consumer across the module boundary - if
+    // EmbyModule failed to export EmbyStatusService, this is where it breaks.
+    expect(module.get(MediaResolverService, { strict: false })).toBeInstanceOf(
+      MediaResolverService,
+    )
 
     await module.close()
   })
