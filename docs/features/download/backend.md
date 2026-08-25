@@ -629,20 +629,327 @@ still searches them. If it doesn't, `postApiV3Seasonpass` needs wiring in.
 
 ## Phase 5 — Video pause/resume
 
-- New `Paused` status (distinct from `Cancelled`) +
-  `resumeVideoDownloadJob`, symmetric to the existing
-  `cancelVideoDownloadJob` (`download.service.ts`) — re-enters `download()`
-  for the same job ID/working directory instead of finalizing it.
-- Spec already verified the core mechanism works (yt-dlp's `--continue`
-  resumes from exact byte offset after `proc.kill()`/SIGTERM, no files
-  deleted). Open item flagged in the spec itself: confirm behavior against
-  whatever default format selection actually ships (tested against a
-  forced progressive format; default/best-quality may resolve to fragmented
-  DASH, which resumes via a different, unverified-here mechanism).
-- **Scoped to the yt-dlp pipeline only** — Radarr/Sonarr-managed downloads can
-  also be paused/resumed (at the backing download client), but this app has
-  no design yet for detecting that. See the [Known gap](plans/005-phase-5-video-pause-resume.md#known-gap-radarrsonarr-pauseresume-detection)
-  note in the Phase 5 plan.
+**Status: done** (backend only — no frontend surface yet). Full plan in
+`docs/features/download/plans/005-phase-5-video-pause-resume.md`. Commits, in
+order: `238ab01f` (interrupt record + `JobInterruptedError`), `222e61ec`
+(`Paused`/`Pausing` statuses), `4dc19883` (pipeline reads the intent, and
+`download.log` opens in append mode), `5e627d77` (scheduler interrupt branch,
+`requeue()`, pause/resume counters), `010a367a` (service methods, cancel
+rewritten onto the shared path), `58ec2a43` (endpoints).
+
+A video download used to be start-or-abandon: `PATCH /videos/:id/cancel`
+killed yt-dlp and the job ended at `Cancelled`. Phase 5 adds the third
+option — stop now, keep the bytes, pick it up later.
+
+### What shipped
+
+| Route                               | Auth                     | Does                                                    |
+| ----------------------------------- | ------------------------ | ------------------------------------------------------- |
+| `PATCH /download/videos/:id/pause`  | `@OptionalCurrentUser()` | SIGTERMs the live yt-dlp; job goes `Pausing` → `Paused` |
+| `PATCH /download/videos/:id/resume` | `@OptionalCurrentUser()` | Puts the job on the back of the queue as `Pending`      |
+
+Both return the job `projectJobForViewer`'d, and neither has an admin gate —
+whoever can start a video download can interrupt one, which is what cancel
+already assumed.
+
+```
+Downloading --PATCH pause---> Pausing --(proc closes)--> Paused
+Paused      --PATCH resume--> Pending (back of queue) --(slot frees)--> Downloading
+Paused      --PATCH cancel--> Cancelled
+Downloading --PATCH cancel--> Cancelling --(proc closes)--> Cancelled
+```
+
+The guards, and what they map to over HTTP:
+
+| Guard                             | Code | Message                                                                                    |
+| --------------------------------- | ---- | ------------------------------------------------------------------------------------------ |
+| Not in the live `jobs` Map        | 404  | `Job with ID '<id>' not found`                                                             |
+| `type !== Video`                  | 400  | `Job '<id>' is not a video job`                                                            |
+| Pause: status isn't `Downloading` | 409  | `Job '<id>' cannot be paused while it is '<status>'; only a downloading job can be paused` |
+| Pause: no live process            | 409  | `Job '<id>' has no running process to pause`                                               |
+| Resume: status isn't `Paused`     | 409  | `Job '<id>' cannot be resumed while it is '<status>'; only a paused job can be resumed`    |
+
+Neither route reads the `jobs` table as a fallback the way the read paths do:
+a pausable job is by definition running right now, so it is in the Map, and a
+row that outlived a restart has no process left to pause.
+
+`videoInterruptRoute()` (the shared controller helper) deliberately does
+**not** copy `cancelVideoJob`'s catch block, which rewrites every failure into
+a 404. That is survivable for cancel — `cancelVideoDownloadJob` still throws
+bare `Error`s, left that way on purpose so the pre-existing route keeps
+behaving identically — but it would be actively wrong here: reporting "this
+job isn't downloading right now" (409) as "job not found" (404) tells a UI to
+drop a job that is alive and well.
+
+### One mechanism for every deliberate kill
+
+Pause and cancel are the **same primitive** — `proc.kill()`, SIGTERM, nothing
+deleted — and differ only in what the job lands in afterwards. Before this
+phase the pipeline couldn't tell a deliberate kill from a crash at all: SIGTERM
+produces a non-zero exit code, `download()` threw on it, and the scheduler
+marked the job `Failed`.
+
+So `DownloadStateService` now carries a small **intent record** —
+`interruptions: Map<string, JobInterruptKind>`, `'cancel' | 'pause'`, with
+`setInterruption`/`getInterruption`/`clearInterruption`. The order at the call
+site is load-bearing: the intent goes on record **before** the signal, because
+`runProcess()`'s close handler fires as soon as the process dies and reads the
+note synchronously. `assertNotInterrupted()` runs in both `download()` and
+`convert()` the moment a process settles and **before** the `code !== 0`
+check, throwing `JobInterruptedError`; the scheduler branches on
+`instanceof` ahead of its generic `Failed` handling.
+
+The record is never persisted. It describes an in-flight process, and a
+restart kills the process anyway.
+
+### The cancel wedge this fixed
+
+`cancelVideoDownloadJob` used to call `proc.removeAllListeners('close')`
+before attaching its own handler. The listener it stripped was the one
+`runProcess()` settles its promise from — so after a cancel,
+`await downloadProcess.promise` never resolved, `download()` never returned,
+and the scheduler's `finally` never ran. The dead job held its `inProgressJobs`
+slot forever, and the open log-file stream leaked with it. **At
+`MAX_DOWNLOADS=1`, a single cancel wedged the queue until the process
+restarted.**
+
+The new mechanism removes the need for `removeAllListeners` entirely: the
+close listener stays, the promise settles, `download()` throws the sentinel,
+and the scheduler releases the slot. Cancel's observable outcome is unchanged
+(the job still ends at `Cancelled`) — the leak is what went away. `convert()`
+got the same check, so cancelling during ffmpeg stops wedging too.
+
+### Pause is only legal while `Downloading`
+
+One guard doing two jobs. It keeps pause off the ffmpeg phase — ffmpeg has no
+resume, so pausing during `convert()` would mean restarting the transcode from
+zero, strictly worse than not offering it; `Uploading` and `Cleaning` are
+seconds long and not worth a button either. And it makes `getProc(id)`
+unambiguous: `convert()` writes `Converting` before it spawns, so a job still
+reading `Downloading` can only have the yt-dlp handle registered — the one
+process that _can_ pick up where it left off.
+
+### Resume re-runs `download()` from the top
+
+There is no "unpause the existing process", because pausing killed it.
+`resumeVideoDownloadJob` pushes the job id onto the **back** of the queue via
+the scheduler's new `requeue()`, and `maybeProcessNextJob()` picks it up like
+any other pending job. `download()` then runs unchanged: same
+`/download/videos/<jobId>` working directory, where yt-dlp's default
+`--continue` finds the leftover `.part` file and resumes from its byte offset.
+
+Three deliberate details:
+
+- **The redundant metadata re-fetch stays.** Skipping it would mean a second
+  entry point into `download()` whose only distinguishing feature is being
+  subtly different from the first — a duplicated code path for the sake of one
+  avoidable HTTP request.
+- **`requeue()` is not `add()`.** `addJob()` re-persists the row and
+  broadcasts a `Created` event, so a resumed job would pop into every Activity
+  feed a second time. `requeue()` only pushes onto the queue and pumps it.
+- **A resumed job doesn't jump the line.** `Queue.push()` appends, so it
+  competes for a slot on the same terms as a new one; with `MAX_DOWNLOADS`
+  full it simply sits at `Pending`.
+
+`runProcess()` also opens `download.log` with `flags: 'a'`, so a resumed run
+appends instead of truncating the first run's output — which is the only
+record of how the download got to where it left off.
+
+### Two new statuses, no migration
+
+`Paused` and `Pausing` are both **non-terminal**, so
+`TERMINAL_DOWNLOAD_JOB_STATUSES` is unchanged and
+`IN_PROGRESS_DOWNLOAD_JOB_STATUSES` picks them up for free — which is what
+keeps a paused job on the Activity feed instead of dropping it into history.
+That is the right call: a paused job is unfinished work someone still owns.
+
+No migration was needed. `jobs.status` is `text({ enum: ... })`, and drizzle's
+SQLite text-enum is a **TypeScript-only** constraint — every migration emits a
+bare `` `status` text NOT NULL `` with no CHECK, and the snapshots record the
+column with no enum values. Verified: no CHECK in any migration references
+`status`, and `db:generate` was never run (it emits nothing for this change).
+
+### ⚠️ A restart still fails a paused job — on purpose
+
+`reconcileInterruptedJobs()`
+(`apps/download/src/db/reconcile-interrupted-jobs.ts`) sweeps every
+non-terminal row to `failed` with `Interrupted by a service restart` at boot,
+and Phase 5 deliberately does **not** exempt `paused`.
+
+The reason is where the bytes live. `VIDEO_DIR` is `/download/videos`, and
+**neither `apps/download/deploy.yml` nor `deploy.dev.yml` mounts a volume
+there** — only `/data` (the SQLite file) is persisted. The partial file sits
+in the container's writable layer: it survives a process restart inside a live
+container, and is destroyed by any `up -d --build` or recreate. Meanwhile the
+in-memory `DownloadStateService.jobs` Map is gone either way. "Resume after a
+restart" would therefore be a promise the deployment can't keep; failing the
+job is the honest answer, and it costs zero new code.
+
+This is a design decision, not a bug — see the [Deferred](#deferred-2) note on
+what it would take to change.
+
+### Findings from implementation
+
+- **`Pausing` is not resumable.** Pause-then-immediately-resume returns a 409
+  during the brief `Pausing` window, deliberately: the old yt-dlp is still
+  winding down, and requeueing now would run a second one against the same
+  `.part` file. A frontend should keep resume disabled until the job reads
+  `paused`.
+- **`resumeVideoDownloadJob` returns a re-read record**, not the one
+  `updateJob(Pending)` returned. `requeue()` → `maybeProcessNextJob()` →
+  `download()` run synchronously up to `download()`'s first `await`, and
+  `download()` writes `Downloading` before that point — so with a free slot the
+  `Pending` snapshot is already stale by the time the method returns. It
+  returns `jobs.get(id) ?? pending`.
+- **The scheduler clears the interruption on the pause path too**, not just
+  cancel. `Paused` is non-terminal, so `updateJob()`'s terminal auto-clear
+  never fires for a pause — and `assertNotInterrupted()` reads the note after
+  _every_ process exit, so a surviving `'pause'` note would make a resumed job
+  re-pause itself the moment its new yt-dlp finished. The pause branch clears
+  the dead child-process handle (`clearProc`) for the same reason.
+- **An interrupt recorded after a clean exit still throws** — a pause racing a
+  download that was about to finish. The job parks at `Paused` with a complete,
+  `.part`-free file on disk; resuming re-runs yt-dlp, which exits immediately
+  with "already downloaded". Accepted and documented in a code comment rather
+  than detected, since detecting it means second-guessing an explicit user
+  intent to save one no-op round trip.
+- **Cancel books its metric in `download.service.ts`, not the scheduler**
+  (`metrics.jobCompleted('cancelled')` at the point of cancellation), so the
+  scheduler's interrupt branch deliberately records nothing for cancel —
+  otherwise it would double-count. Pause/resume get their own counters,
+  `download_jobs_paused_total` and `download_jobs_resumed_total`.
+- **Log-field inconsistency**: the pause/resume success log uses
+  `inProgressJobs` where the sibling `cancelVideoJob` uses
+  `inProgressJobsRemaining` for the same value. Cosmetic, worth aligning some
+  day.
+- **`apps/tdr-bot` stays untouched.** The compatibility shim in
+  `packages/utils/src/download/client.ts` (`TODO(tdr-bot-migration)`) is
+  byte-for-byte unmodified and still compiles. Adding enum members is additive:
+  tdr-bot's polling loop compares statuses with plain `===` rather than an
+  exhaustive switch, so a `paused` job just keeps polling until its iteration
+  budget runs out — and tdr-bot has no way to pause anything, so that path is
+  unreachable in practice.
+- **Two pre-existing infra hazards surfaced during verification** (neither
+  caused by this phase): `turbo.json` gives `test`/`type-check` no
+  `dependsOn: ["^build"]` while `packages/utils` exports only `./dist/*.js`, so
+  `type-check` fails hard from a genuinely cold checkout until something builds
+  `packages/utils` (tests are insulated by jest's source-mapped
+  `moduleNameMapper`); and `apps/download`'s `build` is `run-p build:*`, so
+  `next build` rewrites `.next/types/` while `nest build --type-check`
+  enumerates it via the `.next/types/**/*.ts` include at
+  `apps/download/tsconfig.json:39` → intermittent `TS6053`. Seen once, did not
+  reproduce across three later builds including a clean `--force` run.
+
+### Deferred
+
+- **No frontend.** Both routes are backend-only; nothing in the Next.js app
+  calls them yet — there is no cancel button today either, and the rebuild
+  consumes all three together.
+- **No `DownloadClient.pauseJob`/`resumeJob`** — Phases 3 and 4 added no client
+  methods either, and nothing in-repo calls them yet.
+- **Pause does not survive a restart.** Changing that needs a volume for
+  `/download/videos` (plus the `chown 1000:1000` the `/data` mount already
+  documents in `deploy.yml`) _and_ boot rehydration. See the ⚠️ section above
+  for why shipping without it was the honest choice.
+- **No pause timeout or auto-expiry.** Nothing in the spec asks for one; a
+  paused job is its owner's to resume or cancel.
+- **No partial-file cleanup when a paused job dies.** Cancel doesn't clean up a
+  job directory today either — an unrelated pre-existing gap.
+- **No pausing movie/show jobs.** Radarr/Sonarr own that queue; the spec scopes
+  pause to the yt-dlp pipeline.
+
+### Known gap — Radarr/Sonarr pause/resume detection
+
+Radarr/Sonarr-managed downloads can be paused and resumed **independently of
+this app**, at the backing download client (qBittorrent, SABnzbd, …), from
+Radarr/Sonarr's queue UI or the client's own UI. This app has no design for
+surfacing that, and it needs its own phase.
+
+The signal exists: the queue API already exposes `status: 'paused'`
+(`QueueStatus` in `packages/media/src/{radarr,sonarr}/types.gen.ts`) and
+`MediaPollerService` already polls that queue every 10s. What's missing is the
+classification — `deriveStatusFromQueueItem`
+(`apps/download/src/media/queue-status.util.ts:180-211`) doesn't special-case
+it, so a paused item falls into the catch-all branch and is reported as
+`Downloading`. Polling is the only available signal, too: Radarr/Sonarr fire no
+Connect-notification event for pause/resume (only Grab, Download, Rename,
+Health Issue, Manual Interaction Required).
+
+### Manual verification (needs a running container)
+
+⚠️ **Not yet run** — this spawns real yt-dlp against real hosts and needs a
+running container, so it is a human checkpoint rather than something the suite
+covers. Run from inside the Docker network, or against
+`https://download.lilnas.io`:
+
+```bash
+BASE=http://download:8081/download
+
+# 1. The round trip. Start something long, pause it, confirm the bytes stop
+#    moving, resume it, confirm it picks up where it left off.
+ID=$(curl -s -XPOST "$BASE/videos" -H 'content-type: application/json' \
+  -d '{"url":"https://www.youtube.com/watch?v=aqz-KE-bpKQ"}' | jq -r '.id')
+
+sleep 20
+curl -s -XPATCH "$BASE/videos/$ID/pause" | jq '.status'          # pausing
+sleep 2
+curl -s "$BASE/videos/$ID" | jq '.status'                        # paused
+
+#    The .part file must exist and STOP growing - two reads, same size.
+docker-compose exec download ls -l "/download/videos/$ID"
+sleep 10
+docker-compose exec download ls -l "/download/videos/$ID"
+
+curl -s -XPATCH "$BASE/videos/$ID/resume" | jq '.status'         # pending|downloading
+
+#    The resume proof: yt-dlp reports the offset it restarted from, and the
+#    file grows FROM there rather than restarting at zero.
+docker-compose exec download \
+  grep -i 'Resuming download at byte' "/download/videos/$ID/download.log"
+watch -n5 "curl -s $BASE/videos/$ID | jq '{status, progress}'"   # -> completed
+
+# 2. Pausing a job that isn't downloading is a 409, not a 404.
+curl -s -o /dev/null -w '%{http_code}\n' -XPATCH "$BASE/videos/$ID/pause"  # 409
+
+# 3. A paused job can still be abandoned.
+PID=$(curl -s -XPOST "$BASE/videos" -H 'content-type: application/json' \
+  -d '{"url":"https://www.youtube.com/watch?v=aqz-KE-bpKQ"}' | jq -r '.id')
+sleep 20
+curl -s -XPATCH "$BASE/videos/$PID/pause" >/dev/null
+sleep 2
+curl -s -XPATCH "$BASE/videos/$PID/cancel" | jq '.status'        # cancelled
+
+# 4. THE WEDGE FIX. With MAX_DOWNLOADS=1, cancel the running job and confirm
+#    the next queued job STARTS instead of the queue stalling forever.
+A=$(curl -s -XPOST "$BASE/videos" -H 'content-type: application/json' \
+  -d '{"url":"https://www.youtube.com/watch?v=aqz-KE-bpKQ"}' | jq -r '.id')
+B=$(curl -s -XPOST "$BASE/videos" -H 'content-type: application/json' \
+  -d '{"url":"https://www.youtube.com/watch?v=BaW_jenozKc"}' | jq -r '.id')
+sleep 10
+curl -s "$BASE/videos/$B" | jq '.status'                         # pending
+curl -s -XPATCH "$BASE/videos/$A/cancel" >/dev/null
+sleep 10
+curl -s "$BASE/videos/$B" | jq '.status'                         # downloading, NOT pending
+```
+
+**Also still to check by hand:**
+
+- **Resume against the format the app actually downloads.** The spec's live
+  test forced a progressive format (`-f worst` → itag 18). The app forces no
+  format, so a default YouTube grab may resolve to fragmented DASH, which
+  resumes per-fragment through a different mechanism. Checking for: whether
+  resume genuinely continues, or silently restarts from zero. **Not yet
+  verified.**
+- **Resume for a clip job.** A `timeRange` download adds
+  `--download-sections` + `--force-keyframes-at-cuts`
+  (`download-video.service.ts`), routing through a different downloader.
+  Checking for: whether `.part` resume applies at all, or whether a paused clip
+  restarts. **Not yet verified.**
+- **A decision on a `/download/videos` volume.** Making pause survive a restart
+  needs one plus a `chown 1000:1000`; it is a deploy change with a host
+  prerequisite, which is why this phase shipped without it.
+- **Deploy** with `docker-compose up -d download` from the repo root, per
+  `CLAUDE.md` — never from `apps/download/deploy.yml` directly.
 
 ---
 
