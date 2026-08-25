@@ -6,6 +6,7 @@ import { EmbyModule } from 'src/emby/emby.module'
 import { radarrClientProvider, sonarrClientProvider } from './clients'
 import { DiscoveryService } from './discovery.service'
 import { MediaDownloadService } from './media-download.service'
+import { MediaFileService } from './media-file.service'
 import { MediaPollerService } from './media-poller.service'
 import { MediaResolverService } from './media-resolver.service'
 import { RadarrService } from './radarr.service'
@@ -34,6 +35,7 @@ import { SonarrService } from './sonarr.service'
     RadarrService,
     SonarrService,
     MediaDownloadService,
+    MediaFileService,
     MediaPollerService,
     MediaResolverService,
     ReleaseService,
@@ -42,6 +44,7 @@ import { SonarrService } from './sonarr.service'
   exports: [
     DiscoveryService,
     MediaDownloadService,
+    MediaFileService,
     MediaResolverService,
     RadarrService,
     ReleaseService,
