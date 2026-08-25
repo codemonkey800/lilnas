@@ -45,6 +45,11 @@ export const DOWNLOAD_JOB_STATUSES = [
   'downloading',
   'failed',
   'importing',
+  // Phase 5. No migration accompanies these two: `status` is a bare
+  // `text NOT NULL` column with no CHECK constraint behind it (the enum
+  // lives only in drizzle's TS types), so widening the tuple emits no SQL.
+  'paused',
+  'pausing',
   'pending',
   'requested',
   'searching',

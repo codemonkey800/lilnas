@@ -87,6 +87,11 @@ describe('DownloadJobStatus', () => {
     expect(DownloadJobStatus.Searching).toBe('searching')
     expect(DownloadJobStatus.Importing).toBe('importing')
   })
+
+  it('adds the Phase 5 pause members', () => {
+    expect(DownloadJobStatus.Paused).toBe('paused')
+    expect(DownloadJobStatus.Pausing).toBe('pausing')
+  })
 })
 
 describe('TERMINAL_DOWNLOAD_JOB_STATUSES / IN_PROGRESS_DOWNLOAD_JOB_STATUSES', () => {
@@ -112,6 +117,27 @@ describe('TERMINAL_DOWNLOAD_JOB_STATUSES / IN_PROGRESS_DOWNLOAD_JOB_STATUSES', (
         DownloadJobStatus.Failed,
       ]),
     )
+    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toHaveLength(3)
+  })
+
+  // Phase 5. `paused`/`pausing` land in "in progress" purely by being absent
+  // from the terminal list - which is the whole point of deriving the
+  // in-progress set by complement. Two consequences ride on it: a paused job
+  // keeps its slot on the Activity feed, and `reconcileInterruptedJobs()`
+  // (apps/download/src/db/reconcile-interrupted-jobs.ts) sweeps it to
+  // `failed` on the next boot. Both are intended, not fallout.
+  it('treats paused/pausing as in-progress, never terminal', () => {
+    for (const status of [
+      DownloadJobStatus.Paused,
+      DownloadJobStatus.Pausing,
+    ]) {
+      expect(isTerminalDownloadJobStatus(status)).toBe(false)
+      expect(isInProgressDownloadJobStatus(status)).toBe(true)
+      expect(IN_PROGRESS_DOWNLOAD_JOB_STATUSES).toContain(status)
+      expect(TERMINAL_DOWNLOAD_JOB_STATUSES).not.toContain(status)
+    }
+
+    // Pinned: adding a status must not grow the terminal list.
     expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toHaveLength(3)
   })
 
