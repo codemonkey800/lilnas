@@ -4,11 +4,13 @@ import {
   ActivityQuerySchema,
   BadFileSchema,
   CreateDownloadJobInputSchema,
+  DeleteMediaFilesQuerySchema,
   DiscoverQuerySchema,
   DownloadJobSchema,
   DownloadJobStatus,
   DownloadQueueSnapshotSchema,
   DownloadType,
+  EpisodeSchema,
   FlagBadFileInputSchema,
   GalleryFacetsQuerySchema,
   GalleryItemSchema,
@@ -28,7 +30,9 @@ import {
   ReplaceReleaseInputSchema,
   RequestMovieInputSchema,
   RequestShowInputSchema,
+  SeasonSchema,
   ShowSchema,
+  ShowScopeSchema,
   TimeRangeSchema,
   VideoInfoSchema,
   VideoSchema,
@@ -310,4 +314,46 @@ export interface FlagBadFileResponse {
 export interface DownloadGalleryFacets {
   types: Array<{ count: number; type: DownloadType }>
   uploaders: Array<{ count: number; email: string }>
+}
+
+// ---- Phase 4: per-episode/season granularity ----
+
+/**
+ * Which part of a series a show job was created for. Absent = the whole
+ * series - the pre-Phase-4 behavior, and still the default. Carried on the
+ * job rather than encoded in the media id; see `ShowScopeSchema` for why.
+ */
+export type ShowScope = z.infer<typeof ShowScopeSchema>
+
+/**
+ * One episode of a series. `id` is Sonarr's episode primary key - the key
+ * every scoped operation is expressed in - while `episodeNumber` is the one
+ * that gets rendered.
+ */
+export type Episode = z.infer<typeof EpisodeSchema>
+
+/** One season plus its episodes, as `GET /media/:id/seasons` reports it. */
+export type Season = z.infer<typeof SeasonSchema>
+
+export type DeleteMediaFilesQuery = z.infer<typeof DeleteMediaFilesQuerySchema>
+
+/**
+ * `GET /download/media/:id/seasons`. Shows only - a `tmdb:` key 404s here,
+ * since a movie has no seasons to list.
+ */
+export interface ListSeasonsResponse {
+  seasons: Season[]
+}
+
+/**
+ * `DELETE /download/media/:id/files`. Deleting zero files is a success, not
+ * a 404: the caller asked for a state, and that state already held.
+ *
+ * This removes **files**, never the library entry - the series/movie stays
+ * in Sonarr/Radarr. Removing the title entirely is still
+ * `DELETE /download/shows/:jobId` / `DELETE /download/movies/:jobId`.
+ */
+export interface DeleteMediaFilesResponse {
+  deletedCount: number
+  mediaId: string
 }

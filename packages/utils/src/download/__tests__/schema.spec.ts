@@ -1,10 +1,12 @@
 import {
   ActivityQuerySchema,
   BadFileSchema,
+  DeleteMediaFilesQuerySchema,
   DiscoverQuerySchema,
   DownloadJobSchema,
   DownloadJobStatus,
   DownloadType,
+  EpisodeSchema,
   FlagBadFileInputSchema,
   GalleryFacetsQuerySchema,
   GalleryItemSchema,
@@ -16,7 +18,10 @@ import {
   MovieSchema,
   ReleaseSchema,
   ReplaceReleaseInputSchema,
+  RequestShowInputSchema,
+  SeasonSchema,
   ShowSchema,
+  ShowScopeSchema,
   VideoSchema,
 } from 'src/download/schema'
 import { Media, Movie, Release, Show, Video } from 'src/download/types'
@@ -667,6 +672,232 @@ describe('BadFileSchema', () => {
     expect(
       BadFileSchema.safeParse({ ...validBadFile, createdAt: '2026-08-20' })
         .success,
+    ).toBe(false)
+  })
+})
+
+// ---- Phase 4: per-episode/season granularity ----
+
+describe('ShowScopeSchema', () => {
+  it('accepts an empty scope - that is "the whole series"', () => {
+    expect(ShowScopeSchema.parse({})).toEqual({})
+  })
+
+  it('carries all three fields through', () => {
+    expect(
+      ShowScopeSchema.parse({
+        episodeId: 4412,
+        episodeNumber: 5,
+        seasonNumber: 3,
+      }),
+    ).toEqual({ episodeId: 4412, episodeNumber: 5, seasonNumber: 3 })
+  })
+
+  it('accepts season 0 (specials)', () => {
+    expect(ShowScopeSchema.parse({ seasonNumber: 0 })).toEqual({
+      seasonNumber: 0,
+    })
+  })
+
+  it.each(['episodeId', 'episodeNumber'])('rejects a zero %s', field => {
+    expect(ShowScopeSchema.safeParse({ [field]: 0 }).success).toBe(false)
+  })
+
+  it('rejects a negative seasonNumber', () => {
+    expect(ShowScopeSchema.safeParse({ seasonNumber: -1 }).success).toBe(false)
+  })
+})
+
+describe('DownloadJobSchema with a scope', () => {
+  const baseJob = {
+    completedAt: null,
+    createdAt: '2026-08-20T12:00:00.000Z',
+    hiddenAttribution: false,
+    id: 'job-1',
+    media: validShow,
+    requester: null,
+    status: DownloadJobStatus.Requested,
+    updatedAt: '2026-08-20T12:00:00.000Z',
+  }
+
+  it('round-trips a scoped show job', () => {
+    const input = {
+      ...baseJob,
+      scope: { episodeId: 4412, episodeNumber: 5, seasonNumber: 3 },
+    }
+    expect(DownloadJobSchema.parse(input)).toEqual(input)
+  })
+
+  // The whole point of `.optional()`: every pre-Phase-4 job row parses
+  // unchanged, so there is nothing to backfill.
+  it('parses an unscoped job with no scope key at all', () => {
+    expect(DownloadJobSchema.parse(baseJob).scope).toBeUndefined()
+  })
+
+  it('rejects a malformed scope rather than dropping it', () => {
+    expect(
+      DownloadJobSchema.safeParse({ ...baseJob, scope: { episodeId: -1 } })
+        .success,
+    ).toBe(false)
+  })
+})
+
+describe('EpisodeSchema', () => {
+  const validEpisode = {
+    episodeNumber: 5,
+    hasFile: false,
+    id: 4412,
+    monitored: true,
+    seasonNumber: 3,
+  }
+
+  it('parses the minimal required set', () => {
+    expect(EpisodeSchema.parse(validEpisode)).toEqual(validEpisode)
+  })
+
+  it('carries every optional display field through', () => {
+    const full = {
+      ...validEpisode,
+      airDate: '2004-12-19T02:00:00Z',
+      episodeFileId: 991,
+      hasFile: true,
+      overview: 'An episode',
+      // Seconds on the wire - the mapper has already done the x60.
+      runtime: 3540,
+      title: 'Middle Ground',
+    }
+    expect(EpisodeSchema.parse(full)).toEqual(full)
+  })
+
+  // Sonarr reports `episodeFileId: 0` for "no file"; the mapper omits the
+  // key instead, so a 0 arriving here means something upstream skipped it.
+  it('rejects episodeFileId: 0 - absence is spelled by omitting the key', () => {
+    expect(
+      EpisodeSchema.safeParse({ ...validEpisode, episodeFileId: 0 }).success,
+    ).toBe(false)
+  })
+
+  it('accepts season 0 and episode 0 (specials number both from zero)', () => {
+    expect(
+      EpisodeSchema.parse({
+        ...validEpisode,
+        episodeNumber: 0,
+        seasonNumber: 0,
+      }),
+    ).toMatchObject({ episodeNumber: 0, seasonNumber: 0 })
+  })
+
+  it.each(['episodeNumber', 'hasFile', 'id', 'monitored', 'seasonNumber'])(
+    'rejects an omitted %s',
+    field => {
+      expect(
+        EpisodeSchema.safeParse(without(validEpisode, field)).success,
+      ).toBe(false)
+    },
+  )
+})
+
+describe('SeasonSchema', () => {
+  const validSeason = {
+    episodeCount: 12,
+    episodeFileCount: 3,
+    episodes: [
+      {
+        episodeNumber: 1,
+        hasFile: true,
+        id: 4400,
+        monitored: true,
+        seasonNumber: 3,
+      },
+    ],
+    monitored: true,
+    seasonNumber: 3,
+    sizeOnDisk: 12_884_901_888,
+  }
+
+  it('parses a fully-populated season', () => {
+    expect(SeasonSchema.parse(validSeason)).toEqual(validSeason)
+  })
+
+  // An announced-but-unaired season is a real season with nothing in it -
+  // `[]`, never an omitted key.
+  it('parses a season with no episodes yet', () => {
+    expect(
+      SeasonSchema.parse({
+        episodeCount: 0,
+        episodeFileCount: 0,
+        episodes: [],
+        monitored: false,
+        seasonNumber: 4,
+      }).episodes,
+    ).toEqual([])
+  })
+
+  it('rejects an omitted episodes array', () => {
+    expect(
+      SeasonSchema.safeParse(without(validSeason, 'episodes')).success,
+    ).toBe(false)
+  })
+
+  it('accepts season 0 (specials)', () => {
+    expect(
+      SeasonSchema.safeParse({ ...validSeason, seasonNumber: 0 }).success,
+    ).toBe(true)
+  })
+})
+
+describe('RequestShowInputSchema', () => {
+  // The tdr-bot shim calls `requestShow({ tvdbId })` and must keep working.
+  it('still parses a bare { tvdbId }', () => {
+    expect(RequestShowInputSchema.parse({ tvdbId: 81189 })).toEqual({
+      tvdbId: 81189,
+    })
+  })
+
+  it('carries the Phase 4 scoping params through', () => {
+    expect(
+      RequestShowInputSchema.parse({
+        episodeId: 4412,
+        seasonNumber: 3,
+        tvdbId: 81189,
+      }),
+    ).toEqual({ episodeId: 4412, seasonNumber: 3, tvdbId: 81189 })
+  })
+
+  // A JSON body, not a query string - a string here is a client bug.
+  it('does not coerce a string seasonNumber', () => {
+    expect(
+      RequestShowInputSchema.safeParse({ seasonNumber: '3', tvdbId: 81189 })
+        .success,
+    ).toBe(false)
+  })
+})
+
+describe('DeleteMediaFilesQuerySchema', () => {
+  it('leaves both params undefined when omitted - that is "every file"', () => {
+    expect(DeleteMediaFilesQuerySchema.parse({})).toEqual({})
+  })
+
+  // Query params, unlike RequestShowInputSchema's body fields above - this
+  // asymmetry is exactly why the two share no zod fragment.
+  it('coerces numeric-string query params', () => {
+    expect(
+      DeleteMediaFilesQuerySchema.parse({
+        episodeId: '4412',
+        seasonNumber: '3',
+      }),
+    ).toEqual({ episodeId: 4412, seasonNumber: 3 })
+  })
+
+  it('accepts season 0 (specials)', () => {
+    expect(DeleteMediaFilesQuerySchema.parse({ seasonNumber: '0' })).toEqual({
+      seasonNumber: 0,
+    })
+  })
+
+  it('rejects a zero episodeId', () => {
+    expect(
+      DeleteMediaFilesQuerySchema.safeParse({ episodeId: '0' }).success,
     ).toBe(false)
   })
 })
