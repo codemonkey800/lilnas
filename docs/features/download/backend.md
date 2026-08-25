@@ -1178,10 +1178,218 @@ curl -s http://download:8081/download/media/tmdb:27205 | jq '.media.embyStatus'
 
 ## Phase 7 — Local save-to-device
 
-Videos already have MinIO `downloadUrls` (`DownloadVideoService.upload()`)
-— likely frontend-only wiring. Movies/shows live on Radarr/Sonarr-managed
-disk paths, not MinIO, so they need a new file-serving endpoint (stream the
-file at the path stored on the `jobs` row from Phase 1/6).
+**Status: done** (backend only — no frontend surface yet). Full plan in
+`docs/features/download/plans/007-phase-7-local-save.md`. Commits, in order:
+`020a19d0` (read-only library mounts), `550d2aeb` (wire contract), `9518b165`
+(`mediaTypeFromKey()` promoted next to `mediaId()`), `ffb676e6`
+(`MediaFileService`), `552e42c6` (the route + its counter).
+
+Every other route in this app answers with JSON. This one answers with bytes:
+"save a copy to my device", for all three media types, through one endpoint.
+
+### ⚠️ Two things this section used to say were wrong
+
+- **There is no file-path column on `jobs`.** The old text had the route
+  streaming "the file at the path stored on the `jobs` row from Phase 1/6".
+  The media entity refactor removed per-job file locations; a `jobs` row
+  carries only id, type, status, requester, scope and timestamps. File
+  locations are derived **live**, per request: a movie's from Radarr
+  (`movieFile.path`, gated on `hasFile`, surfaced as `Movie.filePath`), an
+  episode's from Sonarr's episode-file API, and a video's object key from the
+  `videos` row's own `downloadUrls`. Nothing is cached and nothing is written
+  back, so a title deleted upstream stops being savable when the resolver's
+  TTL expires rather than when someone notices a stale column.
+- **Videos were not "likely frontend-only wiring".** The `downloadUrls`
+  `DownloadVideoService.upload()` writes are **unsigned public-bucket URLs**,
+  and a bare `<a download>` is ignored cross-origin (`download.lilnas.io` →
+  `storage.lilnas.io`) — the browser plays the file instead of saving it. An
+  anonymous `response-content-disposition` override isn't honored on an
+  unsigned request either. So saving streams **through the app** for all three
+  types. The public URLs are untouched: they remain the in-app _playback_
+  mechanism, which the spec keeps deliberately distinct from save.
+
+### What shipped
+
+| Route                          | Auth | Does                                                      |
+| ------------------------------ | ---- | --------------------------------------------------------- |
+| `GET /download/media/:id/file` | none | Streams one movie / episode / video part as an attachment |
+
+Behind it: `GetMediaFileQuerySchema` + `GetMediaFileQuery` in
+`packages/utils`; `MediaFileService`
+(`apps/download/src/media/media-file.service.ts`), which turns a media id into
+a `MediaFileSource` (`{ kind: 'disk', path }` or
+`{ kind: 'object', bucket, key, size, contentType }`);
+`mediaTypeFromKey()` lifted out of `download.controller.ts` into
+`src/db/media-id.ts` beside `mediaId()`, whose prefix choice it inverts; and a
+`download_media_file_saves_total{type}` counter.
+
+The controller decides only _how_ to send, never _what_ — `MediaFileService`
+has already collapsed the three types into one source shape.
+
+### One media-keyed route, not three
+
+Keyed on **media** id and typed by key prefix (`video:` / `tmdb:` / `tvdb:`),
+exactly like every other Phase 3/4 media route. A file belongs to a title, not
+to a download event: the same movie downloaded twice has one file, and saving
+it shouldn't require knowing which job put it there.
+
+`episodeId` is **required for `tvdb:` keys** — a 400, not a fallback. A series
+is a folder, not a file, and there is no "the show's file" to guess at.
+`Show.filePath` (the series folder) is deliberately never consulted here.
+Per-file only: no season or series zip bundling. `part` is video-only,
+defaults to `0`, and indexes `Video.downloadUrls` for a multi-part post.
+Passing either param to the wrong key type is a 400 rather than a silently
+ignored field.
+
+Those cross-field rules live in the service, not in the Zod schema, because
+which rule applies depends on the `:id` prefix the schema never sees — the
+same split `DeleteMediaFilesQuerySchema` already makes.
+
+### `:ro` library mounts at Radarr/Sonarr-identical paths
+
+`apps/download/deploy.yml` gained `/storage/media-library/movies:/movies:ro`
+and `/storage/media-library/tv:/tv:ro`. Radarr and Sonarr report
+container-absolute paths in their file APIs, so mounting the library at the
+**identical** container paths means those paths need zero translation — the
+same byte-identical-paths trick Phase 6's Emby match already relies on, and
+one less mapping to drift out of sync with the media stack.
+
+Read-only because this app must never write the library. **No chown needed:**
+the download container runs as `node` (uid/gid 1000), the same uid the media
+services already write as via `PUID`/`PGID` — unlike the `/data` mount, which
+does document one.
+
+`deploy.dev.yml` gets no mounts on purpose. Dev runs no Radarr/Sonarr and the
+dev host has no `/storage/media-library`, so a dev save 404s honestly instead
+of half-working.
+
+### Defense in depth: the disk-path allowlist
+
+The client never supplies a path — the id is prefix-parsed and the query
+params are coerced integers. But Radarr and Sonarr are **external services**,
+and this app has an RCE-probing incident in its history. So every candidate
+disk path is `path.resolve()`d and must start with `/movies/` or `/tv/`. A
+miss logs a `warn` and 404s; it is never opened, and the caller learns nothing
+beyond "no file".
+
+### Range on the disk branch only
+
+Two send paths, split by the shape of the files rather than by the storage:
+
+- **Disk** (movie, episode) → express `res.sendFile()`, which supplies
+  `Range`/206, `Accept-Ranges`, ETag and `Last-Modified` for free. These files
+  run to multiple gigabytes, where resumability is the difference between a
+  save that survives a dropped connection and one that starts over.
+- **Object** (video) → `getObject()` piped through, with explicit
+  `Content-Type` and `Content-Length` from the stat, and **no** Range
+  handling. The videos this app produces are small next to a movie file;
+  `getPartialObject()` is the documented escape hatch if that stops being
+  true.
+
+Both set `Content-Disposition` via the `content-disposition` package, and the
+video branch names the saved file after the _title_ rather than the
+`<jobId>/part0.mp4` object key.
+
+### 503 on a degraded resolver, and no auth decorator
+
+The route deliberately does **not** use the `mediaJobRoute()` helper, whose
+catch block rewrites every failure into a 404 — same call as Phases 4 and 5.
+`resolveFileSource()` already raises the right exception for each case, and
+flattening them would report "pass an `episodeId`" (400) and "Sonarr is
+unreachable" (503) as "not found". Telling the UI a file doesn't exist when
+the library is merely unreachable would send a user off to re-request
+something they already have. Degradation is therefore checked _before_ the
+payload is read, since `resolve()`'s placeholder for an unreachable source is
+indistinguishable from a real title with nothing downloaded.
+
+**No auth decorator**, matching `GET /media/:id/releases` and
+`/media/:id/seasons`: the route reads nothing attribution-sensitive and writes
+nothing, and Traefik's `lilnas-auth` gates the edge. Recording _who saved
+what_ is Phase 8's audit log, not a decorator here.
+
+### Findings from implementation
+
+- **`content-disposition` is pinned to `1.0.0`.** `3.0.0` is ESM-only and
+  would break the SWC/CommonJS build — the same trap nanoid already set for
+  the test suite. `1.0.0` is what express 5 itself depends on, so it dedupes
+  in the store; a bump needs a transform first.
+- **The object branch opens the MinIO stream _before_ setting any header.**
+  Setting `Content-Length` first and then failing to open would leave Nest's
+  exception filter writing a short JSON body under a header promising the
+  whole object — which a client waits out rather than reports.
+- **The save counter increments at stream hand-off, not completion.**
+  `sendFile` offers no headers-committed hook, and counting at completion
+  would drop every user-aborted multi-GB save. "Saves started" is the only
+  figure a single request can honestly report.
+
+### Deferred
+
+- **No frontend.** The route is backend-only; nothing in the Next.js app calls
+  it yet — the rebuild consumes it alongside Phases 3–6.
+- **No `DownloadClient` method.** Phases 3–6 added none either, and nothing
+  in-repo calls it yet.
+- **No season/series bundling.** One file per request, by design.
+- **No Range on the object branch** — `getPartialObject()` if that changes.
+- **Known asymmetry, left standing:** this route is authenticated at the edge,
+  but the MinIO `videos` bucket is still **anonymously readable** over its own
+  public route. Known, out of scope for this phase, and worth revisiting with
+  the frontend rebuild — which is also when the playback-vs-save split stops
+  being theoretical.
+
+### Manual verification (needs live Radarr/Sonarr/MinIO)
+
+⚠️ **Not yet run** — these are the human checkpoints in
+`docs/features/download/plans/007-phase-7-local-save.md`, all still
+outstanding. The unit suite covers the resolver and both send branches against
+fakes; none of the below can be proven without real data and a real container.
+
+**Deploy first.** The new mounts need a container **recreate**, not a restart,
+and per `CLAUDE.md` deployment runs from the repo root — never
+`apps/download/deploy.yml` directly:
+
+```bash
+docker-compose up -d download
+docker-compose exec download ls /movies /tv    # both readable, both :ro
+```
+
+```bash
+BASE=http://download:8081/download
+
+# 1. A movie already in the library. Expect 200 + Content-Disposition, and
+#    Accept-Ranges: bytes on the disk branch.
+curl -sI "$BASE/media/tmdb:27205/file" | grep -iE 'content-(disposition|length|type)|accept-ranges'
+
+# 2. Range actually resumes. Byte 100- must come back 206, not 200.
+curl -s -o /dev/null -w '%{http_code}\n' -r 100- "$BASE/media/tmdb:27205/file"   # 206
+
+# 3. A show without episodeId is a 400, not a 404 and not a series folder.
+curl -s -o /dev/null -w '%{http_code}\n' "$BASE/media/tvdb:81189/file"           # 400
+
+EP=$(curl -s "$BASE/media/tvdb:81189/seasons" \
+  | jq -r '.seasons[] | select(.seasonNumber==3) | .episodes[0].id')
+curl -sI "$BASE/media/tvdb:81189/file?episodeId=$EP" | head -1                   # 200
+
+# 4. A video, through the app rather than the public bucket URL. The filename
+#    must be the TITLE, not '<jobId>/part0.mp4'.
+curl -sI "$BASE/media/video:<id>/file" | grep -i content-disposition
+
+# 5. A title with no file on disk is a 404; an out-of-range part is a 404.
+curl -s -o /dev/null -w '%{http_code}\n' "$BASE/media/video:<id>/file?part=99"   # 404
+
+# 6. Stop Radarr, then re-run (1). It must be 503, NOT 404 - the whole point
+#    of skipping mediaJobRoute().
+curl -s -o /dev/null -w '%{http_code}\n' "$BASE/media/tmdb:27205/file"           # 503
+```
+
+**Also still to check by hand:**
+
+- **A real multi-GB movie through Traefik**, from a browser, end to end.
+  Checking for: no proxy buffering or timeout on a long transfer, the browser
+  saving rather than playing, and a resumed save actually resuming.
+- **`download_media_file_saves_total`** appearing on `/metrics` with the right
+  `type` label after each of the three branches has been exercised.
+- **An aborted save** — kill the client mid-transfer and confirm the MinIO
+  socket is torn down rather than left open for the length of the object.
 
 ---
 
