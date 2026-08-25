@@ -59,10 +59,15 @@ type SeriesSearchCommand = CommandResourceWritable & { seriesId?: number }
  *
  * TODO(phase-4-verify): both command names are well-documented Sonarr
  * commands but are **not** in the generated SDK (`CommandResourceWritable.name`
- * is a bare string), so nothing here type-checks the literal itself. Confirm
- * against a running Sonarr that `POST /api/v3/command` accepts each body and
- * that the search actually reaches Activity -> Queue - a wrong literal fails
- * silently at the API and lands the job in `Failed`.
+ * is a bare string), so nothing here type-checks the literal itself.
+ *
+ * A wrong `name` is the *loud* failure: Sonarr resolves the command type by
+ * name and rejects an unknown one, which `checkSdkError` surfaces onto the
+ * job with Sonarr's own message. The silent failure is a wrong **body field**
+ * name - accepted, ignored, nothing searched. `POST /api/v3/command` echoes
+ * the parsed command back in `body`, which is what makes that checkable; see
+ * the Phase 4 manual-verification block in
+ * `docs/features/download/backend.md`.
  */
 type EpisodeSearchCommand = CommandResourceWritable & { episodeIds?: number[] }
 type SeasonSearchCommand = CommandResourceWritable & {
