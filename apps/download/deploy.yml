@@ -13,6 +13,12 @@ services:
     # Without this, better-sqlite3 throws SQLITE_CANTOPEN on first boot.
     volumes:
       - /storage/app-data/download:/data
+      # Read-only view of the media library at the SAME container paths
+      # Radarr (/movies) and Sonarr (/tv) report in their file APIs - the
+      # save-to-device route (Phase 7) opens those paths verbatim. ro: this
+      # app must never write the library.
+      - /storage/media-library/movies:/movies:ro
+      - /storage/media-library/tv:/tv:ro
     labels:
       - traefik.enable=true
       - traefik.http.routers.download.rule=Host(`download.lilnas.io`)
