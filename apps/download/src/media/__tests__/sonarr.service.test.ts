@@ -599,6 +599,238 @@ describe('SonarrService', () => {
     })
   })
 
+  describe('listSeasons', () => {
+    // One series call + one *unscoped* episode call, grouped client-side.
+    const seedSeries = (
+      seasons: unknown[],
+      episodes: Record<string, unknown>[],
+    ) => {
+      mockGetApiV3SeriesById.mockResolvedValue({ data: { id: 9, seasons } })
+      mockGetApiV3Episode.mockResolvedValue({ data: episodes })
+    }
+
+    it('groups episodes under their season and maps every kept field', async () => {
+      seedSeries(
+        [
+          {
+            monitored: true,
+            seasonNumber: 1,
+            statistics: {
+              episodeCount: 2,
+              episodeFileCount: 1,
+              sizeOnDisk: 5000,
+            },
+          },
+        ],
+        [
+          {
+            airDateUtc: '2004-12-19T02:00:00Z',
+            episodeFileId: 991,
+            episodeNumber: 1,
+            hasFile: true,
+            id: 4400,
+            monitored: true,
+            overview: 'An episode',
+            runtime: 59,
+            seasonNumber: 1,
+            title: 'Time After Time',
+          },
+        ],
+      )
+
+      const seasons = await service.listSeasons(9)
+
+      expect(seasons).toEqual([
+        {
+          episodeCount: 2,
+          episodeFileCount: 1,
+          episodes: [
+            {
+              airDate: '2004-12-19T02:00:00Z',
+              episodeFileId: 991,
+              episodeNumber: 1,
+              hasFile: true,
+              id: 4400,
+              monitored: true,
+              overview: 'An episode',
+              // Sonarr reports minutes; Episode.runtime is seconds.
+              runtime: 3540,
+              seasonNumber: 1,
+              title: 'Time After Time',
+            },
+          ],
+          monitored: true,
+          seasonNumber: 1,
+          sizeOnDisk: 5000,
+        },
+      ])
+    })
+
+    // Two calls total for a ten-season show, not eleven.
+    it('makes exactly two upstream calls regardless of season count', async () => {
+      seedSeries(
+        Array.from({ length: 10 }, (_, i) => ({ seasonNumber: i + 1 })),
+        [],
+      )
+
+      await service.listSeasons(9)
+
+      expect(mockGetApiV3SeriesById).toHaveBeenCalledTimes(1)
+      expect(mockGetApiV3Episode).toHaveBeenCalledTimes(1)
+      expect(mockGetApiV3Episode.mock.calls[0][0].query).not.toHaveProperty(
+        'seasonNumber',
+      )
+    })
+
+    it('sorts seasons ascending and keeps season 0 (specials) first', async () => {
+      seedSeries(
+        [
+          { seasonNumber: 2 },
+          { seasonNumber: 0 },
+          { seasonNumber: 10 },
+          { seasonNumber: 1 },
+        ],
+        [],
+      )
+
+      const seasons = await service.listSeasons(9)
+
+      expect(seasons.map(s => s.seasonNumber)).toEqual([0, 1, 2, 10])
+    })
+
+    it('sorts episodes within a season ascending', async () => {
+      seedSeries(
+        [{ seasonNumber: 1 }],
+        [
+          { episodeNumber: 10, id: 3, seasonNumber: 1 },
+          { episodeNumber: 2, id: 1, seasonNumber: 1 },
+          { episodeNumber: 9, id: 2, seasonNumber: 1 },
+        ],
+      )
+
+      const [season] = await service.listSeasons(9)
+
+      expect(season?.episodes.map(e => e.episodeNumber)).toEqual([2, 9, 10])
+    })
+
+    // Dropping it would hide episodes rather than report the inconsistency.
+    it('synthesizes a season for an episode whose season Sonarr did not list', async () => {
+      seedSeries(
+        [{ monitored: true, seasonNumber: 1 }],
+        [
+          { episodeNumber: 1, hasFile: true, id: 1, seasonNumber: 1 },
+          { episodeNumber: 1, hasFile: true, id: 2, seasonNumber: 4 },
+        ],
+      )
+
+      const seasons = await service.listSeasons(9)
+
+      expect(seasons.map(s => s.seasonNumber)).toEqual([1, 4])
+      expect(seasons[1]).toMatchObject({
+        // No statistics on a synthesized season, so the counts fall back to
+        // the episodes it was handed.
+        episodeCount: 1,
+        episodeFileCount: 1,
+        monitored: false,
+      })
+    })
+
+    // Announced but not aired: a real season with nothing in it.
+    it('keeps a season with no episodes, as `episodes: []`', async () => {
+      seedSeries(
+        [{ seasonNumber: 1 }, { seasonNumber: 2 }],
+        [{ episodeNumber: 1, id: 1, seasonNumber: 1 }],
+      )
+
+      const seasons = await service.listSeasons(9)
+
+      expect(seasons).toHaveLength(2)
+      expect(seasons[1]?.episodes).toEqual([])
+    })
+
+    it('omits episodeFileId and reports hasFile false for Sonarr’s `episodeFileId: 0`', async () => {
+      seedSeries(
+        [{ seasonNumber: 1 }],
+        [{ episodeFileId: 0, episodeNumber: 1, id: 1, seasonNumber: 1 }],
+      )
+
+      const [season] = await service.listSeasons(9)
+
+      expect(season?.episodes[0]).toMatchObject({ hasFile: false })
+      expect(season?.episodes[0]).not.toHaveProperty('episodeFileId', 0)
+      expect(season?.episodes[0]?.episodeFileId).toBeUndefined()
+    })
+
+    it('defaults monitored/hasFile to false and leaves optional fields undefined', async () => {
+      seedSeries(
+        [{ seasonNumber: 1 }],
+        [{ episodeNumber: 1, id: 1, seasonNumber: 1 }],
+      )
+
+      const [season] = await service.listSeasons(9)
+
+      expect(season?.episodes[0]).toEqual({
+        airDate: undefined,
+        episodeFileId: undefined,
+        episodeNumber: 1,
+        hasFile: false,
+        id: 1,
+        monitored: false,
+        overview: undefined,
+        runtime: undefined,
+        seasonNumber: 1,
+        title: undefined,
+      })
+      expect(season?.sizeOnDisk).toBeUndefined()
+    })
+
+    // Structural fields, unlike monitored/hasFile - an episode without them
+    // could not be searched, grabbed or rendered.
+    it.each(['id', 'seasonNumber', 'episodeNumber'])(
+      'throws when an episode is missing its %s',
+      async field => {
+        const episode: Record<string, unknown> = {
+          episodeNumber: 1,
+          id: 1,
+          seasonNumber: 1,
+        }
+        delete episode[field]
+        seedSeries([{ seasonNumber: 1 }], [episode])
+
+        await expect(service.listSeasons(9)).rejects.toThrow(
+          /without an id\/seasonNumber\/episodeNumber/,
+        )
+      },
+    )
+
+    it('handles a series with no seasons array at all', async () => {
+      mockGetApiV3SeriesById.mockResolvedValue({ data: { id: 9 } })
+      mockGetApiV3Episode.mockResolvedValue({ data: [] })
+
+      await expect(service.listSeasons(9)).resolves.toEqual([])
+    })
+  })
+
+  describe('getSeriesById', () => {
+    it('unwraps the series resource', async () => {
+      mockGetApiV3SeriesById.mockResolvedValue({ data: { id: 9, title: 'X' } })
+
+      await expect(service.getSeriesById(9)).resolves.toEqual({
+        id: 9,
+        title: 'X',
+      })
+      expect(getApiV3SeriesById).toHaveBeenCalledWith(
+        expect.objectContaining({ path: { id: 9 } }),
+      )
+    })
+
+    it('throws a descriptive error when the lookup fails', async () => {
+      mockGetApiV3SeriesById.mockResolvedValue({ error: { message: 'boom' } })
+
+      await expect(service.getSeriesById(9)).rejects.toThrow('getSeries failed')
+    })
+  })
+
   describe('getReleases', () => {
     it('maps the show-only fields on top of the shared release shape', async () => {
       mockGetApiV3Release.mockResolvedValue({
