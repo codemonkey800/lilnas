@@ -4,6 +4,7 @@ import type {
   EpisodeResource,
   QueueResource,
   ReleaseResource,
+  SeasonResource,
   SeriesResource,
   SeriesResourceWritable,
 } from '@lilnas/media/sonarr'
@@ -28,7 +29,9 @@ import {
 } from '@lilnas/media/sonarr'
 import {
   DownloadType,
+  type Episode,
   type Release,
+  type Season,
   type Show,
 } from '@lilnas/utils/download/types'
 import { Inject, Injectable, Logger } from '@nestjs/common'
@@ -139,6 +142,73 @@ export function toShow(series: SeriesResource): Show {
     tvdbId,
     type: DownloadType.Show,
     year: series.year,
+  }
+}
+
+/**
+ * One `EpisodeResource` -> the `Episode` wire type.
+ *
+ * Every field on the generated type is optional, but `id`, `seasonNumber`
+ * and `episodeNumber` are structural - Sonarr has no way to represent an
+ * episode without them, and an episode missing one couldn't be searched,
+ * grabbed or rendered. So those three throw rather than being defaulted,
+ * where `monitored`/`hasFile` (genuinely boolean state) default to `false`.
+ */
+export function toEpisode(resource: EpisodeResource): Episode {
+  if (
+    resource.id == null ||
+    resource.seasonNumber == null ||
+    resource.episodeNumber == null
+  ) {
+    throw new Error(
+      `Sonarr returned an episode without an id/seasonNumber/episodeNumber ` +
+        `(id=${resource.id}, season=${resource.seasonNumber}, ` +
+        `episode=${resource.episodeNumber})`,
+    )
+  }
+
+  return {
+    airDate: resource.airDateUtc ?? undefined,
+    // `episodeFileId: 0` is Sonarr's "no file" - truthiness, not a null
+    // guard, and the key is omitted rather than carrying a meaningless 0.
+    episodeFileId: resource.episodeFileId || undefined,
+    episodeNumber: resource.episodeNumber,
+    hasFile: resource.hasFile ?? false,
+    id: resource.id,
+    monitored: resource.monitored ?? false,
+    overview: resource.overview ?? undefined,
+    // Sonarr reports minutes; `Episode.runtime` is seconds, matching
+    // `MediaBaseSchema.runtime`'s convention (see `toShow()` above).
+    runtime: resource.runtime != null ? resource.runtime * 60 : undefined,
+    seasonNumber: resource.seasonNumber,
+    title: resource.title ?? undefined,
+  }
+}
+
+/**
+ * One `SeasonResource` plus its already-mapped episodes -> the `Season` wire
+ * type.
+ *
+ * The counts come from Sonarr's own `statistics` rather than from
+ * `episodes.length`: the two can legitimately disagree (statistics counts
+ * episodes Sonarr knows are coming), and Sonarr's number is the honest one.
+ * They fall back to the episode list only when Sonarr sent no statistics at
+ * all, which is what a freshly-added series looks like.
+ */
+export function toSeason(
+  resource: SeasonResource,
+  episodes: Episode[],
+): Season {
+  const statistics = resource.statistics
+
+  return {
+    episodeCount: statistics?.episodeCount ?? episodes.length,
+    episodeFileCount:
+      statistics?.episodeFileCount ?? episodes.filter(e => e.hasFile).length,
+    episodes,
+    monitored: resource.monitored ?? false,
+    seasonNumber: resource.seasonNumber ?? 0,
+    sizeOnDisk: statistics?.sizeOnDisk,
   }
 }
 
@@ -353,6 +423,76 @@ export class SonarrService {
   }
 
   /**
+   * One series by its Sonarr id - the only call site of
+   * `getApiV3SeriesById`, shared by `setSeriesMonitored` (which needs the
+   * whole resource to PUT back) and `listSeasons` (which needs
+   * `seasons[]`).
+   */
+  async getSeriesById(sonarrId: number): Promise<SeriesResource> {
+    return unwrapSdkResult(
+      await getApiV3SeriesById({ client: this.client, path: { id: sonarrId } }),
+      'getSeries',
+    )
+  }
+
+  /**
+   * Every season of a series with its episodes, for
+   * `GET /download/media/:id/seasons`.
+   *
+   * Exactly **two** upstream calls, never one per season: the series (for
+   * the season list, its `monitored` flags and its per-season statistics)
+   * and one unscoped episode listing, grouped by `seasonNumber` here. A
+   * 10-season show is 2 requests, not 11.
+   */
+  async listSeasons(sonarrId: number): Promise<Season[]> {
+    const [series, episodeResources] = await Promise.all([
+      this.getSeriesById(sonarrId),
+      this.getEpisodes(sonarrId),
+    ])
+
+    const bySeason = new Map<number, Episode[]>()
+    for (const resource of episodeResources) {
+      const episode = toEpisode(resource)
+      const existing = bySeason.get(episode.seasonNumber)
+      if (existing) {
+        existing.push(episode)
+      } else {
+        bySeason.set(episode.seasonNumber, [episode])
+      }
+    }
+
+    const seasons = new Map<number, SeasonResource>()
+    for (const resource of series.seasons ?? []) {
+      seasons.set(resource.seasonNumber ?? 0, resource)
+    }
+
+    // An episode whose season isn't in `series.seasons[]` still has to land
+    // somewhere - Sonarr shouldn't produce one, but dropping it silently
+    // would hide episodes rather than report the inconsistency. A
+    // synthesized season carries no `monitored`/`statistics` of its own, so
+    // `toSeason` falls back to counting the episodes it was handed.
+    for (const seasonNumber of bySeason.keys()) {
+      if (!seasons.has(seasonNumber)) {
+        seasons.set(seasonNumber, { seasonNumber })
+      }
+    }
+
+    return [...seasons.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([seasonNumber, resource]) =>
+        toSeason(
+          resource,
+          // A season Sonarr lists but has no episodes for yet (announced,
+          // not aired) is a real season with `episodes: []`, not an omitted
+          // one.
+          (bySeason.get(seasonNumber) ?? []).sort(
+            (a, b) => a.episodeNumber - b.episodeNumber,
+          ),
+        ),
+      )
+  }
+
+  /**
    * Flips a series' `monitored` flag. Like Radarr's, Sonarr's
    * `PUT /series/{id}` replaces the whole resource, so the current one is
    * read back first and re-sent with the single field changed.
@@ -361,10 +501,7 @@ export class SonarrService {
     sonarrId: number,
     monitored: boolean,
   ): Promise<void> {
-    const series = unwrapSdkResult(
-      await getApiV3SeriesById({ client: this.client, path: { id: sonarrId } }),
-      'getSeries',
-    )
+    const series = await this.getSeriesById(sonarrId)
 
     checkSdkError(
       await putApiV3SeriesById({
