@@ -1,6 +1,6 @@
 import { DownloadType } from '@lilnas/utils/download/types'
 
-import { mediaId, videoNaturalKey } from 'src/db/media-id'
+import { mediaId, mediaTypeFromKey, videoNaturalKey } from 'src/db/media-id'
 
 describe('videoNaturalKey', () => {
   it('combines the source URL and time range into one key', () => {
@@ -69,4 +69,34 @@ describe('mediaId', () => {
     expect(new Set(keys).size).toBe(3)
     expect(keys).toEqual(['tmdb:1', 'tvdb:1', 'video:1'])
   })
+})
+
+describe('mediaTypeFromKey', () => {
+  it.each([
+    ['tmdb:438631', DownloadType.Movie],
+    ['tvdb:121361', DownloadType.Show],
+    ['video:V1StGXR8_Z5', DownloadType.Video],
+  ])('reads %p back as the type mediaId() encoded', (key, type) => {
+    expect(mediaTypeFromKey(key)).toBe(type)
+  })
+
+  it('inverts every key mediaId() can mint', () => {
+    expect(
+      mediaTypeFromKey(mediaId({ tmdbId: 1, type: DownloadType.Movie })),
+    ).toBe(DownloadType.Movie)
+    expect(
+      mediaTypeFromKey(mediaId({ tvdbId: 1, type: DownloadType.Show })),
+    ).toBe(DownloadType.Show)
+    expect(
+      mediaTypeFromKey(mediaId({ id: '1', type: DownloadType.Video })),
+    ).toBe(DownloadType.Video)
+  })
+
+  // The reason a garbage `:id` path param 404s instead of reaching Radarr.
+  it.each(['', 'tmdb', 'imdb:tt1375666', 'nonsense', ':1', 'TMDB:1'])(
+    'returns undefined for the unrecognized key %p',
+    key => {
+      expect(mediaTypeFromKey(key)).toBeUndefined()
+    },
+  )
 })
