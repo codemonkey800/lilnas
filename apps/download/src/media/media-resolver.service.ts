@@ -12,6 +12,7 @@ import { DbService } from 'src/db/db.service'
 import { mediaId, mediaIdSuffix } from 'src/db/media-id'
 import type { VideoRow } from 'src/db/schema'
 import { getVideosByIds } from 'src/db/videos.repo'
+import { EmbyStatusService } from 'src/emby/emby-status.service'
 
 import { RadarrService } from './radarr.service'
 import { SonarrService } from './sonarr.service'
@@ -57,6 +58,10 @@ function hydrateVideo(row: VideoRow): Video {
  * cache miss. An upstream throw never propagates - a placeholder `Media`
  * (`{ id, title: id, type }`) is returned instead, with the source flagged in
  * `degradedSources`, so a list endpoint degrades rather than 500s.
+ *
+ * Every resolved movie/show that has a file on disk is then annotated with
+ * its Emby state (`EmbyStatusService.annotate()`), so a caller never has to
+ * ask a second service where to watch something.
  */
 @Injectable()
 export class MediaResolverService {
@@ -69,6 +74,7 @@ export class MediaResolverService {
 
   constructor(
     private readonly dbService: DbService,
+    private readonly embyStatusService: EmbyStatusService,
     private readonly radarrService: RadarrService,
     private readonly sonarrService: SonarrService,
   ) {}
@@ -93,6 +99,31 @@ export class MediaResolverService {
         ? this.resolveShows(showKeys, media, degradedSources)
         : undefined,
     ])
+
+    // Called unconditionally, including for a video-only or empty result:
+    // "is this batch worth an Emby round trip" is EmbyStatusService's own
+    // decision (it returns before any HTTP call when nothing has a
+    // filePath), and duplicating that test here would be a second place to
+    // keep in sync. One batched call per resolve() - never a per-key one -
+    // is the whole integration; resolve() runs on a 10s cron, and the 60s
+    // path-index TTL inside EmbyStatusService is what bounds Emby load.
+    //
+    // Emby state is deliberately NOT reflected in degradedSources: Emby
+    // isn't a DownloadType, and a per-title `unknown` already carries the
+    // degradation signal at the only granularity a caller can act on.
+    try {
+      await this.embyStatusService.annotate(media.values())
+    } catch (err) {
+      // annotate() is documented never to throw, so this is a guard against
+      // a future regression in it rather than a live path. resolve() backs
+      // every list endpoint and the poller, so a broken Emby annotation must
+      // cost a badge, not the whole payload - which is already resolved and
+      // correct by this point.
+      this.logger.warn(
+        { action: 'resolve', error: getErrorMessage(err) },
+        'Emby annotation threw - returning media without Emby status',
+      )
+    }
 
     return { degradedSources: [...degradedSources], media }
   }
