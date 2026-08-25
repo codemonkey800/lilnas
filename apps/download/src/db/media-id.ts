@@ -59,3 +59,17 @@ export function mediaId(input: MediaIdInput): string {
 export function mediaIdSuffix(id: string): string {
   return id.slice(id.indexOf(':') + 1)
 }
+
+/**
+ * The media type a derived key names, or `undefined` for an unrecognized
+ * prefix. The exact inverse of `mediaId()`'s prefix choice, which is why it
+ * lives beside it rather than next to any one caller - it is the one place a
+ * raw `:id` path param becomes a type, and the reason a garbage key is
+ * rejected before it can reach Radarr/Sonarr.
+ */
+export function mediaTypeFromKey(key: string): DownloadType | undefined {
+  if (key.startsWith('tmdb:')) return DownloadType.Movie
+  if (key.startsWith('tvdb:')) return DownloadType.Show
+  if (key.startsWith('video:')) return DownloadType.Video
+  return undefined
+}
