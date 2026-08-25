@@ -12,6 +12,7 @@ import {
   GalleryFacetsQuerySchema,
   GalleryItemSchema,
   GalleryQuerySchema,
+  GetMediaFileQuerySchema,
   GrabReleaseInputSchema,
   HistoryQuerySchema,
   ListReleasesQuerySchema,
@@ -967,5 +968,51 @@ describe('embyStatus on the Media hierarchy', () => {
     expect(result.success).toBe(true)
     expect(result.data).toEqual(validVideo)
     expect(result.data).not.toHaveProperty('embyStatus')
+  })
+})
+
+// ---- Phase 7: local save-to-device ----
+
+describe('GetMediaFileQuerySchema', () => {
+  // Query params, so both arrive as strings even when they read as numbers.
+  it('coerces numeric-string query params', () => {
+    expect(
+      GetMediaFileQuerySchema.parse({ episodeId: '4412', part: '2' }),
+    ).toEqual({ episodeId: 4412, part: 2 })
+  })
+
+  // The single-part video case, and the only default worth having.
+  it('accepts part 0 - the first downloadUrls entry', () => {
+    expect(GetMediaFileQuerySchema.parse({ part: '0' })).toEqual({ part: 0 })
+  })
+
+  // Whether an absent episodeId is legal depends on the `:id` prefix, which
+  // this schema never sees - the controller decides, so `{}` parses here.
+  it('parses to {} when both params are absent', () => {
+    expect(GetMediaFileQuerySchema.parse({})).toEqual({})
+  })
+
+  it.each(['0', '-1'])('rejects a non-positive episodeId %s', invalid => {
+    expect(
+      GetMediaFileQuerySchema.safeParse({ episodeId: invalid }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a negative part', () => {
+    expect(GetMediaFileQuerySchema.safeParse({ part: '-1' }).success).toBe(
+      false,
+    )
+  })
+
+  it.each(['episodeId', 'part'])('rejects a non-numeric %s', field => {
+    expect(GetMediaFileQuerySchema.safeParse({ [field]: 'abc' }).success).toBe(
+      false,
+    )
+  })
+
+  it.each(['episodeId', 'part'])('rejects a fractional %s', field => {
+    expect(GetMediaFileQuerySchema.safeParse({ [field]: '1.5' }).success).toBe(
+      false,
+    )
   })
 })
