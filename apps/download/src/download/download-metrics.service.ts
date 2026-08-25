@@ -28,6 +28,24 @@ const jobsCompletedTotal = new Counter({
   registers: [register],
 })
 
+// Deliberately *not* a `download_jobs_completed_total{status="paused"}`
+// label: a pause is not a terminal state (see DownloadJobStatus.Paused), and
+// folding it into the completed counter would make
+// `sum(download_jobs_completed_total)` stop meaning "jobs that finished".
+// Paused/resumed as their own pair also makes the obvious dashboard query -
+// paused minus resumed - the count of jobs currently parked.
+const jobsPausedTotal = new Counter({
+  name: 'download_jobs_paused_total',
+  help: 'Total number of download jobs paused by a user',
+  registers: [register],
+})
+
+const jobsResumedTotal = new Counter({
+  name: 'download_jobs_resumed_total',
+  help: 'Total number of paused download jobs put back on the queue',
+  registers: [register],
+})
+
 const jobsInProgress = new Gauge({
   name: 'download_jobs_in_progress',
   help: 'Number of download jobs currently being processed',
@@ -72,6 +90,14 @@ export class DownloadMetricsService {
 
   jobCompleted(status: JobCompletedStatus): void {
     jobsCompletedTotal.inc({ status })
+  }
+
+  jobPaused(): void {
+    jobsPausedTotal.inc()
+  }
+
+  jobResumed(): void {
+    jobsResumedTotal.inc()
   }
 
   setInProgress(count: number): void {
