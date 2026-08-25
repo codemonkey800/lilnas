@@ -5,6 +5,7 @@ import {
   isManagedMedia,
   isMovie,
   Media,
+  type ShowScope,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
@@ -14,6 +15,7 @@ import { DownloadStateService } from 'src/download/download-state.service'
 
 import { MediaResolverService } from './media-resolver.service'
 import {
+  aggregateQueueItems,
   deriveStatusFromQueueItem,
   describeQueueItemError,
   isQueueSnapshotEqual,
@@ -93,6 +95,11 @@ export class MediaPollerService {
     }
   }
 
+  /**
+   * Radarr keeps `find()`: a movie is one file and one queue item, so there
+   * is nothing to aggregate and routing it through `aggregateQueueItems`
+   * would only obscure that.
+   */
   private async pollMovies(): Promise<void> {
     const tracked = await this.trackedJobs(DownloadType.Movie)
     if (tracked.length === 0) return
@@ -109,6 +116,16 @@ export class MediaPollerService {
     }
   }
 
+  /**
+   * Unlike movies, a show job can match **several** queue items - Sonarr
+   * queues one per episode - so the matches are filtered by the job's scope
+   * and then folded into one synthetic item.
+   *
+   * The old `find(q => q.seriesId === ...)` took an arbitrary first hit.
+   * That was already lossy for a series-wide search and outright wrong once
+   * two episode-scoped jobs can exist for the same series: both would read
+   * the same arbitrary item.
+   */
   private async pollShows(): Promise<void> {
     const tracked = await this.trackedJobs(DownloadType.Show)
     if (tracked.length === 0) return
@@ -118,10 +135,11 @@ export class MediaPollerService {
     )
 
     for (const job of tracked) {
-      this.applyUpdate(
-        job.record,
-        queue.find(q => q.seriesId === job.upstreamId),
+      const matches = queue.filter(
+        q => q.seriesId === job.upstreamId && matchesScope(q, job.record.scope),
       )
+
+      this.applyUpdate(job.record, aggregateQueueItems(matches))
     }
   }
 
@@ -203,4 +221,30 @@ export class MediaPollerService {
 function upstreamLibraryId(media: Media | undefined): number | undefined {
   if (!media || !isManagedMedia(media)) return undefined
   return isMovie(media) ? media.radarrId : media.sonarrId
+}
+
+/**
+ * Whether a Sonarr queue item falls inside a job's scope, narrowest first:
+ * an exact episode match, an exact season match, or - for an unscoped job -
+ * every item of the series.
+ *
+ * A queue item with a null/absent `episodeId` can never match an
+ * episode-scoped job. Strict equality gives that for free, and it's the
+ * right answer: an item Sonarr can't attribute to an episode is not
+ * evidence about *this* episode.
+ */
+function matchesScope(
+  item: PollableQueueItem,
+  scope: ShowScope | undefined,
+): boolean {
+  if (scope?.episodeId != null) {
+    return item.episodeId === scope.episodeId
+  }
+
+  // `!= null`, not truthiness - season 0 is Sonarr's specials season.
+  if (scope?.seasonNumber != null) {
+    return item.seasonNumber === scope.seasonNumber
+  }
+
+  return true
 }

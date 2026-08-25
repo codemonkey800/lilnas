@@ -9,7 +9,15 @@ import { DownloadJobStatus } from '@lilnas/utils/download/types'
  * way instead of duplicating this logic per-client.
  */
 export interface PollableQueueItem {
+  /**
+   * Sonarr-only, like `seasonNumber` below: Radarr's queue has neither, and
+   * a movie is one file and one queue item anyway. Both are absent rather
+   * than null on a Radarr item - the structural type documents itself as
+   * the shared *subset*, so a field only one side has is simply optional.
+   */
+  episodeId?: number | null
   estimatedCompletionTime?: string | null
+  seasonNumber?: number | null
   sizeleft?: number
   size?: number
   status?: string
@@ -61,6 +69,84 @@ export function isQueueSnapshotEqual(
     a.status === b.status &&
     a.timeLeft === b.timeLeft
   )
+}
+
+// How the aggregate resolves a disagreement between queue items, worst
+// first. A single failed episode has to surface as a failure rather than
+// being averaged away, and anything still downloading outranks a sibling
+// that has already reached the import stage - otherwise a season job would
+// report "Importing" while half of it is still on the wire.
+const STATUS_PRECEDENCE: DownloadJobStatus[] = [
+  DownloadJobStatus.Failed,
+  DownloadJobStatus.Downloading,
+  DownloadJobStatus.Importing,
+]
+
+/**
+ * Folds every queue item matching a job into the single synthetic item the
+ * status/snapshot derivation expects.
+ *
+ * Sonarr queues one item *per episode*, so a season job routinely has
+ * several. Taking the first would let a season flip to `Completed` the
+ * moment its first episode landed, with nine still downloading - which is
+ * exactly the bug this exists to prevent.
+ *
+ * The fold:
+ * - `size`/`sizeleft` summed, so progress is over the whole scope.
+ * - `status`/`trackedDownloadState`/`trackedDownloadStatus` copied from the
+ *   **dominant** item under `STATUS_PRECEDENCE`, so the derived status is
+ *   one a real item actually had rather than a synthesized combination.
+ * - `timeleft`/`estimatedCompletionTime` from the item with the largest
+ *   `sizeleft` - the one that will finish last, and therefore the one that
+ *   answers "when is this done".
+ * - `statusMessages` concatenated, so `describeQueueItemError` still reports
+ *   every failure rather than whichever happened to sort first.
+ *
+ * Returns `undefined` for an empty list, which is deliberately the same
+ * thing `queue.find()` used to return for "no entry" - so
+ * `deriveStatusFromQueueItem`'s existing no-entry branch (and its
+ * disappeared-means-completed rule) keeps working untouched.
+ */
+export function aggregateQueueItems(
+  items: PollableQueueItem[],
+): PollableQueueItem | undefined {
+  if (items.length === 0) return undefined
+  if (items.length === 1) return items[0]
+
+  const rank = (item: PollableQueueItem) => {
+    // Classified through the same function the poller uses, so the
+    // aggregate can never disagree with a per-item derivation. The current
+    // status is irrelevant for an item that exists.
+    const index = STATUS_PRECEDENCE.indexOf(
+      deriveStatusFromQueueItem(DownloadJobStatus.Requested, item),
+    )
+    return index === -1 ? STATUS_PRECEDENCE.length : index
+  }
+
+  let dominant = items[0] as PollableQueueItem
+  let slowest = items[0] as PollableQueueItem
+
+  for (const item of items.slice(1)) {
+    if (rank(item) < rank(dominant)) {
+      dominant = item
+    }
+    if ((item.sizeleft ?? 0) > (slowest.sizeleft ?? 0)) {
+      slowest = item
+    }
+  }
+
+  const statusMessages = items.flatMap(item => item.statusMessages ?? [])
+
+  return {
+    estimatedCompletionTime: slowest.estimatedCompletionTime,
+    size: items.reduce((total, item) => total + (item.size ?? 0), 0),
+    sizeleft: items.reduce((total, item) => total + (item.sizeleft ?? 0), 0),
+    status: dominant.status,
+    statusMessages: statusMessages.length > 0 ? statusMessages : undefined,
+    timeleft: slowest.timeleft,
+    trackedDownloadState: dominant.trackedDownloadState,
+    trackedDownloadStatus: dominant.trackedDownloadStatus,
+  }
 }
 
 export function describeQueueItemError(

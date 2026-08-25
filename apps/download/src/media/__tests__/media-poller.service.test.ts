@@ -323,4 +323,193 @@ describe('MediaPollerService', () => {
       )
     })
   })
+
+  describe('pollShows with scoped jobs', () => {
+    // The regression this whole aggregation exists for: Sonarr queues one
+    // item per episode, so taking the first hit made a season job report
+    // "Completed" the moment its first episode landed.
+    it('does not complete a season job while later episodes are still downloading', async () => {
+      const job = buildShowJob({
+        scope: { seasonNumber: 3 },
+        status: DownloadJobStatus.Downloading,
+      })
+      downloadStateService.jobs.set(job.id, job)
+
+      sonarrService.getQueue.mockResolvedValue([
+        {
+          episodeId: 1,
+          seasonNumber: 3,
+          seriesId: 9,
+          size: 100,
+          sizeleft: 0,
+          trackedDownloadState: 'imported',
+        },
+        {
+          episodeId: 2,
+          seasonNumber: 3,
+          seriesId: 9,
+          size: 100,
+          sizeleft: 80,
+          status: 'downloading',
+        },
+      ])
+
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+      // Progress is over the whole season, not over the finished episode.
+      expect(downloadStateService.getQueueSnapshot(job.id)?.progress).toBe(60)
+    })
+
+    it('completes a season job only once every episode leaves the queue', async () => {
+      const job = buildShowJob({
+        scope: { seasonNumber: 3 },
+        status: DownloadJobStatus.Downloading,
+      })
+      downloadStateService.jobs.set(job.id, job)
+
+      sonarrService.getQueue.mockResolvedValue([])
+
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Completed,
+      )
+    })
+
+    it('gives two differently-scoped jobs for one series different snapshots', async () => {
+      const episodeJob = buildShowJob({
+        id: 'show-episode',
+        scope: { episodeId: 2, seasonNumber: 3 },
+        status: DownloadJobStatus.Downloading,
+      })
+      const seriesJob = buildShowJob({
+        id: 'show-series',
+        status: DownloadJobStatus.Downloading,
+      })
+      downloadStateService.jobs.set(episodeJob.id, episodeJob)
+      downloadStateService.jobs.set(seriesJob.id, seriesJob)
+
+      sonarrService.getQueue.mockResolvedValue([
+        {
+          episodeId: 1,
+          seasonNumber: 3,
+          seriesId: 9,
+          size: 100,
+          sizeleft: 0,
+          status: 'downloading',
+        },
+        {
+          episodeId: 2,
+          seasonNumber: 3,
+          seriesId: 9,
+          size: 100,
+          sizeleft: 50,
+          status: 'downloading',
+        },
+      ])
+
+      await service.poll()
+
+      // The episode job sees only its own item...
+      expect(
+        downloadStateService.getQueueSnapshot(episodeJob.id)?.progress,
+      ).toBe(50)
+      // ...while the unscoped job sees both, aggregated.
+      expect(
+        downloadStateService.getQueueSnapshot(seriesJob.id)?.progress,
+      ).toBe(75)
+    })
+
+    // An item Sonarr can't attribute to an episode is not evidence about
+    // *this* episode.
+    it('never matches a null-episodeId item to an episode-scoped job', async () => {
+      const job = buildShowJob({
+        scope: { episodeId: 2 },
+        status: DownloadJobStatus.Downloading,
+      })
+      downloadStateService.jobs.set(job.id, job)
+
+      sonarrService.getQueue.mockResolvedValue([
+        { episodeId: null, seriesId: 9, status: 'downloading' },
+      ])
+
+      await service.poll()
+
+      // No match at all, so the disappeared-means-completed rule applies.
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Completed,
+      )
+    })
+
+    it('ignores queue items from another season', async () => {
+      const job = buildShowJob({
+        scope: { seasonNumber: 3 },
+        status: DownloadJobStatus.Downloading,
+      })
+      downloadStateService.jobs.set(job.id, job)
+
+      sonarrService.getQueue.mockResolvedValue([
+        { episodeId: 7, seasonNumber: 4, seriesId: 9, status: 'failed' },
+      ])
+
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Completed,
+      )
+    })
+
+    // Season 0 is specials - a truthiness check would match every item.
+    it('treats season 0 as a real filter', async () => {
+      const job = buildShowJob({
+        scope: { seasonNumber: 0 },
+        status: DownloadJobStatus.Downloading,
+      })
+      downloadStateService.jobs.set(job.id, job)
+
+      sonarrService.getQueue.mockResolvedValue([
+        { episodeId: 7, seasonNumber: 1, seriesId: 9, status: 'downloading' },
+      ])
+
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Completed,
+      )
+    })
+
+    it('surfaces every failure message across a scope', async () => {
+      const job = buildShowJob({
+        scope: { seasonNumber: 3 },
+        status: DownloadJobStatus.Downloading,
+      })
+      downloadStateService.jobs.set(job.id, job)
+
+      sonarrService.getQueue.mockResolvedValue([
+        {
+          episodeId: 1,
+          seasonNumber: 3,
+          seriesId: 9,
+          status: 'failed',
+          statusMessages: [{ messages: ['disk full'], title: 'a' }],
+        },
+        {
+          episodeId: 2,
+          seasonNumber: 3,
+          seriesId: 9,
+          status: 'failed',
+          statusMessages: [{ messages: ['unpack failed'], title: 'b' }],
+        },
+      ])
+
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Failed)
+      expect(updated?.error).toBe('disk full; unpack failed')
+    })
+  })
 })
