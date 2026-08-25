@@ -12,10 +12,12 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { AdminCheckService } from 'src/auth/admin-check.service'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
+import { DownloadMetricsService } from 'src/download/download-metrics.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { JobQueryService } from 'src/download/job-query.service'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
+import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
@@ -42,10 +44,12 @@ describe('DownloadController - discover', () => {
       providers: [
         { provide: AdminCheckService, useValue: {} },
         { provide: DiscoveryService, useValue: mockDiscoveryService },
+        { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },
         { provide: DownloadStateService, useValue: { jobs: new Map() } },
         { provide: JobQueryService, useValue: {} },
         { provide: MediaDownloadService, useValue: {} },
+        { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: { resolve: jest.fn() } },
         // Phase 3/4: DownloadController injects ReleaseService for the
         // release and bad-file routes and ShowService for the seasons and

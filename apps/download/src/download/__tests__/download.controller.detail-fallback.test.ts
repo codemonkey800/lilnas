@@ -21,12 +21,14 @@ import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { DbService } from 'src/db/db.service'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
+import { DownloadMetricsService } from 'src/download/download-metrics.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { JobQueryService } from 'src/download/job-query.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { createFakeMediaResolver } from 'src/media/__tests__/helpers/fake-media-resolver'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
+import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { RadarrService } from 'src/media/radarr.service'
 import { ReleaseService } from 'src/media/release.service'
@@ -56,6 +58,7 @@ describe('DownloadController - detail-route restart fallback', () => {
       providers: [
         { provide: AdminCheckService, useValue: mockAdminCheckService },
         { provide: DiscoveryService, useValue: {} },
+        { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },
         DownloadStateService,
         { provide: DbService, useValue: dbService },
@@ -67,6 +70,7 @@ describe('DownloadController - detail-route restart fallback', () => {
         MediaDownloadService,
         { provide: RadarrService, useValue: {} },
         { provide: SonarrService, useValue: {} },
+        { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: mediaResolver },
         // Phase 3/4: DownloadController injects ReleaseService for the
         // release and bad-file routes and ShowService for the seasons and
