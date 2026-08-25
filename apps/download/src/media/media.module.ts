@@ -1,6 +1,7 @@
 import { forwardRef, Module } from '@nestjs/common'
 
 import { DownloadModule } from 'src/download/download.module'
+import { EmbyModule } from 'src/emby/emby.module'
 
 import { radarrClientProvider, sonarrClientProvider } from './clients'
 import { DiscoveryService } from './discovery.service'
@@ -19,8 +20,13 @@ import { SonarrService } from './sonarr.service'
 // NestJS way with forwardRef() on both sides (see download.module.ts).
 // DiscoveryService only needs RadarrService/SonarrService - no DownloadJob
 // state, no forwardRef needed on its account.
+//
+// EmbyModule is a plain import, deliberately: it depends on nothing in
+// MediaModule or DownloadModule (EmbyService talks to Emby over HTTP,
+// EmbyStatusService only to EmbyService), so there is no cycle to break and
+// forwardRef() would only hide that fact from the next reader.
 @Module({
-  imports: [forwardRef(() => DownloadModule)],
+  imports: [forwardRef(() => DownloadModule), EmbyModule],
   providers: [
     radarrClientProvider,
     sonarrClientProvider,
