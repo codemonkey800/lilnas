@@ -20,6 +20,7 @@ import { EnvKeys } from 'src/env'
 
 import { DownloadMetricsService } from './download-metrics.service'
 import { DownloadStateService } from './download-state.service'
+import { JobInterruptedError } from './job-interrupted.error'
 import { DownloadStepOptions } from './types'
 
 const VIDEO_DIR = '/download/videos'
@@ -293,10 +294,18 @@ export class DownloadVideoService {
     try {
       const { code, stderrTail } = await downloadProcess.promise
 
+      // Deliberately *before* the exit-code check below: SIGTERM always
+      // produces a non-zero code, so if the code check ran first every pause
+      // and cancel would surface as a crash.
+      this.assertNotInterrupted(job.id)
+
       if (code !== 0) {
         throw new Error(stderrTail || `yt-dlp exited with code ${code}`)
       }
 
+      // A paused job legitimately has zero video files - yt-dlp's in-flight
+      // output is a `.part` file, which `getVideoFiles()` filters out - so
+      // this check must stay downstream of the interrupt check too.
       const files = await getVideoFiles(job.id)
 
       if (files.length === 0) {
@@ -305,6 +314,18 @@ export class DownloadVideoService {
 
       log('log', { ...options, files }, 'Download complete')
     } catch (err) {
+      // A deliberate pause/cancel is not a failure, so it must not be logged
+      // as one - re-thrown untouched for the scheduler to branch on.
+      if (err instanceof JobInterruptedError) {
+        log(
+          'log',
+          { ...options, kind: err.kind },
+          'Download interrupted deliberately',
+        )
+
+        throw err
+      }
+
       log(
         'error',
         { ...options, error: getErrorMessage(err) },
@@ -362,6 +383,12 @@ export class DownloadVideoService {
       try {
         const { code, stderrTail } = await convertProcess.promise
 
+        // Same ordering rule as `download()`. Only 'cancel' can reach here in
+        // practice - pause is refused outside the Downloading status - but
+        // without this a cancel landing mid-ffmpeg would be logged as a
+        // pipeline failure.
+        this.assertNotInterrupted(job.id)
+
         if (code !== 0) {
           throw new Error(stderrTail || `ffmpeg exited with code ${code}`)
         }
@@ -369,6 +396,16 @@ export class DownloadVideoService {
         const files = await getVideoFiles(`${job.id}/render`)
         log('log', { ...options, files }, 'Conversion complete')
       } catch (err) {
+        if (err instanceof JobInterruptedError) {
+          log(
+            'log',
+            { ...options, kind: err.kind },
+            'Conversion interrupted deliberately',
+          )
+
+          throw err
+        }
+
         log(
           'error',
           { ...options, error: getErrorMessage(err) },
@@ -436,6 +473,28 @@ export class DownloadVideoService {
     log('log', logArgs, 'Files cleaned')
   }
 
+  /**
+   * Throws the interrupt sentinel if someone recorded an intent to kill this
+   * job's process. Call it immediately after a child process resolves and
+   * *before* inspecting its exit code: a SIGTERM'd yt-dlp/ffmpeg is
+   * indistinguishable from a crashed one by exit code alone, so the recorded
+   * intent is the only thing that can tell them apart, and it has to win.
+   *
+   * Known, accepted race: an intent recorded *after* the process already
+   * exited cleanly (a pause arriving on a download that was about to finish)
+   * still throws. The job parks at Paused with a complete, `.part`-free file
+   * on disk, and resuming re-runs yt-dlp, which exits immediately with
+   * "already downloaded". Detecting that would mean second-guessing an
+   * explicit user intent to save one no-op round trip - not worth it.
+   */
+  private assertNotInterrupted(jobId: string): void {
+    const kind = this.downloadStateService.getInterruption(jobId)
+
+    if (kind) {
+      throw new JobInterruptedError(jobId, kind)
+    }
+  }
+
   private getJobLogger(jobId: string) {
     return (level: 'log' | 'error' | 'warn', data: object, message: string) => {
       const job = this.downloadStateService.jobs.get(jobId)
@@ -455,7 +514,13 @@ export class DownloadVideoService {
     args: string[]
     bin: string
   }) {
-    const logFileStream = createWriteStream(`${VIDEO_DIR}/${logFile}`, 'utf-8')
+    // Append, not truncate: a resumed download re-runs this step against the
+    // same job directory, and the first run's output is the only record of
+    // how the download got to where it left off.
+    const logFileStream = createWriteStream(`${VIDEO_DIR}/${logFile}`, {
+      encoding: 'utf-8',
+      flags: 'a',
+    })
 
     logFileStream.write(`$ ${bin} ${args.join(' ')}\n`)
 
