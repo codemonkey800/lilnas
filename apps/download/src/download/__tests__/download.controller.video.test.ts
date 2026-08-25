@@ -7,7 +7,13 @@ jest.mock('nanoid', () => ({
 }))
 
 import { DownloadJob, DownloadJobStatus } from '@lilnas/utils/download/types'
-import { HttpException, Logger } from '@nestjs/common'
+import {
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { AdminCheckService } from 'src/auth/admin-check.service'
@@ -50,6 +56,8 @@ describe('DownloadController - video endpoints', () => {
     const mockDownloadService = {
       createVideoDownloadJob: jest.fn(),
       cancelVideoDownloadJob: jest.fn(),
+      pauseVideoDownloadJob: jest.fn(),
+      resumeVideoDownloadJob: jest.fn(),
     }
     const mockAdminCheckService = { checkIsAdmin: jest.fn() }
     const jobsMap = new Map<string, DownloadJob>()
@@ -232,6 +240,142 @@ describe('DownloadController - video endpoints', () => {
       await expect(
         controller.cancelVideoJob('missing', undefined),
       ).rejects.toThrow(HttpException)
+    })
+  })
+
+  describe('pauseVideoJob', () => {
+    it('masks a hidden job for a non-admin caller', async () => {
+      const job = buildVideoJob({
+        status: DownloadJobStatus.Pausing,
+        hiddenAttribution: true,
+        requester: { email: 'alice@example.com', userId: 'u1' },
+      })
+      downloadService.pauseVideoDownloadJob.mockResolvedValue(job)
+      adminCheckService.checkIsAdmin.mockResolvedValue(false)
+
+      const res = await controller.pauseVideoJob(job.id, nonAdmin)
+
+      expect(downloadService.pauseVideoDownloadJob).toHaveBeenCalledWith(job.id)
+      expect(res.status).toBe(DownloadJobStatus.Pausing)
+      expect(res.requester).toBeNull()
+      expect(res.hiddenAttribution).toBe(true)
+    })
+
+    it('reveals the requester for an admin caller', async () => {
+      const job = buildVideoJob({
+        status: DownloadJobStatus.Pausing,
+        hiddenAttribution: true,
+        requester: { email: 'alice@example.com', userId: 'u1' },
+      })
+      downloadService.pauseVideoDownloadJob.mockResolvedValue(job)
+      adminCheckService.checkIsAdmin.mockResolvedValue(true)
+
+      const res = await controller.pauseVideoJob(job.id, admin)
+
+      expect(adminCheckService.checkIsAdmin).toHaveBeenCalledWith(
+        'admin@example.com',
+      )
+      expect(res.requester).toEqual({
+        email: 'alice@example.com',
+        userId: 'u1',
+      })
+    })
+
+    // The whole reason this route doesn't reuse cancelVideoJob's catch
+    // block: "you can't pause a job that isn't downloading" is a 409, and
+    // flattening it to a 404 would tell the UI to forget a live job.
+    it('surfaces a ConflictException as a 409, not a 404', async () => {
+      downloadService.pauseVideoDownloadJob.mockRejectedValue(
+        new ConflictException(
+          "Job 'video-1' cannot be paused while it is 'converting'; only a downloading job can be paused",
+        ),
+      )
+
+      const err = await controller
+        .pauseVideoJob('video-1', undefined)
+        .catch((e: unknown) => e)
+
+      expect(err).toBeInstanceOf(ConflictException)
+      expect((err as HttpException).getStatus()).toBe(HttpStatus.CONFLICT)
+    })
+
+    it('surfaces a NotFoundException as a 404', async () => {
+      downloadService.pauseVideoDownloadJob.mockRejectedValue(
+        new NotFoundException("Job with ID 'missing' not found"),
+      )
+
+      const err = await controller
+        .pauseVideoJob('missing', undefined)
+        .catch((e: unknown) => e)
+
+      expect(err).toBeInstanceOf(NotFoundException)
+      expect((err as HttpException).getStatus()).toBe(HttpStatus.NOT_FOUND)
+    })
+  })
+
+  describe('resumeVideoJob', () => {
+    it('masks a hidden job for a non-admin caller', async () => {
+      const job = buildVideoJob({
+        status: DownloadJobStatus.Pending,
+        hiddenAttribution: true,
+        requester: { email: 'alice@example.com', userId: 'u1' },
+      })
+      downloadService.resumeVideoDownloadJob.mockResolvedValue(job)
+      adminCheckService.checkIsAdmin.mockResolvedValue(false)
+
+      const res = await controller.resumeVideoJob(job.id, nonAdmin)
+
+      expect(downloadService.resumeVideoDownloadJob).toHaveBeenCalledWith(
+        job.id,
+      )
+      expect(res.status).toBe(DownloadJobStatus.Pending)
+      expect(res.requester).toBeNull()
+      expect(res.hiddenAttribution).toBe(true)
+    })
+
+    it('reveals the requester for an admin caller', async () => {
+      const job = buildVideoJob({
+        status: DownloadJobStatus.Pending,
+        hiddenAttribution: true,
+        requester: { email: 'alice@example.com', userId: 'u1' },
+      })
+      downloadService.resumeVideoDownloadJob.mockResolvedValue(job)
+      adminCheckService.checkIsAdmin.mockResolvedValue(true)
+
+      const res = await controller.resumeVideoJob(job.id, admin)
+
+      expect(res.requester).toEqual({
+        email: 'alice@example.com',
+        userId: 'u1',
+      })
+    })
+
+    it('surfaces a ConflictException as a 409, not a 404', async () => {
+      downloadService.resumeVideoDownloadJob.mockRejectedValue(
+        new ConflictException(
+          "Job 'video-1' cannot be resumed while it is 'pausing'; only a paused job can be resumed",
+        ),
+      )
+
+      const err = await controller
+        .resumeVideoJob('video-1', undefined)
+        .catch((e: unknown) => e)
+
+      expect(err).toBeInstanceOf(ConflictException)
+      expect((err as HttpException).getStatus()).toBe(HttpStatus.CONFLICT)
+    })
+
+    it('surfaces a NotFoundException as a 404', async () => {
+      downloadService.resumeVideoDownloadJob.mockRejectedValue(
+        new NotFoundException("Job with ID 'missing' not found"),
+      )
+
+      const err = await controller
+        .resumeVideoJob('missing', undefined)
+        .catch((e: unknown) => e)
+
+      expect(err).toBeInstanceOf(NotFoundException)
+      expect((err as HttpException).getStatus()).toBe(HttpStatus.NOT_FOUND)
     })
   })
 })
