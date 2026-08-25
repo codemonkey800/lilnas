@@ -10,6 +10,7 @@ import {
   DownloadJobStatus,
   DownloadQueueSnapshotSchema,
   DownloadType,
+  EmbyStatusSchema,
   EpisodeSchema,
   FlagBadFileInputSchema,
   GalleryFacetsQuerySchema,
@@ -94,6 +95,15 @@ export type JobRequester = z.infer<typeof JobRequesterSchema>
  * it was always coming from.
  */
 export type DownloadQueueSnapshot = z.infer<typeof DownloadQueueSnapshotSchema>
+
+/**
+ * Emby's indexed-state for a downloaded movie/show, attached to the resolved
+ * `Movie`/`Show` alongside {@link DownloadQueueSnapshot}. `itemId` and
+ * `watchUrl` are populated only when `state` is `'indexed'`; the whole field
+ * is absent when the title has no file on disk, since Emby is never consulted
+ * in that case.
+ */
+export type EmbyStatus = z.infer<typeof EmbyStatusSchema>
 
 // ---- The Media hierarchy (see docs/features/download/plans/001-media-entity-refactor.md §1) ----
 
