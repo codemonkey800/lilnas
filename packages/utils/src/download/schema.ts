@@ -81,7 +81,21 @@ export const RequestMovieInputSchema = z.object({
   tmdbId: z.number().int().positive(),
 })
 
+/**
+ * `POST /download/shows`. `episodeId`/`seasonNumber` are the Phase 4
+ * additions and are flat (not a nested `scope`) to match
+ * `GrabReleaseInputSchema`, which already ships them that way. Both stay
+ * optional so `DownloadClient.requestShow({ tvdbId })` keeps compiling.
+ *
+ * Plain `z.number()`, deliberately **not** the `z.coerce.number()` the query
+ * schemas use: this is a JSON body, where a string `"3"` is a client bug
+ * worth a 400 rather than something to silently coerce. That difference is
+ * also why there is no shared zod fragment between the two - see
+ * `DeleteMediaFilesQuerySchema`.
+ */
 export const RequestShowInputSchema = z.object({
+  episodeId: z.number().int().positive().optional(),
+  seasonNumber: z.number().int().min(0).optional(),
   tvdbId: z.number().int().positive(),
 })
 
@@ -152,6 +166,35 @@ export const MediaSchema = z.discriminatedUnion('type', [
   VideoSchema,
 ])
 
+/**
+ * Which part of a series a show job was created for - Phase 4's addition to
+ * an otherwise all-or-nothing show download. Absent means the whole series,
+ * which is exactly the pre-Phase-4 behavior, so every job that already
+ * exists stays correct with no backfill.
+ *
+ * The scope lives on the **job**, never in the media id: `media_id` stays
+ * `tvdb:121361` so `mediaIdSuffix()` + `Number()` keeps parsing it, and the
+ * gallery keeps grouping a show into one card instead of fragmenting it into
+ * one per episode.
+ *
+ * Declared here rather than under the Phase 4 banner at the bottom of this
+ * file only because `DownloadJobSchema` carries it, and a `const` can't be
+ * read before its initializer has run.
+ */
+export const ShowScopeSchema = z.object({
+  /** Sonarr's own episode id - the search/grab key, not a display value. */
+  episodeId: z.number().int().positive().optional(),
+  /**
+   * Display only, resolved server-side from `episodeId` at request time.
+   * Denormalized on purpose (like `bad_files.release_title`): without it an
+   * activity row can only say "The Wire", not "The Wire - S03E05", unless
+   * the frontend fetches the seasons endpoint once per job.
+   */
+  episodeNumber: z.number().int().positive().optional(),
+  /** `.min(0)` - Sonarr numbers specials as season 0. */
+  seasonNumber: z.number().int().min(0).optional(),
+})
+
 export const DownloadJobSchema = z.object({
   completedAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
@@ -160,6 +203,8 @@ export const DownloadJobSchema = z.object({
   id: z.string(),
   media: MediaSchema,
   requester: JobRequesterSchema.nullable(),
+  /** Phase 4. Absent = the whole series (and always absent for a movie). */
+  scope: ShowScopeSchema.optional(),
   status: z.enum(DownloadJobStatus),
   updatedAt: z.iso.datetime(),
 })
@@ -392,4 +437,80 @@ export const BadFileSchema = z.object({
   reason: z.string().nullable(),
   releaseGuid: z.string(),
   releaseTitle: z.string().nullable(),
+})
+
+// ---- Phase 4: per-episode/season granularity ----
+//
+// `ShowScopeSchema` belongs to this phase too, but is declared further up
+// next to `DownloadJobSchema`, which carries it - see the comment there.
+
+/**
+ * One episode of a series, as `GET /download/media/:id/seasons` reports it.
+ *
+ * `id` is Sonarr's episode primary key, *not* the episode number - it's the
+ * key every scoped operation (search, grab, delete, unmonitor) is expressed
+ * in, while `episodeNumber` is what gets rendered.
+ */
+export const EpisodeSchema = z.object({
+  /** Sonarr's `airDateUtc`. */
+  airDate: z.string().optional(),
+  /**
+   * Omitted entirely when there is no file - Sonarr reports `0` for that
+   * case, and a `0` here would read as a real file id.
+   */
+  episodeFileId: z.number().int().positive().optional(),
+  episodeNumber: z.number().int().min(0),
+  hasFile: z.boolean(),
+  /** Sonarr's episode id - the search/grab/delete key. */
+  id: z.number().int().positive(),
+  monitored: z.boolean(),
+  overview: z.string().optional(),
+  /**
+   * **Seconds**, matching `MediaBaseSchema.runtime`'s documented convention.
+   * Sonarr reports minutes, so `toEpisode()` multiplies by 60 - the same
+   * conversion `toShow()`/`toMovie()` already do.
+   */
+  runtime: z.number().int().optional(),
+  /** `.min(0)` - Sonarr numbers specials as season 0. */
+  seasonNumber: z.number().int().min(0),
+  title: z.string().optional(),
+})
+
+/**
+ * One season of a series plus its episodes. The counts come from Sonarr's
+ * own per-season `statistics` rather than being derived from `episodes` -
+ * they include episodes Sonarr knows about but hasn't listed yet, so the two
+ * can legitimately disagree and Sonarr's number is the honest one.
+ */
+export const SeasonSchema = z.object({
+  episodeCount: z.number().int().min(0),
+  episodeFileCount: z.number().int().min(0),
+  episodes: z.array(EpisodeSchema),
+  /**
+   * The **season-level** flag off `SeriesResource.seasons[]`, which is a
+   * separate layer from the series row and from each episode's own
+   * `monitored`. Reported, never written: episode-level monitoring is what
+   * governs searching, so Phase 4 leaves this one alone.
+   */
+  monitored: z.boolean(),
+  /** `0` for specials. */
+  seasonNumber: z.number().int().min(0),
+  /** Bytes, from Sonarr's per-season statistics. */
+  sizeOnDisk: z.number().optional(),
+})
+
+/**
+ * `DELETE /download/media/:id/files`. Scope resolution is narrowest-first:
+ * `episodeId` deletes one file, `seasonNumber` deletes that season's files,
+ * neither deletes every file of the title.
+ *
+ * `z.coerce` because these are query params and therefore always strings on
+ * the wire. That's precisely why this shares no zod fragment with
+ * `RequestShowInputSchema`'s flat `episodeId`/`seasonNumber`: one shared
+ * object would drag the coercion into the JSON bodies too, silently
+ * accepting `{ "seasonNumber": "3" }` there.
+ */
+export const DeleteMediaFilesQuerySchema = z.object({
+  episodeId: z.coerce.number().int().positive().optional(),
+  seasonNumber: z.coerce.number().int().min(0).optional(),
 })
