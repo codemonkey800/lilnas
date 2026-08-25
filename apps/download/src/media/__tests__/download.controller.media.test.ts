@@ -14,8 +14,10 @@ import {
   DownloadType,
   Media,
   type Release,
+  type Season,
 } from '@lilnas/utils/download/types'
 import {
+  BadRequestException,
   ConflictException,
   HttpException,
   Logger,
@@ -33,6 +35,7 @@ import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { ReleaseService } from 'src/media/release.service'
+import { ShowService } from 'src/media/show.service'
 
 import { createFakeMediaResolver } from './helpers/fake-media-resolver'
 
@@ -48,6 +51,7 @@ describe('DownloadController - media endpoints', () => {
   let mediaResolver: ReturnType<typeof createFakeMediaResolver>
   let jobQueryService: { listJobsForMedia: jest.Mock }
   let releaseService: jest.Mocked<ReleaseService>
+  let showService: jest.Mocked<ShowService>
   let videosById: Map<string, unknown>
 
   beforeEach(async () => {
@@ -68,6 +72,10 @@ describe('DownloadController - media endpoints', () => {
       listBadFiles: jest.fn(),
       listReleases: jest.fn(),
       replaceRelease: jest.fn(),
+    }
+    const mockShowService = {
+      deleteFiles: jest.fn(),
+      listSeasons: jest.fn(),
     }
     mediaResolver = createFakeMediaResolver()
     jobQueryService = { listJobsForMedia: jest.fn().mockResolvedValue([]) }
@@ -90,12 +98,14 @@ describe('DownloadController - media endpoints', () => {
         { provide: MediaDownloadService, useValue: mockMediaDownloadService },
         { provide: MediaResolverService, useValue: mediaResolver },
         { provide: ReleaseService, useValue: mockReleaseService },
+        { provide: ShowService, useValue: mockShowService },
       ],
     }).compile()
 
     controller = module.get(DownloadController)
     mediaDownloadService = module.get(MediaDownloadService)
     releaseService = module.get(ReleaseService)
+    showService = module.get(ShowService)
     adminCheckService = module.get(AdminCheckService)
     adminCheckService.checkIsAdmin.mockResolvedValue(false)
 
@@ -248,8 +258,11 @@ describe('DownloadController - media endpoints', () => {
       const requested = await controller.requestShow({ tvdbId: 456 }, undefined)
       expect(requested.media).toEqual(showMedia)
       expect(requested).not.toHaveProperty('url')
+      // Phase 4 added a third parameter; an unscoped body passes it as
+      // `undefined`, which `requestShow` treats exactly as its absence.
       expect(mediaDownloadService.requestShow).toHaveBeenCalledWith(
         456,
+        undefined,
         undefined,
       )
 
@@ -541,6 +554,176 @@ describe('DownloadController - media endpoints', () => {
       releaseService.listBadFiles.mockReturnValue([])
 
       expect(controller.listBadFiles('tmdb:1')).toEqual({ badFiles: [] })
+    })
+  })
+
+  // ---- Phase 4: seasons, scoped delete, scoped request ----
+
+  describe('listSeasons', () => {
+    const season: Season = {
+      episodeCount: 1,
+      episodeFileCount: 0,
+      episodes: [
+        {
+          episodeNumber: 1,
+          hasFile: false,
+          id: 4400,
+          monitored: true,
+          seasonNumber: 1,
+        },
+      ],
+      monitored: true,
+      seasonNumber: 1,
+    }
+
+    it('wraps the season list in a seasons envelope', async () => {
+      showService.listSeasons.mockResolvedValue([season])
+
+      await expect(controller.listSeasons('tvdb:2')).resolves.toEqual({
+        seasons: [season],
+      })
+      expect(showService.listSeasons).toHaveBeenCalledWith('tvdb:2')
+    })
+
+    it('returns an empty envelope for a series with no seasons', async () => {
+      showService.listSeasons.mockResolvedValue([])
+
+      await expect(controller.listSeasons('tvdb:2')).resolves.toEqual({
+        seasons: [],
+      })
+    })
+
+    // The service raises these; the route doesn't rewrite them into a
+    // generic 404 the way `mediaJobRoute()` would.
+    it.each([
+      ['a video key', 'video:abc'],
+      ['a movie key', 'tmdb:1'],
+    ])('propagates the service NotFoundException for %s', async (_l, key) => {
+      showService.listSeasons.mockRejectedValue(new NotFoundException('nope'))
+
+      await expect(controller.listSeasons(key)).rejects.toThrow(
+        NotFoundException,
+      )
+    })
+  })
+
+  describe('deleteMediaFiles', () => {
+    it.each([
+      ['one episode', { episodeId: 4412, seasonNumber: 3 }],
+      ['one season', { seasonNumber: 3 }],
+      ['season 0', { seasonNumber: 0 }],
+      ['the whole title', {}],
+    ])('passes the %s scope through to the service', async (_l, query) => {
+      showService.deleteFiles.mockResolvedValue(2)
+
+      await expect(
+        controller.deleteMediaFiles('tvdb:2', query, undefined),
+      ).resolves.toEqual({ deletedCount: 2, mediaId: 'tvdb:2' })
+
+      expect(showService.deleteFiles).toHaveBeenCalledWith('tvdb:2', {
+        episodeId: (query as { episodeId?: number }).episodeId,
+        seasonNumber: (query as { seasonNumber?: number }).seasonNumber,
+      })
+    })
+
+    // Deleting nothing is a 200 with a zero count, not a 404: the caller
+    // asked for a state and that state already held.
+    it('returns 200 with deletedCount 0 when there was nothing to delete', async () => {
+      showService.deleteFiles.mockResolvedValue(0)
+
+      await expect(
+        controller.deleteMediaFiles('tvdb:2', {}, undefined),
+      ).resolves.toEqual({ deletedCount: 0, mediaId: 'tvdb:2' })
+    })
+
+    // The reason this route is not `mediaJobRoute()`: that helper would
+    // report this as "not found", hiding a malformed request.
+    it('lets a movie-with-scope BadRequestException through as a 400', async () => {
+      showService.deleteFiles.mockRejectedValue(
+        new BadRequestException('movies have no episodes'),
+      )
+
+      await expect(
+        controller.deleteMediaFiles('tmdb:1', { seasonNumber: 3 }, undefined),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('lets a not-in-the-library NotFoundException through', async () => {
+      showService.deleteFiles.mockRejectedValue(new NotFoundException('nope'))
+
+      await expect(
+        controller.deleteMediaFiles('tvdb:2', {}, undefined),
+      ).rejects.toThrow(NotFoundException)
+    })
+
+    it('works for a caller with no forwarded identity', async () => {
+      showService.deleteFiles.mockResolvedValue(1)
+
+      await expect(
+        controller.deleteMediaFiles('tvdb:2', {}, undefined),
+      ).resolves.toMatchObject({ deletedCount: 1 })
+    })
+  })
+
+  describe('requestShow with a scope', () => {
+    beforeEach(() => {
+      mediaDownloadService.requestShow.mockResolvedValue(showJob)
+    })
+
+    it('forwards an episode scope to the service', async () => {
+      await controller.requestShow(
+        { episodeId: 4412, seasonNumber: 3, tvdbId: 456 },
+        undefined,
+      )
+
+      expect(mediaDownloadService.requestShow).toHaveBeenCalledWith(
+        456,
+        undefined,
+        { episodeId: 4412, seasonNumber: 3 },
+      )
+    })
+
+    it('forwards a season-only scope without an episodeId key', async () => {
+      await controller.requestShow({ seasonNumber: 3, tvdbId: 456 }, undefined)
+
+      expect(mediaDownloadService.requestShow).toHaveBeenCalledWith(
+        456,
+        undefined,
+        { seasonNumber: 3 },
+      )
+    })
+
+    // Season 0 is specials - a truthiness check here would drop the scope
+    // entirely and silently request the whole series.
+    it('forwards season 0 as a real scope', async () => {
+      await controller.requestShow({ seasonNumber: 0, tvdbId: 456 }, undefined)
+
+      expect(mediaDownloadService.requestShow).toHaveBeenCalledWith(
+        456,
+        undefined,
+        { seasonNumber: 0 },
+      )
+    })
+
+    // The no-regression case: a bare body still calls the two-argument form.
+    it('passes no scope at all for an unscoped body', async () => {
+      await controller.requestShow({ tvdbId: 456 }, undefined)
+
+      expect(mediaDownloadService.requestShow).toHaveBeenCalledWith(
+        456,
+        undefined,
+        undefined,
+      )
+    })
+
+    it('threads the forwarded identity through alongside the scope', async () => {
+      await controller.requestShow({ seasonNumber: 3, tvdbId: 456 }, alice)
+
+      expect(mediaDownloadService.requestShow).toHaveBeenCalledWith(
+        456,
+        alice,
+        { seasonNumber: 3 },
+      )
     })
   })
 })
