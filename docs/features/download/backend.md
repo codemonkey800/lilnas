@@ -3,9 +3,29 @@
 Companion to [`spec.md`](spec.md) and [`user-stories.md`](user-stories.md).
 Covers what the backend needs to build to support the full spec — the
 frontend is being rebuilt against the spec in parallel. This started as a
-design/sequencing document; Phases 0–2 have since been implemented (see
+design/sequencing document; Phases 0–7 have since been implemented (see
 their status notes below), so treat this as a living plan, not a frozen
-spec — check current code before assuming a later phase is still pending.
+spec — check current code before assuming anything here is still pending.
+
+## Status at a glance
+
+| Phase                                        | Status                                                     |
+| -------------------------------------------- | ---------------------------------------------------------- |
+| 0 — Foundation: persistence, identity, admin | ✅ done                                                    |
+| 1 — Job persistence & attribution            | ✅ done                                                    |
+| 2 — List/query endpoints                     | ✅ done — response shapes since superseded by the refactor |
+| _(the media/job split refactor)_             | ✅ done                                                    |
+| 3 — File selection, replacement, bad files   | ✅ done — backend only                                     |
+| 4 — Per-episode/season granularity (shows)   | ✅ done — backend only                                     |
+| 5 — Video pause/resume                       | ✅ done — backend only                                     |
+| 6 — Emby playback handoff                    | ✅ done — backend only                                     |
+| 7 — Local save-to-device                     | ✅ done — backend only                                     |
+| 8 — Admin dashboard & audit log              | ⬜ not started                                             |
+
+**"Backend only"** means the routes and their tests are built and committed,
+but no Next.js surface calls them yet — the frontend rebuild consumes them
+later. Each phase's section below carries its own commits, decisions,
+findings, and manual-verification steps.
 
 ## Context
 
@@ -14,8 +34,11 @@ pipeline and Radarr/Sonarr request/delete, both tracked in a single
 **in-memory `Map`** (`DownloadStateService`) with no persistence, no user
 identity, and no list endpoints — every read was `GET /:id` by a known ID.
 Phases 0–2 below closed that gap (durable SQLite persistence, forwarded-user
-identity, admin check, attributed job history, list/query endpoints).
-Phases 3–8 are still pending.
+identity, admin check, attributed job history, list/query endpoints). Phases
+3–7 then built out the spec's media features on top of it: file selection and
+bad-file reporting, per-episode granularity, video pause/resume, the Emby
+playback handoff, and save-to-device. Only Phase 8 — the admin dashboard and
+audit log — is still pending.
 
 Four foundational decisions were made before planning:
 
@@ -29,10 +52,10 @@ Four foundational decisions were made before planning:
 4. **Emby indexed-check**: match by imported file path (not title/year) —
    more reliable, at the cost of one new column on the job record.
 
-The phases below are ordered by dependency: Phase 0 unblocks everything else
-and should ship first. Phases 1–2 unblock most of the rest. Phases 3–8 are
-largely independent of each other and can be reordered/reprioritized freely
-once 0–2 are in place.
+The phases below were ordered by dependency: Phase 0 unblocked everything
+else and shipped first, Phases 1–2 unblocked most of the rest, and Phases
+3–7 were largely independent of each other. That sequencing is now history —
+0–7 have all landed, and Phase 8 is the only one left.
 
 ---
 
@@ -1395,6 +1418,11 @@ curl -s -o /dev/null -w '%{http_code}\n' "$BASE/media/tmdb:27205/file"          
 
 ## Phase 8 — Admin dashboard & audit log
 
+**Status: not started.** The only phase still outstanding — everything below
+is design intent, not shipped behavior. Phase 7 deliberately left the audit
+capture of "who saved what" to this phase, so the save route will need an
+identity decorator adding when Phase 8 hooks it.
+
 - `audit_log` table (decoupled from `jobs`): `actor`, `action` (string, e.g.
   `video.download.create`, `file.flag_bad`, `movie.delete`), `target_type`
   - `target_id` (nullable), `metadata` (JSON), `timestamp`.
@@ -1412,7 +1440,11 @@ curl -s -o /dev/null -w '%{http_code}\n' "$BASE/media/tmdb:27205/file"          
 
 ---
 
-## Verification (once implementation starts)
+## Verification conventions
+
+The conventions Phases 0–7 followed, and that Phase 8 should follow too. Each
+completed phase's section above also carries its own manual-verification
+block with the live curl checks specific to it.
 
 - **Unit tests** per new service, following the existing
   `__tests__`-alongside-source convention already used throughout
