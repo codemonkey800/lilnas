@@ -352,7 +352,8 @@ Include this **verbatim** in every delegation:
 
 ### Group A — Contracts & environment
 
-- [ ] **A1. `embyStatus` wire contract.** In `packages/utils/src/download/`:
+- [x] **A1. `embyStatus` wire contract.** — `34798d36`. In
+      `packages/utils/src/download/`:
   - `schema.ts`: add, above `ManagedMediaBaseSchema` (~line 161):
 
     ```ts
@@ -382,7 +383,7 @@ Include this **verbatim** in every delegation:
     them for `schema.ts` (check first); otherwise `pnpm run type-check`
     plus the consuming tests in B2/C1 cover it — say which applied.
 
-- [ ] **A2. Emby env keys.** In `apps/download`:
+- [x] **A2. Emby env keys.** — `d62d460e`. In `apps/download`:
   - `src/env.ts`: add `EMBY_API_KEY`, `EMBY_EXTERNAL_URL`, `EMBY_URL`,
     `EMBY_USERNAME` to `EnvKeys` (keep alphabetical order).
   - `.env.example`: add the four vars with dev-shaped values
@@ -399,7 +400,7 @@ Include this **verbatim** in every delegation:
 > `emby.module.ts`. **They must not run concurrently** (the DAG already
 > serializes them).
 
-- [ ] **B1. `EmbyService` — raw HTTP client.** Create
+- [x] **B1. `EmbyService` — raw HTTP client.** — `bbbff14b`. Create
       `apps/download/src/emby/emby.schema.ts`, `emby.service.ts`, and
       `emby.module.ts` (module with just `EmbyService` for now):
 
@@ -439,7 +440,28 @@ Include this **verbatim** in every delegation:
     `api_key` and the `/emby` prefix, `Fields=Path` present, non-2xx →
     throw, zod rejection on malformed body, timeout wiring.
 
-- [ ] **B2. `EmbyStatusService` — caches, matching, watch URL.** Create
+  **Findings (B1):**
+
+  1. **The unpaged assumption is weaker than this plan claimed.**
+     `fetch-assets.sh` confirms the `/emby` prefix and `api_key` auth
+     exactly — but it always passes `&Limit=$count` to `/Items`, so the
+     one live-verified call is a **paged** one. The unpaged variant this
+     phase ships has never been exercised against the real library.
+     Treat the `TotalRecordCount > Items.length` warning as
+     expected-to-fire until [human checkpoint 1](#human-checkpoints) runs.
+  2. One extra export beyond the four specified: `EmbyUsersResponseSchema`
+     (`z.array(EmbyUserSchema)`) — `GET /emby/Users` returns a bare array,
+     so parsing needs an array schema.
+  3. `URLSearchParams` percent-encodes the comma, so the wire form is
+     `IncludeItemTypes=Movie%2CSeries`, not the literal comma
+     `fetch-assets.sh` sends. Standard form encoding, but it's the first
+     thing to check if `getLibraryItems` ever returns an empty list.
+  4. Two unbriefed additions, both tested: `EMBY_URL` trailing slashes are
+     stripped in the constructor, and thrown error messages interpolate
+     the path rather than the built URL so `api_key` can't reach a log.
+
+- [x] **B2. `EmbyStatusService` — caches, matching, watch URL.** —
+      `93817601`. Create
       `apps/download/src/emby/emby-status.service.ts`; extend `emby.module.ts`
       to provide + export it:
 
@@ -483,10 +505,47 @@ Include this **verbatim** in every delegation:
     failure-TTL suppresses refetch (fake timers); username not found →
     `unknown`.
 
+  **Findings (B2):**
+
+  1. **Mirroring `MediaResolverService`'s failure cache verbatim would
+     have been a bug.** That service caches a failure as an **empty map**
+     and rethrows; the next call inside the window then reads the cache
+     and gets an empty map with no throw. Correct for it (empty map = fall
+     back to per-id lookups), wrong here — an empty index is
+     indistinguishable from an empty library and would report every title
+     as `indexing` for the full 10s, a confident wrong answer where
+     `unknown` is the honest one. So the cache entry's `entries` is
+     optional, absent means "last lookup failed", and a cached failure
+     re-throws. TTLs and read-through shape are otherwise identical.
+  2. **Type-strict matching needed a composite index key.** Matching a
+     `Movie`'s path against an item of `Type` Movie can't be done with a
+     plain `Map<path, itemId>`, so the index is keyed
+     `` `${embyType} ${normalizedPath}` `` (NUL is the one byte a
+     POSIX path can't contain). Items missing `Type` **or** `Path` are
+     skipped and degrade to `indexing`.
+  3. **`packages/utils/dist` goes stale and breaks the build.**
+     `apps/download` type-checks against `@lilnas/utils`'s built `.d.ts`
+     (jest's `moduleNameMapper` only redirects *runtime* resolution to
+     source), so after A1 changed the schema, `tsc` couldn't see
+     `embyStatus` until `pnpm --filter @lilnas/utils build` ran. Dist is
+     gitignored. Run that build before `pnpm test`/`type-check` in
+     `apps/download` whenever `packages/utils` has changed.
+  4. `annotate()` **mutates in place**, writing through to the very
+     objects held in the resolver's `movieLibraryCache`/`showLibraryCache`.
+     Benign (every `resolve()` re-annotates, and `filePath` can't change
+     without a library refetch) — but it is a write into the resolver's
+     cache, not a copy.
+  5. **A failed user lookup is not cached** (only successes are, per
+     design), so a misconfigured `EMBY_USERNAME` or a down Emby costs one
+     `getUsers()` call per poller tick. Intentional and tested, but it's
+     the one path with no backoff. `annotate()` also has no in-flight
+     de-duplication, so concurrent cold-cache calls can issue parallel
+     requests — same as `MediaResolverService`.
+
 ### Group C — Resolver integration
 
-- [ ] **C1. Annotate in `MediaResolverService.resolve()`.** In
-      `apps/download/src/media/`:
+- [x] **C1. Annotate in `MediaResolverService.resolve()`.** — `789f439f`.
+      In `apps/download/src/media/`:
   - `media.module.ts`: import `EmbyModule` (plain import — `EmbyModule`
     depends on nothing in `MediaModule` or `DownloadModule`, so no
     `forwardRef`).
@@ -514,7 +573,32 @@ Include this **verbatim** in every delegation:
     seam allows one (B2 says it can't reject — still assert resolve
     succeeds when the mock rejects, as a regression guard).
 
-- [ ] **C2. Module-graph boot proof.** In `apps/download/src`:
+  **Findings (C1):**
+
+  1. **The plan's own required test forced a code change the plan didn't
+     specify.** "A rejecting `annotate` doesn't fail `resolve()`" cannot
+     pass with a bare `await this.embyStatusService.annotate(...)`, so the
+     call is wrapped in `try/catch` + `warn`. Deliberate deviation from
+     the plan's "just the `await`", not an oversight.
+  2. **The prescribed mocking pattern collides with `annotate`'s
+     one-shot-iterator contract.** `resolve()` passes `media.values()`, a
+     live `Map` iterator; Jest stores the argument by reference, so
+     `toHaveBeenCalledWith(...)` drains an already-consumed iterator and
+     sees an empty set. The mock snapshots `[...media]` at call time via a
+     `captureAnnotateArgs()` helper, commented so nobody "simplifies" it
+     back into a passing-but-meaningless assertion.
+  3. `annotate` is called **unconditionally**, including for video-only
+     resolves — "is this batch worth a round trip" is already
+     `EmbyStatusService`'s decision (it returns before any HTTP call when
+     no candidate has a `filePath`). A guard in `resolve()` would be a
+     second copy of that predicate to keep in sync, and gating on "any
+     managed media" would drift from the real predicate, which is
+     `filePath`, not type.
+  4. As predicted, `media/__tests__/media.module.test.ts` went red — it
+     replaces `process.env` wholesale, so all four `EMBY_*` vars are
+     needed. Handed to C2.
+
+- [x] **C2. Module-graph boot proof.** — `6aa0d5f`. In `apps/download/src`:
   - Update every test that boots `MediaModule`'s graph with real env
     (`media/__tests__/media.module.test.ts` `beforeEach`, and any other
     suite that now fails for missing `EMBY_*` — run `pnpm test` to find
@@ -529,10 +613,27 @@ Include this **verbatim** in every delegation:
   - Tests: this task _is_ the tests; full `pnpm test` in `apps/download`
     must be green.
 
+  **Findings (C2):**
+
+  1. **No source fix was needed** — the graph was correct; this was purely
+     a test-env gap. C1's sweep was confirmed independently: exactly one
+     suite needed the vars.
+  2. **The new assertion was mutation-tested rather than trusted.** A test
+     whose whole purpose is catching mis-wiring is worthless if it passes
+     vacuously, so `EmbyStatusService` was temporarily removed from
+     `EmbyModule`'s exports: all 4 tests went red with `Nest can't resolve
+     dependencies of the MediaResolverService (DbService, ?, ...)`.
+  3. **`module.get(X, { strict: false })` searches the whole container**,
+     so it finds a provider even when its module doesn't export it — those
+     lookups alone don't prove the export. What proves it is `.compile()`
+     failing outright plus `MediaResolverService` (the cross-boundary
+     consumer) resolving. The test comment says so rather than
+     overclaiming.
+
 ### Group F — Documentation & integration checkpoint
 
-- [ ] **F1. Correct and update `docs/features/download/backend.md` Phase 6.**
-      Rewrite the Phase 6 section to:
+- [x] **F1. Correct and update `docs/features/download/backend.md` Phase 6.**
+      — `c04e48f4`. Rewrite the Phase 6 section to:
   - Mark **Status: done** (backend only — no frontend surface yet), link
     this plan, and list commits once known (orchestrator supplies hashes).
   - **Correct the provenance claims**: the theater-branch `EmbyModule`
@@ -549,7 +650,37 @@ Include this **verbatim** in every delegation:
     cache, no poller/WS push (deferred).
   - Tests: n/a (docs). Prettier must still pass.
 
-- [ ] **F2. Integration checkpoint.** From the repo root: `pnpm test`,
+  **Findings (F1)** — `spec.md:18` did still claim a portable prior
+  implementation and was corrected. Four **other** false or stale claims
+  were found elsewhere in `backend.md` and deliberately left alone as
+  out of scope, but they should be fixed by whoever touches them next:
+
+  1. `backend.md:18` — "Phases 3–8 are still pending" is stale; 3, 4 and 5
+     are marked done further down the same file.
+  2. `backend.md:29-30` — foundational decision #4 says the indexed-check
+     costs "one new column on the job record." The media entity refactor
+     removed persisted `filePath` entirely and Phase 6 adds no column —
+     the new Phase 6 text contradicts this claim three pages earlier in
+     the same document.
+  3. `backend.md:1016` — Phase 7 says movies/shows stream "the file at the
+     path stored on the `jobs` row from Phase 1/6." No such row exists.
+     Same dead `filePath`-column assumption; likely also affects
+     `plans/007-phase-7-local-save.md`.
+  4. `backend.md:1057` — the closing Verification section is headed
+     "(once implementation starts)" and still frames Phase 6 as future
+     work.
+  5. **`git rev-list --all --objects | grep -i emby` now returns 11
+     objects** — all from this phase's own commits. The zero-objects
+     evidence for "no prior art" was true *pre-Phase-6 only*, and is
+     worded that way in the doc so the next reader doesn't run the command,
+     see hits, and conclude the correction was itself wrong.
+  6. `spec.md` **fails prettier, pre-existing** — document-wide `*em*` vs
+     `_em_` and missing blank lines before lists. Verified failing at
+     `HEAD` before the edit. Not fixed, because `--write` would reformat
+     all 101 lines, i.e. exactly the spec rewrite this task forbade.
+
+- [x] **F2. Integration checkpoint.** — no-op, all green (no commit).
+      From the repo root: `pnpm test`,
       `pnpm run lint`, `pnpm run type-check` across the workspace (Turbo), plus
       `pnpm run build` for `@lilnas/utils` and `@lilnas/download` — proving the
       additive schema change broke no other consumer (`tdr-bot` compiles
@@ -557,6 +688,51 @@ Include this **verbatim** in every delegation:
       re-delegation to the owning task. Commit only if something needed
       changing (e.g. a lockfile-free formatting fix) — otherwise report
       "no-op, all green" and check the box with the verifying run's evidence.
+
+  **Result:** builds, workspace `type-check` (12/12) and workspace `lint`
+  (14/14) all pass, freshly computed with `turbo --force` rather than
+  replayed from cache. **The additive schema change broke no consumer:**
+  `git diff 0fd6c7e..HEAD -- apps/tdr-bot` is empty, the
+  `TODO(tdr-bot-migration)` shim is unchanged, and tdr-bot type-checks,
+  builds, and passes 54 suites / 1129 tests — including the suite that
+  exercises the shim. tdr-bot is the only external consumer of
+  `@lilnas/utils/download/*`.
+
+  Phase 6 suites all pass. Per-package totals: `@lilnas/utils` 180/180,
+  `@lilnas/tdr-bot` 1129/1129, `@lilnas/auth` 262/262, `@lilnas/download`
+  813/822.
+
+  **Findings (F2)** — every remaining failure was empirically proven
+  pre-existing by checking out `0fd6c7e` (the commit before this phase)
+  into a scratch worktree and re-running. None are Phase 6's. Phase 6
+  touched 18 files, all under `apps/download/`,
+  `packages/utils/src/download/` and `docs/`; `equations`, `swole` and
+  `tdr-code` import zero of `@lilnas/utils/download/*`, so the schema
+  change cannot mechanically reach them.
+
+  1. `apps/download` ytdlp-update — 9 `EACCES` on `/usr/bin/yt-dlp`.
+     Identical pre-phase. Environmental; needs root inside the container.
+  2. **`apps/equations` — 7 failures + a suite that can't load.** Identical
+     pre-phase, but two real bugs for whoever owns equations: the "Long
+     Line Detection" tests get `"Excessive repetition detected"` instead of
+     the length error (validator precedence in `validateLatexSafety`), and
+     `__tests__/e2e/equations-controller.test.ts` **fails to run at all** on
+     a broken jest `moduleNameMapper` pointing at `apps/utils/src` where it
+     should be `packages/utils/src`.
+  3. `apps/swole` — 4 failures / 3 suites, identical pre-phase.
+  4. `apps/tdr-code` — 8 failures: 7 identical pre-phase, plus one
+     `log-viewer.spec.tsx` **flake** that passes 3/3 in isolation and only
+     fails under full-suite parallel load (timing-sensitive badge
+     assertion; file untouched by Phase 6).
+  5. **`spec.md`'s prettier failure gates nothing.** Every package's
+     `lint:prettier` is scoped to `src`, there is no `docs` package and no
+     husky/lint-staged hook — so it surfaces only on a manual repo-root
+     prettier run. Prettier would rewrite 26 of its 100 lines, identically
+     before and after this phase. `backend.md`, rewritten heavily here,
+     passes clean.
+  6. Turbo gotcha for future checkpoints: `pnpm run type-check -- --force`
+     forwards `--force` to `tsc`, not Turbo (`error TS5093`). Use
+     `pnpm exec turbo run <task> --force`.
 
 ---
 
@@ -623,6 +799,17 @@ a five-minute constants change that unblocks the longest chain, so start it
 ## Human checkpoints
 
 The executor must **not** do any of these. Stop and hand back.
+
+> **All three are still outstanding.** Checkpoint 1 was meant to run
+> before Wave 2, but `ssh lilnas.io` was refused during implementation
+> (`Permission denied (publickey,password)`) and the 1Password API key was
+> unavailable, so **every live-API assumption in this phase shipped
+> unverified**. The code is written to degrade rather than crash when an
+> assumption is wrong — a path mismatch reads as `indexing`, an
+> unreachable Emby as `unknown` — but checkpoint 1 is what turns
+> "plausible" into "correct". Run it before trusting any `embyStatus`
+> value in production, and note B1's Finding 1: the unpaged `/Items`
+> assumption is the weakest of the four.
 
 1. **Live Emby API verification** — needs the API key from 1Password
    ("Emby - TDR API Key"). Can run any time; **ideally before Wave 2**, since
