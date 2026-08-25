@@ -7,6 +7,7 @@ import {
   type JobRequester,
   type Release,
   type ReplaceReleaseInput,
+  type ShowScope,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import {
@@ -77,6 +78,30 @@ export function parseReleaseTarget(mediaId: string): ReleaseTarget {
   throw new NotFoundException(
     `Releases are only available for movies and shows, not '${mediaId}'`,
   )
+}
+
+/**
+ * The `ShowScope` a grab body implies, or `undefined` for an unscoped one.
+ *
+ * Movies never get a scope. `GrabReleaseInput` carries the show-only fields
+ * regardless of target - they're simply ignored on a `tmdb:` key, exactly as
+ * they were before Phase 4 - so this is where that ignoring becomes explicit
+ * rather than a new rejection.
+ *
+ * Keys are omitted rather than set to `undefined` so the persisted JSON is
+ * `{"seasonNumber":3}`, not `{"episodeId":null,"seasonNumber":3}`.
+ */
+function showScopeFromInput(
+  target: ReleaseTarget,
+  input: GrabReleaseInput,
+): ShowScope | undefined {
+  if (target.type === DownloadType.Movie) return undefined
+  if (input.episodeId == null && input.seasonNumber == null) return undefined
+
+  return {
+    ...(input.episodeId != null ? { episodeId: input.episodeId } : {}),
+    ...(input.seasonNumber != null ? { seasonNumber: input.seasonNumber } : {}),
+  }
 }
 
 /**
@@ -259,12 +284,15 @@ export class ReleaseService {
     requester?: JobRequester | null
     target: ReleaseTarget
   }): Promise<DownloadJob> {
+    const scope = showScopeFromInput(target, input)
+
     return this.mediaDownloadService.request({
       action,
       mediaId,
       requester,
-      submit: () =>
-        this.withMonitoring(
+      scope,
+      submit: async () => {
+        await this.withMonitoring(
           target,
           {
             episodeId: input.episodeId,
@@ -279,11 +307,40 @@ export class ReleaseService {
               ? this.radarrService.grabRelease(input.guid, input.indexerId)
               : this.sonarrService.grabRelease(input.guid, input.indexerId)
           },
-        ),
+        )
+
+        return scope ? { scope: await this.resolveScope(mediaId, scope) } : {}
+      },
       type: target.type,
       upstreamId:
         target.type === DownloadType.Movie ? target.tmdbId : target.tvdbId,
     })
+  }
+
+  /**
+   * Fills in a scope's display fields, falling back to the unresolved scope
+   * if Sonarr can't answer.
+   *
+   * Deliberately non-fatal, and deliberately run *after* the grab: by this
+   * point the release is already handed over, and the resolution only
+   * enriches what the job renders ("S03E05" rather than "The Wire"). Failing
+   * a successful grab because a metadata lookup didn't land would be the
+   * wrong trade - the job keeps the scope it was minted with either way.
+   */
+  private async resolveScope(
+    mediaId: string,
+    scope: ShowScope,
+  ): Promise<ShowScope> {
+    try {
+      return await this.sonarrService.resolveScope(scope)
+    } catch (err) {
+      this.logger.warn(
+        { action: 'resolveScope', error: getErrorMessage(err), mediaId, scope },
+        'Grabbed the release but could not resolve its episode numbering',
+      )
+
+      return scope
+    }
   }
 
   /**
