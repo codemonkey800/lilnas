@@ -29,10 +29,12 @@ import { AdminCheckService } from 'src/auth/admin-check.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
+import { DownloadMetricsService } from 'src/download/download-metrics.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { JobQueryService } from 'src/download/job-query.service'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
+import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
@@ -86,6 +88,7 @@ describe('DownloadController - media endpoints', () => {
       providers: [
         { provide: AdminCheckService, useValue: mockAdminCheckService },
         { provide: DiscoveryService, useValue: {} },
+        { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },
         {
           provide: DownloadStateService,
@@ -96,6 +99,7 @@ describe('DownloadController - media endpoints', () => {
         },
         { provide: JobQueryService, useValue: jobQueryService },
         { provide: MediaDownloadService, useValue: mockMediaDownloadService },
+        { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: mediaResolver },
         { provide: ReleaseService, useValue: mockReleaseService },
         { provide: ShowService, useValue: mockShowService },

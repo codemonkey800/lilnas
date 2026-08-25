@@ -6,6 +6,7 @@ import {
   FlagBadFileInputSchema,
   GalleryFacetsQuerySchema,
   GalleryQuerySchema,
+  GetMediaFileQuerySchema,
   GrabReleaseInputSchema,
   HistoryQuerySchema,
   ListReleasesQuerySchema,
@@ -38,14 +39,18 @@ import {
   Get,
   HttpException,
   HttpStatus,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
   Param,
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common'
+import contentDisposition from 'content-disposition'
+import type { Response } from 'express'
 import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
 
 import { AdminCheckService } from 'src/auth/admin-check.service'
@@ -53,14 +58,20 @@ import { CurrentUser } from 'src/auth/current-user.decorator'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { ForwardedUserGuard } from 'src/auth/forwarded-user.guard'
 import { OptionalCurrentUser } from 'src/auth/optional-current-user.decorator'
+import { mediaTypeFromKey } from 'src/db/media-id'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
+import {
+  MediaFileService,
+  type MediaFileSource,
+} from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
 
 import { projectJobForViewer } from './attribution'
 import { DownloadService } from './download.service'
+import { DownloadMetricsService } from './download-metrics.service'
 import { DownloadStateService } from './download-state.service'
 import { JobQueryService } from './job-query.service'
 
@@ -73,6 +84,7 @@ class DiscoverQueryDto extends createZodDto(DiscoverQuerySchema) {}
 class FlagBadFileInputDto extends createZodDto(FlagBadFileInputSchema) {}
 class GalleryFacetsQueryDto extends createZodDto(GalleryFacetsQuerySchema) {}
 class GalleryQueryDto extends createZodDto(GalleryQuerySchema) {}
+class GetMediaFileQueryDto extends createZodDto(GetMediaFileQuerySchema) {}
 class GrabReleaseInputDto extends createZodDto(GrabReleaseInputSchema) {}
 class HistoryQueryDto extends createZodDto(HistoryQuerySchema) {}
 class ListReleasesQueryDto extends createZodDto(ListReleasesQuerySchema) {}
@@ -88,10 +100,12 @@ export class DownloadController {
   constructor(
     private adminCheckService: AdminCheckService,
     private discoveryService: DiscoveryService,
+    private downloadMetricsService: DownloadMetricsService,
     private downloadService: DownloadService,
     private downloadStateService: DownloadStateService,
     private jobQueryService: JobQueryService,
     private mediaDownloadService: MediaDownloadService,
+    private mediaFileService: MediaFileService,
     private mediaResolverService: MediaResolverService,
     private releaseService: ReleaseService,
     private showService: ShowService,
@@ -450,6 +464,79 @@ export class DownloadController {
     )
 
     return { seasons }
+  }
+
+  /**
+   * Streams one media file back as an attachment - the "save to your device"
+   * action, and the only route in this app that answers with bytes instead
+   * of JSON. One route covers all three media types because
+   * `MediaFileService` has already collapsed them into a `MediaFileSource`:
+   * this handler decides *how* to send, never *what*.
+   *
+   * Deliberately **not** `mediaJobRoute()`, and with no mapping layer of its
+   * own: `resolveFileSource()` already raises the right exception for every
+   * case it can fail on, and that helper would rewrite "pass an episodeId"
+   * (400) and "Sonarr is unreachable" (503) into a flat "not found" - the
+   * same reasoning as `deleteMediaFiles`. Throwing still reaches Nest's
+   * exception filter despite the `@Res()` below, because nothing has been
+   * written to the response by the time `resolveFileSource()` rejects.
+   *
+   * No auth decorator, matching `GET /media/:id/releases` and
+   * `/media/:id/seasons` - an unused param would trip `noUnusedParameters`,
+   * and Traefik's `lilnas-auth` gates the edge in production.
+   */
+  @Get('/media/:id/file')
+  async getMediaFile(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(GetMediaFileQueryDto))
+    query: GetMediaFileQueryDto,
+    // The house preference is "no @Res()" (health.controller.ts), and it is
+    // about JSON response envelopes - Nest builds those better than a
+    // handler can. A byte stream is the case that preference does not cover:
+    // no return value expresses "pipe this, honour Range, for however long
+    // it takes", so the raw response is the only way to write this route.
+    @Res() res: Response,
+  ): Promise<void> {
+    const source = await this.mediaFileService.resolveFileSource(id, query)
+
+    if (source.kind === 'object') {
+      // Opened *before* a single header is set. `getObjectStream()` can
+      // still throw (MinIO unreachable), and a `Content-Length` already
+      // parked on the response would leave Nest's exception filter writing a
+      // short JSON error under a header promising megabytes - which a client
+      // waits out rather than reports.
+      const stream = await this.mediaFileService.getObjectStream(source)
+
+      res.setHeader('Content-Disposition', contentDisposition(source.fileName))
+      res.setHeader('Content-Type', source.contentType)
+      res.setHeader('Content-Length', String(source.size))
+
+      // No `Range` handling on this branch - the videos this app produces
+      // are small next to a movie file, and `getPartialObject()` is the
+      // documented escape hatch if that stops being true.
+      stream.on('error', err => this.failTransfer(id, res, err, 'destroy'))
+      // `pipe()` tears down neither end on the *other* end's close, so a
+      // client that abandons the save mid-transfer would otherwise leave the
+      // MinIO socket open for the length of the object.
+      res.once('close', () => stream.destroy())
+      stream.pipe(res)
+    } else {
+      res.setHeader('Content-Disposition', contentDisposition(source.fileName))
+
+      // `sendFile` rather than a hand-rolled `createReadStream`: it supplies
+      // `Range`/206, `Accept-Ranges`, ETag, Last-Modified and an
+      // extension-derived `Content-Type` for free. Movie and episode files
+      // run to multiple gigabytes, where resumability is the difference
+      // between a save that survives a dropped connection and one that
+      // starts over.
+      res.sendFile(source.path, err => {
+        if (err) {
+          this.failTransfer(id, res, err, 'end')
+        }
+      })
+    }
+
+    this.recordFileSave(id, source)
   }
 
   /**
@@ -979,6 +1066,100 @@ export class DownloadController {
   }
 
   /**
+   * The log line and the counter for a transfer that has *started*.
+   *
+   * Recorded at hand-off rather than at completion on purpose: the bytes
+   * leave over minutes, the client may abandon the download at any point,
+   * and once the response is piped this request has no later moment it can
+   * still speak for. "Saves started" is therefore the only figure that is
+   * both honest and attributable to a single request.
+   */
+  private recordFileSave(mediaId: string, source: MediaFileSource): void {
+    this.logger.log(
+      {
+        action: 'getMediaFile',
+        fileName: source.fileName,
+        kind: source.kind,
+        mediaId,
+        statusCode: HttpStatus.OK,
+      },
+      'GET /media/:id/file - streaming a media file to be saved',
+    )
+
+    const type = mediaTypeFromKey(mediaId)
+
+    // Unreachable in practice - `resolveFileSource()` has already 404'd any
+    // key whose prefix doesn't parse - but a mislabelled sample is worse
+    // than a missing one, so an unrecognized key is simply not counted.
+    if (type) {
+      this.downloadMetricsService.fileSaved(type)
+    }
+  }
+
+  /**
+   * The two ways a transfer can die after the route has committed to it.
+   *
+   * Which one it is turns entirely on `headersSent`. Before the first byte
+   * there is still a status line to choose, so a file that has gone missing
+   * becomes an honest 404 - in the exact JSON shape Nest's exception filter
+   * would have produced, borrowed from the exception object rather than
+   * hand-rolled, because `@Res()` has taken this response out of the
+   * filter's hands by the time these callbacks run. After the first byte the
+   * status is already on the wire and the only remaining signal is a body
+   * shorter than the `Content-Length` the client was promised.
+   *
+   * `abort` differs by branch for a reason: `sendFile` has already torn its
+   * own file stream down by the time it calls back, so the response only
+   * needs closing, whereas a failed MinIO stream is still piped into a live
+   * response - `pipe()` does not destroy the destination when the source
+   * errors - and only `destroy()` stops a half-written body from being
+   * mistaken for a complete one.
+   */
+  private failTransfer(
+    mediaId: string,
+    res: Response,
+    err: unknown,
+    abort: 'destroy' | 'end',
+  ): void {
+    const action = 'getMediaFile'
+    const code =
+      typeof err === 'object' && err !== null
+        ? (err as NodeJS.ErrnoException).code
+        : undefined
+    const error = err instanceof Error ? err.message : String(err)
+
+    if (res.headersSent) {
+      this.logger.warn(
+        { action, code, error, mediaId },
+        'GET /media/:id/file - transfer failed after the response had started',
+      )
+
+      if (abort === 'destroy') {
+        res.destroy()
+      } else {
+        res.end()
+      }
+
+      return
+    }
+
+    // ENOENT/EACCES means the file moved or lost its permissions between
+    // Radarr/Sonarr naming it and this process opening it - "gone", not a
+    // fault of this service. Anything else is a real failure and says so.
+    const exception =
+      code === 'ENOENT' || code === 'EACCES'
+        ? new NotFoundException(`Media '${mediaId}' has no file to save`)
+        : new InternalServerErrorException('Could not read the media file')
+
+    this.logger.warn(
+      { action, code, error, mediaId, statusCode: exception.getStatus() },
+      'GET /media/:id/file - could not open the media file',
+    )
+
+    res.status(exception.getStatus()).json(exception.getResponse())
+  }
+
+  /**
    * The pause and resume routes, which differ only in which service method
    * they call.
    *
@@ -1142,19 +1323,6 @@ export class DownloadController {
       )
     }
   }
-}
-
-/**
- * The media type a derived key names, or `undefined` for an unrecognized
- * prefix. The inverse of `mediaId()`'s prefix choice (`db/media-id.ts`) -
- * the only place a raw path param becomes a type, and the reason a garbage
- * `:id` 404s rather than reaching Radarr.
- */
-function mediaTypeFromKey(key: string): DownloadType | undefined {
-  if (key.startsWith('tmdb:')) return DownloadTypeEnum.Movie
-  if (key.startsWith('tvdb:')) return DownloadTypeEnum.Show
-  if (key.startsWith('video:')) return DownloadTypeEnum.Video
-  return undefined
 }
 
 /** Applies the attribution mask across a whole page of jobs. */
