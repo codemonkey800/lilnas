@@ -18,7 +18,9 @@ export function createFakeMediaResolver(
     invalidate: jest.fn(),
     resolve: jest.fn((keys: readonly MediaKey[]) =>
       Promise.resolve({
-        degradedSources: [],
+        // Widened rather than inferred as `never[]` so a test that needs to
+        // simulate an outage can `mockResolvedValue` a populated list.
+        degradedSources: [] as DownloadType[],
         media: new Map(
           keys.map(key => [
             key.mediaId,
