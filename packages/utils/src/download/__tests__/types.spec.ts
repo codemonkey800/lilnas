@@ -2,6 +2,7 @@ import {
   DownloadJob,
   DownloadJobStatus,
   DownloadType,
+  EmbyStatus,
   GetDownloadJobResponse,
   IN_PROGRESS_DOWNLOAD_JOB_STATUSES,
   isInProgressDownloadJobStatus,
@@ -287,5 +288,32 @@ describe('DownloadJob', () => {
       DownloadType.Movie,
       DownloadType.Show,
     ])
+  })
+})
+
+describe('EmbyStatus', () => {
+  const embyStatus: EmbyStatus = {
+    itemId: 'a1b2c3',
+    state: 'indexed',
+    watchUrl: 'https://emby.lilnas.io/web/index.html#!/item?id=a1b2c3',
+  }
+
+  it('is assignable to a Movie and a Show', () => {
+    expect(buildMovie({ embyStatus }).embyStatus).toEqual(embyStatus)
+    expect(buildShow({ embyStatus }).embyStatus).toEqual(embyStatus)
+  })
+
+  it('needs only state - itemId/watchUrl are for the indexed case', () => {
+    const indexing: EmbyStatus = { state: 'indexing' }
+    expect(buildShow({ embyStatus: indexing }).embyStatus).toEqual(indexing)
+  })
+
+  // Video extends MediaBase, not ManagedMediaBase - the compile-time half of
+  // schema.spec.ts's "stripped from a video rather than rejected".
+  it('is not a field on Video', () => {
+    // @ts-expect-error - `embyStatus` must never reach the video arm.
+    const video: Video = buildVideo({ embyStatus })
+
+    expect(isVideo(video)).toBe(true)
   })
 })

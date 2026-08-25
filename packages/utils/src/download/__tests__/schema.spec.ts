@@ -6,6 +6,7 @@ import {
   DownloadJobSchema,
   DownloadJobStatus,
   DownloadType,
+  EmbyStatusSchema,
   EpisodeSchema,
   FlagBadFileInputSchema,
   GalleryFacetsQuerySchema,
@@ -899,5 +900,72 @@ describe('DeleteMediaFilesQuerySchema', () => {
     expect(
       DeleteMediaFilesQuerySchema.safeParse({ episodeId: '0' }).success,
     ).toBe(false)
+  })
+})
+
+// ---- Phase 6: Emby playback handoff ----
+
+describe('EmbyStatusSchema', () => {
+  it.each(['indexed', 'indexing', 'unknown'])('parses the %s state', state => {
+    expect(EmbyStatusSchema.parse({ state })).toEqual({ state })
+  })
+
+  it('carries itemId and watchUrl alongside the indexed state', () => {
+    const indexed = {
+      itemId: 'a1b2c3',
+      state: 'indexed',
+      watchUrl: 'https://emby.lilnas.io/web/index.html#!/item?id=a1b2c3',
+    }
+    expect(EmbyStatusSchema.parse(indexed)).toEqual(indexed)
+  })
+
+  it('requires state', () => {
+    expect(EmbyStatusSchema.safeParse({ itemId: 'a1b2c3' }).success).toBe(false)
+  })
+
+  it('rejects an unrecognized state', () => {
+    expect(EmbyStatusSchema.safeParse({ state: 'pending' }).success).toBe(false)
+  })
+})
+
+describe('embyStatus on the Media hierarchy', () => {
+  const embyStatus = {
+    itemId: 'a1b2c3',
+    state: 'indexed' as const,
+    watchUrl: 'https://emby.lilnas.io/web/index.html#!/item?id=a1b2c3',
+  }
+
+  it.each([
+    ['movie', validMovie],
+    ['show', validShow],
+  ])('reaches %s through ManagedMediaBase', (_label, media) => {
+    expect(MediaSchema.parse({ ...media, embyStatus })).toEqual({
+      ...media,
+      embyStatus,
+    })
+  })
+
+  it('stays optional - a managed media parses without it', () => {
+    expect(MovieSchema.parse(validMovie)).toEqual(validMovie)
+    expect(ShowSchema.parse(validShow)).toEqual(validShow)
+  })
+
+  it('rejects a managed media whose embyStatus is malformed', () => {
+    expect(
+      MovieSchema.safeParse({
+        ...validMovie,
+        embyStatus: { state: 'pending' },
+      }).success,
+    ).toBe(false)
+  })
+
+  // Video lives under MediaBaseSchema, not ManagedMediaBaseSchema, so
+  // `embyStatus` is just an unknown key there - and zod objects strip
+  // unknown keys by default rather than rejecting them.
+  it('is stripped from a video rather than rejected', () => {
+    const result = VideoSchema.safeParse({ ...validVideo, embyStatus })
+    expect(result.success).toBe(true)
+    expect(result.data).toEqual(validVideo)
+    expect(result.data).not.toHaveProperty('embyStatus')
   })
 })

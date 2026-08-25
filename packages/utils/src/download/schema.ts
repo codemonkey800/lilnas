@@ -158,7 +158,19 @@ export const VideoSchema = MediaBaseSchema.extend({
   type: z.literal(DownloadType.Video),
 })
 
+/**
+ * Emby indexed-state for a downloaded movie/show. `itemId` and
+ * `watchUrl` are present iff state is 'indexed'. Absent entirely when
+ * the title has no file on disk (Emby is never consulted then).
+ */
+export const EmbyStatusSchema = z.object({
+  itemId: z.string().optional(),
+  state: z.enum(['indexed', 'indexing', 'unknown']),
+  watchUrl: z.string().optional(),
+})
+
 export const ManagedMediaBaseSchema = MediaBaseSchema.extend({
+  embyStatus: EmbyStatusSchema.optional(),
   filePath: z.string().optional(),
   queueSnapshot: DownloadQueueSnapshotSchema.optional(),
 })
