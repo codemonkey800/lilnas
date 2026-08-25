@@ -42,6 +42,37 @@ describe('reconcileInterruptedJobs', () => {
     }
   })
 
+  // Phase 5. `paused`/`pausing` are non-terminal, so this sweep catches them
+  // like any other in-flight status. That is deliberate, not an oversight: a
+  // paused video's partial file lives under `/download/videos`, which has no
+  // volume behind it, so a restart destroys the bytes and leaves nothing to
+  // resume from. Failing the row loudly is more honest than leaving it parked
+  // at `paused` pointing at a file that no longer exists.
+  it.each(['paused', 'pausing'] as const)(
+    'deliberately fails a `%s` row too - a pause is not designed to survive a restart',
+    status => {
+      const { db, close } = createTestDb()
+      try {
+        seed(db, 'paused-1', status)
+
+        const changed = reconcileInterruptedJobs(db)
+
+        expect(changed).toBe(1)
+
+        const row = db
+          .select()
+          .from(jobs)
+          .where(eq(jobs.id, 'paused-1'))
+          .all()[0]
+
+        expect(row?.status).toBe('failed')
+        expect(row?.error).toBe('Interrupted by a service restart')
+      } finally {
+        close()
+      }
+    },
+  )
+
   it('leaves terminal rows (cancelled, completed, failed) untouched', () => {
     const { db, close } = createTestDb()
     try {

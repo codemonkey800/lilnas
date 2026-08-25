@@ -70,6 +70,33 @@ describe('schema + migrations', () => {
     }
   })
 
+  // Phase 5 widened `DOWNLOAD_JOB_STATUSES` with `paused`/`pausing` and
+  // shipped **no** migration to go with it. This is what proves that was
+  // right: `status` is a bare `text NOT NULL` column with no CHECK behind it
+  // (the enum exists only in drizzle's TS types), so the real migration files
+  // `createTestDb()` runs accept a status they were written before.
+  it.each(['paused', 'pausing'] as const)(
+    'round-trips a `%s` job through the real migrations - no CHECK rejects a status added without one',
+    status => {
+      const { db, close } = createTestDb()
+      try {
+        db.insert(jobs)
+          .values({
+            id: 'job-paused',
+            mediaId: 'video:v1',
+            origin: 'service',
+            status,
+            type: 'video',
+          })
+          .run()
+
+        expect(db.select().from(jobs).all()[0]?.status).toBe(status)
+      } finally {
+        close()
+      }
+    },
+  )
+
   it('has exactly the final `jobs` column list (Phase 7 dropped the twelve legacy media columns)', () => {
     const { sqlite, close } = createTestDb()
     try {
