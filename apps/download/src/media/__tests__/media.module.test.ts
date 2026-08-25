@@ -14,6 +14,7 @@ import { DownloadController } from 'src/download/download.controller'
 import { DownloadModule } from 'src/download/download.module'
 import { EmbyService } from 'src/emby/emby.service'
 import { EmbyStatusService } from 'src/emby/emby-status.service'
+import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
@@ -142,6 +143,24 @@ describe('DownloadModule <-> MediaModule wiring', () => {
     // EmbyModule failed to export EmbyStatusService, this is where it breaks.
     expect(module.get(MediaResolverService, { strict: false })).toBeInstanceOf(
       MediaResolverService,
+    )
+
+    await module.close()
+  })
+
+  // Phase 7's MediaFileService is the only provider in this module that takes
+  // the MINIO_CONNECTION token, which comes from a globally-registered
+  // NestMinioModule rather than from MediaModule's own imports. Every unit
+  // test hands it a `useValue` stub, so this is the one place that proves the
+  // real token resolves - and, as with ShowService above, that the provider
+  // was actually exported and not just provided.
+  it('instantiates MediaFileService with its MinIO connection injected', async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [RootTestModule],
+    }).compile()
+
+    expect(module.get(MediaFileService, { strict: false })).toBeInstanceOf(
+      MediaFileService,
     )
 
     await module.close()
