@@ -21,6 +21,7 @@
 import type {
   DownloadJobStatus,
   DownloadType,
+  ShowScope,
   TimeRange,
 } from '@lilnas/utils/download/types'
 import { sql } from 'drizzle-orm'
@@ -113,6 +114,17 @@ export const jobs = sqliteTable(
     // `jobs_media_id_matches_type` CHECK below.
     mediaId: text('media_id').notNull(),
 
+    // Phase 4: which part of a series this job was created for. NULL = the
+    // whole series, which is what every pre-Phase-4 row means, so there is
+    // nothing to backfill.
+    //
+    // One nullable JSON column rather than three integer ones: nothing
+    // filters or sorts on a season or an episode (the poller reads the scope
+    // off a job it already has in hand), so three indexed columns would buy
+    // nothing and cost three migrations' worth of surface. Same
+    // `text({ mode: 'json' })` convention `videos.timeRange` follows.
+    scope: text('scope', { mode: 'json' }).$type<ShowScope>(),
+
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .$defaultFn(() => new Date())
       .notNull(),
@@ -159,6 +171,14 @@ export const jobs = sqliteTable(
         (${t.type} = 'show'  AND ${t.mediaId} LIKE 'tvdb:%') OR
         (${t.type} = 'video' AND ${t.mediaId} LIKE 'video:%')
       )`,
+    ),
+    // A season/episode scope only means anything for a series. Radarr tracks
+    // one file per movie and a video has no upstream structure at all, so a
+    // scope on either is a bug in whatever wrote the row - the same class of
+    // invariant `jobs_media_id_matches_type` above pins.
+    check(
+      'jobs_scope_only_for_shows',
+      sql`(${t.scope} IS NULL OR ${t.type} = 'show')`,
     ),
   ],
 )

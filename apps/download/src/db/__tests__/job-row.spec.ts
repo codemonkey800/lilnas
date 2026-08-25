@@ -33,6 +33,7 @@ const ROUND_TRIP_COLUMNS = [
   'mediaId',
   'requesterEmail',
   'requesterUserId',
+  'scope',
   'status',
   'type',
 ] as const
@@ -100,6 +101,36 @@ describe('job-row codec', () => {
       status: 'importing',
       type: 'show',
       updatedAt: new Date('2026-01-03T00:00:00.000Z'),
+    },
+    'show (scoped to one episode)': {
+      completedAt: null,
+      createdAt: new Date('2026-01-04T00:00:00.000Z'),
+      error: null,
+      hiddenAttribution: false,
+      id: 'show-scoped',
+      mediaId: 'tvdb:2',
+      origin: 'service',
+      requesterEmail: null,
+      requesterUserId: null,
+      scope: { episodeId: 4412, episodeNumber: 5, seasonNumber: 3 },
+      status: 'searching',
+      type: 'show',
+      updatedAt: new Date('2026-01-04T00:00:00.000Z'),
+    },
+    'show (scoped to one season)': {
+      completedAt: null,
+      createdAt: new Date('2026-01-05T00:00:00.000Z'),
+      error: null,
+      hiddenAttribution: false,
+      id: 'show-season',
+      mediaId: 'tvdb:3',
+      origin: 'service',
+      requesterEmail: null,
+      requesterUserId: null,
+      scope: { seasonNumber: 0 },
+      status: 'searching',
+      type: 'show',
+      updatedAt: new Date('2026-01-05T00:00:00.000Z'),
     },
   }
 
@@ -170,6 +201,50 @@ describe('job-row codec', () => {
     try {
       const row = insertAndRead(db, fixtures['show (web origin, errored)']!)
       expect(hydrateJobRow(row).completedAt).toBeNull()
+    } finally {
+      close()
+    }
+  })
+
+  // Deliberately asymmetric with `completedAt` above: `scope` uses
+  // `undefined` on the record (like `error` does) and NULL in the column, so
+  // the two directions map rather than pass a value through.
+  it('hydrates a NULL scope to undefined, and undefined back to NULL', () => {
+    const { db, close } = createTestDb()
+    try {
+      const row = insertAndRead(db, fixtures['show (web origin, errored)']!)
+      const record = hydrateJobRow(row)
+
+      expect(record.scope).toBeUndefined()
+      expect(buildJobRow(record).scope).toBeNull()
+    } finally {
+      close()
+    }
+  })
+
+  it('hydrates a stored scope back into a plain object', () => {
+    const { db, close } = createTestDb()
+    try {
+      const row = insertAndRead(db, fixtures['show (scoped to one episode)']!)
+
+      expect(hydrateJobRow(row).scope).toEqual({
+        episodeId: 4412,
+        episodeNumber: 5,
+        seasonNumber: 3,
+      })
+    } finally {
+      close()
+    }
+  })
+
+  // Season 0 is specials, and `0` is the one season number a truthiness
+  // check would silently turn into "no scope".
+  it('keeps a season-0 scope through the round trip', () => {
+    const { db, close } = createTestDb()
+    try {
+      const row = insertAndRead(db, fixtures['show (scoped to one season)']!)
+
+      expect(buildJobRow(hydrateJobRow(row)).scope).toEqual({ seasonNumber: 0 })
     } finally {
       close()
     }
