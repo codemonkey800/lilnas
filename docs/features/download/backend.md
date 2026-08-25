@@ -382,19 +382,208 @@ curl -s -XPOST "$BASE/movies" -H 'content-type: application/json' \
 
 ## Phase 4 — Per-episode/season granularity (shows)
 
-Today's Sonarr wrapper only requests/deletes at the whole-series level.
-Confirmed the SDK already has what's needed: `getApiV3Episode`/
-`getApiV3EpisodeById`, `getApiV3Episodefile`/`deleteApiV3EpisodefileById`
-(per-episode file resource), `putApiV3EpisodeMonitor` (bulk monitor toggle
-by episode IDs — how you'd scope a search to specific episodes/a season
-before triggering it). Sonarr's command API also supports `EpisodeSearch`/
-`SeasonSearch` command names (well-documented Sonarr behavior, same shape as
-the already-used `SeriesSearch`/`MoviesSearch` — extend locally the same way
-`SeriesSearchCommand`/`MoviesSearchCommand` already do); verify the exact
-name against a running instance during implementation.
+**Status: done** (backend only — no frontend surface yet). Full plan in
+`docs/features/download/plans/004-phase-4-episode-granularity.md`. Commits, in
+order: `d7fe301e` (wire contract), `4dfbec3a` (`jobs.scope` + migration 0006),
+`144c96ff` (seasons/episodes read path), `64504e66` (scoped commands,
+`resolveScope`, `unmonitorScope`), `7627d1cd` (episode-file util),
+`3d45f7e2` (`ShowService`), `79156215` (scoped `requestShow`), `b49bdc0d`
+(poller aggregation), `1c7f6eda` (scope on grab/replace), `2a06663e`
+(endpoints), `6dd7f18b` (integration).
 
-- New endpoints: download/delete a single episode, a full season, or the
-  whole series (series-level already exists).
+### What shipped
+
+| Route                              | Auth                     | Does                                                     |
+| ---------------------------------- | ------------------------ | -------------------------------------------------------- |
+| `GET /download/media/:id/seasons`  | none                     | Seasons + episodes, with file and monitoring state       |
+| `DELETE /download/media/:id/files` | `@OptionalCurrentUser()` | Deletes an episode / a season / every file, + unmonitors |
+| `POST /download/shows`             | `@OptionalCurrentUser()` | Now accepts `episodeId` / `seasonNumber`                 |
+
+A show is no longer all-or-nothing. `POST /shows` with no scope is
+byte-for-byte the pre-Phase-4 path, so nothing about the existing behavior
+moved.
+
+### The scope lives on the job, not in the media id
+
+`media_id` stays `tvdb:121361`. A season or episode download is still a
+download _of a show_, and minting `tvdb:121361:s3e5`-style keys would have
+broken `mediaIdSuffix()` + `Number()` at every consumer and fragmented the
+gallery into one card per episode.
+
+So the **job** carries a nullable `scope` — `{ episodeId?, episodeNumber?,
+seasonNumber? }` — in one JSON column (`jobs.scope`, migration 0006, CHECKed
+to `type = 'show'`). Absent means the whole series, which is exactly what
+every pre-Phase-4 row means, so there was nothing to backfill.
+
+`episodeNumber` is denormalized on purpose. `episodeId` is a Sonarr primary
+key and useless to render; without the number, an activity row for one
+episode could only say "The Wire", not "The Wire — S03E05", unless the
+frontend fetched the seasons endpoint per job. Same reasoning as
+`bad_files.release_title`.
+
+> **Migration 0006 needed a hand-edit.** SQLite can't add a CHECK to an
+> existing table, so drizzle-kit emitted the standard table rebuild — with
+> the copy step selecting `scope` from the _pre-0006_ table, which fails with
+> `no such column: "scope"` and takes every migration run with it. The SELECT
+> reads `NULL` in that position instead. Anyone regenerating a migration that
+> adds a column **and** a constraint should expect the same and read the
+> emitted SQL.
+
+### Delete removes files, not the library entry
+
+```
+DELETE /download/media/tvdb:81189/files?seasonNumber=3&episodeId=4412
+```
+
+Narrowest first: `episodeId` → one file, `seasonNumber` → that season's,
+neither → every file of the title. Works for `tmdb:` keys too (one movie
+file), which gives the movie detail page a delete that needs no existing job.
+The series/movie **stays in the library** — removing a title outright is
+still the job-keyed `DELETE /download/shows/:jobId`.
+
+**The delete unmonitors what it deleted**, and that is the load-bearing half.
+To Sonarr a monitored episode with no file is a _missing_ episode, so without
+the unmonitor the next RSS sync or missing-episode search re-downloads
+exactly what the user just removed. It therefore runs even when zero files
+were deleted, and a failed unmonitor logs a warning rather than failing the
+request — the files are already gone by then. Afterwards
+`mediaResolverService.invalidate(mediaId)` so `filePath` re-resolves off
+post-delete truth.
+
+Deleting zero files is a **success**, not a 404: the caller asked for a state
+and that state already held.
+
+### The poller aggregates instead of taking the first match
+
+`pollShows()` used `queue.find(q => q.seriesId === job.upstreamId)`. Sonarr
+queues one item **per episode**, so that was already lossy for a series-wide
+search — a season flipped to `Completed` the moment its first episode landed
+— and outright wrong once two episode-scoped jobs can exist for one series,
+since both would read the same arbitrary item.
+
+Items are now filtered by the job's scope and folded by
+`aggregateQueueItems`: `size`/`sizeleft` summed, status fields taken from the
+dominant item under `failed > downloading > importing`, `timeleft` from the
+item with the largest `sizeleft` (the one that finishes last), and
+`statusMessages` concatenated so every failure is still reported.
+Classification runs through `deriveStatusFromQueueItem` itself, so the
+aggregate can never disagree with a per-item derivation. An empty match list
+returns `undefined` — exactly what `find()` returned for "no entry" — so the
+disappeared-means-completed rule is untouched. Radarr keeps `find()`: one
+movie, one file, one queue item.
+
+### Scoped search picks a narrower command
+
+The Phase 3 rule holds — a title with no `bad_files` rows keeps the command
+path. Phase 4 only picks a _narrower_ command:
+
+| Scope        | Command                                           |
+| ------------ | ------------------------------------------------- |
+| episode      | `EpisodeSearch`, body `{ episodeIds: [id] }`      |
+| season       | `SeasonSearch`, body `{ seriesId, seasonNumber }` |
+| whole series | `SeriesSearch` — unchanged                        |
+
+When the title _does_ have flagged releases, the existing fetch-and-pick path
+runs unchanged; `getReleases(sonarrId, scope)` already took a scope, so only
+the argument changed.
+
+`resolveScope` runs **after** `ensureSeries`, not before — an episode id
+can't exist for a series Sonarr has never seen. That puts the resolution
+inside `submit()`, after the job has already been minted, so `submit` returns
+an optional `{ scope }` that `request()` folds into the same `updateJob` that
+moves the job to `Searching`. One broadcast for one state change, and the job
+is minted with the _requested_ scope so even the `created` event never shows
+a scoped request as a whole-series one.
+
+### Findings from implementation
+
+- **`resolveScope` ordering vs. minting the job.** The plan called for
+  `request()` to write the scope at mint time _and_ for resolution to happen
+  after `ensureSeries`. Those can't both hold without a second write, hence
+  the `RequestSubmitResult` return value described above.
+- **`ShowScopeSchema` sits above `DownloadJobSchema`**, not under the Phase 4
+  banner at the bottom of `schema.ts`, because that schema carries it and a
+  `const` can't be read before its initializer runs.
+- **`media-backfill.spec.ts` needed updating.** It stops at migration 0003 on
+  purpose but reads back through the current drizzle schema, so `jobs.scope`
+  broke it. `applyRemainingMigrationFiles()` reads the migrations folder
+  rather than hard-coding tags, so the next migration won't re-break it.
+- **Nothing observed about the season-level `monitored` flag** — human
+  checkpoint 2 below is still outstanding.
+
+### Deferred
+
+- **No frontend.** Every route above is backend-only; nothing in the Next.js
+  app calls them yet.
+- **No `DownloadClient` methods** for the new routes — Phase 3 added none
+  either, and nothing in-repo calls them yet. `apps/tdr-bot` compiles against
+  the unmodified shim.
+- **No season/episode summary fields on `ShowSchema`.** `GET /seasons`
+  answers it; a second copy would drift.
+- **No bulk `deleteApiV3EpisodefileBulk`.** The sequential per-file loop is
+  slower and safer.
+- **Still no unflag route** for `bad_files`, deferred from Phase 3.
+- **The season-level `monitored` flag is reported, never written.** Episode
+  monitoring is what governs searching. If a live check shows Sonarr ignoring
+  monitored episodes inside an unmonitored season, `postApiV3Seasonpass` is
+  the escape hatch.
+
+### Manual verification (needs live Sonarr)
+
+⚠️ **This block deletes real files.** Not covered by the unit suite — the two
+command names in particular are unverified against a running Sonarr, and a
+wrong literal fails _silently_ (Sonarr 400s the command and the job lands in
+`Failed`).
+
+```bash
+BASE=http://download:8081/download
+SHOW=tvdb:81189   # a show already in the library
+
+# 1. Seasons listing. Season 0 (specials) must be present, not filtered out.
+curl -s "$BASE/media/$SHOW/seasons" \
+  | jq '.seasons[] | {seasonNumber, monitored, episodeCount, episodeFileCount}'
+
+EP=$(curl -s "$BASE/media/$SHOW/seasons" \
+  | jq -r '.seasons[] | select(.seasonNumber==3) | .episodes[0].id')
+
+# 2. Request ONE episode. The job's scope must round-trip with the
+#    episodeNumber resolved server-side.
+curl -s -XPOST "$BASE/shows" -H 'content-type: application/json' \
+  -d "{\"tvdbId\":81189,\"episodeId\":$EP}" | jq '{status, scope}'
+#    THEN: Sonarr -> Activity -> Queue. A search must actually be queued -
+#    a 201 alone does NOT prove 'EpisodeSearch' is the right command name.
+
+# 3. Request one SEASON. Same check in Sonarr's Activity -> Queue for
+#    'SeasonSearch'.
+curl -s -XPOST "$BASE/shows" -H 'content-type: application/json' \
+  -d '{"tvdbId":81189,"seasonNumber":3}' | jq '{id, status, scope}'
+
+# 4. Watch that season job while its episodes land one at a time. It must
+#    NOT reach `completed` until the LAST one leaves Sonarr's queue.
+watch -n5 "curl -s $BASE/activity | jq '.items[] | {id, status, scope}'"
+
+# 5. Delete one episode, then confirm in Sonarr that it is BOTH file-less
+#    AND unmonitored. Unmonitored is the half that makes the delete stick.
+curl -s -XDELETE "$BASE/media/$SHOW/files?episodeId=$EP" | jq
+curl -s "$BASE/media/$SHOW/seasons" \
+  | jq --argjson e "$EP" '.seasons[].episodes[] | select(.id==$e) | {hasFile, monitored}'
+#    Expect: { "hasFile": false, "monitored": false }
+
+# 6. Deleting again is a 200 with deletedCount 0, not a 404.
+curl -s -XDELETE "$BASE/media/$SHOW/files?episodeId=$EP" | jq '.deletedCount'
+
+# 7. A movie key with a scope is a 400, not a silently-ignored scope.
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -XDELETE "$BASE/media/tmdb:27205/files?seasonNumber=3"                  # 400
+
+# 8. Re-request the deleted episode. It must re-monitor and re-download.
+curl -s -XPOST "$BASE/shows" -H 'content-type: application/json' \
+  -d "{\"tvdbId\":81189,\"episodeId\":$EP}" | jq '{status, scope}'
+```
+
+**Also still to check by hand:** a series whose season 3 is unmonitored at
+the _season_ level but whose episodes this app switched on — confirm Sonarr
+still searches them. If it doesn't, `postApiV3Seasonpass` needs wiring in.
 
 ---
 
