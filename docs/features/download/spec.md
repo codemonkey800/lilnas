@@ -15,7 +15,7 @@ lilnas's download app is a single interface for acquiring and managing three kin
 **Playback model**
 - **Videos** are the only media type with an in-app playable experience.
 - **Movies and shows** hand off to Emby instead: "Watch" navigates to the item in Emby once Emby has indexed the downloaded file. If Emby hasn't picked it up yet, the UI shows an "Indexing…" state rather than a Watch action.
-- *Implementation note:* there's no live Emby API integration in the codebase today (verified). One existed previously in the `theater` app — a backend `EmbyModule` resolving library items and stream URLs, session-gated via the existing auth cookie (commit `9c665e1`) — but that source is no longer in the working tree, so treat it as a reference pattern to dig up from git history, not a ready import.
+- *Implementation note:* built backend-only in Phase 6 (`apps/download/src/emby/`) — see `backend.md`. There was **no** prior implementation to port: the `theater` app never contained an `EmbyModule` (`feat/theater-app` is a bare scaffold), and no Emby source has ever existed anywhere in this repo's history, so don't go looking for one in git.
 
 **Navigation model**
 - Selecting any movie/show surface — a nav-bar or dedicated-search result (§3), a gallery card (§7), or the homepage's Recently Added card (§1) — always opens that title's detail page (§4 or §5). Downloading (or deleting, replacing, flagging a file) only ever happens from the detail page; no list or card surface exposes those actions directly.

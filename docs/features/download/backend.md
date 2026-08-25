@@ -955,56 +955,224 @@ curl -s "$BASE/videos/$B" | jq '.status'                         # downloading, 
 
 ## Phase 6 — Emby playback handoff
 
-Recovered from git: the referenced `EmbyModule` was never deleted — it's
-intact on the unmerged local branch `feat/theater-app`
-(`apps/theater/src/emby/{emby.module,emby.controller,emby.service,emby.schema}.ts`,
-recoverable via `git show feat/theater-app:apps/theater/src/emby/<file>`),
-not lost history. It's much bigger than what download needs, though: ~90%
-of it is streaming/HLS-proxy/subtitle plumbing for an _embedded_ player.
-Per the spec, download's "Watch" is a pure **handoff** ("navigates to the
-item in Emby"), not embedded playback — so the new `apps/download/src/emby`
-module should be written fresh and small, reusing only:
+**Status: done** (backend only — no frontend surface yet). Full plan in
+`docs/features/download/plans/006-phase-6-emby-playback-handoff.md`. Commits,
+in order: `34798d36` (wire contract), `d62d460e` (env vars), `bbbff14b`
+(typed Emby HTTP client), `93817601` (`EmbyStatusService`), `789f439f`
+(annotation inside `MediaResolverService.resolve()`), `6aa0d5ff` (module
+wiring test).
 
-- The `resolveUserId()` pattern (resolve `EMBY_USERNAME` to a real Emby
-  `UserId` via `GET /Users`, cache it) — confirmed still needed, Emby uses
-  one static shared service account regardless of which lilnas user is
-  asking, same as theater's model. No per-lilnas-user Emby credential
-  mapping needed.
-- Two hard-won gotchas baked into the old code as comments, still relevant
-  if any playback-info call is ever needed: `PlaybackInfo` 500s if `UserId`
-  is omitted despite Emby's docs marking it optional; `DirectStreamUrl`
-  mirrors `TranscodingUrl` even when direct streaming isn't supported, so
-  mode must be decided from capability flags, never field presence. (Neither
-  may even be needed for a pure deep-link handoff — confirm once Phase 6
-  design lands whether a bare `{EMBY_URL}/web/index.html#!/item?id=...`
-  link is sufficient, which would drop the need for `getPlaybackInfo`
-  entirely.)
-- Env vars: `EMBY_API_KEY`, `EMBY_URL`, `EMBY_USERNAME` (unchanged shape).
+A downloaded movie or show is watched in Emby, not here. This phase answers
+the one question the spec's Watch action needs — _has Emby indexed this yet,
+and where do I send the browser_ — and answers it as an optional field on the
+media the frontend already fetches.
 
-**Indexed-check**: poll Emby's `GET /Items` for an entry whose `Path` matches
-the imported file's on-disk path, then match found → "Watch" with a deep link
-built from the matched item's ID; no match yet → "Indexing…". This is
-entirely new logic — the old theater code never had an indexed/pending
-concept (confirmed: it assumed the whole library was already present).
-Path-based matching was chosen over title/year matching for reliability —
-Emby can render/sanitize titles differently than Radarr/Sonarr, risking a
-missed match even after indexing.
+### ⚠️ There was no prior art to port — don't go digging
 
-**Updated by the media entity refactor (above): `filePath` is no longer a
-persisted `jobs` column.** The original plan had this phase store Radarr/
-Sonarr's reported path on the job row; post-refactor, `filePath` is derived
-live off the Radarr/Sonarr library through `MediaResolverService` /
-`toMovie()`/`toShow()` the same way every other movie/show metadata field is.
-Whichever service performs the indexed-check should read `media.filePath`
-off the resolved `Media` rather than a `jobs` column. This also means the
-refactor's "bug that disappears" applies here too: there's nothing to null
-out on delete, since Radarr simply stops reporting the path and the next
-resolve is correct by construction.
+This section used to claim the old theater app's `EmbyModule` survived intact
+on the unmerged local branch `feat/theater-app` and could be recovered with
+`git show feat/theater-app:apps/theater/src/emby/<file>`, citing commit
+`9c665e1`. **All of that was false**, and disproving it cost time. The
+verified facts:
 
-**Auth**: swap theater's signed-cookie `SessionGuard` for the same
-forwarded-header decorator/guard built in Phase 0 — no login flow, no
-`AuthController`/session-cookie machinery needed at all, Traefik ForwardAuth
-already replaces that whole layer.
+- `feat/theater-app` (`832a6fde`) is a single scaffold commit with **no
+  `emby` directory** in it at all.
+- `git rev-list --all --objects | grep -i emby` matched **zero objects**
+  across the entire repo history prior to this phase. No Emby code had ever
+  been committed here.
+- The only Emby client ever written for lilnas (an `emby.client.ts` alongside
+  tdr-bot's Radarr/Sonarr clients) was never committed, never executed (0%
+  coverage), didn't typecheck against its own base class, and survives only
+  inside a coverage-report HTML file in another worktree.
+- The two "hard-won gotchas" cited here — that `PlaybackInfo` 500s without
+  `UserId`, and that `DirectStreamUrl` mirrors `TranscodingUrl` — appear
+  **nowhere in the repo**. Neither does any `resolveUserId()` implementation;
+  that was written fresh for this phase.
+
+Everything under `apps/download/src/emby/` is new code.
+
+### What shipped — no new routes
+
+| File                     | Does                                                                               |
+| ------------------------ | ---------------------------------------------------------------------------------- |
+| `emby.schema.ts`         | Zod schemas for Emby's `Users`, `Items` and `System/Info` responses                |
+| `emby.service.ts`        | Typed HTTP client. Raw GETs, no caching, throws on anything unexpected             |
+| `emby-status.service.ts` | Classifies a downloaded title `indexed`/`indexing`/`unknown`, builds the watch URL |
+| `emby.module.ts`         | Exports `EmbyStatusService`; imported by `MediaModule`                             |
+
+`embyStatus` attaches to `Media`, **not** to a new endpoint. It's an optional
+field on `ManagedMediaBaseSchema`, so it exists on `Movie | Show` and never on
+`Video`. Because the zod schema types _are_ the wire types — there is no
+serializer layer — that one edit propagates to job payloads, gallery items,
+media detail and WS frames with zero controller changes and zero new routes.
+Nothing needed adding to `DownloadClient` either.
+
+Annotation happens in `MediaResolverService.resolve()` via one batched
+`EmbyStatusService.annotate()` call — the same "grafted at hydration, never
+persisted" pattern as `queueSnapshot`. It reads `media.filePath` off the
+resolved `Media`, which the media entity refactor already derives live off
+Radarr/Sonarr, so the original plan's "store the Emby-match path on the job
+row" never happened. The refactor's "bug that disappears" applies here too:
+there's nothing to null out on delete, since Radarr simply stops reporting the
+path and the next resolve is correct by construction.
+
+### The API surface, and where it came from
+
+Base path prefix `/emby`, auth via the `api_key` **query parameter**. Both
+were taken from the one piece of Emby integration in this repo demonstrably
+exercised against the live instance,
+`docs/features/download/designs/assets/fetch-assets.sh`. Emby also accepts an
+`X-Emby-Token` header, but that variant is unverified here; the calls are
+container-to-container and never leave the Docker network, so the query
+param's log-leak surface is acceptable.
+
+**Four env vars, not three.** This section previously listed three, which is
+one short. The API is reached container-to-container, but a `watchUrl` handed
+to a **browser** has to use the public host — so the two addresses can't
+collapse into one var.
+
+| Env var             | Used for                          | Prod value                      |
+| ------------------- | --------------------------------- | ------------------------------- |
+| `EMBY_URL`          | API calls from the container      | `http://emby:8096`              |
+| `EMBY_EXTERNAL_URL` | `watchUrl` construction           | `https://emby.lilnas.io`        |
+| `EMBY_API_KEY`      | The `api_key` query param         | 1Password, "Emby - TDR API Key" |
+| `EMBY_USERNAME`     | Resolved to a `UserId` at runtime | The shared service account      |
+
+### A bare deep link, no `PlaybackInfo`
+
+This resolves the open question the old text left. The spec calls Watch pure
+navigation, so the URL is
+`{EMBY_EXTERNAL_URL}/web/index.html#!/item?id={itemId}&serverId={serverId}`,
+with `serverId` fetched once from `GET /emby/System/Info` and cached for the
+process lifetime. No stream negotiation, no capability flags, no
+`getPlaybackInfo`.
+
+> **Known limitation, accepted:** Emby has its own user system, so the link
+> may land on Emby's login screen. Not solving double-login is a standing
+> decision — `docs/archive/brainstorms/2026-07-31-lilnas-auth-requirements.md:216`.
+
+### Matching is by on-disk path, never title/year
+
+Emby renders titles differently than Radarr/Sonarr do. `infra/media.yml`
+mounts the same host directories at the same container paths in Radarr, Sonarr
+**and** Emby, so the paths compare byte-equal.
+
+- A `Movie` matches on its **file** path, against an Emby `Movie` item.
+- A `Show` matches on its **series folder** path, against an Emby `Series`
+  item. Series-level matching is deliberate: the spec's Watch navigates to the
+  title, and per-episode deep links are out of scope.
+
+There is **no fuzzy fallback**. A miss reports `indexing` — visible and
+diagnosable — rather than silently pointing at the wrong item.
+
+### Read-through cache, no poller and no WS push
+
+One whole-library fetch per expiry builds a path index, cached with a **60s
+success / 10s failure TTL**, mirroring `MediaResolverService`'s library
+caches. The user id and server id resolve once per process.
+
+There is deliberately **no background poller and no WS broadcast** when a
+title flips `indexing → indexed`. That flip happens minutes after a job
+completes, when nothing is broadcasting that job anyway, and a refetch or the
+frontend's own polling picks it up within the TTL. Push is deferred to a later
+phase if it ever becomes a requirement.
+
+### Semantics
+
+| Situation                                                | `embyStatus`                             |
+| -------------------------------------------------------- | ---------------------------------------- |
+| No `filePath` (not downloaded, or a discover/search hit) | absent — Emby was never consulted        |
+| File on disk, Emby item with a matching path             | `{ state: 'indexed', itemId, watchUrl }` |
+| File on disk, no matching Emby item                      | `{ state: 'indexing' }`                  |
+| File on disk, Emby unreachable / errored                 | `{ state: 'unknown' }`                   |
+
+`indexed` is the only state carrying `itemId`/`watchUrl`. A resolve where no
+managed media has a `filePath` makes **zero** Emby calls, so video-only pages
+and search/discover results cost nothing.
+
+`degradedSources` was deliberately not extended — Emby isn't a `DownloadType`,
+so the per-title `unknown` carries the degradation signal instead.
+
+### ⚠️ The live-API assumptions were never verified
+
+The plan called for a human checkpoint — curl the live API with the 1Password
+key, ideally _before_ implementation. **It was not run**: SSH to the deploy
+host was refused during implementation. So these all remain assumptions:
+
+- That `Fields=Path` actually returns `Path`.
+- That a `Movie` item's `Path` is the **file** (not its folder) and a `Series`
+  item's `Path` is the **folder**.
+- That the deep-link URL resolves in a browser.
+- That an unpaged `/Items` call returns the whole library.
+
+**The unpaged assumption is the weakest of them.** `fetch-assets.sh` — the one
+live-verified caller — always passes `&Limit=$count` to `/Items`, so the
+unpaged variant this phase ships has never been exercised. `EmbyService` logs
+a warning when `TotalRecordCount` exceeds `Items.length`, which is the only
+detector we have; treat it as expected-to-fire until someone checks.
+
+### ⚠️ Env must be provisioned before deploying
+
+Both Emby services read env in their **constructors** and boot-fail if a var
+is unset — deliberate, matching the Radarr/Sonarr precedent in
+`src/media/clients.ts`. Deploying before all four `EMBY_*` vars exist in
+`apps/download/.env.prod` on the host will crash-loop the container.
+
+### Deferred
+
+- **No frontend.** Nothing in the Next.js app renders `embyStatus` yet; the
+  rebuild consumes it alongside Phases 3–5.
+- **No WS push** when a title flips `indexing → indexed` — the TTL covers it.
+- **No per-episode deep links.** A show links to its series page in Emby.
+- **No `PlaybackInfo`, stream URLs, or embedded player.** Watch is a handoff,
+  per the spec.
+- **No Emby-side scan trigger.** This app never asks Emby to rescan; it waits
+  for Emby's own schedule.
+
+### Manual verification (needs the live Emby instance)
+
+⚠️ **Not yet run** — this is the human checkpoint the plan called for, still
+outstanding. `EMBY_API_KEY` is in 1Password as "Emby - TDR API Key". Run from
+inside the Docker network, or swap `EMBY` for `https://emby.lilnas.io`:
+
+```bash
+EMBY=http://emby:8096
+KEY=$EMBY_API_KEY
+
+# 1. Reachability, key validity, and the server id every watch URL carries.
+curl -s "$EMBY/emby/System/Info?api_key=$KEY" | jq '{Id, ServerName, Version}'
+
+# 2. The user id EMBY_USERNAME must resolve to. Emby matches EXACTLY,
+#    including case - a near-miss boots the service with a warning listing
+#    every available name.
+curl -s "$EMBY/emby/Users?api_key=$KEY" | jq -r '.[] | "\(.Id)\t\(.Name)"'
+USER_ID=<the shared service account's id>
+
+ITEMS="$EMBY/emby/Users/$USER_ID/Items?IncludeItemTypes=Movie,Series"
+ITEMS="$ITEMS&Recursive=true&Fields=Path&api_key=$KEY"
+
+# 3. THE BIG ONE. Does Fields=Path come back, and is an unpaged call whole?
+#    `total` must EQUAL `returned`, and `withPath` must equal both. If
+#    total > returned, EmbyService.getLibraryItems() needs StartIndex/Limit
+#    paging - until then every title past the first page reports `indexing`.
+curl -s "$ITEMS" | jq '{total: .TotalRecordCount,
+                        returned: (.Items | length),
+                        withPath: ([.Items[] | select(.Path)] | length)}'
+
+# 4. A Movie's Path must be the FILE; a Series' Path must be the FOLDER.
+curl -s "$ITEMS" | jq -r '.Items[] | select(.Type=="Movie")  | .Path' | head -3
+curl -s "$ITEMS" | jq -r '.Items[] | select(.Type=="Series") | .Path' | head -3
+#    Compare byte-for-byte against what Radarr/Sonarr report for the same
+#    title. A mismatch means every title reports `indexing` forever.
+
+# 5. The deep link. Paste into a browser - it must land on the item page.
+#    https://emby.lilnas.io/web/index.html#!/item?id=<itemId>&serverId=<Id>
+
+# 6. End to end, through this app. An indexed title carries a watchUrl; a
+#    freshly-downloaded one reads `indexing`; a title with no file on disk
+#    has no embyStatus at all.
+curl -s http://download:8081/download/media/tmdb:27205 | jq '.media.embyStatus'
+```
 
 ---
 
