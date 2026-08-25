@@ -48,6 +48,7 @@ import axios from 'axios'
 import { existsSync } from 'fs'
 import { pathExists, remove } from 'fs-extra'
 
+import { DownloadMetricsService } from 'src/download/download-metrics.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { YtdlpUpdateService } from 'src/ytdlp-update/ytdlp-update.service'
 
@@ -78,6 +79,13 @@ describeIntegration('YtdlpUpdateService Integration Tests', () => {
         {
           provide: DownloadStateService,
           useValue: mockDownloadStateService,
+        },
+        // YtdlpUpdateService reports every update attempt as a metric; the
+        // counters themselves are a prom-client global, so a stub is enough
+        // to satisfy DI without a second registry in the test process.
+        {
+          provide: DownloadMetricsService,
+          useValue: { ytdlpUpdate: jest.fn() },
         },
       ],
     }).compile()
