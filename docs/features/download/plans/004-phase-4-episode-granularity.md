@@ -882,7 +882,7 @@ Include this **verbatim** in every delegation:
   `@lilnas/tdr-bot`. Looked like a `run-p build:backend build:frontend`
   race, not a code problem.
 
-- [x] `PENDING` **F2. Update `backend.md` and record manual verification.** In
+- [x] `ac07b67e` **F2. Update `backend.md` and record manual verification.** In
       `docs/features/download/backend.md`:
   - Rewrite the Phase 4 section the way Phase 3's was: a **Status: done**
     line with the commit list, a "What shipped" route table, the design
