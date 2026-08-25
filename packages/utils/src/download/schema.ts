@@ -541,3 +541,22 @@ export const DeleteMediaFilesQuerySchema = z.object({
   episodeId: z.coerce.number().int().positive().optional(),
   seasonNumber: z.coerce.number().int().min(0).optional(),
 })
+
+// ---- Phase 7: local save-to-device ----
+
+/**
+ * `GET /download/media/:id/file`. `episodeId` is required for `tvdb:` keys
+ * and rejected for the others; `part` is video-only and indexes
+ * `Video.downloadUrls` (default 0). Those cross-field rules are the
+ * controller's and service's, not refinements here - the same split
+ * `DeleteMediaFilesQuerySchema` makes, since which rule applies depends on
+ * the `:id` prefix, which this schema never sees.
+ *
+ * `z.coerce` because these are query params and therefore always strings on
+ * the wire - see `DeleteMediaFilesQuerySchema` for why that coercion stays
+ * out of any shared fragment.
+ */
+export const GetMediaFileQuerySchema = z.object({
+  episodeId: z.coerce.number().int().positive().optional(),
+  part: z.coerce.number().int().min(0).optional(),
+})

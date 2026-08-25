@@ -16,6 +16,7 @@ import {
   GalleryFacetsQuerySchema,
   GalleryItemSchema,
   GalleryQuerySchema,
+  GetMediaFileQuerySchema,
   GrabReleaseInputSchema,
   HistoryQuerySchema,
   JobRequesterSchema,
@@ -367,3 +368,10 @@ export interface DeleteMediaFilesResponse {
   deletedCount: number
   mediaId: string
 }
+
+// ---- Phase 7: local save-to-device ----
+
+export type GetMediaFileQuery = z.infer<typeof GetMediaFileQuerySchema>
+
+// No response interface for `GET /download/media/:id/file` on purpose: it
+// answers with a raw byte stream (an attachment), not JSON.
