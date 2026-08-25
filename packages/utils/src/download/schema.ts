@@ -15,6 +15,21 @@ export enum DownloadJobStatus {
   Downloading = 'downloading',
   Failed = 'failed',
   Importing = 'importing',
+  /**
+   * Phase 5. Deliberately **not** in `TERMINAL_DOWNLOAD_JOB_STATUSES`
+   * (./types.ts): a paused job is still an open piece of work, so it stays on
+   * the Activity feed rather than dropping into history. The other half of
+   * that choice is that a paused job does *not* survive a restart -
+   * `reconcileInterruptedJobs()`
+   * (`apps/download/src/db/reconcile-interrupted-jobs.ts`) sweeps every
+   * non-terminal row to `failed` at boot, and that is intended: the partial
+   * file lives under `/download/videos`, which has no volume behind it, so
+   * there is nothing left to resume from.
+   */
+  Paused = 'paused',
+  /** Phase 5. Pause requested, not yet acknowledged - non-terminal for the
+   * same reasons as {@link DownloadJobStatus.Paused}. */
+  Pausing = 'pausing',
   Pending = 'pending',
   Requested = 'requested',
   Searching = 'searching',
