@@ -766,6 +766,40 @@ export class DownloadController {
     }
   }
 
+  /**
+   * Stops a running download without discarding what it has already fetched.
+   * No admin gate, matching cancel: whoever can start a video download can
+   * interrupt one.
+   */
+  @Patch('/videos/:id/pause')
+  async pauseVideoJob(
+    @Param('id') id: string,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<DownloadJob> {
+    return this.videoInterruptRoute({
+      action: 'pauseVideoJob',
+      id,
+      run: () => this.downloadService.pauseVideoDownloadJob(id),
+      user,
+      verb: 'pause',
+    })
+  }
+
+  /** Puts a paused job back on the queue. */
+  @Patch('/videos/:id/resume')
+  async resumeVideoJob(
+    @Param('id') id: string,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<DownloadJob> {
+    return this.videoInterruptRoute({
+      action: 'resumeVideoJob',
+      id,
+      run: () => this.downloadService.resumeVideoDownloadJob(id),
+      user,
+      verb: 'resume',
+    })
+  }
+
   @Get('/movies/search')
   async searchMovies(
     @Query() query: MediaSearchQueryDto,
@@ -942,6 +976,88 @@ export class DownloadController {
       run: () => this.mediaDownloadService.deleteShowJob(id),
       user,
     })
+  }
+
+  /**
+   * The pause and resume routes, which differ only in which service method
+   * they call.
+   *
+   * Deliberately does **not** copy `cancelVideoJob`'s catch block, which
+   * rewrites every failure into a 404. That is survivable for cancel, whose
+   * service method only ever throws bare `Error`s, but it would be actively
+   * wrong here: `pauseVideoDownloadJob`/`resumeVideoDownloadJob` raise real
+   * HTTP exceptions, and reporting "this job isn't downloading right now"
+   * (409) as "job not found" (404) would tell a UI to drop a job that is
+   * alive and well. The failure is logged and re-thrown untouched, leaving
+   * Nest's exception filter to map it honestly - the same reasoning as
+   * `releaseActionRoute()` and `deleteMediaFiles()`.
+   */
+  private async videoInterruptRoute({
+    action,
+    id,
+    run,
+    user,
+    verb,
+  }: {
+    action: string
+    id: string
+    run: () => Promise<DownloadJob>
+    user: ForwardedUser | undefined
+    verb: 'pause' | 'resume'
+  }): Promise<DownloadJob> {
+    const startTime = Date.now()
+
+    this.logger.log(
+      {
+        action,
+        jobId: id,
+        totalJobs: this.downloadStateService.jobs.size,
+        inProgressJobs: this.downloadStateService.inProgressJobs.size,
+      },
+      `PATCH /videos/:id/${verb} - handling video job ${verb} request`,
+    )
+
+    try {
+      const [job, isAdmin] = await Promise.all([
+        run(),
+        this.resolveIsAdmin(user),
+      ])
+
+      this.logger.log(
+        {
+          action,
+          jobId: id,
+          mediaId: job.media.id,
+          newStatus: job.status,
+          duration: Date.now() - startTime,
+          statusCode: HttpStatus.OK,
+          inProgressJobs: this.downloadStateService.inProgressJobs.size,
+        },
+        `Video job ${verb} request accepted`,
+      )
+
+      return projectJobForViewer(job, isAdmin)
+    } catch (err) {
+      this.logger.warn(
+        {
+          action,
+          jobId: id,
+          error: err instanceof Error ? err.message : String(err),
+          duration: Date.now() - startTime,
+          // The status the caller will actually see, since the error is
+          // re-thrown as-is - a 409/400/404 from the service, or a 500 for
+          // anything that isn't an HttpException at all.
+          statusCode:
+            err instanceof HttpException
+              ? err.getStatus()
+              : HttpStatus.INTERNAL_SERVER_ERROR,
+          inProgressJobs: this.downloadStateService.inProgressJobs.size,
+        },
+        `Failed to ${verb} video job`,
+      )
+
+      throw err
+    }
   }
 
   /**
