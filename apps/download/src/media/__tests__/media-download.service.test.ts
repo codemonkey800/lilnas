@@ -15,6 +15,7 @@ import {
   DownloadType,
   Media,
   type Release,
+  type ShowScope,
 } from '@lilnas/utils/download/types'
 import { Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
@@ -81,7 +82,17 @@ describe('MediaDownloadService', () => {
       getQueue: jest.fn(),
       getReleases: jest.fn(),
       grabRelease: jest.fn(),
+      // The real one is a no-op for a season-only/empty scope and fills in
+      // the display fields for an episode scope - mirrored here so a test
+      // that passes an episode id gets a realistically resolved scope back.
+      resolveScope: jest.fn(async (scope: ShowScope) =>
+        scope.episodeId != null
+          ? { episodeId: scope.episodeId, episodeNumber: 5, seasonNumber: 3 }
+          : scope,
+      ),
       search: jest.fn(),
+      triggerEpisodeSearch: jest.fn(),
+      triggerSeasonSearch: jest.fn(),
       triggerSearch: jest.fn(),
       unmonitorAndDelete: jest.fn(),
     }
@@ -246,6 +257,97 @@ describe('MediaDownloadService', () => {
       expect(job.status).toBe(DownloadJobStatus.Failed)
       expect(job.error).toBe('sonarr down')
     })
+
+    // The no-regression guarantee: an unscoped request must be exactly what
+    // it was before Phase 4 - bare ensureSeries, generic command, no
+    // resolution round trip, no scope on the job.
+    it('leaves an unscoped request untouched by Phase 4', async () => {
+      const job = await service.requestShow(456)
+
+      expect(sonarrService.ensureSeries).toHaveBeenCalledWith(456)
+      expect(sonarrService.resolveScope).not.toHaveBeenCalled()
+      expect(sonarrService.triggerEpisodeSearch).not.toHaveBeenCalled()
+      expect(sonarrService.triggerSeasonSearch).not.toHaveBeenCalled()
+      expect(job.scope).toBeUndefined()
+    })
+  })
+
+  describe('requestShow with a scope', () => {
+    it('runs an EpisodeSearch and stores the resolved scope on the job', async () => {
+      const job = await service.requestShow(456, null, { episodeId: 4412 })
+
+      expect(sonarrService.triggerEpisodeSearch).toHaveBeenCalledWith([4412])
+      expect(sonarrService.triggerSearch).not.toHaveBeenCalled()
+      // Resolved, not as supplied: `episodeNumber` is what makes an
+      // activity row able to say "S03E05" without a second lookup.
+      expect(job.scope).toEqual({
+        episodeId: 4412,
+        episodeNumber: 5,
+        seasonNumber: 3,
+      })
+    })
+
+    it('runs a SeasonSearch for a season-only scope', async () => {
+      const job = await service.requestShow(456, null, { seasonNumber: 3 })
+
+      expect(sonarrService.triggerSeasonSearch).toHaveBeenCalledWith(9, 3)
+      expect(sonarrService.triggerEpisodeSearch).not.toHaveBeenCalled()
+      expect(job.scope).toEqual({ seasonNumber: 3 })
+    })
+
+    // Season 0 is specials - a truthiness check would silently widen this
+    // to a whole-series search.
+    it('runs a SeasonSearch for season 0', async () => {
+      await service.requestShow(456, null, { seasonNumber: 0 })
+
+      expect(sonarrService.triggerSeasonSearch).toHaveBeenCalledWith(9, 0)
+      expect(sonarrService.triggerSearch).not.toHaveBeenCalled()
+    })
+
+    // Narrowest wins: an episode id beats a season number.
+    it('prefers EpisodeSearch when the scope names both', async () => {
+      await service.requestShow(456, null, { episodeId: 4412, seasonNumber: 3 })
+
+      expect(sonarrService.triggerEpisodeSearch).toHaveBeenCalledWith([4412])
+      expect(sonarrService.triggerSeasonSearch).not.toHaveBeenCalled()
+    })
+
+    it('asks ensureSeries to monitor only the scoped episodes', async () => {
+      const scope = { seasonNumber: 3 }
+
+      await service.requestShow(456, null, scope)
+
+      expect(sonarrService.ensureSeries).toHaveBeenCalledWith(456, {
+        monitorEpisodes: scope,
+      })
+    })
+
+    it('mints the job with the requested scope before submit resolves it', async () => {
+      const created: DownloadJobRecord[] = []
+      jest.spyOn(downloadStateService, 'addJob').mockImplementation(function (
+        this: DownloadStateService,
+        record,
+      ) {
+        created.push(record)
+        return DownloadStateService.prototype.addJob.call(this, record)
+      })
+
+      await service.requestShow(456, null, { episodeId: 4412 })
+
+      // The `created` broadcast already carries a scope, so a subscriber
+      // never sees a scoped request as a whole-series one.
+      expect(created[0]?.scope).toEqual({ episodeId: 4412 })
+    })
+
+    it('fails the job when the episode id cannot be resolved', async () => {
+      sonarrService.resolveScope.mockRejectedValue(new Error('no such episode'))
+
+      const job = await service.requestShow(456, null, { episodeId: 9999 })
+
+      expect(job.status).toBe(DownloadJobStatus.Failed)
+      expect(job.error).toBe('no such episode')
+      expect(sonarrService.triggerEpisodeSearch).not.toHaveBeenCalled()
+    })
   })
 
   // The whole point of Phase 3's enforcement: a title with flagged releases
@@ -352,6 +454,43 @@ describe('MediaDownloadService', () => {
 
       expect(sonarrService.triggerSearch).not.toHaveBeenCalled()
       expect(sonarrService.grabRelease).toHaveBeenCalledWith('indexer://ok', 1)
+    })
+
+    // The flagged branch was already scope-capable - `getReleases` has
+    // taken a scope since Phase 3, so only the argument changed.
+    it('narrows the release fetch to the scope on a flagged, scoped request', async () => {
+      flag('tvdb:456', 'indexer://bad')
+      sonarrService.getReleases.mockResolvedValue([
+        release({ guid: 'indexer://ok' }),
+      ])
+
+      const job = await service.requestShow(456, null, { episodeId: 4412 })
+
+      expect(sonarrService.getReleases).toHaveBeenCalledWith(9, {
+        episodeId: 4412,
+        episodeNumber: 5,
+        seasonNumber: 3,
+      })
+      expect(sonarrService.triggerEpisodeSearch).not.toHaveBeenCalled()
+      expect(sonarrService.grabRelease).toHaveBeenCalledWith('indexer://ok', 1)
+      // The scope still lands on the job on the flagged path.
+      expect(job.scope).toEqual({
+        episodeId: 4412,
+        episodeNumber: 5,
+        seasonNumber: 3,
+      })
+    })
+
+    // The unscoped flagged path keeps calling getReleases with one arg.
+    it('leaves the unscoped flagged fetch unscoped', async () => {
+      flag('tvdb:456', 'indexer://bad')
+      sonarrService.getReleases.mockResolvedValue([
+        release({ guid: 'indexer://ok' }),
+      ])
+
+      await service.requestShow(456)
+
+      expect(sonarrService.getReleases).toHaveBeenCalledWith(9)
     })
   })
 
