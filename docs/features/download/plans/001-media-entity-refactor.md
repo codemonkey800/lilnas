@@ -1,5 +1,9 @@
 # Media Entity Refactor — `apps/download`
 
+**Status:** ✅ Complete (implementation) — remaining unchecked items are
+production deploy/verification steps and pieces explicitly deferred to later
+phases, not outstanding work.
+
 ## Context
 
 Phase 2 of the download backend shipped, but the type model underneath it is

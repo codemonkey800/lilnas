@@ -1,5 +1,7 @@
 # Phase 3 — File Selection, Replacement & Bad-File Reporting — `apps/download`
 
+**Status:** ✅ Complete — all tasks checked off.
+
 Implements Phase 3 of [`../backend.md`](../backend.md) (spec:
 [`../spec.md`](../spec.md) §6). Builds on the media entity refactor
 ([`001-media-entity-refactor.md`](001-media-entity-refactor.md)) — every shape
