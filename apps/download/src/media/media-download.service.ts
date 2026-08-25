@@ -7,6 +7,7 @@ import {
   JobRequester,
   Media,
   type Release,
+  type ShowScope,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
@@ -40,6 +41,19 @@ function assertJobMediaType(
   }
 
   return job
+}
+
+/**
+ * What a `submit()` can hand back to `request()`. Only ever used to replace
+ * the scope the caller asked for with the *resolved* one, once `submit` has
+ * been upstream and filled in the display fields.
+ *
+ * Returned rather than written directly so `request()` stays the only place
+ * that touches `DownloadStateService`, and so the resolution rides along on
+ * the same `updateJob` that moves the job to `Searching`.
+ */
+export interface RequestSubmitResult {
+  scope?: ShowScope
 }
 
 /**
@@ -109,9 +123,20 @@ export class MediaDownloadService {
     })
   }
 
+  /**
+   * Requests a show, optionally narrowed to one season or one episode.
+   *
+   * With no `scope` this is byte-for-byte the pre-Phase-4 path: bare
+   * `ensureSeries`, `SeriesSearch`, no scope-resolution round trip and no
+   * `scope` on the job. `ensureSeries` deliberately keeps receiving *no*
+   * options in that case - a user who has monitored just season 3 and then
+   * re-requests the show must not silently get all ten seasons switched on
+   * (see `EnsureSeriesOptions`).
+   */
   async requestShow(
     tvdbId: number,
     requester?: JobRequester | null,
+    scope?: ShowScope,
   ): Promise<DownloadJob> {
     const jobMediaId = mediaId({ tvdbId, type: DownloadType.Show })
 
@@ -119,25 +144,68 @@ export class MediaDownloadService {
       action: 'requestShow',
       mediaId: jobMediaId,
       requester,
+      scope,
       submit: async () => {
-        const { sonarrId } = await this.sonarrService.ensureSeries(tvdbId)
+        const { sonarrId } = scope
+          ? await this.sonarrService.ensureSeries(tvdbId, {
+              monitorEpisodes: scope,
+            })
+          : await this.sonarrService.ensureSeries(tvdbId)
+
+        // Resolved *after* `ensureSeries`, not before: an episode id can't
+        // exist for a series Sonarr has never seen, so resolving first
+        // would fail on the one path (a fresh add) where the series has to
+        // be created before anything about it can be looked up.
+        const resolved = scope
+          ? await this.sonarrService.resolveScope(scope)
+          : undefined
+
         const flagged = this.flaggedGuids(jobMediaId)
 
         if (flagged.size === 0) {
-          await this.sonarrService.triggerSearch(sonarrId)
-          return
+          await this.triggerScopedSearch(sonarrId, resolved)
+          return { scope: resolved }
         }
 
         const release = this.pickUnflaggedRelease(
           jobMediaId,
-          await this.sonarrService.getReleases(sonarrId),
+          resolved
+            ? await this.sonarrService.getReleases(sonarrId, resolved)
+            : await this.sonarrService.getReleases(sonarrId),
           flagged,
         )
         await this.sonarrService.grabRelease(release.guid, release.indexerId)
+
+        return { scope: resolved }
       },
       type: DownloadType.Show,
       upstreamId: tvdbId,
     })
+  }
+
+  /**
+   * Picks the narrowest search command the scope allows: one episode, one
+   * season, or the whole series. Only reached when the title has no flagged
+   * releases - once it does, this app picks the release itself, because none
+   * of these commands can be told "anything but that one".
+   */
+  private async triggerScopedSearch(
+    sonarrId: number,
+    scope: ShowScope | undefined,
+  ): Promise<void> {
+    if (scope?.episodeId != null) {
+      return this.sonarrService.triggerEpisodeSearch([scope.episodeId])
+    }
+
+    // `!= null`, not truthiness - season 0 is Sonarr's specials season.
+    if (scope?.seasonNumber != null) {
+      return this.sonarrService.triggerSeasonSearch(
+        sonarrId,
+        scope.seasonNumber,
+      )
+    }
+
+    return this.sonarrService.triggerSearch(sonarrId)
   }
 
   /**
@@ -228,6 +296,7 @@ export class MediaDownloadService {
     action,
     mediaId: jobMediaId,
     requester,
+    scope,
     submit,
     type,
     upstreamId,
@@ -235,7 +304,14 @@ export class MediaDownloadService {
     action: string
     mediaId: string
     requester?: JobRequester | null
-    submit: () => Promise<unknown>
+    /**
+     * The scope this job was asked for, as the caller supplied it. Written
+     * at mint time so the `created` broadcast is already correct; `submit`
+     * can hand back a *resolved* version (with the display fields filled
+     * in) to replace it.
+     */
+    scope?: ShowScope
+    submit: () => Promise<RequestSubmitResult | void>
     type: DownloadType
     upstreamId: number
   }): Promise<DownloadJob> {
@@ -251,6 +327,7 @@ export class MediaDownloadService {
       id,
       mediaId: jobMediaId,
       requester: requester ?? null,
+      scope,
       status: DownloadJobStatus.Requested,
       type,
       updatedAt: now,
@@ -260,10 +337,14 @@ export class MediaDownloadService {
     this.logger.log({ action, jobId: id, upstreamId }, 'Requesting download')
 
     try {
-      await submit()
+      const result = await submit()
 
       return this.downloadStateService.hydrateOne(
         this.downloadStateService.updateJob(id, {
+          // Folded into the same write that moves the job to Searching
+          // rather than a second update - one broadcast, not two, for what
+          // is one state change.
+          ...(result?.scope ? { scope: result.scope } : {}),
           status: DownloadJobStatus.Searching,
         }),
       )
