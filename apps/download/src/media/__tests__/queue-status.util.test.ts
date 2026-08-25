@@ -1,6 +1,7 @@
 import { DownloadJobStatus } from '@lilnas/utils/download/types'
 
 import {
+  aggregateQueueItems,
   deriveStatusFromQueueItem,
   describeQueueItemError,
   isQueueSnapshotEqual,
@@ -142,5 +143,123 @@ describe('deriveStatusFromQueueItem', () => {
         deriveStatusFromQueueItem(DownloadJobStatus.Searching, { status }),
       ).toBe(DownloadJobStatus.Downloading)
     }
+  })
+})
+
+describe('aggregateQueueItems', () => {
+  // The same thing `queue.find()` returned for "no entry", so
+  // deriveStatusFromQueueItem's existing no-entry branch keeps working.
+  it('returns undefined for an empty list', () => {
+    expect(aggregateQueueItems([])).toBeUndefined()
+  })
+
+  it('returns the single item untouched', () => {
+    const item = { size: 100, sizeleft: 40, status: 'downloading' }
+
+    expect(aggregateQueueItems([item])).toBe(item)
+  })
+
+  it('sums size and sizeleft across every match', () => {
+    const aggregate = aggregateQueueItems([
+      { size: 100, sizeleft: 40 },
+      { size: 200, sizeleft: 10 },
+      { size: 50, sizeleft: 0 },
+    ])
+
+    expect(aggregate).toMatchObject({ size: 350, sizeleft: 50 })
+    // Progress is over the whole scope, not over one episode.
+    expect(toQueueSnapshot(aggregate!).progress).toBeCloseTo(85.71, 1)
+  })
+
+  // One failed episode has to surface as a failure rather than being
+  // averaged away by nine healthy ones.
+  it('lets a single failed item dominate everything else', () => {
+    const aggregate = aggregateQueueItems([
+      { size: 1, sizeleft: 0, trackedDownloadState: 'importing' },
+      { size: 1, sizeleft: 1, status: 'downloading' },
+      { size: 1, sizeleft: 1, status: 'failed' },
+    ])
+
+    expect(
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
+    ).toBe(DownloadJobStatus.Failed)
+  })
+
+  // The bug this whole function exists to prevent: a season must not report
+  // "Importing" while half of it is still on the wire.
+  it('ranks downloading above importing', () => {
+    const aggregate = aggregateQueueItems([
+      { trackedDownloadState: 'importing' },
+      { status: 'queued' },
+    ])
+
+    expect(
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
+    ).toBe(DownloadJobStatus.Downloading)
+  })
+
+  it('reports Importing only when every match is importing', () => {
+    const aggregate = aggregateQueueItems([
+      { trackedDownloadState: 'importing' },
+      { trackedDownloadState: 'imported' },
+    ])
+
+    expect(
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
+    ).toBe(DownloadJobStatus.Importing)
+  })
+
+  // The item that finishes last is the one that answers "when is this done".
+  it('takes timeleft and estimatedCompletionTime from the largest sizeleft', () => {
+    expect(
+      aggregateQueueItems([
+        {
+          estimatedCompletionTime: '2026-08-20T12:05:00Z',
+          sizeleft: 10,
+          timeleft: '00:05:00',
+        },
+        {
+          estimatedCompletionTime: '2026-08-20T12:40:00Z',
+          sizeleft: 900,
+          timeleft: '00:40:00',
+        },
+        {
+          estimatedCompletionTime: '2026-08-20T12:10:00Z',
+          sizeleft: 100,
+          timeleft: '00:10:00',
+        },
+      ]),
+    ).toMatchObject({
+      estimatedCompletionTime: '2026-08-20T12:40:00Z',
+      timeleft: '00:40:00',
+    })
+  })
+
+  it('concatenates statusMessages so every failure is still reported', () => {
+    const aggregate = aggregateQueueItems([
+      { statusMessages: [{ messages: ['disk full'], title: 'a' }] },
+      { statusMessages: null },
+      { statusMessages: [{ messages: ['no matching series'], title: 'b' }] },
+    ])
+
+    expect(describeQueueItemError(aggregate!)).toBe(
+      'disk full; no matching series',
+    )
+  })
+
+  it('leaves statusMessages undefined when no match had any', () => {
+    const aggregate = aggregateQueueItems([
+      { sizeleft: 1 },
+      { statusMessages: null },
+    ])
+
+    expect(aggregate?.statusMessages).toBeUndefined()
+    expect(describeQueueItemError(aggregate!)).toBeUndefined()
+  })
+
+  it('treats a missing size/sizeleft as zero rather than NaN', () => {
+    expect(
+      aggregateQueueItems([{ status: 'queued' }, { size: 10 }]),
+    ).toMatchObject({ size: 10, sizeleft: 0 })
   })
 })
