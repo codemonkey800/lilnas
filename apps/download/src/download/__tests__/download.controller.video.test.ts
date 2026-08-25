@@ -20,6 +20,7 @@ import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { ReleaseService } from 'src/media/release.service'
+import { ShowService } from 'src/media/show.service'
 
 import { buildJob, buildVideo } from './helpers/job-fixtures'
 
@@ -74,10 +75,12 @@ describe('DownloadController - video endpoints', () => {
         { provide: JobQueryService, useValue: {} },
         { provide: MediaDownloadService, useValue: {} },
         { provide: MediaResolverService, useValue: { resolve: jest.fn() } },
-        // Phase 3: DownloadController injects ReleaseService for the release
-        // and bad-file routes. Unused by this file's routes, but DI still has
+        // Phase 3/4: DownloadController injects ReleaseService for the
+        // release and bad-file routes and ShowService for the seasons and
+        // file-delete routes. Unused by this file's routes, but DI still has
         // to satisfy the constructor.
         { provide: ReleaseService, useValue: {} },
+        { provide: ShowService, useValue: {} },
       ],
     }).compile()
 

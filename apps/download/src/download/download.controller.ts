@@ -1,6 +1,7 @@
 import {
   ActivityQuerySchema,
   CreateDownloadJobInputSchema,
+  DeleteMediaFilesQuerySchema,
   DiscoverQuerySchema,
   FlagBadFileInputSchema,
   GalleryFacetsQuerySchema,
@@ -14,6 +15,7 @@ import {
   RequestShowInputSchema,
 } from '@lilnas/utils/download/schema'
 import type {
+  DeleteMediaFilesResponse,
   DiscoveryPage,
   DownloadGalleryFacets,
   DownloadJob,
@@ -23,6 +25,7 @@ import type {
   GalleryItem,
   ListBadFilesResponse,
   ListReleasesResponse,
+  ListSeasonsResponse,
   MediaDetailResponse,
   SearchMediaResponse,
 } from '@lilnas/utils/download/types'
@@ -54,6 +57,7 @@ import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { ReleaseService } from 'src/media/release.service'
+import { ShowService } from 'src/media/show.service'
 
 import { projectJobForViewer } from './attribution'
 import { DownloadService } from './download.service'
@@ -62,6 +66,9 @@ import { JobQueryService } from './job-query.service'
 
 class ActivityQueryDto extends createZodDto(ActivityQuerySchema) {}
 class CreateJobInputDto extends createZodDto(CreateDownloadJobInputSchema) {}
+class DeleteMediaFilesQueryDto extends createZodDto(
+  DeleteMediaFilesQuerySchema,
+) {}
 class DiscoverQueryDto extends createZodDto(DiscoverQuerySchema) {}
 class FlagBadFileInputDto extends createZodDto(FlagBadFileInputSchema) {}
 class GalleryFacetsQueryDto extends createZodDto(GalleryFacetsQuerySchema) {}
@@ -87,6 +94,7 @@ export class DownloadController {
     private mediaDownloadService: MediaDownloadService,
     private mediaResolverService: MediaResolverService,
     private releaseService: ReleaseService,
+    private showService: ShowService,
   ) {}
 
   // No forwarded identity (e.g. apps/tdr-bot's DownloadClient.dockerInstance
@@ -408,6 +416,88 @@ export class DownloadController {
     )
 
     return { releases }
+  }
+
+  /**
+   * A series' seasons and their episodes, with each episode's file and
+   * monitoring state - what a detail page needs to offer per-episode and
+   * per-season actions.
+   *
+   * No identity param and no masking, like `GET /media/:id/releases`: a
+   * season list carries no attribution.
+   *
+   * Unlike the releases route this one does **not** write upstream. A show
+   * that isn't in the library 404s rather than being added, because adding a
+   * series as a side effect of a GET would be a genuine surprise.
+   */
+  @Get('/media/:id/seasons')
+  async listSeasons(@Param('id') id: string): Promise<ListSeasonsResponse> {
+    const action = 'listSeasons'
+    const startTime = Date.now()
+
+    const seasons = await this.showService.listSeasons(id)
+
+    this.logger.log(
+      {
+        action,
+        duration: Date.now() - startTime,
+        episodeCount: seasons.reduce((n, s) => n + s.episodes.length, 0),
+        mediaId: id,
+        resultCount: seasons.length,
+        statusCode: HttpStatus.OK,
+      },
+      'GET /media/:id/seasons - listed seasons and episodes',
+    )
+
+    return { seasons }
+  }
+
+  /**
+   * Deletes the files a scope names - one episode, one season, or every file
+   * of the title - and unmonitors that same scope so Sonarr doesn't treat
+   * the result as a missing episode and re-grab it.
+   *
+   * **Removes files, not the library entry.** The series/movie stays in
+   * Sonarr/Radarr and existing jobs keep their history; removing a title
+   * outright is still `DELETE /shows/:jobId` / `DELETE /movies/:jobId`.
+   *
+   * Deliberately **not** `mediaJobRoute()`: that helper turns every failure
+   * into a 404, which would report a movie-with-scope `BadRequestException`
+   * as "not found". What the service throws is left to Nest's exception
+   * filter to map honestly.
+   */
+  @Delete('/media/:id/files')
+  async deleteMediaFiles(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(DeleteMediaFilesQueryDto))
+    query: DeleteMediaFilesQueryDto,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<DeleteMediaFilesResponse> {
+    const action = 'deleteMediaFiles'
+    const startTime = Date.now()
+
+    const deletedCount = await this.showService.deleteFiles(id, {
+      episodeId: query.episodeId,
+      seasonNumber: query.seasonNumber,
+    })
+
+    this.logger.log(
+      {
+        action,
+        deletedCount,
+        duration: Date.now() - startTime,
+        episodeId: query.episodeId,
+        mediaId: id,
+        // Not masked and not used for authorization - a delete is an action
+        // someone took, and the log is the only place it's recorded.
+        requestedBy: user?.email ?? null,
+        seasonNumber: query.seasonNumber,
+        statusCode: HttpStatus.OK,
+      },
+      'DELETE /media/:id/files - deleted files and unmonitored the scope',
+    )
+
+    return { deletedCount, mediaId: id }
   }
 
   // @OptionalCurrentUser() rather than a guard, matching POST /movies: a
@@ -771,25 +861,55 @@ export class DownloadController {
     return { results }
   }
 
+  /**
+   * `episodeId`/`seasonNumber` are both optional and narrow the request to
+   * one episode or one season; omitting them requests the whole series, and
+   * that path is byte-for-byte what it was before Phase 4. Both are logged
+   * so a scoped request is greppable.
+   */
   @Post('/shows')
   async requestShow(
     @Body() input: RequestShowInputDto,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
   ): Promise<DownloadJob> {
     const action = 'requestShow'
+    // Keys omitted rather than set to `undefined`, so the scope persisted on
+    // the job is `{"seasonNumber":3}` rather than carrying a null episodeId.
+    const scope =
+      input.episodeId != null || input.seasonNumber != null
+        ? {
+            ...(input.episodeId != null ? { episodeId: input.episodeId } : {}),
+            ...(input.seasonNumber != null
+              ? { seasonNumber: input.seasonNumber }
+              : {}),
+          }
+        : undefined
 
     this.logger.log(
-      { action, tvdbId: input.tvdbId, hasRequester: !!user },
+      {
+        action,
+        episodeId: input.episodeId,
+        hasRequester: !!user,
+        seasonNumber: input.seasonNumber,
+        tvdbId: input.tvdbId,
+      },
       'POST /shows - Requesting show download',
     )
 
     const [job, isAdmin] = await Promise.all([
-      this.mediaDownloadService.requestShow(input.tvdbId, user),
+      this.mediaDownloadService.requestShow(input.tvdbId, user, scope),
       this.resolveIsAdmin(user),
     ])
 
     this.logger.log(
-      { action, jobId: job.id, tvdbId: input.tvdbId, status: job.status },
+      {
+        action,
+        episodeId: input.episodeId,
+        jobId: job.id,
+        seasonNumber: input.seasonNumber,
+        status: job.status,
+        tvdbId: input.tvdbId,
+      },
       'Show download requested',
     )
 
