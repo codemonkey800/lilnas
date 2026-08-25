@@ -26,6 +26,7 @@ import { DbService } from 'src/db/db.service'
 import { mediaIdSuffix } from 'src/db/media-id'
 import type { BadFileRow } from 'src/db/schema'
 
+import { resolveEpisodeFileIds } from './episode-files.util'
 import { MediaDownloadService } from './media-download.service'
 import { MediaResolverService } from './media-resolver.service'
 import { RadarrService } from './radarr.service'
@@ -312,36 +313,14 @@ export class ReleaseService {
       return fileIds.length
     }
 
-    // Sonarr's episode-file list carries `seasonNumber` but no episode id, so
-    // a single-episode scope has to go the other way round: find the episode,
-    // then delete the file it points at.
-    if (scope.episodeId != null) {
-      const episodes = await this.sonarrService.getEpisodes(upstreamId, {
-        seasonNumber: scope.seasonNumber,
-      })
-      // `episodeFileId: 0` is Sonarr's "no file", so truthiness is the right
-      // check here rather than a null guard.
-      const fileId = episodes.find(
-        episode => episode.id === scope.episodeId,
-      )?.episodeFileId
-
-      if (!fileId) {
-        return 0
-      }
-
-      await this.sonarrService.deleteEpisodeFile(fileId)
-      return 1
-    }
-
-    const files = await this.sonarrService.getEpisodeFiles(upstreamId)
-    const fileIds = files
-      .filter(
-        file =>
-          scope.seasonNumber == null ||
-          file.seasonNumber === scope.seasonNumber,
-      )
-      .map(file => file.id)
-      .filter((id): id is number => id != null)
+    // Which files a scope names is shared with `ShowService.deleteFiles` -
+    // see `resolveEpisodeFileIds` for why that resolution is asymmetric
+    // between an episode scope and a season/series one.
+    const fileIds = await resolveEpisodeFileIds(
+      this.sonarrService,
+      upstreamId,
+      scope,
+    )
 
     for (const id of fileIds) {
       await this.sonarrService.deleteEpisodeFile(id)
