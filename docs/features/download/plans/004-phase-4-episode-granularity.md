@@ -1,5 +1,12 @@
 # Phase 4 — Per-Episode & Per-Season Granularity — `apps/download`
 
+**Status:** ✅ Complete (implementation) — all 12 tasks checked off, none
+narrowed or dropped. The remaining work is the four
+[human checkpoints](#human-checkpoints): the two Sonarr command names are
+still unverified against a live instance, as is the season-level `monitored`
+interaction, and neither the manual verification block nor the deploy has
+been run.
+
 Implements Phase 4 of [`../backend.md`](../backend.md) (spec:
 [`../spec.md`](../spec.md) §4; user stories 35–41). Builds on the media entity
 refactor ([`001-media-entity-refactor.md`](001-media-entity-refactor.md)) and
@@ -1007,12 +1014,82 @@ The executor must **not** do any of these. Stop and hand back.
 
 ## Final report
 
-When the last box is checked, report:
+### 1. Per-task outcome
 
-1. **Per-task outcome**, with commit hashes, in task-id order.
-2. **Test results** — per package (`apps/download`, `packages/utils`) and
-   repo-wide `lint` / `type-check` / `build`.
-3. **Deviations from the plan**, and why — especially anything the two
-   unverified command names forced.
-4. **Deferred items**, including every human checkpoint still outstanding.
-5. **Open questions** discovered during implementation.
+Every task landed as specified; none were narrowed or dropped.
+
+| Task | Commit     | Outcome                                                   |
+| ---- | ---------- | --------------------------------------------------------- |
+| A1   | `d7fe301e` | Wire contract + schema tests in `packages/utils`          |
+| A2   | `4dfbec3a` | `jobs.scope`, migration 0006 (hand-edited — see Findings) |
+| B1   | `144c96ff` | `toEpisode`/`toSeason`, `getSeriesById`, `listSeasons`    |
+| B2   | `64504e66` | Scoped commands, `resolveScope`, `unmonitorScope`         |
+| C1   | `7627d1cd` | `resolveEpisodeFileIds`; release tests unchanged          |
+| C2   | `3d45f7e2` | `ShowService`, registered + exported in `media.module.ts` |
+| C3   | `79156215` | Scoped `requestShow`; unscoped path byte-identical        |
+| C4   | `1c7f6eda` | Scope on grab; `replaceRelease` via shared `runGrab`      |
+| D1   | `b49bdc0d` | `aggregateQueueItems` + scope matching in `pollShows`     |
+| E1   | `2a06663e` | Three routes + `ShowService` in six test modules          |
+| F1   | `6dd7f18b` | DI-graph and migration-restart coverage                   |
+| F2   | `ac07b67e` | `backend.md` rewrite; `3bd91aab`/`80fb5622` follow-ups    |
+
+Two commits outside the task list: `02e1759a` (pre-existing `ytdlp-update`
+test breakage — see Findings under F2) and `80fb5622` (corrected an
+overstated claim about how the command names fail).
+
+### 2. Test results
+
+| Check                          | Result                                              |
+| ------------------------------ | --------------------------------------------------- |
+| `packages/utils` — `pnpm test` | ✅ 164/164                                          |
+| `apps/download` — `pnpm test`  | ⚠️ 682 pass, 9 fail — all environmental (see below) |
+| Repo-wide `lint`               | ✅ 14/14 tasks                                      |
+| Repo-wide `type-check`         | ✅ 12/12 tasks                                      |
+| Repo-wide `build`              | ✅ 12/12, incl. forced uncached `apps/tdr-bot`      |
+
+The 9 failures are `ytdlp-update.integration.spec.ts`'s deliberately-real
+"True Integration Tests", which write to root-owned `/usr/bin/yt-dlp`. They
+need root on the host and are unrelated to this phase.
+
+### 3. Deviations from the plan
+
+1. **`submit()` now returns an optional `{ scope }`** (C3). The plan wanted
+   `request()` to write the scope at mint time _and_ `resolveScope` to run
+   after `ensureSeries`; those are incompatible, since resolution happens
+   inside `submit` once the job already exists. See C3's Findings.
+2. **Migration 0006 was hand-edited** (A2) — drizzle-kit generated SQL that
+   could not run at all. See A2's Findings.
+3. **`ShowScopeSchema` sits above `DownloadJobSchema`**, not under the Phase
+   4 banner, for a `const`-initialization-order reason. See A1's Findings.
+4. **Not orchestrated via sub-agents.** The executing session was configured
+   not to use the Agent tool, so the tasks were implemented serially in
+   wave order instead. Sequencing, file-collision rules and one-task-one-
+   commit were all still followed.
+
+Nothing was forced by the two unverified command names — they are isolated
+behind `triggerEpisodeSearch`/`triggerSeasonSearch` and change nothing else
+if a literal turns out to be wrong.
+
+### 4. Deferred
+
+Everything in [Out of scope](#out-of-scope) held: no frontend, no
+`DownloadClient` methods, no `ShowSchema` season summary, no bulk file
+delete, no unflag route. Additionally the season-level `monitored` flag is
+reported but never written.
+
+**All four [human checkpoints](#human-checkpoints) are outstanding**: the two
+command names, the season-monitored interaction, the manual verification
+block, and the deploy.
+
+### 5. Open questions
+
+- **Do `EpisodeSearch`/`SeasonSearch` bind their body fields?** The names
+  themselves fail loudly if wrong (Sonarr rejects an unknown command and the
+  message lands on the job). A wrong _body field_ name is the silent case.
+  `backend.md`'s verification block now shows how to check both from the API
+  rather than by watching Activity → Queue.
+- **Does Sonarr search monitored episodes inside an unmonitored season?** If
+  not, `postApiV3Seasonpass` needs wiring in. Untested either way.
+- **Should `GET /seasons` be cached?** It costs two Sonarr calls per request
+  with no caching, unlike the resolver's library cache. Fine at current
+  usage; worth revisiting when the frontend polls it.
