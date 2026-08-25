@@ -10,6 +10,7 @@ import {
   type DownloadJob,
   DownloadJobStatus,
   DownloadType,
+  type ShowScope,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { ConflictException, Logger, NotFoundException } from '@nestjs/common'
@@ -46,6 +47,7 @@ interface CapturedRequest {
   action: string
   mediaId: string
   requester?: { email: string; userId: string } | null
+  scope?: ShowScope
   type: DownloadType
   upstreamId: number
 }
@@ -81,6 +83,13 @@ describe('ReleaseService', () => {
       getEpisodes: jest.fn(),
       getReleases: jest.fn(),
       grabRelease: jest.fn(),
+      // Mirrors the real one: a no-op for a season-only scope, and the
+      // display fields filled in for an episode scope.
+      resolveScope: jest.fn(async (scope: ShowScope) =>
+        scope.episodeId != null
+          ? { episodeId: scope.episodeId, episodeNumber: 5, seasonNumber: 3 }
+          : scope,
+      ),
       setEpisodesMonitored: jest.fn(),
       setSeriesMonitored: jest.fn(),
     } as unknown as jest.Mocked<SonarrService>
@@ -109,8 +118,14 @@ describe('ReleaseService', () => {
         }
 
         try {
-          await submit()
-          return { ...base, status: DownloadJobStatus.Searching } as DownloadJob
+          // Mirrors `request()`'s own contract: a scope handed back by
+          // submit replaces the one the job was minted with.
+          const result = await submit()
+          return {
+            ...base,
+            scope: result?.scope ?? rest.scope,
+            status: DownloadJobStatus.Searching,
+          } as DownloadJob
         } catch (err) {
           return {
             ...base,
@@ -507,6 +522,126 @@ describe('ReleaseService', () => {
 
       expect(job.status).toBe(DownloadJobStatus.Failed)
       expect(radarrService.grabRelease).not.toHaveBeenCalled()
+    })
+  })
+
+  // `GrabReleaseInput` has carried episodeId/seasonNumber since Phase 3 -
+  // they scoped the monitoring borrow but never reached the job. Phase 4
+  // closes that.
+  describe('grabRelease - scope on the job', () => {
+    beforeEach(() => {
+      sonarrService.ensureSeries.mockResolvedValue({
+        series: {},
+        sonarrId: 9,
+        turnedOnEpisodeIds: [],
+        wasMonitored: true,
+      })
+    })
+
+    it('mints a show job with the requested scope and stores the resolved one', async () => {
+      const job = await service.grabRelease(
+        SHOW_ID,
+        { episodeId: 4412, guid: 'g', indexerId: 1, seasonNumber: 3 },
+        ALICE,
+      )
+
+      expect(captured?.scope).toEqual({ episodeId: 4412, seasonNumber: 3 })
+      expect(job.scope).toEqual({
+        episodeId: 4412,
+        episodeNumber: 5,
+        seasonNumber: 3,
+      })
+    })
+
+    it('carries a season-only scope through without a resolution round trip', async () => {
+      const job = await service.grabRelease(
+        SHOW_ID,
+        { guid: 'g', indexerId: 1, seasonNumber: 3 },
+        ALICE,
+      )
+
+      expect(job.scope).toEqual({ seasonNumber: 3 })
+    })
+
+    // Season 0 is specials - a truthiness check would drop it.
+    it('keeps a season-0 scope', async () => {
+      const job = await service.grabRelease(
+        SHOW_ID,
+        { guid: 'g', indexerId: 1, seasonNumber: 0 },
+        ALICE,
+      )
+
+      expect(job.scope).toEqual({ seasonNumber: 0 })
+    })
+
+    it('mints an unscoped job for a show grab naming neither', async () => {
+      const job = await service.grabRelease(
+        SHOW_ID,
+        { guid: 'g', indexerId: 1 },
+        ALICE,
+      )
+
+      expect(captured?.scope).toBeUndefined()
+      expect(job.scope).toBeUndefined()
+      expect(sonarrService.resolveScope).not.toHaveBeenCalled()
+    })
+
+    // The show-only fields on a movie key stay ignored exactly as they were
+    // before Phase 4 - starting to reject them would be an unrelated
+    // behavior change.
+    it('never puts a scope on a movie job, even when the body carries one', async () => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasMonitored: true,
+      })
+
+      const job = await service.grabRelease(
+        MOVIE_ID,
+        { episodeId: 4412, guid: 'g', indexerId: 1, seasonNumber: 3 },
+        ALICE,
+      )
+
+      expect(captured?.scope).toBeUndefined()
+      expect(job.scope).toBeUndefined()
+      expect(sonarrService.resolveScope).not.toHaveBeenCalled()
+    })
+
+    // The release is already grabbed by then; failing the caller over a
+    // display-numbering lookup would be the wrong trade.
+    it('falls back to the unresolved scope when resolveScope fails', async () => {
+      sonarrService.resolveScope.mockRejectedValue(new Error('sonarr down'))
+
+      const job = await service.grabRelease(
+        SHOW_ID,
+        { episodeId: 4412, guid: 'g', indexerId: 1 },
+        ALICE,
+      )
+
+      expect(job.status).toBe(DownloadJobStatus.Searching)
+      expect(job.scope).toEqual({ episodeId: 4412 })
+      expect(sonarrService.grabRelease).toHaveBeenCalled()
+    })
+
+    // replaceRelease shares runGrab(), so it gets this for free - asserted
+    // rather than assumed.
+    it('applies to replaceRelease through the shared runGrab', async () => {
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+      ])
+
+      const job = await service.replaceRelease(
+        SHOW_ID,
+        { episodeId: 4412, guid: 'g', indexerId: 1, seasonNumber: 3 },
+        ALICE,
+      )
+
+      expect(job.scope).toEqual({
+        episodeId: 4412,
+        episodeNumber: 5,
+        seasonNumber: 3,
+      })
+      expect(sonarrService.deleteEpisodeFile).toHaveBeenCalledWith(991)
     })
   })
 
