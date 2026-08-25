@@ -7,6 +7,7 @@ jest.mock('@lilnas/media/sonarr', () => ({
   deleteApiV3QueueById: jest.fn(),
   deleteApiV3SeriesById: jest.fn(),
   getApiV3Episode: jest.fn(),
+  getApiV3EpisodeById: jest.fn(),
   getApiV3Episodefile: jest.fn(),
   getApiV3Qualityprofile: jest.fn(),
   getApiV3Queue: jest.fn(),
@@ -27,6 +28,7 @@ import {
   deleteApiV3QueueById,
   deleteApiV3SeriesById,
   getApiV3Episode,
+  getApiV3EpisodeById,
   getApiV3Episodefile,
   getApiV3Qualityprofile,
   getApiV3Queue,
@@ -58,6 +60,7 @@ const mockDeleteApiV3QueueById = deleteApiV3QueueById as jest.Mock
 const mockGetApiV3Release = getApiV3Release as jest.Mock
 const mockPostApiV3Release = postApiV3Release as jest.Mock
 const mockGetApiV3Episode = getApiV3Episode as jest.Mock
+const mockGetApiV3EpisodeById = getApiV3EpisodeById as jest.Mock
 const mockGetApiV3Episodefile = getApiV3Episodefile as jest.Mock
 const mockDeleteApiV3EpisodefileById = deleteApiV3EpisodefileById as jest.Mock
 const mockPutApiV3SeriesById = putApiV3SeriesById as jest.Mock
@@ -808,6 +811,192 @@ describe('SonarrService', () => {
       mockGetApiV3Episode.mockResolvedValue({ data: [] })
 
       await expect(service.listSeasons(9)).resolves.toEqual([])
+    })
+  })
+
+  describe('triggerEpisodeSearch / triggerSeasonSearch', () => {
+    it('posts an EpisodeSearch command carrying just the episode ids', async () => {
+      mockPostApiV3Command.mockResolvedValue({ data: { id: 1 } })
+
+      await service.triggerEpisodeSearch([4412])
+
+      expect(postApiV3Command).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: { episodeIds: [4412], name: 'EpisodeSearch' },
+        }),
+      )
+    })
+
+    it('posts a SeasonSearch command carrying the series and season', async () => {
+      mockPostApiV3Command.mockResolvedValue({ data: { id: 1 } })
+
+      await service.triggerSeasonSearch(9, 3)
+
+      expect(postApiV3Command).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: { name: 'SeasonSearch', seasonNumber: 3, seriesId: 9 },
+        }),
+      )
+    })
+
+    // Season 0 is specials - a falsy season number that must still be sent.
+    it('sends season 0 as a real season number', async () => {
+      mockPostApiV3Command.mockResolvedValue({ data: { id: 1 } })
+
+      await service.triggerSeasonSearch(9, 0)
+
+      expect(mockPostApiV3Command.mock.calls[0][0].body).toEqual({
+        name: 'SeasonSearch',
+        seasonNumber: 0,
+        seriesId: 9,
+      })
+    })
+
+    it.each([
+      ['triggerEpisodeSearch', () => service.triggerEpisodeSearch([1])],
+      ['triggerSeasonSearch', () => service.triggerSeasonSearch(9, 1)],
+    ])('surfaces a rejected %s command as an error', async (name, run) => {
+      mockPostApiV3Command.mockResolvedValue({ error: { message: 'boom' } })
+
+      await expect(run()).rejects.toThrow(`${name} failed`)
+    })
+  })
+
+  describe('resolveScope', () => {
+    it('fills in season and episode numbers from an episode id', async () => {
+      mockGetApiV3EpisodeById.mockResolvedValue({
+        data: { episodeNumber: 5, id: 4412, seasonNumber: 3 },
+      })
+
+      await expect(service.resolveScope({ episodeId: 4412 })).resolves.toEqual({
+        episodeId: 4412,
+        episodeNumber: 5,
+        seasonNumber: 3,
+      })
+      expect(getApiV3EpisodeById).toHaveBeenCalledWith(
+        expect.objectContaining({ path: { id: 4412 } }),
+      )
+    })
+
+    // The unscoped request is the common case and must not pay for a
+    // lookup it has nothing to look up.
+    it.each([
+      ['a season-only scope', { seasonNumber: 3 }],
+      ['an empty scope', {}],
+    ])('returns %s untouched with no round trip', async (_label, scope) => {
+      await expect(service.resolveScope(scope)).resolves.toEqual(scope)
+      expect(getApiV3EpisodeById).not.toHaveBeenCalled()
+    })
+
+    it('throws for an episode id Sonarr does not know', async () => {
+      mockGetApiV3EpisodeById.mockResolvedValue({
+        error: { message: 'not found' },
+      })
+
+      await expect(service.resolveScope({ episodeId: 1 })).rejects.toThrow(
+        'getEpisodeById failed',
+      )
+    })
+
+    // A half-filled scope would search for nothing and never say why.
+    it('throws rather than returning a partial scope when numbers are missing', async () => {
+      mockGetApiV3EpisodeById.mockResolvedValue({ data: { id: 4412 } })
+
+      await expect(service.resolveScope({ episodeId: 4412 })).rejects.toThrow(
+        /no season\/episode number/,
+      )
+    })
+
+    // The caller's own `seasonNumber` is replaced by Sonarr's, which is the
+    // authoritative one for that episode id.
+    it('prefers Sonarr’s season number over one the caller guessed', async () => {
+      mockGetApiV3EpisodeById.mockResolvedValue({
+        data: { episodeNumber: 5, seasonNumber: 3 },
+      })
+
+      await expect(
+        service.resolveScope({ episodeId: 4412, seasonNumber: 99 }),
+      ).resolves.toMatchObject({ seasonNumber: 3 })
+    })
+  })
+
+  describe('unmonitorScope', () => {
+    const monitoredEpisodes = [
+      { id: 1, monitored: true, seasonNumber: 3 },
+      { id: 2, monitored: true, seasonNumber: 3 },
+    ]
+
+    it('unmonitors just the one episode an episode-scope names', async () => {
+      mockGetApiV3Episode.mockResolvedValue({ data: monitoredEpisodes })
+      mockPutApiV3EpisodeMonitor.mockResolvedValue({ data: {} })
+
+      await expect(
+        service.unmonitorScope(9, { episodeId: 2, seasonNumber: 3 }),
+      ).resolves.toBe(1)
+
+      expect(putApiV3EpisodeMonitor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: { episodeIds: [2], monitored: false },
+        }),
+      )
+    })
+
+    it('unmonitors a whole season when only a season is given', async () => {
+      mockGetApiV3Episode.mockResolvedValue({ data: monitoredEpisodes })
+      mockPutApiV3EpisodeMonitor.mockResolvedValue({ data: {} })
+
+      await expect(
+        service.unmonitorScope(9, { seasonNumber: 3 }),
+      ).resolves.toBe(2)
+
+      expect(getApiV3Episode).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { seasonNumber: 3, seriesId: 9 } }),
+      )
+      expect(mockPutApiV3EpisodeMonitor.mock.calls[0][0].body).toEqual({
+        episodeIds: [1, 2],
+        monitored: false,
+      })
+    })
+
+    // An empty scope means the whole series, matching how the monitoring
+    // borrow widens on the way in.
+    it('unmonitors every episode of the series for an empty scope', async () => {
+      mockGetApiV3Episode.mockResolvedValue({ data: monitoredEpisodes })
+      mockPutApiV3EpisodeMonitor.mockResolvedValue({ data: {} })
+
+      await expect(service.unmonitorScope(9, {})).resolves.toBe(2)
+
+      expect(mockGetApiV3Episode.mock.calls[0][0].query).not.toHaveProperty(
+        'seasonNumber',
+      )
+    })
+
+    it('skips episodes that are already unmonitored, and counts only what it changed', async () => {
+      mockGetApiV3Episode.mockResolvedValue({
+        data: [
+          { id: 1, monitored: false, seasonNumber: 3 },
+          { id: 2, monitored: true, seasonNumber: 3 },
+        ],
+      })
+      mockPutApiV3EpisodeMonitor.mockResolvedValue({ data: {} })
+
+      await expect(
+        service.unmonitorScope(9, { seasonNumber: 3 }),
+      ).resolves.toBe(1)
+      expect(mockPutApiV3EpisodeMonitor.mock.calls[0][0].body).toEqual({
+        episodeIds: [2],
+        monitored: false,
+      })
+    })
+
+    it('is a zero-cost no-op when the scope matches nothing', async () => {
+      mockGetApiV3Episode.mockResolvedValue({ data: monitoredEpisodes })
+
+      await expect(service.unmonitorScope(9, { episodeId: 999 })).resolves.toBe(
+        0,
+      )
+
+      expect(putApiV3EpisodeMonitor).not.toHaveBeenCalled()
     })
   })
 

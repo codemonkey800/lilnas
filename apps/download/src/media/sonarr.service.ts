@@ -13,6 +13,7 @@ import {
   deleteApiV3QueueById,
   deleteApiV3SeriesById,
   getApiV3Episode,
+  getApiV3EpisodeById,
   getApiV3Episodefile,
   getApiV3Qualityprofile,
   getApiV3Queue,
@@ -33,6 +34,7 @@ import {
   type Release,
   type Season,
   type Show,
+  type ShowScope,
 } from '@lilnas/utils/download/types'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 
@@ -50,6 +52,23 @@ import { generateTitleSlug } from 'src/media/title-slug.util'
  * (Mirrors apps/tdr-bot/src/media/services/sonarr.service.ts.)
  */
 type SeriesSearchCommand = CommandResourceWritable & { seriesId?: number }
+
+/**
+ * The two narrower search commands, extended the same way as
+ * `SeriesSearchCommand` above.
+ *
+ * TODO(phase-4-verify): both command names are well-documented Sonarr
+ * commands but are **not** in the generated SDK (`CommandResourceWritable.name`
+ * is a bare string), so nothing here type-checks the literal itself. Confirm
+ * against a running Sonarr that `POST /api/v3/command` accepts each body and
+ * that the search actually reaches Activity -> Queue - a wrong literal fails
+ * silently at the API and lands the job in `Failed`.
+ */
+type EpisodeSearchCommand = CommandResourceWritable & { episodeIds?: number[] }
+type SeasonSearchCommand = CommandResourceWritable & {
+  seasonNumber?: number
+  seriesId?: number
+}
 
 export interface RequestShowResult {
   overview?: string
@@ -674,6 +693,117 @@ export class SonarrService {
       await postApiV3Command({ client: this.client, body: command }),
       'triggerSeriesSearch',
     )
+  }
+
+  /**
+   * Searches for specific episodes - the narrowest of the three commands,
+   * and the one a per-episode request uses. See `EpisodeSearchCommand` for
+   * the caveat on the command name.
+   */
+  async triggerEpisodeSearch(episodeIds: number[]): Promise<void> {
+    const command: EpisodeSearchCommand = {
+      episodeIds,
+      name: 'EpisodeSearch',
+    }
+
+    checkSdkError(
+      await postApiV3Command({ client: this.client, body: command }),
+      'triggerEpisodeSearch',
+    )
+  }
+
+  /**
+   * Searches for one season of a series. See `SeasonSearchCommand` for the
+   * caveat on the command name.
+   */
+  async triggerSeasonSearch(
+    sonarrId: number,
+    seasonNumber: number,
+  ): Promise<void> {
+    const command: SeasonSearchCommand = {
+      name: 'SeasonSearch',
+      seasonNumber,
+      seriesId: sonarrId,
+    }
+
+    checkSdkError(
+      await postApiV3Command({ client: this.client, body: command }),
+      'triggerSeasonSearch',
+    )
+  }
+
+  /**
+   * Fills in a scope's display fields from the one field a caller actually
+   * has: given `{ episodeId }`, one lookup returns the season and episode
+   * numbers to store alongside it.
+   *
+   * A scope with no `episodeId` (season-only, or empty) is returned as-is
+   * with **no round trip** - there is nothing to resolve, and the common
+   * unscoped request must not pay for a call it doesn't need.
+   *
+   * An episode id Sonarr doesn't know throws rather than yielding a
+   * half-filled scope: a job whose scope names an episode that doesn't
+   * exist would search for nothing and never explain why.
+   */
+  async resolveScope(scope: ShowScope): Promise<ShowScope> {
+    if (scope.episodeId == null) {
+      return scope
+    }
+
+    const episode = unwrapSdkResult(
+      await getApiV3EpisodeById({
+        client: this.client,
+        path: { id: scope.episodeId },
+      }),
+      'getEpisodeById',
+    )
+
+    if (episode.seasonNumber == null || episode.episodeNumber == null) {
+      throw new Error(
+        `Sonarr returned no season/episode number for episode ${scope.episodeId}`,
+      )
+    }
+
+    return {
+      episodeId: scope.episodeId,
+      episodeNumber: episode.episodeNumber,
+      seasonNumber: episode.seasonNumber,
+    }
+  }
+
+  /**
+   * Turns monitoring **off** for exactly the episodes a scope names, and
+   * reports how many it switched off.
+   *
+   * This is what makes a delete stick: to Sonarr a monitored episode with no
+   * file is a *missing* episode, so the next RSS sync or missing-episode
+   * search would re-download precisely what the user just removed.
+   *
+   * An empty scope means every episode of the series - the same widening
+   * `monitorScopedEpisodes` uses on the way in.
+   */
+  async unmonitorScope(sonarrId: number, scope: ShowScope): Promise<number> {
+    const episodes = await this.getEpisodes(sonarrId, {
+      seasonNumber: scope.seasonNumber,
+    })
+
+    const inScope =
+      scope.episodeId != null
+        ? episodes.filter(episode => episode.id === scope.episodeId)
+        : episodes
+
+    // `!== false`, mirroring `monitorScopedEpisodes`'s `!== true`: already
+    // unmonitored episodes are skipped so the returned count is what this
+    // call actually changed, not just what the scope covered.
+    const episodeIds = inScope
+      .filter(episode => episode.id != null && episode.monitored !== false)
+      .map(episode => episode.id as number)
+
+    // `setEpisodesMonitored` already no-ops on an empty list, so a scope
+    // that matched nothing costs no round trip.
+    await this.setEpisodesMonitored(episodeIds, false)
+
+    return episodeIds.length
   }
 
   /**
