@@ -26,6 +26,7 @@ import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { DbService } from 'src/db/db.service'
 import { jobs, videos } from 'src/db/schema'
 import { DownloadStateService } from 'src/download/download-state.service'
+import { JobInterruptedError } from 'src/download/job-interrupted.error'
 import {
   DownloadGateway,
   DownloadGatewayMessage,
@@ -347,29 +348,39 @@ describe('DownloadStateService', () => {
       }
     })
 
-    it('clears the tracked process handle once a job reaches a terminal status', () => {
+    it('clears both the tracked process handle and the interrupt intent once a job reaches a terminal status', () => {
       const record = seedVideoJob()
       service.addJob(record)
       service.setProc(
         record.id,
         {} as unknown as ChildProcessWithoutNullStreams,
       )
+      service.setInterruption(record.id, 'cancel')
       expect(service.getProc(record.id)).toBeDefined()
+      expect(service.getInterruption(record.id)).toBe('cancel')
 
       service.updateJob(record.id, { status: DownloadJobStatus.Completed })
 
       expect(service.getProc(record.id)).toBeUndefined()
+      // A stale intent would tell the *next* reader that a job which is
+      // already finished was stopped on purpose.
+      expect(service.getInterruption(record.id)).toBeUndefined()
     })
 
-    it('leaves the tracked process handle alone across a non-terminal status change', () => {
+    it('leaves both the process handle and the interrupt intent alone across a non-terminal status change', () => {
       const record = seedVideoJob()
       service.addJob(record)
       const fakeProc = {} as unknown as ChildProcessWithoutNullStreams
       service.setProc(record.id, fakeProc)
+      service.setInterruption(record.id, 'pause')
 
       service.updateJob(record.id, { status: DownloadJobStatus.Converting })
 
       expect(service.getProc(record.id)).toBe(fakeProc)
+      // A pause records its intent and *then* kills the process; the status
+      // writes in between must not wipe the note before the exit handler
+      // reads it.
+      expect(service.getInterruption(record.id)).toBe('pause')
     })
 
     it('masks a hidden video job requester for a non-admin viewer, and reveals it to an admin - never in the same frame', async () => {
@@ -527,6 +538,61 @@ describe('DownloadStateService', () => {
 
     it('clearProc is a no-op when nothing was tracked', () => {
       expect(() => service.clearProc('missing')).not.toThrow()
+    })
+  })
+
+  describe('setInterruption / getInterruption / clearInterruption', () => {
+    it('round-trips an intent without touching the job record', () => {
+      const record = seedVideoJob()
+      service.addJob(record)
+
+      service.setInterruption(record.id, 'pause')
+      expect(service.getInterruption(record.id)).toBe('pause')
+      expect(service.jobs.get(record.id)).toEqual(record)
+
+      service.clearInterruption(record.id)
+      expect(service.getInterruption(record.id)).toBeUndefined()
+    })
+
+    it('returns undefined for a job with no recorded intent', () => {
+      expect(service.getInterruption('missing')).toBeUndefined()
+    })
+
+    it('clearInterruption is a no-op when nothing was recorded', () => {
+      expect(() => service.clearInterruption('missing')).not.toThrow()
+    })
+
+    it('accepts an intent for a job with no tracked process', () => {
+      // The caller decides whether a kill is actually going to happen; the
+      // store deliberately does not second-guess it.
+      expect(() => service.setInterruption('no-proc', 'cancel')).not.toThrow()
+      expect(service.getInterruption('no-proc')).toBe('cancel')
+    })
+
+    it('is last-write-wins, so a cancel chasing a pause overwrites it', () => {
+      service.setInterruption('job-1', 'pause')
+
+      service.setInterruption('job-1', 'cancel')
+
+      expect(service.getInterruption('job-1')).toBe('cancel')
+    })
+  })
+
+  describe('JobInterruptedError', () => {
+    // The scheduler branches on `instanceof JobInterruptedError` to tell a
+    // deliberate stop from a crash, and subclassing `Error` loses the
+    // prototype under some compile targets - pin the behaviour the branch
+    // depends on.
+    it('survives instanceof and carries the job id and kind', () => {
+      const err = new JobInterruptedError('job-1', 'pause')
+
+      expect(err).toBeInstanceOf(JobInterruptedError)
+      expect(err).toBeInstanceOf(Error)
+      expect(err.name).toBe('JobInterruptedError')
+      expect(err.jobId).toBe('job-1')
+      expect(err.kind).toBe('pause')
+      expect(err.message).toContain('job-1')
+      expect(err.message).toContain('pause')
     })
   })
 
