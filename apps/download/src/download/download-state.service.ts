@@ -32,6 +32,7 @@ import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 
 import { projectJobForViewer } from './attribution'
+import { JobInterruptKind } from './job-interrupted.error'
 
 export interface EnsureVideoInput {
   downloadUrls?: string[]
@@ -55,6 +56,15 @@ export class DownloadStateService {
   // JSON.stringify()) and not meaningful to a WS subscriber, so it never
   // belongs on a broadcast/persisted job.
   procs = new Map<string, ChildProcessWithoutNullStreams>()
+  // Why a job's process is *about* to be killed, recorded by the caller just
+  // before it calls `proc.kill()`. A SIGTERM'd yt-dlp is indistinguishable
+  // from a crashed one by exit code alone, so without this note the pipeline
+  // would report every deliberate stop as a failure - and pause and cancel
+  // are the same kill, differing only in the status the job should land in.
+  // Never persisted: it describes a process that is alive right now, and a
+  // restart kills that process anyway, so a surviving entry could only ever
+  // be a lie about a job the new process never started.
+  interruptions = new Map<string, JobInterruptKind>()
   // A movie/show job's last-known Radarr/Sonarr queue entry, keyed by job id
   // and never persisted - it's live upstream state, which is where it was
   // always coming from. MediaPollerService writes it; `hydrate()` below
@@ -78,6 +88,25 @@ export class DownloadStateService {
 
   clearProc(id: string): void {
     this.procs.delete(id)
+  }
+
+  /**
+   * Notes that the next process exit for `id` is deliberate, and what it
+   * meant. Deliberately unvalidated: recording an intent for a job with no
+   * tracked proc is legal (the caller is the one that knows whether a kill is
+   * actually going to happen), and re-recording is last-write-wins - a cancel
+   * arriving on the heels of a pause is exactly the case that has to win.
+   */
+  setInterruption(id: string, kind: JobInterruptKind): void {
+    this.interruptions.set(id, kind)
+  }
+
+  getInterruption(id: string): JobInterruptKind | undefined {
+    return this.interruptions.get(id)
+  }
+
+  clearInterruption(id: string): void {
+    this.interruptions.delete(id)
   }
 
   /**
@@ -304,9 +333,13 @@ export class DownloadStateService {
     // `setProc()`) has nothing left to reference once a job reaches a
     // terminal status; clearing it here means every terminal transition
     // (Cancelled from a user action, Completed/Failed from the pipeline)
-    // releases it without every call site having to remember to.
+    // releases it without every call site having to remember to. The
+    // interrupt intent goes with it: it only ever describes the *next* exit
+    // of a live process, so once the job is terminal a leftover entry could
+    // only mislead a future read.
     if (newStatus && isTerminalDownloadJobStatus(newStatus)) {
       this.clearProc(id)
+      this.clearInterruption(id)
       this.queueSnapshots.delete(id)
     }
 
