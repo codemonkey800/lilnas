@@ -5,7 +5,7 @@ import { applyPragmas } from 'src/db/pragmas'
 import * as schema from 'src/db/schema'
 import { jobs, videos } from 'src/db/schema'
 
-import { applyMigrationFiles } from './test-utils'
+import { applyMigrationFiles, applyRemainingMigrationFiles } from './test-utils'
 
 // Applies the real migration `0002`/`0003` files against hand-seeded legacy
 // rows (plan §2.3) - the only way to exercise the backfill against the
@@ -50,15 +50,24 @@ function seedLegacyJob(
     })
 }
 
+const PRE_BACKFILL_TAGS = ['0000_late_reavers', '0001_daffy_mordo']
+const BACKFILL_TAGS = [
+  '0002_sticky_miss_america',
+  '0003_backfill_videos_and_media_ids',
+]
+
 function setUpPreBackfillDb(seed: (sqlite: BetterSqlite3.Database) => void) {
   const sqlite = new BetterSqlite3(':memory:')
   applyPragmas(sqlite)
-  applyMigrationFiles(sqlite, ['0000_late_reavers', '0001_daffy_mordo'])
+  applyMigrationFiles(sqlite, PRE_BACKFILL_TAGS)
   seed(sqlite)
-  applyMigrationFiles(sqlite, [
-    '0002_sticky_miss_america',
-    '0003_backfill_videos_and_media_ids',
-  ])
+  applyMigrationFiles(sqlite, BACKFILL_TAGS)
+  // The assertions below read through the *current* drizzle schema, so the
+  // table has to be brought up to it - stopping at 0003 would leave every
+  // column added since (Phase 4's `jobs.scope`) missing from the table but
+  // present in the SELECT list. The backfill has already run by this point,
+  // so the later migrations only reshape what it produced.
+  applyRemainingMigrationFiles(sqlite, [...PRE_BACKFILL_TAGS, ...BACKFILL_TAGS])
   const db = drizzle(sqlite, { schema })
   return { close: () => sqlite.close(), db, sqlite }
 }

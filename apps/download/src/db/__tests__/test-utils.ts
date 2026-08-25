@@ -54,6 +54,32 @@ export function applyMigrationFiles(
 }
 
 /**
+ * Applies every migration file the given tags don't already cover, in file
+ * order - the tail half of `applyMigrationFiles`'s use case.
+ *
+ * A test that seeds against an intermediate schema state still has to read
+ * the result back through the *current* drizzle schema, which only lines up
+ * once the later migrations have run too. Reading the folder rather than
+ * hard-coding the remaining tags means adding a migration doesn't silently
+ * leave those tests one schema version behind (Phase 4's `jobs.scope` is
+ * exactly the column that would have).
+ */
+export function applyRemainingMigrationFiles(
+  sqlite: BetterSqlite3.Database,
+  alreadyApplied: string[],
+): void {
+  const applied = new Set(alreadyApplied)
+  const remaining = fs
+    .readdirSync(resolveMigrationsFolder())
+    .filter(file => file.endsWith('.sql'))
+    .map(file => file.replace(/\.sql$/, ''))
+    .filter(tag => !applied.has(tag))
+    .sort()
+
+  applyMigrationFiles(sqlite, remaining)
+}
+
+/**
  * A real, migrated DbService backed by an in-memory sqlite database - for
  * tests that need to provide a working DbService to a module under test
  * (e.g. DownloadStateService's persistJob()) without hand-rolling a mock of

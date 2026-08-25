@@ -34,6 +34,11 @@ export function buildJobRow(
       : 'service') as (typeof JOB_ORIGINS)[number],
     requesterEmail: record.requester?.email ?? null,
     requesterUserId: record.requester?.userId ?? null,
+    // `null`, not `undefined`, on the way *in* - a column is either set or
+    // NULL, and drizzle would treat `undefined` as "leave this column out".
+    // `hydrateJobRow` maps it back to `undefined`, matching how `error`
+    // already crosses the same boundary.
+    scope: record.scope ?? null,
     status: record.status,
     type: record.type,
     updatedAt: new Date(),
@@ -62,6 +67,7 @@ export function hydrateJobRow(row: JobRow): DownloadJobRecord {
     id: row.id,
     mediaId: row.mediaId,
     requester,
+    scope: row.scope ?? undefined,
     status: row.status as DownloadJobStatus,
     type: row.type as DownloadType,
     updatedAt: row.updatedAt.toISOString(),

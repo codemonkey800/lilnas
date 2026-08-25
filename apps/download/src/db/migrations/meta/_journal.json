@@ -43,6 +43,13 @@
       "when": 1787450645629,
       "tag": "0005_shiny_vin_gonzales",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787618622382,
+      "tag": "0006_worried_chronomancer",
+      "breakpoints": true
     }
   ]
 }
