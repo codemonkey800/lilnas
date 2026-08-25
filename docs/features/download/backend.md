@@ -530,10 +530,45 @@ a scoped request as a whole-series one.
 
 ### Manual verification (needs live Sonarr)
 
-⚠️ **This block deletes real files.** Not covered by the unit suite — the two
-command names in particular are unverified against a running Sonarr, and a
-wrong literal fails _silently_ (Sonarr 400s the command and the job lands in
-`Failed`).
+⚠️ **This block deletes real files.** Not covered by the unit suite.
+
+**On the two unverified command names.** A wrong `name` is _not_ the silent
+failure — Sonarr resolves the command type by name and rejects an unknown one
+with a non-2xx, which `checkSdkError` puts on the job along with Sonarr's own
+message. The genuinely silent case is a **wrong body field name**: the command
+is accepted, the field is ignored, and nothing is searched.
+
+Both are checkable directly, without reading the UI. `POST /api/v3/command`
+returns a `CommandResource` whose `body` is Sonarr's _parsed_ command, so
+field binding is visible in the response itself, and `GET /api/v3/command/{id}`
+reports `status` (`queued → started → completed|failed`), `result` and
+`exception`:
+
+```bash
+SONARR=http://sonarr:8989          # or https://sonarr.lilnas.io
+H=(-H "x-api-key: $SONARR_API_KEY" -H 'content-type: application/json')
+
+ID=$(curl -s "${H[@]}" -XPOST "$SONARR/api/v3/command" \
+  -d '{"name":"SeasonSearch","seriesId":9,"seasonNumber":3}' | jq -r '.id')
+
+sleep 5
+curl -s "${H[@]}" "$SONARR/api/v3/command/$ID" \
+  | jq '{name, status, result, exception, message, body}'
+```
+
+| What you see                       | What it means                                       |
+| ---------------------------------- | --------------------------------------------------- |
+| Non-2xx on the POST                | The command **name** is wrong                       |
+| 201, but `.body` lacks your fields | **The silent one** — the body field names are wrong |
+| `status: failed` + `exception`     | Bound, but the command couldn't run                 |
+| `status: completed`, successful    | Good — confirm actual grabs in `/api/v3/history`    |
+
+Cheapest check of all, with no side effects at all: open Sonarr's own UI with
+DevTools → Network and click "Search Season". The outgoing request body _is_
+the authoritative name and field list. Note `Command` in
+`packages/media/src/sonarr/types.gen.ts` only models the base fields — the
+OpenAPI spec doesn't describe the per-command subtypes, which is both why the
+SDK can't type-check any of this and why raw `curl` is the right tool here.
 
 ```bash
 BASE=http://download:8081/download
@@ -550,13 +585,18 @@ EP=$(curl -s "$BASE/media/$SHOW/seasons" \
 #    episodeNumber resolved server-side.
 curl -s -XPOST "$BASE/shows" -H 'content-type: application/json' \
   -d "{\"tvdbId\":81189,\"episodeId\":$EP}" | jq '{status, scope}'
-#    THEN: Sonarr -> Activity -> Queue. A search must actually be queued -
-#    a 201 alone does NOT prove 'EpisodeSearch' is the right command name.
+#    A `searching` status means Sonarr accepted 'EpisodeSearch' - a bad name
+#    would land the job in `failed` carrying Sonarr's own message. What that
+#    does NOT prove is that `episodeIds` bound; use the command-resource
+#    check above for that, then confirm a real grab below.
 
-# 3. Request one SEASON. Same check in Sonarr's Activity -> Queue for
-#    'SeasonSearch'.
+# 3. Request one SEASON. Same reasoning for 'SeasonSearch' + `seriesId`/
+#    `seasonNumber`.
 curl -s -XPOST "$BASE/shows" -H 'content-type: application/json' \
   -d '{"tvdbId":81189,"seasonNumber":3}' | jq '{id, status, scope}'
+#    Then confirm Sonarr actually searched that season and only that season:
+curl -s "${H[@]}" "$SONARR/api/v3/history?eventType=1&pageSize=20" \
+  | jq '.records[] | {eventType, seasonNumber: .episode.seasonNumber, date}'
 
 # 4. Watch that season job while its episodes land one at a time. It must
 #    NOT reach `completed` until the LAST one leaves Sonarr's queue.
@@ -599,6 +639,10 @@ still searches them. If it doesn't, `postApiV3Seasonpass` needs wiring in.
   whatever default format selection actually ships (tested against a
   forced progressive format; default/best-quality may resolve to fragmented
   DASH, which resumes via a different, unverified-here mechanism).
+- **Scoped to the yt-dlp pipeline only** — Radarr/Sonarr-managed downloads can
+  also be paused/resumed (at the backing download client), but this app has
+  no design yet for detecting that. See the [Known gap](plans/005-phase-5-video-pause-resume.md#known-gap-radarrsonarr-pauseresume-detection)
+  note in the Phase 5 plan.
 
 ---
 
