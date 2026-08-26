@@ -1,11 +1,19 @@
 # Download App — Backend Plan
 
+**Status: complete.** Every phase below (0–8, plus the media/job split
+refactor) has landed and is verified against the code, not just self-reported
+— see the status table for the phase list and each phase's section for its
+commits. The backend now supports the full spec. What remains is out of this
+document's scope: the Next.js frontend hasn't been built against Phases 3–8
+yet (each phase is annotated "backend only" below), and a handful of
+per-phase manual/live-infra verification steps are still outstanding (see
+each phase's "Deferred" / "Manual verification" notes).
+
 Companion to [`spec.md`](spec.md) and [`user-stories.md`](user-stories.md).
-Covers what the backend needs to build to support the full spec — the
-frontend is being rebuilt against the spec in parallel. This started as a
-design/sequencing document; Phases 0–8 have since been implemented (see
-their status notes below), so treat this as a living plan, not a frozen
-spec — check current code before assuming anything here is still pending.
+This started as a design/sequencing document for what the backend needed to
+build to support the full spec; it's kept as a living implementation log
+rather than being archived, since each phase's section records the decisions,
+findings, and verification steps made while building it.
 
 ## Status at a glance
 
@@ -24,8 +32,9 @@ spec — check current code before assuming anything here is still pending.
 
 **"Backend only"** means the routes and their tests are built and committed,
 but no Next.js surface calls them yet — the frontend rebuild consumes them
-later. Each phase's section below carries its own commits, decisions,
-findings, and manual-verification steps.
+later. That's the only thing left outstanding; the backend itself is
+feature-complete against the spec. Each phase's section below carries its own
+commits, decisions, findings, and manual-verification steps.
 
 ## Context
 
