@@ -16,6 +16,7 @@ import {
   RequestShowInputSchema,
 } from '@lilnas/utils/download/schema'
 import type {
+  AuditAction,
   DeleteMediaFilesResponse,
   DiscoveryPage,
   DownloadGalleryFacets,
@@ -53,6 +54,7 @@ import contentDisposition from 'content-disposition'
 import type { Response } from 'express'
 import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
 
+import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
 import { CurrentUser } from 'src/auth/current-user.decorator'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
@@ -93,12 +95,36 @@ class ReplaceReleaseInputDto extends createZodDto(ReplaceReleaseInputSchema) {}
 class RequestMovieInputDto extends createZodDto(RequestMovieInputSchema) {}
 class RequestShowInputDto extends createZodDto(RequestShowInputSchema) {}
 
+/**
+ * What one of the three shared route helpers below should append to the
+ * audit log once its `run()` has resolved - i.e. once the action it
+ * describes has actually happened.
+ *
+ * Deliberately *not* a full `AuditEvent`:
+ *
+ * - `actor` is the helper's own `user` parameter, so restating it per call
+ *   site would only create a way for the audited actor and the attributed
+ *   one to disagree.
+ * - `target` is the helper's own `id` parameter - a job id for
+ *   `videoInterruptRoute()`/`mediaJobRoute()`, a media key for
+ *   `releaseActionRoute()` - and each helper knows which of the two its id
+ *   space is, so it supplies the `type` itself.
+ * - `metadata` is a function of the resolved job rather than a literal,
+ *   because the only metadata any of these routes carries (grab/replace's
+ *   `jobId`) does not exist until `run()` has resolved.
+ */
+interface RouteAuditEvent {
+  action: AuditAction
+  metadata?: (job: DownloadJob) => Record<string, unknown>
+}
+
 @Controller('/download')
 export class DownloadController {
   private logger = new Logger(DownloadController.name)
 
   constructor(
     private adminCheckService: AdminCheckService,
+    private auditLogService: AuditLogService,
     private discoveryService: DiscoveryService,
     private downloadMetricsService: DownloadMetricsService,
     private downloadService: DownloadService,
@@ -481,15 +507,18 @@ export class DownloadController {
    * exception filter despite the `@Res()` below, because nothing has been
    * written to the response by the time `resolveFileSource()` rejects.
    *
-   * No auth decorator, matching `GET /media/:id/releases` and
-   * `/media/:id/seasons` - an unused param would trip `noUnusedParameters`,
-   * and Traefik's `lilnas-auth` gates the edge in production.
+   * `@OptionalCurrentUser()` rather than a guard, matching every other
+   * mutating route here: a save is worth an audit row, but a service caller
+   * with no forwarded identity must still be able to fetch bytes, and it
+   * simply lands an unattributed (`origin: 'service'`) row. Traefik's
+   * `lilnas-auth` gates the edge in production.
    */
   @Get('/media/:id/file')
   async getMediaFile(
     @Param('id') id: string,
     @Query(new ZodValidationPipe(GetMediaFileQueryDto))
     query: GetMediaFileQueryDto,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
     // The house preference is "no @Res()" (health.controller.ts), and it is
     // about JSON response envelopes - Nest builds those better than a
     // handler can. A byte stream is the case that preference does not cover:
@@ -537,6 +566,17 @@ export class DownloadController {
     }
 
     this.recordFileSave(id, source)
+
+    // Recorded at hand-off for the same reason the counter is (see
+    // `recordFileSave`): the bytes leave over minutes and this request has no
+    // later moment it can still speak for. Anything that fails *before* here
+    // has thrown, so no row is written for a save that never started.
+    this.auditLogService.record({
+      action: 'media.save_file',
+      actor: user,
+      metadata: narrowScope({ episodeId: query.episodeId, part: query.part }),
+      target: { id, type: 'media' },
+    })
   }
 
   /**
@@ -584,6 +624,21 @@ export class DownloadController {
       'DELETE /media/:id/files - deleted files and unmonitored the scope',
     )
 
+    // A zero-count delete is still recorded: the request succeeded, someone
+    // asked for those files to be gone, and "nothing was there" is a fact
+    // worth having in the log rather than a reason to omit the attempt.
+    const scope = narrowScope({
+      episodeId: query.episodeId,
+      seasonNumber: query.seasonNumber,
+    })
+
+    this.auditLogService.record({
+      action: 'media.delete_files',
+      actor: user,
+      metadata: { deletedCount, ...(scope ? { scope } : {}) },
+      target: { id, type: 'media' },
+    })
+
     return { deletedCount, mediaId: id }
   }
 
@@ -598,6 +653,14 @@ export class DownloadController {
   ): Promise<DownloadJob> {
     return this.releaseActionRoute({
       action: 'grabRelease',
+      audit: {
+        action: 'release.grab',
+        metadata: job => ({
+          guid: input.guid,
+          indexerId: input.indexerId,
+          jobId: job.id,
+        }),
+      },
       id,
       run: () => this.releaseService.grabRelease(id, input, user),
       user,
@@ -616,6 +679,14 @@ export class DownloadController {
   ): Promise<DownloadJob> {
     return this.releaseActionRoute({
       action: 'replaceRelease',
+      audit: {
+        action: 'release.replace',
+        metadata: job => ({
+          guid: input.guid,
+          indexerId: input.indexerId,
+          jobId: job.id,
+        }),
+      },
       id,
       run: () => this.releaseService.replaceRelease(id, input, user),
       user,
@@ -644,6 +715,16 @@ export class DownloadController {
       },
       'POST /media/:id/bad-files - flagged a release as bad',
     )
+
+    this.auditLogService.record({
+      action: 'file.flag_bad',
+      actor: user,
+      metadata: {
+        guid: input.guid,
+        ...(input.reason ? { reason: input.reason } : {}),
+      },
+      target: { id, type: 'media' },
+    })
 
     return { badFile }
   }
@@ -767,6 +848,22 @@ export class DownloadController {
         'Video download job created successfully',
       )
 
+      // Inside the `try`, but after the await: a job that failed to be
+      // created must leave no row behind, and `record()` itself never throws
+      // (see AuditLogService.record), so it can't turn a successful create
+      // into the catch block's 500.
+      //
+      // The query-stripped url, matching the log lines above it - the job row
+      // already holds what was actually requested, and this metadata is
+      // rendered in the admin dashboard, where a url's query string is the
+      // one place a credential is likely to be hiding.
+      this.auditLogService.record({
+        action: 'video.create',
+        actor: user,
+        metadata: { url: sanitizedUrl },
+        target: { id: job.id, type: 'job' },
+      })
+
       return projectJobForViewer(job, isAdmin)
     } catch (err) {
       const duration = Date.now() - startTime
@@ -825,6 +922,12 @@ export class DownloadController {
         'Video job cancellation initiated successfully',
       )
 
+      this.auditLogService.record({
+        action: 'video.cancel',
+        actor: user,
+        target: { id, type: 'job' },
+      })
+
       return projectJobForViewer(job, isAdmin)
     } catch (err) {
       const duration = Date.now() - startTime
@@ -865,6 +968,7 @@ export class DownloadController {
   ): Promise<DownloadJob> {
     return this.videoInterruptRoute({
       action: 'pauseVideoJob',
+      audit: { action: 'video.pause' },
       id,
       run: () => this.downloadService.pauseVideoDownloadJob(id),
       user,
@@ -880,6 +984,7 @@ export class DownloadController {
   ): Promise<DownloadJob> {
     return this.videoInterruptRoute({
       action: 'resumeVideoJob',
+      audit: { action: 'video.resume' },
       id,
       run: () => this.downloadService.resumeVideoDownloadJob(id),
       user,
@@ -930,6 +1035,16 @@ export class DownloadController {
       'Movie download requested',
     )
 
+    // The job is the target (this is a job-lifecycle action, like every
+    // other `*.request`); the title it is for rides along as metadata, since
+    // that is what an admin reading the log recognizes.
+    this.auditLogService.record({
+      action: 'movie.request',
+      actor: user,
+      metadata: { mediaId: job.media.id },
+      target: { id: job.id, type: 'job' },
+    })
+
     return projectJobForViewer(job, isAdmin)
   }
 
@@ -954,6 +1069,7 @@ export class DownloadController {
   ): Promise<DownloadJob> {
     return this.mediaJobRoute({
       action: 'deleteMovieJob',
+      audit: { action: 'movie.delete' },
       id,
       notFoundMessage: 'Failed to delete movie job',
       run: () => this.mediaDownloadService.deleteMovieJob(id),
@@ -996,15 +1112,10 @@ export class DownloadController {
     const action = 'requestShow'
     // Keys omitted rather than set to `undefined`, so the scope persisted on
     // the job is `{"seasonNumber":3}` rather than carrying a null episodeId.
-    const scope =
-      input.episodeId != null || input.seasonNumber != null
-        ? {
-            ...(input.episodeId != null ? { episodeId: input.episodeId } : {}),
-            ...(input.seasonNumber != null
-              ? { seasonNumber: input.seasonNumber }
-              : {}),
-          }
-        : undefined
+    const scope = narrowScope({
+      episodeId: input.episodeId,
+      seasonNumber: input.seasonNumber,
+    })
 
     this.logger.log(
       {
@@ -1034,6 +1145,15 @@ export class DownloadController {
       'Show download requested',
     )
 
+    // `scope` is omitted entirely for a whole-series request rather than
+    // written as null - the same shape the job row carries.
+    this.auditLogService.record({
+      action: 'show.request',
+      actor: user,
+      metadata: { mediaId: job.media.id, ...(scope ? { scope } : {}) },
+      target: { id: job.id, type: 'job' },
+    })
+
     return projectJobForViewer(job, isAdmin)
   }
 
@@ -1058,6 +1178,7 @@ export class DownloadController {
   ): Promise<DownloadJob> {
     return this.mediaJobRoute({
       action: 'deleteShowJob',
+      audit: { action: 'show.delete' },
       id,
       notFoundMessage: 'Failed to delete show job',
       run: () => this.mediaDownloadService.deleteShowJob(id),
@@ -1175,12 +1296,14 @@ export class DownloadController {
    */
   private async videoInterruptRoute({
     action,
+    audit,
     id,
     run,
     user,
     verb,
   }: {
     action: string
+    audit: RouteAuditEvent
     id: string
     run: () => Promise<DownloadJob>
     user: ForwardedUser | undefined
@@ -1216,6 +1339,15 @@ export class DownloadController {
         },
         `Video job ${verb} request accepted`,
       )
+
+      // Inside the `try` but after the await, so a rejected `run()` skips
+      // it - and outside nothing, since `record()` never throws.
+      this.auditLogService.record({
+        action: audit.action,
+        actor: user,
+        metadata: audit.metadata?.(job),
+        target: { id, type: 'job' },
+      })
 
       return projectJobForViewer(job, isAdmin)
     } catch (err) {
@@ -1254,11 +1386,13 @@ export class DownloadController {
    */
   private async releaseActionRoute({
     action,
+    audit,
     id,
     run,
     user,
   }: {
     action: string
+    audit: RouteAuditEvent
     id: string
     run: () => Promise<DownloadJob>
     user: ForwardedUser | undefined
@@ -1279,6 +1413,17 @@ export class DownloadController {
       `POST /media/:id/releases - ${action} accepted`,
     )
 
+    // The **media** key is the target here, not the job: a grab is a
+    // statement about a title's file, and the job it spawned is metadata
+    // (which is also why the metadata is a function - the job id doesn't
+    // exist until `run()` has resolved).
+    this.auditLogService.record({
+      action: audit.action,
+      actor: user,
+      metadata: audit.metadata?.(job),
+      target: { id, type: 'media' },
+    })
+
     return projectJobForViewer(job, isAdmin)
   }
 
@@ -1287,15 +1432,23 @@ export class DownloadController {
    * `action` string and which service method they called - now that all
    * four return the same `DownloadJob`, that duplication has nothing left
    * to justify it.
+   *
+   * `audit` is optional here, and on this helper alone, because this is the
+   * only one of the three that serves reads as well as writes: the two GETs
+   * pass nothing and record nothing, while the two DELETEs pass their
+   * action. A read is not an event, and logging one would bury the deletes
+   * under thousands of rows nobody is looking for.
    */
   private async mediaJobRoute({
     action,
+    audit,
     id,
     notFoundMessage,
     run,
     user,
   }: {
     action: string
+    audit?: RouteAuditEvent
     id: string
     notFoundMessage: string
     run: () => Promise<DownloadJob>
@@ -1308,6 +1461,15 @@ export class DownloadController {
         run(),
         this.resolveIsAdmin(user),
       ])
+
+      if (audit) {
+        this.auditLogService.record({
+          action: audit.action,
+          actor: user,
+          metadata: audit.metadata?.(job),
+          target: { id, type: 'job' },
+        })
+      }
 
       return projectJobForViewer(job, isAdmin)
     } catch (err) {
@@ -1323,6 +1485,35 @@ export class DownloadController {
       )
     }
   }
+}
+
+/**
+ * The axes that narrow a request to part of a title - `episodeId` and
+ * `seasonNumber` for a show request or a file delete, `part` for a video
+ * save - collapsed into the object the service (or the audit row) should
+ * carry.
+ *
+ * Absent axes are dropped rather than kept as `undefined`, so a season-only
+ * scope persists as `{"seasonNumber":3}` instead of dragging a null
+ * episodeId into the job row and the audit metadata; and an empty result is
+ * reported as `undefined` rather than `{}`, since "nothing narrows this
+ * request" is exactly what the whole-title path means.
+ *
+ * `0` is a real value on two of these axes - season 0 is specials, part 0 is
+ * the first part of a multi-part video - so this tests for null/undefined
+ * rather than for falsiness.
+ */
+function narrowScope<T extends Record<string, number | null | undefined>>(
+  axes: T,
+): Partial<T> | undefined {
+  // `Object.fromEntries` is typed `Record<string, ...>`, which would lose
+  // the caller's own key names; the filter it is given here is what makes
+  // the assertion true.
+  const scope = Object.fromEntries(
+    Object.entries(axes).filter(([, value]) => value != null),
+  ) as Partial<T>
+
+  return Object.keys(scope).length > 0 ? scope : undefined
 }
 
 /** Applies the attribution mask across a whole page of jobs. */

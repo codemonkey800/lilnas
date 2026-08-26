@@ -9,6 +9,7 @@ jest.mock('nanoid', () => ({
 import { BadGatewayException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
@@ -43,6 +44,7 @@ describe('DownloadController - discover', () => {
       controllers: [DownloadController],
       providers: [
         { provide: AdminCheckService, useValue: {} },
+        { provide: AuditLogService, useValue: { record: jest.fn() } },
         { provide: DiscoveryService, useValue: mockDiscoveryService },
         { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },
