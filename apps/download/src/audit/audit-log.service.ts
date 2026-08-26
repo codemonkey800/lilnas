@@ -138,7 +138,7 @@ export class AuditLogService {
 
   /**
    * One page of the audit log, newest first - the read half of
-   * `GET /download/admin/audit`.
+   * `GET /download/admin/audit-log`.
    *
    * Structurally identical to `JobQueryService.runJobPage()`: hash the
    * filter, decode the cursor against that hash, fetch `limit + 1` rows, and

@@ -405,7 +405,7 @@ export type AuditLogEntry = z.infer<typeof AuditLogEntrySchema>
 export type AuditLogQuery = z.infer<typeof AuditLogQuerySchema>
 export type AdminStatsQuery = z.infer<typeof AdminStatsQuerySchema>
 
-// `GET /download/admin/audit` answers with `DownloadPage<AuditLogEntry>` -
+// `GET /download/admin/audit-log` answers with `DownloadPage<AuditLogEntry>` -
 // the same envelope every other list endpoint uses, so there is no
 // audit-specific response interface here on purpose.
 
