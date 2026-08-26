@@ -853,14 +853,18 @@ export class DownloadController {
       // (see AuditLogService.record), so it can't turn a successful create
       // into the catch block's 500.
       //
-      // The query-stripped url, matching the log lines above it - the job row
-      // already holds what was actually requested, and this metadata is
-      // rendered in the admin dashboard, where a url's query string is the
-      // one place a credential is likely to be hiding.
+      // Deliberately the raw url, NOT the `sanitizedUrl` the log lines above
+      // use - do not "fix" this for consistency. For the URL shape this
+      // service mostly sees, the video's identity lives entirely in the query
+      // string (`youtube.com/watch?v=...`), so stripping it leaves an audit
+      // entry that can't say what was downloaded. The audit log is a stricter
+      // surface than the logs: it sits behind AdminGuard, is unmasked by
+      // design, and is meant to outlive the job row it points at - so it has
+      // to carry the url in full itself.
       this.auditLogService.record({
         action: 'video.create',
         actor: user,
-        metadata: { url: sanitizedUrl },
+        metadata: { url: input.url },
         target: { id: job.id, type: 'job' },
       })
 

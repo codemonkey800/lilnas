@@ -393,12 +393,12 @@ describe('DownloadController - video endpoints', () => {
   // the service call has resolved - so a rejected service call leaves the
   // log untouched, and a read leaves it untouched too.
   describe('audit log', () => {
-    it('records a create against the new job id, with the query stripped from the url', async () => {
+    it('records a create against the new job id, with the full url including its query string', async () => {
       const job = buildVideoJob()
       downloadService.createVideoDownloadJob.mockResolvedValue(job)
 
       await controller.createVideoJob(
-        { url: 'https://example.com/video?token=secret' },
+        { url: 'https://www.youtube.com/watch?v=aqz-KE-bpKQ' },
         nonAdmin,
       )
 
@@ -406,10 +406,12 @@ describe('DownloadController - video endpoints', () => {
       expect(auditLogService.record).toHaveBeenCalledWith({
         action: 'video.create',
         actor: nonAdmin,
-        // The url the job row already holds in full - the audit metadata is
-        // rendered in the admin dashboard, and a query string is where a
-        // credential hides.
-        metadata: { url: 'https://example.com/video' },
+        // The raw url, query string and all - the log lines strip the query,
+        // but for the URL shape this service mostly sees the video's identity
+        // is *only* in the query string, so an audit entry without it can't
+        // say what was downloaded. The log is admin-only and unmasked by
+        // design, and outlives the job row it points at.
+        metadata: { url: 'https://www.youtube.com/watch?v=aqz-KE-bpKQ' },
         target: { id: 'video-1', type: 'job' },
       })
     })
