@@ -639,7 +639,7 @@ export const AuditLogEntrySchema = z.object({
 })
 
 /**
- * `GET /download/admin/audit`. Cursor-paginated like every other list
+ * `GET /download/admin/audit-log`. Cursor-paginated like every other list
  * endpoint, and windowed by the same day-boundary `from`/`to` transforms
  * `GalleryQuerySchema` uses, so a date picker behaves identically on both.
  *
