@@ -1,5 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common'
 
+import { AuditModule } from 'src/audit/audit.module'
 import { AuthModule } from 'src/auth/auth.module'
 import { DownloadGatewayModule } from 'src/download-gateway/download-gateway.module'
 import { MediaModule } from 'src/media/media.module'
@@ -16,13 +17,20 @@ import { JobQueryService } from './job-query.service'
 // MediaDownloadService) and this module needs MediaModule's
 // MediaDownloadService (for DownloadController's movie/show endpoints) -
 // see media.module.ts for the forwardRef() on the other side of this cycle.
-// DownloadGatewayModule and AuthModule have no dependency back on this
-// module, so both are plain imports - DownloadStateService injects
-// DownloadGatewayModule's exported DownloadGateway to broadcast job
-// creates/updates, and DownloadController injects AuthModule's
-// AdminCheckService to resolve viewer admin status for attribution.
+// AuditModule, DownloadGatewayModule and AuthModule have no dependency back
+// on this module, so all three are plain imports - DownloadStateService
+// injects DownloadGatewayModule's exported DownloadGateway to broadcast job
+// creates/updates, DownloadController injects AuthModule's AdminCheckService
+// to resolve viewer admin status for attribution, and it injects
+// AuditModule's AuditLogService to append a row for every mutating route it
+// serves.
 @Module({
-  imports: [AuthModule, DownloadGatewayModule, forwardRef(() => MediaModule)],
+  imports: [
+    AuditModule,
+    AuthModule,
+    DownloadGatewayModule,
+    forwardRef(() => MediaModule),
+  ],
   providers: [
     DownloadMetricsService,
     DownloadSchedulerService,

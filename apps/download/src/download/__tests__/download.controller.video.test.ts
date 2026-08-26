@@ -16,6 +16,7 @@ import {
 } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { DownloadController } from 'src/download/download.controller'
@@ -39,6 +40,7 @@ import { buildJob, buildVideo } from './helpers/job-fixtures'
 // per-unit test-file ownership.
 describe('DownloadController - video endpoints', () => {
   let controller: DownloadController
+  let auditLogService: { record: jest.Mock }
   let downloadService: jest.Mocked<DownloadService>
   let downloadStateService: { jobs: Map<string, DownloadJob> }
   let adminCheckService: jest.Mocked<AdminCheckService>
@@ -63,11 +65,13 @@ describe('DownloadController - video endpoints', () => {
     }
     const mockAdminCheckService = { checkIsAdmin: jest.fn() }
     const jobsMap = new Map<string, DownloadJob>()
+    auditLogService = { record: jest.fn() }
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DownloadController],
       providers: [
         { provide: AdminCheckService, useValue: mockAdminCheckService },
+        { provide: AuditLogService, useValue: auditLogService },
         { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: mockDownloadService },
         {
@@ -380,6 +384,130 @@ describe('DownloadController - video endpoints', () => {
 
       expect(err).toBeInstanceOf(NotFoundException)
       expect((err as HttpException).getStatus()).toBe(HttpStatus.NOT_FOUND)
+    })
+  })
+
+  // ---- Phase 8: the audit log ----
+  //
+  // Every video route that changes something appends exactly one row, after
+  // the service call has resolved - so a rejected service call leaves the
+  // log untouched, and a read leaves it untouched too.
+  describe('audit log', () => {
+    it('records a create against the new job id, with the query stripped from the url', async () => {
+      const job = buildVideoJob()
+      downloadService.createVideoDownloadJob.mockResolvedValue(job)
+
+      await controller.createVideoJob(
+        { url: 'https://example.com/video?token=secret' },
+        nonAdmin,
+      )
+
+      expect(auditLogService.record).toHaveBeenCalledTimes(1)
+      expect(auditLogService.record).toHaveBeenCalledWith({
+        action: 'video.create',
+        actor: nonAdmin,
+        // The url the job row already holds in full - the audit metadata is
+        // rendered in the admin dashboard, and a query string is where a
+        // credential hides.
+        metadata: { url: 'https://example.com/video' },
+        target: { id: 'video-1', type: 'job' },
+      })
+    })
+
+    // tdr-bot's DownloadClient calls this route with no forwarded identity;
+    // the row still lands, and AuditLogService reads the absent actor as
+    // `origin: 'service'`.
+    it('records actor undefined for a service-origin create', async () => {
+      downloadService.createVideoDownloadJob.mockResolvedValue(buildVideoJob())
+
+      await controller.createVideoJob(
+        { url: 'https://example.com/video' },
+        undefined,
+      )
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ actor: undefined }),
+      )
+    })
+
+    it('records a cancel against the job id', async () => {
+      downloadService.cancelVideoDownloadJob.mockResolvedValue(
+        buildVideoJob({ status: DownloadJobStatus.Cancelling }),
+      )
+
+      await controller.cancelVideoJob('video-1', admin)
+
+      expect(auditLogService.record).toHaveBeenCalledTimes(1)
+      expect(auditLogService.record).toHaveBeenCalledWith({
+        action: 'video.cancel',
+        actor: admin,
+        target: { id: 'video-1', type: 'job' },
+      })
+    })
+
+    it.each([
+      ['pauseVideoJob', 'video.pause'],
+      ['resumeVideoJob', 'video.resume'],
+    ] as const)('records %s against the job id', async (method, action) => {
+      downloadService.pauseVideoDownloadJob.mockResolvedValue(buildVideoJob())
+      downloadService.resumeVideoDownloadJob.mockResolvedValue(buildVideoJob())
+
+      await controller[method]('video-1', admin)
+
+      expect(auditLogService.record).toHaveBeenCalledTimes(1)
+      expect(auditLogService.record).toHaveBeenCalledWith({
+        action,
+        actor: admin,
+        metadata: undefined,
+        target: { id: 'video-1', type: 'job' },
+      })
+    })
+
+    describe('a failed action records nothing', () => {
+      it('writes no row when the create throws', async () => {
+        downloadService.createVideoDownloadJob.mockRejectedValue(
+          new Error('yt-dlp exploded'),
+        )
+
+        await expect(
+          controller.createVideoJob({ url: 'https://example.com/v' }, admin),
+        ).rejects.toThrow('yt-dlp exploded')
+
+        expect(auditLogService.record).not.toHaveBeenCalled()
+      })
+
+      it('writes no row when the cancel throws', async () => {
+        downloadService.cancelVideoDownloadJob.mockRejectedValue(
+          new Error("Job with ID 'missing' not found"),
+        )
+
+        await expect(
+          controller.cancelVideoJob('missing', admin),
+        ).rejects.toThrow(HttpException)
+
+        expect(auditLogService.record).not.toHaveBeenCalled()
+      })
+
+      it('writes no row when the pause is rejected as a 409', async () => {
+        downloadService.pauseVideoDownloadJob.mockRejectedValue(
+          new ConflictException('not downloading'),
+        )
+
+        await expect(
+          controller.pauseVideoJob('video-1', admin),
+        ).rejects.toThrow(ConflictException)
+
+        expect(auditLogService.record).not.toHaveBeenCalled()
+      })
+    })
+
+    it('writes no row for a read', async () => {
+      const job = buildVideoJob()
+      downloadStateService.jobs.set(job.id, job)
+
+      await controller.getVideoJob(job.id, admin)
+
+      expect(auditLogService.record).not.toHaveBeenCalled()
     })
   })
 })

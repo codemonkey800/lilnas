@@ -15,6 +15,7 @@ import {
 import { HttpException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { createTestDbService } from 'src/db/__tests__/test-utils'
@@ -57,6 +58,7 @@ describe('DownloadController - detail-route restart fallback', () => {
       controllers: [DownloadController],
       providers: [
         { provide: AdminCheckService, useValue: mockAdminCheckService },
+        { provide: AuditLogService, useValue: { record: jest.fn() } },
         { provide: DiscoveryService, useValue: {} },
         { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },

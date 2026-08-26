@@ -25,6 +25,7 @@ import {
 } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { DownloadController } from 'src/download/download.controller'
@@ -48,6 +49,7 @@ import { createFakeMediaResolver } from './helpers/fake-media-resolver'
 // that directory's test surface.
 describe('DownloadController - media endpoints', () => {
   let controller: DownloadController
+  let auditLogService: { record: jest.Mock }
   let mediaDownloadService: jest.Mocked<MediaDownloadService>
   let adminCheckService: jest.Mocked<AdminCheckService>
   let mediaResolver: ReturnType<typeof createFakeMediaResolver>
@@ -82,11 +84,13 @@ describe('DownloadController - media endpoints', () => {
     mediaResolver = createFakeMediaResolver()
     jobQueryService = { listJobsForMedia: jest.fn().mockResolvedValue([]) }
     videosById = new Map()
+    auditLogService = { record: jest.fn() }
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DownloadController],
       providers: [
         { provide: AdminCheckService, useValue: mockAdminCheckService },
+        { provide: AuditLogService, useValue: auditLogService },
         { provide: DiscoveryService, useValue: {} },
         { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },
@@ -728,6 +732,256 @@ describe('DownloadController - media endpoints', () => {
         alice,
         { seasonNumber: 3 },
       )
+    })
+  })
+
+  // ---- Phase 8: the audit log ----
+  //
+  // Every mutating route appends exactly one row, after the service call has
+  // resolved. Two invariants are worth more than any single assertion here:
+  // a read records nothing (the GETs share `mediaJobRoute()` with the
+  // deletes), and a failed action records nothing (the row is written after
+  // the await, never in a `finally`).
+  describe('audit log', () => {
+    describe('job-lifecycle actions target the job', () => {
+      it('records a movie request against the new job id', async () => {
+        mediaDownloadService.requestMovie.mockResolvedValue(movieJob)
+
+        await controller.requestMovie({ tmdbId: 123 }, alice)
+
+        expect(auditLogService.record).toHaveBeenCalledTimes(1)
+        expect(auditLogService.record).toHaveBeenCalledWith({
+          action: 'movie.request',
+          actor: alice,
+          metadata: { mediaId: 'tmdb:1' },
+          target: { id: 'movie-1', type: 'job' },
+        })
+      })
+
+      // A service caller (tdr-bot) has no forwarded identity; the row still
+      // lands, and `AuditLogService` turns the absent actor into
+      // `origin: 'service'`.
+      it('records actor undefined for a service-origin request', async () => {
+        mediaDownloadService.requestMovie.mockResolvedValue(movieJob)
+
+        await controller.requestMovie({ tmdbId: 123 }, undefined)
+
+        expect(auditLogService.record).toHaveBeenCalledWith(
+          expect.objectContaining({ actor: undefined }),
+        )
+      })
+
+      it('records an unscoped show request with no scope key', async () => {
+        mediaDownloadService.requestShow.mockResolvedValue(showJob)
+
+        await controller.requestShow({ tvdbId: 456 }, alice)
+
+        expect(auditLogService.record).toHaveBeenCalledWith({
+          action: 'show.request',
+          actor: alice,
+          metadata: { mediaId: 'tvdb:1' },
+          target: { id: 'show-1', type: 'job' },
+        })
+      })
+
+      it('records the scope of a scoped show request', async () => {
+        mediaDownloadService.requestShow.mockResolvedValue(showJob)
+
+        await controller.requestShow(
+          { episodeId: 4412, seasonNumber: 3, tvdbId: 456 },
+          alice,
+        )
+
+        expect(auditLogService.record).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'show.request',
+            metadata: {
+              mediaId: 'tvdb:1',
+              scope: { episodeId: 4412, seasonNumber: 3 },
+            },
+          }),
+        )
+      })
+
+      it.each([
+        ['a movie', 'deleteMovieJob', 'movie.delete', 'movie-1'],
+        ['a show', 'deleteShowJob', 'show.delete', 'show-1'],
+      ] as const)(
+        'records %s delete against the job id',
+        async (_label, method, action, jobId) => {
+          mediaDownloadService.deleteMovieJob.mockResolvedValue(movieJob)
+          mediaDownloadService.deleteShowJob.mockResolvedValue(showJob)
+
+          await controller[method](jobId, alice)
+
+          expect(auditLogService.record).toHaveBeenCalledTimes(1)
+          expect(auditLogService.record).toHaveBeenCalledWith({
+            action,
+            actor: alice,
+            metadata: undefined,
+            target: { id: jobId, type: 'job' },
+          })
+        },
+      )
+    })
+
+    // `mediaJobRoute()` serves the two GETs as well as the two deletes -
+    // this is the assertion that keeps the read half silent.
+    describe('reads record nothing', () => {
+      it.each([
+        ['getMovieJob', 'movie-1'],
+        ['getShowJob', 'show-1'],
+      ] as const)('%s writes no audit row', async (method, jobId) => {
+        mediaDownloadService.getMovieJob.mockResolvedValue(movieJob)
+        mediaDownloadService.getShowJob.mockResolvedValue(showJob)
+
+        await controller[method](jobId, alice)
+
+        expect(auditLogService.record).not.toHaveBeenCalled()
+      })
+
+      it('listReleases writes no audit row', async () => {
+        releaseService.listReleases.mockResolvedValue([sampleRelease])
+
+        await controller.listReleases('tmdb:1', {})
+
+        expect(auditLogService.record).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('a failed action records nothing', () => {
+      it('writes no row when the delete throws', async () => {
+        mediaDownloadService.deleteMovieJob.mockRejectedValue(
+          new Error('not found'),
+        )
+
+        await expect(
+          controller.deleteMovieJob('missing', alice),
+        ).rejects.toThrow(HttpException)
+
+        expect(auditLogService.record).not.toHaveBeenCalled()
+      })
+
+      it('writes no row when the grab is rejected as flagged', async () => {
+        releaseService.grabRelease.mockRejectedValue(
+          new ConflictException('flagged'),
+        )
+
+        await expect(
+          controller.grabRelease(
+            'tmdb:1',
+            { guid: 'indexer://abc', indexerId: 3 },
+            alice,
+          ),
+        ).rejects.toThrow(ConflictException)
+
+        expect(auditLogService.record).not.toHaveBeenCalled()
+      })
+
+      it('writes no row when the file delete throws', async () => {
+        showService.deleteFiles.mockRejectedValue(new NotFoundException('nope'))
+
+        await expect(
+          controller.deleteMediaFiles('tvdb:2', {}, alice),
+        ).rejects.toThrow(NotFoundException)
+
+        expect(auditLogService.record).not.toHaveBeenCalled()
+      })
+    })
+
+    // A grab is a statement about a *title's* file, so the media key is the
+    // target and the job it spawned rides along as metadata.
+    describe('media-level actions target the media key', () => {
+      const input = { guid: 'indexer://abc', indexerId: 3 }
+
+      it.each([
+        ['grabRelease', 'release.grab'],
+        ['replaceRelease', 'release.replace'],
+      ] as const)(
+        'records %s against the media key',
+        async (method, action) => {
+          releaseService.grabRelease.mockResolvedValue(movieJob)
+          releaseService.replaceRelease.mockResolvedValue(movieJob)
+
+          await controller[method]('tmdb:1', input, alice)
+
+          expect(auditLogService.record).toHaveBeenCalledTimes(1)
+          expect(auditLogService.record).toHaveBeenCalledWith({
+            action,
+            actor: alice,
+            metadata: {
+              guid: 'indexer://abc',
+              indexerId: 3,
+              jobId: 'movie-1',
+            },
+            target: { id: 'tmdb:1', type: 'media' },
+          })
+        },
+      )
+
+      it('records a flag with its guid and reason', () => {
+        releaseService.flagBadFile.mockReturnValue(sampleBadFile)
+
+        controller.flagBadFile(
+          'tmdb:1',
+          { guid: 'indexer://abc', reason: 'wrong audio' },
+          alice,
+        )
+
+        expect(auditLogService.record).toHaveBeenCalledTimes(1)
+        expect(auditLogService.record).toHaveBeenCalledWith({
+          action: 'file.flag_bad',
+          actor: alice,
+          metadata: { guid: 'indexer://abc', reason: 'wrong audio' },
+          target: { id: 'tmdb:1', type: 'media' },
+        })
+      })
+
+      it('omits the reason key when the flag carried none', () => {
+        releaseService.flagBadFile.mockReturnValue(sampleBadFile)
+
+        controller.flagBadFile('tmdb:1', { guid: 'indexer://abc' }, alice)
+
+        expect(auditLogService.record).toHaveBeenCalledWith(
+          expect.objectContaining({ metadata: { guid: 'indexer://abc' } }),
+        )
+      })
+
+      it('records a scoped file delete with its count and scope', async () => {
+        showService.deleteFiles.mockResolvedValue(2)
+
+        await controller.deleteMediaFiles(
+          'tvdb:2',
+          { episodeId: 4412, seasonNumber: 3 },
+          alice,
+        )
+
+        expect(auditLogService.record).toHaveBeenCalledTimes(1)
+        expect(auditLogService.record).toHaveBeenCalledWith({
+          action: 'media.delete_files',
+          actor: alice,
+          metadata: {
+            deletedCount: 2,
+            scope: { episodeId: 4412, seasonNumber: 3 },
+          },
+          target: { id: 'tvdb:2', type: 'media' },
+        })
+      })
+
+      // The request succeeded - "there was nothing there" is a fact worth
+      // logging, not a reason to omit the attempt.
+      it('records a delete that removed nothing', async () => {
+        showService.deleteFiles.mockResolvedValue(0)
+
+        await controller.deleteMediaFiles('tvdb:2', {}, alice)
+
+        expect(auditLogService.record).toHaveBeenCalledWith({
+          action: 'media.delete_files',
+          actor: alice,
+          metadata: { deletedCount: 0 },
+          target: { id: 'tvdb:2', type: 'media' },
+        })
+      })
     })
   })
 })

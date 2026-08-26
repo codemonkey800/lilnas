@@ -22,7 +22,9 @@ import { Test, TestingModule } from '@nestjs/testing'
 import type { Response } from 'express'
 import type { Readable } from 'stream'
 
+import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
+import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
 import { DownloadMetricsService } from 'src/download/download-metrics.service'
@@ -139,15 +141,21 @@ const QUERY_METADATA: ArgumentMetadata = { type: 'query' }
 
 describe('DownloadController - GET /media/:id/file', () => {
   let controller: DownloadController
+  let auditLogService: { record: jest.Mock }
   let mediaFileService: jest.Mocked<MediaFileService>
   let metrics: jest.Mocked<DownloadMetricsService>
   let res: FakeResponse
 
+  const alice: ForwardedUser = { email: 'alice@example.com', userId: 'u1' }
+
   beforeEach(async () => {
+    auditLogService = { record: jest.fn() }
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DownloadController],
       providers: [
         { provide: AdminCheckService, useValue: { checkIsAdmin: jest.fn() } },
+        { provide: AuditLogService, useValue: auditLogService },
         { provide: DiscoveryService, useValue: {} },
         {
           provide: DownloadMetricsService,
@@ -205,7 +213,7 @@ describe('DownloadController - GET /media/:id/file', () => {
     it('hands the resolved path to sendFile as an attachment', async () => {
       mediaFileService.resolveFileSource.mockResolvedValue(movieSource)
 
-      await controller.getMediaFile('tmdb:1', {}, asResponse(res))
+      await controller.getMediaFile('tmdb:1', {}, undefined, asResponse(res))
 
       expect(mediaFileService.resolveFileSource).toHaveBeenCalledWith(
         'tmdb:1',
@@ -234,6 +242,7 @@ describe('DownloadController - GET /media/:id/file', () => {
       await controller.getMediaFile(
         'tvdb:9',
         { episodeId: 4412 },
+        undefined,
         asResponse(res),
       )
 
@@ -261,7 +270,7 @@ describe('DownloadController - GET /media/:id/file', () => {
         path: '/movies/Kimi no Na wa/君の名は (2016).mkv',
       })
 
-      await controller.getMediaFile('tmdb:2', {}, asResponse(res))
+      await controller.getMediaFile('tmdb:2', {}, undefined, asResponse(res))
 
       const [, value] = res.setHeader.mock.calls[0] as [string, string]
       expect(value).toContain("filename*=UTF-8''")
@@ -279,7 +288,7 @@ describe('DownloadController - GET /media/:id/file', () => {
     })
 
     it('sets the stat-derived headers and pipes the object into the response', async () => {
-      await controller.getMediaFile('video:v1', {}, asResponse(res))
+      await controller.getMediaFile('video:v1', {}, undefined, asResponse(res))
 
       expect(mediaFileService.getObjectStream).toHaveBeenCalledWith(videoSource)
       expect(res.setHeader).toHaveBeenCalledWith(
@@ -293,7 +302,12 @@ describe('DownloadController - GET /media/:id/file', () => {
     })
 
     it('passes the part scope through to the service', async () => {
-      await controller.getMediaFile('video:v1', { part: 2 }, asResponse(res))
+      await controller.getMediaFile(
+        'video:v1',
+        { part: 2 },
+        undefined,
+        asResponse(res),
+      )
 
       expect(mediaFileService.resolveFileSource).toHaveBeenCalledWith(
         'video:v1',
@@ -311,17 +325,19 @@ describe('DownloadController - GET /media/:id/file', () => {
       )
 
       await expect(
-        controller.getMediaFile('video:v1', {}, asResponse(res)),
+        controller.getMediaFile('video:v1', {}, undefined, asResponse(res)),
       ).rejects.toThrow('minio unreachable')
 
       expect(res.setHeader).not.toHaveBeenCalled()
       expect(res.status).not.toHaveBeenCalled()
+      // No transfer started, so there is nothing to have audited.
+      expect(auditLogService.record).not.toHaveBeenCalled()
     })
 
     // `pipe()` tears down neither end on the other's close, so without this
     // a client that abandons the save leaks the MinIO socket.
     it('destroys the object stream when the client closes the response', async () => {
-      await controller.getMediaFile('video:v1', {}, asResponse(res))
+      await controller.getMediaFile('video:v1', {}, undefined, asResponse(res))
 
       listener(res, 'close')()
 
@@ -341,7 +357,7 @@ describe('DownloadController - GET /media/:id/file', () => {
       mediaFileService.resolveFileSource.mockRejectedValue(exception)
 
       await expect(
-        controller.getMediaFile('tvdb:9', {}, asResponse(res)),
+        controller.getMediaFile('tvdb:9', {}, undefined, asResponse(res)),
       ).rejects.toBe(exception)
 
       // Nothing written, which is what leaves Nest's exception filter free
@@ -357,10 +373,91 @@ describe('DownloadController - GET /media/:id/file', () => {
       )
 
       await expect(
-        controller.getMediaFile('tmdb:1', {}, asResponse(res)),
+        controller.getMediaFile('tmdb:1', {}, undefined, asResponse(res)),
       ).rejects.toThrow(NotFoundException)
 
       expect(metrics.fileSaved).not.toHaveBeenCalled()
+    })
+
+    it('never audits a save that failed to resolve', async () => {
+      mediaFileService.resolveFileSource.mockRejectedValue(
+        new NotFoundException('nope'),
+      )
+
+      await expect(
+        controller.getMediaFile('tmdb:1', {}, alice, asResponse(res)),
+      ).rejects.toThrow(NotFoundException)
+
+      expect(auditLogService.record).not.toHaveBeenCalled()
+    })
+  })
+
+  // Phase 8. The audit row is written at hand-off, alongside the counter and
+  // for the same reason: the bytes leave over minutes, so "the save started"
+  // is the only fact this request can still speak for.
+  describe('the audit row', () => {
+    it('records the save against the media key with the forwarded actor', async () => {
+      mediaFileService.resolveFileSource.mockResolvedValue(movieSource)
+
+      await controller.getMediaFile('tmdb:1', {}, alice, asResponse(res))
+
+      expect(auditLogService.record).toHaveBeenCalledTimes(1)
+      expect(auditLogService.record).toHaveBeenCalledWith({
+        action: 'media.save_file',
+        actor: alice,
+        metadata: undefined,
+        target: { id: 'tmdb:1', type: 'media' },
+      })
+    })
+
+    // The no-identity path this route has always supported - a service
+    // caller still gets its bytes, and the row lands as origin 'service'.
+    it('records actor undefined for a caller with no forwarded identity', async () => {
+      mediaFileService.resolveFileSource.mockResolvedValue(movieSource)
+
+      await controller.getMediaFile('tmdb:1', {}, undefined, asResponse(res))
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ actor: undefined }),
+      )
+    })
+
+    it('carries the episode scope as metadata', async () => {
+      mediaFileService.resolveFileSource.mockResolvedValue(episodeSource)
+
+      await controller.getMediaFile(
+        'tvdb:9',
+        { episodeId: 4412 },
+        alice,
+        asResponse(res),
+      )
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: { episodeId: 4412 },
+          target: { id: 'tvdb:9', type: 'media' },
+        }),
+      )
+    })
+
+    // Part 0 is the first part of a multi-part video, not an absent one - a
+    // truthiness check here would drop it from the row.
+    it('carries part 0 as metadata rather than dropping it', async () => {
+      mediaFileService.resolveFileSource.mockResolvedValue(videoSource)
+      mediaFileService.getObjectStream.mockResolvedValue(
+        asStream(createFakeStream()),
+      )
+
+      await controller.getMediaFile(
+        'video:v1',
+        { part: 0 },
+        alice,
+        asResponse(res),
+      )
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ metadata: { part: 0 } }),
+      )
     })
   })
 
@@ -372,7 +469,7 @@ describe('DownloadController - GET /media/:id/file', () => {
     it.each([['ENOENT'], ['EACCES']])(
       'answers %s with a 404 in the Nest error shape while the headers are unsent',
       async code => {
-        await controller.getMediaFile('tmdb:1', {}, asResponse(res))
+        await controller.getMediaFile('tmdb:1', {}, undefined, asResponse(res))
 
         sendFileCallback(res)(Object.assign(new Error('open failed'), { code }))
 
@@ -387,7 +484,7 @@ describe('DownloadController - GET /media/:id/file', () => {
     )
 
     it('answers any other pre-header failure with a 500', async () => {
-      await controller.getMediaFile('tmdb:1', {}, asResponse(res))
+      await controller.getMediaFile('tmdb:1', {}, undefined, asResponse(res))
 
       sendFileCallback(res)(Object.assign(new Error('boom'), { code: 'EIO' }))
 
@@ -398,7 +495,7 @@ describe('DownloadController - GET /media/:id/file', () => {
     // so there is no code left to change and ending the (short) body is the
     // only honest signal.
     it('just ends the response when the headers are already sent', async () => {
-      await controller.getMediaFile('tmdb:1', {}, asResponse(res))
+      await controller.getMediaFile('tmdb:1', {}, undefined, asResponse(res))
       res.headersSent = true
 
       sendFileCallback(res)(
@@ -418,7 +515,7 @@ describe('DownloadController - GET /media/:id/file', () => {
       mediaFileService.resolveFileSource.mockResolvedValue(videoSource)
       mediaFileService.getObjectStream.mockResolvedValue(asStream(stream))
 
-      await controller.getMediaFile('video:v1', {}, asResponse(res))
+      await controller.getMediaFile('video:v1', {}, undefined, asResponse(res))
       res.headersSent = true
 
       listener(stream, 'error')(new Error('connection reset'))
@@ -432,7 +529,7 @@ describe('DownloadController - GET /media/:id/file', () => {
       mediaFileService.resolveFileSource.mockResolvedValue(videoSource)
       mediaFileService.getObjectStream.mockResolvedValue(asStream(stream))
 
-      await controller.getMediaFile('video:v1', {}, asResponse(res))
+      await controller.getMediaFile('video:v1', {}, undefined, asResponse(res))
 
       listener(
         stream,
@@ -456,7 +553,7 @@ describe('DownloadController - GET /media/:id/file', () => {
           asStream(createFakeStream()),
         )
 
-        await controller.getMediaFile(id, {}, asResponse(res))
+        await controller.getMediaFile(id, {}, undefined, asResponse(res))
 
         expect(metrics.fileSaved).toHaveBeenCalledTimes(1)
         expect(metrics.fileSaved).toHaveBeenCalledWith(type)
