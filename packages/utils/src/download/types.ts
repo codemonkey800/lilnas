@@ -2,6 +2,11 @@ import { z } from 'zod'
 
 import {
   ActivityQuerySchema,
+  AdminStatsQuerySchema,
+  AUDIT_ACTIONS,
+  AUDIT_TARGET_TYPES,
+  AuditLogEntrySchema,
+  AuditLogQuerySchema,
   BadFileSchema,
   CreateDownloadJobInputSchema,
   DeleteMediaFilesQuerySchema,
@@ -40,7 +45,7 @@ import {
   VideoSchema,
 } from './schema'
 
-export { DownloadJobStatus, DownloadType }
+export { AUDIT_ACTIONS, AUDIT_TARGET_TYPES, DownloadJobStatus, DownloadType }
 
 // Terminal = a status that will never change again on its own (see
 // reconcile-interrupted-jobs.ts, the original owner of this exact list).
@@ -375,3 +380,55 @@ export type GetMediaFileQuery = z.infer<typeof GetMediaFileQuerySchema>
 
 // No response interface for `GET /download/media/:id/file` on purpose: it
 // answers with a raw byte stream (an attachment), not JSON.
+
+// ---- Phase 8: admin dashboard & audit log ----
+
+/**
+ * One of {@link AUDIT_ACTIONS} - the closed `<subject>.<verb>` vocabulary
+ * every audit row is written and filtered with.
+ */
+export type AuditAction = (typeof AUDIT_ACTIONS)[number]
+
+/**
+ * What an audit row's `targetId` points at: a `jobs.id` or a `mediaId()`
+ * key. `null` for an action with no target (e.g. `ytdlp.check_update`).
+ */
+export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number]
+
+/**
+ * One persisted audit row. `actor` is `null` for a service caller with no
+ * forwarded identity - see `AuditLogEntrySchema` for why `origin` sits next
+ * to it, and why `metadata` stays deliberately untyped.
+ */
+export type AuditLogEntry = z.infer<typeof AuditLogEntrySchema>
+
+export type AuditLogQuery = z.infer<typeof AuditLogQuerySchema>
+export type AdminStatsQuery = z.infer<typeof AdminStatsQuerySchema>
+
+// `GET /download/admin/audit` answers with `DownloadPage<AuditLogEntry>` -
+// the same envelope every other list endpoint uses, so there is no
+// audit-specific response interface here on purpose.
+
+/**
+ * `GET /download/admin/stats`. Every breakdown is an array of
+ * `{ count, ...key }` rows rather than a keyed object: the counts come
+ * straight out of `GROUP BY` queries, and a row that never occurred in the
+ * window is simply absent (not a zero), which an object keyed by the full
+ * enum would have to invent.
+ *
+ * `windowDays` echoes the `days` that was actually applied, so a cached or
+ * clamped response still says which window it describes.
+ */
+export interface AdminStatsResponse {
+  jobsPerDay: Array<{
+    count: number
+    /** `YYYY-MM-DD`, bucketed in UTC to match the query's day boundaries. */
+    day: string
+    type: DownloadType
+  }>
+  topRequesters: Array<{ count: number; requesterEmail: string }>
+  totalsByStatus: Array<{ count: number; status: DownloadJobStatus }>
+  totalsByType: Array<{ count: number; type: DownloadType }>
+  totalJobs: number
+  windowDays: number
+}
