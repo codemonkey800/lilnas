@@ -19,6 +19,8 @@
 //     via `.$defaultFn(() => new Date())` — never a SQL-side default.
 //   - JSON columns: `text({ mode: 'json' }).$type<T>()`.
 import type {
+  AuditAction,
+  AuditTargetType,
   DownloadJobStatus,
   DownloadType,
   ShowScope,
@@ -63,11 +65,12 @@ export const DOWNLOAD_JOB_STATUSES = [
 // the other.
 export const JOB_ORIGINS = ['service', 'web'] as const
 
-// Compile-time-only guard that the two SQL enum tuples above never silently
-// drift from the shared TS enums they mirror (`DownloadType`/
-// `DownloadJobStatus` in `@lilnas/utils/download/types`). `import type` is
-// fully erased, so this carries no runtime cost and pulls nothing (not
-// `child_process`, not `zod`) into drizzle-kit's bundle of this file.
+// Compile-time-only guard that the SQL enum tuples in this file never
+// silently drift from the shared TS enums they mirror (`DownloadType`/
+// `DownloadJobStatus` in `@lilnas/utils/download/types`, plus Phase 8's
+// audit tuples at the bottom of the file). `import type` is fully erased, so
+// this carries no runtime cost and pulls nothing (not `child_process`, not
+// `zod`) into drizzle-kit's bundle of this file.
 type AssertSameUnion<A, B> = [A] extends [B]
   ? [B] extends [A]
     ? true
@@ -291,3 +294,109 @@ export const badFiles = sqliteTable(
 )
 
 export type BadFileRow = typeof badFiles.$inferSelect
+
+// Phase 8: the admin audit log. Spelled out here rather than imported from
+// `@lilnas/utils/download/schema` because drizzle-kit *bundles* this file to
+// generate migrations, and that module is a `zod` entry point - a value
+// import would drag zod (and everything else reachable from it) into the
+// bundle. The `auditActionPin`/`auditTargetTypePin` guards below are what
+// keep these copies honest: they fail `type-check` the moment the shared
+// tuples gain, lose, or reorder a member, so the duplication can't rot.
+export const AUDIT_ACTIONS_LOCAL = [
+  'video.create',
+  'video.cancel',
+  'video.pause',
+  'video.resume',
+  'movie.request',
+  'movie.delete',
+  'show.request',
+  'show.delete',
+  'media.delete_files',
+  'media.save_file',
+  'release.grab',
+  'release.replace',
+  'file.flag_bad',
+  'ytdlp.check_update',
+] as const
+
+export const AUDIT_TARGET_TYPES_LOCAL = ['job', 'media'] as const
+
+export const auditActionPin: AssertSameUnion<
+  (typeof AUDIT_ACTIONS_LOCAL)[number],
+  AuditAction
+> = true
+
+export const auditTargetTypePin: AssertSameUnion<
+  (typeof AUDIT_TARGET_TYPES_LOCAL)[number],
+  AuditTargetType
+> = true
+
+// Append-only: nothing updates or deletes an audit row, which is what makes
+// `bad_files` (not `jobs`) the closest structural analogue - an autoincrement
+// integer PK nothing outside the DB mints, and denormalized actor columns
+// rather than a FK to a users table this service doesn't own.
+export const auditLog = sqliteTable(
+  'audit_log',
+  {
+    id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
+    // Same `service`/`web` split - and the same meaning - as `jobs.origin`,
+    // reusing that tuple rather than a parallel one: a null actor on a `web`
+    // row would mean a browser request arrived without `X-Forwarded-User`,
+    // which is a bug, not a shape the log should be able to record.
+    origin: text({ enum: JOB_ORIGINS }).notNull(),
+    // Nullable, unlike `bad_files`' NOT NULL flagger columns: a service
+    // caller (tdr-bot, the yt-dlp update poller) has no forwarded identity,
+    // and those actions still belong in the log. The CHECK below is what
+    // ties the nullability back to `origin`.
+    actorEmail: text('actor_email'),
+    actorUserId: text('actor_user_id'),
+    action: text({ enum: AUDIT_ACTIONS_LOCAL }).notNull(),
+    // Null together: `ytdlp.check_update` acts on nothing addressable.
+    // `targetId` is a `jobs.id` when `targetType` is `'job'` and a
+    // `mediaId()` key when it's `'media'` - deliberately not a FK, for the
+    // same reason `jobs.media_id` isn't one (see that column's comment), plus
+    // the stronger one that an audit row must outlive whatever it describes.
+    targetType: text('target_type', { enum: AUDIT_TARGET_TYPES_LOCAL }),
+    targetId: text('target_id'),
+    // Per-action detail, rendered as key/value pairs and never branched on -
+    // so `Record<string, unknown>` rather than a discriminated union keyed on
+    // `action`. Same `text({ mode: 'json' })` convention as `jobs.scope`.
+    metadata: text('metadata', { mode: 'json' }).$type<
+      Record<string, unknown>
+    >(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  t => [
+    // The cursor index, mirroring `jobs_created_at_id_idx`: the audit list
+    // endpoint shares the identical `ORDER BY created_at DESC, id DESC`
+    // keyset pagination, so this turns it into a bare ordered index scan
+    // instead of a full scan plus a temp b-tree sort.
+    index('audit_log_created_at_id_idx').on(t.createdAt, t.id),
+    // The two filter facets the admin UI exposes.
+    index('audit_log_actor_email_idx').on(t.actorEmail),
+    index('audit_log_action_idx').on(t.action),
+    // The exact shape of `jobs_origin_matches_requester`, for the exact same
+    // reason: `origin` is a derived, write-only column, so without this the
+    // two halves of "who did it" could drift apart at the DB layer.
+    check(
+      'audit_log_origin_matches_actor',
+      sql`(
+        (${t.origin} = 'web'     AND ${t.actorEmail} IS NOT NULL AND ${t.actorUserId} IS NOT NULL) OR
+        (${t.origin} = 'service' AND ${t.actorEmail} IS NULL     AND ${t.actorUserId} IS NULL)
+      )`,
+    ),
+    // A target type with no id (or an id with no type) is a half-written row:
+    // it would render as a link to nowhere and drop out of any target filter.
+    check(
+      'audit_log_target_pair',
+      sql`(
+        (${t.targetType} IS NULL     AND ${t.targetId} IS NULL) OR
+        (${t.targetType} IS NOT NULL AND ${t.targetId} IS NOT NULL)
+      )`,
+    ),
+  ],
+)
+
+export type AuditLogRow = typeof auditLog.$inferSelect

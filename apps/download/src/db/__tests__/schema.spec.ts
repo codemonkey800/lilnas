@@ -4,12 +4,12 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { checkIntegrity, runMigrations } from 'src/db/migrate'
 import { applyPragmas } from 'src/db/pragmas'
 import * as schema from 'src/db/schema'
-import { badFiles, jobs, videos } from 'src/db/schema'
+import { auditLog, badFiles, jobs, videos } from 'src/db/schema'
 
 import { applyMigrationFiles, createTestDb } from './test-utils'
 
 describe('schema + migrations', () => {
-  it('applies migrations cleanly, creating exactly the `jobs`, `videos` and `bad_files` tables', () => {
+  it('applies migrations cleanly, creating exactly the `audit_log`, `jobs`, `videos` and `bad_files` tables', () => {
     const { sqlite, close } = createTestDb()
     try {
       const tableNames = sqlite
@@ -23,7 +23,7 @@ describe('schema + migrations', () => {
       // `sqlite_sequence` is excluded by the `sqlite_%` filter above -
       // `bad_files` is the first AUTOINCREMENT table in this schema, so
       // migration 0005 is what makes SQLite create it at all.
-      expect(tableNames).toEqual(['bad_files', 'jobs', 'videos'])
+      expect(tableNames).toEqual(['audit_log', 'bad_files', 'jobs', 'videos'])
     } finally {
       close()
     }
@@ -822,6 +822,199 @@ describe('schema + migrations', () => {
           'bad_files_media_id_release_guid_idx',
         ]),
       )
+    } finally {
+      close()
+    }
+  })
+
+  // ---- Phase 8: audit_log ----
+
+  it('round-trips every column kind on the `audit_log` table, including the JSON `metadata`', () => {
+    const { db, close } = createTestDb()
+    try {
+      const now = new Date('2026-01-01T00:00:00.000Z')
+
+      db.insert(auditLog)
+        .values({
+          action: 'movie.request',
+          actorEmail: 'alice@example.com',
+          actorUserId: 'user_1',
+          createdAt: now,
+          metadata: { quality: 'HD-1080p', title: 'Inception' },
+          origin: 'web',
+          targetId: 'tmdb:27205',
+          targetType: 'media',
+        })
+        .run()
+
+      const row = db.select().from(auditLog).all()[0]
+
+      expect(row).toMatchObject({
+        action: 'movie.request',
+        actorEmail: 'alice@example.com',
+        actorUserId: 'user_1',
+        createdAt: now,
+        metadata: { quality: 'HD-1080p', title: 'Inception' },
+        origin: 'web',
+        targetId: 'tmdb:27205',
+        targetType: 'media',
+      })
+      // Autoincrement integer PK, like `bad_files` and unlike jobs/videos'
+      // app-minted TEXT ids.
+      expect(typeof row?.id).toBe('number')
+    } finally {
+      close()
+    }
+  })
+
+  it('has exactly the expected `audit_log` column list', () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      const columnNames = sqlite
+        .prepare(`PRAGMA table_info(audit_log)`)
+        .all()
+        .map(row => (row as { name: string }).name)
+
+      expect(columnNames).toEqual([
+        'id',
+        'origin',
+        'actor_email',
+        'actor_user_id',
+        'action',
+        'target_type',
+        'target_id',
+        'metadata',
+        'created_at',
+      ])
+    } finally {
+      close()
+    }
+  })
+
+  // The `service` half of `audit_log_origin_matches_actor`, and the "no
+  // target at all" half of `audit_log_target_pair` - `ytdlp.check_update` is
+  // exactly the action that exercises both at once.
+  it('accepts a `service` row with no actor and no target, defaulting `createdAt`', () => {
+    const { db, close } = createTestDb()
+    try {
+      db.insert(auditLog)
+        .values({ action: 'ytdlp.check_update', origin: 'service' })
+        .run()
+
+      const row = db.select().from(auditLog).all()[0]
+
+      expect(row).toMatchObject({
+        action: 'ytdlp.check_update',
+        actorEmail: null,
+        actorUserId: null,
+        metadata: null,
+        origin: 'service',
+        targetId: null,
+        targetType: null,
+      })
+      expect(row?.createdAt).toBeInstanceOf(Date)
+    } finally {
+      close()
+    }
+  })
+
+  it('`audit_log_origin_matches_actor` rejects a `web` row with no actor', () => {
+    const { db, close } = createTestDb()
+    try {
+      expect(() =>
+        db
+          .insert(auditLog)
+          .values({ action: 'video.create', origin: 'web' })
+          .run(),
+      ).toThrow(/CHECK constraint failed/)
+    } finally {
+      close()
+    }
+  })
+
+  it('`audit_log_origin_matches_actor` rejects a `service` row that carries an actor', () => {
+    const { db, close } = createTestDb()
+    try {
+      expect(() =>
+        db
+          .insert(auditLog)
+          .values({
+            action: 'video.create',
+            actorEmail: 'alice@example.com',
+            actorUserId: 'user_1',
+            origin: 'service',
+          })
+          .run(),
+      ).toThrow(/CHECK constraint failed/)
+    } finally {
+      close()
+    }
+  })
+
+  it.each([
+    ['a `targetType` with no `targetId`', 'job', undefined],
+    ['a `targetId` with no `targetType`', undefined, 'job-1'],
+  ] as const)(
+    '`audit_log_target_pair` rejects %s',
+    (_label, targetType, targetId) => {
+      const { db, close } = createTestDb()
+      try {
+        expect(() =>
+          db
+            .insert(auditLog)
+            .values({
+              action: 'video.cancel',
+              origin: 'service',
+              targetId,
+              targetType,
+            })
+            .run(),
+        ).toThrow(/CHECK constraint failed/)
+      } finally {
+        close()
+      }
+    },
+  )
+
+  it('creates all three `audit_log` indexes', () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      const indexNames = sqlite
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'audit_log' AND name NOT LIKE 'sqlite_%'`,
+        )
+        .all()
+        .map(row => (row as { name: string }).name)
+        .sort()
+
+      expect(indexNames).toEqual([
+        'audit_log_action_idx',
+        'audit_log_actor_email_idx',
+        'audit_log_created_at_id_idx',
+      ])
+    } finally {
+      close()
+    }
+  })
+
+  it("plans the audit list endpoint's cursor query as an ordered index scan, not a temp b-tree sort", () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      // The same keyset shape jobs.repo.ts uses, which is why `audit_log`
+      // gets the same `(created_at, id)` composite index.
+      const plan = sqlite
+        .prepare(
+          `EXPLAIN QUERY PLAN
+           SELECT * FROM audit_log
+           WHERE (created_at, id) < (9999999999999, 999999)
+           ORDER BY created_at DESC, id DESC`,
+        )
+        .all()
+        .map(row => (row as { detail: string }).detail)
+        .join('\n')
+
+      expect(plan).toContain('audit_log_created_at_id_idx')
+      expect(plan).not.toContain('TEMP B-TREE')
     } finally {
       close()
     }
