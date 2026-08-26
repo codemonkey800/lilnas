@@ -360,7 +360,7 @@ Include this **verbatim** in every delegation:
 
 ### Group A — Wire contract
 
-- [ ] **A1. Audit + admin schemas in `packages/utils`.** In
+- [x] **A1. Audit + admin schemas in `packages/utils`.** — `3cb0198` In
       `packages/utils/src/download/`:
   - `schema.ts`, new banner `// ---- Phase 8: admin dashboard & audit log ----`
     at the bottom:
@@ -434,9 +434,31 @@ Include this **verbatim** in every delegation:
   - **After committing: `pnpm run build` in `packages/utils`** (stale-`dist`
     trap, see Context Pack).
 
+  **Findings (A1).** 249 tests green in `packages/utils`; `dist` rebuilt and
+  `AUDIT_ACTIONS` verified present. Deviations, all additive:
+  - **`AuditAction` is not a `z.infer` alias** — it's
+    `(typeof AUDIT_ACTIONS)[number]`, derived from the const tuple (the real
+    source of truth). Making it a `z.infer` would have needed an unspecced
+    `AuditActionSchema`. Identical union either way; `z.enum(AUDIT_ACTIONS)`
+    stays inline in both schemas as specced.
+  - **`AuditTargetType`** added (same `[number]` derivation) so the repo and
+    service layers can name that field's type.
+  - **`AUDIT_ACTIONS` / `AUDIT_TARGET_TYPES` are re-exported from `types.ts`**
+    as values, matching how `types.ts` already re-exports the
+    `DownloadJobStatus` / `DownloadType` enums.
+  - **The `from<=to` refine was extracted, not duplicated.** It existed inline
+    twice (`GalleryQuerySchema`, `GalleryFacetsQuerySchema`) with no shared
+    symbol; rather than write a third copy the agent extracted
+    `isOrderedDateRange()` + `DATE_RANGE_REFINEMENT` and repointed all three.
+    Message and `['from']` path unchanged; existing tests still pass. This is
+    the only edit to pre-existing lines.
+  - zod is `4.1.12`; `z.iso.datetime()`, `z.iso.date()` and two-arg
+    `z.record(z.string(), z.unknown())` are the file's current idiom and work
+    as written. `metadata` infers as `Record<string, unknown> | null`.
+
 ### Group B — Persistence
 
-- [ ] **B1. `audit_log` table + migration 0007.** Edit
+- [x] **B1. `audit_log` table + migration 0007.** — `f710759` Edit
       `apps/download/src/db/schema.ts`; run `pnpm run db:generate` in
       `apps/download`:
   - Table `audit_log`, drizzle export `auditLog`, following the file's stated
@@ -483,7 +505,23 @@ Include this **verbatim** in every delegation:
     actor must throw, a `service` row with one must throw, a `targetType`
     without `targetId` must throw).
 
-- [ ] **B2. `audit-log.repo.ts`.** Create
+  **Findings (B1).** Generated `0007_neat_lila_cheney.sql` — plain
+  `CREATE TABLE` + three `CREATE INDEX`, **no rebuild**, so migration 0006's
+  hand-edit warning never came into play. Exports: `AUDIT_ACTIONS_LOCAL`,
+  `AUDIT_TARGET_TYPES_LOCAL`, `auditActionPin`, `auditTargetTypePin`,
+  `auditLog`, `AuditLogRow`. `schema.spec.ts` 35 → 44 tests; full suite 923
+  passing against the 9 known `EACCES` ytdlp failures.
+  - **The pin was proven non-vacuous** — appending a bogus 15th action makes
+    `tsc` fail `TS2322` at `auditActionPin`. The drift guard genuinely bites.
+  - `applyRemainingMigrationFiles` picked up 0007 with no test changes.
+  - **Naming-convention note:** `origin` and `action` use
+    `text({ enum: … })` with no explicit string name — matching the
+    `jobs.type`/`jobs.status`/`jobs.origin` precedent but contradicting the
+    file's own header comment ("every column gets an explicit snake_case
+    string column name"). Column names are correct either way; the header is
+    the thing that's stale, if anyone wants to tighten it later.
+
+- [x] **B2. `audit-log.repo.ts`.** — `cbcfc55` Create
       `apps/download/src/db/audit-log.repo.ts` +
       `__tests__/audit-log.repo.spec.ts`:
 
@@ -544,7 +582,34 @@ Write a regression test with two rows sharing one `createdAt`.
     no gaps/duplicates; the timestamp-tie regression above; `total` counts
     the filtered set, not the page.
 
-- [ ] **B3. Stats aggregates in `jobs.repo.ts`.** Edit
+  **Findings (B2).** 17 new tests, all green; `src/db` 168/168.
+  `ListCursor` fields are `sortKeyMs` (number), `id` (string), `filterKey`
+  (string) (`list-cursor.ts:16-20`).
+  - **⚠️ The plan's integer-PK trap above is stated wrong — corrected here.**
+    SQLite applies the column's NUMERIC **affinity** to a bare bound
+    parameter, so against an `INTEGER PRIMARY KEY` the strings `'3'` and
+    `'03'` compare identically to `3`. Binding a _numeric_ cursor id as a
+    string is therefore **not** corrupting, and a plain timestamp-tie test
+    passes either way (verified by mutation). The real hazard is a
+    **non-numeric** id: affinity only converts text that already looks
+    numeric, so `id < '3-not-an-integer'` compares integer-vs-text, SQLite
+    orders every integer before every string, the predicate goes vacuously
+    true, and **the cursor row is re-served as a duplicate** across the page
+    boundary. Probe: `"3abc"`, `"not-a-number"` and `""` each returned
+    `[3,2,1]` where `3` is the cursor row itself. The numeric bind was kept
+    (correct and explicit), but **the `/^\d+$/` guard is the load-bearing
+    part**, and the regression test is pinned to that — it fails on mutation
+    to a raw string bind.
+  - **Invalid-cursor mechanism was unspecified; the repo `throw`s.**
+    `parseCursorId` throws a plain `Error` — repos in this package are
+    framework-free (no `@nestjs/common` import in `jobs.repo.ts` /
+    `bad-files.repo.ts`), and `list-cursor.ts:28-31` forbids silently
+    falling back to page 1. **C1 must catch and map it to a 400**, mirroring
+    `JobQueryService.decodeCursor()` (`job-query.service.ts:275-289`).
+  - `target.type` is typed `AuditTargetType` rather than inline
+    `'job' | 'media'` — identical union.
+
+- [x] **B3. Stats aggregates in `jobs.repo.ts`.** — `04ac1be` Edit
       `apps/download/src/db/jobs.repo.ts` + `__tests__/jobs.repo.spec.ts`:
 
   ```ts
@@ -585,9 +650,20 @@ ordered by day ascending — `created_at` is epoch **milliseconds**
     per-type splits, status counts, and that `filter.createdFrom` windows
     both functions.
 
+  **Findings (B3).** Signatures exactly as specced; additions only. 29 tests
+  in `jobs.repo.spec.ts` (12 new). The UTC guard was proven non-vacuous —
+  injecting `'localtime'` fails 3 tests, including one that flips
+  `process.env.TZ` mid-process. Two notes for **E1**:
+  - **Neither function zero-fills.** A status, or a `(day, type)` pair, with
+    no rows is simply absent from the result. A consumer wanting a dense
+    series or a fixed-shape breakdown must densify on its side.
+  - **Within-day order is unspecified.** `countJobsByDay` orders by day
+    ascending only; rows sharing a day come back in SQLite's grouping order.
+    Add `jobs.type` as a secondary `orderBy` if a chart ever needs it.
+
 ### Group C — Service & guard
 
-- [ ] **C1. `AuditModule` + `AuditLogService`.** Create
+- [x] **C1. `AuditModule` + `AuditLogService`.** — `9e39958` Create
       `apps/download/src/audit/audit.module.ts`, `audit-log.service.ts`,
       `__tests__/audit-log.service.test.ts`; register `AuditModule` in
       `app.module.ts`'s imports:
@@ -631,7 +707,28 @@ ordered by day ascending — `created_at` is epoch **milliseconds**
     counter; filter + cursor round-trip through the service; invalid cursor
     → `BadRequestException`.
 
-- [ ] **C2. `AdminGuard`.** Create `apps/download/src/auth/admin.guard.ts` +
+  **Findings (C1).** 12 tests green; package at 952 passing. Counter is
+  `download_audit_write_failures_total`, no labels, on the default `register`.
+  `AuditModule` sits first in `app.module.ts`'s `imports`.
+  - **`instanceof Error` is unreliable for better-sqlite3 errors under Jest.**
+    The native addon builds its errors outside Jest's vm sandbox, so
+    `err instanceof Error` is `false` for them even though the prototype
+    chain does end at `Error`. The never-throws test therefore asserts on
+    `error.message`, with a comment so nobody "fixes" it back. Cursor mapping
+    is unaffected (that error comes from application code in the same realm).
+    Anything downstream branching on `instanceof Error` around a DB call
+    should know this.
+  - **Invalid-cursor mapping matches the repo's message prefix**
+    (`'Invalid audit log cursor'`, hoisted to a named constant) rather than
+    blanket-catching around `listAuditLogPage` — a blanket catch would
+    relabel a genuine sqlite failure as a 400 instead of a 500. Two tests
+    fail loudly if the repo ever rewords the message, so the coupling is
+    test-guarded rather than silent.
+  - **`audit_log_target_pair` bites on direct seeding** — a `targetId`
+    without a `targetType` is rejected at the DB. Downstream tasks writing
+    fixtures straight against `auditLog` will hit this.
+
+- [x] **C2. `AdminGuard`.** — `fab1955` Create `apps/download/src/auth/admin.guard.ts` +
       `__tests__/admin.guard.spec.ts`; export from `AuthModule`:
 
   ```ts
@@ -657,9 +754,18 @@ ordered by day ascending — `created_at` is epoch **milliseconds**
     non-admin → 403; headers + admin → passes; dev-fallback identity
     (`DEV_USER_EMAIL`) also consults the admin check.
 
+  **Findings (C2).** Landed as specified. `AdminCheckService.checkIsAdmin(email:
+string): Promise<boolean>` (`admin-check.service.ts:39`) normalizes casing
+  internally, so the guard passes `user.email` through raw. Added to both
+  `providers` and `exports` in `auth.module.ts`. 8 new tests (44 total in
+  `src/auth`, all green). `getHistory`'s inline 403 untouched, with a doc
+  comment on the guard explaining why it can't move. Note for later waves:
+  `simple-import-sort` orders `'./admin.guard'` **before**
+  `'./admin-check.service'` (full-specifier sort — `.` beats `-`).
+
 ### Group D — Write-path wiring
 
-- [ ] **D1. Audit calls in `DownloadController`.** Edit
+- [x] **D1. Audit calls in `DownloadController`.** — `2983ed3` Edit
       `apps/download/src/download/download.controller.ts`,
       `download.module.ts` (add `AuditModule` to imports), and the
       controller's existing test files:
@@ -701,7 +807,49 @@ ordered by day ascending — `created_at` is epoch **milliseconds**
     (no identity) records `actor: undefined`; `getMediaFile` records on
     stream start with the save metadata.
 
-- [ ] **D2. Audit the yt-dlp update trigger.** Edit
+  **Findings (D1).** All 13 hook points wired; 143 controller tests passing
+  (up from 108); package at 1019 passing. Nothing new exported.
+  `getMediaFile` gained `@OptionalCurrentUser() user` as its **third** param
+  (before `@Res() res`), closing the Phase 7 debt.
+  - **The audit descriptor deviates from the plan's
+    `{ action, target, metadata? }`:**
+
+    ```ts
+    interface RouteAuditEvent {
+      action: AuditAction;
+      metadata?: (job: DownloadJob) => Record<string, unknown>;
+    }
+    ```
+
+    **No `target`** — in all three helpers the target id _is_ the helper's
+    existing `id` param and the type is fixed per helper (`job` for
+    `videoInterruptRoute`/`mediaJobRoute`, `media` for
+    `releaseActionRoute`). Passing it again would only create a way for the
+    audited target and the acted-on one to disagree. `actor` likewise comes
+    from the helper's own `user`. **`metadata` is a function of the resolved
+    job, not a literal** — forced, because grab/replace's `jobId` doesn't
+    exist until `run()` resolves. `audit` is required on
+    `videoInterruptRoute` and `releaseActionRoute`, optional on
+    `mediaJobRoute` alone (it also serves the two GETs, which pass nothing).
+
+  - Added module-private `narrowScope<T>(axes: T): Partial<T> | undefined`;
+    `requestShow`'s inline scope builder now calls it (byte-duplicated by
+    `deleteMediaFiles`'s metadata). Existing season-0 / unscoped tests pass
+    unchanged, which is what guards it.
+  - ⚠️ **`video.create` metadata originally recorded
+    `input.url.split('?')[0]`**, reusing the route's pre-existing
+    `sanitizedUrl` (`download.controller.ts:816`). **Reverted in `c4c4123`
+    after review** — for the dominant URL shape this service handles, the
+    video identity lives entirely in the query string, so
+    `youtube.com/watch?v=aqz-KE-bpKQ` collapsed to `youtube.com/watch` and
+    the entry could no longer say _what_ was downloaded. The audit log sits
+    behind `AdminGuard` unmasked by design (stricter than `/history`, which
+    already exposes job URLs with masking) and is meant to outlive the job
+    rows it references, so it now records the raw `input.url`. The log lines
+    keep using `sanitizedUrl` — a comment on the audit call says so, and the
+    test drives a real query-string URL and asserts it survives.
+
+- [x] **D2. Audit the yt-dlp update trigger.** — `951e702` Edit
       `apps/download/src/ytdlp-update/ytdlp-update.controller.ts`,
       `ytdlp-update.module.ts` (import `AuditModule`), + its tests:
   - `POST /api/ytdlp-update/check` gains `@OptionalCurrentUser()` and records
@@ -710,9 +858,33 @@ ordered by day ascending — `created_at` is epoch **milliseconds**
     otherwise none). GET routes untouched.
   - Tests: record called on POST with/without identity; GETs record nothing.
 
+  **Findings (D2).** New `ytdlp-update.controller.spec.ts`, 8 tests green.
+  No new exports; no `target` key (correct — the CHECK requires the target
+  pair to be null together).
+  - **Metadata included** — everything was already in the handler's hand, no
+    extra service call:
+    `{ canUpdate, currentVersion, dryRun, latestVersion, updateAvailable }`.
+    Two judgement calls: **`dryRun` is included** even though it isn't part
+    of `UpdateCheckResult`, because without it the trail can't distinguish
+    "an update was allowed to proceed" from "we only simulated it" — which
+    is the whole reason this route is audited. And the values are the
+    **post-override** result, so a dry run records `canUpdate: false`
+    alongside `updateAvailable: true`: what actually happened, not what the
+    service reported before the route clamped it.
+  - The handler now awaits `checkForUpdates()` once and applies the dry-run
+    override to the result, instead of duplicating the call across two
+    branches. Return values are byte-for-byte identical for both paths.
+  - `dryRun` changed from `dryRun?: string` to `dryRun: string | undefined`
+    so the query param could stay first — TS forbids an optional param
+    before a required one. Matches `download.controller.ts`'s query-then-user
+    ordering.
+  - Needed the `jest.mock('nanoid', …)` preamble (transitive ESM-only import
+    via `DownloadStateService`), same as
+    `download.controller.detail-fallback.test.ts`.
+
 ### Group E — Admin read surface
 
-- [ ] **E1. `AdminController` + stats service.** Create
+- [x] **E1. `AdminController` + stats service.** — `63c6ea5` Create
       `apps/download/src/admin/admin.module.ts`, `admin.controller.ts`,
       `admin-stats.service.ts`, `__tests__/`; register `AdminModule` in
       `app.module.ts`:
@@ -751,9 +923,42 @@ ordered by day ascending — `created_at` is epoch **milliseconds**
     `jobsPerDay`); audit-log endpoint passes filters/cursor through to
     `AuditLogService` and returns its page verbatim.
 
+  **Findings (E1).** 27 tests across 3 suites, all green; `type-check` clean
+  for `apps/download`. Routes: `GET /download/admin/audit-log` and
+  `GET /download/admin/stats`, class-level `@UseGuards(AdminGuard)`.
+  Exports `AdminController`, `AdminStatsService`, `AdminModule`,
+  `TOP_REQUESTERS_LIMIT` (= 20).
+  - **Sparse aggregates pass through undensified.** `AdminStatsResponse`'s
+    own doc comment (`types.ts:413-421`) already commits to this — "a row
+    that never occurred in the window is simply absent (not a zero)" — so
+    densifying would have contradicted the published wire contract. Two
+    tests pin it as contract rather than accident. Clients needing a
+    continuous x-axis fill their own gaps.
+  - **`countJobsByRequester` returns `{ count, email }`, not
+    `{ count, requesterEmail }`** — `rankRequesters()` renames for the wire
+    shape. It also **supplies the ordering**: the repo does a bare
+    `GROUP BY` with no `ORDER BY`, so "top" requesters would have been
+    _arbitrary_ requesters and the cut at 20 nondeterministic. Now sorted
+    count-desc with an email tiebreak so the panel doesn't reshuffle between
+    identical requests.
+  - **Added `admin.module.test.ts`** beyond the listed tests: it compiles the
+    real `AdminModule` and asserts the graph resolves. A missing
+    `imports: [AuthModule]` is invisible to `tsc` and would surface only at
+    container boot; this turns that into a test failure.
+  - `Date.now` is spied rather than using full fake timers — those would
+    also fake `setImmediate`/`nextTick` and put Nest's async `compile()` on
+    a clock the file never advances. `Date.now()` is the single clock read
+    `getStats()` makes.
+  - ⚠️ **Route-name drift in landed comments** (comments only, nothing
+    functional): `packages/utils/src/download/schema.ts:642`,
+    `types.ts:408`, and `apps/download/src/audit/audit-log.service.ts:141`
+    all say `GET /download/admin/audit` — the real route is
+    `/download/admin/audit-log`. Outside E1's file ownership; **folded into
+    F1** as a cleanup.
+
 ### Group F — Documentation & integration checkpoint
 
-- [ ] **F1. Update `docs/features/download/backend.md` Phase 8 section.**
+- [x] **F1. Update `docs/features/download/backend.md` Phase 8 section.** — `e6112b9`
       Rewrite it to: **Status: done** (backend only — no frontend surface
       yet), link this plan, list commits (orchestrator supplies hashes);
       record the decisions (success-only recording at the controller seam;
@@ -768,7 +973,26 @@ ordered by day ascending — `created_at` is epoch **milliseconds**
       ⚠️ Serialize against Phase 7's F1 if it hasn't landed (see "Read
       first"). Tests: n/a (docs). Prettier must pass.
 
-- [ ] **F2. Integration checkpoint.** From the repo root: `pnpm test`,
+  **Findings (F1).** No serialization needed — Phase 7's F1/F2 were already
+  checked and committed before this plan started. Also folded in E1's
+  route-name drift: `schema.ts:642`, `types.ts:408` and
+  `audit-log.service.ts:141` now all read `GET /download/admin/audit-log`,
+  verified against `admin.controller.ts`.
+  - **The stale line this task was pointed at doesn't exist.** Nothing in
+    `backend.md` said "Phases 3–8 are still pending". The agent found and
+    fixed every stale claim instead: line 6 (`0–7` → `0–8 have since been
+implemented`), the line-23 status table row (`⬜ not started` →
+    `✅ done — backend only`), lines 40-41, line 58 (`0–7 have all landed,
+and Phase 8 is the only one left` → `0–8 have all landed`), and the
+    "Verification conventions" heading.
+  - **This plan's own "13 mutating routes" count is wrong** (see the
+    Phase 8 summary table at the top and D1's task text). The real count is
+    **14 actions**: `DownloadController` has **12** mutating routes, plus
+    `media.save_file` (which hangs off a GET), plus `ytdlp.check_update`.
+    `backend.md` states it correctly.
+
+- [x] **F2. Integration checkpoint.** ✅ **no-op, all green** — no commit
+      needed. From the repo root: `pnpm test`,
       `pnpm run lint`, `pnpm run type-check` across the workspace, plus
       `pnpm run build` for `@lilnas/utils` and `@lilnas/download` — proving
       the additive schema/contract changes broke no consumer (tdr-bot
@@ -779,6 +1003,44 @@ ordered by day ascending — `created_at` is epoch **milliseconds**
       `EACCES` failures (both documented in backend.md Phase 5/7 findings).
       Commit only if something needed changing — otherwise report "no-op,
       all green" and check the box with the run's evidence.
+
+  **Findings (F2).** **Lint 14/14, type-check 12/12, both builds clean** —
+  `@lilnas/utils` (`tsc -p .`) and `@lilnas/download` (TSC 0 issues, SWC 137
+  files, Next.js 4/4 static pages). **The `TS6053` flake did not appear.**
+  Workspace tests: **270/277 suites, 5475/5502 tests**, 27 failures — every
+  one pre-existing and reproducible on `main`.
+  - **Consumer compatibility proven.**
+    `apps/tdr-bot/src/commands/download-command.service.ts` really does
+    import `@lilnas/utils/download/{client,schema,types,utils}`, resolving
+    through `"exports": { "./*": "./dist/*.js" }` against the rebuilt dist.
+    Against that dist tdr-bot passes a **forced full non-incremental**
+    `tsc --noEmit --incremental false --composite false` with zero
+    diagnostics — forced deliberately, because `composite: true` made the
+    default run incremental and finish in 1.8s, which would have proven
+    nothing. Its 1129 tests pass too.
+  - `pnpm test` bails on the first failing package, so attribution needed
+    `turbo run test --continue --force`.
+  - ⚠️ **Three pre-existing red suites on `main` beyond the yt-dlp cluster**
+    — out of scope here, but they mean a bare `pnpm test` exits non-zero on
+    `main` too. Worth separate delegation if CI is meant to be green:
+    - **`apps/equations`** (7): 6 in `equation-schema.test.ts` expecting a
+      line-length error that `8118a3a fix(equations): remove line length
+check` deleted from source without updating the assertions; plus
+      `equations-controller.test.ts` failing to run at all —
+      `apps/equations/jest.config.js:33` maps `@lilnas/utils/*` to
+      `<rootDir>/../utils/src/*`, i.e. `apps/utils/src`, but utils lives at
+      `packages/utils`. Broken by `7fee9bb restructure apps and packages`.
+    - **`apps/swole`** (4): Zod validation in `src/db/setLogs.ts:120` now
+      rejects before the DB CHECK fires, so tests expecting `/CHECK/` get
+      `"invalid set log args"`. Source last touched by `0a5caed`.
+    - **`apps/tdr-code`** (7): `use-live-stream.spec.tsx` expects
+      `{cancelRefetch: false}`, receives `true`. Source last touched by
+      `44d2290`.
+
+    All three blamed commits verified as ancestors of `main`, and none of
+    the three packages import `@lilnas/utils/download` or
+    `@lilnas/utils/auth` — the only changed utils subpaths — so they cannot
+    be downstream of this work.
 
 ---
 
