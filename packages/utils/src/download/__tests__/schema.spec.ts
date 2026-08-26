@@ -1,5 +1,9 @@
 import {
   ActivityQuerySchema,
+  AdminStatsQuerySchema,
+  AUDIT_ACTIONS,
+  AuditLogEntrySchema,
+  AuditLogQuerySchema,
   BadFileSchema,
   DeleteMediaFilesQuerySchema,
   DiscoverQuerySchema,
@@ -1014,5 +1018,215 @@ describe('GetMediaFileQuerySchema', () => {
     expect(GetMediaFileQuerySchema.safeParse({ [field]: '1.5' }).success).toBe(
       false,
     )
+  })
+})
+
+// ---- Phase 8: admin dashboard & audit log ----
+
+describe('AuditLogEntrySchema', () => {
+  const validEntry = {
+    action: 'video.create',
+    actor: { email: 'alice@example.com', userId: 'u1' },
+    createdAt: '2026-08-20T12:00:00.000Z',
+    id: 1,
+    metadata: { url: 'https://example.com/watch?v=abc' },
+    origin: 'web',
+    targetId: 'job-1',
+    targetType: 'job',
+  }
+
+  it('parses a fully populated row', () => {
+    expect(AuditLogEntrySchema.parse(validEntry)).toEqual(validEntry)
+  })
+
+  it.each([...AUDIT_ACTIONS])('accepts the %s action', action => {
+    expect(
+      AuditLogEntrySchema.safeParse({ ...validEntry, action }).success,
+    ).toBe(true)
+  })
+
+  it.each(['video.created', 'movie.request ', 'VIDEO.CREATE', ''])(
+    'rejects the unknown action %p',
+    action => {
+      expect(
+        AuditLogEntrySchema.safeParse({ ...validEntry, action }).success,
+      ).toBe(false)
+    },
+  )
+
+  // A service caller (tdr-bot, the yt-dlp updater) has no forwarded
+  // identity, and an action like `ytdlp.check_update` has no target - so all
+  // four of these are legitimately null together.
+  it('parses a service row with no actor and no target', () => {
+    const serviceEntry = {
+      ...validEntry,
+      action: 'ytdlp.check_update',
+      actor: null,
+      metadata: null,
+      origin: 'service',
+      targetId: null,
+      targetType: null,
+    }
+
+    expect(AuditLogEntrySchema.parse(serviceEntry)).toEqual(serviceEntry)
+  })
+
+  // Nullable, not optional: these are DB columns, and a missing key would
+  // mean the serializer forgot one rather than that the column was empty.
+  it.each(['actor', 'metadata', 'targetId', 'targetType'])(
+    'rejects an omitted (rather than null) %s',
+    field => {
+      expect(
+        AuditLogEntrySchema.safeParse(without(validEntry, field)).success,
+      ).toBe(false)
+    },
+  )
+
+  it('accepts an empty metadata object', () => {
+    expect(
+      AuditLogEntrySchema.parse({ ...validEntry, metadata: {} }).metadata,
+    ).toEqual({})
+  })
+
+  // `metadata` is per-action detail that is rendered, never branched on, so
+  // the value type is deliberately wide open.
+  it('keeps heterogeneous metadata values untouched', () => {
+    const metadata = { count: 3, nested: { a: [1, 2] }, ok: true }
+
+    expect(
+      AuditLogEntrySchema.parse({ ...validEntry, metadata }).metadata,
+    ).toEqual(metadata)
+  })
+
+  it('rejects a non-object metadata', () => {
+    expect(
+      AuditLogEntrySchema.safeParse({ ...validEntry, metadata: 'nope' })
+        .success,
+    ).toBe(false)
+  })
+
+  it.each(['job', 'media'])('accepts the targetType %s', targetType => {
+    expect(
+      AuditLogEntrySchema.safeParse({ ...validEntry, targetType }).success,
+    ).toBe(true)
+  })
+
+  it.each(['user', 'release', 'JOB'])(
+    'rejects the unknown targetType %s',
+    targetType => {
+      expect(
+        AuditLogEntrySchema.safeParse({ ...validEntry, targetType }).success,
+      ).toBe(false)
+    },
+  )
+
+  it('rejects an unknown origin', () => {
+    expect(
+      AuditLogEntrySchema.safeParse({ ...validEntry, origin: 'cron' }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a date-only createdAt', () => {
+    expect(
+      AuditLogEntrySchema.safeParse({ ...validEntry, createdAt: '2026-08-20' })
+        .success,
+    ).toBe(false)
+  })
+})
+
+describe('AuditLogQuerySchema', () => {
+  it('defaults limit to 24 and leaves every filter undefined', () => {
+    expect(AuditLogQuerySchema.parse({})).toEqual({ limit: 24 })
+  })
+
+  it('coerces a numeric string limit', () => {
+    expect(AuditLogQuerySchema.parse({ limit: '5' }).limit).toBe(5)
+  })
+
+  it.each(['0', '101', 'abc'])('rejects an invalid limit %s', invalid => {
+    expect(AuditLogQuerySchema.safeParse({ limit: invalid }).success).toBe(
+      false,
+    )
+  })
+
+  it('passes cursor through untouched', () => {
+    expect(AuditLogQuerySchema.parse({ cursor: 'abc123' }).cursor).toBe(
+      'abc123',
+    )
+  })
+
+  it('accepts a known action filter', () => {
+    expect(AuditLogQuerySchema.parse({ action: 'release.grab' }).action).toBe(
+      'release.grab',
+    )
+  })
+
+  it('rejects an unknown action filter', () => {
+    expect(
+      AuditLogQuerySchema.safeParse({ action: 'video.yeet' }).success,
+    ).toBe(false)
+  })
+
+  it('accepts an actor filter', () => {
+    expect(
+      AuditLogQuerySchema.parse({ actor: 'alice@example.com' }).actor,
+    ).toBe('alice@example.com')
+  })
+
+  it('rejects an empty actor filter', () => {
+    expect(AuditLogQuerySchema.safeParse({ actor: '' }).success).toBe(false)
+  })
+
+  // The same day-boundary transforms `GalleryQuerySchema` applies, so a
+  // date picker behaves identically on both.
+  it('widens from/to to UTC day boundaries', () => {
+    const result = AuditLogQuerySchema.parse({
+      from: '2026-01-01',
+      to: '2026-01-31',
+    })
+
+    expect(result.from).toEqual(new Date('2026-01-01T00:00:00.000Z'))
+    expect(result.to).toEqual(new Date('2026-01-31T23:59:59.999Z'))
+  })
+
+  it.each(['not-a-date', '2026-13-40', '2026-01-01T00:00:00.000Z'])(
+    'rejects the non-date-only from %p',
+    from => {
+      expect(AuditLogQuerySchema.safeParse({ from }).success).toBe(false)
+    },
+  )
+
+  it('rejects an inverted date range', () => {
+    expect(
+      AuditLogQuerySchema.safeParse({ from: '2026-02-01', to: '2026-01-01' })
+        .success,
+    ).toBe(false)
+  })
+
+  it('accepts a range where from equals to', () => {
+    expect(
+      AuditLogQuerySchema.safeParse({ from: '2026-01-01', to: '2026-01-01' })
+        .success,
+    ).toBe(true)
+  })
+})
+
+describe('AdminStatsQuerySchema', () => {
+  it('defaults days to 30', () => {
+    expect(AdminStatsQuerySchema.parse({})).toEqual({ days: 30 })
+  })
+
+  // Query param, so it always arrives as a string even though it reads as a
+  // number.
+  it('coerces a numeric string', () => {
+    expect(AdminStatsQuerySchema.parse({ days: '7' }).days).toBe(7)
+  })
+
+  it.each(['1', '365'])('accepts the boundary value %s', days => {
+    expect(AdminStatsQuerySchema.parse({ days }).days).toBe(Number(days))
+  })
+
+  it.each(['0', '-1', '366', '1.5', 'abc'])('rejects days %s', days => {
+    expect(AdminStatsQuerySchema.safeParse({ days }).success).toBe(false)
   })
 })

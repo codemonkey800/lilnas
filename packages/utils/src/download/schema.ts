@@ -287,6 +287,27 @@ function endOfDayUtc(dateOnly: string): Date {
   return new Date(`${dateOnly}T23:59:59.999Z`)
 }
 
+/**
+ * The `from <= to` guard every date-windowed query schema applies, paired
+ * with {@link DATE_RANGE_REFINEMENT} below.
+ *
+ * An inverted range (`from` after `to`) would otherwise just look like an
+ * empty result set, indistinguishable from "no data in that window" - a
+ * loud 400 is more honest than a silently misleading empty page.
+ *
+ * Typed on just the two fields it reads, so it applies unchanged to any
+ * object schema that carries them (gallery, facets, audit log).
+ */
+function isOrderedDateRange(range: { from?: Date; to?: Date }): boolean {
+  return !range.from || !range.to || range.from <= range.to
+}
+
+/** The error `isOrderedDateRange` reports, reported on `from`. */
+const DATE_RANGE_REFINEMENT = {
+  message: '`from` must not be after `to`',
+  path: ['from'],
+}
+
 export const ActivityQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: LimitSchema,
@@ -302,23 +323,14 @@ export const GalleryQuerySchema = z
     to: z.iso.date().transform(endOfDayUtc).optional(),
     type: csvEnum(DownloadType),
   })
-  // An inverted range (`from` after `to`) would otherwise just look like an
-  // empty result set, indistinguishable from "no data in that window" - a
-  // loud 400 is more honest than a silently misleading empty page.
-  .refine(q => !q.from || !q.to || q.from <= q.to, {
-    message: '`from` must not be after `to`',
-    path: ['from'],
-  })
+  .refine(isOrderedDateRange, DATE_RANGE_REFINEMENT)
 
 export const GalleryFacetsQuerySchema = z
   .object({
     from: z.iso.date().transform(startOfDayUtc).optional(),
     to: z.iso.date().transform(endOfDayUtc).optional(),
   })
-  .refine(q => !q.from || !q.to || q.from <= q.to, {
-    message: '`from` must not be after `to`',
-    path: ['from'],
-  })
+  .refine(isOrderedDateRange, DATE_RANGE_REFINEMENT)
 
 export const HistoryQuerySchema = z.object({
   cursor: z.string().optional(),
@@ -559,4 +571,102 @@ export const DeleteMediaFilesQuerySchema = z.object({
 export const GetMediaFileQuerySchema = z.object({
   episodeId: z.coerce.number().int().positive().optional(),
   part: z.coerce.number().int().min(0).optional(),
+})
+
+// ---- Phase 8: admin dashboard & audit log ----
+
+/**
+ * Every mutating operation the service records an audit row for, named
+ * `<subject>.<verb>`.
+ *
+ * A closed vocabulary rather than a free-text column: the audit log is
+ * filterable by action, and a typo'd or drifting string would silently drop
+ * rows out of a filter that looks like it is working. Adding an action here
+ * is the deliberate step that makes it loggable *and* filterable at once.
+ *
+ * Append-only in practice - rows already written keep whatever value they
+ * were written with, so removing a member would make historical rows
+ * unparseable.
+ */
+export const AUDIT_ACTIONS = [
+  'video.create',
+  'video.cancel',
+  'video.pause',
+  'video.resume',
+  'movie.request',
+  'movie.delete',
+  'show.request',
+  'show.delete',
+  'media.delete_files',
+  'media.save_file',
+  'release.grab',
+  'release.replace',
+  'file.flag_bad',
+  'ytdlp.check_update',
+] as const
+
+/**
+ * What `targetId` points at. `job` means a `jobs.id`, `media` means a
+ * `mediaId()` key (`tmdb:438631`) - the two id spaces every Phase 1-7
+ * endpoint is already addressed in. Both are nullable on a row, since an
+ * action like `ytdlp.check_update` has no target at all.
+ */
+export const AUDIT_TARGET_TYPES = ['job', 'media'] as const
+
+/**
+ * One persisted `audit_log` row on the wire.
+ *
+ * `actor` is `null` for a service caller with no forwarded identity - the
+ * same meaning `DownloadJobSchema.requester` gives it, and the reason
+ * `origin` exists alongside it: `'service'` says the null is expected
+ * (tdr-bot, the yt-dlp updater), `'web'` says a browser request somehow
+ * arrived without `X-Forwarded-User`.
+ *
+ * `metadata` is deliberately untyped (`Record<string, unknown>`) - it is
+ * per-action detail rendered as key/value pairs, never branched on. Typing
+ * it per action would put a discriminated union in front of a column whose
+ * whole job is to hold whatever that action found worth remembering.
+ */
+export const AuditLogEntrySchema = z.object({
+  action: z.enum(AUDIT_ACTIONS),
+  actor: JobRequesterSchema.nullable(),
+  createdAt: z.iso.datetime(),
+  id: z.number().int(),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
+  origin: z.enum(['service', 'web']),
+  targetId: z.string().nullable(),
+  targetType: z.enum(AUDIT_TARGET_TYPES).nullable(),
+})
+
+/**
+ * `GET /download/admin/audit`. Cursor-paginated like every other list
+ * endpoint, and windowed by the same day-boundary `from`/`to` transforms
+ * `GalleryQuerySchema` uses, so a date picker behaves identically on both.
+ *
+ * `actor` is an email, matched case-insensitively server-side - the
+ * forwarded identity is the only human-readable handle an audit row carries.
+ */
+export const AuditLogQuerySchema = z
+  .object({
+    action: z.enum(AUDIT_ACTIONS).optional(),
+    actor: z.string().min(1).optional(),
+    cursor: z.string().optional(),
+    from: z.iso.date().transform(startOfDayUtc).optional(),
+    limit: LimitSchema,
+    to: z.iso.date().transform(endOfDayUtc).optional(),
+  })
+  .refine(isOrderedDateRange, DATE_RANGE_REFINEMENT)
+
+/**
+ * `GET /download/admin/stats`. A rolling window measured in whole days back
+ * from now, rather than a `from`/`to` pair: the dashboard's only control is
+ * "last N days", and a single number keeps the server-side bucketing (and
+ * its cache key) trivial.
+ *
+ * `z.coerce` because this is a query param and therefore always a string on
+ * the wire. The 365 ceiling bounds the per-day grouping the endpoint has to
+ * do; `.default(30)` is the dashboard's own default window.
+ */
+export const AdminStatsQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(365).default(30),
 })
