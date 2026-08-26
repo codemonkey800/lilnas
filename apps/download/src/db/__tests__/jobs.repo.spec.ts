@@ -1,8 +1,11 @@
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 
 import type { Db } from 'src/db/db.service'
+import type { DailyJobCount } from 'src/db/jobs.repo'
 import {
+  countJobsByDay,
   countJobsByRequester,
+  countJobsByStatus,
   countJobsByType,
   listJobsPage,
 } from 'src/db/jobs.repo'
@@ -446,6 +449,296 @@ describe('countJobsByType', () => {
       const result = countJobsByType(db, { createdFrom: new Date(T0) })
 
       expect(result).toEqual([{ count: 1, type: DownloadType.Video }])
+    } finally {
+      close()
+    }
+  })
+})
+
+describe('countJobsByStatus', () => {
+  it('groups by status with correct counts', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, { id: 'completed-1', status: 'completed' })
+      seedJob(db, { id: 'completed-2', status: 'completed' })
+      seedJob(db, { id: 'failed-1', status: 'failed' })
+      seedJob(db, { id: 'downloading-1', status: 'downloading' })
+
+      const result = countJobsByStatus(db, {})
+
+      expect(result.sort((a, b) => a.status.localeCompare(b.status))).toEqual([
+        { count: 2, status: DownloadJobStatus.Completed },
+        { count: 1, status: DownloadJobStatus.Downloading },
+        { count: 1, status: DownloadJobStatus.Failed },
+      ])
+    } finally {
+      close()
+    }
+  })
+
+  it('omits statuses with no rows rather than zero-filling them', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, { id: 'pending-1', status: 'pending' })
+
+      const result = countJobsByStatus(db, {})
+
+      expect(result).toEqual([{ count: 1, status: DownloadJobStatus.Pending }])
+    } finally {
+      close()
+    }
+  })
+
+  it('narrows by the other filter dimensions it shares with the list query', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, { id: 'movie-failed', status: 'failed', type: 'movie' })
+      seedJob(db, { id: 'video-failed', status: 'failed', type: 'video' })
+      seedJob(db, { id: 'video-completed', status: 'completed', type: 'video' })
+
+      const result = countJobsByStatus(db, { types: [DownloadType.Video] })
+
+      expect(result.sort((a, b) => a.status.localeCompare(b.status))).toEqual([
+        { count: 1, status: DownloadJobStatus.Completed },
+        { count: 1, status: DownloadJobStatus.Failed },
+      ])
+    } finally {
+      close()
+    }
+  })
+
+  it('narrows by createdFrom', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: new Date(T0 - 10_000),
+        id: 'before',
+        status: 'failed',
+      })
+      seedJob(db, {
+        createdAt: new Date(T0),
+        id: 'within',
+        status: 'completed',
+      })
+
+      const result = countJobsByStatus(db, { createdFrom: new Date(T0) })
+
+      expect(result).toEqual([
+        { count: 1, status: DownloadJobStatus.Completed },
+      ])
+    } finally {
+      close()
+    }
+  })
+
+  it('returns an empty array for an empty table', () => {
+    const { db, close } = createTestDb()
+    try {
+      expect(countJobsByStatus(db, {})).toEqual([])
+    } finally {
+      close()
+    }
+  })
+})
+
+describe('countJobsByDay', () => {
+  const DAY_1 = '2026-01-01'
+  const DAY_2 = '2026-01-02'
+  const at = (iso: string): Date => new Date(iso)
+
+  // Rows come back ordered by day only, so the per-type order within a day is
+  // whatever sqlite's grouping produces - sort before comparing membership.
+  const byDayThenType = (a: DailyJobCount, b: DailyJobCount): number =>
+    a.day.localeCompare(b.day) || a.type.localeCompare(b.type)
+
+  it('buckets by UTC day and type, ordered by day ascending', () => {
+    const { db, close } = createTestDb()
+    try {
+      // Seeded newest-first so the ascending day order in the result can only
+      // come from the ORDER BY, not from insertion order.
+      seedJob(db, {
+        createdAt: at('2026-01-02T08:00:00.000Z'),
+        id: 'd2-show',
+        type: 'show',
+      })
+      seedJob(db, {
+        createdAt: at('2026-01-02T00:00:00.000Z'),
+        id: 'd2-video',
+        type: 'video',
+      })
+      seedJob(db, {
+        createdAt: at('2026-01-01T23:59:59.999Z'),
+        id: 'd1-movie',
+        type: 'movie',
+      })
+      seedJob(db, {
+        createdAt: at('2026-01-01T12:00:00.000Z'),
+        id: 'd1-video-b',
+        type: 'video',
+      })
+      seedJob(db, {
+        createdAt: at('2026-01-01T00:00:00.000Z'),
+        id: 'd1-video-a',
+        type: 'video',
+      })
+
+      const result = countJobsByDay(db, {})
+
+      expect(result.map(r => r.day)).toEqual([DAY_1, DAY_1, DAY_2, DAY_2])
+      expect([...result].sort(byDayThenType)).toEqual([
+        { count: 1, day: DAY_1, type: DownloadType.Movie },
+        { count: 2, day: DAY_1, type: DownloadType.Video },
+        { count: 1, day: DAY_2, type: DownloadType.Show },
+        { count: 1, day: DAY_2, type: DownloadType.Video },
+      ])
+      // A (day, type) pair with no rows is absent, not zero-filled.
+      expect(
+        result.some(r => r.day === DAY_2 && r.type === DownloadType.Movie),
+      ).toBe(false)
+    } finally {
+      close()
+    }
+  })
+
+  it('splits the UTC midnight boundary: 23:59:59.999Z and 00:00:00.000Z land on adjacent days', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: at('2026-01-01T23:59:59.999Z'),
+        id: 'last-ms-of-day-1',
+        type: 'video',
+      })
+      seedJob(db, {
+        createdAt: at('2026-01-02T00:00:00.000Z'),
+        id: 'first-ms-of-day-2',
+        type: 'video',
+      })
+
+      const result = countJobsByDay(db, {})
+
+      expect(result).toEqual([
+        { count: 1, day: DAY_1, type: DownloadType.Video },
+        { count: 1, day: DAY_2, type: DownloadType.Video },
+      ])
+    } finally {
+      close()
+    }
+  })
+
+  it('keeps day boundaries in UTC regardless of the host timezone', () => {
+    const { db, close } = createTestDb()
+    const originalTz = process.env.TZ
+    try {
+      // A UTC-13 zone: 2026-01-01T23:30Z is already 2026-01-02 locally there,
+      // so a `'localtime'` modifier would move this row into DAY_2.
+      process.env.TZ = 'Pacific/Kiritimati'
+      seedJob(db, {
+        createdAt: at('2026-01-01T23:30:00.000Z'),
+        id: 'late-utc-day-1',
+        type: 'video',
+      })
+
+      expect(countJobsByDay(db, {})).toEqual([
+        { count: 1, day: DAY_1, type: DownloadType.Video },
+      ])
+    } finally {
+      if (originalTz === undefined) {
+        delete process.env.TZ
+      } else {
+        process.env.TZ = originalTz
+      }
+      close()
+    }
+  })
+
+  it('windows by createdFrom, dropping earlier days entirely', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: at('2026-01-01T12:00:00.000Z'),
+        id: 'd1-video',
+        type: 'video',
+      })
+      seedJob(db, {
+        createdAt: at('2026-01-02T12:00:00.000Z'),
+        id: 'd2-movie',
+        type: 'movie',
+      })
+
+      const result = countJobsByDay(db, {
+        createdFrom: at('2026-01-02T00:00:00.000Z'),
+      })
+
+      expect(result).toEqual([
+        { count: 1, day: DAY_2, type: DownloadType.Movie },
+      ])
+    } finally {
+      close()
+    }
+  })
+
+  it('windows by createdTo as well, inclusively', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: at('2026-01-01T23:59:59.999Z'),
+        id: 'on-boundary',
+        type: 'video',
+      })
+      seedJob(db, {
+        createdAt: at('2026-01-02T00:00:00.000Z'),
+        id: 'after-boundary',
+        type: 'video',
+      })
+
+      const result = countJobsByDay(db, {
+        createdTo: at('2026-01-01T23:59:59.999Z'),
+      })
+
+      expect(result).toEqual([
+        { count: 1, day: DAY_1, type: DownloadType.Video },
+      ])
+    } finally {
+      close()
+    }
+  })
+
+  it('narrows by the non-date filter dimensions too', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: at('2026-01-01T01:00:00.000Z'),
+        id: 'alice-1',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u1',
+        type: 'video',
+      })
+      seedJob(db, {
+        createdAt: at('2026-01-01T02:00:00.000Z'),
+        id: 'bob-1',
+        origin: 'web',
+        requesterEmail: 'bob@example.com',
+        requesterUserId: 'u2',
+        type: 'video',
+      })
+
+      const result = countJobsByDay(db, {
+        requesterEmail: 'alice@example.com',
+      })
+
+      expect(result).toEqual([
+        { count: 1, day: DAY_1, type: DownloadType.Video },
+      ])
+    } finally {
+      close()
+    }
+  })
+
+  it('returns an empty array for an empty table', () => {
+    const { db, close } = createTestDb()
+    try {
+      expect(countJobsByDay(db, {})).toEqual([])
     } finally {
       close()
     }

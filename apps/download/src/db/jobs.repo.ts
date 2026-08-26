@@ -4,6 +4,7 @@ import type {
 } from '@lilnas/utils/download/types'
 import {
   and,
+  asc,
   count,
   desc,
   eq,
@@ -361,4 +362,75 @@ export function countJobsByType(
   return (whereClause ? base.where(whereClause) : base)
     .groupBy(jobs.type)
     .all() as TypeFacetCount[]
+}
+
+export interface StatusFacetCount {
+  count: number
+  status: DownloadJobStatus
+}
+
+/**
+ * Distinct job statuses (with counts) matching `filter` - the admin
+ * dashboard's status breakdown. Structurally identical to
+ * `countJobsByType()` above, and like it never given an
+ * `excludeHiddenVideos` filter: a status count leaks no per-uploader
+ * identity.
+ *
+ * Only statuses actually present in the filtered set appear; a status with
+ * zero rows is absent rather than returned as `{ count: 0 }`, so callers
+ * that need a fixed-shape breakdown must fill the gaps themselves.
+ */
+export function countJobsByStatus(
+  db: Db,
+  filter: JobListFilter,
+): StatusFacetCount[] {
+  const whereClause = buildJobWhere(filter)
+
+  const base = db.select({ count: count(), status: jobs.status }).from(jobs)
+
+  return (whereClause ? base.where(whereClause) : base)
+    .groupBy(jobs.status)
+    .all() as StatusFacetCount[]
+}
+
+export interface DailyJobCount {
+  count: number
+  /** `YYYY-MM-DD`, always a **UTC** calendar day (see below). */
+  day: string
+  type: DownloadType
+}
+
+/**
+ * Job counts bucketed by calendar day *and* type - the admin dashboard's
+ * activity chart. One row per `(day, type)` pair that has at least one job;
+ * empty days/types are absent rather than zero-filled, so the caller is
+ * responsible for densifying the series across its own window.
+ *
+ * `created_at` is `timestamp_ms` (epoch **milliseconds**, see schema.ts's
+ * timestamp convention), hence the `/ 1000` before `'unixepoch'`, which
+ * expects seconds. SQLite's `/` is integer division when both operands are
+ * integers, so this truncates to the second rather than producing a float.
+ *
+ * **Day boundaries are UTC, deliberately.** `date(..., 'unixepoch')` with
+ * no `'localtime'` modifier interprets the timestamp in UTC; adding
+ * `'localtime'` would make the buckets depend on the container's `TZ`, so a
+ * chart would silently reshape on redeploy and two clients in different
+ * zones would disagree about the same data. Do not "fix" this to local
+ * time - if a local-day view is ever wanted, shift the window in the
+ * caller's `filter.createdFrom`/`createdTo` instead.
+ *
+ * The window itself comes from `filter` (`createdFrom`/`createdTo`) through
+ * the shared `buildJobWhere()`, so this aggregate can never drift onto a
+ * different predicate than the list and facet queries above.
+ */
+export function countJobsByDay(db: Db, filter: JobListFilter): DailyJobCount[] {
+  const whereClause = buildJobWhere(filter)
+  const day = sql<string>`date(${jobs.createdAt} / 1000, 'unixepoch')`
+
+  const base = db.select({ count: count(), day, type: jobs.type }).from(jobs)
+
+  return (whereClause ? base.where(whereClause) : base)
+    .groupBy(day, jobs.type)
+    .orderBy(asc(day))
+    .all() as DailyJobCount[]
 }
