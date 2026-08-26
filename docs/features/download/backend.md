@@ -3,7 +3,7 @@
 Companion to [`spec.md`](spec.md) and [`user-stories.md`](user-stories.md).
 Covers what the backend needs to build to support the full spec — the
 frontend is being rebuilt against the spec in parallel. This started as a
-design/sequencing document; Phases 0–7 have since been implemented (see
+design/sequencing document; Phases 0–8 have since been implemented (see
 their status notes below), so treat this as a living plan, not a frozen
 spec — check current code before assuming anything here is still pending.
 
@@ -20,7 +20,7 @@ spec — check current code before assuming anything here is still pending.
 | 5 — Video pause/resume                       | ✅ done — backend only                                     |
 | 6 — Emby playback handoff                    | ✅ done — backend only                                     |
 | 7 — Local save-to-device                     | ✅ done — backend only                                     |
-| 8 — Admin dashboard & audit log              | ⬜ not started                                             |
+| 8 — Admin dashboard & audit log              | ✅ done — backend only                                     |
 
 **"Backend only"** means the routes and their tests are built and committed,
 but no Next.js surface calls them yet — the frontend rebuild consumes them
@@ -37,8 +37,9 @@ Phases 0–2 below closed that gap (durable SQLite persistence, forwarded-user
 identity, admin check, attributed job history, list/query endpoints). Phases
 3–7 then built out the spec's media features on top of it: file selection and
 bad-file reporting, per-episode granularity, video pause/resume, the Emby
-playback handoff, and save-to-device. Only Phase 8 — the admin dashboard and
-audit log — is still pending.
+playback handoff, and save-to-device. Phase 8 closed the set with the audit
+log and the admin dashboard's read endpoints. Every phase has now landed on
+the backend; what's outstanding is the frontend that consumes them.
 
 Four foundational decisions were made before planning:
 
@@ -55,7 +56,7 @@ Four foundational decisions were made before planning:
 The phases below were ordered by dependency: Phase 0 unblocked everything
 else and shipped first, Phases 1–2 unblocked most of the rest, and Phases
 3–7 were largely independent of each other. That sequencing is now history —
-0–7 have all landed, and Phase 8 is the only one left.
+0–8 have all landed.
 
 ---
 
@@ -1418,33 +1419,254 @@ curl -s -o /dev/null -w '%{http_code}\n' "$BASE/media/tmdb:27205/file"          
 
 ## Phase 8 — Admin dashboard & audit log
 
-**Status: not started.** The only phase still outstanding — everything below
-is design intent, not shipped behavior. Phase 7 deliberately left the audit
-capture of "who saved what" to this phase, so the save route will need an
-identity decorator adding when Phase 8 hooks it.
+**Status: done** (backend only — no frontend surface yet). Full plan in
+`docs/features/download/plans/008-phase-8-admin-dashboard-audit-log.md`.
+Commits, in order: `fab1955f` (`AdminGuard`), `3cb0198d` (wire contract),
+`04ac1be3` (`countJobsByStatus` + `countJobsByDay`), `f7107592` (`audit_log`
+table + migration 0007), `cbcfc55a` (`audit-log.repo.ts`), `9e399580`
+(`AuditModule` + `AuditLogService`), `951e7024` (the yt-dlp update trigger),
+`63c6ea54` (`AdminController` + `AdminStatsService`), `2983ed32` (audit calls
+across every mutating route), `c4c4123d` (`video.create` records the full raw
+URL).
 
-- `audit_log` table (decoupled from `jobs`): `actor`, `action` (string, e.g.
-  `video.download.create`, `file.flag_bad`, `movie.delete`), `target_type`
-  - `target_id` (nullable), `metadata` (JSON), `timestamp`.
-- A small `AuditLogService.record()` called from each controller action
-  needing an entry — centralize the write path the same way
-  `DownloadStateService.addJob()`/`updateJob()` already centralizes job
-  mutations, so future endpoints (and, per spec, future services calling
-  into the download API) have one obvious place to hook in rather than
-  scattered inline writes.
-- Aggregate stats + per-user history: queries against `jobs` (Phase 2
-  already built per-user history; this phase adds cross-user aggregates —
-  top downloaders, usage trends). System-wide metrics may partially reuse
-  the existing `DownloadMetricsService` Prometheus counters rather than
-  duplicating counters in SQL.
+Every other phase added something a user can do. This one adds the record of
+who did it, plus the two read endpoints an admin dashboard needs on top of
+that record and the `jobs` table.
+
+### What shipped
+
+| Route                           | Auth         | Does                                           |
+| ------------------------------- | ------------ | ---------------------------------------------- |
+| `GET /download/admin/audit-log` | `AdminGuard` | Cursor-paginated audit rows, newest first      |
+| `GET /download/admin/stats`     | `AdminGuard` | Job aggregates for the admin dashboard's panel |
+
+Behind them: `AUDIT_ACTIONS` / `AUDIT_TARGET_TYPES` / `AuditLogEntrySchema` /
+`AuditLogQuerySchema` / `AdminStatsQuerySchema` / `AdminStatsResponse` in
+`packages/utils`; the `audit_log` table (migration
+`0007_neat_lila_cheney.sql`); `apps/download/src/db/audit-log.repo.ts`
+(`insertAuditLog`, `listAuditLogPage`); `AuditLogService` (`record()`,
+`listAuditLog()`) in a standalone `AuditModule`; `AdminStatsService`; the
+first reusable `AdminGuard` in `apps/download/src/auth/`; and
+`countJobsByStatus` / `countJobsByDay` alongside the existing aggregates in
+`jobs.repo.ts`.
+
+Fourteen actions are recorded. Thirteen come from `DownloadController` —
+every one of its mutating routes (`video.create`, `video.cancel`,
+`video.pause`, `video.resume`, `movie.request`, `movie.delete`,
+`show.request`, `show.delete`, `media.delete_files`, `release.grab`,
+`release.replace`, `file.flag_bad`) plus `media.save_file`, which is a read
+but is recorded anyway because a copy leaving the building is worth knowing
+about. The fourteenth is `ytdlp.check_update` on `YtdlpUpdateController`.
+
+### Recording is success-only, and happens at the controller seam
+
+`record()` is called **after** the action succeeded, from the controller or
+from the shared route helper it already funnels through — the one layer that
+knows both the actor and the outcome. A service several frames down knows what
+happened but not who asked; a guard knows who asked but not whether it worked.
+
+Failed attempts are deliberately **not** audit rows. They are already in the
+structured logs, queryable in Loki, and mixing "tried and was refused" into a
+table whose value is "this is what happened" makes every row need a second
+field read before it can be believed.
+
+### The actor is nullable, and a CHECK says when
+
+`audit_log` copies the `jobs` shape verbatim: nullable
+`actor_email`/`actor_user_id`, an `origin` of `'service' | 'web'`, and a CHECK
+tying the two together — `origin = 'web'` requires both actor columns,
+`origin = 'service'` requires both to be null. So a null actor is never
+ambiguous: it either says "a service did this, as expected" or it can't be
+written at all.
+
+That nullability isn't hypothetical. Most mutating routes take
+`@OptionalCurrentUser()` because **`apps/tdr-bot` calls them
+service-to-service with no forwarded identity** — requiring an actor would
+have turned this phase into a breaking change for the bot.
+
+### A TypeScript-only action enum, no SQL CHECK
+
+`AUDIT_ACTIONS` is a `const` tuple in `@lilnas/utils`, pinned into the DB
+schema through the house `AssertSameUnion` pattern (`auditActionPin` /
+`auditTargetTypePin` in `apps/download/src/db/schema.ts`). Like `jobs.status`,
+drizzle's SQLite text-enum is a **TypeScript-only** constraint — the emitted
+DDL is a bare `text NOT NULL` — so adding an action later is purely additive
+with no migration.
+
+The pin was verified **non-vacuous**: adding a bogus member to one tuple makes
+`tsc` fail, which is the only thing that makes a compile-time assertion worth
+having.
+
+### `record()` never throws
+
+The insert is wrapped in try/catch. On failure it logs a `warn` and increments
+`download_audit_write_failures_total`; the request itself is untouched. Every
+call site is the tail of something the user already succeeded at, so turning a
+lost record into a 500 would undo nothing while telling the user their action
+didn't happen.
+
+That counter is a **module-level `prom-client` singleton** in
+`audit-log.service.ts`, not a method on `DownloadMetricsService`. Injecting
+the metrics service would make `AuditModule` depend on `DownloadModule` —
+exactly backwards, since `DownloadModule` and `MediaModule` are the ones that
+need to import `AuditModule`. `register` is process-wide, so the counter lands
+on `/metrics` with no wiring. It is the **only** externally visible signal
+that a write was lost; a non-zero rate means the log is no longer complete,
+which makes it worth an alert.
+
+### The first reusable `AdminGuard` — and `/history`'s inline 403 stays inline
+
+`AdminGuard` layers on the same identity primitive as `ForwardedUserGuard`:
+**missing identity is a 401** (the request never proved who it is), a resolved
+**non-admin identity is a 403** (we know who it is, they just aren't allowed).
+It resolves the forwarded user itself rather than trusting request mutation
+from another guard, so it works alone.
+
+It sits at the **class** level on `AdminController`, because every route that
+controller will ever grow is admin-only by definition and a new route
+therefore can't ship ungated by omission.
+
+`DownloadController.getHistory()` keeps its inline check on purpose. Its rule
+— admins may query anyone, everyone may query themselves — depends on the
+**parsed query**, which a class- or route-level guard runs too early to see. A
+guard is the right tool for an unconditional gate and the wrong one for a
+conditional scope.
+
+### True attribution, safe _because_ of the gate
+
+Neither admin endpoint masks anything, and `AdminStatsService` deliberately
+does **not** pass `excludeHiddenVideos` to any aggregate — unlike every other
+requester-facing count, which does, to keep a hidden uploader from being
+inferred from a facet.
+
+That is not a lapse in the attribution-oracle discipline the public endpoints
+maintain; it is where that discipline hands off. These routes exist to show
+admins the truth, and the 403 is what makes showing it safe. The consequence
+is a rule for the future: `AdminController` must never host a route intended
+for ordinary users.
+
+### "Usage trends" means per-day job counts, not system metrics
+
+The old text left this open. It is pinned to **per-UTC-day job counts by
+type** over a `?days=` window (default 30, max 365) — the activity chart, and
+nothing else.
+
+System-level metrics (CPU, memory, queue depth, phase durations) stay where
+they already live, in Prometheus and Grafana. The stats endpoint serves
+job-log aggregates only and does **not** proxy `/metrics`; a second, worse
+copy of a metrics stack behind an app endpoint is not a dashboard feature.
+
+**The windowing is deliberately split.** Only `jobsPerDay` is bounded by
+`?days=`. `totalsByType`, `totalsByStatus`, `totalJobs` and `topRequesters`
+are **all-time**, because a "lifetime total" that silently means "the last 30
+days" is the kind of number people quote wrongly. `windowDays` echoes the
+window that was actually applied, so a response always says which series it
+describes.
+
+**Aggregates are sparse, by contract.** A status nobody has hit, or a
+`(day, type)` pair with no jobs, is **absent** — not `{ count: 0 }`. Zero-fill
+here would mean inventing rows a client couldn't distinguish from real ones,
+so clients that need a continuous axis densify their own gaps.
+`topRequesters` is capped at 20: a leaderboard, not a user directory.
+
+### Cold start, and no backfill
+
+The table starts **empty**. Phases 0–7 all shipped without recording anything,
+and nothing was reconstructed.
+
+That is not just laziness about a script. Retroactive _download_ history
+already exists — that is what the `jobs` table is, which is why the stats
+endpoint reads real numbers from day one. Retroactive _interaction_ history —
+who paused what, who flagged a release, who saved a file to their device —
+was never captured anywhere and **cannot** be reconstructed. The audit log's
+coverage therefore starts at this phase's deploy, and reading it as "nobody
+did anything before then" would be wrong.
+
+### The Phase 7 debt is closed
+
+`GET /media/:id/file` gained `@OptionalCurrentUser()` — **identity capture
+only, still no guard**, so service callers and the no-identity dev path keep
+working exactly as they did. It records `media.save_file` on successful stream
+start, at the same hand-off point the `download_media_file_saves_total`
+counter increments and for the same reason: the bytes leave over minutes, and
+the request has no later moment it can still speak for.
+
+### The yt-dlp update trigger is audited too
+
+`POST /api/ytdlp-update/check` can **replace the yt-dlp binary** and
+previously had no identity capture at all. It now takes an identity decorator
+and records `ytdlp.check_update`, with `dryRun` in the metadata so the trail
+distinguishes a real update from a simulated one. It is the one action with no
+target at all — hence `target_type`/`target_id` being nullable as a pair. The
+controller's GET routes are untouched.
+
+### Findings from implementation
+
+- **The integer-PK cursor hazard is not the one it looks like.** `ListCursor.id`
+  is a `string` (minted for `jobs.id`, a nanoid), while `audit_log.id` is an
+  `INTEGER PRIMARY KEY`. The obvious worry — binding the id as text — turns out
+  to be harmless: SQLite applies the column's NUMERIC **affinity** to a bare
+  bound parameter, so `id < '3'` compares identically to `id < 3`. The real
+  hazard is a **non-numeric** id. Affinity only converts text that already
+  looks numeric, so `id < '3abc'` stays an integer-vs-text comparison, SQLite's
+  type ordering puts every integer before every string, the predicate goes
+  **vacuously true**, and the cursor row is served again on the next page — a
+  silent duplicate across the boundary rather than an error. `parseCursorId()`'s
+  `/^\d+$/` guard is therefore the load-bearing defense (reject, never coerce),
+  and the regression test is pinned to that case rather than to the
+  well-formed-string one.
+- **`instanceof Error` is unreliable for better-sqlite3 errors under Jest.**
+  The native addon constructs its errors outside Jest's vm sandbox, so
+  `instanceof Error` is `false` even though the prototype chain genuinely ends
+  at `Error`. Tests covering DB-failure paths assert on `error.message`
+  instead.
+- **`video.create` records the raw URL, not the sanitized one** (`c4c4123d`).
+  The surrounding log lines use a query-stripped `sanitizedUrl`, and matching
+  them "for consistency" was wrong: for the URL shape this service mostly sees,
+  the video's identity lives entirely in the query string
+  (`youtube.com/watch?v=…`), so stripping it leaves an entry that can't say
+  what was downloaded. The audit log is the stricter surface — behind
+  `AdminGuard`, unmasked by design, meant to outlive the job row it points at
+  — so it carries the URL in full. There is a code comment saying so.
+
+### Deferred
+
+- **No frontend.** Both routes are backend-only; there is no admin dashboard
+  in the Next.js app yet — the rebuild consumes these alongside Phases 3–7.
+- **No `DownloadClient` methods.** Phases 3–7 added none either, and nothing
+  in-repo calls them.
+- **No backfill**, for the reason above.
+- **No retention or pruning.** `audit_log` grows without bound; nothing
+  vacuums it. Sized for this service's traffic, revisit if that stops holding.
+- **No audit rows for reads.** Who _looked_ at the audit log isn't recorded.
+- **No stats caching.** Every request re-runs the aggregates; they are
+  `COUNT`/`GROUP BY` over one indexed table behind an admin gate.
+- **No unflag route** for `bad_files` — still deferred, now since Phase 3.
+
+### Manual verification (needs a running container)
+
+⚠️ **Not yet run.** The full script is the **"Human checkpoints"** section of
+`docs/features/download/plans/008-phase-8-admin-dashboard-audit-log.md`; it is
+not duplicated here. The shape of it:
+
+1. **Deploy from the repo root** with `docker-compose up -d download`, per
+   `CLAUDE.md` — never `apps/download/deploy.yml` directly.
+2. **Watch migration 0007 apply at boot** in the container logs, and confirm
+   the service starts serving rather than hard-failing its integrity check.
+3. **Exercise the 401 / 403 / 200 split** against both admin routes with real
+   forwarded headers: no `X-Forwarded-User` → 401, a non-admin identity → 403,
+   an admin identity → 200.
+4. Then perform a few mutating actions and confirm the rows land with the
+   right actor, action, target and metadata — including a tdr-bot-style
+   service call landing as `origin: 'service'` with a null actor.
 
 ---
 
 ## Verification conventions
 
-The conventions Phases 0–7 followed, and that Phase 8 should follow too. Each
-completed phase's section above also carries its own manual-verification
-block with the live curl checks specific to it.
+The conventions Phases 0–8 followed, and that anything built on top of them
+should follow too. Each completed phase's section above also carries its own
+manual-verification block with the live curl checks specific to it.
 
 - **Unit tests** per new service, following the existing
   `__tests__`-alongside-source convention already used throughout
