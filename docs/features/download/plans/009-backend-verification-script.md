@@ -808,6 +808,39 @@ unparsable-response | network`. A malformed path or injected header value
   which **confirms A1's finding that `/auth/whoami` is guarded**, contradicting
   this plan's own route table.
 
+  ### E1b — the write path, and what a second read sweep then showed
+
+  Ran `preflight` (all guardrails green), then `mutate` per pass.
+
+  | Pass      | Result                                                                                                                                                                      |
+  | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | **movie** | ✅ Created, advanced **`searching → downloading`** against a real indexer, torn down, confirmed out of the library                                                          |
+  | **show**  | ✅ Sent `{"tvdbId":276842,"seasonNumber":1}`; the scope **round-tripped onto the job** and fired one `SeasonSearch`. Torn down by deleting the series                       |
+  | **video** | 🐞 **`HTTP 500` on first attempt** — see finding 5. After the fix: `pending → downloading → completed`, and MinIO served the object back (`application/mp4`, 139,793 bytes) |
+
+  The show pass is the direct payoff of correcting this plan's false premise:
+  had D1 shipped as originally written, it would have fired a **`SeriesSearch`
+  across every season** instead.
+
+  | #   | Finding                                                                                                                                                                                                              | Verdict                                                                                                                                                                                                                                                                                                                                                  |
+  | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | 5   | **`POST /download/videos` returned 500 on every request** — `EACCES: permission denied, mkdir '/download'`                                                                                                           | 🐞 **Real, and total: video downloads were broken in production.** `DownloadVideoService` hardcodes `VIDEO_DIR = '/download/videos'`, the container runs as UID 1000, and **nothing** created that path — not the Dockerfile, not this `deploy.yml`, not `main`'s. All 59 mocked test files pass because they mock the filesystem. **Fixed — `f086c62`** |
+  | 6   | **`GET /download/media/:id/releases` writes to the library.** On a `tmdb:` key Radarr doesn't hold, `withMonitoring` → `ensureMovie` → `postApiV3Movie`. `restore: true` restores only _monitoring_; the entry stays | 🐞 **Real, unfixed** (`src/` is read-only here). A GET with a permanent side effect on the production library. Arguably intended per the docblock, but an `--include-expensive` sweep would silently add catalogue movies to Radarr. The provenance fix reduces exposure by preferring held titles, where `ensureMovie` adds nothing                     |
+
+  **Second read sweep, after fixing fixture selection (`feb4f15`):**
+
+  |               | first sweep         | after `mutate` + fixes           |
+  | ------------- | ------------------- | -------------------------------- |
+  | Captured      | 16                  | **19**                           |
+  | Job ids found | 0                   | **3**                            |
+  | Rows verified | 12                  | **20**                           |
+  | Failures      | 2                   | **2 — both the auth dependency** |
+  | Verdict       | `MOSTLY UNVERIFIED` | no longer mostly-unverified      |
+
+  Every remaining failure is finding 3. The three script-side false failures
+  are gone: `media-bad-files` passes, `media-seasons` skips honestly with full
+  provenance, and `media.runtime-is-seconds` no longer floors catalogue shorts.
+
 - [x] **E2. Record outcomes and decide what's durable.** Edit this plan and
       `docs/features/download/plans/002-live-functional-tests.md`.
 
@@ -834,13 +867,16 @@ unparsable-response | network`. A malformed path or injected header value
 
   ### Promotion decisions
 
-  | Finding                                       | Durable row in 002?                                                                                                                                                                                                                                                    |
-  | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | **Admin depends on `auth`'s `/admin/check`**  | ✅ **Yes — the highest-value finding here.** A cross-service deploy-ordering dependency is invisible to every mocked test and to any single-service check. Belongs in 002 as a BE row: _with `auth` reachable but lacking the endpoint, admin routes must fail closed_ |
-  | **Envelope drift (B1's schemas vs. reality)** | ✅ **Yes.** These parsed clean against real Radarr/Sonarr today, which is exactly why they are worth keeping — they are the tripwire for the drift this plan was written to catch. Promote `envelopes.ts` as fixtures for 002's Group A                                |
-  | **Cursor round-trip**                         | ✅ **Yes.** Held on `/discover` (10 + 10 of 40, no overlap, stable total) and is cheap, deterministic, and a genuine regression risk                                                                                                                                   |
-  | **`runtime` floor / `filePath` shape**        | ❌ **No — one-off.** As written it false-positives on catalogue shorts. Only worth keeping if rewritten against library-only fixtures, and then it duplicates a mapper unit test                                                                                       |
-  | **`SQLITE_CANTOPEN` on a fresh volume**       | ❌ **Not a test row — a deploy-script fix.** `chown 1000:1000` should be automated in the deploy path, not asserted after the fact                                                                                                                                     |
+  | Finding                                        | Durable row in 002?                                                                                                                                                                                                                                                    |
+  | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | **Admin depends on `auth`'s `/admin/check`**   | ✅ **Yes — the highest-value finding here.** A cross-service deploy-ordering dependency is invisible to every mocked test and to any single-service check. Belongs in 002 as a BE row: _with `auth` reachable but lacking the endpoint, admin routes must fail closed_ |
+  | **Envelope drift (B1's schemas vs. reality)**  | ✅ **Yes.** These parsed clean against real Radarr/Sonarr today, which is exactly why they are worth keeping — they are the tripwire for the drift this plan was written to catch. Promote `envelopes.ts` as fixtures for 002's Group A                                |
+  | **Cursor round-trip**                          | ✅ **Yes.** Held on `/discover` (10 + 10 of 40, no overlap, stable total) and is cheap, deterministic, and a genuine regression risk                                                                                                                                   |
+  | **`runtime` floor / `filePath` shape**         | ❌ **No — one-off.** It false-positived on catalogue shorts; now narrowed to held titles (`feb4f15`), where it largely duplicates a mapper unit test                                                                                                                   |
+  | **`SQLITE_CANTOPEN` on a fresh volume**        | ❌ **Not a test row — a deploy-script fix.** `chown 1000:1000` should be automated in the deploy path, not asserted after the fact                                                                                                                                     |
+  | **Video scratch dir missing (finding 5)**      | ✅ **Yes — the highest-value row this plan produced.** A 500 on _every_ video request, invisible to 59 mocked tests precisely because they mock the filesystem. 002 should assert `POST /download/videos` reaches `downloading` on a real container                    |
+  | **A GET that mutates the library (finding 6)** | ✅ **Yes.** `/releases` adding a movie to Radarr is the kind of side effect no mocked test asserts the absence of. Worth a row pinning "a read route must not change upstream state"                                                                                   |
+  | **Write path: forward movement**               | ✅ **Yes.** All three passes advanced through real states against real upstreams, and the show pass proves scope round-trips as a `SeasonSearch` rather than a `SeriesSearch` — the exact regression this plan's own false premise would have caused                   |
 
   **Left undone, and why:** the two admin routes are still unverified. That is
   not a judgement gap — it is the deploy-ordering dependency in finding 3, and
