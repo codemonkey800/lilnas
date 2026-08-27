@@ -46,14 +46,70 @@
  * `--dry-run` prints the plan and exits without touching the network, which
  * is how this file is verified without a live run.
  *
+ * ---
+ *
+ * ### What `check` does
+ *
+ * Reads a captures directory **fully offline** — no network, no docker — and
+ * parses each body against the envelope schema bound to its slug in
+ * {@link CAPTURE_BINDINGS}. `./report.ts` owns the formatting; this file owns
+ * the judgement, which is where all the nuance lives:
+ *
+ * - **The binding table is total.** Every slug in `READ_ROUTES` resolves to a
+ *   schema or is explicitly `{ schema: null }` with a written reason. A slug
+ *   with neither is a `FAIL`, so a route added to the manifest cannot slip
+ *   through unvalidated.
+ * - **A 401 is read against the identity that made the request.** Guarded
+ *   routes are captured even anonymously, and the 401 that comes back is the
+ *   correct answer — `SKIPPED`, not `FAIL`. The same 401 on an identified run
+ *   is real.
+ * - **A 403 on an admin route is irreducibly ambiguous** and is reported that
+ *   way, because `AdminCheckService` is fail-closed: not-admin and
+ *   auth-container-down produce the same response.
+ * - **A green parse over an empty list is not coverage** and is counted apart
+ *   from a real pass, as are skips — a board that is mostly skips must not
+ *   read as a green run.
+ * - **`_health.json` is evidence, and its absence is not.** `unprobed` means
+ *   the capture had no way into the container to ask; it is never treated as
+ *   "the upstream was fine".
+ *
  * ⚠️ Captures hold **real requester emails and real library contents**.
  * `captures/` is gitignored; do not paste its contents into an issue or a
  * transcript.
  */
 import { spawn } from 'node:child_process'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
+import { z } from 'zod'
+
+import {
+  ActivityPageSchema,
+  AdminStatsResponseSchema,
+  AuditLogPageSchema,
+  DiscoveryPageSchema,
+  DownloadJobResponseSchema,
+  GalleryFacetsSchema,
+  GalleryPageSchema,
+  HistoryPageSchema,
+  ListBadFilesResponseSchema,
+  ListReleasesResponseSchema,
+  ListSeasonsResponseSchema,
+  MediaDetailResponseSchema,
+  SearchMediaResponseSchema,
+  WhoamiSchema,
+  YtdlpStatusSchema,
+  YtdlpVersionSchema,
+} from './envelopes'
+import {
+  exitCodeFor,
+  formatZodIssues,
+  renderReport,
+  type ReportHeader,
+  type ReportRow,
+  type ReportSection,
+  type UpstreamLine,
+} from './report'
 import { READ_ROUTES, type RouteSpec } from './routes'
 import {
   type BodyMode,
@@ -1371,11 +1427,1010 @@ const CAPTURE_MODE: Mode = {
   run: runCapture,
 }
 
+// ---------------------------------------------------------------------------
+// check mode — the slug → schema binding
+// ---------------------------------------------------------------------------
+
+/** The two upstreams `_health.json` snapshots. */
+export type UpstreamName = 'radarr' | 'sonarr'
+
 /**
- * The mode-dispatch table. C2 (`check`), C3 and D1 (`preflight`, `mutate`)
- * each append one entry.
+ * What check mode does with one captured route.
+ *
+ * `schema: null` is the **only** way to opt a slug out of validation, and it
+ * requires a written reason — so "this route has no body to check" is a
+ * decision recorded in the table rather than an absence nobody notices.
  */
-export const MODES: readonly Mode[] = [CAPTURE_MODE]
+export interface CaptureBinding {
+  /** `null` = there is nothing to validate. `unvalidatable` must say why. */
+  schema: z.ZodType | null
+  /** Required when `schema` is `null`. Printed as the row's note. */
+  unvalidatable?: string
+  /**
+   * The array fields that carry the actual fixture. When **all** of them come
+   * back `[]`, the parse proved only that the envelope is well-formed, so the
+   * row is reported as `PASS (empty — no fixture to validate)` and counted as
+   * a hollow pass.
+   *
+   * Omitted where a green parse always means something: `media-detail`
+   * validates a whole `Media` regardless of `jobs`, and `admin-stats` has
+   * `totalJobs` / `windowDays` outside its (sparse by design) breakdowns.
+   */
+  listFields?: readonly string[]
+  /**
+   * Upstreams this route reads, so a failure can be annotated with "sonarr
+   * was unreachable at capture time" instead of being read as contract drift.
+   *
+   * `'by-media-kind'` defers to the id the capture actually used: a `tmdb:`
+   * key resolves through Radarr, a `tvdb:` key through Sonarr, and a `video:`
+   * key through neither.
+   */
+  upstreams?: readonly UpstreamName[] | 'by-media-kind'
+}
+
+/**
+ * **Every slug in `READ_ROUTES` must appear here**, and this is the file's one
+ * load-bearing invariant: {@link bindingProblems} cross-checks the two lists
+ * on every run, and a slug with no entry becomes a `FAIL (no schema binding)`
+ * row — never a silent pass. That is how a route added to the manifest a year
+ * from now announces itself instead of quietly riding along unchecked.
+ *
+ * Three bindings the plan's own route table got wrong, per B1's findings:
+ *
+ * - `video-job` / `movie-job` / `show-job` bind
+ *   {@link DownloadJobResponseSchema} — a bare `DownloadJob`. They are **not**
+ *   `GetDownloadJobResponseSchema`, which is a client-side legacy projection
+ *   built by `flattenToLegacyVideoResponse()` after the fetch and never
+ *   emitted by any route.
+ * - The two `/search` routes bind {@link SearchMediaResponseSchema} — a
+ *   `{ results }` wrapper, not a bare array.
+ * - `auth-whoami` is guarded, so it is routinely a legitimate skip rather
+ *   than a route that always answers.
+ */
+export const CAPTURE_BINDINGS: Readonly<Record<string, CaptureBinding>> = {
+  // ---- Paginated lists. All hydrate `media` through MediaResolverService,
+  // so a Radarr/Sonarr outage shows up here as degraded placeholders. ----
+
+  activity: {
+    schema: ActivityPageSchema,
+    listFields: ['items'],
+    upstreams: ['radarr', 'sonarr'],
+  },
+  'activity-page2': {
+    schema: ActivityPageSchema,
+    listFields: ['items'],
+    upstreams: ['radarr', 'sonarr'],
+  },
+  gallery: {
+    schema: GalleryPageSchema,
+    listFields: ['items'],
+    upstreams: ['radarr', 'sonarr'],
+  },
+  'gallery-page2': {
+    schema: GalleryPageSchema,
+    listFields: ['items'],
+    upstreams: ['radarr', 'sonarr'],
+  },
+  history: {
+    schema: HistoryPageSchema,
+    listFields: ['items'],
+    upstreams: ['radarr', 'sonarr'],
+  },
+  'history-page2': {
+    schema: HistoryPageSchema,
+    listFields: ['items'],
+    upstreams: ['radarr', 'sonarr'],
+  },
+
+  // A pure SQL aggregate over the gallery rows — no upstream call.
+  'gallery-facets': {
+    schema: GalleryFacetsSchema,
+    listFields: ['types', 'uploaders'],
+  },
+
+  // ---- Discovery and search: nothing but upstream. ----
+
+  discover: {
+    schema: DiscoveryPageSchema,
+    listFields: ['items'],
+    upstreams: ['radarr', 'sonarr'],
+  },
+  'discover-page2': {
+    schema: DiscoveryPageSchema,
+    listFields: ['items'],
+    upstreams: ['radarr', 'sonarr'],
+  },
+  'movies-search': {
+    schema: SearchMediaResponseSchema,
+    listFields: ['results'],
+    upstreams: ['radarr'],
+  },
+  'shows-search': {
+    schema: SearchMediaResponseSchema,
+    listFields: ['results'],
+    upstreams: ['sonarr'],
+  },
+
+  // ---- Media-keyed routes ----
+
+  // No `listFields`: the `media` object is validated whether or not anyone
+  // has ever requested the title, so `jobs: []` is still real coverage.
+  'media-detail': {
+    schema: MediaDetailResponseSchema,
+    upstreams: 'by-media-kind',
+  },
+  'media-seasons': {
+    schema: ListSeasonsResponseSchema,
+    listFields: ['seasons'],
+    upstreams: ['sonarr'],
+  },
+  // A `bad_files` table lookup. `[]` is the healthy library state and is by
+  // far the likeliest outcome — hence the hollow-pass marking.
+  'media-bad-files': {
+    schema: ListBadFilesResponseSchema,
+    listFields: ['badFiles'],
+  },
+  // The one route with nothing to parse. `bodyMode: 'headers-only'` sends the
+  // body to /dev/null because the MinIO branch ignores `Range` and would
+  // otherwise stream the whole object into the runner.
+  'media-file': {
+    schema: null,
+    unvalidatable: 'headers only — no body was captured',
+  },
+  'media-releases': {
+    schema: ListReleasesResponseSchema,
+    listFields: ['releases'],
+    upstreams: ['radarr'],
+  },
+
+  // ---- Job-by-id: a bare DownloadJob, not the legacy flattened shape. ----
+
+  'video-job': {
+    schema: DownloadJobResponseSchema,
+    upstreams: 'by-media-kind',
+  },
+  'movie-job': {
+    schema: DownloadJobResponseSchema,
+    upstreams: 'by-media-kind',
+  },
+  'show-job': { schema: DownloadJobResponseSchema, upstreams: 'by-media-kind' },
+
+  // ---- Admin: SQLite aggregates, no upstream. ----
+
+  'admin-audit-log': { schema: AuditLogPageSchema, listFields: ['items'] },
+  'admin-audit-log-page2': {
+    schema: AuditLogPageSchema,
+    listFields: ['items'],
+  },
+  // Sparse by design, but `totalJobs` and `windowDays` always carry weight.
+  'admin-stats': { schema: AdminStatsResponseSchema },
+
+  // ---- Process-local state ----
+
+  'ytdlp-status': { schema: YtdlpStatusSchema },
+  'ytdlp-version': { schema: YtdlpVersionSchema },
+  'auth-whoami': { schema: WhoamiSchema },
+}
+
+/**
+ * The totality check. Unbound slugs become loud `FAIL` rows; orphaned
+ * bindings — an entry for a slug the manifest no longer has — become a header
+ * warning, since they cost nothing but mean the table has drifted.
+ */
+function bindingProblems(routes: readonly RouteSpec[]): {
+  unbound: string[]
+  orphaned: string[]
+} {
+  const slugs = new Set(routes.map(spec => spec.slug))
+  return {
+    unbound: routes
+      .filter(spec => !(spec.slug in CAPTURE_BINDINGS))
+      .map(spec => spec.slug),
+    orphaned: Object.keys(CAPTURE_BINDINGS).filter(slug => !slugs.has(slug)),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reading a captures directory
+// ---------------------------------------------------------------------------
+
+/**
+ * The meta file C1 writes, read back.
+ *
+ * Deliberately **not** strict: D1 adds fields to this file, and a mutate-era
+ * capture must still be checkable. Equally deliberately not loose about the
+ * fields the verdict depends on — `outcome`, `status` and `identity` decide
+ * whether a 401 is expected, so an unrecognisable meta is a `FAIL`, not a
+ * shrug.
+ */
+const CaptureRecordSchema = z.object({
+  slug: z.string(),
+  outcome: z.enum(['captured', 'skipped', 'transport-error']),
+  capturedAt: z.string(),
+  routePath: z.string(),
+  resolvedPath: z.string().nullish(),
+  status: z.number().nullish(),
+  headers: z.record(z.string(), z.string()).nullish(),
+  durationMs: z.number().nullish(),
+  bodyMode: z.enum(['json', 'headers-only']),
+  bodyFile: z.string().nullish(),
+  guard: z.enum(['forwarded-user', 'admin']).nullish(),
+  identity: z.object({
+    mode: z.enum(['anonymous', 'user', 'admin']),
+    email: z.string().nullish(),
+  }),
+  idUsed: z
+    .object({ value: z.string(), kind: z.string(), fromSlug: z.string() })
+    .nullish(),
+  skipReason: z.string().nullish(),
+  transportError: z
+    .object({ reason: z.string(), message: z.string() })
+    .nullish(),
+})
+
+type CaptureRecord = z.infer<typeof CaptureRecordSchema>
+
+const HealthSnapshotSchema = z.object({
+  capturedAt: z.string(),
+  upstreams: z.array(
+    z.object({
+      upstream: z.string(),
+      state: z.enum([
+        'answered',
+        'unconfigured',
+        'unreachable',
+        'probe-failed',
+        'unprobed',
+      ]),
+      status: z.number().nullish(),
+    }),
+  ),
+})
+
+type FileRead =
+  | { kind: 'ok'; text: string }
+  | { kind: 'missing' }
+  | { kind: 'error'; message: string }
+
+async function readTextFile(file: string): Promise<FileRead> {
+  try {
+    return { kind: 'ok', text: await readFile(file, 'utf8') }
+  } catch (error) {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      (error as { code?: unknown }).code === 'ENOENT'
+    ) {
+      return { kind: 'missing' }
+    }
+    return { kind: 'error', message: describeError(error) }
+  }
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Reads `_health.json` into the report's own vocabulary.
+ *
+ * The mapping that matters: only `answered` **with a 2xx** is evidence the
+ * upstream was fine. Everything else — including `unprobed`, which means the
+ * capture ran with `--base-url` and had no way into the container to ask — is
+ * the *absence* of evidence, and is never allowed to read as health.
+ */
+async function readHealth(
+  dir: string,
+): Promise<{ lines: UpstreamLine[]; warnings: string[] }> {
+  const read = await readTextFile(path.join(dir, HEALTH_FILE))
+
+  if (read.kind !== 'ok') {
+    return {
+      lines: [],
+      warnings: [
+        `No ${HEALTH_FILE} in this captures directory` +
+          (read.kind === 'error' ? ` (${read.message})` : '') +
+          '. There is no upstream health evidence for this run at all, so ' +
+          'nothing below can be attributed to (or cleared of) a Radarr or ' +
+          'Sonarr outage.',
+      ],
+    }
+  }
+
+  const parsed = HealthSnapshotSchema.safeParse(safeJsonParse(read.text))
+  if (!parsed.success) {
+    return {
+      lines: [],
+      warnings: [
+        `${HEALTH_FILE} could not be read: ` +
+          `${formatZodIssues(parsed.error, 3).join('; ')}. Treat every ` +
+          'upstream below as unknown.',
+      ],
+    }
+  }
+
+  const lines = parsed.data.upstreams.map<UpstreamLine>(upstream => {
+    const status = upstream.status ?? null
+    const answered = upstream.state === 'answered'
+    return {
+      name: upstream.upstream,
+      state: upstream.state,
+      status,
+      evidence: !answered
+        ? 'none'
+        : status !== null && isSuccess(status)
+          ? 'ok'
+          : 'bad',
+    }
+  })
+
+  const warnings = lines
+    .filter(line => line.evidence !== 'ok')
+    .map(line =>
+      line.state === 'unprobed'
+        ? `${line.name} was never probed — the capture used --base-url, which ` +
+          'has no way into the container to read the keys the running ' +
+          `process holds. This run carries NO health evidence for ` +
+          `${line.name}; do not read that as "it was fine".`
+        : `${line.name} did not answer healthily at capture time (state: ` +
+          `${line.state}${line.status === null ? '' : `, HTTP ${line.status}`}` +
+          '). Failures on routes that read it may be environmental rather ' +
+          'than contract drift.',
+    )
+
+  return { lines, warnings }
+}
+
+// ---------------------------------------------------------------------------
+// Judging one route
+// ---------------------------------------------------------------------------
+
+interface CheckContext {
+  dir: string
+  upstreams: ReadonlyMap<string, UpstreamLine>
+  /**
+   * What `/auth/whoami` said, when it was captured. Its `isAdmin` comes from
+   * the same fail-closed `AdminCheckService` an `AdminGuard` 403 does, so it
+   * corroborates an admin failure without being able to disambiguate it —
+   * which is itself worth printing next to the 403.
+   */
+  whoami: { status: number | null; isAdmin: boolean | null } | null
+}
+
+interface RouteCheck {
+  row: ReportRow
+  meta: CaptureRecord | null
+}
+
+/** Which upstreams this row's request actually touched. */
+function routeUpstreams(
+  binding: CaptureBinding,
+  meta: CaptureRecord | null,
+): readonly UpstreamName[] {
+  if (binding.upstreams === undefined) {
+    return []
+  }
+  if (binding.upstreams !== 'by-media-kind') {
+    return binding.upstreams
+  }
+  switch (meta?.idUsed?.kind) {
+    case 'movie':
+      return ['radarr']
+    case 'show':
+      return ['sonarr']
+    default:
+      // A `video:` key never leaves the service, and an unknown kind is not
+      // grounds for blaming an upstream.
+      return []
+  }
+}
+
+/**
+ * The caveat appended to a failing row when an upstream it reads was not
+ * healthy. Says which upstream and what state it was in, so the reader can
+ * decide "re-run" versus "this is a real bug" without opening `_health.json`.
+ */
+function upstreamCaveat(
+  ctx: CheckContext,
+  binding: CaptureBinding,
+  meta: CaptureRecord | null,
+): string[] {
+  const doubtful = routeUpstreams(binding, meta)
+    .map(name => ctx.upstreams.get(name))
+    .filter((line): line is UpstreamLine => !!line && line.evidence !== 'ok')
+
+  if (doubtful.length === 0) {
+    return []
+  }
+
+  const described = doubtful
+    .map(line =>
+      line.state === 'unprobed'
+        ? `${line.name} (never probed)`
+        : `${line.name} (${line.state})`,
+    )
+    .join(' and ')
+
+  // "Never probed" and "answered badly" are different claims, and collapsing
+  // them would let an absence of evidence read as evidence of a problem.
+  return doubtful.every(line => line.state === 'unprobed')
+    ? [
+        `⚠ this route reads ${described}, and this run carries no health ` +
+          'evidence either way — an environmental cause can be neither ' +
+          'blamed nor ruled out.',
+      ]
+    : [
+        `⚠ this route reads ${described}, which had no healthy answer at ` +
+          'capture time — the failure above may be environmental.',
+      ]
+}
+
+/** `path: … · id: … (from gallery)` — enough to go look at the real thing. */
+function contextLine(meta: CaptureRecord): string[] {
+  const parts: string[] = []
+  if (meta.resolvedPath) {
+    parts.push(`path: ${meta.resolvedPath}`)
+  }
+  if (meta.idUsed) {
+    parts.push(`id: ${meta.idUsed.value} (from ${meta.idUsed.fromSlug})`)
+  }
+  return parts.length > 0 ? [parts.join('  ·  ')] : []
+}
+
+/** One line of the response body, for a non-2xx or an unparseable payload. */
+function bodyExcerpt(body: string | null): string[] {
+  if (body === null || body.trim() === '') {
+    return []
+  }
+  const parsed = asRecord(safeJsonParse(body))
+  const message = parsed?.message
+  const text =
+    typeof message === 'string'
+      ? message
+      : Array.isArray(message)
+        ? message.join('; ')
+        : body
+  const collapsed = text.replace(/\s+/g, ' ').trim()
+  return [
+    `body: ${collapsed.length > 200 ? `${collapsed.slice(0, 200)}…` : collapsed}`,
+  ]
+}
+
+/**
+ * A 401 or a 403, read against the identity the capture actually used.
+ *
+ * This is the difference between a report that is worth reading and one that
+ * cries wolf. C1 captures guarded routes even with no identity, because the
+ * 401 is evidence the guard is wired up — so on an anonymous run a 401 on a
+ * guarded route is the *expected* answer and belongs in the skip column. The
+ * same 401 on a run that sent `X-Forwarded-User` is a real failure, and a 401
+ * on a route the manifest calls unguarded is manifest drift.
+ *
+ * `AdminGuard` is the reason 401 and 403 have to be told apart at all: it
+ * throws 401 for *missing* identity and 403 for a resolved non-admin, and the
+ * 403 branch is irreducibly ambiguous because `AdminCheckService` is
+ * fail-closed — an unreachable `auth` container resolves to "not admin".
+ */
+function judgeGuardStatus(
+  ctx: CheckContext,
+  spec: RouteSpec,
+  meta: CaptureRecord,
+): Pick<ReportRow, 'status' | 'kind' | 'note' | 'details'> | undefined {
+  const anonymous = meta.identity.mode === 'anonymous'
+  const who = meta.identity.email ?? meta.identity.mode
+
+  if (meta.status === 401) {
+    if (!spec.guard) {
+      return {
+        status: 'fail',
+        kind: 'guard',
+        note: '401 on a route the manifest calls unguarded',
+        details: [
+          'Either a guard was added to this route and routes.ts has not ' +
+            'caught up, or the request lost its identity headers in transit.',
+        ],
+      }
+    }
+    if (anonymous) {
+      return {
+        status: 'skipped',
+        kind: 'guard',
+        note: 'guarded — run with --as-user/--as-admin',
+        details: [
+          `The 401 is the correct answer here: ${spec.guard} rejects a ` +
+            'request with no X-Forwarded-User. Nothing about the response ' +
+            'shape was verified.',
+        ],
+      }
+    }
+    return {
+      status: 'fail',
+      kind: 'guard',
+      note: `401 despite identity headers for ${who}`,
+      details: [
+        'The capture sent X-Forwarded-User and X-Forwarded-User-Id and the ' +
+          'guard still rejected the request.',
+      ],
+    }
+  }
+
+  if (meta.status !== 403) {
+    return undefined
+  }
+
+  if (spec.guard !== 'admin') {
+    return undefined
+  }
+
+  if (meta.identity.mode !== 'admin') {
+    return {
+      status: 'skipped',
+      kind: 'guard',
+      note: 'admin route — run with --as-admin',
+      details: [
+        `The capture identified as ${who}, which is not an admin, so the ` +
+          '403 is the expected answer.',
+      ],
+    }
+  }
+
+  const corroboration =
+    ctx.whoami?.isAdmin === false
+      ? [
+          'auth/whoami reported isAdmin: false for the same identity. That ' +
+            'comes from the same fail-closed AdminCheckService, so it ' +
+            'corroborates the 403 without distinguishing its two causes.',
+        ]
+      : ctx.whoami?.isAdmin === true
+        ? [
+            'auth/whoami reported isAdmin: true for the same identity, which ' +
+              'contradicts this 403 — most likely the admin cache TTL ' +
+              'expiring between the two requests, i.e. auth flapping.',
+          ]
+        : []
+
+  return {
+    status: 'fail',
+    kind: 'guard',
+    note: '403 — not admin, or the auth container is unreachable',
+    details: [
+      `AdminCheckService is fail-closed: it resolves ${who} to "not admin" ` +
+        'both when the address is genuinely not in ADMIN_EMAILS and when the ' +
+        'auth container cannot be reached. These two are indistinguishable ' +
+        'from this response alone.',
+      ...corroboration,
+    ],
+  }
+}
+
+/** `[]` for every field the binding named = the parse proved nothing. */
+function isEmptyFixture(
+  data: unknown,
+  fields: readonly string[] | undefined,
+): boolean {
+  if (!fields || fields.length === 0) {
+    return false
+  }
+  const record = asRecord(data)
+  if (!record) {
+    return false
+  }
+  return fields.every(field => {
+    const value = record[field]
+    return Array.isArray(value) && value.length === 0
+  })
+}
+
+async function checkRoute(
+  ctx: CheckContext,
+  spec: RouteSpec,
+): Promise<RouteCheck> {
+  const binding = CAPTURE_BINDINGS[spec.slug]
+
+  if (!binding) {
+    return {
+      meta: null,
+      row: {
+        name: spec.slug,
+        status: 'fail',
+        kind: 'binding',
+        note: 'no schema binding',
+        details: [
+          `routes.ts lists "${spec.slug}" (${spec.path}) but CAPTURE_BINDINGS ` +
+            'in verify-backend.ts has no entry for it, so nothing validated ' +
+            'this route. Add a schema, or an explicit { schema: null, ' +
+            'unvalidatable: "…" } if the route genuinely has no body.',
+        ],
+      },
+    }
+  }
+
+  const metaRead = await readTextFile(
+    path.join(ctx.dir, `${spec.slug}.meta.json`),
+  )
+
+  if (metaRead.kind !== 'ok') {
+    return {
+      meta: null,
+      row: {
+        name: spec.slug,
+        status: 'fail',
+        kind: 'missing',
+        note:
+          metaRead.kind === 'missing'
+            ? 'no capture on disk'
+            : 'capture unreadable',
+        details: [
+          metaRead.kind === 'missing'
+            ? `${spec.slug}.meta.json is not in this directory. The sweep ` +
+              'never reached this route (an abort, or an older capture taken ' +
+              'before it joined the manifest) — re-run capture.'
+            : `${spec.slug}.meta.json could not be read: ${metaRead.message}`,
+        ],
+      },
+    }
+  }
+
+  const metaJson = safeJsonParse(metaRead.text)
+  if (metaJson === undefined) {
+    return {
+      meta: null,
+      row: {
+        name: spec.slug,
+        status: 'fail',
+        kind: 'missing',
+        note: 'meta file is not JSON',
+        details: [
+          `${spec.slug}.meta.json is not parseable JSON — a capture was ` +
+            'interrupted mid-write, or something else wrote to this file.',
+        ],
+      },
+    }
+  }
+
+  const parsedMeta = CaptureRecordSchema.safeParse(metaJson)
+  if (!parsedMeta.success) {
+    return {
+      meta: null,
+      row: {
+        name: spec.slug,
+        status: 'fail',
+        kind: 'missing',
+        note: 'meta file is not a capture record',
+        details: [
+          `${spec.slug}.meta.json exists but does not parse as one:`,
+          ...formatZodIssues(parsedMeta.error, 4),
+        ],
+      },
+    }
+  }
+
+  const meta = parsedMeta.data
+  const row = await judgeCapture(ctx, spec, binding, meta)
+  return { meta, row }
+}
+
+async function judgeCapture(
+  ctx: CheckContext,
+  spec: RouteSpec,
+  binding: CaptureBinding,
+  meta: CaptureRecord,
+): Promise<ReportRow> {
+  const base = {
+    name: spec.slug,
+    httpStatus: meta.status ?? null,
+    durationMs: meta.durationMs ?? null,
+  }
+
+  if (meta.outcome === 'skipped') {
+    return {
+      ...base,
+      status: 'skipped',
+      kind: 'not-run',
+      note: meta.skipReason ?? 'capture skipped this route',
+    }
+  }
+
+  if (meta.outcome === 'transport-error') {
+    const failure = meta.transportError
+    return {
+      ...base,
+      status: 'fail',
+      kind: 'transport',
+      note: `unreachable — ${failure?.reason ?? 'transport failure'}`,
+      details: [
+        'The backend never answered, so this says nothing about the route ' +
+          'itself — only that the request could not be delivered.',
+        ...(failure ? [failure.message] : []),
+        ...contextLine(meta),
+        ...upstreamCaveat(ctx, binding, meta),
+      ],
+    }
+  }
+
+  const guardVerdict = judgeGuardStatus(ctx, spec, meta)
+  if (guardVerdict) {
+    return { ...base, ...guardVerdict }
+  }
+
+  const body = await readBody(ctx.dir, meta)
+
+  if (meta.status === null || meta.status === undefined) {
+    return {
+      ...base,
+      status: 'fail',
+      kind: 'http',
+      note: 'captured with no HTTP status',
+      details: contextLine(meta),
+    }
+  }
+
+  if (!isSuccess(meta.status)) {
+    return {
+      ...base,
+      status: 'fail',
+      kind: 'http',
+      note: 'non-2xx — the backend answered badly',
+      details: [
+        ...bodyExcerpt(body),
+        ...contextLine(meta),
+        ...upstreamCaveat(ctx, binding, meta),
+      ],
+    }
+  }
+
+  // A guarded route that answered 200 without identity headers only happens
+  // when the container has DEV_USER_EMAIL/DEV_USER_ID set — the dev fallback
+  // in resolveForwardedUser(). Worth saying: the response is real, but it is
+  // not the shape production would have produced for an anonymous caller.
+  const devFallback =
+    spec.guard && meta.identity.mode === 'anonymous'
+      ? [
+          'answered 200 with no identity headers — the container is running ' +
+            'the DEV_USER_EMAIL/DEV_USER_ID fallback, so this is a dev-shaped ' +
+            'result, not a production one.',
+        ]
+      : []
+
+  if (binding.schema === null) {
+    const headers = meta.headers ?? {}
+    const type = headers['content-type']
+    const length = headers['content-length']
+    return {
+      ...base,
+      status: 'pass',
+      hollow: true,
+      kind: 'unvalidatable',
+      note: binding.unvalidatable ?? 'nothing to validate',
+      details: [
+        [
+          type ? `content-type: ${type}` : 'no content-type header',
+          length ? `content-length: ${length}` : undefined,
+        ]
+          .filter(part => part !== undefined)
+          .join('  ·  '),
+        'The route answered, and the headers are all the evidence there is — ' +
+          'this row is not schema coverage.',
+        ...devFallback,
+      ],
+    }
+  }
+
+  if (body === null) {
+    return {
+      ...base,
+      status: 'fail',
+      kind: 'missing',
+      note: 'no body on disk',
+      details: [
+        'The meta says this route was captured, but the body file it names ' +
+          'is missing or unreadable. Re-run capture.',
+        ...contextLine(meta),
+      ],
+    }
+  }
+
+  const parsedBody = safeJsonParse(body)
+  if (parsedBody === undefined) {
+    return {
+      ...base,
+      status: 'fail',
+      kind: 'schema',
+      note: 'response body is not JSON',
+      details: [...bodyExcerpt(body), ...contextLine(meta)],
+    }
+  }
+
+  const result = binding.schema.safeParse(parsedBody)
+  if (!result.success) {
+    return {
+      ...base,
+      status: 'fail',
+      kind: 'schema',
+      note: 'schema mismatch',
+      details: [
+        ...formatZodIssues(result.error),
+        ...contextLine(meta),
+        ...upstreamCaveat(ctx, binding, meta),
+      ],
+    }
+  }
+
+  if (isEmptyFixture(result.data, binding.listFields)) {
+    return {
+      ...base,
+      status: 'pass',
+      hollow: true,
+      kind: 'empty',
+      note: 'empty — no fixture to validate',
+      details: [
+        `The envelope is well-formed but ${binding.listFields?.join(' and ')} ` +
+          'came back empty, so no element schema was exercised. This row is ' +
+          'not coverage.',
+        ...devFallback,
+      ],
+    }
+  }
+
+  return {
+    ...base,
+    status: 'pass',
+    kind: 'schema',
+    details: devFallback,
+  }
+}
+
+async function readBody(
+  dir: string,
+  meta: CaptureRecord,
+): Promise<string | null> {
+  if (!meta.bodyFile) {
+    return null
+  }
+  const read = await readTextFile(path.join(dir, meta.bodyFile))
+  return read.kind === 'ok' ? read.text : null
+}
+
+/**
+ * Reads the `auth-whoami` capture ahead of the sweep, purely so an admin 403
+ * can be annotated with what the same identity's admin check said. Every
+ * failure to read it is silent on purpose — `auth-whoami` gets its own row
+ * like any other route, and reporting the same problem twice helps nobody.
+ */
+async function readWhoami(dir: string): Promise<CheckContext['whoami']> {
+  const metaRead = await readTextFile(path.join(dir, 'auth-whoami.meta.json'))
+  if (metaRead.kind !== 'ok') {
+    return null
+  }
+  const meta = CaptureRecordSchema.safeParse(safeJsonParse(metaRead.text))
+  if (!meta.success || meta.data.outcome !== 'captured') {
+    return null
+  }
+
+  const body = await readBody(dir, meta.data)
+  const parsed =
+    body === null ? null : WhoamiSchema.safeParse(safeJsonParse(body))
+  return {
+    status: meta.data.status ?? null,
+    isAdmin: parsed?.success ? parsed.data.isAdmin : null,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// check mode
+// ---------------------------------------------------------------------------
+
+const CHECK_FLAGS: readonly FlagSpec[] = [
+  {
+    name: 'captures',
+    kind: 'string',
+    placeholder: '<dir>',
+    describe: `Directory to read. Default: ${DEFAULT_CAPTURES_DIR}`,
+  },
+]
+
+async function runCheck(args: ParsedArgs): Promise<number> {
+  validateManifest(READ_ROUTES)
+
+  const dir = path.resolve(stringFlag(args, 'captures') ?? DEFAULT_CAPTURES_DIR)
+  const health = await readHealth(dir)
+  const ctx: CheckContext = {
+    dir,
+    upstreams: new Map(health.lines.map(line => [line.name, line])),
+    whoami: await readWhoami(dir),
+  }
+
+  const checks: RouteCheck[] = []
+  for (const spec of READ_ROUTES) {
+    checks.push(await checkRoute(ctx, spec))
+  }
+
+  const metas = checks
+    .map(check => check.meta)
+    .filter((meta): meta is CaptureRecord => meta !== null)
+
+  const warnings = [...health.warnings]
+  const { unbound, orphaned } = bindingProblems(READ_ROUTES)
+  // Also a FAIL row apiece, but a reader starts at the top: an unbound slug
+  // means the manifest grew a route nothing validates, and that is worth
+  // saying before the board rather than only inside it.
+  if (unbound.length > 0) {
+    warnings.push(
+      `${unbound.length} route(s) in routes.ts have no entry in ` +
+        `CAPTURE_BINDINGS and were therefore not validated at all: ` +
+        `${unbound.join(', ')}.`,
+    )
+  }
+  if (orphaned.length > 0) {
+    warnings.push(
+      `CAPTURE_BINDINGS has entries no route claims: ${orphaned.join(', ')}. ` +
+        'Either the manifest dropped a route or a slug was renamed.',
+    )
+  }
+
+  const identities = [...new Set(metas.map(meta => meta.identity.mode))]
+  if (identities.length > 1) {
+    warnings.push(
+      `The captures in this directory were taken under more than one ` +
+        `identity (${identities.join(', ')}). That is not what one capture ` +
+        'run produces — this directory is holding results from several.',
+    )
+  }
+  if (metas.length === 0) {
+    warnings.push(
+      `No capture meta files were found in ${dir}. Run \`capture\` first; ` +
+        'every row below is reporting the absence of a capture, not a ' +
+        'verdict on the backend.',
+    )
+  }
+
+  const header: ReportHeader = {
+    title: 'check',
+    capturesDir: dir,
+    capturedAt: earliest(metas.map(meta => meta.capturedAt)),
+    identity: identities.length === 1 ? identities[0] : identities.join(' + '),
+    upstreams: health.lines,
+    warnings,
+  }
+
+  const sections: ReportSection[] = [
+    {
+      title: 'Routes',
+      blurb:
+        'Each captured body parsed against the envelope bound to its slug.',
+      rows: checks.map(check => check.row),
+      emptyNote: 'routes.ts is empty — nothing to check.',
+    },
+  ]
+
+  console.log(renderReport(header, sections))
+  return exitCodeFor(sections)
+}
+
+function earliest(timestamps: readonly string[]): string | null {
+  let best: string | null = null
+  for (const timestamp of timestamps) {
+    if (best === null || timestamp < best) {
+      best = timestamp
+    }
+  }
+  return best
+}
+
+const CHECK_MODE: Mode = {
+  name: 'check',
+  summary:
+    'Parse a captures directory against its schemas — offline, no docker',
+  usage: `${SCRIPT} check [--captures <dir>]`,
+  flags: CHECK_FLAGS,
+  run: runCheck,
+}
+
+/**
+ * The mode-dispatch table. C3 and D1 (`preflight`, `mutate`) each append one
+ * entry.
+ */
+export const MODES: readonly Mode[] = [CAPTURE_MODE, CHECK_MODE]
 
 // ---------------------------------------------------------------------------
 // Entrypoint
