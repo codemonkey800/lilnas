@@ -9,14 +9,14 @@ proves the _logic_ is right. Every one of them calls
 wrote. If an upstream's real response drifted, all 59 still pass. That gap is
 the entire scope of this plan.
 
-| Piece                | In one sentence                                                                                 |
-| -------------------- | ----------------------------------------------------------------------------------------------- |
-| **Route manifest**   | Every read route, paired with the Zod schema its response must satisfy                          |
-| **Envelope schemas** | Runtime validators for the list/detail wrappers that today exist only as TS `interface`s        |
-| **Transport**        | Reaches the running backend on port 8081 via `docker compose exec`, run directly on lilnas      |
-| **Capture mode**     | Hits every read route, writes raw JSON to a gitignored dir                                      |
-| **Check mode**       | Parses each capture against its schema, runs semantic spot-checks, prints a pass/fail table     |
-| **Mutate mode**      | Automated write-path pass — one movie, one **whole series**, one video, with crash-safe cleanup |
+| Piece                | In one sentence                                                                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Route manifest**   | Every read route, paired with the Zod schema its response must satisfy                                                                     |
+| **Envelope schemas** | Runtime validators for the list/detail wrappers that today exist only as TS `interface`s                                                   |
+| **Transport**        | Reaches the running backend on port 8081 via `docker compose exec`, run directly on lilnas                                                 |
+| **Capture mode**     | Hits every read route, writes raw JSON to a gitignored dir                                                                                 |
+| **Check mode**       | Parses each capture against its schema, runs semantic spot-checks, prints a pass/fail table                                                |
+| **Mutate mode**      | Automated write-path pass — one movie, one **scoped show** (episode or season, never the whole series), one video, with crash-safe cleanup |
 
 ```mermaid
 flowchart LR
@@ -530,7 +530,7 @@ unparsable-response | network`. A malformed path or injected header value
   envelope parse.
 
   **Two refinements against source.** `runtime` is checked on **movies only** —
-  `sonarr.service.ts:161` maps the *per-episode* runtime, where a short-form
+  `sonarr.service.ts:161` maps the _per-episode_ runtime, where a short-form
   series is legitimately under the 300s floor, so applying the movie threshold
   to shows would have produced false failures. The cursor checks additionally
   assert page 1 was full, since `hasMore` only fires on an over-full fetch.
@@ -601,11 +601,11 @@ unparsable-response | network`. A malformed path or injected header value
 > **The correction block below was wrong on every clause. The _original_ D1
 > was right.** Re-verified against source 2026-08-26 during Wave 1:
 >
-> | The correction claimed                                                  | Actually                                                                                                                |
-> | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-> | "`episodeId` appears **nowhere** — zero matches"                        | ~25 matches across `media-file.service.ts`, `release.service.ts`, `sonarr.service.ts`, and four Zod schemas             |
-> | "`RequestShowInputSchema` accepts **only** `{ tvdbId }`"                | `schema.ts:111` is `{ episodeId?, seasonNumber?, tvdbId }`                                                              |
-> | "`sonarr.service.ts:78` adds with `searchForMissingEpisodes: true`"     | `requestShow` is at **line 668**; the fresh-add path sets both search flags **`false`** (`sonarr.service.ts:388-394`)   |
+> | The correction claimed                                              | Actually                                                                                                              |
+> | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+> | "`episodeId` appears **nowhere** — zero matches"                    | ~25 matches across `media-file.service.ts`, `release.service.ts`, `sonarr.service.ts`, and four Zod schemas           |
+> | "`RequestShowInputSchema` accepts **only** `{ tvdbId }`"            | `schema.ts:111` is `{ episodeId?, seasonNumber?, tvdbId }`                                                            |
+> | "`sonarr.service.ts:78` adds with `searchForMissingEpisodes: true`" | `requestShow` is at **line 668**; the fresh-add path sets both search flags **`false`** (`sonarr.service.ts:388-394`) |
 >
 > **What the code actually does.** `POST /download/shows` accepts an optional
 > `episodeId` / `seasonNumber` scope (`download.controller.ts:1105-1111`:
@@ -626,8 +626,49 @@ unparsable-response | network`. A malformed path or injected header value
 > (not just unmonitor it), and must run promptly — this is why the journal
 > and the `finally` cleanup matter more than the polling.
 
-- [ ] **D1. Mutate mode.** Automated write-path pass over one movie, one
-      series, and one video, with crash-safe cleanup.
+- [x] **D1. Mutate mode.** Automated write-path pass over one movie, one
+      **scoped show**, and one video, with crash-safe cleanup. — `1a123e4`
+
+  **Findings.**
+  - **A whole-series request is now unrepresentable, not merely unwritten.**
+    `ShowScopePlan` is `episode | season | skip` with no `{tvdbId}`-only
+    variant, so no branch of the pass can produce one by accident.
+  - **The show pass nearly wasn't runnable at all.** `episodeId` is only
+    obtainable from `/download/media/:id/seasons`, which 404s a series not
+    already in Sonarr — while preflight refuses a fixture that _is_ already
+    there. Jointly unsatisfiable. The escape is that `resolveScope()`
+    (`sonarr.service.ts:753`) returns a **season-only** scope unchanged, with
+    no episode lookup, and `triggerScopedSearch` fires a `SeasonSearch` for it.
+    So: episode scope when `/seasons` answers, season scope otherwise.
+  - The DELETE allowlist is enforced **structurally** — `CleanupTicket` carries
+    a module-private `symbol` nothing outside the file can name, and the one
+    function issuing a destructive request re-reads the journal from disk and
+    re-checks the entry first. A forged ticket fails to type-check; one
+    smuggled through a cast is refused at runtime with zero requests sent.
+
+  **🐞 Two more real app findings — reported, not fixed:**
+  1. **There is no `DELETE` for a video anywhere on this surface.**
+     `PATCH /download/videos/:id/cancel` throws once the job is `Completed`,
+     and `DELETE /download/media/:id/files` 404s any `video:` key. A 5-second
+     clip completes in seconds, so **every real video pass leaves a MinIO
+     object behind.** Recorded as residue with manual-removal instructions.
+     This plan's "→ `DELETE` → confirm gone" for videos is not implementable
+     today.
+  2. **No `@Body()` in this app is validated.** `CreateJobInputDto`,
+     `RequestMovieInputDto`, `RequestShowInputDto`, `GrabReleaseInputDto`,
+     `ReplaceReleaseInputDto` and `FlagBadFileInputDto` are all declared via
+     `createZodDto` but never bound to a `ZodValidationPipe`, and there is no
+     global pipe. Only `@Query()` params get one. This contradicts
+     `RequestShowInputSchema`'s own docblock, which reasons that a string
+     `"3"` "is a client bug worth a 400 rather than something to silently
+     coerce" — that 400 never happens. Same class as A1's finding #4, but on
+     the **write** path.
+
+  ⚠️ **For whoever runs this live:** on the clean-library path the
+  season-count guard reports `SKIPPED (unverifiable before the add)`, so
+  `expectedEpisodes: 4` is the **only** ceiling on how many episodes
+  `addOptions.monitor: 'all'` leaves RSS-reachable between the add and
+  teardown. It is a human-vetted number — check it before the first real run.
 
   **Files:** create `apps/download/scripts/verify/fixtures.json` and
   `apps/download/scripts/verify/mutate.ts`; add `preflight` and `mutate`
@@ -708,13 +749,69 @@ unparsable-response | network`. A malformed path or injected header value
 
 ### Group E — Run it and decide
 
-- [ ] **E1. First read-only run.** Run `capture` (no `--include-expensive`),
-      then `check`, then `capture --as-admin` and `check` again. Paste the
-      report into this doc under a **Findings** heading. Read-only — no human
-      gate.
+- [ ] 🔴 **HUMAN — E1. First read-only run.** Run `capture` (no
+      `--include-expensive`), then `check`, then `capture --as-admin` and
+      `check` again. Paste the report into this doc under a **Findings**
+      heading.
 
-- [ ] **E2. Record outcomes and decide what's durable.** Edit this plan and
-      `docs/features/download/plans/002-live-functional-tests.md`.
+  > ⚠️ **BLOCKED 2026-08-26 — needs a person, for access reasons only.** The
+  > plan's "Human checkpoints" table correctly reclassified this as automated:
+  > it is 20 GET requests and nothing mutates. That reasoning still holds. What
+  > blocks it is narrower and was not anticipated:
+  >
+  > **The agent session that built this plan cannot reach the prod host.**
+  > `dockerExecTransport` shells out to `docker compose exec`, which per this
+  > plan's own design must run **directly on lilnas** — but `ssh lilnas.io`
+  > refuses the available key and falls back to an interactive password prompt,
+  > which a non-interactive session cannot answer.
+  >
+  > So E1 is not blocked on _judgement_ — it is blocked on _credentials_. It
+  > needs a person at a terminal, not a person making a decision.
+
+  **To run it, from a shell on lilnas** (the repo checked out at this branch,
+  with `pnpm install` done — `tsx` is a root dependency):
+
+  ```bash
+  cd apps/download
+  pnpm exec tsx scripts/verify/verify-backend.ts capture --repo-path /path/to/lilnas
+  pnpm exec tsx scripts/verify/verify-backend.ts check
+  pnpm exec tsx scripts/verify/verify-backend.ts capture --repo-path /path/to/lilnas --as-admin
+  pnpm exec tsx scripts/verify/verify-backend.ts check
+  ```
+
+  ⚠️ **Paste the check-mode _report_ into this doc — never the captures.**
+  The report is a pass/fail table; the captures hold real requester emails and
+  the real contents of the library, which is why they are gitignored. If a
+  spot-check failure quotes a requester email, redact it before pasting.
+
+  ⚠️ **Read the verdict line, not the colour.** A run that is mostly skips
+  prints `MOSTLY UNVERIFIED`, and a run that validated nothing prints
+  `NOT A PASS` even with zero failures. Both mean the backend was not verified.
+
+- [ ] ⚠️ **PARTIAL — E2. Record outcomes and decide what's durable.** Edit
+      this plan and `docs/features/download/plans/002-live-functional-tests.md`.
+
+  **Done (the half that never needed E1) — `<this commit>`.** Plan 002's two
+  stale premises are corrected in place, both verified against source first:
+  - "Phases 0–2 … done. Phases 3–8 pend" → **0–8 all done**, with a note that
+    every `⏳ BE Phase N` tag in that document is consequently stale and that
+    its rule 6 must not be applied to them. The tags are annotated rather than
+    stripped, because deciding which ones earn a durable row is the judgement
+    the rest of E2 exists to make.
+  - "**No `Paused`** — that's Phase 5" → `Paused` **and** `Pausing` both exist
+    (`schema.ts:29,32`), and neither is terminal
+    (`TERMINAL_DOWNLOAD_JOB_STATUSES` is exactly
+    `{Cancelled, Completed, Failed}`) — so a test waiting for a job to settle
+    must not treat a paused job as finished.
+
+  **Outstanding (blocked on E1, and genuinely needs a person):** logging which
+  spot-checks failed and ruling on each. Per this plan's own Human-checkpoints
+  section, that judgement cannot be automated — a failure means a value and an
+  expectation disagree and cannot say which is wrong. `runtime: 240` is a lost
+  `* 60`, a legitimately short film, or upstream drift; a non-empty
+  `degradedSources` is a code bug, a restarting container, or a stale key.
+  Same signal, different fixes. Deciding which findings earn a permanent row in
+  plan 002 is likewise a judgement about future value.
   - Log every spot-check that failed, and whether it's a real bug or a stale
     expectation.
   - For each finding, say whether it earns a permanent row in plan 002 or
@@ -790,6 +887,13 @@ already the answer.
 **Revised 2026-08-26 — this plan is fully automated.** The original four
 checkpoints were over-cautious: three of them were read-only and gated
 nothing real. What replaced them:
+
+> ⚠️ **Amended after implementation.** The reasoning below is sound and still
+> stands — none of these four needs a person for _judgement_. But E1 turned
+> out to need one anyway for **access**: the transport must run directly on
+> lilnas, and the implementing session could not authenticate to that host. See
+> E1 for the commands to run there. This is a credentials gap, not a
+> reinstatement of the checkpoints.
 
 | Original checkpoint        | Verdict                                                                                                                                                              |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
