@@ -74,6 +74,17 @@ COPY --from=builder --chown=node:node /app /app
 
 WORKDIR /app
 
+# yt-dlp's scratch space. DownloadVideoService hardcodes
+# VIDEO_DIR = '/download/videos', and the container runs as `node`, which
+# cannot mkdir at the filesystem root - so without this every
+# POST /download/videos dies with EACCES before yt-dlp is ever invoked.
+#
+# Deliberately NOT a volume: reconcileInterruptedJobs() sweeps every
+# non-terminal job to `failed` at boot precisely because a partial download
+# here is not meant to survive a restart (see DownloadJobStatus.Paused's
+# docblock in packages/utils/src/download/schema.ts).
+RUN mkdir -p /download/videos && chown -R node:node /download
+
 USER node
 
 # Add OCI image source label
