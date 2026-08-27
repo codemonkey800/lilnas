@@ -72,8 +72,22 @@ capability.
 
 ## Current state — what actually exists
 
-**Backend:** Phases 0–2 and the media-entity refactor are done. Phases 3–8
-pend.
+**Backend: Phases 0–8 are all done**, along with the media-entity refactor.
+[`backend.md`](../backend.md) records the full set as complete — "Phase 8
+closed the set with the audit log."
+
+> ⚠️ **Corrected 2026-08-26 by plan
+> [009](009-backend-verification-script.md).** This line previously read
+> "Phases 0–2 and the media-entity refactor are done. Phases 3–8 pend."
+> **Every `⏳ BE Phase N` tag in this document is therefore stale** — none of
+> those surfaces is blocked any more, and rule 6 below ("Never implement a row
+> tagged 🚧 or ⏳") must not be applied to them. The `⏳` tags are left in
+> place rather than stripped, because which of them earn a durable test row is
+> exactly the judgement plan 009's task E2 exists to make; treat each as "was
+> blocked on Phase N, now buildable" until E2 rules on it.
+>
+> The `🚧 FE rebuild` tags are a separate question and are **not** covered by
+> this correction.
 
 **Frontend: mostly unbuilt.** `src/app` has exactly two routes:
 
@@ -696,8 +710,17 @@ anywhere you touch `process.env`.
 - `Media.runtime` is **seconds** — both upstreams report minutes; the mappers
   multiply by 60.
 - `DownloadJobStatus`: `Cancelled`, `Cancelling`, `Cleaning`, `Completed`,
-  `Converting`, `Downloading`, `Failed`, `Importing`, `Pending`, `Requested`,
-  `Searching`, `Uploading`. **No `Paused`** — that's Phase 5.
+  `Converting`, `Downloading`, `Failed`, `Importing`, `Paused`, `Pausing`,
+  `Pending`, `Requested`, `Searching`, `Uploading`.
+
+  > ⚠️ **Corrected 2026-08-26 by plan
+  > [009](009-backend-verification-script.md).** This line previously ended
+  > "**No `Paused`** — that's Phase 5." Both `Paused` and `Pausing` exist
+  > today (`packages/utils/src/download/schema.ts:29,32`); Phase 5 shipped.
+  > Neither is terminal — `TERMINAL_DOWNLOAD_JOB_STATUSES`
+  > (`packages/utils/src/download/types.ts:56`) is exactly
+  > `{Cancelled, Completed, Failed}`, so a test that waits for a job to settle
+  > must not treat a paused job as finished.
 
 ### Backend services
 
