@@ -808,10 +808,10 @@ unparsable-response | network`. A malformed path or injected header value
   which **confirms A1's finding that `/auth/whoami` is guarded**, contradicting
   this plan's own route table.
 
-- [ ] ⚠️ **PARTIAL — E2. Record outcomes and decide what's durable.** Edit
-      this plan and `docs/features/download/plans/002-live-functional-tests.md`.
+- [x] **E2. Record outcomes and decide what's durable.** Edit this plan and
+      `docs/features/download/plans/002-live-functional-tests.md`.
 
-  **Done (the half that never needed E1) — `<this commit>`.** Plan 002's two
+  **Plan 002's corrections — `2653323`.** Its two
   stale premises are corrected in place, both verified against source first:
   - "Phases 0–2 … done. Phases 3–8 pend" → **0–8 all done**, with a note that
     every `⏳ BE Phase N` tag in that document is consequently stale and that
@@ -824,14 +824,29 @@ unparsable-response | network`. A malformed path or injected header value
     `{Cancelled, Completed, Failed}`) — so a test waiting for a job to settle
     must not treat a paused job as finished.
 
-  **Outstanding (blocked on E1, and genuinely needs a person):** logging which
-  spot-checks failed and ruling on each. Per this plan's own Human-checkpoints
-  section, that judgement cannot be automated — a failure means a value and an
-  expectation disagree and cannot say which is wrong. `runtime: 240` is a lost
-  `* 60`, a legitimately short film, or upstream drift; a non-empty
-  `degradedSources` is a code bug, a restarting container, or a stale key.
-  Same signal, different fixes. Deciding which findings earn a permanent row in
-  plan 002 is likewise a judgement about future value.
+  **Now also done — every E1 failure is ruled on** in the findings table under
+  E1 above. The pattern across all four: the script's job of printing enough
+  context to decide in seconds worked, and **three of the four failures were
+  the check's fault, not the code's.** Both `FAIL`s came from feeding
+  library-scoped routes ids mined out of `/discover` and `/movies/search`,
+  which return catalogue rather than library content. That is one root cause,
+  and it is a bug in the manifest's fixture selection.
+
+  ### Promotion decisions
+
+  | Finding                                       | Durable row in 002?                                                                                                                                                                                                                                                    |
+  | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | **Admin depends on `auth`'s `/admin/check`**  | ✅ **Yes — the highest-value finding here.** A cross-service deploy-ordering dependency is invisible to every mocked test and to any single-service check. Belongs in 002 as a BE row: _with `auth` reachable but lacking the endpoint, admin routes must fail closed_ |
+  | **Envelope drift (B1's schemas vs. reality)** | ✅ **Yes.** These parsed clean against real Radarr/Sonarr today, which is exactly why they are worth keeping — they are the tripwire for the drift this plan was written to catch. Promote `envelopes.ts` as fixtures for 002's Group A                                |
+  | **Cursor round-trip**                         | ✅ **Yes.** Held on `/discover` (10 + 10 of 40, no overlap, stable total) and is cheap, deterministic, and a genuine regression risk                                                                                                                                   |
+  | **`runtime` floor / `filePath` shape**        | ❌ **No — one-off.** As written it false-positives on catalogue shorts. Only worth keeping if rewritten against library-only fixtures, and then it duplicates a mapper unit test                                                                                       |
+  | **`SQLITE_CANTOPEN` on a fresh volume**       | ❌ **Not a test row — a deploy-script fix.** `chown 1000:1000` should be automated in the deploy path, not asserted after the fact                                                                                                                                     |
+
+  **Left undone, and why:** the two admin routes are still unverified. That is
+  not a judgement gap — it is the deploy-ordering dependency in finding 3, and
+  it clears itself once this branch is merged with `main`. Re-run
+  `capture --as-admin` then, and the two `admin.*` spot-checks plus
+  `audit.actions-are-known` should go green.
   - Log every spot-check that failed, and whether it's a real bug or a stale
     expectation.
   - For each finding, say whether it earns a permanent row in plan 002 or
