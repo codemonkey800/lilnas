@@ -27,6 +27,12 @@ player.html
 # Helm chart dependencies
 k8s/charts/*/charts/*.tgz
 
+# raw responses from the download backend verification sweep
+# (apps/download/scripts/verify) — these hold real requester emails and the
+# real contents of the library, so they never leave the host they were
+# captured on. Regenerate with `verify-backend.ts capture`.
+apps/download/scripts/verify/captures/
+
 # real Emby posters + YouTube thumbnails for the download-app mockup —
 # studio/uploader-owned art, regenerated locally instead of committed to
 # this public repo; see docs/features/download/designs/assets/README.md
