@@ -1695,3 +1695,75 @@ manual-verification block with the live curl checks specific to it.
   re-auto-selection; and, for Phase 6, that a known-indexed title in the
   real lilnas Emby instance resolves to "Watch" while a freshly-downloaded,
   not-yet-scanned one shows "Indexing…".
+
+---
+
+## Legacy frontend teardown
+
+**Status: done.** The "no Next.js surface calls them yet" caveat above now
+means something stronger than it did when it was written: the pre-spec
+frontend has been **removed**, not merely left un-updated. `apps/download` is
+the Phase 0–8 backend plus an empty App Router shell. No backend module was
+modified — the teardown was frontend-only by construction.
+
+The full reasoning, file-by-file verdicts and task breakdown live in
+[`plans/010-legacy-frontend-teardown.md`](plans/010-legacy-frontend-teardown.md).
+
+| Commit    | What it did                                                                                                             |
+| --------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `2367db4` | Deleted the legacy UI (pages, components, jotai store, MUI theme) and left a bootable Next.js shell                     |
+| `e20cbe3` | Dropped 17 frontend-only and already-dead dependencies from `apps/download/package.json`, regenerating `pnpm-lock.yaml` |
+| `89ad6df` | Deleted the dead `src/constants/version.ts` and the unread `FRONTEND_PORT` from `.env.example`                          |
+
+### What the rewrite inherits
+
+An **empty App Router shell** survives — `src/app/layout.tsx` plus a
+placeholder `src/app/page.tsx` — along with the `/api` and `/ws` rewrites in
+`next.config.js`, untouched:
+
+```js
+{ source: '/api/:path*', destination: 'http://localhost:8081/:path*' }
+{ source: '/ws/:path*',  destination: 'http://localhost:8081/ws/:path*' }
+```
+
+So the rewrite has a working proxy to the Nest backend on day one, and the
+Docker build, `deploy.yml`'s `loadbalancer.server.port=8080` and the
+TypeScript setup all stayed correct rather than being churned and un-churned.
+
+`download.lilnas.io` still boots on port 8080 and serves the placeholder. The
+API and WebSocket gateway stay fully live behind it, so tdr-bot's `/download`
+Discord command is **unaffected** — it talks to the Nest port directly via
+`DownloadClient.dockerInstance`, never through Next.js.
+
+### Recovering the WebSocket hook
+
+`src/components/use-download-job-socket.ts` and its 304-line test file were
+deleted, because they were shaped around the single-job `/downloads/[id]`
+view rather than the multi-job live feed the new activity surface needs. The
+parsing logic is worth resurrecting from git rather than rewriting:
+
+```bash
+git show 2367db4^:apps/download/src/components/use-download-job-socket.ts
+git show 2367db4^:apps/download/src/components/__tests__/use-download-job-socket.test.ts
+```
+
+Note the `2367db4^` ref — the plan's own snippet says `HEAD:`, which was
+correct only while it was being written. Now that A1 has landed, those paths
+no longer exist at `HEAD` and the command must name a pre-teardown commit.
+
+The gateway the hook parses (`src/download-gateway/download.gateway.ts`) is
+**unchanged** by the teardown, so the wire format is still current.
+
+### Two pieces of intentional dead code were kept
+
+Neither has an importer after the teardown. Both stay on purpose; they are
+not cleanup targets.
+
+- **`src/lib/download-client.ts`** — its doc comment encodes a non-obvious
+  auth-attribution rule: a plain `DownloadClient.localInstance` call from a
+  server component **drops the `X-Forwarded-User` headers Traefik sets**,
+  silently persisting every web-originated job as an unattributed service
+  call. Deleting it means rediscovering that the hard way.
+- **`src/auth/auth-debug.controller.ts`** — its `GET /auth/whoami` returns
+  `{ email, userId, isAdmin }`, which is exactly what the rewrite's account
+  avatar and admin-gated surfaces (spec §10, §11) need.
