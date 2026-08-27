@@ -11,6 +11,11 @@
  * Both are `Transport`, so the runner can swap them without caring which is
  * in play.
  *
+ * Both speak every verb this backend has — `GET` for the read sweep, and
+ * `POST`/`PATCH`/`DELETE` for D1's mutating pass. The verb and the JSON body
+ * ride in the same optional {@link RequestOptions} as `bodyMode`, so the
+ * {@link Transport} signature the capture runner depends on is unchanged.
+ *
  * Two failure kinds are kept structurally distinct:
  *
  * - **Transport failure** — `TransportError` is thrown. "We could not reach
@@ -77,16 +82,40 @@ export interface RouteResponse {
  */
 export type BodyMode = 'json' | 'headers-only'
 
+/**
+ * The verbs this surface actually has. Deliberately a closed union rather
+ * than `string`: `method` reaches curl's argv, and the manifest/mutation
+ * tables are the only things that pick one.
+ *
+ * `PATCH` is here because the video half of the write path has no `DELETE` —
+ * `PATCH /download/videos/:id/cancel` is the only teardown route a video job
+ * has (`download.controller.ts:891`).
+ */
+export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
+
 export interface RequestOptions {
   /** Defaults to `'json'`. */
   bodyMode?: BodyMode
   /** Per-request override of the 30s default. */
   timeoutSeconds?: number
+  /** Defaults to `'GET'`, which is what every read route needs. */
+  method?: HttpMethod
+  /**
+   * Request body, serialised here rather than by the caller so both
+   * implementations agree byte-for-byte on the payload **and** on the
+   * `Content-Type: application/json` that has to accompany it. Nest's
+   * `json()` body parser only populates `@Body()` for that content type, so
+   * a caller that set one but not the other would silently send `{}`.
+   *
+   * `undefined` sends no body at all — which is what a `DELETE` wants, and
+   * is distinct from `null`, a legitimate JSON document.
+   */
+  json?: unknown
 }
 
 /**
  * The third argument is optional, so a caller that only needs the default
- * JSON behaviour can ignore it entirely and both implementations stay
+ * GET/JSON behaviour can ignore it entirely and both implementations stay
  * interchangeable.
  */
 export type Transport = (
@@ -186,8 +215,10 @@ export function dockerExecTransport(opts: {
   return async (path, headers, options = {}) => {
     const requestPath = assertRequestPath(path)
     const bodyMode = options.bodyMode ?? 'json'
+    const method = options.method ?? 'GET'
     const timeoutSeconds = options.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS
     const url = `http://localhost:${NEST_PORT}${requestPath}`
+    const payload = serialiseJson(options.json)
 
     const args = [
       'compose',
@@ -207,8 +238,24 @@ export function dockerExecTransport(opts: {
       bodyMode === 'headers-only' ? '/dev/null' : '-',
       '--max-time',
       String(timeoutSeconds),
+      // Always explicit. curl infers POST from `--data-raw`, but never PATCH
+      // or DELETE, and an inferred verb is one more thing to get wrong.
+      '-X',
+      method,
       // No --fail: a 4xx/5xx body is the evidence we are here to capture.
       ...toCurlHeaderArgs(headers),
+      ...(payload === undefined
+        ? []
+        : [
+            '-H',
+            'Content-Type: application/json',
+            // `--data-raw`, never `--data`: the latter reads a file when the
+            // value opens with `@`, and a JSON body is attacker-adjacent
+            // enough (it carries ids mined out of live responses) that
+            // "this string is data, full stop" has to be the argv itself.
+            '--data-raw',
+            payload,
+          ]),
       url,
     ]
 
@@ -301,19 +348,29 @@ export function httpTransport(baseUrl: string): Transport {
   return async (path, headers, options = {}) => {
     const requestPath = assertRequestPath(path)
     const bodyMode = options.bodyMode ?? 'json'
+    const method = options.method ?? 'GET'
     const timeoutSeconds = options.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS
     const url = `${root}${requestPath}`
+    const payload = serialiseJson(options.json)
 
     for (const [name, value] of Object.entries(headers)) {
       assertHeader(name, value)
     }
 
+    // Same content-type coupling as the curl branch, for the same reason:
+    // Nest populates `@Body()` only for `application/json`.
+    const requestHeaders: Record<string, string> =
+      payload === undefined
+        ? { ...headers }
+        : { ...headers, 'Content-Type': 'application/json' }
+
     const startedAt = Date.now()
     let response: Response
     try {
       response = await fetch(url, {
-        method: 'GET',
-        headers,
+        method,
+        headers: requestHeaders,
+        body: payload,
         // Match curl's default (no -L): report the 307, don't chase it.
         redirect: 'manual',
         signal: AbortSignal.timeout(timeoutSeconds * 1000),
@@ -541,6 +598,44 @@ function toCurlHeaderArgs(headers: Record<string, string>): string[] {
     args.push('-H', `${name}: ${value}`)
   }
   return args
+}
+
+/**
+ * `options.json` → the exact bytes both implementations send, or `undefined`
+ * for "no body at all".
+ *
+ * The control-character check is belt-and-braces rather than theatre.
+ * `JSON.stringify` escapes every character below U+0020, so its output cannot
+ * carry a raw CR/LF into curl's argv — but this is the one place a request
+ * body becomes a process argument, and the invariant is cheap enough to
+ * assert rather than reason about. A violation is a `TypeError`, matching
+ * `assertHeader`/`assertRequestPath`: a caller bug, not an environment
+ * condition, so it must not be mistaken for a `TransportError`.
+ */
+function serialiseJson(json: unknown): string | undefined {
+  if (json === undefined) {
+    return undefined
+  }
+
+  let payload: string | undefined
+  try {
+    payload = JSON.stringify(json)
+  } catch (error) {
+    throw new TypeError(
+      `Request body is not JSON-serialisable: ${describe(error)}`,
+    )
+  }
+
+  // `JSON.stringify(undefined)` is `undefined`; every other input that
+  // reaches here yields a string.
+  if (payload === undefined) {
+    throw new TypeError('Request body serialised to nothing')
+  }
+  if (CONTROL_CHARS.test(payload)) {
+    throw new TypeError('Request body contains raw control characters')
+  }
+
+  return payload
 }
 
 function assertHeader(name: string, value: string): void {

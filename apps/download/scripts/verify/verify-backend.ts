@@ -10,8 +10,21 @@
  *
  * **Modes are a table, not an if/else chain.** Every mode is a {@link Mode}
  * in {@link MODES}: a name, a summary, a flag list that both `--help` and the
- * argument parser read, and a `run` that returns a process exit code. Later
- * tasks (`check`, `preflight`, `mutate`) add an entry and nothing else moves.
+ * argument parser read, and a `run` that returns a process exit code. Adding
+ * one is adding an entry; nothing else moves.
+ *
+ * | Mode        | Reads | Writes | Lives in           |
+ * | ----------- | ----- | ------ | ------------------ |
+ * | `capture`   | ✅    | —      | this file          |
+ * | `check`     | disk  | —      | this file          |
+ * | `preflight` | ✅    | —      | `./mutate.ts`      |
+ * | `mutate`    | ✅    | ⚠️ yes | `./mutate.ts`      |
+ *
+ * ⚠️ **`mutate` creates real things in the production library.** Its
+ * guardrails — a journal fsynced before every create, teardown in a `finally`,
+ * and a teardown call that structurally cannot be handed an id the journal did
+ * not mint — are documented in `./mutate.ts`. `preflight` is the read-only
+ * half and refuses the run when a fixture is already in the library.
  *
  * ---
  *
@@ -109,6 +122,7 @@ import {
   YtdlpStatusSchema,
   YtdlpVersionSchema,
 } from './envelopes'
+import { MUTATE_MODE, PREFLIGHT_MODE } from './mutate'
 import {
   exitCodeFor,
   formatZodIssues,
@@ -153,8 +167,12 @@ const HEALTH_FILE = '_health.json'
  * companion `X-Forwarded-User-Id` below exists purely to satisfy
  * `ForwardedUserGuard`, which requires both headers to be present.
  *
- * D1 introduces `fixtures.json` with an `adminEmail` field; when it lands,
- * this constant should read from there rather than being duplicated.
+ * `fixtures.json` carries the same address as `adminEmail`, and `./mutate.ts`
+ * reads it from there. Kept as a literal here on purpose: `capture` must not
+ * grow a hard dependency on a file it otherwise has no use for, and a missing
+ * or malformed `fixtures.json` should not be able to break the read sweep. If
+ * the address ever changes, both places have to change — which is why they
+ * point at each other in the comments.
  */
 const ADMIN_EMAIL = 'jeremyasuncion808@gmail.com'
 
@@ -2520,10 +2538,25 @@ const CHECK_MODE: Mode = {
 }
 
 /**
- * The mode-dispatch table. D1 (`preflight`, `mutate`) appends to it; C3 added
- * a report section to `check` rather than a mode of its own.
+ * The mode-dispatch table.
+ *
+ * Read modes first, then the two write modes from `./mutate.ts` — which is
+ * also the order they are meant to be run in, and the order `--help` prints
+ * them. C3 added a report section to `check` rather than a mode of its own.
+ *
+ * `preflight`/`mutate` live in their own file because the guardrails around a
+ * write are the bulk of that work (a crash-safe journal, an unforgeable
+ * teardown ticket, a state machine) and none of it belongs in a dispatcher.
+ * The dependency runs one way: `mutate.ts` imports {@link Mode},
+ * {@link FlagSpec} and {@link ParsedArgs} from here as **types only**, so
+ * there is no require cycle at runtime.
  */
-export const MODES: readonly Mode[] = [CAPTURE_MODE, CHECK_MODE]
+export const MODES: readonly Mode[] = [
+  CAPTURE_MODE,
+  CHECK_MODE,
+  PREFLIGHT_MODE,
+  MUTATE_MODE,
+]
 
 // ---------------------------------------------------------------------------
 // Entrypoint
