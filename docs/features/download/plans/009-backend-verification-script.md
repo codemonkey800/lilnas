@@ -434,8 +434,24 @@ unparsable-response | network`. A malformed path or injected header value
 
 ### Group C — The runner
 
-- [ ] **C1. Capture mode.** Hits every route in the manifest and writes raw
-      responses to disk.
+- [x] **C1. Capture mode.** Hits every route in the manifest and writes raw
+      responses to disk. — `478a17a`
+
+  **Findings.** Elements are classified **structurally**, not by slug: a job
+  carries its own `id` alongside its `media`, a `GalleryItem` does not — that
+  discriminator is what keeps gallery rows out of the job pool, and it means a
+  route added to the manifest later needs no change here. `Transport` can't
+  express the upstream health probe (it only speaks HTTP to `localhost:8081`,
+  while reading `$RADARR_URL` needs `sh -c` inside the container), so C1 has
+  its own small `runDockerExec`. Guarded routes are captured as 401/403 rather
+  than skipped, with `guard` + `identity` recorded — **interpreting that is
+  C2's job**, not capture's.
+
+  **Deviation — `--base-url` was added** (mutually exclusive with
+  `--repo-path`), wiring up A2's otherwise-unreachable `httpTransport`.
+  `--dry-run` alone exercises maybe 20% of the file; this made a full sweep
+  against a local fake possible. It records `state: 'unprobed'` in
+  `_health.json`, since there's no way into the container to read the keys.
 
   **Files:** create `apps/download/scripts/verify/verify-backend.ts`; edit
   `.gitignore`.
@@ -470,8 +486,19 @@ unparsable-response | network`. A malformed path or injected header value
     re-running against a moving target. Status codes only — **never** log the
     key values.
 
-- [ ] **C2. Check mode.** Parses each capture against its schema and prints a
-      report.
+- [x] **C2. Check mode.** Parses each capture against its schema and prints a
+      report. — `def3abb`
+
+  **Findings.** The slug→schema binding is **total**: an unbound slug fails
+  loudly and short-circuits before the capture is read, so it can't be masked
+  by a skip. Beyond the plan's brief, three result classes turned out to need
+  their own reporting, because collapsing them would have been misleading:
+  a 401 on a guarded route is a **skip** during an anonymous run but a
+  **failure** during an identified one; a 401 on a route `routes.ts` calls
+  unguarded is manifest drift; and a guarded route answering **200**
+  anonymously is annotated as the `DEV_USER_EMAIL` fallback. The verdict line
+  reports hollow passes apart from real ones, and a run where
+  `verified === 0` prints **`NOT A PASS`** even with zero failures.
 
   **Files:** edit `apps/download/scripts/verify/verify-backend.ts`; create
   `apps/download/scripts/verify/report.ts`.
@@ -493,8 +520,39 @@ unparsable-response | network`. A malformed path or injected header value
     report `PASS (empty — no fixture to validate)` so nobody reads coverage
     that isn't there.
 
-- [ ] **C3. Semantic spot-checks.** The assertions a schema can't make — the
-      ones a mock would never have caught.
+- [x] **C3. Semantic spot-checks.** The assertions a schema can't make — the
+      ones a mock would never have caught. — `3924f86`
+
+  17 checks, every one on the plan's list plus `emby.indexed-carries-a-link`,
+  `movie.file-path-is-a-file` and `ytdlp.version-is-not-the-error-sentinel`.
+  Checks read the **raw** JSON rather than the parsed result, so a `radarrId`
+  of `0` still gets a semantic diagnosis even though it also trips the
+  envelope parse.
+
+  **Two refinements against source.** `runtime` is checked on **movies only** —
+  `sonarr.service.ts:161` maps the *per-episode* runtime, where a short-form
+  series is legitimately under the 300s floor, so applying the movie threshold
+  to shows would have produced false failures. The cursor checks additionally
+  assert page 1 was full, since `hasMore` only fires on an over-full fetch.
+
+  **Deliberately dropped:** `Season.episodeCount` vs `episodes.length`
+  (`sonarr.service.ts` documents that the two legitimately disagree — Sonarr
+  counts episodes it knows are coming), and "`job.media.type` matches the
+  route", which C1's typed id pools already guarantee, so it would pass
+  vacuously.
+
+  **🐞 Real app bug found — reported, not fixed** (`src/` is read-only here).
+  `toMovie()` does `const tmdbId = movie.tmdbId ?? 0` (`radarr.service.ts:107`)
+  and `toShow()` does `const tvdbId = series.tvdbId ?? 0`
+  (`sonarr.service.ts:149`), but `MovieSchema.tmdbId` / `ShowSchema.tvdbId` are
+  `z.number().int().positive()` (`schema.ts:96,114`). An upstream record with
+  no catalogue id therefore produces a `Media` that **fails the app's own wire
+  schema**: the backend serialises it fine and the frontend's
+  `DownloadJobSchema.safeParse()` silently drops the job. `mediaId()` would
+  also have minted `tmdb:0`. Unlikely to fire — Radarr/Sonarr almost always
+  carry the id — but it is a silent-drop path, not a loud one.
+  `media.ids-never-zero` covers it and prints a caveat distinguishing the
+  `?? 0` family from the `|| undefined` guard.
 
   **Files:** create `apps/download/scripts/verify/spot-checks.ts`; edit
   `verify-backend.ts` to run them in `check` mode.
