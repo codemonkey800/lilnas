@@ -73,6 +73,14 @@
  *   the capture had no way into the container to ask; it is never treated as
  *   "the upstream was fine".
  *
+ * A second section then runs `./spot-checks.ts` over the same already-loaded
+ * bodies: the semantic assertions a schema cannot make (a movie runtime in
+ * seconds, a browser-reachable `watchUrl`, a cursor round trip that neither
+ * overlaps nor skips). Those checks answer "is this value *right*?" where the
+ * schema answers "is this the shape we promised?", and they are written to
+ * print evidence rather than a verdict — a disagreement between a value and an
+ * expectation cannot say which of the two is wrong.
+ *
  * ⚠️ Captures hold **real requester emails and real library contents**.
  * `captures/` is gitignored; do not paste its contents into an issue or a
  * transcript.
@@ -111,6 +119,13 @@ import {
   type UpstreamLine,
 } from './report'
 import { READ_ROUTES, type RouteSpec } from './routes'
+import {
+  type Capture,
+  type CaptureSet,
+  SPOT_CHECKS,
+  type SpotCheck,
+  type SpotCheckResult,
+} from './spot-checks'
 import {
   type BodyMode,
   dockerExecTransport,
@@ -1800,6 +1815,12 @@ interface CheckContext {
 interface RouteCheck {
   row: ReportRow
   meta: CaptureRecord | null
+  /**
+   * The captured body, read exactly once and handed to both the schema parse
+   * and C3's spot-checks. Sharing it is not an optimisation: a check that
+   * re-read the file could report on bytes the row above never saw.
+   */
+  body: string | null
 }
 
 /** Which upstreams this row's request actually touched. */
@@ -2030,6 +2051,7 @@ async function checkRoute(
   if (!binding) {
     return {
       meta: null,
+      body: null,
       row: {
         name: spec.slug,
         status: 'fail',
@@ -2052,6 +2074,7 @@ async function checkRoute(
   if (metaRead.kind !== 'ok') {
     return {
       meta: null,
+      body: null,
       row: {
         name: spec.slug,
         status: 'fail',
@@ -2075,6 +2098,7 @@ async function checkRoute(
   if (metaJson === undefined) {
     return {
       meta: null,
+      body: null,
       row: {
         name: spec.slug,
         status: 'fail',
@@ -2092,6 +2116,7 @@ async function checkRoute(
   if (!parsedMeta.success) {
     return {
       meta: null,
+      body: null,
       row: {
         name: spec.slug,
         status: 'fail',
@@ -2106,16 +2131,18 @@ async function checkRoute(
   }
 
   const meta = parsedMeta.data
-  const row = await judgeCapture(ctx, spec, binding, meta)
-  return { meta, row }
+  const body = await readBody(ctx.dir, meta)
+  const row = judgeCapture(ctx, spec, binding, meta, body)
+  return { meta, row, body }
 }
 
-async function judgeCapture(
+function judgeCapture(
   ctx: CheckContext,
   spec: RouteSpec,
   binding: CaptureBinding,
   meta: CaptureRecord,
-): Promise<ReportRow> {
+  body: string | null,
+): ReportRow {
   const base = {
     name: spec.slug,
     httpStatus: meta.status ?? null,
@@ -2152,8 +2179,6 @@ async function judgeCapture(
   if (guardVerdict) {
     return { ...base, ...guardVerdict }
   }
-
-  const body = await readBody(ctx.dir, meta)
 
   if (meta.status === null || meta.status === undefined) {
     return {
@@ -2341,8 +2366,23 @@ async function runCheck(args: ParsedArgs): Promise<number> {
   }
 
   const checks: RouteCheck[] = []
+  const captures = new Map<string, Capture>()
   for (const spec of READ_ROUTES) {
-    checks.push(await checkRoute(ctx, spec))
+    const check = await checkRoute(ctx, spec)
+    checks.push(check)
+    // Only captures that made it to disk are offered to the spot-checks. A
+    // slug with no meta has nothing to say about the backend, and a check
+    // that "skipped because the meta was unreadable" would duplicate the FAIL
+    // row above it rather than add anything.
+    if (check.meta) {
+      captures.set(spec.slug, {
+        slug: spec.slug,
+        spec,
+        meta: check.meta,
+        body: check.body,
+        json: check.body === null ? undefined : safeJsonParse(check.body),
+      })
+    }
   }
 
   const metas = checks
@@ -2393,6 +2433,8 @@ async function runCheck(args: ParsedArgs): Promise<number> {
     warnings,
   }
 
+  const captureSet: CaptureSet = { captures, upstreams: ctx.upstreams }
+
   const sections: ReportSection[] = [
     {
       title: 'Routes',
@@ -2401,10 +2443,61 @@ async function runCheck(args: ParsedArgs): Promise<number> {
       rows: checks.map(check => check.row),
       emptyNote: 'routes.ts is empty — nothing to check.',
     },
+    {
+      title: 'Spot checks',
+      blurb:
+        'The assertions a schema cannot make. SKIPPED = the capture was not ' +
+        'there; a pass marked "no fixture" ran over an empty one.',
+      rows: SPOT_CHECKS.map(check => spotCheckRow(check, captureSet)),
+      emptyNote: 'No spot-checks are registered.',
+    },
   ]
 
   console.log(renderReport(header, sections))
   return exitCodeFor(sections)
+}
+
+/**
+ * One spot-check, run and turned into a row.
+ *
+ * Two deliberate choices about what the reader sees:
+ *
+ * - **The expectation is printed on a failure, never on a pass.** A green
+ *   board should stay scannable; a red row has to be self-explanatory without
+ *   opening `spot-checks.ts`, so the `describe` leads the evidence.
+ * - **A throw is a failure of the check, not of the backend.** Reporting it as
+ *   a backend fault would be a lie, and swallowing it would quietly delete a
+ *   row from the board — so it becomes a `FAIL` that says which of the two it
+ *   is.
+ */
+function spotCheckRow(check: SpotCheck, captures: CaptureSet): ReportRow {
+  let result: SpotCheckResult
+  try {
+    result = check.run(captures)
+  } catch (error) {
+    return {
+      name: check.id,
+      status: 'fail',
+      kind: 'semantic',
+      note: 'the check itself threw',
+      details: [
+        `This is a bug in spot-checks.ts, not a finding about the backend: ${describeError(error)}`,
+        `expected: ${check.describe}`,
+      ],
+    }
+  }
+
+  return {
+    name: check.id,
+    status: result.status,
+    kind: 'semantic',
+    note: result.note,
+    hollow: result.hollow,
+    details:
+      result.status === 'fail'
+        ? [`expected: ${check.describe}`, ...(result.details ?? [])]
+        : result.details,
+  }
 }
 
 function earliest(timestamps: readonly string[]): string | null {
@@ -2427,8 +2520,8 @@ const CHECK_MODE: Mode = {
 }
 
 /**
- * The mode-dispatch table. C3 and D1 (`preflight`, `mutate`) each append one
- * entry.
+ * The mode-dispatch table. D1 (`preflight`, `mutate`) appends to it; C3 added
+ * a report section to `check` rather than a mode of its own.
  */
 export const MODES: readonly Mode[] = [CAPTURE_MODE, CHECK_MODE]
 
