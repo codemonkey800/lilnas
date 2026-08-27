@@ -2,3 +2,8 @@
 # fights drizzle-kit's chosen formatting and the diff is meaningless.
 src/db/migrations/meta/
 src/db/migrations/*.sql
+
+# Raw responses from the verification sweep (plan 009). Gitignored capture
+# data, not source — reformatting it would corrupt the byte-for-byte record
+# check mode parses, and it holds real library contents.
+scripts/verify/captures/
