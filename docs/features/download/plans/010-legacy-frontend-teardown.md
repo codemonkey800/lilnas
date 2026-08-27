@@ -282,6 +282,14 @@ So `/api/download/activity` in the browser reaches `@Controller('/download')`'s
   It injects its own `lodash`/`nanoid`/`fs-extra` devDeps (lines 26–54), so
   dropping `lodash` from the manifest does not break it. That suite is
   Docker-only (`pnpm test:ytdlp-update`) and is **not** part of `pnpm test`.
+  - ⚠️ **Corrected during A1/C1:** only `Dockerfile.test` is excluded — the
+    *suite* is not Docker-only.
+    `src/ytdlp-update/__tests__/ytdlp-update.integration.spec.ts` **does** run
+    under plain `pnpm test`, and on this machine fails 9 tests with
+    `EACCES: permission denied, open '/usr/bin/yt-dlp'`. Verified pre-existing
+    by stashing the teardown and re-running against a clean `HEAD`. **Not a
+    regression** — expect `apps/download` to report 55/56 suites green, not
+    56/56.
 - **`pnpm build` is `run-p build:backend build:frontend`.** A frontend break
   fails the whole build even though the backend is fine — read which of the two
   parallel jobs actually failed.
@@ -305,7 +313,8 @@ run `pnpm test:ytdlp-update`; it needs Docker and is excluded from `pnpm test`.
 
 ### Group A — Strip the UI
 
-- [ ] **A1. Delete the legacy UI and leave a bootable shell.** When this is done,
+- [x] **A1. Delete the legacy UI and leave a bootable shell.** `2367db4` — when
+      this is done,
       `apps/download` has no MUI, no jotai, no legacy component, and
       `pnpm dev:frontend` still serves a page at `:8080`.
 
@@ -357,10 +366,35 @@ run `pnpm test:ytdlp-update`; it needs Docker and is excluded from `pnpm test`.
   57 → 56 and every remaining suite to stay green, since none of them touch
   frontend code.
 
+  **Findings:**
+  - **`IBM_Plex_Mono` is not a variable font on Google Fonts.** `next/font`
+    therefore required an explicit `weight: ['400', '500', '600']`; the
+    variable-font shorthand the Figtree import uses does not compile for it.
+  - **One Tailwind utility beyond "fonts only."**
+    `font-[family-name:var(--font-sans)]` was applied to `<body>` so the loaded
+    Figtree actually renders — declaring the CSS variables alone leaves the
+    browser on its default face. That is one step past the "fonts only" line
+    drawn in [Design decisions](#fonts-swap-roboto-for-figtree--ibm-plex-mono),
+    and is trivially droppable by the rewrite once the real token layer lands.
+  - **The `ytdlp-update` suite is not entirely Docker-only** — see the
+    correction in [Gotchas](#gotchas). `ytdlp-update.integration.spec.ts` runs
+    under plain `pnpm test` and fails 9 tests on this machine. Confirmed
+    pre-existing, **not** a regression.
+  - **The `git show HEAD:` snippet under [Design decisions](#delete-use-download-job-socketts-even-though-its-good-code)
+    is now stale.** It was correct only while this plan was being written. Now
+    that A1 has landed those paths no longer exist at `HEAD`; the command must
+    name a pre-teardown ref:
+
+    ```bash
+    git show 2367db4^:apps/download/src/components/use-download-job-socket.ts
+    git show 2367db4^:apps/download/src/components/__tests__/use-download-job-socket.test.ts
+    ```
+
 ### Group B — Prune the manifest and dead config
 
-- [ ] **B1. Drop the frontend-only and already-dead dependencies.** When this is
-      done, `apps/download/package.json` lists only what `src/` actually imports.
+- [x] **B1. Drop the frontend-only and already-dead dependencies.** `e20cbe3` —
+      when this is done, `apps/download/package.json` lists only what `src/`
+      actually imports.
 
   **Files:** edit `apps/download/package.json`; regenerate `pnpm-lock.yaml` via
   `pnpm install`.
@@ -408,7 +442,22 @@ run `pnpm test:ytdlp-update`; it needs Docker and is excluded from `pnpm test`.
   **Tests:** no new tests. The proof is `pnpm build`, `pnpm test`, `pnpm lint`
   and `pnpm type-check` all clean with a smaller manifest.
 
-- [ ] **B2. Delete the dead backend and config leftovers.**
+  **Findings:**
+  - **Use `corepack pnpm`, not the `pnpm` on `PATH`.** The PATH binary is
+    **9.15.9**, but this workspace was installed with **10.18.2**
+    (`node_modules/.modules.yaml`). A plain `pnpm install` prompts a full
+    nuke-and-reinstall of `node_modules` and risks rewriting `pnpm-lock.yaml` in
+    v9 flavor — a lockfile churn far larger than this task, landing on every
+    package in the workspace. `corepack pnpm` picks up the pinned version and
+    does the right thing.
+  - With `corepack pnpm`, the lockfile diff was **114 deletions / 0 insertions**,
+    confined entirely to `apps/download`'s own importer. No other package's
+    resolution moved.
+  - **The judgment-call checkpoint never came up.** No dependency turned out to
+    be referenced by a script, `Dockerfile` or compose file — `http-server` in
+    particular was confirmed unreferenced — so nothing had to be escalated.
+
+- [x] **B2. Delete the dead backend and config leftovers.** `89ad6df`
 
   **Files:** delete `src/constants/version.ts` (then the empty `constants/`);
   edit `.env.example`.
@@ -434,7 +483,8 @@ run `pnpm test:ytdlp-update`; it needs Docker and is excluded from `pnpm test`.
 
 ### Group C — Verify and record
 
-- [ ] **C1. Rebuild and verify the whole repo.** Confirms the teardown broke
+- [x] **C1. Rebuild and verify the whole repo.** *Verification-only — no commit,
+      by design; this task changes no files.* Confirms the teardown broke
       nothing outside `apps/download`.
 
   **Files:** none — this task only runs commands and reports.
@@ -468,7 +518,37 @@ run `pnpm test:ytdlp-update`; it needs Docker and is excluded from `pnpm test`.
   **Tests:** the full repo-wide suite is the test. Report per-package results,
   not just "green".
 
-- [ ] **C2. Record the teardown in `backend.md`.**
+  **Findings — observed values:**
+  - `apps/download/.next/types/routes.d.ts` now declares `AppRoutes = "/"`. The
+    `/downloads/[id]` route is gone from the generated types, as intended.
+  - `apps/download/dist/main.js` regenerated — the Nest entry point still
+    builds.
+  - `cd apps/download && npx jest --listTests | wc -l` → **56** (from 57), which
+    matches this plan's prediction.
+  - `apps/download` tests: **55/56 suites, 1004/1013 tests**. The 9 failures are
+    the environmental `EACCES: permission denied, open '/usr/bin/yt-dlp'` in
+    `ytdlp-update.integration.spec.ts` — see the [Gotchas](#gotchas) correction.
+    Confirmed pre-existing by stashing the teardown and re-running against a
+    clean `HEAD`.
+  - Repo-wide Turbo `build`, `lint` and `type-check`: **clean** across 12–14
+    packages, re-run with `--force` to defeat the cache.
+  - `apps/tdr-bot`: build and type-check clean, **54/54 suites, 1129/1129
+    tests**. The one external consumer of the download API is unaffected.
+
+  **Pre-existing failures elsewhere in the repo — unrelated to this plan.**
+  `git diff a19afbf..HEAD` touches only `apps/download/`, `docs/` and
+  `pnpm-lock.yaml`, so none of these can be regressions from the teardown:
+  - **`apps/equations` — 3/5 suites.** Its `jest.config.js:33` maps
+    `@lilnas/utils/*` to `apps/utils/src/`, a path that does not exist — utils
+    lives at `packages/utils`. Plus 7 stale "Long Line Detection" tests
+    asserting a check that was deleted in `8118a3a`.
+  - **`apps/swole` — 20/23 suites.** A better-sqlite3 teardown leak surfacing as
+    "database connection is not open".
+  - **`apps/tdr-code` — 110/111 suites.** `use-live-stream.spec.tsx` spy
+    call-count mismatches.
+
+- [x] **C2. Record the teardown in `backend.md`.** *Done by the commit that ticks
+      this box.*
 
   **Files:** edit `docs/features/download/backend.md`; edit this plan.
 
@@ -541,6 +621,13 @@ deletions are on disk. B2 can happen any time and never gates anything.
 ### Human checkpoints
 
 The executor must **not** perform these. Report them as outstanding.
+
+> **Status as of C2: all three remain outstanding.** Checkpoints 1 and 2 were
+> not performed — the executor may neither deploy nor bring up the dev stack.
+> Checkpoint 3 **never came up**: no dependency B1 dropped turned out to be
+> referenced by a script, `Dockerfile` or compose file, so nothing had to be
+> escalated. The ⏳ `TODO(tdr-bot-migration)` shim was likewise left untouched,
+> by design.
 
 1. **After C1 — local smoke test.** Run `docker-compose -f docker-compose.dev.yml up -d download`,
    then confirm `http://download.localhost` serves the placeholder page and
