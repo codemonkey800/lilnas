@@ -42,7 +42,7 @@
  */
 import { AUDIT_ACTIONS } from '../../../../packages/utils/src/download/schema'
 import type { UpstreamLine } from './report'
-import { READ_ROUTES, type RouteSpec } from './routes'
+import { idProvenance, READ_ROUTES, type RouteSpec } from './routes'
 
 // ---------------------------------------------------------------------------
 // The input: what C2 already loaded
@@ -551,11 +551,20 @@ const runtimeIsSeconds: SpotCheck = {
     'feature is suspect',
   run: set =>
     overMedia(set, {
+      // Catalogue sources are excluded, and that is the whole point of this
+      // filter. Proven live 2026-08-27: `/movies/search?query=The Matrix`
+      // returns `tmdb:1386216` and `tmdb:1502836` — 4-minute short films that
+      // merely match the string — alongside the real feature. Flooring an
+      // arbitrary TMDB search result at 300s reports a correct mapper as
+      // broken, and a check that cries wolf is worse than no check. Held
+      // titles are the only population where "under 5 minutes" is genuinely
+      // suspicious.
       subject: sighting =>
         sighting.type === 'movie' &&
+        idProvenance(sighting.capture.slug) !== 'catalogue' &&
         (asNumber(sighting.media.runtime) ?? 0) > 0,
-      subjectName: 'movie with a runtime',
-      subjectPlural: 'movies with a runtime',
+      subjectName: 'held movie with a runtime',
+      subjectPlural: 'held movies with a runtime',
       problem: sighting => {
         const runtime = asNumber(sighting.media.runtime) ?? 0
         if (runtime >= MOVIE_RUNTIME_FLOOR_SECONDS) {
