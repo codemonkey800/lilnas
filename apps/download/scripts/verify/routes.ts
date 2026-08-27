@@ -14,10 +14,17 @@
  * as written. They are the Nest paths on port 8081, not the Next.js
  * `/api/...` rewrites on 8080.
  *
- * Nothing here is mutating: every route is a `@Get`. Two carry caveats that
+ * Nothing here is mutating: every route is a `@Get`. Three carry caveats that
  * are encoded as fields rather than left to the runner's memory —
- * `expensive` for the one route that fires a real indexer search, and
- * `bodyMode: 'headers-only'` for the one route that answers with bytes.
+ * `expensive` for the one route that fires a real indexer search,
+ * `bodyMode: 'headers-only'` for the one route that answers with bytes, and
+ * `requiresLibrary` for the routes that only answer for a title the library
+ * already holds.
+ *
+ * The second half of this file is {@link idProvenance}: which of the id-free
+ * routes return **library** contents and which return **catalogue** lookups.
+ * Feeding the latter to a route needing the former is what produced two of
+ * E1's four failures, and neither was a fault of the backend.
  */
 
 /**
@@ -59,6 +66,32 @@ export interface RouteSpec {
    * are already type-specific.
    */
   mediaKind?: 'movie' | 'show' | 'video'
+  /**
+   * `true` = this route only answers for a title the **library already
+   * holds**, so it may only be given a key mined from a library-backed
+   * source — see {@link idProvenance}.
+   *
+   * This is a different axis from {@link mediaKind}. `mediaKind` says which
+   * *prefix* the handler accepts; `requiresLibrary` says the handler then
+   * looks the key up in Sonarr/Radarr/this app's own database and 404s when
+   * it isn't there. `GET /media/:id/seasons` needs both: a `tvdb:` key
+   * (`ShowService.listSeasons` 404s a `tmdb:` one) **and** a series Sonarr
+   * actually holds (`resolveUpstreamId` returns null otherwise —
+   * `listSeasons` deliberately does not `ensureSeries`, because adding a
+   * series to the library as a side effect of a GET would be a surprise).
+   *
+   * When no library-backed key of the required kind exists, the runner
+   * reports `SKIPPED (no library <kind>)`. It never falls back to a
+   * catalogue key: a 404 from feeding `/seasons` a `tvdb:` id that only
+   * `/discover` ever knew about is a bug in this manifest, not in the
+   * backend, and reporting it as a `FAIL` costs a human a debugging session
+   * (it cost exactly one during E1).
+   *
+   * Only meaningful with `needsId: 'media'` — the job-id pools are mined
+   * solely from `/activity` and `/history`, which are this app's own
+   * `download_jobs` rows and therefore library-backed by construction.
+   */
+  requiresLibrary?: boolean
   /**
    * The identity headers the route needs. Absent means the route answers
    * fine with no identity at all — `app.module.ts` registers no global
@@ -215,20 +248,35 @@ export const READ_ROUTES: RouteSpec[] = [
     needsId: 'media',
   },
   // Shows only, and only shows already in the library: `ShowService`
-  // 404s a `tmdb:` key outright, and 404s a `tvdb:` key whose series Sonarr
-  // doesn't hold.
+  // 404s a `tmdb:` key outright (`listSeasons` rejects a Movie target), and
+  // 404s a `tvdb:` key whose series Sonarr doesn't hold — it deliberately
+  // does *not* `ensureSeries`, so browsing a catalogue show has nothing to
+  // show. Hence `requiresLibrary`: a `tvdb:` key mined from `/discover` is a
+  // guaranteed 404 and says nothing about the backend.
   {
     slug: 'media-seasons',
     path: '/download/media/:id/seasons',
     needsId: 'media',
     mediaKind: 'show',
+    requiresLibrary: true,
   },
-  // A plain `bad_files` table lookup — any media key answers 200, with `[]`
-  // when nothing is flagged. No upstream call, so no `mediaKind`.
+  // A `bad_files` table lookup with **no upstream call** — but not with no
+  // key validation: `ReleaseService.listBadFiles()` calls
+  // `parseReleaseTarget(mediaId)` for its side effect before touching the
+  // table, and that throws `NotFoundException` for a `video:` key
+  // ("Releases are only available for movies and shows"). So this needs a
+  // `mediaKind` after all; `movie` because `tmdb:` keys are the most
+  // reliably present of the three (both `/discover` and `/movies/search`
+  // mint them, with no dependency on the library holding anything).
+  //
+  // No `requiresLibrary`: the lookup is `WHERE media_id = ?` against this
+  // app's own table, so a catalogue key answers 200 with `[]` — which is
+  // both the healthy state and by far the likeliest one.
   {
     slug: 'media-bad-files',
     path: '/download/media/:id/bad-files',
     needsId: 'media',
+    mediaKind: 'movie',
   },
   // Streams the file. `video:` keys specifically: a `tvdb:` key without
   // `episodeId` is a guaranteed 400 (`parseScope`), and a `tmdb:` key
@@ -236,11 +284,21 @@ export const READ_ROUTES: RouteSpec[] = [
   // the smallest of the three, and — per the controller — deliberately does
   // not honour `Range`, which is exactly why the body must be discarded
   // rather than range-limited.
+  //
+  // `requiresLibrary` is belt-and-braces here rather than a fix:
+  // `resolveVideoSource()` reads `getVideoById()` out of this app's own
+  // `videos` table, and no catalogue route mints a `video:` key in the first
+  // place. What it does buy is the *ordering* — a video mined from
+  // `/activity` is by definition an in-progress job (`listActivity` filters
+  // to `IN_PROGRESS_DOWNLOAD_JOB_STATUSES`) with no `downloadUrls` yet, and
+  // would answer 404 "has no file to save". The gallery's rows are
+  // `Completed` only, which is why the runner prefers them.
   {
     slug: 'media-file',
     path: '/download/media/:id/file',
     needsId: 'media',
     mediaKind: 'video',
+    requiresLibrary: true,
     bodyMode: 'headers-only',
   },
   // Opt-in only. Despite being a GET this fires a real interactive indexer
@@ -248,6 +306,17 @@ export const READ_ROUTES: RouteSpec[] = [
   // (`ReleaseService.withMonitoring`). Movie keys only: a movie release
   // search is one bounded search, where a series without a `seasonNumber`
   // fans out much wider.
+  //
+  // Deliberately **no** `requiresLibrary`, unlike `/seasons`:
+  // `listReleases()` documents browsing a not-yet-requested title as its
+  // primary use case, and `withMonitoring` reaches it via `ensureMovie`
+  // rather than the resolver. A catalogue key is therefore a legitimate
+  // fixture. ⚠️ It is not a free one — `ensureMovie` **adds the movie to
+  // Radarr** when it isn't there (`radarr.service.ts`, `postApiV3Movie`
+  // with `searchForMovie: false`), and `restore: true` only puts monitoring
+  // back, so the library entry stays. That is a real side effect of a GET,
+  // and it is why the runner prefers a library-backed key when one exists:
+  // on a library key `ensureMovie` finds the movie and adds nothing.
   {
     slug: 'media-releases',
     path: '/download/media/:id/releases',
@@ -329,3 +398,99 @@ export const READ_ROUTES: RouteSpec[] = [
     guard: 'forwarded-user',
   },
 ]
+
+// ---------------------------------------------------------------------------
+// Id provenance — where a mined id came from, and what may be assumed of it
+// ---------------------------------------------------------------------------
+
+/**
+ * What the source of an id licenses you to assume about the thing it names.
+ *
+ * The distinction this exists to make is **library vs. catalogue**, and E1
+ * found out the expensive way that it matters. `/download/discover` and the
+ * two `/search` routes are upstream *lookups*: Radarr and Sonarr will happily
+ * answer with every Star Trek series that has ever existed, whether or not
+ * this library holds a single one. `/download/activity`, `/download/gallery`
+ * and `/download/history` are reads of this app's own `download_jobs` table —
+ * every row there is something that was actually requested, so its title is
+ * in Radarr/Sonarr (or, for a video, in this app's `videos` table).
+ *
+ * The third value splits the library side one step further, which is what
+ * keeps `/media/:id/file` off an id that has no file yet:
+ *
+ * - `library-completed` — a `Completed` job. `JobQueryService.listGallery()`
+ *   filters `statuses: [DownloadJobStatus.Completed]`, so a gallery row's
+ *   media exists **and its bytes do**.
+ * - `library-any-state` — in this app's database, in any state. `/activity`
+ *   is `IN_PROGRESS_DOWNLOAD_JOB_STATUSES` (so its rows are *never* settled)
+ *   and `/history` is unfiltered by status. The title is real; a file for it
+ *   may not be.
+ * - `catalogue` — an upstream lookup result. The title is real; the library
+ *   may never have heard of it.
+ */
+export type IdProvenance =
+  | 'library-completed'
+  | 'library-any-state'
+  | 'catalogue'
+
+/**
+ * Provenance keyed by the slug that **mints** ids, i.e. the page-1 spec.
+ * `-page2` variants inherit through `cursorFrom` in {@link idProvenance}, so
+ * a follow-up page never needs an entry of its own.
+ *
+ * Slugs absent here — `gallery-facets`, `ytdlp-status`, the admin routes —
+ * mint no media keys or job ids at all, and default to `catalogue`, which is
+ * the fail-safe direction: an unclassified source can cost a route a
+ * conservative skip, never a bogus `FAIL`.
+ */
+const ID_SOURCE_PROVENANCE: Readonly<Record<string, IdProvenance>> = {
+  activity: 'library-any-state',
+  discover: 'catalogue',
+  gallery: 'library-completed',
+  history: 'library-any-state',
+  'movies-search': 'catalogue',
+  'shows-search': 'catalogue',
+}
+
+/**
+ * The slugs {@link ID_SOURCE_PROVENANCE} classifies, so the runner's manifest
+ * validation can prove none of them has been renamed out from under it. A
+ * stale entry here would silently demote a library source to `catalogue`, and
+ * the symptom — routes quietly skipping instead of verifying — is exactly the
+ * kind of green-looking hollow run this script exists to prevent.
+ */
+export const ID_SOURCE_SLUGS: readonly string[] =
+  Object.keys(ID_SOURCE_PROVENANCE)
+
+const SPECS_BY_SLUG: ReadonlyMap<string, RouteSpec> = new Map(
+  READ_ROUTES.map(spec => [spec.slug, spec]),
+)
+
+/** Where ids mined from `slug` came from. Unknown slugs are `catalogue`. */
+export function idProvenance(slug: string): IdProvenance {
+  const spec = SPECS_BY_SLUG.get(slug)
+  const source = spec?.cursorFrom ?? slug
+  return ID_SOURCE_PROVENANCE[source] ?? 'catalogue'
+}
+
+/** `true` for a source backed by the app's own data rather than an upstream lookup. */
+export function isLibraryBacked(slug: string): boolean {
+  return idProvenance(slug) !== 'catalogue'
+}
+
+/**
+ * Preference order, best first. Lower sorts earlier when the runner picks a
+ * fixture, so a library key always beats a catalogue one of the same media
+ * kind even where both would work — see `media-releases`, where the catalogue
+ * branch has an `ensureMovie` side effect the library branch does not.
+ */
+const PROVENANCE_ORDER: readonly IdProvenance[] = [
+  'library-completed',
+  'library-any-state',
+  'catalogue',
+]
+
+/** Sort key for {@link PROVENANCE_ORDER}. */
+export function idProvenanceRank(provenance: IdProvenance): number {
+  return PROVENANCE_ORDER.indexOf(provenance)
+}

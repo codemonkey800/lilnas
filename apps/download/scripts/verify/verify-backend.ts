@@ -43,7 +43,11 @@
  *    take **job** ids; `/download/media/:id/*` take **media keys**
  *    (`tmdb:`/`tvdb:`/`video:`). They are separate pools — see
  *    {@link IdPools} — and a route that finds no id is `SKIPPED (no fixture)`,
- *    never a failure and never a guessed id.
+ *    never a failure and never a guessed id. Ids also carry their
+ *    **provenance**: a key mined from `/discover` or a `/search` names
+ *    something the library may not hold, so a route marked
+ *    `requiresLibrary` is never handed one and reports
+ *    `SKIPPED (no library <kind>)` instead. See {@link pickId}.
  * 2. **One bad route never ends the sweep.** A 500 on `/discover` costs
  *    exactly one row. The only abort is a `spawn-failed` transport error,
  *    which cannot be route-specific: `docker` itself did not run.
@@ -132,7 +136,13 @@ import {
   type ReportSection,
   type UpstreamLine,
 } from './report'
-import { READ_ROUTES, type RouteSpec } from './routes'
+import {
+  ID_SOURCE_SLUGS,
+  idProvenance,
+  idProvenanceRank,
+  READ_ROUTES,
+  type RouteSpec,
+} from './routes'
 import {
   type Capture,
   type CaptureSet,
@@ -452,8 +462,28 @@ function validateManifest(routes: readonly RouteSpec[]): void {
     if (spec.mediaKind && spec.needsId !== 'media') {
       problems.push(`${spec.slug}: mediaKind only applies to needsId: 'media'`)
     }
+    if (spec.requiresLibrary && spec.needsId !== 'media') {
+      problems.push(
+        `${spec.slug}: requiresLibrary only applies to needsId: 'media' — ` +
+          'the job-id pools are mined solely from /activity and /history, ' +
+          'which are library-backed by construction',
+      )
+    }
     if (spec.query && 'cursor' in spec.query) {
       problems.push(`${spec.slug}: cursor is injected, never hardcoded`)
+    }
+  }
+
+  // A provenance entry for a slug the manifest no longer has would silently
+  // demote a library source to `catalogue`, and every `requiresLibrary` route
+  // would start skipping instead of verifying — a green-looking hollow run,
+  // which is the one outcome this script is written to make impossible.
+  for (const slug of ID_SOURCE_SLUGS) {
+    if (!bySlug.has(slug)) {
+      problems.push(
+        `ID_SOURCE_PROVENANCE classifies "${slug}", which is not a route in ` +
+          'this manifest — it was renamed or removed',
+      )
     }
   }
 
@@ -505,12 +535,14 @@ export interface DiscoveredId {
  * `DownloadStateService.resolveJobRecord(id)` and then asserts the job's
  * media type, while `GET /download/media/:id` dispatches on the key prefix.
  *
- * Both arrays are appended in capture order, which is manifest order, so the
- * first match is also the most preferred: `activity` and `gallery` (things
- * the library actually holds) are mined before `discover` and the two
- * `/search` routes (things it merely knows about). That ordering is what
- * makes `/media/:id/seasons` — which 404s any series Sonarr does not hold —
- * land on a usable key.
+ * Both arrays are appended in capture order, but capture order is **not** a
+ * preference order and must not be read as one. E1 proved it: manifest order
+ * mines `/discover` before `/history`, so `/media/:id/seasons` — which 404s
+ * any series Sonarr does not hold — was handed a `tvdb:` key that only the
+ * catalogue had ever seen, and the resulting 404 was reported as a backend
+ * failure. Preference is now explicit and lives in {@link pickId}, keyed on
+ * `idProvenance(fromSlug)`; capture order only breaks ties inside one
+ * provenance tier.
  */
 export interface IdPools {
   mediaKeys: DiscoveredId[]
@@ -635,13 +667,127 @@ function mineIds(pools: IdPools, fromSlug: string, body: string): void {
   }
 }
 
-function pickId(spec: RouteSpec, pools: IdPools): DiscoveredId | undefined {
-  if (spec.needsId === 'media') {
-    return pools.mediaKeys.find(
-      candidate => !spec.mediaKind || candidate.kind === spec.mediaKind,
-    )
+/**
+ * The outcome of choosing a fixture, rather than a bare id, so a skip can say
+ * *why* — "the pools were empty" and "the pools held three of these but every
+ * one came out of a catalogue lookup" are different facts about the run, and
+ * only the second one means the route was never going to be verifiable here.
+ */
+interface IdChoice {
+  chosen?: DiscoveredId
+  /** Right kind, wrong provenance — only ever non-empty for `requiresLibrary`. */
+  rejected: DiscoveredId[]
+}
+
+/**
+ * Picks the fixture for one `needsId` route.
+ *
+ * Two filters and one sort, in that order:
+ *
+ * 1. **Kind.** `mediaKind` for the media-key pool (a `video:` key on
+ *    `/bad-files` is a 404 from `parseReleaseTarget`, a `tmdb:` key on
+ *    `/seasons` likewise), and `needsId` for the job pool.
+ * 2. **Provenance, when `requiresLibrary` is set.** A catalogue key is
+ *    dropped outright rather than used as a fallback. The route then reports
+ *    `SKIPPED (no library <kind>)`, which is honest; calling `/seasons` with
+ *    a `/discover` key and printing the 404 as a `FAIL` is not.
+ * 3. **Preference.** Even where a catalogue key would work, a library-backed
+ *    one is better — for `media-releases` it is the difference between
+ *    `ensureMovie` finding the movie and `ensureMovie` adding it to Radarr.
+ *    Within a tier, capture order wins, so this stays deterministic.
+ */
+function pickId(spec: RouteSpec, pools: IdPools): IdChoice {
+  const matching =
+    spec.needsId === 'media'
+      ? pools.mediaKeys.filter(
+          candidate => !spec.mediaKind || candidate.kind === spec.mediaKind,
+        )
+      : pools.jobIds.filter(candidate => candidate.kind === spec.needsId)
+
+  // `requiresLibrary` demands `library-completed`, not merely
+  // `library-backed`. Proven live 2026-08-27: a show job sitting in
+  // `/history` is a title this app once *requested*, which is not the same
+  // claim as "the upstream holds it now". The mutate pass added Olive
+  // Kitteridge and then deleted the series; the job row survived as
+  // `Cancelled`, `/history` duly offered `tvdb:276842`, and
+  // `/media/:id/seasons` 404d because Sonarr no longer had it. Only
+  // `gallery` — which filters to `Completed` — approximates "held right
+  // now".
+  const eligible = spec.requiresLibrary
+    ? matching.filter(
+        candidate => idProvenance(candidate.fromSlug) === 'library-completed',
+      )
+    : matching
+
+  let chosen: DiscoveredId | undefined
+  let bestRank = Number.POSITIVE_INFINITY
+  for (const candidate of eligible) {
+    const rank = idProvenanceRank(idProvenance(candidate.fromSlug))
+    if (rank < bestRank) {
+      chosen = candidate
+      bestRank = rank
+    }
   }
-  return pools.jobIds.find(candidate => candidate.kind === spec.needsId)
+
+  return {
+    chosen,
+    rejected: spec.requiresLibrary
+      ? matching.filter(
+          candidate => idProvenance(candidate.fromSlug) !== 'library-completed',
+        )
+      : [],
+  }
+}
+
+/** What `mediaKind`/`needsId` narrowed the pool to, in report English. */
+function fixtureLabel(spec: RouteSpec): string {
+  if (spec.needsId !== 'media') {
+    return `${spec.needsId} job id`
+  }
+  return spec.mediaKind ? `${spec.mediaKind} media key` : 'media key'
+}
+
+/**
+ * The `skipReason` for a `needsId` route that found nothing usable.
+ *
+ * A `requiresLibrary` skip deliberately **leads** with `no library <kind>`,
+ * so it reads as `SKIPPED (no library show — …)` on the board and cannot be
+ * confused with the ordinary `no fixture` skip. It then names the catalogue
+ * slugs the rejected keys came from, because "we found three shows and used
+ * none of them" is otherwise the most suspicious-looking line in the report.
+ *
+ * Kept to one line's worth of prose on purpose: `report.ts` wraps a row's
+ * `details` but prints its `note` verbatim, and this is a note.
+ */
+function missingFixtureReason(spec: RouteSpec, choice: IdChoice): string {
+  const kind = spec.mediaKind ?? spec.needsId ?? 'media'
+
+  if (!spec.requiresLibrary) {
+    return `no fixture — the first pass found no ${fixtureLabel(spec)}`
+  }
+
+  const count = choice.rejected.length
+  if (count === 0) {
+    return `no library ${kind} — the first pass found no ${fixtureLabel(spec)}`
+  }
+
+  const sources = [
+    ...new Set(
+      choice.rejected.map(
+        candidate =>
+          `${candidate.fromSlug}/${idProvenance(candidate.fromSlug)}`,
+      ),
+    ),
+  ].join(', ')
+
+  // Deliberately does not say "catalogue": a rejected candidate can just as
+  // easily be `library-any-state` — a title this app once requested and no
+  // longer holds — which is a different reason for the same skip.
+  return (
+    `no held ${kind} — found ${count} ${fixtureLabel(spec)}` +
+    `${count === 1 ? '' : 's'} (${sources}), but none from a completed ` +
+    'gallery entry, and this route needs a title the upstream holds right now'
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -817,15 +963,11 @@ async function runStep(
 
   let idUsed: DiscoveredId | null = null
   if (spec.needsId) {
-    const found = pickId(spec, ctx.pools)
-    if (!found) {
-      const pool =
-        spec.needsId === 'media'
-          ? `media key${spec.mediaKind ? ` (${spec.mediaKind})` : ''}`
-          : `${spec.needsId} job id`
-      return skip(`no fixture — the first pass found no ${pool}`)
+    const choice = pickId(spec, ctx.pools)
+    if (!choice.chosen) {
+      return skip(missingFixtureReason(spec, choice))
     }
-    idUsed = found
+    idUsed = choice.chosen
   }
 
   let cursor: { from: string; value: string } | null = null
@@ -1215,7 +1357,8 @@ function describeSpec(spec: RouteSpec): string {
   const notes: string[] = []
   if (spec.needsId === 'media') {
     notes.push(
-      `needs a media key${spec.mediaKind ? ` (${spec.mediaKind})` : ''}`,
+      `needs a ${spec.requiresLibrary ? 'library-backed ' : ''}media key` +
+        (spec.mediaKind ? ` (${spec.mediaKind})` : ''),
     )
   } else if (spec.needsId) {
     notes.push(`needs a ${spec.needsId} job id`)
@@ -1279,6 +1422,15 @@ function printPlan(
     '\n  A pass-2 route with no matching id, and a cursor page whose source ' +
       'returned\n  nextCursor: null, are decided at run time and reported ' +
       'as SKIPPED then.',
+  )
+  console.log(
+    '\n  Id sources, and what a key from each licenses ' +
+      '(routes.ts idProvenance):\n' +
+      ID_SOURCE_SLUGS.map(
+        slug => `    ${slug.padEnd(slugWidth)}  ${idProvenance(slug)}`,
+      ).join('\n') +
+      '\n\n  A "library-backed media key" route is never given a catalogue ' +
+      'key as a\n  fallback — it reports SKIPPED (no library <kind>) instead.',
   )
 }
 
@@ -1904,14 +2056,23 @@ function upstreamCaveat(
       ]
 }
 
-/** `path: … · id: … (from gallery)` — enough to go look at the real thing. */
+/**
+ * `path: … · id: … (from gallery, library-completed)` — enough to go look at
+ * the real thing.
+ *
+ * The provenance is spelled out rather than left implicit in the slug because
+ * it is the first thing to check when a media-keyed route 404s: a `catalogue`
+ * source on a route that needs a held title means the fixture was wrong, not
+ * the backend. That reading cost a whole debugging pass during E1.
+ */
 function contextLine(meta: CaptureRecord): string[] {
   const parts: string[] = []
   if (meta.resolvedPath) {
     parts.push(`path: ${meta.resolvedPath}`)
   }
   if (meta.idUsed) {
-    parts.push(`id: ${meta.idUsed.value} (from ${meta.idUsed.fromSlug})`)
+    const from = meta.idUsed.fromSlug
+    parts.push(`id: ${meta.idUsed.value} (from ${from}, ${idProvenance(from)})`)
   }
   return parts.length > 0 ? [parts.join('  ·  ')] : []
 }
