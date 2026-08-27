@@ -749,44 +749,64 @@ unparsable-response | network`. A malformed path or injected header value
 
 ### Group E — Run it and decide
 
-- [ ] 🔴 **HUMAN — E1. First read-only run.** Run `capture` (no
-      `--include-expensive`), then `check`, then `capture --as-admin` and
-      `check` again. Paste the report into this doc under a **Findings**
-      heading.
+- [x] **E1. First read-only run.** Ran on the lilnas host 2026-08-27:
+      `capture` → `check` → `capture --as-admin` → `check`. Both upstreams
+      answered **200** in both sweeps, so nothing below is explained away by an
+      upstream being down.
 
-  > ⚠️ **BLOCKED 2026-08-26 — needs a person, for access reasons only.** The
-  > plan's "Human checkpoints" table correctly reclassified this as automated:
-  > it is 20 GET requests and nothing mutates. That reasoning still holds. What
-  > blocks it is narrower and was not anticipated:
+  > **The prerequisite nobody had written down: this branch had never been
+  > deployed.** The running `download` image was built 2026-08-05 from `main`,
+  > and `main` has none of Phases 0–8 — **18 of the 20 routes 404'd**. Only
+  > `/api/ytdlp-update/status` answered, because that controller predates the
+  > refactor. This plan's premise that hitting the running container "covers
+  > the exact env the service actually booted with" silently assumed prod was
+  > running this code. It was not.
   >
-  > **The agent session that built this plan cannot reach the prod host.**
-  > `dockerExecTransport` shells out to `docker compose exec`, which per this
-  > plan's own design must run **directly on lilnas** — but `ssh lilnas.io`
-  > refuses the available key and falls back to an interactive password prompt,
-  > which a non-interactive session cannot answer.
-  >
-  > So E1 is not blocked on _judgement_ — it is blocked on _credentials_. It
-  > needs a person at a terminal, not a person making a decision.
+  > Deploying it surfaced a second undocumented prerequisite: Docker
+  > auto-creates `/storage/app-data/download` as `root:root`, the container
+  > runs as UID 1000, and the first boot died with `SQLITE_CANTOPEN`.
+  > `deploy.yml` documents the fix in a comment (`chown 1000:1000`) — it just
+  > isn't part of any deploy step. Worth automating before the next fresh
+  > deploy.
 
-  **To run it, from a shell on lilnas** (the repo checked out at this branch,
-  with `pnpm install` done — `tsx` is a root dependency):
+  ### Findings
 
-  ```bash
-  cd apps/download
-  pnpm exec tsx scripts/verify/verify-backend.ts capture --repo-path /path/to/lilnas
-  pnpm exec tsx scripts/verify/verify-backend.ts check
-  pnpm exec tsx scripts/verify/verify-backend.ts capture --repo-path /path/to/lilnas --as-admin
-  pnpm exec tsx scripts/verify/verify-backend.ts check
-  ```
+  | #   | Finding                                                                                                                                                                                      | Verdict                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+  | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | 1   | **`media.runtime-is-seconds` FAIL** — 3 of 30 movies under the 300s floor: two titled "The Matrix" (`tmdb:1386216`, `tmdb:1502836`) at `240`, and "Exit the matrix" (`tmdb:1712133`) at `60` | ⭕ **Stale expectation, not a bug.** Those tmdb ids are 7-figure — the real Matrix is `tmdb:603`. These are short films that merely match the search string; 4 min and 1 min are plausible real runtimes. The mapper is fine. **Fix the check, not the code:** exclude `/movies/search` results, which are arbitrary catalogue rather than library content                                                                                                    |
+  | 2   | **`media-seasons` FAIL — HTTP 404**, `Show 'tvdb:77526' is not in the library`                                                                                                               | ⭕ **Fixture-selection artifact, not a bug.** The id came from `/discover`, which returns catalogue items, and `listSeasons` deliberately 404s a series not in Sonarr. **Should report `SKIPPED (no library show)`, not `FAIL`** — the check cannot currently tell "resolver bug" from "we picked a key that was never in the library"                                                                                                                        |
+  | 3   | **Admin routes 403 even with `--as-admin`**                                                                                                                                                  | 🐞 **Real — and a third cause this plan's binary framing did not anticipate.** Not "not an admin", not "auth is down". `ADMIN_EMAILS` **does** contain the fixture address and `auth` is up. Actual cause: `AdminCheckService` → `AuthClient.dockerInstance` → `GET http://auth:8081/admin/check`, which **404s**, because that endpoint ships in commit `6883859` on _this branch_ and the deployed `auth` is built from `main`. Non-2xx → fail-closed → 403 |
+  | 4   | Every list route came back **empty** — `activity`, `gallery`, `history`, `gallery-facets`, `bad-files`; **0 job ids** discovered                                                             | ⭕ **Expected.** The deploy created a brand-new SQLite file, so there is no job history yet. Consequence: 9 rows are hollow passes and the three job-by-id routes never ran                                                                                                                                                                                                                                                                                   |
 
-  ⚠️ **Paste the check-mode _report_ into this doc — never the captures.**
-  The report is a pass/fail table; the captures hold real requester emails and
-  the real contents of the library, which is why they are gitignored. If a
-  spot-check failure quotes a requester email, redact it before pasting.
+  **Deliberately not done: `auth` was not redeployed to fix finding 3.** `main`
+  carries five auth commits this branch lacks — including
+  `7e25141 refactor(auth): 17-commit code review fix cycle (security, perf, maintainability)`.
+  Deploying `auth` from this branch would roll those back. **The admin surface
+  cannot be verified until this branch is merged with `main`** — and that
+  ordering constraint is itself the finding: `download`'s admin feature has a
+  hard deploy-time dependency on an `auth` endpoint shipping in the same
+  branch.
 
-  ⚠️ **Read the verdict line, not the colour.** A run that is mostly skips
-  prints `MOSTLY UNVERIFIED`, and a run that validated nothing prints
-  `NOT A PASS` even with zero failures. Both mean the backend was not verified.
+  ### The two reports
+
+  |         | anonymous                                    | `--as-admin`                                 |
+  | ------- | -------------------------------------------- | -------------------------------------------- |
+  | Rows    | 42                                           | 42                                           |
+  | Passed  | 20 (8 validated nothing)                     | 22 (9 validated nothing)                     |
+  | Failed  | 2                                            | 4                                            |
+  | Skipped | 20                                           | 16                                           |
+  | Verdict | `FAILED` + `MOSTLY UNVERIFIED` — 12 verified | `FAILED` + `MOSTLY UNVERIFIED` — 13 verified |
+
+  **Read the verdict, not the colour.** Both runs print `MOSTLY UNVERIFIED`.
+  Only 12–13 of 42 rows verified anything, and that is the honest headline.
+
+  ✅ **What genuinely passed against reality:** every envelope schema B1 wrote
+  parsed real upstream responses with no drift; the `/discover` cursor round
+  trip (10 + 10 of 40, no overlap, stable total); `degradedSources: []` with
+  both upstreams live; `ids-never-zero` and `no-placeholders` over 61 real
+  media objects; and guarded routes 401 anonymously but 200 with identity —
+  which **confirms A1's finding that `/auth/whoami` is guarded**, contradicting
+  this plan's own route table.
 
 - [ ] ⚠️ **PARTIAL — E2. Record outcomes and decide what's durable.** Edit
       this plan and `docs/features/download/plans/002-live-functional-tests.md`.
