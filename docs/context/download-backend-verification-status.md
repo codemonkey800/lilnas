@@ -21,9 +21,12 @@ Phases 0–8.
 ## Remaining work
 
 All four bugs the sweep left open are **closed and verified against the live
-backend** (`65bd8cc`, deployed 2026-08-28) — see the **🔧 Fixed** section below for
-what each proof was. Nothing below is a defect in the download service. It is
-everything standing _around_ it, ordered by what actually blocks progress.
+backend** (`65bd8cc`, deployed 2026-08-28) — see the **🔧 Fixed** section
+below for what each proof was.
+
+Ordered by what actually blocks progress. §2 is a live production defect
+found while fixing the test suite; the rest is scaffolding around the
+service rather than the service itself.
 
 ### 1. The branch has never been pushed or merged
 
@@ -39,31 +42,47 @@ hazard disappears on merge and only on merge.
 The prod checkout is currently parked **detached at `8653ae0`** — a state
 nobody can reproduce from a clone.
 
-### 2. 17 failing tests, from two causes, neither in application code
+### 2. The yt-dlp auto-updater cannot work in production
 
-**8 tests — orphaned by the migration squash.** `media-backfill.spec.ts` (7)
-and `schema.spec.ts` (1) exercise migrations `0002`/`0003`/`0006`, which
-`57c1409` deleted. Same commit as the landmine that took production down;
-see **⚠️ The migration squash was a loaded gun** below. Either
-delete them or rewrite them against the squashed init — which is right
-depends on whether the pre-squash upgrade path is still worth exercising.
-
-**9 tests — a wrong environment check.** `ytdlp-update.integration.spec.ts`
-gates on `existsSync('/usr/bin/yt-dlp')` as a _"Docker container
-indicator"_. The lilnas host has yt-dlp installed natively too, so the gate
-opens off-container and the tests then try to **write** to `/usr/bin/yt-dlp`
-as `jeremy`:
+**Found by fixing the test gate, not by the sweep.**
+`ytdlp-update.integration.spec.ts` gated on `existsSync('/usr/bin/yt-dlp')`
+as a _"Docker container indicator"_. Replacing that with the property the
+tests actually need — permission to **replace** the binary — raised the
+question of who owns it in the real container. Nobody the service can use:
 
 ```
-EACCES: permission denied, open '/usr/bin/yt-dlp'
+dir : drwxr-xr-x 1 root root /usr/bin
+file: -rwxr-xr-x 1 root root /usr/bin/yt-dlp
+container user: uid=1000(node)
+/usr/bin and /usr/bin/yt-dlp are both NOT writable by node
 ```
 
-They pass inside the container. The gate should test _writability_, not
-existence.
+`YtdlpUpdateService` installs with
+`move(YTDLP_TEMP_PATH, '/usr/bin/yt-dlp', { overwrite: true })`, which needs
+write permission on `/usr/bin`. `YTDLP_AUTO_UPDATE_ENABLED` defaults to
+`'true'` and prod sets no `YTDLP_*` variables, so the job is **live**, on
+`CronExpression.EVERY_DAY_AT_3AM`. It will fail with `EACCES` every night.
 
-> Worth fixing before anything else. A permanently-red suite is precisely
-> what let the migration squash ship broken: nobody looks at the 18th red
-> row.
+Not yet observed failing — `/api/ytdlp-update/status` reports
+`lastCheck: null` because the container restarted after 3 AM — but the
+permissions are not in question.
+
+The Dockerfile creates the binary as root and never hands it over:
+
+```dockerfile
+RUN curl -L …/yt-dlp -o /usr/bin/yt-dlp && chmod a+rx /usr/bin/yt-dlp
+```
+
+`chmod a+rx` grants read and execute to everyone and write to nobody but
+root. A one-line `chown node:node /usr/bin/yt-dlp` fixes it, but it is a
+deploy-affecting change and worth a deliberate decision — the alternative
+being to disable the updater and pin the version at image build time, which
+is arguably the better posture for a binary on `PATH` anyway.
+
+⚠️ Also note the suite's own docblock tells you to run
+`pnpm test:ytdlp-update`. **No such script exists** in
+`apps/download/package.json`, so the documented way to run these tests
+against `__tests__/Dockerfile.test` has never worked either.
 
 ### 3. The migration landmine is repaired in production only
 
@@ -113,6 +132,10 @@ against real upstreams, and now cleans up after itself completely.
 Latest run (2026-08-28, against the fixed build):
 `42 rows · 34 passed (8 of them validated nothing) · 0 failed · 8 skipped`.
 Previous run was `31 passed · 1 failed · 10 skipped`.
+
+`pnpm test` is green for the first time in this branch's history — **55
+suites passed, 1 skipped, 0 failed** (`b053029`); it stood at 17 failures
+before, from two causes documented in that commit.
 
 All three mutate passes are clean runs, and the journal drains to **zero
 entries and zero residue** — the residue list, which existed because a
