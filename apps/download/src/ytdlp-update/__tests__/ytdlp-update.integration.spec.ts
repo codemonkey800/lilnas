@@ -6,9 +6,17 @@
  * ## Docker Environment Requirement
  * Tests only run when:
  * - NODE_ENV === 'test'
- * - /usr/bin/yt-dlp exists (Docker container indicator)
+ * - /usr/bin/yt-dlp is **writable** by this process
  *
- * If not in Docker, tests are skipped automatically.
+ * If not, the whole suite is skipped automatically.
+ *
+ * The gate tests writability rather than existence on purpose. These tests
+ * back the binary up, overwrite it, and roll it back, so what they actually
+ * need is ownership of it - and `existsSync()` does not imply that. The
+ * lilnas host has yt-dlp installed natively as well, so an existence check
+ * opened the gate outside the container and then failed nine tests with
+ * `EACCES: permission denied, open '/usr/bin/yt-dlp'`. Writability is the
+ * property the tests depend on, so it is the property worth asking about.
  *
  * ## Version Constants
  * Tests use centralized version constants from YtdlpTestHelper:
@@ -45,7 +53,7 @@ jest.mock('nanoid', () => ({
 
 import { Test, TestingModule } from '@nestjs/testing'
 import axios from 'axios'
-import { existsSync } from 'fs'
+import { accessSync, constants as fsConstants } from 'fs'
 import { pathExists, remove } from 'fs-extra'
 
 import { DownloadMetricsService } from 'src/download/download-metrics.service'
@@ -57,9 +65,24 @@ import { YtdlpTestHelper } from './helpers/ytdlp-test.helper'
 // Mock axios for integration tests
 jest.mock('axios')
 
-// Only run integration tests in Docker environment
-const isDockerEnv =
-  process.env.NODE_ENV === 'test' && existsSync('/usr/bin/yt-dlp')
+const YTDLP_BINARY = '/usr/bin/yt-dlp'
+
+/**
+ * Whether this process may replace `/usr/bin/yt-dlp` - see the writability
+ * note in the file docblock. Absent or read-only both mean "not our binary
+ * to overwrite", and both answer the same way.
+ */
+function canWriteYtdlpBinary(): boolean {
+  try {
+    accessSync(YTDLP_BINARY, fsConstants.W_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Only run the integration tests where the binary is ours to mutate.
+const isDockerEnv = process.env.NODE_ENV === 'test' && canWriteYtdlpBinary()
 
 const describeIntegration = isDockerEnv ? describe : describe.skip
 
