@@ -59,17 +59,23 @@ pgid_from_file() {
 }
 
 # True only if the pidfile's PGID is both alive AND still looks like our own
-# process tree (its group leader's command contains "node" or "pnpm"). The
-# identity check is what makes a stale pidfile fail safe: if this exact PGID
-# ever got reused by an unrelated process (e.g. after a reboot), we treat
+# process tree (its group leader's command line contains "node" or "pnpm").
+# The identity check is what makes a stale pidfile fail safe: if this exact
+# PGID ever got reused by an unrelated process (e.g. after a reboot), we treat
 # tdr-code as "not running" and never signal something we didn't start.
+#
+# Matches on `-o args=` (full command line), NOT `-o comm=`: comm is the
+# thread name, and Node 24 renames its main thread to "MainThread", so a
+# comm-based check reports a perfectly healthy tree as dead — `start` then
+# prints "failed to start" and exits 1 seconds after a successful boot, and
+# `stop` treats the live pidfile as stale, deletes it, and orphans the tree.
 is_running() {
   local pgid
   pgid="$(pgid_from_file)" || return 1
   kill -0 "-$pgid" 2>/dev/null || return 1
-  local comm
-  comm="$(ps -o comm= -p "$pgid" 2>/dev/null || true)"
-  [[ "$comm" == *node* || "$comm" == *pnpm* ]]
+  local args
+  args="$(ps -o args= -p "$pgid" 2>/dev/null || true)"
+  [[ "$args" == *node* || "$args" == *pnpm* ]]
 }
 
 # Read-only sanity check, never kills anything: warns if a bot process is
