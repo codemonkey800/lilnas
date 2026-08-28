@@ -94,18 +94,21 @@
  * `fixtures.json`'s `expectedEpisodes` is the human-vetted stand-in for that
  * ceiling, and the report says so every time.
  *
- * ### The video pass cannot fully clean up, and says so
+ * ### The video pass cleans up like the other two
  *
- * There is **no `DELETE` for a video** anywhere on this surface — the only
- * teardown route a video job has is `PATCH /download/videos/:id/cancel`, and
- * `DownloadService.cancelVideoDownloadJob()` throws `Job '<id>' has not
- * started` (→ 404) once the job is `Completed`. `DELETE /download/media/:id/files`
- * does not help either: `parseReleaseTarget()` 404s any `video:` key. So a
- * video that completes leaves its MinIO object behind with no API able to
- * remove it. The journal records that as **residue** — a separate list that is
- * reported loudly on every subsequent run until a human clears it, and that
- * `--cleanup-only` never retries, because retrying it forever would make the
- * journal permanently un-drainable.
+ * Teardown is `DELETE /download/videos/:jobId`
+ * (`DownloadService.deleteVideoDownloadJob()`), which stops a running job,
+ * removes its MinIO objects and clears the `videos` row's `downloadUrls`.
+ *
+ * This route did not always exist. `PATCH /download/videos/:id/cancel` was
+ * the only teardown a video had, and it throws `Job '<id>' has not started`
+ * (→ 404) once the job is `Completed`; `DELETE /download/media/:id/files`
+ * 404s any `video:` key (`parseReleaseTarget()`). A video that finished was
+ * therefore unremovable through the API, and the journal recorded it as
+ * **residue** — a separate list reported loudly on every subsequent run until
+ * a human cleared it. That residue machinery is kept: an old journal may
+ * still carry entries, and a teardown can still come back `gone` for reasons
+ * other than "no route exists".
  *
  * ### What is deliberately out of scope
  *
@@ -397,8 +400,9 @@ function isMutationKind(value: string): value is MutationKind {
  * {@link MutationJournal.destroy} never assembles a path from anything a
  * caller supplied except the journal-verified job id.
  *
- * `video` is a `PATCH`, not a `DELETE`, because no delete route exists for
- * one — see the module docblock.
+ * All three are `DELETE`. `video` used to be the odd one out — a `PATCH` to
+ * `/cancel`, because no delete route existed for a video — and that is what
+ * made a completed video permanently un-tearable. See the module docblock.
  */
 const TEARDOWN: Readonly<
   Record<MutationKind, { method: HttpMethod; path: (jobId: string) => string }>
@@ -412,8 +416,8 @@ const TEARDOWN: Readonly<
     path: jobId => `/download/shows/${encodeURIComponent(jobId)}`,
   },
   video: {
-    method: 'PATCH',
-    path: jobId => `/download/videos/${encodeURIComponent(jobId)}/cancel`,
+    method: 'DELETE',
+    path: jobId => `/download/videos/${encodeURIComponent(jobId)}`,
   },
 }
 
@@ -1340,10 +1344,10 @@ async function preflightVideo(ctx: MutateContext): Promise<ReportRow> {
     `${ctx.fixtures.video.url} ` +
       `[${ctx.fixtures.video.timeRange.start}–${ctx.fixtures.video.timeRange.end}]`,
     'Each request mints a fresh video: key, so there is no id to collide ' +
-      'with and nothing to refuse. ⚠ There is no DELETE for a video on this ' +
-      'surface: PATCH /download/videos/:id/cancel is the only teardown route, ' +
-      'and it 404s once the job is Completed. A video that finishes leaves ' +
-      'its MinIO object behind and is recorded as journal residue.',
+      'with and nothing to refuse. Teardown is DELETE /download/videos/:jobId, ' +
+      "which stops the job, removes its MinIO objects and clears the row's " +
+      'download URLs - so this pass cleans up after itself like the movie and ' +
+      'show ones do.',
   ]
 
   const activity = await ctx.request({
@@ -2118,13 +2122,17 @@ async function cleanupEntry(
   }
 
   if (outcome.kind === 'gone') {
-    // For a video this is the expected, unavoidable ending: cancel 404s once
-    // the job is Completed, and no other route can remove the object.
+    // A video whose *job* the backend no longer has is a different problem
+    // from a movie's: the job row is what addresses the MinIO objects, so
+    // without it nothing can name them any more. `DELETE /videos/:jobId`
+    // resolves the job from the durable row (`adoptJob`), so this branch now
+    // means the row itself is gone - rare, and still worth residue rather
+    // than a silent drain.
     if (entry.kind === 'video') {
       await ctx.journal.retire(
         entryId,
-        'the video completed before it could be cancelled, and no route on ' +
-          'this backend can delete a finished video or its MinIO object',
+        'the backend has no job row for this video, so nothing can name the ' +
+          'MinIO objects it produced',
       )
       return [
         {
@@ -2135,12 +2143,11 @@ async function cleanupEntry(
           httpStatus: outcome.status,
           details: [
             outcome.detail,
-            `⚠ ${entry.mediaId ?? 'the video'} is still in MinIO and still ` +
-              'in the gallery. This backend has no DELETE for a video: ' +
-              'PATCH /download/videos/:id/cancel throws "has not started" ' +
-              'once the job is Completed, and DELETE /download/media/:id/files ' +
-              '404s any video: key (parseReleaseTarget). Remove it by hand, ' +
-              `then clear the residue list in ${ctx.journal.file}.`,
+            `⚠ ${entry.mediaId ?? 'the video'} may still be in MinIO. ` +
+              'DELETE /download/videos/:jobId is addressed by job id and ' +
+              'resolves it from the durable jobs row, so a 404 here means ' +
+              'that row is gone too. Remove the object by hand, then clear ' +
+              `the residue list in ${ctx.journal.file}.`,
             ...extraDetails,
           ],
         },

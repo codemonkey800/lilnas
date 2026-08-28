@@ -224,6 +224,29 @@ export class DownloadStateService {
     return row ? hydrateJobRow(row) : undefined
   }
 
+  /**
+   * `resolveJobRecord()`, but the resolved record is also put *into* the Map
+   * so `updateJob()`/`updateVideo()` can act on it.
+   *
+   * `updateJob()` throws for a job the Map has never seen, which is correct
+   * for its usual callers (a background pipeline step acting on a job that
+   * vanished is a bug worth an error). The delete paths are the exception:
+   * a restart empties the Map, but the `jobs` row and the MinIO objects it
+   * points at both outlive it, and "the process forgot about it" must not be
+   * the reason a user can't clean it up. Adopting the row first means the
+   * update, the persist and the `Updated` broadcast all behave exactly as
+   * they would for a job that never left.
+   */
+  adoptJob(id: string): DownloadJobRecord | undefined {
+    const record = this.resolveJobRecord(id)
+
+    if (record && !this.jobs.has(id)) {
+      this.jobs.set(id, record)
+    }
+
+    return record
+  }
+
   /** `resolveJobRecord()` with its `media` resolved - the wire shape. */
   async resolveJob(id: string): Promise<DownloadJob | undefined> {
     const record = this.resolveJobRecord(id)

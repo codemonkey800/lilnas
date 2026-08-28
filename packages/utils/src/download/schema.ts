@@ -593,6 +593,7 @@ export const AUDIT_ACTIONS = [
   'video.cancel',
   'video.pause',
   'video.resume',
+  'video.delete',
   'movie.request',
   'movie.delete',
   'show.request',

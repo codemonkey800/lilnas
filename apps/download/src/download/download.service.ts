@@ -5,9 +5,11 @@ import {
   DownloadJobRecord,
   DownloadJobStatus,
   DownloadType,
+  isTerminalDownloadJobStatus,
   JobRequester,
   VideoInfo,
 } from '@lilnas/utils/download/types'
+import { getErrorMessage } from '@lilnas/utils/error'
 import { isJson } from '@lilnas/utils/json'
 import {
   BadRequestException,
@@ -21,6 +23,7 @@ import { ensureDir } from 'fs-extra'
 import { nanoid } from 'nanoid'
 
 import { mediaId } from 'src/db/media-id'
+import { MediaFileService } from 'src/media/media-file.service'
 
 import { DownloadMetricsService } from './download-metrics.service'
 import { DownloadSchedulerService } from './download-scheduler.service'
@@ -35,6 +38,12 @@ export class DownloadService {
   constructor(
     private readonly downloadScheduler: DownloadSchedulerService,
     private readonly downloadStateService: DownloadStateService,
+    // From MediaModule, which download.module.ts already imports via
+    // forwardRef - the same way DownloadController gets it. No
+    // property-level forwardRef needed: media-file.service.ts has no import
+    // back into this file, so there is no *class* cycle here, only the
+    // module one the module already declares.
+    private readonly mediaFileService: MediaFileService,
     private readonly metrics: DownloadMetricsService,
   ) {}
 
@@ -511,5 +520,83 @@ export class DownloadService {
     })
 
     return this.downloadStateService.hydrateOne(cancelling)
+  }
+
+  /**
+   * Removes a video download for good: stops it if it is still running,
+   * deletes the MinIO objects it produced, and clears the `videos` row's
+   * `downloadUrls` so nothing keeps advertising a link that 404s.
+   *
+   * This is the video counterpart of `DELETE /movies/:id` and
+   * `DELETE /shows/:id`, and it is what those two already had and video
+   * didn't: `cancel` 404s once a job reaches `Completed`, and
+   * `DELETE /media/:id/files` rejects a `video:` key outright
+   * (`parseReleaseTarget`), so a finished video had no route that could
+   * remove it at all. The objects had to be deleted by hand, which left the
+   * gallery pointing at a `downloadUrl` with nothing behind it.
+   *
+   * The `videos` row itself deliberately survives. It is keyed on
+   * `(sourceUrl, timeRange)`, so other jobs may point at the same row, and
+   * every job's `mediaId` is a foreign key to it in all but name - deleting
+   * it would orphan history rather than clean it up. Clearing
+   * `downloadUrls` is what actually answers "there is no file here anymore".
+   *
+   * Order is load-bearing: objects first, row second. The reverse would lose
+   * the only record of which objects to delete the moment the MinIO call
+   * failed.
+   */
+  async deleteVideoDownloadJob(id: string): Promise<DownloadJob> {
+    const action = 'deleteVideoDownloadJob'
+
+    // Adopted rather than read, because a video worth deleting is very often
+    // one that finished before the last restart - see `adoptJob()`.
+    const job = this.downloadStateService.adoptJob(id)
+
+    if (!job) {
+      this.logger.warn({ action, jobId: id }, 'Job not found')
+      throw new NotFoundException(`Job with ID '${id}' not found`)
+    }
+
+    if (job.type !== DownloadType.Video) {
+      this.logger.warn(
+        { action, jobId: id, type: job.type },
+        'Job is not a video job',
+      )
+      throw new BadRequestException(`Job '${id}' is not a video job`)
+    }
+
+    const logArgs = { action, jobId: id, mediaId: job.mediaId }
+
+    // A live job has to be stopped before its output is removed, or the
+    // pipeline uploads more objects behind the delete. Best-effort: `cancel`
+    // refuses a job that exists but has not started, and "it wasn't running"
+    // is not a reason to refuse a delete.
+    if (!isTerminalDownloadJobStatus(job.status)) {
+      try {
+        await this.cancelVideoDownloadJob(id)
+      } catch (err) {
+        this.logger.warn(
+          { ...logArgs, error: getErrorMessage(err), status: job.status },
+          'Could not cancel the job before deleting it - continuing',
+        )
+      }
+    }
+
+    const deletedObjects = await this.mediaFileService.deleteVideoObjects(
+      job.mediaId,
+    )
+
+    this.downloadStateService.updateVideo(id, { downloadUrls: [] })
+
+    // `Cancelled`, the same terminal status `DELETE /movies/:id` lands on:
+    // the job row stays as history, and the gallery keeps a card that now
+    // honestly has nothing to download.
+    const deleted = this.downloadStateService.updateJob(id, {
+      status: DownloadJobStatus.Cancelled,
+    })
+
+    this.logger.log({ ...logArgs, deletedObjects }, 'Video download deleted')
+
+    return this.downloadStateService.hydrateOne(deleted)
   }
 }
