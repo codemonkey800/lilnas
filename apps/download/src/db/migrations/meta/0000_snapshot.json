@@ -1,9 +1,215 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9d78fe75-dbac-47bb-8efb-32f75b121c72",
+  "id": "15114946-7ff1-4f6d-82ba-83d029917567",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
+    "audit_log": {
+      "name": "audit_log",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_email": {
+          "name": "actor_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target_type": {
+          "name": "target_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "target_id": {
+          "name": "target_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "audit_log_created_at_id_idx": {
+          "name": "audit_log_created_at_id_idx",
+          "columns": [
+            "created_at",
+            "id"
+          ],
+          "isUnique": false
+        },
+        "audit_log_actor_email_idx": {
+          "name": "audit_log_actor_email_idx",
+          "columns": [
+            "actor_email"
+          ],
+          "isUnique": false
+        },
+        "audit_log_action_idx": {
+          "name": "audit_log_action_idx",
+          "columns": [
+            "action"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "audit_log_origin_matches_actor": {
+          "name": "audit_log_origin_matches_actor",
+          "value": "(\n        (\"audit_log\".\"origin\" = 'web'     AND \"audit_log\".\"actor_email\" IS NOT NULL AND \"audit_log\".\"actor_user_id\" IS NOT NULL) OR\n        (\"audit_log\".\"origin\" = 'service' AND \"audit_log\".\"actor_email\" IS NULL     AND \"audit_log\".\"actor_user_id\" IS NULL)\n      )"
+        },
+        "audit_log_target_pair": {
+          "name": "audit_log_target_pair",
+          "value": "(\n        (\"audit_log\".\"target_type\" IS NULL     AND \"audit_log\".\"target_id\" IS NULL) OR\n        (\"audit_log\".\"target_type\" IS NOT NULL AND \"audit_log\".\"target_id\" IS NOT NULL)\n      )"
+        }
+      }
+    },
+    "bad_files": {
+      "name": "bad_files",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "media_type": {
+          "name": "media_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "media_id": {
+          "name": "media_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "release_guid": {
+          "name": "release_guid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "indexer_id": {
+          "name": "indexer_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "release_title": {
+          "name": "release_title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "flagged_by_email": {
+          "name": "flagged_by_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "flagged_by_user_id": {
+          "name": "flagged_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "bad_files_media_id_release_guid_idx": {
+          "name": "bad_files_media_id_release_guid_idx",
+          "columns": [
+            "media_id",
+            "release_guid"
+          ],
+          "isUnique": true
+        },
+        "bad_files_media_id_idx": {
+          "name": "bad_files_media_id_idx",
+          "columns": [
+            "media_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "bad_files_media_id_matches_type": {
+          "name": "bad_files_media_id_matches_type",
+          "value": "(\n        (\"bad_files\".\"media_type\" = 'movie' AND \"bad_files\".\"media_id\" LIKE 'tmdb:%') OR\n        (\"bad_files\".\"media_type\" = 'show'  AND \"bad_files\".\"media_id\" LIKE 'tvdb:%')\n      )"
+        }
+      }
+    },
     "jobs": {
       "name": "jobs",
       "columns": {
@@ -57,27 +263,6 @@
           "autoincrement": false,
           "default": false
         },
-        "url": {
-          "name": "url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "error": {
           "name": "error",
           "type": "text",
@@ -85,64 +270,15 @@
           "notNull": false,
           "autoincrement": false
         },
-        "media_title": {
-          "name": "media_title",
+        "media_id": {
+          "name": "media_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
-        "poster_url": {
-          "name": "poster_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "overview": {
-          "name": "overview",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "radarr_id": {
-          "name": "radarr_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sonarr_id": {
-          "name": "sonarr_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "queue_snapshot": {
-          "name": "queue_snapshot",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "time_range": {
-          "name": "time_range",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "download_urls": {
-          "name": "download_urls",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "file_path": {
-          "name": "file_path",
+        "scope": {
+          "name": "scope",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -191,6 +327,22 @@
             "created_at"
           ],
           "isUnique": false
+        },
+        "jobs_created_at_id_idx": {
+          "name": "jobs_created_at_id_idx",
+          "columns": [
+            "created_at",
+            "id"
+          ],
+          "isUnique": false
+        },
+        "jobs_type_media_id_idx": {
+          "name": "jobs_type_media_id_idx",
+          "columns": [
+            "type",
+            "media_id"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -200,8 +352,111 @@
         "jobs_origin_matches_requester": {
           "name": "jobs_origin_matches_requester",
           "value": "(\n        (\"jobs\".\"origin\" = 'web'     AND \"jobs\".\"requester_email\" IS NOT NULL AND \"jobs\".\"requester_user_id\" IS NOT NULL) OR\n        (\"jobs\".\"origin\" = 'service' AND \"jobs\".\"requester_email\" IS NULL     AND \"jobs\".\"requester_user_id\" IS NULL)\n      )"
+        },
+        "jobs_media_id_matches_type": {
+          "name": "jobs_media_id_matches_type",
+          "value": "(\n        \"jobs\".\"media_id\" IS NULL OR\n        (\"jobs\".\"type\" = 'movie' AND \"jobs\".\"media_id\" LIKE 'tmdb:%') OR\n        (\"jobs\".\"type\" = 'show'  AND \"jobs\".\"media_id\" LIKE 'tvdb:%') OR\n        (\"jobs\".\"type\" = 'video' AND \"jobs\".\"media_id\" LIKE 'video:%')\n      )"
+        },
+        "jobs_scope_only_for_shows": {
+          "name": "jobs_scope_only_for_shows",
+          "value": "(\"jobs\".\"scope\" IS NULL OR \"jobs\".\"type\" = 'show')"
         }
       }
+    },
+    "videos": {
+      "name": "videos",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "natural_key": {
+          "name": "natural_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "time_range": {
+          "name": "time_range",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "overview": {
+          "name": "overview",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "poster_url": {
+          "name": "poster_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "runtime": {
+          "name": "runtime",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "download_urls": {
+          "name": "download_urls",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "videos_natural_key_idx": {
+          "name": "videos_natural_key_idx",
+          "columns": [
+            "natural_key"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     }
   },
   "views": {},
