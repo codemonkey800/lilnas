@@ -18,48 +18,83 @@ Phases 0–8.
 
 ---
 
-## What's left for 100% verification
+## Remaining work
 
-All four code fixes are **done and verified against the live backend**
-(commit `65bd8cc`, deployed 2026-08-28). What remains needs no code — only a
-decision about what content to keep in the library permanently.
+All four bugs the sweep left open are **closed and verified against the live
+backend** (`65bd8cc`, deployed 2026-08-28) — see the **🔧 Fixed** section below for
+what each proof was. Nothing below is a defect in the download service. It is
+everything standing _around_ it, ordered by what actually blocks progress.
 
-**Fixes — landed and proven live:**
+### 1. The branch has never been pushed or merged
 
-1. **`GET /media/:id/releases` no longer mutates the library.** Proven on
-   `tmdb:550` (Fight Club), which Radarr did not hold: the call returned 145
-   real releases and the library went **279 → 279**, no adds, no removes. A
-   full `--include-expensive` sweep afterwards also left Radarr at 279 and
-   Sonarr at 76.
-2. **Request bodies and query params are validated.** Every probe that used
-   to be silently accepted now returns a field-level 400 _before_ any
-   upstream call — including `{"seasonNumber":"3"}`, the exact case
-   `RequestShowInputSchema`'s docblock reasons about.
-3. **`?? 0` no longer mints invalid catalogue ids.** The mappers throw and
-   list call sites drop-and-log.
-4. **`DELETE /download/videos/:jobId` exists.** Proven twice: once clearing
-   the pre-existing orphan whose object had been hand-deleted, once on a
-   fresh download with a live 139,793-byte MinIO object — object 404s
-   afterwards, `downloadUrls` emptied, `video.delete` audited.
+`jeremy/download` is **120 commits ahead of `main` and 107 unpushed.** This
+is the largest outstanding item and it is not cosmetic: deployment
+prerequisite 3 below exists _only_ because of it. `main`'s
+`apps/download/deploy.yml` is a 15-line file with no `/data` volume and no
+`DATABASE_PATH`, so the moment the shared checkout at `/home/jeremy/lilnas`
+lands on `main`, the next `docker compose up -d download` recreates the
+container with nothing mounted and Nest dies with `SQLITE_CANTOPEN`. That
+hazard disappears on merge and only on merge.
 
-**Still outstanding — all "the library is empty", none of it code:**
+The prod checkout is currently parked **detached at `8653ae0`** — a state
+nobody can reproduce from a clone.
 
-5. ~~Re-run with `--include-expensive`~~ — **done.** `media-releases`
-   answered 200 and parsed. That route had never been exercised before.
-6. Download ~10 clips and **keep** them, to cover `activity-page2`,
-   `gallery-page2`, `history-page2` and their `cursor.*` checks. (
-   `cursor.admin-audit-log` and `cursor.discover` now pass, so the cursor
-   machinery itself is proven — these three are only unproven for their own
-   result sets.)
-7. Keep one video with a live MinIO object, to cover `media-file` and the
-   eight currently-empty-fixture passes.
-8. Keep one title actually held by Sonarr/Radarr with a file on disk, to
-   exercise `media-seasons` and the real Emby `embyStatus` path.
+### 2. 17 failing tests, from two causes, neither in application code
 
-Items 6–8 are ~15–20 min plus deciding what content to permanently keep.
-Every mutate pass tears down what it creates by design, so the library is
-empty again at the end of every run — which is why these can only be closed
-by _keeping_ something.
+**8 tests — orphaned by the migration squash.** `media-backfill.spec.ts` (7)
+and `schema.spec.ts` (1) exercise migrations `0002`/`0003`/`0006`, which
+`57c1409` deleted. Same commit as the landmine that took production down;
+see **⚠️ The migration squash was a loaded gun** below. Either
+delete them or rewrite them against the squashed init — which is right
+depends on whether the pre-squash upgrade path is still worth exercising.
+
+**9 tests — a wrong environment check.** `ytdlp-update.integration.spec.ts`
+gates on `existsSync('/usr/bin/yt-dlp')` as a _"Docker container
+indicator"_. The lilnas host has yt-dlp installed natively too, so the gate
+opens off-container and the tests then try to **write** to `/usr/bin/yt-dlp`
+as `jeremy`:
+
+```
+EACCES: permission denied, open '/usr/bin/yt-dlp'
+```
+
+They pass inside the container. The gate should test _writability_, not
+existence.
+
+> Worth fixing before anything else. A permanently-red suite is precisely
+> what let the migration squash ship broken: nobody looks at the 18th red
+> row.
+
+### 3. The migration landmine is repaired in production only
+
+The one-row `__drizzle_migrations` insert fixed _this_ database. Any other
+existing `download.db` — a developer's, a restored backup — still dies at
+boot on first contact with a post-squash build. Open question: leave it
+documented, or give `DbService` a guard that detects
+schema-already-matches-the-snapshot and self-heals the bookkeeping.
+
+### 4. Library content — the last 8 skipped rows
+
+Every one traces to the same cause: the library is empty. Every mutate pass
+tears down what it creates _by design_, so these close only by **keeping**
+something.
+
+| What to keep                           | Rows it unblocks                                                             | Cost                    |
+| -------------------------------------- | ---------------------------------------------------------------------------- | ----------------------- |
+| ~10 clips, kept                        | `activity-page2`, `gallery-page2`, `history-page2` + their `cursor.*` checks | ~15 min                 |
+| One video with a live MinIO object     | `media-file`, plus the eight empty-fixture passes                            | one kept video          |
+| One title Sonarr/Radarr holds, on disk | `media-seasons`, `emby.indexed-carries-a-link`, `emby.watch-url-is-external` | real, permanent content |
+
+The cursor machinery itself is already proven — `cursor.discover` and
+`cursor.admin-audit-log` both pass — so the three page-2 rows are unproven
+only for their own result sets, not for the mechanism.
+
+### 5. No UI for the video delete
+
+`DELETE /download/videos/:jobId` and `DownloadClient.deleteJob()` exist and
+work; nothing in the frontend calls either. `apps/download/src/app` is a
+single `page.tsx` with no cancel affordance either, so this is an unexposed
+capability rather than a parity gap.
 
 ---
 
@@ -230,37 +265,38 @@ and `emby.watch-url-is-external` pass over _69 media objects, none carrying an
 library has none. Proving the new key end to end requires a real completed
 download that stays in the library.
 
-### The one remaining failure
+### The one failure that used to be here — resolved
 
-`media-file` returns **404** for
-`/download/media/video%3AYkgL4RGtgfyO4T8oubhFU/file` — a key mined from
+`media-file` returned **404** for
+`/download/media/video%3AYkgL4RGtgfyO4T8oubhFU/file`, a key mined from
 `gallery`.
 
-This is **not a route bug**. It is the (then) missing video `DELETE` route
-showing its consequences: the MinIO object was removed by hand after a mutate
-run, the job row had no route that could remove it, and the gallery advertised
-a `downloadUrl` that 404s. The checker was correctly reporting a real
-inconsistency.
+It was never a route bug. It was the missing video `DELETE` showing its
+consequences: the MinIO object had been removed by hand after a mutate run,
+the job row had no route that could remove it, and the gallery went on
+advertising a `downloadUrl` that 404s. The checker was correctly reporting a
+real inconsistency.
 
-`DELETE /download/videos/:jobId` is what closes this properly — it clears
-`downloadUrls` in the same operation that removes the objects, so the gallery
-can never again point at something that isn't there. The existing orphan row
-still has to be cleared once by hand (or by re-running the flow that created
-it and deleting it through the route); the fix prevents the next one.
+**Closed on 2026-08-28.** That exact orphan (`eKHs-LYxPwll2RpBKLKwY`) was
+cleared with the new route — which is also what proved the already-missing
+-object branch works, since MinIO had nothing left to delete. `downloadUrls`
+went to `[]`, the job to `cancelled`, and a `video.delete` row landed in the
+audit log.
+
+The class of bug is gone, not just the instance: `DELETE
+/download/videos/:jobId` clears `downloadUrls` in the same operation that
+removes the objects, so the gallery cannot advertise a link to something that
+isn't there. `media-file` now reports `SKIPPED (no held video)` — the honest
+answer for an empty library, and one of the eight rows §4 above closes.
 
 ---
 
 ## What full verification still requires
 
-| Blocker                                              | Rows it holds                                                                                                     | Cost                      |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| **Library has fewer than 10 jobs**                   | `activity-page2`, `gallery-page2`, `history-page2`, `admin-audit-log-page2` + the four matching `cursor.*` checks | ~15 min of clip downloads |
-| **No video with a live MinIO object**                | `media-file` (the failure above), plus the empty-fixture passes                                                   | one kept video            |
-| **No title Sonarr/Radarr holds with a file on disk** | `media-seasons`, `emby.indexed-carries-a-link`, `emby.watch-url-is-external`                                      | real, permanent content   |
-| **~~`/releases` mutation~~ — fixed**                 | `media-releases`                                                                                                  | just re-run with the flag |
-
-The first two tiers need no code and no permanent library content. The third
-requires deciding what to actually keep in the library.
+Covered above — see **Remaining work §4, Library content**.
+Every unverified row now has one cause (the library is empty) and one
+remedy (keep some content). There is no unknown failure and no route left
+behind a flag.
 
 ---
 
