@@ -3,7 +3,8 @@
 What has actually been proven to work against the real Radarr, Sonarr, Emby and
 MinIO, and what has not. Produced by the plan-009 verification script
 (`apps/download/scripts/verify/`) run against the live backend on the lilnas
-host, **2026-08-27**.
+host. Read sweep and all three mutate passes re-run against the fixed build
+on **2026-08-28**.
 
 > **Why this document exists.** The 59 test files under
 > `apps/download/src/**/__tests__/` all call `jest.mock('@lilnas/media/radarr')`
@@ -19,47 +20,46 @@ Phases 0–8.
 
 ## What's left for 100% verification
 
-All four code fixes are **done**. What remains is operational — it needs the
-live backend and a decision about what content to keep permanently.
+All four code fixes are **done and verified against the live backend**
+(commit `65bd8cc`, deployed 2026-08-28). What remains needs no code — only a
+decision about what content to keep in the library permanently.
 
-**Fixes (code) — all landed:**
+**Fixes — landed and proven live:**
 
-1. ~~**`GET /media/:id/releases` mutates the library**~~ — **fixed.**
-   `ensureMovie`/`ensureSeries` now report `wasAdded`, and
-   `ReleaseService.withMonitoring()` deletes a title it had to add rather
-   than only unmonitoring it (`unmonitorAndDelete(id, false)`).
-   `--include-expensive` is safe to pass.
-2. ~~**No request body validation**~~ — **fixed.** All six `@Body()` DTOs and
-   both `/search` `@Query()` DTOs now carry an explicit
-   `ZodValidationPipe`. `download.controller.validation.test.ts` reads Nest's
-   own `ROUTE_ARGS_METADATA` and fails for **any** `@Body()`/`@Query()`
-   without one, so a future route can't reopen the gap.
-3. ~~**`?? 0` mints invalid catalogue ids**~~ — **fixed.** `toMovie()`/
-   `toShow()` throw on a missing `tmdbId`/`tvdbId` the way `toEpisode()`
-   already threw on a missing episode number; list call sites go through
-   `mapCatalogueEntries()`, which drops the record with a warning instead of
-   failing the whole listing.
-4. ~~**No video delete route**~~ — **fixed.** `DELETE /download/videos/:jobId`
-   stops a running job, deletes its MinIO objects and clears the `videos`
-   row's `downloadUrls`. Added to `DownloadClient` as `deleteJob()`, audited
-   as `video.delete`, and wired into the verification script's teardown
-   table, which no longer has a video-shaped residue hole.
+1. **`GET /media/:id/releases` no longer mutates the library.** Proven on
+   `tmdb:550` (Fight Club), which Radarr did not hold: the call returned 145
+   real releases and the library went **279 → 279**, no adds, no removes. A
+   full `--include-expensive` sweep afterwards also left Radarr at 279 and
+   Sonarr at 76.
+2. **Request bodies and query params are validated.** Every probe that used
+   to be silently accepted now returns a field-level 400 _before_ any
+   upstream call — including `{"seasonNumber":"3"}`, the exact case
+   `RequestShowInputSchema`'s docblock reasons about.
+3. **`?? 0` no longer mints invalid catalogue ids.** The mappers throw and
+   list call sites drop-and-log.
+4. **`DELETE /download/videos/:jobId` exists.** Proven twice: once clearing
+   the pre-existing orphan whose object had been hand-deleted, once on a
+   fresh download with a live 139,793-byte MinIO object — object 404s
+   afterwards, `downloadUrls` emptied, `video.delete` audited.
 
-**Verification (operational):**
+**Still outstanding — all "the library is empty", none of it code:**
 
-5. Re-run with `--include-expensive` to cover `media-releases`. Now
-   unblocked.
-6. Download ~10 clips so the library exceeds one page, covering
-   `activity-page2`, `gallery-page2`, `history-page2`,
-   `admin-audit-log-page2` and their matching `cursor.*` checks.
+5. ~~Re-run with `--include-expensive`~~ — **done.** `media-releases`
+   answered 200 and parsed. That route had never been exercised before.
+6. Download ~10 clips and **keep** them, to cover `activity-page2`,
+   `gallery-page2`, `history-page2` and their `cursor.*` checks. (
+   `cursor.admin-audit-log` and `cursor.discover` now pass, so the cursor
+   machinery itself is proven — these three are only unproven for their own
+   result sets.)
 7. Keep one video with a live MinIO object, to cover `media-file` and the
-   currently-empty-fixture passes.
+   eight currently-empty-fixture passes.
 8. Keep one title actually held by Sonarr/Radarr with a file on disk, to
-   exercise `media-seasons` and the real Emby `embyStatus` annotation path
-   (proven live but never exercised against real content).
+   exercise `media-seasons` and the real Emby `embyStatus` path.
 
-Items 5–8 are ~15–20 min plus deciding what content to permanently keep in
-the library.
+Items 6–8 are ~15–20 min plus deciding what content to permanently keep.
+Every mutate pass tears down what it creates by design, so the library is
+empty again at the end of every run — which is why these can only be closed
+by _keeping_ something.
 
 ---
 
@@ -67,20 +67,24 @@ the library.
 
 |                      |                                               |
 | -------------------- | --------------------------------------------- |
-| Read checks verified | **25 of 42** rows                             |
-| Remaining failures   | **1** — an orphaned gallery row, not a route  |
+| Read checks verified | **26 of 42** rows                             |
+| Remaining failures   | **0**                                         |
 | Write path           | **All three media types verified end to end** |
-| Real bugs found      | **6** (all 6 fixed)                           |
+| Real bugs found      | **7** (all 7 fixed)                           |
 
 The core request → download → cleanup flow works for movies, shows and videos
-against real upstreams.
+against real upstreams, and now cleans up after itself completely.
 
-Latest run: `42 rows · 31 passed (6 of them validated nothing) · 1 failed · 10
-skipped`.
+Latest run (2026-08-28, against the fixed build):
+`42 rows · 34 passed (8 of them validated nothing) · 0 failed · 8 skipped`.
+Previous run was `31 passed · 1 failed · 10 skipped`.
 
-**Every remaining unverified row traces to one of two causes:** the library is
-empty, or the route is gated behind `--include-expensive`. There is no unknown
-failure left in the read sweep.
+All three mutate passes are clean runs, and the journal drains to **zero
+entries and zero residue** — the residue list, which existed because a
+finished video could not be torn down, is now always empty.
+
+**Every remaining unverified row has the same cause: the library is empty.**
+There is no unknown failure and no route left behind a flag.
 
 ---
 
@@ -260,6 +264,85 @@ requires deciding what to actually keep in the library.
 
 ---
 
+## ⚠️ The migration squash was a loaded gun
+
+**Found by deploying.** `57c1409 chore(download): squash migrations into a
+single init` replaced the 0000–0007 migration series with one
+`0000_soft_inertia.sql`. It was never redeployed after landing — the image
+that had been running was built at **11:46**, seven hours _before_ the squash
+committed at **18:46** — so nobody had exercised it against an existing
+database.
+
+The next deploy of `download`, whatever it contained, was going to die at
+boot:
+
+```
+DrizzleError: Failed to run the query 'CREATE TABLE `audit_log` (...)'
+  cause: SqliteError: table `audit_log` already exists
+```
+
+Drizzle's migrator does **not** compare hashes to decide what to apply. It
+reads the newest `created_at` out of `__drizzle_migrations` and applies every
+migration whose journal `when` is greater:
+
+```js
+if (!lastDbMigration || Number(lastDbMigration[2]) < migration.folderMillis) { … }
+```
+
+The squashed file's `when` is `1787867746354`; the live DB's newest row was
+`1787703321423`. Newer ⇒ apply from scratch ⇒ `CREATE TABLE` against tables
+that already exist ⇒ fatal boot error.
+
+**The repair, and why it was safe.** The live schema was diffed against the
+schema the squashed migration produces: identical tables, identical 13
+columns and 5 indexes on `jobs`, identical constraints — the only textual
+difference is `` `jobs` `` vs `"jobs"` quoting left by an old table rebuild.
+Since the schema already matched, the fix was bookkeeping only: one row
+recording the squashed migration as applied. The eight historical rows were
+**kept**, not deleted, so the record of what was actually applied to this
+database survives.
+
+⚠️ **Any other existing `download.db` still has this landmine** — a dev
+database, or a restored backup, will hit the identical fatal boot error on
+first start against a post-squash build. The same one-row insert fixes it.
+
+⚠️ **`media-backfill.spec.ts` and `schema.spec.ts` still fail** for the same
+root cause: they exercise migrations `0002`/`0003`/`0006`, which the squash
+deleted. 17 failing tests, all from that one commit. The squash was not
+finished.
+
+---
+
+## A red row that wasn't a bug
+
+The first video mutate pass after the fix reported:
+
+```
+video.progress  FAIL  (illegal transition: converting → completed)
+```
+
+The backend's own logs showed `converting → uploading → cleaning →
+completed` — every edge legal. The checker compared observed pairs against a
+**single-hop adjacency table**, but it reads a _sampled_ status: `Uploading`
+is a 139 KB `fPutObject` and `Cleaning` is an `rm`, so for the five-second
+fixture clip both routinely finish inside one poll interval. Two consecutive
+runs sampled differently (`converting → completed`, then `pending →
+downloading → completed`), which is the tell.
+
+Fixed in `a9b76dd` by judging transitions on **reachability** rather than
+adjacency — but only through _transient_ states. Plain reachability would be
+vacuous, because `pausing → paused → pending → downloading` is a path through
+the graph and would launder a genuinely backwards observation into a legal
+one. The walk therefore refuses to expand `Paused` and the terminal statuses:
+a job does not leave those without a fresh user action, so a poller cannot
+miss one the way it misses a sub-second `Uploading`.
+
+This mattered beyond the one row. A red row next to a backend that behaved
+perfectly is worse than no row, because it trains the reader to discount red
+rows — the one thing this script cannot afford.
+
+---
+
 ## Deployment prerequisites this uncovered
 
 None of these was written down anywhere before.
@@ -278,6 +361,10 @@ None of these was written down anywhere before.
    at `/data` and Nest dies with `SQLITE_CANTOPEN`. This has already happened
    once: an ordinary `git checkout main` silently armed the break until the
    next restart.
+
+4. **The migration bookkeeping must match the squash.** See the section
+   above — an existing `download.db` written before `57c1409` will kill the
+   container at boot until one row is inserted into `__drizzle_migrations`.
 
 ⚠️ **A broken backend still reports `Up`.** The container runs Next.js on
 `:8080` and Nest on `:8081`. When the backend dies at boot the frontend stays
