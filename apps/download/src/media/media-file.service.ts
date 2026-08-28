@@ -225,6 +225,69 @@ export class MediaFileService {
     return this.minioClient.getObject(source.bucket, source.key)
   }
 
+  /**
+   * Removes every `videos` object a media key's stored URLs point at, and
+   * reports how many actually went. The one write this service does, and it
+   * lives here for the same reason the reads do: `objectKeyFromUrl()` is the
+   * only honest translation from a stored URL to an object key, and a second
+   * copy of it in the delete path would be the copy that drifts.
+   *
+   * Deliberately **does not** touch the `videos` row - clearing
+   * `downloadUrls` is `DownloadStateService`'s job (the only writer of that
+   * table), and the caller does it after this resolves so a failed delete
+   * can't leave a row claiming the objects are gone while they are still
+   * there.
+   *
+   * An object that is already missing counts as a success, not a failure: it
+   * is the state the caller asked for. A key that can't be recovered from
+   * its URL is warned about and skipped - there is nothing to address, so
+   * there is nothing to delete.
+   */
+  async deleteVideoObjects(mediaId: string): Promise<number> {
+    const action = 'deleteVideoObjects'
+    const row = getVideoById(this.dbService.db, mediaIdSuffix(mediaId))
+
+    if (!row) {
+      throw new NotFoundException(`No media found for '${mediaId}'`)
+    }
+
+    let deleted = 0
+
+    // Sequential rather than `Promise.all`, matching
+    // `ReleaseService.deleteExistingFiles()`: a half-succeeded parallel
+    // batch of destructive calls is much harder to reason about than a
+    // half-finished sequential one.
+    for (const url of row.downloadUrls ?? []) {
+      const key = objectKeyFromUrl(url)
+
+      if (key === undefined) {
+        this.logger.warn(
+          { action, mediaId },
+          'Stored download URL is not a videos object URL - nothing to delete',
+        )
+        continue
+      }
+
+      try {
+        await this.minioClient.removeObject(VIDEO_BUCKET, key)
+        deleted += 1
+      } catch (err) {
+        if (!isMissingObjectError(err)) {
+          throw err
+        }
+
+        this.logger.warn(
+          { action, key, mediaId },
+          'Video object was already gone from MinIO',
+        )
+      }
+    }
+
+    this.logger.log({ action, deleted, mediaId }, 'Deleted video objects')
+
+    return deleted
+  }
+
   private async resolveVideoSource(
     mediaId: string,
     part: number,

@@ -41,6 +41,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common'
 import { mediaId } from 'src/db/media-id'
 import type { SonarrMediaClient } from 'src/media/clients'
 import { SONARR_CLIENT } from 'src/media/clients'
+import { mapCatalogueEntries } from 'src/media/map-media.util'
 import { toCommonRelease } from 'src/media/release-mapper.util'
 import { checkSdkError, unwrapSdkResult } from 'src/media/sdk-result.util'
 import { generateTitleSlug } from 'src/media/title-slug.util'
@@ -117,6 +118,12 @@ export interface EnsureSeriesResult {
   sonarrId: number
   /** Episodes this call turned monitoring on for - the restore set. */
   turnedOnEpisodeIds: number[]
+  /**
+   * `true` when this call *added* the series to Sonarr - see
+   * `EnsureMovieResult.wasAdded` for why `wasMonitored: false` can't stand
+   * in for it.
+   */
+  wasAdded: boolean
   wasMonitored: boolean
 }
 
@@ -142,11 +149,22 @@ export function toRelease(resource: ReleaseResource): Release {
  * unlike Radarr's `movieFile.path`) - Phase 4's episode work will need
  * `episodeFile` separately. Unlike Radarr's per-provider Ratings breakdown,
  * Sonarr's is already a single flat `{ votes, value }` pair.
+ *
+ * Throws on a missing `tvdbId` for the reason `toMovie()` throws on a
+ * missing `tmdbId` - see that function. List call sites go through
+ * `mapCatalogueEntries()`.
  */
 export function toShow(series: SeriesResource): Show {
   const posterUrl = series.images?.find(img => img.coverType === 'poster')?.url
   const releaseDate = series.firstAired ?? undefined
-  const tvdbId = series.tvdbId ?? 0
+  const tvdbId = series.tvdbId
+
+  if (tvdbId == null || !Number.isInteger(tvdbId) || tvdbId <= 0) {
+    throw new Error(
+      `Sonarr returned a series without a usable tvdbId ` +
+        `(tvdbId=${tvdbId}, title=${series.title ?? 'unknown'})`,
+    )
+  }
 
   return {
     certification: series.certification ?? undefined,
@@ -258,7 +276,10 @@ export class SonarrService {
       'searchShows',
     )
 
-    return series.map(toShow)
+    return mapCatalogueEntries(series, toShow, {
+      action: 'searchShows',
+      logger: this.logger,
+    })
   }
 
   /**
@@ -273,7 +294,10 @@ export class SonarrService {
       'getSeries',
     )
 
-    return series.map(toShow)
+    return mapCatalogueEntries(series, toShow, {
+      action: 'getSeries',
+      logger: this.logger,
+    })
   }
 
   /**
@@ -312,9 +336,10 @@ export class SonarrService {
    * restore.
    *
    * A fresh add needs no episode pass at all - `addOptions.monitor: 'all'`
-   * already monitors everything, so `turnedOnEpisodeIds` is empty and a
-   * restore correctly unmonitors nothing (the series-level flip is what gets
-   * undone in that case).
+   * already monitors everything, so `turnedOnEpisodeIds` is empty and it is
+   * `wasAdded` that tells the caller what to undo: a series this call put in
+   * the library gets removed again, not unmonitored (see
+   * `ReleaseService.withMonitoring()`).
    */
   async ensureSeries(
     tvdbId: number,
@@ -347,6 +372,7 @@ export class SonarrService {
         series: existing,
         sonarrId: existing.id,
         turnedOnEpisodeIds,
+        wasAdded: false,
         wasMonitored,
       }
     }
@@ -412,6 +438,7 @@ export class SonarrService {
       // `monitor: 'all'` already covered every episode, so this call turned
       // nothing on individually and there is nothing episode-level to undo.
       turnedOnEpisodeIds: [],
+      wasAdded: true,
       wasMonitored: false,
     }
   }

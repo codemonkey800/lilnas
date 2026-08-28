@@ -33,6 +33,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common'
 import { mediaId } from 'src/db/media-id'
 import type { RadarrMediaClient } from 'src/media/clients'
 import { RADARR_CLIENT } from 'src/media/clients'
+import { mapCatalogueEntries } from 'src/media/map-media.util'
 import { toCommonRelease } from 'src/media/release-mapper.util'
 import { checkSdkError, unwrapSdkResult } from 'src/media/sdk-result.util'
 import { generateTitleSlug } from 'src/media/title-slug.util'
@@ -66,6 +67,17 @@ export interface RequestMovieResult {
 export interface EnsureMovieResult {
   movie: MovieResource
   radarrId: number
+  /**
+   * `true` when this call *added* the movie to Radarr, i.e. it was not in
+   * the library at all beforehand.
+   *
+   * `wasMonitored: false` alone cannot express that: it is equally true of a
+   * movie that was already in the library with monitoring off, where
+   * restoring means flipping one flag back. A caller borrowing the library
+   * entry for a read has to be able to tell "put the flag back" from "take
+   * the entry out again", and this is that distinction.
+   */
+  wasAdded: boolean
   wasMonitored: boolean
 }
 
@@ -100,11 +112,27 @@ function pickMovieReleaseDate(movie: MovieResource): string | undefined {
  * library item are now literally the same type, differing only in which
  * optional fields are populated - which is what let three near-identical
  * mappers collapse into this one.
+ *
+ * Throws on a missing `tmdbId`, the same way `toEpisode()` throws on a
+ * missing episode number: TMDB's id is what every downstream reference to
+ * this title is keyed on, and defaulting it to `0` would mint a `tmdb:0`
+ * key that fails `MovieSchema`'s own `z.number().int().positive()` - a
+ * record the backend serialises happily and the frontend's `safeParse()`
+ * discards without a word. List call sites go through
+ * `mapCatalogueEntries()`, which turns that throw into one dropped record
+ * and a warning instead of a failed listing.
  */
 export function toMovie(movie: MovieResource): Movie {
   const posterUrl = movie.images?.find(img => img.coverType === 'poster')?.url
   const releaseDate = pickMovieReleaseDate(movie)
-  const tmdbId = movie.tmdbId ?? 0
+  const tmdbId = movie.tmdbId
+
+  if (tmdbId == null || !Number.isInteger(tmdbId) || tmdbId <= 0) {
+    throw new Error(
+      `Radarr returned a movie without a usable tmdbId ` +
+        `(tmdbId=${tmdbId}, title=${movie.title ?? 'unknown'})`,
+    )
+  }
 
   return {
     certification: movie.certification ?? undefined,
@@ -152,7 +180,10 @@ export class RadarrService {
       'searchMovies',
     )
 
-    return movies.map(toMovie)
+    return mapCatalogueEntries(movies, toMovie, {
+      action: 'searchMovies',
+      logger: this.logger,
+    })
   }
 
   /**
@@ -167,7 +198,10 @@ export class RadarrService {
       'getMovies',
     )
 
-    return movies.map(toMovie)
+    return mapCatalogueEntries(movies, toMovie, {
+      action: 'getMovies',
+      logger: this.logger,
+    })
   }
 
   /**
@@ -201,6 +235,11 @@ export class RadarrService {
    * purpose, and a caller that later "restored" it to unmonitored would
    * silently kill that request.
    *
+   * `wasAdded` reports the first branch separately, because unmonitoring a
+   * movie this call added is *not* a restore - it leaves a library entry
+   * nobody asked for. See `ReleaseService.withMonitoring()`, which deletes
+   * on that branch instead.
+   *
    * Extracted verbatim from `requestMovie()`'s add-if-missing half - the one
    * new behaviour is the monitoring flip, which a plain search on an
    * unmonitored movie would otherwise have quietly no-op'd.
@@ -225,7 +264,12 @@ export class RadarrService {
         await this.setMonitored(existing.id, true)
       }
 
-      return { movie: existing, radarrId: existing.id, wasMonitored }
+      return {
+        movie: existing,
+        radarrId: existing.id,
+        wasAdded: false,
+        wasMonitored,
+      }
     }
 
     const lookup = unwrapSdkResult(
@@ -265,10 +309,16 @@ export class RadarrService {
       throw new Error(`Radarr did not return an id for movie tmdbId=${tmdbId}`)
     }
 
-    // `false`, not `true`: a movie that didn't exist a moment ago was not
-    // monitored *before this call*, which is exactly what a caller restoring
-    // borrowed monitoring needs to know.
-    return { movie: added, radarrId: added.id, wasMonitored: false }
+    // `wasMonitored: false`, not `true`: a movie that didn't exist a moment
+    // ago was not monitored *before this call*, which is exactly what a
+    // caller restoring borrowed monitoring needs to know. `wasAdded` is what
+    // tells that caller the entry itself is also this call's doing.
+    return {
+      movie: added,
+      radarrId: added.id,
+      wasAdded: true,
+      wasMonitored: false,
+    }
   }
 
   /**

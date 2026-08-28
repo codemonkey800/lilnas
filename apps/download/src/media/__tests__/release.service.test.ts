@@ -74,6 +74,7 @@ describe('ReleaseService', () => {
       getReleases: jest.fn(),
       grabRelease: jest.fn(),
       setMonitored: jest.fn(),
+      unmonitorAndDelete: jest.fn(),
     } as unknown as jest.Mocked<RadarrService>
 
     sonarrService = {
@@ -92,6 +93,7 @@ describe('ReleaseService', () => {
       ),
       setEpisodesMonitored: jest.fn(),
       setSeriesMonitored: jest.fn(),
+      unmonitorAndDelete: jest.fn(),
     } as unknown as jest.Mocked<SonarrService>
 
     mediaResolverService = {
@@ -175,6 +177,7 @@ describe('ReleaseService', () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
+        wasAdded: false,
         wasMonitored: false,
       })
       radarrService.getReleases.mockResolvedValue([release()])
@@ -195,6 +198,7 @@ describe('ReleaseService', () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
+        wasAdded: false,
         wasMonitored: true,
       })
       radarrService.getReleases.mockResolvedValue([])
@@ -208,6 +212,7 @@ describe('ReleaseService', () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
+        wasAdded: false,
         wasMonitored: false,
       })
       radarrService.getReleases.mockRejectedValue(new Error('indexer down'))
@@ -224,12 +229,48 @@ describe('ReleaseService', () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
+        wasAdded: false,
         wasMonitored: false,
       })
       radarrService.getReleases.mockResolvedValue([release()])
       radarrService.setMonitored.mockRejectedValue(new Error('radarr down'))
 
       await expect(service.listReleases(MOVIE_ID)).resolves.toHaveLength(1)
+    })
+
+    // The bug this replaced: on a `tmdb:` key Radarr does not hold,
+    // `ensureMovie` *adds* the movie, and unmonitoring is not an undo for
+    // that - a read sweep over the catalogue silently imported it. A title
+    // this call put in the library gets taken back out.
+    it('removes a movie it had to add, rather than only unmonitoring it', async () => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasAdded: true,
+        wasMonitored: false,
+      })
+      radarrService.getReleases.mockResolvedValue([release()])
+
+      await service.listReleases(MOVIE_ID)
+
+      // `deleteFiles: false` - a title that wasn't in the library a moment
+      // ago has nothing on disk this call is entitled to delete.
+      expect(radarrService.unmonitorAndDelete).toHaveBeenCalledWith(7, false)
+      expect(radarrService.setMonitored).not.toHaveBeenCalled()
+    })
+
+    // A grab is an explicit choice: the user wants the title, so it stays.
+    it('keeps a movie it added when the borrow is not restored', async () => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasAdded: true,
+        wasMonitored: false,
+      })
+
+      await service.grabRelease(MOVIE_ID, { guid: 'g', indexerId: 3 })
+
+      expect(radarrService.unmonitorAndDelete).not.toHaveBeenCalled()
     })
 
     it('surfaces an ensureMovie failure without attempting a restore', async () => {
@@ -249,6 +290,7 @@ describe('ReleaseService', () => {
         series: {},
         sonarrId: 9,
         turnedOnEpisodeIds: [],
+        wasAdded: false,
         wasMonitored: true,
       })
       sonarrService.getReleases.mockResolvedValue([])
@@ -269,6 +311,7 @@ describe('ReleaseService', () => {
         series: {},
         sonarrId: 9,
         turnedOnEpisodeIds: [101, 102],
+        wasAdded: false,
         wasMonitored: false,
       })
       sonarrService.getReleases.mockResolvedValue([])
@@ -290,6 +333,7 @@ describe('ReleaseService', () => {
         series: {},
         sonarrId: 9,
         turnedOnEpisodeIds: [101],
+        wasAdded: false,
         wasMonitored: true,
       })
       sonarrService.getReleases.mockResolvedValue([])
@@ -303,11 +347,31 @@ describe('ReleaseService', () => {
       expect(sonarrService.setSeriesMonitored).not.toHaveBeenCalled()
     })
 
+    // Sonarr's half of the same fix - and no episode restore, because the
+    // series row itself is going.
+    it('removes a series it had to add, rather than only unmonitoring it', async () => {
+      sonarrService.ensureSeries.mockResolvedValue({
+        series: {},
+        sonarrId: 9,
+        turnedOnEpisodeIds: [],
+        wasAdded: true,
+        wasMonitored: false,
+      })
+      sonarrService.getReleases.mockResolvedValue([])
+
+      await service.listReleases(SHOW_ID)
+
+      expect(sonarrService.unmonitorAndDelete).toHaveBeenCalledWith(9, false)
+      expect(sonarrService.setSeriesMonitored).not.toHaveBeenCalled()
+      expect(sonarrService.setEpisodesMonitored).not.toHaveBeenCalled()
+    })
+
     it('still restores when the show release fetch throws', async () => {
       sonarrService.ensureSeries.mockResolvedValue({
         series: {},
         sonarrId: 9,
         turnedOnEpisodeIds: [101],
+        wasAdded: false,
         wasMonitored: false,
       })
       sonarrService.getReleases.mockRejectedValue(new Error('indexer down'))
@@ -328,6 +392,7 @@ describe('ReleaseService', () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
+        wasAdded: false,
         wasMonitored: true,
       })
     })
@@ -388,6 +453,7 @@ describe('ReleaseService', () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
+        wasAdded: false,
         wasMonitored: true,
       })
 
@@ -409,6 +475,7 @@ describe('ReleaseService', () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
+        wasAdded: false,
         wasMonitored: true,
       })
 
@@ -424,6 +491,7 @@ describe('ReleaseService', () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
+        wasAdded: false,
         wasMonitored: false,
       })
 
@@ -437,6 +505,7 @@ describe('ReleaseService', () => {
         series: {},
         sonarrId: 9,
         turnedOnEpisodeIds: [101],
+        wasAdded: false,
         wasMonitored: false,
       })
 
@@ -482,6 +551,7 @@ describe('ReleaseService', () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
+        wasAdded: false,
         wasMonitored: true,
       })
 
@@ -503,6 +573,7 @@ describe('ReleaseService', () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
+        wasAdded: false,
         wasMonitored: true,
       })
       radarrService.grabRelease.mockRejectedValue(
@@ -534,6 +605,7 @@ describe('ReleaseService', () => {
         series: {},
         sonarrId: 9,
         turnedOnEpisodeIds: [],
+        wasAdded: false,
         wasMonitored: true,
       })
     })
@@ -593,6 +665,7 @@ describe('ReleaseService', () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
+        wasAdded: false,
         wasMonitored: true,
       })
 
@@ -652,12 +725,14 @@ describe('ReleaseService', () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
+        wasAdded: false,
         wasMonitored: true,
       })
       sonarrService.ensureSeries.mockResolvedValue({
         series: {},
         sonarrId: 9,
         turnedOnEpisodeIds: [],
+        wasAdded: false,
         wasMonitored: true,
       })
     })
@@ -691,10 +766,10 @@ describe('ReleaseService', () => {
       await service.replaceRelease(MOVIE_ID, input, ALICE)
 
       expect(radarrService.deleteMovieFile).toHaveBeenCalledWith(11)
-      expect(
-        (radarrService as unknown as { unmonitorAndDelete?: jest.Mock })
-          .unmonitorAndDelete,
-      ).toBeUndefined()
+      // `unmonitorAndDelete` is now a real method on the mock (the read
+      // path's add-undo uses it), so this asserts it is never *called* here
+      // rather than that it doesn't exist.
+      expect(radarrService.unmonitorAndDelete).not.toHaveBeenCalled()
     })
 
     it('treats zero existing files as a plain grab, not an error', async () => {
@@ -762,6 +837,7 @@ describe('ReleaseService', () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
+        wasAdded: false,
         wasMonitored: false,
       })
       radarrService.getMovieFiles.mockResolvedValue([])
@@ -948,6 +1024,7 @@ describe('ReleaseService', () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
+        wasAdded: false,
         wasMonitored: true,
       })
       radarrService.getReleases.mockResolvedValue([

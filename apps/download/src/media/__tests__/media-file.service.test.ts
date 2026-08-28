@@ -60,7 +60,11 @@ describe('MediaFileService', () => {
   let dbService: DbService
   let resolver: ReturnType<typeof createFakeMediaResolver>
   let sonarrService: jest.Mocked<SonarrService>
-  let minioClient: { getObject: jest.Mock; statObject: jest.Mock }
+  let minioClient: {
+    getObject: jest.Mock
+    removeObject: jest.Mock
+    statObject: jest.Mock
+  }
   let warn: jest.SpyInstance
 
   /** Makes the resolver answer with exactly this media, undegraded. */
@@ -120,7 +124,11 @@ describe('MediaFileService', () => {
   beforeEach(async () => {
     dbService = createTestDbService()
     resolver = createFakeMediaResolver()
-    minioClient = { getObject: jest.fn(), statObject: jest.fn() }
+    minioClient = {
+      getObject: jest.fn(),
+      removeObject: jest.fn(),
+      statObject: jest.fn(),
+    }
 
     sonarrService = {
       getEpisodeFiles: jest.fn().mockResolvedValue([]),
@@ -521,6 +529,74 @@ describe('MediaFileService', () => {
       expect(minioClient.getObject).toHaveBeenCalledWith(
         'videos',
         'job-1/part0.mp4',
+      )
+    })
+  })
+
+  describe('deleteVideoObjects', () => {
+    it('removes every part the stored URLs point at', async () => {
+      seedVideo({
+        downloadUrls: [
+          'https://minio.example.com/videos/job-1/part0.mp4',
+          'https://minio.example.com/videos/job-1/part1.mp4',
+        ],
+      })
+
+      await expect(service.deleteVideoObjects('video:vid-1')).resolves.toBe(2)
+      expect(minioClient.removeObject).toHaveBeenNthCalledWith(
+        1,
+        'videos',
+        'job-1/part0.mp4',
+      )
+      expect(minioClient.removeObject).toHaveBeenNthCalledWith(
+        2,
+        'videos',
+        'job-1/part1.mp4',
+      )
+    })
+
+    // An object that is already gone is the state the caller asked for.
+    it('counts an already-missing object as done, not as a failure', async () => {
+      seedVideo({
+        downloadUrls: ['https://minio.example.com/videos/job-1/part0.mp4'],
+      })
+      minioClient.removeObject.mockRejectedValue(
+        Object.assign(new Error('gone'), { code: 'NoSuchKey' }),
+      )
+
+      await expect(service.deleteVideoObjects('video:vid-1')).resolves.toBe(0)
+    })
+
+    // A real outage must not be reported as a successful delete - the row is
+    // about to have its URLs cleared on the strength of this answer.
+    it('re-throws a MinIO failure that is not a missing object', async () => {
+      seedVideo({
+        downloadUrls: ['https://minio.example.com/videos/job-1/part0.mp4'],
+      })
+      minioClient.removeObject.mockRejectedValue(new Error('connection reset'))
+
+      await expect(service.deleteVideoObjects('video:vid-1')).rejects.toThrow(
+        'connection reset',
+      )
+    })
+
+    it('skips a URL it cannot recover a key from', async () => {
+      seedVideo({ downloadUrls: ['not a url', 'https://example.com/other/x'] })
+
+      await expect(service.deleteVideoObjects('video:vid-1')).resolves.toBe(0)
+      expect(minioClient.removeObject).not.toHaveBeenCalled()
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ mediaId: 'video:vid-1' }),
+        expect.stringContaining('nothing to delete'),
+      )
+    })
+
+    it('is a no-op for a video with no URLs, and a 404 for an unknown one', async () => {
+      seedVideo({})
+
+      await expect(service.deleteVideoObjects('video:vid-1')).resolves.toBe(0)
+      await expect(service.deleteVideoObjects('video:nope')).rejects.toThrow(
+        NotFoundException,
       )
     })
   })
