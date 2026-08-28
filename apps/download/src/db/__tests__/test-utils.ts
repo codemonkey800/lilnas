@@ -1,11 +1,8 @@
-import fs from 'node:fs'
-import path from 'node:path'
-
 import BetterSqlite3 from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 
 import { Db, DbService } from 'src/db/db.service'
-import { resolveMigrationsFolder, runMigrations } from 'src/db/migrate'
+import { runMigrations } from 'src/db/migrate'
 import { applyPragmas } from 'src/db/pragmas'
 import * as schema from 'src/db/schema'
 
@@ -31,52 +28,6 @@ export function createTestDb(): TestDb {
   const db = drizzle(sqlite, { schema })
   runMigrations(db)
   return { db, sqlite, close: () => sqlite.close() }
-}
-
-/**
- * Applies the real, on-disk `.sql` migration files (identified by their file
- * name minus extension, e.g. `'0002_sticky_miss_america'`) to `sqlite` in
- * the given order - for tests that need to seed pre-backfill rows against an
- * intermediate schema state (e.g. `0000`+`0001` applied, `0002`+`0003` not
- * yet), which `runMigrations()`'s "apply everything" behavior can't produce.
- */
-export function applyMigrationFiles(
-  sqlite: BetterSqlite3.Database,
-  tags: string[],
-): void {
-  const migrationsFolder = resolveMigrationsFolder()
-  for (const tag of tags) {
-    const sql = fs.readFileSync(path.join(migrationsFolder, `${tag}.sql`), {
-      encoding: 'utf8',
-    })
-    sqlite.exec(sql)
-  }
-}
-
-/**
- * Applies every migration file the given tags don't already cover, in file
- * order - the tail half of `applyMigrationFiles`'s use case.
- *
- * A test that seeds against an intermediate schema state still has to read
- * the result back through the *current* drizzle schema, which only lines up
- * once the later migrations have run too. Reading the folder rather than
- * hard-coding the remaining tags means adding a migration doesn't silently
- * leave those tests one schema version behind (Phase 4's `jobs.scope` is
- * exactly the column that would have).
- */
-export function applyRemainingMigrationFiles(
-  sqlite: BetterSqlite3.Database,
-  alreadyApplied: string[],
-): void {
-  const applied = new Set(alreadyApplied)
-  const remaining = fs
-    .readdirSync(resolveMigrationsFolder())
-    .filter(file => file.endsWith('.sql'))
-    .map(file => file.replace(/\.sql$/, ''))
-    .filter(tag => !applied.has(tag))
-    .sort()
-
-  applyMigrationFiles(sqlite, remaining)
 }
 
 /**

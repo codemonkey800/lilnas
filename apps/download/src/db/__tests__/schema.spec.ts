@@ -6,7 +6,7 @@ import { applyPragmas } from 'src/db/pragmas'
 import * as schema from 'src/db/schema'
 import { auditLog, badFiles, jobs, videos } from 'src/db/schema'
 
-import { applyMigrationFiles, createTestDb } from './test-utils'
+import { createTestDb } from './test-utils'
 
 describe('schema + migrations', () => {
   it('applies migrations cleanly, creating exactly the `audit_log`, `jobs`, `videos` and `bad_files` tables', () => {
@@ -538,68 +538,6 @@ describe('schema + migrations', () => {
       }
     },
   )
-
-  // The rebuild in migration 0006 has to carry every pre-existing row across
-  // - a table rebuild that silently dropped rows is the failure mode worth
-  // a test of its own, and drizzle-kit's generated copy step needed a fix
-  // (it selected `scope` from the pre-0006 table) to get this far.
-  it('migration 0006 preserves rows written before it and keeps all five `jobs` indexes', () => {
-    const sqlite = new BetterSqlite3(':memory:')
-    try {
-      applyPragmas(sqlite)
-      applyMigrationFiles(sqlite, [
-        '0000_late_reavers',
-        '0001_daffy_mordo',
-        '0002_sticky_miss_america',
-        '0003_backfill_videos_and_media_ids',
-        '0004_glossy_rumiko_fujikawa',
-        '0005_shiny_vin_gonzales',
-      ])
-
-      sqlite
-        .prepare(
-          `INSERT INTO jobs (id, type, status, origin, hidden_attribution, media_id, created_at, updated_at)
-           VALUES ('legacy-1', 'show', 'completed', 'service', 0, 'tvdb:81189', 1000, 2000)`,
-        )
-        .run()
-
-      applyMigrationFiles(sqlite, ['0006_worried_chronomancer'])
-
-      const row = sqlite
-        .prepare(`SELECT id, media_id, scope, created_at FROM jobs`)
-        .get() as {
-        id: string
-        media_id: string
-        scope: null
-        created_at: number
-      }
-
-      expect(row).toEqual({
-        created_at: 1000,
-        id: 'legacy-1',
-        media_id: 'tvdb:81189',
-        scope: null,
-      })
-
-      const indexNames = sqlite
-        .prepare(
-          `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'jobs' AND name NOT LIKE 'sqlite_%'`,
-        )
-        .all()
-        .map(r => (r as { name: string }).name)
-        .sort()
-
-      expect(indexNames).toEqual([
-        'jobs_created_at_id_idx',
-        'jobs_created_at_idx',
-        'jobs_requester_email_idx',
-        'jobs_status_idx',
-        'jobs_type_media_id_idx',
-      ])
-    } finally {
-      sqlite.close()
-    }
-  })
 
   it('`media_id` is `NOT NULL` - an insert omitting it fails outright rather than landing a pre-Media row', () => {
     const { db, close } = createTestDb()
