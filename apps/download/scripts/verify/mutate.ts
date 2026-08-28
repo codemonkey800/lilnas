@@ -304,6 +304,20 @@ const ALWAYS_REACHABLE: readonly DownloadJobStatus[] = [
 ]
 
 /**
+ * States a job sits in until something external moves it, as opposed to the
+ * transient ones it moves through under its own steam.
+ *
+ * `isReachable()` will not walk *through* these. `Paused` is here for the
+ * same reason the terminal statuses are: a paused job stays paused until a
+ * user resumes it, so a poller cannot miss one the way it misses a
+ * sub-second `Uploading`.
+ */
+const RESTING_STATUSES: ReadonlySet<DownloadJobStatus> = new Set([
+  ...TERMINAL_STATUSES,
+  DownloadJobStatus.Paused,
+])
+
+/**
  * Movie/show transitions, read off `MediaDownloadService.request()`
  * (`Requested` → `Searching`|`Failed`), `MediaPollerService.applyUpdate()` and
  * `deriveStatusFromQueueItem()` (`queue-status.util.ts`).
@@ -376,11 +390,75 @@ function legalSuccessors(
 ): readonly DownloadJobStatus[] {
   if (TERMINAL_STATUSES.has(from)) {
     // The poller filters terminal jobs out of `trackedJobs`, and
-    // `updateJob()` is never called on one again. Absorbing, by construction.
+    // `updateJob()` is never called on one again during a watch. Absorbing,
+    // by construction. (The delete routes *do* write Cancelled onto a
+    // Completed job, but a watch has already stopped by then.)
     return []
   }
   const table = kind === 'video' ? VIDEO_TRANSITIONS : MEDIA_TRANSITIONS
   return [...(table.get(from) ?? []), ...ALWAYS_REACHABLE]
+}
+
+/**
+ * Whether `to` is reachable from `from` along the transition graph.
+ *
+ * **Reachability, not adjacency, is the honest predicate here**, and the
+ * distinction is not pedantic: this checker reads a *sampled* status, so it
+ * only ever sees the states a poll happened to land on. `Uploading` and
+ * `Cleaning` are a 139 KB `fPutObject` and an `rm` of a scratch directory —
+ * for a five-second clip both routinely complete inside one poll interval,
+ * so the poller reads `converting`, then `completed`, and an adjacency test
+ * calls that an illegal transition. It isn't: the backend went
+ * `converting → uploading → cleaning → completed` and the watcher blinked.
+ *
+ * Reporting that as a state-machine violation is worse than reporting
+ * nothing, because it puts a red row next to a backend that behaved
+ * perfectly and trains the reader to discount red rows.
+ *
+ * This keeps all the value of the check. A genuinely impossible observation
+ * — `completed → downloading`, `paused → uploading`, anything that would
+ * mean a status was written out of band — is still unreachable in the graph
+ * and still fails. All that is given up is the ability to insist every
+ * intermediate state was *witnessed*, which polling was never able to
+ * promise.
+ */
+export function isReachable(
+  kind: MutationKind,
+  from: DownloadJobStatus,
+  to: DownloadJobStatus,
+): boolean {
+  const seen = new Set<DownloadJobStatus>([from])
+  const queue: DownloadJobStatus[] = [from]
+
+  while (queue.length > 0) {
+    const at = queue.shift() as DownloadJobStatus
+
+    for (const next of legalSuccessors(kind, at)) {
+      if (next === to) {
+        return true
+      }
+
+      // Traverse *transient* states only. A job passes through `Pausing` or
+      // `Converting` on its own and can be gone before the next poll, so
+      // walking through them models a blink. It does not leave `Paused` or
+      // any terminal status without a fresh user action, so walking through
+      // one would launder a genuinely backwards observation into a legal
+      // path: `cleaning → downloading` is impossible, but
+      // `cleaning → pausing → paused → pending → downloading` is a route
+      // through the graph. Refusing to expand the resting states is what
+      // keeps that impossible - and keeps this check worth running.
+      if (RESTING_STATUSES.has(next)) {
+        continue
+      }
+
+      if (!seen.has(next)) {
+        seen.add(next)
+        queue.push(next)
+      }
+    }
+  }
+
+  return false
 }
 
 // ---------------------------------------------------------------------------
@@ -1468,7 +1546,7 @@ async function pollJob(
       continue
     }
 
-    if (!legalSuccessors(kind, current).includes(next)) {
+    if (!isReachable(kind, current, next)) {
       illegal.push(`${current} → ${next}`)
     }
     observed.push(next)
