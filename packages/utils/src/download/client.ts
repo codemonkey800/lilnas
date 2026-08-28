@@ -130,6 +130,21 @@ export class DownloadClient {
     return response.json()
   }
 
+  /**
+   * Removes a video download for good - stops it if it is still running and
+   * deletes the objects it produced.
+   *
+   * The counterpart of `deleteMovieJob`/`deleteShowJob`, and the one thing
+   * `cancelJob` cannot do: cancel 404s once the job is `Completed`.
+   */
+  async deleteJob(id: string): Promise<DownloadJob> {
+    const response = await this.request(`/download/videos/${id}`, {
+      method: 'DELETE',
+    })
+
+    return response.json()
+  }
+
   /** The library view - a title's metadata plus every job that fetched it. */
   async getMedia(id: string): Promise<MediaDetailResponse> {
     const response = await this.request(

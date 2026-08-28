@@ -26,6 +26,7 @@ import { DownloadMetricsService } from 'src/download/download-metrics.service'
 import { DownloadSchedulerService } from 'src/download/download-scheduler.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { JobInterruptKind } from 'src/download/job-interrupted.error'
+import { MediaFileService } from 'src/media/media-file.service'
 
 const NOW_ISO = '2026-08-25T12:00:00.000Z'
 
@@ -106,6 +107,9 @@ function createStateMock() {
   const procs = new Map<string, ChildProcessWithoutNullStreams>()
 
   return {
+    // The real one falls back to the durable `jobs` row and seeds the Map;
+    // here the Map *is* the durable store, so a hit is the whole behaviour.
+    adoptJob: jest.fn((id: string) => jobs.get(id)),
     clearInterruption: jest.fn((id: string) => {
       interruptions.delete(id)
     }),
@@ -135,6 +139,7 @@ function createStateMock() {
 
       return updated
     }),
+    updateVideo: jest.fn(),
   }
 }
 
@@ -147,6 +152,10 @@ describe('DownloadService', () => {
     add: jest.fn(),
     delete: jest.fn(),
     requeue: jest.fn(),
+  }
+
+  const mediaFileService = {
+    deleteVideoObjects: jest.fn(() => Promise.resolve(2)),
   }
 
   const metrics = {
@@ -187,6 +196,7 @@ describe('DownloadService', () => {
         { provide: DownloadMetricsService, useValue: metrics },
         { provide: DownloadSchedulerService, useValue: scheduler },
         { provide: DownloadStateService, useValue: state },
+        { provide: MediaFileService, useValue: mediaFileService },
       ],
     }).compile()
 
@@ -512,6 +522,87 @@ describe('DownloadService', () => {
         `Job '${record.id}' has not started`,
       )
       expect(metrics.jobCompleted).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('deleteVideoDownloadJob', () => {
+    it('deletes the objects, clears the download URLs and lands the job at Cancelled', async () => {
+      const record = seed(
+        { status: DownloadJobStatus.Completed },
+        { withProc: false },
+      )
+
+      const job = await service.deleteVideoDownloadJob(record.id)
+
+      expect(mediaFileService.deleteVideoObjects).toHaveBeenCalledWith(
+        'video:v1',
+      )
+      expect(state.updateVideo).toHaveBeenCalledWith(record.id, {
+        downloadUrls: [],
+      })
+      expect(state.updateJob).toHaveBeenCalledWith(record.id, {
+        status: DownloadJobStatus.Cancelled,
+      })
+      expect(job.status).toBe(DownloadJobStatus.Cancelled)
+    })
+
+    // The gap this route closes: `cancel` 404s once a job is Completed, so
+    // before it there was no way to remove a finished video at all.
+    it('works on a Completed job, which cancel refuses outright', async () => {
+      const record = seed(
+        { status: DownloadJobStatus.Completed },
+        { withProc: false },
+      )
+
+      await expect(
+        service.deleteVideoDownloadJob(record.id),
+      ).resolves.toBeDefined()
+      expect(state.getProc).not.toHaveBeenCalled()
+    })
+
+    it('stops a running job before removing what it produced', async () => {
+      const record = seed({ status: DownloadJobStatus.Downloading })
+
+      await service.deleteVideoDownloadJob(record.id)
+
+      expect(proc.kill).toHaveBeenCalledTimes(1)
+      expect(callOrder.indexOf('kill')).toBeGreaterThanOrEqual(0)
+      expect(mediaFileService.deleteVideoObjects).toHaveBeenCalled()
+    })
+
+    // "It wasn't running" is not a reason to refuse a delete - cancel throws
+    // for an unstarted job, and that throw must not become the user's answer.
+    it('deletes a queued job even though cancel refuses it', async () => {
+      const record = seed(
+        { status: DownloadJobStatus.Pending },
+        { withProc: false },
+      )
+
+      const job = await service.deleteVideoDownloadJob(record.id)
+
+      expect(job.status).toBe(DownloadJobStatus.Cancelled)
+      expect(mediaFileService.deleteVideoObjects).toHaveBeenCalled()
+    })
+
+    it('404s an unknown job and 400s a non-video one', async () => {
+      await expect(service.deleteVideoDownloadJob('nope')).rejects.toThrow(
+        NotFoundException,
+      )
+
+      const movie = seed(
+        {
+          id: 'job-movie',
+          mediaId: 'tmdb:5',
+          status: DownloadJobStatus.Completed,
+          type: DownloadType.Movie,
+        },
+        { withProc: false },
+      )
+
+      await expect(service.deleteVideoDownloadJob(movie.id)).rejects.toThrow(
+        BadRequestException,
+      )
+      expect(mediaFileService.deleteVideoObjects).not.toHaveBeenCalled()
     })
   })
 })

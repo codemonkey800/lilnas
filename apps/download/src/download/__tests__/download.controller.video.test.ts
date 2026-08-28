@@ -60,6 +60,7 @@ describe('DownloadController - video endpoints', () => {
     const mockDownloadService = {
       createVideoDownloadJob: jest.fn(),
       cancelVideoDownloadJob: jest.fn(),
+      deleteVideoDownloadJob: jest.fn(),
       pauseVideoDownloadJob: jest.fn(),
       resumeVideoDownloadJob: jest.fn(),
     }
@@ -248,6 +249,54 @@ describe('DownloadController - video endpoints', () => {
       await expect(
         controller.cancelVideoJob('missing', undefined),
       ).rejects.toThrow(HttpException)
+    })
+  })
+
+  describe('deleteVideoJob', () => {
+    it('masks a hidden job for a non-admin caller and reveals it for an admin', async () => {
+      const job = buildVideoJob({
+        hiddenAttribution: true,
+        requester: { email: 'alice@example.com', userId: 'u1' },
+        status: DownloadJobStatus.Cancelled,
+      })
+      downloadService.deleteVideoDownloadJob.mockResolvedValue(job)
+
+      adminCheckService.checkIsAdmin.mockResolvedValue(false)
+      expect(
+        (await controller.deleteVideoJob(job.id, nonAdmin)).requester,
+      ).toBeNull()
+
+      adminCheckService.checkIsAdmin.mockResolvedValue(true)
+      expect(
+        (await controller.deleteVideoJob(job.id, admin)).requester,
+      ).toEqual({ email: 'alice@example.com', userId: 'u1' })
+    })
+
+    it('records a video.delete audit row against the job', async () => {
+      const job = buildVideoJob({ status: DownloadJobStatus.Cancelled })
+      downloadService.deleteVideoDownloadJob.mockResolvedValue(job)
+
+      await controller.deleteVideoJob(job.id, admin)
+
+      expect(auditLogService.record).toHaveBeenCalledWith({
+        action: 'video.delete',
+        actor: admin,
+        metadata: undefined,
+        target: { id: job.id, type: 'job' },
+      })
+    })
+
+    // The service's own 404/400 must reach the caller untouched - unlike
+    // cancel, which flattens everything into a 404.
+    it('re-throws the service exception as-is', async () => {
+      downloadService.deleteVideoDownloadJob.mockRejectedValue(
+        new NotFoundException("Job with ID 'missing' not found"),
+      )
+
+      await expect(
+        controller.deleteVideoJob('missing', undefined),
+      ).rejects.toThrow(NotFoundException)
+      expect(auditLogService.record).not.toHaveBeenCalled()
     })
   })
 

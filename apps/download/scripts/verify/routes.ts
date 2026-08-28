@@ -311,12 +311,14 @@ export const READ_ROUTES: RouteSpec[] = [
   // `listReleases()` documents browsing a not-yet-requested title as its
   // primary use case, and `withMonitoring` reaches it via `ensureMovie`
   // rather than the resolver. A catalogue key is therefore a legitimate
-  // fixture. ⚠️ It is not a free one — `ensureMovie` **adds the movie to
-  // Radarr** when it isn't there (`radarr.service.ts`, `postApiV3Movie`
-  // with `searchForMovie: false`), and `restore: true` only puts monitoring
-  // back, so the library entry stays. That is a real side effect of a GET,
-  // and it is why the runner prefers a library-backed key when one exists:
-  // on a library key `ensureMovie` finds the movie and adds nothing.
+  // fixture. `ensureMovie` still **adds the movie to Radarr** when it isn't
+  // there (`radarr.service.ts`, `postApiV3Movie` with
+  // `searchForMovie: false`), but `withMonitoring` now takes that entry back
+  // out on the read path (`wasAdded` -> `unmonitorAndDelete(id, false)`), so
+  // a sweep over catalogue keys no longer leaves an imported library behind.
+  // The runner still prefers a library-backed key when one exists: on a
+  // library key `ensureMovie` finds the movie and adds nothing at all, which
+  // is cheaper and touches less.
   {
     slug: 'media-releases',
     path: '/download/media/:id/releases',

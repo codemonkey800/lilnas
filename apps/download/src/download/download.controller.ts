@@ -648,7 +648,8 @@ export class DownloadController {
   @Post('/media/:id/releases/grab')
   async grabRelease(
     @Param('id') id: string,
-    @Body() input: GrabReleaseInputDto,
+    @Body(new ZodValidationPipe(GrabReleaseInputDto))
+    input: GrabReleaseInputDto,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
   ): Promise<DownloadJob> {
     return this.releaseActionRoute({
@@ -674,7 +675,8 @@ export class DownloadController {
   @Post('/media/:id/releases/replace')
   async replaceRelease(
     @Param('id') id: string,
-    @Body() input: ReplaceReleaseInputDto,
+    @Body(new ZodValidationPipe(ReplaceReleaseInputDto))
+    input: ReplaceReleaseInputDto,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
   ): Promise<DownloadJob> {
     return this.releaseActionRoute({
@@ -700,7 +702,8 @@ export class DownloadController {
   @UseGuards(ForwardedUserGuard)
   flagBadFile(
     @Param('id') id: string,
-    @Body() input: FlagBadFileInputDto,
+    @Body(new ZodValidationPipe(FlagBadFileInputDto))
+    input: FlagBadFileInputDto,
     @CurrentUser() user: ForwardedUser,
   ): FlagBadFileResponse {
     const badFile = this.releaseService.flagBadFile(id, input, user)
@@ -808,7 +811,7 @@ export class DownloadController {
 
   @Post('/videos')
   async createVideoJob(
-    @Body() input: CreateJobInputDto,
+    @Body(new ZodValidationPipe(CreateJobInputDto)) input: CreateJobInputDto,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
   ): Promise<DownloadJob> {
     const action = 'createVideoJob'
@@ -996,9 +999,41 @@ export class DownloadController {
     })
   }
 
+  /**
+   * Removes a video download for good - stops it if it's still running,
+   * deletes its MinIO objects, and clears the download URLs that pointed at
+   * them.
+   *
+   * The video counterpart of `DELETE /movies/:id` and `DELETE /shows/:id`,
+   * and the route whose absence left finished videos unremovable: `cancel`
+   * 404s once a job is `Completed`, and `DELETE /media/:id/files` refuses a
+   * `video:` key. Same gate as those two and as cancel - no admin check,
+   * `@OptionalCurrentUser()` for attribution only.
+   *
+   * Addressed by **job** id, like the movie and show deletes, not by the
+   * `video:` media key - the job is what the gallery and activity list link
+   * to, and the `videos` row deliberately outlives the delete (see
+   * `DownloadService.deleteVideoDownloadJob`).
+   */
+  @Delete('/videos/:id')
+  async deleteVideoJob(
+    @Param('id') id: string,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<DownloadJob> {
+    return this.videoInterruptRoute({
+      action: 'deleteVideoJob',
+      audit: { action: 'video.delete' },
+      id,
+      run: () => this.downloadService.deleteVideoDownloadJob(id),
+      user,
+      verb: 'delete',
+    })
+  }
+
   @Get('/movies/search')
   async searchMovies(
-    @Query() query: MediaSearchQueryDto,
+    @Query(new ZodValidationPipe(MediaSearchQueryDto))
+    query: MediaSearchQueryDto,
   ): Promise<SearchMediaResponse> {
     const action = 'searchMovies'
 
@@ -1019,7 +1054,8 @@ export class DownloadController {
 
   @Post('/movies')
   async requestMovie(
-    @Body() input: RequestMovieInputDto,
+    @Body(new ZodValidationPipe(RequestMovieInputDto))
+    input: RequestMovieInputDto,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
   ): Promise<DownloadJob> {
     const action = 'requestMovie'
@@ -1083,7 +1119,8 @@ export class DownloadController {
 
   @Get('/shows/search')
   async searchShows(
-    @Query() query: MediaSearchQueryDto,
+    @Query(new ZodValidationPipe(MediaSearchQueryDto))
+    query: MediaSearchQueryDto,
   ): Promise<SearchMediaResponse> {
     const action = 'searchShows'
 
@@ -1110,7 +1147,8 @@ export class DownloadController {
    */
   @Post('/shows')
   async requestShow(
-    @Body() input: RequestShowInputDto,
+    @Body(new ZodValidationPipe(RequestShowInputDto))
+    input: RequestShowInputDto,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
   ): Promise<DownloadJob> {
     const action = 'requestShow'
@@ -1311,7 +1349,7 @@ export class DownloadController {
     id: string
     run: () => Promise<DownloadJob>
     user: ForwardedUser | undefined
-    verb: 'pause' | 'resume'
+    verb: 'delete' | 'pause' | 'resume'
   }): Promise<DownloadJob> {
     const startTime = Date.now()
 
@@ -1322,7 +1360,7 @@ export class DownloadController {
         totalJobs: this.downloadStateService.jobs.size,
         inProgressJobs: this.downloadStateService.inProgressJobs.size,
       },
-      `PATCH /videos/:id/${verb} - handling video job ${verb} request`,
+      `/videos/:id - handling video job ${verb} request`,
     )
 
     try {

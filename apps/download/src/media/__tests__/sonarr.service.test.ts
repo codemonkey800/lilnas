@@ -133,7 +133,7 @@ describe('SonarrService', () => {
     })
 
     it('maps every optional field to a defined default when absent', async () => {
-      mockGetApiV3SeriesLookup.mockResolvedValue({ data: [{}] })
+      mockGetApiV3SeriesLookup.mockResolvedValue({ data: [{ tvdbId: 9 }] })
 
       const result = await service.search('x')
 
@@ -142,7 +142,7 @@ describe('SonarrService', () => {
           certification: undefined,
           filePath: undefined,
           genres: [],
-          id: 'tvdb:0',
+          id: 'tvdb:9',
           overview: undefined,
           posterUrl: undefined,
           ratingValue: undefined,
@@ -150,11 +150,25 @@ describe('SonarrService', () => {
           runtime: undefined,
           sonarrId: undefined,
           title: 'Unknown title',
-          tvdbId: 0,
+          tvdbId: 9,
           type: 'show',
           year: undefined,
         },
       ])
+    })
+
+    // See RadarrService.search()'s equivalent test - `tvdb:0` fails
+    // `ShowSchema`'s own positive-integer check, so the frontend used to
+    // drop the record with no error anywhere.
+    it('drops a record with no tvdbId rather than minting tvdb:0', async () => {
+      mockGetApiV3SeriesLookup.mockResolvedValue({
+        data: [{}, { tvdbId: 0 }, { title: 'Real', tvdbId: 11 }],
+      })
+
+      const result = await service.search('x')
+
+      expect(result).toHaveLength(1)
+      expect(result[0]?.tvdbId).toBe(11)
     })
 
     // See RadarrService.search()'s equivalent test: Sonarr returns `id: 0`
@@ -192,6 +206,7 @@ describe('SonarrService', () => {
               { coverType: 'fanart', url: 'fanart.jpg' },
               { coverType: 'poster', url: 'poster.jpg' },
             ],
+            tvdbId: 5,
           },
         ],
       })

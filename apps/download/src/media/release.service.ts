@@ -131,8 +131,9 @@ function toBadFile(row: BadFileRow): BadFile {
  * you grab) releases for a title that isn't in the library **and** monitored
  * - so browsing releases for a title nobody has requested yet has to add and
  * monitor it first. Leaving it that way is not acceptable (an RSS sync would
- * eventually grab something nobody asked for), so the read path *borrows*
- * monitoring and puts it back; see `withMonitoring`.
+ * eventually grab something nobody asked for, and the library would fill up
+ * with titles nobody requested), so the read path *borrows* both the library
+ * entry and the monitoring flag and puts each back; see `withMonitoring`.
  */
 @Injectable()
 export class ReleaseService {
@@ -471,15 +472,30 @@ export class ReleaseService {
   }
 
   /**
-   * Runs `fn` with the title guaranteed monitored upstream, then optionally
-   * puts monitoring back the way it found it.
+   * Runs `fn` with the title guaranteed present and monitored upstream, then
+   * optionally puts the library back the way it found it.
    *
-   * The rule that makes this safe: **if it was already monitored, change
-   * nothing - on the way in or on the way out.** A title with a pending
-   * `requestMovie` is monitored on purpose, and blindly unmonitoring after a
-   * release listing would silently kill that request. Anything already
-   * downloaded is normally monitored too, so this covers that without
-   * depending on it being true.
+   * Two rules make this safe:
+   *
+   * 1. **If it was already monitored, change nothing - on the way in or on
+   *    the way out.** A title with a pending `requestMovie` is monitored on
+   *    purpose, and blindly unmonitoring after a release listing would
+   *    silently kill that request. Anything already downloaded is normally
+   *    monitored too, so this covers that without depending on it being
+   *    true.
+   * 2. **If this call *added* the title, remove it again.** Radarr and
+   *    Sonarr key their release endpoints on their own library ids, so
+   *    listing releases for a title nobody has requested means adding it
+   *    first - and unmonitoring is not an undo for that. Before this, a
+   *    plain `GET /media/:id/releases` on a catalogue title left a permanent
+   *    library entry behind, which made a whole-catalogue read sweep a
+   *    whole-catalogue import.
+   *
+   * The removal is `deleteFiles: false` on purpose: a title that was not in
+   * the library a moment ago has nothing on disk this call is entitled to
+   * delete, and the flag is the difference between undoing an add and
+   * destroying someone's copy if the "was it there?" read ever raced a real
+   * request.
    *
    * A failed restore logs and is swallowed - the caller asked for releases,
    * and failing their request because the cleanup didn't take would be the
@@ -497,14 +513,17 @@ export class ReleaseService {
     fn: (upstreamId: number) => Promise<T>,
   ): Promise<T> {
     if (target.type === DownloadType.Movie) {
-      const { radarrId, wasMonitored } = await this.radarrService.ensureMovie(
-        target.tmdbId,
-      )
+      const { radarrId, wasAdded, wasMonitored } =
+        await this.radarrService.ensureMovie(target.tmdbId)
 
       try {
         return await fn(radarrId)
       } finally {
-        if (opts.restore && !wasMonitored) {
+        if (opts.restore && wasAdded) {
+          await this.restore('radarr', radarrId, () =>
+            this.radarrService.unmonitorAndDelete(radarrId, false),
+          )
+        } else if (opts.restore && !wasMonitored) {
           await this.restore('radarr', radarrId, () =>
             this.radarrService.setMonitored(radarrId, false),
           )
@@ -512,7 +531,7 @@ export class ReleaseService {
       }
     }
 
-    const { sonarrId, turnedOnEpisodeIds, wasMonitored } =
+    const { sonarrId, turnedOnEpisodeIds, wasAdded, wasMonitored } =
       await this.sonarrService.ensureSeries(target.tvdbId, {
         monitorEpisodes: {
           episodeId: opts.episodeId,
@@ -523,7 +542,13 @@ export class ReleaseService {
     try {
       return await fn(sonarrId)
     } finally {
-      if (opts.restore) {
+      if (opts.restore && wasAdded) {
+        // Nothing episode-level to undo: the series row is going, and
+        // `turnedOnEpisodeIds` is empty on the add branch anyway.
+        await this.restore('sonarr', sonarrId, () =>
+          this.sonarrService.unmonitorAndDelete(sonarrId, false),
+        )
+      } else if (opts.restore) {
         await this.restore('sonarr', sonarrId, async () => {
           // Episodes first, then the series - the reverse of the order they
           // were turned on, and the order that leaves the least time with a
@@ -541,8 +566,9 @@ export class ReleaseService {
   }
 
   /**
-   * Runs the restore half of `withMonitoring`, downgrading any failure to a
-   * warning. Split out so the `finally` blocks above stay readable and so
+   * Runs the restore half of `withMonitoring` - whichever of "put the flag
+   * back" or "take the entry out again" applies - downgrading any failure to
+   * a warning. Split out so the `finally` blocks above stay readable and so
    * there is exactly one place that decides a failed restore is non-fatal.
    */
   private async restore(
@@ -560,7 +586,7 @@ export class ReleaseService {
           source,
           upstreamId,
         },
-        'Failed to restore borrowed monitoring - the title may be left monitored',
+        'Failed to restore the borrowed library state - the title may be left monitored, or left in the library',
       )
     }
   }

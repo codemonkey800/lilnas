@@ -131,7 +131,7 @@ describe('RadarrService', () => {
     })
 
     it('maps every optional field to a defined default when absent', async () => {
-      mockGetApiV3MovieLookup.mockResolvedValue({ data: [{}] })
+      mockGetApiV3MovieLookup.mockResolvedValue({ data: [{ tmdbId: 9 }] })
 
       const result = await service.search('x')
 
@@ -140,7 +140,7 @@ describe('RadarrService', () => {
           certification: undefined,
           filePath: undefined,
           genres: [],
-          id: 'tmdb:0',
+          id: 'tmdb:9',
           overview: undefined,
           posterUrl: undefined,
           radarrId: undefined,
@@ -148,11 +148,27 @@ describe('RadarrService', () => {
           releaseDate: undefined,
           runtime: undefined,
           title: 'Unknown title',
-          tmdbId: 0,
+          tmdbId: 9,
           type: 'movie',
           year: undefined,
         },
       ])
+    })
+
+    // `tmdbId` is the one field with no defensible default. `?? 0` used to
+    // mint `tmdb:0`, which fails `MovieSchema`'s own
+    // `z.number().int().positive()` - so the backend served a record the
+    // frontend's `safeParse()` silently discarded. Dropping it here is the
+    // same outcome for that record and a loud one in the logs.
+    it('drops a record with no tmdbId rather than minting tmdb:0', async () => {
+      mockGetApiV3MovieLookup.mockResolvedValue({
+        data: [{}, { tmdbId: 0 }, { tmdbId: 11, title: 'Real' }],
+      })
+
+      const result = await service.search('x')
+
+      expect(result).toHaveLength(1)
+      expect(result[0]?.tmdbId).toBe(11)
     })
 
     // Radarr returns `id: 0` for a lookup hit that isn't in the library.
@@ -191,7 +207,14 @@ describe('RadarrService', () => {
 
     it('omits filePath when the library item has no file yet', async () => {
       mockGetApiV3MovieLookup.mockResolvedValue({
-        data: [{ hasFile: false, id: 7, movieFile: { path: '/movies/a.mkv' } }],
+        data: [
+          {
+            hasFile: false,
+            id: 7,
+            movieFile: { path: '/movies/a.mkv' },
+            tmdbId: 5,
+          },
+        ],
       })
 
       const [result] = await service.search('x')
@@ -241,7 +264,9 @@ describe('RadarrService', () => {
       dateFields: Record<string, string>,
       expectedReleaseDate: string | undefined,
     ) {
-      mockGetApiV3MovieLookup.mockResolvedValue({ data: [{ ...dateFields }] })
+      mockGetApiV3MovieLookup.mockResolvedValue({
+        data: [{ ...dateFields, tmdbId: 5 }],
+      })
 
       const [result] = await service.search('x')
 
@@ -256,6 +281,7 @@ describe('RadarrService', () => {
               { coverType: 'fanart', url: 'fanart.jpg' },
               { coverType: 'poster', url: 'poster.jpg' },
             ],
+            tmdbId: 5,
           },
         ],
       })
