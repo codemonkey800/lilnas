@@ -3,9 +3,13 @@
 What has actually been proven to work against the real Radarr, Sonarr, Emby and
 MinIO, and what has not. Produced by the plan-009 verification script
 (`apps/download/scripts/verify/`) run against the live backend on the lilnas
-host. Read sweep and all three mutate passes re-run against the fixed build
-on **2026-08-28**, that time with content deliberately **kept** in the
+host. Read sweep and all three mutate passes re-run against the deployed
+fixed build on **2026-08-28**, with content deliberately **kept** in the
 library and `--include-expensive` passed — see **Remaining work §4**.
+
+**Current state: `42 rows · 40 passed · 0 failed · 2 skipped`.** Both skips
+are `activity-page2` and its `cursor.activity` spot-check — one cause, and a
+deliberate decision rather than a gap. See §4.
 
 > **Why this document exists.** The 59 test files under
 > `apps/download/src/**/__tests__/` all call `jest.mock('@lilnas/media/radarr')`
@@ -32,7 +36,7 @@ rather than the service itself.
 
 ### 1. The branch has never been pushed or merged
 
-`jeremy/download` is **126 commits ahead of `main` and 113 unpushed.** This
+`jeremy/download` is **127 commits ahead of `main` and 114 unpushed.** This
 is the largest outstanding item and it is not cosmetic: deployment
 prerequisite 3 below exists _only_ because of it. `main`'s
 `apps/download/deploy.yml` is a 15-line file with no `/data` volume and no
@@ -41,7 +45,7 @@ lands on `main`, the next `docker compose up -d download` recreates the
 container with nothing mounted and Nest dies with `SQLITE_CANTOPEN`. That
 hazard disappears on merge and only on merge.
 
-The prod checkout is currently parked **detached at `d56810f`** — a state
+The prod checkout is currently parked **detached at `05764e5`** — a state
 nobody can reproduce from a clone. Every deploy so far has had to move this
 detached HEAD forward by hand, which is the operational cost of not merging.
 
@@ -149,7 +153,7 @@ database whose bookkeeping is already correct. Its self-heal branch is proven
 by `db.service.spec.ts`, which builds the broken state deliberately, rather
 than by this deploy.
 
-### 4. Library content — 8 skipped rows → 3 ✅ CLOSED
+### 4. Library content — 8 skipped rows → 2 ✅ CLOSED
 
 Every one traced to the same cause: the library was empty. Every mutate pass
 tears down what it creates _by design_, so these closed only by **keeping**
@@ -160,30 +164,32 @@ Kept in the library:
 
 | What                           | How                                                                         |
 | ------------------------------ | --------------------------------------------------------------------------- |
-| 1 movie — _Following_ (1999)   | `mutate --only movie --keep`; reached `downloading`                         |
-| 1 show — _Olive Kitteridge_ S1 | `mutate --only show --keep`; added to Sonarr, still `searching`             |
+| 1 movie — _Following_ (1999)   | `mutate --only movie --keep`; Radarr has since **grabbed it to disk**       |
+| 1 show — _Olive Kitteridge_ S1 | `mutate --only show --keep`; Sonarr has since **grabbed it to disk**        |
 | 11 distinct video clips        | `--only video --keep` over 11 `--fixtures` files with distinct `timeRange`s |
+
+Both the movie and the show have since finished downloading on their own,
+which is what turned the Emby and `media-seasons` rows from vacuous into
+real coverage. That was worth waiting for and could not have been forced.
 
 The video trick matters: a `video:` key is derived from
 `(sourceUrl, timeRange)`, so re-running the same fixture reuses one row.
 Walking the time range (`00:00:00–00:00:03`, `00:00:01–00:00:04`, …) mints a
 fresh key each time and is what pushes `gallery` past its 10-row page.
 
-**Rows this closed:** `gallery-page2`, `cursor.gallery`, `media-file`, and
-`media-releases` (run with `--include-expensive`, now safe since
-`/releases` takes back any entry it had to add — this is the first time that
-flag has ever been exercised).
+**Rows this closed:** `gallery-page2`, `cursor.gallery`, `media-file`,
+`media-releases` (run with `--include-expensive`, now safe since `/releases`
+takes back any entry it had to add — the first time that flag has ever been
+exercised), and — once Sonarr finished the grab — **`media-seasons`**, which
+had been skipped since the very first sweep for want of a held show.
 
-**Three rows remain skipped, and are not worth forcing:**
+**Two rows remain skipped — one cause, and a choice:**
 
 - **`activity-page2` / `cursor.activity`** — `/activity` lists only movie and
   show jobs, never videos, so paginating it needs >10 real Radarr/Sonarr adds.
   The cursor mechanism is already proven four ways over (`gallery`,
   `discover`, `history`, `admin-audit-log`), so this would be library
-  pollution buying nothing.
-- **`media-seasons`** — needs the kept show to finish downloading and land on
-  disk, which waits on an indexer actually holding an _Olive Kitteridge_ S1
-  release. Not forceable on demand; may close on its own.
+  pollution buying nothing. **This is a decision, not a gap.**
 
 ### 5. No UI for the video delete
 
@@ -200,7 +206,7 @@ obvious shortcut wrong:
 
 ```bash
 cd /home/jeremy/lilnas
-git checkout d56810f                      # prod checkout is detached; see §1
+git checkout 05764e5                      # prod checkout is detached; see §1
 ./infra/base-images/build-base-images.sh  # REQUIRED — see below
 docker-compose build download
 docker-compose up -d download
@@ -226,8 +232,9 @@ fixtures.
 
 |                      |                                               |
 | -------------------- | --------------------------------------------- |
-| Read checks verified | **37 of 42** rows                             |
+| Read checks verified | **38 of 42** rows (40 passed, 2 vacuous)      |
 | Remaining failures   | **0**                                         |
+| Remaining skips      | **2** — one cause, deliberate; see §4         |
 | Write path           | **All three media types verified end to end** |
 | Real bugs found      | **9** (all 9 fixed and deployed)              |
 
@@ -236,8 +243,8 @@ against real upstreams, and now cleans up after itself completely.
 
 Latest run (2026-08-28, against the **deployed** fixed build, with content
 kept and `--include-expensive`):
-`42 rows · 39 passed (2 of them validated nothing) · 0 failed · 3 skipped`
-— **37 of 42 rows verified something.**
+`42 rows · 40 passed (2 of them validated nothing) · 0 failed · 2 skipped`
+— **38 of 42 rows verified something.**
 
 The progression, each step being a real change in what is known:
 
@@ -247,9 +254,13 @@ The progression, each step being a real change in what is known:
 | After the four fixes          | `34 passed · 0 failed · 8 skipped`            |
 | After keeping library content | `39 passed (4 validated nothing) · 3 skipped` |
 | After deploying §2/§3         | `39 passed (2 validated nothing) · 3 skipped` |
+| After the grabs completed     | `40 passed (2 validated nothing) · 2 skipped` |
 
-The last step moved no counts but closed two rows that had been passing
-_vacuously_ — see the Emby note below.
+Two of those steps are worth reading carefully. Deploying §2/§3 moved no
+counts but closed two rows that had been passing _vacuously_. The last step
+was not our doing at all — Radarr and Sonarr finished grabbing the kept
+titles, which put files on disk and turned the Emby checks and
+`media-seasons` into real coverage.
 
 `pnpm test` is green — **55 suites passed, 1 skipped, 0 failed; 1035 tests
 passed, 9 skipped**. The one skipped suite is
@@ -261,9 +272,9 @@ entries and zero residue** — the residue list, which existed because a
 finished video could not be torn down, is now always empty.
 
 **Nothing verifiable is left unverified.** Every fix is deployed and proven
-against the live backend. The three still-skipped rows are documented in §4:
-two are a deliberate decision not to pollute the library, one is waiting on an
-indexer. None is a defect, and no route is left behind a flag.
+against the live backend. The two still-skipped rows share one cause and are
+a deliberate decision not to pollute the library (§4), not a defect, and no
+route is left behind a flag.
 
 The remaining work is §1 (merge the branch) and §5 (surface the video delete
 in the UI) — neither of which the verification script can speak to.
@@ -291,12 +302,13 @@ every missing episode.
 
 - **Every envelope schema parsed real upstream responses with zero drift.**
   This was the central question the verification script existed to answer.
-- **19 routes answered 200 and parsed**, including `activity`, `gallery`,
-  `gallery-facets`, `discover`, `history`, both `/search` routes,
-  `media-detail`, `media-bad-files`, all three job-by-id routes, both `ytdlp`
-  routes, `auth/whoami`, and — since the `auth` redeploy — both admin routes.
-- **Cursor pagination round-trips** on `/discover` — 10 + 10 of 40, no overlap,
-  stable `total`.
+- **All 24 captured routes answered 200 and parsed** — every route in the
+  manifest except `activity-page2`, which has no second page to fetch. That
+  includes `media-seasons` and `media-releases`, the two that spent the whole
+  exercise skipped.
+- **Cursor pagination round-trips on four routes** — `discover`
+  (10 + 10 of 40), `gallery` (10 + 4 of 14), `history` (10 + 10 of 35) and
+  `admin-audit-log` (10 + 10 of 78). No overlap, stable `total`.
 - **`degradedSources: []`** with both upstreams answering `200`.
 - **Guards behave correctly** — 401 anonymous, 200 with `X-Forwarded-User`.
   This confirmed `/auth/whoami` **is** guarded, contradicting plan 009's own
@@ -378,8 +390,8 @@ filesystem. It is the clearest example of what this exercise was for.
 both services authenticate with `?api_key=` against the same server. Verified
 from inside the `download` container: `GET /emby/Users` returns `200` and the
 `EMBY_USERNAME` user (`jeremy`) exists, which `emby-status.service.ts:206`
-requires. **Both the key and the `embyStatus` path are now proven** — 7 media
-carry an `embyStatus` and 4 carry a real `emby.lilnas.io` watch link. See
+requires. **Both the key and the `embyStatus` path are now proven** — 12 media
+carry an `embyStatus` and 12 carry a real `emby.lilnas.io` watch link. See
 "The Emby path is now proven end to end" below.
 
 ---
@@ -393,20 +405,21 @@ apart from passes for exactly that reason.
   `--include-expensive` (HTTP 200, 3588ms). This was the first exercise of
   that flag, and it is what confirms the library-mutation fix holds in
   practice rather than only in review.
-- **`GET /media/:id/seasons`** — still skipped: no _held_ show exists in the
-  library to ask about. The kept _Olive Kitteridge_ S1 is in Sonarr but has
-  no file on disk yet, so the route has nothing to answer with. Every one of
-  the 31 show media keys still comes from a catalogue or history source
-  rather than a completed gallery entry.
+- ~~**`GET /media/:id/seasons`**~~ — **now run.** Passed on 2026-08-28
+  (HTTP 200, 101ms) once Sonarr finished grabbing _Olive Kitteridge_ S1 and
+  the show had a file on disk. This row had been skipped since the very first
+  sweep for want of a held show; it is the last one the library content
+  unblocked.
 - **`PATCH /videos/:id/pause` and `/resume`** — untouched.
 - **`POST /media/:id/releases/grab`, `/replace`, `/bad-files`** — the remaining
   write routes. Untouched. `grab` pulls real bytes from a real indexer into
   the download client, which `preflight` calls out as needing its own
   deliberate session.
-- **Cursor pagination on `activity`** — still one page. `gallery`, `history`
-  and `admin/audit-log` all round-trip now (`10 + 1 of 11`, `10 + 10 of 32`,
-  `10 + 10 of 69`), so the mechanism is proven; `/activity` lists only movie
-  and show jobs, so paginating it needs >10 real Radarr/Sonarr adds.
+- **Cursor pagination on `activity`** — still one page, and the only cause of
+  the two remaining skips. `gallery`, `history` and `admin/audit-log` all
+  round-trip now (`10 + 4 of 14`, `10 + 10 of 35`, `10 + 10 of 78`), so the
+  mechanism is proven; `/activity` lists only movie and show jobs, so
+  paginating it needs >10 real Radarr/Sonarr adds.
 
 ### Passed, but validated nothing
 
@@ -418,15 +431,16 @@ nothing" so they cannot be misread as coverage.
 ### ✅ The Emby path is now proven end to end
 
 This document previously said: _"The key is proven; the `embyStatus` path is
-not."_ **That is no longer true.** Radarr finished grabbing the kept movie, so
-titles with a file on disk finally exist, and the two Emby spot-checks stopped
-being vacuous:
+not."_ **That is no longer true.** Radarr and Sonarr both finished grabbing
+the kept titles, so titles with a file on disk finally exist, and the Emby
+spot-checks stopped being vacuous:
 
-| Check                         | Was                            | Now                                 |
-| ----------------------------- | ------------------------------ | ----------------------------------- |
-| `emby.indexed-carries-a-link` | 0 media with an `embyStatus`   | **7 media** with an `embyStatus`    |
-| `emby.watch-url-is-external`  | no `watchUrl` among 98 objects | **4 watch links**, `emby.lilnas.io` |
-| `movie.file-path-is-a-file`   | no movie carried a `filePath`  | **4 movies** with a `filePath`      |
+| Check                         | Was                            | Now                                  |
+| ----------------------------- | ------------------------------ | ------------------------------------ |
+| `emby.indexed-carries-a-link` | 0 media with an `embyStatus`   | **12 media** with an `embyStatus`    |
+| `emby.watch-url-is-external`  | no `watchUrl` among 98 objects | **12 watch links**, `emby.lilnas.io` |
+| `movie.file-path-is-a-file`   | no movie carried a `filePath`  | **4 movies** with a `filePath`       |
+| `show.file-path-is-a-folder`  | 2 shows with a `filePath`      | **8 shows** with a `filePath`        |
 
 That closes the loop opened when `EMBY_API_KEY` was found set to
 `PLACEHOLDER_REPLACE_ME`: the real key authenticates, `emby-status.service.ts`
@@ -454,25 +468,25 @@ audit log.
 The class of bug is gone, not just the instance: `DELETE
 /download/videos/:jobId` clears `downloadUrls` in the same operation that
 removes the objects, so the gallery cannot advertise a link to something that
-isn't there. `media-file` now reports `SKIPPED (no held video)` — the honest
-answer for an empty library, and one of the eight rows §4 above closes.
+isn't there. `media-file` now **passes** against a real kept video —
+`application/mp4`, 82,943 bytes served back out of MinIO.
 
 ---
 
 ## What full verification still requires
 
 The library-content work is **done** (§4) and both fixes are **deployed and
-verified** (§6). What remains cannot be closed by running the script again:
+verified** (§6). The read sweep has nothing left to give: 40 of 42 rows pass
+and the two skips are a choice. What remains cannot be closed by running the
+script again:
 
-1. **`media-seasons`** — needs the kept show to finish downloading. The movie
-   already did, which is what unblocked the Emby checks; the show is still
-   waiting on an indexer holding an _Olive Kitteridge_ S1 release.
+1. **The five never-run write routes** — `PATCH /videos/:id/pause`,
+   `/resume`, and `POST /media/:id/releases/{grab,replace,bad-files}`. `grab`
+   in particular pulls real bytes from a real indexer into the download
+   client and deserves its own session; `preflight` says so itself.
 2. **`activity-page2` / `cursor.activity`** — needs >10 movie/show adds.
    Deliberately not doing this: the cursor mechanism is proven four other
    ways, so this would be library pollution buying nothing.
-3. **The five never-run write routes** — `pause`, `resume`, `grab`,
-   `replace`, `bad-files`. `grab` in particular pulls real bytes from a real
-   indexer into the download client and deserves its own session.
 
 There is no unknown failure and no route left behind a flag.
 
@@ -520,9 +534,9 @@ database survives.
 2026-08-28, `selfHealMigrationBookkeeping()` in `migrate.ts` performs that
 same one-row insert automatically at boot, for any database whose schema
 already contains every table a pending migration would create. A dev
-database or a restored backup no longer needs manual repair. See
-**Remaining work §3** — and note the guard itself is not yet running in the
-deployed container.
+database or a restored backup no longer needs manual repair. The guard is
+deployed and ran clean against the real production database — see
+**Remaining work §3**.
 
 ~~`media-backfill.spec.ts` and `schema.spec.ts` still fail~~ — **resolved in
 `b053029`**, which retired both suites. They exercised migrations
