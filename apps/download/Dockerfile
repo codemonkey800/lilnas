@@ -64,10 +64,19 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ffmpeg curl ca-certificates python3 && \
     rm -rf /var/lib/apt/lists/*
 
-RUN curl \
+# yt-dlp lives in a node-owned directory rather than /usr/bin. YtdlpUpdateService
+# runs as `node` and replaces this binary in place (move/rename), which needs
+# write permission on the *directory* the binary lives in, not just the file -
+# /usr/bin is root:root drwxr-xr-x, so chowning only the file would not have
+# been enough. /usr/bin/yt-dlp stays a symlink so every other hardcoded
+# '/usr/bin/yt-dlp' call site keeps working unchanged.
+RUN mkdir -p /opt/yt-dlp && \
+    curl \
         -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
-        -o /usr/bin/yt-dlp && \
-    chmod a+rx /usr/bin/yt-dlp
+        -o /opt/yt-dlp/yt-dlp && \
+    chmod a+rx /opt/yt-dlp/yt-dlp && \
+    chown -R node:node /opt/yt-dlp && \
+    ln -s /opt/yt-dlp/yt-dlp /usr/bin/yt-dlp
 
 # Copy built application from builder stage
 COPY --from=builder --chown=node:node /app /app
