@@ -4,7 +4,8 @@ What has actually been proven to work against the real Radarr, Sonarr, Emby and
 MinIO, and what has not. Produced by the plan-009 verification script
 (`apps/download/scripts/verify/`) run against the live backend on the lilnas
 host. Read sweep and all three mutate passes re-run against the fixed build
-on **2026-08-28**.
+on **2026-08-28**, that time with content deliberately **kept** in the
+library and `--include-expensive` passed — see **Remaining work §4**.
 
 > **Why this document exists.** The 59 test files under
 > `apps/download/src/**/__tests__/` all call `jest.mock('@lilnas/media/radarr')`
@@ -24,9 +25,10 @@ All four bugs the sweep left open are **closed and verified against the live
 backend** (`65bd8cc`, deployed 2026-08-28) — see the **🔧 Fixed** section
 below for what each proof was.
 
-Ordered by what actually blocks progress. §2 is a live production defect
-found while fixing the test suite; the rest is scaffolding around the
-service rather than the service itself.
+Ordered by what actually blocks progress. **§6 is the live gap**: §2 and §3
+are now fixed in code but the container still runs the image built before
+them, so both production defects are still armed. §4 is done. §1 and §5 are
+scaffolding around the service rather than the service itself.
 
 ### 1. The branch has never been pushed or merged
 
@@ -42,7 +44,7 @@ hazard disappears on merge and only on merge.
 The prod checkout is currently parked **detached at `8653ae0`** — a state
 nobody can reproduce from a clone.
 
-### 2. The yt-dlp auto-updater cannot work in production
+### 2. The yt-dlp auto-updater cannot work in production — fixed in code, NOT DEPLOYED
 
 **Found by fixing the test gate, not by the sweep.**
 `ytdlp-update.integration.spec.ts` gated on `existsSync('/usr/bin/yt-dlp')`
@@ -58,55 +60,120 @@ container user: uid=1000(node)
 ```
 
 `YtdlpUpdateService` installs with
-`move(YTDLP_TEMP_PATH, '/usr/bin/yt-dlp', { overwrite: true })`, which needs
-write permission on `/usr/bin`. `YTDLP_AUTO_UPDATE_ENABLED` defaults to
-`'true'` and prod sets no `YTDLP_*` variables, so the job is **live**, on
-`CronExpression.EVERY_DAY_AT_3AM`. It will fail with `EACCES` every night.
+`move(YTDLP_TEMP_PATH, '/usr/bin/yt-dlp', { overwrite: true })`.
+`YTDLP_AUTO_UPDATE_ENABLED` defaults to `'true'` and prod sets no `YTDLP_*`
+variables, so the job is **live**, on `CronExpression.EVERY_DAY_AT_3AM`. It
+will fail with `EACCES` every night.
 
 Not yet observed failing — `/api/ytdlp-update/status` reports
 `lastCheck: null` because the container restarted after 3 AM — but the
 permissions are not in question.
 
-The Dockerfile creates the binary as root and never hands it over:
+**Why `chown node:node /usr/bin/yt-dlp` is not the fix.** The obvious
+one-liner does not work. `move()` is a rename, and POSIX requires write
+permission on the **containing directory** to rename or unlink an entry —
+ownership of the file itself is irrelevant. `/usr/bin` is
+`root:root drwxr-xr-x`, so node still could not replace it.
+
+**The fix taken (2026-08-28):** the real binary moved to a node-owned
+directory, with `/usr/bin/yt-dlp` left as a symlink so the four hardcoded
+`spawn('/usr/bin/yt-dlp', …)` call sites in `download.service.ts` and
+`download-video.service.ts` keep working untouched.
 
 ```dockerfile
-RUN curl -L …/yt-dlp -o /usr/bin/yt-dlp && chmod a+rx /usr/bin/yt-dlp
+RUN mkdir -p /opt/yt-dlp && \
+    curl -L …/yt-dlp -o /opt/yt-dlp/yt-dlp && \
+    chmod a+rx /opt/yt-dlp/yt-dlp && \
+    chown -R node:node /opt/yt-dlp && \
+    ln -s /opt/yt-dlp/yt-dlp /usr/bin/yt-dlp
 ```
 
-`chmod a+rx` grants read and execute to everyone and write to nobody but
-root. A one-line `chown node:node /usr/bin/yt-dlp` fixes it, but it is a
-deploy-affecting change and worth a deliberate decision — the alternative
-being to disable the updater and pin the version at image build time, which
-is arguably the better posture for a binary on `PATH` anyway.
+`YTDLP_BINARY_PATH` in `ytdlp-update.service.ts` now points at
+`/opt/yt-dlp/yt-dlp` — the updater must replace the real file, not write
+through the symlink. `__tests__/Dockerfile.test` and both spec files track
+the same path. Rejected alternative: `chown` `/usr/bin` itself, which would
+let a compromised node process replace any system binary — not a trade worth
+making on the service that had the 2026-07-14 RCE.
 
-⚠️ Also note the suite's own docblock tells you to run
-`pnpm test:ytdlp-update`. **No such script exists** in
-`apps/download/package.json`, so the documented way to run these tests
-against `__tests__/Dockerfile.test` has never worked either.
+⚠️ **Verified by tests only.** `pnpm test` is green and `pnpm run type-check`
+passes, but the running container is still on the **old image**. The EACCES
+this fixes has not been observed not-happening. See §6.
 
-### 3. The migration landmine is repaired in production only
+~~The suite's docblock tells you to run `pnpm test:ytdlp-update`; no such
+script exists.~~ **Wrong — that script does exist**
+(`apps/download/package.json:35`, added in `7a32820`). The earlier claim in
+this document was incorrect.
+
+### 3. The migration landmine — self-healing guard added, NOT DEPLOYED
 
 The one-row `__drizzle_migrations` insert fixed _this_ database. Any other
-existing `download.db` — a developer's, a restored backup — still dies at
-boot on first contact with a post-squash build. Open question: leave it
-documented, or give `DbService` a guard that detects
-schema-already-matches-the-snapshot and self-heals the bookkeeping.
+existing `download.db` — a developer's, a restored backup — still died at
+boot on first contact with a post-squash build.
 
-### 4. Library content — the last 8 skipped rows
+**Resolved by the guard, not by documentation.** `runMigrations()` in
+`apps/download/src/db/migrate.ts` now calls `selfHealMigrationBookkeeping()`
+before handing off to drizzle's migrator. For each migration drizzle is
+about to (re-)apply, it parses the `CREATE TABLE` statements out of the
+migration SQL; if **every** table that migration would create already exists,
+it records the migration as applied instead of letting it run. It stops at
+the first migration that is not purely a re-creation of existing tables, so a
+genuinely new migration still runs through the real migrator untouched.
 
-Every one traces to the same cause: the library is empty. Every mutate pass
-tears down what it creates _by design_, so these close only by **keeping**
-something.
+`db.service.spec.ts` reproduces the exact landmine — schema built by
+executing `0000_soft_inertia.sql` directly against a fresh file with no
+bookkeeping row at all — and asserts `runMigrations()` no longer throws and
+that exactly one row lands in `__drizzle_migrations`.
 
-| What to keep                           | Rows it unblocks                                                             | Cost                    |
-| -------------------------------------- | ---------------------------------------------------------------------------- | ----------------------- |
-| ~10 clips, kept                        | `activity-page2`, `gallery-page2`, `history-page2` + their `cursor.*` checks | ~15 min                 |
-| One video with a live MinIO object     | `media-file`, plus the eight empty-fixture passes                            | one kept video          |
-| One title Sonarr/Radarr holds, on disk | `media-seasons`, `emby.indexed-carries-a-link`, `emby.watch-url-is-external` | real, permanent content |
+⚠️ **Verified by tests only**, same as §2. Not yet exercised against a real
+pre-squash database in a deployed container. See §6.
 
-The cursor machinery itself is already proven — `cursor.discover` and
-`cursor.admin-audit-log` both pass — so the three page-2 rows are unproven
-only for their own result sets, not for the mechanism.
+### 4. Library content — 8 skipped rows → 3 ✅ CLOSED
+
+Every one traced to the same cause: the library was empty. Every mutate pass
+tears down what it creates _by design_, so these closed only by **keeping**
+something. Done on **2026-08-28** via `mutate --keep`, which exists for
+exactly this and leaves the journal drained afterwards.
+
+Kept in the library:
+
+| What                          | How                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------- |
+| 1 movie — _Following_ (1999)  | `mutate --only movie --keep`; reached `downloading`                             |
+| 1 show — _Olive Kitteridge_ S1 | `mutate --only show --keep`; added to Sonarr, still `searching`                 |
+| 11 distinct video clips       | `--only video --keep` over 11 `--fixtures` files with distinct `timeRange`s     |
+
+The video trick matters: a `video:` key is derived from
+`(sourceUrl, timeRange)`, so re-running the same fixture reuses one row.
+Walking the time range (`00:00:00–00:00:03`, `00:00:01–00:00:04`, …) mints a
+fresh key each time and is what pushes `gallery` past its 10-row page.
+
+**Rows this closed:** `gallery-page2`, `cursor.gallery`, `media-file`, and
+`media-releases` (run with `--include-expensive`, now safe since
+`/releases` takes back any entry it had to add — this is the first time that
+flag has ever been exercised).
+
+**Three rows remain skipped, and are not worth forcing:**
+
+- **`activity-page2` / `cursor.activity`** — `/activity` lists only movie and
+  show jobs, never videos, so paginating it needs >10 real Radarr/Sonarr adds.
+  The cursor mechanism is already proven four ways over (`gallery`,
+  `discover`, `history`, `admin-audit-log`), so this would be library
+  pollution buying nothing.
+- **`media-seasons`** — needs the kept show to finish downloading and land on
+  disk, which waits on an indexer actually holding an _Olive Kitteridge_ S1
+  release. Not forceable on demand; may close on its own.
+
+### 6. The two code fixes are not deployed
+
+§2 and §3 are both **fixed in the worktree and green under `pnpm test`
+(55 suites, 1035 tests, 0 failures) and `pnpm run type-check`** — but the
+running `download` container was built before either. Neither production
+defect has been observed _not_ happening.
+
+Closing this means: rebuild the `download` image, `docker compose up -d
+download` from the root compose file, then confirm from inside the container
+that `/opt/yt-dlp/yt-dlp` is node-writable and that the backend on `:8081`
+came up (per the "a broken backend still reports `Up`" warning below).
 
 ### 5. No UI for the video delete
 
@@ -121,28 +188,33 @@ capability rather than a parity gap.
 
 |                      |                                               |
 | -------------------- | --------------------------------------------- |
-| Read checks verified | **26 of 42** rows                             |
+| Read checks verified | **35 of 42** rows                             |
 | Remaining failures   | **0**                                         |
 | Write path           | **All three media types verified end to end** |
-| Real bugs found      | **7** (all 7 fixed)                           |
+| Real bugs found      | **9** (all 9 fixed; 2 not yet deployed)       |
 
 The core request → download → cleanup flow works for movies, shows and videos
 against real upstreams, and now cleans up after itself completely.
 
-Latest run (2026-08-28, against the fixed build):
-`42 rows · 34 passed (8 of them validated nothing) · 0 failed · 8 skipped`.
-Previous run was `31 passed · 1 failed · 10 skipped`.
+Latest run (2026-08-28, with content kept in the library and
+`--include-expensive`):
+`42 rows · 39 passed (4 of them validated nothing) · 0 failed · 3 skipped`.
+Run before it, on an empty library: `34 passed · 0 failed · 8 skipped`.
+The one before that: `31 passed · 1 failed · 10 skipped`.
 
-`pnpm test` is green for the first time in this branch's history — **55
-suites passed, 1 skipped, 0 failed** (`b053029`); it stood at 17 failures
-before, from two causes documented in that commit.
+`pnpm test` is green — **55 suites passed, 1 skipped, 0 failed; 1035 tests
+passed, 9 skipped**. The one skipped suite is
+`ytdlp-update.integration.spec.ts`, which gates on being able to replace the
+yt-dlp binary and correctly declines to run outside a container.
 
 All three mutate passes are clean runs, and the journal drains to **zero
 entries and zero residue** — the residue list, which existed because a
 finished video could not be torn down, is now always empty.
 
-**Every remaining unverified row has the same cause: the library is empty.**
-There is no unknown failure and no route left behind a flag.
+**What is left is no longer about the sweep.** The read path is as verified as
+an empty-ish library allows; the three skipped rows are documented in §4 and
+neither is a defect. The real gap is §6: the yt-dlp and migration fixes exist
+only in the worktree, and the container is still running the old image.
 
 ---
 
@@ -263,30 +335,39 @@ requires. **The key is proven; the `embyStatus` path is not** — see below.
 **Do not read these as working.** They were skipped, and the report counts them
 apart from passes for exactly that reason.
 
-- **`GET /media/:id/releases`** — behind `--include-expensive`, never run. It
-  fires a real 30s+ indexer search. The library mutation that made the flag
-  unsafe is fixed, so it can now be run.
-- **`GET /media/:id/seasons`** — skipped: no _held_ show exists in the library
-  to ask about. The last run found 31 show media keys, but every one came from
-  a catalogue or history source rather than a completed gallery entry.
+- ~~**`GET /media/:id/releases`**~~ — **now run.** Passed on 2026-08-28 with
+  `--include-expensive` (HTTP 200, 3588ms). This was the first exercise of
+  that flag, and it is what confirms the library-mutation fix holds in
+  practice rather than only in review.
+- **`GET /media/:id/seasons`** — still skipped: no _held_ show exists in the
+  library to ask about. The kept _Olive Kitteridge_ S1 is in Sonarr but has
+  no file on disk yet, so the route has nothing to answer with. Every one of
+  the 31 show media keys still comes from a catalogue or history source
+  rather than a completed gallery entry.
 - **`PATCH /videos/:id/pause` and `/resume`** — untouched.
 - **`POST /media/:id/releases/grab`, `/replace`, `/bad-files`** — the remaining
-  write routes. Untouched.
-- **Cursor pagination on `activity`, `gallery`, `history`, `admin/audit-log`** —
-  every result set fit on one page, so the round trip never ran there.
+  write routes. Untouched. `grab` pulls real bytes from a real indexer into
+  the download client, which `preflight` calls out as needing its own
+  deliberate session.
+- **Cursor pagination on `activity`** — still one page. `gallery`, `history`
+  and `admin/audit-log` all round-trip now (`10 + 1 of 11`, `10 + 10 of 32`,
+  `10 + 10 of 69`), so the mechanism is proven; `/activity` lists only movie
+  and show jobs, so paginating it needs >10 real Radarr/Sonarr adds.
 
 ### Passed, but validated nothing
 
-Six rows answered 200 over **empty data**, including `activity` and
-`media-bad-files`. The envelope is verified; the element schemas inside were
-never exercised. The report marks these "validated nothing" so they cannot be
-misread as coverage.
+Four rows (down from six) answered 200 over **empty data**, including
+`media-bad-files` and `movie.file-path-is-a-file`. The envelope is verified;
+the element schemas inside were never exercised. The report marks these
+"validated nothing" so they cannot be misread as coverage.
 
-**Both Emby spot-checks are in this category.** `emby.indexed-carries-a-link`
-and `emby.watch-url-is-external` pass over _69 media objects, none carrying an
-`embyStatus` at all._ Emby only annotates titles with a file on disk, and the
-library has none. Proving the new key end to end requires a real completed
-download that stays in the library.
+**`emby.watch-url-is-external` is still in this category** — no `watchUrl`
+appeared among 98 media objects, because Emby only annotates titles with a
+file on disk and nothing kept has one yet.
+
+**`emby.indexed-carries-a-link` is no longer** — it now checks 2 media
+carrying a real `embyStatus`, so the key that was wired in during
+verification is proven past the auth handshake and into the annotation path.
 
 ### The one failure that used to be here — resolved
 
@@ -316,10 +397,19 @@ answer for an empty library, and one of the eight rows §4 above closes.
 
 ## What full verification still requires
 
-Covered above — see **Remaining work §4, Library content**.
-Every unverified row now has one cause (the library is empty) and one
-remedy (keep some content). There is no unknown failure and no route left
-behind a flag.
+The library-content work is **done** — see **Remaining work §4**. What is left
+is no longer about the read sweep:
+
+1. **Deploy the two fixes** (§6). This is the only item where a real
+   production defect is still live.
+2. **`media-seasons`** needs the kept show to finish downloading. Waiting on
+   an indexer, not on us.
+3. **`activity-page2`** needs >10 movie/show adds. Deliberately not doing this.
+4. **The five never-run write routes** — `pause`, `resume`, `grab`,
+   `replace`, `bad-files`. `grab` in particular pulls real bytes and deserves
+   its own session.
+
+There is no unknown failure and no route left behind a flag.
 
 ---
 
@@ -361,14 +451,18 @@ recording the squashed migration as applied. The eight historical rows were
 **kept**, not deleted, so the record of what was actually applied to this
 database survives.
 
-⚠️ **Any other existing `download.db` still has this landmine** — a dev
-database, or a restored backup, will hit the identical fatal boot error on
-first start against a post-squash build. The same one-row insert fixes it.
+✅ **The landmine is defused for every other database too** — as of
+2026-08-28, `selfHealMigrationBookkeeping()` in `migrate.ts` performs that
+same one-row insert automatically at boot, for any database whose schema
+already contains every table a pending migration would create. A dev
+database or a restored backup no longer needs manual repair. See
+**Remaining work §3** — and note the guard itself is not yet running in the
+deployed container.
 
-⚠️ **`media-backfill.spec.ts` and `schema.spec.ts` still fail** for the same
-root cause: they exercise migrations `0002`/`0003`/`0006`, which the squash
-deleted. 17 failing tests, all from that one commit. The squash was not
-finished.
+~~`media-backfill.spec.ts` and `schema.spec.ts` still fail~~ — **resolved in
+`b053029`**, which retired both suites. They exercised migrations
+`0002`/`0003`/`0006`, which the squash deleted, so there was nothing left for
+them to test.
 
 ---
 
