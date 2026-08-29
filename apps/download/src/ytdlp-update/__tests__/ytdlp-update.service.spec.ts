@@ -223,7 +223,9 @@ describe('YtdlpUpdateService', () => {
       const version = await currentVersionMethod()
 
       expect(version).toBe(expectedVersion)
-      expect(mockSpawn).toHaveBeenCalledWith('/usr/bin/yt-dlp', ['--version'])
+      expect(mockSpawn).toHaveBeenCalledWith('/opt/yt-dlp/yt-dlp', [
+        '--version',
+      ])
     })
 
     it('should handle yt-dlp command errors', async () => {
@@ -360,7 +362,7 @@ describe('YtdlpUpdateService', () => {
       expect(mockFs.pathExists).toHaveBeenCalledWith('/tmp/yt-dlp-backup')
       expect(mockFs.move).toHaveBeenCalledWith(
         '/tmp/yt-dlp-backup',
-        '/usr/bin/yt-dlp',
+        '/opt/yt-dlp/yt-dlp',
         { overwrite: true },
       )
     })

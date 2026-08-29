@@ -6,7 +6,7 @@
  * ## Docker Environment Requirement
  * Tests only run when:
  * - NODE_ENV === 'test'
- * - /usr/bin/yt-dlp is **writable** by this process
+ * - /opt/yt-dlp/yt-dlp is **writable** by this process
  *
  * If not, the whole suite is skipped automatically.
  *
@@ -15,7 +15,7 @@
  * need is ownership of it - and `existsSync()` does not imply that. The
  * lilnas host has yt-dlp installed natively as well, so an existence check
  * opened the gate outside the container and then failed nine tests with
- * `EACCES: permission denied, open '/usr/bin/yt-dlp'`. Writability is the
+ * `EACCES: permission denied, open '/opt/yt-dlp/yt-dlp'`. Writability is the
  * property the tests depend on, so it is the property worth asking about.
  *
  * ## Version Constants
@@ -65,10 +65,10 @@ import { YtdlpTestHelper } from './helpers/ytdlp-test.helper'
 // Mock axios for integration tests
 jest.mock('axios')
 
-const YTDLP_BINARY = '/usr/bin/yt-dlp'
+const YTDLP_BINARY = '/opt/yt-dlp/yt-dlp'
 
 /**
- * Whether this process may replace `/usr/bin/yt-dlp` - see the writability
+ * Whether this process may replace `/opt/yt-dlp/yt-dlp` - see the writability
  * note in the file docblock. Absent or read-only both mean "not our binary
  * to overwrite", and both answer the same way.
  */
@@ -135,7 +135,7 @@ describeIntegration('YtdlpUpdateService Integration Tests', () => {
    * - Perform actual file system operations (backup, install, rollback)
    * - Verify binary execution and permissions
    *
-   * Requirements: Docker environment with /usr/bin/yt-dlp
+   * Requirements: Docker environment with /opt/yt-dlp/yt-dlp
    */
   describe('True Integration Tests', () => {
     describe('getCurrentVersion', () => {
@@ -158,7 +158,7 @@ describeIntegration('YtdlpUpdateService Integration Tests', () => {
       async function verifyCleanState(): Promise<void> {
         // Verify main binary exists and has expected version
         const currentVersion =
-          await YtdlpTestHelper.executeAndGetOutput('/usr/bin/yt-dlp')
+          await YtdlpTestHelper.executeAndGetOutput('/opt/yt-dlp/yt-dlp')
         expect(currentVersion).toBe(YtdlpTestHelper.DOCKER_VERSION)
 
         // Verify no backup file exists
@@ -224,11 +224,11 @@ describeIntegration('YtdlpUpdateService Integration Tests', () => {
 
         // Verify: Installation worked and binary is executable
         const installedVersion =
-          await YtdlpTestHelper.executeAndGetOutput('/usr/bin/yt-dlp')
+          await YtdlpTestHelper.executeAndGetOutput('/opt/yt-dlp/yt-dlp')
         expect(installedVersion).toBe('new-install-version')
-        expect(await YtdlpTestHelper.verifyExecutable('/usr/bin/yt-dlp')).toBe(
-          true,
-        )
+        expect(
+          await YtdlpTestHelper.verifyExecutable('/opt/yt-dlp/yt-dlp'),
+        ).toBe(true)
       })
 
       /**
@@ -252,13 +252,16 @@ describeIntegration('YtdlpUpdateService Integration Tests', () => {
           YtdlpTestHelper.FULL_EXECUTABLE,
         )
 
-        // Setup: Modify /usr/bin/yt-dlp to simulate it was updated
-        await writeFile('/usr/bin/yt-dlp', `#!/bin/sh\necho "modified-version"`)
-        await chmod('/usr/bin/yt-dlp', YtdlpTestHelper.FULL_EXECUTABLE)
+        // Setup: Modify /opt/yt-dlp/yt-dlp to simulate it was updated
+        await writeFile(
+          '/opt/yt-dlp/yt-dlp',
+          `#!/bin/sh\necho "modified-version"`,
+        )
+        await chmod('/opt/yt-dlp/yt-dlp', YtdlpTestHelper.FULL_EXECUTABLE)
 
         // Verify setup completed correctly
         const modifiedVersion =
-          await YtdlpTestHelper.executeAndGetOutput('/usr/bin/yt-dlp')
+          await YtdlpTestHelper.executeAndGetOutput('/opt/yt-dlp/yt-dlp')
         expect(modifiedVersion).toBe('modified-version')
 
         // Action: Rollback to backup
@@ -266,11 +269,11 @@ describeIntegration('YtdlpUpdateService Integration Tests', () => {
 
         // Verify: Binary restored to backup version
         const rolledBackVersion =
-          await YtdlpTestHelper.executeAndGetOutput('/usr/bin/yt-dlp')
+          await YtdlpTestHelper.executeAndGetOutput('/opt/yt-dlp/yt-dlp')
         expect(rolledBackVersion).toBe('backed-up-version')
-        expect(await YtdlpTestHelper.verifyExecutable('/usr/bin/yt-dlp')).toBe(
-          true,
-        )
+        expect(
+          await YtdlpTestHelper.verifyExecutable('/opt/yt-dlp/yt-dlp'),
+        ).toBe(true)
       })
     })
 
@@ -394,10 +397,10 @@ describeIntegration('YtdlpUpdateService Integration Tests', () => {
     // Reset to original state
     const { writeFile, chmod } = await import('fs-extra')
     await writeFile(
-      '/usr/bin/yt-dlp',
+      '/opt/yt-dlp/yt-dlp',
       `#!/bin/sh\necho "${YtdlpTestHelper.DOCKER_VERSION}"`,
     )
-    await chmod('/usr/bin/yt-dlp', YtdlpTestHelper.FULL_EXECUTABLE)
+    await chmod('/opt/yt-dlp/yt-dlp', YtdlpTestHelper.FULL_EXECUTABLE)
 
     // Clean up temporary files
     const tempFiles = [
