@@ -6,11 +6,11 @@ RUN apk add --no-cache curl bash
 RUN npm install -g pnpm@10.18.2
 
 # Create test directory structure
-RUN mkdir -p /usr/bin /tmp
+RUN mkdir -p /opt/yt-dlp /tmp
 
 # Create mock yt-dlp binaries with different versions
-RUN echo '#!/bin/sh\necho "2024.01.10"' > /usr/bin/yt-dlp && \
-    chmod +x /usr/bin/yt-dlp
+RUN echo '#!/bin/sh\necho "2024.01.10"' > /opt/yt-dlp/yt-dlp && \
+    chmod +x /opt/yt-dlp/yt-dlp
 
 RUN echo '#!/bin/sh\necho "2024.02.01"' > /tmp/yt-dlp-new && \
     chmod +x /tmp/yt-dlp-new
