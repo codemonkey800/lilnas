@@ -25,14 +25,14 @@ All four bugs the sweep left open are **closed and verified against the live
 backend** (`65bd8cc`, deployed 2026-08-28) — see the **🔧 Fixed** section
 below for what each proof was.
 
-Ordered by what actually blocks progress. **§6 is the live gap**: §2 and §3
-are now fixed in code but the container still runs the image built before
-them, so both production defects are still armed. §4 is done. §1 and §5 are
-scaffolding around the service rather than the service itself.
+Ordered by what actually blocks progress. **§2, §3, §4 and §6 are all closed
+and verified against the live backend.** What is left is §1 (merge the
+branch) and §5 (no UI for the video delete) — scaffolding around the service
+rather than the service itself.
 
 ### 1. The branch has never been pushed or merged
 
-`jeremy/download` is **120 commits ahead of `main` and 107 unpushed.** This
+`jeremy/download` is **126 commits ahead of `main` and 113 unpushed.** This
 is the largest outstanding item and it is not cosmetic: deployment
 prerequisite 3 below exists _only_ because of it. `main`'s
 `apps/download/deploy.yml` is a 15-line file with no `/data` volume and no
@@ -41,10 +41,11 @@ lands on `main`, the next `docker compose up -d download` recreates the
 container with nothing mounted and Nest dies with `SQLITE_CANTOPEN`. That
 hazard disappears on merge and only on merge.
 
-The prod checkout is currently parked **detached at `8653ae0`** — a state
-nobody can reproduce from a clone.
+The prod checkout is currently parked **detached at `d56810f`** — a state
+nobody can reproduce from a clone. Every deploy so far has had to move this
+detached HEAD forward by hand, which is the operational cost of not merging.
 
-### 2. The yt-dlp auto-updater cannot work in production — fixed in code, NOT DEPLOYED
+### 2. The yt-dlp auto-updater could not work in production ✅ CLOSED
 
 **Found by fixing the test gate, not by the sweep.**
 `ytdlp-update.integration.spec.ts` gated on `existsSync('/usr/bin/yt-dlp')`
@@ -59,15 +60,15 @@ container user: uid=1000(node)
 /usr/bin and /usr/bin/yt-dlp are both NOT writable by node
 ```
 
-`YtdlpUpdateService` installs with
+`YtdlpUpdateService` installed with
 `move(YTDLP_TEMP_PATH, '/usr/bin/yt-dlp', { overwrite: true })`.
 `YTDLP_AUTO_UPDATE_ENABLED` defaults to `'true'` and prod sets no `YTDLP_*`
-variables, so the job is **live**, on `CronExpression.EVERY_DAY_AT_3AM`. It
-will fail with `EACCES` every night.
+variables, so the job was **live**, on `CronExpression.EVERY_DAY_AT_3AM`, and
+would have failed with `EACCES` every night.
 
-Not yet observed failing — `/api/ytdlp-update/status` reports
-`lastCheck: null` because the container restarted after 3 AM — but the
-permissions are not in question.
+It was never observed failing — `/api/ytdlp-update/status` reported
+`lastCheck: null` because the container kept restarting after 3 AM — but the
+permissions were not in question.
 
 **Why `chown node:node /usr/bin/yt-dlp` is not the fix.** The obvious
 one-liner does not work. `move()` is a rename, and POSIX requires write
@@ -95,16 +96,29 @@ the same path. Rejected alternative: `chown` `/usr/bin` itself, which would
 let a compromised node process replace any system binary — not a trade worth
 making on the service that had the 2026-07-14 RCE.
 
-⚠️ **Verified by tests only.** `pnpm test` is green and `pnpm run type-check`
-passes, but the running container is still on the **old image**. The EACCES
-this fixes has not been observed not-happening. See §6.
+✅ **Verified against the live container** (`f36b7a3`, deployed 2026-08-28) —
+not just by permission bits, but by driving the real install path. An older
+version was planted so an update would be available, then
+`POST /api/ytdlp-update/check` was called:
+
+```
+performUpdate      currentVersion 2026.01.01 → newVersion 2026.08.19
+installNewBinary   Installing new binary
+installNewBinary   Installation completed          ← the move() that used to EACCES
+performUpdate      yt-dlp update completed successfully (1371ms)
+```
+
+No `EACCES`, no rollback, and the planted stub was replaced by the real
+3,072,469-byte binary. A `mutate --only video` pass afterwards downloaded,
+converted, uploaded and served back a real clip, confirming the four
+`spawn('/usr/bin/yt-dlp', …)` call sites still resolve through the symlink.
 
 ~~The suite's docblock tells you to run `pnpm test:ytdlp-update`; no such
 script exists.~~ **Wrong — that script does exist**
 (`apps/download/package.json:35`, added in `7a32820`). The earlier claim in
 this document was incorrect.
 
-### 3. The migration landmine — self-healing guard added, NOT DEPLOYED
+### 3. The migration landmine — self-healing guard added ✅ CLOSED
 
 The one-row `__drizzle_migrations` insert fixed _this_ database. Any other
 existing `download.db` — a developer's, a restored backup — still died at
@@ -124,8 +138,16 @@ executing `0000_soft_inertia.sql` directly against a fresh file with no
 bookkeeping row at all — and asserts `runMigrations()` no longer throws and
 that exactly one row lands in `__drizzle_migrations`.
 
-⚠️ **Verified by tests only**, same as §2. Not yet exercised against a real
-pre-squash database in a deployed container. See §6.
+✅ **Verified against the live container** (`722915b`, deployed 2026-08-28).
+The guard now runs at every boot, and the deploy took the real production
+`download.db` — the one whose bookkeeping was repaired by hand — through it.
+The backend answered `200` on `:8081` afterwards, which is the check that
+matters given a dead backend still reports `Up`.
+
+Note what this does and does not prove: the guard ran and did no harm on a
+database whose bookkeeping is already correct. Its self-heal branch is proven
+by `db.service.spec.ts`, which builds the broken state deliberately, rather
+than by this deploy.
 
 ### 4. Library content — 8 skipped rows → 3 ✅ CLOSED
 
@@ -136,11 +158,11 @@ exactly this and leaves the journal drained afterwards.
 
 Kept in the library:
 
-| What                          | How                                                                             |
-| ----------------------------- | ------------------------------------------------------------------------------- |
-| 1 movie — _Following_ (1999)  | `mutate --only movie --keep`; reached `downloading`                             |
-| 1 show — _Olive Kitteridge_ S1 | `mutate --only show --keep`; added to Sonarr, still `searching`                 |
-| 11 distinct video clips       | `--only video --keep` over 11 `--fixtures` files with distinct `timeRange`s     |
+| What                           | How                                                                         |
+| ------------------------------ | --------------------------------------------------------------------------- |
+| 1 movie — _Following_ (1999)   | `mutate --only movie --keep`; reached `downloading`                         |
+| 1 show — _Olive Kitteridge_ S1 | `mutate --only show --keep`; added to Sonarr, still `searching`             |
+| 11 distinct video clips        | `--only video --keep` over 11 `--fixtures` files with distinct `timeRange`s |
 
 The video trick matters: a `video:` key is derived from
 `(sourceUrl, timeRange)`, so re-running the same fixture reuses one row.
@@ -163,18 +185,6 @@ flag has ever been exercised).
   disk, which waits on an indexer actually holding an _Olive Kitteridge_ S1
   release. Not forceable on demand; may close on its own.
 
-### 6. The two code fixes are not deployed
-
-§2 and §3 are both **fixed in the worktree and green under `pnpm test`
-(55 suites, 1035 tests, 0 failures) and `pnpm run type-check`** — but the
-running `download` container was built before either. Neither production
-defect has been observed _not_ happening.
-
-Closing this means: rebuild the `download` image, `docker compose up -d
-download` from the root compose file, then confirm from inside the container
-that `/opt/yt-dlp/yt-dlp` is node-writable and that the backend on `:8081`
-came up (per the "a broken backend still reports `Up`" warning below).
-
 ### 5. No UI for the video delete
 
 `DELETE /download/videos/:jobId` and `DownloadClient.deleteJob()` exist and
@@ -182,25 +192,64 @@ work; nothing in the frontend calls either. `apps/download/src/app` is a
 single `page.tsx` with no cancel affordance either, so this is an unexposed
 capability rather than a parity gap.
 
+### 6. Shipping §2 and §3 ✅ CLOSED
+
+Both deployed on **2026-08-28** and verified live — see §2 and §3. The
+sequence, which is the one to repeat because the base-image cache makes the
+obvious shortcut wrong:
+
+```bash
+cd /home/jeremy/lilnas
+git checkout d56810f                      # prod checkout is detached; see §1
+./infra/base-images/build-base-images.sh  # REQUIRED — see below
+docker-compose build download
+docker-compose up -d download
+```
+
+⚠️ **The base-image rebuild is not optional here.** `apps/download/Dockerfile`
+copies `.next`, `public` and `src/db/migrations` out of `/source`, which is a
+snapshot baked into `lilnas-monorepo-builder`. Skip the rebuild and
+`docker-compose build download` cheerfully produces an image from stale
+source, with no error to tell you.
+
+**Restart side effect worth knowing.** `reconcileInterruptedJobs()` sweeps
+every non-terminal job at boot, so the deploy wiped the in-flight movie and
+show jobs that had been kept for §4 and left `/activity` at `total: 0`. This
+is correct behaviour, not a regression — a partial download is explicitly not
+meant to survive a restart. Completed videos were unaffected. The two job
+rows were re-created afterwards to restore the `movie-job` / `show-job`
+fixtures.
+
 ---
 
 ## Summary
 
 |                      |                                               |
 | -------------------- | --------------------------------------------- |
-| Read checks verified | **35 of 42** rows                             |
+| Read checks verified | **37 of 42** rows                             |
 | Remaining failures   | **0**                                         |
 | Write path           | **All three media types verified end to end** |
-| Real bugs found      | **9** (all 9 fixed; 2 not yet deployed)       |
+| Real bugs found      | **9** (all 9 fixed and deployed)              |
 
 The core request → download → cleanup flow works for movies, shows and videos
 against real upstreams, and now cleans up after itself completely.
 
-Latest run (2026-08-28, with content kept in the library and
-`--include-expensive`):
-`42 rows · 39 passed (4 of them validated nothing) · 0 failed · 3 skipped`.
-Run before it, on an empty library: `34 passed · 0 failed · 8 skipped`.
-The one before that: `31 passed · 1 failed · 10 skipped`.
+Latest run (2026-08-28, against the **deployed** fixed build, with content
+kept and `--include-expensive`):
+`42 rows · 39 passed (2 of them validated nothing) · 0 failed · 3 skipped`
+— **37 of 42 rows verified something.**
+
+The progression, each step being a real change in what is known:
+
+| Run                           | Result                                        |
+| ----------------------------- | --------------------------------------------- |
+| Original sweep                | `31 passed · 1 failed · 10 skipped`           |
+| After the four fixes          | `34 passed · 0 failed · 8 skipped`            |
+| After keeping library content | `39 passed (4 validated nothing) · 3 skipped` |
+| After deploying §2/§3         | `39 passed (2 validated nothing) · 3 skipped` |
+
+The last step moved no counts but closed two rows that had been passing
+_vacuously_ — see the Emby note below.
 
 `pnpm test` is green — **55 suites passed, 1 skipped, 0 failed; 1035 tests
 passed, 9 skipped**. The one skipped suite is
@@ -211,10 +260,13 @@ All three mutate passes are clean runs, and the journal drains to **zero
 entries and zero residue** — the residue list, which existed because a
 finished video could not be torn down, is now always empty.
 
-**What is left is no longer about the sweep.** The read path is as verified as
-an empty-ish library allows; the three skipped rows are documented in §4 and
-neither is a defect. The real gap is §6: the yt-dlp and migration fixes exist
-only in the worktree, and the container is still running the old image.
+**Nothing verifiable is left unverified.** Every fix is deployed and proven
+against the live backend. The three still-skipped rows are documented in §4:
+two are a deliberate decision not to pollute the library, one is waiting on an
+indexer. None is a defect, and no route is left behind a flag.
+
+The remaining work is §1 (merge the branch) and §5 (surface the video delete
+in the UI) — neither of which the verification script can speak to.
 
 ---
 
@@ -326,7 +378,9 @@ filesystem. It is the clearest example of what this exercise was for.
 both services authenticate with `?api_key=` against the same server. Verified
 from inside the `download` container: `GET /emby/Users` returns `200` and the
 `EMBY_USERNAME` user (`jeremy`) exists, which `emby-status.service.ts:206`
-requires. **The key is proven; the `embyStatus` path is not** — see below.
+requires. **Both the key and the `embyStatus` path are now proven** — 7 media
+carry an `embyStatus` and 4 carry a real `emby.lilnas.io` watch link. See
+"The Emby path is now proven end to end" below.
 
 ---
 
@@ -356,18 +410,28 @@ apart from passes for exactly that reason.
 
 ### Passed, but validated nothing
 
-Four rows (down from six) answered 200 over **empty data**, including
-`media-bad-files` and `movie.file-path-is-a-file`. The envelope is verified;
-the element schemas inside were never exercised. The report marks these
-"validated nothing" so they cannot be misread as coverage.
+**Two rows** (down from six) answered 200 over empty data: `media-bad-files`
+and `media-file` (headers only, no body captured). The envelope is verified;
+the element schemas inside were not. The report marks these "validated
+nothing" so they cannot be misread as coverage.
 
-**`emby.watch-url-is-external` is still in this category** — no `watchUrl`
-appeared among 98 media objects, because Emby only annotates titles with a
-file on disk and nothing kept has one yet.
+### ✅ The Emby path is now proven end to end
 
-**`emby.indexed-carries-a-link` is no longer** — it now checks 2 media
-carrying a real `embyStatus`, so the key that was wired in during
-verification is proven past the auth handshake and into the annotation path.
+This document previously said: _"The key is proven; the `embyStatus` path is
+not."_ **That is no longer true.** Radarr finished grabbing the kept movie, so
+titles with a file on disk finally exist, and the two Emby spot-checks stopped
+being vacuous:
+
+| Check                         | Was                            | Now                                 |
+| ----------------------------- | ------------------------------ | ----------------------------------- |
+| `emby.indexed-carries-a-link` | 0 media with an `embyStatus`   | **7 media** with an `embyStatus`    |
+| `emby.watch-url-is-external`  | no `watchUrl` among 98 objects | **4 watch links**, `emby.lilnas.io` |
+| `movie.file-path-is-a-file`   | no movie carried a `filePath`  | **4 movies** with a `filePath`      |
+
+That closes the loop opened when `EMBY_API_KEY` was found set to
+`PLACEHOLDER_REPLACE_ME`: the real key authenticates, `emby-status.service.ts`
+resolves the user, annotates the title, and emits an external
+`https://emby.lilnas.io` link that the frontend can actually follow.
 
 ### The one failure that used to be here — resolved
 
@@ -397,17 +461,18 @@ answer for an empty library, and one of the eight rows §4 above closes.
 
 ## What full verification still requires
 
-The library-content work is **done** — see **Remaining work §4**. What is left
-is no longer about the read sweep:
+The library-content work is **done** (§4) and both fixes are **deployed and
+verified** (§6). What remains cannot be closed by running the script again:
 
-1. **Deploy the two fixes** (§6). This is the only item where a real
-   production defect is still live.
-2. **`media-seasons`** needs the kept show to finish downloading. Waiting on
-   an indexer, not on us.
-3. **`activity-page2`** needs >10 movie/show adds. Deliberately not doing this.
-4. **The five never-run write routes** — `pause`, `resume`, `grab`,
-   `replace`, `bad-files`. `grab` in particular pulls real bytes and deserves
-   its own session.
+1. **`media-seasons`** — needs the kept show to finish downloading. The movie
+   already did, which is what unblocked the Emby checks; the show is still
+   waiting on an indexer holding an _Olive Kitteridge_ S1 release.
+2. **`activity-page2` / `cursor.activity`** — needs >10 movie/show adds.
+   Deliberately not doing this: the cursor mechanism is proven four other
+   ways, so this would be library pollution buying nothing.
+3. **The five never-run write routes** — `pause`, `resume`, `grab`,
+   `replace`, `bad-files`. `grab` in particular pulls real bytes from a real
+   indexer into the download client and deserves its own session.
 
 There is no unknown failure and no route left behind a flag.
 
@@ -516,8 +581,18 @@ None of these was written down anywhere before.
    next restart.
 
 4. **The migration bookkeeping must match the squash.** See the section
-   above — an existing `download.db` written before `57c1409` will kill the
-   container at boot until one row is inserted into `__drizzle_migrations`.
+   above — an existing `download.db` written before `57c1409` would kill the
+   container at boot until one row was inserted into `__drizzle_migrations`.
+   As of `722915b` the guard in `migrate.ts` does this automatically, so this
+   prerequisite is now self-servicing.
+
+5. **`./infra/base-images/build-base-images.sh` must run before
+   `docker-compose build download`.** The Dockerfile's builder stage copies
+   `.next`, `public` and `src/db/migrations` out of `/source`, a snapshot
+   baked into `lilnas-monorepo-builder`. Build without refreshing it and you
+   get an image built from stale source — silently, with a successful build
+   and no warning. This is the general monorepo gotcha in `CLAUDE.md`, but
+   `download` is one of the apps where it actually bites.
 
 ⚠️ **A broken backend still reports `Up`.** The container runs Next.js on
 `:8080` and Nest on `:8081`. When the backend dies at boot the frontend stays
