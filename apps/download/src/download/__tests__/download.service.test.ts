@@ -326,16 +326,22 @@ describe('DownloadService', () => {
       },
     )
 
-    it('refuses to pause a job whose process handle is already gone', async () => {
+    // The pre-spawn window. `download()` writes Downloading before it fetches
+    // metadata and only registers the yt-dlp handle afterwards, so a job can
+    // legitimately be Downloading with nothing to signal for about a second.
+    // This used to throw a 409 on a job the UI was showing as downloading;
+    // recording the intent instead lets `download()` deliver the signal itself
+    // the moment it registers the handle.
+    it('records the intent when the process is not registered yet', async () => {
       const record = seed({}, { withProc: false })
 
-      await expect(service.pauseVideoDownloadJob(record.id)).rejects.toThrow(
-        ConflictException,
-      )
-      await expect(service.pauseVideoDownloadJob(record.id)).rejects.toThrow(
-        `Job '${record.id}' has no running process to pause`,
-      )
-      expect(state.setInterruption).not.toHaveBeenCalled()
+      const job = await service.pauseVideoDownloadJob(record.id)
+
+      expect(state.setInterruption).toHaveBeenCalledWith(record.id, 'pause')
+      expect(state.updateJob).toHaveBeenCalledWith(record.id, {
+        status: DownloadJobStatus.Pausing,
+      })
+      expect(job.status).toBe(DownloadJobStatus.Pausing)
     })
   })
 
