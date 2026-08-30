@@ -188,7 +188,13 @@ async function main(): Promise<number> {
     console.log(`  job       ${jobId}`)
     console.log('')
 
-    rows.push(...(await runPauseResume(request, jobId)))
+    rows.push(
+      ...(await runPauseResume(
+        request,
+        jobId,
+        Number(args.get('pause-after') ?? 0),
+      )),
+    )
   } catch (error) {
     rows.push({
       name: 'unexpected',
@@ -211,10 +217,19 @@ async function main(): Promise<number> {
   return finish(rows, jobId)
 }
 
-/** Everything between "the job exists" and "the job is cleaned up". */
+/**
+ * Everything between "the job exists" and "the job is cleaned up".
+ *
+ * `pauseAfterMs` selects *which* pause path gets exercised, and both need
+ * covering. Pausing the instant the job reads `downloading` lands in the
+ * pre-spawn window, where the intent has to be recorded for `download()` to
+ * deliver. Waiting past the metadata fetch first lands on the ordinary path
+ * where the yt-dlp handle is already registered and pause signals it directly.
+ */
 async function runPauseResume(
   request: RequestFn,
   jobId: string,
+  pauseAfterMs: number,
 ): Promise<Row[]> {
   const rows: Row[] = []
 
@@ -248,6 +263,28 @@ async function runPauseResume(
     note: `reached \`downloading\` after ${caught.elapsedMs}ms`,
     details: [`observed: ${caught.observed.join(' → ')}`],
   })
+
+  if (pauseAfterMs > 0) {
+    await sleep(pauseAfterMs)
+    const stillGoing = await request({
+      path: `${VIDEOS_PATH}/${encodeURIComponent(jobId)}`,
+      schema: DownloadJobResponseSchema,
+    })
+    if (stillGoing.data?.status !== DownloadJobStatus.Downloading) {
+      rows.push({
+        name: 'pause.post-spawn-window',
+        status: 'skipped',
+        note: `left \`downloading\` during the ${pauseAfterMs}ms wait (now \`${stillGoing.data?.status}\`)`,
+        details: ['lower --pause-after, or use a longer clip'],
+      })
+      return rows
+    }
+    rows.push({
+      name: 'pause.post-spawn-window',
+      status: 'pass',
+      note: `waited ${pauseAfterMs}ms — pausing with the handle already registered`,
+    })
+  }
 
   // --- pause --------------------------------------------------------------
   //
