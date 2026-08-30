@@ -6,10 +6,14 @@ MinIO, and what has not. Produced by the plan-009 verification script
 host. Read sweep and all three mutate passes re-run against the deployed
 fixed build on **2026-08-28**, with content deliberately **kept** in the
 library and `--include-expensive` passed — see **Remaining work §4**.
+`PATCH /videos/:id/pause` and `/resume` were exercised for the first time on
+**2026-08-30** by a second script, `scripts/verify/pause-resume.ts` — see
+**Remaining work §7**.
 
-**Current state: `42 rows · 40 passed · 0 failed · 2 skipped`.** Both skips
-are `activity-page2` and its `cursor.activity` spot-check — one cause, and a
-deliberate decision rather than a gap. See §4.
+**Current state: `42 rows · 40 passed · 0 failed · 2 skipped`** on the read
+sweep, plus **`13 rows · 13 passed · 0 failed`** on the pause/resume script.
+Both skips are `activity-page2` and its `cursor.activity` spot-check — one
+cause, and a deliberate decision rather than a gap. See §4.
 
 > **Why this document exists.** The 59 test files under
 > `apps/download/src/**/__tests__/` all call `jest.mock('@lilnas/media/radarr')`
@@ -29,8 +33,8 @@ All four bugs the sweep left open are **closed and verified against the live
 backend** (`65bd8cc`, deployed 2026-08-28) — see the **🔧 Fixed** section
 below for what each proof was.
 
-Ordered by what actually blocks progress. **§2, §3, §4 and §6 are all closed
-and verified against the live backend.** What is left is §1 (merge the
+Ordered by what actually blocks progress. **§2, §3, §4, §6 and §7 are all
+closed and verified against the live backend.** What is left is §1 (merge the
 branch) and §5 (no UI for the video delete) — scaffolding around the service
 rather than the service itself.
 
@@ -45,9 +49,12 @@ lands on `main`, the next `docker compose up -d download` recreates the
 container with nothing mounted and Nest dies with `SQLITE_CANTOPEN`. That
 hazard disappears on merge and only on merge.
 
-The prod checkout is currently parked **detached at `05764e5`** — a state
+The prod checkout is currently parked **detached at `967bb93`** — a state
 nobody can reproduce from a clone. Every deploy so far has had to move this
 detached HEAD forward by hand, which is the operational cost of not merging.
+The branch tip is `92bfa55`, one commit further on; the difference is a
+verify script that is not in the image, so the checkout still matches what
+the running container was built from.
 
 ### 2. The yt-dlp auto-updater could not work in production ✅ CLOSED
 
@@ -206,7 +213,7 @@ obvious shortcut wrong:
 
 ```bash
 cd /home/jeremy/lilnas
-git checkout 05764e5                      # prod checkout is detached; see §1
+git checkout 967bb93                      # prod checkout is detached; see §1
 ./infra/base-images/build-base-images.sh  # REQUIRED — see below
 docker-compose build download
 docker-compose up -d download
@@ -226,17 +233,82 @@ meant to survive a restart. Completed videos were unaffected. The two job
 rows were re-created afterwards to restore the `movie-job` / `show-job`
 fixtures.
 
+It happened again on the **2026-08-30** deploy for §7, which swept one
+in-flight `movie` job (_Following_) to `failed` at `04:34:49Z`. Expect this
+on **every** deploy; it is the documented cost of restarting. The library
+content itself is untouched — the 11 kept clips still carry their
+`downloadUrls` and the gallery is unchanged at 15 items.
+
+### 7. `PATCH /videos/:id/pause` and `/resume` ✅ CLOSED
+
+Two of the five never-run write routes, closed on **2026-08-30**. They are
+the cheap half: unlike `releases/{grab,replace,bad-files}` they touch no
+indexer and no download client, only this service's own job state, which is
+what made them safe to run outside a dedicated session.
+
+**Why the read sweep could never have covered this.** `mutate.ts` polls at
+2s, which is right for watching a job _progress_ and useless for catching it
+in one specific state — and pause is refused outside `Downloading`
+(`download.service.ts`). A separate script,
+`apps/download/scripts/verify/pause-resume.ts`, polls at 150ms for exactly
+that reason.
+
+**It found a real bug on the first run.** `download()` writes `Downloading`
+(`download-video.service.ts:236`) and only registers the yt-dlp handle at
+`:292`, with a whole `yt-dlp --dump-json` metadata probe in between. For that
+window the job advertised `downloading` and pause answered **409
+`has no running process to pause`**. Measured at **1189ms and 1198ms across
+three consecutive pre-fix runs**, and confirmed in the container's own logs:
+
+```
+.628  pending → downloading
+.628  "Fetching video metadata"
+.841  PATCH /pause → 409 "Job has no running process"
+```
+
+`cancelVideoDownloadJob` had the identical `getProc` guard and answered
+**404** in the same window.
+
+**The fix (`967bb93`, deployed 2026-08-30).** Pause records the intent when
+there is no handle yet, and `download()` delivers that signal the instant it
+registers one. The ordering is what makes it airtight: `setInterruption()`
+and `setProc()` cannot interleave, so either the handle is already there and
+pause signals it directly, or the spawn finds the note and signals for us.
+Cancel's "has not started" guard is relaxed **only** for `Downloading` —
+every other status with no process really has not started.
+
+✅ **Verified against the live container**, both paths, because the fix moved
+the default path and would otherwise have left the previously-working one
+uncovered:
+
+| Path                              | Result           | Tell                          |
+| --------------------------------- | ---------------- | ----------------------------- |
+| Pre-spawn (pause immediately)     | **12/12 passed** | `pausing → paused` in 884ms   |
+| Post-spawn (`--pause-after 2000`) | **13/13 passed** | straight to `paused` in 105ms |
+
+The two settle times are the evidence that two distinct code paths ran, not
+one path twice. `pause.proc-registration-lag` — the row that failed three
+times pre-fix — now reads _"pausable as soon as the job read `downloading`"_.
+
+Beyond the 200s, the run asserts what a 200 cannot: a paused job is **really
+stopped** (held 4s, re-read, still `paused` and `updatedAt` unchanged), a
+second pause is refused with 409, resume runs to `completed` with a real
+`downloadUrl`, and both `video.pause` and `video.resume` land in the audit
+log. The job is deleted afterwards, so the pass leaves no residue.
+
 ---
 
 ## Summary
 
-|                      |                                               |
-| -------------------- | --------------------------------------------- |
-| Read checks verified | **38 of 42** rows (40 passed, 2 vacuous)      |
-| Remaining failures   | **0**                                         |
-| Remaining skips      | **2** — one cause, deliberate; see §4         |
-| Write path           | **All three media types verified end to end** |
-| Real bugs found      | **9** (all 9 fixed and deployed)              |
+|                        |                                               |
+| ---------------------- | --------------------------------------------- |
+| Read checks verified   | **38 of 42** rows (40 passed, 2 vacuous)      |
+| Remaining failures     | **0**                                         |
+| Remaining skips        | **2** — one cause, deliberate; see §4         |
+| Write path             | **All three media types verified end to end** |
+| Pause / resume         | **13 of 13**, both code paths; see §7         |
+| Never-run write routes | **3** left, down from 5; see §7               |
+| Real bugs found        | **10** (all 10 fixed and deployed)            |
 
 The core request → download → cleanup flow works for movies, shows and videos
 against real upstreams, and now cleans up after itself completely.
@@ -256,13 +328,22 @@ The progression, each step being a real change in what is known:
 | After deploying §2/§3         | `39 passed (2 validated nothing) · 3 skipped` |
 | After the grabs completed     | `40 passed (2 validated nothing) · 2 skipped` |
 
+The pause/resume script (§7) is counted separately, because it is a separate
+script against separate routes:
+
+| Run                       | Result                                   |
+| ------------------------- | ---------------------------------------- |
+| First run, pre-fix        | `11 passed · 1 failed` — found the bug   |
+| After deploying the fix   | `12 passed · 0 failed` (pre-spawn path)  |
+| With `--pause-after 2000` | `13 passed · 0 failed` (post-spawn path) |
+
 Two of those steps are worth reading carefully. Deploying §2/§3 moved no
 counts but closed two rows that had been passing _vacuously_. The last step
 was not our doing at all — Radarr and Sonarr finished grabbing the kept
 titles, which put files on disk and turned the Emby checks and
 `media-seasons` into real coverage.
 
-`pnpm test` is green — **55 suites passed, 1 skipped, 0 failed; 1035 tests
+`pnpm test` is green — **55 suites passed, 1 skipped, 0 failed; 1037 tests
 passed, 9 skipped**. The one skipped suite is
 `ytdlp-update.integration.spec.ts`, which gates on being able to replace the
 yt-dlp binary and correctly declines to run outside a container.
@@ -271,13 +352,19 @@ All three mutate passes are clean runs, and the journal drains to **zero
 entries and zero residue** — the residue list, which existed because a
 finished video could not be torn down, is now always empty.
 
-**Nothing verifiable is left unverified.** Every fix is deployed and proven
-against the live backend. The two still-skipped rows share one cause and are
-a deliberate decision not to pollute the library (§4), not a defect, and no
-route is left behind a flag.
+Every fix is deployed and proven against the live backend. The two
+still-skipped rows share one cause and are a deliberate decision not to
+pollute the library (§4), not a defect, and no route is left behind a flag.
 
-The remaining work is §1 (merge the branch) and §5 (surface the video delete
-in the UI) — neither of which the verification script can speak to.
+**Three write routes remain genuinely unverified** —
+`POST /media/:id/releases/{grab,replace,bad-files}`. That is down from five,
+and unlike the two §7 closed, these are not cheap: `grab` pulls real bytes
+from a real indexer into the download client. This is the one real gap left
+in the backend's coverage.
+
+The rest of the remaining work is §1 (merge the branch) and §5 (surface the
+video delete in the UI) — neither of which any verification script can speak
+to.
 
 ---
 
@@ -322,7 +409,8 @@ every missing episode.
 ## 🔧 Fixed
 
 Every bug this exercise found has been fixed. The four that were open at the
-end of the sweep are below; the two fixed _during_ it follow.
+end of the sweep are below; the two fixed _during_ it follow, and the one
+found **after** it by the pause/resume script comes last.
 
 | What                                              | Cause                                                                                                                                                                       | Fix                                                                      |
 | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -375,6 +463,31 @@ other jobs may point at it, and deleting it would orphan history rather than
 clean it up. The job is resolved via `adoptJob()`, which falls back to the
 durable row, so a restart is not a reason a video becomes unremovable.
 
+### Found after the sweep — pause was refused on a job that was downloading
+
+The tenth bug, and the only one the read sweep and all three mutate passes
+could not have found, because none of them ever calls pause. Full detail in
+**Remaining work §7**; the short version:
+
+`download()` writes `Downloading` before it fetches metadata and only
+registers the yt-dlp handle afterwards, so for **~1.2s** a job was genuinely
+downloading with nothing to signal. `pauseVideoDownloadJob` demanded both,
+and answered `409 has no running process to pause` on a job the UI was
+showing as downloading — with nothing to tell the user why pause only
+"sometimes" works. `cancelVideoDownloadJob` answered `404` in the same
+window.
+
+Fixed in `967bb93` by recording the pause intent when there is no handle yet
+and having `download()` deliver it the moment it registers one. What makes
+this safe rather than another race is that `setInterruption()` and
+`setProc()` cannot interleave: a pause either precedes both and is picked up
+by the spawn, or follows both and finds the handle itself.
+
+Worth noting for its own sake: **the bug was in the reachability graph all
+along.** `VIDEO_TRANSITIONS` in `mutate.ts` already modelled
+`Downloading → Pausing`, so the state machine said this should work. Only
+driving it live showed that it didn't.
+
 ### Fixed during verification
 
 | What                                                                                                    | Cause                                                                                                                                                                                                                  | Fix               |
@@ -410,7 +523,10 @@ apart from passes for exactly that reason.
   the show had a file on disk. This row had been skipped since the very first
   sweep for want of a held show; it is the last one the library content
   unblocked.
-- **`PATCH /videos/:id/pause` and `/resume`** — untouched.
+- ~~**`PATCH /videos/:id/pause` and `/resume`**~~ — **now run.** Both paths
+  passed on 2026-08-30 (`13/13`) via `scripts/verify/pause-resume.ts`, which
+  found and then proved the fix for the pre-spawn 409. See **Remaining work
+  §7**.
 - **`POST /media/:id/releases/grab`, `/replace`, `/bad-files`** — the remaining
   write routes. Untouched. `grab` pulls real bytes from a real indexer into
   the download client, which `preflight` calls out as needing its own
@@ -480,15 +596,23 @@ verified** (§6). The read sweep has nothing left to give: 40 of 42 rows pass
 and the two skips are a choice. What remains cannot be closed by running the
 script again:
 
-1. **The five never-run write routes** — `PATCH /videos/:id/pause`,
-   `/resume`, and `POST /media/:id/releases/{grab,replace,bad-files}`. `grab`
-   in particular pulls real bytes from a real indexer into the download
-   client and deserves its own session; `preflight` says so itself.
+1. **Three never-run write routes** —
+   `POST /media/:id/releases/{grab,replace,bad-files}`, down from five now
+   that §7 has closed `pause` and `/resume`. `grab` in particular pulls real
+   bytes from a real indexer into the download client and deserves its own
+   session; `preflight` says so itself. **This is the only genuine coverage
+   gap left in the backend.**
 2. **`activity-page2` / `cursor.activity`** — needs >10 movie/show adds.
    Deliberately not doing this: the cursor mechanism is proven four other
    ways, so this would be library pollution buying nothing.
 
 There is no unknown failure and no route left behind a flag.
+
+**What §7 changed about how to read this list.** `pause`/`resume` sat here as
+"untouched" through the whole exercise and looked like a formality. The first
+run of a script written for them found a real 409 on a path the UI exercises
+constantly. Treat the three remaining entries as unknowns, not as
+near-certain passes.
 
 ---
 
@@ -630,7 +754,19 @@ pnpm exec tsx scripts/verify/verify-backend.ts check
 # Write path — creates and deletes real content; read the guardrails first
 pnpm exec tsx scripts/verify/verify-backend.ts preflight --repo-path /home/jeremy/lilnas
 pnpm exec tsx scripts/verify/verify-backend.ts mutate --repo-path /home/jeremy/lilnas --only movie
+
+# Pause/resume — a separate script; see §7 for why it cannot live in the sweep
+pnpm exec tsx scripts/verify/pause-resume.ts --repo-path /home/jeremy/lilnas
+pnpm exec tsx scripts/verify/pause-resume.ts --repo-path /home/jeremy/lilnas --pause-after 2000
 ```
+
+⚠️ **Run `pause-resume.ts` both ways or you have only covered half of it.**
+With no flag it pauses the instant the job reads `downloading`, which lands
+in the pre-spawn window; `--pause-after 2000` waits past the metadata fetch
+so the yt-dlp handle is already registered. Those are two different branches
+in `pauseVideoDownloadJob`. It creates one video job and deletes it in a
+`finally`, printing the job id on every path so a hard crash still leaves you
+something to clean up by hand.
 
 ⚠️ **Read the verdict line, not the colour.** A run that is mostly skips prints
 `MOSTLY UNVERIFIED`; a run that validated nothing prints `NOT A PASS` even with
