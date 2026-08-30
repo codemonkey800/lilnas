@@ -88,6 +88,17 @@ const DEFAULT_TMDB_ID = 10331
 /** The synthetic flag `bad-files.ts` leaves on `tmdb:${fixtures.movie.tmdbId}`. */
 const FLAGGED_GUID = 'lilnas-verify:bad-file:synthetic-guid-v1'
 
+/**
+ * One half of a split archive. Radarr accepts the grab and the download
+ * client finishes it, but the import is then blocked with "was not found in
+ * the grabbed release". This script only claims the release reached the
+ * client, so such a pick would still pass — but it makes the run a worse
+ * proxy for what a user's grab does, and it is what stalled the first run of
+ * `replace.ts`, which genuinely needs the file. Filtered in both for one
+ * selection rule rather than two.
+ */
+const SPLIT_ARCHIVE = /\.part\d+\b/i
+
 /** Ceiling on the wait for a Radarr queue item to appear. */
 const QUEUE_WINDOW_MS = 120_000
 
@@ -401,7 +412,13 @@ async function pickRow(
   // rejected release is one it will refuse to push, so grabbing one would
   // test the error path rather than the route.
   const eligible = listed.data.releases
-    .filter(r => !r.rejected && r.downloadAllowed !== false && r.size)
+    .filter(
+      r =>
+        !r.rejected &&
+        r.downloadAllowed !== false &&
+        r.size &&
+        !SPLIT_ARCHIVE.test(r.title ?? ''),
+    )
     .sort((a, b) => (a.size ?? 0) - (b.size ?? 0))
 
   const release = eligible[0]
