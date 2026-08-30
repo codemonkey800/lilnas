@@ -35,8 +35,8 @@ below for what each proof was.
 
 Ordered by what actually blocks progress. **§2, §3, §4, §6 and §7 are all
 closed and verified against the live backend.** What is left is §1 (merge the
-branch) and §5 (no UI for the video delete) — scaffolding around the service
-rather than the service itself.
+branch), §5 (no UI for the video delete) and **§8 (three write routes still
+untested — one of which is cheap and should be done next)**.
 
 ### 1. The branch has never been pushed or merged
 
@@ -296,19 +296,71 @@ second pause is refused with 409, resume runs to `completed` with a real
 `downloadUrl`, and both `video.pause` and `video.resume` land in the audit
 log. The job is deleted afterwards, so the pass leaves no residue.
 
+### 8. The three remaining write routes are not one problem
+
+They have been carried as a single bullet — "the remaining write routes,
+untouched, `grab` needs its own session" — since the first sweep. **That
+grouping is wrong**, and re-reading the code on 2026-08-30 is what showed it.
+Only two of the three are expensive. The third contacts nothing at all and has
+been sitting behind a caution that does not apply to it.
+
+| Route       | What it actually touches                         | Why it is still untested                                         |
+| ----------- | ------------------------------------------------ | ---------------------------------------------------------------- |
+| `bad-files` | **Local SQLite only** — `insertBadFile`          | **No good reason.** Grouped by name. One real catch, below.      |
+| `grab`      | Real indexer → real download client → real bytes | Deliberate scope boundary from day one; needs a watched session. |
+| `replace`   | **Deletes files on disk**, _then_ grabs          | Strictly more destructive than `grab`.                           |
+
+**`POST /media/:id/bad-files` is a local database write.**
+`ReleaseService.flagBadFile()` calls `insertBadFile(this.dbService.db, …)` and
+returns. No Radarr, no Sonarr, no indexer, no download client, no bytes. It is
+as cheap as pause and resume were, and it ended up in the expensive bucket
+because it lives on the Phase 3 releases surface and shares the word
+"releases" with its neighbours.
+
+The one genuine catch is narrower than the caution it inherited, and worth
+stating precisely because it is the thing to design a test around:
+
+- **There is no un-flag route.** `deleteBadFile()` exists at
+  `apps/download/src/db/bad-files.repo.ts:91` and nothing exposes it over
+  HTTP. A flag placed by a test is permanent unless someone edits SQLite.
+- **`assertNotFlagged` gives the flag teeth.** Both `grabRelease` and
+  `replaceRelease` refuse a release that has been flagged. So a stray test
+  flag against a real release would quietly poison it for real use.
+
+Together those say _pick the target carefully_, not _never run it_.
+
+**Testing it also closes a vacuous row.** `media-bad-files` is one of the two
+rows that "passed but validated nothing" — it answers `200` over an empty
+list precisely because no bad file has ever existed. One flag turns that row
+into real coverage of the element schema.
+
+**`replace` deserves more caution than the old note gave it.**
+`ReleaseService.replaceRelease()` runs `deleteExistingFiles()` in its
+`prepare` step, before the grab. The controller's own docblock frames the
+atomicity as the point — _"so the user can't be left with a deleted file and
+no replacement"_ — which is exactly the state a careless test would be
+gambling with. Test it on a title nobody minds losing, or accept the gap
+knowingly.
+
+**The pattern to notice.** This is the second time in two days that something
+filed under "expensive, needs its own session" turned out not to be, and both
+times the tell was the same: nobody re-read the code after the label was
+applied. `pause`/`resume` was the first (§7). Labels age; the code is the
+only thing that answers the question.
+
 ---
 
 ## Summary
 
-|                        |                                               |
-| ---------------------- | --------------------------------------------- |
-| Read checks verified   | **38 of 42** rows (40 passed, 2 vacuous)      |
-| Remaining failures     | **0**                                         |
-| Remaining skips        | **2** — one cause, deliberate; see §4         |
-| Write path             | **All three media types verified end to end** |
-| Pause / resume         | **13 of 13**, both code paths; see §7         |
-| Never-run write routes | **3** left, down from 5; see §7               |
-| Real bugs found        | **10** (all 10 fixed and deployed)            |
+|                        |                                                        |
+| ---------------------- | ------------------------------------------------------ |
+| Read checks verified   | **38 of 42** rows (40 passed, 2 vacuous)               |
+| Remaining failures     | **0**                                                  |
+| Remaining skips        | **2** — one cause, deliberate; see §4                  |
+| Write path             | **All three media types verified end to end**          |
+| Pause / resume         | **13 of 13**, both code paths; see §7                  |
+| Never-run write routes | **3** left, down from 5 — 1 cheap, 2 expensive; see §8 |
+| Real bugs found        | **10** (all 10 fixed and deployed)                     |
 
 The core request → download → cleanup flow works for movies, shows and videos
 against real upstreams, and now cleans up after itself completely.
@@ -357,10 +409,12 @@ still-skipped rows share one cause and are a deliberate decision not to
 pollute the library (§4), not a defect, and no route is left behind a flag.
 
 **Three write routes remain genuinely unverified** —
-`POST /media/:id/releases/{grab,replace,bad-files}`. That is down from five,
-and unlike the two §7 closed, these are not cheap: `grab` pulls real bytes
-from a real indexer into the download client. This is the one real gap left
-in the backend's coverage.
+`POST /media/:id/releases/{grab,replace}` and `POST /media/:id/bad-files`.
+That is down from five, and it is the one real gap left in the backend's
+coverage. But they are **not one problem**: `grab` and `replace` are
+genuinely expensive and destructive, while `bad-files` is a local SQLite
+insert that has been untested for no reason other than the company it keeps.
+See §8 — that is the one to do first.
 
 The rest of the remaining work is §1 (merge the branch) and §5 (surface the
 video delete in the UI) — neither of which any verification script can speak
@@ -527,10 +581,12 @@ apart from passes for exactly that reason.
   passed on 2026-08-30 (`13/13`) via `scripts/verify/pause-resume.ts`, which
   found and then proved the fix for the pre-spawn 409. See **Remaining work
   §7**.
-- **`POST /media/:id/releases/grab`, `/replace`, `/bad-files`** — the remaining
-  write routes. Untouched. `grab` pulls real bytes from a real indexer into
-  the download client, which `preflight` calls out as needing its own
-  deliberate session.
+- **`POST /media/:id/releases/grab` and `/replace`** — untouched, and
+  legitimately expensive. `grab` pulls real bytes from a real indexer into the
+  download client; `replace` **deletes what is on disk first**. See §8.
+- **`POST /media/:id/bad-files`** — untouched, and there was never a good
+  reason. It is a local SQLite insert that contacts nothing upstream. It was
+  grouped with the two above by name, not by behaviour. See §8.
 - **Cursor pagination on `activity`** — still one page, and the only cause of
   the two remaining skips. `gallery`, `history` and `admin/audit-log` all
   round-trip now (`10 + 4 of 14`, `10 + 10 of 35`, `10 + 10 of 78`), so the
@@ -543,6 +599,11 @@ apart from passes for exactly that reason.
 and `media-file` (headers only, no body captured). The envelope is verified;
 the element schemas inside were not. The report marks these "validated
 nothing" so they cannot be misread as coverage.
+
+`media-bad-files` is empty because **no bad file has ever been flagged** —
+`POST /media/:id/bad-files` has never been called. Calling it once closes
+this row and §8's first item together. See §8 for why that call is cheaper
+than this document long claimed.
 
 ### ✅ The Emby path is now proven end to end
 
@@ -596,13 +657,16 @@ verified** (§6). The read sweep has nothing left to give: 40 of 42 rows pass
 and the two skips are a choice. What remains cannot be closed by running the
 script again:
 
-1. **Three never-run write routes** —
-   `POST /media/:id/releases/{grab,replace,bad-files}`, down from five now
-   that §7 has closed `pause` and `/resume`. `grab` in particular pulls real
-   bytes from a real indexer into the download client and deserves its own
-   session; `preflight` says so itself. **This is the only genuine coverage
-   gap left in the backend.**
-2. **`activity-page2` / `cursor.activity`** — needs >10 movie/show adds.
+1. **`POST /media/:id/bad-files`** — cheap, local, and next. A SQLite insert
+   that contacts nothing upstream (§8). The only care needed is picking a
+   target whose flag will not poison a real release, because there is no
+   un-flag route. Closes the vacuous `media-bad-files` row as a bonus.
+2. **`POST /media/:id/releases/grab`** — needs a watched session with the
+   download client open; `preflight` says so itself. Real bytes, real
+   bandwidth, real teardown.
+3. **`POST /media/:id/releases/replace`** — the same, plus it deletes what is
+   on disk before it grabs. Needs a title nobody minds losing.
+4. **`activity-page2` / `cursor.activity`** — needs >10 movie/show adds.
    Deliberately not doing this: the cursor mechanism is proven four other
    ways, so this would be library pollution buying nothing.
 
