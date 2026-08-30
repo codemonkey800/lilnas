@@ -8,12 +8,24 @@ fixed build on **2026-08-28**, with content deliberately **kept** in the
 library and `--include-expensive` passed — see **Remaining work §4**.
 `PATCH /videos/:id/pause` and `/resume` were exercised for the first time on
 **2026-08-30** by a second script, `scripts/verify/pause-resume.ts` — see
-**Remaining work §7**.
+**Remaining work §7**. Later the same day the **last three write routes** were
+exercised by three more scripts, `bad-files.ts`, `grab.ts` and `replace.ts` —
+see **§8**.
 
 **Current state: `42 rows · 40 passed · 0 failed · 2 skipped`** on the read
-sweep, plus **`13 rows · 13 passed · 0 failed`** on the pause/resume script.
-Both skips are `activity-page2` and its `cursor.activity` spot-check — one
-cause, and a deliberate decision rather than a gap. See §4.
+sweep, plus four focused scripts:
+
+| Script            | Result                          | Covers                             |
+| ----------------- | ------------------------------- | ---------------------------------- |
+| `pause-resume.ts` | `13 passed · 0 failed`          | `PATCH /videos/:id/{pause,resume}` |
+| `bad-files.ts`    | `15 passed · 0 failed`          | `POST /media/:id/bad-files`        |
+| `grab.ts`         | `15 passed · 0 failed`          | `POST /media/:id/releases/grab`    |
+| `replace.ts`      | `13 passed · 0 failed · 2 skip` | `POST /media/:id/releases/replace` |
+
+The read sweep's two skips are `activity-page2` and its `cursor.activity`
+spot-check — one cause, and a deliberate decision rather than a gap. See §4.
+`replace.ts`'s two skips are **one real gap** and are described honestly in
+§8: everything about that route is proven except that it deletes a real file.
 
 > **Why this document exists.** The 59 test files under
 > `apps/download/src/**/__tests__/` all call `jest.mock('@lilnas/media/radarr')`
@@ -33,10 +45,11 @@ All four bugs the sweep left open are **closed and verified against the live
 backend** (`65bd8cc`, deployed 2026-08-28) — see the **🔧 Fixed** section
 below for what each proof was.
 
-Ordered by what actually blocks progress. **§2, §3, §4, §6 and §7 are all
+Ordered by what actually blocks progress. **§2, §3, §4, §6, §7 and §8 are all
 closed and verified against the live backend.** What is left is §1 (merge the
-branch), §5 (no UI for the video delete) and **§8 (three write routes still
-untested — one of which is cheap and should be done next)**.
+branch), §5 (no UI for the video delete), and **one stated gap inside §8** —
+that `replace` deletes a real file, which could not be seeded on this host.
+No route is untested any more.
 
 ### 1. The branch has never been pushed or merged
 
@@ -296,79 +309,191 @@ second pause is refused with 409, resume runs to `completed` with a real
 `downloadUrl`, and both `video.pause` and `video.resume` land in the audit
 log. The job is deleted afterwards, so the pass leaves no residue.
 
-### 8. The three remaining write routes are not one problem
+### 8. The three remaining write routes ✅ CLOSED (one with a stated gap)
 
-They have been carried as a single bullet — "the remaining write routes,
+They had been carried as a single bullet — "the remaining write routes,
 untouched, `grab` needs its own session" — since the first sweep. **That
-grouping is wrong**, and re-reading the code on 2026-08-30 is what showed it.
-Only two of the three are expensive. The third contacts nothing at all and has
-been sitting behind a caution that does not apply to it.
+grouping was wrong**, and re-reading the code on 2026-08-30 is what showed
+it. All three were then run live the same day, by three separate scripts.
 
-| Route       | What it actually touches                         | Why it is still untested                                         |
-| ----------- | ------------------------------------------------ | ---------------------------------------------------------------- |
-| `bad-files` | **Local SQLite only** — `insertBadFile`          | **No good reason.** Grouped by name. One real catch, below.      |
-| `grab`      | Real indexer → real download client → real bytes | Deliberate scope boundary from day one; needs a watched session. |
-| `replace`   | **Deletes files on disk**, _then_ grabs          | Strictly more destructive than `grab`.                           |
+| Route       | Script         | Result                       | What it actually touches                         |
+| ----------- | -------------- | ---------------------------- | ------------------------------------------------ |
+| `bad-files` | `bad-files.ts` | **15/15** ✅                 | **Local SQLite only** — `insertBadFile`          |
+| `grab`      | `grab.ts`      | **15/15** ✅                 | Real indexer → real download client → real bytes |
+| `replace`   | `replace.ts`   | **13 passed · 2 skipped** ⚠️ | **Deletes files on disk**, _then_ grabs          |
 
-**`POST /media/:id/bad-files` is a local database write.**
-`ReleaseService.flagBadFile()` calls `insertBadFile(this.dbService.db, …)` and
-returns. No Radarr, no Sonarr, no indexer, no download client, no bytes. It is
-as cheap as pause and resume were, and it ended up in the expensive bucket
-because it lives on the Phase 3 releases surface and shares the word
-"releases" with its neighbours.
+#### `POST /media/:id/bad-files` — closed, and it was always cheap
 
-The one genuine catch is narrower than the caution it inherited, and worth
-stating precisely because it is the thing to design a test around:
+`ReleaseService.flagBadFile()` calls `insertBadFile(this.dbService.db, …)`
+and returns. No Radarr, no Sonarr, no indexer, no download client, no bytes.
+It ended up in the expensive bucket because it lives on the Phase 3 releases
+surface and shares the word "releases" with its neighbours.
+
+The genuine catch was narrower than the caution it inherited, and it is what
+the test was designed around:
 
 - **There is no un-flag route.** `deleteBadFile()` exists at
   `apps/download/src/db/bad-files.repo.ts:91` and nothing exposes it over
   HTTP. A flag placed by a test is permanent unless someone edits SQLite.
 - **`assertNotFlagged` gives the flag teeth.** Both `grabRelease` and
-  `replaceRelease` refuse a release that has been flagged. So a stray test
-  flag against a real release would quietly poison it for real use.
+  `replaceRelease` refuse a flagged release, with no override path.
 
-Together those say _pick the target carefully_, not _never run it_.
+**The resolution: the guid is what has to be careful, not the media id.** The
+refusal, the `flaggedBad` annotation and `MediaDownloadService`'s auto-select
+exclusion are all keyed on `(mediaId, releaseGuid)`. A guid no indexer will
+ever mint therefore cannot poison anything — nothing real matches it, so
+nothing real is ever refused or annotated. That freed the _media id_ to be a
+real, kept title, which is what makes the sweep's `media-bad-files` row real
+coverage rather than a 200 over `[]`.
 
-**Testing it also closes a vacuous row.** `media-bad-files` is one of the two
-rows that "passed but validated nothing" — it answers `200` over an empty
-list precisely because no bad file has ever existed. One flag turns that row
-into real coverage of the element schema.
+The guid is `lilnas-verify:bad-file:synthetic-guid-v1`, and it is a constant
+rather than a per-run value, so `insertBadFile`'s `onConflictDoNothing` makes
+re-runs read back the same row instead of accumulating one each time.
 
-**`replace` deserves more caution than the old note gave it.**
-`ReleaseService.replaceRelease()` runs `deleteExistingFiles()` in its
-`prepare` step, before the grab. The controller's own docblock frames the
-atomicity as the point — _"so the user can't be left with a deleted file and
-no replacement"_ — which is exactly the state a careless test would be
-gambling with. Test it on a title nobody minds losing, or accept the gap
-knowingly.
+✅ **15/15 live.** Beyond the 201: anonymous is `401` (the only Phase 3 route
+behind `ForwardedUserGuard`), a missing `guid` and a 501-character `reason`
+are both `400` — which is the cheapest proof `FlagBadFileInputDto`'s pipe is
+wired to the handler and not merely declared — a `video:` key is `404` from
+`parseReleaseTarget`, the flag round-trips every field, it is attributed to
+the forwarded user, it comes back through `GET /bad-files` byte-identical and
+parsed as `BadFileSchema`, re-flagging returns the original row unchanged,
+and `file.flag_bad` lands in the audit log.
 
-**The pattern to notice.** This is the second time in two days that something
-filed under "expensive, needs its own session" turned out not to be, and both
-times the tell was the same: nobody re-read the code after the label was
-applied. `pause`/`resume` was the first (§7). Labels age; the code is the
-only thing that answers the question.
+⚠️ **Two corrections to what this document used to say.**
+
+1. **The action is `file.flag_bad`**, not `release.bad_file`. Checked against
+   `AUDIT_ACTIONS_LOCAL` (`schema.ts:305`) and against the live log.
+2. **"No bad file has ever been flagged" was false.** The audit log holds two
+   `file.flag_bad` rows against `tmdb:11660` from **2026-08-29 06:01 UTC** —
+   so the route _had_ been called, and the `bad_files` rows were later deleted
+   by hand (the autoincrement gap is the tell: this exercise's first flag got
+   `id 3`). One of those two carried a **real nzbgeek guid for _Following_**,
+   which is exactly the poisoning hazard described above; removing it was the
+   right call, but the document was never corrected. The table is now clean
+   apart from the two synthetic rows this exercise left, and **no real release
+   is flagged**.
+
+#### `POST /media/:id/releases/grab` — closed
+
+The fence around this route was right about the bytes and wrong about the
+teardown. `DELETE /download/movies/:jobId` runs `unmonitorAndDelete`, which
+cancels every queue item for the movie with `removeFromClient: true` _before_
+deleting it (`radarr.service.ts:486`) — the same teardown `mutate --only
+movie` has used against the same download client since the first sweep. The
+only difference is that the release is user-picked rather than auto-selected,
+so the incremental cost is the bytes that land between the grab and the
+delete, and nothing else.
+
+**The assertion is `status: downloading`, not the 201.** `MediaPollerService`
+derives that status from a live Radarr _queue record_, which exists only once
+the download client holds the release. A 201 proves Radarr accepted the push;
+`downloading` proves the bytes are moving. The script tears down the instant
+it has that, rather than watching an import finish.
+
+✅ **15/15 live** against `tmdb:10331` (_Night of the Living Dead_, 1968) —
+a title Radarr did not hold. It refuses to run against a held one, because
+teardown deletes files. Reached `downloading` in 60s; afterwards the Radarr
+queue was empty, the title was gone (`resolves without a radarrId`), and the
+gallery was unchanged. Also covers the `409` on a flagged release — free,
+because `assertNotFlagged` precedes any upstream call, using the flag
+`bad-files.ts` leaves behind — and the `400` on a missing `indexerId`.
+
+#### `POST /media/:id/releases/replace` — run, with one honest gap
+
+This is the destructive one, and the library on this host is **not a
+fixture**: it is ~288 real movies someone owns. There is no title in it that
+"nobody minds losing", so the script does not pick a victim — it
+**manufactures** one: grab a small release, wait for Radarr to import it to a
+real file, then replace that. The file it destroys is one it created minutes
+earlier.
+
+**Seeding failed, twice, for reasons outside this app.** Two different
+releases for `tmdb:10331` downloaded to completion in SABnzbd and were then
+refused by **Radarr's** import matcher with `Movie […] was not found in the
+grabbed release`:
+
+| Attempt | Release                                    | Outcome                                   |
+| ------- | ------------------------------------------ | ----------------------------------------- |
+| 1       | `…3X-audio Remastered x264 aac.part01`     | `importBlocked` — half of a split archive |
+| 2       | `Night.of.the.Living.Dead.1968.DVDRip…iLS` | `importPending` → same matcher refusal    |
+
+The first is a real selection bug in the script and is fixed: `.partNN` is
+now filtered out of release selection in both `replace.ts` and `grab.ts`,
+because "smallest" and "importable" are not the same property. The second is
+Radarr's release-to-movie matching on a correctly-named single-file `.avi`
+sitting in the completed folder — not a defect in the route under test, but
+the effect is the same: no disposable file, so nothing to delete.
+
+**So a failed seed is not fatal, and not silently glossed.**
+`replaceRelease`'s own docblock says deleting zero files is legal — _"nothing
+to replace just means this is a plain grab"_ — so the run continues down that
+documented path and asserts everything else. The two rows it cannot make then
+report **`skipped`**, and the verdict stays `NOT A PASS` with exit 2.
+
+| Proven                                                                        | Not proven                                         |
+| ----------------------------------------------------------------------------- | -------------------------------------------------- |
+| `400` on a missing `indexerId` — **before** `prepare`, so nothing was deleted | That `deleteExistingFiles` removes a **real** file |
+| `409` on a flagged release, also before `prepare`                             | The delete-then-grab ordering under a real file    |
+| `201`, and the job is an ordinary movie job                                   |                                                    |
+| `release.replace` in the audit log with the guid and job id                   |                                                    |
+| The replacement reached a live Radarr queue item (`downloading`)              |                                                    |
+| Clean teardown — queue empty, title gone, gallery unchanged                   |                                                    |
+
+That first "not proven" row is **the one real gap left in the backend's
+coverage.** It is not a decision not to test, the way `activity-page2` is
+(§4) — it is a test that was written, run, and blocked by an upstream that
+would not produce a disposable file. It closes the moment any title Radarr
+will actually import is available to seed with; `pnpm exec tsx
+scripts/verify/replace.ts --repo-path /home/jeremy/lilnas --tmdb-id <other>`
+is the whole retry.
+
+⚠️ **Residue this left, deliberately.** Two `bad_files` rows, both carrying
+`lilnas-verify:bad-file:synthetic-guid-v1` — `id 3` on `tmdb:11660`
+(_Following_, kept) and `id 5` on `tmdb:10331` (no longer in the library).
+Neither can poison anything, because no indexer mints that guid. There is no
+un-flag route, so they are permanent until someone runs:
+
+```bash
+docker compose exec -T download node -e "const D=require('better-sqlite3')('/data/download.db');console.log(D.prepare('DELETE FROM bad_files WHERE release_guid LIKE ?').run('lilnas-verify:bad-file:%'))"
+```
+
+Leaving `id 3` in place is the better default: it is what keeps
+`media-bad-files` non-vacuous and what lets `grab.ts` and `replace.ts` assert
+their 409s for free.
+
+**The pattern to notice.** This is the second and third time in two days that
+something filed under "expensive, needs its own session" turned out not to
+be, and each time the tell was the same: nobody re-read the code after the
+label was applied. `pause`/`resume` was the first (§7); `bad-files` was
+mislabelled outright, and `grab`'s teardown had been solved for months by the
+movie mutate pass. Labels age; the code is the only thing that answers the
+question. Note the counter-example too — `replace` was labelled the most
+dangerous, and re-reading the code confirmed it.
 
 ---
 
 ## Summary
 
-|                        |                                                        |
-| ---------------------- | ------------------------------------------------------ |
-| Read checks verified   | **38 of 42** rows (40 passed, 2 vacuous)               |
-| Remaining failures     | **0**                                                  |
-| Remaining skips        | **2** — one cause, deliberate; see §4                  |
-| Write path             | **All three media types verified end to end**          |
-| Pause / resume         | **13 of 13**, both code paths; see §7                  |
-| Never-run write routes | **3** left, down from 5 — 1 cheap, 2 expensive; see §8 |
-| Real bugs found        | **10** (all 10 fixed and deployed)                     |
+|                          |                                                          |
+| ------------------------ | -------------------------------------------------------- |
+| Read checks verified     | **39 of 42** rows (40 passed, 1 vacuous)                 |
+| Remaining failures       | **0**, on every script                                   |
+| Read-sweep skips         | **2** — one cause, deliberate; see §4                    |
+| Write path               | **All three media types verified end to end**            |
+| Pause / resume           | **13 of 13**, both code paths; see §7                    |
+| Never-run write routes   | **0**, down from 5 — all three closed 2026-08-30; see §8 |
+| Behaviour still unproven | **1** — that `replace` deletes a real file; see §8       |
+| Real bugs found          | **10** (all 10 fixed and deployed)                       |
 
 The core request → download → cleanup flow works for movies, shows and videos
 against real upstreams, and now cleans up after itself completely.
 
-Latest run (2026-08-28, against the **deployed** fixed build, with content
-kept and `--include-expensive`):
-`42 rows · 40 passed (2 of them validated nothing) · 0 failed · 2 skipped`
-— **38 of 42 rows verified something.**
+Latest read sweep (2026-08-28, against the **deployed** fixed build, with
+content kept and `--include-expensive`):
+`42 rows · 40 passed · 0 failed · 2 skipped` — and as of 2026-08-30 only one
+of those passes still validates nothing, so **39 of 42 rows verified
+something.** The sweep itself was not re-run; what changed is that
+`bad-files.ts` put a real element behind `media-bad-files`.
 
 The progression, each step being a real change in what is known:
 
@@ -380,14 +505,18 @@ The progression, each step being a real change in what is known:
 | After deploying §2/§3         | `39 passed (2 validated nothing) · 3 skipped` |
 | After the grabs completed     | `40 passed (2 validated nothing) · 2 skipped` |
 
-The pause/resume script (§7) is counted separately, because it is a separate
+The four focused scripts are counted separately, because each is a separate
 script against separate routes:
 
-| Run                       | Result                                   |
-| ------------------------- | ---------------------------------------- |
-| First run, pre-fix        | `11 passed · 1 failed` — found the bug   |
-| After deploying the fix   | `12 passed · 0 failed` (pre-spawn path)  |
-| With `--pause-after 2000` | `13 passed · 0 failed` (post-spawn path) |
+| Script / run                           | Result                                   |
+| -------------------------------------- | ---------------------------------------- |
+| `pause-resume` first run, pre-fix      | `11 passed · 1 failed` — found the bug   |
+| `pause-resume` after deploying the fix | `12 passed · 0 failed` (pre-spawn path)  |
+| `pause-resume --pause-after 2000`      | `13 passed · 0 failed` (post-spawn path) |
+| `bad-files`                            | `15 passed · 0 failed`                   |
+| `grab`                                 | `15 passed · 0 failed`                   |
+| `replace` seeded run ×2                | seed blocked by Radarr's import matcher  |
+| `replace --no-seed`                    | `13 passed · 0 failed · 2 skipped`       |
 
 Two of those steps are worth reading carefully. Deploying §2/§3 moved no
 counts but closed two rows that had been passing _vacuously_. The last step
@@ -408,13 +537,17 @@ Every fix is deployed and proven against the live backend. The two
 still-skipped rows share one cause and are a deliberate decision not to
 pollute the library (§4), not a defect, and no route is left behind a flag.
 
-**Three write routes remain genuinely unverified** —
-`POST /media/:id/releases/{grab,replace}` and `POST /media/:id/bad-files`.
-That is down from five, and it is the one real gap left in the backend's
-coverage. But they are **not one problem**: `grab` and `replace` are
-genuinely expensive and destructive, while `bad-files` is a local SQLite
-insert that has been untested for no reason other than the company it keeps.
-See §8 — that is the one to do first.
+**No write route is unverified any more.** All five that started this
+exercise untouched have now been run against the live backend:
+`PATCH /videos/:id/{pause,resume}` (§7) and
+`POST /media/:id/{bad-files,releases/grab,releases/replace}` (§8).
+
+**One behaviour inside `replace` is still unproven** — that
+`deleteExistingFiles` removes a real file. The test for it exists and runs;
+it was blocked by Radarr refusing to import either of two disposable releases,
+so there was never a file to delete. That is a genuine gap, and it is
+deliberately reported as `skipped` rather than folded into a pass. Retrying it
+needs nothing but a title Radarr will actually import.
 
 The rest of the remaining work is §1 (merge the branch) and §5 (surface the
 video delete in the UI) — neither of which any verification script can speak
@@ -581,12 +714,21 @@ apart from passes for exactly that reason.
   passed on 2026-08-30 (`13/13`) via `scripts/verify/pause-resume.ts`, which
   found and then proved the fix for the pre-spawn 409. See **Remaining work
   §7**.
-- **`POST /media/:id/releases/grab` and `/replace`** — untouched, and
-  legitimately expensive. `grab` pulls real bytes from a real indexer into the
-  download client; `replace` **deletes what is on disk first**. See §8.
-- **`POST /media/:id/bad-files`** — untouched, and there was never a good
-  reason. It is a local SQLite insert that contacts nothing upstream. It was
-  grouped with the two above by name, not by behaviour. See §8.
+- ~~**`POST /media/:id/releases/grab`**~~ — **now run.** `15/15` on
+  2026-08-30 via `scripts/verify/grab.ts`, against a title Radarr did not
+  hold. Reached `downloading` — a live Radarr queue item, so the real
+  download client really had the release — and tore down completely. See §8.
+- ~~**`POST /media/:id/bad-files`**~~ — **now run.** `15/15` on 2026-08-30
+  via `scripts/verify/bad-files.ts`. There was never a good reason it was
+  untested: it is a local SQLite insert that contacts nothing upstream, and
+  it was grouped with its neighbours by name rather than by behaviour. See
+  §8.
+- **`POST /media/:id/releases/replace`** — **run, but one claim is still
+  unmade.** `13 passed · 2 skipped` on 2026-08-30 via
+  `scripts/verify/replace.ts`. Everything except the deletion is proven; that
+  Radarr's import matcher would not produce a disposable file to delete is
+  why. **This is the only genuinely unverified behaviour left in the
+  backend.** See §8 for the exact split and the one-line retry.
 - **Cursor pagination on `activity`** — still one page, and the only cause of
   the two remaining skips. `gallery`, `history` and `admin/audit-log` all
   round-trip now (`10 + 4 of 14`, `10 + 10 of 35`, `10 + 10 of 78`), so the
@@ -595,15 +737,22 @@ apart from passes for exactly that reason.
 
 ### Passed, but validated nothing
 
-**Two rows** (down from six) answered 200 over empty data: `media-bad-files`
-and `media-file` (headers only, no body captured). The envelope is verified;
-the element schemas inside were not. The report marks these "validated
-nothing" so they cannot be misread as coverage.
+**One row** (down from six, and from two): `media-file` — headers only, no
+body captured. The envelope is verified; the element schema inside was not.
+The report marks it "validated nothing" so it cannot be misread as coverage.
 
-`media-bad-files` is empty because **no bad file has ever been flagged** —
-`POST /media/:id/bad-files` has never been called. Calling it once closes
-this row and §8's first item together. See §8 for why that call is cheaper
-than this document long claimed.
+~~`media-bad-files`~~ — **no longer vacuous.** It answered 200 over `[]` on
+every sweep because the `bad_files` table was empty. As of 2026-08-30 the
+kept _Following_ (`tmdb:11660`) carries a flag, so the row returns a real
+element and `BadFileSchema` is exercised rather than merely composed into an
+envelope. `bad-files.ts` asserts that element field by field against what the
+insert returned; the sweep's own row now has something to parse.
+
+The reason a **real** media id was chosen for that flag, rather than a
+throwaway one, is precisely this row: the sweep mines its `tmdb:` keys from
+live routes and prefers library-backed ones, so a flag on a synthetic key
+would have proven the route and left this row exactly as empty as before.
+Safety comes from the _guid_ being synthetic, not the media id — see §8.
 
 ### ✅ The Emby path is now proven end to end
 
@@ -657,20 +806,22 @@ verified** (§6). The read sweep has nothing left to give: 40 of 42 rows pass
 and the two skips are a choice. What remains cannot be closed by running the
 script again:
 
-1. **`POST /media/:id/bad-files`** — cheap, local, and next. A SQLite insert
-   that contacts nothing upstream (§8). The only care needed is picking a
-   target whose flag will not poison a real release, because there is no
-   un-flag route. Closes the vacuous `media-bad-files` row as a bonus.
-2. **`POST /media/:id/releases/grab`** — needs a watched session with the
-   download client open; `preflight` says so itself. Real bytes, real
-   bandwidth, real teardown.
-3. **`POST /media/:id/releases/replace`** — the same, plus it deletes what is
-   on disk before it grabs. Needs a title nobody minds losing.
+1. ~~**`POST /media/:id/bad-files`**~~ — **done**, `15/15` (§8).
+2. ~~**`POST /media/:id/releases/grab`**~~ — **done**, `15/15` (§8).
+3. **`POST /media/:id/releases/replace` — the delete half only.** The route
+   is run and everything else about it is proven; what is missing is a real
+   file for `deleteExistingFiles` to remove. This needs **a title Radarr will
+   actually import**, which is the whole blocker — two disposable releases
+   for `tmdb:10331` were downloaded in full and refused by Radarr's matcher.
+   Retry is one command with a different `--tmdb-id` (§8). Do **not** solve
+   it by pointing the script at the real library; it deletes what it finds.
 4. **`activity-page2` / `cursor.activity`** — needs >10 movie/show adds.
    Deliberately not doing this: the cursor mechanism is proven four other
    ways, so this would be library pollution buying nothing.
 
-There is no unknown failure and no route left behind a flag.
+There is no unknown failure and no route left behind a flag. Items 3 and 4
+are different kinds of open: 4 is a decision, 3 is a test that ran and could
+not reach its assertion.
 
 **What §7 changed about how to read this list.** `pause`/`resume` sat here as
 "untouched" through the whole exercise and looked like a formality. The first
@@ -822,7 +973,32 @@ pnpm exec tsx scripts/verify/verify-backend.ts mutate --repo-path /home/jeremy/l
 # Pause/resume — a separate script; see §7 for why it cannot live in the sweep
 pnpm exec tsx scripts/verify/pause-resume.ts --repo-path /home/jeremy/lilnas
 pnpm exec tsx scripts/verify/pause-resume.ts --repo-path /home/jeremy/lilnas --pause-after 2000
+
+# The three Phase 3 write routes — §8. Run bad-files first: the flag it
+# leaves is what lets the other two assert their 409s for free.
+pnpm exec tsx scripts/verify/bad-files.ts --repo-path /home/jeremy/lilnas
+pnpm exec tsx scripts/verify/grab.ts      --repo-path /home/jeremy/lilnas
+pnpm exec tsx scripts/verify/replace.ts   --repo-path /home/jeremy/lilnas
+pnpm exec tsx scripts/verify/replace.ts   --repo-path /home/jeremy/lilnas --no-seed
 ```
+
+⚠️ **`bad-files.ts` writes a row nothing can delete.** There is no un-flag
+route, so the flag is permanent until someone edits SQLite; the script prints
+the exact removal command on every path, crash included. It is safe because
+the guid is one no indexer mints — read §8 before changing either the guid or
+the `--media-id`, because the reasoning is not symmetric between them.
+
+⚠️ **`grab.ts` and `replace.ts` pull real bytes into the real download
+client** and add a real Radarr entry. Both refuse to run against a title
+Radarr already holds, because teardown deletes the movie _with its files_.
+Both tear down in a `finally` and print every identifier they created. Budget
+a minute or two for `grab`; `replace` without `--no-seed` waits on a real
+usenet download and import and can run to 25 minutes before giving up.
+
+⚠️ **`replace.ts` exits 2 unless it seeded a file.** `--no-seed` — and any
+seeded run Radarr declines to import — takes the documented zero-delete path
+and marks the deletion rows `skipped`. That is not a pass, and the verdict
+line says so. See §8.
 
 ⚠️ **Run `pause-resume.ts` both ways or you have only covered half of it.**
 With no flag it pauses the instant the job reads `downloading`, which lands
