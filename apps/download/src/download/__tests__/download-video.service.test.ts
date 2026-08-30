@@ -118,6 +118,8 @@ describe('DownloadVideoService', () => {
   let errorSpy: jest.SpyInstance
   let interruptions: Map<string, JobInterruptKind>
   let options: DownloadStepOptions
+  /** Held so a test can reach the handle `download()` registered. */
+  let setProc: jest.Mock
 
   /**
    * Installs a `spawn()` fake. The `--dump-json` metadata probe that
@@ -165,6 +167,7 @@ describe('DownloadVideoService', () => {
       updateJob: jest.fn(),
       updateVideo: jest.fn(),
     }
+    setProc = mockDownloadStateService.setProc
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -257,6 +260,32 @@ describe('DownloadVideoService', () => {
 
       expect(err).toBeInstanceOf(JobInterruptedError)
       expect(err).toMatchObject({ kind: 'pause' })
+    })
+
+    // The pre-spawn window. `download()` writes Downloading, then spends about
+    // a second on the metadata probe, and only registers the yt-dlp handle
+    // afterwards. A pause arriving in that gap has no process to signal, so it
+    // records its intent and this is what has to deliver it - otherwise the
+    // request is dropped and the job finishes after the user stopped it.
+    it('signals an interrupt that was recorded before the process existed', async () => {
+      interruptions.set(JOB_ID, 'pause')
+      mockProcessExit({ code: 1, stderr: 'ERROR: Interrupted by user' })
+
+      const err = await captureRejection(service.download(options))
+
+      const registered = setProc.mock.calls.at(-1)?.[1] as MockChildProcess
+      expect(registered.kill).toHaveBeenCalledTimes(1)
+      expect(err).toBeInstanceOf(JobInterruptedError)
+      expect(err).toMatchObject({ kind: 'pause' })
+    })
+
+    it('leaves the process alone when no interrupt is recorded', async () => {
+      mockProcessExit({ code: 0 })
+
+      await service.download(options)
+
+      const registered = setProc.mock.calls.at(-1)?.[1] as MockChildProcess
+      expect(registered.kill).not.toHaveBeenCalled()
     })
 
     it('never reaches the empty-file-list check for an interrupted job', async () => {
