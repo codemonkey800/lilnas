@@ -291,6 +291,22 @@ export class DownloadVideoService {
 
     this.downloadStateService.setProc(job.id, downloadProcess.proc)
 
+    // A pause or cancel that arrived while the metadata fetch above was in
+    // flight found no process to signal and left its intent on record instead
+    // (`DownloadService.pauseVideoDownloadJob`). Registering the handle is the
+    // first moment that signal can actually be delivered, so deliver it here -
+    // otherwise the request is silently dropped and the job runs to completion
+    // after the user asked it to stop.
+    //
+    // Only this direction needs handling. An interrupt arriving *after* this
+    // line finds the handle through `getProc()` and signals it directly, and
+    // the two cannot interleave: `setProc()` and this read are one synchronous
+    // block, so a pause either precedes both or follows both.
+    if (this.downloadStateService.getInterruption(job.id)) {
+      log('log', options, 'Interrupt requested before spawn, signalling now')
+      downloadProcess.proc.kill()
+    }
+
     try {
       const { code, stderrTail } = await downloadProcess.promise
 

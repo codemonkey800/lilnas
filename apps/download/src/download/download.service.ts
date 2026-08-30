@@ -351,25 +351,40 @@ export class DownloadService {
       )
     }
 
+    // A `Downloading` job does not always have a process to signal yet.
+    // `download()` writes `Downloading` up front and only registers the yt-dlp
+    // handle once the metadata fetch before it returns
+    // (`download-video.service.ts:236` and `:292`), so for the second or so
+    // that fetch takes, the job is genuinely downloading with nothing running.
+    //
+    // Refusing the pause there - which is what this did - surfaced a 409 on a
+    // job the UI was showing as `downloading`, with nothing to tell the user
+    // why pause only "sometimes" works. Recording the intent is the honest
+    // answer instead: `download()` re-reads the note the instant it registers
+    // the handle and does the killing itself.
     const proc = this.downloadStateService.getProc(id)
-    if (!proc) {
-      this.logger.warn(logArgs, 'Job has no running process')
-      throw new ConflictException(`Job '${id}' has no running process to pause`)
-    }
 
     // Order is load-bearing: the intent has to be on record *before* the
     // signal goes out. `runProcess()`'s close handler fires as soon as the
     // process dies and reads the note synchronously - setting it afterwards
     // races that read, and losing the race means the pipeline reports a
     // deliberate pause as a crashed download.
+    //
+    // The same ordering is what makes the no-process branch above safe. This
+    // write and `setProc()` cannot interleave, so exactly one of two things is
+    // true: the handle is already here and gets signalled on the next line, or
+    // the spawn has not happened yet and will find this note and signal for us.
     this.downloadStateService.setInterruption(id, 'pause')
-    proc.kill()
+    proc?.kill()
 
     const pausing = this.downloadStateService.updateJob(id, {
       status: DownloadJobStatus.Pausing,
     })
 
-    this.logger.log(logArgs, 'Video job pause requested')
+    this.logger.log(
+      { ...logArgs, hadRunningProcess: Boolean(proc) },
+      'Video job pause requested',
+    )
 
     return this.downloadStateService.hydrateOne(pausing)
   }
@@ -494,8 +509,12 @@ export class DownloadService {
       return this.downloadStateService.hydrateOne(cancelled)
     }
 
+    // Same pre-spawn window as pause: a `Downloading` job whose yt-dlp handle
+    // is not registered yet is started, it just has nothing to signal for the
+    // length of the metadata fetch. The "has not started" guard still stands
+    // for every other status, where no process is genuinely no process.
     const proc = this.downloadStateService.getProc(id)
-    if (!proc) {
+    if (!proc && job.status !== DownloadJobStatus.Downloading) {
       this.logger.warn(logArgs, 'Job not started')
       throw new Error(`Job '${id}' has not started`)
     }
@@ -508,7 +527,7 @@ export class DownloadService {
     // log file stream) forever. At MAX_DOWNLOADS=1 a single cancel wedged the
     // queue until the process restarted.
     this.downloadStateService.setInterruption(id, 'cancel')
-    proc.kill()
+    proc?.kill()
     this.metrics.jobCompleted('cancelled')
 
     this.downloadScheduler.delete(id)
