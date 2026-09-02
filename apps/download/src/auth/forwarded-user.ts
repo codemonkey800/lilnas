@@ -1,3 +1,4 @@
+import type { ForwardedUser } from '@lilnas/utils/auth/types'
 import { env } from '@lilnas/utils/env'
 import { Logger } from '@nestjs/common'
 import type { IncomingHttpHeaders } from 'http'
@@ -16,10 +17,11 @@ import { EnvKeys } from 'src/env'
 // human identity lands on this header before a browser request ever
 // reaches the network — it is not what restricts who can set it once a
 // request is already inside.
-export interface ForwardedUser {
-  email: string
-  userId: string
-}
+//
+// The shape itself lives in `@lilnas/utils/auth/types` (it is the lilnas-wide
+// identity shape, not a download-specific one) and is re-exported here so
+// every existing `from 'src/auth/forwarded-user'` import site keeps working.
+export type { ForwardedUser } from '@lilnas/utils/auth/types'
 
 const logger = new Logger('ForwardedUser')
 
