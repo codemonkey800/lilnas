@@ -546,8 +546,11 @@ a scoped request as a whole-series one.
   purpose but reads back through the current drizzle schema, so `jobs.scope`
   broke it. `applyRemainingMigrationFiles()` reads the migrations folder
   rather than hard-coding tags, so the next migration won't re-break it.
-- **Nothing observed about the season-level `monitored` flag** — human
-  checkpoint 2 below is still outstanding.
+- **The season-level `monitored` flag was checked live, and it turns out not
+  to matter.** Verified against the real instance (Mr. Robot S00E01, season 0
+  left unmonitored): flipping the episode's own `monitored` flag to `true`
+  put it in `GET /wanted/missing` regardless of the season flag. Sonarr's
+  search eligibility is governed by episode-level monitoring alone.
 
 ### Deferred
 
@@ -565,10 +568,9 @@ a scoped request as a whole-series one.
 - **No bulk `deleteApiV3EpisodefileBulk`.** The sequential per-file loop is
   slower and safer.
 - **Still no unflag route** for `bad_files`, deferred from Phase 3.
-- **The season-level `monitored` flag is reported, never written.** Episode
-  monitoring is what governs searching. If a live check shows Sonarr ignoring
-  monitored episodes inside an unmonitored season, `postApiV3Seasonpass` is
-  the escape hatch.
+- **The season-level `monitored` flag is reported, never written — confirmed
+  fine as-is.** See the Findings note above: episode-level monitoring alone
+  governs search eligibility, so `postApiV3Seasonpass` is not needed.
 
 ### Manual verification (needs live Sonarr)
 
@@ -663,9 +665,13 @@ curl -s -XPOST "$BASE/shows" -H 'content-type: application/json' \
   -d "{\"tvdbId\":81189,\"episodeId\":$EP}" | jq '{status, scope}'
 ```
 
-**Also still to check by hand:** a series whose season 3 is unmonitored at
-the _season_ level but whose episodes this app switched on — confirm Sonarr
-still searches them. If it doesn't, `postApiV3Seasonpass` needs wiring in.
+**Checked.** A series whose season is unmonitored at the season level but
+whose episode this app switched on individually: verified live against Mr.
+Robot S00E01 (`3722`, season 0, 2026-09-01) that Sonarr still lists it in
+`GET /wanted/missing` — episode-level monitoring alone is what governs
+search eligibility. No `postApiV3Seasonpass` wiring needed. (Toggled and
+reverted directly against the running instance, not through this app —
+`ensureSeries`'s own `monitorEpisodes` path was not separately exercised.)
 
 ---
 
