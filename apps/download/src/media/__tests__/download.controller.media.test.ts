@@ -76,6 +76,7 @@ describe('DownloadController - media endpoints', () => {
       listBadFiles: jest.fn(),
       listReleases: jest.fn(),
       replaceRelease: jest.fn(),
+      unflagBadFile: jest.fn(),
     }
     const mockShowService = {
       deleteFiles: jest.fn(),
@@ -565,6 +566,34 @@ describe('DownloadController - media endpoints', () => {
     })
   })
 
+  describe('unflagBadFile', () => {
+    it('parses the flag id and delegates to the service', () => {
+      releaseService.unflagBadFile.mockReturnValue(sampleBadFile)
+
+      const response = controller.unflagBadFile('tmdb:1', '1', alice)
+
+      expect(releaseService.unflagBadFile).toHaveBeenCalledWith('tmdb:1', 1)
+      expect(response).toEqual({ badFile: sampleBadFile })
+    })
+
+    it('404s a non-numeric flag id without calling the service', () => {
+      expect(() =>
+        controller.unflagBadFile('tmdb:1', 'not-a-number', alice),
+      ).toThrow(NotFoundException)
+      expect(releaseService.unflagBadFile).not.toHaveBeenCalled()
+    })
+
+    it('propagates the service NotFoundException for an unknown flag', () => {
+      releaseService.unflagBadFile.mockImplementation(() => {
+        throw new NotFoundException('nope')
+      })
+
+      expect(() => controller.unflagBadFile('tmdb:1', '999', alice)).toThrow(
+        NotFoundException,
+      )
+    })
+  })
+
   // ---- Phase 4: seasons, scoped delete, scoped request ----
 
   describe('listSeasons', () => {
@@ -945,6 +974,20 @@ describe('DownloadController - media endpoints', () => {
         expect(auditLogService.record).toHaveBeenCalledWith(
           expect.objectContaining({ metadata: { guid: 'indexer://abc' } }),
         )
+      })
+
+      it('records an unflag with the removed flag id', () => {
+        releaseService.unflagBadFile.mockReturnValue(sampleBadFile)
+
+        controller.unflagBadFile('tmdb:1', '1', alice)
+
+        expect(auditLogService.record).toHaveBeenCalledTimes(1)
+        expect(auditLogService.record).toHaveBeenCalledWith({
+          action: 'file.unflag_bad',
+          actor: alice,
+          metadata: { flagId: 1 },
+          target: { id: 'tmdb:1', type: 'media' },
+        })
       })
 
       it('records a scoped file delete with its count and scope', async () => {

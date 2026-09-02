@@ -346,8 +346,13 @@ release. That's the spec's accepted gap, not an oversight.
 
 - **No frontend.** Every route above is backend-only; nothing in the Next.js
   app calls them yet.
-- **No unflag route.** `deleteBadFile` exists in the repo and is tested, but
-  no endpoint exposes it — a route away, not a schema change away.
+- **Unflag route — since added.** `DELETE /media/:id/bad-files/:flagId`,
+  `ForwardedUserGuard`-gated like the flag route itself — undoing a judgement
+  is a judgement too. `deleteBadFile` now scopes its delete to
+  `(mediaId, id)` together in one query, so a real flag id requested under
+  the wrong media route 404s rather than deleting a different title's flag.
+  `DownloadClient.unflagBadFile()` added alongside it. Nothing in-repo calls
+  either yet.
 - **Per-episode download/delete UX** stays Phase 4. Phase 3 passes
   `seasonNumber`/`episodeId` straight through to Sonarr where it supports
   them, but doesn't build the UI concept.
@@ -1667,7 +1672,8 @@ controller's GET routes are untouched.
 - **No audit rows for reads.** Who _looked_ at the audit log isn't recorded.
 - **No stats caching.** Every request re-runs the aggregates; they are
   `COUNT`/`GROUP BY` over one indexed table behind an admin gate.
-- **No unflag route** for `bad_files` — still deferred, now since Phase 3.
+- **Unflag route for `bad_files` — since added** (Phase 3's own Deferred
+  section has the detail).
 
 ### Manual verification (needs a running container)
 

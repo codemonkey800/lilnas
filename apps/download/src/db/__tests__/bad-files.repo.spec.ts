@@ -212,7 +212,7 @@ describe('bad files repo', () => {
         releaseGuid: 'indexer://abc',
       })
 
-      const deleted = deleteBadFile(db, inserted.id)
+      const deleted = deleteBadFile(db, 'tmdb:27205', inserted.id)
 
       expect(deleted?.id).toBe(inserted.id)
       expect(listBadFilesByMediaId(db, 'tmdb:27205')).toEqual([])
@@ -224,7 +224,27 @@ describe('bad files repo', () => {
   it('returns undefined when deleting a flag that does not exist', () => {
     const { db, close } = createTestDb()
     try {
-      expect(deleteBadFile(db, 12345)).toBeUndefined()
+      expect(deleteBadFile(db, 'tmdb:27205', 12345)).toBeUndefined()
+    } finally {
+      close()
+    }
+  })
+
+  // The scope is load-bearing, not defensive dressing - see the doc comment
+  // on `deleteBadFile`. A flag id is a global PK, so without the mediaId
+  // match this would delete someone else's title's flag.
+  it('leaves a flag alone when the id is real but under a different media id', () => {
+    const { db, close } = createTestDb()
+    try {
+      const inserted = insertBadFile(db, {
+        ...flagger,
+        mediaId: 'tmdb:27205',
+        mediaType: DownloadType.Movie,
+        releaseGuid: 'indexer://abc',
+      })
+
+      expect(deleteBadFile(db, 'tmdb:438631', inserted.id)).toBeUndefined()
+      expect(listBadFilesByMediaId(db, 'tmdb:27205')).toHaveLength(1)
     } finally {
       close()
     }
@@ -241,7 +261,7 @@ describe('bad files repo', () => {
         mediaType: DownloadType.Movie,
         releaseGuid: 'indexer://abc',
       })
-      deleteBadFile(db, first.id)
+      deleteBadFile(db, 'tmdb:27205', first.id)
 
       const second = insertBadFile(db, {
         ...flagger,
