@@ -526,6 +526,187 @@ describe('DownloadClient', () => {
     })
   })
 
+  describe('admin and whoami endpoints', () => {
+    const client = DownloadClient.localInstance
+
+    it('getAuditLog issues a GET to /download/admin/audit-log with the filter query', async () => {
+      const page = { items: [], nextCursor: null, total: 0 }
+      const fetchSpy = mockFetchJson(page)
+
+      await expect(
+        client.getAuditLog({ action: 'release.grab', limit: 25 }),
+      ).resolves.toEqual(page)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/admin/audit-log?action=release.grab&limit=25',
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    it('getAuditLog omits the query string entirely when unfiltered', async () => {
+      const fetchSpy = mockFetchJson({ items: [], nextCursor: null, total: 0 })
+
+      await client.getAuditLog()
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/admin/audit-log',
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    it('getStats issues a GET to /download/admin/stats with the window query', async () => {
+      const stats = {
+        jobsPerDay: [],
+        topRequesters: [],
+        totalJobs: 0,
+        totalsByStatus: [],
+        totalsByType: [],
+        windowDays: 7,
+      }
+      const fetchSpy = mockFetchJson(stats)
+
+      await expect(client.getStats({ days: 7 })).resolves.toEqual(stats)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/admin/stats?days=7',
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    // No client-side identity check: the 403/401 for a non-admin or
+    // unidentified caller is the shared DownloadApiError path, nothing special.
+    it('getStats surfaces an admin-guard rejection as a DownloadApiError', async () => {
+      mockFetchError({
+        json: () => Promise.resolve({ message: 'Forbidden' }),
+        status: 403,
+        statusText: 'Forbidden',
+      })
+
+      await expect(client.getStats()).rejects.toMatchObject({
+        name: 'DownloadApiError',
+        status: 403,
+      })
+    })
+
+    it('whoami issues a GET to /auth/whoami and threads forwarded identity', async () => {
+      const me = {
+        email: 'alice@example.com',
+        isAdmin: true,
+        userId: 'user_1',
+      }
+      const fetchSpy = mockFetchJson(me)
+
+      await expect(
+        client
+          .withForwardedIdentity({
+            email: 'alice@example.com',
+            userId: 'user_1',
+          })
+          .whoami(),
+      ).resolves.toEqual(me)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/auth/whoami',
+        {
+          headers: {
+            ...JSON_HEADERS,
+            'x-forwarded-user': 'alice@example.com',
+            'x-forwarded-user-id': 'user_1',
+          },
+        },
+      )
+    })
+  })
+
+  describe('yt-dlp updater endpoints', () => {
+    const client = DownloadClient.localInstance
+
+    it('getYtdlpStatus issues a GET to /api/ytdlp-update/status', async () => {
+      const status = {
+        isUpdating: false,
+        lastAttempt: null,
+        lastCheck: '2026-08-20T12:00:00.000Z',
+        retryCount: 0,
+      }
+      const fetchSpy = mockFetchJson(status)
+
+      await expect(client.getYtdlpStatus()).resolves.toEqual(status)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/api/ytdlp-update/status',
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    // The `/api` doubling is expected, not a bug: `api/ytdlp-update` is the
+    // Nest controller's own prefix, and the Next.js rewrite strips exactly one
+    // `/api` before Nest sees the path. Pinned so nobody "fixes" it.
+    it('getYtdlpStatus doubles the /api prefix from browserInstance, by design', async () => {
+      const fetchSpy = mockFetchJson({
+        isUpdating: false,
+        lastAttempt: null,
+        lastCheck: null,
+        retryCount: 0,
+      })
+
+      await DownloadClient.browserInstance.getYtdlpStatus()
+
+      expect(fetchSpy).toHaveBeenCalledWith('/api/api/ytdlp-update/status', {
+        headers: JSON_HEADERS,
+      })
+    })
+
+    it('getYtdlpVersion issues a GET to /api/ytdlp-update/version', async () => {
+      const fetchSpy = mockFetchJson({ version: '2026.08.01' })
+
+      await expect(client.getYtdlpVersion()).resolves.toEqual({
+        version: '2026.08.01',
+      })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/api/ytdlp-update/version',
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    // An unprobeable binary is reported as a version, not thrown - so this
+    // resolves rather than rejecting.
+    it('getYtdlpVersion returns the `error` sentinel rather than throwing', async () => {
+      mockFetchJson({ version: 'error' })
+
+      await expect(client.getYtdlpVersion()).resolves.toEqual({
+        version: 'error',
+      })
+    })
+
+    const CHECK_RESULT = {
+      canUpdate: true,
+      currentVersion: '2026.07.01',
+      latestVersion: '2026.08.01',
+      updateAvailable: true,
+    }
+
+    it('checkYtdlpUpdate POSTs with no query string at all by default', async () => {
+      const fetchSpy = mockFetchJson(CHECK_RESULT)
+
+      await expect(client.checkYtdlpUpdate()).resolves.toEqual(CHECK_RESULT)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/api/ytdlp-update/check',
+        { headers: JSON_HEADERS, method: 'POST' },
+      )
+    })
+
+    it('checkYtdlpUpdate appends ?dryRun=true only when asked', async () => {
+      const fetchSpy = mockFetchJson({
+        ...CHECK_RESULT,
+        canUpdate: false,
+        reason: 'Dry-run mode - update would have proceeded',
+      })
+
+      await client.checkYtdlpUpdate(true)
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/api/ytdlp-update/check?dryRun=true',
+        { headers: JSON_HEADERS, method: 'POST' },
+      )
+    })
+  })
+
   describe('movie and show jobs', () => {
     const client = DownloadClient.localInstance
 
