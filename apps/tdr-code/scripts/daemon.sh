@@ -59,17 +59,45 @@ pgid_from_file() {
 }
 
 # True only if the pidfile's PGID is both alive AND still looks like our own
-# process tree (its group leader's command contains "node" or "pnpm"). The
-# identity check is what makes a stale pidfile fail safe: if this exact PGID
-# ever got reused by an unrelated process (e.g. after a reboot), we treat
-# tdr-code as "not running" and never signal something we didn't start.
+# process tree (some live member of the group is actually a node/pnpm
+# executable). The identity check is what makes a stale pidfile fail safe:
+# if this exact PGID ever got reused by an unrelated process (e.g. after a
+# reboot), we treat tdr-code as "not running" and never signal something we
+# didn't start.
+#
+# Deliberately checks EVERY live member of the group, not just the PID that
+# equals the PGID (the original group leader) -- pnpm/run-p can exit while
+# children they spawned (which inherited the same PGID) keep running, e.g.
+# when one of the two run-p tasks (start:main/start:frontend) fails and the
+# sibling survives. Anchoring on the leader PID alone made that case look
+# "not running" (`ps -p $pgid` found nothing), so stop/start skipped
+# signaling a group that was very much alive -- leaving dist/main,
+# bot-main, and the Next.js server orphaned and squatting on ports forever,
+# breaking every subsequent start with EADDRINUSE. Confirmed the hard way:
+# repeated daemon:rebuild runs left half a dozen such orphaned trees behind
+# over time, none of them ever signaled.
+#
+# Identity is read from /proc/<pid>/exe (the real executable path), not
+# `ps comm`/`ps args` -- Node overwrites its own process title (both the
+# comm field and the argv buffer ps reads for args/command) via
+# process.title, e.g. Next.js's frontend child shows up as "next-server
+# (v15.5.20)" and this app's own main/bot processes show up as
+# "MainThread". Confirmed directly: every live node process in a real
+# daemon run had comm "MainThread" or a Next-rewritten title, so the
+# original comm-based `*node*` match failed for ALL of them and reported a
+# fully healthy, just-booted daemon as "not running". /proc/<pid>/exe is
+# the resolved symlink to the binary that was actually execv'd and is never
+# touched by process.title.
 is_running() {
   local pgid
   pgid="$(pgid_from_file)" || return 1
   kill -0 "-$pgid" 2>/dev/null || return 1
-  local comm
-  comm="$(ps -o comm= -p "$pgid" 2>/dev/null || true)"
-  [[ "$comm" == *node* || "$comm" == *pnpm* ]]
+  local pid exe
+  for pid in $(ps -eo pid=,pgid= 2>/dev/null | awk -v want="$pgid" '$2==want{print $1}'); do
+    exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+    [[ "$exe" == */node || "$exe" == *pnpm* ]] && return 0
+  done
+  return 1
 }
 
 # Read-only sanity check, never kills anything: warns if a bot process is
