@@ -1041,4 +1041,48 @@ describe('ReleaseService', () => {
       ).rejects.toThrow(ConflictException)
     })
   })
+
+  describe('unflagBadFile', () => {
+    it('removes the flag and returns the removed row', () => {
+      const flagged = service.flagBadFile(MOVIE_ID, { guid: 'g' }, ALICE)
+
+      const unflagged = service.unflagBadFile(MOVIE_ID, flagged.id)
+
+      expect(unflagged).toEqual(flagged)
+      expect(service.listBadFiles(MOVIE_ID)).toEqual([])
+    })
+
+    it('lets the release be flagged again afterwards', () => {
+      const flagged = service.flagBadFile(MOVIE_ID, { guid: 'g' }, ALICE)
+      service.unflagBadFile(MOVIE_ID, flagged.id)
+
+      service.flagBadFile(MOVIE_ID, { guid: 'g' }, ALICE)
+
+      expect(service.listBadFiles(MOVIE_ID)).toHaveLength(1)
+    })
+
+    it('404s for a flag id that does not exist', () => {
+      expect(() => service.unflagBadFile(MOVIE_ID, 99999)).toThrow(
+        NotFoundException,
+      )
+    })
+
+    // Same protection `deleteBadFile` gives every caller: a real flag id
+    // under the wrong media id in the route must not be deletable by
+    // guessing, since the id alone is a global PK.
+    it('404s for a real flag id requested under the wrong media id', () => {
+      const flagged = service.flagBadFile(MOVIE_ID, { guid: 'g' }, ALICE)
+
+      expect(() => service.unflagBadFile('tmdb:438631', flagged.id)).toThrow(
+        NotFoundException,
+      )
+      expect(service.listBadFiles(MOVIE_ID)).toHaveLength(1)
+    })
+
+    it('404s for a media id that can have no releases', () => {
+      expect(() => service.unflagBadFile('video:V1StGXR8_Z5', 1)).toThrow(
+        NotFoundException,
+      )
+    })
+  })
 })

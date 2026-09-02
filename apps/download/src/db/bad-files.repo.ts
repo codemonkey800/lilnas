@@ -83,11 +83,22 @@ export function getBadFileByGuid(
 }
 
 /**
- * Removes a flag by its primary key. Nothing in Phase 3 calls this - it's the
- * other half of `insertBadFile`, here so an unflag endpoint is a route away
- * rather than a schema change away. Returns the deleted row, or `undefined`
- * if no such flag existed.
+ * Removes a flag by its primary key, scoped to the media id it was raised
+ * against. The scope is load-bearing, not defensive dressing: without it, a
+ * caller on `/media/:id/bad-files/:flagId` could delete a flag that belongs
+ * to a *different* title by guessing its id, since `id` alone is globally
+ * unique across every title's flags. Matching both columns in one query
+ * means a mismatched id 404s without ever touching the wrong row. Returns
+ * the deleted row, or `undefined` if no such flag existed for that media id.
  */
-export function deleteBadFile(db: Db, id: number): BadFileRow | undefined {
-  return db.delete(badFiles).where(eq(badFiles.id, id)).returning().get()
+export function deleteBadFile(
+  db: Db,
+  mediaId: string,
+  id: number,
+): BadFileRow | undefined {
+  return db
+    .delete(badFiles)
+    .where(and(eq(badFiles.id, id), eq(badFiles.mediaId, mediaId)))
+    .returning()
+    .get()
 }
