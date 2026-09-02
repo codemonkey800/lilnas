@@ -30,6 +30,7 @@ import type {
   ListSeasonsResponse,
   MediaDetailResponse,
   SearchMediaResponse,
+  UnflagBadFileResponse,
 } from '@lilnas/utils/download/types'
 import { DownloadType as DownloadTypeEnum } from '@lilnas/utils/download/types'
 import {
@@ -750,6 +751,49 @@ export class DownloadController {
     )
 
     return { badFiles }
+  }
+
+  // ForwardedUserGuard, matching flagBadFile - undoing a judgement is a
+  // judgement too, and an anonymous unflag would be just as unattributable.
+  @Delete('/media/:id/bad-files/:flagId')
+  @UseGuards(ForwardedUserGuard)
+  unflagBadFile(
+    @Param('id') id: string,
+    @Param('flagId') flagIdParam: string,
+    @CurrentUser() user: ForwardedUser,
+  ): UnflagBadFileResponse {
+    const flagId = Number(flagIdParam)
+
+    // Not a route the service can 404 for on its own - `ReleaseService`
+    // takes a `number`, so a non-numeric segment has to be rejected here
+    // rather than handed down as `NaN`.
+    if (!Number.isInteger(flagId)) {
+      throw new NotFoundException(
+        `No bad-file flag '${flagIdParam}' exists for '${id}'`,
+      )
+    }
+
+    const badFile = this.releaseService.unflagBadFile(id, flagId)
+
+    this.logger.log(
+      {
+        action: 'unflagBadFile',
+        flagId,
+        mediaId: id,
+        statusCode: HttpStatus.OK,
+        unflaggedBy: user.email,
+      },
+      'DELETE /media/:id/bad-files/:flagId - removed a bad-file flag',
+    )
+
+    this.auditLogService.record({
+      action: 'file.unflag_bad',
+      actor: user,
+      metadata: { flagId },
+      target: { id, type: 'media' },
+    })
+
+    return { badFile }
   }
 
   @Get('/videos/:id')

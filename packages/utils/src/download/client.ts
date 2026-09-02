@@ -36,6 +36,7 @@ import {
   RequestMovieInput,
   RequestShowInput,
   SearchMediaResponse,
+  UnflagBadFileResponse,
   UpdateCheckResult,
   YtdlpUpdateStatusResponse,
 } from './types'
@@ -319,6 +320,24 @@ export class DownloadClient {
   async listBadFiles(id: string): Promise<ListBadFilesResponse> {
     const response = await this.request(
       `/download/media/${encodeURIComponent(id)}/bad-files`,
+    )
+
+    return response.json()
+  }
+
+  /**
+   * Removes a flag so this app can pick that release again.
+   *
+   * Gated the same as `flagBadFile`: call this on a client from
+   * `withForwardedIdentity()`, or the 401 arrives as a `DownloadApiError`.
+   */
+  async unflagBadFile(
+    id: string,
+    flagId: number,
+  ): Promise<UnflagBadFileResponse> {
+    const response = await this.request(
+      `/download/media/${encodeURIComponent(id)}/bad-files/${flagId}`,
+      { method: 'DELETE' },
     )
 
     return response.json()

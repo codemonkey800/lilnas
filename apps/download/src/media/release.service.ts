@@ -19,6 +19,7 @@ import {
 
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import {
+  deleteBadFile,
   getBadFileByGuid,
   insertBadFile,
   listBadFilesByMediaId,
@@ -433,6 +434,33 @@ export class ReleaseService {
     parseReleaseTarget(mediaId)
 
     return listBadFilesByMediaId(this.dbService.db, mediaId).map(toBadFile)
+  }
+
+  /**
+   * Removes a flag so this app can pick that release again.
+   *
+   * `deleteBadFile` scopes the delete to `mediaId` itself, so a flag id that
+   * exists but belongs to a different title 404s the same as one that
+   * doesn't exist at all - the caller learns nothing beyond "no such flag
+   * here" either way.
+   */
+  unflagBadFile(mediaId: string, flagId: number): BadFile {
+    parseReleaseTarget(mediaId)
+
+    const row = deleteBadFile(this.dbService.db, mediaId, flagId)
+
+    if (!row) {
+      throw new NotFoundException(
+        `No bad-file flag '${flagId}' exists for '${mediaId}'`,
+      )
+    }
+
+    this.logger.log(
+      { action: 'unflagBadFile', flagId, mediaId },
+      'Removed a bad-file flag',
+    )
+
+    return toBadFile(row)
   }
 
   /**

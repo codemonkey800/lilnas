@@ -603,6 +603,7 @@ export const AUDIT_ACTIONS = [
   'release.grab',
   'release.replace',
   'file.flag_bad',
+  'file.unflag_bad',
   'ytdlp.check_update',
 ] as const
 

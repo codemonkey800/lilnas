@@ -476,6 +476,28 @@ describe('DownloadClient', () => {
         { headers: JSON_HEADERS },
       )
     })
+
+    it('unflagBadFile issues a DELETE to /bad-files/:flagId', async () => {
+      const badFile = {
+        createdAt: '2026-08-20T12:00:00.000Z',
+        flaggedBy: { email: 'alice@example.com', userId: 'user_1' },
+        id: 1,
+        indexerId: null,
+        mediaId: MEDIA_ID,
+        reason: null,
+        releaseGuid: 'release-guid',
+        releaseTitle: null,
+      }
+      const fetchSpy = mockFetchJson({ badFile })
+
+      await expect(client.unflagBadFile(MEDIA_ID, 1)).resolves.toEqual({
+        badFile,
+      })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/bad-files/1`,
+        { headers: JSON_HEADERS, method: 'DELETE' },
+      )
+    })
   })
 
   describe('season, file and file-deletion endpoints', () => {

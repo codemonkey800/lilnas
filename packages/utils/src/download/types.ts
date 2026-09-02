@@ -311,6 +311,11 @@ export interface FlagBadFileResponse {
   badFile: BadFile
 }
 
+/** `DELETE /download/media/:id/bad-files/:flagId`. Returns the removed row. */
+export interface UnflagBadFileResponse {
+  badFile: BadFile
+}
+
 /**
  * The gallery's chip vocabulary - `GET /download/gallery/facets`. Computed
  * over only the date range (never the currently-selected type/uploader), so
