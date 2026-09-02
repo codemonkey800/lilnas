@@ -903,22 +903,33 @@ what it would take to change.
 - **No pausing movie/show jobs.** Radarr/Sonarr own that queue; the spec scopes
   pause to the yt-dlp pipeline.
 
-### Known gap — Radarr/Sonarr pause/resume detection
+### Radarr/Sonarr pause/resume detection — since fixed
 
 Radarr/Sonarr-managed downloads can be paused and resumed **independently of
 this app**, at the backing download client (qBittorrent, SABnzbd, …), from
-Radarr/Sonarr's queue UI or the client's own UI. This app has no design for
-surfacing that, and it needs its own phase.
+Radarr/Sonarr's queue UI or the client's own UI. `deriveStatusFromQueueItem`
+(`apps/download/src/media/queue-status.util.ts`) used to have no branch for
+it, so a paused item fell into the catch-all and was reported as
+`Downloading` — actively wrong, not just imprecise.
 
-The signal exists: the queue API already exposes `status: 'paused'`
-(`QueueStatus` in `packages/media/src/{radarr,sonarr}/types.gen.ts`) and
-`MediaPollerService` already polls that queue every 10s. What's missing is the
-classification — `deriveStatusFromQueueItem`
-(`apps/download/src/media/queue-status.util.ts:180-211`) doesn't special-case
-it, so a paused item falls into the catch-all branch and is reported as
-`Downloading`. Polling is the only available signal, too: Radarr/Sonarr fire no
+Fixed by adding a `status === 'paused'` branch that maps to the existing
+`DownloadJobStatus.Paused` (reused rather than a second status: it's already
+non-terminal, so a paused movie/show job stays on the Activity feed exactly
+like a paused video does). `aggregateQueueItems`'s `STATUS_PRECEDENCE` is
+deliberately untouched — `Paused` sits outside it, so a season with one
+paused episode and others still active still folds to `Downloading`, only
+reporting `Paused` once every episode in scope is.
+
+There is still no in-app *action* for this — resuming happens back at
+Radarr/Sonarr or the download client, since this app has no route for it and
+the spec scopes pause/resume to the yt-dlp pipeline. This fix is
+classification only: the job's `type` is what a future frontend uses to tell
+"this app can resume it" (video) apart from "it can't" (movie/show).
+
+Polling is still the only available signal: Radarr/Sonarr fire no
 Connect-notification event for pause/resume (only Grab, Download, Rename,
-Health Issue, Manual Interaction Required).
+Health Issue, Manual Interaction Required), and `MediaPollerService` already
+polls the queue every 10s.
 
 ### Manual verification (needs a running container)
 
