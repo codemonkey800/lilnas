@@ -1,3 +1,4 @@
+import type { DownloadGatewayMessage } from '@lilnas/utils/download/types'
 import { Logger } from '@nestjs/common'
 import {
   OnGatewayConnection,
@@ -11,16 +12,15 @@ import { AdminCheckService } from 'src/auth/admin-check.service'
 import { resolveForwardedUser } from 'src/auth/forwarded-user'
 
 /**
- * The WS envelope every gateway frame is wrapped in. Deliberately
- * loosely-typed: `type` discriminates between payload kinds and `data`
- * varies per kind. The one kind sent today is `DOWNLOAD_JOB_EVENT_TYPE`
- * carrying a `DownloadJobEvent` (see
+ * The WS envelope every gateway frame is wrapped in - `type` discriminates
+ * between payload kinds and `data` varies per kind; the one kind sent today
+ * is `DOWNLOAD_JOB_EVENT_TYPE` carrying a `DownloadJobEvent` (see
  * `DownloadStateService.broadcastJobEvent`).
+ *
+ * Defined in `@lilnas/utils/download/types` so a frontend subscriber shares
+ * it, and re-exported here so every existing import site keeps working.
  */
-export interface DownloadGatewayMessage {
-  type: string
-  data?: unknown
-}
+export type { DownloadGatewayMessage } from '@lilnas/utils/download/types'
 
 interface ClientState {
   // Captured once at connect time and never re-derived - this is just

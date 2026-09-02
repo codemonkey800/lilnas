@@ -1,3 +1,4 @@
+import type { UpdateCheckResult } from '@lilnas/utils/download/types'
 import { env } from '@lilnas/utils/env'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
@@ -12,7 +13,7 @@ import { DownloadMetricsService } from 'src/download/download-metrics.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { EnvKeys } from 'src/env'
 
-import { GitHubRelease, UpdateCheckResult, UpdateResult } from './types'
+import { GitHubRelease, UpdateResult } from './types'
 
 // The real file. /usr/bin/yt-dlp is a symlink to this path (see the
 // Dockerfile) - node has no write permission on /usr/bin itself, so the
