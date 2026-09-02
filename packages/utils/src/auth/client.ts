@@ -1,9 +1,11 @@
 import { AdminCheckResponse } from './types'
 
-// Mirrors packages/utils/src/download/client.ts's local/docker shape, with
-// ONE deliberate deviation: no remoteInstance. auth.lilnas.io (deploy.yml)
-// routes to port 8080 (the Next.js frontend) — a completely different
-// process from the Nest backend on 8081 that GET /admin/check lives on.
+// Mirrors packages/utils/src/download/client.ts's local/docker shape,
+// including its lack of a remoteInstance — that started here as a deliberate
+// deviation, and DownloadClient has since dropped its own broken one for the
+// same reason. auth.lilnas.io (deploy.yml) routes to port 8080 (the Next.js
+// frontend) — a completely different process from the Nest backend on 8081
+// that GET /admin/check lives on.
 // Port 8081 has no Traefik router at all (confirmed: it's reached only
 // container-to-container, the same mechanism Traefik's own
 // forwardauth.address=http://auth:8081/verify uses). A remoteInstance
