@@ -254,6 +254,31 @@ describe('DownloadClient', () => {
         { headers: JSON_HEADERS, method: 'PATCH' },
       )
     })
+
+    // A job id, not a media key - left unencoded, like getJob/cancelJob.
+    it('pauseJob issues a PATCH to /download/videos/:id/pause', async () => {
+      const job = buildJob(VIDEO_MEDIA, { status: DownloadJobStatus.Paused })
+      const fetchSpy = mockFetchJson(job)
+
+      await expect(client.pauseJob('job-1')).resolves.toEqual(job)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/videos/job-1/pause',
+        { headers: JSON_HEADERS, method: 'PATCH' },
+      )
+    })
+
+    it('resumeJob issues a PATCH to /download/videos/:id/resume', async () => {
+      const job = buildJob(VIDEO_MEDIA, {
+        status: DownloadJobStatus.Downloading,
+      })
+      const fetchSpy = mockFetchJson(job)
+
+      await expect(client.resumeJob('job-1')).resolves.toEqual(job)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/videos/job-1/resume',
+        { headers: JSON_HEADERS, method: 'PATCH' },
+      )
+    })
   })
 
   describe('media detail and list endpoints', () => {
@@ -433,6 +458,70 @@ describe('DownloadClient', () => {
       expect(fetchSpy).toHaveBeenCalledWith(
         `http://localhost:8081/download/media/${ENCODED}/bad-files`,
         { headers: JSON_HEADERS },
+      )
+    })
+  })
+
+  describe('season, file and file-deletion endpoints', () => {
+    const client = DownloadClient.localInstance
+
+    // A show key, since seasons are shows-only - and it still carries a `:`.
+    const MEDIA_ID = 'tvdb:121361'
+    const ENCODED = 'tvdb%3A121361'
+
+    it('listSeasons URL-encodes the key and issues a GET to /seasons', async () => {
+      const fetchSpy = mockFetchJson({ seasons: [] })
+
+      await expect(client.listSeasons(MEDIA_ID)).resolves.toEqual({
+        seasons: [],
+      })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/seasons`,
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    it('deleteMediaFiles issues a DELETE to /files with the scope query', async () => {
+      const result = { deletedCount: 3, mediaId: MEDIA_ID }
+      const fetchSpy = mockFetchJson(result)
+
+      await expect(
+        client.deleteMediaFiles(MEDIA_ID, { seasonNumber: 2 }),
+      ).resolves.toEqual(result)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/files?seasonNumber=2`,
+        { headers: JSON_HEADERS, method: 'DELETE' },
+      )
+    })
+
+    it('deleteMediaFiles omits the query string entirely when unscoped', async () => {
+      const fetchSpy = mockFetchJson({ deletedCount: 0, mediaId: MEDIA_ID })
+
+      await client.deleteMediaFiles(MEDIA_ID)
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/files`,
+        { headers: JSON_HEADERS, method: 'DELETE' },
+      )
+    })
+
+    // No fetch mock in the three below on purpose: getMediaFileUrl builds a
+    // string synchronously and never touches the network.
+    it('getMediaFileUrl returns an absolute URL against the factory base', () => {
+      expect(client.getMediaFileUrl(MEDIA_ID)).toBe(
+        `http://localhost:8081/download/media/${ENCODED}/file`,
+      )
+    })
+
+    it('getMediaFileUrl appends the episodeId/part query params', () => {
+      expect(client.getMediaFileUrl(MEDIA_ID, { episodeId: 7, part: 1 })).toBe(
+        `http://localhost:8081/download/media/${ENCODED}/file?episodeId=7&part=1`,
+      )
+    })
+
+    it('getMediaFileUrl returns a relative /api path from browserInstance', () => {
+      expect(DownloadClient.browserInstance.getMediaFileUrl(MEDIA_ID)).toBe(
+        `/api/download/media/${ENCODED}/file`,
       )
     })
   })

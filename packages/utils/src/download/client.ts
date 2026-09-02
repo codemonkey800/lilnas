@@ -1,6 +1,8 @@
 import {
   ActivityQuery,
   CreateDownloadJobInput,
+  DeleteMediaFilesQuery,
+  DeleteMediaFilesResponse,
   DiscoverQuery,
   DiscoveryPage,
   DownloadGalleryFacets,
@@ -13,11 +15,13 @@ import {
   GalleryItem,
   GalleryQuery,
   GetDownloadJobResponse,
+  GetMediaFileQuery,
   GrabReleaseInput,
   HistoryQuery,
   ListBadFilesResponse,
   ListReleasesQuery,
   ListReleasesResponse,
+  ListSeasonsResponse,
   MediaDetailResponse,
   ReplaceReleaseInput,
   RequestMovieInput,
@@ -218,6 +222,27 @@ export class DownloadClient {
   }
 
   /**
+   * Holds a running or queued job in place. `id` is a job id, the same pool
+   * `getJob`/`cancelJob` take - not a media key, so it is not encoded here.
+   */
+  async pauseJob(id: string): Promise<DownloadJob> {
+    const response = await this.request(`/download/videos/${id}/pause`, {
+      method: 'PATCH',
+    })
+
+    return response.json()
+  }
+
+  /** Puts a job paused by `pauseJob` back on the queue. */
+  async resumeJob(id: string): Promise<DownloadJob> {
+    const response = await this.request(`/download/videos/${id}/resume`, {
+      method: 'PATCH',
+    })
+
+    return response.json()
+  }
+
+  /**
    * Removes a video download for good - stops it if it is still running and
    * deletes the objects it produced.
    *
@@ -312,6 +337,61 @@ export class DownloadClient {
   async listBadFiles(id: string): Promise<ListBadFilesResponse> {
     const response = await this.request(
       `/download/media/${encodeURIComponent(id)}/bad-files`,
+    )
+
+    return response.json()
+  }
+
+  /**
+   * A series' seasons and their episodes.
+   *
+   * Shows only: a `tmdb:` key has no seasons to list and 404s, arriving as a
+   * `DownloadApiError`.
+   */
+  async listSeasons(id: string): Promise<ListSeasonsResponse> {
+    const response = await this.request(
+      `/download/media/${encodeURIComponent(id)}/seasons`,
+    )
+
+    return response.json()
+  }
+
+  /**
+   * The URL a media file can be downloaded from - deliberately a string, not
+   * a fetch.
+   *
+   * That route streams the file itself (a MinIO object stream, or `sendFile`
+   * with `Range`/206 support for movie-sized files). Pulling those bytes
+   * through this client would only make things worse: a browser loses `Range`
+   * resumability, and a server-side caller pays for the transfer twice. So
+   * this builds the same query-stringed URL every other method builds and
+   * hands it back, for use as an `<a href>`, a `window.location`, or a
+   * redirect target.
+   *
+   * The one limitation: a URL cannot carry headers, so this does **not**
+   * attach `forwardedHeaders` even on a client from `withForwardedIdentity()`.
+   * A same-origin browser navigation is fine - the cookie authenticates it.
+   * A server-side caller that needs forwarded identity should treat the
+   * result as a redirect target rather than a `fetch()` input, unless it
+   * attaches those headers itself.
+   */
+  getMediaFileUrl(id: string, query: Partial<GetMediaFileQuery> = {}): string {
+    return `${this.baseUrl}/download/media/${encodeURIComponent(id)}/file${toQueryString(query)}`
+  }
+
+  /**
+   * Deletes the files of a title, scoped narrowest-first by the query
+   * (`episodeId`, then `seasonNumber`, then everything).
+   *
+   * Deletes files only - see `DeleteMediaFilesResponse` for what survives.
+   */
+  async deleteMediaFiles(
+    id: string,
+    query: Partial<DeleteMediaFilesQuery> = {},
+  ): Promise<DeleteMediaFilesResponse> {
+    const response = await this.request(
+      `/download/media/${encodeURIComponent(id)}/files${toQueryString(query)}`,
+      { method: 'DELETE' },
     )
 
     return response.json()
