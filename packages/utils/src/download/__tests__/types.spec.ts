@@ -3,7 +3,6 @@ import {
   DownloadJobStatus,
   DownloadType,
   EmbyStatus,
-  GetDownloadJobResponse,
   IN_PROGRESS_DOWNLOAD_JOB_STATUSES,
   isInProgressDownloadJobStatus,
   isManagedMedia,
@@ -150,44 +149,6 @@ describe('TERMINAL_DOWNLOAD_JOB_STATUSES / IN_PROGRESS_DOWNLOAD_JOB_STATUSES', (
         ).includes(status),
       )
     }
-  })
-})
-
-describe('GetDownloadJobResponse', () => {
-  // The deprecated tdr-bot compatibility shape (see client.ts's
-  // TODO(tdr-bot-migration) block). Pinned here so a field can't quietly
-  // disappear from under tdr-bot while it still reads this shape.
-  it('carries exactly the flat pre-Media video fields', () => {
-    const response: GetDownloadJobResponse = {
-      description: 'a video',
-      downloadUrls: ['https://example.com/a.mp4'],
-      error: undefined,
-      hiddenAttribution: false,
-      id: 'video-1',
-      requester: null,
-      status: DownloadJobStatus.Completed,
-      timeRange: undefined,
-      title: 'A video',
-      type: DownloadType.Video,
-      url: 'https://example.com/video',
-    }
-
-    expect(response.type).toBe(DownloadType.Video)
-    expect(Object.keys(response).sort()).toEqual(
-      [
-        'description',
-        'downloadUrls',
-        'error',
-        'hiddenAttribution',
-        'id',
-        'requester',
-        'status',
-        'timeRange',
-        'title',
-        'type',
-        'url',
-      ].sort(),
-    )
   })
 })
 

@@ -1,8 +1,4 @@
-import {
-  DownloadApiError,
-  DownloadClient,
-  flattenToLegacyVideoResponse,
-} from 'src/download/client'
+import { DownloadApiError, DownloadClient } from 'src/download/client'
 import {
   DownloadJob,
   DownloadJobStatus,
@@ -827,80 +823,6 @@ describe('DownloadClient', () => {
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/download/shows/job-1',
         { headers: JSON_HEADERS, method: 'DELETE' },
-      )
-    })
-  })
-
-  // TODO(tdr-bot-migration): delete this block with the shim it covers.
-  //
-  // tdr-bot mocks DownloadClient wholesale in its own tests, so nothing on
-  // that side would catch a wrong field mapping here - a bad flattening
-  // shows up as a Discord message with a missing link, not a compile error.
-  // This is the only direct test of it.
-  describe('legacy video-job shim (tdr-bot)', () => {
-    const client = DownloadClient.localInstance
-
-    it('flattens media.sourceUrl/title/overview/downloadUrls/timeRange onto the flat shape', () => {
-      const job = buildJob(VIDEO_MEDIA, {
-        error: 'boom',
-        hiddenAttribution: true,
-        requester: { email: 'alice@example.com', userId: 'user_1' },
-      })
-
-      expect(flattenToLegacyVideoResponse(job)).toEqual({
-        description: 'a video',
-        downloadUrls: ['https://example.com/a.mp4'],
-        error: 'boom',
-        hiddenAttribution: true,
-        id: 'job-1',
-        requester: { email: 'alice@example.com', userId: 'user_1' },
-        status: DownloadJobStatus.Completed,
-        timeRange: { start: '00:00:00', end: '00:01:00' },
-        title: 'A video',
-        type: DownloadType.Video,
-        url: 'https://example.com/video',
-      })
-    })
-
-    it('throws rather than silently emitting a video shape for a movie job', () => {
-      expect(() => flattenToLegacyVideoResponse(buildJob(MOVIE_MEDIA))).toThrow(
-        /Expected a video job/,
-      )
-    })
-
-    it('getVideoJob returns the flattened shape from the new endpoint', async () => {
-      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
-
-      await expect(client.getVideoJob('job-1')).resolves.toMatchObject({
-        title: 'A video',
-        url: 'https://example.com/video',
-      })
-      expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:8081/download/videos/job-1',
-        { headers: JSON_HEADERS },
-      )
-    })
-
-    it('createVideoJob posts the same body it always did', async () => {
-      const input = { url: 'https://example.com/video' }
-      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
-
-      await client.createVideoJob(input)
-
-      expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:8081/download/videos',
-        { body: JSON.stringify(input), headers: JSON_HEADERS, method: 'POST' },
-      )
-    })
-
-    it('cancelVideoJob patches the same route it always did', async () => {
-      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
-
-      await client.cancelVideoJob('job-1')
-
-      expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:8081/download/videos/job-1/cancel',
-        { headers: JSON_HEADERS, method: 'PATCH' },
       )
     })
   })
