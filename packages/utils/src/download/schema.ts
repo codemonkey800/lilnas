@@ -671,3 +671,22 @@ export const AuditLogQuerySchema = z
 export const AdminStatsQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(365).default(30),
 })
+
+// ---- yt-dlp updater ----
+
+/**
+ * `POST /api/ytdlp-update/check`'s response.
+ *
+ * `updateAvailable` and `canUpdate` are independent: a newer release can
+ * exist that this deployment still refuses to install (already updating, a
+ * dry run, or a missing binary path), and `reason` is the human-readable
+ * explanation for that refusal. It is absent whenever there is nothing to
+ * explain.
+ */
+export const UpdateCheckResultSchema = z.object({
+  canUpdate: z.boolean(),
+  currentVersion: z.string(),
+  latestVersion: z.string(),
+  reason: z.string().optional(),
+  updateAvailable: z.boolean(),
+})
