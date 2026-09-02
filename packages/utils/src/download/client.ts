@@ -7,12 +7,19 @@ import {
   DownloadJob,
   DownloadPage,
   DownloadType,
+  FlagBadFileInput,
+  FlagBadFileResponse,
   GalleryFacetsQuery,
   GalleryItem,
   GalleryQuery,
   GetDownloadJobResponse,
+  GrabReleaseInput,
   HistoryQuery,
+  ListBadFilesResponse,
+  ListReleasesQuery,
+  ListReleasesResponse,
   MediaDetailResponse,
+  ReplaceReleaseInput,
   RequestMovieInput,
   RequestShowInput,
   SearchMediaResponse,
@@ -229,6 +236,82 @@ export class DownloadClient {
   async getMedia(id: string): Promise<MediaDetailResponse> {
     const response = await this.request(
       `/download/media/${encodeURIComponent(id)}`,
+    )
+
+    return response.json()
+  }
+
+  /**
+   * The interactive-search results for a title, annotated with this app's own
+   * `flaggedBad`.
+   *
+   * Expect this call to take 30s+: it fires a real indexer search rather than
+   * reading anything cached. It can also write upstream despite being a GET -
+   * Radarr/Sonarr will not surface releases for an unmonitored title, so the
+   * backend borrows monitoring and puts it back.
+   */
+  async listReleases(
+    id: string,
+    query: Partial<ListReleasesQuery> = {},
+  ): Promise<ListReleasesResponse> {
+    const response = await this.request(
+      `/download/media/${encodeURIComponent(id)}/releases${toQueryString(query)}`,
+    )
+
+    return response.json()
+  }
+
+  /** Grabs one release from `listReleases`, identified by `guid`/`indexerId`. */
+  async grabRelease(id: string, input: GrabReleaseInput): Promise<DownloadJob> {
+    const response = await this.request(
+      `/download/media/${encodeURIComponent(id)}/releases/grab`,
+      { method: 'POST', body: JSON.stringify(input) },
+    )
+
+    return response.json()
+  }
+
+  /**
+   * Deletes what is on disk and grabs the chosen release, as one action - so a
+   * failure can't leave the title with a deleted file and no replacement.
+   */
+  async replaceRelease(
+    id: string,
+    input: ReplaceReleaseInput,
+  ): Promise<DownloadJob> {
+    const response = await this.request(
+      `/download/media/${encodeURIComponent(id)}/releases/replace`,
+      { method: 'POST', body: JSON.stringify(input) },
+    )
+
+    return response.json()
+  }
+
+  /**
+   * Flags a release as bad so this app stops picking it.
+   *
+   * Idempotent on `(mediaId, releaseGuid)` - re-flagging returns the original
+   * row rather than erroring, so a double-click is harmless.
+   *
+   * The only release route that *requires* identity server-side: call this on
+   * a client from `withForwardedIdentity()`, or the 401 arrives as a
+   * `DownloadApiError`.
+   */
+  async flagBadFile(
+    id: string,
+    input: FlagBadFileInput,
+  ): Promise<FlagBadFileResponse> {
+    const response = await this.request(
+      `/download/media/${encodeURIComponent(id)}/bad-files`,
+      { method: 'POST', body: JSON.stringify(input) },
+    )
+
+    return response.json()
+  }
+
+  async listBadFiles(id: string): Promise<ListBadFilesResponse> {
+    const response = await this.request(
+      `/download/media/${encodeURIComponent(id)}/bad-files`,
     )
 
     return response.json()

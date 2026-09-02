@@ -335,6 +335,108 @@ describe('DownloadClient', () => {
     })
   })
 
+  describe('release and bad-file endpoints', () => {
+    const client = DownloadClient.localInstance
+
+    // Every route here is keyed on a media id, which always contains a `:`.
+    const MEDIA_ID = 'tmdb:438631'
+    const ENCODED = 'tmdb%3A438631'
+
+    it('listReleases URL-encodes the key and appends the scope query', async () => {
+      const fetchSpy = mockFetchJson({ releases: [] })
+
+      await expect(
+        client.listReleases(MEDIA_ID, { seasonNumber: 2 }),
+      ).resolves.toEqual({ releases: [] })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/releases?seasonNumber=2`,
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    it('listReleases omits the query string entirely when unscoped', async () => {
+      const fetchSpy = mockFetchJson({ releases: [] })
+
+      await client.listReleases(MEDIA_ID)
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/releases`,
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    it('grabRelease issues a POST to /releases/grab with the release identity', async () => {
+      const input = { guid: 'release-guid', indexerId: 3 }
+      const job = buildJob(MOVIE_MEDIA, { status: DownloadJobStatus.Pending })
+      const fetchSpy = mockFetchJson(job)
+
+      await expect(client.grabRelease(MEDIA_ID, input)).resolves.toEqual(job)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/releases/grab`,
+        {
+          body: JSON.stringify(input),
+          headers: JSON_HEADERS,
+          method: 'POST',
+        },
+      )
+    })
+
+    it('replaceRelease issues a POST to /releases/replace with the same body shape', async () => {
+      const input = { episodeId: 7, guid: 'release-guid', indexerId: 3 }
+      const job = buildJob(MOVIE_MEDIA, { status: DownloadJobStatus.Pending })
+      const fetchSpy = mockFetchJson(job)
+
+      await expect(client.replaceRelease(MEDIA_ID, input)).resolves.toEqual(job)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/releases/replace`,
+        {
+          body: JSON.stringify(input),
+          headers: JSON_HEADERS,
+          method: 'POST',
+        },
+      )
+    })
+
+    it('flagBadFile issues a POST to /bad-files with the flag body', async () => {
+      const input = { guid: 'release-guid', reason: 'wrong audio track' }
+      const badFile = {
+        createdAt: '2026-08-20T12:00:00.000Z',
+        flaggedBy: { email: 'alice@example.com', userId: 'user_1' },
+        id: 1,
+        indexerId: null,
+        mediaId: MEDIA_ID,
+        reason: 'wrong audio track',
+        releaseGuid: 'release-guid',
+        releaseTitle: null,
+      }
+      const fetchSpy = mockFetchJson({ badFile })
+
+      await expect(client.flagBadFile(MEDIA_ID, input)).resolves.toEqual({
+        badFile,
+      })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/bad-files`,
+        {
+          body: JSON.stringify(input),
+          headers: JSON_HEADERS,
+          method: 'POST',
+        },
+      )
+    })
+
+    it('listBadFiles issues a GET to /bad-files', async () => {
+      const fetchSpy = mockFetchJson({ badFiles: [] })
+
+      await expect(client.listBadFiles(MEDIA_ID)).resolves.toEqual({
+        badFiles: [],
+      })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/bad-files`,
+        { headers: JSON_HEADERS },
+      )
+    })
+  })
+
   describe('movie and show jobs', () => {
     const client = DownloadClient.localInstance
 
