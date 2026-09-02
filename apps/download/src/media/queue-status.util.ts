@@ -174,8 +174,12 @@ export function describeQueueItemError(
  * - `trackedDownloadState: 'imported'` or `status: 'completed'`: the file
  *   landed but may still be finishing import bookkeeping - Importing until
  *   it drops out of the queue entirely (see the "no entry" branch above).
- * - Anything else (queued, downloading, paused, warning, delay, ...):
- *   Downloading.
+ * - `status: 'paused'`: Paused. This is Radarr's/Sonarr's own queue reporting
+ *   that the *backing download client* (qBittorrent, SABnzbd, ...) paused the
+ *   item - independent of, and unrelated to, this app's video-only
+ *   pause/resume (Phase 5). It can be paused from Radarr's/Sonarr's queue UI
+ *   or the client's own UI, with no way for this app to have caused it.
+ * - Anything else (queued, downloading, warning, delay, ...): Downloading.
  */
 export function deriveStatusFromQueueItem(
   currentStatus: DownloadJobStatus,
@@ -205,6 +209,17 @@ export function deriveStatusFromQueueItem(
 
   if (item.trackedDownloadState === 'imported' || item.status === 'completed') {
     return DownloadJobStatus.Importing
+  }
+
+  // Reuses the same `Paused` a video job gets from Phase 5 rather than a
+  // second status: it's already non-terminal, so a paused movie/show job
+  // stays on the Activity feed exactly like a paused video does. The two
+  // are resumed differently - a video job through this app's own
+  // `PATCH /videos/:id/resume`, a movie/show by unpausing at Radarr/Sonarr
+  // or the download client directly, since this app has no such route for
+  // them - but that distinction lives in the job's `type`, not its status.
+  if (item.status === 'paused') {
+    return DownloadJobStatus.Paused
   }
 
   return DownloadJobStatus.Downloading

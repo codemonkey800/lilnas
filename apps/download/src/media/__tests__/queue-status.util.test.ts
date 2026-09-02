@@ -137,12 +137,24 @@ describe('deriveStatusFromQueueItem', () => {
     ).toBe(DownloadJobStatus.Importing)
   })
 
-  it('maps everything else (queued, downloading, paused, ...) to Downloading', () => {
-    for (const status of ['queued', 'downloading', 'paused', 'warning']) {
+  it('maps everything else (queued, downloading, warning, ...) to Downloading', () => {
+    for (const status of ['queued', 'downloading', 'warning']) {
       expect(
         deriveStatusFromQueueItem(DownloadJobStatus.Searching, { status }),
       ).toBe(DownloadJobStatus.Downloading)
     }
+  })
+
+  // A movie/show can be paused independently of this app, at the backing
+  // download client (qBittorrent, SABnzbd, ...) or from Radarr's/Sonarr's
+  // own queue UI. Before this, that fell into the catch-all above and
+  // reported as Downloading - actively wrong, not just imprecise.
+  it('maps a paused queue status to Paused', () => {
+    expect(
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, {
+        status: 'paused',
+      }),
+    ).toBe(DownloadJobStatus.Paused)
   })
 })
 
@@ -196,6 +208,31 @@ describe('aggregateQueueItems', () => {
     expect(
       deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
     ).toBe(DownloadJobStatus.Downloading)
+  })
+
+  // Paused sits outside STATUS_PRECEDENCE on purpose: a season with one
+  // paused episode and others still moving must report the season as
+  // Downloading, not Paused - only reporting Paused once every match is.
+  it('does not let one paused episode override an otherwise-downloading season', () => {
+    const aggregate = aggregateQueueItems([
+      { status: 'paused' },
+      { status: 'queued' },
+    ])
+
+    expect(
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
+    ).toBe(DownloadJobStatus.Downloading)
+  })
+
+  it('reports Paused when every match is paused', () => {
+    const aggregate = aggregateQueueItems([
+      { status: 'paused' },
+      { status: 'paused' },
+    ])
+
+    expect(
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
+    ).toBe(DownloadJobStatus.Paused)
   })
 
   it('reports Importing only when every match is importing', () => {
