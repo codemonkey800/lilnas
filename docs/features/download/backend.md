@@ -548,9 +548,13 @@ a scoped request as a whole-series one.
 
 - **No frontend.** Every route above is backend-only; nothing in the Next.js
   app calls them yet.
-- **No `DownloadClient` methods** for the new routes — Phase 3 added none
-  either, and nothing in-repo calls them yet. `apps/tdr-bot` compiles against
-  the unmodified shim.
+- **`DownloadClient` methods — since added.** `listSeasons` and
+  `deleteMediaFiles` cover both new routes, landed alongside Phase 3's five
+  (`listReleases`, `grabRelease`, `replaceRelease`, `flagBadFile`,
+  `listBadFiles`) in the shared-client hardening pass,
+  `docs/features/download/plans/011-shared-client-hardening.md`. Nothing
+  in-repo calls them yet, and `apps/tdr-bot` still compiles against the
+  unmodified shim.
 - **No season/episode summary fields on `ShowSchema`.** `GET /seasons`
   answers it; a second copy would drift.
 - **No bulk `deleteApiV3EpisodefileBulk`.** The sequential per-file loop is
@@ -878,8 +882,11 @@ what it would take to change.
 - **No frontend.** Both routes are backend-only; nothing in the Next.js app
   calls them yet — there is no cancel button today either, and the rebuild
   consumes all three together.
-- **No `DownloadClient.pauseJob`/`resumeJob`** — Phases 3 and 4 added no client
-  methods either, and nothing in-repo calls them yet.
+- **`DownloadClient.pauseJob`/`resumeJob` — since added**, along with the
+  Phase 3 and 4 methods, in the shared-client hardening pass
+  (`docs/features/download/plans/011-shared-client-hardening.md`). Both take a
+  job id, not a media key, exactly like `getJob`/`cancelJob`. Nothing in-repo
+  calls them yet.
 - **Pause does not survive a restart.** Changing that needs a volume for
   `/download/videos` (plus the `chown 1000:1000` the `/data` mount already
   documents in `deploy.yml`) _and_ boot rehydration. See the ⚠️ section above
@@ -1359,8 +1366,13 @@ what_ is Phase 8's audit log, not a decorator here.
 
 - **No frontend.** The route is backend-only; nothing in the Next.js app calls
   it yet — the rebuild consumes it alongside Phases 3–6.
-- **No `DownloadClient` method.** Phases 3–6 added none either, and nothing
-  in-repo calls it yet.
+- **`DownloadClient.getMediaFileUrl` — since added**, in the shared-client
+  hardening pass (`docs/features/download/plans/011-shared-client-hardening.md`),
+  as a synchronous URL builder rather than a fetch method: pulling a
+  `Range`-able multi-GB stream back through the client would cost a browser its
+  resumability and a server-side caller a second transfer. It returns a string
+  to use as an `<a href>` or a redirect target, and carries no forwarded
+  identity — a URL can't. Nothing in-repo calls it yet.
 - **No season/series bundling.** One file per request, by design.
 - **No Range on the object branch** — `getPartialObject()` if that changes.
 - **Known asymmetry, left standing:** this route is authenticated at the edge,
@@ -1642,8 +1654,13 @@ controller's GET routes are untouched.
 
 - **No frontend.** Both routes are backend-only; there is no admin dashboard
   in the Next.js app yet — the rebuild consumes these alongside Phases 3–7.
-- **No `DownloadClient` methods.** Phases 3–7 added none either, and nothing
-  in-repo calls them.
+- **`DownloadClient` methods — since added.** `getAuditLog` and `getStats`
+  cover both routes, landed with the Phase 3–7 methods in the shared-client
+  hardening pass (`docs/features/download/plans/011-shared-client-hardening.md`);
+  the same pass added `checkYtdlpUpdate` for the yt-dlp trigger audited above.
+  Neither admin method checks anything client-side — `AdminGuard`'s 403 (or a
+  401 from a caller that skipped `withForwardedIdentity()`) arrives as a
+  `DownloadApiError` like any other failure. Nothing in-repo calls them.
 - **No backfill**, for the reason above.
 - **No retention or pruning.** `audit_log` grows without bound; nothing
   vacuums it. Sized for this service's traffic, revisit if that stops holding.
