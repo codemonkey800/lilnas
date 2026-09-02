@@ -7,11 +7,11 @@ jest.mock('nanoid', () => ({
   nanoid: jest.fn(() => 'mock-id'),
 }))
 
+import type { UpdateCheckResult } from '@lilnas/utils/download/types'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { type AuditEvent, AuditLogService } from 'src/audit/audit-log.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
-import type { UpdateCheckResult } from 'src/ytdlp-update/types'
 import { YtdlpUpdateController } from 'src/ytdlp-update/ytdlp-update.controller'
 import { YtdlpUpdateService } from 'src/ytdlp-update/ytdlp-update.service'
 

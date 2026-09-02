@@ -41,6 +41,7 @@ import {
   ShowSchema,
   ShowScopeSchema,
   TimeRangeSchema,
+  UpdateCheckResultSchema,
   VideoInfoSchema,
   VideoSchema,
 } from './schema'
@@ -199,6 +200,18 @@ export interface DownloadJobEvent {
  * and any future frontend subscriber can't drift apart on the literal.
  */
 export const DOWNLOAD_JOB_EVENT_TYPE = 'download-job'
+
+/**
+ * The WS envelope every gateway frame is wrapped in. Deliberately
+ * loosely-typed: `type` discriminates between payload kinds and `data`
+ * varies per kind. The one kind sent today is {@link DOWNLOAD_JOB_EVENT_TYPE}
+ * carrying a {@link DownloadJobEvent} (see
+ * `DownloadStateService.broadcastJobEvent`).
+ */
+export interface DownloadGatewayMessage {
+  type: string
+  data?: unknown
+}
 
 /**
  * @deprecated Pre-Media wire shape, retained only for `apps/tdr-bot`. Use
@@ -431,4 +444,28 @@ export interface AdminStatsResponse {
   totalsByType: Array<{ count: number; type: DownloadType }>
   totalJobs: number
   windowDays: number
+}
+
+// ---- yt-dlp updater ----
+
+/**
+ * `POST /api/ytdlp-update/check`'s response - what the updater found and
+ * whether it is willing to act on it. See `UpdateCheckResultSchema`.
+ */
+export type UpdateCheckResult = z.infer<typeof UpdateCheckResultSchema>
+
+/**
+ * `GET /api/ytdlp-update/status`'s response.
+ *
+ * `lastCheck`/`lastAttempt` are `string | null`, not `Date | null`:
+ * `YtdlpUpdateService.getUpdateStatus()` holds real `Date` objects
+ * internally, but Nest `JSON.stringify`s the handler's return value, so what
+ * actually arrives on the wire is an ISO-8601 string. This is the wire shape;
+ * the service's inline return type is the internal one.
+ */
+export interface YtdlpUpdateStatusResponse {
+  isUpdating: boolean
+  lastCheck: string | null
+  lastAttempt: string | null
+  retryCount: number
 }

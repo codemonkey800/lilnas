@@ -1,10 +1,13 @@
+import type {
+  UpdateCheckResult,
+  YtdlpUpdateStatusResponse,
+} from '@lilnas/utils/download/types'
 import { Controller, Get, Post, Query } from '@nestjs/common'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { OptionalCurrentUser } from 'src/auth/optional-current-user.decorator'
 
-import { UpdateCheckResult } from './types'
 import { YtdlpUpdateService } from './ytdlp-update.service'
 
 @Controller('api/ytdlp-update')
@@ -14,9 +17,21 @@ export class YtdlpUpdateController {
     private readonly auditLogService: AuditLogService,
   ) {}
 
+  /**
+   * The two timestamps are serialized here rather than left to Nest's own
+   * `JSON.stringify`, so the annotated return type is the shape a client
+   * actually receives. The service keeps real `Date`s internally - that is
+   * its contract, not this route's.
+   */
   @Get('status')
-  getUpdateStatus() {
-    return this.ytdlpUpdateService.getUpdateStatus()
+  getUpdateStatus(): YtdlpUpdateStatusResponse {
+    const status = this.ytdlpUpdateService.getUpdateStatus()
+
+    return {
+      ...status,
+      lastAttempt: status.lastAttempt?.toISOString() ?? null,
+      lastCheck: status.lastCheck?.toISOString() ?? null,
+    }
   }
 
   /**
