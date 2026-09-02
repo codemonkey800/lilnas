@@ -1,5 +1,16 @@
+// Relative rather than `src/auth/types`: this specifier is emitted verbatim
+// into dist/download/client.d.ts, where only a path relative to the built
+// file resolves. `@lilnas/utils/auth/types` does not resolve inside this
+// package (no self-reference under moduleResolution: node), and the
+// `src`-prefixed form would resolve to the *consumer's* src/ once built.
+// eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
+import { WhoamiResponse } from '../auth/types'
 import {
   ActivityQuery,
+  AdminStatsQuery,
+  AdminStatsResponse,
+  AuditLogEntry,
+  AuditLogQuery,
   CreateDownloadJobInput,
   DeleteMediaFilesQuery,
   DeleteMediaFilesResponse,
@@ -27,6 +38,8 @@ import {
   RequestMovieInput,
   RequestShowInput,
   SearchMediaResponse,
+  UpdateCheckResult,
+  YtdlpUpdateStatusResponse,
 } from './types'
 
 /**
@@ -438,6 +451,110 @@ export class DownloadClient {
     const response = await this.request(
       `/download/discover${toQueryString(query)}`,
     )
+    return response.json()
+  }
+
+  /**
+   * The audit log, in the same `{ items, nextCursor, total }` envelope every
+   * other list route uses, with real actor emails unmasked.
+   *
+   * Admin-only server-side (`AdminGuard` sits at the class level on
+   * `AdminController`, so it covers this route and every future one). Nothing
+   * is checked here on purpose: a non-admin - or a caller that never went
+   * through `withForwardedIdentity()` - gets the 403/401 back as a
+   * `DownloadApiError`, exactly like any other failure.
+   */
+  async getAuditLog(
+    query: Partial<AuditLogQuery> = {},
+  ): Promise<DownloadPage<AuditLogEntry>> {
+    const response = await this.request(
+      `/download/admin/audit-log${toQueryString(query)}`,
+    )
+
+    return response.json()
+  }
+
+  /**
+   * The admin dashboard's aggregate counts over the last `days` (the default
+   * window is the backend's, not this method's).
+   *
+   * Admin-only on the same terms as `getAuditLog` - and for the same reason:
+   * these totals deliberately skip the hidden-attribution filter.
+   */
+  async getStats(
+    query: Partial<AdminStatsQuery> = {},
+  ): Promise<AdminStatsResponse> {
+    const response = await this.request(
+      `/download/admin/stats${toQueryString(query)}`,
+    )
+
+    return response.json()
+  }
+
+  /**
+   * Who the backend believes the caller is, plus whether they are an admin -
+   * the way to resolve admin status without guessing at it client-side.
+   *
+   * Needs forwarded identity: call it on a client from
+   * `withForwardedIdentity()`, or `ForwardedUserGuard` answers 401 and that
+   * arrives as a `DownloadApiError`.
+   */
+  async whoami(): Promise<WhoamiResponse> {
+    const response = await this.request('/auth/whoami')
+    return response.json()
+  }
+
+  // ---- yt-dlp updater ----
+  //
+  // The three paths below really do begin with `/api`, and that is not a
+  // mistake to tidy up. `YtdlpUpdateController` is declared
+  // `@Controller('api/ytdlp-update')` - the only controller in the backend
+  // carrying an `api` segment of its own - so `/api/ytdlp-update/status` is
+  // the literal Nest route. It has nothing to do with the Next.js `/api`
+  // rewrite that `browserInstance` is built around.
+  //
+  // The two stack rather than collapse. From `localInstance`/`dockerInstance`
+  // the request is `/api/ytdlp-update/status`; from `browserInstance` it is
+  // the doubled `/api/api/ytdlp-update/status`, because the rewrite strips
+  // exactly one `/api` before Nest ever sees the path. The doubling is
+  // correct - removing it would send the request to a route that does not
+  // exist. Keeping both prefixes inside these methods, where no caller has to
+  // reason about either, is the entire point of having them.
+
+  /** Whether an update is in flight, and when the updater last ran. */
+  async getYtdlpStatus(): Promise<YtdlpUpdateStatusResponse> {
+    const response = await this.request('/api/ytdlp-update/status')
+    return response.json()
+  }
+
+  /**
+   * The yt-dlp binary's current version.
+   *
+   * Answers `{ version: 'error' }` rather than failing when the binary cannot
+   * be probed at all, so treat `'error'` as a sentinel - there is no
+   * exception to catch for that case.
+   */
+  async getYtdlpVersion(): Promise<{ version: string }> {
+    const response = await this.request('/api/ytdlp-update/version')
+    return response.json()
+  }
+
+  /**
+   * Checks GitHub for a newer yt-dlp and, unless `dryRun`, lets the updater
+   * act on what it finds - this can replace the binary the whole download
+   * pipeline shells out to.
+   *
+   * `?dryRun=true` is appended only when asked. The handler tests the raw
+   * query value against the string `'true'`, so a `?dryRun=false` would be
+   * read as "not a dry run" anyway - sending it would just imply a knob that
+   * does not exist.
+   */
+  async checkYtdlpUpdate(dryRun = false): Promise<UpdateCheckResult> {
+    const response = await this.request(
+      `/api/ytdlp-update/check${dryRun ? '?dryRun=true' : ''}`,
+      { method: 'POST' },
+    )
+
     return response.json()
   }
 
