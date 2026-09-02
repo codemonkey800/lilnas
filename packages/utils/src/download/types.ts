@@ -213,27 +213,6 @@ export interface DownloadGatewayMessage {
   data?: unknown
 }
 
-/**
- * @deprecated Pre-Media wire shape, retained only for `apps/tdr-bot`. Use
- * {@link DownloadJob}. Removed by TODO(tdr-bot-migration) in ./client.
- *
- * Hand-written rather than a `Pick<>` because the union it used to be
- * picked from no longer exists.
- */
-export interface GetDownloadJobResponse {
-  description?: string
-  downloadUrls?: string[]
-  error?: string
-  hiddenAttribution: boolean
-  id: string
-  requester: JobRequester | null
-  status: DownloadJobStatus
-  timeRange?: TimeRange
-  title?: string
-  type: DownloadType.Video
-  url: string
-}
-
 export type VideoInfo = z.infer<typeof VideoInfoSchema>
 
 export type MediaSearchQuery = z.infer<typeof MediaSearchQuerySchema>
