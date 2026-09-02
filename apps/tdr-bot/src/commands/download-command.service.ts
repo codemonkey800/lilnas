@@ -1,8 +1,9 @@
 import { DownloadClient } from '@lilnas/utils/download/client'
 import { TIME_REGEX } from '@lilnas/utils/download/schema'
 import {
+  DownloadJob,
   DownloadJobStatus,
-  GetDownloadJobResponse,
+  isVideo,
 } from '@lilnas/utils/download/types'
 import { isBefore } from '@lilnas/utils/download/utils'
 import { env } from '@lilnas/utils/env'
@@ -102,7 +103,7 @@ export class DownloadCommandService {
     await interaction.deferReply({ flags: [MessageFlags.Ephemeral] })
 
     this.logger.log({ id }, 'creating job')
-    const job = await this.client.createVideoJob({
+    const job = await this.client.createJob({
       url,
       ...(start && end ? { timeRange: { start, end } } : {}),
     })
@@ -117,7 +118,8 @@ export class DownloadCommandService {
       id,
       interaction,
       author: author || author == null ? interaction.user.id : undefined,
-      description: description ? job.description : undefined,
+      description:
+        description && isVideo(job.media) ? job.media.overview : undefined,
       jobId: job.id,
     })
   }
@@ -212,8 +214,19 @@ export class DownloadCommandService {
     description?: string
     author?: string
   }) {
-    const job = await this.client.getVideoJob(jobId)
-    const urls = job.downloadUrls ?? []
+    const job = await this.client.getJob(jobId)
+    const media = job.media
+
+    if (!isVideo(media)) {
+      this.logger.error(
+        { id, job },
+        `Expected a video job but got a '${media.type}' job`,
+      )
+      this.checkJobIterationMap.delete(jobId)
+      return
+    }
+
+    const urls = media.downloadUrls ?? []
     const iteration = this.checkJobIterationMap.get(jobId) ?? 0
 
     if (job.status === DownloadJobStatus.Completed && urls.length > 0) {
@@ -236,10 +249,10 @@ export class DownloadCommandService {
       )
 
       this.checkJobIterationMap.delete(jobId)
-      this.client.cancelVideoJob(jobId)
+      this.client.cancelJob(jobId)
 
       await this.sendEphemeralNotice({
-        content: `download timed out while waiting for <${job.url}> to finish`,
+        content: `download timed out while waiting for <${media.sourceUrl}> to finish`,
         id,
         interaction,
         jobId,
@@ -254,7 +267,7 @@ export class DownloadCommandService {
       this.checkJobIterationMap.delete(jobId)
 
       await this.sendEphemeralNotice({
-        content: `download failed for <${job.url}>${this.formatJobError(job.error)}`,
+        content: `download failed for <${media.sourceUrl}>${this.formatJobError(job.error)}`,
         id,
         interaction,
         jobId,
@@ -269,7 +282,7 @@ export class DownloadCommandService {
       this.checkJobIterationMap.delete(jobId)
 
       await this.sendEphemeralNotice({
-        content: `download cancelled for <${job.url}>`,
+        content: `download cancelled for <${media.sourceUrl}>`,
         id,
         interaction,
         jobId,
@@ -346,9 +359,18 @@ export class DownloadCommandService {
     description?: string
     id: string
     interaction: SlashCommandContext[0]
-    job: GetDownloadJobResponse
+    job: DownloadJob
   }) {
-    const urls = job.downloadUrls ?? []
+    if (!isVideo(job.media)) {
+      this.logger.error(
+        { id, job },
+        `Expected a video job but got a '${job.media.type}' job`,
+      )
+      return
+    }
+
+    const media = job.media
+    const urls = media.downloadUrls ?? []
     const files: string[] = []
 
     const dir = `/tmp/tdr-videos/${job.id}`
@@ -369,7 +391,7 @@ export class DownloadCommandService {
         await interaction.channel.send({
           files,
           content: [
-            job.title ? `[**${job.title}**](<${job.url}>)\n` : '',
+            media.title ? `[**${media.title}**](<${media.sourceUrl}>)\n` : '',
             author ? `sent by <@${author}>\n` : '',
             description,
           ]
@@ -390,7 +412,7 @@ export class DownloadCommandService {
 
           await interaction.channel.send({
             content: [
-              job.title ? `[**${job.title}**](<${job.url}>)\n` : '',
+              media.title ? `[**${media.title}**](<${media.sourceUrl}>)\n` : '',
               author ? `sent by <@${author}>\n` : '',
               description ? `${description}\n\n` : '',
               downloadLinks,
@@ -429,7 +451,7 @@ export class DownloadCommandService {
     dir: string
     files: string[]
     id: string
-    job: GetDownloadJobResponse
+    job: DownloadJob
     url: string
   }) {
     const file = url.split('/').at(-1) ?? ''

@@ -1,5 +1,5 @@
 import { DownloadClient } from '@lilnas/utils/download/client'
-import { DownloadJobStatus } from '@lilnas/utils/download/types'
+import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 import { Client } from 'minio'
 
 import { DownloadCommandService } from 'src/commands/download-command.service'
@@ -69,9 +69,9 @@ jest.mock('necord', () => ({
 jest.mock('@lilnas/utils/download/client', () => ({
   DownloadClient: {
     dockerInstance: {
-      cancelVideoJob: jest.fn(),
-      createVideoJob: jest.fn(),
-      getVideoJob: jest.fn(),
+      cancelJob: jest.fn(),
+      createJob: jest.fn(),
+      getJob: jest.fn(),
     },
   },
 }))
@@ -104,9 +104,9 @@ type PrivateCheckJob = {
 
 describe('DownloadCommandService', () => {
   const mockClient = DownloadClient.dockerInstance as unknown as {
-    cancelVideoJob: jest.Mock
-    createVideoJob: jest.Mock
-    getVideoJob: jest.Mock
+    cancelJob: jest.Mock
+    createJob: jest.Mock
+    getJob: jest.Mock
   }
 
   let service: DownloadCommandService
@@ -121,11 +121,14 @@ describe('DownloadCommandService', () => {
   describe('checkJob', () => {
     it('sends an ephemeral notice with the error when the job failed', async () => {
       const interaction = createMockInteraction()
-      mockClient.getVideoJob.mockResolvedValue({
+      mockClient.getJob.mockResolvedValue({
         id: 'job-1',
         status: DownloadJobStatus.Failed,
-        url: 'https://example.com/video',
         error: 'ERROR: Video unavailable',
+        media: {
+          type: DownloadType.Video,
+          sourceUrl: 'https://example.com/video',
+        },
       })
 
       await (service as unknown as PrivateCheckJob).checkJob({
@@ -146,10 +149,13 @@ describe('DownloadCommandService', () => {
 
     it('omits the error block when the job has no error message', async () => {
       const interaction = createMockInteraction()
-      mockClient.getVideoJob.mockResolvedValue({
+      mockClient.getJob.mockResolvedValue({
         id: 'job-1',
         status: DownloadJobStatus.Failed,
-        url: 'https://example.com/video',
+        media: {
+          type: DownloadType.Video,
+          sourceUrl: 'https://example.com/video',
+        },
       })
 
       await (service as unknown as PrivateCheckJob).checkJob({
@@ -166,10 +172,13 @@ describe('DownloadCommandService', () => {
 
     it('sends an ephemeral notice when the job was cancelled', async () => {
       const interaction = createMockInteraction()
-      mockClient.getVideoJob.mockResolvedValue({
+      mockClient.getJob.mockResolvedValue({
         id: 'job-1',
         status: DownloadJobStatus.Cancelled,
-        url: 'https://example.com/video',
+        media: {
+          type: DownloadType.Video,
+          sourceUrl: 'https://example.com/video',
+        },
       })
 
       await (service as unknown as PrivateCheckJob).checkJob({
@@ -190,10 +199,13 @@ describe('DownloadCommandService', () => {
       process.env.DOWNLOAD_POLL_RETRIES = '0'
 
       const interaction = createMockInteraction()
-      mockClient.getVideoJob.mockResolvedValue({
+      mockClient.getJob.mockResolvedValue({
         id: 'job-1',
         status: DownloadJobStatus.Downloading,
-        url: 'https://example.com/video',
+        media: {
+          type: DownloadType.Video,
+          sourceUrl: 'https://example.com/video',
+        },
       })
 
       await (service as unknown as PrivateCheckJob).checkJob({
@@ -202,7 +214,7 @@ describe('DownloadCommandService', () => {
         jobId: 'job-1',
       })
 
-      expect(mockClient.cancelVideoJob).toHaveBeenCalledWith('job-1')
+      expect(mockClient.cancelJob).toHaveBeenCalledWith('job-1')
       expect(interaction.followUp).toHaveBeenCalledTimes(1)
       const [{ flags }] = interaction.followUp.mock.calls[0] as [
         { flags: number[] },
@@ -214,11 +226,14 @@ describe('DownloadCommandService', () => {
     it('does not throw when the ephemeral follow-up fails', async () => {
       const interaction = createMockInteraction()
       interaction.followUp.mockRejectedValue(new Error('Unknown interaction'))
-      mockClient.getVideoJob.mockResolvedValue({
+      mockClient.getJob.mockResolvedValue({
         id: 'job-1',
         status: DownloadJobStatus.Failed,
-        url: 'https://example.com/video',
         error: 'ERROR: Video unavailable',
+        media: {
+          type: DownloadType.Video,
+          sourceUrl: 'https://example.com/video',
+        },
       })
 
       await expect(
