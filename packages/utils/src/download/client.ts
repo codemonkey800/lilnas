@@ -19,13 +19,11 @@ import {
   DownloadGalleryFacets,
   DownloadJob,
   DownloadPage,
-  DownloadType,
   FlagBadFileInput,
   FlagBadFileResponse,
   GalleryFacetsQuery,
   GalleryItem,
   GalleryQuery,
-  GetDownloadJobResponse,
   GetMediaFileQuery,
   GrabReleaseInput,
   HistoryQuery,
@@ -79,35 +77,6 @@ async function readErrorBody(response: Response): Promise<unknown> {
     return await response.json()
   } catch {
     return undefined
-  }
-}
-
-/**
- * Flattens a `DownloadJob` back down to the pre-Media wire shape.
- *
- * TODO(tdr-bot-migration): delete alongside the three legacy methods below.
- */
-export function flattenToLegacyVideoResponse(
-  job: DownloadJob,
-): GetDownloadJobResponse {
-  if (job.media.type !== DownloadType.Video) {
-    throw new Error(
-      `Expected a video job but got a '${job.media.type}' job (id: '${job.id}')`,
-    )
-  }
-
-  return {
-    description: job.media.overview,
-    downloadUrls: job.media.downloadUrls,
-    error: job.error,
-    hiddenAttribution: job.hiddenAttribution,
-    id: job.id,
-    requester: job.requester,
-    status: job.status,
-    timeRange: job.media.timeRange,
-    title: job.media.title,
-    type: DownloadType.Video,
-    url: job.media.sourceUrl,
   }
 }
 
@@ -556,33 +525,6 @@ export class DownloadClient {
     )
 
     return response.json()
-  }
-
-  // TODO(tdr-bot-migration): delete this block, `flattenToLegacyVideoResponse`,
-  // and the deprecated `GetDownloadJobResponse` in ./types.
-  //
-  // `apps/tdr-bot` is the SOLE consumer: download-command.service.ts calls
-  // createVideoJob/getVideoJob/cancelVideoJob and reads the flat
-  // `url`/`title`/`description`/`downloadUrls` fields. It was deliberately left
-  // untouched when the download backend moved to the Media union, so these three
-  // methods keep their pre-Media shape by flattening `DownloadJob` back down.
-  //
-  // Removal: migrate tdr-bot onto getJob/createJob/cancelJob + `job.media.*`,
-  // then delete all three pieces. New code must use getJob/createJob/cancelJob —
-  // nothing else may call these.
-
-  async getVideoJob(id: string): Promise<GetDownloadJobResponse> {
-    return flattenToLegacyVideoResponse(await this.getJob(id))
-  }
-
-  async createVideoJob(
-    input: CreateDownloadJobInput,
-  ): Promise<GetDownloadJobResponse> {
-    return flattenToLegacyVideoResponse(await this.createJob(input))
-  }
-
-  async cancelVideoJob(id: string): Promise<GetDownloadJobResponse> {
-    return flattenToLegacyVideoResponse(await this.cancelJob(id))
   }
 
   async searchMovies(query: string): Promise<SearchMediaResponse> {
