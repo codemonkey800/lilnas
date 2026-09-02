@@ -100,6 +100,26 @@ describe('DownloadClient', () => {
     })
   })
 
+  // Browser-safety, not routing. This module is meant to be importable from a
+  // browser bundle, and the property that makes that possible is that
+  // `browserInstance`'s base URL is *relative*: nothing has to read an env var
+  // (or any other server-only global) to work out a protocol and host. The
+  // assertions below pin that property itself rather than one route's path.
+  describe('browser safety', () => {
+    it('browserInstance requests a same-origin relative URL, with no protocol or host', async () => {
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
+
+      await DownloadClient.browserInstance.getJob('1')
+
+      const url = String(fetchSpy.mock.calls[0]?.[0])
+
+      expect(url).not.toMatch(/^https?:\/\//)
+      // Protocol-relative (`//host/...`) is still cross-origin - also excluded.
+      expect(url).not.toMatch(/^\/\//)
+      expect(url).toMatch(/^\//)
+    })
+  })
+
   describe('withForwardedIdentity', () => {
     it('merges x-forwarded-user/x-forwarded-user-id into every request', async () => {
       const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
