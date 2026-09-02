@@ -19,6 +19,46 @@ import {
 } from './types'
 
 /**
+ * Thrown by every `DownloadClient` method when the backend answers with a
+ * non-2xx status, so a 400/404/500 can never be mistaken for a success body.
+ *
+ * `body` is the parsed error payload when the response was JSON (Nest's
+ * `{ statusCode, message, error }` shape for every route here), and
+ * `undefined` when it was not — see `readErrorBody`.
+ */
+export class DownloadApiError extends Error {
+  readonly status: number
+  readonly statusText: string
+  readonly body: unknown
+
+  constructor(status: number, statusText: string, body: unknown) {
+    super(`Download API request failed with ${status} ${statusText}`)
+
+    this.name = 'DownloadApiError'
+    this.status = status
+    this.statusText = statusText
+    this.body = body
+  }
+}
+
+/**
+ * Best-effort read of a failed response's body.
+ *
+ * The body is not always JSON - an HTML 502 from a proxy, or an empty 401,
+ * both make `.json()` reject. The status is the useful signal in that case, so
+ * swallow the parse failure rather than let a `SyntaxError` mask the real one.
+ * No `.text()` fallback: a rejected `.json()` has already consumed the body
+ * stream, so re-reading it would just throw again.
+ */
+async function readErrorBody(response: Response): Promise<unknown> {
+  try {
+    return await response.json()
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Flattens a `DownloadJob` back down to the pre-Media wire shape.
  *
  * TODO(tdr-bot-migration): delete alongside the three legacy methods below.
@@ -79,8 +119,26 @@ export class DownloadClient {
     return new DownloadClient('http://download:8081')
   }
 
-  static get remoteInstance() {
-    return new DownloadClient('https://download.lilnas.io')
+  // Deliberately no remoteInstance, mirroring packages/utils/src/auth/client.ts.
+  // download.lilnas.io (deploy.yml) routes to port 8080 - the Next.js frontend,
+  // a completely different process from the Nest backend on 8081 that every
+  // route below lives on. Port 8081 has no Traefik router at all: it is reached
+  // only container-to-container (dockerInstance) or through the Next.js /api
+  // rewrite (browserInstance). There is therefore no legitimate
+  // public-internet caller of the Nest backend directly, and a remoteInstance
+  // pointed at https://download.lilnas.io would hit the wrong process and 404 -
+  // omitted rather than shipped broken.
+
+  /**
+   * A relative-base client for browser callers, which reach the Nest backend
+   * through the Next.js `/api` rewrite (`apps/download/next.config.js`).
+   *
+   * The rewrite strips its own prefix, so this client's `/api/download/videos/1`
+   * arrives at Nest as `/download/videos/1` - no path juggling is needed here,
+   * the base URL is prepended exactly like every other factory's.
+   */
+  static get browserInstance() {
+    return new DownloadClient('/api')
   }
 
   // Returns a new client that threads the given identity onto every
@@ -96,8 +154,20 @@ export class DownloadClient {
     })
   }
 
-  private request(url: string, options: RequestInit = {}): Promise<Response> {
-    return fetch(`${this.baseUrl}${url}`, {
+  /**
+   * The one place every method's `fetch` goes through, so the `response.ok`
+   * check below covers all of them at once - no caller ever reaches `.json()`
+   * on an error body.
+   *
+   * Deliberately has no `AbortSignal.timeout`, unlike `AuthClient.request`:
+   * that client makes one fast admin-check call, whereas routes here can
+   * legitimately run for 30s+ (a release search hits a real indexer).
+   */
+  private async request(
+    url: string,
+    options: RequestInit = {},
+  ): Promise<Response> {
+    const response = await fetch(`${this.baseUrl}${url}`, {
       ...options,
 
       headers: {
@@ -106,6 +176,16 @@ export class DownloadClient {
         ...options.headers,
       },
     })
+
+    if (!response.ok) {
+      throw new DownloadApiError(
+        response.status,
+        response.statusText,
+        await readErrorBody(response),
+      )
+    }
+
+    return response
   }
 
   async getJob(id: string): Promise<DownloadJob> {

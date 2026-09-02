@@ -1,4 +1,5 @@
 import {
+  DownloadApiError,
   DownloadClient,
   flattenToLegacyVideoResponse,
 } from 'src/download/client'
@@ -12,7 +13,20 @@ import {
 
 function mockFetchJson(body: unknown): jest.SpyInstance {
   return jest.spyOn(global, 'fetch').mockResolvedValue({
+    ok: true,
+    status: 200,
     json: () => Promise.resolve(body),
+  } as unknown as Response)
+}
+
+function mockFetchError(response: {
+  json: () => Promise<unknown>
+  status: number
+  statusText: string
+}): jest.SpyInstance {
+  return jest.spyOn(global, 'fetch').mockResolvedValue({
+    ok: false,
+    ...response,
   } as unknown as Response)
 }
 
@@ -73,15 +87,16 @@ describe('DownloadClient', () => {
       )
     })
 
-    it('remoteInstance targets the public domain', async () => {
+    // No remoteInstance: download.lilnas.io is the Next.js frontend on 8080,
+    // not the Nest backend on 8081. See the comment in client.ts.
+    it('browserInstance issues relative /api requests for the Next.js rewrite', async () => {
       const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
 
-      await DownloadClient.remoteInstance.getJob('1')
+      await DownloadClient.browserInstance.getJob('1')
 
-      expect(fetchSpy).toHaveBeenCalledWith(
-        'https://download.lilnas.io/download/videos/1',
-        { headers: JSON_HEADERS },
-      )
+      expect(fetchSpy).toHaveBeenCalledWith('/api/download/videos/1', {
+        headers: JSON_HEADERS,
+      })
     })
   })
 
@@ -128,6 +143,72 @@ describe('DownloadClient', () => {
           },
         },
       )
+    })
+
+    it('keeps the base URL of whichever factory it was derived from', async () => {
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
+
+      await DownloadClient.browserInstance
+        .withForwardedIdentity({
+          email: 'alice@example.com',
+          userId: 'user_1',
+        })
+        .getJob('1')
+
+      expect(fetchSpy).toHaveBeenCalledWith('/api/download/videos/1', {
+        headers: {
+          ...JSON_HEADERS,
+          'x-forwarded-user': 'alice@example.com',
+          'x-forwarded-user-id': 'user_1',
+        },
+      })
+    })
+  })
+
+  describe('error responses', () => {
+    const client = DownloadClient.localInstance
+
+    it('throws a DownloadApiError instead of returning the error body as a job', async () => {
+      mockFetchError({
+        json: () => Promise.resolve({ message: 'nope' }),
+        status: 404,
+        statusText: 'Not Found',
+      })
+
+      const error: unknown = await client.getJob('x').catch(e => e)
+
+      expect(error).toBeInstanceOf(DownloadApiError)
+      expect(error).toMatchObject({
+        body: { message: 'nope' },
+        name: 'DownloadApiError',
+        status: 404,
+        statusText: 'Not Found',
+      })
+    })
+
+    it('still throws a DownloadApiError when the error body is not JSON', async () => {
+      mockFetchError({
+        json: () => Promise.reject(new SyntaxError('Unexpected token <')),
+        status: 502,
+        statusText: 'Bad Gateway',
+      })
+
+      const error: unknown = await client.getGallery().catch(e => e)
+
+      expect(error).toBeInstanceOf(DownloadApiError)
+      expect(error).toMatchObject({ body: undefined, status: 502 })
+    })
+
+    it('surfaces the error from a POST route the same way', async () => {
+      mockFetchError({
+        json: () => Promise.resolve({ message: 'Forbidden' }),
+        status: 403,
+        statusText: 'Forbidden',
+      })
+
+      await expect(
+        client.createJob({ url: 'https://example.com/video' }),
+      ).rejects.toThrow(DownloadApiError)
     })
   })
 
