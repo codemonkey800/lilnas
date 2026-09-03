@@ -38,11 +38,11 @@ Setting `certresolver` causes Traefik to issue a new per-host cert for the exact
 
 ## Routes are public by default
 
-Every exposed route is reachable at `https://<name>.dev.lilnas.io` from **anywhere on the internet** — no IP allowlist, no VPN, no authentication — unless the `forward-auth` middleware label is present.
+Every exposed route is reachable at `https://<name>.dev.lilnas.io` from **anywhere on the internet** — no IP allowlist, no VPN, no authentication — unless the `lilnas-auth` middleware label is present.
 
-Dev servers are typically **unhardened**: debug endpoints, seed data, source maps, no rate limiting, no input validation designed for adversarial traffic. Recommend gating any route that has data or debug surfaces behind `forward-auth`.
+Dev servers are typically **unhardened**: debug endpoints, seed data, source maps, no rate limiting, no input validation designed for adversarial traffic. Recommend gating any route that has data or debug surfaces behind `lilnas-auth`.
 
-The `examples/docker-compose.yml` bundled with this skill ships with `forward-auth` active by default; removal is the deliberate opt-out.
+The `examples/docker-compose.yml` bundled with this skill ships with `lilnas-auth` active by default; removal is the deliberate opt-out.
 
 ---
 

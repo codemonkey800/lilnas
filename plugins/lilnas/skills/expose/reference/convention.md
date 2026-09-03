@@ -51,7 +51,9 @@ services:
 
       # Access control: REMOVE this label to make the route public (R11)
       # Shipped active by default — removal is the deliberate opt-out.
-      - traefik.http.routers.dev-<name>.middlewares=forward-auth
+      # lilnas-auth is the self-hosted ForwardAuth provider in apps/auth
+      # (Google OAuth via Better Auth) — see infra/proxy.yml.
+      - traefik.http.routers.dev-<name>.middlewares=lilnas-auth
 ```
 
 Replace `<name>` with your chosen subdomain label and `<port>` with the port your service listens on inside the container.

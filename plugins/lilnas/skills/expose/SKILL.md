@@ -19,7 +19,7 @@ allowed-tools:
 
 # /lilnas:expose — Guided Dev Expose Workflow
 
-> **Security notice:** Every route you expose is reachable from anywhere on the internet at `https://<name>.dev.lilnas.io` with **no authentication** unless gated. Dev servers are typically unhardened. The guided workflow ships `forward-auth` active by default; the operator removes it deliberately to go public.
+> **Security notice:** Every route you expose is reachable from anywhere on the internet at `https://<name>.dev.lilnas.io` with **no authentication** unless gated. Dev servers are typically unhardened. The guided workflow ships `lilnas-auth` active by default; the operator removes it deliberately to go public.
 
 This skill walks an operator through exposing a Docker Compose service on the NAS host via the shared `lilnas-proxy` network and Traefik. It operates on **external projects** only — never on the lilnas monorepo's own `infra/proxy.yml` or `apps/*/deploy.yml`.
 
@@ -135,7 +135,7 @@ labels:
   - traefik.http.routers.dev-<name>.entrypoints=websecure
   - traefik.http.routers.dev-<name>.tls=true
   - traefik.http.services.dev-<name>.loadbalancer.server.port=<port>
-  - traefik.http.routers.dev-<name>.middlewares=forward-auth
+  - traefik.http.routers.dev-<name>.middlewares=lilnas-auth
 ```
 
 If HMR config is needed, show the framework-specific snippet from `reference/hmr-config.md`.
@@ -190,7 +190,7 @@ After `docker compose up` succeeds:
 3. Report to the operator:
    > ✅ `https://<name>.dev.lilnas.io` is live.
    >
-   > - **Route:** gated by OAuth (`forward-auth`). To make it public, remove the `middlewares=forward-auth` label and run `docker compose up -d` again.
+   > - **Route:** gated by OAuth (`lilnas-auth`, provided by `apps/auth`). To make it public, remove the `middlewares=lilnas-auth` label and run `docker compose up -d` again.
    > - **TLS cert:** shared `*.dev.lilnas.io` wildcard cert (DNS-01, managed by the production Traefik) — no per-host cert is issued. Router must use `tls=true`, not `tls.certresolver=le`, to use it.
    > - **Dashboard:** active routes are visible at `https://traefik.lilnas.io`.
    > - **Teardown:** `docker compose down` in `<project-path>` removes the route within ~1 second.
