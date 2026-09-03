@@ -35,6 +35,13 @@ services:
     volumes:
       - /storage/app-data/open-design:/app/.od
       - /home/jeremy/.claude:/home/open-design/.claude:ro
+      # Read-only context for design work: lets the in-container Claude
+      # Code agent read source from other projects and this repo when
+      # asked to design against real code. Mounted at the same absolute
+      # paths as the host (not under /home/open-design) so paths the user
+      # references in chat resolve unchanged inside the container.
+      - /home/jeremy/dev:/home/jeremy/dev:ro
+      - /home/jeremy/lilnas:/home/jeremy/lilnas:ro
       - /usr/lib:/mnt/host-glibc/lib:ro
       - /usr/lib64:/mnt/host-glibc/lib64:ro
       - ./design/claude-wrapper.sh:/usr/local/bin/claude:ro
