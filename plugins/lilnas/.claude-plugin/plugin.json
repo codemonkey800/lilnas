@@ -1,7 +1,7 @@
 {
   "name": "lilnas",
   "description": "LilNAS platform skills — expose dev services, review code, and manage your self-hosted NAS.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": {
     "name": "Jeremy Asuncion"
   },

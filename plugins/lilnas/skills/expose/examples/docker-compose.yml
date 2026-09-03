@@ -38,8 +38,9 @@ services:
 
       # Access control — REMOVE this label to make the route public.
       # Shipped active by default: an authenticated user must log in via OAuth
-      # before reaching this service. Removal is the deliberate opt-out.
-      - traefik.http.routers.dev-whoami.middlewares=forward-auth
+      # (apps/auth's lilnas-auth middleware) before reaching this service.
+      # Removal is the deliberate opt-out.
+      - traefik.http.routers.dev-whoami.middlewares=lilnas-auth
 
   # --- Vite dev server example (uncomment and adjust) ---
   # vite-app:
@@ -58,7 +59,7 @@ services:
   #     - traefik.http.routers.dev-vite-app.entrypoints=websecure
   #     - traefik.http.routers.dev-vite-app.tls=true
   #     - traefik.http.services.dev-vite-app.loadbalancer.server.port=5173
-  #     - traefik.http.routers.dev-vite-app.middlewares=forward-auth
+  #     - traefik.http.routers.dev-vite-app.middlewares=lilnas-auth
   #
   # Add to vite.config.ts (v7):
   #   server:

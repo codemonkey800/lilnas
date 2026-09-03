@@ -24,7 +24,7 @@ Any container on `lilnas-proxy` can register a Traefik router. **Traefik does no
 | Forbidden | Routes to |
 |-----------|-----------|
 | `traefik` | Traefik dashboard (`traefik.lilnas.io`) |
-| `auth` | OAuth forward-auth service (`auth.lilnas.io`) |
+| `auth` | `@lilnas/auth` OAuth/ForwardAuth service (`auth.lilnas.io`) |
 | `portal` | Main portal app |
 | `equations` | LaTeX rendering service |
 | `me-token-tracker` | Crypto tracker |

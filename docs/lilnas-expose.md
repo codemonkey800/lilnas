@@ -2,7 +2,7 @@
 
 This document covers how to expose a Docker Compose project running on the NAS host at `https://<name>.dev.lilnas.io` using the shared `lilnas-proxy` network and the production Traefik proxy.
 
-> **⚠️ Security:** Every exposed route is reachable from anywhere on the internet. Dev servers are typically unhardened — enable `forward-auth` gating for any route with data or debug surfaces. The example and skill both ship with gating active by default.
+> **⚠️ Security:** Every exposed route is reachable from anywhere on the internet. Dev servers are typically unhardened — enable `lilnas-auth` gating for any route with data or debug surfaces. The example and skill both ship with gating active by default.
 
 The guided path is the **`/lilnas:expose` skill** (recommended — includes safety guards, HMR config, and a live walkthrough). This document covers the manual path and install steps.
 
@@ -61,7 +61,7 @@ services:
       - traefik.http.routers.dev-<name>.tls=true
       - traefik.http.services.dev-<name>.loadbalancer.server.port=<port>
       # Remove this label to make the route public:
-      - traefik.http.routers.dev-<name>.middlewares=forward-auth
+      - traefik.http.routers.dev-<name>.middlewares=lilnas-auth
 ```
 
 Replace `<name>` with your chosen subdomain and `<port>` with the container-internal port.
@@ -97,7 +97,7 @@ When running a Vite or Next.js dev server behind Traefik, HMR WebSockets require
 
 ## Runnable example
 
-A `traefik/whoami` fixture is bundled at `plugins/lilnas/skills/expose/examples/docker-compose.yml`. It ships with `forward-auth` active and demonstrates the full label set.
+A `traefik/whoami` fixture is bundled at `plugins/lilnas/skills/expose/examples/docker-compose.yml`. It ships with `lilnas-auth` active and demonstrates the full label set.
 
 ---
 
