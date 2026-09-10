@@ -1,0 +1,16 @@
+services:
+  valheim:
+    image: lloesche/valheim-server:latest
+    restart: unless-stopped
+    cap_add:
+      - sys_nice
+    stop_grace_period: 2m
+    ports:
+      - 2456:2456/udp
+      - 2457:2457/udp
+    env_file:
+      - .env.valheim
+    volumes:
+      - /storage/app-data/valheim/config:/config
+      - /storage/app-data/valheim/data:/opt/valheim
+      - /storage/backup-archive/valheim:/config/backups

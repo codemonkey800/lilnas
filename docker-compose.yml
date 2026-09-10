@@ -14,6 +14,7 @@ include:
   - ./infra/proxy.yml
   - ./infra/rustdesk.yml
   - ./infra/shared.yml
+  - ./infra/valheim.yml
 
   # App services
   - ./apps/portal/deploy.yml
