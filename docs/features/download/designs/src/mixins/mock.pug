@@ -1,0 +1,178 @@
+//-
+  The mockup harness — the furniture around a screen, not part of the screen.
+
+  Every mockup page is: a header explaining what you're looking at, then the
+  screen itself drawn twice (desktop and mobile) behind a segmented control.
+  None of this exists in the real app.
+
+include ui.pug
+
+//- Page header: back link, eyebrow, title, standfirst.
+mixin mockHead(opts)
+  - opts = opts || {}
+  header(class='mb-11 max-w-[74ch] reveal')&attributes(attributes)
+    if opts.back !== false
+      a(
+        class='mb-[22px] inline-flex items-center gap-1.5 text-sm text-ink-3 hover:text-ink'
+        href=opts.back || 'index.html'
+      )
+        +icon('arrow')(class='h-3 w-3 -scale-x-100 text-ink-4')
+        = opts.backLabel || 'All mockups'
+    if opts.eyebrow
+      p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-uv')= opts.eyebrow
+    h1(class='mb-3 text-[30px] leading-[1.25] font-[650] tracking-[-0.015em]')= opts.title
+    block
+
+//- Inline code, for prose that names a file or a class.
+mixin code(text)
+  code(class='rounded-sm bg-surface-2 px-[5px] py-px font-mono text-[0.92em]')&attributes(attributes)= text
+
+//- A fixed-height stage to demonstrate something absolutely positioned inside.
+mixin demoFrame
+  div(class='relative h-[260px] overflow-hidden rounded-lg border border-line bg-bg-sunk')&attributes(attributes)
+    block
+
+//-
+  Desktop/mobile switch.
+
+  A pair of hidden radios in labels, read by `.vp-scope:has(...)` in
+  theme.css. No JS: these files are opened through wrappers (iframe srcdoc
+  among them) where a page's own <script> is inert, and the switch is the one
+  control that has to work everywhere.
+
+  `name` must be unique per switch on the page — that's what groups the two
+  radios and what the panels below key off.
+mixin viewportToggle(name, opts)
+  - opts = opts || {}
+  -
+    const views = [
+      { value: 'desktop', label: 'Desktop', hint: '1280' },
+      { value: 'mobile', label: 'Mobile', hint: '390' },
+    ]
+  div(class='inline-flex gap-1 rounded-full border border-line bg-surface p-1')&attributes(attributes)
+    each view in views
+      label(
+        class='inline-flex h-8 cursor-pointer items-center gap-[7px] rounded-full px-[15px] text-[13px] font-[550] text-ink-3 transition-[background-color,color] duration-200 ease-uv hover:text-ink has-[:checked]:bg-uv has-[:checked]:font-[620] has-[:checked]:text-uv-ink has-[:checked]:hover:bg-uv-hi has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-uv'
+      )
+        input(
+          class='vp-radio pointer-events-none absolute m-0 h-0 w-0 opacity-0'
+          type='radio'
+          name=name
+          value=view.value
+          checked=view.value === (opts.default || 'desktop')
+        )
+        = view.label
+        span(class='font-mono text-[10.5px] text-ink-4 group-has-[:checked]:text-uv-ink')= view.hint
+
+//-
+  One viewport's panel. Shown only when the matching radio in the enclosing
+  `.vp-scope` is checked. Wrap a pair of these plus a +viewportToggle in
+  `div(class='vp-scope')`.
+mixin viewportPanel(view)
+  div(class='w-full flex-col items-center gap-4' data-viewport-panel=view)&attributes(attributes)
+    block
+
+//- Caption under a framed screen.
+mixin frameLabel
+  p(class='block text-center font-mono text-label tracking-[0.11em] uppercase text-ink-4')&attributes(attributes)
+    block
+
+//-
+  The app chrome a screen is drawn inside — rounded window, top bar, body.
+  Width comes from the viewport it's being shown at.
+    view  'desktop' (1280px) | 'mobile' (390px)
+    crop  fade the bottom off at a fixed height, for screens that are only
+          being shown from the top
+mixin appFrame(view, opts)
+  - opts = opts || {}
+  - const mobile = view === 'mobile'
+  div(
+    class=[
+      'relative max-w-full overflow-hidden rounded-xl border border-line bg-bg',
+      mobile ? 'w-[390px]' : 'w-[1280px]',
+      opts.crop ? (mobile ? 'flex h-[460px] flex-col' : 'flex h-[440px] flex-col') : '',
+    ]
+  )&attributes(attributes)
+    block
+
+//- The app's top bar: doorplate on the left, search and account on the right.
+mixin appBar(view)
+  - const mobile = view === 'mobile'
+  div(
+    class=[
+      'flex shrink-0 items-center justify-between gap-3 border-b border-line-soft bg-bg-sunk',
+      mobile ? 'py-2.5 pr-[14px] pl-4' : 'px-4 py-[11px]',
+    ]
+  )&attributes(attributes)
+    block
+
+//- The app's content area.
+mixin appBody(view, opts)
+  - opts = opts || {}
+  - const mobile = view === 'mobile'
+  div(
+    class=[
+      mobile ? 'px-6 pt-[18px] pb-[30px]' : 'px-8 pt-[30px] pb-11',
+      opts.crop
+        ? 'relative flex-1 overflow-hidden [mask-image:linear-gradient(180deg,#000_78%,transparent)]'
+        : '',
+    ]
+  )&attributes(attributes)
+    block
+
+//- The nav-bar search field, present on every screen of the real app.
+mixin navsearch(opts)
+  - opts = opts || {}
+  div(
+    class=[
+      'flex min-w-0 flex-1 items-center gap-2 rounded-full border border-line bg-bg-sunk px-3 transition-[border-color,box-shadow] duration-200 ease-uv focus-within:border-uv focus-within:shadow-[0_0_0_3px_var(--color-uv-ghost)]',
+      opts.tall ? 'h-11' : 'h-8',
+      opts.ready ? 'max-w-[360px]' : 'max-w-[320px]',
+    ]
+  )&attributes(attributes)
+    +icon(opts.icon || 'search')(class=['h-[14px] w-[14px] shrink-0', opts.ready ? 'text-uv-hi' : 'text-ink-4'])
+    input(
+      class=['min-w-0 flex-1 truncate border-none bg-none text-[13px] text-ink outline-none placeholder:text-ink-4', opts.ready ? 'pr-5' : '']
+      value=opts.value
+      placeholder=opts.placeholder || 'Search or paste a link'
+    )
+    block
+
+//-
+  The whole top bar as it appears on a normal screen: doorplate, search, you.
+  Desktop keeps the search field inline; mobile collapses it to an icon,
+  because 390px doesn't have room for both it and the doorplate.
+mixin navBar(view, opts)
+  - opts = opts || {}
+  - const mobile = view === 'mobile'
+  +appBar(view)&attributes(attributes)
+    if mobile
+      div(class='flex min-w-0 items-center gap-2.5')
+        if opts.back
+          +btn({ variant: 'ghost' })(class='h-[30px] w-[30px] shrink-0 p-0' aria-label='Back to library')
+            +icon('arrow')(class='h-[15px] w-[15px] -scale-x-100')
+        +doorplate('Download')(href='https://lilnas.io')
+      span(class='flex shrink-0 items-center gap-1.5')
+        +btn({ variant: 'ghost', icon: 'search' })(class='h-[30px] w-[30px] p-0' aria-label='Search')
+        +btn({ variant: 'ghost' })(class='h-8 w-8 p-0' aria-label='Your account')
+          +avatar(opts.initials || 'JA', { ring: true })
+    else
+      div(class='flex min-w-0 flex-1 items-center gap-[14px]')
+        if opts.back
+          +btn({ variant: 'ghost' })(class='h-8 w-8 shrink-0 p-0' aria-label='Back to library')
+            +icon('arrow')(class='h-[15px] w-[15px] -scale-x-100')
+        +doorplate('Download')(href='https://lilnas.io')
+        +navsearch({ placeholder: opts.placeholder, value: opts.value, tall: opts.tall })
+      span(class='flex shrink-0 items-center gap-2.5')
+        +avatar(opts.initials || 'JA', { ring: true })(
+          class='h-[30px] w-[30px] text-[11.5px]'
+          title=opts.who || 'Jeremy · you'
+        )
+
+//- The primary action inside the nav search, once the field holds something
+    actionable.
+mixin navsearchGo(label)
+  span(
+    class='inline-flex h-6 shrink-0 items-center rounded-full bg-uv px-[14px] text-[11.5px] font-[620] whitespace-nowrap text-uv-ink transition-press hover:bg-uv-hi active:scale-96'
+  )&attributes(attributes)
+    = label

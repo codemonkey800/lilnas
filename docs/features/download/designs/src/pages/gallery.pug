@@ -1,0 +1,166 @@
+extends ../layout/page.pug
+
+block title
+  | Unified gallery — download UI mockups · lilnas
+
+//-
+  Videos, movies and shows in one filterable grid. Filters live in a panel
+  below the header; the closed and open states are mocked as separate frames
+  so each is reviewable on its own rather than as one composite.
+
+//-
+  A grid card — the one card every media type and both breakpoints use.
+  Videos take the same 2:3 poster crop as a movie or show, with a play mark
+  standing in for the label. `width` is the only thing that varies: desktop's
+  fixed column vs. mobile's 2-up grid.
+mixin item(entry, opts)
+  - opts = opts || {}
+  +gcard()(class=['flex flex-col', opts.width || 'w-[158px]'])
+    +gcardLink(entry.href)
+      +poster({
+        shape: 'tall',
+        v: entry.v,
+        src: entry.art,
+        label: entry.video ? null : entry.title,
+        play: entry.video,
+      })
+      +gcardRow
+        +gcardTitle(entry.title)(class='min-h-[2.7em] flex-1')
+      +gcardRow
+        +mchip(entry.icon, `${entry.kind} · ${entry.meta}`)(class='font-mono text-mono-sm text-ink-3')
+    +gcardRow()(class='mt-auto')
+      +gcardAttrib
+        +avatar(entry.who || '–', { hidden: !entry.who })
+        span(class='font-mono text-mono-sm text-ink-4')= entry.when
+      if entry.watch
+        +btn({ label: 'Watch', variant: 'ghost' })(class='h-6 px-2 text-[11.5px]')
+    if entry.indexing
+      +gcardRow
+        +chip({ label: 'indexing…', tone: 'warn' })(class='h-5 text-[10px]')
+
+//- Tab strip + search + Filters, and the chips for what's currently applied.
+mixin controls(view, opts)
+  - opts = opts || {}
+  - const mobile = view === 'mobile'
+  if mobile
+    +tabs()(class='mb-4')
+      each label, i in TABS
+        +tab(label, i === 0)
+    div(class=['flex items-center gap-2', opts.open ? 'relative mb-[18px]' : 'mb-[18px]'])
+      +input({ placeholder: 'Search the library…' })(class='flex-1' name='q')
+      +btn({ variant: 'ghost', icon: 'filter' })(
+        class=['w-[38px] p-0', opts.open ? 'border-uv/35 bg-uv-ghost text-uv-hi' : '']
+        aria-label='Filters'
+      )
+      if opts.open
+        div(class='absolute inset-x-0 top-[calc(100%+10px)] z-20')
+          +filters
+    div(class='mb-5 flex flex-wrap gap-2' aria-label='Active filters')
+      +afchip('2019–2024', 'Remove year filter')
+      +afchip('Jeremy', 'Remove uploaded by filter')
+  else
+    div(class='mb-[18px] flex flex-wrap items-center justify-between gap-4')
+      +tabs
+        each label, i in TABS
+          +tab(label, i === 0)
+      div(class='flex items-center gap-2.5')
+        +input({ placeholder: 'Search the library…' })(class='w-[240px]!' name='q')
+        +btn({ variant: 'ghost', icon: 'search' })(aria-label='Search')
+        if opts.open
+          div(class='relative z-20')
+            +filtersBtn({ count: 2, open: true })(class='border-uv/35 bg-uv-ghost text-uv-hi')
+            div(class='absolute top-[calc(100%+10px)] right-0 w-[480px]')
+              +filters
+        else
+          +filtersBtn({ count: 2 })
+    div(class='mb-[22px] flex flex-wrap gap-[9px]' aria-label='Active filters')
+      +afchip('2019–2024', 'Remove year filter')
+      +afchip('Jeremy', 'Remove uploaded by filter')
+      +btn({ label: 'Clear all', variant: 'ghost', size: 'sm' })(class='h-[27px] px-2.5 text-[12px]')
+
+//- The filter panel's contents — identical at both widths.
+mixin filters
+  +filterPanel
+    +filterGrid
+      +filterGroup('date added')(class='col-span-2')
+        div(class='flex items-center gap-2')
+          +input({ type: 'date', mono: true })(class='min-w-0 flex-1')
+          span(class='text-ink-3') –
+          +input({ type: 'date', mono: true })(class='min-w-0 flex-1')
+      +filterGroup('year')
+        div(class='flex items-center gap-2')
+          +input({ value: '2019', mono: true })(class='w-[76px]!')
+          span(class='text-ink-3') –
+          +input({ value: '2024', mono: true })(class='w-[76px]!')
+      +filterGroup('uploaded by')
+        div(class='flex flex-wrap gap-2')
+          each person in PEOPLE
+            +toggleChip(person[0], person[1], person[2])
+              +avatar(person[0], { size: 'xs' })
+      +filterGroup('sort by')
+        +menuTrigger('Recently added')
+    +filterFoot
+      +btn({ label: 'Clear all', variant: 'ghost', size: 'sm' })
+      +btn({ label: 'Show 128 results', variant: 'uv', size: 'sm' })
+
+block content
+  +mockHead({ eyebrow: 'lilnas · download', title: 'Unified gallery' })
+    p(class='max-w-[62ch] text-sm text-ink-3')
+      | Videos, movies and shows in one grid, all on the same 2:3 tile at every breakpoint so the grid stays
+      | even regardless of a clip's native aspect ratio — a video's thumbnail crops to fit, same as a poster,
+      | with a play mark to tell it apart. Filters open into a panel below the header; both the closed and
+      | open states are mocked separately below so each is reviewable on its own.
+
+  div(class='vp-scope')
+    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+
+    //- ── desktop ────────────────────────────────────────────────────────
+    +viewportPanel('desktop')
+      each open, i in [false, true]
+        +frameLabel()(class=i ? 'mt-3' : '')= open ? 'Filters open' : 'Filters closed'
+        +appFrame('desktop')
+          +navBar('desktop', { placeholder: 'Search or paste a link…' })
+          +appBody('desktop')
+            div(class='mx-auto max-w-[1080px]')
+              +controls('desktop', { open: open })
+              div(class='relative')
+                div(class='flex flex-wrap items-stretch gap-4 stagger')
+                  each entry in ITEMS
+                    +item(entry)
+                if open
+                  +filterScrim(false)
+
+    //- ── mobile ─────────────────────────────────────────────────────────
+    +viewportPanel('mobile')
+      each open, i in [false, true]
+        +frameLabel()(class=i ? 'mt-3' : '')= open ? 'Filters open' : 'Filters closed'
+        +appFrame('mobile')
+          +appBar('mobile')
+            +doorplate('Download')(href='https://lilnas.io')
+            span(class='flex shrink-0 items-center gap-1.5')
+              +chip({ tone: 'ok' })
+                +dot('live')
+                | 2
+              +btn({ variant: 'ghost', icon: 'search' })(class='h-[30px] w-[30px] p-0' aria-label='Search')
+              +btn({ variant: 'ghost' })(class='h-8 w-8 p-0' aria-label='Your account')
+                +avatar('JA', { ring: true })
+          +appBody('mobile')
+            +controls('mobile', { open: open })
+            div(class='relative')
+              div(class='flex flex-wrap items-stretch gap-4 stagger')
+                each entry in ITEMS.filter((e) => e.mobileHalf)
+                  +item(entry, { width: 'w-[calc(50%-8px)]' })
+              if open
+                +filterScrim(true)
+
+  //- The sort menu open, which no frame above can show without covering the
+      grid it sorts.
+  section(class='mt-12')
+    p(class='mb-4 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Sort by — all options
+    +card()(class='w-[240px] p-4')
+      div(class='flex flex-col gap-2')
+        span(class='font-mono text-label tracking-[0.11em] uppercase text-ink-4') sort by
+        +menuTrigger('Recently added', { open: true })
+        +menu()(class='mt-0.5')
+          each label, i in SORTS
+            +menuItem(label, i === 0)

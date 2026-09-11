@@ -1,0 +1,187 @@
+extends ../layout/page.pug
+
+block title
+  | Show detail — download UI mockups · lilnas
+
+//-
+  Three levels of "download this" — series, season, episode — and an episode
+  list where each level's state is legible without opening anything.
+
+//- One episode row. Desktop puts everything on one line; mobile stacks the
+    number and title, then the metadata, then any progress row.
+mixin episode(ep, mobile)
+  div(
+    class=[
+      'flex px-1 py-3 [&+&]:border-t [&+&]:border-line-soft',
+      mobile ? 'flex-col items-start gap-2' : 'items-center gap-[14px]',
+    ]
+  )
+    if mobile
+      span(class='flex items-center gap-2')
+        span(class='w-[26px] shrink-0 font-mono text-mono-sm text-ink-4')= ep.num
+        span(class=['text-sm', ep.bad ? 'line-through opacity-60' : ''])= ep.title
+      span(class='flex items-center gap-2.5')
+        span(class='font-mono text-mono-sm text-ink-4')= ep.runtime
+        +chip({ label: ep.live ? null : ep.state, tone: ep.tone })
+          if ep.live
+            +dot('live')
+            = ep.state
+        if ep.action && !ep.progress
+          +btn({ label: ep.action, variant: ep.actionVariant || 'outline', size: 'sm', iconEnd: ep.actionIcon })
+      if ep.progress
+        span(class='flex w-full items-center gap-2.5')
+          +bar(ep.progress)(class='flex-1')
+          span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${ep.progress}%`
+          +btn({ label: ep.action, variant: 'outline', size: 'sm', iconEnd: ep.actionIcon })
+    else
+      span(class='w-[26px] shrink-0 font-mono text-mono-sm text-ink-4')= ep.num
+      span(class=['flex-1 text-sm', ep.bad ? 'line-through opacity-60' : ''])= ep.title
+      span(class='font-mono text-mono-sm text-ink-4')= ep.runtime
+      +chip({ label: ep.live ? null : ep.state, tone: ep.tone })
+        if ep.live
+          +dot('live')
+          = ep.state
+      if ep.progress
+        div(class='flex w-[120px] items-center gap-2')
+          +bar(ep.progress)(class='flex-1')
+          span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${ep.progress}%`
+      if ep.action
+        +btn({ label: ep.action, variant: ep.actionVariant || 'outline', size: 'sm', iconEnd: ep.actionIcon })
+
+//-
+  The two progress states that belong to a level above the episode — the whole
+  series, and one season — shown as a legend rather than live on the page.
+mixin seriesStates(mobile)
+  - const ROWS = ['14 of 24 episodes', 'Season 3 &nbsp;·&nbsp; 4 of 7 episodes']
+  each what in ROWS
+    +stline({ mobile: mobile })
+      +chip({ tone: 'ok' })(class=mobile ? '' : 'w-[118px] justify-center')
+        +dot('live')
+        | downloading
+      +bar(58)(class=mobile ? 'w-full' : 'w-[120px]')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
+        | !{what}&nbsp;·&nbsp;
+        span(class='font-mono text-mono-sm tabular-nums text-uv-hi') 58%
+      if mobile
+        +stlineActions
+          +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
+      else
+        +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
+
+block content
+  -
+    const EPISODES = [
+      { num: 'E1', title: 'The Long Tide', runtime: '42m', state: 'downloaded', tone: 'ok', action: 'Watch', actionVariant: 'ghost', actionIcon: 'eye' },
+      { num: 'E2', title: 'Quota', runtime: '39m', state: 'indexing…', tone: 'warn' },
+      { num: 'E3', title: 'Harbor Rules', runtime: '45m', state: 'downloading', tone: 'ok', live: true, progress: 31, action: 'Cancel', actionIcon: 'x' },
+      { num: 'E4', title: 'Low Tide', runtime: '44m', state: 'queued', tone: 'mute' },
+      { num: 'E5', title: 'The Permit', runtime: '38m', state: 'not downloaded', tone: 'mute', action: 'Download', actionIcon: 'download' },
+      { num: 'E6', title: 'Salvage', runtime: '41m', state: 'bad file', tone: 'bad', bad: true, action: 'Replace' },
+      { num: 'E7', title: 'Squall Line', runtime: '43m', state: 'failed', tone: 'bad', action: 'Retry' },
+    ]
+    const SYNOPSIS =
+      'A harbormaster and her deputies keep a fading fishing town running — one permit dispute, one rescue, ' +
+      'one grudge at a time.'
+
+  +mockHead({ eyebrow: 'lilnas · download', title: 'Show detail' })
+    p(class='max-w-[62ch] text-sm text-ink-3')
+      | Three levels of "download this": the whole series, one season, or a single episode — and the episode
+      | list makes each level's current state legible at a glance, from downloaded to indexing to flagged.
+
+  div(class='vp-scope')
+    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+
+    //- ── desktop ────────────────────────────────────────────────────────
+    +viewportPanel('desktop')
+      +appFrame('desktop')
+        +navBar('desktop', { back: true, placeholder: 'Search or paste a link…' })
+        +appBody('desktop')
+          div(class='mx-auto max-w-[1080px]')
+            a(class='mb-[22px] flex items-center gap-1.5' href='#')
+              +icon('arrow')(class='h-[13px] w-[13px] -scale-x-100 text-ink-4')
+              span(class='text-sm text-ink-3') Library
+
+            div(class='mb-8 flex items-start gap-6')
+              +poster({ shape: 'tall', v: 3, src: 'assets/emby/show-1.jpg', label: 'Harbor Watch' })(class='w-[200px]')
+              div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
+                div
+                  p(class='mb-1.5 text-h1') Harbor Watch
+                  p(class='text-sm text-ink-3') 2022– · 3 seasons · Drama
+                p(class='max-w-[62ch] text-sm text-ink-3')= SYNOPSIS
+                div(class='flex flex-wrap gap-4')
+                  +castPerson('IK', 'Ida Kowalczyk')
+                  +castPerson('DP', 'Dax Petrov')
+                div(class='flex items-center gap-2')
+                  +avatar('SR')(class='h-5 w-5 text-[9px]')
+                  span(class='font-mono text-mono-sm text-ink-4') Sam · 1h ago
+                div(class='mt-1 flex items-center gap-2.5')
+                  +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye' })
+                  +btn({ label: 'Download series', variant: 'outline', iconEnd: 'download' })
+                  +btn({ label: 'Delete series', variant: 'bad', iconEnd: 'trash' })
+
+            +tabs()(class='mb-5')
+              +tab('Season 1', false)
+              +tab('Season 2', true)
+              +tab('', false)
+                span(class='inline-flex items-center gap-1.5')
+                  | Season 3
+                  +dot('live')
+                  span(class='font-mono text-mono-sm tabular-nums text-ok') 58%
+
+            div(class='mb-[14px] flex items-center justify-between')
+              span(class='text-h2') Season 2 · 7 episodes
+              div(class='flex items-center gap-2')
+                +btn({ label: 'Download season', variant: 'outline', size: 'sm', iconEnd: 'download' })
+                +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash' })
+
+            +card({ sunk: true })(class='px-4 py-1')
+              each ep in EPISODES
+                +episode(ep)
+
+            p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
+            +card({ sunk: true })(class='px-4 py-1')
+              +seriesStates()
+
+    //- ── mobile ─────────────────────────────────────────────────────────
+    +viewportPanel('mobile')
+      +appFrame('mobile')
+        +navBar('mobile', { back: true })
+        +appBody('mobile')
+          +poster({ shape: 'tall', v: 3, src: 'assets/emby/show-1.jpg', label: 'Harbor Watch' })(
+            class='mx-auto mb-4 w-full max-w-[220px]'
+          )
+          p(class='mb-1.5 text-h1') Harbor Watch
+          p(class='mb-3 text-sm text-ink-3') 2022– · 3 seasons · Drama
+          p(class='mb-4 text-sm text-ink-3')= SYNOPSIS
+          div(class='mb-4 flex flex-wrap gap-4')
+            +castPerson('IK', 'Ida Kowalczyk')
+            +castPerson('DP', 'Dax Petrov')
+          div(class='mb-4 flex items-center gap-2')
+            +avatar('SR')(class='h-5 w-5 text-[9px]')
+            span(class='font-mono text-mono-sm text-ink-4') Sam · 1h ago
+          div(class='mb-7 flex flex-col gap-2')
+            +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye', full: true })
+            +btn({ label: 'Download series', variant: 'outline', iconEnd: 'download', full: true })
+            +btn({ label: 'Delete series', variant: 'bad', iconEnd: 'trash', full: true })
+
+          +tabs({ scroll: true })(class='mb-4')
+            +tab('S1', false)
+            +tab('S2', true)
+            +tab('', false)
+              span(class='inline-flex items-center gap-[5px]')
+                | S3
+                +dot('live')
+                span(class='font-mono text-mono-sm tabular-nums text-ok') 58%
+
+          p(class='mb-2.5 text-h2') Season 2 · 7 episodes
+          div(class='mb-4 flex flex-col gap-2')
+            +btn({ label: 'Download season', variant: 'outline', size: 'sm', iconEnd: 'download', full: true })
+            +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash', full: true })
+
+          +card({ sunk: true })(class='px-[14px] py-1')
+            each ep in EPISODES
+              +episode(ep, true)
+
+          p(class='mt-[30px] mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
+          +card({ sunk: true })(class='px-[14px] py-1')
+            +seriesStates(true)

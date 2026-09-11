@@ -1,0 +1,149 @@
+extends ../layout/page.pug
+
+block title
+  | Video detail — download UI mockups · lilnas
+
+//-
+  A video's permalink. The download lifecycle lives right here rather than on
+  a separate status page — progress inline, and a legend under it showing how
+  every other state reads on this same page.
+
+//- Progress block: fragment counter, percentage, bar, throughput line.
+mixin progress
+  div(class='flex flex-col gap-4')&attributes(attributes)
+    div
+      div(class='mb-2 flex items-center justify-between')
+        span(class='font-mono text-mono-sm text-ink-3') fragment 4 of 9
+        span(class='font-mono text-mono-sm tabular-nums text-uv-hi') 64%
+      +bar(64)
+    p(class='font-mono text-mono-sm tabular-nums text-ink-3')
+      | 412&nbsp;MB / 640&nbsp;MB &nbsp;·&nbsp; 3.1&nbsp;MB/s &nbsp;·&nbsp; ~2m left
+    block
+
+//- One row of this page's state legend: a fixed-width status chip, then the
+//- explanation and whatever action that state offers.
+mixin stateLine(tone, label, mobile)
+  +stline({ mobile: mobile })&attributes(attributes)
+    +chip({ label: label, tone: tone })(class=mobile ? '' : 'w-[108px] justify-center')
+    block
+
+block content
+  +mockHead({ eyebrow: 'lilnas · download', title: 'Video detail' })
+    p(class='max-w-[62ch] text-sm text-ink-3')
+      | The permalink for a video someone shared, distinct from its own author's post: a self-contained page
+      | with the source, who grabbed it internally, and — where pause/resume becomes real — the download's
+      | progress right on the page, with a compact legend beneath it showing how every other state reads.
+
+  div(class='vp-scope')
+    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+
+    //- ── desktop ────────────────────────────────────────────────────────
+    +viewportPanel('desktop')
+      +appFrame('desktop')
+        +navBar('desktop', { back: true, placeholder: 'Search or paste a link…' })
+        +appBody('desktop')
+          div(class='mx-auto max-w-[1080px]')
+            a(class='mb-[22px] flex items-center gap-1.5' href='#')
+              +icon('arrow')(class='h-[13px] w-[13px] -scale-x-100 text-ink-4')
+              span(class='text-sm text-ink-3') Library
+
+            div(class='flex items-start gap-6')
+              +poster({ shape: 'wide', v: 2, src: 'assets/video/video-3.jpg', play: true, playSize: 'h-[30px] w-[30px]' })(
+                class='w-[340px]'
+              )
+              div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
+                div
+                  p(class='mb-1.5 text-h1') Sourdough starter, day one to seven
+                  p(class='font-mono text-mono-sm text-ink-3') @slowferment · 14:02
+                a(class='flex items-center gap-1.5' href='#')
+                  +icon('external')(class='h-3 w-3 text-ink-4')
+                  span(class='text-sm') View original post
+                div(class='flex items-center gap-2')
+                  +avatar('JA')(class='h-5 w-5 text-[9px]')
+                  span(class='font-mono text-mono-sm text-ink-4') downloaded by Jeremy · 12m ago
+                +chip({ tone: 'ok' })(class='mt-0.5')
+                  +dot('live')
+                  | downloading
+
+                +card()(class='mt-1.5 max-w-[480px]')
+                  +progress
+                    div(class='flex items-center gap-2.5')
+                      +btn({ label: 'Pause', variant: 'outline', iconEnd: 'pause' })
+                      +btn({ label: 'Cancel', variant: 'bad', iconEnd: 'x' })
+
+            p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
+            +card({ sunk: true })(class='px-4 py-1')
+              +stateLine('mute', 'not downloaded')
+                span(class='min-w-0 flex-1 text-sm text-ink-3') Ready to grab whenever.
+                +btn({ label: 'Download', variant: 'outline', size: 'sm', iconEnd: 'download' })
+              +stateLine('mute', 'queued')
+                span(class='min-w-0 flex-1 text-sm text-ink-3') Waiting for a slot — usually seconds.
+              +stateLine('mute', 'paused')
+                span(class='min-w-0 flex-1 text-sm text-ink-3') 64% — resume anytime, nothing's lost.
+                +btn({ label: 'Resume', variant: 'uv', size: 'sm' })
+              +stateLine('ok', 'completed')
+                span(class='min-w-0 flex-1 text-sm text-ink-3') Ready to watch.
+                +btn({ label: 'Watch', variant: 'outline', size: 'sm', iconEnd: 'eye' })
+                +btn({ label: 'Save to device', variant: 'ghost', size: 'sm', iconEnd: 'device' })
+              +stateLine('bad', 'failed')
+                span(class='min-w-0 flex-1 text-sm text-ink-3')
+                  | That link stopped responding halfway through.
+                  | #[span(class='font-mono text-mono-sm text-ink-4') ETIMEDOUT]
+                +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+              +stateLine('bad', 'not recognized')
+                span(class='min-w-0 flex-1 text-sm text-ink-3')
+                  | That link isn't one yt-dlp recognises — try a different link from the nav bar.
+
+    //- ── mobile ─────────────────────────────────────────────────────────
+    +viewportPanel('mobile')
+      +appFrame('mobile')
+        +navBar('mobile', { back: true })
+        +appBody('mobile')
+          +poster({ shape: 'wide', v: 2, src: 'assets/video/video-3.jpg', play: true, playSize: 'h-[30px] w-[30px]' })(
+            class='mb-4'
+          )
+          p(class='mb-1.5 text-h1') Sourdough starter, day one to seven
+          p(class='mb-3 font-mono text-mono-sm text-ink-3') @slowferment · 14:02
+          a(class='mb-[14px] flex items-center gap-1.5' href='#')
+            +icon('external')(class='h-3 w-3 text-ink-4')
+            span(class='text-sm') View original post
+          div(class='mb-[14px] flex items-center gap-2')
+            +avatar('JA')(class='h-5 w-5 text-[9px]')
+            span(class='font-mono text-mono-sm text-ink-4') downloaded by Jeremy · 12m ago
+          +chip({ tone: 'ok' })(class='mb-4 flex w-fit')
+            +dot('live')
+            | downloading
+
+          +card()(class='p-4')
+            +progress()(class='gap-[14px]')
+
+          div(class='mt-[14px] flex flex-col gap-2')
+            +btn({ label: 'Pause', variant: 'outline', iconEnd: 'pause', full: true })
+            +btn({ label: 'Cancel', variant: 'bad', iconEnd: 'x', full: true })
+
+          p(class='mt-[30px] mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
+          +card({ sunk: true })(class='px-[14px] py-1')
+            +stateLine('mute', 'not downloaded', true)
+              span(class='text-sm text-ink-3') Ready to grab whenever.
+              +stlineActions
+                +btn({ label: 'Download', variant: 'outline', size: 'sm', iconEnd: 'download' })
+            +stateLine('mute', 'queued', true)
+              span(class='text-sm text-ink-3') Waiting for a slot — usually seconds.
+            +stateLine('mute', 'paused', true)
+              span(class='text-sm text-ink-3') 64% — resume anytime, nothing's lost.
+              +stlineActions
+                +btn({ label: 'Resume', variant: 'uv', size: 'sm' })
+            +stateLine('ok', 'completed', true)
+              span(class='text-sm text-ink-3') Ready to watch.
+              +stlineActions
+                +btn({ label: 'Watch', variant: 'outline', size: 'sm', iconEnd: 'eye' })
+                +btn({ label: 'Save to device', variant: 'ghost', size: 'sm', iconEnd: 'device' })
+            +stateLine('bad', 'failed', true)
+              span(class='text-sm text-ink-3')
+                | Stopped responding halfway through.
+                | #[span(class='font-mono text-mono-sm text-ink-4') ETIMEDOUT]
+              +stlineActions
+                +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+            +stateLine('bad', 'not recognized', true)
+              span(class='text-sm text-ink-3')
+                | That link isn't one yt-dlp recognises — try a different link from the nav bar.

@@ -1,12 +1,18 @@
 #!/bin/bash
-# Fetches real poster art (Emby) and video thumbnails (yt-dlp) for the
-# download-app home mockup (../home.html), so it can be previewed with real
-# imagery instead of the CSS-gradient placeholder.
+# Fetches real poster art (Emby) and video thumbnails (yt-dlp) for every
+# download-app mockup under ../*.html, so they can be previewed with real
+# imagery instead of the CSS-gradient placeholder. home.html labels these
+# by their real (recently-added) Emby titles; every other mockup uses
+# fictional titles ("Salt & Ceremony", "Harbor Watch", ...) and just needs
+# *some* real art in the slot, mapped by title so the same fictional item
+# gets the same image everywhere it recurs across pages — see the mapping
+# table at the top of each mockup's wire-up (search each .html for
+# `poster__img` to see which asset index a given title uses).
 #
 # Output lands in emby/ and video/, both gitignored: Emby's posters are
 # studio-owned art and this repo is public, so they're regenerated locally
-# instead of committed. See README.md for the reasoning and how home.html
-# falls back to the placeholder when these files aren't present.
+# instead of committed. See README.md for the reasoning and how the mockups
+# fall back to the placeholder when these files aren't present.
 #
 # Usage:
 #   cp .env.example .env   # fill in EMBY_API_KEY (1Password: "Emby - TDR API Key")
@@ -19,6 +25,8 @@ ASSETS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EMBY_URL="${EMBY_URL:-https://emby.lilnas.io}"
 YT_KETTLEBELL_QUERY="${YT_KETTLEBELL_QUERY:-ytsearch1:kettlebell swing tutorial short}"
 YT_ZOO_QUERY="${YT_ZOO_QUERY:-ytsearch1:me at the zoo first youtube video}"
+YT_SOURDOUGH_QUERY="${YT_SOURDOUGH_QUERY:-ytsearch1:sourdough starter tutorial}"
+YT_PIPE_QUERY="${YT_PIPE_QUERY:-ytsearch1:fixing a leaking pipe tutorial}"
 
 mkdir -p "$ASSETS_DIR/emby" "$ASSETS_DIR/video"
 
@@ -47,9 +55,9 @@ else
   fi
 
   echo "Fetching movie posters ..."
-  movies=$(fetch_posters Movie 4 movie "$USER_ID")
+  movies=$(fetch_posters Movie 6 movie "$USER_ID")
   echo "Fetching show posters ..."
-  shows=$(fetch_posters Series 4 show "$USER_ID")
+  shows=$(fetch_posters Series 6 show "$USER_ID")
 
   if ! jq -n --argjson movies "$movies" --argjson shows "$shows" '$movies + $shows' > "$ASSETS_DIR/emby/manifest.json"; then
     echo "Emby poster fetch produced no usable data - see errors above." >&2
@@ -84,10 +92,12 @@ else
   echo "Fetching video thumbnails ..."
   fetch_video "$YT_KETTLEBELL_QUERY" video-1
   fetch_video "$YT_ZOO_QUERY" video-2
+  fetch_video "$YT_SOURDOUGH_QUERY" video-3
+  fetch_video "$YT_PIPE_QUERY" video-4
 
   jq -s '.' "$ASSETS_DIR"/video/video-*.json > "$ASSETS_DIR/video/manifest.json"
   rm "$ASSETS_DIR"/video/video-*.json
   echo "Wrote $ASSETS_DIR/video/manifest.json"
 fi
 
-echo "Done. Open ../home.html - any asset that isn't present falls back to the CSS placeholder automatically."
+echo "Done. Open any ../*.html mockup - any asset that isn't present falls back to the CSS placeholder automatically."

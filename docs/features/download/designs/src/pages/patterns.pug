@@ -1,0 +1,123 @@
+extends ../layout/page.pug
+
+block title
+  | Shared patterns — download UI mockups · lilnas
+
+//-
+  The cross-cutting patterns, defined once. This page is the reference the
+  detail pages point at: reach for these mixins rather than inventing a new
+  modal or a new reason row.
+
+
+//- 1080px column rather than the default 1328px: this page is prose about
+//- components, not a wide screen mockup.
+block page
+  +mockPage('max-w-[1080px]')
+    +mockHead({
+      eyebrow: 'lilnas · download',
+      title: 'Shared patterns',
+    })
+      p(class='max-w-[62ch] text-sm text-ink-3')
+        | Interaction patterns used across more than one detail page, defined once so they don't drift as they get
+        | copied forward: a modal dialog, a 3-step flow storyboard, a reason picker, skeleton loading, and cast
+        | overflow.
+        +code('movie-detail.html')
+        |  is the first consumer — reach for these same mixins on show-detail and video-detail instead of
+        | inventing new ones.
+
+    //- ── Modal ──────────────────────────────────────────────────────────
+    section(class='mb-12')
+      p(class='mb-1.5 text-h2') Modal
+      p(class='mb-4 max-w-[62ch] text-sm text-ink-3')
+        | A centered dialog over a dimmed, blurred scrim — used for "report a problem" and "delete" confirmations.
+        |  The scrim is absolutely positioned inside any
+        +code('position: relative')
+        |  container (the real page frame, in practice); the panel itself is capped at the system's 440px modal
+        | width.
+      +demoFrame
+        div(class='absolute inset-0 flex items-center justify-center bg-scrim/62 p-6 backdrop-blur-[2px]')
+          div(class='w-full max-w-[380px] rounded-lg border border-line-loud bg-surface p-[22px] shadow-lift')
+            p(class='mb-2.5 text-h3') What's wrong with this file?
+            +reason('Wrong audio or subtitles', true)
+            +reason("Video won't play")
+            div(class='mt-4 flex justify-end gap-2')
+              +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+              +btn({ label: 'Submit report', variant: 'uv', size: 'sm' })
+
+    //- ── Storyboard ─────────────────────────────────────────────────────
+    section(class='mb-12')
+      p(class='mb-1.5 text-h2') Storyboard
+      p(class='mb-4 max-w-[62ch] text-sm text-ink-3')
+        | A 3-step "trigger → act → result" strip for documenting a flow at a glance. Swap the row for a column
+        | to stack steps vertically at narrow widths.
+      div(class='flex items-stretch gap-[14px]')
+        div(class='flex flex-1 flex-col gap-2')
+          p(class='text-cap text-ink-3') 1 · Trigger
+          div(class='flex min-h-[110px] flex-1 flex-col items-center justify-center rounded-lg border border-line bg-surface p-4 text-center')
+            +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash' })
+        div(class='flex flex-[1.4] flex-col gap-2')
+          p(class='text-cap text-ink-3') 2 · Confirm
+          div(class='rounded-lg border border-line bg-surface p-[18px]')
+            p(class='mb-1.5 text-h3') Delete this item?
+            p(class='mb-4 text-sm text-ink-3') This can't be undone.
+            div(class='flex justify-end gap-2')
+              +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+              +btn({ label: 'Delete', iconEnd: 'trash', size: 'sm' })(
+                class='border-bad/40 bg-bad-ghost text-bad'
+              )
+        div(class='flex flex-1 flex-col gap-2')
+          p(class='text-cap text-ink-3') 3 · Result
+          div(class='flex min-h-[110px] flex-1 flex-col items-center justify-center rounded-lg border border-line bg-surface p-4 text-center')
+            +chip({ label: 'removed', tone: 'mute' })
+
+    //- ── Reason picker ──────────────────────────────────────────────────
+    section(class='mb-12')
+      p(class='mb-1.5 text-h2') Reason picker
+      p(class='mb-4 max-w-[62ch] text-sm text-ink-3')
+        | A single-select list of plain-language reasons, styled as rows rather than native radios. The checked
+        | row takes the accent tint.
+      div(class='max-w-[380px] rounded-lg border border-line bg-surface p-4')
+        +reason('Wrong audio or subtitles', true)
+        +reason("Video won't play")
+        +reason('Not this movie')
+
+    //- ── Skeleton ───────────────────────────────────────────────────────
+    section(class='mb-12')
+      p(class='mb-1.5 text-h2') Skeleton loading
+      p(class='mb-4 max-w-[62ch] text-sm text-ink-3')
+        +code('+skeleton')
+        |  on any placeholder — size it at the call site, same as
+        +code('home.html')
+        |  and
+        +code('search.html')
+        | 's loading states.
+      +card({ sunk: true })(class='max-w-[380px] p-[18px]')
+        div(class='flex flex-col gap-2.5')
+          +skeleton()(class='h-[15px] w-3/5')
+          +skeleton()(class='h-[13px] w-[85%]')
+          +skeleton()(class='h-[13px] w-[70%]')
+
+    //- ── Cast overflow ──────────────────────────────────────────────────
+    section
+      p(class='mb-1.5 text-h2') Cast overflow
+      p(class='mb-4 max-w-[62ch] text-sm text-ink-3')
+        | Past a handful of credited names: wider layouts collapse the rest into a "+N" bubble; narrower layouts
+        | scroll sideways instead of wrapping into a wall of names, with an edge fade to say so.
+      div(class='flex flex-wrap items-start gap-8')
+        +card({ sunk: true })(class='min-w-[260px] flex-1 p-4')
+          p(class='mb-2.5 text-cap text-ink-3') Collapsed
+          div(class='flex flex-wrap gap-4')
+            +castPerson('ML', 'Mara Lin')
+            +castPerson('TA', 'Theo Aduba')
+            div(class='flex shrink-0 items-center gap-2')
+              +avatar('+6', { size: 'md' })(class='text-[10px]')
+        +card({ sunk: true })(class='min-w-[260px] flex-1 py-4 pr-0 pl-[14px]')
+          p(class='mx-[14px] mb-2.5 text-cap text-ink-3') Scrolling
+          div(
+            class='-mx-[14px] flex flex-nowrap gap-4 overflow-x-auto px-[14px] py-0.5 [mask-image:linear-gradient(90deg,#000_calc(100%-28px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+          )
+            +castPerson('ML', 'Mara Lin')
+            +castPerson('TA', 'Theo Aduba')
+            +castPerson('RO', 'Ren Osei')
+            +castPerson('KB', 'Kofi Boadi')
+            +castPerson('PN', 'Priya Nair')
