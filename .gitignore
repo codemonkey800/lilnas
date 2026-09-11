@@ -26,3 +26,7 @@ player.html
 
 # Helm chart dependencies
 k8s/charts/*/charts/*.tgz
+
+# Agent/browser-automation scratch dirs (created and removed mid-run;
+# watching them races the delete and breaks live file watching)
+.playwright-mcp/
