@@ -24,6 +24,11 @@ REVIEW.md
 truereflection-dev/
 player.html
 
+# Intermediate output from `pnpm mockups`. The finished mockups
+# (docs/features/*/designs/*.html) are committed — they're the thing you open
+# in a browser from a fresh clone.
+docs/features/*/designs/.build/
+
 # Helm chart dependencies
 k8s/charts/*/charts/*.tgz
 
