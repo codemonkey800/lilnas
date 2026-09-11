@@ -1,0 +1,222 @@
+extends ../layout/page.pug
+
+block title
+  | Nav-bar search — download UI mockups · lilnas
+
+//-
+  The one entry point for both jobs — paste a link, or search a title. This
+  page is a reference rather than a screen: where the field lives at each
+  width, every state it can be in, then the two flows end to end.
+
+//- A card sized to hold one field in isolation.
+mixin stateCard
+  div(class='max-w-[400px] rounded-lg border border-line bg-bg-sunk p-[18px]')&attributes(attributes)
+    block
+
+//-
+  Numbered step in a flow: number, the framed field (the mixin's block), then
+  the explanation. `desc` is a parameter rather than a second block because a
+  Pug mixin only gets one.
+mixin flowstep(num, title, desc)
+  div(class='flex items-start gap-[18px]')&attributes(attributes)
+    span(
+      class='mt-0.5 grid h-[26px] w-[26px] shrink-0 place-items-center rounded-full bg-surface-3 font-mono text-mono-sm font-semibold text-ink-2'
+    )= num
+    div(class='w-[280px] shrink-0')
+      block
+    div(class='min-w-0 flex-1 pt-[5px]')
+      p(class='text-h3')= title
+      p(class='text-sm text-ink-3')= desc
+
+//- What happens between two steps, and on what motion.
+mixin flowConnector
+  div(class='my-2.5 ml-[13px] flex items-center gap-[9px]')&attributes(attributes)
+    +icon('arrow')(class='h-3 w-3 shrink-0 rotate-90 text-ink-4')
+    span(class='font-mono text-mono-sm text-uv-hi')
+      block
+
+block content
+  +mockHead({ eyebrow: 'lilnas · download', title: 'Nav-bar search' })
+    p(class='max-w-[62ch] text-sm text-ink-3')
+      | The single entry point for both jobs — paste a video link, or search for a movie or show — reachable
+      | from the nav bar on every page except #[code(class='font-mono text-mono-sm') search.html], whose own
+      | hero already IS the search. On desktop it sits inline in the bar; on mobile it collapses to an icon and
+      | expands to take over the bar on tap. It classifies what's typed and branches automatically: once there's
+      | something to act on, a compact button appears right in the pill — Download for a detected link, Search
+      | for a title query of 2+ characters — so pressing Enter and clicking the button do the same thing.
+      | Below: where it lives in the bar at each width, then every state the field itself can be in, then the
+      | full sequence for both branches, up to the redirect. What each destination looks like lives in that
+      | page's own file, not here.
+
+  //-
+    Where it lives — the bar itself, at both widths. Distinct from the states
+    catalog below: this is about reaching the field at all, not what it does
+    once visible.
+  section(class='mb-14' id='chrome')
+    h2(class='mb-1.5 text-[22px] leading-[1.25] font-[650] tracking-[-0.015em]') In the app bar: desktop vs. mobile
+    p(class='mb-6 max-w-[62ch] text-sm text-ink-3')
+      | Desktop has room for the field inline, next to the doorplate. Mobile doesn't — competing against the
+      | doorplate, the live-download chip, and the account avatar in one row, the field loses and collapses to
+      | an icon, expanding to take over the bar on tap.
+
+    div(class='vp-scope')
+      +viewportToggle('viewport')(class='mb-7' role='radiogroup' aria-label='Viewport')
+
+      +viewportPanel('desktop')
+        +frameLabel Inline, always
+        +appFrame('desktop')
+          +navBar('desktop', { placeholder: 'Search or paste a link…', tall: true })
+          +appBody('desktop')
+            p(class='text-sm text-ink-3')
+              | Never leaves the bar — no tap needed to reach it. Same field, same states as "One field, every
+              | state" below.
+
+      +viewportPanel('mobile')
+        +frameLabel Collapsed, at rest
+        +appFrame('mobile')
+          +appBar('mobile')
+            +doorplate('Download')(href='https://lilnas.io')
+            span(class='flex shrink-0 items-center gap-1.5')
+              +chip({ tone: 'ok' })
+                +dot('live')
+                | 2
+              +btn({ variant: 'ghost', icon: 'search' })(class='h-[30px] w-[30px] p-0' aria-label='Search')
+              +btn({ variant: 'ghost' })(class='h-8 w-8 p-0' aria-label='Your account')
+                +avatar('JA', { ring: true })
+          +appBody('mobile')
+            p(class='text-sm text-ink-3')
+              | The doorplate, live status, and account all need the row — the field loses that fight, so it's
+              | an icon until tapped. Every other mockup's mobile frame shows this exact resting state.
+
+        +frameLabel()(class='mt-3') Expanded, on tap
+        +appFrame('mobile')
+          +appBar('mobile')
+            +btn({ variant: 'ghost', icon: 'x' })(class='h-[30px] w-[30px] shrink-0 p-0' aria-label='Close search')
+            +navsearch({ placeholder: 'Search or paste a link…', tall: true })
+          +appBody('mobile')
+            p(class='text-sm text-ink-3')
+              | Takes over the bar full-width — doorplate, status, and avatar step aside until it closes. Same
+              | field, same states as below; closing it, or a redirect firing, hands the bar back.
+
+  //-
+    States catalog — a reference: every state in isolation. They're mutually
+    exclusive, so each gets its own card rather than being stacked into one
+    scroll.
+  section(id='states')
+    h2(class='mb-1.5 text-[22px] leading-[1.25] font-[650] tracking-[-0.015em]') One field, every state
+    p(class='mb-2 max-w-[62ch] text-sm text-ink-3')
+      | Grouped by what caused it, not by how it looks. The field is always in exactly one of these.
+
+    div(class='grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-8')
+      div(class='min-w-0')
+        p(class='mb-2.5 text-h3' id='state-idle') Idle
+        p(class='mb-[14px] text-sm text-ink-3')
+          | Nothing typed yet. Identical whether what comes next turns out to be a link or a title.
+        +stateCard
+          +navsearch({ placeholder: 'Search or paste a link…', tall: true })
+
+      div(class='min-w-0')
+        p(class='mb-2.5 text-h3' id='state-link') A link is detected
+        p(class='mb-[14px] text-sm text-ink-3')
+          | Classification is instant and client-side — no network round-trip, so no separate "resolving"
+          | state. The icon swaps and a compact Download button appears right in the pill.
+        +stateCard
+          +navsearch({ tall: true, ready: true, value: 'youtube.com/watch?v=7f2k9dQ', icon: 'download' })
+            +navsearchGo('Download')
+
+      div(class='min-w-0')
+        p(class='mb-2.5 text-h3' id='state-query') A title query is ready
+        p(class='mb-[14px] text-sm text-ink-3')
+          | Anything that isn't a link, once it clears 2+ characters — the same threshold §3's search uses.
+          | Same treatment as a detected link: the icon tints and a compact Search button appears.
+        +stateCard
+          +navsearch({ tall: true, ready: true, value: 'the office' })
+            +navsearchGo('Search')
+
+  //-
+    Full flow — the happy-path narrative, connected in order. Failure states
+    live in the catalog above and on video-detail.html, not here.
+  section(class='mt-14 border-t border-line-soft pt-[30px]' id='flow')
+    h2(class='mb-1.5 text-[22px] leading-[1.25] font-[650] tracking-[-0.015em]') Full flow, start to finish
+    p(class='mb-5 max-w-[62ch] text-sm text-ink-3')
+      | Both branches start in the exact same nav-bar field — paste a link for a video, or type a title for a
+      | movie or show. From there they diverge: a video redirects straight to its own detail page, where the
+      | download starts; a title search redirects to the search results page. Nothing downloads, and no
+      | results render, inside the field itself.
+
+    div(class='my-6 mb-10 rounded-lg border border-line bg-surface px-4 py-[14px]')
+      p(class='text-sm text-ink-3')
+        | Captions cite #[code(class='font-mono text-mono-sm') docs/designs/motion.md]. Two motions only:
+        | #[b(class='text-ink') spring] — the user pressed or dragged something (120ms) — and
+        | #[b(class='text-ink') ease] — the system reacting to data or a route (200–380ms). These are
+        | motion.md's #[code(class='font-mono text-mono-sm') --ease-uv] /
+        | #[code(class='font-mono text-mono-sm') --ease-spring], which this build exposes as the
+        | #[code(class='font-mono text-mono-sm') ease-uv] and #[code(class='font-mono text-mono-sm') ease-spring]
+        | Tailwind utilities.
+
+    +flowstep('0', 'At rest', 'Both branches start here, in the nav bar — on every page, not just one. See "Idle" above.')
+      +stateCard()(class='max-w-[320px]')
+        +navsearch({ placeholder: 'Search or paste a link…', tall: true })
+
+    +flowConnector
+      | classifies instantly, client-side — a link swaps the icon and shows Download; anything else is a
+      | title, and shows Search once it's 2+ characters
+
+    div(class='mt-[30px] mb-[18px]')
+      p(class='mb-1 font-mono text-label tracking-[0.11em] uppercase text-uv') Branch A
+      h3(class='text-h3') Fetch a video
+
+    +flowstep('1', 'Typing', 'Still just text — search icon, no button yet. Not host-shaped, so not a link. Yet.')
+      +stateCard()(class='max-w-[320px]')
+        +navsearch({ tall: true, value: 'youtub' })
+
+    +flowConnector
+      | no network round-trip — classification is a client-side check, not a fetch
+
+    +flowstep('2', 'Link detected', 'Icon swaps, button appears — no dropdown, no preview card. See "A link is detected" above.')
+      +stateCard()(class='max-w-[400px]')
+        +navsearch({ tall: true, ready: true, value: 'youtube.com/watch?v=7f2k9dQ', icon: 'download' })(class='reveal')
+          +navsearchGo('Download')
+
+    +flowConnector
+      | press Download: 120ms spring, scale(0.96) → route change: 380ms rise
+
+    +note('download')(class='reveal')
+      b(class='text-ink') Redirects to the video's detail page.
+      |  Extraction and the download both start the moment it loads — no separate preview-before-committing
+      | step. If yt-dlp doesn't recognize the link after all, that page shows a "not recognized" state instead
+      | of progress. See #[a(class='text-ink underline' href='video-detail.html') video-detail.html].
+
+    div(class='mt-11 border-t border-line-soft pt-[26px] pb-[18px]')
+      p(class='mb-1 font-mono text-label tracking-[0.11em] uppercase text-uv') Branch B
+      h3(class='text-h3') Find a movie or show
+
+    +flowstep('1', 'Typing', 'Same field as Branch A, reachable from every page. Under 2 characters — still just text, no button yet.')
+      +stateCard()(class='max-w-[320px]')
+        +navsearch({ tall: true, value: 't' })
+
+    +flowConnector
+      | same client-side check as the link branch — counting length instead of parsing a host
+
+    +flowstep('2', 'Query ready', '2+ characters — icon tints, a compact Search button appears. Pressing Enter does the same thing as clicking it. See "A title query is ready" above.')
+      +stateCard()(class='max-w-[400px]')
+        +navsearch({ tall: true, ready: true, value: 'the office' })(class='reveal')
+          +navsearchGo('Search')
+
+    +flowConnector
+      | press Enter or click Search: 120ms spring on the button → route change: 380ms rise
+
+    +note('search')(class='reveal')
+      b(class='text-ink') Redirects to the search page.
+      |  Results are already loading by the time the route lands —
+      | #[code(class='font-mono text-mono-sm') search.html] owns the results list, filters, and sort from
+      | there. See #[a(class='text-ink underline' href='search.html') search.html].
+
+    +card()(class='mt-10')
+      div(class='flex items-center gap-2.5')
+        +dot('live')
+        p(class='text-sm')
+          | A download shows up on
+          | #[a(class='text-uv-hi underline' href='downloads-activity.html') downloads-activity.html] the
+          | instant it starts — immediately for Branch A, or once a result's picked and Download's pressed for
+          | Branch B.

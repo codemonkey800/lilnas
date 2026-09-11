@@ -1,0 +1,390 @@
+extends ../layout/page.pug
+
+block title
+  | Movie detail — download UI mockups · lilnas
+
+//-
+  The movie a card leads to. The screen is drawn four times per viewport —
+  primary, the two modals, and the loading state — so everything that repeats
+  between them (the header block, the release list) is a mixin here rather
+  than four hand-kept copies.
+
+//- Back-to-library breadcrumb inside the app body.
+mixin libraryLink
+  a(class='mb-[22px] flex items-center gap-1.5' href='#')
+    +icon('arrow')(class='h-[13px] w-[13px] -scale-x-100 text-ink-4')
+    span(class='text-sm text-ink-3') Library
+
+//-
+  Poster + title + metadata + actions.
+    synopsis / attribution / cast — each omitted in the cropped modal frames,
+    which only need enough of the page for the scrim to sit over something.
+mixin movieHeader(view, opts)
+  - opts = opts || {}
+  - const mobile = view === 'mobile'
+  if mobile
+    +poster({ shape: 'tall', v: 1, src: 'assets/emby/movie-1.jpg', label: TITLE })(
+      class='mx-auto mb-4 w-full max-w-[220px]'
+    )
+    p(class='mb-1.5 text-h1')= TITLE
+    p(class=['text-sm text-ink-3', opts.synopsis ? 'mb-3' : 'mb-4'])= META
+    if opts.synopsis
+      p(class='mb-4 text-sm text-ink-3')= SYNOPSIS
+    if opts.cast
+      div(class='mb-4 flex flex-wrap gap-4')
+        each person in LEAD_CAST
+          +castPerson(person[0], person[1])
+    if opts.attribution
+      div(class='mb-4 flex items-center gap-2')
+        +avatar('JA')(class='h-5 w-5 text-[9px]')
+        span(class='font-mono text-mono-sm text-ink-4') Jeremy · 12m ago
+    div(class='mb-7 flex flex-col gap-2')
+      +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye', full: true })
+      +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash', full: true })
+  else
+    div(class='mb-7 flex items-start gap-6')
+      +poster({ shape: 'tall', v: 1, src: 'assets/emby/movie-1.jpg', label: TITLE })(class='w-[200px]')
+      div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
+        div
+          p(class='mb-1.5 text-h1')= TITLE
+          p(class='text-sm text-ink-3')= META
+        if opts.synopsis
+          p(class='max-w-[62ch] text-sm text-ink-3')= SYNOPSIS
+        if opts.cast
+          div(class='flex flex-wrap gap-4')
+            each person in LEAD_CAST
+              +castPerson(person[0], person[1])
+        if opts.attribution
+          div(class='flex items-center gap-2')
+            +avatar('JA')(class='h-5 w-5 text-[9px]')
+            span(class='font-mono text-mono-sm text-ink-4') Jeremy · 12m ago
+        div(class='mt-1 flex items-center gap-2.5')
+          +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye' })
+          +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash' })
+
+//-
+  What Radarr found, rather than just what it auto-picked. `flagged` adds the
+  third, bad-file row — omitted in the cropped modal frames.
+mixin releaseList(view, opts)
+  - opts = opts || {}
+  - const mobile = view === 'mobile'
+  p(class='mb-3 text-h2') Release
+  +card({ sunk: true })(class=mobile ? 'px-[14px] py-1' : 'px-4 py-1')
+    if mobile
+      +release(true)
+        span(class='flex items-center gap-2')
+          span(class='font-mono text-mono-sm text-ink-3') 1080p WEB-DL · 2.1 GB
+          +chip({ label: 'current', tone: 'ok' })
+        span(class='font-mono text-mono-sm text-ink-4') yts-verified
+        +stlineActions
+          +btn({ label: 'Report a problem', variant: 'ghost', size: 'sm', iconEnd: 'flag' })
+      +release(true)
+        span(class='font-mono text-mono-sm text-ink-3') 2160p WEB-DL · 5.8 GB
+        span(class='font-mono text-mono-sm text-ink-4') nyaa-hd
+        +stlineActions
+          +btn({ label: 'Download this', variant: 'outline', size: 'sm', iconEnd: 'download' })
+      if opts.flagged
+        +release(true)
+          span(class='font-mono text-mono-sm text-ink-3 line-through') 720p HDTV · 900 MB
+          span(class='flex items-center gap-2')
+            span(class='font-mono text-mono-sm text-ink-4') low-seed-source
+            +chip({ label: 'bad file', tone: 'bad' })
+    else
+      +release
+        span(class='w-[200px] font-mono text-mono-sm text-ink-3') 1080p WEB-DL · 2.1 GB
+        span(class='flex-1 font-mono text-mono-sm text-ink-4') yts-verified
+        +chip({ label: 'current', tone: 'ok' })
+        +btn({ label: 'Report a problem', variant: 'ghost', size: 'sm', iconEnd: 'flag' })
+      +release
+        span(class='w-[200px] font-mono text-mono-sm text-ink-3') 2160p WEB-DL · 5.8 GB
+        span(class='flex-1 font-mono text-mono-sm text-ink-4') nyaa-hd
+        +btn({ label: 'Download this', variant: 'outline', size: 'sm', iconEnd: 'download' })
+      if opts.flagged
+        +release(false, true)
+          span(class='w-[200px] font-mono text-mono-sm text-ink-3 line-through') 720p HDTV · 900 MB
+          span(class='flex-1 font-mono text-mono-sm text-ink-4') low-seed-source
+          +chip({ label: 'bad file', tone: 'bad' })
+
+mixin release(mobile, dimmed)
+  div(
+    class=[
+      'flex px-1 py-[13px] [&+&]:border-t [&+&]:border-line-soft',
+      mobile ? 'flex-col items-start gap-[9px]' : 'items-center gap-[14px]',
+      dimmed ? 'opacity-55' : '',
+    ]
+  )
+    block
+
+//- The two dialogs this page can raise, over a cropped copy of the page.
+mixin reportModal(view)
+  +modalScrim
+    +modal
+      p(class='mb-2.5 text-h3') What's wrong with this file?
+      each label, i in REASONS
+        +reason(label, i === 0)
+      if view === 'mobile'
+        div(class='mt-4 flex flex-col gap-2')
+          +btn({ label: 'Submit report', variant: 'uv', size: 'sm', full: true })
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+      else
+        div(class='mt-4 flex justify-end gap-2')
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+          +btn({ label: 'Submit report', variant: 'uv', size: 'sm' })
+
+mixin deleteModal(view)
+  +modalScrim
+    +modal
+      p(class='mb-1.5 text-h3')= `Delete "${TITLE}"?`
+      p(class='mb-[18px] text-sm text-ink-3')= DELETE_WARNING
+      if view === 'mobile'
+        div(class='flex flex-col gap-2')
+          +deleteBtn(true)
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+      else
+        div(class='flex justify-end gap-2')
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+          +deleteBtn
+
+//- A cropped frame: enough of the page for a modal to sit over, faded off at
+    the bottom so it reads as "this continues".
+mixin modalFrame(view, label)
+  +frameLabel()(class='mt-1')
+    = label
+  +appFrame(view, { crop: true })
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view, { crop: true })
+      if view === 'mobile'
+        +movieHeader(view, {})
+        +releaseList(view, {})
+      else
+        div(class='mx-auto max-w-[1080px]')
+          +libraryLink
+          +movieHeader(view, { cast: true })
+          +releaseList(view, {})
+      block
+
+//- Section rule with a caption in the middle.
+mixin appendixRule(label, id)
+  div(class='my-11 mb-7 flex items-center gap-3' id=id aria-hidden='true')
+    span(class='h-px flex-1 bg-line')
+    span(class='font-mono text-label tracking-[0.11em] whitespace-nowrap uppercase text-ink-4')= label
+    span(class='h-px flex-1 bg-line')
+
+//- Jump links, so the four stacked frames stay navigable.
+mixin jumpNav(suffix)
+  nav(class='flex flex-wrap justify-center gap-2' aria-label='Jump to section')
+    each item in JUMP
+      a(
+        class='inline-flex h-[23px] items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap text-ink-3'
+        href=`#${item[1]}-${suffix}`
+      )= item[0]
+
+//- Everything below the fold on the primary frame: state legend, cast
+    overflow, and the two flows as storyboards.
+mixin appendix(view)
+  - const mobile = view === 'mobile'
+  +appendixRule(mobile ? 'Appendix' : 'Appendix — states & flows', mobile ? 'states-m' : 'states-d')
+
+  p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
+  +card({ sunk: true })(class=mobile ? 'px-[14px] py-1' : 'px-4 py-1')
+    +stline({ mobile: mobile })
+      +chip({ label: 'not downloaded', tone: 'mute' })(class=mobile ? '' : 'w-[118px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Nothing grabbed yet.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Download', variant: 'outline', size: 'sm', iconEnd: 'download' })
+      else
+        +btn({ label: 'Download', variant: 'outline', size: 'sm', iconEnd: 'download' })
+    +stline({ mobile: mobile })
+      +chip({ label: 'queued', tone: 'mute' })(class=mobile ? '' : 'w-[118px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Waiting for a slot — usually seconds.
+    +stline({ mobile: mobile })
+      +chip({ tone: 'ok' })(class=mobile ? '' : 'w-[118px] justify-center')
+        +dot('live')
+        | downloading
+      div(class=['flex items-center gap-2', mobile ? 'w-full' : 'w-[140px]'])
+        +bar(47)(class='flex-1')
+        span(class='font-mono text-mono-sm tabular-nums text-uv-hi') 47%
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'font-mono text-mono-sm tabular-nums text-ink-3'])
+        | 1.2&nbsp;GB / 2.6&nbsp;GB &nbsp;·&nbsp; 8.4&nbsp;MB/s
+      if mobile
+        +stlineActions
+          +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
+      else
+        +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
+    +stline({ mobile: mobile })
+      +chip({ label: 'failed', tone: 'bad' })(class=mobile ? '' : 'w-[118px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Stopped responding partway through.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+      else
+        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Cast — overflow
+  if mobile
+    +card({ sunk: true })(class='py-4 pr-0 pl-[14px]')
+      p(class='mx-[14px] mb-[14px] text-sm text-ink-3')
+        | Scrolls sideways past the fold instead of wrapping into a wall of names.
+      div(
+        class='-mx-[14px] flex flex-nowrap gap-4 overflow-x-auto px-[14px] py-0.5 [mask-image:linear-gradient(90deg,#000_calc(100%-28px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+      )
+        each person in FULL_CAST
+          +castPerson(person[0], person[1])
+  else
+    +card({ sunk: true })(class='px-4 py-[18px]')
+      p(class='mb-[14px] text-sm text-ink-3')
+        | Past the fourth credited actor, names collapse into a count — hover shows the rest.
+      div(class='flex flex-wrap gap-4')
+        each person in FULL_CAST.slice(0, 4)
+          +castPerson(person[0], person[1])
+        div(class='flex shrink-0 items-center gap-2')
+          +avatar('+6', { size: 'md' })(
+            class='text-[10px]'
+            title=OVERFLOW_CAST
+          )
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Report a problem — flow
+  +storyboard(mobile)
+    +storyboardStep('1 · Trigger')
+      +storyboardFrame(mobile ? 96 : 128)
+        +btn({ label: 'Report a problem', variant: 'ghost', size: 'sm', iconEnd: 'flag' })
+    +storyboardStep('2 · Pick a reason', !mobile)
+      div(class='rounded-lg border border-line bg-surface p-4')
+        p(class='mb-2.5 text-h3') What's wrong with this file?
+        each label, i in REASONS
+          +reason(label, i === 0)
+        if mobile
+          div(class='mt-[14px] flex flex-col gap-2')
+            +btn({ label: 'Submit report', variant: 'uv', size: 'sm', full: true })
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+        else
+          div(class='mt-[14px] flex justify-end gap-2')
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+            +btn({ label: 'Submit report', variant: 'uv', size: 'sm' })
+    +storyboardStep('3 · Confirmed')
+      +storyboardFrame(mobile ? 96 : 128)
+        +chip({ label: 'reported', tone: 'mute' })
+        p(class='text-cap text-ink-3') This release won't be auto-picked again.
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Delete — confirm flow
+  +storyboard(mobile)
+    +storyboardStep('1 · Trigger')
+      +storyboardFrame(mobile ? 96 : 128)
+        +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash' })
+    +storyboardStep('2 · Confirm', !mobile)
+      div(class='rounded-lg border border-line bg-surface p-[18px]')
+        p(class='mb-1.5 text-h3')= `Delete "${TITLE}"?`
+        p(class='mb-4 text-sm text-ink-3')= DELETE_WARNING
+        if mobile
+          div(class='flex flex-col gap-2')
+            +deleteBtn(true)
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+        else
+          div(class='flex justify-end gap-2')
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+            +deleteBtn
+    +storyboardStep('3 · Removed')
+      +storyboardFrame(mobile ? 96 : 128)
+        +chip({ label: 'not downloaded', tone: 'mute' })(class='w-[118px] justify-center')
+
+//- Skeleton stand-in for the whole page, while Radarr is still answering.
+mixin loadingState(view)
+  - const mobile = view === 'mobile'
+  +frameLabel()(class='mt-1' id=mobile ? 'loading-m' : 'loading-d') Loading state
+  +appFrame(view)
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view)
+      if mobile
+        +skeleton()(class='mx-auto mb-4 aspect-[2/3] w-full max-w-[220px] rounded-md')
+        +skeleton()(class='mx-auto mb-2 h-[23px] w-[70%]')
+        +skeleton()(class='mx-auto mb-4 h-[13px] w-[45%]')
+        div(class='mb-4 flex flex-col gap-[7px]')
+          +skeleton()(class='h-[13px] w-full')
+          +skeleton()(class='h-[13px] w-[82%]')
+        div(class='mb-4 flex items-center gap-4')
+          each n in [1, 2]
+            div(class='flex items-center gap-2')
+              +skeleton()(class='h-[30px] w-[30px] rounded-full')
+              +skeleton()(class='h-3 w-[60px]')
+        div(class='mb-7 flex flex-col gap-2')
+          +skeleton()(class='h-[38px] w-full rounded-md')
+          +skeleton()(class='h-[38px] w-full rounded-md')
+        +skeleton()(class='mb-2.5 h-[11px] w-[58px]')
+        +skeleton()(class='mb-7 aspect-video w-full rounded-md')
+        +skeleton()(class='mb-3 h-[15px] w-[74px]')
+        +card({ sunk: true })(class='p-4')
+          div(class='flex flex-col gap-4')
+            each w in SKELETON_RELEASES
+              div(class='flex flex-col gap-1.5')
+                +skeleton()(class='h-[13px]' style=`width: ${w[0]}`)
+                +skeleton()(class='h-[13px]' style=`width: ${w[1]}`)
+      else
+        div(class='mx-auto max-w-[1080px]')
+          +skeleton()(class='mb-[22px] h-3 w-16')
+          div(class='mb-7 flex items-start gap-6')
+            +skeleton()(class='aspect-[2/3] w-[200px] rounded-md')
+            div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
+              +skeleton()(class='h-[23px] w-[55%]')
+              +skeleton()(class='h-[13px] w-[32%]')
+              div(class='flex flex-col gap-[7px]')
+                +skeleton()(class='h-[13px] w-full')
+                +skeleton()(class='h-[13px] w-[78%]')
+              div(class='flex items-center gap-4')
+                each n in [1, 2, 3]
+                  div(class='flex items-center gap-2')
+                    +skeleton()(class='h-[30px] w-[30px] rounded-full')
+                    +skeleton()(class='h-3 w-16')
+              div(class='mt-1 flex items-center gap-2.5')
+                +skeleton()(class='h-[38px] w-[108px] rounded-md')
+                +skeleton()(class='h-[38px] w-[100px] rounded-md')
+          +skeleton()(class='mb-2.5 h-[11px] w-[58px]')
+          +skeleton()(class='mb-8 aspect-video w-full max-w-[480px] rounded-md')
+          +skeleton()(class='mb-3 h-[15px] w-[74px]')
+          +card({ sunk: true })(class='p-4')
+            div(class='flex flex-col gap-4')
+              each n in [1, 2, 3]
+                div(class='flex items-center gap-[14px]')
+                  +skeleton()(class='h-[13px] w-[190px]')
+                  +skeleton()(class='h-[13px] flex-1')
+
+block content
+  +mockHead({ eyebrow: 'lilnas · download', title: 'Movie detail' })
+    p(class='max-w-[62ch] text-sm text-ink-3')
+      | Everything a movie card leads to: cast and metadata, the Emby handoff, and the release picker — browse
+      | what Radarr found instead of being stuck with its auto-pick, with a bad-file flag that blocks a release
+      | from being auto-selected again.
+
+  div(class='vp-scope')
+    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+
+    each view in VIEWS
+      - const suffix = view === 'mobile' ? 'm' : 'd'
+      +viewportPanel(view)
+        +jumpNav(suffix)
+
+        +appFrame(view)(id='primary-' + suffix)
+          +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+          +appBody(view)
+            if view === 'mobile'
+              +movieHeader(view, { synopsis: true, cast: true, attribution: true })
+              p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Trailer
+              +poster({ shape: 'wide', v: 2, src: 'assets/video/video-2.jpg', play: true })(class='mb-7')
+              +releaseList(view, { flagged: true })
+              +appendix(view)
+            else
+              div(class='mx-auto max-w-[1080px]')
+                +libraryLink
+                +movieHeader(view, { synopsis: true, cast: true, attribution: true })
+                p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Trailer
+                +poster({ shape: 'wide', v: 2, src: 'assets/video/video-2.jpg', play: true })(
+                  class='mb-8 w-full max-w-[480px]'
+                )
+                +releaseList(view, { flagged: true })
+                +appendix(view)
+
+        +modalFrame(view, 'Report a problem — as a modal')
+          +reportModal(view)
+        +modalFrame(view, 'Delete — as a modal')
+          +deleteModal(view)
+        +loadingState(view)
