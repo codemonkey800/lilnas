@@ -281,7 +281,9 @@ table.
 
 ### Group D — Integration
 
-- [ ] **D1. Integration checkpoint.** No new code. Run the full
+- [x] **D1. Integration checkpoint.** `f75daaf0` (gates + 012 doc updates;
+      this checkbox and the Execution report below land in a follow-up
+      docs commit, since a commit cannot contain its own hash) No new code. Run the full
       `pnpm test`, `pnpm run lint`, `pnpm run type-check` in **both**
       `apps/download` and `packages/utils` at the final commit, plus
       `pnpm run build` for the two packages from the repo root (Turbo
@@ -339,3 +341,63 @@ When the last box is checked, report — in the session, and as a short
 5. Open questions discovered during implementation.
 
 Then **stop**. No merge, no push, no deploy.
+
+## Execution report (2026-09-11)
+
+Executed end to end in this worktree on `jeremy/download`, serially in wave
+order, one session. Nothing merged, pushed, or deployed.
+
+### 1. Per-task outcomes
+
+| Task | Outcome | Commit |
+| ---- | ------- | ---------- |
+| S0 — commit pending §12 docs | ✅ exactly the four files | `7b4c2a0` |
+| A1 — wire contract | ✅ `ProfileQuerySchema`, `ProfileQuery`, `ProfileResponse` + schema tests | `fedebc7a` |
+| A2 — repo helper | ✅ `getRequesterActivityBounds` + `RequesterActivityBounds`, 5 repo tests | `cdd593d8` |
+| B1 — `ProfileService` | ✅ service + module registration, 7 tests | `52a4dfa9` |
+| C2 — client method | ✅ `DownloadClient.getProfile()`, 3 client tests | `1a50e6c1` |
+| C1 — controller route | ✅ `GET /download/profile` + `ProfileQueryDto`, 7 tests | `5b31969a` |
+| D1 — integration checkpoint | ✅ all gates green, 012 updated | `f75daaf0` |
+
+### 2. Verification results (at D1)
+
+- `apps/download`: tests 57 passed / 1 skipped (pre-existing skip), 1070
+  passed / 9 skipped; lint clean; type-check clean.
+- `packages/utils`: tests 5 suites, 285 passed; lint clean; type-check
+  clean.
+- Repo root: `pnpm run build --filter @lilnas/utils --filter
+  @lilnas/download` — 4 Turbo tasks successful.
+- `git status` confirms every `designs/**` file, `.gitignore`, and
+  `backend.md` untouched throughout.
+
+### 3. Deviations from the plan
+
+- **Existing controller test modules needed the new provider** (not listed
+  in C1's scope): adding `ProfileService` to `DownloadController`'s
+  constructor meant the seven pre-existing test files that build the
+  controller via `Test.createTestingModule` each gained
+  `{ provide: ProfileService, useValue: {} }`. Committed with C1.
+- **C1's 401/400 cases are asserted structurally**, matching repo
+  convention: controller tests call handler methods directly (no HTTP
+  layer anywhere in the suite), so the 401 is asserted as
+  `ForwardedUserGuard` in the route's `GUARDS_METADATA` (the guard's own
+  401 behaviour is covered by `forwarded-user.guard.spec.ts`) and the 400
+  as `ProfileQuerySchema` rejecting `days=0` (pipe wiring is enforced for
+  every route by `download.controller.validation.test.ts`).
+- **D1 spans two commits**: `f75daaf0` (gates + 012 updates + C1 checkbox)
+  and the follow-up docs commit carrying this report and D1's own
+  checkbox — a commit cannot contain its own hash.
+- Per-task plan-doc checkbox edits ride in the *next* task's commit for
+  the same reason.
+
+### 4. Human checkpoints — still outstanding
+
+1. Live 401/403/200 verification against a running container (plan 012's
+   manual-verification list).
+2. Merging/pushing `jeremy/download`.
+
+### 5. Open questions
+
+None. Reality matched the Context Pack everywhere it was checked
+(`buildJobWhere` casing, DTO/pipe convention, sync `DbService.db`,
+sparse-aggregate conventions).
