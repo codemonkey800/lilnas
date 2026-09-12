@@ -25,6 +25,7 @@ import { DownloadService } from 'src/download/download.service'
 import { DownloadMetricsService } from 'src/download/download-metrics.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { JobQueryService } from 'src/download/job-query.service'
+import { ProfileService } from 'src/download/profile.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { createFakeMediaResolver } from 'src/media/__tests__/helpers/fake-media-resolver'
 import { DiscoveryService } from 'src/media/discovery.service'
@@ -74,6 +75,7 @@ describe('DownloadController - detail-route restart fallback', () => {
         { provide: SonarrService, useValue: {} },
         { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: mediaResolver },
+        { provide: ProfileService, useValue: {} },
         // Phase 3/4: DownloadController injects ReleaseService for the
         // release and bad-file routes and ShowService for the seasons and
         // file-delete routes. Unused by this file's routes, but DI still has

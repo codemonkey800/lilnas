@@ -11,6 +11,7 @@ import {
   HistoryQuerySchema,
   ListReleasesQuerySchema,
   MediaSearchQuerySchema,
+  ProfileQuerySchema,
   ReplaceReleaseInputSchema,
   RequestMovieInputSchema,
   RequestShowInputSchema,
@@ -29,6 +30,7 @@ import type {
   ListReleasesResponse,
   ListSeasonsResponse,
   MediaDetailResponse,
+  ProfileResponse,
   SearchMediaResponse,
   UnflagBadFileResponse,
 } from '@lilnas/utils/download/types'
@@ -77,6 +79,7 @@ import { DownloadService } from './download.service'
 import { DownloadMetricsService } from './download-metrics.service'
 import { DownloadStateService } from './download-state.service'
 import { JobQueryService } from './job-query.service'
+import { ProfileService } from './profile.service'
 
 class ActivityQueryDto extends createZodDto(ActivityQuerySchema) {}
 class CreateJobInputDto extends createZodDto(CreateDownloadJobInputSchema) {}
@@ -92,6 +95,7 @@ class GrabReleaseInputDto extends createZodDto(GrabReleaseInputSchema) {}
 class HistoryQueryDto extends createZodDto(HistoryQuerySchema) {}
 class ListReleasesQueryDto extends createZodDto(ListReleasesQuerySchema) {}
 class MediaSearchQueryDto extends createZodDto(MediaSearchQuerySchema) {}
+class ProfileQueryDto extends createZodDto(ProfileQuerySchema) {}
 class ReplaceReleaseInputDto extends createZodDto(ReplaceReleaseInputSchema) {}
 class RequestMovieInputDto extends createZodDto(RequestMovieInputSchema) {}
 class RequestShowInputDto extends createZodDto(RequestShowInputSchema) {}
@@ -134,6 +138,7 @@ export class DownloadController {
     private mediaDownloadService: MediaDownloadService,
     private mediaFileService: MediaFileService,
     private mediaResolverService: MediaResolverService,
+    private profileService: ProfileService,
     private releaseService: ReleaseService,
     private showService: ShowService,
   ) {}
@@ -350,6 +355,60 @@ export class DownloadController {
     )
 
     return projectPage(page, isAdmin)
+  }
+
+  // ForwardedUserGuard for the same reason as /history above: a caller with
+  // no forwarded identity has no "own profile" to default to, so 401 is the
+  // honest answer. The self-or-admin split is a deliberate copy of
+  // getHistory()'s - the 403 here is what satisfies plan 012's
+  // attribution-oracle guard (see ProfileService for the other half).
+  @Get('/profile')
+  @UseGuards(ForwardedUserGuard)
+  async getProfile(
+    @Query(new ZodValidationPipe(ProfileQueryDto)) query: ProfileQueryDto,
+    @CurrentUser() user: ForwardedUser,
+  ): Promise<ProfileResponse> {
+    const action = 'getProfile'
+    const startTime = Date.now()
+
+    const isSelfScope =
+      !query.requester ||
+      query.requester.toLowerCase() === user.email.toLowerCase()
+
+    if (!isSelfScope && !(await this.resolveIsAdmin(user))) {
+      this.logger.warn(
+        {
+          action,
+          requestedRequester: query.requester,
+          statusCode: HttpStatus.FORBIDDEN,
+          viewer: user.email,
+        },
+        "GET /profile - non-admin attempted to view another user's profile",
+      )
+
+      throw new ForbiddenException(
+        "Only admins may view another user's profile",
+      )
+    }
+
+    const email = isSelfScope ? user.email : (query.requester as string)
+
+    // No projectPage(): the response carries no job objects, only counts and
+    // timestamps, so there is no attribution to mask.
+    const profile = this.profileService.getProfile({ days: query.days, email })
+
+    const duration = Date.now() - startTime
+    this.logger.log(
+      {
+        action,
+        duration,
+        scopedTo: email,
+        statusCode: HttpStatus.OK,
+      },
+      'GET /profile - computed user profile',
+    )
+
+    return profile
   }
 
   /**
