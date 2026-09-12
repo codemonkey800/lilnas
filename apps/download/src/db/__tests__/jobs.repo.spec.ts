@@ -7,6 +7,7 @@ import {
   countJobsByRequester,
   countJobsByStatus,
   countJobsByType,
+  getRequesterActivityBounds,
   listJobsPage,
 } from 'src/db/jobs.repo'
 import type { ListCursor } from 'src/db/list-cursor'
@@ -739,6 +740,129 @@ describe('countJobsByDay', () => {
     const { db, close } = createTestDb()
     try {
       expect(countJobsByDay(db, {})).toEqual([])
+    } finally {
+      close()
+    }
+  })
+})
+
+describe('getRequesterActivityBounds', () => {
+  it('returns both bounds null for a requester with no jobs', () => {
+    const { db, close } = createTestDb()
+    try {
+      const result = getRequesterActivityBounds(db, 'nobody@example.com')
+
+      expect(result).toEqual({
+        firstCreatedAtMs: null,
+        lastCreatedAtMs: null,
+      })
+    } finally {
+      close()
+    }
+  })
+
+  it('returns the min and max createdAt across multiple jobs', () => {
+    const { db, close } = createTestDb()
+    try {
+      for (const offset of [5_000, 0, 10_000]) {
+        seedJob(db, {
+          createdAt: new Date(T0 + offset),
+          id: `alice-${offset}`,
+          origin: 'web',
+          requesterEmail: 'alice@example.com',
+          requesterUserId: 'u1',
+        })
+      }
+
+      const result = getRequesterActivityBounds(db, 'alice@example.com')
+
+      expect(result).toEqual({
+        firstCreatedAtMs: T0,
+        lastCreatedAtMs: T0 + 10_000,
+      })
+    } finally {
+      close()
+    }
+  })
+
+  it('matches the email case-insensitively', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: new Date(T0),
+        id: 'alice-1',
+        origin: 'web',
+        requesterEmail: 'Alice@Example.com',
+        requesterUserId: 'u1',
+      })
+
+      const result = getRequesterActivityBounds(db, 'ALICE@example.COM')
+
+      expect(result).toEqual({
+        firstCreatedAtMs: T0,
+        lastCreatedAtMs: T0,
+      })
+    } finally {
+      close()
+    }
+  })
+
+  it("never counts another requester's jobs", () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: new Date(T0),
+        id: 'alice-1',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u1',
+      })
+      seedJob(db, {
+        createdAt: new Date(T0 + 60_000),
+        id: 'bob-1',
+        origin: 'web',
+        requesterEmail: 'bob@example.com',
+        requesterUserId: 'u2',
+      })
+
+      const result = getRequesterActivityBounds(db, 'alice@example.com')
+
+      expect(result).toEqual({
+        firstCreatedAtMs: T0,
+        lastCreatedAtMs: T0,
+      })
+    } finally {
+      close()
+    }
+  })
+
+  it('includes hidden videos in the bounds', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: new Date(T0),
+        id: 'alice-visible',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u1',
+        type: 'video',
+      })
+      seedJob(db, {
+        createdAt: new Date(T0 + 60_000),
+        hiddenAttribution: true,
+        id: 'alice-hidden',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u1',
+        type: 'video',
+      })
+
+      const result = getRequesterActivityBounds(db, 'alice@example.com')
+
+      expect(result).toEqual({
+        firstCreatedAtMs: T0,
+        lastCreatedAtMs: T0 + 60_000,
+      })
     } finally {
       close()
     }

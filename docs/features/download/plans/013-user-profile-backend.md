@@ -163,7 +163,7 @@ table.
 
 ### Group A — Contracts & persistence
 
-- [ ] **A1. Wire contract in `packages/utils`.** Edit
+- [x] **A1. Wire contract in `packages/utils`.** `fedebc7a` Edit
       `packages/utils/src/download/schema.ts` and `types.ts`:
 
   ```ts
