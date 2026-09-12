@@ -215,7 +215,7 @@ table.
 
 ### Group B — Service
 
-- [ ] **B1. `ProfileService`.** Create
+- [x] **B1. `ProfileService`.** `52a4dfa9` Create
       `apps/download/src/download/profile.service.ts` +
       `__tests__/profile.service.test.ts`; register the provider in
       `DownloadModule` (`download.module.ts` providers array — no export

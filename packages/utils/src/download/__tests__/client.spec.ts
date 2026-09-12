@@ -358,6 +358,55 @@ describe('DownloadClient', () => {
       )
     })
 
+    it('getProfile issues a GET to /download/profile with the query serialized', async () => {
+      const profile = {
+        user: { email: 'alice@example.com' },
+        firstDownloadAt: null,
+        lastDownloadAt: null,
+        jobsPerDay: [],
+        totalsByStatus: [],
+        totalsByType: [],
+        windowDays: 7,
+      }
+      const fetchSpy = mockFetchJson(profile)
+
+      await expect(
+        client.getProfile({ days: 7, requester: 'alice@example.com' }),
+      ).resolves.toEqual(profile)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/profile?days=7&requester=alice%40example.com',
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    it('getProfile omits the query string entirely when unfiltered', async () => {
+      const fetchSpy = mockFetchJson({})
+
+      await client.getProfile()
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/profile',
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    // No client-side identity check: the 403/401 for a non-admin or
+    // unidentified caller is the shared DownloadApiError path, nothing special.
+    it('getProfile surfaces a self-or-admin rejection as a DownloadApiError', async () => {
+      mockFetchError({
+        json: () => Promise.resolve({ message: 'Forbidden' }),
+        status: 403,
+        statusText: 'Forbidden',
+      })
+
+      await expect(
+        client.getProfile({ requester: 'bob@example.com' }),
+      ).rejects.toMatchObject({
+        name: 'DownloadApiError',
+        status: 403,
+      })
+    })
+
     it('getDiscover issues a GET to /download/discover', async () => {
       const fetchSpy = mockFetchJson({
         degradedSources: [],
