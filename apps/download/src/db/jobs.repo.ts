@@ -434,3 +434,42 @@ export function countJobsByDay(db: Db, filter: JobListFilter): DailyJobCount[] {
     .orderBy(asc(day))
     .all() as DailyJobCount[]
 }
+
+export interface RequesterActivityBounds {
+  firstCreatedAtMs: number | null
+  lastCreatedAtMs: number | null
+}
+
+/**
+ * The `created_at` extremes of one requester's jobs - the profile page's
+ * first/last download timestamps. Epoch **milliseconds** (raw `min`/`max`
+ * over a `timestamp_ms` column bypasses the `Date` mapper), or both `null`
+ * for a requester with no jobs: SQLite's `min`/`max` over an empty set
+ * yields one row of NULLs, which is mapped here rather than surfaced as a
+ * zero-row result.
+ *
+ * The email match goes through the shared `buildJobWhere()`, so it stays
+ * case-insensitive the same way every other requester filter is. Hidden
+ * videos are deliberately included - see `ProfileService` for why the
+ * profile route never applies `excludeHiddenVideos`.
+ */
+export function getRequesterActivityBounds(
+  db: Db,
+  requesterEmail: string,
+): RequesterActivityBounds {
+  const whereClause = buildJobWhere({ requesterEmail })
+
+  const row = db
+    .select({
+      firstCreatedAtMs: sql<number | null>`min(${jobs.createdAt})`,
+      lastCreatedAtMs: sql<number | null>`max(${jobs.createdAt})`,
+    })
+    .from(jobs)
+    .where(whereClause)
+    .get()
+
+  return {
+    firstCreatedAtMs: row?.firstCreatedAtMs ?? null,
+    lastCreatedAtMs: row?.lastCreatedAtMs ?? null,
+  }
+}
