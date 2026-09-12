@@ -94,7 +94,18 @@ Visible to everyone: all downloads currently in progress, across all users, in r
 ## 11. Admin Dashboard
 Admin-only:
 - System-wide insights/metrics on download activity.
-- The Downloads Activity Page (§10) in its enriched form — true attribution always visible, including videos toggled anonymous for everyone else.
-- Per-user download history.
+- **Full download history:** every download that has ever happened, across every user, in every status — the whole job lifecycle (queued, downloading, paused, converting, importing, cleaning, cancelling, completed, failed, cancelled). This is the admin's own view, not §10 reused — §10 stays in-progress-only; this is the complete record. True attribution always visible, including videos toggled anonymous for everyone else.
+- Per-user download history is a filter on that full view — scope it down to one user — not a separate capability.
 - Aggregate stats (most active downloaders, usage trends, etc.).
 - **Audit log:** full trail of user interactions with the download system, extensible to future services calling into the download API.
+
+## 12. User Profile Page
+
+Clicking a user's avatar or name anywhere in the app opens that user's profile page. Today every identity render is a dead pixel — this section makes them lead somewhere.
+
+**A computed view, not a stored entity.** There is no `users` table anywhere in this system: identity is the forwarded `email`/`userId` pair from Traefik's ForwardAuth headers, and every "who" fact — including §11's leaderboard — is derived at query time from the `jobs` table's requester columns. The profile page is therefore a computed view over the job log. There is no profile record to fetch by id, no `UsersService`, nothing to edit or delete — and a profile for an email with no jobs is simply empty, not a 404, because there's no entity to be missing.
+
+- **What it shows:** an identity header (avatar, email), per-user aggregate stats computed from `jobs` (lifetime totals by media type and by status, a downloads-per-day trend, first/last download timestamps), and that user's download history. The history is the **same mechanism §11 already defines** — `GET /history` scoped to one requester — embedded here, not a new history capability.
+- **Who can open whose:** your own profile, always; **another user's profile requires admin** — the exact self-or-admin split `GET /history` already enforces (self-scope always allowed, another requester needs admin, else 403). Regular users do _not_ get a stripped-down "public profile" of others: the page's defining content is data the system already classifies as self-or-admin, and a public variant would duplicate what §7's uploader filter already provides (with the attribution-oracle guard) while adding a new oracle surface every future aggregate would have to defend. "What did this person download?" for a regular user remains the gallery, filtered by uploader.
+- **Click entry points:** the requester cells in §10's activity table and §11's full-history table, §11's top-downloaders leaderboard rows, attribution avatars on gallery cards and detail pages, and the "Your account" avatar button in every page's app bar (→ own profile, always). A link renders only where the viewer is allowed through: for a regular user, only their own identity links — everyone else's avatar stays exactly as it looks today, just non-interactive — so the UI never offers a navigation the API would 403.
+- **Hidden attribution never links.** A masked requester (dashed avatar, "hidden") has no identity to link to for the viewer it's masked from. Admins see true attribution inline everywhere (§10), so the same row is a real, linkable identity for them — consistent with the Core Concepts attribution model.
