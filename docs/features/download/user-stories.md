@@ -92,11 +92,21 @@ Granular breakdown of [`spec.md`](spec.md), one story per atomic capability. Gro
 
 ## 11. Admin Dashboard
 63. As an admin, I want system-wide insights/metrics on download activity, so I can understand overall usage.
-64. As an admin, I want per-user download history, so I can see what a specific person has downloaded.
-65. As an admin, I want aggregate stats like top downloaders, so I can spot usage patterns.
-66. As an admin, I want a full audit log of user interactions with the download system, so I can investigate issues after the fact.
-67. As an admin, I want future services calling the download API to also land in that audit log, so the trail stays complete as the system grows.
+64. As an admin, I want to see every download across every user regardless of status — not just what's in progress — so I have a complete record, not just a live view.
+65. As an admin, I want to filter that full history down to a single user, so I can see what a specific person has downloaded.
+66. As an admin, I want aggregate stats like top downloaders, so I can spot usage patterns.
+67. As an admin, I want a full audit log of user interactions with the download system, so I can investigate issues after the fact.
+68. As an admin, I want future services calling the download API to also land in that audit log, so the trail stays complete as the system grows.
+
+## 12. User Profile Page
+
+69. As a user, I want clicking my avatar or name anywhere in the app to open my profile page, so identity marks lead somewhere instead of being dead pixels.
+70. As a user, I want my profile to show my download history and aggregate stats (totals by type and status, activity trend, first/last download), so I can see my own footprint in one place.
+71. As a user, I want the "Your account" button in the app bar to open my own profile, so the button that already exists actually goes somewhere.
+72. As an admin, I want to click any visible requester — activity rows, history rows, leaderboard entries, gallery attribution — to open that user's profile, so I can pivot from a row to the person behind it.
+73. As a regular user, I want other users' avatars to stay non-interactive for me, so the UI never offers a page the API would 403.
+74. As a user, I want a masked "hidden" attribution to never link to a profile, so the hide toggle can't be undone by a click.
 
 ---
 
-67 stories across 14 groups.
+74 stories across 15 groups.
