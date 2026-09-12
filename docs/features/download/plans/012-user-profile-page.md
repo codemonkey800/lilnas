@@ -235,7 +235,8 @@ pipeline (`designs/src/`):
       task C1)
 - [x] **T4 (B4)** — `DownloadClient.getProfile()`. Depends on T1.
       `1a50e6c1` (via plan 013 task C2)
-- [ ] **T5 (F1)** — `profile.pug` + `profile.mjs`; both viewer variants.
+- [x] **T5 (F1)** — `profile.pug` + `profile.mjs`; both viewer variants.
+      `6c1d15d`
 - [ ] **T6 (F1)** — link wiring: `avatar` mixin link mode, admin-dashboard
       `+requester`/`lbRow`, activity requester cells, all five "Your
       account" buttons. Depends on T5 (the links need a page to point at).
