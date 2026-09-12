@@ -30,7 +30,7 @@ mixin item(entry, opts)
         +mchip(entry.icon, `${entry.kind} · ${entry.meta}`)(class='font-mono text-mono-sm text-ink-3')
     +gcardRow()(class='mt-auto')
       +gcardAttrib
-        +avatar(entry.who || '–', { hidden: !entry.who })
+        +avatar(entry.who || '–', { hidden: !entry.who, href: entry.who === 'JA' ? 'profile.html' : undefined })
         span(class='font-mono text-mono-sm text-ink-4')= entry.when
       if entry.watch
         +btn({ label: 'Watch', variant: 'ghost' })(class='h-6 px-2 text-[11.5px]')
@@ -142,8 +142,7 @@ block content
                 +dot('live')
                 | 2
               +btn({ variant: 'ghost', icon: 'search' })(class='h-[30px] w-[30px] p-0' aria-label='Search')
-              +btn({ variant: 'ghost' })(class='h-8 w-8 p-0' aria-label='Your account')
-                +avatar('JA', { ring: true })
+              +accountLink('JA')
           +appBody('mobile')
             +controls('mobile', { open: open })
             div(class='relative')

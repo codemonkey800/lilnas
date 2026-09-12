@@ -36,7 +36,7 @@ mixin movieHeader(view, opts)
           +castPerson(person[0], person[1])
     if opts.attribution
       div(class='mb-4 flex items-center gap-2')
-        +avatar('JA')(class='h-5 w-5 text-[9px]')
+        +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
         span(class='font-mono text-mono-sm text-ink-4') Jeremy · 12m ago
     div(class='mb-7 flex flex-col gap-2')
       +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye', full: true })
@@ -56,7 +56,7 @@ mixin movieHeader(view, opts)
               +castPerson(person[0], person[1])
         if opts.attribution
           div(class='flex items-center gap-2')
-            +avatar('JA')(class='h-5 w-5 text-[9px]')
+            +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
             span(class='font-mono text-mono-sm text-ink-4') Jeremy · 12m ago
         div(class='mt-1 flex items-center gap-2.5')
           +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye' })

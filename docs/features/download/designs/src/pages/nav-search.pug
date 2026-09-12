@@ -81,8 +81,7 @@ block content
                 +dot('live')
                 | 2
               +btn({ variant: 'ghost', icon: 'search' })(class='h-[30px] w-[30px] p-0' aria-label='Search')
-              +btn({ variant: 'ghost' })(class='h-8 w-8 p-0' aria-label='Your account')
-                +avatar('JA', { ring: true })
+              +accountLink('JA')
           +appBody('mobile')
             p(class='text-sm text-ink-3')
               | The doorplate, live status, and account all need the row — the field loses that fight, so it's

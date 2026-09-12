@@ -139,6 +139,19 @@ mixin navsearch(opts)
     block
 
 //-
+  The "Your account" entry point — always your own profile, never someone
+  else's, so it's the one avatar in the app that's always safe to link. A
+  real `<a>` rather than the `<button>` this used to be: it navigates, so it
+  isn't a button.
+mixin accountLink(initials)
+  a(
+    class='flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-3 transition-colors duration-200 ease-uv hover:bg-surface-2 hover:text-ink'
+    href='profile.html'
+    aria-label='Your account'
+  )&attributes(attributes)
+    +avatar(initials || 'JA', { ring: true })
+
+//-
   The whole top bar as it appears on a normal screen: doorplate, search, you.
   Desktop keeps the search field inline; mobile collapses it to an icon,
   because 390px doesn't have room for both it and the doorplate.
@@ -154,8 +167,7 @@ mixin navBar(view, opts)
         +doorplate('Download')(href='https://lilnas.io')
       span(class='flex shrink-0 items-center gap-1.5')
         +btn({ variant: 'ghost', icon: 'search' })(class='h-[30px] w-[30px] p-0' aria-label='Search')
-        +btn({ variant: 'ghost' })(class='h-8 w-8 p-0' aria-label='Your account')
-          +avatar(opts.initials || 'JA', { ring: true })
+        +accountLink(opts.initials)
     else
       div(class='flex min-w-0 flex-1 items-center gap-[14px]')
         if opts.back
@@ -164,7 +176,7 @@ mixin navBar(view, opts)
         +doorplate('Download')(href='https://lilnas.io')
         +navsearch({ placeholder: opts.placeholder, value: opts.value, tall: opts.tall })
       span(class='flex shrink-0 items-center gap-2.5')
-        +avatar(opts.initials || 'JA', { ring: true })(
+        +avatar(opts.initials || 'JA', { ring: true, href: 'profile.html' })(
           class='h-[30px] w-[30px] text-[11.5px]'
           title=opts.who || 'Jeremy · you'
         )

@@ -16,11 +16,14 @@ mixin rowArt(row)
     if row.icon === 'play'
       +icon('play')(class='relative z-1 h-[14px] w-[14px] text-ink-3')
 
-//- Who asked for it. The eye-slash means "this row is hidden from everyone
-    else" — it marks the privilege, not the person.
+//-
+  Who asked for it. The eye-slash means "this row is hidden from everyone
+  else" — it marks the privilege, not the person. Always linkable: this
+  whole page is admin-only, so every requester on it is someone the viewer
+  is allowed to open.
 mixin requester(row, size)
-  +avatar(row.who[0], { ring: row.you })&attributes(attributes)
-  span(class='font-mono text-mono-sm text-ink-3')= row.who[1]
+  +avatar(row.who[0], { ring: row.you, href: 'profile.html' })&attributes(attributes)
+  a(class='font-mono text-mono-sm text-ink-3 hover:text-ink hover:underline' href='profile.html')= row.who[1]
   if row.hiddenFromOthers
     span(class='inline-flex shrink-0 text-ink-4' title='Hidden from other users')
       +icon('eye-slash')(class='h-3 w-3')
@@ -50,12 +53,13 @@ mixin statTile(stat, mobile)
       +bar(stat.bar)(class='mt-px')
     span(class='font-mono text-mono-sm text-ink-4')= mobile ? stat.footMobile : stat.foot
 
-//- One line of the leaderboard.
+//- One line of the leaderboard. Linkable for the same reason `requester` is
+    — the whole page is admin-only.
 mixin lbRow(entry)
   div(class='flex items-center gap-3 px-1 py-2.5 [&+&]:border-t [&+&]:border-line-soft')
     span(class='w-4 shrink-0 text-center font-mono text-mono-sm text-ink-4')= entry.rank
-    +avatar(entry[0], { ring: entry[3] })
-    span(class='flex-1 text-sm')= entry[1]
+    +avatar(entry[0], { ring: entry[3], href: 'profile.html' })
+    a(class='flex-1 text-sm hover:text-ink hover:underline' href='profile.html')= entry[1]
     span(class=['font-mono text-mono tabular-nums', entry[3] ? 'text-uv-hi' : 'text-ink-3'])= entry[2]
 
 block content
@@ -80,7 +84,7 @@ block content
             +chip({ tone: 'ok' })
               +dot('live')
               | 2 running
-            +avatar('JA', { ring: true })(class='h-[30px] w-[30px] text-[11.5px]' title='Jeremy · you')
+            +avatar('JA', { ring: true, href: 'profile.html' })(class='h-[30px] w-[30px] text-[11.5px]' title='Jeremy · you')
         +appBody('desktop')
           div(class='mx-auto max-w-[1080px]')
             p(class='mb-5 text-[22px] leading-[1.25] font-[650] tracking-[-0.015em]') Admin dashboard
@@ -155,8 +159,7 @@ block content
           span(class='flex shrink-0 items-center gap-1.5')
             +chip({ label: 'admin', tone: 'uv' })
             +btn({ variant: 'ghost', icon: 'search' })(class='h-[30px] w-[30px] p-0' aria-label='Search')
-            +btn({ variant: 'ghost' })(class='h-8 w-8 p-0' aria-label='Your account')
-              +avatar('JA', { ring: true })
+            +accountLink('JA')
         +appBody('mobile')
           p(class='mb-4 text-[20px] leading-[1.25] font-[650] tracking-[-0.015em]') Admin dashboard
 
