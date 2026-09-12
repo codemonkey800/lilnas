@@ -673,6 +673,21 @@ export const AdminStatsQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(365).default(30),
 })
 
+/**
+ * `GET /download/profile`. `days` windows only the per-day trend
+ * (`jobsPerDay`) - totals and first/last timestamps are all-time - and
+ * copies `AdminStatsQuerySchema`'s bounds and default for the same reasons:
+ * `z.coerce` because a query param is always a string on the wire, 365 to
+ * bound the per-day grouping, 30 as the page's default window.
+ *
+ * `requester` targets another user's profile; omitting it means "my own".
+ * Access is self-or-admin, enforced server-side.
+ */
+export const ProfileQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(365).default(30),
+  requester: z.string().min(1).optional(),
+})
+
 // ---- yt-dlp updater ----
 
 /**

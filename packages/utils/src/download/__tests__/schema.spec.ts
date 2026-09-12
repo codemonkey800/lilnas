@@ -22,6 +22,7 @@ import {
   ListReleasesQuerySchema,
   MediaSchema,
   MovieSchema,
+  ProfileQuerySchema,
   ReleaseSchema,
   ReplaceReleaseInputSchema,
   RequestShowInputSchema,
@@ -1228,5 +1229,31 @@ describe('AdminStatsQuerySchema', () => {
 
   it.each(['0', '-1', '366', '1.5', 'abc'])('rejects days %s', days => {
     expect(AdminStatsQuerySchema.safeParse({ days }).success).toBe(false)
+  })
+})
+
+describe('ProfileQuerySchema', () => {
+  it('defaults days to 30 and leaves requester undefined when omitted', () => {
+    expect(ProfileQuerySchema.parse({})).toEqual({ days: 30 })
+  })
+
+  // Query param, so it always arrives as a string even though it reads as a
+  // number.
+  it('coerces a numeric string', () => {
+    expect(ProfileQuerySchema.parse({ days: '14' }).days).toBe(14)
+  })
+
+  it.each(['0', '366'])('rejects days %s', days => {
+    expect(ProfileQuerySchema.safeParse({ days }).success).toBe(false)
+  })
+
+  it('accepts a requester email', () => {
+    expect(
+      ProfileQuerySchema.parse({ requester: 'user@example.com' }).requester,
+    ).toBe('user@example.com')
+  })
+
+  it('rejects an empty requester', () => {
+    expect(ProfileQuerySchema.safeParse({ requester: '' }).success).toBe(false)
   })
 })

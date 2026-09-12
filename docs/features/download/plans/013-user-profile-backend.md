@@ -150,7 +150,7 @@ table.
 
 ### Group S — Setup
 
-- [ ] **S0. Commit the pending §12 docs.** The spec/stories/plan edits for
+- [x] **S0. Commit the pending §12 docs.** `7b4c2a0` The spec/stories/plan edits for
       this feature are sitting uncommitted in the worktree. Commit exactly
       these four files as one docs commit (e.g.
       `docs(download): spec §12 user profile page + plans 012/013`):
