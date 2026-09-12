@@ -31,6 +31,7 @@ import {
   MediaSchema,
   MediaSearchQuerySchema,
   MovieSchema,
+  ProfileQuerySchema,
   ReleaseProtocolSchema,
   ReleaseQualitySchema,
   ReleaseSchema,
@@ -427,6 +428,37 @@ export interface AdminStatsResponse {
   totalsByStatus: Array<{ count: number; status: DownloadJobStatus }>
   totalsByType: Array<{ count: number; type: DownloadType }>
   totalJobs: number
+  windowDays: number
+}
+
+export type ProfileQuery = z.infer<typeof ProfileQuerySchema>
+
+/**
+ * `GET /download/profile`. A computed view over the `jobs` table - there is
+ * no `users` table, so an email with no jobs yields an empty profile (nulls
+ * and empty arrays), never a 404. Aggregates follow `AdminStatsResponse`'s
+ * sparse convention: a row that never occurred is absent, not a zero. There
+ * is no `totalJobs` field - sum `totalsByType` if you need one.
+ *
+ * Only `jobsPerDay` is windowed by the query's `days`; totals and the
+ * first/last timestamps are all-time. `windowDays` echoes the window that
+ * was actually applied.
+ */
+export interface ProfileResponse {
+  /** The resolved target - the caller, or the admin-requested `requester` - echoed verbatim. */
+  user: { email: string }
+  /** ISO-8601; `null` when the user has no jobs. */
+  firstDownloadAt: string | null
+  /** ISO-8601; `null` when the user has no jobs. */
+  lastDownloadAt: string | null
+  jobsPerDay: Array<{
+    count: number
+    /** `YYYY-MM-DD`, bucketed in UTC to match the query's day boundaries. */
+    day: string
+    type: DownloadType
+  }>
+  totalsByStatus: Array<{ count: number; status: DownloadJobStatus }>
+  totalsByType: Array<{ count: number; type: DownloadType }>
   windowDays: number
 }
 
