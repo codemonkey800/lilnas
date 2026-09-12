@@ -226,13 +226,15 @@ pipeline (`designs/src/`):
 
 ## Tasks
 
-- [ ] **T1 (B1)** — `DownloadProfileResponse` + query DTO in
-      `packages/utils`.
-- [ ] **T2 (B2)** — min/max-`createdAt` repo helper + `ProfileService`;
-      unit tests.
-- [ ] **T3 (B3)** — `GET /profile` controller route with the self-or-admin
-      guard; guard-split tests. Depends on T1, T2.
-- [ ] **T4 (B4)** — `DownloadClient.getProfile()`. Depends on T1.
+- [x] **T1 (B1)** — `DownloadProfileResponse` + query DTO in
+      `packages/utils`. `fedebc7a` (via plan 013 task A1)
+- [x] **T2 (B2)** — min/max-`createdAt` repo helper + `ProfileService`;
+      unit tests. `cdd593d8` + `52a4dfa9` (via plan 013 tasks A2/B1)
+- [x] **T3 (B3)** — `GET /profile` controller route with the self-or-admin
+      guard; guard-split tests. Depends on T1, T2. `5b31969a` (via plan 013
+      task C1)
+- [x] **T4 (B4)** — `DownloadClient.getProfile()`. Depends on T1.
+      `1a50e6c1` (via plan 013 task C2)
 - [ ] **T5 (F1)** — `profile.pug` + `profile.mjs`; both viewer variants.
 - [ ] **T6 (F1)** — link wiring: `avatar` mixin link mode, admin-dashboard
       `+requester`/`lbRow`, activity requester cells, all five "Your
@@ -244,6 +246,11 @@ pipeline (`designs/src/`):
 Waves: {T1, T2, T5} → {T3, T4, T6} → T7 (later). Per repo convention: each
 task runs `pnpm test`, `pnpm run lint`, `pnpm run type-check` for touched
 packages, then `/commit`.
+
+**Findings:** the wire types landed as `ProfileQuery`/`ProfileResponse`
+(not `DownloadProfileResponse` as sketched above) — plan 013 design
+decision 7, matching the unprefixed `AdminStatsQuery`/`AdminStatsResponse`/
+`WhoamiResponse` convention in the same module.
 
 ## Verification
 
