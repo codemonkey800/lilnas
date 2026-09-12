@@ -22,8 +22,7 @@ mixin topBar(view, admin)
         if admin
           +chip({ label: 'admin', tone: 'uv' })
         +btn({ variant: 'ghost', icon: 'search' })(class='h-[30px] w-[30px] p-0' aria-label='Search')
-        +btn({ variant: 'ghost' })(class='h-8 w-8 p-0' aria-label='Your account')
-          +avatar('JA', { ring: true })
+        +accountLink('JA')
     else
       div(class='flex min-w-0 flex-1 items-center gap-[14px]')
         +doorplate('Download')(href='https://lilnas.io')
@@ -31,7 +30,7 @@ mixin topBar(view, admin)
       span(class='flex shrink-0 items-center gap-2.5')
         if admin
           +chip({ label: 'admin', tone: 'uv' })
-        +avatar('JA', { ring: true })(class='h-[30px] w-[30px] text-[11.5px]' title='Jeremy · you')
+        +avatar('JA', { ring: true, href: 'profile.html' })(class='h-[30px] w-[30px] text-[11.5px]' title='Jeremy · you')
 
 //- Avatar + email + first/last download, or "no downloads yet" for an empty
     profile. `p.you` gets the "you" chip — the same fact the app bar's ring

@@ -110,19 +110,28 @@ mixin dot(tone)
     size    'xs' (18px) | 'md' (30px)   default: 24px
     ring    the uv halo that marks "this is you"
     hidden  masked attribution — dashed, no initials
+    href    renders an `<a>` instead of a `<span>` — a call site opts in per
+            the access rules (own identity always, another user's only for
+            an admin) rather than every avatar everywhere becoming a link.
+            Never pass this alongside `hidden`: a masked identity has no
+            profile to link to.
 mixin avatar(initials, opts)
   - opts = opts || {}
   -
     const sizes = { xs: 'h-[18px] w-[18px] text-[8.5px]', md: 'h-[30px] w-[30px] text-[12px]' }
-  span(
-    class=[
+    const cls = [
       'flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2',
       sizes[opts.size] || 'h-6 w-6 text-[10.5px]',
       opts.ring ? 'shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)]' : '',
       opts.hidden ? 'border-dashed text-ink-4' : '',
+      opts.href ? 'transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim hover:bg-surface-2' : '',
     ]
-  )&attributes(attributes)
-    = initials
+  if opts.href
+    a(href=opts.href class=cls)&attributes(attributes)
+      = initials
+  else
+    span(class=cls)&attributes(attributes)
+      = initials
 
 //- The default raised thing. `sunk` inverts it into a well.
 mixin card(opts)

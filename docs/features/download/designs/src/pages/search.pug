@@ -245,11 +245,10 @@ mixin searchBar(view)
         +chip({ tone: 'ok' })
           +dot('live')
           | 2
-        +btn({ variant: 'ghost' })(class='h-8 w-8 p-0' aria-label='Your account')
-          +avatar('JA', { ring: true })
+        +accountLink('JA')
     else
       span(class='flex items-center gap-2.5')
-        +avatar('JA', { ring: true })(class='h-[30px] w-[30px] text-[11.5px]' title='Jeremy · you')
+        +avatar('JA', { ring: true, href: 'profile.html' })(class='h-[30px] w-[30px] text-[11.5px]' title='Jeremy · you')
 
 //- One mocked state, framed and captioned.
 mixin state(view, label, first)
