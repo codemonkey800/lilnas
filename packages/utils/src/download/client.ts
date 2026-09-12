@@ -32,6 +32,8 @@ import {
   ListReleasesResponse,
   ListSeasonsResponse,
   MediaDetailResponse,
+  ProfileQuery,
+  ProfileResponse,
   ReplaceReleaseInput,
   RequestMovieInput,
   RequestShowInput,
@@ -439,6 +441,27 @@ export class DownloadClient {
     const response = await this.request(
       `/download/discover${toQueryString(query)}`,
     )
+    return response.json()
+  }
+
+  /**
+   * One user's profile aggregates - identity header plus totals, activity
+   * trend, and first/last download timestamps. Pair with `getHistory()` for
+   * the same user's job list; this response carries no job objects.
+   *
+   * Self-or-admin server-side: omitting `requester` (or naming the caller's
+   * own email) is always allowed, anyone else's requires admin. Nothing is
+   * checked here on purpose - a non-admin asking for another user, or a
+   * caller that never went through `withForwardedIdentity()`, gets the
+   * 403/401 back as a `DownloadApiError`, exactly like any other failure.
+   */
+  async getProfile(
+    query: Partial<ProfileQuery> = {},
+  ): Promise<ProfileResponse> {
+    const response = await this.request(
+      `/download/profile${toQueryString(query)}`,
+    )
+
     return response.json()
   }
 
