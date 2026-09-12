@@ -244,7 +244,7 @@ table.
 
 ### Group C — HTTP & client
 
-- [ ] **C1. `GET /profile` controller route.** Edit
+- [x] **C1. `GET /profile` controller route.** `5b31969a` Edit
       `apps/download/src/download/download.controller.ts`: add
       `class ProfileQueryDto extends createZodDto(ProfileQuerySchema) {}`
       beside the others, inject `ProfileService`, and add the handler next
