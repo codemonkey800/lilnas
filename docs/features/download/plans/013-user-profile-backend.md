@@ -193,7 +193,7 @@ table.
   defaults to 30, rejects 0 and 366, coerces `"14"`; `requester` optional,
   rejects empty string.
 
-- [ ] **A2. Activity-bounds repo helper.** Edit
+- [x] **A2. Activity-bounds repo helper.** `cdd593d8` Edit
       `apps/download/src/db/jobs.repo.ts`:
 
   ```ts
