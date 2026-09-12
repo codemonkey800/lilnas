@@ -266,7 +266,7 @@ table.
       is never called); 200 other-user as admin; 200 empty profile for an
       unknown email as admin; 400 on `days=0`.
 
-- [ ] **C2. `DownloadClient.getProfile()`.** Edit
+- [x] **C2. `DownloadClient.getProfile()`.** `1a50e6c1` Edit
       `packages/utils/src/download/client.ts`:
 
   ```ts

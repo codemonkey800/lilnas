@@ -33,6 +33,7 @@ import { DownloadService } from 'src/download/download.service'
 import { DownloadMetricsService } from 'src/download/download-metrics.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { JobQueryService } from 'src/download/job-query.service'
+import { ProfileService } from 'src/download/profile.service'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
@@ -106,6 +107,7 @@ describe('DownloadController - media endpoints', () => {
         { provide: MediaDownloadService, useValue: mockMediaDownloadService },
         { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: mediaResolver },
+        { provide: ProfileService, useValue: {} },
         { provide: ReleaseService, useValue: mockReleaseService },
         { provide: ShowService, useValue: mockShowService },
       ],
