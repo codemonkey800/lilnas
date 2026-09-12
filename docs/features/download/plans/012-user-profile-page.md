@@ -237,9 +237,10 @@ pipeline (`designs/src/`):
       `1a50e6c1` (via plan 013 task C2)
 - [x] **T5 (F1)** — `profile.pug` + `profile.mjs`; both viewer variants.
       `6c1d15d`
-- [ ] **T6 (F1)** — link wiring: `avatar` mixin link mode, admin-dashboard
+- [x] **T6 (F1)** — link wiring: `avatar` mixin link mode, admin-dashboard
       `+requester`/`lbRow`, activity requester cells, all five "Your
       account" buttons. Depends on T5 (the links need a page to point at).
+      `b6889ef`
 - [ ] **T7 (F2)** — Next.js `/users/[email]` route — **deferred to the
       frontend rebuild**; tracked here so the rebuild has a spec to build
       against, not scheduled by this plan.
@@ -252,6 +253,30 @@ packages, then `/commit`.
 (not `DownloadProfileResponse` as sketched above) — plan 013 design
 decision 7, matching the unprefixed `AdminStatsQuery`/`AdminStatsResponse`/
 `WhoamiResponse` convention in the same module.
+
+**Findings (T6):** T6 landed alongside another session's not-yet-committed
+rework of several of the same mockup files (`video-detail.pug`,
+`admin-dashboard.pug`, `gallery.pug`, `search.pug`, and others), so the
+commit is hunk- and line-level scoped to just the identity-link changes,
+leaving that other work uncommitted for its own session to land. Two
+consequences worth flagging rather than silently working around:
+
+- `video-detail.pug`'s two "completed, playing in-app" duplicate frames
+  (desktop and mobile) sit entirely inside that other session's
+  not-yet-committed restructuring of the page — brand-new content with no
+  committed prior version to diff against — so the attribution avatar in
+  those two frames doesn't have its `href` yet. It'll pick one up
+  automatically once that restructuring is committed and rebuilt from a
+  tree that already has `b6889ef`'s `avatar` mixin change; a manual
+  touch-up first is also fine if that lands first.
+- The built `*.html` regeneration for every T6-touched page is left
+  uncommitted. The mockup builder compiles one shared Tailwind stylesheet
+  across every page in the project at once, so rebuilding right now would
+  also bake in the other session's pending, uncommitted markup changes
+  into files this commit doesn't otherwise touch. `profile.html` from T5
+  is unaffected (it predates T6's edits). Run `pnpm mockups` once all
+  pending mockup work across sessions is committed to get a clean,
+  fully-attributable regeneration of the rest.
 
 ## Verification
 
