@@ -14,11 +14,13 @@
  * state, never a 404, because there's no `users` table row to be missing.
  *
  * Plus, per §12's last four bullets / user stories 75–79 (plan 012's B5/F3,
- * added after the states above shipped): two more self-view frames layered
- * on the same SELF_HISTORY rows via `filterHistory()` — chips active with a
- * real match (multi-select within a group, AND across groups) and chips
- * active with zero matches, which reads as "no downloads match these
- * filters", not the zero-jobs-ever empty profile above.
+ * added after the states above shipped): three more self-view frames
+ * layered on the same SELF_HISTORY rows via `filterHistory()`, telling the
+ * filter interaction as a sequence rather than jumping straight to the end
+ * state — one chip clicked (single dimension), a second chip plus a status
+ * added (multi-select within a group, AND across groups), and a
+ * combination that matches zero rows, which reads as "no downloads match
+ * these filters", not the zero-jobs-ever empty profile above.
  *
  * History rows reuse titles/art already attributed to the same person on
  * other mockups (downloads-activity.mjs, admin-dashboard.mjs, gallery.mjs)
@@ -178,7 +180,7 @@ const SELF_HISTORY = [
 export default {
   PROFILES: [
     {
-      label: 'Self view — you, viewing your own profile',
+      label: 'Self view — no filters (start here)',
       you: true,
       admin: false,
       initials: 'JA',
@@ -193,14 +195,35 @@ export default {
       history: SELF_HISTORY,
     },
     {
-      // Spec §12's last four bullets / user stories 75–79: `video`+`show`
-      // both active in the type group (multi-select, OR within the group)
-      // combined with `completed` in the status group (AND across groups) —
-      // narrows SELF_HISTORY's four rows down to the two that satisfy both.
+      // The flow's first step: one click, one chip, one dimension. Real
+      // filter chips are interactive (`chip`'s `interactive` opt) — this is
+      // what the page looks like right after clicking "video · 41", before
+      // any second chip narrows it further. Narrows SELF_HISTORY's four
+      // rows to the two that are actually `video`.
+      label: "Self view — clicked 'video' (single chip, one dimension)",
+      you: true,
+      admin: false,
+      initials: 'JA',
+      email: 'jeremy@lilnas.io',
+      firstDownloadAt: 'Jun 14, 2025',
+      lastDownloadAt: '2m ago',
+      totalsByType: SELF_TOTALS_BY_TYPE,
+      totalsByStatus: SELF_TOTALS_BY_STATUS,
+      total: sum(SELF_TOTALS_BY_TYPE),
+      windowDays: 30,
+      trend: trend(30, i => SELF_SPIKES[i] ?? 0),
+      activeTypes: ['video'],
+      history: filterHistory(SELF_HISTORY, { types: ['video'] }),
+    },
+    {
+      // The flow's second step: a second type chip (`show`, multi-select —
+      // OR within the group) plus a status chip (`completed`, AND across
+      // groups) — spec §12's last four bullets / user stories 75–79.
+      // Narrows SELF_HISTORY's four rows down to the two that satisfy both.
       // Chip counts stay SELF_TOTALS_BY_TYPE/STATUS's lifetime totals
       // unchanged; only the table below is scoped.
       label:
-        'Self view — filters applied (type: video, show · status: completed)',
+        "Self view — added 'show' + status 'completed' (multi-select, AND across groups)",
       you: true,
       admin: false,
       initials: 'JA',

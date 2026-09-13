@@ -76,7 +76,19 @@ mixin btn(opts)
 //-
   Status chip — mono, pill, tinted. `tone` is the whole point: any hue that
   isn't 300 means status (DESIGN.md rule 1).
-    tone  'uv' | 'ok' | 'warn' | 'bad' | 'mute'
+    tone         'uv' | 'ok' | 'warn' | 'bad' | 'mute'
+    active       toggle-checked look, in the spirit of `toggleChip`'s
+                 checked state — overrides `tone` so a selected filter chip
+                 always reads as "applied", regardless of what it'd
+                 otherwise be tinted (used by profile.pug's by-type/
+                 by-status filter chips).
+    interactive  renders a real `<button>` instead of an inert `<span>`,
+                 with a hover/cursor cue and `aria-pressed` mirroring
+                 `active` — every other `chip` call site is a read-only
+                 status badge, so this stays opt-in rather than the
+                 default (avoids implying every chip in the app is
+                 clickable). Same conditional-tag idiom as `avatar`'s
+                 `opts.href`.
 mixin chip(opts)
   - opts = opts || {}
   -
@@ -87,17 +99,27 @@ mixin chip(opts)
       bad: 'bg-bad-ghost text-bad border-bad/32',
       mute: 'bg-surface-2 text-ink-3 border-line',
     }
-  span(
-    class=[
+    const cls = [
       'inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap',
       opts.active ? 'border-uv/35 bg-uv-ghost text-uv-hi' : tones[opts.tone] || 'border-transparent',
+      opts.interactive
+        ? ['cursor-pointer transition-[border-color,background-color,color] duration-200 ease-uv', opts.active ? 'hover:border-uv/55' : 'hover:border-uv-dim hover:bg-surface-2']
+        : '',
     ]
-  )&attributes(attributes)
-    if opts.icon
-      +icon(opts.icon)(class='h-[11px] w-[11px]')
-    if opts.label
-      = opts.label
-    block
+  if opts.interactive
+    button(type='button' aria-pressed=(opts.active ? 'true' : 'false') class=cls)&attributes(attributes)
+      if opts.icon
+        +icon(opts.icon)(class='h-[11px] w-[11px]')
+      if opts.label
+        = opts.label
+      block
+  else
+    span(class=cls)&attributes(attributes)
+      if opts.icon
+        +icon(opts.icon)(class='h-[11px] w-[11px]')
+      if opts.label
+        = opts.label
+      block
 
 //- Status dot. `live` adds the breathing ring.
 mixin dot(tone)
