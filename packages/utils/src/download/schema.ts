@@ -336,6 +336,8 @@ export const HistoryQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: LimitSchema,
   requester: z.string().min(1).optional(),
+  status: csvEnum(DownloadJobStatus),
+  type: csvEnum(DownloadType),
 })
 
 export const DiscoverQuerySchema = z

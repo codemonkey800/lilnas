@@ -5,7 +5,7 @@ jest.mock('nanoid', () => ({
   nanoid: jest.fn(() => 'mock-id'),
 }))
 
-import { DownloadType } from '@lilnas/utils/download/types'
+import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 import { BadRequestException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
@@ -347,6 +347,120 @@ describe('JobQueryService', () => {
         'alice-failed',
       ])
       expect(page.total).toBe(2)
+    })
+
+    it('narrows by type when provided', async () => {
+      seedJob({
+        id: 'alice-video',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u1',
+        type: 'video',
+      })
+      seedJob({
+        id: 'alice-movie',
+        mediaId: 'tmdb:1',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u1',
+        type: 'movie',
+      })
+
+      const page = await service.listHistory({
+        isAdmin: false,
+        limit: 10,
+        requesterEmail: 'alice@example.com',
+        types: [DownloadType.Movie],
+      })
+
+      expect(page.items.map(i => i.id)).toEqual(['alice-movie'])
+    })
+
+    it('narrows by status when provided', async () => {
+      seedJob({
+        id: 'alice-completed',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u1',
+        status: 'completed',
+      })
+      seedJob({
+        id: 'alice-failed',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u1',
+        status: 'failed',
+      })
+
+      const page = await service.listHistory({
+        isAdmin: false,
+        limit: 10,
+        requesterEmail: 'alice@example.com',
+        statuses: [DownloadJobStatus.Failed],
+      })
+
+      expect(page.items.map(i => i.id)).toEqual(['alice-failed'])
+    })
+
+    it('composes type and status filters with AND', async () => {
+      seedJob({
+        id: 'alice-failed-video',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u1',
+        status: 'failed',
+        type: 'video',
+      })
+      seedJob({
+        id: 'alice-failed-movie',
+        mediaId: 'tmdb:2',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u1',
+        status: 'failed',
+        type: 'movie',
+      })
+      seedJob({
+        id: 'alice-completed-video',
+        mediaId: 'video:alice-completed-video',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u1',
+        status: 'completed',
+        type: 'video',
+      })
+
+      const page = await service.listHistory({
+        isAdmin: false,
+        limit: 10,
+        requesterEmail: 'alice@example.com',
+        statuses: [DownloadJobStatus.Failed],
+        types: [DownloadType.Video],
+      })
+
+      expect(page.items.map(i => i.id)).toEqual(['alice-failed-video'])
+    })
+
+    it('never returns another requester even when type/status filters match their jobs', async () => {
+      seedJob({
+        id: 'bob-failed-video',
+        origin: 'web',
+        requesterEmail: 'bob@example.com',
+        requesterUserId: 'u2',
+        status: 'failed',
+        type: 'video',
+      })
+
+      const page = await service.listHistory({
+        isAdmin: false,
+        limit: 10,
+        requesterEmail: 'alice@example.com',
+        statuses: [DownloadJobStatus.Failed],
+        types: [DownloadType.Video],
+      })
+
+      expect(page.items).toEqual([])
+      expect(page.total).toBe(0)
     })
   })
 

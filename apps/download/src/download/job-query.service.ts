@@ -52,6 +52,8 @@ export interface ListGalleryParams extends PageParams {
 
 export interface ListHistoryParams extends PageParams {
   requesterEmail: string
+  statuses?: readonly DownloadJobStatus[]
+  types?: readonly DownloadType[]
 }
 
 export interface GalleryFacetsParams {
@@ -90,7 +92,14 @@ export class JobQueryService {
   }
 
   listHistory(params: ListHistoryParams): Promise<DownloadPage<DownloadJob>> {
-    return this.runJobPage({ requesterEmail: params.requesterEmail }, params)
+    return this.runJobPage(
+      {
+        requesterEmail: params.requesterEmail,
+        statuses: params.statuses,
+        types: params.types,
+      },
+      params,
+    )
   }
 
   /**

@@ -339,6 +339,8 @@ export class DownloadController {
       isAdmin,
       limit: query.limit,
       requesterEmail,
+      statuses: query.status,
+      types: query.type,
     })
 
     const duration = Date.now() - startTime
