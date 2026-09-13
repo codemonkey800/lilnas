@@ -6,6 +6,7 @@ jest.mock('nanoid', () => ({
   nanoid: jest.fn(() => 'mock-id'),
 }))
 
+import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 import { ForbiddenException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
@@ -118,6 +119,63 @@ describe('DownloadController - getHistory', () => {
       limit: 24,
       requesterEmail: 'bob@example.com',
     })
+  })
+
+  it('passes a type filter through to listHistory', async () => {
+    await controller.getHistory(
+      { limit: 24, type: [DownloadType.Video] },
+      alice,
+    )
+
+    expect(jobQueryService.listHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ types: [DownloadType.Video] }),
+    )
+  })
+
+  it('passes a status filter through to listHistory', async () => {
+    await controller.getHistory(
+      { limit: 24, status: [DownloadJobStatus.Completed] },
+      alice,
+    )
+
+    expect(jobQueryService.listHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ statuses: [DownloadJobStatus.Completed] }),
+    )
+  })
+
+  it('composes type and status filters together (AND)', async () => {
+    await controller.getHistory(
+      {
+        limit: 24,
+        status: [DownloadJobStatus.Failed],
+        type: [DownloadType.Video],
+      },
+      alice,
+    )
+
+    expect(jobQueryService.listHistory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statuses: [DownloadJobStatus.Failed],
+        types: [DownloadType.Video],
+      }),
+    )
+  })
+
+  it('still enforces the self-or-admin guard when type/status filters are present', async () => {
+    adminCheckService.checkIsAdmin.mockResolvedValue(false)
+
+    await expect(
+      controller.getHistory(
+        {
+          limit: 24,
+          requester: 'bob@example.com',
+          type: [DownloadType.Video],
+        },
+        alice,
+      ),
+    ).rejects.toThrow(ForbiddenException)
+
+    expect(jobQueryService.listHistory).not.toHaveBeenCalled()
   })
 
   // Like activity, history is a per-job feed and the controller applies
