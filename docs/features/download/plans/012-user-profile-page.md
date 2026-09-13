@@ -293,13 +293,13 @@ statement):
 - [ ] **T7 (F2)** — Next.js `/users/[email]` route — **deferred to the
       frontend rebuild**; tracked here so the rebuild has a spec to build
       against, not scheduled by this plan.
-- [ ] **T8 (B5 + F3)** — filterable aggregate chips: extend
+- [x] **T8 (B5 + F3)** — filterable aggregate chips: extend
       `HistoryQuerySchema` with `type`/`status` and thread to
       `JobListFilter`; chip toggle interaction, active-chip state, and
       filtered-empty state on the profile mockup — **scope added after
       T1–T6 shipped, not scheduled by this plan**; tracked here (B5/F3)
       so a future session can pick it up without re-deriving the
-      decisions.
+      decisions. `b1818915` (B5) + `87d7134a` (F3)
 
 Waves: {T1, T2, T5} → {T3, T4, T6} → {T7, T8} (later). Per repo convention: each
 task runs `pnpm test`, `pnpm run lint`, `pnpm run type-check` for touched
@@ -333,6 +333,23 @@ consequences worth flagging rather than silently working around:
   is unaffected (it predates T6's edits). Run `pnpm mockups` once all
   pending mockup work across sessions is committed to get a clean,
   fully-attributable regeneration of the rest.
+
+**Findings (T8):** same shared-build hazard as T6, but this time it also
+caught `profile.html` itself. `lilnas mockups build download` was run and
+the result was checked by hand — the new frames, active-chip styling, and
+both empty states all render correctly (source-level verification is
+solid) — but the same command also inlines the icon sprite and one shared
+Tailwind stylesheet across every page in the project, and both had
+already drifted from HEAD due to the other session's not-yet-committed
+work (two new icon symbols in `sprite.html`, plus whatever new utility
+classes its markup changes pulled into the shared stylesheet). That
+means the freshly-built `profile.html` was not attributable to this
+task's changes alone, so — consistent with T6's precedent — it was
+reverted back to its last-committed version rather than committed
+alongside `profile.pug`/`profile.mjs`. The source changes (`profile.pug`,
+`profile.mjs`, `ui.pug`'s `chip` mixin) are committed and correct;
+`profile.html` needs a rebuild once all pending mockup work across
+sessions lands, same as the rest of the pages T6 already flagged.
 
 ## Verification
 
