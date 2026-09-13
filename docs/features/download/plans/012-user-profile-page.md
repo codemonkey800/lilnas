@@ -6,9 +6,10 @@
 > is new scope layered on top of what those phases delivered.
 
 Implements spec [`../spec.md`](../spec.md) §12 "User Profile Page" (user
-stories 69–74). Builds on Phase 0's identity primitive (`ForwardedUser`),
-Phase 1's `jobs` attribution columns, Phase 2's list/cursor machinery and
-`GET /history`, and Phase 8's `AdminCheckService`.
+stories 69–74; stories 75–79's filterable chips arrived later, as T8).
+Builds on Phase 0's identity primitive (`ForwardedUser`), Phase 1's `jobs`
+attribution columns, Phase 2's list/cursor machinery and `GET /history`,
+and Phase 8's `AdminCheckService`.
 
 ## What this delivers
 
@@ -181,6 +182,29 @@ reason `AdminStatsService` documents — a lifetime figure that silently means
   shape, aggregate scoping (user A's profile never counts user B's jobs),
   window applied to `jobsPerDay` only.
 
+### B5 — `/history` type/status filter params (scope added after T1–T6 shipped)
+
+The profile's aggregate chips (B1's `totalsByType`/`totalsByStatus`,
+rendered by T5) become toggle filters over the embedded history table —
+spec §12, user stories 75–79. Net-new scope, **not** part of what T5/T6
+delivered. The repo layer needs nothing: `JobListFilter`
+(`apps/download/src/db/jobs.repo.ts`) already carries `types`/`statuses`
+array fields ("comma-separated multi-select"), used today by the gallery
+and admin-stats paths. What's missing is the wire-in:
+
+- Extend `HistoryQuerySchema` (`packages/utils/src/download/schema.ts`) —
+  today it accepts only `cursor`/`limit`/`requester` — with optional
+  `type`/`status` comma-separated multi-select params, the exact convention
+  the other endpoints' `types`/`statuses` already follow.
+- Thread them through `DownloadController.getHistory()` →
+  `JobQueryService.listHistory()` → `JobListFilter`. Both filters active at
+  once compose with AND — that's just what `JobListFilter` already does.
+- **No new access-control or oracle surface**, stated here so it isn't
+  re-derived: this stays inside `/history`'s self-or-admin requester guard
+  (design decision 2). The `excludeHiddenVideos` masking is specific to a
+  non-admin filtering the *gallery* by another requester — a different code
+  path — and type/status filters don't interact with it.
+
 ## Frontend
 
 ### F1 — Mockup: `profile.pug` (the deliverable now)
@@ -222,6 +246,31 @@ pipeline (`designs/src/`):
   `viewer.isAdmin || identity.email === viewer.email`, and never for a
   masked attribution (there is no identity to link to).
 
+### F3 — Chips as history filters (scope added after T1–T6 shipped)
+
+The interaction side of B5, on the mockup. Behavior, settled here so
+implementation doesn't relitigate (spec §12 carries the user-facing
+statement):
+
+- Each by-type and by-status chip is a toggle, checkbox-style: click to
+  apply the filter to the embedded history table, click again to clear.
+  Multi-select within a group — the same idiom the gallery's uploaded-by
+  `toggleChip` filter uses — and AND across the two groups
+  (type=video AND status=completed).
+- Chip labels keep the all-time count regardless of the active selection,
+  per `ProfileResponse`'s totals-are-never-scoped convention — only the
+  table changes.
+- An active chip gets a distinct selected state — tonally filled/bordered
+  applied to the existing `chip` mixin (`designs/src/mixins/ui.pug`), in
+  the spirit of `afchip`/`toggleChip`'s checked look — not a new mixin, not
+  a new visual language.
+- Two empty states that read differently: zero rows for the active filter
+  combination ("no downloads match these filters" — try different filters)
+  vs. the existing zero-jobs-ever empty profile (nothing to filter yet).
+- Profile page only. The admin dashboard's history table and the activity
+  page are untouched — plausibly a future extension, not a requirement
+  here.
+
 ---
 
 ## Tasks
@@ -244,8 +293,15 @@ pipeline (`designs/src/`):
 - [ ] **T7 (F2)** — Next.js `/users/[email]` route — **deferred to the
       frontend rebuild**; tracked here so the rebuild has a spec to build
       against, not scheduled by this plan.
+- [ ] **T8 (B5 + F3)** — filterable aggregate chips: extend
+      `HistoryQuerySchema` with `type`/`status` and thread to
+      `JobListFilter`; chip toggle interaction, active-chip state, and
+      filtered-empty state on the profile mockup — **scope added after
+      T1–T6 shipped, not scheduled by this plan**; tracked here (B5/F3)
+      so a future session can pick it up without re-deriving the
+      decisions.
 
-Waves: {T1, T2, T5} → {T3, T4, T6} → T7 (later). Per repo convention: each
+Waves: {T1, T2, T5} → {T3, T4, T6} → {T7, T8} (later). Per repo convention: each
 task runs `pnpm test`, `pnpm run lint`, `pnpm run type-check` for touched
 packages, then `/commit`.
 

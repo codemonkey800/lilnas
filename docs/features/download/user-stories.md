@@ -106,7 +106,12 @@ Granular breakdown of [`spec.md`](spec.md), one story per atomic capability. Gro
 72. As an admin, I want to click any visible requester — activity rows, history rows, leaderboard entries, gallery attribution — to open that user's profile, so I can pivot from a row to the person behind it.
 73. As a regular user, I want other users' avatars to stay non-interactive for me, so the UI never offers a page the API would 403.
 74. As a user, I want a masked "hidden" attribution to never link to a profile, so the hide toggle can't be undone by a click.
+75. As a user, I want clicking a type or status chip on my profile to filter the embedded history table to that slice, so the aggregates are a way into my history, not just a readout.
+76. As a user, I want to toggle several chips at once and combine a type with a status, so I can narrow to exactly the slice I mean — like failed videos.
+77. As a user, I want an active chip to look visibly selected, so I can tell at a glance which filters are applied.
+78. As a user, I want chip counts to stay my lifetime totals while I filter, so the numbers don't shift under me as I toggle.
+79. As a user, I want a "no downloads match these filters" state when my combination matches nothing, so I know to loosen the filters rather than think my history vanished.
 
 ---
 
-74 stories across 15 groups.
+79 stories across 15 groups.
