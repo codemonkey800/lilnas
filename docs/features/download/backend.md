@@ -3,8 +3,10 @@
 **Status: complete.** Every phase below (0–8, plus the media/job split
 refactor) has landed and is verified against the code, not just self-reported
 — see the status table for the phase list and each phase's section for its
-commits. The backend now supports the full spec. What remains is out of this
-document's scope: the Next.js frontend hasn't been built against Phases 3–8
+commits. The backend supports the full spec as it stood when these phases
+shipped; one spec change since then is **not** covered — the admin full
+cross-user, any-status download history (see the known-gap note in Phase 8).
+What remains beyond that is out of this document's scope: the Next.js frontend hasn't been built against Phases 3–8
 yet (each phase is annotated "backend only" below), and a handful of
 per-phase manual/live-infra verification steps are still outstanding (see
 each phase's "Deferred" / "Manual verification" notes).
@@ -1671,6 +1673,20 @@ controller's GET routes are untouched.
   what was downloaded. The audit log is the stricter surface — behind
   `AdminGuard`, unmasked by design, meant to outlive the job row it points at
   — so it carries the URL in full. There is a code comment saying so.
+
+### ⚠️ Known gap vs. the current spec: no full cross-user history query
+
+The spec's §11 changed after this phase shipped: the admin dashboard's
+downloads view is now specced as **every download, in every status, across
+every user** — the complete job history, filterable down to one user —
+rather than a reuse of §10's in-progress feed. No current query path serves
+that. `listActivity()` (`GET /activity`,
+`apps/download/src/download/job-query.service.ts`) is pinned to
+`IN_PROGRESS_DOWNLOAD_JOB_STATUSES`, and `listHistory()` (`GET /history`)
+requires a single `requesterEmail` and returns only that user's terminal
+jobs. The new view needs a new or extended query path — flagged here so this
+document doesn't silently drift from the spec; no implementation is planned
+in this doc.
 
 ### Deferred
 
