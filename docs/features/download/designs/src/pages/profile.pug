@@ -5,9 +5,14 @@ block title
 
 //-
   Per spec.md §12: a computed view over the `jobs` table, not a stored
-  entity. There's no per-user template to diverge from, so all three states
-  below — self, an admin viewing someone else, and an empty profile — render
-  through the same markup, fed different PROFILES entries (profile.mjs).
+  entity. There's no per-user template to diverge from, so every state below
+  — self, an admin viewing someone else, an empty profile, and the
+  aggregate-chip filter states (§12's last four bullets / user stories
+  75–79) — renders through the same markup, fed different PROFILES entries
+  (profile.mjs). Filtering is demonstrated as separate static frames, not
+  live interaction, matching every other multi-state page in this pipeline
+  (gallery's filters-open/closed frames, downloads-activity's regular/admin
+  frames) — there is no client-side filtering anywhere in these mockups.
 
 //- The app bar as this page's viewer would see it: an `admin` chip when
     they're viewing someone else's or an empty profile, since only an admin
@@ -59,14 +64,19 @@ mixin lifetimeTile(total)
     span(class='font-mono text-[32px] leading-[1.1] font-semibold tracking-[-0.02em] tabular-nums')= total
 
 //- Totals by type / by status. Sparse, per `ProfileResponse` — a type or
-    status that never occurred gets no chip rather than a zero one.
-mixin totalsGroup(label, items)
+    status that never occurred gets no chip rather than a zero one. Each
+    chip's own count always stays the lifetime total (spec §12) — `active`
+    only changes the chip's look, never the label — so `activeKeys` (the
+    filters currently applied, if any) only picks which chips render
+    selected; it never touches `items`.
+mixin totalsGroup(label, items, activeKeys)
+  - activeKeys = activeKeys || []
   div(class='flex flex-col gap-2')
     span(class='font-mono text-label tracking-[0.11em] uppercase text-ink-4')= label
     if items.length
       div(class='flex flex-wrap gap-2')
         each item in items
-          +chip({ label: `${item.name} · ${item.count}`, tone: item.tone || 'mute' })
+          +chip({ label: `${item.name} · ${item.count}`, tone: item.tone || 'mute', active: activeKeys.includes(item.name) })
     else
       span(class='text-sm text-ink-4') —
 
@@ -102,7 +112,12 @@ mixin historyArt(row)
     everyone else still shows the eye-slash marker rather than going
     anonymous — on your own profile (or an admin's view of someone else's)
     there's no oracle to defend, the row's owner is already known.
-mixin history(rows)
+
+    `filtersActive` picks which empty state renders when `rows` is empty:
+    zero rows because the applied type/status chips matched nothing reads
+    differently from zero rows because this person has never downloaded
+    anything (spec §12, user story 79) — the two must not share copy.
+mixin history(rows, filtersActive)
   if rows.length
     +card()(class='px-1.5 pt-1 pb-1.5')
       +dataTable
@@ -140,6 +155,10 @@ mixin history(rows)
                 else
                   span(class='font-mono text-mono-sm text-ink-4') —
               td(class='text-right! font-mono text-mono-sm tabular-nums text-ink-3')= row.started
+  else if filtersActive
+    +note('filter')
+      b(class='text-ink') No downloads match these filters.
+      |  Try clearing or changing the type/status chips above.
   else
     +note('activity')
       b(class='text-ink') No downloads yet.
@@ -158,22 +177,23 @@ mixin screen(view, p)
         +profileHeader(p)
         +lifetimeTile(p.total)
         div(class=['mb-7 grid gap-5', mobile ? 'grid-cols-1' : 'grid-cols-2'])
-          +totalsGroup('by type', p.totalsByType)
-          +totalsGroup('by status', p.totalsByStatus)
+          +totalsGroup('by type', p.totalsByType, p.activeTypes)
+          +totalsGroup('by status', p.totalsByStatus, p.activeStatuses)
         div(class='mb-7 flex flex-col gap-2')
           span(class='font-mono text-label tracking-[0.11em] uppercase text-ink-4')= `downloads per day · last ${p.windowDays}`
           +trend(p.trend)
         p(class='mb-3 text-h2') Download history
-        +history(p.history)
+        +history(p.history, Boolean((p.activeTypes || []).length || (p.activeStatuses || []).length))
 
 block content
   +mockHead({ eyebrow: 'lilnas · download', title: 'User profile' })
     p(class='max-w-[62ch] text-sm text-ink-3')
       | A computed view over the jobs table, not a stored entity — every "who" fact in the system is derived at
-      | query time, so a profile with zero jobs is an empty state, never a 404. Three states below: your own
-      | (self, always available, deliberately sparse trend to show the chart handles gaps), an admin viewing
-      | someone else's (another requester needs admin, else 403 — true attribution, no masking), and an empty
-      | profile for an email that's never downloaded anything.
+      | query time, so a profile with zero jobs is an empty state, never a 404. States below: your own (self,
+      | always available, deliberately sparse trend to show the chart handles gaps), an admin viewing someone
+      | else's (another requester needs admin, else 403 — true attribution, no masking), an empty profile for an
+      | email that's never downloaded anything, and the by-type/by-status aggregate chips as history filters —
+      | unfiltered, filtered to a narrower slice, and the distinct "no downloads match these filters" empty state.
 
   div(class='vp-scope')
     +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
