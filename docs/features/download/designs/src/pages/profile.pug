@@ -9,10 +9,17 @@ block title
   — self, an admin viewing someone else, an empty profile, and the
   aggregate-chip filter states (§12's last four bullets / user stories
   75–79) — renders through the same markup, fed different PROFILES entries
-  (profile.mjs). Filtering is demonstrated as separate static frames, not
-  live interaction, matching every other multi-state page in this pipeline
-  (gallery's filters-open/closed frames, downloads-activity's regular/admin
-  frames) — there is no client-side filtering anywhere in these mockups.
+  (profile.mjs).
+
+  The chips themselves are real, hoverable/focusable `<button>`s (`chip`'s
+  `interactive` opt) — that part of the affordance is live CSS/HTML, same
+  as everywhere else a hover state exists in this pipeline. What isn't
+  live is the *result* of clicking one: there's no client-side JS to
+  re-filter the table in place, so the filtered flow (start → one chip →
+  a second chip and a status → the applied-filters row above the table →
+  the no-match state) is demonstrated as a sequence of separate static
+  frames, matching every other multi-state page here (gallery's
+  filters-open/closed frames, downloads-activity's regular/admin frames).
 
 //- The app bar as this page's viewer would see it: an `admin` chip when
     they're viewing someone else's or an empty profile, since only an admin
@@ -76,7 +83,7 @@ mixin totalsGroup(label, items, activeKeys)
     if items.length
       div(class='flex flex-wrap gap-2')
         each item in items
-          +chip({ label: `${item.name} · ${item.count}`, tone: item.tone || 'mute', active: activeKeys.includes(item.name) })
+          +chip({ label: `${item.name} · ${item.count}`, tone: item.tone || 'mute', active: activeKeys.includes(item.name), interactive: true })
     else
       span(class='text-sm text-ink-4') —
 
@@ -164,6 +171,23 @@ mixin history(rows, filtersActive)
       b(class='text-ink') No downloads yet.
       |  This person's downloads will show up here once they start one.
 
+//- The applied-filters readout — same `afchip` + "Clear all" idiom as
+    gallery's active-filters row, so the flow of clicking a chip above
+    reads the same way it does everywhere else in this pipeline: what you
+    selected shows up here as a removable pill, right above the table it
+    scopes. Absent entirely when no filter is active — this row is the
+    tell that something is scoping the table below it.
+mixin activeFilterBar(types, statuses)
+  - types = types || []
+  - statuses = statuses || []
+  if types.length || statuses.length
+    div(class='mb-3 flex flex-wrap items-center gap-2' aria-label='Active filters')
+      each t in types
+        +afchip(t, `Remove ${t} filter`)
+      each s in statuses
+        +afchip(s, `Remove ${s} filter`)
+      +btn({ label: 'Clear all', variant: 'ghost', size: 'sm' })(class='h-[27px] px-2.5 text-[12px]')
+
 //- One profile, fully rendered, at one viewport.
 mixin screen(view, p)
   - const mobile = view === 'mobile'
@@ -183,7 +207,9 @@ mixin screen(view, p)
           span(class='font-mono text-label tracking-[0.11em] uppercase text-ink-4')= `downloads per day · last ${p.windowDays}`
           +trend(p.trend)
         p(class='mb-3 text-h2') Download history
-        +history(p.history, Boolean((p.activeTypes || []).length || (p.activeStatuses || []).length))
+        +activeFilterBar(p.activeTypes, p.activeStatuses)
+        - const filtersActive = Boolean((p.activeTypes || []).length || (p.activeStatuses || []).length)
+        +history(p.history, filtersActive)
 
 block content
   +mockHead({ eyebrow: 'lilnas · download', title: 'User profile' })
@@ -192,8 +218,10 @@ block content
       | query time, so a profile with zero jobs is an empty state, never a 404. States below: your own (self,
       | always available, deliberately sparse trend to show the chart handles gaps), an admin viewing someone
       | else's (another requester needs admin, else 403 — true attribution, no masking), an empty profile for an
-      | email that's never downloaded anything, and the by-type/by-status aggregate chips as history filters —
-      | unfiltered, filtered to a narrower slice, and the distinct "no downloads match these filters" empty state.
+      | email that's never downloaded anything, and the by-type/by-status aggregate chips as history filters,
+      | walked as a flow — no filter, one chip clicked, a second chip and a status added (multi-select, AND
+      | across groups, with the applied filters shown as removable pills above the table), and the distinct
+      | "no downloads match these filters" empty state.
 
   div(class='vp-scope')
     +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
