@@ -11,10 +11,11 @@ block title
 
 //- Thumbnail for a feed row: tiny, fixed-width, and squarer-cornered than a
     poster elsewhere, because at this size a 10px radius reads as a blob.
+    Always the tall (2/3) shape so video/show/movie rows sit at the same
+    size in the column — a wide video thumbnail here made the feed's row
+    heights saw-tooth against the poster rows.
 mixin rowArt(row)
-  +poster({ shape: row.shape, v: row.v, src: row.art, radius: 'rounded-xs' })(
-    class=row.shape === 'wide' ? 'w-[52px]' : 'w-[34px]'
-  )
+  +poster({ shape: 'tall', v: row.v, src: row.art, radius: 'rounded-xs' })(class='w-[34px]')
     if row.icon === 'play'
       +icon('play')(class='relative z-1 h-[14px] w-[14px] text-ink-3')
 

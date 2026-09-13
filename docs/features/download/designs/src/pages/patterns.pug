@@ -114,7 +114,7 @@ block page
         +card({ sunk: true })(class='min-w-[260px] flex-1 py-4 pr-0 pl-[14px]')
           p(class='mx-[14px] mb-2.5 text-cap text-ink-3') Scrolling
           div(
-            class='-mx-[14px] flex flex-nowrap gap-4 overflow-x-auto px-[14px] py-0.5 [mask-image:linear-gradient(90deg,#000_calc(100%-28px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+            class!='-ml-[14px] flex flex-nowrap gap-4 overflow-x-auto px-[14px] py-0.5 [mask-image:linear-gradient(90deg,#000_calc(100%-28px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
           )
             +castPerson('ML', 'Mara Lin')
             +castPerson('TA', 'Theo Aduba')
