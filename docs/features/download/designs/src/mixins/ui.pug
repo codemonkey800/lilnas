@@ -90,7 +90,7 @@ mixin chip(opts)
   span(
     class=[
       'inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap',
-      tones[opts.tone] || 'border-transparent',
+      opts.active ? 'border-uv/35 bg-uv-ghost text-uv-hi' : tones[opts.tone] || 'border-transparent',
     ]
   )&attributes(attributes)
     if opts.icon

@@ -7,12 +7,18 @@
  * this file sums `totalsByType` into `total` itself, same as a consumer
  * would.
  *
- * Three states, matching the access model in spec.md §12: your own profile
- * (self, with a deliberately sparse trend), an admin viewing someone else's
- * (true attribution, denser trend, still shows a job hidden from everyone
- * but the admin), and an empty profile — a user with zero jobs renders as an
- * empty state, never a 404, because there's no `users` table row to be
- * missing.
+ * States, matching the access model in spec.md §12: your own profile (self,
+ * with a deliberately sparse trend), an admin viewing someone else's (true
+ * attribution, denser trend, still shows a job hidden from everyone but the
+ * admin), and an empty profile — a user with zero jobs renders as an empty
+ * state, never a 404, because there's no `users` table row to be missing.
+ *
+ * Plus, per §12's last four bullets / user stories 75–79 (plan 012's B5/F3,
+ * added after the states above shipped): two more self-view frames layered
+ * on the same SELF_HISTORY rows via `filterHistory()` — chips active with a
+ * real match (multi-select within a group, AND across groups) and chips
+ * active with zero matches, which reads as "no downloads match these
+ * filters", not the zero-jobs-ever empty profile above.
  *
  * History rows reuse titles/art already attributed to the same person on
  * other mockups (downloads-activity.mjs, admin-dashboard.mjs, gallery.mjs)
@@ -46,6 +52,18 @@ function trend(windowDays, countAt) {
 
 function sum(items) {
   return items.reduce((total, item) => total + item.count, 0)
+}
+
+/** OR within a dimension, AND across dimensions — the same composition
+    `JobListFilter` applies server-side (plan 012's B5/F3). Absent
+    `types`/`statuses` means "no filter on that dimension", not "match
+    nothing". */
+function filterHistory(rows, { types, statuses } = {}) {
+  return rows.filter(
+    row =>
+      (!types || types.includes(row.kind)) &&
+      (!statuses || statuses.includes(row.state)),
+  )
 }
 
 // A handful of active days out of 30 — the point of this state is
@@ -111,6 +129,52 @@ const ADMIN_TOTALS_BY_STATUS = [
   { name: 'cancelled', count: 1, tone: 'mute' },
 ]
 
+const SELF_HISTORY = [
+  {
+    title: 'Sourdough starter, day one to seven',
+    kind: 'video',
+    icon: 'play',
+    art: 'assets/video/video-3.jpg',
+    v: 2,
+    state: 'downloading',
+    tone: 'ok',
+    live: true,
+    progress: 64,
+    started: '2m ago',
+  },
+  {
+    title: 'Kitchen prep, mise en place',
+    kind: 'video',
+    icon: 'play',
+    art: 'assets/video/video-4.jpg',
+    v: 1,
+    state: 'completed',
+    tone: 'ok',
+    hiddenFromOthers: true,
+    started: '1h ago',
+  },
+  {
+    title: 'Late Kitchen',
+    kind: 'show',
+    icon: 'tv',
+    art: 'assets/emby/show-2.jpg',
+    v: 5,
+    state: 'completed',
+    tone: 'ok',
+    started: '6h ago',
+  },
+  {
+    title: 'Paper Weather',
+    kind: 'movie',
+    icon: 'film',
+    art: 'assets/emby/movie-3.jpg',
+    v: 1,
+    state: 'failed',
+    tone: 'bad',
+    started: '5m ago',
+  },
+]
+
 export default {
   PROFILES: [
     {
@@ -126,51 +190,58 @@ export default {
       total: sum(SELF_TOTALS_BY_TYPE),
       windowDays: 30,
       trend: trend(30, i => SELF_SPIKES[i] ?? 0),
-      history: [
-        {
-          title: 'Sourdough starter, day one to seven',
-          kind: 'video',
-          icon: 'play',
-          art: 'assets/video/video-3.jpg',
-          v: 2,
-          state: 'downloading',
-          tone: 'ok',
-          live: true,
-          progress: 64,
-          started: '2m ago',
-        },
-        {
-          title: 'Kitchen prep, mise en place',
-          kind: 'video',
-          icon: 'play',
-          art: 'assets/video/video-4.jpg',
-          v: 1,
-          state: 'completed',
-          tone: 'ok',
-          hiddenFromOthers: true,
-          started: '1h ago',
-        },
-        {
-          title: 'Late Kitchen',
-          kind: 'show',
-          icon: 'tv',
-          art: 'assets/emby/show-2.jpg',
-          v: 5,
-          state: 'completed',
-          tone: 'ok',
-          started: '6h ago',
-        },
-        {
-          title: 'Paper Weather',
-          kind: 'movie',
-          icon: 'film',
-          art: 'assets/emby/movie-3.jpg',
-          v: 1,
-          state: 'failed',
-          tone: 'bad',
-          started: '5m ago',
-        },
-      ],
+      history: SELF_HISTORY,
+    },
+    {
+      // Spec §12's last four bullets / user stories 75–79: `video`+`show`
+      // both active in the type group (multi-select, OR within the group)
+      // combined with `completed` in the status group (AND across groups) —
+      // narrows SELF_HISTORY's four rows down to the two that satisfy both.
+      // Chip counts stay SELF_TOTALS_BY_TYPE/STATUS's lifetime totals
+      // unchanged; only the table below is scoped.
+      label:
+        'Self view — filters applied (type: video, show · status: completed)',
+      you: true,
+      admin: false,
+      initials: 'JA',
+      email: 'jeremy@lilnas.io',
+      firstDownloadAt: 'Jun 14, 2025',
+      lastDownloadAt: '2m ago',
+      totalsByType: SELF_TOTALS_BY_TYPE,
+      totalsByStatus: SELF_TOTALS_BY_STATUS,
+      total: sum(SELF_TOTALS_BY_TYPE),
+      windowDays: 30,
+      trend: trend(30, i => SELF_SPIKES[i] ?? 0),
+      activeTypes: ['video', 'show'],
+      activeStatuses: ['completed'],
+      history: filterHistory(SELF_HISTORY, {
+        types: ['video', 'show'],
+        statuses: ['completed'],
+      }),
+    },
+    {
+      // A real combination that matches nothing: the only `movie` row is
+      // `failed`, not `completed` — the "no downloads match these filters"
+      // state (user story 79), distinct from the zero-jobs-ever empty
+      // profile below.
+      label: 'Self view — no downloads match these filters',
+      you: true,
+      admin: false,
+      initials: 'JA',
+      email: 'jeremy@lilnas.io',
+      firstDownloadAt: 'Jun 14, 2025',
+      lastDownloadAt: '2m ago',
+      totalsByType: SELF_TOTALS_BY_TYPE,
+      totalsByStatus: SELF_TOTALS_BY_STATUS,
+      total: sum(SELF_TOTALS_BY_TYPE),
+      windowDays: 30,
+      trend: trend(30, i => SELF_SPIKES[i] ?? 0),
+      activeTypes: ['movie'],
+      activeStatuses: ['completed'],
+      history: filterHistory(SELF_HISTORY, {
+        types: ['movie'],
+        statuses: ['completed'],
+      }),
     },
     {
       label: "Admin view — Jeremy (admin) viewing Sam's profile",
