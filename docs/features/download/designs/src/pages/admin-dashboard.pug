@@ -4,15 +4,16 @@ block title
   | Admin dashboard — download UI mockups · lilnas
 
 //-
-  Admin-only. Same activity feed regular users see, but with every attribution
-  unmasked — the difference between this page and downloads-activity.html is
-  the requester column, not the layout.
+  Admin-only. NOT the same feed regular users see: downloads-activity.html is
+  in-progress-only and real-time, this page's table is the full download
+  history — every status, including completed/failed/cancelled, across every
+  user — with attribution unmasked. Per-user history is a filter on this same
+  table, not a separate view.
 
-//- Feed thumbnail: same treatment as downloads-activity.
+//- Feed thumbnail: same treatment as downloads-activity — always the tall
+    (2/3) shape so video/show/movie rows are the same size in the column.
 mixin rowArt(row)
-  +poster({ shape: row.shape, v: row.v, src: row.art, radius: 'rounded-xs' })(
-    class=row.shape === 'wide' ? 'w-[52px]' : 'w-[34px]'
-  )
+  +poster({ shape: 'tall', v: row.v, src: row.art, radius: 'rounded-xs' })(class='w-[34px]')
     if row.icon === 'play'
       +icon('play')(class='relative z-1 h-[14px] w-[14px] text-ink-3')
 
@@ -56,7 +57,7 @@ mixin statTile(stat, mobile)
 //- One line of the leaderboard. Linkable for the same reason `requester` is
     — the whole page is admin-only.
 mixin lbRow(entry)
-  div(class='flex items-center gap-3 px-1 py-2.5 [&+&]:border-t [&+&]:border-line-soft')
+  div(class!='flex items-center gap-3 px-1 py-2.5 [&+&]:border-t [&+&]:border-line-soft')
     span(class='w-4 shrink-0 text-center font-mono text-mono-sm text-ink-4')= entry.rank
     +avatar(entry[0], { ring: entry[3], href: 'profile.html' })
     a(class='flex-1 text-sm hover:text-ink hover:underline' href='profile.html')= entry[1]
@@ -65,9 +66,9 @@ mixin lbRow(entry)
 block content
   +mockHead({ eyebrow: 'lilnas · download', title: 'Admin dashboard' })
     p(class='max-w-[62ch] text-sm text-ink-3')
-      | System-wide metrics, the same activity feed regular users see but with every attribution unmasked —
-      | including videos hidden from everyone else — a top-downloaders leaderboard, and the full audit trail.
-      | Admin-only.
+      | System-wide metrics, the complete download history — every user, every status, not just what's live
+      | — with every attribution unmasked, including videos hidden from everyone else, a top-downloaders
+      | leaderboard, and the full audit trail. Admin-only.
 
   div(class='vp-scope')
     +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
@@ -94,7 +95,7 @@ block content
                 +statTile(stat)
 
             div(class='mb-[14px] flex items-center justify-between')
-              span(class='text-h2') Downloads activity
+              span(class='text-h2') Download history
               +chip({ label: 'enriched', tone: 'mute' })
             +card()(class='mb-7 px-1.5 pt-1 pb-1.5')
               +dataTable
@@ -107,7 +108,7 @@ block content
                     th progress
                     th(class='text-right!') started
                 tbody(class='stagger')
-                  each row in ROWS
+                  each row in HISTORY
                     tr
                       td
                         div(class='flex items-center gap-2.5')
@@ -168,22 +169,23 @@ block content
               +statTile(stat, true)
 
           div(class='mb-3 flex items-center justify-between')
-            span(class='text-h2') Downloads activity
+            span(class='text-h2') Download history
             +chip({ label: 'enriched', tone: 'mute' })
           +card()(class='mb-[26px] px-3 py-1')
             div(class='flex flex-col stagger')
-              each row in ROWS
-                div(class='flex items-center gap-3 py-[13px] [&+&]:border-t [&+&]:border-line-soft')
+              each row in HISTORY
+                div(class!='flex items-center gap-3 py-[13px] [&+&]:border-t [&+&]:border-line-soft')
                   +rowArt(row)
-                  div(class='flex min-w-0 flex-1 flex-col gap-[5px]')
+                  div(class='flex min-w-0 flex-1 flex-col gap-[7px]')
                     span(class='flex items-center justify-between gap-2')
-                      span(class='flex-1 text-sm')= row.short || row.title
-                      span(class='font-mono text-mono-sm tabular-nums text-ink-4')= row.started
-                    span(class='flex items-center gap-1.5')
-                      +requester(row)(class='h-[18px] w-[18px] text-[8px]')
-                    +rowStatus(row, row.mobileState || (row.live ? `${row.progress}%` : row.state))(
-                      class='h-5 self-start'
-                    )
+                      span(class='flex-1 truncate text-sm')= row.short || row.title
+                      span(class='shrink-0 font-mono text-mono-sm tabular-nums text-ink-4')= row.started
+                    span(class='flex items-center justify-between gap-2')
+                      span(class='flex min-w-0 items-center gap-1.5')
+                        +requester(row)(class='h-[18px] w-[18px] text-[8px]')
+                      +rowStatus(row, row.mobileState || (row.live ? `${row.progress}%` : row.state))(
+                        class='h-5 shrink-0'
+                      )
 
           p(class='mb-3 text-h2') Top downloaders
           +card()(class='mb-[26px] px-3 pt-1 pb-2')

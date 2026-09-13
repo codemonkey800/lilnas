@@ -188,3 +188,42 @@ mixin navsearchGo(label)
     class='inline-flex h-6 shrink-0 items-center rounded-full bg-uv px-[14px] text-[11.5px] font-[620] whitespace-nowrap text-uv-ink transition-press hover:bg-uv-hi active:scale-96'
   )&attributes(attributes)
     = label
+
+//-
+  Detail-page scaffolding, shared by movie-detail.pug / show-detail.pug /
+  video-detail.pug so the three don't quietly drift apart from each other.
+
+//- Section rule with a caption in the middle, splitting a page's real UI
+    from the documentation appended below it.
+mixin appendixRule(label, id)
+  div(class='my-11 mb-7 flex items-center gap-3' id=id aria-hidden='true')
+    span(class='h-px flex-1 bg-line')
+    span(class='font-mono text-label tracking-[0.11em] whitespace-nowrap uppercase text-ink-4')= label
+    span(class='h-px flex-1 bg-line')
+
+//-
+  Jump links, so a page's stacked frames (primary, modals, loading) stay
+  navigable. `items` is an array of [label, anchor-id] pairs; `suffix` is the
+  viewport this jump nav belongs to ('d' | 'm'), matching the id each frame
+  registers itself under.
+mixin jumpNav(items, suffix)
+  nav(class='flex flex-wrap justify-center gap-2' aria-label='Jump to section')
+    each item in items
+      a(
+        class='inline-flex h-[23px] items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap text-ink-3'
+        href=`#${item[1]}-${suffix}`
+      )= item[0]
+
+//-
+  The cropped, faded frame a modal preview sits over — enough of the page for
+  the scrim to sit over something, captioned above it. A page's own
+  `modalFrame(view, label)` wraps this with its real background content
+  (header, list, whatever), then passes the modal itself as this mixin's
+  block.
+mixin modalPreview(view, label)
+  +frameLabel()(class='mt-1')
+    = label
+  +appFrame(view, { crop: true })
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view, { crop: true })
+      block

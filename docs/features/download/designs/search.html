@@ -23,6 +23,9 @@
           :before,
           :after,
           ::backdrop {
+            --tw-translate-x: 0;
+            --tw-translate-y: 0;
+            --tw-translate-z: 0;
             --tw-scale-x: 1;
             --tw-scale-y: 1;
             --tw-scale-z: 1;
@@ -88,9 +91,6 @@
             --tw-duration: initial;
             --tw-ease: initial;
             --tw-content: '';
-            --tw-translate-x: 0;
-            --tw-translate-y: 0;
-            --tw-translate-z: 0;
             --tw-outline-style: solid;
           }
         }
@@ -100,6 +100,7 @@
         :host {
           --font-sans: 'Figtree', system-ui, sans-serif;
           --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+          --color-black: #000;
           --spacing: 0.25rem;
           --text-sm: 13.5px;
           --text-sm--line-height: 1.55;
@@ -491,6 +492,9 @@
         }
       }
       @layer utilities {
+        .\@container {
+          container-type: inline-size;
+        }
         .pointer-events-none {
           pointer-events: none;
         }
@@ -524,11 +528,17 @@
         .inset-x-0 {
           inset-inline: calc(var(--spacing) * 0);
         }
+        .top-1\/2 {
+          top: 50%;
+        }
         .top-\[calc\(100\%\+10px\)\] {
           top: calc(100% + 10px);
         }
         .right-0 {
           right: calc(var(--spacing) * 0);
+        }
+        .bottom-0 {
+          bottom: calc(var(--spacing) * 0);
         }
         .z-1 {
           z-index: 1;
@@ -538,9 +548,6 @@
         }
         .z-20 {
           z-index: 20;
-        }
-        .col-span-2 {
-          grid-column: span 2 / span 2;
         }
         .container {
           width: 100%;
@@ -572,9 +579,6 @@
         }
         .m-0 {
           margin: calc(var(--spacing) * 0);
-        }
-        .-mx-6 {
-          margin-inline: calc(var(--spacing) * -6);
         }
         .-mx-\[14px\] {
           margin-inline: -14px;
@@ -651,9 +655,6 @@
         .mt-px {
           margin-top: 1px;
         }
-        .-mb-\[30px\] {
-          margin-bottom: -30px;
-        }
         .mb-1 {
           margin-bottom: calc(var(--spacing) * 1);
         }
@@ -707,6 +708,9 @@
         }
         .mb-\[26px\] {
           margin-bottom: 26px;
+        }
+        .-ml-\[14px\] {
+          margin-left: -14px;
         }
         .ml-\[13px\] {
           margin-left: 13px;
@@ -777,6 +781,12 @@
         .h-11 {
           height: calc(var(--spacing) * 11);
         }
+        .h-16 {
+          height: calc(var(--spacing) * 16);
+        }
+        .h-\[3px\] {
+          height: 3px;
+        }
         .h-\[5px\] {
           height: 5px;
         }
@@ -828,6 +838,9 @@
         .h-\[50px\] {
           height: 50px;
         }
+        .h-\[52px\] {
+          height: 52px;
+        }
         .h-\[260px\] {
           height: 260px;
         }
@@ -876,8 +889,14 @@
         .w-9 {
           width: calc(var(--spacing) * 9);
         }
+        .w-10 {
+          width: calc(var(--spacing) * 10);
+        }
         .w-16 {
           width: calc(var(--spacing) * 16);
+        }
+        .w-20 {
+          width: calc(var(--spacing) * 20);
         }
         .w-\[7px\] {
           width: 7px;
@@ -909,6 +928,9 @@
         .w-\[26px\] {
           width: 26px;
         }
+        .w-\[30\%\] {
+          width: 30%;
+        }
         .w-\[30px\] {
           width: 30px;
         }
@@ -927,14 +949,23 @@
         .w-\[38px\] {
           width: 38px;
         }
+        .w-\[40\%\] {
+          width: 40%;
+        }
         .w-\[42\%\] {
           width: 42%;
         }
         .w-\[45\%\] {
           width: 45%;
         }
+        .w-\[46\%\] {
+          width: 46%;
+        }
         .w-\[46px\] {
           width: 46px;
+        }
+        .w-\[50\%\] {
+          width: 50%;
         }
         .w-\[52px\] {
           width: 52px;
@@ -947,6 +978,9 @@
         }
         .w-\[60px\] {
           width: 60px;
+        }
+        .w-\[65\%\] {
+          width: 65%;
         }
         .w-\[70\%\] {
           width: 70%;
@@ -978,8 +1012,20 @@
         .w-\[120px\] {
           width: 120px;
         }
+        .w-\[128px\] {
+          width: 128px;
+        }
+        .w-\[130px\] {
+          width: 130px;
+        }
         .w-\[140px\] {
           width: 140px;
+        }
+        .w-\[148px\] {
+          width: 148px;
+        }
+        .w-\[150px\] {
+          width: 150px;
         }
         .w-\[158px\] {
           width: 158px;
@@ -1041,6 +1087,9 @@
         .max-w-\[380px\] {
           max-width: 380px;
         }
+        .max-w-\[390px\] {
+          max-width: 390px;
+        }
         .max-w-\[400px\] {
           max-width: 400px;
         }
@@ -1061,6 +1110,9 @@
         }
         .min-w-4 {
           min-width: calc(var(--spacing) * 4);
+        }
+        .min-w-\[168px\] {
+          min-width: 168px;
         }
         .min-w-\[220px\] {
           min-width: 220px;
@@ -1085,6 +1137,14 @@
         }
         .border-collapse {
           border-collapse: collapse;
+        }
+        .-translate-x-1\/2 {
+          --tw-translate-x: calc(calc(1 / 2 * 100%) * -1);
+          translate: var(--tw-translate-x) var(--tw-translate-y);
+        }
+        .-translate-y-1\/2 {
+          --tw-translate-y: calc(calc(1 / 2 * 100%) * -1);
+          translate: var(--tw-translate-x) var(--tw-translate-y);
         }
         .-scale-x-100 {
           --tw-scale-x: calc(100% * -1);
@@ -1154,6 +1214,9 @@
         .appearance-none {
           appearance: none;
         }
+        .grid-cols-1 {
+          grid-template-columns: repeat(1, minmax(0, 1fr));
+        }
         .grid-cols-2 {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
@@ -1168,9 +1231,6 @@
         }
         .grid-cols-\[repeat\(auto-fill\,minmax\(148px\,1fr\)\)\] {
           grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
-        }
-        .grid-cols-\[repeat\(auto-fill\,minmax\(190px\,1fr\)\)\] {
-          grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
         }
         .grid-cols-\[repeat\(auto-fit\,minmax\(260px\,1fr\)\)\] {
           grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -1198,6 +1258,9 @@
         }
         .items-center {
           align-items: center;
+        }
+        .items-end {
+          align-items: flex-end;
         }
         .items-start {
           align-items: flex-start;
@@ -1244,6 +1307,9 @@
         .gap-8 {
           gap: calc(var(--spacing) * 8);
         }
+        .gap-\[3px\] {
+          gap: 3px;
+        }
         .gap-\[5px\] {
           gap: 5px;
         }
@@ -1270,9 +1336,6 @@
         }
         .gap-y-\[22px\] {
           row-gap: 22px;
-        }
-        .self-start {
-          align-self: flex-start;
         }
         .truncate {
           text-overflow: ellipsis;
@@ -1308,6 +1371,10 @@
         }
         .rounded-xs {
           border-radius: var(--radius-xs);
+        }
+        .rounded-t-xs {
+          border-top-left-radius: var(--radius-xs);
+          border-top-right-radius: var(--radius-xs);
         }
         .border {
           border-style: var(--tw-border-style);
@@ -1457,6 +1524,30 @@
         .bg-bg-sunk {
           background-color: var(--color-bg-sunk);
         }
+        .bg-black\/55 {
+          background-color: #0000008c;
+        }
+        @supports (color: color-mix(in lab, red, red)) {
+          .bg-black\/55 {
+            background-color: color-mix(
+              in oklab,
+              var(--color-black) 55%,
+              transparent
+            );
+          }
+        }
+        .bg-ink\/25 {
+          background-color: #f6f4fa40;
+        }
+        @supports (color: color-mix(in lab, red, red)) {
+          .bg-ink\/25 {
+            background-color: color-mix(
+              in oklab,
+              var(--color-ink) 25%,
+              transparent
+            );
+          }
+        }
         .bg-line {
           background-color: var(--color-line);
         }
@@ -1471,18 +1562,6 @@
             background-color: color-mix(
               in oklab,
               var(--color-scrim) 62%,
-              transparent
-            );
-          }
-        }
-        .bg-scrim\/70 {
-          background-color: #010003b3;
-        }
-        @supports (color: color-mix(in lab, red, red)) {
-          .bg-scrim\/70 {
-            background-color: color-mix(
-              in oklab,
-              var(--color-scrim) 70%,
               transparent
             );
           }
@@ -1505,6 +1584,18 @@
         .bg-uv-ghost {
           background-color: var(--color-uv-ghost);
         }
+        .bg-uv\/70 {
+          background-color: #ad73ffb3;
+        }
+        @supports (color: color-mix(in lab, red, red)) {
+          .bg-uv\/70 {
+            background-color: color-mix(
+              in oklab,
+              var(--color-uv) 70%,
+              transparent
+            );
+          }
+        }
         .bg-warn-ghost {
           background-color: var(--color-warn-ghost);
         }
@@ -1519,8 +1610,39 @@
         .bg-linear-to-b {
           background-image: linear-gradient(var(--tw-gradient-stops));
         }
+        .bg-linear-to-t {
+          --tw-gradient-position: to top;
+        }
+        @supports (background-image: linear-gradient(in lab, red, red)) {
+          .bg-linear-to-t {
+            --tw-gradient-position: to top in oklab;
+          }
+        }
+        .bg-linear-to-t {
+          background-image: linear-gradient(var(--tw-gradient-stops));
+        }
         .bg-none {
           background-image: none;
+        }
+        .from-scrim\/85 {
+          --tw-gradient-from: #010003d9;
+        }
+        @supports (color: color-mix(in lab, red, red)) {
+          .from-scrim\/85 {
+            --tw-gradient-from: color-mix(
+              in oklab,
+              var(--color-scrim) 85%,
+              transparent
+            );
+          }
+        }
+        .from-scrim\/85 {
+          --tw-gradient-stops: var(
+            --tw-gradient-via-stops,
+            var(--tw-gradient-position),
+            var(--tw-gradient-from) var(--tw-gradient-from-position),
+            var(--tw-gradient-to) var(--tw-gradient-to-position)
+          );
         }
         .from-transparent {
           --tw-gradient-from: transparent;
@@ -1530,6 +1652,9 @@
             var(--tw-gradient-from) var(--tw-gradient-from-position),
             var(--tw-gradient-to) var(--tw-gradient-to-position)
           );
+        }
+        .from-0\% {
+          --tw-gradient-from-position: 0%;
         }
         .from-48\% {
           --tw-gradient-from-position: 48%;
@@ -1553,6 +1678,18 @@
             var(--tw-gradient-from) var(--tw-gradient-from-position),
             var(--tw-gradient-to) var(--tw-gradient-to-position)
           );
+        }
+        .to-transparent {
+          --tw-gradient-to: transparent;
+          --tw-gradient-stops: var(
+            --tw-gradient-via-stops,
+            var(--tw-gradient-position),
+            var(--tw-gradient-from) var(--tw-gradient-from-position),
+            var(--tw-gradient-to) var(--tw-gradient-to-position)
+          );
+        }
+        .to-80\% {
+          --tw-gradient-to-position: 80%;
         }
         .\[mask-image\:linear-gradient\(90deg\,\#000_calc\(100\%-28px\)\,transparent\)\] {
           -webkit-mask-image: linear-gradient(
@@ -1701,6 +1838,9 @@
         .pt-5 {
           padding-top: calc(var(--spacing) * 5);
         }
+        .pt-9 {
+          padding-top: calc(var(--spacing) * 9);
+        }
         .pt-14 {
           padding-top: calc(var(--spacing) * 14);
         }
@@ -1740,6 +1880,9 @@
         .pb-2 {
           padding-bottom: calc(var(--spacing) * 2);
         }
+        .pb-2\.5 {
+          padding-bottom: calc(var(--spacing) * 2.5);
+        }
         .pb-4 {
           padding-bottom: calc(var(--spacing) * 4);
         }
@@ -1751,6 +1894,9 @@
         }
         .pb-35 {
           padding-bottom: calc(var(--spacing) * 35);
+        }
+        .pb-\[9px\] {
+          padding-bottom: 9px;
         }
         .pb-\[18px\] {
           padding-bottom: 18px;
@@ -1999,6 +2145,14 @@
         .text-ink-4 {
           color: var(--color-ink-4);
         }
+        .text-ink\/90 {
+          color: #f6f4fae6;
+        }
+        @supports (color: color-mix(in lab, red, red)) {
+          .text-ink\/90 {
+            color: color-mix(in oklab, var(--color-ink) 90%, transparent);
+          }
+        }
         .text-ok {
           color: var(--color-ok);
         }
@@ -2045,6 +2199,13 @@
           --tw-shadow:
             0 0 0 2px var(--tw-shadow-color, var(--color-bg-sunk)),
             0 0 0 4px var(--tw-shadow-color, var(--color-uv));
+          box-shadow:
+            var(--tw-inset-shadow), var(--tw-inset-ring-shadow),
+            var(--tw-ring-offset-shadow), var(--tw-ring-shadow),
+            var(--tw-shadow);
+        }
+        .shadow-\[0_0_0_2px_var\(--color-scrim\)\] {
+          --tw-shadow: 0 0 0 2px var(--tw-shadow-color, var(--color-scrim));
           box-shadow:
             var(--tw-inset-shadow), var(--tw-inset-ring-shadow),
             var(--tw-ring-offset-shadow), var(--tw-ring-shadow),
@@ -2160,6 +2321,17 @@
             var(--default-transition-duration)
           );
         }
+        .transition-\[height\] {
+          transition-property: height;
+          transition-timing-function: var(
+            --tw-ease,
+            var(--default-transition-timing-function)
+          );
+          transition-duration: var(
+            --tw-duration,
+            var(--default-transition-duration)
+          );
+        }
         .transition-\[width\] {
           transition-property: width;
           transition-timing-function: var(
@@ -2195,6 +2367,10 @@
             --tw-duration,
             var(--default-transition-duration)
           );
+        }
+        .duration-150 {
+          --tw-duration: 0.15s;
+          transition-duration: 0.15s;
         }
         .duration-200 {
           --tw-duration: 0.2s;
@@ -2397,6 +2573,18 @@
           .hover\:border-uv-dim:hover {
             border-color: var(--color-uv-dim);
           }
+          .hover\:border-uv\/55:hover {
+            border-color: #ad73ff8c;
+          }
+          @supports (color: color-mix(in lab, red, red)) {
+            .hover\:border-uv\/55:hover {
+              border-color: color-mix(
+                in oklab,
+                var(--color-uv) 55%,
+                transparent
+              );
+            }
+          }
           .hover\:bg-bad-ghost:hover {
             background-color: var(--color-bad-ghost);
           }
@@ -2414,6 +2602,9 @@
           }
           .hover\:text-ink-2:hover {
             color: var(--color-ink-2);
+          }
+          .hover\:underline:hover {
+            text-decoration-line: underline;
           }
           .hover\:opacity-100:hover {
             opacity: 1;
@@ -2473,6 +2664,117 @@
         .has-\[\:focus-visible\]\:outline-uv:has(:focus-visible) {
           outline-color: var(--color-uv);
         }
+        @container (min-width:400px) {
+          .\@min-\[400px\]\:col-span-2 {
+            grid-column: span 2 / span 2;
+          }
+          .\@min-\[400px\]\:grid-cols-\[repeat\(auto-fill\,minmax\(190px\,1fr\)\)\] {
+            grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+          }
+        }
+        .\[\&_tbody_tr\]\:transition-colors tbody tr {
+          transition-property:
+            color, background-color, border-color, outline-color,
+            text-decoration-color, fill, stroke, --tw-gradient-from,
+            --tw-gradient-via, --tw-gradient-to;
+          transition-timing-function: var(
+            --tw-ease,
+            var(--default-transition-timing-function)
+          );
+          transition-duration: var(
+            --tw-duration,
+            var(--default-transition-duration)
+          );
+        }
+        .\[\&_tbody_tr\]\:duration-\[120ms\] tbody tr {
+          --tw-duration: 0.12s;
+          transition-duration: 0.12s;
+        }
+        .\[\&_tbody_tr\]\:ease-uv tbody tr {
+          --tw-ease: var(--ease-uv);
+          transition-timing-function: var(--ease-uv);
+        }
+        .\[\&_tbody_tr\:hover\]\:bg-surface-2 tbody tr:hover {
+          background-color: var(--color-surface-2);
+        }
+        .\[\&_tbody_tr\:last-child_td\]\:border-b-0 tbody tr:last-child td {
+          border-bottom-style: var(--tw-border-style);
+          border-bottom-width: 0;
+        }
+        .\[\&_td\]\:border-b td {
+          border-bottom-style: var(--tw-border-style);
+          border-bottom-width: 1px;
+        }
+        .\[\&_td\]\:border-line-soft td {
+          border-color: var(--color-line-soft);
+        }
+        .\[\&_td\]\:px-3 td {
+          padding-inline: calc(var(--spacing) * 3);
+        }
+        .\[\&_td\]\:py-3 td {
+          padding-block: calc(var(--spacing) * 3);
+        }
+        .\[\&_td\]\:align-middle td {
+          vertical-align: middle;
+        }
+        .\[\&_td\]\:text-sm td {
+          font-size: var(--text-sm);
+          line-height: var(--tw-leading, var(--text-sm--line-height));
+        }
+        .\[\&_th\]\:border-b th {
+          border-bottom-style: var(--tw-border-style);
+          border-bottom-width: 1px;
+        }
+        .\[\&_th\]\:border-line th {
+          border-color: var(--color-line);
+        }
+        .\[\&_th\]\:px-3 th {
+          padding-inline: calc(var(--spacing) * 3);
+        }
+        .\[\&_th\]\:py-2\.5 th {
+          padding-block: calc(var(--spacing) * 2.5);
+        }
+        .\[\&_th\]\:text-left th {
+          text-align: left;
+        }
+        .\[\&_th\]\:font-mono th {
+          font-family: var(--font-mono);
+        }
+        .\[\&_th\]\:text-label th {
+          font-size: var(--text-label);
+          letter-spacing: var(--tw-tracking, var(--text-label--letter-spacing));
+          font-weight: var(--tw-font-weight, var(--text-label--font-weight));
+        }
+        .\[\&_th\]\:font-medium th {
+          --tw-font-weight: var(--font-weight-medium);
+          font-weight: var(--font-weight-medium);
+        }
+        .\[\&_th\]\:tracking-\[0\.11em\] th {
+          --tw-tracking: 0.11em;
+          letter-spacing: 0.11em;
+        }
+        .\[\&_th\]\:text-ink-4 th {
+          color: var(--color-ink-4);
+        }
+        .\[\&_th\]\:uppercase th {
+          text-transform: uppercase;
+        }
+        .\[\&\+\&\]\:border-t + .\[\&\+\&\]\:border-t {
+          border-top-style: var(--tw-border-style);
+          border-top-width: 1px;
+        }
+        .\[\&\+\&\]\:border-line-soft + .\[\&\+\&\]\:border-line-soft {
+          border-color: var(--color-line-soft);
+        }
+        .\[\&\:\:-webkit-scrollbar\]\:hidden::-webkit-scrollbar {
+          display: none;
+        }
+        .\[\&\>button\]\:flex-1 > button {
+          flex: 1;
+        }
+        .\[\&\>svg\]\:text-bad\! > svg {
+          color: var(--color-bad) !important;
+        }
       }
       @media (prefers-reduced-motion: reduce) {
         *,
@@ -2492,6 +2794,21 @@
           opacity: 0 !important;
           animation: none !important;
         }
+      }
+      @property --tw-translate-x {
+        syntax: '*';
+        inherits: false;
+        initial-value: 0;
+      }
+      @property --tw-translate-y {
+        syntax: '*';
+        inherits: false;
+        initial-value: 0;
+      }
+      @property --tw-translate-z {
+        syntax: '*';
+        inherits: false;
+        initial-value: 0;
       }
       @property --tw-scale-x {
         syntax: '*';
@@ -2774,21 +3091,6 @@
         inherits: false;
         initial-value: '';
       }
-      @property --tw-translate-x {
-        syntax: '*';
-        inherits: false;
-        initial-value: 0;
-      }
-      @property --tw-translate-y {
-        syntax: '*';
-        inherits: false;
-        initial-value: 0;
-      }
-      @property --tw-translate-z {
-        syntax: '*';
-        inherits: false;
-        initial-value: 0;
-      }
       @property --tw-outline-style {
         syntax: '*';
         inherits: false;
@@ -3057,6 +3359,17 @@
         />
       </symbol>
 
+      <symbol id="i-expand" viewBox="0 0 16 16">
+        <path
+          d="M6 2H2v4M10 2h4v4M2 10v4h4M14 10v4h-4"
+          stroke="currentColor"
+          stroke-width="1.4"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+
       <symbol id="i-external" viewBox="0 0 16 16">
         <path
           d="M6.5 3H3.6c-.6 0-1.1.5-1.1 1.1v8.3c0 .6.5 1.1 1.1 1.1h8.3c.6 0 1.1-.5 1.1-1.1V9.5"
@@ -3307,6 +3620,23 @@
         />
       </symbol>
 
+      <symbol id="i-volume" viewBox="0 0 16 16">
+        <path
+          d="M2 6.1h2.3L8 3.3v9.4L4.3 9.9H2Z"
+          stroke="currentColor"
+          stroke-width="1.3"
+          fill="none"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M10.4 5.9a3.1 3.1 0 0 1 0 4.2M12.2 4a5.7 5.7 0 0 1 0 8"
+          stroke="currentColor"
+          stroke-width="1.3"
+          fill="none"
+          stroke-linecap="round"
+        />
+      </symbol>
+
       <symbol id="i-x" viewBox="0 0 16 16">
         <path
           d="M4 4l8 8M12 4l-8 8"
@@ -3404,10 +3734,11 @@
                   >Download</span
                 ></span
               ><span class="flex items-center gap-2.5"
-                ><span
-                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] h-[30px] w-[30px] text-[11.5px]"
+                ><a
+                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim hover:bg-surface-2 h-[30px] w-[30px] text-[11.5px]"
+                  href="profile.html"
                   title="Jeremy · you"
-                  >JA</span
+                  >JA</a
                 ></span
               >
             </div>
@@ -3696,10 +4027,11 @@
                   >Download</span
                 ></span
               ><span class="flex items-center gap-2.5"
-                ><span
-                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] h-[30px] w-[30px] text-[11.5px]"
+                ><a
+                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim hover:bg-surface-2 h-[30px] w-[30px] text-[11.5px]"
+                  href="profile.html"
                   title="Jeremy · you"
-                  >JA</span
+                  >JA</a
                 ></span
               >
             </div>
@@ -3770,7 +4102,7 @@
                   class="rounded-lg border border-line p-5 bg-surface px-1.5 pt-1 pb-1.5"
                 >
                   <table
-                    class="w-full border-collapse [&amp;_td]:border-b [&amp;_td]:border-line-soft [&amp;_td]:px-3 [&amp;_td]:py-3 [&amp;_td]:align-middle [&amp;_td]:text-sm [&amp;_tbody_tr]:transition-colors [&amp;_tbody_tr]:duration-[120ms] [&amp;_tbody_tr]:ease-uv [&amp;_tbody_tr:hover]:bg-surface-2 [&amp;_tbody_tr:last-child_td]:border-b-0 [&amp;_th]:border-b [&amp;_th]:border-line [&amp;_th]:px-3 [&amp;_th]:py-2.5 [&amp;_th]:text-left [&amp;_th]:font-mono [&amp;_th]:text-label [&amp;_th]:font-medium [&amp;_th]:tracking-[0.11em] [&amp;_th]:uppercase [&amp;_th]:text-ink-4"
+                    class="w-full border-collapse [&_td]:border-b [&_td]:border-line-soft [&_td]:px-3 [&_td]:py-3 [&_td]:align-middle [&_td]:text-sm [&_tbody_tr]:transition-colors [&_tbody_tr]:duration-[120ms] [&_tbody_tr]:ease-uv [&_tbody_tr:hover]:bg-surface-2 [&_tbody_tr:last-child_td]:border-b-0 [&_th]:border-b [&_th]:border-line [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left [&_th]:font-mono [&_th]:text-label [&_th]:font-medium [&_th]:tracking-[0.11em] [&_th]:uppercase [&_th]:text-ink-4"
                   >
                     <thead>
                       <tr>
@@ -4153,10 +4485,11 @@
                   >Download</span
                 ></span
               ><span class="flex items-center gap-2.5"
-                ><span
-                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] h-[30px] w-[30px] text-[11.5px]"
+                ><a
+                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim hover:bg-surface-2 h-[30px] w-[30px] text-[11.5px]"
+                  href="profile.html"
                   title="Jeremy · you"
-                  >JA</span
+                  >JA</a
                 ></span
               >
             </div>
@@ -4231,12 +4564,14 @@
                         class="absolute top-[calc(100%+10px)] right-0 w-[460px]"
                       >
                         <div
-                          class="rounded-lg border border-line bg-surface px-[22px] pt-5 pb-[18px] shadow-lift"
+                          class="@container rounded-lg border border-line bg-surface px-[22px] pt-5 pb-[18px] shadow-lift"
                         >
                           <div
-                            class="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-x-7 gap-y-[22px]"
+                            class="grid grid-cols-1 gap-x-7 gap-y-[22px] @min-[400px]:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]"
                           >
-                            <div class="flex flex-col gap-[9px] col-span-2">
+                            <div
+                              class="flex flex-col gap-[9px] @min-[400px]:col-span-2"
+                            >
                               <span
                                 class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
                                 >genre</span
@@ -4336,241 +4671,237 @@
                     </div>
                   </div>
                 </div>
-                <div class="relative">
-                  <div
-                    class="flex flex-wrap mb-[22px] gap-[9px]"
-                    aria-label="Active filters"
-                  >
-                    <span
-                      class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
-                      >Comedy<button
-                        class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
-                        type="button"
-                        aria-label="Remove genre filter"
-                      >
-                        <svg class="h-3 w-3">
-                          <use href="#i-x"></use>
-                        </svg></button></span
-                    ><span
-                      class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
-                      >1999–2012<button
-                        class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
-                        type="button"
-                        aria-label="Remove release year filter"
-                      >
-                        <svg class="h-3 w-3">
-                          <use href="#i-x"></use>
-                        </svg></button></span
-                    ><button
-                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[30px] px-[11px] text-[13px] h-[27px] px-2.5 text-[12px]"
+                <div
+                  class="flex flex-wrap mb-[22px] gap-[9px]"
+                  aria-label="Active filters"
+                >
+                  <span
+                    class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
+                    >Comedy<button
+                      class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
                       type="button"
+                      aria-label="Remove genre filter"
                     >
-                      Clear all
-                    </button>
-                  </div>
-                  <div
-                    class="stagger grid gap-4 grid-cols-[repeat(auto-fill,minmax(148px,1fr))]"
+                      <svg class="h-3 w-3">
+                        <use href="#i-x"></use>
+                      </svg></button></span
+                  ><span
+                    class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
+                    >1999–2012<button
+                      class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
+                      type="button"
+                      aria-label="Remove release year filter"
+                    >
+                      <svg class="h-3 w-3">
+                        <use href="#i-x"></use>
+                      </svg></button></span
+                  ><button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[30px] px-[11px] text-[13px] h-[27px] px-2.5 text-[12px]"
+                    type="button"
                   >
-                    <a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="show-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v1"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/show-4.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        The Office
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-tv"></use></svg
-                        >show · 9 seasons</span
-                      ></a
-                    ><a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="movie-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v3"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/movie-4.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        Office Space
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-film"></use></svg
-                        >movie · 1999</span
-                      ></a
-                    ><a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="show-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v2"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/show-5.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        Park Bench Diaries
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-tv"></use></svg
-                        >show · 3 seasons</span
-                      ></a
-                    ><a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="movie-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v4"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/movie-5.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        Suburban Static
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-film"></use></svg
-                        >movie · 2003</span
-                      ></a
-                    ><a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="show-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v5"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/show-6.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        Middle Management
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-tv"></use></svg
-                        >show · 2 seasons</span
-                      ></a
-                    ><a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="movie-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v1"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/movie-6.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        The Long Weekend
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-film"></use></svg
-                        >movie · 2007</span
-                      ></a
-                    ><a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="show-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v3"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/show-1.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        Cubicle Nation
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-tv"></use></svg
-                        >show · 4 seasons</span
-                      ></a
-                    ><a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="movie-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v2"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/movie-1.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        Desk Job
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-film"></use></svg
-                        >movie · 2002</span
-                      ></a
+                    Clear all
+                  </button>
+                </div>
+                <div
+                  class="stagger grid gap-4 grid-cols-[repeat(auto-fill,minmax(148px,1fr))]"
+                >
+                  <a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="show-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v1"
                     >
-                  </div>
-                  <div
-                    class="absolute inset-0 z-10 bg-scrim/70 backdrop-blur-[2px]"
-                  ></div>
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/show-4.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      The Office
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-tv"></use></svg
+                      >show · 9 seasons</span
+                    ></a
+                  ><a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="movie-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v3"
+                    >
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/movie-4.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      Office Space
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-film"></use></svg
+                      >movie · 1999</span
+                    ></a
+                  ><a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="show-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v2"
+                    >
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/show-5.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      Park Bench Diaries
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-tv"></use></svg
+                      >show · 3 seasons</span
+                    ></a
+                  ><a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="movie-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v4"
+                    >
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/movie-5.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      Suburban Static
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-film"></use></svg
+                      >movie · 2003</span
+                    ></a
+                  ><a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="show-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v5"
+                    >
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/show-6.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      Middle Management
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-tv"></use></svg
+                      >show · 2 seasons</span
+                    ></a
+                  ><a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="movie-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v1"
+                    >
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/movie-6.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      The Long Weekend
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-film"></use></svg
+                      >movie · 2007</span
+                    ></a
+                  ><a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="show-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v3"
+                    >
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/show-1.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      Cubicle Nation
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-tv"></use></svg
+                      >show · 4 seasons</span
+                    ></a
+                  ><a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="movie-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v2"
+                    >
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/movie-1.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      Desk Job
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-film"></use></svg
+                      >movie · 2002</span
+                    ></a
+                  >
                 </div>
               </div>
             </div>
+            <div class="absolute inset-0 z-10 bg-black/55"></div>
           </div>
           <p
             class="block text-center font-mono text-label tracking-[0.11em] uppercase text-ink-4 mt-3"
@@ -4594,10 +4925,11 @@
                   >Download</span
                 ></span
               ><span class="flex items-center gap-2.5"
-                ><span
-                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] h-[30px] w-[30px] text-[11.5px]"
+                ><a
+                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim hover:bg-surface-2 h-[30px] w-[30px] text-[11.5px]"
+                  href="profile.html"
                   title="Jeremy · you"
-                  >JA</span
+                  >JA</a
                 ></span
               >
             </div>
@@ -4672,12 +5004,14 @@
                         class="absolute top-[calc(100%+10px)] right-0 w-[460px]"
                       >
                         <div
-                          class="rounded-lg border border-line bg-surface px-[22px] pt-5 pb-[18px] shadow-lift"
+                          class="@container rounded-lg border border-line bg-surface px-[22px] pt-5 pb-[18px] shadow-lift"
                         >
                           <div
-                            class="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-x-7 gap-y-[22px]"
+                            class="grid grid-cols-1 gap-x-7 gap-y-[22px] @min-[400px]:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]"
                           >
-                            <div class="flex flex-col gap-[9px] col-span-2">
+                            <div
+                              class="flex flex-col gap-[9px] @min-[400px]:col-span-2"
+                            >
                               <span
                                 class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
                                 >genre</span
@@ -4786,241 +5120,237 @@
                     </div>
                   </div>
                 </div>
-                <div class="relative">
-                  <div
-                    class="flex flex-wrap mb-[22px] gap-[9px]"
-                    aria-label="Active filters"
-                  >
-                    <span
-                      class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
-                      >Comedy<button
-                        class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
-                        type="button"
-                        aria-label="Remove genre filter"
-                      >
-                        <svg class="h-3 w-3">
-                          <use href="#i-x"></use>
-                        </svg></button></span
-                    ><span
-                      class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
-                      >1999–2012<button
-                        class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
-                        type="button"
-                        aria-label="Remove release year filter"
-                      >
-                        <svg class="h-3 w-3">
-                          <use href="#i-x"></use>
-                        </svg></button></span
-                    ><button
-                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[30px] px-[11px] text-[13px] h-[27px] px-2.5 text-[12px]"
+                <div
+                  class="flex flex-wrap mb-[22px] gap-[9px]"
+                  aria-label="Active filters"
+                >
+                  <span
+                    class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
+                    >Comedy<button
+                      class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
                       type="button"
+                      aria-label="Remove genre filter"
                     >
-                      Clear all
-                    </button>
-                  </div>
-                  <div
-                    class="stagger grid gap-4 grid-cols-[repeat(auto-fill,minmax(148px,1fr))]"
+                      <svg class="h-3 w-3">
+                        <use href="#i-x"></use>
+                      </svg></button></span
+                  ><span
+                    class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
+                    >1999–2012<button
+                      class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
+                      type="button"
+                      aria-label="Remove release year filter"
+                    >
+                      <svg class="h-3 w-3">
+                        <use href="#i-x"></use>
+                      </svg></button></span
+                  ><button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[30px] px-[11px] text-[13px] h-[27px] px-2.5 text-[12px]"
+                    type="button"
                   >
-                    <a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="show-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v1"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/show-4.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        The Office
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-tv"></use></svg
-                        >show · 9 seasons</span
-                      ></a
-                    ><a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="movie-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v3"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/movie-4.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        Office Space
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-film"></use></svg
-                        >movie · 1999</span
-                      ></a
-                    ><a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="show-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v2"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/show-5.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        Park Bench Diaries
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-tv"></use></svg
-                        >show · 3 seasons</span
-                      ></a
-                    ><a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="movie-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v4"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/movie-5.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        Suburban Static
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-film"></use></svg
-                        >movie · 2003</span
-                      ></a
-                    ><a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="show-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v5"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/show-6.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        Middle Management
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-tv"></use></svg
-                        >show · 2 seasons</span
-                      ></a
-                    ><a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="movie-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v1"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/movie-6.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        The Long Weekend
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-film"></use></svg
-                        >movie · 2007</span
-                      ></a
-                    ><a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="show-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v3"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/show-1.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        Cubicle Nation
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-tv"></use></svg
-                        >show · 4 seasons</span
-                      ></a
-                    ><a
-                      class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                      href="movie-detail.html"
-                      ><div
-                        class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v2"
-                      >
-                        <img
-                          class="absolute inset-0 h-full w-full object-cover"
-                          src="assets/emby/movie-1.jpg"
-                          alt=""
-                          data-poster="data-poster"
-                        />
-                      </div>
-                      <p
-                        class="line-clamp-2 text-sm leading-[1.35] font-semibold"
-                      >
-                        Desk Job
-                      </p>
-                      <span
-                        class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                        ><svg class="h-[11px] w-[11px] shrink-0">
-                          <use href="#i-film"></use></svg
-                        >movie · 2002</span
-                      ></a
+                    Clear all
+                  </button>
+                </div>
+                <div
+                  class="stagger grid gap-4 grid-cols-[repeat(auto-fill,minmax(148px,1fr))]"
+                >
+                  <a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="show-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v1"
                     >
-                  </div>
-                  <div
-                    class="absolute inset-0 z-10 bg-scrim/70 backdrop-blur-[2px]"
-                  ></div>
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/show-4.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      The Office
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-tv"></use></svg
+                      >show · 9 seasons</span
+                    ></a
+                  ><a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="movie-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v3"
+                    >
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/movie-4.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      Office Space
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-film"></use></svg
+                      >movie · 1999</span
+                    ></a
+                  ><a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="show-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v2"
+                    >
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/show-5.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      Park Bench Diaries
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-tv"></use></svg
+                      >show · 3 seasons</span
+                    ></a
+                  ><a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="movie-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v4"
+                    >
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/movie-5.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      Suburban Static
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-film"></use></svg
+                      >movie · 2003</span
+                    ></a
+                  ><a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="show-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v5"
+                    >
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/show-6.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      Middle Management
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-tv"></use></svg
+                      >show · 2 seasons</span
+                    ></a
+                  ><a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="movie-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v1"
+                    >
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/movie-6.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      The Long Weekend
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-film"></use></svg
+                      >movie · 2007</span
+                    ></a
+                  ><a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="show-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v3"
+                    >
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/show-1.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      Cubicle Nation
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-tv"></use></svg
+                      >show · 4 seasons</span
+                    ></a
+                  ><a
+                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                    href="movie-detail.html"
+                    ><div
+                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v2"
+                    >
+                      <img
+                        class="absolute inset-0 h-full w-full object-cover"
+                        src="assets/emby/movie-1.jpg"
+                        alt=""
+                        data-poster="data-poster"
+                      />
+                    </div>
+                    <p
+                      class="line-clamp-2 text-sm leading-[1.35] font-semibold"
+                    >
+                      Desk Job
+                    </p>
+                    <span
+                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                      ><svg class="h-[11px] w-[11px] shrink-0">
+                        <use href="#i-film"></use></svg
+                      >movie · 2002</span
+                    ></a
+                  >
                 </div>
               </div>
             </div>
+            <div class="absolute inset-0 z-10 bg-black/55"></div>
           </div>
           <p
             class="block text-center font-mono text-label tracking-[0.11em] uppercase text-ink-4 mt-3"
@@ -5044,10 +5374,11 @@
                   >Download</span
                 ></span
               ><span class="flex items-center gap-2.5"
-                ><span
-                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] h-[30px] w-[30px] text-[11.5px]"
+                ><a
+                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim hover:bg-surface-2 h-[30px] w-[30px] text-[11.5px]"
+                  href="profile.html"
                   title="Jeremy · you"
-                  >JA</span
+                  >JA</a
                 ></span
               >
             </div>
@@ -5159,10 +5490,11 @@
                   >Download</span
                 ></span
               ><span class="flex items-center gap-2.5"
-                ><span
-                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] h-[30px] w-[30px] text-[11.5px]"
+                ><a
+                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim hover:bg-surface-2 h-[30px] w-[30px] text-[11.5px]"
+                  href="profile.html"
                   title="Jeremy · you"
-                  >JA</span
+                  >JA</a
                 ></span
               >
             </div>
@@ -5193,7 +5525,7 @@
                   class="rounded-lg border border-line p-5 bg-surface mt-[22px] px-1.5 pt-1 pb-1.5 mt-[30px]"
                 >
                   <table
-                    class="w-full border-collapse [&amp;_td]:border-b [&amp;_td]:border-line-soft [&amp;_td]:px-3 [&amp;_td]:py-3 [&amp;_td]:align-middle [&amp;_td]:text-sm [&amp;_tbody_tr]:transition-colors [&amp;_tbody_tr]:duration-[120ms] [&amp;_tbody_tr]:ease-uv [&amp;_tbody_tr:hover]:bg-surface-2 [&amp;_tbody_tr:last-child_td]:border-b-0 [&amp;_th]:border-b [&amp;_th]:border-line [&amp;_th]:px-3 [&amp;_th]:py-2.5 [&amp;_th]:text-left [&amp;_th]:font-mono [&amp;_th]:text-label [&amp;_th]:font-medium [&amp;_th]:tracking-[0.11em] [&amp;_th]:uppercase [&amp;_th]:text-ink-4"
+                    class="w-full border-collapse [&_td]:border-b [&_td]:border-line-soft [&_td]:px-3 [&_td]:py-3 [&_td]:align-middle [&_td]:text-sm [&_tbody_tr]:transition-colors [&_tbody_tr]:duration-[120ms] [&_tbody_tr]:ease-uv [&_tbody_tr:hover]:bg-surface-2 [&_tbody_tr:last-child_td]:border-b-0 [&_th]:border-b [&_th]:border-line [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left [&_th]:font-mono [&_th]:text-label [&_th]:font-medium [&_th]:tracking-[0.11em] [&_th]:uppercase [&_th]:text-ink-4"
                   >
                     <thead>
                       <tr>
@@ -5328,10 +5660,11 @@
                   >Download</span
                 ></span
               ><span class="flex items-center gap-2.5"
-                ><span
-                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] h-[30px] w-[30px] text-[11.5px]"
+                ><a
+                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim hover:bg-surface-2 h-[30px] w-[30px] text-[11.5px]"
+                  href="profile.html"
                   title="Jeremy · you"
-                  >JA</span
+                  >JA</a
                 ></span
               >
             </div>
@@ -5374,7 +5707,7 @@
                   </div>
                 </div>
                 <div
-                  class="flex gap-2.5 rounded-md border border-line bg-surface px-[15px] py-[13px] text-sm text-ink-2 reveal border-bad/35! bg-bad-ghost! [&amp;&gt;svg]:text-bad!"
+                  class="flex gap-2.5 rounded-md border border-line bg-surface px-[15px] py-[13px] text-sm text-ink-2 reveal border-bad/35! bg-bad-ghost! [&>svg]:text-bad!"
                 >
                   <svg class="mt-0.5 h-4 w-4 shrink-0 text-ink-3">
                     <use href="#i-alert"></use>
@@ -5424,16 +5757,15 @@
                     class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
                   ></span
                   >2</span
-                ><button
-                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[38px] px-[11px] h-8 w-8 p-0"
-                  type="button"
+                ><a
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-3 transition-colors duration-200 ease-uv hover:bg-surface-2 hover:text-ink"
+                  href="profile.html"
                   aria-label="Your account"
-                >
-                  <span
+                  ><span
                     class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)]"
                     >JA</span
-                  >
-                </button></span
+                  ></a
+                ></span
               >
             </div>
             <div class="px-6 pt-[18px] pb-[30px]">
@@ -5619,16 +5951,15 @@
                     class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
                   ></span
                   >2</span
-                ><button
-                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[38px] px-[11px] h-8 w-8 p-0"
-                  type="button"
+                ><a
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-3 transition-colors duration-200 ease-uv hover:bg-surface-2 hover:text-ink"
+                  href="profile.html"
                   aria-label="Your account"
-                >
-                  <span
+                  ><span
                     class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)]"
                     >JA</span
-                  >
-                </button></span
+                  ></a
+                ></span
               >
             </div>
             <div class="px-6 pt-[18px] pb-[30px]">
@@ -5698,7 +6029,7 @@
                 class="rounded-lg border border-line p-5 bg-surface px-1.5 pt-1 pb-1.5 overflow-x-auto"
               >
                 <table
-                  class="w-full border-collapse [&amp;_td]:border-b [&amp;_td]:border-line-soft [&amp;_td]:px-3 [&amp;_td]:py-3 [&amp;_td]:align-middle [&amp;_td]:text-sm [&amp;_tbody_tr]:transition-colors [&amp;_tbody_tr]:duration-[120ms] [&amp;_tbody_tr]:ease-uv [&amp;_tbody_tr:hover]:bg-surface-2 [&amp;_tbody_tr:last-child_td]:border-b-0 [&amp;_th]:border-b [&amp;_th]:border-line [&amp;_th]:px-3 [&amp;_th]:py-2.5 [&amp;_th]:text-left [&amp;_th]:font-mono [&amp;_th]:text-label [&amp;_th]:font-medium [&amp;_th]:tracking-[0.11em] [&amp;_th]:uppercase [&amp;_th]:text-ink-4 min-w-[480px]"
+                  class="w-full border-collapse [&_td]:border-b [&_td]:border-line-soft [&_td]:px-3 [&_td]:py-3 [&_td]:align-middle [&_td]:text-sm [&_tbody_tr]:transition-colors [&_tbody_tr]:duration-[120ms] [&_tbody_tr]:ease-uv [&_tbody_tr:hover]:bg-surface-2 [&_tbody_tr:last-child_td]:border-b-0 [&_th]:border-b [&_th]:border-line [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left [&_th]:font-mono [&_th]:text-label [&_th]:font-medium [&_th]:tracking-[0.11em] [&_th]:uppercase [&_th]:text-ink-4 min-w-[480px]"
                 >
                   <thead>
                     <tr>
@@ -5880,16 +6211,15 @@
                     class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
                   ></span
                   >2</span
-                ><button
-                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[38px] px-[11px] h-8 w-8 p-0"
-                  type="button"
+                ><a
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-3 transition-colors duration-200 ease-uv hover:bg-surface-2 hover:text-ink"
+                  href="profile.html"
                   aria-label="Your account"
-                >
-                  <span
+                  ><span
                     class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)]"
                     >JA</span
-                  >
-                </button></span
+                  ></a
+                ></span
               >
             </div>
             <div class="px-6 pt-[18px] pb-[30px]">
@@ -5958,12 +6288,14 @@
                 </div>
                 <div class="absolute inset-x-0 top-[calc(100%+10px)]">
                   <div
-                    class="rounded-lg border border-line bg-surface px-[22px] pt-5 pb-[18px] shadow-lift"
+                    class="@container rounded-lg border border-line bg-surface px-[22px] pt-5 pb-[18px] shadow-lift"
                   >
                     <div
-                      class="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-x-7 gap-y-[22px]"
+                      class="grid grid-cols-1 gap-x-7 gap-y-[22px] @min-[400px]:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]"
                     >
-                      <div class="flex flex-col gap-[9px] col-span-2">
+                      <div
+                        class="flex flex-col gap-[9px] @min-[400px]:col-span-2"
+                      >
                         <span
                           class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
                           >genre</span
@@ -6049,129 +6381,125 @@
                   </div>
                 </div>
               </div>
-              <div class="relative">
-                <div
-                  class="flex flex-wrap mb-5 gap-2"
-                  aria-label="Active filters"
-                >
-                  <span
-                    class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
-                    >Comedy<button
-                      class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
-                      type="button"
-                      aria-label="Remove genre filter"
-                    >
-                      <svg class="h-3 w-3">
-                        <use href="#i-x"></use>
-                      </svg></button></span
-                  ><span
-                    class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
-                    >1999–2012<button
-                      class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
-                      type="button"
-                      aria-label="Remove release year filter"
-                    >
-                      <svg class="h-3 w-3"><use href="#i-x"></use></svg></button
-                  ></span>
-                </div>
-                <div
-                  class="stagger grid gap-4 grid-cols-[repeat(auto-fill,minmax(128px,1fr))] gap-3"
-                >
-                  <a
-                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                    href="show-detail.html"
-                    ><div
-                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v1"
-                    >
-                      <img
-                        class="absolute inset-0 h-full w-full object-cover"
-                        src="assets/emby/show-4.jpg"
-                        alt=""
-                        data-poster="data-poster"
-                      />
-                    </div>
-                    <p
-                      class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
-                    >
-                      The Office
-                    </p>
-                    <span
-                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                      >show · 9 seasons</span
-                    ></a
-                  ><a
-                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                    href="movie-detail.html"
-                    ><div
-                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v3"
-                    >
-                      <img
-                        class="absolute inset-0 h-full w-full object-cover"
-                        src="assets/emby/movie-4.jpg"
-                        alt=""
-                        data-poster="data-poster"
-                      />
-                    </div>
-                    <p
-                      class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
-                    >
-                      Office Space
-                    </p>
-                    <span
-                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                      >movie · 1999</span
-                    ></a
-                  ><a
-                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                    href="show-detail.html"
-                    ><div
-                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v2"
-                    >
-                      <img
-                        class="absolute inset-0 h-full w-full object-cover"
-                        src="assets/emby/show-5.jpg"
-                        alt=""
-                        data-poster="data-poster"
-                      />
-                    </div>
-                    <p
-                      class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
-                    >
-                      Park Bench Diaries
-                    </p>
-                    <span
-                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                      >show · 3 seasons</span
-                    ></a
-                  ><a
-                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                    href="movie-detail.html"
-                    ><div
-                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v4"
-                    >
-                      <img
-                        class="absolute inset-0 h-full w-full object-cover"
-                        src="assets/emby/movie-5.jpg"
-                        alt=""
-                        data-poster="data-poster"
-                      />
-                    </div>
-                    <p
-                      class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
-                    >
-                      Suburban Static
-                    </p>
-                    <span
-                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                      >movie · 2003</span
-                    ></a
+              <div
+                class="flex flex-wrap mb-5 gap-2"
+                aria-label="Active filters"
+              >
+                <span
+                  class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
+                  >Comedy<button
+                    class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
+                    type="button"
+                    aria-label="Remove genre filter"
                   >
-                </div>
-                <div
-                  class="absolute inset-0 z-10 bg-scrim/70 backdrop-blur-[2px] -mx-6 -mb-[30px]"
-                ></div>
+                    <svg class="h-3 w-3">
+                      <use href="#i-x"></use>
+                    </svg></button></span
+                ><span
+                  class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
+                  >1999–2012<button
+                    class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
+                    type="button"
+                    aria-label="Remove release year filter"
+                  >
+                    <svg class="h-3 w-3"><use href="#i-x"></use></svg></button
+                ></span>
+              </div>
+              <div
+                class="stagger grid gap-4 grid-cols-[repeat(auto-fill,minmax(128px,1fr))] gap-3"
+              >
+                <a
+                  class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                  href="show-detail.html"
+                  ><div
+                    class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v1"
+                  >
+                    <img
+                      class="absolute inset-0 h-full w-full object-cover"
+                      src="assets/emby/show-4.jpg"
+                      alt=""
+                      data-poster="data-poster"
+                    />
+                  </div>
+                  <p
+                    class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
+                  >
+                    The Office
+                  </p>
+                  <span
+                    class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                    >show · 9 seasons</span
+                  ></a
+                ><a
+                  class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                  href="movie-detail.html"
+                  ><div
+                    class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v3"
+                  >
+                    <img
+                      class="absolute inset-0 h-full w-full object-cover"
+                      src="assets/emby/movie-4.jpg"
+                      alt=""
+                      data-poster="data-poster"
+                    />
+                  </div>
+                  <p
+                    class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
+                  >
+                    Office Space
+                  </p>
+                  <span
+                    class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                    >movie · 1999</span
+                  ></a
+                ><a
+                  class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                  href="show-detail.html"
+                  ><div
+                    class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v2"
+                  >
+                    <img
+                      class="absolute inset-0 h-full w-full object-cover"
+                      src="assets/emby/show-5.jpg"
+                      alt=""
+                      data-poster="data-poster"
+                    />
+                  </div>
+                  <p
+                    class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
+                  >
+                    Park Bench Diaries
+                  </p>
+                  <span
+                    class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                    >show · 3 seasons</span
+                  ></a
+                ><a
+                  class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                  href="movie-detail.html"
+                  ><div
+                    class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v4"
+                  >
+                    <img
+                      class="absolute inset-0 h-full w-full object-cover"
+                      src="assets/emby/movie-5.jpg"
+                      alt=""
+                      data-poster="data-poster"
+                    />
+                  </div>
+                  <p
+                    class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
+                  >
+                    Suburban Static
+                  </p>
+                  <span
+                    class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                    >movie · 2003</span
+                  ></a
+                >
               </div>
             </div>
+            <div class="absolute inset-0 z-10 bg-black/55"></div>
           </div>
           <p
             class="block text-center font-mono text-label tracking-[0.11em] uppercase text-ink-4 mt-3"
@@ -6201,16 +6529,15 @@
                     class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
                   ></span
                   >2</span
-                ><button
-                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[38px] px-[11px] h-8 w-8 p-0"
-                  type="button"
+                ><a
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-3 transition-colors duration-200 ease-uv hover:bg-surface-2 hover:text-ink"
+                  href="profile.html"
                   aria-label="Your account"
-                >
-                  <span
+                  ><span
                     class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)]"
                     >JA</span
-                  >
-                </button></span
+                  ></a
+                ></span
               >
             </div>
             <div class="px-6 pt-[18px] pb-[30px]">
@@ -6279,12 +6606,14 @@
                 </div>
                 <div class="absolute inset-x-0 top-[calc(100%+10px)]">
                   <div
-                    class="rounded-lg border border-line bg-surface px-[22px] pt-5 pb-[18px] shadow-lift"
+                    class="@container rounded-lg border border-line bg-surface px-[22px] pt-5 pb-[18px] shadow-lift"
                   >
                     <div
-                      class="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-x-7 gap-y-[22px]"
+                      class="grid grid-cols-1 gap-x-7 gap-y-[22px] @min-[400px]:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]"
                     >
-                      <div class="flex flex-col gap-[9px] col-span-2">
+                      <div
+                        class="flex flex-col gap-[9px] @min-[400px]:col-span-2"
+                      >
                         <span
                           class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
                           >genre</span
@@ -6379,129 +6708,125 @@
                   </div>
                 </div>
               </div>
-              <div class="relative">
-                <div
-                  class="flex flex-wrap mb-5 gap-2"
-                  aria-label="Active filters"
-                >
-                  <span
-                    class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
-                    >Comedy<button
-                      class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
-                      type="button"
-                      aria-label="Remove genre filter"
-                    >
-                      <svg class="h-3 w-3">
-                        <use href="#i-x"></use>
-                      </svg></button></span
-                  ><span
-                    class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
-                    >1999–2012<button
-                      class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
-                      type="button"
-                      aria-label="Remove release year filter"
-                    >
-                      <svg class="h-3 w-3"><use href="#i-x"></use></svg></button
-                  ></span>
-                </div>
-                <div
-                  class="stagger grid gap-4 grid-cols-[repeat(auto-fill,minmax(128px,1fr))] gap-3"
-                >
-                  <a
-                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                    href="show-detail.html"
-                    ><div
-                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v1"
-                    >
-                      <img
-                        class="absolute inset-0 h-full w-full object-cover"
-                        src="assets/emby/show-4.jpg"
-                        alt=""
-                        data-poster="data-poster"
-                      />
-                    </div>
-                    <p
-                      class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
-                    >
-                      The Office
-                    </p>
-                    <span
-                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                      >show · 9 seasons</span
-                    ></a
-                  ><a
-                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                    href="movie-detail.html"
-                    ><div
-                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v3"
-                    >
-                      <img
-                        class="absolute inset-0 h-full w-full object-cover"
-                        src="assets/emby/movie-4.jpg"
-                        alt=""
-                        data-poster="data-poster"
-                      />
-                    </div>
-                    <p
-                      class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
-                    >
-                      Office Space
-                    </p>
-                    <span
-                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                      >movie · 1999</span
-                    ></a
-                  ><a
-                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                    href="show-detail.html"
-                    ><div
-                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v2"
-                    >
-                      <img
-                        class="absolute inset-0 h-full w-full object-cover"
-                        src="assets/emby/show-5.jpg"
-                        alt=""
-                        data-poster="data-poster"
-                      />
-                    </div>
-                    <p
-                      class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
-                    >
-                      Park Bench Diaries
-                    </p>
-                    <span
-                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                      >show · 3 seasons</span
-                    ></a
-                  ><a
-                    class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
-                    href="movie-detail.html"
-                    ><div
-                      class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v4"
-                    >
-                      <img
-                        class="absolute inset-0 h-full w-full object-cover"
-                        src="assets/emby/movie-5.jpg"
-                        alt=""
-                        data-poster="data-poster"
-                      />
-                    </div>
-                    <p
-                      class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
-                    >
-                      Suburban Static
-                    </p>
-                    <span
-                      class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
-                      >movie · 2003</span
-                    ></a
+              <div
+                class="flex flex-wrap mb-5 gap-2"
+                aria-label="Active filters"
+              >
+                <span
+                  class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
+                  >Comedy<button
+                    class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
+                    type="button"
+                    aria-label="Remove genre filter"
                   >
-                </div>
-                <div
-                  class="absolute inset-0 z-10 bg-scrim/70 backdrop-blur-[2px] -mx-6 -mb-[30px]"
-                ></div>
+                    <svg class="h-3 w-3">
+                      <use href="#i-x"></use>
+                    </svg></button></span
+                ><span
+                  class="inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi"
+                  >1999–2012<button
+                    class="flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100"
+                    type="button"
+                    aria-label="Remove release year filter"
+                  >
+                    <svg class="h-3 w-3"><use href="#i-x"></use></svg></button
+                ></span>
+              </div>
+              <div
+                class="stagger grid gap-4 grid-cols-[repeat(auto-fill,minmax(128px,1fr))] gap-3"
+              >
+                <a
+                  class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                  href="show-detail.html"
+                  ><div
+                    class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v1"
+                  >
+                    <img
+                      class="absolute inset-0 h-full w-full object-cover"
+                      src="assets/emby/show-4.jpg"
+                      alt=""
+                      data-poster="data-poster"
+                    />
+                  </div>
+                  <p
+                    class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
+                  >
+                    The Office
+                  </p>
+                  <span
+                    class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                    >show · 9 seasons</span
+                  ></a
+                ><a
+                  class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                  href="movie-detail.html"
+                  ><div
+                    class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v3"
+                  >
+                    <img
+                      class="absolute inset-0 h-full w-full object-cover"
+                      src="assets/emby/movie-4.jpg"
+                      alt=""
+                      data-poster="data-poster"
+                    />
+                  </div>
+                  <p
+                    class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
+                  >
+                    Office Space
+                  </p>
+                  <span
+                    class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                    >movie · 1999</span
+                  ></a
+                ><a
+                  class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                  href="show-detail.html"
+                  ><div
+                    class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v2"
+                  >
+                    <img
+                      class="absolute inset-0 h-full w-full object-cover"
+                      src="assets/emby/show-5.jpg"
+                      alt=""
+                      data-poster="data-poster"
+                    />
+                  </div>
+                  <p
+                    class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
+                  >
+                    Park Bench Diaries
+                  </p>
+                  <span
+                    class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                    >show · 3 seasons</span
+                  ></a
+                ><a
+                  class="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv"
+                  href="movie-detail.html"
+                  ><div
+                    class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v4"
+                  >
+                    <img
+                      class="absolute inset-0 h-full w-full object-cover"
+                      src="assets/emby/movie-5.jpg"
+                      alt=""
+                      data-poster="data-poster"
+                    />
+                  </div>
+                  <p
+                    class="line-clamp-2 text-sm leading-[1.35] font-semibold text-[12.5px]!"
+                  >
+                    Suburban Static
+                  </p>
+                  <span
+                    class="inline-flex items-center gap-[5px] font-mono text-mono-sm text-ink-3"
+                    >movie · 2003</span
+                  ></a
+                >
               </div>
             </div>
+            <div class="absolute inset-0 z-10 bg-black/55"></div>
           </div>
           <p
             class="block text-center font-mono text-label tracking-[0.11em] uppercase text-ink-4 mt-3"
@@ -6531,16 +6856,15 @@
                     class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
                   ></span
                   >2</span
-                ><button
-                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[38px] px-[11px] h-8 w-8 p-0"
-                  type="button"
+                ><a
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-3 transition-colors duration-200 ease-uv hover:bg-surface-2 hover:text-ink"
+                  href="profile.html"
                   aria-label="Your account"
-                >
-                  <span
+                  ><span
                     class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)]"
                     >JA</span
-                  >
-                </button></span
+                  ></a
+                ></span
               >
             </div>
             <div class="px-6 pt-[18px] pb-[30px]">
@@ -6627,16 +6951,15 @@
                     class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
                   ></span
                   >2</span
-                ><button
-                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[38px] px-[11px] h-8 w-8 p-0"
-                  type="button"
+                ><a
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-3 transition-colors duration-200 ease-uv hover:bg-surface-2 hover:text-ink"
+                  href="profile.html"
                   aria-label="Your account"
-                >
-                  <span
+                  ><span
                     class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)]"
                     >JA</span
-                  >
-                </button></span
+                  ></a
+                ></span
               >
             </div>
             <div class="px-6 pt-[18px] pb-[30px]">
@@ -6665,7 +6988,7 @@
                 class="rounded-lg border border-line p-5 bg-surface mt-[22px] px-1.5 pt-1 pb-1.5 overflow-x-auto"
               >
                 <table
-                  class="w-full border-collapse [&amp;_td]:border-b [&amp;_td]:border-line-soft [&amp;_td]:px-3 [&amp;_td]:py-3 [&amp;_td]:align-middle [&amp;_td]:text-sm [&amp;_tbody_tr]:transition-colors [&amp;_tbody_tr]:duration-[120ms] [&amp;_tbody_tr]:ease-uv [&amp;_tbody_tr:hover]:bg-surface-2 [&amp;_tbody_tr:last-child_td]:border-b-0 [&amp;_th]:border-b [&amp;_th]:border-line [&amp;_th]:px-3 [&amp;_th]:py-2.5 [&amp;_th]:text-left [&amp;_th]:font-mono [&amp;_th]:text-label [&amp;_th]:font-medium [&amp;_th]:tracking-[0.11em] [&amp;_th]:uppercase [&amp;_th]:text-ink-4 min-w-[480px]"
+                  class="w-full border-collapse [&_td]:border-b [&_td]:border-line-soft [&_td]:px-3 [&_td]:py-3 [&_td]:align-middle [&_td]:text-sm [&_tbody_tr]:transition-colors [&_tbody_tr]:duration-[120ms] [&_tbody_tr]:ease-uv [&_tbody_tr:hover]:bg-surface-2 [&_tbody_tr:last-child_td]:border-b-0 [&_th]:border-b [&_th]:border-line [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left [&_th]:font-mono [&_th]:text-label [&_th]:font-medium [&_th]:tracking-[0.11em] [&_th]:uppercase [&_th]:text-ink-4 min-w-[480px]"
                 >
                   <thead>
                     <tr>
@@ -6781,16 +7104,15 @@
                     class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
                   ></span
                   >2</span
-                ><button
-                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[38px] px-[11px] h-8 w-8 p-0"
-                  type="button"
+                ><a
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-3 transition-colors duration-200 ease-uv hover:bg-surface-2 hover:text-ink"
+                  href="profile.html"
                   aria-label="Your account"
-                >
-                  <span
+                  ><span
                     class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)]"
                     >JA</span
-                  >
-                </button></span
+                  ></a
+                ></span
               >
             </div>
             <div class="px-6 pt-[18px] pb-[30px]">
@@ -6829,7 +7151,7 @@
                 </div>
               </div>
               <div
-                class="flex gap-2.5 rounded-md border border-line bg-surface px-[15px] py-[13px] text-sm text-ink-2 reveal border-bad/35! bg-bad-ghost! [&amp;&gt;svg]:text-bad!"
+                class="flex gap-2.5 rounded-md border border-line bg-surface px-[15px] py-[13px] text-sm text-ink-2 reveal border-bad/35! bg-bad-ghost! [&>svg]:text-bad!"
               >
                 <svg class="mt-0.5 h-4 w-4 shrink-0 text-ink-3">
                   <use href="#i-alert"></use>

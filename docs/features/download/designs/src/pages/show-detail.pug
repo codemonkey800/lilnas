@@ -5,7 +5,88 @@ block title
 
 //-
   Three levels of "download this" — series, season, episode — and an episode
-  list where each level's state is legible without opening anything.
+  list where each level's state is legible without opening anything. The
+  screen is drawn several times per viewport — primary, two modals, and the
+  loading state — so everything that repeats between them (the header block,
+  the season strip, the episode list) is a mixin here rather than hand-kept
+  copies.
+
+//- Back-to-library breadcrumb inside the app body.
+mixin libraryLink
+  a(class='mb-[22px] flex items-center gap-1.5' href='#')
+    +icon('arrow')(class='h-[13px] w-[13px] -scale-x-100 text-ink-4')
+    span(class='text-sm text-ink-3') Library
+
+//-
+  Poster + title + metadata + cast + actions. `opts.cast`/`opts.synopsis`/
+  `opts.attribution` are omitted in the cropped modal frames, which only need
+  enough of the page for the scrim to sit over something.
+mixin showHeader(view, opts)
+  - opts = opts || {}
+  - const mobile = view === 'mobile'
+  if mobile
+    +poster({ shape: 'tall', v: 3, src: 'assets/emby/show-1.jpg', label: TITLE })(
+      class='mx-auto mb-4 w-full max-w-[220px]'
+    )
+    p(class='mb-1.5 text-h1')= TITLE
+    p(class=['text-sm text-ink-3', opts.synopsis ? 'mb-3' : 'mb-4'])= META
+    if opts.synopsis
+      p(class='mb-4 text-sm text-ink-3')= SYNOPSIS
+    if opts.cast
+      div(class='mb-4 flex flex-wrap gap-4')
+        each person in LEAD_CAST
+          +castPerson(person[0], person[1])
+    if opts.attribution
+      div(class='mb-4 flex items-center gap-2')
+        +avatar('SR')(class='h-5 w-5 text-[9px]')
+        span(class='font-mono text-mono-sm text-ink-4') Sam · 1h ago
+    div(class='mb-7 flex flex-col gap-2')
+      +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye', full: true })
+      +btn({ label: 'Download series', variant: 'outline', iconEnd: 'download', full: true })
+      +btn({ label: 'Delete series', variant: 'bad', iconEnd: 'trash', full: true })
+  else
+    div(class='mb-8 flex items-start gap-6')
+      +poster({ shape: 'tall', v: 3, src: 'assets/emby/show-1.jpg', label: TITLE })(class='w-[200px]')
+      div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
+        div
+          p(class='mb-1.5 text-h1')= TITLE
+          p(class='text-sm text-ink-3')= META
+        if opts.synopsis
+          p(class='max-w-[62ch] text-sm text-ink-3')= SYNOPSIS
+        if opts.cast
+          div(class='flex flex-wrap gap-4')
+            each person in LEAD_CAST
+              +castPerson(person[0], person[1])
+        if opts.attribution
+          div(class='flex items-center gap-2')
+            +avatar('SR')(class='h-5 w-5 text-[9px]')
+            span(class='font-mono text-mono-sm text-ink-4') Sam · 1h ago
+        div(class='mt-1 flex items-center gap-2.5')
+          +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye' })
+          +btn({ label: 'Download series', variant: 'outline', iconEnd: 'download' })
+          +btn({ label: 'Delete series', variant: 'bad', iconEnd: 'trash' })
+
+//- The season strip: which season is open, and whether another is mid-grab.
+mixin seasonTabs(view)
+  - const mobile = view === 'mobile'
+  if mobile
+    +tabs({ scroll: true })(class='mb-4')
+      +tab('S1', false)
+      +tab('S2', true)
+      +tab('', false)
+        span(class='inline-flex items-center gap-[5px]')
+          | S3
+          +dot('live')
+          span(class='font-mono text-mono-sm tabular-nums text-ok') 58%
+  else
+    +tabs()(class='mb-5')
+      +tab('Season 1', false)
+      +tab('Season 2', true)
+      +tab('', false)
+        span(class='inline-flex items-center gap-1.5')
+          | Season 3
+          +dot('live')
+          span(class='font-mono text-mono-sm tabular-nums text-ok') 58%
 
 //- One episode row. Desktop puts everything on one line; mobile stacks the
     number and title, then the metadata, then any progress row.
@@ -48,140 +129,282 @@ mixin episode(ep, mobile)
       if ep.action
         +btn({ label: ep.action, variant: ep.actionVariant || 'outline', size: 'sm', iconEnd: ep.actionIcon })
 
-//-
-  The two progress states that belong to a level above the episode — the whole
-  series, and one season — shown as a legend rather than live on the page.
-mixin seriesStates(mobile)
-  - const ROWS = ['14 of 24 episodes', 'Season 3 &nbsp;·&nbsp; 4 of 7 episodes']
-  each what in ROWS
+//- Season heading, its own download/delete actions, and the episode table.
+mixin episodeList(view)
+  - const mobile = view === 'mobile'
+  if mobile
+    p(class='mb-2.5 text-h2') Season 2 · 7 episodes
+    div(class='mb-4 flex flex-col gap-2')
+      +btn({ label: 'Download season', variant: 'outline', size: 'sm', iconEnd: 'download', full: true })
+      +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash', full: true })
+    +card({ sunk: true })(class='px-[14px] py-1')
+      each ep in EPISODES
+        +episode(ep, true)
+  else
+    div(class='mb-[14px] flex items-center justify-between')
+      span(class='text-h2') Season 2 · 7 episodes
+      div(class='flex items-center gap-2')
+        +btn({ label: 'Download season', variant: 'outline', size: 'sm', iconEnd: 'download' })
+        +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash' })
+    +card({ sunk: true })(class='px-4 py-1')
+      each ep in EPISODES
+        +episode(ep)
+
+//- The two dialogs this page can raise, over a cropped copy of the page.
+mixin reportModal(view)
+  +modalScrim
+    +modal
+      p(class='mb-2.5 text-h3') What's wrong with this episode?
+      each label, i in REASONS
+        +reason(label, i === 0)
+      if view === 'mobile'
+        div(class='mt-4 flex flex-col gap-2')
+          +btn({ label: 'Submit report', variant: 'uv', size: 'sm', full: true })
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+      else
+        div(class='mt-4 flex justify-end gap-2')
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+          +btn({ label: 'Submit report', variant: 'uv', size: 'sm' })
+
+mixin deleteModal(view)
+  +modalScrim
+    +modal
+      p(class='mb-1.5 text-h3')= `Delete "${TITLE}"?`
+      p(class='mb-[18px] text-sm text-ink-3')= DELETE_WARNING
+      if view === 'mobile'
+        div(class='flex flex-col gap-2')
+          +deleteBtn(true)
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+      else
+        div(class='flex justify-end gap-2')
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+          +deleteBtn
+
+//- A cropped frame: enough of the page for a modal to sit over, faded off at
+    the bottom so it reads as "this continues".
+mixin modalFrame(view, label)
+  +modalPreview(view, label)
+    if view === 'mobile'
+      +showHeader(view, {})
+      +seasonTabs(view)
+      +episodeList(view)
+    else
+      div(class='mx-auto max-w-[1080px]')
+        +libraryLink
+        +showHeader(view, { cast: true })
+        +seasonTabs(view)
+        +episodeList(view)
+    block
+
+//- Everything below the fold on the primary frame: state legend, cast
+    overflow, and the two flows as storyboards.
+mixin appendix(view)
+  - const mobile = view === 'mobile'
+  +appendixRule(mobile ? 'Appendix' : 'Appendix — states & flows', mobile ? 'states-m' : 'states-d')
+
+  p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
+  +card({ sunk: true })(class=mobile ? 'px-[14px] py-1' : 'px-4 py-1')
+    +stline({ mobile: mobile })
+      +chip({ label: 'not started', tone: 'mute' })(class=mobile ? '' : 'w-[118px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Nothing grabbed yet — 0 of 24 episodes.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Download series', variant: 'outline', size: 'sm', iconEnd: 'download' })
+      else
+        +btn({ label: 'Download series', variant: 'outline', size: 'sm', iconEnd: 'download' })
     +stline({ mobile: mobile })
       +chip({ tone: 'ok' })(class=mobile ? '' : 'w-[118px] justify-center')
         +dot('live')
         | downloading
-      +bar(58)(class=mobile ? 'w-full' : 'w-[120px]')
-      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
-        | !{what}&nbsp;·&nbsp;
+      div(class=['flex items-center gap-2', mobile ? 'w-full' : 'w-[140px]'])
+        +bar(58)(class='flex-1')
         span(class='font-mono text-mono-sm tabular-nums text-uv-hi') 58%
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'font-mono text-mono-sm tabular-nums text-ink-3']) 14 of 24 episodes
       if mobile
         +stlineActions
           +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
       else
         +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
+    +stline({ mobile: mobile })
+      +chip({ label: 'completed', tone: 'ok' })(class=mobile ? '' : 'w-[118px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Season 1 · all 8 episodes downloaded.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash' })
+      else
+        +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash' })
+    +stline({ mobile: mobile })
+      +chip({ label: 'failed', tone: 'bad' })(class=mobile ? '' : 'w-[118px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Season 3 stopped after 4 of 7 episodes.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+      else
+        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Cast — overflow
+  if mobile
+    +card({ sunk: true })(class='py-4 pr-0 pl-[14px]')
+      p(class='mx-[14px] mb-[14px] text-sm text-ink-3')
+        | Scrolls sideways past the fold instead of wrapping into a wall of names.
+      div(
+        class!='-mx-[14px] flex flex-nowrap gap-4 overflow-x-auto px-[14px] py-0.5 [mask-image:linear-gradient(90deg,#000_calc(100%-28px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+      )
+        each person in FULL_CAST
+          +castPerson(person[0], person[1])
+  else
+    +card({ sunk: true })(class='px-4 py-[18px]')
+      p(class='mb-[14px] text-sm text-ink-3')
+        | Past the fourth credited actor, names collapse into a count — hover shows the rest.
+      div(class='flex flex-wrap gap-4')
+        each person in FULL_CAST.slice(0, 4)
+          +castPerson(person[0], person[1])
+        div(class='flex shrink-0 items-center gap-2')
+          +avatar('+2', { size: 'md' })(
+            class='text-[10px]'
+            title=OVERFLOW_CAST
+          )
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Report an episode — flow
+  +storyboard(mobile)
+    +storyboardStep('1 · Trigger')
+      +storyboardFrame(mobile ? 96 : 128)
+        +btn({ label: 'Report a problem', variant: 'ghost', size: 'sm', iconEnd: 'flag' })
+    +storyboardStep('2 · Pick a reason', !mobile)
+      div(class='rounded-lg border border-line bg-surface p-4')
+        p(class='mb-2.5 text-h3') What's wrong with this episode?
+        each label, i in REASONS
+          +reason(label, i === 0)
+        if mobile
+          div(class='mt-[14px] flex flex-col gap-2')
+            +btn({ label: 'Submit report', variant: 'uv', size: 'sm', full: true })
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+        else
+          div(class='mt-[14px] flex justify-end gap-2')
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+            +btn({ label: 'Submit report', variant: 'uv', size: 'sm' })
+    +storyboardStep('3 · Confirmed')
+      +storyboardFrame(mobile ? 96 : 128)
+        +chip({ label: 'reported', tone: 'mute' })
+        p(class='text-cap text-ink-3') This episode's file won't be auto-picked again.
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Delete series — confirm flow
+  +storyboard(mobile)
+    +storyboardStep('1 · Trigger')
+      +storyboardFrame(mobile ? 96 : 128)
+        +btn({ label: 'Delete series', variant: 'bad', iconEnd: 'trash' })
+    +storyboardStep('2 · Confirm', !mobile)
+      div(class='rounded-lg border border-line bg-surface p-[18px]')
+        p(class='mb-1.5 text-h3')= `Delete "${TITLE}"?`
+        p(class='mb-4 text-sm text-ink-3')= DELETE_WARNING
+        if mobile
+          div(class='flex flex-col gap-2')
+            +deleteBtn(true)
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+        else
+          div(class='flex justify-end gap-2')
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+            +deleteBtn
+    +storyboardStep('3 · Removed')
+      +storyboardFrame(mobile ? 96 : 128)
+        +chip({ label: 'removed', tone: 'mute' })
+        p(class='text-cap text-ink-3') Gone from your library — Emby loses it too.
+
+//- Skeleton stand-in for the whole page, while Sonarr is still answering.
+mixin loadingState(view)
+  - const mobile = view === 'mobile'
+  +frameLabel()(class='mt-1' id=mobile ? 'loading-m' : 'loading-d') Loading state
+  +appFrame(view)
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view)
+      if mobile
+        +skeleton()(class='mx-auto mb-4 aspect-[2/3] w-full max-w-[220px] rounded-md')
+        +skeleton()(class='mx-auto mb-2 h-[23px] w-[65%]')
+        +skeleton()(class='mx-auto mb-4 h-[13px] w-[40%]')
+        div(class='mb-7 flex flex-col gap-2')
+          +skeleton()(class='h-[38px] w-full rounded-md')
+          +skeleton()(class='h-[38px] w-full rounded-md')
+          +skeleton()(class='h-[38px] w-full rounded-md')
+        div(class='mb-4 flex gap-2')
+          each n in [1, 2, 3]
+            +skeleton()(class='h-7 w-10')
+        +skeleton()(class='mb-2.5 h-[15px] w-[130px]')
+        div(class='mb-4 flex flex-col gap-2')
+          +skeleton()(class='h-[30px] w-full rounded-md')
+          +skeleton()(class='h-[30px] w-full rounded-md')
+        +card({ sunk: true })(class='p-4')
+          div(class='flex flex-col gap-4')
+            each w in SKELETON_EPISODES
+              div(class='flex flex-col gap-1.5')
+                +skeleton()(class='h-[13px]' style=`width: ${w[0]}`)
+                +skeleton()(class='h-[13px]' style=`width: ${w[1]}`)
+      else
+        div(class='mx-auto max-w-[1080px]')
+          +skeleton()(class='mb-[22px] h-3 w-16')
+          div(class='mb-8 flex items-start gap-6')
+            +skeleton()(class='aspect-[2/3] w-[200px] rounded-md')
+            div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
+              +skeleton()(class='h-[23px] w-[50%]')
+              +skeleton()(class='h-[13px] w-[30%]')
+              div(class='flex flex-wrap gap-4')
+                each n in [1, 2]
+                  div(class='flex items-center gap-2')
+                    +skeleton()(class='h-[30px] w-[30px] rounded-full')
+                    +skeleton()(class='h-3 w-20')
+              div(class='mt-1 flex items-center gap-2.5')
+                +skeleton()(class='h-[38px] w-[100px] rounded-md')
+                +skeleton()(class='h-[38px] w-[148px] rounded-md')
+                +skeleton()(class='h-[38px] w-[128px] rounded-md')
+          div(class='mb-5 flex gap-[22px] border-b border-line pb-[9px]')
+            each n in [1, 2, 3]
+              +skeleton()(class='h-3 w-16')
+          div(class='mb-[14px] flex items-center justify-between')
+            +skeleton()(class='h-[15px] w-[150px]')
+            div(class='flex items-center gap-2')
+              +skeleton()(class='h-[30px] w-[150px] rounded-md')
+              +skeleton()(class='h-[30px] w-[130px] rounded-md')
+          +card({ sunk: true })(class='p-4')
+            div(class='flex flex-col gap-4')
+              each n in [1, 2, 3]
+                div(class='flex items-center gap-[14px]')
+                  +skeleton()(class='h-[13px] w-[190px]')
+                  +skeleton()(class='h-[13px] flex-1')
 
 block content
-  -
-    const EPISODES = [
-      { num: 'E1', title: 'The Long Tide', runtime: '42m', state: 'downloaded', tone: 'ok', action: 'Watch', actionVariant: 'ghost', actionIcon: 'eye' },
-      { num: 'E2', title: 'Quota', runtime: '39m', state: 'indexing…', tone: 'warn' },
-      { num: 'E3', title: 'Harbor Rules', runtime: '45m', state: 'downloading', tone: 'ok', live: true, progress: 31, action: 'Cancel', actionIcon: 'x' },
-      { num: 'E4', title: 'Low Tide', runtime: '44m', state: 'queued', tone: 'mute' },
-      { num: 'E5', title: 'The Permit', runtime: '38m', state: 'not downloaded', tone: 'mute', action: 'Download', actionIcon: 'download' },
-      { num: 'E6', title: 'Salvage', runtime: '41m', state: 'bad file', tone: 'bad', bad: true, action: 'Replace' },
-      { num: 'E7', title: 'Squall Line', runtime: '43m', state: 'failed', tone: 'bad', action: 'Retry' },
-    ]
-    const SYNOPSIS =
-      'A harbormaster and her deputies keep a fading fishing town running — one permit dispute, one rescue, ' +
-      'one grudge at a time.'
-
   +mockHead({ eyebrow: 'lilnas · download', title: 'Show detail' })
     p(class='max-w-[62ch] text-sm text-ink-3')
-      | Three levels of "download this": the whole series, one season, or a single episode — and the episode
-      | list makes each level's current state legible at a glance, from downloaded to indexing to flagged.
+      | Three levels of "download this": the whole series, one season, or a single episode — the episode list
+      | makes each level's current state legible at a glance, from downloaded to indexing to flagged, with a
+      | compact legend below for the series- and season-level states that aren't already on screen, plus the
+      | delete and report-a-problem flows.
 
   div(class='vp-scope')
     +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
 
-    //- ── desktop ────────────────────────────────────────────────────────
-    +viewportPanel('desktop')
-      +appFrame('desktop')
-        +navBar('desktop', { back: true, placeholder: 'Search or paste a link…' })
-        +appBody('desktop')
-          div(class='mx-auto max-w-[1080px]')
-            a(class='mb-[22px] flex items-center gap-1.5' href='#')
-              +icon('arrow')(class='h-[13px] w-[13px] -scale-x-100 text-ink-4')
-              span(class='text-sm text-ink-3') Library
+    each view in VIEWS
+      - const suffix = view === 'mobile' ? 'm' : 'd'
+      +viewportPanel(view)
+        +jumpNav(JUMP, suffix)
 
-            div(class='mb-8 flex items-start gap-6')
-              +poster({ shape: 'tall', v: 3, src: 'assets/emby/show-1.jpg', label: 'Harbor Watch' })(class='w-[200px]')
-              div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
-                div
-                  p(class='mb-1.5 text-h1') Harbor Watch
-                  p(class='text-sm text-ink-3') 2022– · 3 seasons · Drama
-                p(class='max-w-[62ch] text-sm text-ink-3')= SYNOPSIS
-                div(class='flex flex-wrap gap-4')
-                  +castPerson('IK', 'Ida Kowalczyk')
-                  +castPerson('DP', 'Dax Petrov')
-                div(class='flex items-center gap-2')
-                  +avatar('SR')(class='h-5 w-5 text-[9px]')
-                  span(class='font-mono text-mono-sm text-ink-4') Sam · 1h ago
-                div(class='mt-1 flex items-center gap-2.5')
-                  +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye' })
-                  +btn({ label: 'Download series', variant: 'outline', iconEnd: 'download' })
-                  +btn({ label: 'Delete series', variant: 'bad', iconEnd: 'trash' })
+        +appFrame(view)(id='primary-' + suffix)
+          +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+          +appBody(view)
+            if view === 'mobile'
+              +showHeader(view, { synopsis: true, cast: true, attribution: true })
+              +seasonTabs(view)
+              +episodeList(view)
+            else
+              div(class='mx-auto max-w-[1080px]')
+                +libraryLink
+                +showHeader(view, { synopsis: true, cast: true, attribution: true })
+                +seasonTabs(view)
+                +episodeList(view)
 
-            +tabs()(class='mb-5')
-              +tab('Season 1', false)
-              +tab('Season 2', true)
-              +tab('', false)
-                span(class='inline-flex items-center gap-1.5')
-                  | Season 3
-                  +dot('live')
-                  span(class='font-mono text-mono-sm tabular-nums text-ok') 58%
+        div(class=view === 'desktop' ? 'mx-auto max-w-[1080px]' : 'w-full max-w-[390px]')
+          +appendix(view)
 
-            div(class='mb-[14px] flex items-center justify-between')
-              span(class='text-h2') Season 2 · 7 episodes
-              div(class='flex items-center gap-2')
-                +btn({ label: 'Download season', variant: 'outline', size: 'sm', iconEnd: 'download' })
-                +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash' })
-
-            +card({ sunk: true })(class='px-4 py-1')
-              each ep in EPISODES
-                +episode(ep)
-
-            p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
-            +card({ sunk: true })(class='px-4 py-1')
-              +seriesStates()
-
-    //- ── mobile ─────────────────────────────────────────────────────────
-    +viewportPanel('mobile')
-      +appFrame('mobile')
-        +navBar('mobile', { back: true })
-        +appBody('mobile')
-          +poster({ shape: 'tall', v: 3, src: 'assets/emby/show-1.jpg', label: 'Harbor Watch' })(
-            class='mx-auto mb-4 w-full max-w-[220px]'
-          )
-          p(class='mb-1.5 text-h1') Harbor Watch
-          p(class='mb-3 text-sm text-ink-3') 2022– · 3 seasons · Drama
-          p(class='mb-4 text-sm text-ink-3')= SYNOPSIS
-          div(class='mb-4 flex flex-wrap gap-4')
-            +castPerson('IK', 'Ida Kowalczyk')
-            +castPerson('DP', 'Dax Petrov')
-          div(class='mb-4 flex items-center gap-2')
-            +avatar('SR')(class='h-5 w-5 text-[9px]')
-            span(class='font-mono text-mono-sm text-ink-4') Sam · 1h ago
-          div(class='mb-7 flex flex-col gap-2')
-            +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye', full: true })
-            +btn({ label: 'Download series', variant: 'outline', iconEnd: 'download', full: true })
-            +btn({ label: 'Delete series', variant: 'bad', iconEnd: 'trash', full: true })
-
-          +tabs({ scroll: true })(class='mb-4')
-            +tab('S1', false)
-            +tab('S2', true)
-            +tab('', false)
-              span(class='inline-flex items-center gap-[5px]')
-                | S3
-                +dot('live')
-                span(class='font-mono text-mono-sm tabular-nums text-ok') 58%
-
-          p(class='mb-2.5 text-h2') Season 2 · 7 episodes
-          div(class='mb-4 flex flex-col gap-2')
-            +btn({ label: 'Download season', variant: 'outline', size: 'sm', iconEnd: 'download', full: true })
-            +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash', full: true })
-
-          +card({ sunk: true })(class='px-[14px] py-1')
-            each ep in EPISODES
-              +episode(ep, true)
-
-          p(class='mt-[30px] mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
-          +card({ sunk: true })(class='px-[14px] py-1')
-            +seriesStates(true)
+        +modalFrame(view, 'Report an episode — as a modal')
+          +reportModal(view)
+        +modalFrame(view, 'Delete series — as a modal')
+          +deleteModal(view)
+        +loadingState(view)

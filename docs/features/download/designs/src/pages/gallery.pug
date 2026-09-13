@@ -82,7 +82,7 @@ mixin controls(view, opts)
 mixin filters
   +filterPanel
     +filterGrid
-      +filterGroup('date added')(class='col-span-2')
+      +filterGroup('date added')(class='@min-[400px]:col-span-2')
         div(class='flex items-center gap-2')
           +input({ type: 'date', mono: true })(class='min-w-0 flex-1')
           span(class='text-ink-3') –
@@ -123,12 +123,11 @@ block content
           +appBody('desktop')
             div(class='mx-auto max-w-[1080px]')
               +controls('desktop', { open: open })
-              div(class='relative')
-                div(class='flex flex-wrap items-stretch gap-4 stagger')
-                  each entry in ITEMS
-                    +item(entry)
-                if open
-                  +filterScrim(false)
+              div(class='flex flex-wrap items-stretch gap-4 stagger')
+                each entry in ITEMS
+                  +item(entry)
+          if open
+            +filterScrim
 
     //- ── mobile ─────────────────────────────────────────────────────────
     +viewportPanel('mobile')
@@ -145,12 +144,11 @@ block content
               +accountLink('JA')
           +appBody('mobile')
             +controls('mobile', { open: open })
-            div(class='relative')
-              div(class='flex flex-wrap items-stretch gap-4 stagger')
-                each entry in ITEMS.filter((e) => e.mobileHalf)
-                  +item(entry, { width: 'w-[calc(50%-8px)]' })
-              if open
-                +filterScrim(true)
+            div(class='flex flex-wrap items-stretch gap-4 stagger')
+              each entry in ITEMS.filter((e) => e.mobileHalf)
+                +item(entry, { width: 'w-[calc(50%-8px)]' })
+          if open
+            +filterScrim
 
   //- The sort menu open, which no frame above can show without covering the
       grid it sorts.

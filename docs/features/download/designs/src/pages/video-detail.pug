@@ -27,7 +27,63 @@ mixin stateLine(tone, label, mobile)
     +chip({ label: label, tone: tone })(class=mobile ? '' : 'w-[108px] justify-center')
     block
 
+//- Seek bar: a filled track plus a handle, sized for a hit target rather than
+//- the hairline +bar uses for a download's own progress.
+mixin scrubber(pct)
+  div(
+    class='relative flex h-3 w-full items-center'
+    role='slider'
+    aria-label='Seek'
+    aria-valuenow=pct
+    aria-valuemin='0'
+    aria-valuemax='100'
+  )&attributes(attributes)
+    div(class='h-[3px] w-full overflow-hidden rounded-full bg-ink/25')
+      i(class='block h-full rounded-full bg-uv' style=`width: ${pct}%`)
+    span(
+      class='absolute top-1/2 h-[11px] w-[11px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-uv shadow-[0_0_0_2px_var(--color-scrim)]'
+      style=`left: ${pct}%`
+    )
+
+//- The in-app player's control bar — seek, transport, time, volume,
+//- fullscreen — scrimmed over the bottom of the video itself rather than
+//- living below it, so the frame stays exactly the poster's aspect ratio.
+mixin playerControls(pct, time)
+  div(
+    class='absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-linear-to-t from-scrim/85 from-0% to-transparent to-80% px-3 pt-9 pb-2.5'
+  )&attributes(attributes)
+    +scrubber(pct)
+    div(class='flex items-center justify-between')
+      div(class='flex items-center gap-2.5')
+        button(
+          type='button'
+          class='flex text-ink/90 transition-colors duration-150 ease-uv hover:text-ink'
+          aria-label='Pause'
+        )
+          +icon('pause')(class='h-[15px] w-[15px]')
+        span(class='font-mono text-[11px] tabular-nums text-ink-2')= time
+      div(class='flex items-center gap-3')
+        button(
+          type='button'
+          class='flex text-ink/90 transition-colors duration-150 ease-uv hover:text-ink'
+          aria-label='Volume'
+        )
+          +icon('volume')(class='h-[15px] w-[15px]')
+        button(
+          type='button'
+          class='flex text-ink/90 transition-colors duration-150 ease-uv hover:text-ink'
+          aria-label='Fullscreen'
+        )
+          +icon('expand')(class='h-[14px] w-[14px]')
+
 block content
+  -
+    const JUMP = [
+      ['Primary', 'primary'],
+      ['Playing', 'playing'],
+      ['Other states', 'states'],
+    ]
+
   +mockHead({ eyebrow: 'lilnas · download', title: 'Video detail' })
     p(class='max-w-[62ch] text-sm text-ink-3')
       | The permalink for a video someone shared, distinct from its own author's post: a self-contained page
@@ -39,7 +95,9 @@ block content
 
     //- ── desktop ────────────────────────────────────────────────────────
     +viewportPanel('desktop')
-      +appFrame('desktop')
+      +jumpNav(JUMP, 'd')
+
+      +appFrame('desktop')(id='primary-d')
         +navBar('desktop', { back: true, placeholder: 'Search or paste a link…' })
         +appBody('desktop')
           div(class='mx-auto max-w-[1080px]')
@@ -61,7 +119,7 @@ block content
                 div(class='flex items-center gap-2')
                   +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
                   span(class='font-mono text-mono-sm text-ink-4') downloaded by Jeremy · 12m ago
-                +chip({ tone: 'ok' })(class='mt-0.5')
+                +chip({ tone: 'ok' })(class='mt-0.5 w-fit')
                   +dot('live')
                   | downloading
 
@@ -71,33 +129,66 @@ block content
                       +btn({ label: 'Pause', variant: 'outline', iconEnd: 'pause' })
                       +btn({ label: 'Cancel', variant: 'bad', iconEnd: 'x' })
 
-            p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
-            +card({ sunk: true })(class='px-4 py-1')
-              +stateLine('mute', 'not downloaded')
-                span(class='min-w-0 flex-1 text-sm text-ink-3') Ready to grab whenever.
-                +btn({ label: 'Download', variant: 'outline', size: 'sm', iconEnd: 'download' })
-              +stateLine('mute', 'queued')
-                span(class='min-w-0 flex-1 text-sm text-ink-3') Waiting for a slot — usually seconds.
-              +stateLine('mute', 'paused')
-                span(class='min-w-0 flex-1 text-sm text-ink-3') 64% — resume anytime, nothing's lost.
-                +btn({ label: 'Resume', variant: 'uv', size: 'sm' })
-              +stateLine('ok', 'completed')
-                span(class='min-w-0 flex-1 text-sm text-ink-3') Ready to watch.
-                +btn({ label: 'Watch', variant: 'outline', size: 'sm', iconEnd: 'eye' })
-                +btn({ label: 'Save to device', variant: 'ghost', size: 'sm', iconEnd: 'device' })
-              +stateLine('bad', 'failed')
-                span(class='min-w-0 flex-1 text-sm text-ink-3')
-                  | That link stopped responding halfway through.
-                  | #[span(class='font-mono text-mono-sm text-ink-4') ETIMEDOUT]
-                +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
-              +stateLine('bad', 'not recognized')
-                span(class='min-w-0 flex-1 text-sm text-ink-3')
-                  | That link isn't one yt-dlp recognises — try a different link from the nav bar.
+      div(class='mx-auto mt-8 max-w-[1080px]')
+        +frameLabel()(id='playing-d') Completed — playing in-app
+
+      +appFrame('desktop')
+        +navBar('desktop', { back: true, placeholder: 'Search or paste a link…' })
+        +appBody('desktop')
+          div(class='mx-auto max-w-[1080px]')
+            a(class='mb-[22px] flex items-center gap-1.5' href='#')
+              +icon('arrow')(class='h-[13px] w-[13px] -scale-x-100 text-ink-4')
+              span(class='text-sm text-ink-3') Library
+
+            div(class='flex items-start gap-6')
+              +poster({ shape: 'wide', v: 2, src: 'assets/video/video-3.jpg' })(class='w-[340px]')
+                +playerControls(38, '5:20 / 14:02')
+              div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
+                div
+                  p(class='mb-1.5 text-h1') Sourdough starter, day one to seven
+                  p(class='font-mono text-mono-sm text-ink-3') @slowferment · 14:02
+                a(class='flex items-center gap-1.5' href='#')
+                  +icon('external')(class='h-3 w-3 text-ink-4')
+                  span(class='text-sm') View original post
+                div(class='flex items-center gap-2')
+                  +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
+                  span(class='font-mono text-mono-sm text-ink-4') downloaded by Jeremy · 12m ago
+                +chip({ tone: 'ok', label: 'completed' })(class='mt-0.5 w-fit')
+                div(class='mt-1 flex items-center gap-2.5')
+                  +btn({ label: 'Save to device', variant: 'outline', iconEnd: 'device' })
+                  +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash' })
+
+      div(class='mx-auto max-w-[1080px]')
+        +appendixRule('Appendix — other states', 'states-d')
+        p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
+        +card({ sunk: true })(class='px-4 py-1')
+          +stateLine('mute', 'not downloaded')
+            span(class='min-w-0 flex-1 text-sm text-ink-3') Ready to grab whenever.
+            +btn({ label: 'Download', variant: 'outline', size: 'sm', iconEnd: 'download' })
+          +stateLine('mute', 'queued')
+            span(class='min-w-0 flex-1 text-sm text-ink-3') Waiting for a slot — usually seconds.
+          +stateLine('mute', 'paused')
+            span(class='min-w-0 flex-1 text-sm text-ink-3') 64% — resume anytime, nothing's lost.
+            +btn({ label: 'Resume', variant: 'uv', size: 'sm' })
+          +stateLine('ok', 'completed')
+            span(class='min-w-0 flex-1 text-sm text-ink-3') Ready to watch.
+            +btn({ label: 'Watch', variant: 'outline', size: 'sm', iconEnd: 'eye' })
+            +btn({ label: 'Save to device', variant: 'ghost', size: 'sm', iconEnd: 'device' })
+          +stateLine('bad', 'failed')
+            span(class='min-w-0 flex-1 text-sm text-ink-3')
+              | That link stopped responding halfway through.
+              | #[span(class='font-mono text-mono-sm text-ink-4') ETIMEDOUT]
+            +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+          +stateLine('bad', 'not recognized')
+            span(class='min-w-0 flex-1 text-sm text-ink-3')
+              | That link isn't one yt-dlp recognises — try a different link from the nav bar.
 
     //- ── mobile ─────────────────────────────────────────────────────────
     +viewportPanel('mobile')
-      +appFrame('mobile')
-        +navBar('mobile', { back: true })
+      +jumpNav(JUMP, 'm')
+
+      +appFrame('mobile')(id='primary-m')
+        +navBar('mobile', { back: true, placeholder: 'Search or paste a link…' })
         +appBody('mobile')
           +poster({ shape: 'wide', v: 2, src: 'assets/video/video-3.jpg', play: true, playSize: 'h-[30px] w-[30px]' })(
             class='mb-4'
@@ -121,29 +212,53 @@ block content
             +btn({ label: 'Pause', variant: 'outline', iconEnd: 'pause', full: true })
             +btn({ label: 'Cancel', variant: 'bad', iconEnd: 'x', full: true })
 
-          p(class='mt-[30px] mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
-          +card({ sunk: true })(class='px-[14px] py-1')
-            +stateLine('mute', 'not downloaded', true)
-              span(class='text-sm text-ink-3') Ready to grab whenever.
-              +stlineActions
-                +btn({ label: 'Download', variant: 'outline', size: 'sm', iconEnd: 'download' })
-            +stateLine('mute', 'queued', true)
-              span(class='text-sm text-ink-3') Waiting for a slot — usually seconds.
-            +stateLine('mute', 'paused', true)
-              span(class='text-sm text-ink-3') 64% — resume anytime, nothing's lost.
-              +stlineActions
-                +btn({ label: 'Resume', variant: 'uv', size: 'sm' })
-            +stateLine('ok', 'completed', true)
-              span(class='text-sm text-ink-3') Ready to watch.
-              +stlineActions
-                +btn({ label: 'Watch', variant: 'outline', size: 'sm', iconEnd: 'eye' })
-                +btn({ label: 'Save to device', variant: 'ghost', size: 'sm', iconEnd: 'device' })
-            +stateLine('bad', 'failed', true)
-              span(class='text-sm text-ink-3')
-                | Stopped responding halfway through.
-                | #[span(class='font-mono text-mono-sm text-ink-4') ETIMEDOUT]
-              +stlineActions
-                +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
-            +stateLine('bad', 'not recognized', true)
-              span(class='text-sm text-ink-3')
-                | That link isn't one yt-dlp recognises — try a different link from the nav bar.
+      div(class='w-full max-w-[390px]')
+        +frameLabel()(class='mt-4 mb-4' id='playing-m') Completed — playing in-app
+
+      +appFrame('mobile')
+        +navBar('mobile', { back: true, placeholder: 'Search or paste a link…' })
+        +appBody('mobile')
+          +poster({ shape: 'wide', v: 2, src: 'assets/video/video-3.jpg' })(class='mb-4')
+            +playerControls(38, '5:20 / 14:02')
+          p(class='mb-1.5 text-h1') Sourdough starter, day one to seven
+          p(class='mb-3 font-mono text-mono-sm text-ink-3') @slowferment · 14:02
+          a(class='mb-[14px] flex items-center gap-1.5' href='#')
+            +icon('external')(class='h-3 w-3 text-ink-4')
+            span(class='text-sm') View original post
+          div(class='mb-[14px] flex items-center gap-2')
+            +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
+            span(class='font-mono text-mono-sm text-ink-4') downloaded by Jeremy · 12m ago
+          +chip({ tone: 'ok', label: 'completed' })(class='mb-4 w-fit')
+
+          div(class='flex flex-col gap-2')
+            +btn({ label: 'Save to device', variant: 'outline', iconEnd: 'device', full: true })
+            +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash', full: true })
+
+      div(class='w-full max-w-[390px]')
+        +appendixRule('Appendix', 'states-m')
+        p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
+        +card({ sunk: true })(class='px-[14px] py-1')
+          +stateLine('mute', 'not downloaded', true)
+            span(class='text-sm text-ink-3') Ready to grab whenever.
+            +stlineActions
+              +btn({ label: 'Download', variant: 'outline', size: 'sm', iconEnd: 'download' })
+          +stateLine('mute', 'queued', true)
+            span(class='text-sm text-ink-3') Waiting for a slot — usually seconds.
+          +stateLine('mute', 'paused', true)
+            span(class='text-sm text-ink-3') 64% — resume anytime, nothing's lost.
+            +stlineActions
+              +btn({ label: 'Resume', variant: 'uv', size: 'sm' })
+          +stateLine('ok', 'completed', true)
+            span(class='text-sm text-ink-3') Ready to watch.
+            +stlineActions
+              +btn({ label: 'Watch', variant: 'outline', size: 'sm', iconEnd: 'eye' })
+              +btn({ label: 'Save to device', variant: 'ghost', size: 'sm', iconEnd: 'device' })
+          +stateLine('bad', 'failed', true)
+            span(class='text-sm text-ink-3')
+              | Stopped responding halfway through.
+              | #[span(class='font-mono text-mono-sm text-ink-4') ETIMEDOUT]
+            +stlineActions
+              +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+          +stateLine('bad', 'not recognized', true)
+            span(class='text-sm text-ink-3')
+              | That link isn't one yt-dlp recognises — try a different link from the nav bar.

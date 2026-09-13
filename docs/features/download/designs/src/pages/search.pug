@@ -86,7 +86,7 @@ mixin viewBtn(name, label, active)
 mixin filters(invalid, mobile)
   +filterPanel
     +filterGrid
-      +filterGroup('genre')(class='col-span-2')
+      +filterGroup('genre')(class='@min-[400px]:col-span-2')
         div(class='flex flex-wrap gap-2')
           each genre, i in mobile ? GENRES.slice(0, GENRES_MOBILE) : GENRES
             +toggleChip(null, genre, i === 0)
@@ -250,9 +250,11 @@ mixin searchBar(view)
       span(class='flex items-center gap-2.5')
         +avatar('JA', { ring: true, href: 'profile.html' })(class='h-[30px] w-[30px] text-[11.5px]' title='Jeremy · you')
 
-//- One mocked state, framed and captioned.
-mixin state(view, label, first)
-  +frameLabel()(class=first ? '' : 'mt-3')
+//- One mocked state, framed and captioned. `scrim` dims the whole frame
+    behind an open filter panel.
+mixin state(view, label, opts)
+  - opts = opts || {}
+  +frameLabel()(class=opts.first ? '' : 'mt-3')
     = label
   +appFrame(view)
     +searchBar(view)
@@ -262,6 +264,8 @@ mixin state(view, label, first)
       else
         div(class='mx-auto max-w-[1080px]')
           block
+    if opts.scrim
+      +filterScrim
 
 block content
   +mockHead({ eyebrow: 'lilnas · download', title: 'Search' })
@@ -280,7 +284,7 @@ block content
       - var count = mobile ? '8 results' : '8 results for "the office"'
       +viewportPanel(view)
 
-        +state(view, 'Results — grid view', true)
+        +state(view, 'Results — grid view', { first: true })
           +hero(view)
           +toolbar(view, { count: count })
           +resultGrid(view)
@@ -290,21 +294,17 @@ block content
           +toolbar(view, { count: count, list: true })
           +resultTable(view)
 
-        +state(view, 'Results — grid view, filters open')
+        +state(view, 'Results — grid view, filters open', { scrim: true })
           +hero(view)
           +toolbar(view, { count: count, filtersOpen: true })
-          div(class='relative')
-            +activeFilters(view)
-            +resultGrid(view)
-            +filterScrim(mobile)
+          +activeFilters(view)
+          +resultGrid(view)
 
-        +state(view, 'Filters — invalid release year range')
+        +state(view, 'Filters — invalid release year range', { scrim: true })
           +hero(view)
           +toolbar(view, { count: count, filtersOpen: true, invalid: true })
-          div(class='relative')
-            +activeFilters(view)
-            +resultGrid(view)
-            +filterScrim(mobile)
+          +activeFilters(view)
+          +resultGrid(view)
 
         +state(view, 'Loading — grid view')
           +hero(view, { loading: true, value: 'the offic' })
@@ -317,7 +317,7 @@ block content
         +state(view, 'No matches')
           +hero(view, { invalid: true, value: 'xyzzyqqq' })
           +toolbar(view, { count: mobile ? '0 results' : '0 results for "xyzzyqqq"', noViewToggle: true })
-          +note('alert')(class='reveal border-bad/35! bg-bad-ghost! [&>svg]:text-bad!')
+          +note('alert')(class!='reveal border-bad/35! bg-bad-ghost! [&>svg]:text-bad!')
             b(class='text-ink') No matches for "xyzzyqqq."
             |  Double-check the spelling, or try browsing the
             | #[a(class='text-ink underline' href='gallery.html') gallery] instead.

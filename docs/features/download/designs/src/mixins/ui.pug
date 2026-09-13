@@ -247,7 +247,7 @@ mixin stline(opts)
 
 //- The buttons at the end of a stacked (mobile) stline — full width, split evenly.
 mixin stlineActions
-  span(class='flex w-full gap-2 [&>button]:flex-1')&attributes(attributes)
+  span(class!='flex w-full gap-2 [&>button]:flex-1')&attributes(attributes)
     block
 
 //-
@@ -339,13 +339,21 @@ mixin afchip(label, removeLabel)
     button(class='flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100' type='button' aria-label=removeLabel)
       +icon('x')(class='h-3 w-3')
 
-//- The dropdown panel itself.
+//-
+  The dropdown panel itself. `@container` so filterGrid can key its column
+  count off the panel's own width rather than the viewport — the same panel
+  markup renders inside a 340px mobile popover and a 480px desktop one.
 mixin filterPanel
-  div(class='rounded-lg border border-line bg-surface px-[22px] pt-5 pb-[18px] shadow-lift')&attributes(attributes)
+  div(class='@container rounded-lg border border-line bg-surface px-[22px] pt-5 pb-[18px] shadow-lift')&attributes(attributes)
     block
 
+//-
+  Single column below 400px of panel width — two auto-fill columns at
+  190px min plus col-span-2 (filterGroup call sites) don't fit the ~296px
+  a mobile popover has left after its padding, and previously overflowed
+  the app frame instead of wrapping.
 mixin filterGrid
-  div(class='grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-x-7 gap-y-[22px]')&attributes(attributes)
+  div(class='grid grid-cols-1 gap-x-7 gap-y-[22px] @min-[400px]:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]')&attributes(attributes)
     block
 
 mixin filterGroup(label)
@@ -358,15 +366,13 @@ mixin filterFoot
     block
 
 //-
-  Dims whatever sits below an open filter panel, so the panel reads as a
-  floating popup rather than a bug that hides the first row of a grid. Sized
-  to the relative wrapper around the content being dimmed — `mobile` bleeds
-  past appBody's own side/bottom padding (px-6/pb-[30px] in mock.pug) to
-  reach the frame edge; the desktop wrapper sits inside the `mx-auto
-  max-w-[1080px]` column, which has no padding of its own, so no bleed is
-  needed there.
-mixin filterScrim(mobile)
-  div(class=['absolute inset-0 z-10 bg-scrim/70 backdrop-blur-[2px]', mobile ? '-mx-6 -mb-[30px]' : ''])&attributes(attributes)
+  Dims the whole app frame behind an open filter panel, so the panel reads as
+  a floating popup over the app rather than a bug that hides the first row of
+  a grid. A direct child of `appFrame` (mock.pug) — that element is already
+  `relative`, has no padding of its own, and clips to the frame's rounded
+  corners, so `inset-0` here reaches every edge for free.
+mixin filterScrim
+  div(class='absolute inset-0 z-10 bg-black/55')&attributes(attributes)
 
 //- A person you can filter by. Checked state is read from the input with
     :has(), so it works without JS.
@@ -420,7 +426,7 @@ mixin menuItem(label, selected)
   Headers are mono uppercase — a field name is the machine talking.
 mixin dataTable
   table(
-    class='w-full border-collapse [&_td]:border-b [&_td]:border-line-soft [&_td]:px-3 [&_td]:py-3 [&_td]:align-middle [&_td]:text-sm [&_tbody_tr]:transition-colors [&_tbody_tr]:duration-[120ms] [&_tbody_tr]:ease-uv [&_tbody_tr:hover]:bg-surface-2 [&_tbody_tr:last-child_td]:border-b-0 [&_th]:border-b [&_th]:border-line [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left [&_th]:font-mono [&_th]:text-label [&_th]:font-medium [&_th]:tracking-[0.11em] [&_th]:uppercase [&_th]:text-ink-4'
+    class!='w-full border-collapse [&_td]:border-b [&_td]:border-line-soft [&_td]:px-3 [&_td]:py-3 [&_td]:align-middle [&_td]:text-sm [&_tbody_tr]:transition-colors [&_tbody_tr]:duration-[120ms] [&_tbody_tr]:ease-uv [&_tbody_tr:hover]:bg-surface-2 [&_tbody_tr:last-child_td]:border-b-0 [&_th]:border-b [&_th]:border-line [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left [&_th]:font-mono [&_th]:text-label [&_th]:font-medium [&_th]:tracking-[0.11em] [&_th]:uppercase [&_th]:text-ink-4'
   )&attributes(attributes)
     block
 

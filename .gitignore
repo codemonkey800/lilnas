@@ -12,6 +12,7 @@
 *.log
 coverage/
 data/
+!docs/features/*/designs/src/data/
 dist/
 apps/tdr-code/server.js
 infra/dev.yml
