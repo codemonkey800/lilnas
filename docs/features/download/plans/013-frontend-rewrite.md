@@ -2326,8 +2326,8 @@ before `apps/download`'s tests import a newly-added export.**
 
 ### Phase 2 — Shell and entry point
 
-- [ ] **C1. App shell.** Every page renders inside the real app bar, with the
-      viewer's identity resolved once.
+- [x] **C1. App shell.** Every page renders inside the real app bar, with the
+      viewer's identity resolved once. — `fc41d853`
 
   **Files:** edit `apps/download/src/app/layout.tsx`; create
   `apps/download/src/components/shell/app-bar.tsx`,
@@ -2359,6 +2359,182 @@ before `apps/download`'s tests import a newly-added export.**
 
   **Tests:** `getViewer()` returns `null` on a thrown `whoami`; the bar renders
   without an account link when the viewer is `null`; the sprite appears exactly once.
+
+  **Findings (C1, 2026-09-15):** 4 new suites / 34 new tests, all passing —
+  `apps/download` goes **81 → 85 suites, 1607 → 1641 tests**. Lint (eslint *and*
+  prettier) and type-check clean. Files: created `src/lib/viewer.ts`,
+  `src/components/shell/app-bar.tsx`, `src/components/shell/account-link.tsx` plus
+  `src/lib/__tests__/viewer.spec.ts` (8, node project),
+  `src/components/shell/__tests__/app-bar.spec.tsx` (12),
+  `…/account-link.spec.tsx` (8), `src/app/__tests__/layout.spec.tsx` (6); edited
+  `src/app/layout.tsx`. **None of the three new source files is `'use client'`.**
+  **Actual exported signatures — paste these:**
+
+  ```tsx
+  // src/lib/viewer.ts
+  export type Viewer = WhoamiResponse        // { email: string; userId: string; isAdmin: boolean }
+  export const getViewer: () => Promise<Viewer | null>   // React.cache()-wrapped
+
+  // src/components/shell/app-bar.tsx
+  export const LILNAS_HREF = 'https://lilnas.io'   // literal type
+  export const APP_NAME = 'Download'               // literal type
+  export type AppBarProps = Omit<ComponentPropsWithoutRef<'header'>, 'children'> & {
+    back?: ReactNode        // optional leading control, before the doorplate
+    navSearch?: ReactNode   // C2's slot
+    viewer: Viewer | null   // REQUIRED; null -> no account link
+  }
+  export function AppBar(props: AppBarProps): JSX.Element   // root <header>
+
+  // src/components/shell/account-link.tsx
+  export const ACCOUNT_HREF = '/profile'           // literal type
+  export type AccountLinkProps = Omit<ComponentPropsWithoutRef<'a'>, 'children'> & {
+    email: string           // initials AND tooltip both derived from it
+  }
+  export function AccountLink(props: AccountLinkProps): JSX.Element   // root <a>
+  ```
+
+  - **`getViewer()` returns `null` on any genuine failure** (401 `DownloadApiError`,
+    `headers()` outside request scope, network) and `console.warn`s it — but
+    ⚠️ **re-throws anything carrying a string `digest`**: Next's
+    `DYNAMIC_SERVER_USAGE` bailout, `redirect()`, `notFound()`. Swallowing the
+    bailout would let `next build` prerender the shell with the account link
+    **permanently missing**. Any later `try/catch` around a server-side call needs
+    the same guard.
+  - ⚠️ **`React.cache` does not memoize outside a React server request scope** —
+    verified: `cache(f)(); cache(f)()` returns distinct values in plain node. **Do
+    not write a unit test asserting call-count memoization**; it passes vacuously or
+    fails for the wrong reason. Test the behaviour.
+  - `AppBar` renders, in order: optional `back` wrapper `<span>` → `<Doorplate
+    href={LILNAS_HREF} name={APP_NAME} className="shrink-0" />` → the nav-search slot
+    `<div>` → `<AccountLink email={viewer.email} />` when `viewer` is non-null.
+    `className` merges via `cns`; the rest spreads onto `<header>`.
+  - `AccountLink` emits `aria-label="Your account"` and ``title={`${email} · you`}``
+    **before** the spread. Contains a single `<Avatar ring initials={initials(email)} />`
+    — no nested `<a>`. 32px `rounded-md` hover plate with a 24px mark on mobile;
+    30px `rounded-full`, plateless, 30px mark at `sm:` and up. The avatar is sized by
+    `className`, **not `size="md"`**, because the mockups' nav avatar is
+    `text-[11.5px]` and `md` is `text-[12px]`.
+  - `AppLayout` is now **async**. Body order is `<IconSprite />` → `<AppBar />` →
+    `{children}`. Font wiring untouched.
+
+  ##### ⚠️ The nav-search slot contract — C2 reads this
+
+  **One prop, `navSearch?: ReactNode`, rendered exactly once**, inside a wrapper
+  `AppBar` owns:
+
+  ```
+  'flex min-w-0 flex-1 items-center justify-end pr-1.5 pl-2.5 sm:justify-start sm:pr-3 sm:pl-[14px]'
+  ```
+
+  - **C2 writes ONE component, not two.** It mounts in one DOM position and CSS
+    repositions it. Two slots / two renders was rejected: duplicating the node puts
+    two `<input>`s — two label associations, two ids — in the accessible tree on
+    every screen of the app.
+  - **Desktop (`sm:`, 640px+):** wrapper is `justify-start`, starting 14px after the
+    doorplate. Give the field `flex-1 max-w-[320px]` (or `max-w-[360px]` in the ready
+    state, per `navsearch({ ready })`) and it lands at **x=137.6 on a 1280 viewport —
+    the mockup's exact value.** The wrapper deliberately has **no `max-w-*`**: the cap
+    is the field's decision.
+  - **Mobile (<640px):** wrapper is `justify-end`, 6px to the account link. Give the
+    collapsed trigger `shrink-0` (the mockup uses a 30px ghost `Button`).
+  - **C2 owns the collapse** — e.g. `hidden sm:flex` on the field and `sm:hidden` on
+    the trigger, both in one fragment. `AppBar` does not branch.
+  - **An empty slot is a supported state**, rendering as invisible blank space
+    (content is edge-aligned, so the far-side padding never shows).
+  - **`sm` (640px) is the shell's mobile/desktop threshold**, chosen because the
+    collapse exists purely for horizontal room. **Page tasks should pick their own
+    thresholds for content grids** — their constraints differ.
+  - **C2 is a one-line edit to `layout.tsx`** (`<AppBar navSearch={<NavSearch />}
+    viewer={viewer} />`) and **does not reopen `app-bar.tsx`**.
+
+  `back?: ReactNode` is the same idea for detail pages: a
+  `<span className="flex shrink-0 items-center mr-2.5 sm:mr-[14px]">` wrapper,
+  omitted entirely when unset. The mockup's control is a ghost `Button` at
+  `h-[30px] w-[30px] p-0` (mobile) / `h-8 w-8 p-0` (desktop) holding
+  `<Icon name="arrow" className="h-[15px] w-[15px] -scale-x-100" />`,
+  `aria-label="Back to library"`.
+
+  **Mockup deviations (C1): four, measured not eyeballed.** Reconciled with headless
+  `google-chrome-stable` for images plus `playwright-core` (already in
+  `node_modules`) driving system Chrome for exact geometry, at 1280×900 and 390×844
+  against the built `home.html`'s two frames, minus the 1px harness border. **Chrome
+  MCP was unavailable** (`The browser is already running for …/chrome-profile`).
+
+  **Desktop 1280 — pixel-identical, zero deviations:** bar height 55, bar bg
+  `oklch(0.11 0.018 300)` / border `oklch(0.235 0.031 300) 1px`, doorplate at
+  x=16 y=11 w=107.6, nav-search slot starting at x=137.6, account 30×30 at y=12 and
+  16px from the right — every value matching.
+
+  **Mobile 390 — every element position matches** (doorplate x=16; account plate
+  32×32 at 14px from right; account mark 24×24 at 18px from right). One deviation:
+
+  - ⚠️ **Mobile bar is 53px, not the mockup's rendered 59px — kept deliberately.**
+    The mockup's own search button emits `… h-[38px] px-[11px] h-[30px] w-[30px] p-0`
+    — *two* height utilities with nothing to resolve them, and `h-[38px]` wins there
+    by CSS output order, rendering 38px where the mixin asked for 30px and inflating
+    the bar. This is exactly the output-order trap the Gotchas describe, and
+    `cns`/twMerge resolves it in the port. 53px = `py-2.5` + the 32px doorplate, the
+    intended design. **C2 will see this**: its search trigger will be 30px and the
+    mobile bar stays 53px rather than growing to 59px.
+  - **`<header>` instead of the mockup's `<div>`** — the mockups have no landmarks;
+    the real app gets a banner landmark. No visual difference.
+  - **No `gap-*` on the bar; the nav-search slot carries the spacing as padding** —
+    necessary to express the mockup's two different gap pairs (mobile 10/6, desktop
+    14/12) from one flat responsive row. Output geometry identical at both widths.
+  - **`AccountLink` unifies two mockup constructs.** `mock.pug` uses the
+    `accountLink` plate on mobile and a bare linked 30px avatar on desktop; the port
+    is one component whose plate is transparent and `rounded-full` at `sm:`, the
+    avatar picking up the link hover via `group-hover`. Geometry matches both.
+
+  **Content note:** the live API reports `jeremyasuncion808@gmail.com`, so the avatar
+  shows **JE** where the mockups show **JA**. The API wins on content.
+
+  **✅ `next/link` decision (C1's call, per B5): keep plain `<a>` everywhere.**
+  `tile.tsx` and `gallery-card.tsx` are **unchanged**, and `AccountLink` is a plain
+  `<a>` too. Reasoning: the doorplate is external (`https://lilnas.io`) so it must
+  stay `<a>` regardless; `AccountLinkProps` is already exactly `next/link`'s surface,
+  so swapping later is one line with **no public API change**; the real cost is not
+  the import but the **prefetch policy** — App Router prefetches on viewport entry,
+  and `GalleryCardLink`/`Tile` are per-card gallery links, so dozens of RSC prefetches
+  per scroll would hit a self-hosted backend doing sqlite + MinIO work, a decision that
+  needs a real gallery page to make; and a partial migration is the worst outcome when
+  `Avatar`, `Doorplate`, `GalleryCardLink`, `Tile` and `AccountLink` are currently
+  consistently plain `<a>`. The cost of waiting is small — a full navigation re-runs
+  the root layout and one `getViewer()`, a localhost call inside the same container.
+  **Follow-up for a later wave:** revisit once the gallery exists; if adopting `Link`,
+  use `prefetch={false}` on gallery cards and default prefetch on nav/detail links.
+
+  **Testing notes for the nine page tasks:**
+  - ⚠️ **`react-dom/server` is unusable under this jsdom project** — it needs
+    `MessageChannel` and `TextEncoder`, neither of which jsdom provides.
+  - **React 19 renders a document root fine inside RTL's container**: `<html>`/`<body>`
+    *props* apply to the real `document.documentElement`/`document.body` and their
+    *children* land in the container, with no DOM-nesting warnings. Assert `<html>`
+    attributes on `document.documentElement`.
+  - `next/font/google` and `src/tailwind.css` both need `jest.mock` when a test
+    imports `layout.tsx`. C1 mocked them locally; **if several page suites need it,
+    generalise to a `moduleNameMapper` CSS stub in `jest.config.js`.**
+  - Pre-existing and not chased: the backend suite's `"worker process has failed to
+    exit gracefully"` warning, plus two `Unknown option "testTimeout"` jest validation
+    warnings (the config places it in `shared`, which is spread into both projects and
+    is not a valid per-project key in jest 29 — harmless).
+
+  ⚠️ **One build-behaviour change to confirm later:** `headers()` now runs in the root
+  layout, so **every route becomes dynamic (`ƒ`) rather than static (`○`)**. Correct
+  for a per-user authenticated app and a supported App Router pattern — and the
+  `digest` re-throw in `viewer.ts` exists precisely so the bailout can't be swallowed.
+  **`apps/download`'s own `pnpm build` was NOT run** (it would clobber the running
+  8090 dev server's `.next`, which is forbidden while it is up); `pnpm type-check` is
+  clean and the dev server compiles and serves the shell at 200. **G2 should confirm
+  the build is green and that all-routes-dynamic is accepted.**
+
+  **Open questions C1 raised:**
+  - **How does a detail page supply `back`?** The layout owns the bar, so `AppBar`'s
+    `back` prop has no route-level injection path today. Needs a nested route-group
+    layout or a small context. **Flagged for E2/E4/E5.**
+  - **`/profile` is assumed.** `ACCOUNT_HREF` is `'/profile'`, matching the mockups'
+    `profile.html`. If **F1** lands on a different route, that constant is the single
+    place to change.
 
 - [ ] **C2. Nav-search field and the video-start action.** The single entry point
       works, on every page, at both widths.
