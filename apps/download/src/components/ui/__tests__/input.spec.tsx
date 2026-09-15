@@ -9,10 +9,20 @@ function classes(element: Element): string[] {
   return Array.from(element.classList)
 }
 
-/** Every font-size utility on the element — there must only ever be one. */
+/**
+ * Every font-size utility that actually survived to the DOM — there must only
+ * ever be one.
+ *
+ * Deliberately not a loose `text-` prefix match. `text-ink-3` is a colour, and
+ * a helper that counted it would report a size the element does not have,
+ * which is precisely the failure this file exists to catch. `text-mono` stays
+ * in the pattern so a regression back to the raw theme token is still seen.
+ */
 function fontSizeClasses(element: Element): string[] {
   return classes(element).filter(
-    name => name.startsWith('text-[') || name === 'text-mono',
+    name =>
+      name === 'text-mono' ||
+      /^text-\[(?:length:var\(--text-[\w-]+\)|[\d.]+px)\]$/.test(name),
   )
 }
 
@@ -47,8 +57,54 @@ describe('Input', () => {
 
     const input = screen.getByRole('textbox')
 
-    expect(fontSizeClasses(input)).toEqual(['text-mono'])
-    expect(input).toHaveClass('font-mono')
+    expect(fontSizeClasses(input)).toEqual(['text-[length:var(--text-mono)]'])
+    expect(input).toHaveClass('font-mono', 'font-[450]', 'tracking-[-0.01em]')
+  })
+
+  /**
+   * Regression: `cns` is `twMerge(clsx(...))`, and tailwind-merge only knows
+   * Tailwind's built-in font-size names. Every custom `--text-*` token in this
+   * theme is misclassified as a text *colour*, so writing the mono size as
+   * `text-mono` put it in the same conflict group as any colour a caller
+   * passed and the size was silently dropped:
+   *
+   *     cns('font-mono text-mono text-ink-3') === 'font-mono text-ink-3'
+   *
+   * These assert on the element's rendered `class` attribute rather than on
+   * the string handed to `cns`, because the drop happens inside `cns` — a test
+   * that checked the input would have passed throughout.
+   */
+  describe('mono sizing survives tailwind-merge', () => {
+    it.each([
+      ['a text colour', 'text-ink-3'],
+      ['an error colour alongside a width', 'w-[76px]! text-bad'],
+      ['a mono-sm colour pairing', 'text-uv-hi'],
+    ])('keeps the font size when the caller passes %s', (_label, className) => {
+      render(<Input mono className={className} />)
+
+      const rendered = screen.getByRole('textbox').getAttribute('class') ?? ''
+
+      expect(rendered).toContain('text-[length:var(--text-mono)]')
+      expect(rendered.split(' ')).toContain(className.split(' ').at(-1))
+    })
+
+    it('leaves exactly one font-size utility on the element', () => {
+      render(<Input mono className="text-ink-3" />)
+
+      expect(fontSizeClasses(screen.getByRole('textbox'))).toEqual([
+        'text-[length:var(--text-mono)]',
+      ])
+    })
+
+    it('still lets a caller override the weight without losing the size', () => {
+      render(<Input mono className="font-semibold" />)
+
+      const input = screen.getByRole('textbox')
+
+      expect(fontSizeClasses(input)).toEqual(['text-[length:var(--text-mono)]'])
+      expect(input).toHaveClass('font-mono', 'font-semibold')
+      expect(input).not.toHaveClass('font-[450]')
+    })
   })
 
   it('carries exactly one padding-left utility, widened by a leading icon', () => {
