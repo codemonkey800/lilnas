@@ -2536,8 +2536,8 @@ before `apps/download`'s tests import a newly-added export.**
     `profile.html`. If **F1** lands on a different route, that constant is the single
     place to change.
 
-- [ ] **C2. Nav-search field and the video-start action.** The single entry point
-      works, on every page, at both widths.
+- [x] **C2. Nav-search field and the video-start action.** The single entry point
+      works, on every page, at both widths. — `40e0f730`
 
   **Files:** create `apps/download/src/components/shell/nav-search.tsx` (client),
   `apps/download/src/lib/url-classify.ts`,
@@ -2591,7 +2591,167 @@ before `apps/download`'s tests import a newly-added export.**
   mobile collapse/expand; the action calls the identified client and redirects to the
   media-id-derived path.
 
-- [ ] **C3. Live job events.** An open page reflects job changes without polling.
+  **Findings (C2, 2026-09-15):** 3 new suites / 50 new tests (24 `classifyQuery`,
+  7 server action, 17 component, 1 added to C1's layout spec). Created
+  `src/lib/url-classify.ts`, `src/app/actions/start-video-download.ts`,
+  `src/components/shell/nav-search.tsx` plus specs; edited `src/app/layout.tsx`
+  (the one-line slot pass + its import). ⚠️ **It also had to edit C1's
+  `src/app/__tests__/layout.spec.tsx`** — mounting a client component that calls
+  `useRouter()` broke all 6 tests with `invariant expected app router to be mounted`,
+  so a local `jest.mock('next/navigation')` was added. `app-bar.tsx` was **not**
+  reopened.
+  **Actual exported signatures — paste these, not the sketch above:**
+
+  ```ts
+  // src/lib/url-classify.ts — NO directive (imported from both client and server)
+  export type QueryClassification =
+    | { kind: 'url'; url: string }
+    | { kind: 'search'; query: string }
+    | { kind: 'idle' }
+  export const SEARCH_MIN_LENGTH = 2                     // literal type 2
+  export function classifyQuery(text: string): QueryClassification
+
+  // src/app/actions/start-video-download.ts — 'use server'
+  export type StartVideoDownloadResult = { error: string }
+  export async function startVideoDownload(
+    url: string,
+  ): Promise<StartVideoDownloadResult | undefined>
+
+  // src/components/shell/nav-search.tsx — 'use client'
+  export const SEARCH_ROUTE = '/search'                            // literal type
+  export const NAV_SEARCH_PLACEHOLDER = 'Search or paste a link…'  // literal type
+  export function NavSearch(): JSX.Element | null                  // NO PROPS AT ALL
+  ```
+
+  - **`startVideoDownload` resolves with a value ONLY on failure.** On success it
+    `redirect()`s and never returns; Next resolves the client-side call with
+    `undefined`. ⚠️ **A `'use server'` module may export nothing but async
+    functions**, so the error copy is module-private rather than an exported
+    constant (`export type` is fine — it erases).
+  - **`NavSearch` takes no props**, deliberately: it reads `usePathname`/`useRouter`
+    itself, so `layout.tsx` stays `<AppBar navSearch={<NavSearch />} viewer={viewer} />`.
+    It renders a fragment — a 30px `sm:hidden` ghost trigger (`aria-label="Open search"`)
+    plus a `<form role="search">`.
+  - **`/search` omission: `usePathname()` inside `NavSearch`, returning `null` on
+    `SEARCH_ROUTE`.** Keeps `app-bar.tsx` closed and needs no route-group restructuring.
+    Verified live: `/search?q=…` renders no `[role=search]` while the doorplate and
+    account link still render. ⚠️ **Note for D3:** C2 pushes `?q=the%20office`; Next's
+    router normalises the display to `?q=the+office`. Both decode identically through
+    `URLSearchParams` / `searchParams`.
+  - `classifyQuery`'s bare-host branch **requires a dot plus an alphabetic 2+ char
+    TLD**, so `192.168.1.5/clip` and `localhost:3000/clip` need an explicit scheme —
+    both documented in source, both implausible pastes for this app. **Non-http
+    schemes (`javascript:`, `file:`) are rejected in both branches**, deliberately: a
+    Download button under `javascript:…` would be a real hazard.
+
+  **✅ The `aria-disabled` vs `disabled` decision: `aria-disabled`, with the
+  double-submit guard in `onSubmit`.** The button is `type="submit"`, so B8's warning
+  applies — `aria-disabled` cannot stop a native submit. **It does not need to here**,
+  because the form is airtight: exactly two submit paths (the button, and Enter in the
+  input), both raising the same `submit` event; the handler `preventDefault()`s
+  unconditionally; the form has **no `action` attribute**; and `form.requestSubmit()`
+  is never called. The guard therefore sits at the single choke point both paths
+  share. What it buys: this is the control the user is most likely standing on when it
+  disables itself, and on the **failure** path the page does *not* navigate away, so
+  `disabled` would strand them on `<body>`. Tested per B8's lesson — **tab-order
+  reachability**, not focus survival.
+
+  ⚠️ **`react-hooks/set-state-in-effect` is an ERROR in this package.** C2's first
+  "reset on route change" was a `useEffect` calling `setState` and eslint rejected it
+  outright. Rewritten as React's documented **render-phase adjustment** (a
+  `routeAtLastReset` sentinel compared against `pathname`), which is also better — it
+  bails out of the in-flight render instead of painting a stale frame and correcting
+  it. **Any later task that resets state on navigation must use this pattern, not an
+  effect.** (B6 hit the same rule from the other direction with `useSyncExternalStore`.)
+
+  ⚠️ **`Button` and `Input` do not accept `ref`.** Both are
+  `ComponentPropsWithoutRef`, so `ref={…}` does not type-check even though React 19
+  would forward it at runtime. C2 needed focus management (input on expand, trigger on
+  close) and deliberately did **not** widen those shared prop types mid-wave; it used
+  one `useId()` + `document.getElementById`. **If a later task needs refs on these,
+  that is a shared-contract change worth doing once, on purpose.** (`FiltersButton`
+  already declares `ref` explicitly for exactly this reason.)
+
+  **Mockup deviations (C2): six, measured not eyeballed.** Chrome MCP
+  `getBoundingClientRect` against the built `home.html` (32px field) and
+  `nav-search.html` (ready state), opened the same way.
+
+  **Desktop 1280 — exact match:** bar 55px; pill x/w/h **137.6 / 320 / 32** against
+  the mockup's identical values — C1's predicted x=137.6 landed exactly; icon x=150.6;
+  input x/w 172.6 / 272; icon `oklch(0.5 0.028 300)` (ink-4). Ready state: pill widens
+  to 360, glyph swaps to `#i-download`, tints `oklch(0.75 0.195 300)` (uv-hi) — all
+  identical.
+
+  - ✅ **32px, not `nav-search.html`'s 44px** — pre-decided by this plan, implemented,
+    not relitigated. That file passes `tall: true` to every example; every other page
+    passes nothing. 44px would push the mobile bar to 65px.
+  - ✅ **Mobile bar is 53px and the trigger is 30×30, exactly as C1 predicted.** The
+    `h-[38px] h-[30px]` artifact resolves correctly through `cns`; the mockup's
+    rendered 59px was not chased. Trigger at x=308, account link at 344 (6px gap).
+  - ⚠️ **`Input`'s new `icon` prop went UNUSED.** `INPUT_ICON` hard-codes
+    `text-ink-4`, but the spec requires the icon to change **both glyph and colour**
+    when the text classifies as a link. C2 renders `<Icon>` itself as a flex sibling —
+    which also lets the action button be a flex sibling, so the input gives up exactly
+    the width the label needs instead of needing a magic `pr-*` per label. `Input` is
+    still used for the `<input>` itself, its chrome switched off by `className` through
+    twMerge. **The prop remains correct and unused — a filter or search page can still
+    use it as intended.**
+  - **Focus ring is `focus-within` on the pill**, matching `mock.pug`, so the ring
+    stays while Tab is on the Download button. `Input` ships `focus:` on the input,
+    which would not.
+  - **The trigger's `aria-label` is "Open search", not the mockup's "Search"** — in
+    the real app the mockup's label collides with the field's own Search button in the
+    same accessibility tree. Pairs with the mockup's own "Close search".
+  - **The error popover has no mockup.** Assembled from `search.pug:105`'s only error
+    idiom (alert glyph + `font-mono text-[11px] text-bad`) on a
+    `bg-surface`/`border-line`/`shadow-lift` plate, `absolute top-full` under the pill,
+    flush with the pill's left edge at x=137.6.
+  - **Not a deviation:** the Go button is 24px `rounded-full` `px-[14px]` `620 11.5px`
+    `bg-uv`/`text-uv-ink` in both; C2's width is 82.2px vs the mockup's 80.7px, purely
+    `next/font`'s `Figtree Fallback` metrics vs the mockup's `system-ui` fallback —
+    the same font-metric difference B6 measured.
+  - **Content:** the live API reports `jeremyasuncion808@gmail.com`, so the avatar
+    reads **JE** where the mockup says **JA**. The API wins.
+
+  ⚠️ **The mobile overlay duplicates `AppBar`'s mobile bar recipe.** It is
+  `fixed inset-x-0 top-0` with `sm:` variants undoing every overlay utility, and it
+  **re-states** `py-2.5 pr-[14px] pl-4` + `border-b border-line-soft bg-bg-sunk`
+  because a slot child cannot reach the doorplate to hide it and `app-bar.tsx` was
+  closed to this task. Rebuilding the recipe rather than hard-coding 53px means the
+  overlay self-sizes (measured 390×53 at (0,0); `elementFromPoint(60, 26)` resolves
+  inside the form, confirming the doorplate is genuinely covered) — **but it is a
+  genuine duplication.** If `APP_BAR_CLASSES`' mobile padding changes,
+  `NAV_SEARCH_FORM_EXPANDED` must change with it; flagged in a comment on the
+  constant. **A future task that reopens `app-bar.tsx` should export the recipe
+  instead.** The `fixed` positioning also depends on the shell keeping
+  `<body class="h-full flex flex-col">` with the bar `shrink-0` at the top — **if a
+  later task makes `<body>` the scroll container, the overlay detaches from the bar.**
+
+  **End-to-end verification against the verify backend — the attribution rule is
+  PROVEN, not assumed.** Typing `youtube.com/watch?v=aqz-KE-bpKQ` and clicking
+  Download landed the browser on `/videos/OT___bZcL0Svkv-_-rIVA`, a real
+  `mediaHref(job.media)` path derived from `media.id = video:OT___bZcL0Svkv-_-rIVA`
+  (404, because E2 builds that route later — expected). The DB row read
+  `3dARYrcF0tL3uUyhbHNnX | downloading | jeremyasuncion808@gmail.com | verify-user-1 |
+  video:OT___bZcL0Svkv-_-rIVA`. **A `DownloadClient.localInstance` call would have
+  left both requester columns null.** The job was then **cancelled** (permitted) —
+  `cancelling` → `cancelled`, nothing left running. The failure path was verified
+  visually by temporarily injecting a throw, screenshotting the popover and reverting
+  (byte-identical revert confirmed by diff; the committed file has zero `FORCE_FAIL`
+  occurrences): it rendered the error, stayed on `/`, kept the typed value, and wired
+  `aria-describedby` to the alert.
+
+  - C2 did **not** add the `moduleNameMapper` CSS stub to `jest.config.js` — its own
+    suites don't import `layout.tsx`, so the shared-config edit wasn't needed. **Left
+    as a deliberate non-decision for whoever does need it.**
+  - ⚠️ **Correction to C1's note:** `layout.spec.tsx` *does* emit a pre-existing
+    `console.error` (`In HTML, <html> cannot be a child of <div>`). C2 confirmed it is
+    pre-existing by running the spec against `git show HEAD:…/layout.tsx`, where it
+    fires identically. C1's "no DOM-nesting warnings" claim is slightly wrong; the
+    substantive part (assert `<html>` attributes on `document.documentElement`) stands.
+
+- [x] **C3. Live job events.** An open page reflects job changes without polling.
+      — `68a187e1`
 
   **Files:** create `apps/download/src/components/live/job-events.tsx` (provider,
   client), `apps/download/src/lib/use-job-events.ts`.
@@ -2636,6 +2796,161 @@ before `apps/download`'s tests import a newly-added export.**
   **Tests:** frames upsert by `job.id`; a malformed frame is dropped without
   throwing; `created` vs `updated` both land; reconnect fires after a close;
   unmount closes the socket.
+
+  **Findings (C3, 2026-09-15):** 2 new suites / 48 new tests, all passing. Created
+  `src/lib/use-job-events.ts`, `src/components/live/job-events.tsx`,
+  `src/lib/__tests__/use-job-events.spec.tsx` (40),
+  `src/components/live/__tests__/job-events.spec.tsx` (8), and
+  `src/lib/__tests__/helpers/job-events.ts` (the shared fake-socket + fixture
+  harness). **Both source files are `'use client'`.** No new dependency — the socket
+  handling is hand-built, as required.
+  **Actual exported signatures — paste these, not the sketch above. D4 and E1
+  consume `useJobEvents` directly:**
+
+  ```ts
+  // src/lib/use-job-events.ts — 'use client'
+  export interface JobEventsSnapshot {
+    connected: boolean
+    jobs: ReadonlyMap<string, DownloadJob>     // keyed by job.id
+  }
+  export interface JobEventsFilter { jobIds?: readonly string[] }
+  export function useJobEvents(filter?: JobEventsFilter): JobEventsSnapshot
+
+  export const DEFAULT_RECONNECT_DELAYS_MS: readonly [1000, 2000, 4000, 8000, 15000]
+
+  export interface CreateJobEventsStoreOptions {
+    createSocket?: (url: string) => WebSocket
+    getLocation?: () => Pick<Location, 'host' | 'protocol'>
+    random?: () => number
+    reconnectDelaysMs?: readonly number[]
+  }
+  type JobInterest = ReadonlySet<string> | null   // NOT exported
+  export interface JobEventsStore {
+    connect: () => () => void
+    getSnapshot: () => JobEventsSnapshot
+    ingest: (rawData: unknown) => void
+    subscribe: (listener: () => void, interest: JobInterest) => () => void
+  }
+  export function createJobEventsStore(options?: CreateJobEventsStoreOptions): JobEventsStore
+  export const JobEventsContext: React.Context<JobEventsStore | undefined>
+  export function getJobEventsSocketUrl(location: Pick<Location, 'host' | 'protocol'>): string
+  export function parseJobEventFrame(rawData: unknown): DownloadJobEvent | undefined
+  // ^ returns undefined for any frame that isn't a valid job event. NEVER throws.
+
+  // src/components/live/job-events.tsx — 'use client'
+  export type JobEventsProviderProps = CreateJobEventsStoreOptions & { children: ReactNode }
+  export function JobEventsProvider(props: JobEventsProviderProps): JSX.Element
+  ```
+
+  Worked call sites — **both modes:**
+
+  ```tsx
+  // D4 — activity feed, UNFILTERED. Mount the provider at the page/segment root.
+  export default function ActivityPage() {
+    return <JobEventsProvider><ActivityFeed /></JobEventsProvider>
+  }
+  function ActivityFeed() {
+    const { connected, jobs } = useJobEvents()       // every job the gateway sends
+    return <>{!connected && <StaleMarker />}
+      {[...jobs.values()].map(job => <ActivityRow job={job} key={job.id} />)}</>
+  }
+
+  // E1 — detail lifecycle panel, FILTERED to one media's jobs.
+  function LifecyclePanel({ serverJobs }: { serverJobs: DownloadJob[] }) {
+    const { jobs } = useJobEvents({ jobIds: serverJobs.map(j => j.id) })  // inline array is FINE
+    const merged = serverJobs.map(job => jobs.get(job.id) ?? job)
+  }
+  ```
+
+  - ⚠️ **`useJobEvents` REQUIRES a `<JobEventsProvider>` ancestor and throws without
+    one** (`'useJobEvents() must be called inside a <JobEventsProvider>'`), via a
+    `useJobEventsStore()` helper so the early return sits outside the hook body —
+    the `useTabsContext()` shape. Rationale: the provider owns the socket, so a
+    silent fallback means **each extra call site quietly opens another connection** —
+    invisible in dev, doubling the gateway's client count in prod. Follows the
+    `Tabs`/`Tab`, `Menu`/`MenuItem`, `ReasonGroup`/`Reason` precedent.
+  - ⚠️ **Provider placement is D4's and E1's job.** `layout.tsx` was C2's file this
+    wave, and mounting globally would be wrong anyway — **only pages that need the
+    feed should connect.** If a later wave decides it wants one app-wide provider in
+    the layout, that works unchanged; the store is per-provider-instance either way.
+  - **`jobs` is a `ReadonlyMap`, not the sketch's `Map`** — the unfiltered mode hands
+    back the store's own snapshot map uncopied, so mutating it would corrupt every
+    other subscriber. `Map` is assignable *to* `ReadonlyMap`, so this is strictly
+    wider than the sketch. The returned object is a fresh literal each render;
+    `jobs`/`connected` are the stable parts — **destructure, don't memo on the
+    wrapper.**
+  - **`jobIds` array identity is solved; an inline array is safe.** The filter never
+    reaches the socket. It becomes a stable interest key
+    (`JSON.stringify([...jobIds].sort())`) feeding a `useMemo`'d `Set`, so an inline
+    `{ jobIds: [a, b] }` yields the same key every render → same `subscribe` callback
+    → `useSyncExternalStore` never re-subscribes. Sorting also makes `[a,b]` and
+    `[b,a]` the same interest. Three tests pin this. Structurally, the socket lives in
+    the provider's `useEffect(…, [store])`, so interest churn cannot tear it down.
+  - **"Ignored, not accumulated" is honoured literally.** The store keeps a
+    refcounted union of every live subscriber's interest (plus a count of unfiltered
+    subscribers) and drops a frame at `ingest` unless something wants it. Deliberate
+    non-feature: it does **not** evict on unsubscribe — pruning there would wipe ids
+    shared between an old and a new filter during React's unsubscribe-then-subscribe.
+  - **Backoff: `1s, 2s, 4s, 8s, 15s`, clamped at the last rung, each scaled by ±20%
+    jitter** (`random` injectable). Jitter exists because every open tab is woken by
+    the same backend restart. ⚠️ **The ladder resets only when a socket actually fires
+    `onopen`**, not when one is created — a connect that fails instantly must keep
+    climbing. Reconnect is scheduled from `onclose` only (per spec an `error` is
+    always followed by a `close`, so there is no double-schedule); a throwing
+    `createSocket` is treated as a failed attempt rather than escaping the effect.
+  - **`connected` means strictly: a socket is currently OPEN.** `false` during the
+    first connect, for the whole of every backoff window, and after unmount. It is
+    *not* "we think the backend is alive."
+  - ⚠️ **An unrecognised inner event type is normalised to `Updated` rather than
+    dropped**, on the wire type's own doc ("always a full, current snapshot… a
+    subscriber could safely upsert by `job.id`"). **If the backend ever adds a
+    `deleted` event, that decision inverts and this needs revisiting.**
+    `parseJobEventFrame` returns the event type, so a D4 entrance animation on
+    `created` is available with no change here.
+
+  **Recovered from `2367db42^`:** `getDownloadSocketUrl` → `getJobEventsSocketUrl`
+  essentially verbatim (still takes `location` as a parameter, so it stays pure); the
+  envelope guard, the `JSON.parse` try/catch, the `typeof rawData !== 'string'` guard,
+  and the `DownloadJobSchema.safeParse()`-over-duck-type decision with its comment;
+  the `onclose`-only reconnect rationale; and nearly the whole test harness —
+  `FakeWebSocket`, the socket recorder, `mostRecentSocket` → `recorder.latest()` with
+  its `noUncheckedIndexedAccess` reasoning, `buildVideoJob`, `buildEnvelope` →
+  `buildFrame`, and the malformed-frame / reconnect-timing / dispose assertions.
+
+  **Deliberately NOT carried over:** the `jobId` parameter on the parser (filtering
+  moved out of parse and into the store's interest registry — **this is what makes
+  D4's unfiltered mode possible at all**); the fixed 1s reconnect delay (its "no
+  meaningful downside" note was written for a single detail page, not for every open
+  tab reconnecting into a restarting backend); and
+  `useDownloadJobSocket(jobId, active, onJobUpdate)` — a callback shape forces each
+  consumer to own its own state, **which is exactly what `react-hooks/set-state-in-effect`
+  rejects**. The `active` gate (stop socketing a terminal job) is now a page-level
+  concern: mount or unmount the provider. `FakeWebSocket` gained an `onopen` it lacked,
+  since the backoff reset depends on it.
+
+  **Behavioural verification — real frames, real gateway. No mockup exists and none
+  was faked.**
+  1. Confirmed **the WS upgrade survives Next dev's `/ws` rewrite** —
+     `ws://localhost:8090/ws` → `OPEN`. Verified rather than assumed, since Next
+     rewrites historically did not proxy upgrades.
+  2. Created two **real yt-dlp video jobs** against the verify backend (permitted).
+     One went `pending → downloading → failed`; the other (Big Buck Bunny, job
+     `aCXweII0_JItud89te95G`) went `pending → downloading → downloading → converting`.
+  3. Captured the **raw** frames off the wire and replayed them through the actual
+     `parseJobEventFrame` / `useJobEvents`: all four parsed, and four frames collapsed
+     to **one** map entry at the latest status — **upsert-by-`job.id` proven against
+     production wire output, not a fixture.** `requester` passed through
+     byte-identical (admin viewer, so unmasked by the gateway — nothing re-derived
+     client-side). The throwaway spec, probe helper and captures were all deleted
+     before committing.
+
+  - **One inefficiency left unsolved by choice:** if a page has both an unfiltered and
+    a filtered consumer, a frame the filtered one doesn't care about still re-runs its
+    `useMemo` and re-renders it. Real pages have one consumer, so no contents-equality
+    guard was added. **Worth revisiting only if D4 and E1 ever share a page.**
+  - **Not surfaced in `JobEventsSnapshot`:** why we're disconnected, or a
+    "last connected at" timestamp. If a stale marker ever wants "stale for 4 minutes"
+    rather than just "stale", that is a small additive change to the store.
 
 ### Phase 3 — List surfaces
 
