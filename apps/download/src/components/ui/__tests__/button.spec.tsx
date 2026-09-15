@@ -7,10 +7,19 @@ import type { ReactElement } from 'react'
 import type { ButtonSize, ButtonVariant } from 'src/components/ui/button'
 import { Button } from 'src/components/ui/button'
 
+/**
+ * Scoped to its own container rather than `screen`, so a test may render
+ * several buttons in one `it` without `getByRole` finding all of them.
+ */
 function renderButton(ui: ReactElement): HTMLElement {
-  render(ui)
+  const { container } = render(ui)
+  const button = container.firstElementChild
 
-  return screen.getByRole('button')
+  if (!(button instanceof HTMLElement)) {
+    throw new Error('expected the button to be the only root element')
+  }
+
+  return button
 }
 
 function classes(element: Element): string[] {
@@ -27,11 +36,27 @@ function paddingClasses(element: Element): string[] {
   return classes(element).filter(name => name.startsWith('px-'))
 }
 
-/** Every font-size utility — likewise exactly one. */
+/**
+ * Every font-size utility — likewise exactly one.
+ *
+ * Matched off the rendered `class` attribute rather than off the size table,
+ * because `cns` is `twMerge(...)` and can drop a utility on its way to the
+ * DOM. A theme `--text-*` token such as `text-h3` is classified by
+ * tailwind-merge as a text *colour*, so it both survives and destroys the
+ * variant's real colour; only an arbitrary value (`text-[13px]`,
+ * `text-[length:var(--text-h3)]`) lands in the font-size group where it
+ * belongs. Hence this deliberately only recognises the arbitrary form.
+ */
 function fontSizeClasses(element: Element): string[] {
-  return classes(element).filter(
-    name => name.startsWith('text-[') || name === 'text-h3',
-  )
+  return classes(element).filter(name => name.startsWith('text-['))
+}
+
+/** The text-colour utility each variant is supposed to reach the DOM with. */
+const VARIANT_INK: Record<ButtonVariant, string> = {
+  uv: 'text-uv-ink',
+  outline: 'text-ink',
+  ghost: 'text-ink-3',
+  bad: 'text-bad',
 }
 
 /** Every border-colour utility — likewise exactly one. */
@@ -97,7 +122,7 @@ describe('Button', () => {
   describe('sizes', () => {
     const cases: Array<[ButtonSize, string, string, string]> = [
       ['sm', 'h-[30px]', 'px-[11px]', 'text-[13px]'],
-      ['lg', 'h-[46px]', 'px-[22px]', 'text-h3'],
+      ['lg', 'h-[46px]', 'px-[22px]', 'text-[length:var(--text-h3)]'],
     ]
 
     it.each(cases)(
@@ -128,6 +153,57 @@ describe('Button', () => {
         expect(paddingClasses(button)).toEqual(['px-[11px]'])
       },
     )
+
+    /**
+     * Regression: `cns` is `twMerge(clsx(...))`, and tailwind-merge only
+     * recognises Tailwind's built-in font-size names. Every custom `--text-*`
+     * token in this theme lands in the text-*colour* group instead, so the
+     * old `lg: '... text-h3'` collided with each variant's ink colour and one
+     * of the two was silently discarded on the way to the DOM. In this
+     * composition order `text-h3` won and every large button lost its colour
+     * — a large `uv` button rendered near-white on the purple fill.
+     *
+     * These assertions read the rendered `class` attribute on purpose.
+     * Asserting on the size/variant tables instead would have passed happily
+     * while the DOM was wrong.
+     */
+    it.each<ButtonVariant>(['uv', 'outline', 'ghost', 'bad'])(
+      'keeps both a font size and the %s ink colour on a large button',
+      variant => {
+        const button = renderButton(
+          <Button size="lg" variant={variant}>
+            Go
+          </Button>,
+        )
+
+        expect(fontSizeClasses(button)).toEqual([
+          'text-[length:var(--text-h3)]',
+        ])
+        expect(button).toHaveClass(VARIANT_INK[variant])
+      },
+    )
+
+    it('never lets a theme text token stand in for a font size', () => {
+      for (const size of [undefined, 'sm', 'lg'] as const) {
+        const button = renderButton(
+          <Button size={size} variant="uv">
+            Go
+          </Button>,
+        )
+
+        // A bare `--text-*` token would be eaten by, or would eat, the
+        // variant's colour. Only the arbitrary form is safe.
+        expect(classes(button)).not.toContain('text-h3')
+        expect(fontSizeClasses(button)).toHaveLength(1)
+        expect(button).toHaveClass('text-uv-ink')
+      }
+    })
+
+    it('carries the line height the h3 token would have supplied', () => {
+      expect(renderButton(<Button size="lg">Go</Button>)).toHaveClass(
+        'leading-[1.4]',
+      )
+    })
 
     it('lets an explicit size beat the quiet default padding', () => {
       const button = renderButton(
