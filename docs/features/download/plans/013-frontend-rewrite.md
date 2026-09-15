@@ -2954,7 +2954,7 @@ before `apps/download`'s tests import a newly-added export.**
 
 ### Phase 3 — List surfaces
 
-- [ ] **D1. Home.** `/` is the library overview.
+- [x] **D1. Home.** `/` is the library overview. — `afd797de`
 
   **Files:** rewrite `apps/download/src/app/page.tsx`; create
   `apps/download/src/app/loading.tsx`, `apps/download/src/app/error.tsx`, and
@@ -2987,7 +2987,137 @@ before `apps/download`'s tests import a newly-added export.**
   **Tests:** counts derive from facets including the absent-type case; a `null`
   requester renders hidden and unlinked; `indexing` swaps the Watch action.
 
-- [ ] **D2. Gallery.** `/gallery` is the unified, filterable grid.
+  **Findings (D1, 2026-09-15):** 4 new suites / 36 new tests, all passing —
+  `apps/download` goes **90 → 94 suites, 1739 → 1775 tests** (verified uncontaminated
+  at commit time: both siblings had untracked sources but no specs yet). Lint (eslint
+  *and* prettier) and type-check clean. Rewrote `src/app/page.tsx`; created
+  `src/app/loading.tsx`, `src/app/error.tsx`, `src/components/home/{quick-access,
+  recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus four
+  specs. **Only `error.tsx` is `'use client'`** — everything else is server-safe.
+  **Actual exported signatures — paste these:**
+
+  ```tsx
+  // src/components/home/quick-access.tsx — NOT 'use client'
+  export const ACTIVITY_HREF = '/activity'
+  export const GALLERY_HREF  = '/gallery'
+  export function galleryHrefForType(type: DownloadType): string   // -> `/gallery?type=movie`
+  export function galleryTypeCount(facets: DownloadGalleryFacets, type: DownloadType): number
+  export function runningMeta(running: number): string   // >0 -> `${n} running now`; 0 -> 'Nothing running'
+  export type QuickAccessProps = Omit<ComponentPropsWithoutRef<'section'>, 'children'> & {
+    facets: DownloadGalleryFacets
+    running: number          // getActivity().total, NEVER items.length
+  }
+  export function QuickAccess(props: QuickAccessProps): JSX.Element
+
+  // src/components/home/recent-card.tsx — NOT 'use client'
+  export function recentCardMeta(media: Media): string
+  export type RecentCardProps = Omit<ComponentPropsWithoutRef<'div'>, 'children'> & {
+    item: GalleryItem
+    now: number                    // REQUIRED, pinned by the caller
+    viewerEmail?: string | null    // avatar links to /profile only for the viewer's own row
+  }
+  export function RecentCard(props: RecentCardProps): JSX.Element
+
+  // src/components/home/recently-added.tsx — NOT 'use client'
+  export const RECENTLY_ADDED_LIMIT = 6
+  export type RecentlyAddedProps = Omit<ComponentPropsWithoutRef<'section'>, 'children'> & {
+    items: readonly GalleryItem[]; now: number; viewerEmail?: string | null }
+  export function RecentlyAdded(props: RecentlyAddedProps): JSX.Element
+
+  // src/components/home/ghost-link.tsx — NOT 'use client'
+  export type GhostLinkProps = ComponentPropsWithoutRef<'a'> & {
+    icon?: IconName; iconEnd?: IconName }
+  export function GhostLink(props: GhostLinkProps): JSX.Element
+
+  // src/lib/request-instant.ts
+  export const getRequestInstant: () => number   // React.cache()-wrapped Date.now()
+
+  // src/app/error.tsx — 'use client'
+  export type HomeErrorProps = { error: Error & { digest?: string }; reset: () => void }
+  export default function HomeError(props: HomeErrorProps): JSX.Element
+  // src/app/loading.tsx — default export HomeLoading(): JSX.Element (aria-busy, Skeletons)
+  ```
+
+  **✅ The `useJobEvents` decision: (a) — server-rendered number, NO socket.** The count
+  is `getActivity({limit:1}).total` from the same `Promise.all` as the rest of the page.
+  Reasoning: the page is a Server Component with no other client state, and `useJobEvents`
+  throws without a `<JobEventsProvider>` — so the live option means introducing a provider
+  **plus a second WebSocket connection per visitor** to keep one integer warm, competing
+  with D4, which is the real consumer and already has to own the socket. The count is a
+  signpost to the feed, not the feed. **D4 inherits an unclaimed provider placement.**
+  - Zero case: `live={running > 0}`, so **the dot does not pulse at zero**, and the copy is
+    **"Nothing running"** rather than `0 running now` — a breathing live dot over a `0`
+    claims something is happening. The browse tiles keep the literal `0 in the library`, as
+    the task specified, because that is a fact about a collection, not a claim of activity.
+
+  ⚠️ **`react-hooks/purity` rejects `Date.now()` in a component body outright**, so the
+  pinned-instant rule needs somewhere for that call to live. Hence
+  `src/lib/request-instant.ts` — `React.cache()`-wrapped, the same idiom as `getViewer`.
+  **D2/D4 and every later list page should use `getRequestInstant()` rather than minting
+  their own.** This is a new shared helper slightly beyond D1's stated file list.
+
+  ⚠️ **`Button` is not polymorphic, and this page needed two links that look like
+  buttons** (`See full library`, `Watch`). `button.tsx` was **not** reopened; `GhostLink`
+  reproduces `BUTTON_BASE + ghost + sm` minus the `:disabled`/`aria-disabled` rules on a
+  real `<a>`. **D2's gallery card needs the identical Watch affordance**, so a later wave
+  should promote this to `src/components/ui/` as a general `ButtonLink` and delete the home
+  copy — **before a third one appears.**
+
+  **Mockup deviations (D1): six, measured not eyeballed** with `playwright-core` driving
+  system Chrome against the built `home.html`. **Desktop 1280×900 geometry is exact:**
+  tiles 259.5×112.08 at x = 100/373.5/647/920.5, gap 14, pad 15, icon plate 30×30, title
+  15.5px/21.7px/600; cards 158 wide at x = 100/274/448/622/796/970, gap 16, pad 9, radius
+  14, poster 138×207 (2:3), title 13.5px/18.225px/600; section rhythm 16/40/16.
+  **Mobile 390×844 also exact:** `18px 24px 30px` body padding, row tiles 72.08 tall at
+  gap 10, heading→tiles 14px, tiles→heading 34px, cards `calc(50%-8px)`.
+
+  - ⚠️ **Watch renders 24px/11.5px, not the mockup's 38px/14px — the mockup's own override
+    is dead code.** `home.pug` asks for `h-6 px-2 text-[11.5px]`; in the mockup's generated
+    CSS that loses to the base by output order. `cns` resolves it correctly here. Same
+    family: the `indexing…` chip renders 19px/10px (mockup 23px/11px) and
+    `See full library` renders 13px (mockup 14px, `size:'sm'` dead there). **This is the
+    same artifact class B1 found in the button type scale and C1/C2 found in the mobile
+    bar — the port renders the pug's intent.** Verified numerically via a throwaway route,
+    since live data has no movie/show in the top six.
+  - **`See full library` stays visible on mobile**, where `home.pug` drops it. The app bar
+    carries no library link, so without it a phone has **no route to `/gallery` at all**.
+    Costs the mobile header 30px instead of 23.39px.
+  - **Mobile grid is six uniform half-width cards.** The mockup's mobile panel draws two
+    tall cards plus one full-width 16:9 list row — that is the mockup demonstrating two
+    card *forms*, not a six-item layout. One rhythm, per the task's own video-crop note.
+  - `gap-3` added to the "Recently added" header row so a long heading cannot collide with
+    the link.
+  - Headings are real `<h2>`s inside `aria-labelledby` `<section>`s; the mockup uses
+    `<span>`s (it has mock-chrome headings of its own to avoid colliding with).
+  - **Show meta is the year, not `s2`.** `s2` is a *job scope*; `GalleryItem` deliberately
+    carries none — a show is one card however many episodes were grabbed.
+
+  **Content notes — the API beat the mockup in four places:** counts read **1 / 1 / 40**,
+  not 318 / 54 / 203; the activity tile reads **"Nothing running"** (`activity?limit=1` is
+  `total: 0`); all six recent cards are **videos with no `posterUrl` and no `runtime`**, so
+  every poster is a gradient stand-in and every meta slot is the em dash `—` (`ink-4`,
+  exactly the sanctioned em-dash-empty use); attribution is mostly `null` → dashed hidden
+  avatars, and the one attributed row is **JE**, not JA.
+
+  ⚠️ **Open follow-up, deliberately NOT fixed mid-wave: with no art, `Poster` paints BOTH
+  the fallback title label AND the `play` scrim glyph, centred on top of each other.**
+  Legible but visibly overlapping, and it is on every video card today. `poster.tsx` is a
+  shipped contract both siblings were rendering concurrently, so it was not reopened.
+  Suggested fix: suppress the play overlay (or shift the label) while no `<img>` is alive —
+  e.g. `group-has-[img]:` on the scrim, mirroring what the label already does.
+
+  **Other open questions D1 raised:**
+  - **Cross-task href assumption:** the browse tiles link to `/gallery?type=movie|show|video`,
+    using the param name `GalleryQuerySchema` already reads. If D2 spells its type filter
+    differently, those three hrefs need updating — all behind `galleryHrefForType`.
+  - **Another user's profile route does not exist.** A card's avatar links to `/profile`
+    only when the requester is the viewer (matching `gallery.pug`, which links exactly one
+    avatar); everyone else's is an unlinked `<span>`. When an admin-visible per-user profile
+    route lands, `RecentCard`'s `viewerEmail` is the seam to widen. **F1 should know.**
+  - `Watch` opens `embyStatus.watchUrl` in the **same tab** (plain link, back button works).
+    A new tab is one `target`/`rel` pair in `RecentCard` if the team prefers it.
+
+- [x] **D2. Gallery.** `/gallery` is the unified, filterable grid. — `0e27f89d`
 
   **Files:** create `apps/download/src/app/gallery/{page,loading,error}.tsx` and
   `apps/download/src/components/gallery/`.
@@ -3020,7 +3150,227 @@ before `apps/download`'s tests import a newly-added export.**
   validation message; facet counts render from the server payload unmodified; the
   two empty states are distinguishable.
 
-- [ ] **D3. Search.** `/search` is movie and show discovery.
+  **Findings (D2, 2026-09-15):** 7 new suites / 128 new tests, all passing. Lint (eslint
+  *and* prettier) and type-check clean. 18 new files, 3367 insertions, all under
+  `src/lib/gallery-*`, `src/app/actions/load-gallery-page.ts`, `src/app/gallery/` and
+  `src/components/gallery/`. **Actual exported signatures — paste these:**
+
+  ```ts
+  // src/lib/gallery-filters.ts — NO directive; no server-only imports, safe from both sides
+  export type GalleryFilters = {
+    types: DownloadType[]        // normalized + deduped into GALLERY_TYPE_ORDER; [] = no type filter
+    requester: string | null     // ⚠️ SINGLE, not a list — see the conflicts below
+    from: string | null          // 'YYYY-MM-DD'
+    to: string | null            // 'YYYY-MM-DD'
+  }
+  export type GallerySearchParams = Record<string, string | string[] | undefined>
+  export type GalleryFilterChip = {
+    key: string; label: string; removeLabel: string; next: GalleryFilters }
+  export type LoadGalleryPageResult =
+    | { items: GalleryItem[]; nextCursor: string | null; total: number }
+    | { error: string }
+  export const INVALID_RANGE_MESSAGE: string   // 'The start date must not be after the end date.'
+  export const EMPTY_GALLERY_FILTERS: GalleryFilters
+  export const GALLERY_TYPE_ORDER: readonly DownloadType[]        // [Video, Movie, Show]
+  export const GALLERY_TYPE_LABELS: Record<DownloadType, string>  // Videos | Movies | Shows
+  export const GALLERY_ALL_TYPES_TAB: 'all'
+  export const GALLERY_MIXED_TYPES_TAB: ''     // sentinel: no tab can represent 2+ types
+  export function parseGalleryFilters(params: GallerySearchParams | URLSearchParams): GalleryFilters
+  export function galleryFiltersToSearchParams(filters: GalleryFilters): URLSearchParams
+  export function galleryFiltersToSearch(filters: GalleryFilters): string   // no leading '?'
+  export function galleryHref(filters: GalleryFilters): string              // '/gallery' | '/gallery?…'
+  export function galleryFiltersToQuery(filters: GalleryFilters, cursor?: string): Partial<GalleryQuery>
+  export function hasGalleryFilters(filters: GalleryFilters): boolean
+  export function countGalleryFilters(filters: GalleryFilters): number      // FACETS narrowed, not values
+  export function isInvertedGalleryRange(filters: GalleryFilters): boolean
+  export function formatGalleryRangeLabel(from: string | null, to: string | null): string
+  export function galleryFilterChips(filters: GalleryFilters): GalleryFilterChip[]
+
+  // src/lib/gallery-data.ts — SERVER-ONLY (reaches next/headers)
+  export type GalleryView = {
+    facets: DownloadGalleryFacets
+    items: GalleryItem[] | null   // null ⇔ range rejected. NOT [] — [] is the empty state
+    nextCursor: string | null
+    now: number                   // the ONE pinned instant for every relative stamp
+    rangeError: string | null
+    total: number | null          // null ⇔ range rejected
+  }
+  export function isInvertedRangeError(error: unknown): boolean
+  export function loadGalleryView(filters: GalleryFilters): Promise<GalleryView>
+
+  // src/app/actions/load-gallery-page.ts — 'use server'
+  export async function loadGalleryPage(search: string, cursor: string): Promise<LoadGalleryPageResult>
+
+  // src/components/gallery/gallery-controls.tsx — 'use client'
+  export type GalleryControlsProps = {
+    facets: DownloadGalleryFacets; filters: GalleryFilters
+    rangeError: string | null
+    total: number | null      // null -> footer reads 'Close' instead of 'Show N results'
+  }
+  export function GalleryControls(props: GalleryControlsProps): JSX.Element
+
+  // src/components/gallery/gallery-results.tsx — 'use client'
+  export type GalleryResultsProps = {
+    filtered: boolean         // picks WHICH empty state
+    initialItems: GalleryItem[]; initialNextCursor: string | null; initialTotal: number
+    now: number
+    search: string            // serialized filters; ALSO the React key the page passes
+  }
+  export function GalleryResults(props: GalleryResultsProps): JSX.Element
+
+  // src/components/gallery/gallery-item-card.tsx
+  export const GALLERY_CARD_WIDTH: string   // 'w-[calc(50%-8px)] sm:w-[158px]'
+  export type GalleryItemCardProps = { item: GalleryItem; now: number }
+  export function GalleryItemCard(props: GalleryItemCardProps): JSX.Element
+
+  // src/components/gallery/gallery-empty.tsx
+  export type GalleryEmptyProps = { filtered: boolean }
+  export function GalleryEmpty(props: GalleryEmptyProps): JSX.Element
+
+  // src/components/gallery/gallery-page-shell.tsx
+  export type GalleryPageShellProps = ComponentPropsWithoutRef<'main'>
+  export function GalleryPageShell(props: GalleryPageShellProps): JSX.Element
+  // ⚠️ <main> IS the scroll container (flex-auto overflow-y-auto) — <body> must not be,
+  // or C2's nav-search mobile overlay detaches from the bar.
+
+  // src/app/gallery/page.tsx
+  export type GalleryPageProps = { searchParams: Promise<GallerySearchParams> }
+  export const metadata = { title: 'Library · Download' }
+  // src/app/gallery/error.tsx — 'use client'
+  export type GalleryErrorProps = { error: Error & { digest?: string }; reset: () => void }
+  ```
+
+  - **`parse(serialize(f)) === f` holds for all 64 reachable states**, proven exhaustively —
+    it is what makes the URL safe to treat as the state, and it caught two ordering bugs.
+    `type` serializes as one CSV param; parsing accepts CSV, repeated, or a mix (mirroring
+    `csvRaw`). Unrecognized types and impossible dates are **dropped, never rejected**.
+    An inverted range is **kept**, so the API is the thing that rejects it.
+  - `loadGalleryView` inspects the **400 body** (`errors[].path` contains `from`/`to`), not
+    just the status — so a bad-cursor 400 still propagates to the error boundary. On
+    rejection it refetches facets **unwindowed**, so the panel keeps its vocabulary.
+  - `loadGalleryPage` takes the **raw query string** and re-parses it server-side (public
+    endpoint, nothing trusted), and goes through `getIdentifiedDownloadClient()` so appended
+    cards carry the same masking as the SSR'd first page. **A browser `fetch` to `/api`
+    would lose `X-Forwarded-User` and mask appended rows differently from SSR'd ones.**
+
+  ##### ⚠️ Findings: the URL-state pattern — D2's correction to C2's guidance
+
+  ⚠️ **D2 reports that `react-hooks/set-state-in-render` is ALSO an error in this package**
+  (eslint v7 recommended turns on the whole compiler rule set), so **the render-phase
+  adjustment C2 recommended would itself have been rejected** for D2's shape. D2 landed on
+  `useOptimistic` over the whole filter object instead:
+
+  ```tsx
+  const [applied, setApplied] = useOptimistic(filters)
+  const [, startTransition] = useTransition()
+  function apply(next) {
+    startTransition(() => { setApplied(next); router.push(href(next), { scroll: false }) })
+  }
+  ```
+
+  Every control reads `applied`. `router.push` **inside** the transition keeps it pending
+  until the RSC payload lands, then hands back to the prop with nothing to unwind —
+  including on Back. Verified live and in 35 unit tests.
+
+  ⚠️ **This is in tension with C2's shipped code, which uses a render-phase sentinel that
+  eslint accepted.** Both cannot be unconditionally true; most likely the rule fires for
+  some shapes and not others. **Not adjudicated here — D4, E1, F1 and F2 all derive client
+  state from `searchParams` and should establish which pattern the rule actually permits
+  before picking.** `useOptimistic` is the one with a live, lint-clean page behind it.
+
+  Two more reusable decisions from D2, **both recommended to D3/D4/F1/F2**:
+  - **For accumulated pages use `key`, not derived state.** The page passes `key={search}`
+    to the results island, so a filter change **unmounts** the merged pages instead of
+    needing any sync at all. **Split controls (holds `open`) from results (holds `items`)**
+    so the panel survives a filter change.
+  - **`type="date"` inputs inside a `FilterGroup`, not a `Field`**, each with its own
+    `aria-label` — a `Field` around two controls hands both the same id.
+
+  ##### ⚠️ Findings: three API-vs-plan conflicts D2 hit. None needed a backend change.
+
+  1. ⚠️ **The uploader facet is SINGLE-select, not multi — this plan's D2 task text was
+     wrong.** `GalleryQuerySchema.requester` is `z.string().min(1)` and `JobQueryService`
+     takes a scalar `requesterEmail?: string`. `?requester=a&requester=b` **400s**;
+     `?requester=a,b` matches an uploader literally named `a,b`. Selecting a second uploader
+     **replaces** the first. Rendered with `ToggleChip` (a checkbox) because the design
+     system has no radio primitive — only one is ever checked, so it announces correctly,
+     but it is **a checkbox behaving as a radio**. **If multi-uploader is genuinely wanted,
+     that is a backend change and a separate plan.**
+  2. ⚠️ **There is no sort control, because the endpoint has no sort parameter.** A
+     client-side sort over a cursor-paginated subset would be wrong. **`Menu` /
+     `MenuTrigger` / `MenuItem` (B4) therefore remain unexercised by any shipped page** —
+     D3's `/discover` sort is the first real consumer.
+  3. ⚠️ **No "year" filter on the gallery** — `yearFrom`/`yearTo` belong to `/discover`
+     (D3). "date added" is the gallery's real range.
+
+  ##### ⚠️ Findings: `Button` cannot render an anchor — now requested TWICE, independently
+
+  Both **D1 and D2** needed a link that looks like a button (`Watch` → the external
+  `embyStatus.watchUrl`, which must be an `<a>` for middle-click, ⌘-click, "copy link" and
+  the correct screen-reader role). **Neither reopened `button.tsx`** — correct, it is a
+  shipped contract and three agents were live. Each restated the ghost recipe locally:
+  D1's `GhostLink` (`src/components/home/ghost-link.tsx`) and D2's `WATCH_LINK` constant in
+  `gallery-item-card.tsx`. **That is two copies of one recipe, already diverging in form.**
+  **A shared `ButtonLink` (or `asChild`) in `src/components/ui/` is the right fix, should be
+  made once and on purpose, and both local copies deleted. At least D3, E2, E4 and E5 will
+  want it too. This is now the strongest outstanding shared-contract item in the plan.**
+
+  **Mockup deviations (D2): measured with `playwright-core` driving system Chrome**,
+  `gallery.html` vs `localhost:8090/gallery` at 1280×900 and 390×844. **Identical to the
+  pixel** on computed styles + `getBoundingClientRect`: tab (18.2×40.39, `9px 1px`,
+  14px/22.4px/550), card (158px, `p-9px`, radius 14, gap 9), poster (138×207, radius 10),
+  card title (13.5px/18.225px/600), filter panel (480px, `20px 22px 18px`, radius 14,
+  `shadow-lift` = `oklch(0.06 0.02 300/0.7) 0 16px 40px -12px`), panel grid
+  (`gap 22px 28px`), panel foot (`pt-16px`, `border-top 1px line-soft`), group label
+  (10.5px/16.8px/500, tracking 1.155px, `ink-4`), applied chip (h27, `0 8px 0 11px`,
+  uv/30 border, uv-ghost fill, 12.5px/550), chip row (gap 9, mb 22), Filters button
+  (h38, `0 15px`, radius 10, gap 7), toggle chip (h32, `0 13px 0 11px`, gap 8), scrim
+  (`fixed inset-0 z-10 bg-black/55` under a `z-20` wrapper), **mobile panel 342px → grid
+  296px → single column (B7's container query firing exactly as documented)**, mobile card
+  163px = `calc(50%-8px)`.
+
+  | Deviation | Reason |
+  | --- | --- |
+  | **No "Search the library…" field**, which both mockup frames draw | `GalleryQuerySchema` has no text param — the field could not filter this grid, and `NavSearch` is live on `/gallery`. Two fields, one inert, is worse than one. |
+  | **No "sort by" menu** in the panel | No sort parameter on the endpoint (see conflict 2). |
+  | **No "year" filter** | Not in `GalleryQuerySchema` (see conflict 3). |
+  | **"media type" group ADDED to the panel** (not in the mockup) | The task requires multi-select type; the tab strip is single-select. The group carries the `facets.types` counts. |
+  | **"Clear all" also shown on mobile**, where the mockup omits it below 640px | It is the only way to clear several chips at once. |
+  | **Panel sits 1.7px lower than the mockup's rule** | The mockup anchors it to the button's wrapper on desktop and to the controls row on mobile. One responsive markup means one anchor; the controls row is 41.39px (tab strip) vs the button's 38px. |
+  | **Card heights differ** | `items-stretch` + the mockup's row containing an `indexing…` chip. Not a style difference. |
+  | **Chip row measures 27px, mockup 30px** | ⚠️ The documented mockup artifact — its generated CSS resolves `h-[30px]` (size `sm`) *after* the call-site `h-[27px]` by output order. `cns`/twMerge resolves it correctly; **27 is the intended value.** |
+  | **Watch is an `<a>` with a locally-restated ghost recipe** | See the `ButtonLink` finding above. |
+
+  **Content notes — the API beat the mockup, and one item is a real production problem:**
+  - ⚠️ **Radarr/Sonarr return *relative* poster paths** (`/MediaCover/209/poster.jpg?lastWrite=…`).
+    These resolve against `localhost:8090` and **404** — confirmed via console, 10×.
+    **So no card shows key art today, movies and shows included**, not just videos. The
+    gradient fallback is behaving exactly as designed, but the underlying URL is wrong.
+    **Fixing it is a backend / URL-rewriting change — reported, deliberately not made.**
+    **G1 or a follow-up plan should own this.**
+  - **Videos never carry a `posterUrl` at all** — the backend does not populate one. D2
+    keeps `label: null` for videos exactly as the mixin does: passing the title made the
+    centred label collide with the centred play glyph. **This is the same collision D1
+    reported from the other side** (D1 left the label on and saw the overlap). Movies and
+    shows keep the title label, hidden by `group-has-[img]:hidden` when art loads.
+    **Together these two reports make the `Poster` label-vs-play-glyph overlap a confirmed,
+    reproducible defect rather than a one-page oddity.**
+  - One uploader (`jeremyasuncion808@gmail.com`), not three; the avatar reads **JE**, not
+    JA; facet type counts (40/1/1) exceed gallery `total` (29) — rendered exactly as
+    received, unreconciled, per the task's instruction.
+  - **Gallery avatars do NOT link to a profile**, because `/profile` does not exist yet and
+    linking there today is a 404. The masked branch (`<Avatar hidden />`) is correct and can
+    never link. **F1 must reopen `gallery-item-card.tsx`** to add the "own identity always,
+    anyone else's for an admin only" href. (D1 made the same call from the other direction,
+    linking only the viewer's own row.)
+
+  **Live behaviour driven end-to-end, not eyeballed:** `Showing 24 of 29` → Load more →
+  `Showing 29 of 29`, button retires. Tab → `?type=movie`; Back restores. Panel checkbox →
+  `?type=movie%2Cshow`, zero tabs `aria-selected`, tablist `tabindex="0"`. Escape closes the
+  panel and returns focus to the trigger. Chip remove and Clear all both round-trip. Zero
+  page errors.
+
+- [x] **D3. Search.** `/search` is movie and show discovery. — `21a95064`
 
   **Files:** create `apps/download/src/app/search/{page,loading,error}.tsx` and
   `apps/download/src/components/search/`.
@@ -3055,6 +3405,265 @@ before `apps/download`'s tests import a newly-added export.**
   **Tests:** below-threshold input makes no call; debounce coalesces keystrokes;
   `degradedSources` renders the note; no-matches state vs error state; sort headers
   map to the enum.
+
+  **Findings (D3, 2026-09-15):** 7 new suites / 132 new tests, all passing. Lint (eslint
+  *and* prettier) and type-check clean. 22 new files, +3551, all under `src/app/search/`
+  and `src/components/search/`. **No stop-and-report was required** — no backend change,
+  no new dependency, no shared-contract widening, no `jest.config.js` edit, and no ref
+  needed on `Button`/`Input`. **Actual exported signatures — paste these:**
+
+  ```tsx
+  // src/components/search/search-params.ts — no directive, importable both sides
+  export const SEARCH_PARAM_QUERY = 'q'       // ⚠️ PAGE param; the API param is `query`
+  export const SEARCH_PARAM_GENRE = 'genre'
+  export const SEARCH_PARAM_YEAR_FROM = 'yearFrom'
+  export const SEARCH_PARAM_YEAR_TO = 'yearTo'
+  export const SEARCH_PARAM_SORT = 'sort'
+  export const SEARCH_PARAM_VIEW = 'view'
+  export const SEARCH_SORTS: readonly ['relevance','title','releaseDate']
+  export type SearchSort = (typeof SEARCH_SORTS)[number]
+  export const DEFAULT_SEARCH_SORT: SearchSort                    // 'relevance'
+  export const SEARCH_SORT_LABELS: Record<SearchSort, string>
+  export const SEARCH_SORT_DIRECTIONS:
+    Record<Exclude<SearchSort,'relevance'>, 'ascending'|'descending'>
+  export const SEARCH_VIEWS: readonly ['grid','list']
+  export type SearchView = (typeof SEARCH_VIEWS)[number]
+  export const DEFAULT_SEARCH_VIEW: SearchView                    // 'grid'
+  export const SEARCH_PAGE_SIZE = 24
+  export const YEAR_RANGE_SEPARATOR = '–'     // EN dash
+  export const YEAR_RANGE_ERROR = 'Start year must be before end year'
+  export interface SearchState {
+    genres: string[]; query: string; sort: SearchSort; view: SearchView
+    yearFrom: number | null; yearTo: number | null }
+  export interface ReadableSearchParams {
+    get(name: string): string | null; getAll(name: string): string[] }
+  export function parseYear(value: string | null | undefined): number | null
+  export function parseSearchState(params: ReadableSearchParams): SearchState
+  export function toReadableSearchParams(
+    record: Record<string, string | string[] | undefined>): URLSearchParams
+  export function searchStateToParams(state: SearchState): URLSearchParams
+  export function searchStateToQueryString(state: SearchState): string   // '?a=b' | ''
+  export function searchStateKey(state: SearchState): string             // ⚠️ EXCLUDES `view`
+  export function isSearchableQuery(query: string): boolean
+  export function hasValidYearRange(state: SearchState): boolean
+  export function appliedFilterCount(state: SearchState): number
+  export function hasAppliedFilters(state: SearchState): boolean
+  export function formatYearRange(yearFrom: number|null, yearTo: number|null): string
+  export function toDiscoverQuery(state: SearchState, cursor?: string): DiscoverQuery
+
+  // src/components/search/result-meta.ts — no directive
+  export const RESULT_KIND_ICONS: Record<DownloadType, IconName>   // film | tv | play
+  export const RESULT_KIND_LABELS: Record<DownloadType, string>    // lowercase
+  export function resultYear(media: Media): string                 // '1977' | UNKNOWN_VALUE
+  export function resultKindAndYear(media: Media): string          // 'movie · 1977'
+  export function resultGenres(media: Media): string
+  export function resultRuntime(media: Media): string
+
+  // src/components/search/search-hero.tsx — 'use client'
+  export const SEARCH_DEBOUNCE_MS = 300
+  export const SEARCH_HEADLINE = 'Search movies & shows.'
+  export const SEARCH_FIELD_LABEL = 'Search movies and shows'
+  export const SEARCH_FORM_LABEL  = 'Search movies and shows'
+  export function SearchHero(): JSX.Element                        // NO PROPS
+
+  // src/components/search/search-toolbar.tsx — 'use client'
+  export type SearchToolbarProps = {
+    facets: DiscoveryFacets
+    showViewToggle?: boolean       // default true; false drops it (the 0-results frame)
+    state: SearchState
+    total: number }                // the whole filtered set, not the page on screen
+  export function SearchToolbar(props: SearchToolbarProps): JSX.Element
+  // Owns ALL filter/sort/view URL writes (router.push, scroll:false) plus FiltersButton,
+  // FilterPanel, FilterScrim and the applied-filter chip row.
+
+  // src/components/search/search-filters.tsx — 'use client'
+  export interface SearchFilterDraft {
+    genres: string[]; yearFrom: number | null; yearTo: number | null }
+  export type SearchFiltersProps = {
+    facets: DiscoveryFacets
+    onApply: (draft: SearchFilterDraft) => void
+    onClear: () => void
+    state: SearchState }
+  export function SearchFilters(props: SearchFiltersProps): JSX.Element
+  // Fragment — panel CONTENTS only, mounted inside a FilterPanel. Pure draft, no effects.
+
+  // src/components/search/search-results.tsx — 'use client'
+  export type SearchResultsProps = { initialPage: DiscoveryPage; state: SearchState }
+  export function SearchResults(props: SearchResultsProps): JSX.Element
+  // ⚠️ MUST be given key={searchStateKey(state)} by the caller — that remount is how the
+  // merged LoadMore pages reset.
+
+  // src/components/search/result-grid.tsx — no directive
+  export type ResultCardProps = { media: Media }
+  export function ResultCard(props: ResultCardProps): JSX.Element
+  export type ResultGridProps = Omit<ComponentPropsWithoutRef<'div'>,'children'> & {
+    items: Media[] }
+  export function ResultGrid(props: ResultGridProps): JSX.Element
+
+  // src/components/search/result-table.tsx — 'use client'
+  export type ResultTableProps = {
+    items: Media[]; onSortChange: (sort: SearchSort) => void; sort: SearchSort }
+  export function ResultTable(props: ResultTableProps): JSX.Element
+
+  // src/components/search/search-notes.tsx — no directive
+  export type DegradedSourcesNoteProps =
+    Omit<ComponentPropsWithoutRef<'div'>,'children'> & { degradedSources: DiscoverySource[] }
+  export function DegradedSourcesNote(props): JSX.Element | null   // null on []
+  export type NoMatchesNoteProps =
+    Omit<ComponentPropsWithoutRef<'div'>,'children'> & { query: string }
+  export function NoMatchesNote(props): JSX.Element
+  export type ShortQueryNoteProps = Omit<ComponentPropsWithoutRef<'div'>,'children'>
+  export function ShortQueryNote(props): JSX.Element
+
+  // src/components/search/search-skeletons.tsx — 'use client'
+  export function SearchLoadingSkeleton(): JSX.Element   // NO PROPS; reads ?view= itself
+
+  // src/app/search/actions.ts — 'use server'
+  export async function loadMoreDiscoverResults(
+    search: string, cursor: string): Promise<DiscoveryPage>
+  // `search` is the page's own query string ('?q=star&sort=title'), re-parsed server-side.
+  // Returns an EMPTY PAGE (never throws) for a too-short query or an inverted year range.
+
+  // src/app/search/page.tsx
+  export const dynamic = 'force-dynamic'
+  // src/app/search/error.tsx — 'use client'
+  export type SearchErrorProps = { error: Error & { digest?: string }; reset: () => void }
+  ```
+
+  ##### ⚠️ Findings: `src/app/search/layout.tsx` — the one structural decision on this route
+
+  **D3 added a file beyond its prescribed list, and the reason generalises.** `loading.tsx`
+  replaces everything below it during navigation, and on this page **every keystroke is a
+  navigation**. A hero inside `page.tsx` would be unmounted and rebuilt 300ms after each
+  letter, **taking the caret and selection with it — the field would be impossible to type
+  into.** Putting the hero in a `layout.tsx` sits it above the loading boundary.
+  **Verified in a real browser: after typing `trek`, `document.activeElement` is still the
+  field and `selectionStart` is `4`.** In-flight state is reported by the hero itself
+  (`value.trim() !== urlQuery` → spinner replaces the search glyph), needing no coupling to
+  the page. **Any later page with a debounced in-place field wants this same shape.**
+
+  ##### ✅ Findings: the URL-state question is RESOLVED — the render-phase adjustment is fine
+
+  D2 reported that `react-hooks/set-state-in-render` rejected the render-phase sentinel and
+  moved to `useOptimistic`. **D3 used the render-phase adjustment successfully**, for its
+  hero field, citing `nav-search.tsx`'s precedent — which is the third data point alongside
+  C2's shipped code. **Conclusion: the pattern IS permitted; D2's rejection was
+  shape-specific, not a blanket rule.** Both patterns are now proven in-tree. Guidance for
+  D4/E1/F1/F2:
+
+  1. **Sort / view / filters: use NO client state at all.** Read `useSearchParams()`, write
+     `router.push(…, { scroll: false })`. Nothing to sync, so no rule can fire.
+  2. **Merged `LoadMore` pages: reset by REMOUNT, not derived state** — `key={stateKey}`
+     from the server component. D2 and D3 converged on this independently. D3's
+     `searchStateKey` deliberately **excludes `view`**, so flipping grid↔list keeps the
+     pages you already loaded.
+  3. **Filter drafts: reset by remount too** — `FilterPanel` returns `null` when closed, so
+     the draft unmounts; plus a `key` so removing a chip while the panel is open re-reads
+     the URL.
+  4. **Only a field whose caret must survive needs the sentinel** — a `key` would kill the
+     caret. That is the one place the render-phase adjustment earns its cost.
+
+  **`useOptimistic` (D2) and render-phase-adjustment (D3/C2) are both available. Prefer 1–3
+  above, which need neither.** ⚠️ **Zero `useEffect` + `setState` in D3's whole feature** —
+  its only effect is the debounce timer, which schedules a *navigation*, not a state write.
+
+  ##### `classifyQuery` — deliberately NOT reused, and the gap that creates
+
+  D3 reuses only `SEARCH_MIN_LENGTH` (the same `2` as the schema's `min(2)`). No URL branch:
+  `search.pug`'s hero has no action button at all, its hint explicitly scopes the field to
+  `title · year · cast · genre`, and a second copy of `NavSearch`'s download contract in a
+  second place is one that will drift.
+
+  ⚠️ **Open gap:** `NavSearch` suppresses itself on `/search`, so **`/search` is now the one
+  route in the app with no paste-a-link affordance whatsoever.** A later wave may want to
+  revisit — either by reusing `classifyQuery` here, or by letting `NavSearch` render on
+  `/search` in URL mode only. **G1 should decide.**
+
+  ##### `disabled` vs `aria-disabled`: neither — there is no submit button
+
+  The hero is a `<form role="search">` with one field and **no button**; HTML implicit
+  submission gives Enter for free, the handler `preventDefault()`s unconditionally, and
+  there is no `action` attribute. **Enter *flushes* the pending debounce rather than being a
+  separate code path**, so B8's submit-button trap never arises. The one real `disabled` is
+  the filter panel's **"Show results"**: `type="button"` with an `onClick`, and focus is on
+  a year field (not the button) at the moment an inverted range disables it, so nobody is
+  stranded.
+
+  **Mockup deviations (D3): measured with `playwright-core` driving system Chrome**,
+  computed styles + `getBoundingClientRect()` element-for-element against `search.html`'s
+  desktop frames. **Hero, toolbar, view toggle, Filters button, grid tracks, card, poster,
+  title, mchip, filter panel, and every `th`/`td`/row rule came back byte-identical.**
+
+  - ⚠️ **A real layout bug found BY MEASURING, then fixed at the call site.** `GalleryCard`
+    stretched to the grid row height but the `<a>` inside it did not (card `312.83` /
+    anchor `292.59`), leaving ~20px of border with nothing clickable behind it. In
+    `search.pug` the `<a>` **is** the grid item; here it sits inside one. Fixed with
+    `flex-1` on `GalleryCardLink` **in `result-grid.tsx`'s call site, with a source
+    comment — `src/components/ui/gallery-card.tsx` was NOT reopened.** Verified: `ui/` is
+    untouched across all three wave-6 commits. **This does not affect D1 or D2**, whose
+    cards carry a bottom `GalleryCardRow className="mt-auto"` that solves the same stretch
+    differently; a search result has no attribution row, so its anchor must stretch itself.
+    **Eyeballing would not have caught this — it is the wave's best argument for measuring.**
+  - **Sort moved from the filter panel into the toolbar.** `search.pug` nests a `sort by`
+    group in the panel; the task text says "a toolbar with … sort". Consequence: the
+    mockup's single-line mobile toolbar wraps to two lines at 390px (count on line 1,
+    `[toggle][Relevance][Filters]` on line 2). Degrades gracefully, reads as deliberate.
+    **This is the first shipped page to exercise B4's `Menu`/`MenuTrigger`/`MenuItem` at all.**
+  - **The table's last column is `runtime`, not `seasons`** — `Media` carries no season
+    count from either upstream. Keeps the mockup's shape (right-aligned, tabular, `ink-4`
+    em dash when unknown) over data that actually exists.
+  - **Only `title` and `year` carry sort controls**; the mockup draws chevrons on all five.
+    The API enum has three values and the set is paginated, so `type`/`genre`/`runtime` are
+    plain labels. `aria-sort` is `ascending` on title, `descending` on year — **read off
+    `sortDiscoveryResults()`, not guessed.**
+  - **Kind labels are lowercase** (`movie · 1977`), matching `search.mjs` and the mono register.
+  - **No-matches is the plain `Note`, not the mockup's loud one**, and is `role="status"`.
+    A test asserts it is *not* the loud note — no-matches is a state, not an error.
+  - **The hero never turns `border-bad` and is never `readonly` while loading**, both of
+    which the mockup does for its "No matches" and "Loading" frames.
+  - **The view switch is `role="group"` + `aria-pressed`**, not the mockup's
+    `role="radiogroup"` — `aria-pressed` is not valid on a radiogroup child; the mockup
+    mixes two patterns.
+  - **Genre cells are `whitespace-nowrap` and the table card scrolls at every width.** Real
+    genre lists made mobile rows five lines tall; the mockup's own strategy is "scroll
+    sideways, never reflow" (B3's `min-w-[480px]` idiom).
+  - **`removeLabel` names the VALUE** (`Remove Comedy genre filter`) where the mockup names
+    only the facet — there are up to 20 genre chips, and "Remove genre filter" ×20 is
+    unusable. ⚠️ **D2 made the same call for the same reason** (`Remove Movies filter`), so
+    naming the value is now the plan's de facto convention despite `gallery.pug`'s wording.
+  - **Curly quotes** in `40 results for “star”` / `No matches for “star.”`, consistent with
+    the system's existing en/em-dash care.
+  - `fontFamily` reads `Figtree, "Figtree Fallback"` vs the mockup's `Figtree, system-ui` —
+    `next/font`'s metric-matched fallback. **Not a deviation**, and the same font-metric
+    difference B6 and C2 measured.
+
+  **Content notes — the API beat the mockup:** `40 results for "star"` vs the mockup's
+  `8 results for "the office"`; 24 rows vs 8; real genre lists run to five entries where the
+  mockup's run to two; the avatar reads **JE**, not JA. Posters are gradient stand-ins
+  because `posterUrl` is a Radarr-relative `/MediaCoverProxy/…` path that does not resolve
+  from this origin — **the same relative-poster-path problem D2 documented**, confirming it
+  is systemic rather than gallery-specific. `poster-vN` numbers also differ, since
+  `posterVariant(seed)` derives them where the mockup hand-picked.
+
+  **States producible and not producible from live data — ⚠️ one correction to this plan:**
+  - ✅ **"No matches" IS producible live, contrary to the Overview's accepted-gap list.**
+    `?q=xyzzyqqqzz` returns `total: 0`, `degradedSources: []`, empty facets, on healthy
+    upstreams. Screenshotted at 1280×900. **[Human checkpoint 3](#human-checkpoints) can
+    drop this one from the four states it was to review by hand.**
+  - ❌ **The degraded-source banner is NOT producible** — both upstreams are healthy and
+    `degradedSources` is `[]` on every query. Verified by reading the code path plus 5 unit
+    tests over all four shapes (`[]`, `['shows']`, `['movies']`, both), a page-level test
+    asserting it renders **above** the count, and another asserting it **coexists with**
+    no-matches. **Stays on checkpoint 3.**
+  - ✅ Also driven live and verified: filters open at both viewports (panel 460px desktop /
+    342px mobile, **and B7's `@container` query correctly gives 2 columns at 460 and 1 at
+    342 — the threshold really is the panel, not the viewport**), applied-filter chips, both
+    sort headers changing the URL *and* actually reordering server-side, and Load more
+    taking 24 → 40 with the button disappearing.
+
+  ⚠️ **The verify backend's `total` looks capped** — both `star` and `trek` report exactly
+  40. **This is why `LoadMore`'s `hasMore` is wired to `nextCursor !== null` and never to
+  `loaded < total`**, exactly as B8 required. Worth knowing for any later count assertion.
 
 - [ ] **D4. Downloads activity.** `/activity` is every download in flight, live.
 
