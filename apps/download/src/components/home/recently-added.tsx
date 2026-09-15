@@ -1,0 +1,74 @@
+import type { GalleryItem } from '@lilnas/utils/download/types'
+import type { ComponentPropsWithoutRef, JSX } from 'react'
+
+import { GhostLink } from 'src/components/home/ghost-link'
+import { GALLERY_HREF } from 'src/components/home/quick-access'
+import { RecentCard } from 'src/components/home/recent-card'
+import { Note } from 'src/components/ui/card'
+
+/**
+ * How many cards the homepage shows. Six is `home.pug`'s grid, and at the
+ * desktop card width (158px + a 16px gap) it is exactly the row that fits
+ * under the quick-access tiles without a second one.
+ */
+export const RECENTLY_ADDED_LIMIT = 6
+
+export type RecentlyAddedProps = Omit<
+  ComponentPropsWithoutRef<'section'>,
+  'children'
+> & {
+  /** The first {@link RECENTLY_ADDED_LIMIT} rows of `GET /download/gallery`. */
+  items: readonly GalleryItem[]
+  /** One pinned instant for the whole grid — see {@link RecentCard}'s `now`. */
+  now: number
+  /** The signed-in viewer's email — see {@link RecentCard}'s `viewerEmail`. */
+  viewerEmail?: string | null
+}
+
+const HEADING_ID = 'recently-added-heading'
+
+/**
+ * Recently added — the newest handful of library rows, and the way through to
+ * the rest of it.
+ *
+ * `See full library` stays visible at every width, where `home.pug` drops it
+ * from the mobile panel: the app bar carries no library link, so on a phone
+ * this is the only route to `/gallery` that isn't the back button.
+ */
+export function RecentlyAdded({
+  className,
+  items,
+  now,
+  viewerEmail,
+  ...props
+}: RecentlyAddedProps): JSX.Element {
+  return (
+    <section {...props} aria-labelledby={HEADING_ID} className={className}>
+      <div className="mb-[14px] flex items-center justify-between gap-3 sm:mb-4">
+        <h2 className="text-h2" id={HEADING_ID}>
+          Recently added
+        </h2>
+        <GhostLink href={GALLERY_HREF} iconEnd="arrow">
+          See full library
+        </GhostLink>
+      </div>
+      {items.length === 0 ? (
+        <Note>
+          Nothing in the library yet. Paste a link in the search field above to
+          download something, or search for a title to request it.
+        </Note>
+      ) : (
+        <div className="flex flex-wrap gap-4 stagger">
+          {items.map(item => (
+            <RecentCard
+              key={item.media.id}
+              item={item}
+              now={now}
+              viewerEmail={viewerEmail}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}

@@ -1,0 +1,187 @@
+import { cns } from '@lilnas/utils/cns'
+import type {
+  EmbyStatus,
+  GalleryItem,
+  Media,
+} from '@lilnas/utils/download/types'
+import { DownloadType, isManagedMedia } from '@lilnas/utils/download/types'
+import type { ComponentPropsWithoutRef, JSX } from 'react'
+
+import { GhostLink } from 'src/components/home/ghost-link'
+import { ACCOUNT_HREF } from 'src/components/shell/account-link'
+import { Avatar } from 'src/components/ui/avatar'
+import { Chip } from 'src/components/ui/chip'
+import {
+  GalleryCard,
+  GalleryCardAttrib,
+  GalleryCardLink,
+  GalleryCardRow,
+  GalleryCardTitle,
+} from 'src/components/ui/gallery-card'
+import type { IconName } from 'src/components/ui/icon'
+import { MChip } from 'src/components/ui/mchip'
+import { Poster } from 'src/components/ui/poster'
+import {
+  formatRelative,
+  formatRuntime,
+  initials,
+  UNKNOWN_VALUE,
+} from 'src/lib/format'
+import { mediaHref } from 'src/lib/media-route'
+
+/** The glyph each library type wears, from `home.pug`'s `kindIcon`. */
+const KIND_ICONS: Record<DownloadType, IconName> = {
+  [DownloadType.Movie]: 'film',
+  [DownloadType.Show]: 'tv',
+  [DownloadType.Video]: 'play',
+}
+
+/** Lower case, as the mockup writes them — `movie`, not `Movie`. */
+const KIND_LABELS: Record<DownloadType, string> = {
+  [DownloadType.Movie]: 'movie',
+  [DownloadType.Show]: 'show',
+  [DownloadType.Video]: 'video',
+}
+
+/**
+ * The one line of metadata beside the kind chip.
+ *
+ * A video's is its duration to the second (`2:58`), which is exactly what its
+ * player will read out; a movie's or show's is the release year. `home.pug`
+ * writes `s2` for its show card, which is a *job* scope — `GalleryItem`
+ * carries no scope (a show is deliberately one card however many episodes were
+ * grabbed), so the year is the honest equivalent here.
+ */
+export function recentCardMeta(media: Media): string {
+  if (media.type === DownloadType.Video) {
+    return formatRuntime(media.runtime, 'clock')
+  }
+
+  return media.year === undefined ? UNKNOWN_VALUE : String(media.year)
+}
+
+/**
+ * Emby's view of a title, or nothing at all: a video is never indexed by Emby,
+ * and a movie/show with no file on disk has no `embyStatus` because Emby was
+ * never asked.
+ */
+function embyStatusOf(media: Media): EmbyStatus | undefined {
+  return isManagedMedia(media) ? media.embyStatus : undefined
+}
+
+export type RecentCardProps = Omit<
+  ComponentPropsWithoutRef<'div'>,
+  'children'
+> & {
+  /** One row of `GET /download/gallery`. */
+  item: GalleryItem
+  /**
+   * The instant every relative timestamp in the grid is measured against.
+   * Required, and pinned by the caller: `formatRelative`'s default
+   * `Date.now()` would be read once on the server and again on the client, so
+   * a card rendered on the minute boundary would hydrate with different text
+   * than it was served with.
+   */
+  now: number
+  /**
+   * The signed-in viewer's email, when there is one. An avatar links to the
+   * profile only for the viewer's own identity — `gallery.pug` links exactly
+   * one avatar for the same reason. Somebody else's profile is an admin-only
+   * route that does not exist yet.
+   */
+  viewerEmail?: string | null
+}
+
+/**
+ * One "recently added" card — poster, title, kind, attribution.
+ *
+ * Videos take the **tall** 2:3 crop here rather than their native 16:9, so the
+ * grid stays one rhythm of shapes; `video-detail` is where a video gets its
+ * own aspect back.
+ *
+ * Two independently interactive regions, never one anchor around the whole
+ * card: the top half links to the detail page, and the attribution row keeps
+ * its own avatar link and `Watch`.
+ */
+export function RecentCard({
+  className,
+  item,
+  now,
+  viewerEmail,
+  ...props
+}: RecentCardProps): JSX.Element {
+  const { lastDownloadedAt, lastRequester, media } = item
+  const emby = embyStatusOf(media)
+  const indexing = emby?.state === 'indexing'
+  // `watchUrl` is populated only while the state is `indexed`; a title that is
+  // still being indexed has nothing to point a player at yet, which is the
+  // whole reason the chip stands in for the action.
+  const watchUrl = emby?.state === 'indexed' ? emby.watchUrl : undefined
+  const isViewer =
+    lastRequester !== null &&
+    viewerEmail !== null &&
+    viewerEmail !== undefined &&
+    lastRequester.email === viewerEmail
+
+  return (
+    <GalleryCard
+      {...props}
+      className={cns('w-[calc(50%-8px)] sm:w-[158px]', className)}
+    >
+      <GalleryCardLink href={mediaHref(media)}>
+        <Poster
+          label={media.title}
+          play={media.type === DownloadType.Video}
+          playSize="h-[22px] w-[22px]"
+          seed={media.id}
+          shape="tall"
+          src={media.posterUrl}
+        />
+        <GalleryCardTitle>{media.title}</GalleryCardTitle>
+        <GalleryCardRow>
+          <MChip
+            className="font-mono text-mono-sm text-ink-3"
+            icon={KIND_ICONS[media.type]}
+            label={KIND_LABELS[media.type]}
+          />
+          {indexing ? (
+            <Chip
+              className="h-[19px] text-[10px]"
+              label="indexing…"
+              tone="warn"
+            />
+          ) : (
+            <span className="font-mono text-mono-sm text-ink-4">
+              {recentCardMeta(media)}
+            </span>
+          )}
+        </GalleryCardRow>
+      </GalleryCardLink>
+      <GalleryCardRow className="mt-auto">
+        <GalleryCardAttrib>
+          {lastRequester === null ? (
+            // Masked server-side by the attribution oracle. No initials to
+            // show and no profile to point at — the dashed circle is the whole
+            // statement.
+            <Avatar hidden size="xs" title="Attribution hidden" />
+          ) : (
+            <Avatar
+              href={isViewer ? ACCOUNT_HREF : undefined}
+              initials={initials(lastRequester.email)}
+              size="xs"
+              title={lastRequester.email}
+            />
+          )}
+          <span className="font-mono text-mono-sm text-ink-4">
+            {formatRelative(lastDownloadedAt, now)}
+          </span>
+        </GalleryCardAttrib>
+        {watchUrl === undefined ? null : (
+          <GhostLink className="h-6 px-2 text-[11.5px]" href={watchUrl}>
+            Watch
+          </GhostLink>
+        )}
+      </GalleryCardRow>
+    </GalleryCard>
+  )
+}
