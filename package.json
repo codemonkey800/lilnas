@@ -16,6 +16,8 @@
     "@lilnas/eslint": "workspace:*",
     "@lilnas/prettier": "workspace:*",
     "@nestjs/cli": "11.0.10",
+    "@nestjs/common": "11.1.6",
+    "@nestjs/core": "11.1.6",
     "@nestjs/testing": "11.1.6",
     "@swc/cli": "0.7.8",
     "@swc/core": "1.13.5",
@@ -54,5 +56,14 @@
     "vite": "7.1.9",
     "vite-tsconfig-paths": "5.1.4",
     "zx": "8.8.4"
+  },
+  "pnpm": {
+    "overrides": {
+      "@nestjs/common": "11.1.6",
+      "@nestjs/core": "11.1.6",
+      "@nestjs/platform-express": "11.1.6",
+      "@nestjs/platform-socket.io": "11.1.6",
+      "@nestjs/websockets": "11.1.6"
+    }
   }
 }
