@@ -1,0 +1,78 @@
+# Local verification backend — a TOOL, not a deployed service.
+#
+# Runs the already-built production `lilnas-download` image against the live
+# upstreams (radarr / sonarr / emby / storage, all on `lilnas_default`) while
+# pointing at a throwaway *copy* of the database. The frontend is NOT started
+# here — it runs natively with `npx next dev -p 8090` so hot reload works.
+#
+# Full runbook, including how to make the snapshot and the env file this
+# expects: docs/local-verification.md
+#
+#   docker compose -f deploy.verify.yml up -d
+#
+# Three hard rules:
+#
+#   1. NEVER add this file to the root docker-compose.yml `include:` list.
+#      The root compose file already runs the real service as
+#      `lilnas-download-1`; this is a verification tool and nothing else.
+#
+#   2. NEVER point DATABASE_PATH at /storage/app-data/download/download.db.
+#      Production holds that database open in WAL mode, and a second writer
+#      can corrupt it. The `/data` bind below must always be a throwaway
+#      `sqlite3 .backup` snapshot directory.
+#
+#   3. NEVER name this container `lilnas-download-1`. That name belongs to
+#      production, and `docker rm -f` on it takes the service down.
+
+services:
+  download-verify-backend:
+    image: lilnas-download
+    # No `build:` on purpose — this consumes the image the root compose file
+    # already built for production, so verifying can never rebuild or replace
+    # what prod is running. `pull_policy: never` stops compose from reaching
+    # for a registry copy of this purely local tag.
+    pull_policy: never
+    container_name: download-verify-backend
+    # Not `unless-stopped`: a verification container should die when it dies
+    # and never come back on its own after a host reboot.
+    restart: 'no'
+    # The image's own ENTRYPOINT is `pnpm start`, which runs the NestJS
+    # backend *and* the Next server. Verification wants the backend alone,
+    # because the frontend is the thing being edited and runs natively.
+    entrypoint: node
+    command: dist/main
+    # Copied from .env.prod, then overridden: NODE_ENV=development,
+    # DATABASE_PATH=/data/download.db, DEV_USER_EMAIL, DEV_USER_ID.
+    # Gitignored — see docs/local-verification.md step 2.
+    env_file:
+      - .env.verify-container
+    volumes:
+      # A DIRECTORY, never the bare .db file: SQLite creates -wal/-shm
+      # siblings next to the database and cannot do that through a
+      # single-file bind mount. Host dir must be owned by UID 1000 (the
+      # image's `node` user) or better-sqlite3 throws SQLITE_CANTOPEN.
+      - /tmp/download-verify:/data
+      # The SAME container paths production uses, so the file paths Radarr
+      # (/movies) and Sonarr (/tv) report resolve verbatim — they do not
+      # exist on the host, which is why the backend is containerised at all.
+      # `ro` so a stray delete fails loudly instead of eating real library
+      # files.
+      - /storage/media-library/movies:/movies:ro
+      - /storage/media-library/tv:/tv:ro
+    ports:
+      # 127.0.0.1 only — never expose a verification backend to the LAN.
+      # 8081 is not a choice: next.config.js hardcodes http://localhost:8081
+      # as the /api and /ws proxy target, so publishing here is what makes
+      # the existing rewrite work unchanged.
+      - '127.0.0.1:8081:8081'
+    networks:
+      - lilnas_default
+
+networks:
+  # The `lilnas` compose project's default network — already created, already
+  # holding radarr / sonarr / emby / storage. `external` so this file joins it
+  # rather than creating a second, empty network. Service-name DNS is what
+  # makes container IPs irrelevant here: nothing goes stale when an upstream
+  # container is recreated.
+  lilnas_default:
+    external: true
