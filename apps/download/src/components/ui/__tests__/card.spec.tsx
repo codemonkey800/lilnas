@@ -149,6 +149,21 @@ describe('Note', () => {
     )
   })
 
+  it('keeps both its size and its colour through cns', () => {
+    // Same shape as the hazard `data-table.tsx` documents — a theme size
+    // token next to a text colour in one `cns` call. This pair is safe only
+    // because `text-sm` is a name tailwind-merge recognises as a font size;
+    // `text-cap`, `text-mono-sm` and friends are not, and would be dropped
+    // here. Pinned on the rendered DOM so a swap to one of those fails.
+    render(<Note data-testid="note">Heads up.</Note>)
+    const classes = (
+      screen.getByTestId('note').getAttribute('class') ?? ''
+    ).split(/\s+/)
+
+    expect(classes).toContain('text-sm')
+    expect(classes).toContain('text-ink-2')
+  })
+
   it('does not leak the icon prop into the DOM', () => {
     render(
       <Note data-testid="note" icon="shield">
