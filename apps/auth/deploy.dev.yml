@@ -26,7 +26,9 @@ services:
       - ../../infra/nexus-code.yml:/repo/infra/nexus-code.yml:ro
       - ../../infra/palworld.yml:/repo/infra/palworld.yml:ro
       - ../../infra/proxy.yml:/repo/infra/proxy.yml:ro
+      - ../../infra/rustdesk.yml:/repo/infra/rustdesk.yml:ro
       - ../../infra/shared.yml:/repo/infra/shared.yml:ro
+      - ../../infra/valheim.yml:/repo/infra/valheim.yml:ro
       - ../../apps/auth/deploy.yml:/repo/apps/auth/deploy.yml:ro
       - ../../apps/dashcam/deploy.yml:/repo/apps/dashcam/deploy.yml:ro
       - ../../apps/download/deploy.yml:/repo/apps/download/deploy.yml:ro
