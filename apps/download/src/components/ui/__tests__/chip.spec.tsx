@@ -103,12 +103,13 @@ describe('Chip', () => {
 
     /**
      * Sibling regression to `Button`'s: `cns` is `twMerge(clsx(...))`, which
-     * classifies this theme's custom `--text-*` tokens as text *colours* and
-     * so silently drops one of the pair when a size token meets an ink
-     * colour. `Chip` states its type as the arbitrary `text-[11px]`, which
-     * lands in the font-size group correctly, so tinting a chip can never
-     * cost it its size or its mono face. Asserted off the rendered `class`
-     * attribute, since that is the only place the collision would show.
+     * left unconfigured classifies this theme's custom `--text-*` tokens as
+     * text *colours* and silently drops one of the pair when a size token
+     * meets an ink colour. `Chip` states its type as the arbitrary
+     * `text-[11px]`, so it was never exposed even before
+     * `packages/utils/src/cns.ts` fixed the classification. Asserted off the
+     * rendered `class` attribute, since that is the only place the collision
+     * would show.
      */
     it.each<ChipTone>(['uv', 'ok', 'warn', 'bad', 'mute'])(
       'keeps its size and mono face after the %s tint is applied',

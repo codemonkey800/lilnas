@@ -19,10 +19,10 @@ export type MChipProps = Omit<ComponentPropsWithoutRef<'span'>, 'children'> & {
  * a table cell.
  *
  * `MChip` carries no type or colour of its own — every call site in the
- * mockups supplies `font-mono text-mono-sm text-ink-3`. Beware that
- * `cns`/tailwind-merge treats the unrecognised `text-mono-sm` as a colour and
- * will drop it if you pass both in one `className`; pass the size as
- * `text-[length:var(--text-mono-sm)]`, or give the colour to a wrapper.
+ * mockups supplies `font-mono text-mono-sm text-ink-3`, and that string works
+ * verbatim: `packages/utils/src/cns.ts` registers this theme's `--text-*`
+ * names as font sizes, so the size and the colour no longer share a
+ * tailwind-merge conflict group.
  */
 export function MChip({
   icon,

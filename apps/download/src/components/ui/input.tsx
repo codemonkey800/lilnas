@@ -46,33 +46,17 @@ const INPUT_BASE = cns(
 )
 
 /**
- * Spelled out rather than written as `text-mono`, because of a *second*,
- * independent mechanism that eats a font-size utility.
+ * The bare `text-mono` token, which carries `--text-mono--font-weight: 450`
+ * and `--text-mono--letter-spacing: -0.01em` along with the size.
  *
- * `cns` is `twMerge(clsx(...))`, and tailwind-merge only knows Tailwind's
- * built-in font-size names. Every custom `--text-*` token in `tailwind.css`
- * is therefore misclassified as a text *colour*, so `text-mono` and any text
- * colour land in the same conflict group and the size is silently dropped:
- *
- *     cns('font-mono text-mono text-ink-3') === 'font-mono text-ink-3'
- *
- * `Input`'s own base classes carry no bare text colour — `placeholder:` is a
- * variant, which twMerge groups separately — so the bug only bites once a
- * caller passes one through `className`. That is a live call site away, and
- * it fails silently, so the token is expanded here instead.
- *
- * `text-[length:var(--text-mono)]` is classified correctly. It only carries
- * the size, though: `--text-mono` also declares `--text-mono--font-weight`
- * and `--text-mono--letter-spacing`, which `text-mono` would have emitted
- * too, so both are restated explicitly. Dropping them is the quiet way to
- * get this substitution wrong.
- *
- * The proper fix is an `extendTailwindMerge` config in `@lilnas/utils`, which
- * also covers `portal` and `dashcam`; that is a separate, wider change.
+ * It survives a caller's `className` colour only because
+ * `packages/utils/src/cns.ts` registers this theme's `--text-*` names as font
+ * sizes with `extendTailwindMerge`. Without that, tailwind-merge reads
+ * `text-mono` as a text colour and `cns('font-mono text-mono', 'text-ink-3')`
+ * silently collapses to `font-mono text-ink-3` — the size gone, at 14px
+ * proportional, with nothing in the DOM to say why.
  */
-const INPUT_MONO = cns(
-  'font-mono text-[length:var(--text-mono)] font-[450] tracking-[-0.01em]',
-)
+const INPUT_MONO = cns('font-mono text-mono')
 const INPUT_PROPORTIONAL = 'text-[14px]'
 
 /** 12px inset + a 14px glyph + an 8px gap. */

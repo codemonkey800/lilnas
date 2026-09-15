@@ -31,27 +31,17 @@ const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
  * table avoids. Folding the default `text-[14px]` into the size table keeps
  * one font-size utility per button.
  *
- * `lg` spells its type size as `text-[length:var(--text-h3)] leading-[1.4]`
- * rather than `text-h3`. `cns` is `twMerge(clsx(...))`, and tailwind-merge
- * only knows Tailwind's *built-in* font-size names — every custom `--text-*`
- * token in this theme is classified as a text **colour** instead, so
- * `cns(..., 'text-ink', ..., 'text-h3')` reads as two colours and silently
- * drops the earlier one. Composed in this order that ate the variant's ink
- * colour, so a large `uv` button lost `text-uv-ink` and rendered near-white
- * on the purple fill. The `length:` hint puts the utility back in the
- * font-size group; `leading-[1.4]` restores the `--text-h3--line-height`
- * companion that the bare token would have carried.
- *
- * Verified CSS-equivalent against the generated stylesheet: `.text-h3` emits
- * `font-size: var(--text-h3)`, which is byte-identical to what the arbitrary
- * form emits. Its third declaration, the `--text-h3--font-weight: 600`
- * fallback, is emitted as `var(--tw-font-weight, ...)` — and `font-[550]` /
- * `font-[620]` both *set* `--tw-font-weight`, so the base and variant weights
- * already won that fallback. Nothing is lost by not restoring it.
+ * `lg` uses the plain `text-h3` token, which carries its own
+ * `--text-h3--line-height` and `--text-h3--font-weight` companions. That is
+ * only safe because `packages/utils/src/cns.ts` registers this theme's
+ * `--text-*` names as font sizes with `extendTailwindMerge`; without it
+ * tailwind-merge reads them as text *colours* and `cns(BASE, variant, size)`
+ * silently drops the variant's ink — which is how a large `uv` button once
+ * shipped near-white on its purple fill.
  */
 const BUTTON_SIZES: Record<ButtonSize, string> = {
   sm: 'h-[30px] px-[11px] text-[13px]',
-  lg: 'h-[46px] px-[22px] text-[length:var(--text-h3)] leading-[1.4]',
+  lg: 'h-[46px] px-[22px] text-h3',
 }
 
 /** `ghost` and `bad` are quieter, so they sit on tighter default padding. */

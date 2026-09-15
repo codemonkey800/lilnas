@@ -150,11 +150,11 @@ describe('Note', () => {
   })
 
   it('keeps both its size and its colour through cns', () => {
-    // Same shape as the hazard `data-table.tsx` documents — a theme size
-    // token next to a text colour in one `cns` call. This pair is safe only
-    // because `text-sm` is a name tailwind-merge recognises as a font size;
-    // `text-cap`, `text-mono-sm` and friends are not, and would be dropped
-    // here. Pinned on the rendered DOM so a swap to one of those fails.
+    // A theme size token next to a text colour in one `cns` call — the shape
+    // that used to annihilate one of the two. `text-sm` was always safe (a
+    // built-in name); the custom tokens are safe now too, via the
+    // `extendTailwindMerge` config in `packages/utils/src/cns.ts`. Pinned on
+    // the rendered DOM, which is the only place the collision ever showed.
     render(<Note data-testid="note">Heads up.</Note>)
     const classes = (
       screen.getByTestId('note').getAttribute('class') ?? ''

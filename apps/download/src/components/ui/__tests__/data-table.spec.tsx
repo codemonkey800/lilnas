@@ -65,9 +65,9 @@ describe('DataTable', () => {
   })
 
   it('keeps the header size token, which tailwind-merge would otherwise drop', () => {
-    // `text-label` is not a font size tailwind-merge recognises, so it would
-    // classify it as a colour and discard it against `[&_th]:text-ink-4`.
-    expect(renderTable()).toHaveClass('[&_th]:text-[length:var(--text-label)]')
+    // Unconfigured, tailwind-merge does not recognise `text-label` as a font
+    // size and would discard it against `[&_th]:text-ink-4`.
+    expect(renderTable()).toHaveClass('[&_th]:text-label')
   })
 
   it('leaves the header cells unstyled, so the table classes are load-bearing', () => {
@@ -119,7 +119,7 @@ describe('DataTable', () => {
 })
 
 /**
- * Pins for the `cns`/tailwind-merge hazard `data-table.tsx` works around.
+ * Pins for the `cns`/tailwind-merge hazard this header typography sits on.
  *
  * These read the rendered `class` attribute — what actually reaches the DOM
  * *after* `cns` has run — rather than the string handed to `cns`, because the
@@ -135,17 +135,11 @@ describe('DataTable', () => {
  * and no line-height, because `--text-label` declares no `--line-height`
  * companion (unlike `--text-sm` or `--text-cap`, which do).
  *
- * `[&_th]:text-[length:var(--text-label)]` emits only the font-size. The
- * other two therefore have to come from the neighbouring utilities —
- * `[&_th]:font-medium` (`--font-weight-medium` is 500) and
- * `[&_th]:tracking-[0.11em]` — which `ui.pug` already carried beside the
- * token, and which additionally *set* `--tw-font-weight`/`--tw-tracking`, so
- * they would have won the fallback chain either way.
- *
- * That makes those two neighbours load-bearing rather than redundant. These
- * tests exist so a future "simplification" that drops either one, or that
- * restores the bare token, fails loudly instead of silently shrinking every
- * table header to the inherited 15px body size.
+ * The neighbouring `[&_th]:font-medium` (`--font-weight-medium` is 500) and
+ * `[&_th]:tracking-[0.11em]` are verbatim from `ui.pug`. They *set*
+ * `--tw-font-weight` / `--tw-tracking`, so they win the token's own fallback
+ * chain — which is why this file needed no workaround even while `button.tsx`
+ * and `input.tsx` did. Left alone deliberately.
  */
 describe('DataTable header typography', () => {
   function tableClasses(): string[] {
@@ -155,11 +149,11 @@ describe('DataTable header typography', () => {
   it('survives cns with both the header size and the header colour', () => {
     const classes = tableClasses()
 
-    expect(classes).toContain('[&_th]:text-[length:var(--text-label)]')
+    expect(classes).toContain('[&_th]:text-label')
     expect(classes).toContain('[&_th]:text-ink-4')
   })
 
-  it('supplies the weight and tracking the bare token would have carried', () => {
+  it('keeps the neighbours ui.pug writes beside the token', () => {
     const classes = tableClasses()
 
     // --text-label--font-weight: 500, and --font-weight-medium is also 500.
@@ -168,19 +162,24 @@ describe('DataTable header typography', () => {
     expect(classes).toContain('[&_th]:tracking-[0.11em]')
   })
 
-  it('does not ship the bare token that cns cannot carry', () => {
-    expect(tableClasses()).not.toContain('[&_th]:text-label')
+  it('does not fall back to the arbitrary-length spelling', () => {
+    expect(tableClasses()).not.toContain(
+      '[&_th]:text-[length:var(--text-label)]',
+    )
   })
 
-  it('documents the drop the substitution exists to avoid', () => {
-    // tailwind-merge does not know this theme's custom --text-* tokens, so it
-    // reads `text-label` as a colour and discards it against `text-ink-4`.
-    expect(cns('[&_th]:text-label [&_th]:text-ink-4')).toBe('[&_th]:text-ink-4')
-
-    // The arbitrary-length spelling is classified as the font size it is, so
-    // both survive.
-    expect(
-      cns('[&_th]:text-[length:var(--text-label)] [&_th]:text-ink-4'),
-    ).toBe('[&_th]:text-[length:var(--text-label)] [&_th]:text-ink-4')
+  /**
+   * The direct `cns` assertion the component-level ones depend on: with
+   * `packages/utils/src/cns.ts`'s `extendTailwindMerge` config in place,
+   * `text-label` is a font size and no longer collides with an ink colour.
+   * Without it this returns `'[&_th]:text-ink-4'` alone.
+   */
+  it('keeps a variant-prefixed size and colour in separate conflict groups', () => {
+    expect(cns('[&_th]:text-label [&_th]:text-ink-4')).toBe(
+      '[&_th]:text-label [&_th]:text-ink-4',
+    )
+    expect(cns('[&_th]:text-ink-4 [&_th]:text-label')).toBe(
+      '[&_th]:text-ink-4 [&_th]:text-label',
+    )
   })
 })

@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom'
 
+import { THEME_FONT_SIZES } from '@lilnas/utils/cns'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -13,16 +14,16 @@ function classes(element: Element): string[] {
  * Every font-size utility that actually survived to the DOM — there must only
  * ever be one.
  *
- * Deliberately not a loose `text-` prefix match. `text-ink-3` is a colour, and
- * a helper that counted it would report a size the element does not have,
- * which is precisely the failure this file exists to catch. `text-mono` stays
- * in the pattern so a regression back to the raw theme token is still seen.
+ * Deliberately an allow-list rather than a loose `text-` prefix match.
+ * `text-ink-3` is a colour, and a helper that counted it would report a size
+ * the element does not have, which is precisely the failure this file exists
+ * to catch.
  */
 function fontSizeClasses(element: Element): string[] {
   return classes(element).filter(
     name =>
-      name === 'text-mono' ||
-      /^text-\[(?:length:var\(--text-[\w-]+\)|[\d.]+px)\]$/.test(name),
+      /^text-\[(?:length:var\(--text-[\w-]+\)|[\d.]+px)\]$/.test(name) ||
+      THEME_FONT_SIZES.some(token => name === `text-${token}`),
   )
 }
 
@@ -52,23 +53,35 @@ describe('Input', () => {
     ])
   })
 
+  /**
+   * The mono treatment is the plain `text-mono` token plus `font-mono`. The
+   * token carries `--text-mono--font-weight: 450` and
+   * `--text-mono--letter-spacing: -0.01em` itself, so there must be no
+   * standalone `font-[450]` / `tracking-[-0.01em]` beside it — those once
+   * existed only to restore what `text-[length:var(--text-mono)]` dropped.
+   */
   it('swaps the whole type treatment for the machine face when mono', () => {
     render(<Input mono />)
 
     const input = screen.getByRole('textbox')
 
-    expect(fontSizeClasses(input)).toEqual(['text-[length:var(--text-mono)]'])
-    expect(input).toHaveClass('font-mono', 'font-[450]', 'tracking-[-0.01em]')
+    expect(fontSizeClasses(input)).toEqual(['text-mono'])
+    expect(input).toHaveClass('font-mono')
+    expect(input).not.toHaveClass('font-[450]')
+    expect(input).not.toHaveClass('tracking-[-0.01em]')
   })
 
   /**
    * Regression: `cns` is `twMerge(clsx(...))`, and tailwind-merge only knows
-   * Tailwind's built-in font-size names. Every custom `--text-*` token in this
-   * theme is misclassified as a text *colour*, so writing the mono size as
-   * `text-mono` put it in the same conflict group as any colour a caller
-   * passed and the size was silently dropped:
+   * Tailwind's *built-in* font-size names. Left unconfigured it misclassifies
+   * every custom `--text-*` token in this theme as a text *colour*, putting
+   * `text-mono` in the same conflict group as any colour a caller passes, and
+   * the size is silently dropped:
    *
    *     cns('font-mono text-mono text-ink-3') === 'font-mono text-ink-3'
+   *
+   * `packages/utils/src/cns.ts` registers the token names as font sizes,
+   * which is what keeps both alive here.
    *
    * These assert on the element's rendered `class` attribute rather than on
    * the string handed to `cns`, because the drop happens inside `cns` — a test
@@ -84,7 +97,7 @@ describe('Input', () => {
 
       const rendered = screen.getByRole('textbox').getAttribute('class') ?? ''
 
-      expect(rendered).toContain('text-[length:var(--text-mono)]')
+      expect(rendered.split(' ')).toContain('text-mono')
       expect(rendered.split(' ')).toContain(className.split(' ').at(-1))
     })
 
@@ -92,18 +105,23 @@ describe('Input', () => {
       render(<Input mono className="text-ink-3" />)
 
       expect(fontSizeClasses(screen.getByRole('textbox'))).toEqual([
-        'text-[length:var(--text-mono)]',
+        'text-mono',
       ])
     })
 
+    /**
+     * `font-mono` is a font-*family* utility and `text-mono` a font-*size*
+     * one, so a caller's `font-semibold` lands in the weight group alone. It
+     * beats the token's `--text-mono--font-weight` fallback in the cascade
+     * without touching the size.
+     */
     it('still lets a caller override the weight without losing the size', () => {
       render(<Input mono className="font-semibold" />)
 
       const input = screen.getByRole('textbox')
 
-      expect(fontSizeClasses(input)).toEqual(['text-[length:var(--text-mono)]'])
+      expect(fontSizeClasses(input)).toEqual(['text-mono'])
       expect(input).toHaveClass('font-mono', 'font-semibold')
-      expect(input).not.toHaveClass('font-[450]')
     })
   })
 

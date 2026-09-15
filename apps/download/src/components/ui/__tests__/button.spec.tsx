@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom'
 
+import { THEME_FONT_SIZES } from '@lilnas/utils/cns'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactElement } from 'react'
@@ -41,14 +42,19 @@ function paddingClasses(element: Element): string[] {
  *
  * Matched off the rendered `class` attribute rather than off the size table,
  * because `cns` is `twMerge(...)` and can drop a utility on its way to the
- * DOM. A theme `--text-*` token such as `text-h3` is classified by
- * tailwind-merge as a text *colour*, so it both survives and destroys the
- * variant's real colour; only an arbitrary value (`text-[13px]`,
- * `text-[length:var(--text-h3)]`) lands in the font-size group where it
- * belongs. Hence this deliberately only recognises the arbitrary form.
+ * DOM.
+ *
+ * The match is deliberately an allow-list of arbitrary values plus this
+ * theme's `--text-*` token names. A loose `text-` prefix would count
+ * `text-ink-3` as a font size and cheerfully report a size that isn't there —
+ * which is exactly how the bug below disguises itself.
  */
 function fontSizeClasses(element: Element): string[] {
-  return classes(element).filter(name => name.startsWith('text-['))
+  return classes(element).filter(
+    name =>
+      /^text-\[/.test(name) ||
+      THEME_FONT_SIZES.some(token => name === `text-${token}`),
+  )
 }
 
 /** The text-colour utility each variant is supposed to reach the DOM with. */
@@ -122,7 +128,7 @@ describe('Button', () => {
   describe('sizes', () => {
     const cases: Array<[ButtonSize, string, string, string]> = [
       ['sm', 'h-[30px]', 'px-[11px]', 'text-[13px]'],
-      ['lg', 'h-[46px]', 'px-[22px]', 'text-[length:var(--text-h3)]'],
+      ['lg', 'h-[46px]', 'px-[22px]', 'text-h3'],
     ]
 
     it.each(cases)(
@@ -156,12 +162,14 @@ describe('Button', () => {
 
     /**
      * Regression: `cns` is `twMerge(clsx(...))`, and tailwind-merge only
-     * recognises Tailwind's built-in font-size names. Every custom `--text-*`
-     * token in this theme lands in the text-*colour* group instead, so the
-     * old `lg: '... text-h3'` collided with each variant's ink colour and one
-     * of the two was silently discarded on the way to the DOM. In this
-     * composition order `text-h3` won and every large button lost its colour
-     * — a large `uv` button rendered near-white on the purple fill.
+     * recognises Tailwind's *built-in* font-size names. Left unconfigured, it
+     * files every custom `--text-*` token in this theme under text-*colour*
+     * instead, so `lg`'s `text-h3` shared a conflict group with each
+     * variant's ink and one of the two was silently discarded on the way to
+     * the DOM. In this composition order `text-h3` won and every large button
+     * lost its colour — a large `uv` button rendered near-white on the purple
+     * fill. `packages/utils/src/cns.ts` registers the token names as font
+     * sizes, which is what keeps both alive here.
      *
      * These assertions read the rendered `class` attribute on purpose.
      * Asserting on the size/variant tables instead would have passed happily
@@ -176,14 +184,12 @@ describe('Button', () => {
           </Button>,
         )
 
-        expect(fontSizeClasses(button)).toEqual([
-          'text-[length:var(--text-h3)]',
-        ])
+        expect(fontSizeClasses(button)).toEqual(['text-h3'])
         expect(button).toHaveClass(VARIANT_INK[variant])
       },
     )
 
-    it('never lets a theme text token stand in for a font size', () => {
+    it('emits exactly one font size at every size, colour intact', () => {
       for (const size of [undefined, 'sm', 'lg'] as const) {
         const button = renderButton(
           <Button size={size} variant="uv">
@@ -191,18 +197,25 @@ describe('Button', () => {
           </Button>,
         )
 
-        // A bare `--text-*` token would be eaten by, or would eat, the
-        // variant's colour. Only the arbitrary form is safe.
-        expect(classes(button)).not.toContain('text-h3')
         expect(fontSizeClasses(button)).toHaveLength(1)
         expect(button).toHaveClass('text-uv-ink')
       }
     })
 
-    it('carries the line height the h3 token would have supplied', () => {
-      expect(renderButton(<Button size="lg">Go</Button>)).toHaveClass(
-        'leading-[1.4]',
-      )
+    /**
+     * `--text-h3` declares `--text-h3--line-height: 1.4`, which the plain
+     * token emits for itself. The `leading-[1.4]` that once restored it
+     * alongside `text-[length:var(--text-h3)]` is gone, and must stay gone —
+     * a stray `leading-*` here would be a second source of truth for the
+     * token's own line height.
+     */
+    it('takes its line height from the h3 token, not a separate utility', () => {
+      const button = renderButton(<Button size="lg">Go</Button>)
+
+      expect(button).toHaveClass('text-h3')
+      expect(
+        classes(button).filter(name => name.startsWith('leading-')),
+      ).toEqual([])
     })
 
     it('lets an explicit size beat the quiet default padding', () => {

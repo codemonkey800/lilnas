@@ -10,16 +10,11 @@ import type { ComponentPropsWithoutRef, JSX } from 'react'
  *
  * Headers are mono uppercase: a field name is the machine talking.
  *
- * One deliberate difference from `ui.pug`, which writes `[&_th]:text-label`:
- * `cns` is `twMerge(clsx(...))`, and tailwind-merge does not know this theme's
- * custom `--text-*` tokens. It classifies the unrecognised `text-label` as a
- * *colour* utility, so `[&_th]:text-label` and `[&_th]:text-ink-4` land in the
- * same conflict group and the size is silently dropped — headers would render
- * at the inherited 15px body size. Naming the token as an arbitrary length
- * makes tailwind-merge classify it as a font size, which is what it is. The
- * generated CSS is unchanged: `--text-label` declares no line-height, and its
- * `--font-weight: 500` / `--letter-spacing: 0.11em` modifiers are already
- * spelled out below as `[&_th]:font-medium` and `[&_th]:tracking-[0.11em]`.
+ * `[&_th]:text-label` sits next to `[&_th]:text-ink-4`, which is only safe
+ * because `packages/utils/src/cns.ts` registers this theme's `--text-*` names
+ * as font sizes with `extendTailwindMerge`. Without that, tailwind-merge reads
+ * `text-label` as a colour, the two share a conflict group, and headers
+ * silently render at the inherited 15px body size.
  */
 const DATA_TABLE_CLASSES = cns(
   'w-full border-collapse',
@@ -27,7 +22,7 @@ const DATA_TABLE_CLASSES = cns(
   '[&_tbody_tr]:transition-colors [&_tbody_tr]:duration-[120ms] [&_tbody_tr]:ease-uv',
   '[&_tbody_tr:hover]:bg-surface-2 [&_tbody_tr:last-child_td]:border-b-0',
   '[&_th]:border-b [&_th]:border-line [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left',
-  '[&_th]:font-mono [&_th]:text-[length:var(--text-label)] [&_th]:font-medium',
+  '[&_th]:font-mono [&_th]:text-label [&_th]:font-medium',
   '[&_th]:tracking-[0.11em] [&_th]:uppercase [&_th]:text-ink-4',
 )
 
