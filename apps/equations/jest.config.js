@@ -30,7 +30,7 @@ module.exports = {
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
     '^__tests__/(.*)$': '<rootDir>/__tests__/$1',
-    '^@lilnas/utils/(.*)$': '<rootDir>/../utils/src/$1',
+    '^@lilnas/utils/(.*)$': '<rootDir>/../../packages/utils/src/$1',
   },
   clearMocks: true,
   restoreMocks: true,

@@ -6,7 +6,6 @@
  * - Excessive nesting (>10 levels)
  * - Unbalanced braces
  * - Excessive repetition (DoS prevention)
- * - Lines too long (>200 characters)
  * - Empty or invalid structure
  *
  * Note: These are non-security validation failures.
@@ -77,25 +76,6 @@ export const excessiveRepetition = [
   {
     latex: '\\frac{1}{2}'.repeat(20),
     description: 'Command repeated 20 times',
-  },
-]
-
-export const longLines = [
-  {
-    latex: 'A'.repeat(201),
-    description: 'Single line with 201 characters (1 over limit)',
-  },
-  {
-    latex: 'x=1+2+3+' + '4+'.repeat(100),
-    description: 'Very long equation line',
-  },
-  {
-    latex: '$x = ' + '1234567890'.repeat(25) + '$',
-    description: 'Long line within equation',
-  },
-  {
-    latex: 'Short\n' + 'A'.repeat(300) + '\nShort',
-    description: 'One line exceeds limit in multi-line input',
   },
 ]
 

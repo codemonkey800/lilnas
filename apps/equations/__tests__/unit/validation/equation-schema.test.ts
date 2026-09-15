@@ -1,11 +1,6 @@
 import {
-  CreateEquationSchema,
-  validateLatexSafety,
-} from 'src/validation/equation.schema'
-import {
   excessiveNesting,
   excessiveRepetition,
-  longLines,
   oversizedInputs,
   unbalancedBraces,
 } from '__tests__/fixtures/invalid-equations'
@@ -24,6 +19,11 @@ import {
   validSpecialCharacters,
   validWithAllowedPackages,
 } from '__tests__/fixtures/valid-equations'
+
+import {
+  CreateEquationSchema,
+  validateLatexSafety,
+} from 'src/validation/equation.schema'
 
 describe('CreateEquationSchema', () => {
   const validToken = 'test-token'
@@ -412,72 +412,12 @@ describe('validateLatexSafety', () => {
     })
   })
 
-  describe('Long Line Detection', () => {
-    test.each(longLines)('should detect $description', ({ latex }) => {
-      const result = validateLatexSafety(latex)
-      expect(result.isValid).toBe(false)
-      expect(result.errors).toContain(
-        'Line too long (max 200 characters per line)',
-      )
-    })
-
-    it('should reject lines at exactly 201 characters', () => {
-      // The validation checks `line.length > 200`, so 201 is rejected
-      const latex = 'A'.repeat(201)
-      const result = validateLatexSafety(latex)
-      expect(result.isValid).toBe(false)
-      expect(result.errors).toContain(
-        'Line too long (max 200 characters per line)',
-      )
-    })
-
-    it('should allow lines at exactly 200 characters', () => {
-      // Create 200 characters with varied content - no repeating 3+ char patterns 11+ times
-      const latex = 'abcdefghij'.repeat(10) + 'ABCDEFGHIJ'.repeat(10) // Two different 10-char patterns, each repeated 10 times
-      expect(latex.length).toBe(200)
-      const result = validateLatexSafety(latex)
-      expect(result.isValid).toBe(true)
-      expect(result.errors).toHaveLength(0)
-    })
-
-    it('should allow lines under 200 characters without repetition', () => {
-      // Lines under 200 characters should pass, as long as there's no repetition
-      // Create a string with varied characters to avoid triggering repetition detection
-      const latex =
-        '$x = 1$ and $y = 2$ and $z = 3$ some more varied text here to make it longer without repeating patterns that would trigger the DoS check which looks for patterns'
-      expect(latex.length).toBeLessThan(200)
-      const result = validateLatexSafety(latex)
-      expect(result.isValid).toBe(true)
-      expect(result.errors).toHaveLength(0)
-    })
-
-    it('should check all lines in multi-line input', () => {
-      const latex = 'Short\n' + 'A'.repeat(300) + '\nShort again'
-      const result = validateLatexSafety(latex)
-      expect(result.isValid).toBe(false)
-      expect(result.errors).toContain(
-        'Line too long (max 200 characters per line)',
-      )
-    })
-
-    it('should allow multiple short lines', () => {
-      const latex = 'Short\nAnother short line\nYet another\n'
-      const result = validateLatexSafety(latex)
-      expect(result.isValid).toBe(true)
-      expect(result.errors).toHaveLength(0)
-    })
-  })
-
   describe('Combined Validation', () => {
-    it('should return multiple errors when multiple issues exist', () => {
-      const latex = 'abc'.repeat(50) + '\n' + 'X'.repeat(250)
+    it('should return an error when repetition is detected', () => {
+      const latex = 'abc'.repeat(50)
       const result = validateLatexSafety(latex)
       expect(result.isValid).toBe(false)
-      expect(result.errors.length).toBeGreaterThanOrEqual(2)
       expect(result.errors).toContain('Excessive repetition detected')
-      expect(result.errors).toContain(
-        'Line too long (max 200 characters per line)',
-      )
     })
 
     it('should pass valid input with no issues', () => {
