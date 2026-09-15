@@ -1431,6 +1431,84 @@ group collapses every one of these sites back to the plain token and removes the
 class of bug entirely** — including the residual call-site case the per-component
 fixes cannot reach.
 
+##### ✅ Findings: FIXED before Wave 3 — `b617d4a0`
+
+Done as a dedicated orchestrator-run task between Wave 2 and Wave 3, exactly where
+the paragraph above asked for it. **Every statement above about the bug is now
+historical.** `cns('text-cap text-ink-3')`, `cns('text-h3 text-uv-ink')` and the
+mockups' own `font-mono text-mono-sm text-ink-3` all keep both members, in either
+order.
+
+**The fix, in `packages/utils/src/cns.ts`:**
+
+```ts
+export const THEME_FONT_SIZES = [
+  'h1', 'h2', 'h3', 'body', 'cap', 'mono', 'mono-sm', 'label',
+] as const
+
+const twMerge = extendTailwindMerge({
+  extend: { theme: { text: [...THEME_FONT_SIZES] } },
+})
+```
+
+- **`extend.theme.text`, not `extend.classGroups`.** tailwind-merge 3.3.1 builds its
+  `font-size` group as `{ text: ['base', fromTheme('text'), …arbitrary] }`, and
+  `fromTheme('text')` is referenced by **that group and no other** (verified against
+  `dist/bundle-mjs.mjs`). Extending the theme namespace is therefore exactly as
+  targeted as extending the class group, and says what it means.
+- Literal theme strings become **exact-match** trie entries, which are consulted
+  before validators — so `text-label` resolves to `font-size` while `text-ink-3`
+  still falls through to `text-color`. Multi-part names (`mono-sm`) nest correctly.
+- `text-sm` is deliberately **not** listed — the theme shadows its *value*, but the
+  *name* is built in and was always classified correctly.
+- `THEME_FONT_SIZES` is exported so test helpers can allow-list font sizes off one
+  source of truth instead of a loose `text-` prefix — which would count `text-ink-3`
+  as a size and report a size that isn't there, this bug's own disguise.
+
+**The three per-component workarounds are reverted to plain tokens**, so each token
+supplies its own companions again rather than having them restated:
+
+| File | Was | Now |
+| --- | --- | --- |
+| `button.tsx` | `lg: '… text-[length:var(--text-h3)] leading-[1.4]'` | `lg: '… text-h3'` — `leading-[1.4]` **dropped**, the token re-supplies it |
+| `input.tsx` | `cns('font-mono text-[length:var(--text-mono)] font-[450] tracking-[-0.01em]')` | `cns('font-mono text-mono')` — weight and tracking re-supplied by the token |
+| `data-table.tsx` | `[&_th]:text-[length:var(--text-label)]` | `[&_th]:text-label`, **verbatim `ui.pug`** |
+
+**No companion needed keeping.** Each reverted site's restatements were *only* ever
+restorations of what the bare token emits; `data-table.tsx`'s neighbouring
+`[&_th]:font-medium` and `[&_th]:tracking-[0.11em]` are verbatim from the mixin and
+were left untouched. **The B3 mockup deviation is now resolved — `data-table.tsx`
+matches `ui.pug` byte-for-byte.**
+
+**Two stale comments corrected**, because they would have misdirected Wave 3:
+`mchip.tsx`'s doc told callers to spell the size as
+`text-[length:var(--text-mono-sm)]` (B5 pastes the plain string), and
+`card.spec.tsx`'s comment claimed `text-cap`/`text-mono-sm` "would be dropped here".
+
+**Tests.** New `packages/utils/src/__tests__/cns.spec.ts` (16 tests) covers all eight
+tokens in both orders, token-vs-token conflict, token-vs-arbitrary override, the
+built-in `text-sm` path, and that `font-mono` stays in its own group. The three
+component specs were repointed at the plain tokens and still assert on
+`element.getAttribute('class')`. **Verified non-vacuous**: emptying the config fails
+12 component tests (5 `button`, 4 `input`, 3 `data-table`) plus 12 in the `cns` spec.
+
+**Verification, wider than usual because `packages/utils` is shared:**
+`apps/download` 75 suites / 1451 tests · `packages/utils` 6 / 301 · lint, type-check
+and build clean for both · **`portal` and `dashcam` type-check and build clean**
+(neither uses any of the eight names, so neither could have collided).
+
+⚠️ **One behavioural consequence to know about.** tailwind-merge's
+`conflictingClassGroups` says `'font-size': ['leading']`, so a *later* theme token now
+removes an *earlier* `leading-*`. Correct for `h1`/`h2`/`h3`/`body`/`cap`, which
+declare a line-height; mildly over-eager for `mono`/`mono-sm`/`label`, which do not.
+Nothing in the tree writes `leading-*` before a token today (grepped), and this is
+Tailwind's own semantics for a theme font size. **If you need a line-height beside
+`text-mono`, write it after the token.**
+
+⚠️ `apps/download`'s Jest resolves `@lilnas/utils` through `packages/utils/dist`, and
+`turbo test` declares no `dependsOn: ["^build"]`. **`packages/utils` must be built
+before `apps/download`'s tests import a newly-added export.**
+
 - [x] **B4. Input, Field, Tabs, Menu, ToggleChip.** — `6bccb13c`, `3adc8e25`
 
   **Files:** create `input.tsx` (Input + Field), `tabs.tsx`, `menu.tsx`
@@ -1629,7 +1707,7 @@ fixes cannot reach.
   `text-ink-3` as a size, **reporting a size that isn't there, which is exactly this
   bug's disguise**. Confirmed non-vacuous: reverting fails 6 tests.
 
-- [ ] **B5. Poster, gallery card family, Tile.**
+- [x] **B5. Poster, gallery card family, Tile.** — `a8a382e6`
 
   **Files:** create `poster.tsx`, `gallery-card.tsx`, `tile.tsx`.
 
@@ -1659,7 +1737,111 @@ fixes cannot reach.
   **Tests:** `onError` removes the image and reveals the label; `posterVariant` is
   stable across re-renders; card link wraps only the top half.
 
-- [ ] **B6. Modal family.**
+  **Findings (B5, 2026-09-14):** 3 suites / 40 tests, all passing. Files are
+  `poster.tsx`, `gallery-card.tsx`, `tile.tsx` under `src/components/ui/`, tests
+  alongside. **Only `poster.tsx` is `'use client'`** — the other two are pure
+  presentational and server-safe.
+  **Actual exported signatures — paste these, not the sketch above:**
+
+  ```tsx
+  // poster.tsx — 'use client'
+  export type PosterShape = 'tall' | 'wide'
+  export const POSTER_DEFAULT_RADIUS = 'rounded-md'      // literal type 'rounded-md'
+  export const POSTER_DEFAULT_PLAY_SIZE = 'h-7 w-7'      // literal type 'h-7 w-7'
+  export type PosterProps = ComponentPropsWithoutRef<'div'> & {
+    label?: ReactNode      // fallback title; hidden by group-has-[img]:hidden while art is alive
+    play?: boolean         // default false
+    playSize?: string      // default POSTER_DEFAULT_PLAY_SIZE
+    radius?: string        // default POSTER_DEFAULT_RADIUS
+    seed: string           // REQUIRED -> posterVariant(seed) -> poster-v1..5
+    shape: PosterShape     // REQUIRED, no default
+    src?: string | null
+  }
+  export function Poster(props: PosterProps): JSX.Element   // root <div>, children render last
+
+  // gallery-card.tsx — NOT 'use client'
+  export type GalleryCardProps       = ComponentPropsWithoutRef<'div'>
+  export function GalleryCard(props: GalleryCardProps): JSX.Element             // root <div>
+  export type GalleryCardLinkProps   = ComponentPropsWithoutRef<'a'>
+  export function GalleryCardLink(props: GalleryCardLinkProps): JSX.Element     // root <a>
+  export type GalleryCardTitleProps  = ComponentPropsWithoutRef<'p'>
+  export function GalleryCardTitle(props: GalleryCardTitleProps): JSX.Element   // root <p>, text is children
+  export type GalleryCardRowProps    = ComponentPropsWithoutRef<'div'>
+  export function GalleryCardRow(props: GalleryCardRowProps): JSX.Element       // root <div>
+  export type GalleryCardAttribProps = ComponentPropsWithoutRef<'span'>
+  export function GalleryCardAttrib(props: GalleryCardAttribProps): JSX.Element // root <span>
+
+  // tile.tsx — NOT 'use client'
+  export type TileProps = Omit<ComponentPropsWithoutRef<'a'>, 'title'> & {
+    icon: IconName         // REQUIRED
+    live?: boolean         // default false -> <Dot tone="live" /> before meta
+    meta: ReactNode        // REQUIRED
+    row?: boolean          // default false (column); true -> flex-row items-center
+    title: ReactNode       // REQUIRED, shadows the native title attribute
+  }
+  export function Tile(props: TileProps): JSX.Element   // root <a>, children render last
+  ```
+
+  Call-site cheat sheet for later waves:
+
+  ```tsx
+  <Poster seed={media.id} shape="tall" src={media.posterUrl} label={media.title} />
+  <Poster seed={v.id} shape="tall" src={v.posterUrl} play playSize="h-[22px] w-[22px]" />
+  <Poster seed={row.id} shape="tall" src={row.posterUrl} radius="rounded-xs" className="w-[34px]">
+    <Icon name="play" className="relative z-1 h-[14px] w-[14px] text-ink-3" />
+  </Poster>
+  <Tile href="/movies" icon="film" title="Browse movies" meta="318 in the library"
+        className="min-w-[220px] flex-1" />
+  <Tile href="/downloads" icon="download" title="Downloads activity" meta="2 running now" live row />
+  ```
+
+  - **`shape` is required, not defaulted to `'tall'`.** `ui.pug` falls through to tall,
+    but a video takes the tall crop in a grid and the wide crop on its detail page, so
+    the crop is a call-site decision every time. Defaulting would let it be inherited
+    silently.
+  - **`seed` is required, `src` optional** — every poster has a stand-in; not every
+    poster has art.
+  - ⚠️ **`Poster` keeps BOTH failure paths.** `onError` alone misses an image that
+    404'd before hydration attached — exactly the case `runtime.js` calls out. A stable
+    ref callback also checks `complete && !naturalWidth` on mount. Failure is tracked as
+    **the URL that failed**, not a boolean, so changing `src` retries rather than
+    inheriting the old verdict.
+  - **The label stays in the DOM**, hidden by `group-has-[img]:hidden`, rather than
+    being conditionally swapped — it is already laid out underneath, so it reappears
+    with no reflow, and it is the mixin's own mechanism.
+  - **`Tile`'s `title` shadows the native HTML `title` attribute** (`Omit<…, 'title'>`).
+    A tile's content is already visible text, so a tooltip would be read twice; a test
+    pins that no `title` attribute reaches the DOM.
+  - **Plain `<a>`, not `next/link`**, in `GalleryCardLink` and `Tile` — matching
+    `Avatar` and `Doorplate`, the only other href-bearing primitives so far. **C1 may
+    want to swap these for prefetching; it is a one-line change in each.**
+  - `GalleryCardTitle` takes `children`, not a `label` prop — unlike `MChip`, it wraps a
+    `<p>` whose entire content is the text, with no competing second parameter.
+  - No `index.ts` barrel added; nothing else in this directory has one.
+
+  **Mockup deviations (B5): three, none visual.**
+  - **`poster-vN` is derived, not passed.** `ui.pug` takes a literal `v: 1..5`; the
+    component takes `seed` and runs `posterVariant(seed)`. A given card therefore gets a
+    *different* gradient than the mockup shows for the same title — the mockup's numbers
+    were hand-picked. Deterministic, so SSR and client agree.
+  - **The mockups render real poster art; the harness rendered gradients.**
+    `designs/assets/` happens to be populated on this machine, so `home.html` shows
+    actual key art. The gradient is the unreachable-host path, which is the one B5 was
+    asked to exercise; the harness confirmed it live.
+  - **The play triangle in the 34px admin-row poster is passed as `children`**, matching
+    `admin-dashboard.pug`'s `rowArt`, rather than via `play` — `play` paints the scrim
+    gradient, which that tiny row art does not want.
+
+  Reconciliation was stronger than eyeballing: B5 extracted every `class="…"` from the
+  harness's server-rendered HTML and from the built `home.html`, `gallery.html`,
+  `search.html`, `admin-dashboard.html`, `movie-detail.html`, `video-detail.html`,
+  `show-detail.html`, `profile.html` and `downloads-activity.html`, normalised token
+  order and diffed. **Zero mine-only class lists** — every class list these three
+  components emit appears verbatim in the built mockups, including both tile variants,
+  the tile icon plate, all three gcard widths, both gcardTitle variants, and every
+  `aspect-[2/3]`/`aspect-video` × `rounded-md`/`rounded-xs` poster combination.
+
+- [x] **B6. Modal family.** — `39ed6a4`
 
   **Files:** create `modal.tsx` (ModalScrim + Modal + Reason + DeleteButton).
 
@@ -1681,7 +1863,125 @@ fixes cannot reach.
   **Tests:** focus trap keeps Tab inside; Escape closes and restores focus; the
   scrim click closes; `Reason` arrow-key navigation.
 
-- [ ] **B7. Filter family.**
+  **Findings (B6, 2026-09-14):** 1 suite / 56 tests, all passing. File is `modal.tsx`
+  under `src/components/ui/`, test alongside. **`'use client'`.** No new dependency —
+  the focus trap and dialog behaviour are hand-built, as required.
+  **Actual exported signatures — note this is FIVE exports, not the four the task
+  named:**
+
+  ```tsx
+  // modal.tsx — 'use client'
+  export type ModalScrimProps = ComponentPropsWithRef<'div'>
+  export function ModalScrim(props: ModalScrimProps): JSX.Element
+  // fixed inset-0 z-50, bg-scrim/62, backdrop-blur-[2px], p-6, centres its child.
+  // Presentational only; takes a ref (React 19 ref-as-prop).
+
+  export type ModalProps = Omit<ComponentPropsWithoutRef<'div'>, 'title'> & {
+    open: boolean                     // ALWAYS controlled
+    onClose: () => void               // Escape + scrim click only
+    title: ReactNode                  // renders <h2>, becomes the accessible name
+    titleClassName?: string
+    description?: ReactNode           // renders <p>, becomes aria-describedby
+    descriptionClassName?: string
+    scrimClassName?: string
+    scrimProps?: Omit<ModalScrimProps, 'children' | 'className' | 'ref'>
+    dismissible?: boolean             // default true; false = Escape/scrim click ignored
+    initialFocusRef?: RefObject<HTMLElement | null>
+    container?: HTMLElement | null    // portal target, default document.body
+    children?: ReactNode
+  }
+  export function Modal(props: ModalProps): JSX.Element | null
+  // className + remaining props land on the PANEL, not the scrim. role/aria-modal/
+  // aria-labelledby/aria-describedby emitted BEFORE the spread. Returns null when
+  // closed and during SSR.
+
+  export type ReasonGroupProps = Omit<ComponentPropsWithoutRef<'div'>, 'onChange'> & {
+    value?: string                    // undefined = nothing chosen yet
+    onValueChange?: (value: string) => void
+  }
+  export function ReasonGroup(props: ReasonGroupProps): JSX.Element
+  // role="radiogroup"; NO layout classes of its own (rows space themselves).
+  // Name it from the call site: aria-label, or aria-labelledby -> the modal title.
+
+  export type ReasonProps = Omit<ComponentPropsWithoutRef<'button'>, 'value'> & {
+    value: string
+    checked?: boolean                 // overrides the group-derived state
+  }
+  export function Reason(props: ReasonProps): JSX.Element
+  // <button type="button" role="radio">; label is `children`. THROWS outside a ReasonGroup.
+
+  export type DeleteButtonProps = Omit<ButtonProps, 'variant'>
+  export function DeleteButton(props: DeleteButtonProps): JSX.Element
+  // Defaults: size="sm", iconEnd="trash", children "Delete". `full` passes through.
+  ```
+
+  **Composition contract:**
+  - **`open` is owned by the caller** — `Modal` is never uncontrolled. `onClose` fires
+    for Escape and a scrim click **only**; your own Cancel/Confirm buttons call your own
+    handlers.
+  - ⚠️ **The portal mounts at `document.body`** (override with `container`). The panel is
+    **not** in the React tree position where you wrote it, so container-relative CSS
+    cannot reach it — style via `className` / `scrimClassName`.
+  - **What closes it:** Escape; a click whose press *and* release both land on the
+    scrim; or the caller flipping `open`. `dismissible={false}` disables the first two.
+    Escape is skipped if something inside already called `preventDefault()`, so a nested
+    `Menu` peels off first — the same convention B7's `FilterPanel` uses.
+  - **Focus:** on open, `initialFocusRef` → else the first focusable in the panel → else
+    the panel itself. On close, focus returns to whatever held it when the dialog
+    opened. While open, every element outside the scrim gets `inert` + `aria-hidden` and
+    `document.body` gets `overflow: hidden`; all restored exactly, and elements that
+    already carried either attribute are left alone.
+  - **`ReasonGroup` is controlled too** — `value` / `onValueChange`, selection follows
+    focus. Rows are found by **DOM query**, so wrappers, fragments and `.map()` all work.
+  - **`ReasonGroup` + `Reason` is a five-export split**, not the four the task named — a
+    radiogroup needs an owner. Follows the `Tabs`/`Tab` and `Menu`/`MenuItem` precedent,
+    including throwing outside the parent.
+  - **`dismissible` and `initialFocusRef` were added beyond the brief** — a destructive
+    confirm usually wants to open on Cancel (APG), and occasionally wants to refuse a
+    stray backdrop dismissal. Saves a page task reopening this file.
+  - Background inert **walks up from the scrim** rather than iterating
+    `document.body.children`, so it stays correct when `container` is not the body.
+    jsdom implements neither `inert` nor its focus semantics, which is why the Tab trap
+    is explicit rather than leaning on `inert`.
+  - `useSyncExternalStore` for the SSR guard, not `useState` + `useEffect` — this repo's
+    eslint enforces `react-hooks/set-state-in-effect`.
+
+  **Mockup deviations (B6): measured, not eyeballed.** B6 extracted the two modal blocks
+  plus the inline compiled CSS out of the built `movie-detail.html` into standalone
+  pages and injected a measurement script into both sides. Panel padding 22px, title
+  15.5px with `mb` 10px/6px, description 13.5px `mb` 18px, reason row 45px with 10px
+  internal gap, dot 16×16, buttons 30px — **all identical**. Differences:
+
+  - ✅ **440px cap — confirmed, as this plan expected.** `max-w-[440px]`, not the mixin's
+    `max-w-[380px]`. `ui.pug:264` flags the discrepancy itself and `patterns.html`'s own
+    prose already describes the panel as "capped at the system's 440px modal width", so
+    **the mixin is the stale copy**. A test asserts 440 and asserts *not* 380.
+  - **`fixed inset-0 z-50`, not `absolute`** — per the plan. `z-50` clears the system's
+    existing `z-10` filter scrim and `z-20` menu panel (B7's numbers — they compose).
+  - ⚠️ **Reason rows have an 8px gap; the built mockup renders them flush. This is a
+    mockup BUILD DEFECT, not a design choice.** The class `[&+&]:mt-2` is present in the
+    built HTML but the mockup's compiled CSS contains no rule for it — while
+    `[&+&]:border-t` from the same file *did* compile, so it is not a syntax problem.
+    The app's Tailwind build emits it correctly. `ui.pug` is the spec and the spec says
+    8px, so 8px shipped. **Someone should rebuild the mockup CSS.**
+  - ⏳ **`DeleteButton` keeps its `border-bad/40`; the built mockup renders borderless.**
+    Tailwind emits `.border-bad/40` *before* `.border-transparent` in the mockup's CSS,
+    so the bare variant's transparent border wins there **by output order**. `cns()`
+    drops `border-transparent` and keeps the class the call site actually added. This is
+    exactly the output-order hazard the Gotchas warn about — and the reason `cns()` is
+    mandatory — but it does mean the Delete button shows a red border the built mockup
+    does not. **Open question for a human: is borderless the intent?** One-line flip.
+  - Title is `<h2>`, not `<p>` — semantic only, classes are the mixin's, pixel-identical.
+  - `w-full text-left` added to the reason row — the cost of `<button>` over `<div>`.
+  - ~3–6px text-width differences on button labels (Cancel 64 vs 67, Submit report 106
+    vs 112): font-metric difference between the mockup's Google-Fonts CDN Figtree and
+    the app's `next/font` self-hosted subset. **Not a spec deviation.**
+  - ⏳ **No hover state on `DeleteButton` or on an idle `Reason` row** — the mixins define
+    none, and the theme's global `:focus-visible` ring covers keyboard. B6 did not
+    invent one, but flags that **a destructive confirm with no hover feedback is
+    arguably a gap**.
+
+- [x] **B7. Filter family.** — `fe3e2ce`
 
   **Files:** create `filters.tsx` (FiltersButton, AppliedFilterChip, FilterPanel,
   FilterGrid, FilterGroup, FilterFoot, FilterScrim).
@@ -1705,7 +2005,168 @@ fixes cannot reach.
   open state; Escape and outside-click close; the remove button's accessible name
   names its filter.
 
-- [ ] **B8. LoadMore.**
+  **Findings (B7, 2026-09-14):** 1 suite / 28 tests, all passing. File is `filters.tsx`
+  under `src/components/ui/`, test alongside. **`'use client'`.** No new dependency —
+  the popover behaviour is hand-built, as required.
+  **Actual exported signatures — paste these:**
+
+  ```tsx
+  // filters.tsx — 'use client'
+  export type FiltersButtonProps =
+    Omit<ButtonProps, 'children' | 'icon' | 'iconEnd' | 'variant'> & {
+      ref?: ComponentPropsWithRef<'button'>['ref']  // React 19 ref-as-prop, reaches the <button>
+      count?: number      // falsy -> no badge (0 included, matching `if opts.count`)
+      open?: boolean      // flips chevron AND applies the uv tint; undefined -> no aria-expanded
+      label?: ReactNode   // default 'Filters'
+    }
+  export function FiltersButton(props: FiltersButtonProps): JSX.Element
+  // Renders <Button variant="outline">. Emits aria-haspopup="dialog" and
+  // aria-expanded={open} BEFORE the spread (overridable). `size` and `full`
+  // survive from ButtonProps. className merges LAST, so it beats the open tint.
+
+  export type AppliedFilterChipProps = Omit<ComponentPropsWithoutRef<'span'>, 'children'> & {
+    label: ReactNode        // the value: 'Comedy', '2019–2024'
+    removeLabel: string     // REQUIRED. whole accessible name of the remove button
+    onRemove?: () => void
+    removeButtonProps?: Omit<ComponentPropsWithoutRef<'button'>,
+      'aria-label' | 'children' | 'onClick' | 'type'>
+  }
+  export function AppliedFilterChip(props: AppliedFilterChipProps): JSX.Element
+
+  type FilterPanelBaseProps    = ComponentPropsWithoutRef<'div'>
+  type FilterPanelStaticProps  = FilterPanelBaseProps & {
+    open?: never; onOpenChange?: never; triggerRef?: never }
+  type FilterPanelPopoverProps = FilterPanelBaseProps & {
+    open: boolean
+    onOpenChange?: (open: boolean) => void
+    triggerRef?: RefObject<HTMLElement | null>
+  }
+  export type FilterPanelProps = FilterPanelStaticProps | FilterPanelPopoverProps
+  export function FilterPanel(props: FilterPanelProps): JSX.Element | null
+
+  export type FilterGridProps = ComponentPropsWithoutRef<'div'>
+  export function FilterGrid(props: FilterGridProps): JSX.Element
+
+  export type FilterGroupProps = ComponentPropsWithoutRef<'div'> & {
+    label: ReactNode
+    wide?: boolean              // -> @min-[400px]:col-span-2
+    labelClassName?: string
+  }
+  export function FilterGroup(props: FilterGroupProps): JSX.Element
+
+  export type FilterFootProps = ComponentPropsWithoutRef<'div'>
+  export function FilterFoot(props: FilterFootProps): JSX.Element
+
+  export type FilterScrimProps = ComponentPropsWithoutRef<'div'>
+  export function FilterScrim(props: FilterScrimProps): JSX.Element
+  ```
+
+  **Composition contract — ⚠️ there is NO root component.** Unlike `Menu`, the trigger
+  and the panel are **siblings**, because that is how `gallery.pug`/`search.pug` lay
+  them out (`div.relative.z-20 > filtersBtn + div.absolute > filterPanel`) and the page
+  positions the panel differently per breakpoint. `FilterPanel` is the root of the
+  *popover behaviour*, not of the markup.
+
+  - **`open` is always controlled by the page.** No uncontrolled mode, no `defaultOpen`
+    — the applied chips, the count badge and the panel all read the same page state, so
+    an internal copy could only disagree with it.
+  - **Discriminated on `open`:** omit it and `FilterPanel` is an inert styled container
+    (no role, no tabindex, no listeners, always rendered). Pass it and the panel renders
+    only while `true`, takes `role="dialog"` + `aria-label="Filters"` (both before the
+    spread) + `tabIndex={-1}`, and turns on dismissal. `onOpenChange`/`triggerRef` do
+    not type-check on the static form.
+  - **Dismissal**, all reporting through `onOpenChange(false)`: document-level `Escape`
+    — **skipped when `event.defaultPrevented`, so a nested `Menu` closes first and the
+    panel survives; Escape peels one layer at a time** — returns focus to `triggerRef`;
+    document-level `pointerdown` outside panel *and* trigger; `focusout` to an element
+    outside both. A `focusout` with a **null `relatedTarget` deliberately does not
+    close** (clicking a label inside the panel drops focus to `<body>`).
+  - ⚠️ **`triggerRef` is optional but effectively required for a real popover.** Without
+    it the trigger's own `pointerdown` counts as outside, so a click to close
+    dismisses-then-reopens. `FiltersButton` declares `ref` for exactly this.
+  - **Focus is not trapped** — non-modal. Escape-to-trigger is the only focus restore.
+  - **Opening focuses the panel container, not its first control** — focusing the first
+    control would spring the mobile keyboard open on the date field.
+  - **z-order:** `FilterScrim` is `fixed inset-0 z-10`; mount the trigger+panel wrapper
+    at `z-20` per the mockup. **Both must live in the same stacking context** (the app
+    shell's page root, not inside a transformed/filtered ancestor) or the scrim will not
+    sit under the panel. The scrim needs no click handler — a press on it already reads
+    as outside.
+  - Neither `FilterPanel` nor `FilterGrid` carries a z-index or positioning of its own;
+    the mockup keeps both at the call site.
+
+  Worked call site — **D2/D3 should follow this shape:**
+
+  ```tsx
+  const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+
+  <div className="relative z-20 flex w-full justify-end">
+    <FiltersButton ref={triggerRef} count={activeCount} open={open}
+      onClick={() => setOpen(!open)} />
+    <FilterPanel
+      className="absolute top-[calc(100%+10px)] right-0 w-full sm:w-[480px]"
+      open={open} triggerRef={triggerRef} onOpenChange={setOpen}
+    >
+      <FilterGrid>
+        <FilterGroup wide label="uploaded by">{/* ToggleChip per facet */}</FilterGroup>
+        <FilterGroup label="year">
+          {/* TWO controls -> each names ITSELF; FilterGroup labels the group */}
+          <Input mono aria-label="Start year" className="w-[76px]!" … />
+          <Input mono aria-label="End year"   className="w-[76px]!" … />
+        </FilterGroup>
+      </FilterGrid>
+      <FilterFoot>{/* Clear all (ghost) + Show N results (uv) */}</FilterFoot>
+    </FilterPanel>
+  </div>
+  {open ? <FilterScrim /> : null}
+  ```
+
+  - ⚠️ **The year pair is deliberately NOT wrapped in a `Field`.** Inside the panel the
+    label idiom is `FilterGroup`'s uppercase mono span, not `Field`'s 13px proportional
+    label, and a `Field` around two inputs would need explicit ids on both anyway. The
+    inputs name themselves with `aria-label`; the group name comes from `role="group"`.
+    **`useFieldId` went unused by this task.**
+  - **`removeLabel` is required, not derived.** The mockup names the *facet*
+    (`Remove year filter` for the value `2019–2024`) while `profile.pug` names the
+    *value*. Rather than guess, the type forces the call site to say. The test asserts
+    no button is named merely "Remove".
+  - **Escape listens on `document`, not on the panel** — clicking a non-focusable part
+    of the panel drops focus to `<body>`, after which a panel-scoped `keydown` never
+    fires.
+
+  **Mockup deviations (B7): three, all deliberate.**
+  - **`FilterScrim` is `fixed`, not `absolute`** — sanctioned by the task. The mockup's
+    scrim is a child of `appFrame`, the fixed-size stand-in for the viewport; the real
+    app has no equivalent. `z-10` unchanged.
+  - **The open tint moved from call site into `FiltersButton`.** `ui.pug` puts
+    `border-uv/35 bg-uv-ghost text-uv-hi` on each `+filtersBtn` call; all four call
+    sites pair it with `open: true`. Rendered output identical; a caller's `className`
+    still overrides it (tested).
+  - **`FilterGroup` is a `role="group"` named by its label span**, and carries
+    `@min-[400px]:col-span-2` as a `wide` prop rather than a per-call-site class. The
+    mockup renders a bare `<div>` + `<span>`; same visual result, but a multi-select
+    facet's checkboxes were otherwise announced with no facet name. Same category of
+    deviation as `Field`'s.
+
+  **One rendering difference the mockup cannot show, confirmed correct in a real
+  browser:** the panel takes focus on open, so a **keyboard**-driven open draws the
+  theme's `:focus-visible` uv ring around it. Verified with real input events that a
+  **mouse**-driven open produces **no** ring (matching the mockup exactly). Left as-is
+  rather than adding `focus:outline-none`, which would have killed the keyboard
+  affordance too. Escape-closes-and-returns-focus also confirmed live.
+
+  **The `@container` requirement was verified two independent ways:** (a) the same
+  `FilterGrid` markup in a 340px and a 480px panel side by side at one viewport — 340px
+  single-column, 480px two-column; (b) at a **390px viewport**, the 326px popover panel
+  renders single-column while a 480px static panel *lower on the same page at the same
+  viewport width* renders two-column. **The threshold is the panel, not the viewport.**
+  The open panel is otherwise pixel-indistinguishable from `gallery.html`'s "Filters
+  open" frame — padding, border, `shadow-lift`, the two-column grid with `date added`
+  spanning both, the footer rule and button pair, the applied-chip row, and the Filters
+  button in both states.
+
+- [x] **B8. LoadMore.** — `15c4e68b`
 
   **Files:** create `load-more.tsx`.
 
@@ -1731,6 +2192,96 @@ fixes cannot reach.
 
   **Tests:** `hasMore` false hides the button; pending disables it; zero total
   renders nothing; the live region updates.
+
+  **Findings (B8, 2026-09-14):** 1 suite / 22 tests, all passing. File is
+  `load-more.tsx` under `src/components/ui/`, test alongside. **`'use client'`** — it
+  uses no hooks, but it takes a function prop, so it can never be rendered from a
+  server component; marking it client is the honest declaration.
+  **Actual exported signature — paste this, not the sketch above:**
+
+  ```tsx
+  // load-more.tsx — 'use client'
+  export type LoadMoreProps = Omit<ComponentPropsWithoutRef<'div'>, 'children'> & {
+    loaded: number        // rows on screen now — the length of the merged pages
+    total: number         // rows the filter matches in total, NOT the remainder; <= 0 renders null
+    hasMore: boolean      // `nextCursor !== null`. Never derived from `loaded < total`
+    pending?: boolean     // OPTIONAL, defaults false — a page is in flight
+    onLoadMore: () => void
+  }
+  export function LoadMore(props: LoadMoreProps): JSX.Element | null
+  ```
+
+  **Behaviour contract the four list pages rely on:**
+  - `total <= 0` returns `null` — **no wrapper element at all.** The empty state belongs
+    to the page. (`<= 0`, not `=== 0`, so a nonsense negative can't render
+    `Showing 0 of -1`.)
+  - Root is `<div class="flex flex-col items-center gap-[13px]">` with **no outer
+    margin** — the page positions it (`className="mt-6"` merges via `cns`), matching
+    every other primitive here.
+  - The count is
+    `<p aria-live="polite" class="font-mono text-mono-sm tabular-nums text-ink-4">Showing {loaded} of {total}</p>`
+    and is the **same DOM node** across updates, so the announcement actually fires. It
+    stays mounted when the button disappears on the last page.
+  - The button is `<Button variant="outline" disabled={pending} onClick={onLoadMore}>`
+    with `<Spinner />` prepended while `pending`. The label is always `Load more`, so
+    `getByRole('button', { name: 'Load more' })` works in both states (the spinner is
+    `aria-hidden`).
+
+  Worked call site — **wire `hasMore` to the cursor, never to `loaded < total`:**
+
+  ```tsx
+  const [cursor, setCursor] = useState(first.nextCursor)
+  const [pending, startTransition] = useTransition()
+  // ...on success: setItems(prev => [...prev, ...next.items])
+  //                setTotal(next.total)      // re-read: a concurrent write can move it
+  //                setCursor(next.nextCursor)
+  <LoadMore
+    className="mt-6"
+    hasMore={cursor !== null}
+    loaded={items.length}
+    onLoadMore={loadMore}
+    pending={pending}
+    total={total}
+  />
+  ```
+
+  - `pending` was widened to **optional** — the sketch wrote it required, which would
+    force `pending={false}` at every call site that isn't mid-fetch.
+  - `tabular-nums` added beyond the task text: a count that changes as pages land would
+    otherwise reflow as digit widths change. `search.pug:197-199` sets every numeric
+    mono cell in tabular figures.
+  - **Plain digits, no `toLocaleString()`** — the mockups write counts bare, and locale
+    formatting in a component that may render on the server is a hydration hazard.
+    Revisit only if a library exceeds four digits.
+
+  **⏳ OPEN QUESTION for a human — the disabled-while-pending focus trade-off.** The
+  task text says the button is *disabled* while `pending`, and B8 implemented exactly
+  that. But a keyboard user who activates it **loses focus to `<body>`** when the button
+  goes disabled. The polite live region is the compensating feedback, and is precisely
+  why the plan requires it. The alternative is `aria-disabled` plus an ignored
+  `onClick`, which keeps focus but changes `Button`'s disabled styling contract.
+  **B8 deliberately did not make this call unilaterally.** Worth deciding before the
+  four list pages (D1–D4) wire it up.
+
+  **Mockup deviations (B8): the whole component.** ⚠️ **`LoadMore` has no mockup at
+  all** — the designs draw no pagination anywhere, and both `gallery.html` and
+  `search.html` simply end at the last grid row. It is built from the system's own
+  vocabulary, and the visual check was "does it sit inside that vocabulary", not "does
+  it match a drawing". Basis for each decision:
+
+  | Decision | Basis |
+  | --- | --- |
+  | `Button variant="outline"` | Task text; matches `filtersBtn`, the existing neutral affordance on these pages. `uv` would compete with the page's primary action. |
+  | `font-mono text-mono-sm text-ink-4` count | Task text; verbatim the string `gallery.pug:34` uses for a card's `when` stamp and `search.pug:171/199` for its dimmest labels. The licensed `ink-4` use — an 11.5px machine annotation, not a sentence. |
+  | Count **above** the button, centred, `gap-[13px]` | The sketch's ordering; 13px matches the system rhythm (`note` and `stline` both `py-[13px]`). |
+  | Natural-width button on mobile, not `full` | Read correctly at 390px, and the mockups' mobile footers use natural-width buttons. |
+
+  Verified at 1280×900 and 390×844 plus a 2× detail pass, against a 1280×1400 capture
+  of the built `gallery.html`: under a 2:3 card grid the count reads as the same class
+  of machine annotation as the card's own `12m ago` attribution — identical face, size
+  and dimness. The outline button's shell is pixel-identical in weight to the mockup's
+  `Filters 2` control on the same page. `total: 0` renders **nothing at all**, confirmed
+  with a dashed reference box, not a collapsed wrapper with padding.
 
 ### Phase 2 — Shell and entry point
 
