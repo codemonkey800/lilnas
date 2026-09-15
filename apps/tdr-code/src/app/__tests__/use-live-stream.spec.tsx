@@ -192,7 +192,7 @@ describe('useLiveStream', () => {
     expect(invalidateSpy).toHaveBeenCalledTimes(1)
     expect(invalidateSpy).toHaveBeenCalledWith(
       { queryKey: queryKeys.live },
-      { cancelRefetch: false },
+      { cancelRefetch: true },
     )
   })
 
@@ -265,7 +265,7 @@ describe('useLiveStream', () => {
     expect(invalidateSpy).toHaveBeenCalledTimes(1)
     expect(invalidateSpy).toHaveBeenLastCalledWith(
       { queryKey: queryKeys.live },
-      { cancelRefetch: false },
+      { cancelRefetch: true },
     )
 
     // Simulate EventSource's own auto-reconnect: the browser fires onerror
@@ -277,7 +277,7 @@ describe('useLiveStream', () => {
     expect(invalidateSpy).toHaveBeenCalledTimes(2)
     expect(invalidateSpy).toHaveBeenLastCalledWith(
       { queryKey: queryKeys.live },
-      { cancelRefetch: false },
+      { cancelRefetch: true },
     )
   })
 
@@ -392,7 +392,7 @@ describe('useLiveStream — shared bot-status key across multiple mounts (U6)', 
     expect(invalidateSpy).toHaveBeenCalledTimes(1)
     expect(invalidateSpy).toHaveBeenCalledWith(
       { queryKey: queryKeys.botStatus },
-      { cancelRefetch: false },
+      { cancelRefetch: true },
     )
 
     // The second mount's own connection independently receiving the same
@@ -403,7 +403,7 @@ describe('useLiveStream — shared bot-status key across multiple mounts (U6)', 
     expect(invalidateSpy).toHaveBeenCalledTimes(2)
     expect(invalidateSpy).toHaveBeenLastCalledWith(
       { queryKey: queryKeys.botStatus },
-      { cancelRefetch: false },
+      { cancelRefetch: true },
     )
   })
 
@@ -437,7 +437,7 @@ describe('useLiveStream — shared bot-status key across multiple mounts (U6)', 
     for (const call of invalidateSpy.mock.calls) {
       expect(call).toEqual([
         { queryKey: queryKeys.botStatus },
-        { cancelRefetch: false },
+        { cancelRefetch: true },
       ])
     }
   })
@@ -464,7 +464,7 @@ describe('useLiveStream — session topic scoping and throttle coalescing (U7)',
     expect(invalidateSpy).toHaveBeenCalledTimes(1)
     expect(invalidateSpy).toHaveBeenCalledWith(
       { queryKey: queryKeys.session(1) },
-      { cancelRefetch: false },
+      { cancelRefetch: true },
     )
 
     // A real EventSource would never deliver an event for a topic this
@@ -506,7 +506,7 @@ describe('useLiveStream — session topic scoping and throttle coalescing (U7)',
       expect(invalidateSpy).toHaveBeenCalledTimes(1)
       expect(invalidateSpy).toHaveBeenCalledWith(
         { queryKey: queryKeys.session(1) },
-        { cancelRefetch: false },
+        { cancelRefetch: true },
       )
     } finally {
       jest.useRealTimers()
@@ -532,7 +532,7 @@ describe('useLiveStream — session topic scoping and throttle coalescing (U7)',
       expect(invalidateSpy).toHaveBeenCalledTimes(1)
       expect(invalidateSpy).toHaveBeenCalledWith(
         { queryKey: queryKeys.session(1) },
-        { cancelRefetch: false },
+        { cancelRefetch: true },
       )
 
       // And it does not fire again on its own — a fresh signal is required
