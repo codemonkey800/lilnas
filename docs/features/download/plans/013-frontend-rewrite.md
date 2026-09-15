@@ -37,7 +37,7 @@ graph LR
   A -.job events.-> WS
 ```
 
-**Shape:** one doc, phases 0–6, 32 tasks, 11 waves, orchestrated. IDs restart per
+**Shape:** one doc, phases 0–6, 32 tasks, 12 waves, orchestrated. IDs restart per
 phase and are referenced as `Phase 3 · D2`. See [Sequencing](#sequencing).
 
 **Key decisions:**
@@ -2297,7 +2297,7 @@ before `apps/download`'s tests import a newly-added export.**
     browser does that natively with no handler involved. **Use the real `disabled`
     attribute for a submit button.** Recorded in `button.tsx`'s docblock.
   - **This is a shared-primitive change**, made now rather than later precisely because
-    `Button` had four consumers at this point and will have twenty-plus by Wave 9.
+    `Button` had four consumers at this point and will have twenty-plus by Wave 10.
   - ⚠️ **jsdom does not blur an element when it becomes `disabled`**, so a test that
     focuses the button, flips `pending` and asserts `toHaveFocus()` **passes under either
     implementation and proves nothing**. The shipped test asserts the button stays
@@ -3442,12 +3442,30 @@ graph TD
 | 3 | **B5 ∥ B6 ∥ B7 ∥ B8** | Each composes wave 2's primitives but writes only its own new file. |
 | 4 | **C1** | Convergence: the shell imports from B1–B3 and edits `layout.tsx`, which nothing else touches. |
 | 5 | **C2 ∥ C3** | Disjoint: `shell/nav-search.tsx`+`lib/url-classify.ts`+one action vs `live/job-events.tsx`+`lib/use-job-events.ts`. |
-| 6 | **D1 ∥ D2 ∥ D3 ∥ D4 ∥ E1** | Four route directories plus `components/detail/` — no overlap. D1 rewrites `app/page.tsx`, which no other task touches. |
-| 7 | **E3 ∥ E6 ∥ E7** | The three shared detail surfaces, each its own file, all consuming E1. |
-| 8 | **E2 ∥ E4 ∥ E5** | Three route directories, three detail components. E2 needs E3; E4/E5 need E6 + E7. |
-| 9 | **F1 ∥ F2** | Two route directories, disjoint. |
-| 10 | **G1** | Must see every page. Sequential by nature — it edits whatever it finds. |
-| 11 | **G2 ∥ G3** | Verification reads; docs writes markdown. No overlap. |
+| 6 | **D1 ∥ D2 ∥ D3** | Three route directories — no overlap. D1 rewrites `app/page.tsx`, which no other task touches. |
+| 7 | **D4 ∥ E1** | `app/activity/` vs `components/detail/`. **Split out of wave 6 deliberately — see below.** |
+| 8 | **E3 ∥ E6 ∥ E7** | The three shared detail surfaces, each its own file, all consuming E1. |
+| 9 | **E2 ∥ E4 ∥ E5** | Three route directories, three detail components. E2 needs E3; E4/E5 need E6 + E7. |
+| 10 | **F1 ∥ F2** | Two route directories, disjoint. |
+| 11 | **G1** | Must see every page. Sequential by nature — it edits whatever it finds. |
+| 12 | **G2 ∥ G3** | Verification reads; docs writes markdown. No overlap. |
+
+> ⚠️ **Waves 6 and 7 were one wave in the original plan (`D1 ∥ D2 ∥ D3 ∥ D4 ∥ E1`).
+> Split on 2026-09-15, after Wave 5.** The dependency graph is **unchanged** — D4 and
+> E1 depend on nothing D1–D3 produce, so the five are still genuinely parallel-safe on
+> files. The split is a **coordination** decision, not a dependency one, for two
+> reasons:
+>
+> 1. **C3 deliberately left `<JobEventsProvider>` placement to D4 and E1** (see C3's
+>    findings: the hook throws without a provider ancestor, and `layout.tsx` was C2's
+>    file). Running them as a pair lets the orchestrator hand each one the other's
+>    decision, instead of refereeing two independent guesses after both have shipped.
+> 2. **Five concurrent agents contend badly on two scarce resources** — the repo-global
+>    `git` index (see the note below) and the single non-shareable Chrome MCP browser
+>    profile. Four of the five render full pages and must screenshot-reconcile.
+>
+> Running the original five-way wave is still correct if those two risks are accepted.
+> **Waves 8–12 are the old 7–11, renumbered with no other change.**
 
 > ⚠️ **One branch, no worktree isolation.** Every wave above is parallel-safe on
 > *files*, but `git`'s index is repo-global. Stagger sub-agent launches, have each
@@ -3503,7 +3521,14 @@ imports implicitly through Tailwind's class resolution.
 The second pressure point is **E1 → E6 → E5**: the show detail page is the largest
 single screen (seasons, episodes, three download scopes, three delete scopes, the
 release picker, bad-file flags), and it sits behind two dependencies. Start E1 the
-moment B5/B6/C3 are green rather than waiting for wave 6 to complete.
+moment B5/B6/C3 are green rather than waiting for the list pages to land.
+
+⚠️ **The wave 6/7 split costs the critical path one wave.** E1's dependencies
+(B5, B6, C3) were all green at the end of wave 5, so E1 *could* run in wave 6; it sits
+in wave 7 only to be paired with D4 over `JobEventsProvider` placement. If E1 becomes
+the schedule's binding constraint, the cheap fix is to run **E1 alone in wave 6** and
+let D4 follow with the list pages — the dependency graph permits either ordering, and
+D4 is then the one inheriting E1's provider decision rather than negotiating with it.
 
 ### Human checkpoints
 
