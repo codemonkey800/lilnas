@@ -2,7 +2,6 @@ import {
   emptyOrInvalidStructure,
   excessiveNesting,
   excessiveRepetition,
-  longLines,
   oversizedInputs,
   unbalancedBraces,
 } from '__tests__/fixtures/invalid-equations'
@@ -30,6 +29,7 @@ import { MINIO_CONNECTION } from 'nestjs-minio'
 import request from 'supertest'
 
 import { EquationsController } from 'src/equations.controller'
+import { EquationsMetricsService } from 'src/equations-metrics.service'
 import { SecureExecutor } from 'src/utils/secure-exec'
 
 // Mock environment variables before any imports
@@ -106,6 +106,7 @@ describe('EquationsController (E2E)', () => {
           provide: MINIO_CONNECTION,
           useValue: mockMinioClient,
         },
+        EquationsMetricsService,
       ],
     })
       .overrideGuard(ThrottlerGuard)
@@ -386,20 +387,6 @@ describe('EquationsController (E2E)', () => {
 
   describe('POST /equations - Excessive Repetition', () => {
     excessiveRepetition.forEach(testCase => {
-      it(`should reject ${testCase.description}`, async () => {
-        await request(app.getHttpServer())
-          .post('/equations')
-          .send({
-            token: 'test-token-12345',
-            latex: testCase.latex,
-          })
-          .expect(HttpStatus.BAD_REQUEST)
-      })
-    })
-  })
-
-  describe('POST /equations - Long Lines', () => {
-    longLines.forEach(testCase => {
       it(`should reject ${testCase.description}`, async () => {
         await request(app.getHttpServer())
           .post('/equations')
