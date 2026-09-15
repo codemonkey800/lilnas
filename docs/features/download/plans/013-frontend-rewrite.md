@@ -1208,8 +1208,13 @@ convention.
     at 8.5–12px inside an 18–52px circle the em dash reads as a rule struck through
     the avatar, not a placeholder. `MASKED_INITIALS` is exported so this is a
     one-line change; the test asserts it is `'–'` and **not** `UNKNOWN_VALUE`, so a
-    future "unify the dashes" sweep fails loudly rather than silently. **Open
-    question for a human.**
+    future "unify the dashes" sweep fails loudly rather than silently.
+    ✅ **RESOLVED 2026-09-15 — keep the en dash, no code change.** The call was already
+    made on visual evidence and the guard test protects the reasoning. Unifying would
+    reintroduce the rendering B2 rejected, at 8 instances across 3 pages; an empty circle
+    (the task text's literal "dashed and empty") is worse still, since the dashed border
+    is invisible at every size — `border-line` oklch 29% against `bg-surface-3` oklch
+    28% — so it would read as a blank dot with no affordance at all.
   - `aria-hidden="true"` added to the doorplate's badge `<svg>` — decorative; the
     mono wordmark still supplies the link's accessible name. No visual change.
   - **Faithful, not a bug:** `border-dashed` on a masked avatar is invisible at every
@@ -1964,22 +1969,40 @@ before `apps/download`'s tests import a newly-added export.**
     `[&+&]:border-t` from the same file *did* compile, so it is not a syntax problem.
     The app's Tailwind build emits it correctly. `ui.pug` is the spec and the spec says
     8px, so 8px shipped. **Someone should rebuild the mockup CSS.**
-  - ⏳ **`DeleteButton` keeps its `border-bad/40`; the built mockup renders borderless.**
-    Tailwind emits `.border-bad/40` *before* `.border-transparent` in the mockup's CSS,
-    so the bare variant's transparent border wins there **by output order**. `cns()`
-    drops `border-transparent` and keeps the class the call site actually added. This is
-    exactly the output-order hazard the Gotchas warn about — and the reason `cns()` is
-    mandatory — but it does mean the Delete button shows a red border the built mockup
-    does not. **Open question for a human: is borderless the intent?** One-line flip.
+  - ✅ **`DeleteButton` keeps its `border-bad/40`; the built mockup renders borderless.
+    RESOLVED 2026-09-15 — keep the border, no code change.** Tailwind emits
+    `.border-bad/40` *before* `.border-transparent` in the mockup's CSS, so the bare
+    variant's transparent border wins there **by output order**. `cns()` drops
+    `border-transparent` and keeps the class the call site actually added. This is the
+    same class of artifact B1 found in the mockups' button type scale — a deliberate
+    `border-bad/40` in the mixin source is stronger evidence of intent than a rendering
+    that only happened because of emission order, and B1 already set the precedent of
+    rendering the pug's intent. Both readings satisfy "bad-tinted, not solid".
   - Title is `<h2>`, not `<p>` — semantic only, classes are the mixin's, pixel-identical.
   - `w-full text-left` added to the reason row — the cost of `<button>` over `<div>`.
   - ~3–6px text-width differences on button labels (Cancel 64 vs 67, Submit report 106
     vs 112): font-metric difference between the mockup's Google-Fonts CDN Figtree and
     the app's `next/font` self-hosted subset. **Not a spec deviation.**
-  - ⏳ **No hover state on `DeleteButton` or on an idle `Reason` row** — the mixins define
-    none, and the theme's global `:focus-visible` ring covers keyboard. B6 did not
-    invent one, but flags that **a destructive confirm with no hover feedback is
-    arguably a gap**.
+  - ✅ **No hover state on `DeleteButton` or on an idle `Reason` row. RESOLVED
+    2026-09-15 — hover added to both — `89a266ad`.** The mixins define none, which left
+    the highest-stakes click in the app with no pointer feedback at all. **Neither
+    addition is new design** — both reuse utilities that already carry these exact roles:
+
+    | Element | Added | Why that pair |
+    | --- | --- | --- |
+    | idle `Reason` row | `hover:border-uv-dim hover:bg-surface-2` | `Button`'s `outline` hover **verbatim** — the closest analogue, a bordered surface you are about to choose, and it leans toward the uv the checked state lands on. Also `DataTable`'s row-hover fill. |
+    | `DeleteButton` | `hover:border-bad/60 hover:bg-bad/22` | Deepens the tint it already sits on. `bad-ghost` is `--color-bad` at 14% alpha, so hover is the same hue at 22%, border 40% → 60%. No new colour, no hue outside the system's four. |
+
+    ⚠️ **`Button`'s own `bad`-variant hover could not be reused** — that is
+    `hover:bg-bad-ghost`, which is `DeleteButton`'s *idle* state, so it would have been
+    a no-op. The **checked** `Reason` row deliberately gets no hover: it is already the
+    answer. `transition-press` and the row's own
+    `transition-[border-color,background-color]` already animate both properties, so
+    nothing needed adding there.
+
+    All new utilities were **verified to compile** through the project's own
+    `@tailwindcss/postcss` rather than assumed — and `hover:` lands inside
+    `@media (hover: hover)`, so there is no sticky hover on touch.
 
 - [x] **B7. Filter family.** — `fe3e2ce`
 
@@ -2254,14 +2277,32 @@ before `apps/download`'s tests import a newly-added export.**
     formatting in a component that may render on the server is a hydration hazard.
     Revisit only if a library exceeds four digits.
 
-  **⏳ OPEN QUESTION for a human — the disabled-while-pending focus trade-off.** The
-  task text says the button is *disabled* while `pending`, and B8 implemented exactly
-  that. But a keyboard user who activates it **loses focus to `<body>`** when the button
-  goes disabled. The polite live region is the compensating feedback, and is precisely
-  why the plan requires it. The alternative is `aria-disabled` plus an ignored
-  `onClick`, which keeps focus but changes `Button`'s disabled styling contract.
-  **B8 deliberately did not make this call unilaterally.** Worth deciding before the
-  four list pages (D1–D4) wire it up.
+  **✅ RESOLVED 2026-09-15 — `aria-disabled`, not `disabled` — `89a266ad`.** B8 shipped
+  the real `disabled` attribute as the task text said, then flagged that a keyboard user
+  who activates the button **loses focus to `<body>`** when it disables under them;
+  loading a third page meant Tabbing from the top of the document past every
+  just-appended row. Decided in favour of keeping focus:
+
+  - `LoadMore` passes **`aria-disabled={pending}`**. The `Button` prop table is
+    unchanged — `pending?: boolean` still, just wired to a different attribute.
+  - **`Button` now owns both halves of the contract:** it styles `aria-disabled` like
+    `:disabled` **and swallows `onClick` while the attribute is truthy**, so no call site
+    has to remember to guard it. Accepts both `true` and `"true"`; `"false"` means
+    enabled.
+  - ⚠️ **The two treatments differ deliberately: `aria-disabled` does NOT take
+    `pointer-events-none`**, and gets `cursor-not-allowed` + `aria-disabled:active:scale-100`
+    instead. Keeping the element focusable is the whole point, so it must stay
+    hit-testable or `:focus-visible` and the cursor go with it.
+  - ⚠️ **`aria-disabled` cannot stop a `type="submit"` button from submitting** — the
+    browser does that natively with no handler involved. **Use the real `disabled`
+    attribute for a submit button.** Recorded in `button.tsx`'s docblock.
+  - **This is a shared-primitive change**, made now rather than later precisely because
+    `Button` had four consumers at this point and will have twenty-plus by Wave 9.
+  - ⚠️ **jsdom does not blur an element when it becomes `disabled`**, so a test that
+    focuses the button, flips `pending` and asserts `toHaveFocus()` **passes under either
+    implementation and proves nothing**. The shipped test asserts the button stays
+    **reachable by Tab**, which jsdom does model. Worth knowing for any later
+    focus-behaviour test in this package.
 
   **Mockup deviations (B8): the whole component.** ⚠️ **`LoadMore` has no mockup at
   all** — the designs draw no pagination anywhere, and both `gallery.html` and
