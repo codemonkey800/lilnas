@@ -728,6 +728,22 @@ describe('Reason', () => {
     expect(radios()[1]).not.toHaveClass('bg-uv-ghost')
   })
 
+  /**
+   * `ui.pug` defines no hover for a reason row; this is a deliberate addition,
+   * because a selectable row inside a destructive confirm was giving no
+   * pointer feedback at all. The pair is `Button`'s `outline` hover verbatim,
+   * so it is the system's existing vocabulary rather than new design.
+   *
+   * Asserted on the rendered `class` attribute — a `hover:` variant is a real
+   * class, and jsdom cannot hold a hover to check the computed result.
+   */
+  it('gives an idle row the outline hover pair, and the chosen row none', () => {
+    render(<Picker initial={REASONS[0]} />)
+
+    expect(radios()[1]).toHaveClass('hover:border-uv-dim', 'hover:bg-surface-2')
+    expect(radios()[0]).not.toHaveClass('hover:bg-surface-2')
+  })
+
   it('fills the dot only on the chosen row', () => {
     const { container } = render(<Picker initial={REASONS[0]} />)
 
@@ -794,6 +810,25 @@ describe('DeleteButton', () => {
     expect(button).toHaveClass('border-bad/40', 'bg-bad-ghost', 'text-bad')
     expect(button).not.toHaveClass('bg-bad', 'border-transparent')
     expect(container.querySelector('use')).toHaveAttribute('href', '#i-trash')
+  })
+
+  /**
+   * Also an addition — `ui.pug` defines none, and the highest-stakes click in
+   * the app was giving no pointer feedback. It deepens the tint the button
+   * already sits on rather than introducing a colour: `bad-ghost` is
+   * `--color-bad` at 14% alpha, hover is the same hue at 22%.
+   *
+   * `Button`'s own `bad`-variant hover could not be reused: that is
+   * `hover:bg-bad-ghost`, which is this button's *idle* state, so it would
+   * have been a no-op.
+   */
+  it('deepens its own tint on hover', () => {
+    render(<DeleteButton />)
+
+    const button = screen.getByRole('button', { name: 'Delete' })
+
+    expect(button).toHaveClass('hover:border-bad/60', 'hover:bg-bad/22')
+    expect(button).not.toHaveClass('hover:bg-bad-ghost')
   })
 
   it('takes the mixin’s small size', () => {

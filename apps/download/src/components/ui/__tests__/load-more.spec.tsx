@@ -119,7 +119,14 @@ describe('LoadMore', () => {
   })
 
   describe('pending', () => {
-    it('disables the button', () => {
+    /**
+     * `aria-disabled`, deliberately not the real `disabled` attribute. A
+     * `disabled` element leaves the focus order, so pressing this button by
+     * keyboard used to disable it under the user's own focus and drop them on
+     * `<body>` — after which loading a third page meant Tabbing from the top
+     * of the document, past every row that had just been appended.
+     */
+    it('marks the button aria-disabled without leaving the focus order', () => {
       render(
         <LoadMore
           hasMore
@@ -130,9 +137,60 @@ describe('LoadMore', () => {
         />,
       )
 
-      expect(screen.getByRole('button', { name: 'Load more' })).toBeDisabled()
+      const button = screen.getByRole('button', { name: 'Load more' })
+
+      expect(button).toHaveAttribute('aria-disabled', 'true')
+      expect(button).not.toBeDisabled()
+      expect(button).not.toHaveAttribute('disabled')
     })
 
+    it('carries no aria-disabled at rest', () => {
+      render(
+        <LoadMore hasMore loaded={24} onLoadMore={onLoadMore} total={340} />,
+      )
+
+      expect(
+        screen.getByRole('button', { name: 'Load more' }),
+      ).not.toHaveAttribute('aria-disabled', 'true')
+    })
+
+    /**
+     * The point of the `aria-disabled` choice, in the strongest form jsdom can
+     * actually falsify.
+     *
+     * ⚠️ jsdom does **not** implement the browser behaviour this change exists
+     * to avoid — it does not blur an element when that element becomes
+     * `disabled`. So a test that focuses the button, flips `pending`, and
+     * asserts `toHaveFocus()` passes under *either* implementation and proves
+     * nothing. Staying in the tab order is the part jsdom does model: a real
+     * `disabled` button is unreachable by Tab, so this fails if the attribute
+     * ever comes back.
+     */
+    it('stays reachable by Tab while pending', async () => {
+      const user = userEvent.setup()
+
+      render(
+        <LoadMore
+          hasMore
+          loaded={24}
+          onLoadMore={onLoadMore}
+          pending
+          total={340}
+        />,
+      )
+
+      await user.tab()
+
+      expect(screen.getByRole('button', { name: 'Load more' })).toHaveFocus()
+    })
+
+    /**
+     * Non-trivial now that the button is only *aria*-disabled: the click
+     * genuinely dispatches, and it is `Button` swallowing `onClick` that stops
+     * the second fetch. Both a pointer press and a keyboard activation are
+     * checked, since only the handler stands between them and a duplicate
+     * request.
+     */
     it('blocks a second request while one is in flight', async () => {
       const user = userEvent.setup()
 
@@ -145,7 +203,14 @@ describe('LoadMore', () => {
           total={340}
         />,
       )
-      await user.click(screen.getByRole('button', { name: 'Load more' }))
+
+      const button = screen.getByRole('button', { name: 'Load more' })
+
+      await user.click(button)
+
+      button.focus()
+      await user.keyboard('{Enter}')
+      await user.keyboard(' ')
 
       expect(onLoadMore).not.toHaveBeenCalled()
     })

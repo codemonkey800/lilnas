@@ -285,6 +285,110 @@ describe('Button', () => {
     })
   })
 
+  /**
+   * The second way to turn a button off, for a control that disables *itself*
+   * under the user — `LoadMore` while a page is in flight. A real `disabled`
+   * attribute would drop it out of the focus order mid-press and strand a
+   * keyboard user on `<body>`.
+   *
+   * `Button` owns both halves of the contract: the styling *and* the
+   * suppressed handler. If only the styling lived here, a future call site
+   * would set `aria-disabled`, look disabled, and still fire.
+   */
+  describe('aria-disabled', () => {
+    it('blocks onClick while staying focusable', async () => {
+      const onClick = jest.fn()
+      const user = userEvent.setup()
+
+      render(
+        <Button aria-disabled onClick={onClick}>
+          Go
+        </Button>,
+      )
+
+      const button = screen.getByRole('button')
+
+      await user.click(button)
+
+      expect(onClick).not.toHaveBeenCalled()
+      expect(button).not.toBeDisabled()
+
+      button.focus()
+
+      expect(button).toHaveFocus()
+    })
+
+    it('blocks a keyboard activation too', async () => {
+      const onClick = jest.fn()
+      const user = userEvent.setup()
+
+      render(
+        <Button aria-disabled onClick={onClick}>
+          Go
+        </Button>,
+      )
+
+      screen.getByRole('button').focus()
+      await user.keyboard('{Enter}')
+      await user.keyboard(' ')
+
+      expect(onClick).not.toHaveBeenCalled()
+    })
+
+    it('accepts the string form, which is how JSX often spells it', async () => {
+      const onClick = jest.fn()
+      const user = userEvent.setup()
+
+      render(
+        <Button aria-disabled="true" onClick={onClick}>
+          Go
+        </Button>,
+      )
+
+      await user.click(screen.getByRole('button'))
+
+      expect(onClick).not.toHaveBeenCalled()
+    })
+
+    it('treats aria-disabled="false" as enabled', async () => {
+      const onClick = jest.fn()
+      const user = userEvent.setup()
+
+      render(
+        <Button aria-disabled="false" onClick={onClick}>
+          Go
+        </Button>,
+      )
+
+      await user.click(screen.getByRole('button'))
+
+      expect(onClick).toHaveBeenCalledTimes(1)
+    })
+
+    /**
+     * Dimmed like `:disabled`, but hit-testable on purpose — the element has
+     * to stay focusable, so `pointer-events-none` would take `:focus-visible`
+     * and the cursor with it.
+     */
+    it('looks disabled but stays hit-testable', () => {
+      const button = renderButton(<Button aria-disabled>Go</Button>)
+
+      expect(button).toHaveClass(
+        'aria-disabled:opacity-38',
+        'aria-disabled:cursor-not-allowed',
+        'aria-disabled:active:scale-100',
+      )
+      expect(classes(button)).not.toContain('aria-disabled:pointer-events-none')
+    })
+
+    it('leaves the real disabled treatment in place', () => {
+      expect(renderButton(<Button>Go</Button>)).toHaveClass(
+        'disabled:pointer-events-none',
+        'disabled:opacity-38',
+      )
+    })
+  })
+
   describe('disabled', () => {
     it('blocks onClick', async () => {
       const onClick = jest.fn()

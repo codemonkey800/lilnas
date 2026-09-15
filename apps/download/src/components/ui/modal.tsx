@@ -641,7 +641,21 @@ const REASON_BASE = cns(
 )
 
 const REASON_CHECKED = 'border-uv/40 bg-uv-ghost'
-const REASON_IDLE = 'border-line'
+
+/**
+ * An idle row's hover is `Button`'s `outline` pair verbatim
+ * (`hover:border-uv-dim hover:bg-surface-2`) — the closest analogue in the
+ * system, a bordered surface you are about to choose, and it leans toward the
+ * uv the checked state lands on.
+ *
+ * `ui.pug` defines no hover for a reason row, so this is an addition rather
+ * than a port. It is not new design: both utilities already carry these exact
+ * roles elsewhere (`Button` `outline`, and `DataTable`'s row hover). A
+ * selectable row with no pointer feedback inside a destructive confirm was the
+ * gap worth closing. The checked row deliberately gets none — it is already
+ * the answer.
+ */
+const REASON_IDLE = cns('border-line', 'hover:border-uv-dim hover:bg-surface-2')
 
 const REASON_DOT_BASE =
   'grid h-4 w-4 shrink-0 place-items-center rounded-full border-[1.5px]'
@@ -716,7 +730,22 @@ export function Reason({
  * `border-transparent`, and `cns` resolves the two border colours in this
  * one's favour because it comes last.
  */
-const DELETE_BUTTON_TINT = 'border-bad/40 bg-bad-ghost text-bad'
+/**
+ * `ui.pug` defines no hover for `deleteBtn`, so the hover pair is an addition
+ * rather than a port — the highest-stakes click in the app was giving no
+ * pointer feedback at all.
+ *
+ * It deepens the tint it already sits on rather than introducing anything:
+ * `bad-ghost` is `--color-bad` at 14% alpha, so hover is the same hue at 22%
+ * with the border brought up from 40% to 60%. No new colour, no hue outside
+ * the system's four. `Button`'s own `bad` variant hover (`hover:bg-bad-ghost`)
+ * could not be reused directly — this button's *idle* state is already
+ * `bg-bad-ghost`, so that would have been a no-op.
+ */
+const DELETE_BUTTON_TINT = cns(
+  'border-bad/40 bg-bad-ghost text-bad',
+  'hover:border-bad/60 hover:bg-bad/22',
+)
 
 export type DeleteButtonProps = Omit<ButtonProps, 'variant'>
 

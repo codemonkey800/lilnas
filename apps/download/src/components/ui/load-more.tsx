@@ -26,7 +26,11 @@ export type LoadMoreProps = Omit<
    * a page that exists or offer one that doesn't.
    */
   hasMore: boolean
-  /** A page is in flight. Disables the button and shows the spinner. */
+  /**
+   * A page is in flight. Marks the button `aria-disabled` and shows the
+   * spinner. See the note on the component about why this is not the real
+   * `disabled` attribute.
+   */
   pending?: boolean
   /** Fetch the next page and append it. */
   onLoadMore: () => void
@@ -48,6 +52,16 @@ export type LoadMoreProps = Omit<
  * otherwise completely silent: nothing takes focus and nothing else changes,
  * so `Showing 48 of 340` is the only evidence a screen-reader user gets that
  * the button did anything.
+ *
+ * ⚠️ **While pending, the button takes `aria-disabled`, not the real
+ * `disabled` attribute** — deliberately, and this is the one place in the app
+ * that needs the distinction. A `disabled` attribute drops the element out of
+ * the focus order, so pressing the button by keyboard disabled it under the
+ * user's own focus and dumped them on `<body>`; loading a third page then
+ * meant Tabbing from the top of the document, past every row that had just
+ * been appended. `aria-disabled` keeps the button focusable and still
+ * announces it as disabled, and `Button` swallows `onClick` while it is set,
+ * so a double-press cannot fire a second fetch.
  */
 export function LoadMore({
   loaded,
@@ -76,7 +90,7 @@ export function LoadMore({
         Showing {loaded} of {total}
       </p>
       {hasMore ? (
-        <Button disabled={pending} onClick={onLoadMore} variant="outline">
+        <Button aria-disabled={pending} onClick={onLoadMore} variant="outline">
           {pending ? <Spinner /> : null}
           Load more
         </Button>
