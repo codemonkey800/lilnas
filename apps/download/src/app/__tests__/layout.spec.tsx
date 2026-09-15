@@ -23,6 +23,18 @@ jest.mock('next/font/google', () => ({
   IBM_Plex_Mono: () => ({ variable: 'stub-mono-var' }),
 }))
 
+// The bar's nav-search slot now holds a client component that reads the App
+// Router (`usePathname` to know whether it is on /search, `useRouter` to push a
+// title query at it). A unit render has no router mounted, and `useRouter`
+// throws rather than degrading, so both are stubbed at the route the shell is
+// most often on. The real field's own behaviour is covered in
+// src/components/shell/__tests__/nav-search.spec.tsx; what this file still
+// asserts is that the slot is filled at all.
+jest.mock('next/navigation', () => ({
+  usePathname: () => '/',
+  useRouter: () => ({ push: jest.fn() }),
+}))
+
 jest.mock('src/lib/viewer', () => ({
   getViewer: jest.fn(),
 }))
@@ -96,6 +108,16 @@ describe('AppLayout', () => {
     expect(
       container.querySelector('a[aria-label="Your account"]'),
     ).not.toBeNull()
+  })
+
+  it('fills the nav-search slot in the bar, exactly once', async () => {
+    const container = await renderLayout(VIEWER)
+    const bar = container.querySelector('header')
+
+    // One field, one input — the slot is rendered once and CSS repositions it
+    // at each width. Two slots would put two of each in the accessible tree.
+    expect(bar?.querySelectorAll('[role="search"]')).toHaveLength(1)
+    expect(bar?.querySelectorAll('input')).toHaveLength(1)
   })
 
   it('still renders the shell when there is no viewer', async () => {

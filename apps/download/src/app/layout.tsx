@@ -5,6 +5,7 @@ import { Figtree, IBM_Plex_Mono } from 'next/font/google'
 import { ReactNode } from 'react'
 
 import { AppBar } from 'src/components/shell/app-bar'
+import { NavSearch } from 'src/components/shell/nav-search'
 import { IconSprite } from 'src/components/ui/sprite'
 import { getViewer } from 'src/lib/viewer'
 
@@ -54,7 +55,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         )}
       >
         <IconSprite />
-        <AppBar viewer={viewer} />
+        <AppBar navSearch={<NavSearch />} viewer={viewer} />
         {children}
       </body>
     </html>
