@@ -4644,6 +4644,74 @@ rendered output are unchanged. **Both duplicates are deleted** —
 
 ---
 
+## Follow-ups — deferred, NOT part of this plan's 32 tasks
+
+> These are **not** counted in the task list, the waves, or the Definition of Done.
+> Nothing here blocks G1–G3 or the deploy. They are recorded so the reasoning is not
+> lost, and each one names what it would actually take.
+
+- [ ] **H1. Video download progress — a backend change, so a separate plan.**
+
+  **Why:** the mockups draw progress the API does not carry, and the gap is real
+  rather than cosmetic. Discovered by E1, verified independently by the orchestrator
+  on 2026-09-15.
+
+  **What is true today:**
+  - `DownloadQueueSnapshotSchema` (`packages/utils/src/download/schema.ts:52-56`) is
+    `{ progress?, status?, timeLeft? }` and hangs off `queueSnapshot`
+    (`schema.ts:175`) — which lives on the **Movie/Show branch of the media union
+    only**. It is a Radarr/Sonarr queue entry, so it can never cover videos.
+  - **A video job has no progress field anywhere in `DownloadJob`**, and **no byte
+    counter, transfer rate or fragment counter exists for any type.**
+  - ⚠️ **The backend does not merely fail to expose video progress — it never
+    captures it.** yt-dlp emits progress on stdout, but
+    `download-video.service.ts:557` does `proc.stdout.pipe(logFileStream)` during the
+    actual download. It goes **straight to a log file and is never parsed.** (The
+    stdout handler at `:88` is a different code path — the `--dump-json` metadata
+    probe.)
+  - So `video-detail.pug`'s `fragment 4 of 9` and `412 MB / 640 MB · 3.1 MB/s` are
+    **mockup data with nothing behind them.** Per this plan's own rule — where a
+    mockup and the API disagree about content, the API wins — they are not rendered.
+
+  **Why it is deferred rather than done here:** it contradicts this plan's headline
+  decision, _"Backend untouched — this plan adds no routes, no schemas, no repo
+  helpers"_, and every file it would touch is on the forbidden list for all 32 tasks
+  (`apps/download/src/download/`, `packages/utils/src/download/`).
+
+  **What it would take, roughly:**
+  1. Run yt-dlp with `--newline` plus a `--progress-template` and parse the emitted
+     fields (`downloaded_bytes`, `total_bytes`, `speed`, `eta`, `fragment_index`,
+     `fragment_count`) instead of piping stdout to a log file.
+  2. Persist the latest snapshot per job, and throttle it — yt-dlp emits many times a
+     second and the gateway broadcasts to every open tab.
+  3. Add a video-side progress field to the wire schema, mirroring
+     `DownloadQueueSnapshotSchema`'s shape so both branches read alike.
+  4. Broadcast it on the existing `DOWNLOAD_JOB_EVENT_TYPE` frame — no new route
+     needed, since `useJobEvents` already upserts whole jobs by id.
+
+  **The frontend side is already built and costs nothing.** E1 and D4 left the seams
+  in deliberately:
+  - `jobProgress(job)` returns **`null`** meaning "draw no bar at all" — the honest
+    rendering of an unknown percentage, because **a `0%` bar is a claim**. It starts
+    returning a value the moment the field exists.
+  - `JobLifecycleProps` already accepts `progressPct`, `progressDetail` and
+    `progressNote`, so a page can feed richer data in with no signature change.
+  - D4's `jobProgressPct(job)` on the activity feed has the same `number | null`
+    shape and the same behaviour.
+
+  **Decide it from real use.** Movies and shows already show a genuine bar; only
+  videos are bare, and the lifecycle panel still shows their status word. Worth doing
+  only if that reads as missing once the detail pages are in daily use — at which
+  point option 3 below may be enough on its own:
+
+  | Option                                                                                            | Cost                         |
+  | ------------------------------------------------------------------------------------------------- | ---------------------------- |
+  | Ship as-is — videos show status, no bar                                                           | zero, already built          |
+  | Full backend capture, as above                                                                    | a real feature, its own plan |
+  | Frontend-only indeterminate indicator for videos — shows _activity_ without claiming a percentage | small, no backend change     |
+
+---
+
 ## Sequencing
 
 ```mermaid
