@@ -225,6 +225,11 @@ geometry. Measuring beats eyeballing — it is how the card-stretch bug in
   as `root:root`, which fails as `EACCES: permission denied, mkdir
 '/source/node_modules/.pnpm'` for the non-root user. `lilnas-dev.Dockerfile`
   pre-creates them owned by `node`.
+- **`/download` is a tmpfs, same reasoning as `/data`.** `VIDEO_DIR` is
+  hardcoded to `/download/videos`; `/` is root-owned and the container runs as
+  `1000:1001`, so without the `uid`/`gid` tmpfs mount every video job 500s with
+  `EACCES: permission denied, mkdir '/download'`. Video bytes are as ephemeral
+  as the database here — that's expected, not a bug.
 - **The container runs as `1000:1001`** so `.next` and `.turbo` written into the
   bind mount stay owned by the host user rather than root.
 - **Booting sweeps interrupted jobs.** `reconcileInterruptedJobs()`

@@ -105,6 +105,27 @@ services:
 
     tmpfs:
       - /data:uid=1000,gid=1001,mode=0770,size=64m
+      # download-video.service.ts hardcodes VIDEO_DIR as /download/videos and
+      # ensureDir()s it. Nothing mounts /download otherwise, / is root-owned,
+      # and this container runs as 1000:1001, so every job dies with
+      # EACCES: permission denied, mkdir '/download'.
+      #
+      # A named volume (matching download-dev-root-modules/-pnpm-store above)
+      # would land on the identical EACCES: Docker seeds a named volume's
+      # ownership from the image's directory at that path, and /download
+      # doesn't exist in the lilnas-dev image, so it would be created
+      # root-owned too — fixable only with a RUN mkdir -p /download && chown
+      # in the shared dev image. tmpfs takes uid/gid directly, which is why
+      # /data above already uses it instead of a volume.
+      #
+      # Ephemeral is correct, not a compromise: the verify DB is already
+      # tmpfs and recreated on every container start, so persisting video
+      # bytes whose job rows are gone would just accumulate orphans.
+      #
+      # size=2g is deliberate: an oversized download fails loud with ENOSPC
+      # instead of eating host RAM uncapped, which matters since this host
+      # also runs production containers.
+      - /download:uid=1000,gid=1001,mode=0770,size=2g
 
     labels:
       - traefik.enable=true
