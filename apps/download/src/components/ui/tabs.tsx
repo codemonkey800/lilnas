@@ -41,6 +41,15 @@ export type TabsProps = Omit<ComponentPropsWithoutRef<'div'>, 'onChange'> & {
   stretch?: boolean
   /** Let the strip scroll sideways rather than wrap, as the season strip does. */
   scroll?: boolean
+  /**
+   * `'automatic'` (APG automatic activation, the default): arrow keys move
+   * focus and select in one step. `'manual'`: arrow keys only move focus;
+   * activating a tab needs Enter/Space (or a click). Use `'manual'` when
+   * selecting a tab carries a real cost — APG's own example is a tab that
+   * triggers a network fetch, which is exactly what a strip wired to
+   * `router.push` does.
+   */
+  activationMode?: 'automatic' | 'manual'
 }
 
 /**
@@ -51,16 +60,19 @@ export type TabsProps = Omit<ComponentPropsWithoutRef<'div'>, 'onChange'> & {
  * — assistive technology needs the owning list to report position ("tab 2 of
  * 4") and to treat the group as one stop. The container carries it here.
  *
- * Arrow keys move between tabs with wrap-around, Home/End jump to the ends,
- * and selection follows focus (APG's automatic activation) because every tab
- * strip in this app swaps already-loaded content. Focus roves: only the
- * selected tab is in the tab order.
+ * Arrow keys move between tabs with wrap-around, Home/End jump to the ends.
+ * By default selection follows focus (APG's automatic activation), because
+ * most tab strips in this app swap already-loaded content. A strip that
+ * activates a tab by navigating instead should pass `activationMode="manual"`
+ * — arrow keys then only move focus, and activating needs Enter/Space or a
+ * click. Focus roves: only the selected tab is in the tab order.
  */
 export function Tabs({
   value,
   onValueChange,
   stretch = false,
   scroll = false,
+  activationMode = 'automatic',
   className,
   children,
   onKeyDown,
@@ -118,7 +130,11 @@ export function Tabs({
 
     target.focus()
 
-    if (targetValue !== null && targetValue !== value) {
+    if (
+      activationMode === 'automatic' &&
+      targetValue !== null &&
+      targetValue !== value
+    ) {
       onValueChange(targetValue)
     }
   }

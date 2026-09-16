@@ -10,15 +10,18 @@ const SEASONS = ['Season 1', 'Season 2', 'Season 3']
 
 function ControlledTabs({
   initial = 'Season 1',
+  activationMode,
   onChange,
 }: {
   initial?: string
+  activationMode?: 'automatic' | 'manual'
   onChange?: (value: string) => void
 }) {
   const [value, setValue] = useState(initial)
 
   return (
     <Tabs
+      activationMode={activationMode}
       aria-label="Seasons"
       value={value}
       onValueChange={next => {
@@ -205,5 +208,52 @@ describe('Tabs', () => {
     )
 
     error.mockRestore()
+  })
+})
+
+describe('Tabs activationMode="manual"', () => {
+  it('moves focus without selecting on ArrowRight', async () => {
+    const user = userEvent.setup()
+    const onChange = jest.fn()
+
+    render(<ControlledTabs activationMode="manual" onChange={onChange} />)
+
+    screen.getByRole('tab', { name: 'Season 1' }).focus()
+    await user.keyboard('{ArrowRight}')
+
+    expect(screen.getByRole('tab', { name: 'Season 2' })).toHaveFocus()
+    expect(onChange).not.toHaveBeenCalled()
+    expect(screen.getByRole('tab', { name: 'Season 1' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+  })
+
+  it('activates the focused tab on Enter', async () => {
+    const user = userEvent.setup()
+    const onChange = jest.fn()
+
+    render(<ControlledTabs activationMode="manual" onChange={onChange} />)
+
+    screen.getByRole('tab', { name: 'Season 1' }).focus()
+    await user.keyboard('{ArrowRight}{Enter}')
+
+    expect(onChange).toHaveBeenCalledWith('Season 2')
+    expect(screen.getByRole('tab', { name: 'Season 2' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+  })
+
+  it('activates the focused tab on Space', async () => {
+    const user = userEvent.setup()
+    const onChange = jest.fn()
+
+    render(<ControlledTabs activationMode="manual" onChange={onChange} />)
+
+    screen.getByRole('tab', { name: 'Season 1' }).focus()
+    await user.keyboard('{ArrowRight}{ }')
+
+    expect(onChange).toHaveBeenCalledWith('Season 2')
   })
 })

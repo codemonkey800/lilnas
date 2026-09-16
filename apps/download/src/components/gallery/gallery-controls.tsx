@@ -211,6 +211,7 @@ export function GalleryControls({
     <>
       <div className={CONTROLS_ROW}>
         <Tabs
+          activationMode="manual"
           aria-label="Media type"
           className="w-full sm:w-auto"
           onValueChange={selectTab}

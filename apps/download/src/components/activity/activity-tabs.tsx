@@ -51,11 +51,10 @@ export type ActivityTabsProps = {
  * `react-hooks/set-state-in-effect` error in this package, and the render-phase
  * equivalent is a `react-hooks/set-state-in-render` error.
  *
- * ⚠️ `Tabs` uses APG *automatic* activation, so arrowing along the strip
- * navigates once per key. That is the same trade `GalleryControls` already
- * makes with the same component for the same filter, and matching it matters
- * more than saving a router push: `scroll: false` keeps the viewport still, and
- * each push supersedes the last rather than queueing behind it.
+ * ⚠️ `Tabs` is `activationMode="manual"` here, not the default automatic:
+ * activating a tab pushes a route and fetches, so arrowing through the strip
+ * must not fire a push per key. Selecting still needs Enter/Space or a click,
+ * same as `GalleryControls`, which makes the same trade for the same reason.
  */
 export function ActivityTabs({
   filters,
@@ -77,6 +76,7 @@ export function ActivityTabs({
 
   return (
     <Tabs
+      activationMode="manual"
       aria-label="Media type"
       className="w-full sm:w-auto"
       onValueChange={selectTab}
