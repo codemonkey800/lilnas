@@ -2,22 +2,33 @@ import '@testing-library/jest-dom'
 
 import type { DownloadJob, Video } from '@lilnas/utils/download/types'
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import type { VideoDetailProps } from 'src/components/detail/video-detail'
 import {
   isUnrecognizedLink,
+  mergeVideoJobs,
   sourcePostHref,
   VIDEO_EMPTY_NOTE,
   VIDEO_SOURCE_LABEL,
+  VIDEO_STALE_LABEL,
   VIDEO_UNRECOGNIZED_EXPLAIN,
   VIDEO_UNRECOGNIZED_GUIDANCE,
   VideoDetail,
   videoMetaLabel,
   videoPlayerSrc,
 } from 'src/components/detail/video-detail'
+import type { VideoDetailLiveProps } from 'src/components/detail/video-detail-live'
+import { VideoDetailLive } from 'src/components/detail/video-detail-live'
 import { VIDEO_PLAYER_LABEL } from 'src/components/detail/video-player'
+import { JobEventsProvider } from 'src/components/live/job-events'
+import {
+  buildJobFrame,
+  createSocketRecorder,
+  NO_JITTER,
+  TEST_LOCATION,
+} from 'src/lib/__tests__/helpers/job-events'
 import { UNKNOWN_VALUE } from 'src/lib/format'
 
 const MEDIA_ID = 'video:V1StGXR8_Z5'
@@ -174,6 +185,68 @@ describe('videoPlayerSrc', () => {
     expect(videoPlayerSrc(video())).toBe(
       `/api/download/media/${encodeURIComponent(MEDIA_ID)}/file`,
     )
+  })
+})
+
+describe('mergeVideoJobs', () => {
+  const current = job({ id: 'job_2' })
+  const earlier = job({
+    createdAt: '2026-09-14T12:00:00.000Z',
+    id: 'job_1',
+    status: DownloadJobStatus.Failed,
+  })
+
+  it('lets the live copy win for a job the page already knows', () => {
+    const live = new Map([
+      ['job_2', job({ id: 'job_2', status: DownloadJobStatus.Converting })],
+    ])
+
+    expect(mergeVideoJobs([current, earlier], live)).toEqual([
+      job({ id: 'job_2', status: DownloadJobStatus.Converting }),
+      earlier,
+    ])
+  })
+
+  it('keeps the server’s newest-first order rather than re-deriving one', () => {
+    const live = new Map([
+      ['job_1', job({ ...earlier, status: DownloadJobStatus.Completed })],
+    ])
+
+    expect(mergeVideoJobs([current, earlier], live).map(j => j.id)).toEqual([
+      'job_2',
+      'job_1',
+    ])
+  })
+
+  /**
+   * The subscription only ever asks about the ids already on the page, so a
+   * stray id in the map is a contract violation rather than a new attempt to
+   * display — and this page has no idea where it would belong.
+   */
+  it('never inserts a job the page was not rendered with', () => {
+    const live = new Map([['job_99', job({ id: 'job_99' })]])
+
+    expect(mergeVideoJobs([current], live)).toEqual([current])
+  })
+
+  /**
+   * The opposite of `/activity`, deliberately. `useJobEvents` upserts and
+   * never evicts, and a video's permalink shows its attempts whatever their
+   * status — a finished download must not vanish off its own page.
+   */
+  it('keeps a job that has gone terminal', () => {
+    const done = job({ id: 'job_2', status: DownloadJobStatus.Completed })
+
+    expect(mergeVideoJobs([current], new Map([['job_2', done]]))).toEqual([
+      done,
+    ])
+  })
+
+  it('is the server’s list untouched before any frame has landed', () => {
+    expect(mergeVideoJobs([current, earlier], new Map())).toEqual([
+      current,
+      earlier,
+    ])
   })
 })
 
@@ -412,5 +485,280 @@ describe('VideoDetail', () => {
     const chip = screen.getByText('downloading').closest('span')
 
     expect(chip?.getAttribute('class')).toContain('w-fit')
+  })
+
+  /**
+   * ⚠️ `connected` from `useJobEvents` means strictly "a socket is OPEN right
+   * now" — false through the first connect and every backoff window — so
+   * `stale` alone is not enough to warn anybody. The marker is about *missing
+   * an update*, which is only possible while there is an update to miss.
+   */
+  describe('the stale marker', () => {
+    it('warns while a running job’s feed is disconnected', () => {
+      renderDetail({ stale: true })
+
+      expect(screen.getByText(VIDEO_STALE_LABEL)).toBeInTheDocument()
+    })
+
+    it('says nothing while the feed is connected', () => {
+      renderDetail()
+
+      expect(screen.queryByText(VIDEO_STALE_LABEL)).not.toBeInTheDocument()
+    })
+
+    // A completed page is final. Raising a doubt about a panel that cannot
+    // change is telling the reader something untrue.
+    it('says nothing about a job that has already finished', () => {
+      renderDetail({
+        jobs: [
+          job({
+            completedAt: '2026-09-15T11:59:00.000Z',
+            status: DownloadJobStatus.Completed,
+          }),
+        ],
+        stale: true,
+      })
+
+      expect(screen.queryByText(VIDEO_STALE_LABEL)).not.toBeInTheDocument()
+    })
+
+    it('says nothing when nothing was ever downloaded', () => {
+      renderDetail({ jobs: [], stale: true })
+
+      expect(screen.queryByText(VIDEO_STALE_LABEL)).not.toBeInTheDocument()
+    })
+
+    /**
+     * `paused` is **not** terminal — `isInProgress` is the complement of
+     * `TERMINAL_DOWNLOAD_JOB_STATUSES` — and a paused download is still open
+     * work whose resume this tab would otherwise fail to hear about.
+     */
+    it('warns for a paused job too, which is still open work', () => {
+      renderDetail({
+        jobs: [job({ status: DownloadJobStatus.Paused })],
+        stale: true,
+      })
+
+      expect(screen.getByText(VIDEO_STALE_LABEL)).toBeInTheDocument()
+    })
+
+    // A badge in a flex column, not a banner: `inline-flex` is still stretched
+    // by the column's default `align-items: stretch`.
+    it('renders intrinsic rather than spanning the lifecycle column', () => {
+      renderDetail({ stale: true })
+
+      expect(
+        screen.getByText(VIDEO_STALE_LABEL).getAttribute('class'),
+      ).toContain('w-fit')
+    })
+  })
+})
+
+/**
+ * The live half of `/videos/<videoId>`: the same body, re-rendered off the
+ * gateway rather than off a reload.
+ *
+ * Every test here drives a fake socket — jsdom has no usable `WebSocket`, and
+ * driving the real one would make these tests about the network. `emitOpen`
+ * and `emitMessage` are exactly what the browser calls.
+ */
+describe('VideoDetailLive', () => {
+  function renderLive(overrides: Partial<VideoDetailLiveProps> = {}) {
+    const recorder = createSocketRecorder()
+    const props: VideoDetailLiveProps = {
+      jobs: [job()],
+      media: video(),
+      now: NOW,
+      ...overrides,
+    }
+
+    const view = render(
+      <JobEventsProvider
+        createSocket={recorder.createSocket}
+        getLocation={() => TEST_LOCATION}
+        random={NO_JITTER}
+      >
+        <VideoDetailLive {...props} />
+      </JobEventsProvider>,
+    )
+
+    act(() => recorder.latest().emitOpen())
+
+    return { ...view, props, recorder }
+  }
+
+  function emit(
+    recorder: ReturnType<typeof createSocketRecorder>,
+    next: DownloadJob,
+  ): void {
+    act(() => recorder.latest().emitMessage(buildJobFrame(next)))
+  }
+
+  it('renders the server’s jobs before a single frame arrives', () => {
+    renderLive()
+
+    expect(screen.getByText('downloading')).toBeInTheDocument()
+  })
+
+  /**
+   * The structural requirement, pinned. `useJobEvents` throws without a
+   * provider by design — the provider owns the socket, so a silent fallback
+   * would let every call site quietly open another connection. This test is
+   * what makes "mount the provider on the page" a failure rather than a
+   * regression nobody notices until the gateway's client count doubles.
+   */
+  it('refuses to render outside a <JobEventsProvider>', () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    expect(() =>
+      render(<VideoDetailLive jobs={[job()]} media={video()} now={NOW} />),
+    ).toThrow(/JobEventsProvider/)
+  })
+
+  /**
+   * The whole point of the task. The user pastes a link, is redirected here,
+   * and the status moves on its own — no reload, no router refresh, nothing
+   * re-fetched.
+   */
+  it('advances the status chip when the gateway says the job moved', () => {
+    const { recorder } = renderLive()
+
+    emit(recorder, job({ status: DownloadJobStatus.Converting }))
+
+    expect(screen.getByText('converting')).toBeInTheDocument()
+    expect(screen.queryByText('downloading')).not.toBeInTheDocument()
+  })
+
+  // The controls are a function of the live status too, not just the chip:
+  // Pause is legal only while `downloading`, so it has to go when that does.
+  it('withdraws Pause once the job is no longer downloading', () => {
+    const { recorder } = renderLive({ onCancel: jest.fn(), onPause: jest.fn() })
+
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument()
+
+    emit(recorder, job({ status: DownloadJobStatus.Converting }))
+
+    expect(
+      screen.queryByRole('button', { name: 'Pause' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('swaps the poster for the player when the download completes', () => {
+    const { container, recorder } = renderLive()
+
+    expect(container.querySelector('video')).toBeNull()
+
+    emit(
+      recorder,
+      job({
+        completedAt: '2026-09-15T11:59:00.000Z',
+        status: DownloadJobStatus.Completed,
+      }),
+    )
+
+    expect(container.querySelector('video')).toHaveAttribute(
+      'src',
+      `/api/download/media/${encodeURIComponent(MEDIA_ID)}/file`,
+    )
+  })
+
+  it('shows the failure the gateway reports, and offers a Retry', () => {
+    const { recorder } = renderLive({ onRetry: jest.fn() })
+
+    emit(
+      recorder,
+      job({ error: 'ETIMEDOUT', status: DownloadJobStatus.Failed }),
+    )
+
+    expect(screen.getByText('failed')).toBeInTheDocument()
+    expect(screen.getByText('ETIMEDOUT')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+  })
+
+  /**
+   * The filter is the reason this page can share the gateway's firehose
+   * without displaying it. Another user's download is broadcast to this tab
+   * and must never reach the panel.
+   */
+  it('ignores a frame for a job that is not on this page', () => {
+    const { recorder } = renderLive()
+
+    emit(
+      recorder,
+      job({ id: 'job_someone_else', status: DownloadJobStatus.Completed }),
+    )
+
+    expect(screen.getByText('downloading')).toBeInTheDocument()
+    expect(screen.queryByText('completed')).not.toBeInTheDocument()
+  })
+
+  it('leaves an earlier attempt alone while the current one advances', () => {
+    const { recorder } = renderLive({
+      jobs: [
+        job({ id: 'job_2' }),
+        job({
+          createdAt: '2026-09-14T12:00:00.000Z',
+          error: 'ETIMEDOUT',
+          id: 'job_1',
+          status: DownloadJobStatus.Failed,
+        }),
+      ],
+    })
+
+    emit(recorder, job({ id: 'job_2', status: DownloadJobStatus.Uploading }))
+
+    expect(screen.getByText('uploading')).toBeInTheDocument()
+    expect(screen.getByText('Earlier attempts')).toBeInTheDocument()
+    expect(screen.getByText('failed')).toBeInTheDocument()
+  })
+
+  /**
+   * ⚠️ `useJobEvents({ jobIds: [...] })` is called with a **fresh array every
+   * render**, which is the documented call shape: the interest is keyed on the
+   * array's sorted contents, not its identity. If that ever regressed, this
+   * call site would re-subscribe on every frame — and, were the socket ever
+   * moved out of the provider, reconnect on every frame too.
+   */
+  it('opens exactly one socket no matter how many frames arrive', () => {
+    const { recorder } = renderLive()
+
+    emit(recorder, job({ status: DownloadJobStatus.Converting }))
+    emit(recorder, job({ status: DownloadJobStatus.Uploading }))
+
+    expect(recorder.sockets).toHaveLength(1)
+  })
+
+  describe('when the feed drops', () => {
+    it('marks the running panel stale', () => {
+      const { recorder } = renderLive()
+
+      expect(screen.queryByText(VIDEO_STALE_LABEL)).not.toBeInTheDocument()
+
+      act(() => recorder.latest().emitClose())
+
+      expect(screen.getByText(VIDEO_STALE_LABEL)).toBeInTheDocument()
+    })
+
+    // The status is a server fact that does not stop being true because this
+    // tab stopped hearing about it — one marker, not a blanked-out panel.
+    it('keeps showing the last status it heard', () => {
+      const { recorder } = renderLive()
+
+      emit(recorder, job({ status: DownloadJobStatus.Converting }))
+      act(() => recorder.latest().emitClose())
+
+      expect(screen.getByText('converting')).toBeInTheDocument()
+    })
+
+    it('clears the marker once a socket is open again', () => {
+      const { recorder } = renderLive()
+
+      act(() => recorder.latest().emitClose())
+      expect(screen.getByText(VIDEO_STALE_LABEL)).toBeInTheDocument()
+
+      act(() => recorder.latest().emitOpen())
+
+      expect(screen.queryByText(VIDEO_STALE_LABEL)).not.toBeInTheDocument()
+    })
   })
 })

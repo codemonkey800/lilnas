@@ -18,7 +18,9 @@ import { canSaveLocal, mediaFileHref } from 'src/components/detail/save-local'
 import { VideoPlayer } from 'src/components/detail/video-player'
 import { ButtonLink } from 'src/components/ui/button-link'
 import { Note } from 'src/components/ui/card'
-import { formatRuntime, UNKNOWN_VALUE } from 'src/lib/format'
+import { Chip } from 'src/components/ui/chip'
+import { Dot } from 'src/components/ui/status'
+import { formatRuntime, isInProgress, UNKNOWN_VALUE } from 'src/lib/format'
 
 /**
  * `mock.pug`'s `appBody` at both widths around `video-detail.pug`'s
@@ -75,6 +77,15 @@ export const VIDEO_UNRECOGNIZED_EXPLAIN =
  */
 export const VIDEO_UNRECOGNIZED_GUIDANCE =
   'Paste a different link in the search field at the top of the page. Nothing was downloaded, and asking for this one again would fail the same way.'
+
+/**
+ * The marker beside a still-running job when the live feed is not connected.
+ *
+ * The same word `/activity` uses for the same condition, deliberately — the
+ * two pages read the same `connected` flag off the same socket, and giving one
+ * state two names across two screens is how a vocabulary rots.
+ */
+export const VIDEO_STALE_LABEL = 'reconnecting…'
 
 /** The loud `Note`, assembled at the call site the way `ui.pug` does it. */
 const UNRECOGNIZED_NOTE = 'border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
@@ -184,6 +195,41 @@ export function videoPlayerSrc(media: Video): string {
 }
 
 /**
+ * The server's job list with every live frame folded in — what
+ * `/videos/<videoId>` actually renders once the socket is up.
+ *
+ * **Replacement in place**, keyed by `job.id`, with the live copy winning: a
+ * `DownloadJobEvent.job` is documented as a full current snapshot, so it is by
+ * construction no older than the HTML rendered before the socket opened.
+ *
+ * Three things this deliberately does *not* do, each for its own reason:
+ *
+ * - **No re-sort.** The order is `createdAt` descending and no update ever
+ *   moves a job's `createdAt`, so the server's order survives every frame.
+ *   `buildActivityRows` re-derives the ordering because that feed genuinely
+ *   gains rows mid-flight; this one cannot.
+ * - **No insertion.** The subscription asks only about the ids already on the
+ *   page, so a job created anywhere else is dropped at ingest and never
+ *   reaches here. A re-paste of the same link *while this page is open* mints
+ *   a new attempt that therefore needs a reload to appear — the honest cost of
+ *   an id-keyed filter, and the alternative (subscribing unfiltered) would
+ *   have a single video's permalink accumulating every download in the house.
+ * - **No eviction.** `useJobEvents` upserts and never evicts, and this page
+ *   wants exactly that: a video's permalink shows its attempts whatever their
+ *   status. `/activity` evicts because it is a feed of what is *in flight*;
+ *   this is the record of what happened.
+ *
+ * Pure, and exported from this no-directive module rather than from the client
+ * wrapper, so it is testable without mounting a provider or a socket.
+ */
+export function mergeVideoJobs(
+  jobs: readonly DownloadJob[],
+  live: ReadonlyMap<string, DownloadJob>,
+): DownloadJob[] {
+  return jobs.map(job => live.get(job.id) ?? job)
+}
+
+/**
  * ⚠️ `onCancel` and `onPause` are real `<div>` DOM events — React's
  * `DOMAttributes` puts the media events on every element — so they have to be
  * removed before ours can take those names, exactly as `SaveLocal` removes
@@ -214,6 +260,19 @@ export type VideoDetailProps = Omit<
   onPause?: JobAction
   onResume?: JobAction
   onRetry?: JobAction
+  /**
+   * Whether the live feed is currently **not** connected — `!connected` from
+   * `useJobEvents`, handed in as a prop rather than read here so this stays a
+   * plain function of its arguments that renders without a
+   * `<JobEventsProvider>` ancestor. `VideoDetailLive` is what supplies it.
+   *
+   * ⚠️ `connected` means strictly "a socket is OPEN right now": it is `false`
+   * for the whole of the first connect and for every backoff window. On its
+   * own that would make a marker flicker on a page where nothing is happening,
+   * which is why the marker it drives is withheld unless the newest job is
+   * actually in flight — see the render below.
+   */
+  stale?: boolean
 }
 
 /**
@@ -259,12 +318,27 @@ export function VideoDetail({
   onPause,
   onResume,
   onRetry,
+  stale = false,
   ...props
 }: VideoDetailProps): JSX.Element {
   const job = latestJob(jobs)
   const unrecognized = job !== null && isUnrecognizedLink(job)
   const complete = job?.status === DownloadJobStatus.Completed
   const href = sourcePostHref(media.sourceUrl)
+
+  // ⚠️ Disconnected **and** something to miss. A socket that is down while the
+  // newest job is `completed`, `failed` or `cancelled` costs the reader
+  // nothing — that panel is final and no frame is coming — so saying
+  // "reconnecting…" there would raise a doubt about a page that cannot change.
+  // While a job is genuinely moving, the opposite is true: a `downloading`
+  // chip that stopped advancing is indistinguishable from one that is still
+  // advancing, and this marker is the only thing that tells the two apart.
+  //
+  // `isInProgress` is the complement of `TERMINAL_DOWNLOAD_JOB_STATUSES`
+  // rather than a list written out here, which is what keeps `paused` and
+  // `pausing` on the marked side: a paused download is still open work whose
+  // resume this tab would otherwise silently fail to hear about.
+  const reconnecting = stale && job !== null && isInProgress(job.status)
 
   // E7's guard and E7's URL builder, rather than E7's button: `JobLifecycle`
   // takes `save` as a `JobLifecycleLink` and renders the control itself, which
@@ -317,6 +391,22 @@ export function VideoDetail({
               jobs={jobs}
               save={save}
             />
+            {reconnecting ? (
+              // `w-fit` because this is a flex column: an `inline-flex` chip
+              // is still stretched to the column's width by the default
+              // `align-items: stretch`, and the chip is a badge rather than a
+              // banner. The same intrinsic sizing `JobLifecycle` gives the
+              // status chip it sits under.
+              //
+              // Not a live region, matching `/activity`, which keeps its one
+              // polite region for row departures and leaves this marker
+              // visual. A socket flapping through the backoff ladder would
+              // otherwise announce itself once per window.
+              <Chip className={cns('w-fit')} tone="warn">
+                <Dot tone="warn" />
+                {VIDEO_STALE_LABEL}
+              </Chip>
+            ) : null}
             {unrecognized ? (
               <Note
                 className={cns('max-w-[480px]', UNRECOGNIZED_NOTE)}

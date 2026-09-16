@@ -178,6 +178,25 @@ describe('VideoDetailPage', () => {
     expect(notFound).not.toHaveBeenCalled()
   })
 
+  /**
+   * ⚠️ This renders **at all** only because `<JobEventsProvider>` is mounted
+   * here, at the page root: `VideoDetailLive` calls `useJobEvents`, which
+   * throws without an ancestor rather than quietly opening a socket of its
+   * own. So a successful render is the assertion — delete the provider from
+   * `page.tsx` and every test in this file fails.
+   *
+   * The provider belongs here and not in `layout.tsx` because it owns the
+   * socket, and mounting it app-wide would open a gateway connection on every
+   * route including the ones that want no live data. It also sits outside
+   * everything below it with no `key` in between, so nothing on this page can
+   * tear the connection down and restart the reconnect backoff ladder.
+   */
+  it('mounts the live feed at the page root, so the panel updates itself', async () => {
+    await renderPage()
+
+    expect(screen.getByText('downloading')).toBeInTheDocument()
+  })
+
   it('passes every job through, newest first, so history renders too', async () => {
     getMedia.mockResolvedValue({
       jobs: [

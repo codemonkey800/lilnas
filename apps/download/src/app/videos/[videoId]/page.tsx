@@ -11,10 +11,9 @@ import {
   retryVideoJob,
 } from 'src/app/actions/video-job'
 import { LibraryLink } from 'src/components/detail/library-link'
-import {
-  VideoDetail,
-  VideoDetailShell,
-} from 'src/components/detail/video-detail'
+import { VideoDetailShell } from 'src/components/detail/video-detail'
+import { VideoDetailLive } from 'src/components/detail/video-detail-live'
+import { JobEventsProvider } from 'src/components/live/job-events'
 import { getIdentifiedDownloadClient } from 'src/lib/download-client'
 import { mediaIdFromRoute } from 'src/lib/media-route'
 import { getRequestInstant } from 'src/lib/request-instant'
@@ -81,6 +80,36 @@ async function loadVideoDetail(mediaId: string): Promise<MediaDetailResponse> {
  * The back affordance is `LibraryLink` in the page body, which is what the
  * mockups' `libraryLink` mixin is — an in-page control, not an app-bar one.
  * `AppBar`'s own `back` prop is deliberately left unwired.
+ *
+ * ## Where `<JobEventsProvider>` is mounted, and why here
+ *
+ * At this page's own root, wrapping only `VideoDetailLive` — deliberately
+ * **not** in `layout.tsx`. The provider owns the socket, so mounting it
+ * app-wide would open a gateway connection on every route including the ones
+ * that want no live data at all. `/activity` made exactly this call and this
+ * page copies it: the page that needs the feed is the page that pays for it,
+ * and it opens exactly one connection however many consumers sit inside,
+ * because `useJobEvents()` throws without an ancestor rather than quietly
+ * opening a second.
+ *
+ * This is the page that most needs it. A user pastes a link in the nav bar,
+ * the POST creates the job and redirects *here* — so this is the first thing
+ * they see after starting a download, and until now it was a plain server
+ * render that only moved when they reloaded it.
+ *
+ * ⚠️ The provider sits **outside** everything below it and nothing between it
+ * and `VideoDetailLive` carries a React `key`. That ordering is load-bearing
+ * rather than incidental: a `key` above the provider would tear the socket
+ * down and rebuild the store on every change of that key, and each teardown
+ * starts the reconnect backoff ladder (1s, 2s, 4s, 8s, 15s) over from the top
+ * — so the page would go quiet for progressively longer at exactly the moments
+ * it re-rendered. `/activity` keeps its feed's `key` strictly inside the
+ * provider for the same reason. Any future need to remount this body belongs
+ * on `VideoDetailLive`, never above it.
+ *
+ * Nothing else changes: the route resolution, the `getMedia` read, the type
+ * narrowing and the pinned instant all stay on the server, and the server
+ * actions are passed through by reference.
  */
 export default async function VideoDetailPage({
   params,
@@ -115,15 +144,17 @@ export default async function VideoDetailPage({
       */}
       <h1 className="sr-only">{media.title}</h1>
       <LibraryLink />
-      <VideoDetail
-        jobs={jobs}
-        media={media}
-        now={getRequestInstant()}
-        onCancel={cancelVideoJob}
-        onPause={pauseVideoJob}
-        onResume={resumeVideoJob}
-        onRetry={retryVideoJob}
-      />
+      <JobEventsProvider>
+        <VideoDetailLive
+          jobs={jobs}
+          media={media}
+          now={getRequestInstant()}
+          onCancel={cancelVideoJob}
+          onPause={pauseVideoJob}
+          onResume={resumeVideoJob}
+          onRetry={retryVideoJob}
+        />
+      </JobEventsProvider>
     </VideoDetailShell>
   )
 }
