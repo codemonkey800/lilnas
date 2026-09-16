@@ -17,7 +17,7 @@ import { corsHeaders, resolveAllowedOrigin } from './cors'
 // that would become cross-origin readable by default with every future
 // field. This route instead re-fetches /me the exact same way fetchMe()
 // already does and projects it down to only the fields a cross-origin
-// caller (nexus-code — infra/nexus-code.yml, infra/nexus-code-mbp.yml)
+// caller (nexus-code — infra/nexus-code.yml, infra/nexus-code-work.yml)
 // actually needs to render a user bubble/byline.
 //
 // `force-dynamic` because the response depends on a per-request Cookie

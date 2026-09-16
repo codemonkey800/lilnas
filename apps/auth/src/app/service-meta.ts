@@ -120,8 +120,8 @@ export const SERVICE_META: Record<string, ServiceMeta> = {
     description: 'AI coding agent',
     icon: 'laptop',
   },
-  'nexus-code-mbp.lilnas.io': {
-    name: 'Nexus Code (MBP)',
+  'nexus-code-work.lilnas.io': {
+    name: 'Nexus Code (Work)',
     description: 'AI coding agent',
     icon: 'laptop',
   },
