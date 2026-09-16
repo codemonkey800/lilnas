@@ -4,6 +4,7 @@ import { DownloadType, isManagedMedia } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
 import { Avatar } from 'src/components/ui/avatar'
+import { ButtonLink } from 'src/components/ui/button-link'
 import { Chip } from 'src/components/ui/chip'
 import {
   GalleryCard,
@@ -72,28 +73,6 @@ const CARD_ANNOTATION = 'font-mono text-mono-sm'
  * grid keeps filling the width until there is genuinely room for three.
  */
 export const GALLERY_CARD_WIDTH = 'w-[calc(50%-8px)] sm:w-[158px]'
-
-/**
- * `ui.pug`'s ghost `btn` at the 24px size `gallery.pug`'s Watch call site
- * passes, rendered as an `<a>`.
- *
- * ⚠️ Deliberately not `Button`. `embyStatus.watchUrl` is an external deep link
- * into Emby, and a control that navigates has to be an anchor — middle-click,
- * ⌘-click, "copy link address" and the screen-reader announcement all come
- * from the element, not from a handler. `Button` is
- * `ComponentPropsWithoutRef<'button'>` and cannot render one; widening it (an
- * `asChild`, or a `ButtonLink` beside it) is a change to a contract several
- * other screens build on, so it is reported rather than made on the way past.
- * Until then this is the one call site that restates the recipe, and it
- * restates `ghost`'s *whole* utility list rather than layering onto a base, for
- * the same output-order reason `BUTTON_VARIANTS` is a mutually exclusive table.
- */
-const WATCH_LINK = cns(
-  'inline-flex h-6 shrink-0 items-center justify-center rounded-md border',
-  'border-transparent px-2 text-[11.5px] font-[550] tracking-[-0.005em]',
-  'whitespace-nowrap text-ink-3',
-  'transition-press hover:bg-surface-2 hover:text-ink active:scale-96',
-)
 
 export type GalleryItemCardProps = {
   /** One row of `GET /download/gallery`. */
@@ -173,14 +152,16 @@ export function GalleryItemCard({
           </span>
         </GalleryCardAttrib>
         {watchUrl ? (
-          <a
-            className={WATCH_LINK}
+          <ButtonLink
+            className="h-6 shrink-0 px-2 text-[11.5px]"
             href={watchUrl}
             rel="noreferrer"
+            size="sm"
             target="_blank"
+            variant="ghost"
           >
             Watch
-          </a>
+          </ButtonLink>
         ) : null}
       </GalleryCardRow>
       {indexing ? (

@@ -1,9 +1,9 @@
 import type { GalleryItem } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
 
-import { GhostLink } from 'src/components/home/ghost-link'
 import { GALLERY_HREF } from 'src/components/home/quick-access'
 import { RecentCard } from 'src/components/home/recent-card'
+import { ButtonLink } from 'src/components/ui/button-link'
 import { Note } from 'src/components/ui/card'
 
 /**
@@ -48,9 +48,14 @@ export function RecentlyAdded({
         <h2 className="text-h2" id={HEADING_ID}>
           Recently added
         </h2>
-        <GhostLink href={GALLERY_HREF} iconEnd="arrow">
+        <ButtonLink
+          href={GALLERY_HREF}
+          iconEnd="arrow"
+          size="sm"
+          variant="ghost"
+        >
           See full library
-        </GhostLink>
+        </ButtonLink>
       </div>
       {items.length === 0 ? (
         <Note>

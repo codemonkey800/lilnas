@@ -7,9 +7,9 @@ import type {
 import { DownloadType, isManagedMedia } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
 
-import { GhostLink } from 'src/components/home/ghost-link'
 import { ACCOUNT_HREF } from 'src/components/shell/account-link'
 import { Avatar } from 'src/components/ui/avatar'
+import { ButtonLink } from 'src/components/ui/button-link'
 import { Chip } from 'src/components/ui/chip'
 import {
   GalleryCard,
@@ -177,9 +177,14 @@ export function RecentCard({
           </span>
         </GalleryCardAttrib>
         {watchUrl === undefined ? null : (
-          <GhostLink className="h-6 px-2 text-[11.5px]" href={watchUrl}>
+          <ButtonLink
+            className="h-6 px-2 text-[11.5px]"
+            href={watchUrl}
+            size="sm"
+            variant="ghost"
+          >
             Watch
-          </GhostLink>
+          </ButtonLink>
         )}
       </GalleryCardRow>
     </GalleryCard>
