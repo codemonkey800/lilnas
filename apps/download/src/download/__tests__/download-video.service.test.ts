@@ -62,6 +62,35 @@ class MockChildProcess extends EventEmitter {
   kill = jest.fn()
 }
 
+/**
+ * A stand-in for the job's log file that enforces the same contract the real
+ * one does. `createWriteStream()` returns a stream that is *not* in object
+ * mode, so `write()` **throws** ERR_INVALID_ARG_TYPE for anything that isn't
+ * a string/Buffer/TypedArray - it does not emit, and it does not coerce.
+ *
+ * That detail is the entire spawn-error wedge: `runProcess()` used to pass
+ * the raw Error into `write()` from inside its 'error' listener, the throw
+ * escaped as an uncaught exception, and `reject()` on the next line never
+ * ran - leaving the download promise permanently unsettled. A permissive
+ * `write: jest.fn()` swallows a raw Error happily and would let that back in
+ * without a single test going red, so the fake refuses it the same way.
+ */
+function createMockLogStream() {
+  return {
+    close: jest.fn(),
+    write: jest.fn((chunk: unknown) => {
+      if (typeof chunk !== 'string' && !Buffer.isBuffer(chunk)) {
+        throw new TypeError(
+          'The "chunk" argument must be of type string or an instance of ' +
+            `Buffer. Received ${typeof chunk}`,
+        )
+      }
+
+      return true
+    }),
+  }
+}
+
 const JOB_ID = 'job-1'
 const NOW_ISO = '2026-08-20T12:00:00.000Z'
 const VIDEO_URL = 'https://example.com/video'
@@ -154,6 +183,54 @@ describe('DownloadVideoService', () => {
     })
   }
 
+  /**
+   * Installs a `spawn()` fake whose pipeline process never starts. Node
+   * reports that as an 'error' event followed by a 'close', which is what
+   * this reproduces - EACCES here, but ENOENT, EPERM and ENOMEM all arrive
+   * through the same listener, as does a `YtdlpUpdateService` update that
+   * leaves a truncated or non-executable binary behind mid-`move`.
+   *
+   * Emitting both in one callback is deliberate: if the 'error' listener
+   * throws, the throw takes the 'close' emit with it, exactly as it does in
+   * node. The metadata probe still succeeds, same as `mockProcessExit()`.
+   */
+  function mockProcessSpawnError(error: Error) {
+    mockSpawn.mockImplementation((...spawnArgs: unknown[]) => {
+      const args = spawnArgs[1]
+      const isInfoProbe = Array.isArray(args) && args.includes('--dump-json')
+      const proc = new MockChildProcess()
+
+      setImmediate(() => {
+        if (isInfoProbe) {
+          proc.stdout.emit('data', Buffer.from(JSON.stringify(VIDEO_INFO)))
+          proc.emit('close', 0)
+          return
+        }
+
+        proc.emit('error', error)
+        proc.emit('close', null)
+      })
+
+      return proc as unknown as ChildProcess
+    })
+  }
+
+  function spawnError(code: string): NodeJS.ErrnoException {
+    const error: NodeJS.ErrnoException = new Error(
+      `spawn /usr/bin/yt-dlp ${code}`,
+    )
+    error.code = code
+
+    return error
+  }
+
+  /** The log-file fake handed to the most recent `runProcess()` call. */
+  function lastLogStream() {
+    return mockCreateWriteStream.mock.results.at(-1)?.value as ReturnType<
+      typeof createMockLogStream
+    >
+  }
+
   beforeEach(async () => {
     interruptions = new Map<string, JobInterruptKind>()
     const job = buildJob()
@@ -186,10 +263,7 @@ describe('DownloadVideoService', () => {
 
     service = module.get<DownloadVideoService>(DownloadVideoService)
 
-    mockCreateWriteStream.mockImplementation(() => ({
-      close: jest.fn(),
-      write: jest.fn(),
-    }))
+    mockCreateWriteStream.mockImplementation(() => createMockLogStream())
     mockEnsureDir.mockResolvedValue(undefined)
     mockReaddir.mockResolvedValue(['part0.mp4'])
     mockProcessExit()
@@ -298,6 +372,113 @@ describe('DownloadVideoService', () => {
       const err = await captureRejection(service.download(options))
 
       expect(err).toBeInstanceOf(JobInterruptedError)
+    })
+  })
+
+  // The spawn-error wedge. `runProcess()`'s 'error' listener wrote the raw
+  // Error into the job's log stream, which throws rather than emits for a
+  // non-string chunk; the throw escaped the listener as an uncaught
+  // exception and `reject()` never ran, so the download promise never
+  // settled. `download()` then hung on it forever, the scheduler's catch
+  // stayed suspended inside that await and never wrote Failed, and the
+  // handle registered just before the spawn stayed registered on a child
+  // that never started - so pause and cancel signalled a corpse and parked
+  // at Pausing/Cancelling with nothing alive left to move them.
+  //
+  // Every assertion below is really the same one: the promise *settles*. The
+  // suite's 10s testTimeout is what catches a regression - a re-broken
+  // handler hangs these rather than failing an expectation.
+  describe('a process that never starts', () => {
+    it('rejects with the spawn error instead of hanging forever', async () => {
+      const error = spawnError('EACCES')
+      mockProcessSpawnError(error)
+
+      const err = await captureRejection(service.download(options))
+
+      // `toBe`, not `toMatchObject`: the rejection has to be the spawn error
+      // itself. Settling from the trailing 'close' instead would surface as a
+      // synthesised "exited with code null", which is a different bug.
+      expect(err).toBe(error)
+      expect(errorSpy).toHaveBeenCalled()
+    })
+
+    it('serialises the error into the log file rather than writing it raw', async () => {
+      mockProcessSpawnError(spawnError('ENOENT'))
+
+      await captureRejection(service.download(options))
+
+      const written = lastLogStream().write.mock.calls.map(([chunk]) => chunk)
+      expect(written.every(chunk => typeof chunk === 'string')).toBe(true)
+      expect(written.join('')).toContain('ENOENT')
+    })
+
+    // A pause that arrived while the job was still `downloading` leaves its
+    // intent on record and writes Pausing. If the spawn then fails, the only
+    // thing that can move the job off Pausing is this rejection reaching the
+    // scheduler - `proc.kill()` on a child that never started is a silent
+    // no-op, so no exit event is ever coming.
+    it('still rejects when a pause is already on record, so Pausing cannot stick', async () => {
+      const error = spawnError('EACCES')
+      interruptions.set(JOB_ID, 'pause')
+      mockProcessSpawnError(error)
+
+      const err = await captureRejection(service.download(options))
+
+      // Not a JobInterruptedError: there was no process to interrupt. The
+      // spawn genuinely failed, so the job belongs in Failed - which is
+      // terminal, and therefore releases the handle - rather than in a Paused
+      // state that could never be resumed.
+      expect(err).toBe(error)
+      expect(err).not.toBeInstanceOf(JobInterruptedError)
+    })
+
+    it('still rejects when a cancel is already on record, so Cancelling cannot stick', async () => {
+      const error = spawnError('EACCES')
+      interruptions.set(JOB_ID, 'cancel')
+      mockProcessSpawnError(error)
+
+      const err = await captureRejection(service.download(options))
+
+      expect(err).toBe(error)
+      expect(err).not.toBeInstanceOf(JobInterruptedError)
+    })
+
+    it('rejects the conversion phase too, which shares the same helper', async () => {
+      const error = spawnError('ENOENT')
+      mockProcessSpawnError(error)
+
+      const err = await captureRejection(service.convert(options))
+
+      expect(err).toBe(error)
+    })
+
+    // Not every failed spawn reaches the 'error' listener: node throws
+    // straight out of `spawn()` for any errno outside its deferred set
+    // (EACCES/EAGAIN/EMFILE/ENFILE/ENOENT) - ENOMEM under memory pressure, or
+    // the ENOEXEC a half-written binary produces. That path has to settle too,
+    // and must not leak the log file's fd on the way out.
+    it('closes the log file when spawn throws synchronously', async () => {
+      const error = spawnError('ENOMEM')
+      mockSpawn.mockImplementation((...spawnArgs: unknown[]) => {
+        const args = spawnArgs[1]
+
+        if (Array.isArray(args) && args.includes('--dump-json')) {
+          const proc = new MockChildProcess()
+          setImmediate(() => {
+            proc.stdout.emit('data', Buffer.from(JSON.stringify(VIDEO_INFO)))
+            proc.emit('close', 0)
+          })
+
+          return proc as unknown as ChildProcess
+        }
+
+        throw error
+      })
+
+      const err = await captureRejection(service.download(options))
+
+      expect(err).toBe(error)
+      expect(lastLogStream().close).toHaveBeenCalled()
     })
   })
 

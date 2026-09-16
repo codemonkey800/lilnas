@@ -281,6 +281,92 @@ describe('DownloadSchedulerService', () => {
     )
   })
 
+  // The other half of the spawn-error wedge, from the scheduler's side. When
+  // yt-dlp fails to start, `runProcess()` rejects with the spawn errno rather
+  // than a JobInterruptedError - there was no process to interrupt - so these
+  // land on the plain-failure branch even when the user had already asked for
+  // a pause or a cancel. That branch is what unwedges them: Failed is
+  // terminal, and `updateJob()` releases the proc handle and the interrupt
+  // note on every terminal transition, so nothing is left pointing at a child
+  // that never existed.
+  describe('a job whose process never started', () => {
+    /** What `runProcess()` rejects with when the binary will not start. */
+    function spawnError(code: string): NodeJS.ErrnoException {
+      const error: NodeJS.ErrnoException = new Error(
+        `spawn /usr/bin/yt-dlp ${code}`,
+      )
+      error.code = code
+
+      return error
+    }
+
+    it('fails the job and releases the handle registered before the spawn', async () => {
+      const record = buildRecord()
+      steps.download.mockImplementation(({ id }) => {
+        // `download()` registers the handle immediately after spawning and
+        // before awaiting it, so a failed spawn always leaves one behind.
+        state.setProc(id, fakeProc)
+        return Promise.reject(spawnError('EACCES'))
+      })
+
+      scheduler.add(record)
+      await drain()
+
+      const job = state.jobs.get(record.id)
+      expect(job?.status).toBe(DownloadJobStatus.Failed)
+      expect(job?.error).toBe('spawn /usr/bin/yt-dlp EACCES')
+      expect(state.procs.has(record.id)).toBe(false)
+      expect(metrics.jobCompleted).toHaveBeenCalledWith('failed')
+    })
+
+    // The wedge proper: pause wrote Pausing and signalled a child that never
+    // started, which is a silent no-op, so no exit event is ever coming. The
+    // rejection reaching this catch is the only thing that can move the job.
+    it('does not leave a pause requested against it stuck at Pausing', async () => {
+      const record = buildRecord()
+      steps.download.mockImplementation(({ id }) => {
+        state.setProc(id, fakeProc)
+        // Exactly what DownloadService.pauseVideoDownloadJob does.
+        state.setInterruption(id, 'pause')
+        state.updateJob(id, { status: DownloadJobStatus.Pausing })
+
+        return Promise.reject(spawnError('EACCES'))
+      })
+
+      scheduler.add(record)
+      await drain()
+
+      const job = state.jobs.get(record.id)
+      expect(job?.status).not.toBe(DownloadJobStatus.Pausing)
+      expect(job?.status).toBe(DownloadJobStatus.Failed)
+      expect(state.procs.has(record.id)).toBe(false)
+      expect(state.getInterruption(record.id)).toBeUndefined()
+      // Not Paused: a job whose binary would not start has nothing to resume,
+      // so parking it in a resumable state would only wedge it again later.
+      expect(metrics.jobPaused).not.toHaveBeenCalled()
+    })
+
+    it('does not leave a cancel requested against it stuck at Cancelling', async () => {
+      const record = buildRecord()
+      steps.download.mockImplementation(({ id }) => {
+        state.setProc(id, fakeProc)
+        state.setInterruption(id, 'cancel')
+        state.updateJob(id, { status: DownloadJobStatus.Cancelling })
+
+        return Promise.reject(spawnError('EACCES'))
+      })
+
+      scheduler.add(record)
+      await drain()
+
+      const job = state.jobs.get(record.id)
+      expect(job?.status).not.toBe(DownloadJobStatus.Cancelling)
+      expect(job?.status).toBe(DownloadJobStatus.Failed)
+      expect(state.procs.has(record.id)).toBe(false)
+      expect(state.getInterruption(record.id)).toBeUndefined()
+    })
+  })
+
   describe('requeue', () => {
     it('queues an existing job and runs it without re-broadcasting a "created" event', async () => {
       const record = buildRecord({ status: DownloadJobStatus.Paused })

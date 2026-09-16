@@ -540,7 +540,21 @@ export class DownloadVideoService {
 
     logFileStream.write(`$ ${bin} ${args.join(' ')}\n`)
 
-    const proc = spawn(bin, args, { cwd })
+    // Not every spawn failure reaches the 'error' handler below. Node defers
+    // only EACCES/EAGAIN/EMFILE/ENFILE/ENOENT to a `process.nextTick()` error
+    // event; every other errno - ENOMEM under memory pressure, or the ENOEXEC
+    // a half-written yt-dlp binary produces - is thrown from `spawn()` right
+    // here. That path already lands the job on `Failed` (it rejects before
+    // `setProc()` runs, so there is no stale handle and nothing can wedge),
+    // but it would otherwise leave this stream's fd open for the life of the
+    // process, once per failed attempt.
+    let proc
+    try {
+      proc = spawn(bin, args, { cwd })
+    } catch (err) {
+      logFileStream.close()
+      throw err
+    }
 
     let stderrBuffer = ''
     proc.stderr.on('data', chunk => {
@@ -558,7 +572,36 @@ export class DownloadVideoService {
       proc.stderr.pipe(logFileStream)
 
       proc.on('error', err => {
-        logFileStream.write(err)
+        // Serialised, never written raw. `logFileStream` is a plain
+        // (non-objectMode) fs stream, and `write()` *throws*
+        // ERR_INVALID_ARG_TYPE - it does not emit - for anything that isn't a
+        // string/Buffer/TypedArray. An Error is none of those, so passing one
+        // straight through threw from inside this listener, and a throw from
+        // an 'error' listener escapes `emit()` into the `process.nextTick()`
+        // node schedules for a failed spawn: an uncaught exception.
+        //
+        // That took `reject()` below with it, and node emits no 'close' after
+        // a spawn its 'error' listener threw from, so the 'close' handler
+        // never ran either. This promise then never settled at all, and
+        // `download()`'s `await` on it (:311) hung forever - which is the
+        // whole spawn-error wedge. The job kept the `Downloading` written
+        // before the spawn, the scheduler's catch was still suspended inside
+        // that await so it never wrote `Failed`, and the handle `setProc()`
+        // registered at :292 stayed registered on a child that never started,
+        // so pause and cancel signalled a no-op corpse and parked at
+        // Pausing/Cancelling with nothing left alive to move them.
+        //
+        // Reachable in production well beyond the ENOENT that first exposed
+        // it: EACCES if /opt/yt-dlp/yt-dlp loses its exec bit, EPERM, ENOMEM
+        // under memory pressure, and a `YtdlpUpdateService` update that
+        // leaves a truncated or non-executable binary mid-`move` - that one
+        // runs on a daily cron, on by default.
+        //
+        // Nothing here needs to clear the handle itself: settling is enough.
+        // The rejection propagates to the scheduler's catch, which writes
+        // `Failed`, and `DownloadStateService.updateJob()` drops both the proc
+        // and the interrupt note on every terminal transition.
+        logFileStream.write(`\n${getErrorMessage(err)}\n`)
         reject(err)
       })
 
