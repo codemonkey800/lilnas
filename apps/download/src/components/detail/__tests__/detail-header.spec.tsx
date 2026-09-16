@@ -1,0 +1,199 @@
+import '@testing-library/jest-dom'
+
+import type { Media } from '@lilnas/utils/download/types'
+import { DownloadType } from '@lilnas/utils/download/types'
+import { render, screen } from '@testing-library/react'
+
+import {
+  DetailAttribution,
+  DetailHeader,
+} from 'src/components/detail/detail-header'
+import { MASKED_INITIALS } from 'src/components/ui/avatar'
+
+/** The one instant every stamp on the page is measured against. */
+const NOW = Date.parse('2026-09-15T12:00:00.000Z')
+
+const MOVIE: Media = {
+  id: 'tmdb:11660',
+  posterUrl: 'https://art.example/poster.jpg',
+  title: 'Following',
+  tmdbId: 11660,
+  type: DownloadType.Movie,
+  year: 1999,
+}
+
+const VIDEO: Media = {
+  id: 'video:abc123',
+  runtime: 842,
+  sourceUrl: 'https://youtube.com/watch?v=abc',
+  title: 'Sourdough starter, day one to seven',
+  type: DownloadType.Video,
+}
+
+describe('DetailHeader', () => {
+  it('renders the title as the heading', () => {
+    const { container } = render(<DetailHeader media={MOVIE} />)
+
+    expect(container.querySelector('p.text-h1')).toHaveTextContent('Following')
+  })
+
+  it('renders every optional slot in the order the mockups put them', () => {
+    const { container } = render(
+      <DetailHeader
+        actions={<span>slot-actions</span>}
+        attribution={<span>slot-attribution</span>}
+        cast={<span>slot-cast</span>}
+        lifecycle={<span>slot-lifecycle</span>}
+        links={<span>slot-links</span>}
+        media={MOVIE}
+        meta="1999 · 1h 10m"
+        synopsis="A young writer follows strangers."
+      />,
+    )
+
+    const order = Array.from(container.querySelectorAll('span'))
+      .map(element => element.textContent ?? '')
+      .filter(text => text.startsWith('slot-'))
+
+    expect(order).toEqual([
+      'slot-links',
+      'slot-cast',
+      'slot-attribution',
+      'slot-lifecycle',
+      'slot-actions',
+    ])
+  })
+
+  it('omits the metadata paragraph when there is no metadata', () => {
+    render(<DetailHeader media={MOVIE} />)
+
+    // An empty paragraph under the title is a gap that reads as a bug.
+    expect(screen.queryByText('1999 · 1h 10m')).not.toBeInTheDocument()
+  })
+
+  it('labels a movie poster with its title', () => {
+    render(<DetailHeader media={MOVIE} />)
+
+    // Two nodes carry the title now — the heading and the poster's fallback
+    // label — which is exactly what the mixin does.
+    expect(screen.getAllByText('Following')).toHaveLength(2)
+  })
+
+  it('leaves a video poster unlabelled', () => {
+    render(<DetailHeader media={VIDEO} posterShape="wide" />)
+
+    // The backend never populates `posterUrl` for a video, so the fallback
+    // always paints — and a centred label lands on top of the play mark.
+    expect(
+      screen.getAllByText('Sourdough starter, day one to seven'),
+    ).toHaveLength(1)
+  })
+
+  it('gives each shape its own complete width set at both widths', () => {
+    const { container: tall } = render(<DetailHeader media={MOVIE} />)
+    const { container: wide } = render(
+      <DetailHeader media={VIDEO} posterShape="wide" />,
+    )
+
+    const tallClasses =
+      tall.firstElementChild?.firstElementChild?.getAttribute('class')
+    const wideClasses =
+      wide.firstElementChild?.firstElementChild?.getAttribute('class')
+
+    expect(tallClasses).toContain('max-w-[220px]')
+    expect(tallClasses).toContain('sm:w-[200px]')
+    expect(wideClasses).toContain('sm:w-[340px]')
+    expect(wideClasses).not.toContain('max-w-[220px]')
+  })
+
+  it('renders an overlay inside the poster', () => {
+    render(
+      <DetailHeader
+        media={VIDEO}
+        posterOverlay={<span>player-controls</span>}
+        posterShape="wide"
+      />,
+    )
+
+    expect(screen.getByText('player-controls')).toBeInTheDocument()
+  })
+})
+
+describe('DetailAttribution', () => {
+  it('reads the local part of the address and how long ago it was', () => {
+    render(
+      <DetailAttribution
+        now={NOW}
+        requester={{ email: 'jeremy.asuncion@lilnas.io', userId: 'u_1' }}
+        timestamp="2026-09-15T11:48:00.000Z"
+      />,
+    )
+
+    expect(screen.getByText('jeremy.asuncion · 12m ago')).toBeInTheDocument()
+  })
+
+  it('takes the prefix the page supplies', () => {
+    render(
+      <DetailAttribution
+        now={NOW}
+        prefix="downloaded by "
+        requester={{ email: 'sam@lilnas.io', userId: 'u_2' }}
+        timestamp="2026-09-15T11:48:00.000Z"
+      />,
+    )
+
+    expect(screen.getByText('downloaded by sam · 12m ago')).toBeInTheDocument()
+  })
+
+  it('renders a masked requester as hidden, beside a dashed avatar', () => {
+    render(
+      <DetailAttribution
+        now={NOW}
+        requester={null}
+        timestamp="2026-09-15T11:48:00.000Z"
+      />,
+    )
+
+    expect(screen.getByText('hidden · 12m ago')).toBeInTheDocument()
+    expect(screen.getByText(MASKED_INITIALS)).toBeInTheDocument()
+  })
+
+  it('never links, masked or not — /profile does not exist yet', () => {
+    const { container } = render(
+      <DetailAttribution
+        now={NOW}
+        requester={{ email: 'jeremy.asuncion@lilnas.io', userId: 'u_1' }}
+        timestamp="2026-09-15T11:48:00.000Z"
+      />,
+    )
+
+    expect(container.querySelector('a')).toBeNull()
+  })
+
+  it('keeps the full address in the avatar title', () => {
+    render(
+      <DetailAttribution
+        now={NOW}
+        requester={{ email: 'jeremy.asuncion@lilnas.io', userId: 'u_1' }}
+        timestamp="2026-09-15T11:48:00.000Z"
+      />,
+    )
+
+    expect(screen.getByText('JA')).toHaveAttribute(
+      'title',
+      'jeremy.asuncion@lilnas.io',
+    )
+  })
+
+  it('measures the stamp against the instant it is given, never the clock', () => {
+    render(
+      <DetailAttribution
+        now={NOW}
+        requester={null}
+        timestamp="2026-09-14T12:00:00.000Z"
+      />,
+    )
+
+    expect(screen.getByText('hidden · 1d ago')).toBeInTheDocument()
+  })
+})
