@@ -17,13 +17,13 @@ Companion to [`../spec.md`](../spec.md), [`../user-stories.md`](../user-stories.
 [`../backend.md`](../backend.md), and the mockups. This is the last piece of the
 download rebuild.
 
-| Change | In one sentence |
-| --- | --- |
-| **Ultraviolet lands in the app** | The mockups' theme, icon set and ~30 component primitives become real React + Tailwind. |
-| **Nine screens ship** | Home, gallery, search, activity, movie/show/video detail, profile, admin — each at both viewport widths. |
-| **One entry point, everywhere** | The nav-bar field classifies URL-vs-title client-side and is the only way into a download or a search. |
-| **Downloads go live** | A WebSocket subscription pushes job progress onto whatever page is open, with no polling. |
-| **Backend untouched** | Every endpoint these pages need already exists — this plan adds no routes, no schemas, no repo helpers. |
+| Change                           | In one sentence                                                                                          |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **Ultraviolet lands in the app** | The mockups' theme, icon set and ~30 component primitives become real React + Tailwind.                  |
+| **Nine screens ship**            | Home, gallery, search, activity, movie/show/video detail, profile, admin — each at both viewport widths. |
+| **One entry point, everywhere**  | The nav-bar field classifies URL-vs-title client-side and is the only way into a download or a search.   |
+| **Downloads go live**            | A WebSocket subscription pushes job progress onto whatever page is open, with no polling.                |
+| **Backend untouched**            | Every endpoint these pages need already exists — this plan adds no routes, no schemas, no repo helpers.  |
 
 ```mermaid
 graph LR
@@ -48,7 +48,7 @@ phase and are referenced as `Phase 3 · D2`. See [Sequencing](#sequencing).
   shadcn** — why: the mockups already specify every primitive down to the pixel,
   and nothing else in the repo consumes them yet.
 - **Verification runs against the live Radarr/Sonarr/Emby/MinIO on this host**, with
-  a *copied* SQLite database — why: real data beats invented data, and this box
+  a _copied_ SQLite database — why: real data beats invented data, and this box
   already has all four services on `lilnas_default`.
 - **No agent ever mutates the real media library** — why: grab/replace/delete/flag
   write to Radarr/Sonarr and delete files off `/storage/media-library`.
@@ -90,7 +90,7 @@ backend this depends on exist only on this branch (173 commits ahead of `main`).
    before its dependencies are green.
 2. Implement → write or update tests → run these **from `apps/download`**:
    - `pnpm test`
-   - `pnpm lint` (two checks — eslint *and* prettier)
+   - `pnpm lint` (two checks — eslint _and_ prettier)
    - `pnpm type-check`
 3. For any task that renders a page or a component: **screenshot it and reconcile
    against the mockup** — see [Visual verification](#visual-verification).
@@ -102,13 +102,13 @@ backend this depends on exist only on this branch (173 commits ahead of `main`).
 
 **Markers:**
 
-| Marker | Means |
-| --- | --- |
-| `- [ ]` | Not started |
-| `- [x]` … `abc1234` | Done, with the commit that did it |
-| ⚠️ **PARTIAL** | Landed with scope narrowed — say what was left and why, inline |
-| ⏭️ **DROPPED** | Not doing it — say why. Never delete a task |
-| 🚧 / ⏳ | Blocked. Do not implement |
+| Marker              | Means                                                          |
+| ------------------- | -------------------------------------------------------------- |
+| `- [ ]`             | Not started                                                    |
+| `- [x]` … `abc1234` | Done, with the commit that did it                              |
+| ⚠️ **PARTIAL**      | Landed with scope narrowed — say what was left and why, inline |
+| ⏭️ **DROPPED**      | Not doing it — say why. Never delete a task                    |
+| 🚧 / ⏳             | Blocked. Do not implement                                      |
 
 **When reality disagrees with this plan,** add a short **Findings** note under the
 task, then update the downstream tasks that finding invalidates. Do not let the doc
@@ -257,7 +257,7 @@ Two guards, both non-negotiable:
   A second writer on the live WAL risks `SQLITE_BUSY` and, worse, corrupting the
   running service's database.
 - **No agent runs a library mutation.** Grab, replace, delete-files and flag-bad-file
-  write to Radarr/Sonarr and delete real files. Video download/pause/cancel *are*
+  write to Radarr/Sonarr and delete real files. Video download/pause/cancel _are_
   fair game — a yt-dlp job is self-contained and is the honest way to produce the
   `downloading`/`paused`/`cancelled` states the mockups draw.
 
@@ -274,7 +274,7 @@ worse.
 - **Admin status** comes from `client.whoami()` → `{ email, userId, isAdmin }`
   (`packages/utils/src/auth/types.ts:19`). Don't infer it from an email list.
 - **Self-or-admin access** on `/profile` and `/history` is enforced server-side; a
-  403 arrives as a `DownloadApiError`. The UI's job is to *not render a link* the
+  403 arrives as a `DownloadApiError`. The UI's job is to _not render a link_ the
   API would refuse (spec §12), not to duplicate the check.
 - **The fonts are already loaded.** `src/app/layout.tsx:11-22` sets up Figtree and
   IBM Plex Mono against `--font-sans`/`--font-mono`. Don't re-add them.
@@ -319,37 +319,37 @@ worse.
 
 ### Layout
 
-| File | What it is |
-| --- | --- |
-| `apps/download/src/tailwind.css` | Currently one `@import`. Becomes the Ultraviolet `@theme` + `@utility` layer (Phase 0 · A1). |
-| `apps/download/src/app/layout.tsx` | Root layout. Fonts already wired; A1/C1 extend it. |
-| `apps/download/src/app/page.tsx` | Placeholder root route. Phase 3 · D1 replaces it. |
-| `apps/download/src/lib/download-client.ts` | `getIdentifiedDownloadClient()`. **Use this**, not `localInstance`. |
-| `apps/download/src/components/` | Does not exist yet. Everything this plan builds lives here. |
-| `packages/utils/src/download/client.ts` | `DownloadClient` — every method the pages call. Read-only for this plan. |
-| `packages/utils/src/download/types.ts` | Wire types (`DownloadJob`, `GalleryItem`, `Media`, `ProfileResponse`, …). |
-| `packages/utils/src/download/schema.ts` | Zod schemas + the `DownloadType` / `DownloadJobStatus` enums. |
-| `docs/features/download/designs/src/mixins/ui.pug` | **The component specification.** 518 lines, one mixin per primitive. |
-| `docs/features/download/designs/src/mixins/mock.pug` | App bar, nav-search field, account link (lines 86–200). The rest is mockup harness — ignore it. |
-| `docs/features/download/designs/src/theme.css` | The `@theme` block to port. Lines 340–381 are mockup harness — do **not** port those. |
-| `docs/features/download/designs/src/layout/sprite.html` | 27 icons as one `<symbol>` set. |
-| `docs/features/download/designs/src/pages/*.pug` | One per screen. Layout only; data is in `../data/*.mjs`. |
-| `docs/features/download/designs/*.html` | The built mockups. **Open these to compare against** — not the `.pug`. |
+| File                                                    | What it is                                                                                      |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `apps/download/src/tailwind.css`                        | Currently one `@import`. Becomes the Ultraviolet `@theme` + `@utility` layer (Phase 0 · A1).    |
+| `apps/download/src/app/layout.tsx`                      | Root layout. Fonts already wired; A1/C1 extend it.                                              |
+| `apps/download/src/app/page.tsx`                        | Placeholder root route. Phase 3 · D1 replaces it.                                               |
+| `apps/download/src/lib/download-client.ts`              | `getIdentifiedDownloadClient()`. **Use this**, not `localInstance`.                             |
+| `apps/download/src/components/`                         | Does not exist yet. Everything this plan builds lives here.                                     |
+| `packages/utils/src/download/client.ts`                 | `DownloadClient` — every method the pages call. Read-only for this plan.                        |
+| `packages/utils/src/download/types.ts`                  | Wire types (`DownloadJob`, `GalleryItem`, `Media`, `ProfileResponse`, …).                       |
+| `packages/utils/src/download/schema.ts`                 | Zod schemas + the `DownloadType` / `DownloadJobStatus` enums.                                   |
+| `docs/features/download/designs/src/mixins/ui.pug`      | **The component specification.** 518 lines, one mixin per primitive.                            |
+| `docs/features/download/designs/src/mixins/mock.pug`    | App bar, nav-search field, account link (lines 86–200). The rest is mockup harness — ignore it. |
+| `docs/features/download/designs/src/theme.css`          | The `@theme` block to port. Lines 340–381 are mockup harness — do **not** port those.           |
+| `docs/features/download/designs/src/layout/sprite.html` | 27 icons as one `<symbol>` set.                                                                 |
+| `docs/features/download/designs/src/pages/*.pug`        | One per screen. Layout only; data is in `../data/*.mjs`.                                        |
+| `docs/features/download/designs/*.html`                 | The built mockups. **Open these to compare against** — not the `.pug`.                          |
 
 ### The API surface, by page
 
 Every method is on `DownloadClient`. None of them need adding.
 
-| Page | Calls |
-| --- | --- |
-| Home | `getGalleryFacets()` (quick-access counts), `getGallery({ limit: 6 })`, `getActivity({ limit: 1 })` (running count) |
-| Gallery | `getGallery({ type, requester, from, to, cursor })`, `getGalleryFacets({ from, to })` |
-| Search | `getDiscover({ query, genre, yearFrom, yearTo, sort, cursor })` |
-| Activity | `getActivity({ type, cursor })` + `/ws` |
+| Page                    | Calls                                                                                                                   |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Home                    | `getGalleryFacets()` (quick-access counts), `getGallery({ limit: 6 })`, `getActivity({ limit: 1 })` (running count)     |
+| Gallery                 | `getGallery({ type, requester, from, to, cursor })`, `getGalleryFacets({ from, to })`                                   |
+| Search                  | `getDiscover({ query, genre, yearFrom, yearTo, sort, cursor })`                                                         |
+| Activity                | `getActivity({ type, cursor })` + `/ws`                                                                                 |
 | Movie/Show/Video detail | `getMedia(id)` → `{ media, jobs }`, `listReleases(id)`, `listSeasons(id)`, `listBadFiles(id)`, `getMediaFileUrl(id, …)` |
-| Profile | `getProfile({ requester, days })`, `getHistory({ requester, type, status, cursor })` |
-| Admin | `getStats({ days })`, `getHistory({ requester, type, status, cursor })`, `getAuditLog({ … })` |
-| Everywhere | `whoami()` → `{ email, userId, isAdmin }` |
+| Profile                 | `getProfile({ requester, days })`, `getHistory({ requester, type, status, cursor })`                                    |
+| Admin                   | `getStats({ days })`, `getHistory({ requester, type, status, cursor })`, `getAuditLog({ … })`                           |
+| Everywhere              | `whoami()` → `{ email, userId, isAdmin }`                                                                               |
 
 Mutations (server actions only): `createJob`, `cancelJob`, `pauseJob`, `resumeJob`,
 `deleteJob`, `grabRelease`, `replaceRelease`, `flagBadFile`, `unflagBadFile`,
@@ -358,12 +358,23 @@ Mutations (server actions only): `createJob`, `cancelJob`, `pauseJob`, `resumeJo
 ### Enums you will render
 
 ```ts
-DownloadType        = 'movie' | 'show' | 'video'
-DownloadJobStatus   = 'requested' | 'pending' | 'searching' | 'downloading'
-                    | 'pausing' | 'paused' | 'converting' | 'uploading'
-                    | 'importing' | 'cleaning' | 'cancelling'
-                    | 'completed' | 'failed' | 'cancelled'
-EmbyStatus.state    = 'indexed' | 'indexing' | 'unknown'
+DownloadType = 'movie' | 'show' | 'video'
+DownloadJobStatus =
+  'requested' |
+  'pending' |
+  'searching' |
+  'downloading' |
+  'pausing' |
+  'paused' |
+  'converting' |
+  'uploading' |
+  'importing' |
+  'cleaning' |
+  'cancelling' |
+  'completed' |
+  'failed' |
+  'cancelled'
+EmbyStatus.state = 'indexed' | 'indexing' | 'unknown'
 ```
 
 `TERMINAL_DOWNLOAD_JOB_STATUSES` (`types.ts:58`) is `cancelled | completed | failed`;
@@ -382,7 +393,7 @@ export default async function GalleryPage({ searchParams }: PageProps) {
     client.getGallery(query),
     client.getGalleryFacets(query),
   ])
-  return <GalleryView initialPage={page} facets={facets} />   // 'use client'
+  return <GalleryView initialPage={page} facets={facets} /> // 'use client'
 }
 ```
 
@@ -394,7 +405,8 @@ export default async function GalleryPage({ searchParams }: PageProps) {
 // for one property resolve by Tailwind's output order, not by source order.
 const VARIANTS = {
   uv: 'border-transparent bg-uv text-uv-ink font-[620] hover:bg-uv-hi active:bg-uv-press',
-  outline: 'border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2',
+  outline:
+    'border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2',
   ghost: 'border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink',
   bad: 'border-transparent text-bad hover:bg-bad-ghost',
 } as const
@@ -446,19 +458,34 @@ export async function pauseVideo(jobId: string) {
 
 Every task that renders UI ends with a screenshot reconciliation:
 
-1. The verify environment from Phase 0 · A5 must be up: the backend container on
-   `127.0.0.1:8081` and the Next dev server on **8090**. ❌ Do **not** run
-   `pnpm dev:frontend` — it hardcodes port 8080, which `url-shortener-proxy-1`
-   already owns.
-2. Screenshot `http://localhost:8090/<route>` with the Chrome MCP tools at
-   **1280×900** and **390×844** — the two widths the mockups are drawn at.
+1. The verify environment must be up. ⚠️ **Replaced on 2026-09-15** — it is now a
+   **single container running both halves**, `lilnas-download-dev`, started from
+   `apps/download/deploy.dev-remote.yml`. Runbook:
+   [`../local-verification.md`](../local-verification.md).
+   ```bash
+   docker compose -f apps/download/deploy.dev-remote.yml up -d
+   ```
+   ❌ Do **not** run `pnpm dev:frontend` (hardcodes 8080, owned by
+   `url-shortener-proxy-1`), and ❌ do **not** run `pnpm build` in `apps/download`
+   while it is up — that clobbers the `.next` the dev server holds.
+2. Screenshot `http://localhost:8090/<route>` at **1280×900** and **390×844** —
+   the two widths the mockups are drawn at. The container publishes 8090 on
+   **loopback only**, so this URL still works exactly as before.
+   ⚠️ **Screenshot 8090, never `https://download.dev.lilnas.io`** — the public
+   hostname sits behind `lilnas-auth`, and headless Chrome cannot complete the
+   OAuth redirect; it would capture a login page.
+   ⚠️ **Do not use Chrome MCP or Playwright MCP.** The Chrome MCP profile is
+   single-instance and cannot be shared between concurrent agents; Playwright
+   MCP's browser is not installed. Use system Chrome with a throwaway profile
+   (`--user-data-dir=$(mktemp -d)`), and `playwright-core` from `node_modules`
+   when exact geometry is wanted. **Measure; do not eyeball.**
 3. Open the corresponding built mockup — `docs/features/download/designs/<page>.html`
    — and compare against its desktop and mobile panels.
 4. Reconcile spacing, type scale, colour tokens, border treatment and hover states.
    Report anything you deliberately left different, and why.
 
-The mockups are the reference for *appearance*. Where a mockup and the live API
-disagree about *content* (a field the mockup invents, a field the API returns that
+The mockups are the reference for _appearance_. Where a mockup and the live API
+disagree about _content_ (a field the mockup invents, a field the API returns that
 the mockup omits), the API wins — say so in the task's report.
 
 ### Definition of Done
@@ -517,7 +544,7 @@ backend change is required, **stop and report** rather than making it.
     starts two lines earlier than this plan said). `tailwind.css` 1 → 368 lines.
     `tailwind.config.ts` deleted. Omitted, as instructed: `source(none)` +
     `@source '../.build/html'`, and `@layer components` / `.vp-scope` (340–361).
-  - **The font variables *do* collide, and the collision resolves correctly — no
+  - **The font variables _do_ collide, and the collision resolves correctly — no
     change needed.** `@theme` emits `--font-sans` into `@layer theme`; `next/font`
     emits its own `--font-sans` on `<html>` **unlayered**, and unlayered beats every
     cascade layer, so the loader wins. Confirmed live: computed `--font-sans` is
@@ -549,14 +576,36 @@ backend change is required, **stop and report** rather than making it.
 
   ```tsx
   export type IconName =
-    | 'activity' | 'alert' | 'arrow' | 'check' | 'chevron' | 'device'
-    | 'download' | 'expand' | 'external' | 'eye' | 'eye-slash' | 'film'
-    | 'filter' | 'flag' | 'grid' | 'grid-fill' | 'layers' | 'list'
-    | 'pause' | 'play' | 'search' | 'shield' | 'sort' | 'trash'
-    | 'tv' | 'volume' | 'x'
+    | 'activity'
+    | 'alert'
+    | 'arrow'
+    | 'check'
+    | 'chevron'
+    | 'device'
+    | 'download'
+    | 'expand'
+    | 'external'
+    | 'eye'
+    | 'eye-slash'
+    | 'film'
+    | 'filter'
+    | 'flag'
+    | 'grid'
+    | 'grid-fill'
+    | 'layers'
+    | 'list'
+    | 'pause'
+    | 'play'
+    | 'search'
+    | 'shield'
+    | 'sort'
+    | 'trash'
+    | 'tv'
+    | 'volume'
+    | 'x'
 
   function Icon(props: { name: IconName; className?: string }): JSX.Element
-  function IconSprite(): JSX.Element   // the <symbol> set, rendered once in layout
+  function IconSprite(): JSX.Element // the <symbol> set, rendered once in layout
   ```
 
   **Edge cases:**
@@ -602,7 +651,7 @@ backend change is required, **stop and report** rather than making it.
     (`<Icon name="film" className="h-4 w-4" />`), and each symbol's own viewBox
     applies. `i-sort` is `viewBox="0 0 10 10"`, not 16×16 — verbatim from source,
     scales correctly, **do not "fix" it**.
-  - Defaults `aria-hidden="true" focusable="false"` are emitted *before* the props
+  - Defaults `aria-hidden="true" focusable="false"` are emitted _before_ the props
     spread, so a caller can override them for a meaningful icon.
   - **C1 must render `<IconSprite />` exactly once**, inside `<body>`.
   - The port is **provably faithful**: `sprite.tsx` was generated from `sprite.html`
@@ -657,17 +706,23 @@ backend change is required, **stop and report** rather than making it.
   // src/lib/media-route.ts
   export type MediaRouteKind = 'movies' | 'shows' | 'videos'
   export function mediaHref(media: Media): string
-  export function mediaIdFromRoute(kind: MediaRouteKind, segment: string): string | null
+  export function mediaIdFromRoute(
+    kind: MediaRouteKind,
+    segment: string,
+  ): string | null
   export function mediaTypeFromRoute(kind: MediaRouteKind): DownloadType
   export function routeKindFromType(type: DownloadType): MediaRouteKind
   export function isMediaRouteKind(value: string): value is MediaRouteKind
 
   // src/lib/format.ts
-  export const UNKNOWN_VALUE = '—'                  // em dash, U+2014
+  export const UNKNOWN_VALUE = '—' // em dash, U+2014
   export type RuntimeFormat = 'clock' | 'hours'
   export type PosterVariant = 1 | 2 | 3 | 4 | 5
   export type StatusTone = 'bad' | 'mute' | 'ok' | 'uv' | 'warn'
-  export function formatRuntime(seconds: number | null | undefined, mode: RuntimeFormat): string
+  export function formatRuntime(
+    seconds: number | null | undefined,
+    mode: RuntimeFormat,
+  ): string
   export function formatRelative(iso: string, now?: Date | number): string
   export function initials(email: string): string
   export function posterVariant(seed: string): PosterVariant
@@ -738,10 +793,9 @@ backend change is required, **stop and report** rather than making it.
   combined 61 passed of 62, 1234 passed, `Ran all test suites in 2 projects`.
   **Type-check 17 → 0.** `icon.spec.tsx` (A2) **passed on its first-ever execution**,
   all 37 tests, no fixes needed.
-
   - ⚠️ **The lockfile needed a second pass before it was committable.** A plain
     `pnpm add` churned beyond the four packages: `ts-jest`'s esbuild peer suffix
-    *swapped* between the `apps/auth` and `apps/download` importers (0.25.8 ↔ 0.28.1),
+    _swapped_ between the `apps/auth` and `apps/download` importers (0.25.8 ↔ 0.28.1),
     plus `@babel/runtime` 7.28.4 → 7.29.7 across four `@mui`/`@emotion`/
     `react-transition-group` snapshots. Investigation: both suffixes and both
     `@babel/runtime` versions already existed as snapshots at HEAD; restoring HEAD's
@@ -774,13 +828,16 @@ backend change is required, **stop and report** rather than making it.
       this app against the live upstreams without endangering production. — `85d88b87`
 
   > **Findings (2026-09-14): the environment is stood up and proven.** This task is
-  > now just *writing down* the shape below. A dependency bug that briefly forced
+  > now just _writing down_ the shape below. A dependency bug that briefly forced
   > this shape has since been **fixed** — see
   > [the dependency split](#findings-the-nestjs-dependency-split-fixed) — but the
   > containerised backend stays, for path fidelity rather than necessity.
 
   **Files:** create `apps/download/docs/local-verification.md`; create
   `apps/download/deploy.verify.yml` capturing the container below.
+  ⚠️ **Historical. The runbook has MOVED to
+  [`../local-verification.md`](../local-verification.md) and this environment was
+  replaced on 2026-09-15 — see the replacement note at the end of A5.**
 
   **The working shape: containerised backend, native frontend.**
 
@@ -863,42 +920,96 @@ backend change is required, **stop and report** rather than making it.
   ```
 
   **Findings (A5, 2026-09-14):** written up at `apps/download/docs/local-verification.md`
-  + `apps/download/deploy.verify.yml`. `docker compose -f apps/download/deploy.verify.yml
-  config` resolves byte-for-byte to the running container. Corrections to the four
-  checks above — **the block above is wrong in two ways, the doc has it right:**
-
-  - **The discover param is `query`, not `q`, and it is required with `min(2)`.**
+  - `apps/download/deploy.verify.yml`. `docker compose -f apps/download/deploy.verify.yml
+config` resolves byte-for-byte to the running container. Corrections to the four
+    checks above — **the block above is wrong in two ways, the doc has it right:**
+  * **The discover param is `query`, not `q`, and it is required with `min(2)`.**
     `?q=` → `400 invalid_type`; `?query=` → `400 too_small`. Source of truth is
     `DiscoverQuerySchema` (`packages/utils/src/download/schema.ts:343-360`). The
     working check is `?query=star` → `total: 40`, `degradedSources: []`, 20 genre
     facets.
-  - **"28 items" / "50 jobs" are `total`, not page length.** `/gallery` and `/history`
+  * **"28 items" / "50 jobs" are `total`, not page length.** `/gallery` and `/history`
     both return `{items, nextCursor, total}` with a default page size of **24**. A
     24-item first page is correct, not truncated.
-  - Everything else matched live exactly: image `lilnas-download` (same sha256 as
+  * Everything else matched live exactly: image `lilnas-download` (same sha256 as
     `lilnas-download-1`), entrypoint `node` / cmd `dist/main`, three binds
     (`/tmp/download-verify:/data` rw + the two `:ro` library mounts),
     `127.0.0.1:8081->8081`, network `lilnas_default`, `restart: no`.
-  - **The image's own `ENTRYPOINT` is `["pnpm","start"]`** (backend *and* Next), which
+  * **The image's own `ENTRYPOINT` is `["pnpm","start"]`** (backend _and_ Next), which
     is why the `node dist/main` override matters. The image also bakes
     `NODE_ENV=production`, so the `.env.verify-container` override to `development` is
     **load-bearing** for `resolveForwardedUser()` — without it there is no dev identity
     and every verification loses its admin.
-  - `next.config.js:8` hardcodes `http://localhost:8081` (and line 12 for `/ws`) —
+  * `next.config.js:8` hardcodes `http://localhost:8081` (and line 12 for `/ws`) —
     the 8081 constraint is real. Host 8080 is held by `url-shortener-proxy-1`.
-  - `/movies` and `/tv` genuinely do not exist on the host — the path-fidelity
+  * `/movies` and `/tv` genuinely do not exist on the host — the path-fidelity
     rationale for containerising the backend is real, not defensive.
-  - ⚠️ **`docker compose -f deploy.verify.yml config` inlines the entire env file,
+  * ⚠️ **`docker compose -f deploy.verify.yml config` inlines the entire env file,
     secrets included, into its stdout.** Don't paste that output anywhere.
-  - `/tmp/download-verify` is owned by UID 1000 = the image's `node` user.
+  * `/tmp/download-verify` is owned by UID 1000 = the image's `node` user.
+
+  ##### ⚠️ A5's environment was REPLACED on 2026-09-15 — `70ba5c1b`, `3149c57e`
+
+  **Everything above is the historical record of what A5 shipped. The shape it
+  describes no longer exists**, and the runbook has **moved** from
+  `apps/download/docs/local-verification.md` to
+  [`../local-verification.md`](../local-verification.md) (`docs/features/download/`).
+  `apps/download/docs/` is gone; `deploy.verify.yml` survives with a **RETIRED**
+  banner and must not be started — it would raise a second backend on
+  `127.0.0.1:8081`.
+
+  **The environment is now ONE container running both halves**, started from
+  `apps/download/deploy.dev-remote.yml`:
+
+  ```bash
+  docker compose -f apps/download/deploy.dev-remote.yml up -d
+  ```
+
+  |                                  |                                                                     |
+  | -------------------------------- | ------------------------------------------------------------------- |
+  | `https://download.dev.lilnas.io` | for a human — production Traefik, `lilnas-auth` OAuth in front      |
+  | `http://localhost:8090`          | for tooling — **loopback only**, no auth, what screenshots must use |
+
+  Why it changed, and what every later wave needs to know:
+  - ⚠️ **The database is now EPHEMERAL and starts EMPTY.** `/data` is a tmpfs, so
+    it is rebuilt from scratch on every start and destroyed on stop. Migrations
+    run at boot, so the schema self-builds. **`getGallery`, `getHistory` and
+    `getActivity` all return `total: 0` on a fresh container** — the A5
+    verification table's `28` / `50` no longer hold. `/discover` still returns
+    `total: 40` with 20 genre facets, because discovery reads Radarr and Sonarr
+    live rather than the database. **D4, F1 and F2 depend on rows existing** — D4
+    must create a real yt-dlp job to have anything to render, which is permitted.
+  - ⚠️ **Screenshot `localhost:8090`, never the public hostname** — headless
+    Chrome cannot complete the OAuth redirect and would capture a login page.
+  - **The old native server listened on `0.0.0.0:8090`**, and anything arriving
+    without an `X-Forwarded-User` header takes the `DEV_USER_EMAIL` admin
+    fallback — so any host on the LAN had an admin session against live Radarr
+    and Sonarr credentials. The replacement binds `127.0.0.1` and puts OAuth in
+    front of the only remote path.
+  - **A new base image, `lilnas-dev`, now exists** (`infra/base-images/lilnas-dev.Dockerfile`).
+    All eight `apps/*/deploy.dev.yml` files referenced it and nothing built it, so
+    `docker-compose.dev.yml` could never start.
+  - ⚠️ **`deploy.dev.yml` still cannot reach this URL** and was deliberately left
+    alone: it routes `Host(download.localhost)` via `infra/proxy.dev.yml`, whose
+    Traefik binds host port 80 that the production Traefik already holds, and it
+    names its router `download` — colliding with production's router of the same
+    name on the same Traefik, which **does not warn on router-name collisions**.
+    The new router is `dev-download`.
+  - ⚠️ **compose `environment:` cannot override app config here.** `pnpm dev` runs
+    `lilnas dev`, which calls `loadEnvFile()` on `apps/download/.env`
+    (`packages/cli/src/commands/dev.ts:48`) and overwrites the container
+    environment. `deploy.dev-remote.yml` mounts `.env.dev-remote` **over** `.env`
+    instead. Symptom if missed: the database silently lands wherever `.env` said.
+  - ⚠️ **Do not run `pnpm build` in `apps/download` while the container is up** —
+    same `.next`-clobbering hazard as before, now inside the container.
 
 ##### Findings: the NestJS dependency split (FIXED)
 
 `pnpm dev:backend` used to die at startup with:
 
 > `Nest can't resolve dependencies of the SchedulerMetadataAccessor (?). Please make
-> sure that the argument Reflector at index [0] is available in the ScheduleModule
-> context.`
+sure that the argument Reflector at index [0] is available in the ScheduleModule
+context.`
 
 **Fixed on 2026-09-14** — `main` at `a7055789` (pushed), and `jeremy/download`
 rebased onto it at `3dd56560` (force-pushed). `pnpm dev:backend` from
@@ -913,7 +1024,7 @@ returns.
    9.15.9, which is what turbo shelled out to per task. **The two majors hash
    virtual-store directory names differently**, so a tree written by both ends up
    with some symlinks pointing at the pnpm 9 copy of a package and some at the
-   pnpm 10 copy. That produced two copies of the *same version*, `11.1.6` — hence
+   pnpm 10 copy. That produced two copies of the _same version_, `11.1.6` — hence
    two `Reflector` classes, hence the DI failure. Worse, a short directory name is
    identical under both majors, so an incremental install considers it satisfied
    and never rewires it: **the tree does not self-heal.**
@@ -1035,7 +1146,7 @@ convention.
   ```
 
   - **`Button`'s label is `children`, not a `label` prop.** `Chip` keeps `label`
-    *and* accepts `children`; content order is `icon` → `label` → `children`, so
+    _and_ accepts `children`; content order is `icon` → `label` → `children`, so
     `<Chip tone="ok"><Dot tone="live" />2 running</Chip>` composes.
   - **`ChipProps` is a discriminated union on `interactive`** — `onClick` and the
     rest of the `<button>` surface only type-check when `interactive` is passed, so
@@ -1052,11 +1163,11 @@ convention.
   **Mockup deviations (B1):**
   - ⚠️ **Button font size at `sm`/`lg` — the mockup's own rendering is an accident,
     and we deliberately do not reproduce it.** In the mockups' generated CSS,
-    `.text-[14px]` (line 2024) is emitted *after* `.text-[13px]` (2021) and
+    `.text-[14px]` (line 2024) is emitted _after_ `.text-[13px]` (2021) and
     `.text-h3` (1949). Because `ui.pug` leaves `text-[14px]` on the button base and
     lets the size table land on top, **every mockup button actually renders at
     14px** — `sm`'s `text-[13px]` and `lg`'s `text-h3` are dead code there. B1
-    follows the pug's evident *intent* (`sm` = 13px, `lg` = `text-h3`/15.5px) and
+    follows the pug's evident _intent_ (`sm` = 13px, `lg` = `text-h3`/15.5px) and
     folds the default 14px into the size table, so exactly one font-size utility is
     ever emitted. Rendering the accident would have made `size` a no-op for type.
   - `Bar`'s fill is a `<span className="block …">` rather than the pug's `<i>` —
@@ -1085,7 +1196,7 @@ convention.
 
   **Follow-up (B1, `a9e30ba5`) — `lg` Buttons shipped with no text colour.**
   The `cns()` bug documented under B3 **did** hit `Button`, in the opposite
-  direction from B3's examples. `cns(BASE, variant, size)` put `text-h3` *after* the
+  direction from B3's examples. `cns(BASE, variant, size)` put `text-h3` _after_ the
   variant's ink, and twMerge keeps the last member of a conflict group, so
   **`text-uv-ink` / `text-ink` / `text-ink-3` / `text-bad` were all destroyed on
   every large button** — which then inherited near-white `--color-ink`. On `uv` that
@@ -1099,7 +1210,7 @@ convention.
   documenting that `Chip` is safe); reverting the fix turns 7 of them red.
 
   ⚠️ **Correction to B1's original report:** its claim that "exactly one font-size
-  utility is ever emitted" was true of the *input* class list but **not of the
+  utility is ever emitted" was true of the _input_ class list but **not of the
   DOM** — twMerge was reshaping the list afterwards. The headline finding itself
   stands: the mockups' `lg`/`sm` type sizes are dead due to CSS output order, and
   the port renders the pug's intent. **Lesson for every later task: assert on the
@@ -1136,25 +1247,43 @@ convention.
   ```tsx
   // src/components/ui/avatar.tsx
   export type AvatarSize = 'md' | 'xs'
-  export const MASKED_INITIALS = '–'    // EN dash U+2013 — NOT UNKNOWN_VALUE (em dash)
+  export const MASKED_INITIALS = '–' // EN dash U+2013 — NOT UNKNOWN_VALUE (em dash)
 
   // the union, reproduced (the three member types are not themselves exported):
-  type AvatarElementProps = Omit<ComponentPropsWithoutRef<'span'>,
-    'children' | 'hidden' | 'title'>
-  type AvatarCommonProps     = AvatarElementProps & { ring?: boolean; size?: AvatarSize; title?: string }
-  type AvatarIdentifiedProps = AvatarCommonProps & { hidden?: false; href?: string;  initials: string }
-  type AvatarMaskedProps     = AvatarCommonProps & { hidden: true;   href?: never;   initials?: never }
+  type AvatarElementProps = Omit<
+    ComponentPropsWithoutRef<'span'>,
+    'children' | 'hidden' | 'title'
+  >
+  type AvatarCommonProps = AvatarElementProps & {
+    ring?: boolean
+    size?: AvatarSize
+    title?: string
+  }
+  type AvatarIdentifiedProps = AvatarCommonProps & {
+    hidden?: false
+    href?: string
+    initials: string
+  }
+  type AvatarMaskedProps = AvatarCommonProps & {
+    hidden: true
+    href?: never
+    initials?: never
+  }
   export type AvatarProps = AvatarIdentifiedProps | AvatarMaskedProps
   export function Avatar(props: AvatarProps): JSX.Element
 
-  export type CastPersonProps = Omit<ComponentPropsWithoutRef<'div'>, 'children'> &
+  export type CastPersonProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'children'
+  > &
     Pick<AvatarIdentifiedProps, 'initials'> & { name: string }
   export function CastPerson(props: CastPersonProps): JSX.Element
 
   // src/components/ui/doorplate.tsx
-  export type DoorplateProps =
-    Omit<ComponentPropsWithoutRef<'span'>, 'children' | 'color'> &
-    { href?: string; name: string }
+  export type DoorplateProps = Omit<
+    ComponentPropsWithoutRef<'span'>,
+    'children' | 'color'
+  > & { href?: string; name: string }
   export function Doorplate(props: DoorplateProps): JSX.Element
   ```
 
@@ -1200,7 +1329,7 @@ convention.
     mixin. React would warn on it and it is unnavigable. Zero visual difference.
   - ⚠️ **The masked placeholder is an en dash (U+2013), component-owned — and this
     departs from the task text's "dashed and empty".** The mockups pass `'–'` as the
-    *initials argument* at all five masked call sites; in React the component owns
+    _initials argument_ at all five masked call sites; in React the component owns
     it, so `hidden` needs no argument. An empty circle would contradict the mockup at
     8 rendered instances across 3 pages, and "no initials" is satisfied by a neutral
     glyph that leaks nothing. B2 first shipped `UNKNOWN_VALUE` (em dash) for
@@ -1256,31 +1385,36 @@ convention.
   `card.tsx`, `data-table.tsx`, `state-line.tsx`, `mchip.tsx` under
   `src/components/ui/`, tests alongside. **None of the four is `'use client'`** —
   pure presentational, server-safe, and fine inside a client component too.
-  (Contrast: B1's `chip.tsx` and `button.tsx` *are* `'use client'`.)
+  (Contrast: B1's `chip.tsx` and `button.tsx` _are_ `'use client'`.)
 
   ```tsx
   // card.tsx
   export type CardProps = ComponentPropsWithoutRef<'div'> & { sunk?: boolean }
-  export function Card(props: CardProps): JSX.Element     // root <div>
+  export function Card(props: CardProps): JSX.Element // root <div>
   export type NoteProps = ComponentPropsWithoutRef<'div'> & { icon?: IconName }
-  export function Note(props: NoteProps): JSX.Element     // root <div>, icon defaults 'alert'
+  export function Note(props: NoteProps): JSX.Element // root <div>, icon defaults 'alert'
 
   // state-line.tsx
-  export type StateLineProps = ComponentPropsWithoutRef<'div'> & { mobile?: boolean }
-  export function StateLine(props: StateLineProps): JSX.Element            // root <div>
+  export type StateLineProps = ComponentPropsWithoutRef<'div'> & {
+    mobile?: boolean
+  }
+  export function StateLine(props: StateLineProps): JSX.Element // root <div>
   export type StateLineActionsProps = ComponentPropsWithoutRef<'span'>
-  export function StateLineActions(props: StateLineActionsProps): JSX.Element  // root <span>
+  export function StateLineActions(props: StateLineActionsProps): JSX.Element // root <span>
 
   // data-table.tsx
   export type DataTableProps = ComponentPropsWithoutRef<'table'>
-  export function DataTable(props: DataTableProps): JSX.Element            // root <table>
+  export function DataTable(props: DataTableProps): JSX.Element // root <table>
 
   // mchip.tsx
-  export type MChipProps = Omit<ComponentPropsWithoutRef<'span'>, 'children'> & {
-    icon?: IconName | null      // nullable: search.pug passes `mobile ? null : entry.icon`
-    label: ReactNode            // the mixin is mchip(icon, label), no block
+  export type MChipProps = Omit<
+    ComponentPropsWithoutRef<'span'>,
+    'children'
+  > & {
+    icon?: IconName | null // nullable: search.pug passes `mobile ? null : entry.icon`
+    label: ReactNode // the mixin is mchip(icon, label), no block
   }
-  export function MChip(props: MChipProps): JSX.Element                    // root <span>
+  export function MChip(props: MChipProps): JSX.Element // root <span>
   ```
 
   **How a caller composes a `DataTable`** — it renders the `<table>` and nothing
@@ -1291,20 +1425,28 @@ convention.
   ```tsx
   <Card className="px-1.5 pt-1 pb-1.5">
     <DataTable>
-      <thead><tr><th className="w-[38%]">item</th><th className="text-right!">started</th></tr></thead>
-      <tbody>{jobs.map(job => (
-        <tr key={job.id}>
-          <td>{job.title}</td>
-          <td className="text-right!">{formatRelative(job.createdAt, now)}</td>
+      <thead>
+        <tr>
+          <th className="w-[38%]">item</th>
+          <th className="text-right!">started</th>
         </tr>
-      ))}</tbody>
+      </thead>
+      <tbody>
+        {jobs.map(job => (
+          <tr key={job.id}>
+            <td>{job.title}</td>
+            <td className="text-right!">
+              {formatRelative(job.createdAt, now)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
     </DataTable>
   </Card>
   ```
 
   Narrow viewports: wrap in an `overflow-x-auto` `Card` and pass
   `className="min-w-[480px]"`, as the mockups do — do not reflow.
-
   - `Card` base is `rounded-lg border border-line p-5` + `bg-surface` | `bg-bg-sunk`.
     Call sites routinely replace the padding (`<Card className="px-1.5 pt-1 pb-1.5">`
     around a table, `<Card sunk className="px-4 py-1">` around a `StateLine` stack).
@@ -1358,7 +1500,7 @@ cns('text-sm text-ink-2')     -> both survive    // built-in name, safe
 
 B3 hit the first direction. **B1 hit the second**, which is the more dangerous one
 because it is invisible in a class-list review: `Button` composed
-`cns(BASE, variant, size)`, putting `text-h3` *after* the variant's ink, so **every
+`cns(BASE, variant, size)`, putting `text-h3` _after_ the variant's ink, so **every
 large button lost its own text colour** and inherited near-white `--color-ink`. On
 the `uv` variant that is near-white text on a purple fill — a real contrast bug that
 shipped in `d4d292d7` and was fixed in `a9e30ba5`.
@@ -1366,7 +1508,7 @@ shipped in `d4d292d7` and was fixed in `a9e30ba5`.
 **Affected:** `text-h1`, `text-h2`, `text-h3`, `text-body`, `text-cap`, `text-mono`,
 `text-mono-sm`, `text-label`. **Safe:** `text-sm` (shadowed by the theme but
 built-in-named), and any arbitrary value (`text-[14px]`, `text-[11px]`).
-`font-mono` is a font-*family* utility — a different group, never implicated.
+`font-mono` is a font-_family_ utility — a different group, never implicated.
 
 **Workaround** — write the size as `text-[length:var(--text-h3)]`, which
 tailwind-merge classifies correctly. ⚠️ **But the arbitrary-length form restores
@@ -1379,14 +1521,14 @@ why three agents landed on three different-looking fixes.
 **Companion shape per token** (compiled from `tailwind.css` through the project's own
 `@tailwindcss/postcss` by B3 — authoritative, not inferred):
 
-| token | size | line-height | font-weight | letter-spacing |
-| --- | --- | --- | --- | --- |
-| `--text-h1` / `--text-h2` | ✓ | ✓ | ✓ | ✓ |
-| `--text-h3` | ✓ | ✓ | ✓ | — |
-| `--text-body` / `--text-sm` / `--text-cap` | ✓ | ✓ | — | — |
-| `--text-mono` | ✓ | — | ✓ | ✓ |
-| `--text-mono-sm` | ✓ | — | ✓ | — |
-| `--text-label` | ✓ | — | ✓ | ✓ |
+| token                                      | size | line-height | font-weight | letter-spacing |
+| ------------------------------------------ | ---- | ----------- | ----------- | -------------- |
+| `--text-h1` / `--text-h2`                  | ✓    | ✓           | ✓           | ✓              |
+| `--text-h3`                                | ✓    | ✓           | ✓           | —              |
+| `--text-body` / `--text-sm` / `--text-cap` | ✓    | ✓           | —           | —              |
+| `--text-mono`                              | ✓    | —           | ✓           | ✓              |
+| `--text-mono-sm`                           | ✓    | —           | ✓           | —              |
+| `--text-label`                             | ✓    | —           | ✓           | ✓              |
 
 A companion needs no explicit restoration if a **neighbouring utility already sets
 the matching `--tw-*` custom property**, because that neighbour wins the token's own
@@ -1399,7 +1541,7 @@ with `postcss([require('@tailwindcss/postcss')()])` from the repo's own
 `node_modules`, force-generating candidates via `@source inline(...)`, and diff the
 emitted declarations.
 
-**Testing this requires DOM-level assertions.** A test that asserts on the *input*
+**Testing this requires DOM-level assertions.** A test that asserts on the _input_
 class string cannot catch it — twMerge reshapes the list afterwards. Assert on the
 rendered `class` attribute. B1 confirmed its new tests genuinely catch the bug:
 reverting the fix turns 7 tests red.
@@ -1407,7 +1549,7 @@ reverting the fix turns 7 tests red.
 Note this bites the **mockups' own** MChip call-site string
 `font-mono text-mono-sm text-ink-3` directly, so it is not hypothetical.
 
-**Residual, unfixed by design:** a *call site* passing a theme token through
+**Residual, unfixed by design:** a _call site_ passing a theme token through
 `className` (`<Button className="text-cap">`) still collides. Only the general fix
 closes that.
 
@@ -1419,17 +1561,17 @@ scale at volume.**
 
 **Audit status — all 14 Wave 2 components empirically checked, none outstanding:**
 
-| File | Verdict |
-| --- | --- |
-| `button.tsx` | **was affected, fixed** `a9e30ba5` — `lg` dropped its *ink colour*; now `text-[length:var(--text-h3)] leading-[1.4]` |
-| `input.tsx` | **was affected, fixed** `3adc8e25` — `text-mono`; now restates size + `font-[450]` + `tracking-[-0.01em]` |
-| `data-table.tsx` | **already equivalent**, proven by compiled CSS `f7aa79b`; `ui.pug`'s own neighbouring `[&_th]:font-medium` + `[&_th]:tracking-[0.11em]` supply both companions, and `--text-label` declares no line-height |
-| `chip.tsx` | clean — arbitrary type size, confirmed across all 5 tones + `active` |
-| `card.tsx` | clean, **but narrowly** — `Note` ships `text-sm text-ink-2`, exactly the hazardous shape, surviving *only* because `text-sm` is built-in-named. Swap it for `text-cap`/`text-mono-sm` and it silently vanishes. Pinned by test. |
-| `mchip.tsx` | clean — emits no theme token and no colour. The failing string `font-mono text-mono-sm text-ink-3` is a **call-site** string from the mockups; the page tasks that paste it are the ones at risk. |
-| `tabs.tsx`, `menu.tsx`, `toggle-chip.tsx` | clean — arbitrary values only |
-| `status.tsx`, `feedback.tsx`, `state-line.tsx` | clean — no text utilities at all |
-| `avatar.tsx`, `doorplate.tsx` | not implicated (B2 predates the finding; sizes are arbitrary values) |
+| File                                           | Verdict                                                                                                                                                                                                                         |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `button.tsx`                                   | **was affected, fixed** `a9e30ba5` — `lg` dropped its _ink colour_; now `text-[length:var(--text-h3)] leading-[1.4]`                                                                                                            |
+| `input.tsx`                                    | **was affected, fixed** `3adc8e25` — `text-mono`; now restates size + `font-[450]` + `tracking-[-0.01em]`                                                                                                                       |
+| `data-table.tsx`                               | **already equivalent**, proven by compiled CSS `f7aa79b`; `ui.pug`'s own neighbouring `[&_th]:font-medium` + `[&_th]:tracking-[0.11em]` supply both companions, and `--text-label` declares no line-height                      |
+| `chip.tsx`                                     | clean — arbitrary type size, confirmed across all 5 tones + `active`                                                                                                                                                            |
+| `card.tsx`                                     | clean, **but narrowly** — `Note` ships `text-sm text-ink-2`, exactly the hazardous shape, surviving _only_ because `text-sm` is built-in-named. Swap it for `text-cap`/`text-mono-sm` and it silently vanishes. Pinned by test. |
+| `mchip.tsx`                                    | clean — emits no theme token and no colour. The failing string `font-mono text-mono-sm text-ink-3` is a **call-site** string from the mockups; the page tasks that paste it are the ones at risk.                               |
+| `tabs.tsx`, `menu.tsx`, `toggle-chip.tsx`      | clean — arbitrary values only                                                                                                                                                                                                   |
+| `status.tsx`, `feedback.tsx`, `state-line.tsx` | clean — no text utilities at all                                                                                                                                                                                                |
+| `avatar.tsx`, `doorplate.tsx`                  | not implicated (B2 predates the finding; sizes are arbitrary values)                                                                                                                                                            |
 
 **Registering these eight token names in a shared `extendTailwindMerge` font-size
 group collapses every one of these sites back to the plain token and removes the
@@ -1448,7 +1590,14 @@ order.
 
 ```ts
 export const THEME_FONT_SIZES = [
-  'h1', 'h2', 'h3', 'body', 'cap', 'mono', 'mono-sm', 'label',
+  'h1',
+  'h2',
+  'h3',
+  'body',
+  'cap',
+  'mono',
+  'mono-sm',
+  'label',
 ] as const
 
 const twMerge = extendTailwindMerge({
@@ -1464,8 +1613,8 @@ const twMerge = extendTailwindMerge({
 - Literal theme strings become **exact-match** trie entries, which are consulted
   before validators — so `text-label` resolves to `font-size` while `text-ink-3`
   still falls through to `text-color`. Multi-part names (`mono-sm`) nest correctly.
-- `text-sm` is deliberately **not** listed — the theme shadows its *value*, but the
-  *name* is built in and was always classified correctly.
+- `text-sm` is deliberately **not** listed — the theme shadows its _value_, but the
+  _name_ is built in and was always classified correctly.
 - `THEME_FONT_SIZES` is exported so test helpers can allow-list font sizes off one
   source of truth instead of a loose `text-` prefix — which would count `text-ink-3`
   as a size and report a size that isn't there, this bug's own disguise.
@@ -1473,13 +1622,13 @@ const twMerge = extendTailwindMerge({
 **The three per-component workarounds are reverted to plain tokens**, so each token
 supplies its own companions again rather than having them restated:
 
-| File | Was | Now |
-| --- | --- | --- |
-| `button.tsx` | `lg: '… text-[length:var(--text-h3)] leading-[1.4]'` | `lg: '… text-h3'` — `leading-[1.4]` **dropped**, the token re-supplies it |
-| `input.tsx` | `cns('font-mono text-[length:var(--text-mono)] font-[450] tracking-[-0.01em]')` | `cns('font-mono text-mono')` — weight and tracking re-supplied by the token |
-| `data-table.tsx` | `[&_th]:text-[length:var(--text-label)]` | `[&_th]:text-label`, **verbatim `ui.pug`** |
+| File             | Was                                                                             | Now                                                                         |
+| ---------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `button.tsx`     | `lg: '… text-[length:var(--text-h3)] leading-[1.4]'`                            | `lg: '… text-h3'` — `leading-[1.4]` **dropped**, the token re-supplies it   |
+| `input.tsx`      | `cns('font-mono text-[length:var(--text-mono)] font-[450] tracking-[-0.01em]')` | `cns('font-mono text-mono')` — weight and tracking re-supplied by the token |
+| `data-table.tsx` | `[&_th]:text-[length:var(--text-label)]`                                        | `[&_th]:text-label`, **verbatim `ui.pug`**                                  |
 
-**No companion needed keeping.** Each reverted site's restatements were *only* ever
+**No companion needed keeping.** Each reverted site's restatements were _only_ ever
 restorations of what the bare token emits; `data-table.tsx`'s neighbouring
 `[&_th]:font-medium` and `[&_th]:tracking-[0.11em]` are verbatim from the mixin and
 were left untouched. **The B3 mockup deviation is now resolved — `data-table.tsx`
@@ -1503,8 +1652,8 @@ and build clean for both · **`portal` and `dashcam` type-check and build clean*
 (neither uses any of the eight names, so neither could have collided).
 
 ⚠️ **One behavioural consequence to know about.** tailwind-merge's
-`conflictingClassGroups` says `'font-size': ['leading']`, so a *later* theme token now
-removes an *earlier* `leading-*`. Correct for `h1`/`h2`/`h3`/`body`/`cap`, which
+`conflictingClassGroups` says `'font-size': ['leading']`, so a _later_ theme token now
+removes an _earlier_ `leading-*`. Correct for `h1`/`h2`/`h3`/`body`/`cap`, which
 declare a line-height; mildly over-eager for `mono`/`mono-sm`/`label`, which do not.
 Nothing in the tree writes `leading-*` before a token today (grepped), and this is
 Tailwind's own semantics for a theme font size. **If you need a line-height beside
@@ -1545,43 +1694,83 @@ before `apps/download`'s tests import a newly-added export.**
   ```tsx
   // input.tsx
   export type InputProps = ComponentPropsWithoutRef<'input'> & {
-    mono?: boolean; icon?: IconName; wrapperClassName?: string }
+    mono?: boolean
+    icon?: IconName
+    wrapperClassName?: string
+  }
   export function Input(props: InputProps): JSX.Element
   export type FieldProps = ComponentPropsWithoutRef<'div'> & {
-    label: ReactNode; htmlFor?: string; labelClassName?: string }
+    label: ReactNode
+    htmlFor?: string
+    labelClassName?: string
+  }
   export function Field(props: FieldProps): JSX.Element
-  export function useFieldId(): string | undefined   // enclosing Field's control id
+  export function useFieldId(): string | undefined // enclosing Field's control id
 
   // tabs.tsx
   export type TabsProps = Omit<ComponentPropsWithoutRef<'div'>, 'onChange'> & {
-    value: string; onValueChange: (value: string) => void
-    stretch?: boolean; scroll?: boolean }
+    value: string
+    onValueChange: (value: string) => void
+    stretch?: boolean
+    scroll?: boolean
+  }
   export function Tabs(props: TabsProps): JSX.Element
-  export type TabProps = Omit<ComponentPropsWithoutRef<'button'>, 'value'> & { value: string }
+  export type TabProps = Omit<ComponentPropsWithoutRef<'button'>, 'value'> & {
+    value: string
+  }
   export function Tab(props: TabProps): JSX.Element
 
   // menu.tsx
   export type MenuTriggerProps = ComponentPropsWithRef<'button'> & {
-    label: ReactNode; open?: boolean }
+    label: ReactNode
+    open?: boolean
+  }
   export function MenuTrigger(props: MenuTriggerProps): JSX.Element
-  export type MenuProps = Omit<ComponentPropsWithoutRef<'div'>, 'onChange' | 'defaultValue'> & {
-    label: ReactNode; value?: string; onValueChange?: (value: string) => void
-    open?: boolean; defaultOpen?: boolean; onOpenChange?: (open: boolean) => void
-    triggerClassName?: string; panelClassName?: string
-    triggerProps?: Omit<MenuTriggerProps, 'label'|'open'|'aria-expanded'|'aria-haspopup'|'aria-controls'>
-    children?: ReactNode }
+  export type MenuProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'onChange' | 'defaultValue'
+  > & {
+    label: ReactNode
+    value?: string
+    onValueChange?: (value: string) => void
+    open?: boolean
+    defaultOpen?: boolean
+    onOpenChange?: (open: boolean) => void
+    triggerClassName?: string
+    panelClassName?: string
+    triggerProps?: Omit<
+      MenuTriggerProps,
+      'label' | 'open' | 'aria-expanded' | 'aria-haspopup' | 'aria-controls'
+    >
+    children?: ReactNode
+  }
   export function Menu(props: MenuProps): JSX.Element
-  export type MenuItemProps = Omit<ComponentPropsWithoutRef<'button'>, 'value'> & {
-    value: string; selected?: boolean }
+  export type MenuItemProps = Omit<
+    ComponentPropsWithoutRef<'button'>,
+    'value'
+  > & {
+    value: string
+    selected?: boolean
+  }
   export function MenuItem(props: MenuItemProps): JSX.Element
 
   // toggle-chip.tsx
-  export type ToggleChipProps = Omit<ComponentPropsWithoutRef<'label'>, 'onChange'> & {
-    label: ReactNode; checked: boolean; onCheckedChange?: (checked: boolean) => void
-    name?: string; value?: string; disabled?: boolean
-    inputProps?: Omit<ComponentPropsWithoutRef<'input'>,
-      'checked'|'name'|'type'|'value'|'onChange'>
-    children?: ReactNode }   // rendered between box and label — the avatar slot
+  export type ToggleChipProps = Omit<
+    ComponentPropsWithoutRef<'label'>,
+    'onChange'
+  > & {
+    label: ReactNode
+    checked: boolean
+    onCheckedChange?: (checked: boolean) => void
+    name?: string
+    value?: string
+    disabled?: boolean
+    inputProps?: Omit<
+      ComponentPropsWithoutRef<'input'>,
+      'checked' | 'name' | 'type' | 'value' | 'onChange'
+    >
+    children?: ReactNode
+  } // rendered between box and label — the avatar slot
   export function ToggleChip(props: ToggleChipProps): JSX.Element
   ```
 
@@ -1617,7 +1806,7 @@ before `apps/download`'s tests import a newly-added export.**
     `role="tab"` replacement must emit it too. Keyboard targets are found by **DOM
     query, not a context registry**, in both `Tabs` and `Menu`, so wrappers,
     fragments and `.map()` around items all work. Disabled items are skipped.
-  - **Tabs use APG *automatic* activation** (selection follows arrow focus) with
+  - **Tabs use APG _automatic_ activation** (selection follows arrow focus) with
     wrap-around, because every tab strip in this app swaps already-loaded content.
     A later strip that becomes a route change should opt into manual activation.
     `Tabs` is **always controlled** — no uncontrolled mode.
@@ -1685,11 +1874,16 @@ before `apps/download`'s tests import a newly-added export.**
 
   ```css
   .text-mono {
-    font-size:      var(--text-mono);                                       /* 13px */
-    letter-spacing: var(--tw-tracking,     var(--text-mono--letter-spacing)); /* -0.01em */
-    font-weight:    var(--tw-font-weight,  var(--text-mono--font-weight));    /* 450 */
+    font-size: var(--text-mono); /* 13px */
+    letter-spacing: var(
+      --tw-tracking,
+      var(--text-mono--letter-spacing)
+    ); /* -0.01em */
+    font-weight: var(--tw-font-weight, var(--text-mono--font-weight)); /* 450 */
   }
-  .text-\[length\:var\(--text-mono\)\] { font-size: var(--text-mono); }   /* size ONLY */
+  .text-\[length\:var\(--text-mono\)\] {
+    font-size: var(--text-mono);
+  } /* size ONLY */
   ```
 
   A theme size token emits **three** declarations whenever it declares
@@ -1698,7 +1892,9 @@ before `apps/download`'s tests import a newly-added export.**
   restates all three, with compiled CSS confirming identical values:
 
   ```ts
-  const INPUT_MONO = cns('font-mono text-[length:var(--text-mono)] font-[450] tracking-[-0.01em]')
+  const INPUT_MONO = cns(
+    'font-mono text-[length:var(--text-mono)] font-[450] tracking-[-0.01em]',
+  )
   ```
 
   `font-mono` (family) and `font-[450]` (weight) stay in separate twMerge groups, so
@@ -1751,40 +1947,40 @@ before `apps/download`'s tests import a newly-added export.**
   ```tsx
   // poster.tsx — 'use client'
   export type PosterShape = 'tall' | 'wide'
-  export const POSTER_DEFAULT_RADIUS = 'rounded-md'      // literal type 'rounded-md'
-  export const POSTER_DEFAULT_PLAY_SIZE = 'h-7 w-7'      // literal type 'h-7 w-7'
+  export const POSTER_DEFAULT_RADIUS = 'rounded-md' // literal type 'rounded-md'
+  export const POSTER_DEFAULT_PLAY_SIZE = 'h-7 w-7' // literal type 'h-7 w-7'
   export type PosterProps = ComponentPropsWithoutRef<'div'> & {
-    label?: ReactNode      // fallback title; hidden by group-has-[img]:hidden while art is alive
-    play?: boolean         // default false
-    playSize?: string      // default POSTER_DEFAULT_PLAY_SIZE
-    radius?: string        // default POSTER_DEFAULT_RADIUS
-    seed: string           // REQUIRED -> posterVariant(seed) -> poster-v1..5
-    shape: PosterShape     // REQUIRED, no default
+    label?: ReactNode // fallback title; hidden by group-has-[img]:hidden while art is alive
+    play?: boolean // default false
+    playSize?: string // default POSTER_DEFAULT_PLAY_SIZE
+    radius?: string // default POSTER_DEFAULT_RADIUS
+    seed: string // REQUIRED -> posterVariant(seed) -> poster-v1..5
+    shape: PosterShape // REQUIRED, no default
     src?: string | null
   }
-  export function Poster(props: PosterProps): JSX.Element   // root <div>, children render last
+  export function Poster(props: PosterProps): JSX.Element // root <div>, children render last
 
   // gallery-card.tsx — NOT 'use client'
-  export type GalleryCardProps       = ComponentPropsWithoutRef<'div'>
-  export function GalleryCard(props: GalleryCardProps): JSX.Element             // root <div>
-  export type GalleryCardLinkProps   = ComponentPropsWithoutRef<'a'>
-  export function GalleryCardLink(props: GalleryCardLinkProps): JSX.Element     // root <a>
-  export type GalleryCardTitleProps  = ComponentPropsWithoutRef<'p'>
-  export function GalleryCardTitle(props: GalleryCardTitleProps): JSX.Element   // root <p>, text is children
-  export type GalleryCardRowProps    = ComponentPropsWithoutRef<'div'>
-  export function GalleryCardRow(props: GalleryCardRowProps): JSX.Element       // root <div>
+  export type GalleryCardProps = ComponentPropsWithoutRef<'div'>
+  export function GalleryCard(props: GalleryCardProps): JSX.Element // root <div>
+  export type GalleryCardLinkProps = ComponentPropsWithoutRef<'a'>
+  export function GalleryCardLink(props: GalleryCardLinkProps): JSX.Element // root <a>
+  export type GalleryCardTitleProps = ComponentPropsWithoutRef<'p'>
+  export function GalleryCardTitle(props: GalleryCardTitleProps): JSX.Element // root <p>, text is children
+  export type GalleryCardRowProps = ComponentPropsWithoutRef<'div'>
+  export function GalleryCardRow(props: GalleryCardRowProps): JSX.Element // root <div>
   export type GalleryCardAttribProps = ComponentPropsWithoutRef<'span'>
   export function GalleryCardAttrib(props: GalleryCardAttribProps): JSX.Element // root <span>
 
   // tile.tsx — NOT 'use client'
   export type TileProps = Omit<ComponentPropsWithoutRef<'a'>, 'title'> & {
-    icon: IconName         // REQUIRED
-    live?: boolean         // default false -> <Dot tone="live" /> before meta
-    meta: ReactNode        // REQUIRED
-    row?: boolean          // default false (column); true -> flex-row items-center
-    title: ReactNode       // REQUIRED, shadows the native title attribute
+    icon: IconName // REQUIRED
+    live?: boolean // default false -> <Dot tone="live" /> before meta
+    meta: ReactNode // REQUIRED
+    row?: boolean // default false (column); true -> flex-row items-center
+    title: ReactNode // REQUIRED, shadows the native title attribute
   }
-  export function Tile(props: TileProps): JSX.Element   // root <a>, children render last
+  export function Tile(props: TileProps): JSX.Element // root <a>, children render last
   ```
 
   Call-site cheat sheet for later waves:
@@ -1827,7 +2023,7 @@ before `apps/download`'s tests import a newly-added export.**
   **Mockup deviations (B5): three, none visual.**
   - **`poster-vN` is derived, not passed.** `ui.pug` takes a literal `v: 1..5`; the
     component takes `seed` and runs `posterVariant(seed)`. A given card therefore gets a
-    *different* gradient than the mockup shows for the same title — the mockup's numbers
+    _different_ gradient than the mockup shows for the same title — the mockup's numbers
     were hand-picked. Deterministic, so SSR and client agree.
   - **The mockups render real poster art; the harness rendered gradients.**
     `designs/assets/` happens to be populated on this machine, so `home.html` shows
@@ -1861,7 +2057,7 @@ before `apps/download`'s tests import a newly-added export.**
     a design decision. Build it properly.
   - `Reason` is a radio group rendered as rows, not native radios — it still needs
     `role="radiogroup"` / `role="radio"` and arrow-key navigation.
-  - `DeleteButton` is bad-*tinted*, not solid — the dialog title carries the weight.
+  - `DeleteButton` is bad-_tinted_, not solid — the dialog title carries the weight.
   - Foundations says modals cap at 440px; the mixin uses 380px. Use **440px** and
     note the deviation (`ui.pug:264` flags this itself).
 
@@ -1882,17 +2078,17 @@ before `apps/download`'s tests import a newly-added export.**
   // Presentational only; takes a ref (React 19 ref-as-prop).
 
   export type ModalProps = Omit<ComponentPropsWithoutRef<'div'>, 'title'> & {
-    open: boolean                     // ALWAYS controlled
-    onClose: () => void               // Escape + scrim click only
-    title: ReactNode                  // renders <h2>, becomes the accessible name
+    open: boolean // ALWAYS controlled
+    onClose: () => void // Escape + scrim click only
+    title: ReactNode // renders <h2>, becomes the accessible name
     titleClassName?: string
-    description?: ReactNode           // renders <p>, becomes aria-describedby
+    description?: ReactNode // renders <p>, becomes aria-describedby
     descriptionClassName?: string
     scrimClassName?: string
     scrimProps?: Omit<ModalScrimProps, 'children' | 'className' | 'ref'>
-    dismissible?: boolean             // default true; false = Escape/scrim click ignored
+    dismissible?: boolean // default true; false = Escape/scrim click ignored
     initialFocusRef?: RefObject<HTMLElement | null>
-    container?: HTMLElement | null    // portal target, default document.body
+    container?: HTMLElement | null // portal target, default document.body
     children?: ReactNode
   }
   export function Modal(props: ModalProps): JSX.Element | null
@@ -1900,17 +2096,23 @@ before `apps/download`'s tests import a newly-added export.**
   // aria-labelledby/aria-describedby emitted BEFORE the spread. Returns null when
   // closed and during SSR.
 
-  export type ReasonGroupProps = Omit<ComponentPropsWithoutRef<'div'>, 'onChange'> & {
-    value?: string                    // undefined = nothing chosen yet
+  export type ReasonGroupProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'onChange'
+  > & {
+    value?: string // undefined = nothing chosen yet
     onValueChange?: (value: string) => void
   }
   export function ReasonGroup(props: ReasonGroupProps): JSX.Element
   // role="radiogroup"; NO layout classes of its own (rows space themselves).
   // Name it from the call site: aria-label, or aria-labelledby -> the modal title.
 
-  export type ReasonProps = Omit<ComponentPropsWithoutRef<'button'>, 'value'> & {
+  export type ReasonProps = Omit<
+    ComponentPropsWithoutRef<'button'>,
+    'value'
+  > & {
     value: string
-    checked?: boolean                 // overrides the group-derived state
+    checked?: boolean // overrides the group-derived state
   }
   export function Reason(props: ReasonProps): JSX.Element
   // <button type="button" role="radio">; label is `children`. THROWS outside a ReasonGroup.
@@ -1927,7 +2129,7 @@ before `apps/download`'s tests import a newly-added export.**
   - ⚠️ **The portal mounts at `document.body`** (override with `container`). The panel is
     **not** in the React tree position where you wrote it, so container-relative CSS
     cannot reach it — style via `className` / `scrimClassName`.
-  - **What closes it:** Escape; a click whose press *and* release both land on the
+  - **What closes it:** Escape; a click whose press _and_ release both land on the
     scrim; or the caller flipping `open`. `dismissible={false}` disables the first two.
     Escape is skipped if something inside already called `preventDefault()`, so a nested
     `Menu` peels off first — the same convention B7's `FilterPanel` uses.
@@ -1956,22 +2158,21 @@ before `apps/download`'s tests import a newly-added export.**
   pages and injected a measurement script into both sides. Panel padding 22px, title
   15.5px with `mb` 10px/6px, description 13.5px `mb` 18px, reason row 45px with 10px
   internal gap, dot 16×16, buttons 30px — **all identical**. Differences:
-
   - ✅ **440px cap — confirmed, as this plan expected.** `max-w-[440px]`, not the mixin's
     `max-w-[380px]`. `ui.pug:264` flags the discrepancy itself and `patterns.html`'s own
     prose already describes the panel as "capped at the system's 440px modal width", so
-    **the mixin is the stale copy**. A test asserts 440 and asserts *not* 380.
+    **the mixin is the stale copy**. A test asserts 440 and asserts _not_ 380.
   - **`fixed inset-0 z-50`, not `absolute`** — per the plan. `z-50` clears the system's
     existing `z-10` filter scrim and `z-20` menu panel (B7's numbers — they compose).
   - ⚠️ **Reason rows have an 8px gap; the built mockup renders them flush. This is a
     mockup BUILD DEFECT, not a design choice.** The class `[&+&]:mt-2` is present in the
     built HTML but the mockup's compiled CSS contains no rule for it — while
-    `[&+&]:border-t` from the same file *did* compile, so it is not a syntax problem.
+    `[&+&]:border-t` from the same file _did_ compile, so it is not a syntax problem.
     The app's Tailwind build emits it correctly. `ui.pug` is the spec and the spec says
     8px, so 8px shipped. **Someone should rebuild the mockup CSS.**
   - ✅ **`DeleteButton` keeps its `border-bad/40`; the built mockup renders borderless.
     RESOLVED 2026-09-15 — keep the border, no code change.** Tailwind emits
-    `.border-bad/40` *before* `.border-transparent` in the mockup's CSS, so the bare
+    `.border-bad/40` _before_ `.border-transparent` in the mockup's CSS, so the bare
     variant's transparent border wins there **by output order**. `cns()` drops
     `border-transparent` and keeps the class the call site actually added. This is the
     same class of artifact B1 found in the mockups' button type scale — a deliberate
@@ -1988,13 +2189,13 @@ before `apps/download`'s tests import a newly-added export.**
     the highest-stakes click in the app with no pointer feedback at all. **Neither
     addition is new design** — both reuse utilities that already carry these exact roles:
 
-    | Element | Added | Why that pair |
-    | --- | --- | --- |
+    | Element           | Added                                    | Why that pair                                                                                                                                                                                         |
+    | ----------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
     | idle `Reason` row | `hover:border-uv-dim hover:bg-surface-2` | `Button`'s `outline` hover **verbatim** — the closest analogue, a bordered surface you are about to choose, and it leans toward the uv the checked state lands on. Also `DataTable`'s row-hover fill. |
-    | `DeleteButton` | `hover:border-bad/60 hover:bg-bad/22` | Deepens the tint it already sits on. `bad-ghost` is `--color-bad` at 14% alpha, so hover is the same hue at 22%, border 40% → 60%. No new colour, no hue outside the system's four. |
+    | `DeleteButton`    | `hover:border-bad/60 hover:bg-bad/22`    | Deepens the tint it already sits on. `bad-ghost` is `--color-bad` at 14% alpha, so hover is the same hue at 22%, border 40% → 60%. No new colour, no hue outside the system's four.                   |
 
     ⚠️ **`Button`'s own `bad`-variant hover could not be reused** — that is
-    `hover:bg-bad-ghost`, which is `DeleteButton`'s *idle* state, so it would have been
+    `hover:bg-bad-ghost`, which is `DeleteButton`'s _idle_ state, so it would have been
     a no-op. The **checked** `Reason` row deliberately gets no hover: it is already the
     answer. `transition-press` and the row's own
     `transition-[border-color,background-color]` already animate both properties, so
@@ -2035,36 +2236,48 @@ before `apps/download`'s tests import a newly-added export.**
 
   ```tsx
   // filters.tsx — 'use client'
-  export type FiltersButtonProps =
-    Omit<ButtonProps, 'children' | 'icon' | 'iconEnd' | 'variant'> & {
-      ref?: ComponentPropsWithRef<'button'>['ref']  // React 19 ref-as-prop, reaches the <button>
-      count?: number      // falsy -> no badge (0 included, matching `if opts.count`)
-      open?: boolean      // flips chevron AND applies the uv tint; undefined -> no aria-expanded
-      label?: ReactNode   // default 'Filters'
-    }
+  export type FiltersButtonProps = Omit<
+    ButtonProps,
+    'children' | 'icon' | 'iconEnd' | 'variant'
+  > & {
+    ref?: ComponentPropsWithRef<'button'>['ref'] // React 19 ref-as-prop, reaches the <button>
+    count?: number // falsy -> no badge (0 included, matching `if opts.count`)
+    open?: boolean // flips chevron AND applies the uv tint; undefined -> no aria-expanded
+    label?: ReactNode // default 'Filters'
+  }
   export function FiltersButton(props: FiltersButtonProps): JSX.Element
   // Renders <Button variant="outline">. Emits aria-haspopup="dialog" and
   // aria-expanded={open} BEFORE the spread (overridable). `size` and `full`
   // survive from ButtonProps. className merges LAST, so it beats the open tint.
 
-  export type AppliedFilterChipProps = Omit<ComponentPropsWithoutRef<'span'>, 'children'> & {
-    label: ReactNode        // the value: 'Comedy', '2019–2024'
-    removeLabel: string     // REQUIRED. whole accessible name of the remove button
+  export type AppliedFilterChipProps = Omit<
+    ComponentPropsWithoutRef<'span'>,
+    'children'
+  > & {
+    label: ReactNode // the value: 'Comedy', '2019–2024'
+    removeLabel: string // REQUIRED. whole accessible name of the remove button
     onRemove?: () => void
-    removeButtonProps?: Omit<ComponentPropsWithoutRef<'button'>,
-      'aria-label' | 'children' | 'onClick' | 'type'>
+    removeButtonProps?: Omit<
+      ComponentPropsWithoutRef<'button'>,
+      'aria-label' | 'children' | 'onClick' | 'type'
+    >
   }
   export function AppliedFilterChip(props: AppliedFilterChipProps): JSX.Element
 
-  type FilterPanelBaseProps    = ComponentPropsWithoutRef<'div'>
-  type FilterPanelStaticProps  = FilterPanelBaseProps & {
-    open?: never; onOpenChange?: never; triggerRef?: never }
+  type FilterPanelBaseProps = ComponentPropsWithoutRef<'div'>
+  type FilterPanelStaticProps = FilterPanelBaseProps & {
+    open?: never
+    onOpenChange?: never
+    triggerRef?: never
+  }
   type FilterPanelPopoverProps = FilterPanelBaseProps & {
     open: boolean
     onOpenChange?: (open: boolean) => void
     triggerRef?: RefObject<HTMLElement | null>
   }
-  export type FilterPanelProps = FilterPanelStaticProps | FilterPanelPopoverProps
+  export type FilterPanelProps =
+    | FilterPanelStaticProps
+    | FilterPanelPopoverProps
   export function FilterPanel(props: FilterPanelProps): JSX.Element | null
 
   export type FilterGridProps = ComponentPropsWithoutRef<'div'>
@@ -2072,7 +2285,7 @@ before `apps/download`'s tests import a newly-added export.**
 
   export type FilterGroupProps = ComponentPropsWithoutRef<'div'> & {
     label: ReactNode
-    wide?: boolean              // -> @min-[400px]:col-span-2
+    wide?: boolean // -> @min-[400px]:col-span-2
     labelClassName?: string
   }
   export function FilterGroup(props: FilterGroupProps): JSX.Element
@@ -2088,8 +2301,7 @@ before `apps/download`'s tests import a newly-added export.**
   and the panel are **siblings**, because that is how `gallery.pug`/`search.pug` lay
   them out (`div.relative.z-20 > filtersBtn + div.absolute > filterPanel`) and the page
   positions the panel differently per breakpoint. `FilterPanel` is the root of the
-  *popover behaviour*, not of the markup.
-
+  _popover behaviour_, not of the markup.
   - **`open` is always controlled by the page.** No uncontrolled mode, no `defaultOpen`
     — the applied chips, the count badge and the panel all read the same page state, so
     an internal copy could only disagree with it.
@@ -2101,7 +2313,7 @@ before `apps/download`'s tests import a newly-added export.**
   - **Dismissal**, all reporting through `onOpenChange(false)`: document-level `Escape`
     — **skipped when `event.defaultPrevented`, so a nested `Menu` closes first and the
     panel survives; Escape peels one layer at a time** — returns focus to `triggerRef`;
-    document-level `pointerdown` outside panel *and* trigger; `focusout` to an element
+    document-level `pointerdown` outside panel _and_ trigger; `focusout` to an element
     outside both. A `focusout` with a **null `relatedTarget` deliberately does not
     close** (clicking a label inside the panel drops focus to `<body>`).
   - ⚠️ **`triggerRef` is optional but effectively required for a real popover.** Without
@@ -2150,9 +2362,9 @@ before `apps/download`'s tests import a newly-added export.**
     label, and a `Field` around two inputs would need explicit ids on both anyway. The
     inputs name themselves with `aria-label`; the group name comes from `role="group"`.
     **`useFieldId` went unused by this task.**
-  - **`removeLabel` is required, not derived.** The mockup names the *facet*
+  - **`removeLabel` is required, not derived.** The mockup names the _facet_
     (`Remove year filter` for the value `2019–2024`) while `profile.pug` names the
-    *value*. Rather than guess, the type forces the call site to say. The test asserts
+    _value_. Rather than guess, the type forces the call site to say. The test asserts
     no button is named merely "Remove".
   - **Escape listens on `document`, not on the panel** — clicking a non-focusable part
     of the panel drops focus to `<body>`, after which a panel-scoped `keydown` never
@@ -2182,8 +2394,8 @@ before `apps/download`'s tests import a newly-added export.**
   **The `@container` requirement was verified two independent ways:** (a) the same
   `FilterGrid` markup in a 340px and a 480px panel side by side at one viewport — 340px
   single-column, 480px two-column; (b) at a **390px viewport**, the 326px popover panel
-  renders single-column while a 480px static panel *lower on the same page at the same
-  viewport width* renders two-column. **The threshold is the panel, not the viewport.**
+  renders single-column while a 480px static panel _lower on the same page at the same
+  viewport width_ renders two-column. **The threshold is the panel, not the viewport.**
   The open panel is otherwise pixel-indistinguishable from `gallery.html`'s "Filters
   open" frame — padding, border, `shadow-lift`, the two-column grid with `date added`
   spanning both, the footer rule and button pair, the applied-chip row, and the Filters
@@ -2224,11 +2436,14 @@ before `apps/download`'s tests import a newly-added export.**
 
   ```tsx
   // load-more.tsx — 'use client'
-  export type LoadMoreProps = Omit<ComponentPropsWithoutRef<'div'>, 'children'> & {
-    loaded: number        // rows on screen now — the length of the merged pages
-    total: number         // rows the filter matches in total, NOT the remainder; <= 0 renders null
-    hasMore: boolean      // `nextCursor !== null`. Never derived from `loaded < total`
-    pending?: boolean     // OPTIONAL, defaults false — a page is in flight
+  export type LoadMoreProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'children'
+  > & {
+    loaded: number // rows on screen now — the length of the merged pages
+    total: number // rows the filter matches in total, NOT the remainder; <= 0 renders null
+    hasMore: boolean // `nextCursor !== null`. Never derived from `loaded < total`
+    pending?: boolean // OPTIONAL, defaults false — a page is in flight
     onLoadMore: () => void
   }
   export function LoadMore(props: LoadMoreProps): JSX.Element | null
@@ -2282,7 +2497,6 @@ before `apps/download`'s tests import a newly-added export.**
   who activates the button **loses focus to `<body>`** when it disables under them;
   loading a third page meant Tabbing from the top of the document past every
   just-appended row. Decided in favour of keeping focus:
-
   - `LoadMore` passes **`aria-disabled={pending}`**. The `Button` prop table is
     unchanged — `pending?: boolean` still, just wired to a different attribute.
   - **`Button` now owns both halves of the contract:** it styles `aria-disabled` like
@@ -2310,12 +2524,12 @@ before `apps/download`'s tests import a newly-added export.**
   vocabulary, and the visual check was "does it sit inside that vocabulary", not "does
   it match a drawing". Basis for each decision:
 
-  | Decision | Basis |
-  | --- | --- |
-  | `Button variant="outline"` | Task text; matches `filtersBtn`, the existing neutral affordance on these pages. `uv` would compete with the page's primary action. |
-  | `font-mono text-mono-sm text-ink-4` count | Task text; verbatim the string `gallery.pug:34` uses for a card's `when` stamp and `search.pug:171/199` for its dimmest labels. The licensed `ink-4` use — an 11.5px machine annotation, not a sentence. |
-  | Count **above** the button, centred, `gap-[13px]` | The sketch's ordering; 13px matches the system rhythm (`note` and `stline` both `py-[13px]`). |
-  | Natural-width button on mobile, not `full` | Read correctly at 390px, and the mockups' mobile footers use natural-width buttons. |
+  | Decision                                          | Basis                                                                                                                                                                                                    |
+  | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `Button variant="outline"`                        | Task text; matches `filtersBtn`, the existing neutral affordance on these pages. `uv` would compete with the page's primary action.                                                                      |
+  | `font-mono text-mono-sm text-ink-4` count         | Task text; verbatim the string `gallery.pug:34` uses for a card's `when` stamp and `search.pug:171/199` for its dimmest labels. The licensed `ink-4` use — an 11.5px machine annotation, not a sentence. |
+  | Count **above** the button, centred, `gap-[13px]` | The sketch's ordering; 13px matches the system rhythm (`note` and `stline` both `py-[13px]`).                                                                                                            |
+  | Natural-width button on mobile, not `full`        | Read correctly at 390px, and the mockups' mobile footers use natural-width buttons.                                                                                                                      |
 
   Verified at 1280×900 and 390×844 plus a 2× detail pass, against a 1280×1400 capture
   of the built `gallery.html`: under a 2:3 card grid the count reads as the same class
@@ -2361,7 +2575,7 @@ before `apps/download`'s tests import a newly-added export.**
   without an account link when the viewer is `null`; the sprite appears exactly once.
 
   **Findings (C1, 2026-09-15):** 4 new suites / 34 new tests, all passing —
-  `apps/download` goes **81 → 85 suites, 1607 → 1641 tests**. Lint (eslint *and*
+  `apps/download` goes **81 → 85 suites, 1607 → 1641 tests**. Lint (eslint _and_
   prettier) and type-check clean. Files: created `src/lib/viewer.ts`,
   `src/components/shell/app-bar.tsx`, `src/components/shell/account-link.tsx` plus
   `src/lib/__tests__/viewer.spec.ts` (8, node project),
@@ -2372,25 +2586,31 @@ before `apps/download`'s tests import a newly-added export.**
 
   ```tsx
   // src/lib/viewer.ts
-  export type Viewer = WhoamiResponse        // { email: string; userId: string; isAdmin: boolean }
-  export const getViewer: () => Promise<Viewer | null>   // React.cache()-wrapped
+  export type Viewer = WhoamiResponse // { email: string; userId: string; isAdmin: boolean }
+  export const getViewer: () => Promise<Viewer | null> // React.cache()-wrapped
 
   // src/components/shell/app-bar.tsx
-  export const LILNAS_HREF = 'https://lilnas.io'   // literal type
-  export const APP_NAME = 'Download'               // literal type
-  export type AppBarProps = Omit<ComponentPropsWithoutRef<'header'>, 'children'> & {
-    back?: ReactNode        // optional leading control, before the doorplate
-    navSearch?: ReactNode   // C2's slot
-    viewer: Viewer | null   // REQUIRED; null -> no account link
+  export const LILNAS_HREF = 'https://lilnas.io' // literal type
+  export const APP_NAME = 'Download' // literal type
+  export type AppBarProps = Omit<
+    ComponentPropsWithoutRef<'header'>,
+    'children'
+  > & {
+    back?: ReactNode // optional leading control, before the doorplate
+    navSearch?: ReactNode // C2's slot
+    viewer: Viewer | null // REQUIRED; null -> no account link
   }
-  export function AppBar(props: AppBarProps): JSX.Element   // root <header>
+  export function AppBar(props: AppBarProps): JSX.Element // root <header>
 
   // src/components/shell/account-link.tsx
-  export const ACCOUNT_HREF = '/profile'           // literal type
-  export type AccountLinkProps = Omit<ComponentPropsWithoutRef<'a'>, 'children'> & {
-    email: string           // initials AND tooltip both derived from it
+  export const ACCOUNT_HREF = '/profile' // literal type
+  export type AccountLinkProps = Omit<
+    ComponentPropsWithoutRef<'a'>,
+    'children'
+  > & {
+    email: string // initials AND tooltip both derived from it
   }
-  export function AccountLink(props: AccountLinkProps): JSX.Element   // root <a>
+  export function AccountLink(props: AccountLinkProps): JSX.Element // root <a>
   ```
 
   - **`getViewer()` returns `null` on any genuine failure** (401 `DownloadApiError`,
@@ -2405,7 +2625,7 @@ before `apps/download`'s tests import a newly-added export.**
     not write a unit test asserting call-count memoization**; it passes vacuously or
     fails for the wrong reason. Test the behaviour.
   - `AppBar` renders, in order: optional `back` wrapper `<span>` → `<Doorplate
-    href={LILNAS_HREF} name={APP_NAME} className="shrink-0" />` → the nav-search slot
+href={LILNAS_HREF} name={APP_NAME} className="shrink-0" />` → the nav-search slot
     `<div>` → `<AccountLink email={viewer.email} />` when `viewer` is non-null.
     `className` merges via `cns`; the rest spreads onto `<header>`.
   - `AccountLink` emits `aria-label="Your account"` and ``title={`${email} · you`}``
@@ -2445,7 +2665,7 @@ before `apps/download`'s tests import a newly-added export.**
     collapse exists purely for horizontal room. **Page tasks should pick their own
     thresholds for content grids** — their constraints differ.
   - **C2 is a one-line edit to `layout.tsx`** (`<AppBar navSearch={<NavSearch />}
-    viewer={viewer} />`) and **does not reopen `app-bar.tsx`**.
+viewer={viewer} />`) and **does not reopen `app-bar.tsx`**.
 
   `back?: ReactNode` is the same idea for detail pages: a
   `<span className="flex shrink-0 items-center mr-2.5 sm:mr-[14px]">` wrapper,
@@ -2467,10 +2687,9 @@ before `apps/download`'s tests import a newly-added export.**
 
   **Mobile 390 — every element position matches** (doorplate x=16; account plate
   32×32 at 14px from right; account mark 24×24 at 18px from right). One deviation:
-
   - ⚠️ **Mobile bar is 53px, not the mockup's rendered 59px — kept deliberately.**
     The mockup's own search button emits `… h-[38px] px-[11px] h-[30px] w-[30px] p-0`
-    — *two* height utilities with nothing to resolve them, and `h-[38px]` wins there
+    — _two_ height utilities with nothing to resolve them, and `h-[38px]` wins there
     by CSS output order, rendering 38px where the mixin asked for 30px and inflating
     the bar. This is exactly the output-order trap the Gotchas describe, and
     `cns`/twMerge resolves it in the port. 53px = `py-2.5` + the 32px doorplate, the
@@ -2508,14 +2727,14 @@ before `apps/download`'s tests import a newly-added export.**
   - ⚠️ **`react-dom/server` is unusable under this jsdom project** — it needs
     `MessageChannel` and `TextEncoder`, neither of which jsdom provides.
   - **React 19 renders a document root fine inside RTL's container**: `<html>`/`<body>`
-    *props* apply to the real `document.documentElement`/`document.body` and their
-    *children* land in the container, with no DOM-nesting warnings. Assert `<html>`
+    _props_ apply to the real `document.documentElement`/`document.body` and their
+    _children_ land in the container, with no DOM-nesting warnings. Assert `<html>`
     attributes on `document.documentElement`.
   - `next/font/google` and `src/tailwind.css` both need `jest.mock` when a test
     imports `layout.tsx`. C1 mocked them locally; **if several page suites need it,
     generalise to a `moduleNameMapper` CSS stub in `jest.config.js`.**
   - Pre-existing and not chased: the backend suite's `"worker process has failed to
-    exit gracefully"` warning, plus two `Unknown option "testTimeout"` jest validation
+exit gracefully"` warning, plus two `Unknown option "testTimeout"` jest validation
     warnings (the config places it in `shared`, which is spread into both projects and
     is not a valid per-project key in jest 29 — harmless).
 
@@ -2608,7 +2827,7 @@ before `apps/download`'s tests import a newly-added export.**
     | { kind: 'url'; url: string }
     | { kind: 'search'; query: string }
     | { kind: 'idle' }
-  export const SEARCH_MIN_LENGTH = 2                     // literal type 2
+  export const SEARCH_MIN_LENGTH = 2 // literal type 2
   export function classifyQuery(text: string): QueryClassification
 
   // src/app/actions/start-video-download.ts — 'use server'
@@ -2618,9 +2837,9 @@ before `apps/download`'s tests import a newly-added export.**
   ): Promise<StartVideoDownloadResult | undefined>
 
   // src/components/shell/nav-search.tsx — 'use client'
-  export const SEARCH_ROUTE = '/search'                            // literal type
-  export const NAV_SEARCH_PLACEHOLDER = 'Search or paste a link…'  // literal type
-  export function NavSearch(): JSX.Element | null                  // NO PROPS AT ALL
+  export const SEARCH_ROUTE = '/search' // literal type
+  export const NAV_SEARCH_PLACEHOLDER = 'Search or paste a link…' // literal type
+  export function NavSearch(): JSX.Element | null // NO PROPS AT ALL
   ```
 
   - **`startVideoDownload` resolves with a value ONLY on failure.** On success it
@@ -2652,7 +2871,7 @@ before `apps/download`'s tests import a newly-added export.**
   unconditionally; the form has **no `action` attribute**; and `form.requestSubmit()`
   is never called. The guard therefore sits at the single choke point both paths
   share. What it buys: this is the control the user is most likely standing on when it
-  disables itself, and on the **failure** path the page does *not* navigate away, so
+  disables itself, and on the **failure** path the page does _not_ navigate away, so
   `disabled` would strand them on `<body>`. Tested per B8's lesson — **tab-order
   reachability**, not focus survival.
 
@@ -2681,7 +2900,6 @@ before `apps/download`'s tests import a newly-added export.**
   input x/w 172.6 / 272; icon `oklch(0.5 0.028 300)` (ink-4). Ready state: pill widens
   to 360, glyph swaps to `#i-download`, tints `oklch(0.75 0.195 300)` (uv-hi) — all
   identical.
-
   - ✅ **32px, not `nav-search.html`'s 44px** — pre-decided by this plan, implemented,
     not relitigated. That file passes `tall: true` to every example; every other page
     passes nothing. 44px would push the mobile bar to 65px.
@@ -2733,18 +2951,17 @@ before `apps/download`'s tests import a newly-added export.**
   `mediaHref(job.media)` path derived from `media.id = video:OT___bZcL0Svkv-_-rIVA`
   (404, because E2 builds that route later — expected). The DB row read
   `3dARYrcF0tL3uUyhbHNnX | downloading | jeremyasuncion808@gmail.com | verify-user-1 |
-  video:OT___bZcL0Svkv-_-rIVA`. **A `DownloadClient.localInstance` call would have
+video:OT___bZcL0Svkv-_-rIVA`. **A `DownloadClient.localInstance` call would have
   left both requester columns null.** The job was then **cancelled** (permitted) —
   `cancelling` → `cancelled`, nothing left running. The failure path was verified
   visually by temporarily injecting a throw, screenshotting the popover and reverting
   (byte-identical revert confirmed by diff; the committed file has zero `FORCE_FAIL`
   occurrences): it rendered the error, stayed on `/`, kept the typed value, and wired
   `aria-describedby` to the alert.
-
   - C2 did **not** add the `moduleNameMapper` CSS stub to `jest.config.js` — its own
     suites don't import `layout.tsx`, so the shared-config edit wasn't needed. **Left
     as a deliberate non-decision for whoever does need it.**
-  - ⚠️ **Correction to C1's note:** `layout.spec.tsx` *does* emit a pre-existing
+  - ⚠️ **Correction to C1's note:** `layout.spec.tsx` _does_ emit a pre-existing
     `console.error` (`In HTML, <html> cannot be a child of <div>`). C2 confirmed it is
     pre-existing by running the spec against `git show HEAD:…/layout.tsx`, where it
     fires identically. C1's "no DOM-nesting warnings" claim is slightly wrong; the
@@ -2811,12 +3028,20 @@ before `apps/download`'s tests import a newly-added export.**
   // src/lib/use-job-events.ts — 'use client'
   export interface JobEventsSnapshot {
     connected: boolean
-    jobs: ReadonlyMap<string, DownloadJob>     // keyed by job.id
+    jobs: ReadonlyMap<string, DownloadJob> // keyed by job.id
   }
-  export interface JobEventsFilter { jobIds?: readonly string[] }
+  export interface JobEventsFilter {
+    jobIds?: readonly string[]
+  }
   export function useJobEvents(filter?: JobEventsFilter): JobEventsSnapshot
 
-  export const DEFAULT_RECONNECT_DELAYS_MS: readonly [1000, 2000, 4000, 8000, 15000]
+  export const DEFAULT_RECONNECT_DELAYS_MS: readonly [
+    1000,
+    2000,
+    4000,
+    8000,
+    15000,
+  ]
 
   export interface CreateJobEventsStoreOptions {
     createSocket?: (url: string) => WebSocket
@@ -2824,21 +3049,29 @@ before `apps/download`'s tests import a newly-added export.**
     random?: () => number
     reconnectDelaysMs?: readonly number[]
   }
-  type JobInterest = ReadonlySet<string> | null   // NOT exported
+  type JobInterest = ReadonlySet<string> | null // NOT exported
   export interface JobEventsStore {
     connect: () => () => void
     getSnapshot: () => JobEventsSnapshot
     ingest: (rawData: unknown) => void
     subscribe: (listener: () => void, interest: JobInterest) => () => void
   }
-  export function createJobEventsStore(options?: CreateJobEventsStoreOptions): JobEventsStore
+  export function createJobEventsStore(
+    options?: CreateJobEventsStoreOptions,
+  ): JobEventsStore
   export const JobEventsContext: React.Context<JobEventsStore | undefined>
-  export function getJobEventsSocketUrl(location: Pick<Location, 'host' | 'protocol'>): string
-  export function parseJobEventFrame(rawData: unknown): DownloadJobEvent | undefined
+  export function getJobEventsSocketUrl(
+    location: Pick<Location, 'host' | 'protocol'>,
+  ): string
+  export function parseJobEventFrame(
+    rawData: unknown,
+  ): DownloadJobEvent | undefined
   // ^ returns undefined for any frame that isn't a valid job event. NEVER throws.
 
   // src/components/live/job-events.tsx — 'use client'
-  export type JobEventsProviderProps = CreateJobEventsStoreOptions & { children: ReactNode }
+  export type JobEventsProviderProps = CreateJobEventsStoreOptions & {
+    children: ReactNode
+  }
   export function JobEventsProvider(props: JobEventsProviderProps): JSX.Element
   ```
 
@@ -2847,17 +3080,27 @@ before `apps/download`'s tests import a newly-added export.**
   ```tsx
   // D4 — activity feed, UNFILTERED. Mount the provider at the page/segment root.
   export default function ActivityPage() {
-    return <JobEventsProvider><ActivityFeed /></JobEventsProvider>
+    return (
+      <JobEventsProvider>
+        <ActivityFeed />
+      </JobEventsProvider>
+    )
   }
   function ActivityFeed() {
-    const { connected, jobs } = useJobEvents()       // every job the gateway sends
-    return <>{!connected && <StaleMarker />}
-      {[...jobs.values()].map(job => <ActivityRow job={job} key={job.id} />)}</>
+    const { connected, jobs } = useJobEvents() // every job the gateway sends
+    return (
+      <>
+        {!connected && <StaleMarker />}
+        {[...jobs.values()].map(job => (
+          <ActivityRow job={job} key={job.id} />
+        ))}
+      </>
+    )
   }
 
   // E1 — detail lifecycle panel, FILTERED to one media's jobs.
   function LifecyclePanel({ serverJobs }: { serverJobs: DownloadJob[] }) {
-    const { jobs } = useJobEvents({ jobIds: serverJobs.map(j => j.id) })  // inline array is FINE
+    const { jobs } = useJobEvents({ jobIds: serverJobs.map(j => j.id) }) // inline array is FINE
     const merged = serverJobs.map(job => jobs.get(job.id) ?? job)
   }
   ```
@@ -2875,7 +3118,7 @@ before `apps/download`'s tests import a newly-added export.**
     the layout, that works unchanged; the store is per-provider-instance either way.
   - **`jobs` is a `ReadonlyMap`, not the sketch's `Map`** — the unfiltered mode hands
     back the store's own snapshot map uncopied, so mutating it would corrupt every
-    other subscriber. `Map` is assignable *to* `ReadonlyMap`, so this is strictly
+    other subscriber. `Map` is assignable _to_ `ReadonlyMap`, so this is strictly
     wider than the sketch. The returned object is a fresh literal each render;
     `jobs`/`connected` are the stable parts — **destructure, don't memo on the
     wrapper.**
@@ -2900,7 +3143,7 @@ before `apps/download`'s tests import a newly-added export.**
     `createSocket` is treated as a failed attempt rather than escaping the effect.
   - **`connected` means strictly: a socket is currently OPEN.** `false` during the
     first connect, for the whole of every backoff window, and after unmount. It is
-    *not* "we think the backend is alive."
+    _not_ "we think the backend is alive."
   - ⚠️ **An unrecognised inner event type is normalised to `Updated` rather than
     dropped**, on the wire type's own doc ("always a full, current snapshot… a
     subscriber could safely upsert by `job.id`"). **If the backend ever adds a
@@ -2943,7 +3186,6 @@ before `apps/download`'s tests import a newly-added export.**
      byte-identical (admin viewer, so unmasked by the gateway — nothing re-derived
      client-side). The throwaway spec, probe helper and captures were all deleted
      before committing.
-
   - **One inefficiency left unsolved by choice:** if a page has both an unfiltered and
     a filtered consumer, a frame the filtered one doesn't care about still re-runs its
     `useMemo` and re-renders it. Real pages have one consumer, so no contents-equality
@@ -2990,50 +3232,70 @@ before `apps/download`'s tests import a newly-added export.**
   **Findings (D1, 2026-09-15):** 4 new suites / 36 new tests, all passing —
   `apps/download` goes **90 → 94 suites, 1739 → 1775 tests** (verified uncontaminated
   at commit time: both siblings had untracked sources but no specs yet). Lint (eslint
-  *and* prettier) and type-check clean. Rewrote `src/app/page.tsx`; created
+  _and_ prettier) and type-check clean. Rewrote `src/app/page.tsx`; created
   `src/app/loading.tsx`, `src/app/error.tsx`, `src/components/home/{quick-access,
-  recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus four
+recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus four
   specs. **Only `error.tsx` is `'use client'`** — everything else is server-safe.
   **Actual exported signatures — paste these:**
 
   ```tsx
   // src/components/home/quick-access.tsx — NOT 'use client'
   export const ACTIVITY_HREF = '/activity'
-  export const GALLERY_HREF  = '/gallery'
-  export function galleryHrefForType(type: DownloadType): string   // -> `/gallery?type=movie`
-  export function galleryTypeCount(facets: DownloadGalleryFacets, type: DownloadType): number
-  export function runningMeta(running: number): string   // >0 -> `${n} running now`; 0 -> 'Nothing running'
-  export type QuickAccessProps = Omit<ComponentPropsWithoutRef<'section'>, 'children'> & {
+  export const GALLERY_HREF = '/gallery'
+  export function galleryHrefForType(type: DownloadType): string // -> `/gallery?type=movie`
+  export function galleryTypeCount(
+    facets: DownloadGalleryFacets,
+    type: DownloadType,
+  ): number
+  export function runningMeta(running: number): string // >0 -> `${n} running now`; 0 -> 'Nothing running'
+  export type QuickAccessProps = Omit<
+    ComponentPropsWithoutRef<'section'>,
+    'children'
+  > & {
     facets: DownloadGalleryFacets
-    running: number          // getActivity().total, NEVER items.length
+    running: number // getActivity().total, NEVER items.length
   }
   export function QuickAccess(props: QuickAccessProps): JSX.Element
 
   // src/components/home/recent-card.tsx — NOT 'use client'
   export function recentCardMeta(media: Media): string
-  export type RecentCardProps = Omit<ComponentPropsWithoutRef<'div'>, 'children'> & {
+  export type RecentCardProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'children'
+  > & {
     item: GalleryItem
-    now: number                    // REQUIRED, pinned by the caller
-    viewerEmail?: string | null    // avatar links to /profile only for the viewer's own row
+    now: number // REQUIRED, pinned by the caller
+    viewerEmail?: string | null // avatar links to /profile only for the viewer's own row
   }
   export function RecentCard(props: RecentCardProps): JSX.Element
 
   // src/components/home/recently-added.tsx — NOT 'use client'
   export const RECENTLY_ADDED_LIMIT = 6
-  export type RecentlyAddedProps = Omit<ComponentPropsWithoutRef<'section'>, 'children'> & {
-    items: readonly GalleryItem[]; now: number; viewerEmail?: string | null }
+  export type RecentlyAddedProps = Omit<
+    ComponentPropsWithoutRef<'section'>,
+    'children'
+  > & {
+    items: readonly GalleryItem[]
+    now: number
+    viewerEmail?: string | null
+  }
   export function RecentlyAdded(props: RecentlyAddedProps): JSX.Element
 
   // src/components/home/ghost-link.tsx — NOT 'use client'
   export type GhostLinkProps = ComponentPropsWithoutRef<'a'> & {
-    icon?: IconName; iconEnd?: IconName }
+    icon?: IconName
+    iconEnd?: IconName
+  }
   export function GhostLink(props: GhostLinkProps): JSX.Element
 
   // src/lib/request-instant.ts
-  export const getRequestInstant: () => number   // React.cache()-wrapped Date.now()
+  export const getRequestInstant: () => number // React.cache()-wrapped Date.now()
 
   // src/app/error.tsx — 'use client'
-  export type HomeErrorProps = { error: Error & { digest?: string }; reset: () => void }
+  export type HomeErrorProps = {
+    error: Error & { digest?: string }
+    reset: () => void
+  }
   export default function HomeError(props: HomeErrorProps): JSX.Element
   // src/app/loading.tsx — default export HomeLoading(): JSX.Element (aria-busy, Skeletons)
   ```
@@ -3070,7 +3332,6 @@ before `apps/download`'s tests import a newly-added export.**
   14, poster 138×207 (2:3), title 13.5px/18.225px/600; section rhythm 16/40/16.
   **Mobile 390×844 also exact:** `18px 24px 30px` body padding, row tiles 72.08 tall at
   gap 10, heading→tiles 14px, tiles→heading 34px, cards `calc(50%-8px)`.
-
   - ⚠️ **Watch renders 24px/11.5px, not the mockup's 38px/14px — the mockup's own override
     is dead code.** `home.pug` asks for `h-6 px-2 text-[11.5px]`; in the mockup's generated
     CSS that loses to the base by output order. `cns` resolves it correctly here. Same
@@ -3084,12 +3345,12 @@ before `apps/download`'s tests import a newly-added export.**
     Costs the mobile header 30px instead of 23.39px.
   - **Mobile grid is six uniform half-width cards.** The mockup's mobile panel draws two
     tall cards plus one full-width 16:9 list row — that is the mockup demonstrating two
-    card *forms*, not a six-item layout. One rhythm, per the task's own video-crop note.
+    card _forms_, not a six-item layout. One rhythm, per the task's own video-crop note.
   - `gap-3` added to the "Recently added" header row so a long heading cannot collide with
     the link.
   - Headings are real `<h2>`s inside `aria-labelledby` `<section>`s; the mockup uses
     `<span>`s (it has mock-chrome headings of its own to avoid colliding with).
-  - **Show meta is the year, not `s2`.** `s2` is a *job scope*; `GalleryItem` deliberately
+  - **Show meta is the year, not `s2`.** `s2` is a _job scope_; `GalleryItem` deliberately
     carries none — a show is one card however many episodes were grabbed.
 
   **Content notes — the API beat the mockup in four places:** counts read **1 / 1 / 40**,
@@ -3151,75 +3412,100 @@ before `apps/download`'s tests import a newly-added export.**
   two empty states are distinguishable.
 
   **Findings (D2, 2026-09-15):** 7 new suites / 128 new tests, all passing. Lint (eslint
-  *and* prettier) and type-check clean. 18 new files, 3367 insertions, all under
+  _and_ prettier) and type-check clean. 18 new files, 3367 insertions, all under
   `src/lib/gallery-*`, `src/app/actions/load-gallery-page.ts`, `src/app/gallery/` and
   `src/components/gallery/`. **Actual exported signatures — paste these:**
 
   ```ts
   // src/lib/gallery-filters.ts — NO directive; no server-only imports, safe from both sides
   export type GalleryFilters = {
-    types: DownloadType[]        // normalized + deduped into GALLERY_TYPE_ORDER; [] = no type filter
-    requester: string | null     // ⚠️ SINGLE, not a list — see the conflicts below
-    from: string | null          // 'YYYY-MM-DD'
-    to: string | null            // 'YYYY-MM-DD'
+    types: DownloadType[] // normalized + deduped into GALLERY_TYPE_ORDER; [] = no type filter
+    requester: string | null // ⚠️ SINGLE, not a list — see the conflicts below
+    from: string | null // 'YYYY-MM-DD'
+    to: string | null // 'YYYY-MM-DD'
   }
-  export type GallerySearchParams = Record<string, string | string[] | undefined>
+  export type GallerySearchParams = Record<
+    string,
+    string | string[] | undefined
+  >
   export type GalleryFilterChip = {
-    key: string; label: string; removeLabel: string; next: GalleryFilters }
+    key: string
+    label: string
+    removeLabel: string
+    next: GalleryFilters
+  }
   export type LoadGalleryPageResult =
     | { items: GalleryItem[]; nextCursor: string | null; total: number }
     | { error: string }
-  export const INVALID_RANGE_MESSAGE: string   // 'The start date must not be after the end date.'
+  export const INVALID_RANGE_MESSAGE: string // 'The start date must not be after the end date.'
   export const EMPTY_GALLERY_FILTERS: GalleryFilters
-  export const GALLERY_TYPE_ORDER: readonly DownloadType[]        // [Video, Movie, Show]
-  export const GALLERY_TYPE_LABELS: Record<DownloadType, string>  // Videos | Movies | Shows
+  export const GALLERY_TYPE_ORDER: readonly DownloadType[] // [Video, Movie, Show]
+  export const GALLERY_TYPE_LABELS: Record<DownloadType, string> // Videos | Movies | Shows
   export const GALLERY_ALL_TYPES_TAB: 'all'
-  export const GALLERY_MIXED_TYPES_TAB: ''     // sentinel: no tab can represent 2+ types
-  export function parseGalleryFilters(params: GallerySearchParams | URLSearchParams): GalleryFilters
-  export function galleryFiltersToSearchParams(filters: GalleryFilters): URLSearchParams
-  export function galleryFiltersToSearch(filters: GalleryFilters): string   // no leading '?'
-  export function galleryHref(filters: GalleryFilters): string              // '/gallery' | '/gallery?…'
-  export function galleryFiltersToQuery(filters: GalleryFilters, cursor?: string): Partial<GalleryQuery>
+  export const GALLERY_MIXED_TYPES_TAB: '' // sentinel: no tab can represent 2+ types
+  export function parseGalleryFilters(
+    params: GallerySearchParams | URLSearchParams,
+  ): GalleryFilters
+  export function galleryFiltersToSearchParams(
+    filters: GalleryFilters,
+  ): URLSearchParams
+  export function galleryFiltersToSearch(filters: GalleryFilters): string // no leading '?'
+  export function galleryHref(filters: GalleryFilters): string // '/gallery' | '/gallery?…'
+  export function galleryFiltersToQuery(
+    filters: GalleryFilters,
+    cursor?: string,
+  ): Partial<GalleryQuery>
   export function hasGalleryFilters(filters: GalleryFilters): boolean
-  export function countGalleryFilters(filters: GalleryFilters): number      // FACETS narrowed, not values
+  export function countGalleryFilters(filters: GalleryFilters): number // FACETS narrowed, not values
   export function isInvertedGalleryRange(filters: GalleryFilters): boolean
-  export function formatGalleryRangeLabel(from: string | null, to: string | null): string
-  export function galleryFilterChips(filters: GalleryFilters): GalleryFilterChip[]
+  export function formatGalleryRangeLabel(
+    from: string | null,
+    to: string | null,
+  ): string
+  export function galleryFilterChips(
+    filters: GalleryFilters,
+  ): GalleryFilterChip[]
 
   // src/lib/gallery-data.ts — SERVER-ONLY (reaches next/headers)
   export type GalleryView = {
     facets: DownloadGalleryFacets
-    items: GalleryItem[] | null   // null ⇔ range rejected. NOT [] — [] is the empty state
+    items: GalleryItem[] | null // null ⇔ range rejected. NOT [] — [] is the empty state
     nextCursor: string | null
-    now: number                   // the ONE pinned instant for every relative stamp
+    now: number // the ONE pinned instant for every relative stamp
     rangeError: string | null
-    total: number | null          // null ⇔ range rejected
+    total: number | null // null ⇔ range rejected
   }
   export function isInvertedRangeError(error: unknown): boolean
   export function loadGalleryView(filters: GalleryFilters): Promise<GalleryView>
 
   // src/app/actions/load-gallery-page.ts — 'use server'
-  export async function loadGalleryPage(search: string, cursor: string): Promise<LoadGalleryPageResult>
+  export async function loadGalleryPage(
+    search: string,
+    cursor: string,
+  ): Promise<LoadGalleryPageResult>
 
   // src/components/gallery/gallery-controls.tsx — 'use client'
   export type GalleryControlsProps = {
-    facets: DownloadGalleryFacets; filters: GalleryFilters
+    facets: DownloadGalleryFacets
+    filters: GalleryFilters
     rangeError: string | null
-    total: number | null      // null -> footer reads 'Close' instead of 'Show N results'
+    total: number | null // null -> footer reads 'Close' instead of 'Show N results'
   }
   export function GalleryControls(props: GalleryControlsProps): JSX.Element
 
   // src/components/gallery/gallery-results.tsx — 'use client'
   export type GalleryResultsProps = {
-    filtered: boolean         // picks WHICH empty state
-    initialItems: GalleryItem[]; initialNextCursor: string | null; initialTotal: number
+    filtered: boolean // picks WHICH empty state
+    initialItems: GalleryItem[]
+    initialNextCursor: string | null
+    initialTotal: number
     now: number
-    search: string            // serialized filters; ALSO the React key the page passes
+    search: string // serialized filters; ALSO the React key the page passes
   }
   export function GalleryResults(props: GalleryResultsProps): JSX.Element
 
   // src/components/gallery/gallery-item-card.tsx
-  export const GALLERY_CARD_WIDTH: string   // 'w-[calc(50%-8px)] sm:w-[158px]'
+  export const GALLERY_CARD_WIDTH: string // 'w-[calc(50%-8px)] sm:w-[158px]'
   export type GalleryItemCardProps = { item: GalleryItem; now: number }
   export function GalleryItemCard(props: GalleryItemCardProps): JSX.Element
 
@@ -3237,7 +3523,10 @@ before `apps/download`'s tests import a newly-added export.**
   export type GalleryPageProps = { searchParams: Promise<GallerySearchParams> }
   export const metadata = { title: 'Library · Download' }
   // src/app/gallery/error.tsx — 'use client'
-  export type GalleryErrorProps = { error: Error & { digest?: string }; reset: () => void }
+  export type GalleryErrorProps = {
+    error: Error & { digest?: string }
+    reset: () => void
+  }
   ```
 
   - **`parse(serialize(f)) === f` holds for all 64 reachable states**, proven exhaustively —
@@ -3264,7 +3553,10 @@ before `apps/download`'s tests import a newly-added export.**
   const [applied, setApplied] = useOptimistic(filters)
   const [, startTransition] = useTransition()
   function apply(next) {
-    startTransition(() => { setApplied(next); router.push(href(next), { scroll: false }) })
+    startTransition(() => {
+      setApplied(next)
+      router.push(href(next), { scroll: false })
+    })
   }
   ```
 
@@ -3287,7 +3579,6 @@ before `apps/download`'s tests import a newly-added export.**
     `aria-label` — a `Field` around two controls hands both the same id.
 
   ##### ⚠️ Findings: three API-vs-plan conflicts D2 hit. None needed a backend change.
-
   1. ⚠️ **The uploader facet is SINGLE-select, not multi — this plan's D2 task text was
      wrong.** `GalleryQuerySchema.requester` is `z.string().min(1)` and `JobQueryService`
      takes a scalar `requesterEmail?: string`. `?requester=a&requester=b` **400s**;
@@ -3329,20 +3620,20 @@ before `apps/download`'s tests import a newly-added export.**
   296px → single column (B7's container query firing exactly as documented)**, mobile card
   163px = `calc(50%-8px)`.
 
-  | Deviation | Reason |
-  | --- | --- |
-  | **No "Search the library…" field**, which both mockup frames draw | `GalleryQuerySchema` has no text param — the field could not filter this grid, and `NavSearch` is live on `/gallery`. Two fields, one inert, is worse than one. |
-  | **No "sort by" menu** in the panel | No sort parameter on the endpoint (see conflict 2). |
-  | **No "year" filter** | Not in `GalleryQuerySchema` (see conflict 3). |
-  | **"media type" group ADDED to the panel** (not in the mockup) | The task requires multi-select type; the tab strip is single-select. The group carries the `facets.types` counts. |
-  | **"Clear all" also shown on mobile**, where the mockup omits it below 640px | It is the only way to clear several chips at once. |
-  | **Panel sits 1.7px lower than the mockup's rule** | The mockup anchors it to the button's wrapper on desktop and to the controls row on mobile. One responsive markup means one anchor; the controls row is 41.39px (tab strip) vs the button's 38px. |
-  | **Card heights differ** | `items-stretch` + the mockup's row containing an `indexing…` chip. Not a style difference. |
-  | **Chip row measures 27px, mockup 30px** | ⚠️ The documented mockup artifact — its generated CSS resolves `h-[30px]` (size `sm`) *after* the call-site `h-[27px]` by output order. `cns`/twMerge resolves it correctly; **27 is the intended value.** |
-  | **Watch is an `<a>` with a locally-restated ghost recipe** | See the `ButtonLink` finding above. |
+  | Deviation                                                                   | Reason                                                                                                                                                                                                     |
+  | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | **No "Search the library…" field**, which both mockup frames draw           | `GalleryQuerySchema` has no text param — the field could not filter this grid, and `NavSearch` is live on `/gallery`. Two fields, one inert, is worse than one.                                            |
+  | **No "sort by" menu** in the panel                                          | No sort parameter on the endpoint (see conflict 2).                                                                                                                                                        |
+  | **No "year" filter**                                                        | Not in `GalleryQuerySchema` (see conflict 3).                                                                                                                                                              |
+  | **"media type" group ADDED to the panel** (not in the mockup)               | The task requires multi-select type; the tab strip is single-select. The group carries the `facets.types` counts.                                                                                          |
+  | **"Clear all" also shown on mobile**, where the mockup omits it below 640px | It is the only way to clear several chips at once.                                                                                                                                                         |
+  | **Panel sits 1.7px lower than the mockup's rule**                           | The mockup anchors it to the button's wrapper on desktop and to the controls row on mobile. One responsive markup means one anchor; the controls row is 41.39px (tab strip) vs the button's 38px.          |
+  | **Card heights differ**                                                     | `items-stretch` + the mockup's row containing an `indexing…` chip. Not a style difference.                                                                                                                 |
+  | **Chip row measures 27px, mockup 30px**                                     | ⚠️ The documented mockup artifact — its generated CSS resolves `h-[30px]` (size `sm`) _after_ the call-site `h-[27px]` by output order. `cns`/twMerge resolves it correctly; **27 is the intended value.** |
+  | **Watch is an `<a>` with a locally-restated ghost recipe**                  | See the `ButtonLink` finding above.                                                                                                                                                                        |
 
   **Content notes — the API beat the mockup, and one item is a real production problem:**
-  - ⚠️ **Radarr/Sonarr return *relative* poster paths** (`/MediaCover/209/poster.jpg?lastWrite=…`).
+  - ⚠️ **Radarr/Sonarr return _relative_ poster paths** (`/MediaCover/209/poster.jpg?lastWrite=…`).
     These resolve against `localhost:8090` and **404** — confirmed via console, 10×.
     **So no card shows key art today, movies and shows included**, not just videos. The
     gradient fallback is behaving exactly as designed, but the underlying URL is wrong.
@@ -3383,8 +3674,8 @@ before `apps/download`'s tests import a newly-added export.**
 
   **Surface:** a hero search field (this page's own — the nav-bar field is omitted
   here), a toolbar with grid/list toggle and sort, a filter panel (genre multi-select
-  + release-year range), applied-filter chips, and results as either a card grid or
-  a sortable table.
+  - release-year range), applied-filter chips, and results as either a card grid or
+    a sortable table.
 
   **Edge cases:**
   - **2-character minimum**, debounced ~300ms — matches the schema's
@@ -3407,55 +3698,71 @@ before `apps/download`'s tests import a newly-added export.**
   map to the enum.
 
   **Findings (D3, 2026-09-15):** 7 new suites / 132 new tests, all passing. Lint (eslint
-  *and* prettier) and type-check clean. 22 new files, +3551, all under `src/app/search/`
+  _and_ prettier) and type-check clean. 22 new files, +3551, all under `src/app/search/`
   and `src/components/search/`. **No stop-and-report was required** — no backend change,
   no new dependency, no shared-contract widening, no `jest.config.js` edit, and no ref
   needed on `Button`/`Input`. **Actual exported signatures — paste these:**
 
   ```tsx
   // src/components/search/search-params.ts — no directive, importable both sides
-  export const SEARCH_PARAM_QUERY = 'q'       // ⚠️ PAGE param; the API param is `query`
+  export const SEARCH_PARAM_QUERY = 'q' // ⚠️ PAGE param; the API param is `query`
   export const SEARCH_PARAM_GENRE = 'genre'
   export const SEARCH_PARAM_YEAR_FROM = 'yearFrom'
   export const SEARCH_PARAM_YEAR_TO = 'yearTo'
   export const SEARCH_PARAM_SORT = 'sort'
   export const SEARCH_PARAM_VIEW = 'view'
-  export const SEARCH_SORTS: readonly ['relevance','title','releaseDate']
+  export const SEARCH_SORTS: readonly ['relevance', 'title', 'releaseDate']
   export type SearchSort = (typeof SEARCH_SORTS)[number]
-  export const DEFAULT_SEARCH_SORT: SearchSort                    // 'relevance'
+  export const DEFAULT_SEARCH_SORT: SearchSort // 'relevance'
   export const SEARCH_SORT_LABELS: Record<SearchSort, string>
-  export const SEARCH_SORT_DIRECTIONS:
-    Record<Exclude<SearchSort,'relevance'>, 'ascending'|'descending'>
-  export const SEARCH_VIEWS: readonly ['grid','list']
+  export const SEARCH_SORT_DIRECTIONS: Record<
+    Exclude<SearchSort, 'relevance'>,
+    'ascending' | 'descending'
+  >
+  export const SEARCH_VIEWS: readonly ['grid', 'list']
   export type SearchView = (typeof SEARCH_VIEWS)[number]
-  export const DEFAULT_SEARCH_VIEW: SearchView                    // 'grid'
+  export const DEFAULT_SEARCH_VIEW: SearchView // 'grid'
   export const SEARCH_PAGE_SIZE = 24
-  export const YEAR_RANGE_SEPARATOR = '–'     // EN dash
+  export const YEAR_RANGE_SEPARATOR = '–' // EN dash
   export const YEAR_RANGE_ERROR = 'Start year must be before end year'
   export interface SearchState {
-    genres: string[]; query: string; sort: SearchSort; view: SearchView
-    yearFrom: number | null; yearTo: number | null }
+    genres: string[]
+    query: string
+    sort: SearchSort
+    view: SearchView
+    yearFrom: number | null
+    yearTo: number | null
+  }
   export interface ReadableSearchParams {
-    get(name: string): string | null; getAll(name: string): string[] }
+    get(name: string): string | null
+    getAll(name: string): string[]
+  }
   export function parseYear(value: string | null | undefined): number | null
   export function parseSearchState(params: ReadableSearchParams): SearchState
   export function toReadableSearchParams(
-    record: Record<string, string | string[] | undefined>): URLSearchParams
+    record: Record<string, string | string[] | undefined>,
+  ): URLSearchParams
   export function searchStateToParams(state: SearchState): URLSearchParams
-  export function searchStateToQueryString(state: SearchState): string   // '?a=b' | ''
-  export function searchStateKey(state: SearchState): string             // ⚠️ EXCLUDES `view`
+  export function searchStateToQueryString(state: SearchState): string // '?a=b' | ''
+  export function searchStateKey(state: SearchState): string // ⚠️ EXCLUDES `view`
   export function isSearchableQuery(query: string): boolean
   export function hasValidYearRange(state: SearchState): boolean
   export function appliedFilterCount(state: SearchState): number
   export function hasAppliedFilters(state: SearchState): boolean
-  export function formatYearRange(yearFrom: number|null, yearTo: number|null): string
-  export function toDiscoverQuery(state: SearchState, cursor?: string): DiscoverQuery
+  export function formatYearRange(
+    yearFrom: number | null,
+    yearTo: number | null,
+  ): string
+  export function toDiscoverQuery(
+    state: SearchState,
+    cursor?: string,
+  ): DiscoverQuery
 
   // src/components/search/result-meta.ts — no directive
-  export const RESULT_KIND_ICONS: Record<DownloadType, IconName>   // film | tv | play
-  export const RESULT_KIND_LABELS: Record<DownloadType, string>    // lowercase
-  export function resultYear(media: Media): string                 // '1977' | UNKNOWN_VALUE
-  export function resultKindAndYear(media: Media): string          // 'movie · 1977'
+  export const RESULT_KIND_ICONS: Record<DownloadType, IconName> // film | tv | play
+  export const RESULT_KIND_LABELS: Record<DownloadType, string> // lowercase
+  export function resultYear(media: Media): string // '1977' | UNKNOWN_VALUE
+  export function resultKindAndYear(media: Media): string // 'movie · 1977'
   export function resultGenres(media: Media): string
   export function resultRuntime(media: Media): string
 
@@ -3463,32 +3770,40 @@ before `apps/download`'s tests import a newly-added export.**
   export const SEARCH_DEBOUNCE_MS = 300
   export const SEARCH_HEADLINE = 'Search movies & shows.'
   export const SEARCH_FIELD_LABEL = 'Search movies and shows'
-  export const SEARCH_FORM_LABEL  = 'Search movies and shows'
-  export function SearchHero(): JSX.Element                        // NO PROPS
+  export const SEARCH_FORM_LABEL = 'Search movies and shows'
+  export function SearchHero(): JSX.Element // NO PROPS
 
   // src/components/search/search-toolbar.tsx — 'use client'
   export type SearchToolbarProps = {
     facets: DiscoveryFacets
-    showViewToggle?: boolean       // default true; false drops it (the 0-results frame)
+    showViewToggle?: boolean // default true; false drops it (the 0-results frame)
     state: SearchState
-    total: number }                // the whole filtered set, not the page on screen
+    total: number
+  } // the whole filtered set, not the page on screen
   export function SearchToolbar(props: SearchToolbarProps): JSX.Element
   // Owns ALL filter/sort/view URL writes (router.push, scroll:false) plus FiltersButton,
   // FilterPanel, FilterScrim and the applied-filter chip row.
 
   // src/components/search/search-filters.tsx — 'use client'
   export interface SearchFilterDraft {
-    genres: string[]; yearFrom: number | null; yearTo: number | null }
+    genres: string[]
+    yearFrom: number | null
+    yearTo: number | null
+  }
   export type SearchFiltersProps = {
     facets: DiscoveryFacets
     onApply: (draft: SearchFilterDraft) => void
     onClear: () => void
-    state: SearchState }
+    state: SearchState
+  }
   export function SearchFilters(props: SearchFiltersProps): JSX.Element
   // Fragment — panel CONTENTS only, mounted inside a FilterPanel. Pure draft, no effects.
 
   // src/components/search/search-results.tsx — 'use client'
-  export type SearchResultsProps = { initialPage: DiscoveryPage; state: SearchState }
+  export type SearchResultsProps = {
+    initialPage: DiscoveryPage
+    state: SearchState
+  }
   export function SearchResults(props: SearchResultsProps): JSX.Element
   // ⚠️ MUST be given key={searchStateKey(state)} by the caller — that remount is how the
   // merged LoadMore pages reset.
@@ -3496,38 +3811,57 @@ before `apps/download`'s tests import a newly-added export.**
   // src/components/search/result-grid.tsx — no directive
   export type ResultCardProps = { media: Media }
   export function ResultCard(props: ResultCardProps): JSX.Element
-  export type ResultGridProps = Omit<ComponentPropsWithoutRef<'div'>,'children'> & {
-    items: Media[] }
+  export type ResultGridProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'children'
+  > & {
+    items: Media[]
+  }
   export function ResultGrid(props: ResultGridProps): JSX.Element
 
   // src/components/search/result-table.tsx — 'use client'
   export type ResultTableProps = {
-    items: Media[]; onSortChange: (sort: SearchSort) => void; sort: SearchSort }
+    items: Media[]
+    onSortChange: (sort: SearchSort) => void
+    sort: SearchSort
+  }
   export function ResultTable(props: ResultTableProps): JSX.Element
 
   // src/components/search/search-notes.tsx — no directive
-  export type DegradedSourcesNoteProps =
-    Omit<ComponentPropsWithoutRef<'div'>,'children'> & { degradedSources: DiscoverySource[] }
-  export function DegradedSourcesNote(props): JSX.Element | null   // null on []
-  export type NoMatchesNoteProps =
-    Omit<ComponentPropsWithoutRef<'div'>,'children'> & { query: string }
+  export type DegradedSourcesNoteProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'children'
+  > & { degradedSources: DiscoverySource[] }
+  export function DegradedSourcesNote(props): JSX.Element | null // null on []
+  export type NoMatchesNoteProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'children'
+  > & { query: string }
   export function NoMatchesNote(props): JSX.Element
-  export type ShortQueryNoteProps = Omit<ComponentPropsWithoutRef<'div'>,'children'>
+  export type ShortQueryNoteProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'children'
+  >
   export function ShortQueryNote(props): JSX.Element
 
   // src/components/search/search-skeletons.tsx — 'use client'
-  export function SearchLoadingSkeleton(): JSX.Element   // NO PROPS; reads ?view= itself
+  export function SearchLoadingSkeleton(): JSX.Element // NO PROPS; reads ?view= itself
 
   // src/app/search/actions.ts — 'use server'
   export async function loadMoreDiscoverResults(
-    search: string, cursor: string): Promise<DiscoveryPage>
+    search: string,
+    cursor: string,
+  ): Promise<DiscoveryPage>
   // `search` is the page's own query string ('?q=star&sort=title'), re-parsed server-side.
   // Returns an EMPTY PAGE (never throws) for a too-short query or an inverted year range.
 
   // src/app/search/page.tsx
   export const dynamic = 'force-dynamic'
   // src/app/search/error.tsx — 'use client'
-  export type SearchErrorProps = { error: Error & { digest?: string }; reset: () => void }
+  export type SearchErrorProps = {
+    error: Error & { digest?: string }
+    reset: () => void
+  }
   ```
 
   ##### ⚠️ Findings: `src/app/search/layout.tsx` — the one structural decision on this route
@@ -3550,7 +3884,6 @@ before `apps/download`'s tests import a newly-added export.**
   C2's shipped code. **Conclusion: the pattern IS permitted; D2's rejection was
   shape-specific, not a blanket rule.** Both patterns are now proven in-tree. Guidance for
   D4/E1/F1/F2:
-
   1. **Sort / view / filters: use NO client state at all.** Read `useSearchParams()`, write
      `router.push(…, { scroll: false })`. Nothing to sync, so no rule can fire.
   2. **Merged `LoadMore` pages: reset by REMOUNT, not derived state** — `key={stateKey}`
@@ -3565,7 +3898,7 @@ before `apps/download`'s tests import a newly-added export.**
 
   **`useOptimistic` (D2) and render-phase-adjustment (D3/C2) are both available. Prefer 1–3
   above, which need neither.** ⚠️ **Zero `useEffect` + `setState` in D3's whole feature** —
-  its only effect is the debounce timer, which schedules a *navigation*, not a state write.
+  its only effect is the debounce timer, which schedules a _navigation_, not a state write.
 
   ##### `classifyQuery` — deliberately NOT reused, and the gap that creates
 
@@ -3583,7 +3916,7 @@ before `apps/download`'s tests import a newly-added export.**
 
   The hero is a `<form role="search">` with one field and **no button**; HTML implicit
   submission gives Enter for free, the handler `preventDefault()`s unconditionally, and
-  there is no `action` attribute. **Enter *flushes* the pending debounce rather than being a
+  there is no `action` attribute. **Enter _flushes_ the pending debounce rather than being a
   separate code path**, so B8's submit-button trap never arises. The one real `disabled` is
   the filter panel's **"Show results"**: `type="button"` with an `onClick`, and focus is on
   a year field (not the button) at the moment an inverted range disables it, so nobody is
@@ -3593,7 +3926,6 @@ before `apps/download`'s tests import a newly-added export.**
   computed styles + `getBoundingClientRect()` element-for-element against `search.html`'s
   desktop frames. **Hero, toolbar, view toggle, Filters button, grid tracks, card, poster,
   title, mchip, filter panel, and every `th`/`td`/row rule came back byte-identical.**
-
   - ⚠️ **A real layout bug found BY MEASURING, then fixed at the call site.** `GalleryCard`
     stretched to the grid row height but the `<a>` inside it did not (card `312.83` /
     anchor `292.59`), leaving ~20px of border with nothing clickable behind it. In
@@ -3618,7 +3950,7 @@ before `apps/download`'s tests import a newly-added export.**
     `sortDiscoveryResults()`, not guessed.**
   - **Kind labels are lowercase** (`movie · 1977`), matching `search.mjs` and the mono register.
   - **No-matches is the plain `Note`, not the mockup's loud one**, and is `role="status"`.
-    A test asserts it is *not* the loud note — no-matches is a state, not an error.
+    A test asserts it is _not_ the loud note — no-matches is a state, not an error.
   - **The hero never turns `border-bad` and is never `readonly` while loading**, both of
     which the mockup does for its "No matches" and "Loading" frames.
   - **The view switch is `role="group"` + `aria-pressed`**, not the mockup's
@@ -3658,11 +3990,10 @@ before `apps/download`'s tests import a newly-added export.**
   - ✅ Also driven live and verified: filters open at both viewports (panel 460px desktop /
     342px mobile, **and B7's `@container` query correctly gives 2 columns at 460 and 1 at
     342 — the threshold really is the panel, not the viewport**), applied-filter chips, both
-    sort headers changing the URL *and* actually reordering server-side, and Load more
+    sort headers changing the URL _and_ actually reordering server-side, and Load more
     taking 24 → 40 with the button disappearing.
 
-  ⚠️ **The verify backend's `total` looks capped** — both `star` and `trek` report exactly
-  40. **This is why `LoadMore`'s `hasMore` is wired to `nextCursor !== null` and never to
+  ⚠️ **The verify backend's `total` looks capped** — both `star` and `trek` report exactly 40. **This is why `LoadMore`'s `hasMore` is wired to `nextCursor !== null` and never to
   `loaded < total`**, exactly as B8 required. Worth knowing for any later count assertion.
 
 - [ ] **D4. Downloads activity.** `/activity` is every download in flight, live.
@@ -3925,7 +4256,7 @@ before `apps/download`'s tests import a newly-added export.**
 
   **Edge cases:**
   - **A computed view, not an entity.** A profile for an email with no jobs is
-    *empty*, not a 404 — nulls and empty arrays.
+    _empty_, not a 404 — nulls and empty arrays.
   - Aggregates are **sparse**: a type or status that never occurred is absent, not
     zero. There is no `totalJobs` — sum `totalsByType`.
   - Only `jobsPerDay` is windowed by `days`; totals and first/last are all-time.
@@ -3936,7 +4267,7 @@ before `apps/download`'s tests import a newly-added export.**
   - An active chip reads tonally filled/bordered — `Chip`'s `active`, which overrides
     `tone` (B1).
   - Zero rows for an active filter combination is its own state
-    (*no downloads match these filters*), distinct from the empty profile of a user
+    (_no downloads match these filters_), distinct from the empty profile of a user
     with no jobs at all.
   - The history table **omits the requester column** — the page is already scoped to
     one person, so attribution is page context, not a per-row fact.
@@ -4044,20 +4375,20 @@ graph TD
 
 ### Waves
 
-| Wave | Run | Why it works |
-| --- | --- | --- |
-| 1 | **A1 ∥ A2 ∥ A3 ∥ A4 ∥ A5** | Five disjoint files: `tailwind.css`, `components/ui/icon*`, `lib/*`, `jest.config.js`+`package.json`, `docs/`+`deploy.verify.yml`. |
-| 2 | **B1 ∥ B2 ∥ B3 ∥ B4** | One component file each, all new, no shared imports between them. |
-| 3 | **B5 ∥ B6 ∥ B7 ∥ B8** | Each composes wave 2's primitives but writes only its own new file. |
-| 4 | **C1** | Convergence: the shell imports from B1–B3 and edits `layout.tsx`, which nothing else touches. |
-| 5 | **C2 ∥ C3** | Disjoint: `shell/nav-search.tsx`+`lib/url-classify.ts`+one action vs `live/job-events.tsx`+`lib/use-job-events.ts`. |
-| 6 | **D1 ∥ D2 ∥ D3** | Three route directories — no overlap. D1 rewrites `app/page.tsx`, which no other task touches. |
-| 7 | **D4 ∥ E1** | `app/activity/` vs `components/detail/`. **Split out of wave 6 deliberately — see below.** |
-| 8 | **E3 ∥ E6 ∥ E7** | The three shared detail surfaces, each its own file, all consuming E1. |
-| 9 | **E2 ∥ E4 ∥ E5** | Three route directories, three detail components. E2 needs E3; E4/E5 need E6 + E7. |
-| 10 | **F1 ∥ F2** | Two route directories, disjoint. |
-| 11 | **G1** | Must see every page. Sequential by nature — it edits whatever it finds. |
-| 12 | **G2 ∥ G3** | Verification reads; docs writes markdown. No overlap. |
+| Wave | Run                        | Why it works                                                                                                                       |
+| ---- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | **A1 ∥ A2 ∥ A3 ∥ A4 ∥ A5** | Five disjoint files: `tailwind.css`, `components/ui/icon*`, `lib/*`, `jest.config.js`+`package.json`, `docs/`+`deploy.verify.yml`. |
+| 2    | **B1 ∥ B2 ∥ B3 ∥ B4**      | One component file each, all new, no shared imports between them.                                                                  |
+| 3    | **B5 ∥ B6 ∥ B7 ∥ B8**      | Each composes wave 2's primitives but writes only its own new file.                                                                |
+| 4    | **C1**                     | Convergence: the shell imports from B1–B3 and edits `layout.tsx`, which nothing else touches.                                      |
+| 5    | **C2 ∥ C3**                | Disjoint: `shell/nav-search.tsx`+`lib/url-classify.ts`+one action vs `live/job-events.tsx`+`lib/use-job-events.ts`.                |
+| 6    | **D1 ∥ D2 ∥ D3**           | Three route directories — no overlap. D1 rewrites `app/page.tsx`, which no other task touches.                                     |
+| 7    | **D4 ∥ E1**                | `app/activity/` vs `components/detail/`. **Split out of wave 6 deliberately — see below.**                                         |
+| 8    | **E3 ∥ E6 ∥ E7**           | The three shared detail surfaces, each its own file, all consuming E1.                                                             |
+| 9    | **E2 ∥ E4 ∥ E5**           | Three route directories, three detail components. E2 needs E3; E4/E5 need E6 + E7.                                                 |
+| 10   | **F1 ∥ F2**                | Two route directories, disjoint.                                                                                                   |
+| 11   | **G1**                     | Must see every page. Sequential by nature — it edits whatever it finds.                                                            |
+| 12   | **G2 ∥ G3**                | Verification reads; docs writes markdown. No overlap.                                                                              |
 
 > ⚠️ **Waves 6 and 7 were one wave in the original plan (`D1 ∥ D2 ∥ D3 ∥ D4 ∥ E1`).
 > Split on 2026-09-15, after Wave 5.** The dependency graph is **unchanged** — D4 and
@@ -4077,7 +4408,7 @@ graph TD
 > **Waves 8–12 are the old 7–11, renumbered with no other change.**
 
 > ⚠️ **One branch, no worktree isolation.** Every wave above is parallel-safe on
-> *files*, but `git`'s index is repo-global. Stagger sub-agent launches, have each
+> _files_, but `git`'s index is repo-global. Stagger sub-agent launches, have each
 > pass an explicit file scope to `/commit`, and never let two be in the commit step
 > at the same instant. If that's hard to guarantee, run the wave sequentially — the
 > plan is still correct, just slower.
@@ -4088,36 +4419,36 @@ graph TD
 
 ### Dependency table
 
-| Task | Depends on | Parallel with |
-| --- | --- | --- |
-| A1–A5 | — | each other |
-| B1 | A1, A2, A4 | B2, B3, B4 |
-| B2 | A1, A2, A4 | B1, B3, B4 |
-| B3 | A1, A2, A4 | B1, B2, B4 |
-| B4 | A1, A2, A4 | B1, B2, B3 |
-| B5 | A3, B1, B2, B3 | B6, B7, B8 |
-| B6 | B1 | B5, B7, B8 |
-| B7 | B1, B4 | B5, B6, B8 |
-| B8 | B1 | B5, B6, B7 |
-| C1 | B1, B2, B3 | — |
-| C2 | C1, B1, B4 | C3 |
-| C3 | C1 | C2 |
-| D1 | C1, C2, C3, B5, B8 | D2, D3, D4, E1 |
-| D2 | C1–C3, B5, B7, B8 | D1, D3, D4, E1 |
-| D3 | C1–C3, B5, B7, B8 | D1, D2, D4, E1 |
-| D4 | C1–C3, B3, B8 | D1, D2, D3, E1 |
-| E1 | B5, B6, C3 | D1–D4 |
-| E3 | E1 | E6, E7 |
-| E6 | E1, B6 | E3, E7 |
-| E7 | E1 | E3, E6 |
-| E2 | E1, E3, E7 | E4, E5 |
-| E4 | E1, E6, E7 | E2, E5 |
-| E5 | E1, E6, E7 | E2, E4 |
-| F1 | C1, B1, B3, B8 | F2 |
-| F2 | C1, B1, B3, B8 | F1 |
-| G1 | D1–D4, E2, E4, E5, F1, F2 | — |
-| G2 | G1 | G3 |
-| G3 | G1 | G2 |
+| Task  | Depends on                | Parallel with  |
+| ----- | ------------------------- | -------------- |
+| A1–A5 | —                         | each other     |
+| B1    | A1, A2, A4                | B2, B3, B4     |
+| B2    | A1, A2, A4                | B1, B3, B4     |
+| B3    | A1, A2, A4                | B1, B2, B4     |
+| B4    | A1, A2, A4                | B1, B2, B3     |
+| B5    | A3, B1, B2, B3            | B6, B7, B8     |
+| B6    | B1                        | B5, B7, B8     |
+| B7    | B1, B4                    | B5, B6, B8     |
+| B8    | B1                        | B5, B6, B7     |
+| C1    | B1, B2, B3                | —              |
+| C2    | C1, B1, B4                | C3             |
+| C3    | C1                        | C2             |
+| D1    | C1, C2, C3, B5, B8        | D2, D3, D4, E1 |
+| D2    | C1–C3, B5, B7, B8         | D1, D3, D4, E1 |
+| D3    | C1–C3, B5, B7, B8         | D1, D2, D4, E1 |
+| D4    | C1–C3, B3, B8             | D1, D2, D3, E1 |
+| E1    | B5, B6, C3                | D1–D4          |
+| E3    | E1                        | E6, E7         |
+| E6    | E1, B6                    | E3, E7         |
+| E7    | E1                        | E3, E6         |
+| E2    | E1, E3, E7                | E4, E5         |
+| E4    | E1, E6, E7                | E2, E5         |
+| E5    | E1, E6, E7                | E2, E4         |
+| F1    | C1, B1, B3, B8            | F2             |
+| F2    | C1, B1, B3, B8            | F1             |
+| G1    | D1–D4, E2, E4, E5, F1, F2 | —              |
+| G2    | G1                        | G3             |
+| G3    | G1                        | G2             |
 
 ### Critical path
 
@@ -4133,7 +4464,7 @@ release picker, bad-file flags), and it sits behind two dependencies. Start E1 t
 moment B5/B6/C3 are green rather than waiting for the list pages to land.
 
 ⚠️ **The wave 6/7 split costs the critical path one wave.** E1's dependencies
-(B5, B6, C3) were all green at the end of wave 5, so E1 *could* run in wave 6; it sits
+(B5, B6, C3) were all green at the end of wave 5, so E1 _could_ run in wave 6; it sits
 in wave 7 only to be paired with D4 over `JobEventsProvider` placement. If E1 becomes
 the schedule's binding constraint, the cheap fix is to run **E1 alone in wave 6** and
 let D4 follow with the list pages — the dependency graph permits either ordering, and
@@ -4154,18 +4485,18 @@ checking for.
 2. **After E6 — exercise the library mutations.** Grab a release, replace a file,
    delete an episode, flag a bad file, then confirm each landed in Radarr/Sonarr.
    No agent runs these; they write to the real library and delete real files off
-   `/storage/media-library`. *Checking for:* the four destructive flows behave
+   `/storage/media-library`. _Checking for:_ the four destructive flows behave
    against live upstreams, not just against mocked actions.
 
 3. **After G1 — review the four unproducible states.** An empty library, "no matches"
    with healthy upstreams, the degraded-source banner, and Emby `indexing…` can't be
    conjured from live data. A human reads those code paths against the mockups.
-   *Checking for:* the accepted gap named in the Overview is actually small.
+   _Checking for:_ the accepted gap named in the Overview is actually small.
 
 4. **After G2 — deploy.** `./infra/base-images/build-base-images.sh` then
    `docker-compose up -d --build download` **from the repo root**, never from
    `apps/download/deploy.yml`. Deploying is a human decision; reaching the last
-   checkbox is not permission to ship. *Checking for:* the deliberate choice to
+   checkbox is not permission to ship. _Checking for:_ the deliberate choice to
    replace the placeholder page on `download.lilnas.io`.
 
 ---

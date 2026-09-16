@@ -1,14 +1,21 @@
+# ⚠️ RETIRED 2026-09-15 — DO NOT START THIS.
+#
+# Superseded by `deploy.dev-remote.yml`, which runs BOTH halves in one container
+# behind the production Traefik with OAuth in front. Starting this file now would
+# bring up a second backend on 127.0.0.1:8081 and compete with that container.
+#
+# It is kept only as the record of the shape task A5 delivered (`85d88b87`).
+# Why it was replaced — see "The retired shape" in the runbook:
+#   docs/features/download/local-verification.md
+#
+# ── original header, for context ─────────────────────────────────────────────
+#
 # Local verification backend — a TOOL, not a deployed service.
 #
 # Runs the already-built production `lilnas-download` image against the live
 # upstreams (radarr / sonarr / emby / storage, all on `lilnas_default`) while
 # pointing at a throwaway *copy* of the database. The frontend is NOT started
 # here — it runs natively with `npx next dev -p 8090` so hot reload works.
-#
-# Full runbook, including how to make the snapshot and the env file this
-# expects: docs/local-verification.md
-#
-#   docker compose -f deploy.verify.yml up -d
 #
 # Three hard rules:
 #
@@ -43,7 +50,7 @@ services:
     command: dist/main
     # Copied from .env.prod, then overridden: NODE_ENV=development,
     # DATABASE_PATH=/data/download.db, DEV_USER_EMAIL, DEV_USER_ID.
-    # Gitignored — see docs/local-verification.md step 2.
+    # Gitignored — see docs/features/download/local-verification.md.
     env_file:
       - .env.verify-container
     volumes:
