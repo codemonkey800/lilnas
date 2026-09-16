@@ -59,6 +59,19 @@ services:
       # ...and it reaches radarr/sonarr/emby/storage by service name here.
       - lilnas_default
 
+    ports:
+      # Loopback-only escape hatch for local tooling: `curl localhost:8090/...`
+      # and headless-Chrome screenshot runs, which cannot follow the OAuth
+      # redirect the public hostname serves.
+      #
+      # ⚠️ 127.0.0.1, NOT 0.0.0.0. Bound to all interfaces this would be
+      # reachable from the LAN, and anything that arrives without an
+      # X-Forwarded-User header gets the DEV_USER_EMAIL admin fallback in
+      # src/auth/forwarded-user.ts. Loopback keeps that path local-only.
+      #
+      # 8090 rather than 8080 because url-shortener-proxy-1 owns host 8080.
+      - '127.0.0.1:8090:8080'
+
     volumes:
       - ../..:/source
 
