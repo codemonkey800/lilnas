@@ -6,6 +6,7 @@ jest.mock('@lilnas/media/radarr', () => ({
   deleteApiV3MovieById: jest.fn(),
   deleteApiV3MoviefileById: jest.fn(),
   deleteApiV3QueueById: jest.fn(),
+  getApiV3HistoryMovie: jest.fn(),
   getApiV3Movie: jest.fn(),
   getApiV3MovieById: jest.fn(),
   getApiV3Moviefile: jest.fn(),
@@ -25,6 +26,7 @@ import {
   deleteApiV3MovieById,
   deleteApiV3MoviefileById,
   deleteApiV3QueueById,
+  getApiV3HistoryMovie,
   getApiV3Movie,
   getApiV3MovieById,
   getApiV3Moviefile,
@@ -59,6 +61,7 @@ const mockPostApiV3Release = postApiV3Release as jest.Mock
 const mockGetApiV3Moviefile = getApiV3Moviefile as jest.Mock
 const mockDeleteApiV3MoviefileById = deleteApiV3MoviefileById as jest.Mock
 const mockPutApiV3MovieById = putApiV3MovieById as jest.Mock
+const mockGetApiV3HistoryMovie = getApiV3HistoryMovie as jest.Mock
 
 describe('RadarrService', () => {
   let service: RadarrService
@@ -735,6 +738,72 @@ describe('RadarrService', () => {
 
       await expect(service.deleteMovieFile(11)).rejects.toThrow(
         'deleteMovieFile failed',
+      )
+    })
+  })
+
+  describe('getMovieHistory', () => {
+    it('returns the records unfiltered and unmapped', async () => {
+      const records = [
+        {
+          data: {
+            downloadClient: 'qbit',
+            guid: 'indexer://abc',
+            indexerId: '3',
+          },
+          downloadId: 'ABC123',
+          eventType: 'grabbed',
+          id: 1,
+          movieId: 7,
+        },
+        {
+          data: { fileId: '11' },
+          downloadId: 'ABC123',
+          eventType: 'downloadFolderImported',
+          id: 2,
+          movieId: 7,
+        },
+        { eventType: 'movieFileDeleted', id: 3, movieId: 7 },
+      ]
+      mockGetApiV3HistoryMovie.mockResolvedValue({ data: records })
+
+      const result = await service.getMovieHistory(7)
+
+      // `movieId` and nothing else: no `eventType`, because the SDK's string
+      // union is not positional with the numeric wire values the query param
+      // takes (`downloadFolderImported` is 3, not 2), so a filter here would
+      // silently fetch the wrong event type. The caller filters on the
+      // string instead, which is why the deleted record survives this call.
+      expect(getApiV3HistoryMovie).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { movieId: 7 } }),
+      )
+      expect(
+        mockGetApiV3HistoryMovie.mock.calls[0][0].query,
+      ).not.toHaveProperty('eventType')
+      expect(result).toEqual(records)
+    })
+
+    it('returns an empty list for a movie with no history', async () => {
+      mockGetApiV3HistoryMovie.mockResolvedValue({ data: [] })
+
+      await expect(service.getMovieHistory(7)).resolves.toEqual([])
+    })
+
+    it('throws a descriptive error when the SDK call fails', async () => {
+      mockGetApiV3HistoryMovie.mockResolvedValue({ error: { message: 'boom' } })
+
+      await expect(service.getMovieHistory(7)).rejects.toThrow(
+        'getMovieHistory failed',
+      )
+    })
+
+    // The endpoint is unpaged, so an absent body is a real failure rather
+    // than "no records" - unwrapSdkResult is what makes that loud.
+    it('throws when the SDK returns no data at all', async () => {
+      mockGetApiV3HistoryMovie.mockResolvedValue({})
+
+      await expect(service.getMovieHistory(7)).rejects.toThrow(
+        'getMovieHistory returned no data',
       )
     })
   })

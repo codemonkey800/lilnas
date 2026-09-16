@@ -1,5 +1,6 @@
 import type {
   CommandResourceWritable,
+  HistoryResource,
   MovieFileResource,
   MovieResource,
   QueueResource,
@@ -9,6 +10,7 @@ import {
   deleteApiV3MovieById,
   deleteApiV3MoviefileById,
   deleteApiV3QueueById,
+  getApiV3HistoryMovie,
   getApiV3Movie,
   getApiV3MovieById,
   getApiV3Moviefile,
@@ -408,6 +410,38 @@ export class RadarrService {
         path: { id: fileId },
       }),
       'deleteMovieFile',
+    )
+  }
+
+  /**
+   * Every history record Radarr holds for one movie - grabs, imports,
+   * upgrades, deletions, all of it. `mapFilesToReleases()` walks
+   * these to join a file on disk back to the indexer release that produced
+   * it, since history is the only place either *arr remembers the guid.
+   *
+   * Unpaged, unlike `getQueue()`: `/history/movie` returns a bare array with
+   * each record's `data` bag already populated, so there is nothing to
+   * unwrap past `unwrapSdkResult`.
+   *
+   * Deliberately **unfiltered**. The endpoint does take an `eventType` query
+   * param, but the SDK's `MovieHistoryEventType` union (`'unknown' |
+   * 'grabbed' | 'downloadFolderImported' | ...`) is *not* positional with
+   * the numeric values the wire expects - `downloadFolderImported` is `3`,
+   * not the `2` its index implies - so filtering here would silently fetch
+   * the wrong event type. Callers match on the string `eventType` off the
+   * records instead; see `release-history.util.ts`.
+   *
+   * Radarr's grabbed records carry `data.indexerId` alongside the indexer
+   * name, so nothing on this side needs a follow-up indexer lookup the way
+   * Sonarr's do.
+   */
+  async getMovieHistory(radarrId: number): Promise<HistoryResource[]> {
+    return unwrapSdkResult(
+      await getApiV3HistoryMovie({
+        client: this.client,
+        query: { movieId: radarrId },
+      }),
+      'getMovieHistory',
     )
   }
 
