@@ -402,3 +402,94 @@ export const auditLog = sqliteTable(
 )
 
 export type AuditLogRow = typeof auditLog.$inferSelect
+
+// The durable answer to "which indexer release produced this file on disk".
+// Radarr and Sonarr both remember the guid of every release they grabbed, but
+// only as a history event - nothing on the file record itself points back at
+// it, so recovering the link means walking history and matching an event to a
+// file. That walk returns the same answer every time, so it runs once and
+// lands here rather than on every page view. A cache, in other words: every
+// row is reconstructible from upstream, and losing one costs a re-resolve.
+export const mediaFileReleases = sqliteTable(
+  'media_file_releases',
+  {
+    // Autoincrement integer, this file's default PK - same reasoning as
+    // `bad_files.id`: nothing outside the DB mints one or routes on it.
+    id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
+    // `mediaType`/`mediaId` in exactly the shapes `bad_files` uses (same
+    // tuple, same non-FK reasoning, same naming) so the two join cleanly -
+    // see those columns' comments.
+    mediaType: text('media_type', { enum: DOWNLOAD_TYPES }).notNull(),
+    mediaId: text('media_id').notNull(),
+    // Radarr's `movieFile.id` or Sonarr's `episodeFileId` - the upstream file
+    // this release produced. Deliberately not unique on its own: the two
+    // services number their files independently, so Radarr's file 42 and
+    // Sonarr's file 42 are different files that happen to share an integer.
+    // `mediaType` is what tells them apart, which is why it's half of the
+    // unique index below rather than decoration on it.
+    upstreamFileId: integer('upstream_file_id').notNull(),
+    // Sonarr's episode id. NULL for movies - Radarr tracks one file per movie
+    // and offers no finer-grained handle, so there is nothing to record. The
+    // `media_file_releases_episode_only_for_shows` CHECK is what says so.
+    episodeId: integer('episode_id'),
+    // The indexer's stable id for the release - the same key `bad_files`
+    // flags on, which is what lets a file on disk be matched against the
+    // flag list without another upstream round-trip.
+    releaseGuid: text('release_guid').notNull(),
+    // Everything from here to `releaseGroup` is a denormalized copy of what
+    // the grab recorded, kept for the same reason `bad_files` keeps its
+    // copies: the row has to stay readable after the release ages out of the
+    // indexer and can no longer be looked up. All nullable - upstream history
+    // events vary in how much detail they carry, and a missing field is never
+    // a reason to drop the guid-to-file link on the floor.
+    indexerId: integer('indexer_id'),
+    indexer: text('indexer'),
+    releaseTitle: text('release_title'),
+    // The download client's id for the grab - the link the resolver actually
+    // followed to get from a history event to this file.
+    downloadId: text('download_id'),
+    protocol: text('protocol'),
+    publishDate: integer('publish_date', { mode: 'timestamp_ms' }),
+    size: integer('size'),
+    releaseGroup: text('release_group'),
+    // When the join was computed, not when the release was grabbed or
+    // published (`publishDate` above is the latter) - this row is a cache
+    // entry and this is its age.
+    resolvedAt: integer('resolved_at', { mode: 'timestamp_ms' })
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  t => [
+    // One release per file, which is what makes the resolver idempotent: it
+    // can insert-or-replace rather than read-then-write. Keyed on the pair,
+    // not on `upstream_file_id` alone, because that id collides across
+    // Radarr and Sonarr - see the column's comment.
+    uniqueIndex('media_file_releases_type_file_idx').on(
+      t.mediaType,
+      t.upstreamFileId,
+    ),
+    // The read path is always "every resolved release for this one media
+    // id", the same shape `bad_files_media_id_idx` serves - a detail page
+    // asking about all of a series' files at once.
+    index('media_file_releases_media_id_idx').on(t.mediaId),
+    // The same prefix invariant `bad_files_media_id_matches_type` enforces,
+    // and no `video` arm for the same reason: a video has no indexer release
+    // behind it, so a `video` row here would be a bug in whatever wrote it.
+    check(
+      'media_file_releases_media_id_matches_type',
+      sql`(
+        (${t.mediaType} = 'movie' AND ${t.mediaId} LIKE 'tmdb:%') OR
+        (${t.mediaType} = 'show'  AND ${t.mediaId} LIKE 'tvdb:%')
+      )`,
+    ),
+    // An episode id only means anything for a series - the same class of
+    // invariant `jobs_scope_only_for_shows` pins one table over, expressed
+    // the same way.
+    check(
+      'media_file_releases_episode_only_for_shows',
+      sql`(${t.episodeId} IS NULL OR ${t.mediaType} = 'show')`,
+    ),
+  ],
+)
+
+export type MediaFileReleaseRow = typeof mediaFileReleases.$inferSelect

@@ -67,7 +67,15 @@ describe('DbService', () => {
         .prepare('SELECT hash, created_at FROM __drizzle_migrations')
         .all()
       verifySqlite.close()
-      expect(bookkeeping).toHaveLength(1)
+      // One row per migration and no more: 0000 recorded by the self-heal
+      // without being replayed, plus every later migration genuinely applied
+      // by the real migrator (its tables don't exist in this fixture, so the
+      // self-heal stops at 0000 and hands off). Derived from the folder
+      // rather than hard-coded so minting a migration doesn't land here.
+      const migrationCount = fs
+        .readdirSync(resolveMigrationsFolder())
+        .filter(name => name.endsWith('.sql')).length
+      expect(bookkeeping).toHaveLength(migrationCount)
     } finally {
       fs.rmSync(dir, { force: true, recursive: true })
     }

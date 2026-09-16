@@ -4,12 +4,18 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { checkIntegrity, runMigrations } from 'src/db/migrate'
 import { applyPragmas } from 'src/db/pragmas'
 import * as schema from 'src/db/schema'
-import { auditLog, badFiles, jobs, videos } from 'src/db/schema'
+import {
+  auditLog,
+  badFiles,
+  jobs,
+  mediaFileReleases,
+  videos,
+} from 'src/db/schema'
 
 import { createTestDb } from './test-utils'
 
 describe('schema + migrations', () => {
-  it('applies migrations cleanly, creating exactly the `audit_log`, `jobs`, `videos` and `bad_files` tables', () => {
+  it('applies migrations cleanly, creating exactly the `audit_log`, `jobs`, `videos`, `bad_files` and `media_file_releases` tables', () => {
     const { sqlite, close } = createTestDb()
     try {
       const tableNames = sqlite
@@ -23,7 +29,13 @@ describe('schema + migrations', () => {
       // `sqlite_sequence` is excluded by the `sqlite_%` filter above -
       // `bad_files` is the first AUTOINCREMENT table in this schema, so
       // migration 0005 is what makes SQLite create it at all.
-      expect(tableNames).toEqual(['audit_log', 'bad_files', 'jobs', 'videos'])
+      expect(tableNames).toEqual([
+        'audit_log',
+        'bad_files',
+        'jobs',
+        'media_file_releases',
+        'videos',
+      ])
     } finally {
       close()
     }
@@ -953,6 +965,239 @@ describe('schema + migrations', () => {
 
       expect(plan).toContain('audit_log_created_at_id_idx')
       expect(plan).not.toContain('TEMP B-TREE')
+    } finally {
+      close()
+    }
+  })
+
+  // ---- media_file_releases ----
+
+  it('round-trips every column kind on the `media_file_releases` table', () => {
+    const { db, close } = createTestDb()
+    try {
+      const publishDate = new Date('2025-12-24T09:30:00.000Z')
+      const resolvedAt = new Date('2026-01-01T00:00:00.000Z')
+
+      db.insert(mediaFileReleases)
+        .values({
+          downloadId: 'sabnzbd:9f2c',
+          episodeId: 4821,
+          indexer: 'NZBgeek',
+          indexerId: 3,
+          mediaId: 'tvdb:81189',
+          mediaType: 'show',
+          protocol: 'usenet',
+          publishDate,
+          releaseGroup: 'NTb',
+          releaseGuid: 'indexer://abc',
+          releaseTitle: 'Breaking.Bad.S01E01.1080p.BluRay-NTb',
+          resolvedAt,
+          size: 2_147_483_648,
+          upstreamFileId: 42,
+        })
+        .run()
+
+      const row = db.select().from(mediaFileReleases).all()[0]
+
+      expect(row).toMatchObject({
+        downloadId: 'sabnzbd:9f2c',
+        episodeId: 4821,
+        indexer: 'NZBgeek',
+        indexerId: 3,
+        mediaId: 'tvdb:81189',
+        mediaType: 'show',
+        protocol: 'usenet',
+        publishDate,
+        releaseGroup: 'NTb',
+        releaseGuid: 'indexer://abc',
+        releaseTitle: 'Breaking.Bad.S01E01.1080p.BluRay-NTb',
+        resolvedAt,
+        // Sizes are routinely past 2^31, so this column has to survive a
+        // value that would overflow a 32-bit int.
+        size: 2_147_483_648,
+        upstreamFileId: 42,
+      })
+      // Autoincrement integer PK, like `bad_files` and unlike jobs/videos'
+      // app-minted TEXT ids.
+      expect(typeof row?.id).toBe('number')
+    } finally {
+      close()
+    }
+  })
+
+  it('has exactly the expected `media_file_releases` column list', () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      const columnNames = sqlite
+        .prepare(`PRAGMA table_info(media_file_releases)`)
+        .all()
+        .map(row => (row as { name: string }).name)
+
+      expect(columnNames).toEqual([
+        'id',
+        'media_type',
+        'media_id',
+        'upstream_file_id',
+        'episode_id',
+        'release_guid',
+        'indexer_id',
+        'indexer',
+        'release_title',
+        'download_id',
+        'protocol',
+        'publish_date',
+        'size',
+        'release_group',
+        'resolved_at',
+      ])
+    } finally {
+      close()
+    }
+  })
+
+  it('leaves every optional `media_file_releases` column null and defaults `resolvedAt`', () => {
+    const { db, close } = createTestDb()
+    try {
+      db.insert(mediaFileReleases)
+        .values({
+          mediaId: 'tmdb:27205',
+          mediaType: 'movie',
+          releaseGuid: 'indexer://abc',
+          upstreamFileId: 42,
+        })
+        .run()
+
+      const row = db.select().from(mediaFileReleases).all()[0]
+
+      expect(row).toMatchObject({
+        downloadId: null,
+        episodeId: null,
+        indexer: null,
+        indexerId: null,
+        protocol: null,
+        publishDate: null,
+        releaseGroup: null,
+        releaseTitle: null,
+        size: null,
+      })
+      expect(row?.resolvedAt).toBeInstanceOf(Date)
+    } finally {
+      close()
+    }
+  })
+
+  it('`media_file_releases_type_file_idx` rejects a duplicate (media_type, upstream_file_id) - what makes the resolver idempotent', () => {
+    const { db, close } = createTestDb()
+    try {
+      const values = {
+        mediaId: 'tmdb:27205',
+        mediaType: 'movie' as const,
+        releaseGuid: 'indexer://abc',
+        upstreamFileId: 42,
+      }
+
+      db.insert(mediaFileReleases).values(values).run()
+
+      expect(() =>
+        db
+          .insert(mediaFileReleases)
+          .values({ ...values, releaseGuid: 'indexer://def' })
+          .run(),
+      ).toThrow(/UNIQUE constraint failed/)
+    } finally {
+      close()
+    }
+  })
+
+  it('allows the same upstream file id under both media types - Radarr and Sonarr number their files independently', () => {
+    const { db, close } = createTestDb()
+    try {
+      db.insert(mediaFileReleases)
+        .values([
+          {
+            mediaId: 'tmdb:27205',
+            mediaType: 'movie',
+            releaseGuid: 'indexer://abc',
+            upstreamFileId: 42,
+          },
+          {
+            mediaId: 'tvdb:81189',
+            mediaType: 'show',
+            releaseGuid: 'indexer://def',
+            upstreamFileId: 42,
+          },
+        ])
+        .run()
+
+      expect(db.select().from(mediaFileReleases).all()).toHaveLength(2)
+    } finally {
+      close()
+    }
+  })
+
+  it.each([
+    ['a `movie` row with a `tvdb:` media_id', 'movie', 'tvdb:81189'],
+    ['a `show` row with a `tmdb:` media_id', 'show', 'tmdb:27205'],
+    // No `video` arm at all in the CHECK, exactly as in `bad_files`: a video
+    // has no indexer release behind it.
+    ['a `video` row', 'video', 'video:V1StGXR8_Z5'],
+  ])(
+    '`media_file_releases_media_id_matches_type` rejects %s',
+    (_label, type, id) => {
+      const { db, close } = createTestDb()
+      try {
+        expect(() =>
+          db
+            .insert(mediaFileReleases)
+            .values({
+              mediaId: id,
+              mediaType: type as 'movie' | 'show' | 'video',
+              releaseGuid: 'indexer://abc',
+              upstreamFileId: 42,
+            })
+            .run(),
+        ).toThrow(/CHECK constraint failed/)
+      } finally {
+        close()
+      }
+    },
+  )
+
+  it('`media_file_releases_episode_only_for_shows` rejects an `episodeId` on a movie row', () => {
+    const { db, close } = createTestDb()
+    try {
+      expect(() =>
+        db
+          .insert(mediaFileReleases)
+          .values({
+            episodeId: 4821,
+            mediaId: 'tmdb:27205',
+            mediaType: 'movie',
+            releaseGuid: 'indexer://abc',
+            upstreamFileId: 42,
+          })
+          .run(),
+      ).toThrow(/CHECK constraint failed/)
+    } finally {
+      close()
+    }
+  })
+
+  it('creates both `media_file_releases` indexes', () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      const indexNames = sqlite
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'media_file_releases' AND name NOT LIKE 'sqlite_%'`,
+        )
+        .all()
+        .map(row => (row as { name: string }).name)
+        .sort()
+
+      expect(indexNames).toEqual([
+        'media_file_releases_media_id_idx',
+        'media_file_releases_type_file_idx',
+      ])
     } finally {
       close()
     }
