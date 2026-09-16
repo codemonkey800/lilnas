@@ -3996,7 +3996,7 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
   ⚠️ **The verify backend's `total` looks capped** — both `star` and `trek` report exactly 40. **This is why `LoadMore`'s `hasMore` is wired to `nextCursor !== null` and never to
   `loaded < total`**, exactly as B8 required. Worth knowing for any later count assertion.
 
-- [ ] **D4. Downloads activity.** `/activity` is every download in flight, live.
+- [x] **D4. Downloads activity.** `/activity` is every download in flight, live. — `5a09106d`
 
   **Files:** create `apps/download/src/app/activity/{page,loading,error}.tsx` and
   `apps/download/src/components/activity/`.
@@ -4024,9 +4024,129 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
   **Tests:** a terminal-status event removes the row; `paused` keeps it; requester
   cells link only per the access rules; a `null` requester never links.
 
+  **Findings (D4, 2026-09-15):** 19 files, 2538 insertions. Created
+  `src/app/activity/{page,loading,error}.tsx`,
+  `src/app/actions/load-activity-page.ts`, `src/lib/activity-filters.ts`, and
+  `src/components/activity/` (feed, list, table, cells, tabs, requester, rows,
+  empty, page-shell) plus specs. **Actual exported signatures — paste these:**
+
+  ```ts
+  // src/lib/activity-filters.ts — no directive, importable both sides
+  export type ActivityFilters = { types: DownloadType[] }   // [] = no type filter
+  export const EMPTY_ACTIVITY_FILTERS: ActivityFilters
+  export const ACTIVITY_TYPE_ORDER: readonly DownloadType[]
+  export const ACTIVITY_TYPE_LABELS: Record<DownloadType, string>
+  export const ACTIVITY_ALL_TYPES_TAB = 'all'
+  export const ACTIVITY_MIXED_TYPES_TAB = ''    // sentinel: no tab shows 2+ types
+  export type ActivitySearchParams = Record<string, string | string[] | undefined>
+  export type LoadActivityPageResult = …
+  export function parseActivityFilters(params): ActivityFilters
+  export function activityFiltersToSearch(filters): string
+  export function activityHref(filters): string
+  export function activityFiltersToQuery(filters, cursor?): Partial<ActivityQuery>
+  export function hasActivityFilters(filters): boolean
+  export function activityTabValue(filters): string
+  export function activityFiltersForTab(value: string): ActivityFilters
+
+  // src/app/actions/load-activity-page.ts — 'use server'
+  export async function loadActivityPage(search: string, cursor: string): Promise<LoadActivityPageResult>
+  // Takes the RAW query string and re-parses server-side, same shape D2/D3 settled on.
+
+  // src/components/activity/activity-feed.tsx — 'use client'
+  export const DEPARTURE_MS = 2_600
+  export type ActivityFeedProps = {
+    filters: ActivityFilters
+    initialJobs: DownloadJob[]; initialNextCursor: string | null; initialTotal: number
+    now: number }
+  export function ActivityFeed(props: ActivityFeedProps): JSX.Element
+
+  // src/components/activity/activity-rows.ts — no directive
+  export type ActivityRow = { … }
+  export type BuildActivityRowsOptions = { … }
+  export function buildActivityRows(opts: BuildActivityRowsOptions): ActivityRow[]
+  export function isMoving(job: DownloadJob): boolean
+  export function jobProgressPct(job: DownloadJob): number | null
+  export function mobileStatusLabel(job: DownloadJob): string
+
+  // src/components/activity/activity-requester.tsx
+  export const MASKED_REQUESTER_LABEL = 'hidden'
+  export function canViewRequesterProfile(…): boolean
+  export function requesterProfileHref(…): string | null
+  export type ActivityRequesterProps = { … }
+  export function ActivityRequester(props): JSX.Element
+
+  // src/components/activity/activity-table.tsx  (desktop)
+  export const DEPARTING_ROW = 'opacity-60!'
+  export const ROW_TRANSITION = 'transition-opacity duration-[420ms] ease-uv'
+  export function ActivityTable(props: ActivityTableProps): JSX.Element
+  // src/components/activity/activity-list.tsx   (mobile stacked rows)
+  export function ActivityList(props: ActivityListProps): JSX.Element
+  // src/components/activity/activity-cells.tsx
+  export const ROW_META = 'font-mono text-mono-sm text-ink-3'
+  export const ROW_META_EMPTY = 'font-mono text-mono-sm text-ink-4'
+  export function ActivityArt / ActivityTypeChip / ActivityStatusChip / ActivityProgress
+  // src/components/activity/activity-tabs.tsx — 'use client'
+  export function ActivityTabs(props: ActivityTabsProps): JSX.Element
+  // src/components/activity/activity-empty.tsx
+  export function ActivityEmpty(props: { filtered: boolean }): JSX.Element
+  // src/components/activity/activity-page-shell.tsx
+  export const ACTIVITY_TITLE = 'mb-4 text-h1 sm:mb-5'
+  export function ActivityPageShell(props: ComponentPropsWithoutRef<'main'>): JSX.Element
+  ```
+
+  ##### ✅ Findings: `<JobEventsProvider>` placement — RESOLVED, this is the answer
+
+  **Mounted at `/activity`'s own page root, wrapping only `ActivityFeed` —
+  deliberately NOT in `layout.tsx`.** This closes the question C3 left open and D1
+  declined. The reasoning, recorded in `page.tsx`'s own docblock:
+  - The provider owns the socket, so mounting it app-wide would open a gateway
+    connection on **every** route including ones wanting no live data. D1 made the
+    matching call in the other direction — serving its activity count as a
+    server-rendered number precisely so one integer could not drag a WebSocket into
+    the shell.
+  - `/activity` is the page whose entire subject is jobs in flight, so it is the
+    page that pays for the connection — and it opens **exactly one** for every
+    consumer inside it, because `useJobEvents()` throws without an ancestor rather
+    than quietly opening a second.
+  - ⚠️ **The provider sits OUTSIDE `ActivityFeed`'s `key`**, so a filter change
+    remounts the feed and its accumulated pages **without tearing the socket down
+    and climbing the backoff ladder again.** Subtle and load-bearing — **E1's
+    consumers and any later live page should copy this ordering.**
+  - Nothing is caught: `getIdentifiedDownloadClient()` reads `headers()` (correctly
+    making the route dynamic — what is downloading is per-request truth) and a
+    failing backend throws through to `error.tsx`.
+
+  ##### Findings: how a job LEAVES the feed
+
+  ⚠️ **`useJobEvents` upserts but never evicts** — the hook will not remove a
+  terminal job for you. D4 derives departure from `isInProgress()` (itself derived
+  from `TERMINAL_DOWNLOAD_JOB_STATUSES`, never hand-listed) and renders it as a
+  **deliberate transition rather than a disappearance**: `DEPARTURE_MS = 2_600`
+  holds the row on screen at `DEPARTING_ROW` (`opacity-60!`) with `ROW_TRANSITION`
+  (`transition-opacity duration-[420ms] ease-uv`) before it goes. The task text
+  asked that this "read as a departure, not a glitch"; that is the mechanism.
+
+  ##### ⚠️ Findings: a REAL environment bug, found by actually running a job — `3f0d3ec9`
+
+  D4 created a real yt-dlp job to verify the live path, as instructed, and **every
+  job died with `EACCES: permission denied, mkdir '/download'`.**
+  `download-video.service.ts` hardcodes `VIDEO_DIR` as `/download/videos` and
+  `ensureDir()`s it; nothing mounted `/download`, `/` is root-owned, and the
+  dev-remote container runs as `1000:1001`. Fixed by adding a `/download` tmpfs to
+  `deploy.dev-remote.yml` (`uid=1000,gid=1001,mode=0770,size=2g`).
+  - ⚠️ **A named volume would NOT have worked** — Docker seeds a named volume's
+    ownership from the image's directory at that path, and `/download` does not
+    exist in `lilnas-dev`, so it would be created root-owned too. Fixable only with
+    a `RUN mkdir -p /download && chown` in the shared dev image. **tmpfs takes
+    uid/gid directly**, which is why `/data` already used it.
+  - `size=2g` is deliberate: an oversized download fails loud with `ENOSPC` rather
+    than eating host RAM uncapped on a box that also runs production.
+  - **This would have bitten E2 and every later video task identically.** It is the
+    kind of defect only running a real job finds.
+
 ### Phase 4 — Detail surfaces
 
-- [ ] **E1. Detail scaffolding.** The three detail pages share a spine instead of
+- [x] **E1. Detail scaffolding.** — `31e673ee` — The three detail pages share a spine instead of
       drifting apart.
 
   **Files:** create `apps/download/src/components/detail/` — `detail-header.tsx`,
@@ -4055,6 +4175,102 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
 
   **Tests:** each `DownloadJobStatus` maps to the right chip tone and action set;
   pause is offered only while `downloading`; the newest job is the one rendered.
+
+  **Findings (E1, 2026-09-15):** 10 files, 2059 insertions — `job-state.ts`,
+  `job-lifecycle.tsx`, `detail-header.tsx`, `library-link.tsx`, `cast-row.tsx`
+  under `src/components/detail/`, plus five specs. **Only `job-lifecycle.tsx` is
+  `'use client'`**; the rest are server-safe. **E2/E4/E5 compose on these — paste
+  them, not a sketch:**
+
+  ```tsx
+  // src/components/detail/job-state.ts — no directive, pure
+  export type JobActionKey = 'cancel' | 'pause' | 'resume' | 'retry' | 'save' | 'watch'
+  export type JobActionAvailability = 'acknowledged' | 'none' | 'offered'
+  export function jobActionState(…): JobActionAvailability
+  export function jobStatusLabel(status: DownloadJobStatus): string
+  export const JOB_LIFECYCLE_EMPTY_LABEL = 'not downloaded'
+  export function latestJob(jobs: readonly DownloadJob[]): DownloadJob | null
+  export type JobProgress = {
+    note: string | null      // Radarr/Sonarr queue status word, verbatim
+    pct: number              // 0-100, rounded upstream to 2dp
+    timeLeft: string | null  // upstream's hh:mm:ss, verbatim
+  }
+  export function jobProgress(job: DownloadJob): JobProgress | null
+
+  // src/components/detail/job-lifecycle.tsx — 'use client'
+  export type JobAction = (jobId: string) => Promise<void> | void
+  export type JobLifecycleLink = { external?: boolean; href: string }
+  export type JobLifecycleProps = Omit<ComponentPropsWithoutRef<'div'>, 'children'> & {
+    jobs: readonly DownloadJob[]     // newest-first; the component picks the latest
+    actionSize?: ButtonSize
+    extraActions?: ReactNode
+    emptyActions?: ReactNode         // rendered when `jobs` is empty
+    emptyNote?: ReactNode
+    explain?: ReactNode
+    progressPct?: number | null      // override; else derived via jobProgress()
+    progressDetail?: ReactNode
+    progressNote?: ReactNode
+    onCancel?: JobAction; onPause?: JobAction; onResume?: JobAction; onRetry?: JobAction
+    save?: JobLifecycleLink          // a LINK, not a callback
+    watch?: JobLifecycleLink         // a LINK — Emby is external
+  }
+  export function JobLifecycle(props: JobLifecycleProps): JSX.Element
+  export type JobHistoryProps = Omit<…>
+  export function JobHistory(props: JobHistoryProps): JSX.Element   // prior attempts
+
+  // src/components/detail/detail-header.tsx
+  export type DetailHeaderProps = Omit<…>
+  export function DetailHeader(props): JSX.Element
+  export type DetailAttributionProps = Omit<…>
+  export function DetailAttribution(props): JSX.Element
+
+  // src/components/detail/library-link.tsx
+  export const LIBRARY_HREF = '/gallery'
+  export function LibraryLink(props: LibraryLinkProps): JSX.Element
+
+  // src/components/detail/cast-row.tsx
+  export type CastMember = { … }
+  export const CAST_VISIBLE_LIMIT = 4
+  export function castInitials(name: string): string
+  export function CastRow(props: CastRowProps): JSX.Element
+  ```
+
+  **Composition contract:** the page passes the **whole** `jobs` array newest-first
+  and `JobLifecycle` picks the latest itself via `latestJob()`. Mutations arrive as
+  **callbacks** (`onCancel`/`onPause`/`onResume`/`onRetry`, each `(jobId) => …`)
+  because server actions live in the _pages_; watch and save arrive as **links**
+  (`JobLifecycleLink`), since both navigate. An empty `jobs` array is a real state —
+  a library movie never downloaded through this app — and renders
+  `JOB_LIFECYCLE_EMPTY_LABEL` (`'not downloaded'`) with the caller's `emptyActions`.
+
+  **`jobActionState` is derived, not hand-listed.** `cancel` and `retry` key off
+  `isInProgress`, so a new enum member lands on the correct side without an edit.
+  Four statuses are named explicitly because they are genuinely specific:
+  `Downloading` is the only status a pause is legal in (the API answers **409**
+  elsewhere, so offering the button would be offering an error); `Pausing` and
+  `Cancelling` are acknowledgements of a request already in flight, rendered
+  **`acknowledged`** — on screen but inert, rather than vanishing or inviting a
+  second press; `Completed` is the only status with a file to watch or save.
+
+  ##### ⚠️ Findings: the mockups draw progress data the API DOES NOT CARRY
+
+  **The single most important thing E2/E4/E5 need to know.** The only progress on
+  the wire is `ManagedMediaBase.queueSnapshot` — a Radarr/Sonarr queue entry, so
+  **movies and shows only**. A **video job has no progress field anywhere in
+  `DownloadJob`**, and **no byte counter, transfer rate or fragment counter exists
+  for any type**.
+
+  `video-detail.pug`'s `fragment 4 of 9` and `412 MB / 640 MB · 3.1 MB/s` lines are
+  **mockup data with nothing behind them.** Per this plan's own rule — where a
+  mockup and the API disagree about content, the API wins — they cannot be rendered.
+  **E2 must not try**, and should record the omission rather than invent a source.
+
+  `jobProgress()` returns **`null`** meaning "draw no bar at all", which is the
+  honest rendering of an unknown percentage — **a `0%` bar is a claim.**
+
+  ⚠️ **This contradicts E2's task text**, which lists "progress with fragment
+  counter, percentage, bar, throughput" as part of its surface. **Only the bar and
+  percentage are real, and only for movies and shows.**
 
 - [ ] **E2. Video detail page.** `/videos/<videoId>`.
 
@@ -4216,7 +4432,7 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
   one call, not a delete followed by a grab; a repeat flag is treated as success;
   the delete confirm names its scope. All against mocked server actions.
 
-- [ ] **E7. Save to your device.** The explicit local-save action, on all three
+- [x] **E7. Save to your device.** — `2fcaa924` — The explicit local-save action, on all three
       detail pages.
 
   **Files:** create `apps/download/src/components/detail/save-local.tsx`.
@@ -4237,6 +4453,85 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
 
   **Tests:** the URL carries the right query for each media type; the action is
   absent when there's no file; a show without an episode never renders it.
+
+  **Findings (E7, 2026-09-15):** 2 files, 406 insertions —
+  `src/components/detail/save-local.tsx` plus its spec.
+
+  ⚠️ **NOT part of wave 7's brief.** The E1 session finished E1 and continued into
+  E7 unprompted. Legitimate work — E7's only dependency is E1, so it was genuinely
+  unblocked — but it was **not scoped, briefed or reviewed by the orchestrator**,
+  and it lands a wave early. **Flagged so the record is honest; G1 should give it
+  the review it did not get.**
+
+  ```tsx
+  // src/components/detail/save-local.tsx
+  export const SAVE_LOCAL_LABEL = 'Save to device'
+  export type MediaFileQuery = { … }
+  export function mediaFileHref(…): string        // URL BUILDER, never a fetch
+  export function canSaveLocal(…): boolean        // false when there is no file
+  export type SaveLocalProps = Omit<…>
+  export function SaveLocal(props: SaveLocalProps): JSX.Element
+  ```
+
+  Composes into `JobLifecycle` through its `save?: JobLifecycleLink` prop rather
+  than as a separate control — which is why E1 typed that as a **link** and not a
+  callback.
+
+##### ⚠️ Findings: `Tabs` gained `activationMode` — a shared-contract change — `a4b4f956`
+
+**Also unprompted, also sound.** B4 shipped `Tabs` with APG **automatic**
+activation (selection follows arrow focus) and its findings said explicitly: "A
+later strip that becomes a route change should opt into manual activation." D2's
+gallery strip and D4's activity strip are exactly that — arrowing through them
+fires a **navigation per keypress**.
+
+```tsx
+// src/components/ui/tabs.tsx — added to TabsProps
+activationMode?: 'automatic' | 'manual'    // default 'automatic', unchanged
+```
+
+`gallery-controls.tsx` and `activity-tabs.tsx` both opt in. Default behaviour and
+every existing call site are unchanged, and the change is the one B4 itself
+predicted. **Recorded here because it widens a Phase 1 primitive after Phase 1
+closed** — the same class of change as the `ButtonLink` extraction below, and the
+kind that should be deliberate rather than incidental.
+
+##### ✅ Findings: `ButtonLink` — the shared-contract change D1 and D2 both asked for — `0055536a`
+
+Done as a dedicated session between waves 7 and 8, resolving the item both D1 and
+D2 raised independently. `Button` is not polymorphic, and the external Emby
+`watchUrl` must be a real `<a>` for middle-click, ⌘-click, "copy link address" and
+the correct AT role.
+
+```tsx
+// src/components/ui/button-recipe.ts — the shared tables, extracted from button.tsx
+export type ButtonVariant = 'uv' | 'outline' | 'ghost' | 'bad'
+export type ButtonSize = 'sm' | 'lg'
+export const BUTTON_VARIANTS,
+  BUTTON_SIZES,
+  BUTTON_DEFAULT_SIZE,
+  BUTTON_QUIET_DEFAULT_SIZE,
+  BUTTON_BASE,
+  BUTTON_ICON
+export type ButtonRecipeOptions = { variant?; size?; full?; className? }
+export function buttonRecipeClassName(opts: ButtonRecipeOptions): string
+
+// src/components/ui/button-link.tsx
+export type ButtonLinkProps = ComponentPropsWithoutRef<'a'> & {
+  variant?: ButtonVariant
+  size?: ButtonSize
+  icon?: IconName
+  iconEnd?: IconName
+  full?: boolean
+}
+export function ButtonLink(props: ButtonLinkProps): JSX.Element
+```
+
+`button.tsx` shrank ~96 lines consuming the shared recipe; its public API and
+rendered output are unchanged. **Both duplicates are deleted** —
+`src/components/home/ghost-link.tsx` (D1's `GhostLink`) is gone and
+`gallery-item-card.tsx`'s private `WATCH_LINK` constant is at zero occurrences.
+**E2/E4/E5 must use `ButtonLink` rather than minting a fourth copy.**
 
 ### Phase 5 — Account and admin
 
@@ -4375,20 +4670,20 @@ graph TD
 
 ### Waves
 
-| Wave | Run                        | Why it works                                                                                                                       |
-| ---- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | **A1 ∥ A2 ∥ A3 ∥ A4 ∥ A5** | Five disjoint files: `tailwind.css`, `components/ui/icon*`, `lib/*`, `jest.config.js`+`package.json`, `docs/`+`deploy.verify.yml`. |
-| 2    | **B1 ∥ B2 ∥ B3 ∥ B4**      | One component file each, all new, no shared imports between them.                                                                  |
-| 3    | **B5 ∥ B6 ∥ B7 ∥ B8**      | Each composes wave 2's primitives but writes only its own new file.                                                                |
-| 4    | **C1**                     | Convergence: the shell imports from B1–B3 and edits `layout.tsx`, which nothing else touches.                                      |
-| 5    | **C2 ∥ C3**                | Disjoint: `shell/nav-search.tsx`+`lib/url-classify.ts`+one action vs `live/job-events.tsx`+`lib/use-job-events.ts`.                |
-| 6    | **D1 ∥ D2 ∥ D3**           | Three route directories — no overlap. D1 rewrites `app/page.tsx`, which no other task touches.                                     |
-| 7    | **D4 ∥ E1**                | `app/activity/` vs `components/detail/`. **Split out of wave 6 deliberately — see below.**                                         |
-| 8    | **E3 ∥ E6 ∥ E7**           | The three shared detail surfaces, each its own file, all consuming E1.                                                             |
-| 9    | **E2 ∥ E4 ∥ E5**           | Three route directories, three detail components. E2 needs E3; E4/E5 need E6 + E7.                                                 |
-| 10   | **F1 ∥ F2**                | Two route directories, disjoint.                                                                                                   |
-| 11   | **G1**                     | Must see every page. Sequential by nature — it edits whatever it finds.                                                            |
-| 12   | **G2 ∥ G3**                | Verification reads; docs writes markdown. No overlap.                                                                              |
+| Wave | Run                        | Why it works                                                                                                                               |
+| ---- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1    | **A1 ∥ A2 ∥ A3 ∥ A4 ∥ A5** | Five disjoint files: `tailwind.css`, `components/ui/icon*`, `lib/*`, `jest.config.js`+`package.json`, `docs/`+`deploy.verify.yml`.         |
+| 2    | **B1 ∥ B2 ∥ B3 ∥ B4**      | One component file each, all new, no shared imports between them.                                                                          |
+| 3    | **B5 ∥ B6 ∥ B7 ∥ B8**      | Each composes wave 2's primitives but writes only its own new file.                                                                        |
+| 4    | **C1**                     | Convergence: the shell imports from B1–B3 and edits `layout.tsx`, which nothing else touches.                                              |
+| 5    | **C2 ∥ C3**                | Disjoint: `shell/nav-search.tsx`+`lib/url-classify.ts`+one action vs `live/job-events.tsx`+`lib/use-job-events.ts`.                        |
+| 6    | **D1 ∥ D2 ∥ D3**           | Three route directories — no overlap. D1 rewrites `app/page.tsx`, which no other task touches.                                             |
+| 7    | **D4 ∥ E1**                | `app/activity/` vs `components/detail/`. **Split out of wave 6 deliberately — see below.**                                                 |
+| 8    | **E3 ∥ E6**                | ⚠️ **E7 already shipped in wave 7** — the E1 session continued into it unprompted — so this wave is TWO tasks, not three. Both consume E1. |
+| 9    | **E2 ∥ E4 ∥ E5**           | Three route directories, three detail components. E2 needs E3; E4/E5 need E6 + E7.                                                         |
+| 10   | **F1 ∥ F2**                | Two route directories, disjoint.                                                                                                           |
+| 11   | **G1**                     | Must see every page. Sequential by nature — it edits whatever it finds.                                                                    |
+| 12   | **G2 ∥ G3**                | Verification reads; docs writes markdown. No overlap.                                                                                      |
 
 > ⚠️ **Waves 6 and 7 were one wave in the original plan (`D1 ∥ D2 ∥ D3 ∥ D4 ∥ E1`).
 > Split on 2026-09-15, after Wave 5.** The dependency graph is **unchanged** — D4 and
