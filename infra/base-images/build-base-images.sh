@@ -28,5 +28,8 @@ build_image "lilnas-node-base.Dockerfile" "lilnas-node-base"
 build_image "lilnas-monorepo-builder.Dockerfile" "lilnas-monorepo-builder"
 build_image "lilnas-node-runtime.Dockerfile" "lilnas-node-runtime"
 build_image "lilnas-nextjs-runtime.Dockerfile" "lilnas-nextjs-runtime"
+# Dev-only runtime for the apps/*/deploy.dev.yml files. Not used by any
+# production Dockerfile.
+build_image "lilnas-dev.Dockerfile" "lilnas-dev"
 
 echo -e "${GREEN}All base images built successfully!${NC}"

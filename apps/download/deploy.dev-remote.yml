@@ -1,0 +1,121 @@
+# Full-stack dev container for @lilnas/download, published at
+# https://download.dev.lilnas.io through the PRODUCTION Traefik.
+#
+# Runs BOTH halves in one container via `pnpm --filter=download dev`
+# (nest start -w on 8081, next dev on 8080), with the repo bind-mounted so hot
+# reload works. Traefik routes to 8080; Next's own /api and /ws rewrites reach
+# 8081 inside the container, so no host port is published at all.
+#
+#   docker compose -f apps/download/deploy.dev-remote.yml up -d
+#   docker compose -f apps/download/deploy.dev-remote.yml logs -f
+#   docker compose -f apps/download/deploy.dev-remote.yml down
+#
+# ⚠️ Standalone, like deploy.verify.yml — deliberately NOT added to the root
+# docker-compose.yml or docker-compose.dev.yml `include:` lists. It is a
+# development tool, not a deployed service.
+#
+# Why this file exists rather than deploy.dev.yml:
+#   - deploy.dev.yml routes `Host(download.localhost)` via infra/proxy.dev.yml,
+#     whose Traefik binds host port 80 — already held by the production Traefik,
+#     so that stack cannot start on this host at all.
+#   - deploy.dev.yml names its router `download`, which collides with the router
+#     name production's deploy.yml already registers with the SAME Traefik.
+#     Traefik does not warn on router-name collisions.
+# Changing deploy.dev.yml to fix either would break the documented
+# `*.localhost` convention the other seven apps share.
+
+services:
+  download-dev:
+    image: lilnas-dev
+    container_name: lilnas-download-dev
+    # The node_modules volumes start empty, so the install has to happen inside
+    # the container. `--frozen-lockfile` is load-bearing twice over: it keeps
+    # the install honest, and it stops the container from rewriting the
+    # bind-mounted pnpm-lock.yaml and dirtying the host working tree.
+    # Near-instant once download-dev-pnpm-store is warm.
+    command: -c "pnpm install --frozen-lockfile && pnpm --filter=download dev"
+    restart: unless-stopped
+
+    # Match the host user (jeremy, 1000:1001) so files the dev servers write
+    # into the bind mount — .next/, .turbo/ — stay owned by the host user
+    # instead of root.
+    user: '1000:1001'
+
+    # ⚠️ `env_file:` alone is NOT enough, and neither is `environment:`.
+    # `pnpm dev` runs `lilnas dev`, which calls Node's loadEnvFile() on
+    # apps/download/.env (packages/cli/src/commands/dev.ts:48) and OVERRIDES the
+    # container environment with it. So the authoritative values have to arrive
+    # as that file — hence the .env.dev-remote mount under `volumes:` below.
+    # This block stays as the pre-CLI environment the install step sees.
+    env_file:
+      - .env.dev-remote
+
+    environment:
+      - HOME=/home/node
+
+    networks:
+      # Traefik reaches the container here...
+      - lilnas-proxy
+      # ...and it reaches radarr/sonarr/emby/storage by service name here.
+      - lilnas_default
+
+    volumes:
+      - ../..:/source
+
+      # Shadows the bind-mounted .env so `lilnas dev`'s loadEnvFile() reads the
+      # container's values — the ephemeral /data/download.db path and the
+      # lilnas_default service aliases — instead of the host's native-dev ones
+      # (/tmp/download-verify.db and hardcoded 172.18.x.x container IPs, which
+      # go stale whenever a container is recreated). Read-only: the container
+      # has no business editing the host's env file.
+      - ./.env.dev-remote:/source/apps/download/.env:ro
+
+      # The workspace-root node_modules must be container-owned — see
+      # lilnas-dev.Dockerfile. It shadows the host's copy, which is built
+      # against node 24 and would fail NODE_MODULE_VERSION under node 25.
+      #
+      # Only the ROOT needs shadowing. Each package's own node_modules holds
+      # relative symlinks into the root store, so the bind-mounted
+      # apps/download/node_modules resolves against this container's tree here
+      # and the host's tree there, from the same lockfile.
+      - download-dev-root-modules:/source/node_modules
+      # Keeping the pnpm store warm turns a restart from a full resolve into a
+      # near-instant relink.
+      - download-dev-pnpm-store:/home/node/.local/share/pnpm
+
+      # Read-only view of the media library at the SAME container paths Radarr
+      # (/movies) and Sonarr (/tv) report in their file APIs — matching
+      # deploy.yml, so the save-to-device route resolves real paths. ro: this
+      # app must never write the library.
+      - /storage/media-library/movies:/movies:ro
+      - /storage/media-library/tv:/tv:ro
+
+    tmpfs:
+      - /data:uid=1000,gid=1001,mode=0770,size=64m
+
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=lilnas-proxy
+      # `dev-download`, NOT `download` — production's deploy.yml already owns
+      # the `download` router name on this same Traefik.
+      - traefik.http.routers.dev-download.rule=Host(`download.dev.lilnas.io`)
+      - traefik.http.routers.dev-download.entrypoints=websecure
+      # tls=true reuses the shared *.dev.lilnas.io wildcard cert. NOT
+      # certresolver=le, which would request a wasteful per-host cert and eat
+      # into Let's Encrypt's ~50 new certs/week limit — see docs/lilnas-expose.md.
+      - traefik.http.routers.dev-download.tls=true
+      # Real OAuth in front. Without it the NODE_ENV=development +
+      # DEV_USER_EMAIL fallback in src/auth/forwarded-user.ts would hand every
+      # anonymous caller an admin identity.
+      - traefik.http.routers.dev-download.middlewares=lilnas-auth
+      - traefik.http.services.dev-download.loadbalancer.server.port=8080
+
+networks:
+  lilnas-proxy:
+    external: true
+  lilnas_default:
+    external: true
+
+volumes:
+  download-dev-root-modules:
+  download-dev-pnpm-store:
