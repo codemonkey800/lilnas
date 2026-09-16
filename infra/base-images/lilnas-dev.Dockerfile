@@ -18,14 +18,43 @@ FROM lilnas-node-base
 # The build toolchain below exists for that install: a native module with no
 # prebuilt binary for this node version compiles from source via node-gyp.
 
+# ffmpeg/curl/python3 are @lilnas/download's runtime dependencies, mirroring the
+# production stage of apps/download/Dockerfile: yt-dlp is a python3 program, it
+# shells out to ffmpeg to merge separate video/audio streams, and
+# download-video.service.ts spawns /usr/bin/ffmpeg directly for conversion.
+
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
+    ffmpeg \
     g++ \
     git \
     make \
     python3 \
   && rm -rf /var/lib/apt/lists/*
+
+# yt-dlp, installed exactly the way apps/download/Dockerfile's production stage
+# does it: the real binary lives in a node-owned /opt/yt-dlp and /usr/bin/yt-dlp
+# is only a symlink to it.
+#
+# The indirection is not cosmetic. YtdlpUpdateService (apps/download/src/
+# ytdlp-update) replaces the binary in place with a move/rename, which needs
+# write permission on the *directory* — /usr/bin is root:root drwxr-xr-x, so
+# installing the binary there directly would make every auto-update fail.
+# Meanwhile download.service.ts / download-video.service.ts hardcode
+# spawn('/usr/bin/yt-dlp'), so the symlink has to stay for them.
+#
+# Unpinned, matching production: yt-dlp breaks whenever an extractor changes
+# upstream, so the image ships whatever is latest at build time and
+# YtdlpUpdateService keeps it current from there.
+RUN mkdir -p /opt/yt-dlp \
+  && curl \
+    -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+    -o /opt/yt-dlp/yt-dlp \
+  && chmod a+rx /opt/yt-dlp/yt-dlp \
+  && chown -R node:node /opt/yt-dlp \
+  && ln -s /opt/yt-dlp/yt-dlp /usr/bin/yt-dlp
 
 # ⚠️ These two directories MUST exist in the image, owned by the `node` user.
 #
