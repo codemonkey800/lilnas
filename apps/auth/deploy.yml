@@ -53,7 +53,7 @@ services:
       - ../../infra/media.yml:/repo/infra/media.yml:ro
       - ../../infra/minecraft.yml:/repo/infra/minecraft.yml:ro
       - ../../infra/monitoring.yml:/repo/infra/monitoring.yml:ro
-      - ../../infra/nexus-code-mbp.yml:/repo/infra/nexus-code-mbp.yml:ro
+      - ../../infra/nexus-code-work.yml:/repo/infra/nexus-code-work.yml:ro
       - ../../infra/nexus-code.yml:/repo/infra/nexus-code.yml:ro
       - ../../infra/palworld.yml:/repo/infra/palworld.yml:ro
       - ../../infra/proxy.yml:/repo/infra/proxy.yml:ro

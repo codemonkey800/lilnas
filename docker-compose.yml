@@ -7,7 +7,7 @@ include:
   - ./infra/media.yml
   - ./infra/minecraft.yml
   - ./infra/monitoring.yml
-  - ./infra/nexus-code-mbp.yml
+  - ./infra/nexus-code-work.yml
   - path: ./infra/nexus-code.yml
     env_file: ./infra/.env.nexus-code
   - ./infra/palworld.yml

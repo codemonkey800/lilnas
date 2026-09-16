@@ -133,7 +133,7 @@ export function buildAuth(db: Db) {
     // it solves a problem this app doesn't have.
     //
     // AMENDED: the paragraph above was true when written; it no longer is.
-    // nexus-code (infra/nexus-code.yml, infra/nexus-code-mbp.yml) is now an
+    // nexus-code (infra/nexus-code.yml, infra/nexus-code-work.yml) is now an
     // external browser consumer that reads the signed-in user's name and
     // avatar cross-origin. That need is served by
     // src/app/api/profile/route.ts, which owns its own narrowly-scoped CORS
