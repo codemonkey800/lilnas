@@ -9,6 +9,8 @@ jest.mock('@lilnas/media/sonarr', () => ({
   getApiV3Episode: jest.fn(),
   getApiV3EpisodeById: jest.fn(),
   getApiV3Episodefile: jest.fn(),
+  getApiV3HistorySeries: jest.fn(),
+  getApiV3Indexer: jest.fn(),
   getApiV3Qualityprofile: jest.fn(),
   getApiV3Queue: jest.fn(),
   getApiV3Release: jest.fn(),
@@ -30,6 +32,8 @@ import {
   getApiV3Episode,
   getApiV3EpisodeById,
   getApiV3Episodefile,
+  getApiV3HistorySeries,
+  getApiV3Indexer,
   getApiV3Qualityprofile,
   getApiV3Queue,
   getApiV3Release,
@@ -63,6 +67,8 @@ const mockGetApiV3Episode = getApiV3Episode as jest.Mock
 const mockGetApiV3EpisodeById = getApiV3EpisodeById as jest.Mock
 const mockGetApiV3Episodefile = getApiV3Episodefile as jest.Mock
 const mockDeleteApiV3EpisodefileById = deleteApiV3EpisodefileById as jest.Mock
+const mockGetApiV3HistorySeries = getApiV3HistorySeries as jest.Mock
+const mockGetApiV3Indexer = getApiV3Indexer as jest.Mock
 const mockPutApiV3SeriesById = putApiV3SeriesById as jest.Mock
 const mockPutApiV3EpisodeMonitor = putApiV3EpisodeMonitor as jest.Mock
 
@@ -1190,6 +1196,92 @@ describe('SonarrService', () => {
       await expect(service.deleteEpisodeFile(11)).rejects.toThrow(
         'deleteEpisodeFile failed',
       )
+    })
+  })
+
+  describe('getSeriesHistory', () => {
+    it('fetches the whole series in one call and returns the records raw', async () => {
+      mockGetApiV3HistorySeries.mockResolvedValue({
+        data: [
+          { downloadId: 'abc', eventType: 'grabbed', id: 1 },
+          { downloadId: 'abc', eventType: 'downloadFolderImported', id: 2 },
+        ],
+      })
+
+      const result = await service.getSeriesHistory(9)
+
+      expect(getApiV3HistorySeries).toHaveBeenCalledTimes(1)
+      expect(getApiV3HistorySeries).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { seriesId: 9 } }),
+      )
+      expect(result).toEqual([
+        { downloadId: 'abc', eventType: 'grabbed', id: 1 },
+        { downloadId: 'abc', eventType: 'downloadFolderImported', id: 2 },
+      ])
+    })
+
+    // Both narrowings are deliberate omissions, not oversights: a season
+    // filter would multiply the call count for no saving, and a numeric
+    // `eventType` doesn't line up with the SDK's string union
+    // (`downloadFolderImported` is 3 on the wire, not 2) so it would quietly
+    // fetch the wrong events.
+    it('sends neither a seasonNumber nor an eventType filter', async () => {
+      mockGetApiV3HistorySeries.mockResolvedValue({ data: [] })
+
+      await service.getSeriesHistory(9)
+
+      const { query } = mockGetApiV3HistorySeries.mock.calls[0][0]
+      expect(query).not.toHaveProperty('seasonNumber')
+      expect(query).not.toHaveProperty('eventType')
+    })
+
+    it('returns an empty list for a series with no history yet', async () => {
+      mockGetApiV3HistorySeries.mockResolvedValue({ data: [] })
+
+      await expect(service.getSeriesHistory(9)).resolves.toEqual([])
+    })
+
+    it('throws a descriptive error when the SDK call fails', async () => {
+      mockGetApiV3HistorySeries.mockResolvedValue({
+        error: { message: 'boom' },
+      })
+
+      await expect(service.getSeriesHistory(9)).rejects.toThrow(
+        'getSeriesHistory failed',
+      )
+    })
+  })
+
+  describe('getIndexers', () => {
+    // Raw resources, unfiltered and unmapped - the name -> id lookup that
+    // Sonarr's indexerId-less grabbed history needs is the caller's to build.
+    it('returns the configured indexers untouched', async () => {
+      mockGetApiV3Indexer.mockResolvedValue({
+        data: [
+          { enableInteractiveSearch: true, id: 3, name: 'AltHub' },
+          { enableInteractiveSearch: false, id: 7, name: 'NzbGeek' },
+        ],
+      })
+
+      const result = await service.getIndexers()
+
+      expect(getApiV3Indexer).toHaveBeenCalledTimes(1)
+      expect(result).toEqual([
+        { enableInteractiveSearch: true, id: 3, name: 'AltHub' },
+        { enableInteractiveSearch: false, id: 7, name: 'NzbGeek' },
+      ])
+    })
+
+    it('returns an empty list when no indexer is configured', async () => {
+      mockGetApiV3Indexer.mockResolvedValue({ data: [] })
+
+      await expect(service.getIndexers()).resolves.toEqual([])
+    })
+
+    it('throws a descriptive error when the SDK call fails', async () => {
+      mockGetApiV3Indexer.mockResolvedValue({ error: { message: 'boom' } })
+
+      await expect(service.getIndexers()).rejects.toThrow('getIndexers failed')
     })
   })
 

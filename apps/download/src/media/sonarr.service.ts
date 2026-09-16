@@ -2,6 +2,8 @@ import type {
   CommandResourceWritable,
   EpisodeFileResource,
   EpisodeResource,
+  HistoryResource,
+  IndexerResource,
   QueueResource,
   ReleaseResource,
   SeasonResource,
@@ -15,6 +17,8 @@ import {
   getApiV3Episode,
   getApiV3EpisodeById,
   getApiV3Episodefile,
+  getApiV3HistorySeries,
+  getApiV3Indexer,
   getApiV3Qualityprofile,
   getApiV3Queue,
   getApiV3Release,
@@ -680,6 +684,47 @@ export class SonarrService {
         path: { id: fileId },
       }),
       'deleteEpisodeFile',
+    )
+  }
+
+  /**
+   * A whole series' history in one unpaged call - the raw material
+   * `mapFilesToReleases()` joins back into a `fileId -> release` map.
+   *
+   * Scoped to the series and nothing narrower on purpose. A 45-file show
+   * comes back as ~90 records in 0.03s, so a per-season (let alone
+   * per-episode) filter would cost the same per call and turn one request
+   * into ten.
+   *
+   * Deliberately **no `eventType` filter** either. The SDK's `eventType`
+   * string union is not positional with the numeric values this query param
+   * takes on the wire - `downloadFolderImported` is `3`, not `2` - so passing
+   * one silently fetches the wrong event type. Everything is fetched and the
+   * caller filters on the string `eventType` off each record instead.
+   */
+  async getSeriesHistory(sonarrId: number): Promise<HistoryResource[]> {
+    return unwrapSdkResult(
+      await getApiV3HistorySeries({
+        client: this.client,
+        query: { seriesId: sonarrId },
+      }),
+      'getSeriesHistory',
+    )
+  }
+
+  /**
+   * Every indexer Sonarr has configured, raw.
+   *
+   * Sonarr's `grabbed` history carries **no `indexerId`** - only
+   * `data.indexer`, the display name (`'AltHub'`, `'NzbGeek'`) - where
+   * Radarr's carries both. Resolving that name back to the id a re-grab needs
+   * means matching it against `IndexerResource.name`, which is what this list
+   * exists for; building (and caching) the name -> id map is the caller's job.
+   */
+  async getIndexers(): Promise<IndexerResource[]> {
+    return unwrapSdkResult(
+      await getApiV3Indexer({ client: this.client }),
+      'getIndexers',
     )
   }
 
