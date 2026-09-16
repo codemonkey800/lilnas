@@ -4,6 +4,7 @@ import { DownloadModule } from 'src/download/download.module'
 import { EmbyModule } from 'src/emby/emby.module'
 
 import { radarrClientProvider, sonarrClientProvider } from './clients'
+import { CurrentReleaseService } from './current-release.service'
 import { DiscoveryService } from './discovery.service'
 import { MediaDownloadService } from './media-download.service'
 import { MediaFileService } from './media-file.service'
@@ -31,6 +32,7 @@ import { SonarrService } from './sonarr.service'
   providers: [
     radarrClientProvider,
     sonarrClientProvider,
+    CurrentReleaseService,
     DiscoveryService,
     RadarrService,
     SonarrService,
@@ -42,6 +44,9 @@ import { SonarrService } from './sonarr.service'
     ShowService,
   ],
   exports: [
+    // Exported as well as provided: the release detail a title page renders
+    // is assembled outside this module.
+    CurrentReleaseService,
     DiscoveryService,
     MediaDownloadService,
     MediaFileService,
