@@ -4306,7 +4306,7 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
   renders the "not recognized" state; actions call the identified client with the job
   id; the source link renders.
 
-- [ ] **E3. Video player control bar.** The in-app player matches the system.
+- [x] **E3. Video player control bar.** — `4aa6aaeb` — The in-app player matches the system.
 
   **Files:** create `apps/download/src/components/detail/video-player.tsx` (client).
 
@@ -4334,6 +4334,182 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
   **Tests:** keyboard shortcuts drive the media element; the range input seeks;
   fullscreen state follows the document, not a local flag; accessible names on every
   control.
+
+  **Findings (E3, 2026-09-15):** 4 files, +2193. Created
+  `src/components/detail/video-player.tsx` (**`'use client'`**) and
+  `src/components/detail/video-player-state.ts` (**pure, no directive**) plus two
+  specs. **2 new suites / 141 new tests** (97 pure-module in the node project, 44
+  component in jsdom). Lint (eslint _and_ prettier) and type-check clean. No
+  stop-and-report. A throwaway route (`src/app/e3-player-check/`) plus an
+  ffmpeg-generated sample clip were created and **deleted**; `.next/types/app/`
+  verified to hold no stale entry, and `apps/download/public/` does not exist.
+  **E2 composes on these — paste them, not a sketch:**
+
+  ```tsx
+  // src/components/detail/video-player.tsx — 'use client'
+  export const VIDEO_PLAYER_LABEL = 'Video player'
+  export const SEEK_LABEL = 'Seek'
+  export const PLAY_LABEL = 'Play'
+  export const PAUSE_LABEL = 'Pause'
+  export const MUTE_LABEL = 'Mute'
+  export const UNMUTE_LABEL = 'Unmute'
+  export const FULLSCREEN_LABEL = 'Fullscreen'
+  export const EXIT_FULLSCREEN_LABEL = 'Exit fullscreen'
+  export type VideoPlayerProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'children' | 'title'
+  > & {
+    src: string // resolved by the PAGE: Video.downloadUrls[0] ?? getMediaFileUrl(mediaId)
+    poster?: string | null // MediaBase.posterUrl; shown until play
+    title?: string // names the player region for AT
+    videoProps?: Omit<
+      ComponentPropsWithoutRef<'video'>,
+      'children' | 'controls' | 'poster' | 'src'
+    >
+  }
+  export function VideoPlayer(props: VideoPlayerProps): JSX.Element
+
+  // src/components/detail/video-player-state.ts — no directive, pure
+  export const ELAPSED_ZERO = '0:00'
+  export function formatElapsed(seconds: number | null | undefined): string
+  export function formatDuration(seconds: number | null | undefined): string
+  export function formatTimecode(currentTime, duration): string // '5:20 / 14:02'
+  export function seekValueText(currentTime, duration): string // '5:20 of 14:02'
+  export const SEEK_STEP_SECONDS = 5
+  export type MediaElementLike = {
+    currentTime: number
+    duration: number
+    muted: boolean
+    paused: boolean
+    volume: number
+  }
+  export type MediaSnapshot = MediaElementLike
+  export const MEDIA_SNAPSHOT_INITIAL: MediaSnapshot // frozen
+  export const MEDIA_EVENTS: readonly string[]
+  export function readMediaSnapshot(element): MediaSnapshot
+  export function sameMediaSnapshot(a, b): boolean
+  export const PCT_MIN = 0
+  export const PCT_MAX = 100
+  export function playedPct(snapshot): number
+  export function seekTimeFromPct(pct: number, duration: number): number
+  export function seekBy(currentTime, seconds, duration): number
+  export type PlayerIntent =
+    | { kind: 'seek-by'; seconds: number }
+    | { kind: 'toggle-fullscreen' }
+    | { kind: 'toggle-mute' }
+    | { kind: 'toggle-play' }
+  export type ShortcutOrigin = 'button' | 'range' | 'surface'
+  export function shortcutOrigin(target: unknown): ShortcutOrigin
+  export type ShortcutEvent = {
+    altKey?: boolean
+    ctrlKey?: boolean
+    key: string
+    metaKey?: boolean
+  }
+  export function playerIntentForKey(
+    event: ShortcutEvent,
+    origin: ShortcutOrigin,
+  ): PlayerIntent | null
+  export type FullscreenDocumentLike = {
+    /* 4 element props + 4 exit methods, all optional */
+  }
+  export type FullscreenElementLike = {
+    /* 4 request methods + webkitEnterFullscreen */
+  }
+  export const FULLSCREEN_EVENTS: readonly string[]
+  export function fullscreenElement(doc: FullscreenDocumentLike): unknown
+  export function isFullscreen(doc, element): boolean
+  export function enterFullscreen(element): boolean // false = no spelling exists
+  export function leaveFullscreen(doc): boolean
+  ```
+
+  **Composition contract:** sizing is the caller's, exactly like `Poster` —
+  `<VideoPlayer className="w-[340px]" … />` on desktop, no width on mobile. The root
+  is `aspect-video shrink-0 rounded-md`, i.e. `Poster`'s `wide` shape and default
+  radius, so it drops into `JobLifecycle`'s neighbourhood where the poster sat with
+  **no layout change**. ⚠️ **E2 owns the `src` decision**
+  (`downloadUrls[0] ?? getMediaFileUrl(mediaId)`) and the `poster`.
+
+  **The pure-module split is the answer to jsdom.** Per the precedent set by
+  `job-state.ts` / `activity-rows.ts` / `search-params.ts`, everything testable —
+  the shortcut→intent mapping, time formatting, seek arithmetic, snapshot equality,
+  and the whole vendor-prefixed fullscreen abstraction — lives in
+  `video-player-state.ts` and is unit-tested in the **node** project. The component
+  is a thin wiring layer. **`useSyncExternalStore`** subscribes to the element's own
+  `timeupdate`/`play`/`pause`/`volumechange`/`durationchange` and to `document`'s
+  `fullscreenchange`, so `react-hooks/set-state-in-effect` never applies **and**
+  fullscreen genuinely follows the document rather than a local flag — the task's
+  own requirement, satisfied structurally rather than by discipline.
+
+  ##### ⚠️ Findings (E3): the two icon states the 27-name set cannot spell
+
+  **Neither `icon.tsx` nor `sprite.tsx` was reopened; there is still no 28th symbol.**
+  - **Mute** — `i-volume` plus a CSS bar rotated 45°
+    (`w-4 h-[1.2px] rounded-full bg-current`). This is **the sprite's own idiom for
+    "off"**: `i-eye-slash` is literally `i-eye` plus `M2 2 l12 12` at
+    `stroke-width: 1.3`, and the bar is that stroke scaled from the 16px viewBox to
+    the bar's 15px icon (12/16 across, 1.3/16 thick). Reads unambiguously at 1280
+    and 390.
+  - **Exit fullscreen** — `x` at `h-4 w-4` (vs `expand` at 14px; the `x` path spans
+    only half its viewBox, so 16px keeps it optically level with the 15px `pause`).
+    **Rotating or scaling `expand` cannot produce a contract mark** — its four
+    brackets hug the corners either way. `x` is already the system's "get out of
+    this" (modal dismiss, cancel a download), it carries
+    `aria-label="Exit fullscreen"` + `aria-pressed="true"`, and it is only ever seen
+    in a bar floating over a picture that has taken the screen.
+
+  ##### ✅ Findings (E3): `formatRuntime(0, 'clock')` → `—`, split in two
+
+  `src/lib/format.ts` was **not** touched. `formatElapsed` floors and bottoms out at
+  `ELAPSED_ZERO` — **a loaded file sitting at the start is a fact, not an unknown** —
+  and it also never shows a second early or the full duration before the end.
+  `formatDuration` still reaches the em dash **through** `formatRuntime`, which is
+  the right answer for the `NaN` before `loadedmetadata`, the `Infinity` of a stream
+  and the `0` of a file the browser cannot measure. So a fresh player reads
+  `0:00 / 14:02`, and one whose duration is unknown reads `0:00 / —`.
+
+  **Mockup deviations (E3): five, measured not eyeballed** with `playwright-core`
+  driving system Chrome at 1280×900 and 390×844 against `video-detail.html`'s
+  "Completed — playing in-app" frames. **Identical to two decimals:** frame
+  340×191.25 / `aspect-ratio: 16/9` / radius 10; bar height 83.59 /
+  `padding: 36px 12px 10px` / `gap: 8px`; the scrim gradient's computed
+  `linear-gradient(to top, oklab(0.06 0.01 -0.0173205 / 0.85) 0%, rgba(0,0,0,0) 80%)`
+  **byte-for-byte**; scrubber 316×12; track 316×3; fill 120.08px at 38%; thumb 11×11
+  at the same 114.58px offset with the same `0 0 0 2px oklch(0.06 0.02 300)` ring;
+  readout 11px IBM Plex Mono / `oklch(0.79 0.02 300)` / width 79.2; group gaps 10 and
+  12; icons 15/15/14. Mobile measures the same — both panels draw a 340px frame.
+
+  | Deviation                                                                                       | Why                                                                                                                                                                                                                                                                                                               |
+  | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Frame is `bg-bg-sunk`, not a `poster-vN` gradient                                               | The frame is a **player** now; a video letterboxes against its own bars, and a purple gradient behind a 9:16 clip reads as a broken image. ⚠️ **`Poster` was deliberately NOT composed** — it would also have forced a `seed` prop onto E2 for a gradient that should never be seen.                              |
+  | Mockup's `div[role=slider]` → a transparent `<input type="range">` over the mixin's own markup  | Required by the task. Rendered pixels are the mixin's; the input contributes only the hit target. ⚠️ **Its thumb is `w-px`, not 11px** — a range maps value across `width − thumbWidth`, so an 11px thumb would put the browser's 38% up to 5.5px from the drawn dot. Verified: a click at 75% lands at **75.1**. |
+  | `after:-inset-2` halo on every button; scrubber input `h-6` over the mockup's 12px container    | Touch targets, per the task. Measured −8px on all four sides, **zero layout change**. Padding was impossible — the row is `gap-2.5`, so 8px on two neighbours needs a −6px gap. Halos overlap by 6px between neighbours: a 3px boundary shift, not a dead zone. The 24px input fits inside the `gap-2` above.     |
+  | `[&:fullscreen]:aspect-auto [&:fullscreen]:rounded-none`                                        | A state the mockup has no panel for. Verified `border-radius: 0px` at 1280×900.                                                                                                                                                                                                                                   |
+  | Labels are state-dependent (`Play`↔`Pause`, `Mute`↔`Unmute`, `Fullscreen`↔`Exit fullscreen`) | The mockup photographs one state.                                                                                                                                                                                                                                                                                 |
+
+  **Live-browser verification, not jsdom:** click-the-picture plays and the glyph
+  flips; Space pauses; `ArrowRight`×2 → +10s; `ArrowLeft` → −5s; `m` → `Unmute`;
+  readout, slider value and `aria-valuetext` all track; `window.scrollY` stays 0 (the
+  `preventDefault` holds); `f` enters real fullscreen and the label flips **from the
+  `fullscreenchange` event**; `document.exitFullscreen()` flips it back.
+
+  **Open questions E3 raised — deliberately not acted on:**
+  - ⚠️ **Up/down arrows SEEK, they do not change volume.** Every mainstream player
+    maps them to volume, but this bar — like the mixin — has **nowhere to display a
+    volume level**, so a keystroke that silently moved one would create state the UI
+    cannot show. The volume button is a mute toggle and `M` mirrors it. Real volume
+    needs a new affordance in the bar: a **design** change, not a wiring one. **G1
+    should decide.**
+  - **The frame is a focusable `role="region"` (`tabIndex={0}`)**, which is what makes
+    "click the picture, then press Space" work — but it is one extra tab stop before
+    the seek bar. **Worth a look in G1 if the detail page's tab order feels long.**
+  - **iPhone Safari has no element fullscreen.** The button falls back to the video's
+    `webkitEnterFullscreen`, which hands the file to the system player; the document
+    never reports that as fullscreen, so the label stays `Fullscreen` while it is up.
+    Documented in the component, not worked around.
+  - A broken `poster` on a `<video>` degrades silently to the frame's `bg-bg-sunk`,
+    which is honest — so the recorded relative-poster-path defect needs no workaround
+    here.
 
 - [ ] **E4. Movie detail page.** `/movies/<tmdbId>`.
 
@@ -4395,8 +4571,8 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
   baked into the media id; a repeat delete with `deletedCount: 0` reads as success;
   season-level progress aggregates across episodes.
 
-- [ ] **E6. Release selection, replacement, and bad-file reporting.** The shared
-      surfaces movie and show detail both use.
+- [x] **E6. Release selection, replacement, and bad-file reporting.** — `ede3990d`,
+      `6928a24f` — The shared surfaces movie and show detail both use.
 
   **Files:** create `apps/download/src/components/detail/release-picker.tsx`,
   `bad-file-flag.tsx`, `delete-confirm.tsx`; create
@@ -4431,6 +4607,316 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
   **Tests:** a `flaggedBad` release renders disabled with a reason; replace issues
   one call, not a delete followed by a grab; a repeat flag is treated as success;
   the delete confirm names its scope. All against mocked server actions.
+
+  **Findings (E6, 2026-09-15):** 8 files across two commits — `ede3990d` (actions,
+  +846) and `6928a24f` (components, +2520). **4 new suites / 109 new tests** (actions
+  32, picker 34, flag 14, delete 29). Lint (eslint _and_ prettier) and type-check
+  clean. A throwaway route (`src/app/e6-release-check/`) was created and **deleted**,
+  along with `.next/types/app/e6-release-check/`; it imported **no** server action and
+  every callback in it was a local no-op, so it could not reach the backend by
+  construction.
+
+  ✅ **ZERO live library mutations, explicitly confirmed.** No `grabRelease`,
+  `replaceRelease`, `flagBadFile`, `unflagBadFile` or `deleteMediaFiles` — and **no
+  `GET /media/:id/releases`** — against the real backend, from a browser, `curl`, a
+  script or a test. Every test mocks `getIdentifiedDownloadClient`. **Human
+  checkpoint 2 remains outstanding and untouched.**
+
+  **E4/E5 compose on these — paste them, not a sketch:**
+
+  ```ts
+  // src/app/actions/media-files.ts — 'use server'
+  export type ReleaseActionResult = { error: string } | { job: DownloadJob }
+  export type BadFileActionResult = { badFile: BadFile } | { error: string }
+  export type DeleteMediaFilesResult =
+    | { deletedCount: number }
+    | { error: string }
+  export type ReleaseSearchResult = { error: string } | { releases: Release[] }
+
+  // ⚠️ SIX, not the five this task named — see the contract-addition note below.
+  export async function searchReleases(
+    mediaId: string,
+    query?: ListReleasesQuery,
+  ): Promise<ReleaseSearchResult>
+  export async function grabRelease(
+    mediaId: string,
+    input: GrabReleaseInput,
+  ): Promise<ReleaseActionResult>
+  export async function replaceRelease(
+    mediaId: string,
+    input: ReplaceReleaseInput,
+  ): Promise<ReleaseActionResult>
+  export async function flagBadFile(
+    mediaId: string,
+    input: FlagBadFileInput,
+  ): Promise<BadFileActionResult>
+  export async function unflagBadFile(
+    mediaId: string,
+    flagId: number,
+  ): Promise<BadFileActionResult>
+  export async function deleteMediaFiles(
+    mediaId: string,
+    query?: DeleteMediaFilesQuery,
+  ): Promise<DeleteMediaFilesResult>
+  ```
+
+  All take `mediaId` **first** and are **unbound** — E4/E5 pass the bare reference,
+  no `.bind()`. All revalidate the detail path derived via `mediaTypeFromKey` →
+  `routeKindFromType` → `mediaIdSuffix`, **except `searchReleases`, which revalidates
+  nothing**.
+
+  ```tsx
+  // src/components/detail/release-picker.tsx — 'use client'
+  export function formatBytes(bytes: number | null | undefined): string // '2.1 GB'; UNKNOWN_VALUE for <=0/non-finite
+  export const RELEASE_SECTION_LABEL,
+    RELEASE_SEARCH_LABEL,
+    RELEASE_SEARCH_AGAIN_LABEL,
+    RELEASE_SEARCH_NOTE,
+    RELEASE_SEARCHING_NOTE,
+    RELEASE_EMPTY_NOTE,
+    RELEASE_CURRENT_LABEL,
+    RELEASE_FLAGGED_LABEL,
+    RELEASE_GRAB_LABEL,
+    RELEASE_REPLACE_LABEL,
+    RELEASE_FLAGGED_REASON,
+    RELEASE_REJECTED_REASON: string
+  export type ReleaseSearchAction = (
+    mediaId: string,
+    query: ListReleasesQuery,
+  ) => Promise<ReleaseSearchResult | void> | void
+  export type ReleaseAction = (
+    // grab AND replace share ONE type —
+    mediaId: string, // ReplaceReleaseInputSchema IS GrabReleaseInputSchema
+    input: GrabReleaseInput,
+  ) => Promise<ReleaseActionResult | void> | void
+  export type ReleasePickerProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'children' | 'onSelect'
+  > & {
+    badFiles?: readonly BadFile[] // client.listBadFiles(id), joined on releaseGuid
+    currentGuid?: string // guid on disk -> `current` chip; defaults hasFile
+    episodeId?: number // SHOW ONLY
+    hasFile?: boolean // true -> every pick is a REPLACE. Defaults currentGuid !== undefined
+    label?: ReactNode // section heading, default 'Release'; null suppresses
+    mediaId: string
+    mobile?: boolean // layout switch, not a breakpoint
+    onFlag?: FlagBadFileAction // omitted -> no report control
+    onGrab?: ReleaseAction
+    onReplace?: ReleaseAction
+    onSearch?: ReleaseSearchAction // ⚠️ called ONLY from the picker's own trigger press
+    onUnflag?: UnflagBadFileAction
+    releases?: readonly Release[] // pre-loaded; a search here wins. Reset with a `key`
+    reportPrompt?: ReactNode // show passes REPORT_PROMPT_EPISODE
+    reportReasons?: readonly string[] // show passes REPORT_REASONS_EPISODE
+    seasonNumber?: number // SHOW ONLY
+  }
+  export function ReleasePicker(props: ReleasePickerProps): JSX.Element
+
+  // src/components/detail/bad-file-flag.tsx — 'use client'
+  export const REPORT_LABEL,
+    REPORT_PROMPT,
+    REPORT_PROMPT_EPISODE,
+    REPORT_SCOPE_CAVEAT,
+    REPORTED_LABEL,
+    UNDO_REPORT_LABEL,
+    SUBMIT_REPORT_LABEL: string
+  export const REPORT_REASONS: readonly string[]
+  export const REPORT_REASONS_EPISODE: readonly string[]
+  export type BadFileRelease = Pick<
+    FlagBadFileInput,
+    'guid' | 'indexerId' | 'title'
+  >
+  export type FlagBadFileAction = (
+    mediaId: string,
+    input: FlagBadFileInput,
+  ) => Promise<BadFileActionResult | void> | void
+  export type UnflagBadFileAction = (
+    mediaId: string,
+    flagId: number, // ⚠️ BadFile.id, NOT the guid
+  ) => Promise<BadFileActionResult | void> | void
+  export type BadFileFlagProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'children' | 'onSubmit' | 'title'
+  > & {
+    flag?: BadFile | null // non-null -> reported state, NO trigger at all
+    full?: boolean // stretch trigger + root (stacked StateLineActions)
+    label?: string
+    mediaId: string
+    mobile?: boolean
+    onFlag?: FlagBadFileAction
+    onUnflag?: UnflagBadFileAction // omitted -> no undo affordance
+    prompt?: ReactNode // default REPORT_PROMPT
+    reasons?: readonly string[] // default REPORT_REASONS; first entry starts chosen
+    release: BadFileRelease
+    size?: ButtonSize // default 'sm'
+    variant?: ButtonVariant // default 'ghost'
+  }
+  export function BadFileFlag(props: BadFileFlagProps): JSX.Element
+
+  // src/components/detail/delete-confirm.tsx — 'use client'
+  export type DeleteScope =
+    | {
+        episodeId: number
+        episodeNumber?: number
+        kind: 'episode'
+        seasonNumber?: number
+      }
+    | { kind: 'movie' }
+    | { kind: 'season'; seasonNumber: number }
+    | { kind: 'series' }
+  export function deleteScopeQuery(scope: DeleteScope): DeleteMediaFilesQuery
+  // episode -> { episodeId }; season -> { seasonNumber }; movie/series -> {} (the EMPTY query = everything)
+  export type DeleteConfirmCopy = { description: string; title: string }
+  export function deleteConfirmCopy(
+    scope: DeleteScope,
+    options: { freesBytes?: number; title: string },
+  ): DeleteConfirmCopy
+  export type DeleteMediaFilesAction = (
+    mediaId: string,
+    query: DeleteMediaFilesQuery,
+  ) => Promise<DeleteMediaFilesResult | void> | void
+  export type DeleteConfirmProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'children' | 'onSubmit' | 'title'
+  > & {
+    description?: ReactNode // overrides the derived one
+    freesBytes?: number // -> "and frees 2.1 GB"
+    full?: boolean
+    label?: string // overrides the scope's default trigger label
+    mediaId: string
+    mobile?: boolean
+    onDelete?: DeleteMediaFilesAction
+    onDeleted?: (deletedCount: number | null) => void // fires AFTER a successful delete
+    scope: DeleteScope
+    size?: ButtonSize
+    title: string // the MEDIA title the heading names
+    variant?: ButtonVariant // default 'bad'
+  }
+  export function DeleteConfirm(props: DeleteConfirmProps): JSX.Element
+  ```
+
+  **Composition contract.** A **movie (E4)** passes neither `episodeId` nor
+  `seasonNumber` anywhere — Radarr ignores both:
+
+  ```tsx
+  <ReleasePicker
+    badFiles={badFiles}
+    currentGuid={…}
+    hasFile={movie.filePath !== undefined}
+    mediaId={id}
+    onFlag={flagBadFile}
+    onGrab={grabRelease}
+    onReplace={replaceRelease}
+    onSearch={searchReleases}
+    onUnflag={unflagBadFile}
+  />
+  <DeleteConfirm mediaId={id} onDelete={deleteMediaFiles}
+    scope={{ kind: 'movie' }} title={movie.title} />
+  ```
+
+  A **show (E5)** expresses scope **only** through `DeleteScope` and the
+  `episodeId`/`seasonNumber` pair — never by mutating the media id:
+
+  ```tsx
+  // episode row
+  <ReleasePicker episodeId={ep.id} hasFile={ep.hasFile} mediaId={id}
+    reasons={REPORT_REASONS_EPISODE} reportPrompt={REPORT_PROMPT_EPISODE}
+    seasonNumber={s.seasonNumber} … />
+  <DeleteConfirm scope={{ kind: 'episode', episodeId: ep.id,
+    episodeNumber: ep.episodeNumber, seasonNumber: s.seasonNumber }} … />
+  // season header
+  <DeleteConfirm freesBytes={season.sizeOnDisk}
+    scope={{ kind: 'season', seasonNumber: 2 }} … />
+  // series header
+  <DeleteConfirm scope={{ kind: 'series' }} … />
+  ```
+
+  `BadFileFlag` is exported separately for episode rows that are **not** inside a
+  picker.
+
+  ⚠️ **`ReleasePicker` has NO delete prop. That is the structural guarantee that a
+  replace can never be sequenced client-side** — the component cannot issue a delete
+  even if a later caller wanted it to. Asserted at both the component and the wire
+  level: on a replace, `client.deleteMediaFiles` and `client.grabRelease` are **never
+  called**.
+
+  ⚠️ **`onSearch` fires only from the picker's own trigger press.** There is no
+  hover, mount, focus or prefetch path to it — the `GET /media/:id/releases`
+  write-upstream hazard is handled by construction, not by discipline.
+
+  ##### ⚠️ Findings (E6): a SIXTH server action — `searchReleases` — a contract addition
+
+  **This task's text named five actions. Six shipped.** `ReleasePicker` needs the
+  interactive release search, and nothing else in E6's file list could host it.
+  Leaving it to E4 and E5 meant **two independent implementations of the most
+  dangerous read in the app**, and one of them would eventually get called from a
+  loader — exactly the speculative call the task forbids. It sits beside the
+  mutations with a loud doc comment instead. ⚠️ **E4's and E5's briefs must name it,
+  or they will each write their own.**
+
+  **Copy — the three places wording carries risk:**
+  - **Disabled because flagged bad** (`RELEASE_FLAGGED_REASON`; visible row text
+    _and_ `aria-describedby` on the control):
+    `Reported as a bad file — this app won't grab it.`
+    Companion for an upstream refusal with no `rejections[0]`
+    (`RELEASE_REJECTED_REASON`):
+    `Rejected — it doesn't meet this title's quality profile.`
+    Server-side 409 fallback:
+    `That release is reported as a bad file — pick another one`
+  - ✅ **Flag scope caveat** (`REPORT_SCOPE_CAVEAT`, shown **in the dialog before
+    submitting** and again in the reported state):
+    `This app won't pick this release again. Radarr and Sonarr can still grab it from their own interfaces.`
+    ⚠️ **Deliberately NOT the mockup's "This release won't be auto-picked again"**,
+    which overstates the guarantee. This is the spec's accepted gap, stated.
+  - **The four delete scopes**, each naming exactly what goes:
+    - **Movie** — `Delete "…"?` / `Removes this movie's file from the library[ and frees 2.1 GB]. The movie stays in Radarr, so it can be downloaded again. This can't be undone.`
+    - **Series** — `Delete "…"?` / `Removes the file for every episode of every season from the library[…]. The series stays in Sonarr, so it can be downloaded again. This can't be undone.`
+    - **Season** — `Delete season 2 of "…"?` / `Removes the file for every episode in season 2 from the library[…]. Other seasons are left alone. This can't be undone.`
+    - **Episode** — `Delete S02E05 of "…"?` (falls back to `this episode` without the
+      numbers) / `Removes the file for this one episode from the library[…]. The rest of the season is left alone. This can't be undone.`
+    - Trigger labels: `Delete` / `Delete series` / `Delete season` / `Delete episode`.
+
+  **Mockup deviations (E6): measured with `playwright-core` driving system Chrome**,
+  computed styles + `getBoundingClientRect()` against `movie-detail.html` at 1280×900
+  and 390×844. **Identical:** card padding, row `px-1 py-[13px]`, `gap-[14px]` /
+  `gap-[9px]`, the `[&+&]` divider width and colour, the `w-[200px]` mono column,
+  `text-mono-sm`, `ink-3`/`ink-4`, `opacity-55`, `line-through`, chip tones, section
+  heading. Both dialogs: title/description/action-row margins (`mb-1.5`, `mb-[18px]`,
+  `mt-4`), reason-row padding, radii, surfaces.
+
+  | Deviation                                                                    | Measured         | Reason                                                                                                                                                        |
+  | ---------------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Modal panel 440px, not 380px                                                 | 440 / 380        | B6's pre-approved deviation; `modal.tsx` is closed.                                                                                                           |
+  | Button type size 13px, not 14px                                              | 13 / 14          | **Known mockup artifact** — `sm`'s `text-[13px]` is dead in the mockup's CSS by output order. Height matched at 30px, so only type differs. The pug's intent. |
+  | Reason rows `mt-8px`, not flush                                              | 8 / 0            | Documented mockup **build defect**; 8px is correct.                                                                                                           |
+  | `DeleteButton` keeps `border-bad/40`                                         | — vs transparent | Documented output-order artifact.                                                                                                                             |
+  | Row `flex-wrap` added                                                        | wrap / nowrap    | **E6's.** Lets a blocked row's reason line wrap under the columns without turning the mixin's row into a column container. No effect on an unblocked row.     |
+  | Flagged row keeps a **disabled** grab control; the mockup omits it entirely  | —                | **Required by the task** — "disable it and say why" beats silently removing it.                                                                               |
+  | Report dialog 46px taller                                                    | 320.5 / 258.5    | **E6's.** Exactly the two 8px reason gaps + the 36px scope caveat + its 10px margin.                                                                          |
+  | `Delete "…"` says "from the library", not "from Emby"                        | —                | **E6's.** The files live in `/storage/media-library`; Emby is one consumer. Naming the player understates what is destroyed.                                  |
+  | Second column shows `indexer`; the full release name rides the row's `title` | —                | **API wins.** The mockup shows no release name at all, and `Release.title` is the only truly identifying field.                                               |
+  | Section heading is `<h2>`, mockup `<p>`                                      | —                | Same semantic correction `Modal` already made; classes identical.                                                                                             |
+
+  **Open questions E6 raised — deliberately not acted on:**
+  - ⚠️ **`formatBytes` is exported from `release-picker.tsx`** and imported by
+    `delete-confirm.tsx`. It belongs in `src/lib/format.ts` beside `formatRuntime`,
+    which was closed to this task. **Moving it later is a re-export. G1 or a later
+    task should do it.**
+  - ⚠️ **`media-files.ts` is the first module in the app to use `revalidatePath`** —
+    there was no precedent. `job-lifecycle.tsx`'s doc comment references
+    `src/app/actions/video-job.ts` (E2), **which does not exist in the tree yet**;
+    whoever owns E2 should align the two.
+  - **`Release` carries `seeders`, `age`, `customFormatScore` and `languages` that no
+    mockup column shows.** For a torrent, seeders are often the deciding factor. The
+    mockup's two columns were kept; **this is a UX question for whoever owns the
+    design.**
+  - **No post-grab optimistic state** — after a successful grab the row does not
+    become `current` until the page revalidates. Correct but slightly laggy;
+    `useOptimistic` would close it if E4 wants that.
+  - ⚠️ **`BadFileFlag` and `DeleteConfirm` both render a `<div>` root**, so inside a
+    `StateLineActions` (whose `[&>button]:flex-1` cannot reach through a wrapper)
+    callers **must pass `full`**. `ReleasePicker` already does this on its mobile
+    path; **E5 must too.**
 
 - [x] **E7. Save to your device.** — `2fcaa924` — The explicit local-save action, on all three
       detail pages.
