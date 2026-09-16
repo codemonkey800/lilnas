@@ -176,6 +176,13 @@ export const ManagedMediaBaseSchema = MediaBaseSchema.extend({
 })
 
 export const MovieSchema = ManagedMediaBaseSchema.extend({
+  /**
+   * The guid of the indexer release that produced the file currently on
+   * disk, when this app can recover it. Absent means it could not be -
+   * a manually imported file, or history that has since been pruned -
+   * and the UI degrades to no `current` chip and no report control.
+   */
+  currentReleaseGuid: z.string().optional(),
   radarrId: z.number().int().positive().optional(),
   tmdbId: z.number().int().positive(),
   type: z.literal(DownloadType.Movie),
@@ -495,6 +502,16 @@ export const BadFileSchema = z.object({
 export const EpisodeSchema = z.object({
   /** Sonarr's `airDateUtc`. */
   airDate: z.string().optional(),
+  /**
+   * The guid of the indexer release that produced the file currently on
+   * disk, when this app can recover it. Absent means it could not be -
+   * a manually imported file, or history that has since been pruned -
+   * and the UI degrades to no `current` chip and no report control.
+   *
+   * It lives here rather than on `ShowSchema` because a series has no
+   * single current release: the guid is per-episode.
+   */
+  currentReleaseGuid: z.string().optional(),
   /**
    * Omitted entirely when there is no file - Sonarr reports `0` for that
    * case, and a `0` here would read as a real file id.

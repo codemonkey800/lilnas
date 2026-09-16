@@ -3,6 +3,7 @@ import {
   DownloadJobStatus,
   DownloadType,
   EmbyStatus,
+  Episode,
   IN_PROGRESS_DOWNLOAD_JOB_STATUSES,
   isInProgressDownloadJobStatus,
   isManagedMedia,
@@ -276,5 +277,39 @@ describe('EmbyStatus', () => {
     const video: Video = buildVideo({ embyStatus })
 
     expect(isVideo(video)).toBe(true)
+  })
+})
+
+describe('currentReleaseGuid', () => {
+  const currentReleaseGuid = 'indexer://f00ba7'
+
+  it('is assignable to a Movie and to an Episode', () => {
+    expect(buildMovie({ currentReleaseGuid }).currentReleaseGuid).toBe(
+      currentReleaseGuid,
+    )
+
+    const episode: Episode = {
+      currentReleaseGuid,
+      episodeNumber: 5,
+      hasFile: true,
+      id: 4412,
+      monitored: true,
+      seasonNumber: 3,
+    }
+    expect(episode.currentReleaseGuid).toBe(currentReleaseGuid)
+  })
+
+  it('stays optional on both - absence is the normal case', () => {
+    expect(buildMovie().currentReleaseGuid).toBeUndefined()
+  })
+
+  // A series has no single current release - the guid is per-episode - so
+  // Show never gained the field. The compile-time half of schema.spec.ts's
+  // "is stripped from a show rather than carried".
+  it('is not a field on Show', () => {
+    // @ts-expect-error - `currentReleaseGuid` must never reach the show arm.
+    const show: Show = buildShow({ currentReleaseGuid })
+
+    expect(isShow(show)).toBe(true)
   })
 })

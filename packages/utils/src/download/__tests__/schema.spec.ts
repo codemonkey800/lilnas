@@ -802,6 +802,28 @@ describe('EpisodeSchema', () => {
       ).toBe(false)
     },
   )
+
+  it('carries currentReleaseGuid through when it could be recovered', () => {
+    const withGuid = {
+      ...validEpisode,
+      currentReleaseGuid: 'indexer://f00ba7',
+      hasFile: true,
+    }
+    expect(EpisodeSchema.parse(withGuid)).toEqual(withGuid)
+  })
+
+  // Absent is the normal case for a manually imported file, or for history
+  // that has since been pruned - the episode still has to parse.
+  it('leaves currentReleaseGuid optional', () => {
+    expect(EpisodeSchema.parse(validEpisode).currentReleaseGuid).toBeUndefined()
+  })
+
+  it('rejects a non-string currentReleaseGuid', () => {
+    expect(
+      EpisodeSchema.safeParse({ ...validEpisode, currentReleaseGuid: 12345 })
+        .success,
+    ).toBe(false)
+  })
 })
 
 describe('SeasonSchema', () => {
@@ -973,6 +995,42 @@ describe('embyStatus on the Media hierarchy', () => {
     expect(result.success).toBe(true)
     expect(result.data).toEqual(validVideo)
     expect(result.data).not.toHaveProperty('embyStatus')
+  })
+})
+
+describe('currentReleaseGuid on a movie', () => {
+  const currentReleaseGuid = 'indexer://f00ba7'
+
+  it('carries the guid through when the release could be recovered', () => {
+    expect(MovieSchema.parse({ ...validMovie, currentReleaseGuid })).toEqual({
+      ...validMovie,
+      currentReleaseGuid,
+    })
+  })
+
+  // Every other producer of a Movie - /discover, /movies/search, the gallery,
+  // the resolver's placeholder path - leaves this absent, so the pre-existing
+  // fixtures have to keep parsing untouched.
+  it('stays optional - a movie with no recoverable release still parses', () => {
+    const result = MovieSchema.parse(validMovie)
+    expect(result).toEqual(validMovie)
+    expect(result.currentReleaseGuid).toBeUndefined()
+  })
+
+  it('rejects a non-string guid', () => {
+    expect(
+      MovieSchema.safeParse({ ...validMovie, currentReleaseGuid: 12345 })
+        .success,
+    ).toBe(false)
+  })
+
+  // A series has no single current release - the guid is per-episode - so
+  // ShowSchema never declared the field, and zod strips it as an unknown key.
+  it('is stripped from a show rather than carried', () => {
+    const result = ShowSchema.safeParse({ ...validShow, currentReleaseGuid })
+    expect(result.success).toBe(true)
+    expect(result.data).toEqual(validShow)
+    expect(result.data).not.toHaveProperty('currentReleaseGuid')
   })
 })
 
