@@ -19,6 +19,8 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { insertBadFile } from 'src/db/bad-files.repo'
 import { DbService } from 'src/db/db.service'
+import type { MediaFileReleaseRow } from 'src/db/schema'
+import { CurrentReleaseService } from 'src/media/current-release.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { RadarrService } from 'src/media/radarr.service'
@@ -42,6 +44,30 @@ function release(overrides: Record<string, unknown> = {}) {
   }
 }
 
+/** A `media_file_releases` row as `CurrentReleaseService` hands one back. */
+function currentRow(
+  overrides: Partial<MediaFileReleaseRow> = {},
+): MediaFileReleaseRow {
+  return {
+    downloadId: 'dl-1',
+    episodeId: null,
+    id: 1,
+    indexer: 'NZBGeek',
+    indexerId: 11,
+    mediaId: MOVIE_ID,
+    mediaType: DownloadType.Movie,
+    protocol: 'usenet',
+    publishDate: new Date('2020-05-01T00:00:00.000Z'),
+    releaseGroup: 'GRP',
+    releaseGuid: 'indexer://current',
+    releaseTitle: 'Some.Movie.2020.2160p',
+    resolvedAt: new Date('2026-01-01T00:00:00.000Z'),
+    size: 4419036486,
+    upstreamFileId: 501,
+    ...overrides,
+  }
+}
+
 /** The arguments the last `MediaDownloadService.request()` call received. */
 interface CapturedRequest {
   action: string
@@ -59,6 +85,7 @@ describe('ReleaseService', () => {
   let sonarrService: jest.Mocked<SonarrService>
   let mediaResolverService: jest.Mocked<MediaResolverService>
   let mediaDownloadService: jest.Mocked<MediaDownloadService>
+  let currentReleaseService: jest.Mocked<CurrentReleaseService>
   let captured: CapturedRequest | undefined
 
   beforeEach(async () => {
@@ -99,6 +126,13 @@ describe('ReleaseService', () => {
     mediaResolverService = {
       invalidate: jest.fn(),
     } as unknown as jest.Mocked<MediaResolverService>
+
+    // Defaults to "nothing resolved", which is what every pre-existing
+    // listing assertion in this file assumes: no row, no synthesized release.
+    currentReleaseService = {
+      forEpisodeFiles: jest.fn(async () => new Map()),
+      forMovie: jest.fn(async () => undefined),
+    } as unknown as jest.Mocked<CurrentReleaseService>
 
     captured = undefined
     // Mirrors the real `request()` contract rather than stubbing it out: it
@@ -141,6 +175,7 @@ describe('ReleaseService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReleaseService,
+        { provide: CurrentReleaseService, useValue: currentReleaseService },
         { provide: DbService, useValue: dbService },
         { provide: MediaDownloadService, useValue: mediaDownloadService },
         { provide: MediaResolverService, useValue: mediaResolverService },
@@ -443,6 +478,202 @@ describe('ReleaseService', () => {
       const [result] = await service.listReleases(MOVIE_ID)
 
       expect(result?.flaggedBad).toBe(false)
+    })
+  })
+
+  // The reason this exists: a release grabbed months ago will not come back
+  // in today's indexer search, so without synthesis the row the report
+  // control hangs off never renders.
+  describe('listReleases - current release synthesis', () => {
+    beforeEach(() => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasAdded: false,
+        wasMonitored: true,
+      })
+      sonarrService.ensureSeries.mockResolvedValue({
+        series: {},
+        sonarrId: 9,
+        turnedOnEpisodeIds: [],
+        wasAdded: false,
+        wasMonitored: true,
+      })
+    })
+
+    it('prepends the current release when the indexer did not return it', async () => {
+      currentReleaseService.forMovie.mockResolvedValue(currentRow())
+      radarrService.getReleases.mockResolvedValue([
+        release({ guid: 'indexer://other' }),
+      ])
+
+      const result = await service.listReleases(MOVIE_ID)
+
+      expect(currentReleaseService.forMovie).toHaveBeenCalledWith(MOVIE_ID, 7)
+      expect(result).toHaveLength(2)
+      expect(result[0]).toEqual({
+        // Deliberately *not* blocked: this row offers the report control,
+        // not a grab, and `ReleaseRow` derives its blocked styling from
+        // these two.
+        downloadAllowed: true,
+        flaggedBad: false,
+        guid: 'indexer://current',
+        indexer: 'NZBGeek',
+        indexerId: 11,
+        protocol: 'usenet',
+        publishDate: '2020-05-01T00:00:00.000Z',
+        rejected: false,
+        releaseGroup: 'GRP',
+        size: 4419036486,
+        title: 'Some.Movie.2020.2160p',
+      })
+      expect(result[1]?.guid).toBe('indexer://other')
+    })
+
+    it('leaves the list untouched when the indexer already returned the current release', async () => {
+      currentReleaseService.forMovie.mockResolvedValue(currentRow())
+      const found = release({ guid: 'indexer://current', indexerId: 3 })
+      radarrService.getReleases.mockResolvedValue([found])
+
+      const result = await service.listReleases(MOVIE_ID)
+
+      // Exactly once, and it is the indexer's row - not a synthesized copy
+      // stacked on top of it.
+      expect(result).toEqual([found])
+    })
+
+    it('marks a synthesized release that is flagged', async () => {
+      insertBadFile(dbService.db, {
+        flaggedByEmail: ALICE.email,
+        flaggedByUserId: ALICE.userId,
+        mediaId: MOVIE_ID,
+        mediaType: DownloadType.Movie,
+        releaseGuid: 'indexer://current',
+      })
+      currentReleaseService.forMovie.mockResolvedValue(currentRow())
+      radarrService.getReleases.mockResolvedValue([])
+
+      const result = await service.listReleases(MOVIE_ID)
+
+      expect(result).toHaveLength(1)
+      expect(result[0]?.flaggedBad).toBe(true)
+    })
+
+    it('falls back to the guid when the cached row has no title', async () => {
+      currentReleaseService.forMovie.mockResolvedValue(
+        currentRow({
+          indexer: null,
+          indexerId: null,
+          protocol: null,
+          publishDate: null,
+          releaseGroup: null,
+          releaseTitle: null,
+          size: null,
+        }),
+      )
+      radarrService.getReleases.mockResolvedValue([])
+
+      const [result] = await service.listReleases(MOVIE_ID)
+
+      expect(result).toEqual({
+        downloadAllowed: true,
+        flaggedBad: false,
+        guid: 'indexer://current',
+        indexer: undefined,
+        // `GrabReleaseInputSchema.nonnegative()` treats 0 as legal, and
+        // `ReleaseSchema.indexerId` is required - so an unresolvable indexer
+        // still has to supply one.
+        indexerId: 0,
+        protocol: undefined,
+        publishDate: undefined,
+        rejected: false,
+        releaseGroup: undefined,
+        size: undefined,
+        title: 'indexer://current',
+      })
+    })
+
+    it('synthesizes nothing for a movie with no file', async () => {
+      currentReleaseService.forMovie.mockResolvedValue(undefined)
+      radarrService.getReleases.mockResolvedValue([release()])
+
+      const result = await service.listReleases(MOVIE_ID)
+
+      expect(result).toEqual([release()])
+    })
+
+    it('still returns the indexer releases when resolution fails', async () => {
+      currentReleaseService.forMovie.mockRejectedValue(new Error('db gone'))
+      radarrService.getReleases.mockResolvedValue([release()])
+
+      const result = await service.listReleases(MOVIE_ID)
+
+      expect(result).toEqual([release()])
+    })
+
+    it('resolves an episode-scoped show listing through its episode file', async () => {
+      sonarrService.getReleases.mockResolvedValue([])
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 0, id: 4411 },
+        { episodeFileId: 77, id: 4412 },
+      ])
+      currentReleaseService.forEpisodeFiles.mockResolvedValue(
+        new Map([
+          [
+            77,
+            currentRow({
+              episodeId: 4412,
+              mediaId: SHOW_ID,
+              mediaType: DownloadType.Show,
+              releaseGuid: 'indexer://ep',
+              releaseTitle: 'The.Wire.S03E05.1080p',
+              upstreamFileId: 77,
+            }),
+          ],
+        ]),
+      )
+
+      const result = await service.listReleases(SHOW_ID, {
+        episodeId: 4412,
+        seasonNumber: 3,
+      })
+
+      expect(sonarrService.getEpisodes).toHaveBeenCalledWith(9, {
+        seasonNumber: 3,
+      })
+      expect(currentReleaseService.forEpisodeFiles).toHaveBeenCalledWith(
+        SHOW_ID,
+        9,
+        [77],
+      )
+      expect(result.map(r => r.guid)).toEqual(['indexer://ep'])
+      expect(result[0]?.title).toBe('The.Wire.S03E05.1080p')
+    })
+
+    // `episodeFileId: 0` is Sonarr's "no file".
+    it('synthesizes nothing for an episode with no file', async () => {
+      sonarrService.getReleases.mockResolvedValue([release()])
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 0, id: 4412 },
+      ])
+
+      const result = await service.listReleases(SHOW_ID, { episodeId: 4412 })
+
+      expect(currentReleaseService.forEpisodeFiles).not.toHaveBeenCalled()
+      expect(result).toEqual([release()])
+    })
+
+    // A season or series scope names many files, so there is no single
+    // current release to pin to the top.
+    it('synthesizes nothing for a season-scoped listing', async () => {
+      sonarrService.getReleases.mockResolvedValue([release()])
+
+      const result = await service.listReleases(SHOW_ID, { seasonNumber: 3 })
+
+      expect(sonarrService.getEpisodes).not.toHaveBeenCalled()
+      expect(currentReleaseService.forEpisodeFiles).not.toHaveBeenCalled()
+      expect(currentReleaseService.forMovie).not.toHaveBeenCalled()
+      expect(result).toEqual([release()])
     })
   })
 

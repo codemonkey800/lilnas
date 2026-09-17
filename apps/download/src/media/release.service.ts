@@ -1,3 +1,4 @@
+import { ReleaseProtocolSchema } from '@lilnas/utils/download/schema'
 import {
   type BadFile,
   type DownloadJob,
@@ -6,6 +7,7 @@ import {
   type GrabReleaseInput,
   type JobRequester,
   type Release,
+  type ReleaseProtocol,
   type ReplaceReleaseInput,
   type ShowScope,
 } from '@lilnas/utils/download/types'
@@ -26,8 +28,9 @@ import {
 } from 'src/db/bad-files.repo'
 import { DbService } from 'src/db/db.service'
 import { mediaIdSuffix } from 'src/db/media-id'
-import type { BadFileRow } from 'src/db/schema'
+import type { BadFileRow, MediaFileReleaseRow } from 'src/db/schema'
 
+import { CurrentReleaseService } from './current-release.service'
 import { resolveEpisodeFileIds } from './episode-files.util'
 import { MediaDownloadService } from './media-download.service'
 import { MediaResolverService } from './media-resolver.service'
@@ -124,6 +127,54 @@ function toBadFile(row: BadFileRow): BadFile {
 }
 
 /**
+ * The cached `protocol` string narrowed back to the shared enum. The column
+ * is plain `text` - it stores whatever `historyProtocol()` classified - so a
+ * value written by an older build (or by hand) reads as "no protocol" rather
+ * than leaking a string the wire schema would reject.
+ */
+function toReleaseProtocol(value: string | null): ReleaseProtocol | undefined {
+  const parsed = ReleaseProtocolSchema.safeParse(value)
+
+  return parsed.success ? parsed.data : undefined
+}
+
+/**
+ * The release currently on disk, rendered as a search result.
+ *
+ * Hand-built rather than run through `toCommonRelease`: this comes out of
+ * `media_file_releases`, not an indexer search, so there is no
+ * `CommonReleaseResource` to map. It still follows that mapper's conventions
+ * - nulls collapse to `undefined`, an unresolvable indexer id falls back to
+ * `0`, and the guid stands in for a missing title.
+ *
+ * `downloadAllowed: true` / `rejected: false` are deliberate and must stay
+ * that way. `ReleaseRow` derives its blocked styling from those two, and this
+ * row does not offer a grab at all - it offers the *report* control - so
+ * marking it blocked would make a perfectly good row look broken. If the guid
+ * really is flagged, `annotateFlagged` sets `flaggedBad` and the row blocks
+ * for the right reason.
+ *
+ * No `quality`: history records no `QualityModel`, and `ReleaseRow` already
+ * falls back to the title when quality and size are both absent.
+ */
+function toCurrentRelease(row: MediaFileReleaseRow): Release {
+  return {
+    downloadAllowed: true,
+    // Filled in by `annotateFlagged`, exactly like every indexer result.
+    flaggedBad: false,
+    guid: row.releaseGuid,
+    indexer: row.indexer ?? undefined,
+    indexerId: row.indexerId ?? 0,
+    protocol: toReleaseProtocol(row.protocol),
+    publishDate: row.publishDate?.toISOString(),
+    rejected: false,
+    releaseGroup: row.releaseGroup ?? undefined,
+    size: row.size ?? undefined,
+    title: row.releaseTitle ?? row.releaseGuid,
+  }
+}
+
+/**
  * Everything that puts a *specific* release in the user's hands: listing what
  * the indexers have, grabbing one, replacing what's already downloaded, and
  * flagging one as bad.
@@ -141,6 +192,7 @@ export class ReleaseService {
   private readonly logger = new Logger(ReleaseService.name)
 
   constructor(
+    private readonly currentReleaseService: CurrentReleaseService,
     private readonly dbService: DbService,
     private readonly mediaDownloadService: MediaDownloadService,
     private readonly mediaResolverService: MediaResolverService,
@@ -149,8 +201,9 @@ export class ReleaseService {
   ) {}
 
   /**
-   * Every release the indexers have for a title, annotated with this app's
-   * own `flaggedBad`.
+   * Every release the indexers have for a title, with the release currently
+   * on disk guaranteed to be among them, all annotated with this app's own
+   * `flaggedBad`.
    *
    * Deliberately does **not** ask `MediaResolverService` for a
    * `radarrId`/`sonarrId`: the resolver only has one for titles already in
@@ -167,13 +220,122 @@ export class ReleaseService {
     const releases = await this.withMonitoring(
       target,
       { ...scope, restore: true },
-      upstreamId =>
-        target.type === DownloadType.Movie
-          ? this.radarrService.getReleases(upstreamId)
-          : this.sonarrService.getReleases(upstreamId, scope),
+      async upstreamId => {
+        const found =
+          target.type === DownloadType.Movie
+            ? await this.radarrService.getReleases(upstreamId)
+            : await this.sonarrService.getReleases(upstreamId, scope)
+
+        // Inside the borrow, where the upstream id is already resolved, and
+        // before `annotateFlagged` so a synthesized row picks its
+        // `flaggedBad` up for free.
+        return this.withCurrentRelease(
+          mediaId,
+          target,
+          upstreamId,
+          scope,
+          found,
+        )
+      },
     )
 
     return this.annotateFlagged(mediaId, releases)
+  }
+
+  /**
+   * Guarantees the release the file on disk came from is in the list.
+   *
+   * This listing is a fresh ~30-second indexer search, and a release grabbed
+   * months ago usually is not in today's search results - so without this the
+   * current release simply has no row, and the report-this-file control that
+   * hangs off that row is unreachable for exactly the files most likely to
+   * need it. When the search *did* return it, nothing changes: the row is
+   * already there and duplicating it would be worse than useless.
+   *
+   * Prepended, not appended - it is the row the user came for.
+   */
+  private async withCurrentRelease(
+    mediaId: string,
+    target: ReleaseTarget,
+    upstreamId: number,
+    scope: ReleaseScope,
+    releases: Release[],
+  ): Promise<Release[]> {
+    const row = await this.resolveCurrentRelease(
+      mediaId,
+      target,
+      upstreamId,
+      scope,
+    )
+
+    if (!row || releases.some(release => release.guid === row.releaseGuid)) {
+      return releases
+    }
+
+    return [toCurrentRelease(row), ...releases]
+  }
+
+  /**
+   * The `media_file_releases` row behind whatever this listing is scoped to,
+   * or `undefined` when there is no single such file.
+   *
+   * A season- or series-scoped show listing is that `undefined` case by
+   * definition: the scope names many files, so there is no one "current
+   * release" to pin to the top. Only an episode scope narrows to a single
+   * file.
+   *
+   * `CurrentReleaseService` already swallows its own upstream failures, so
+   * this catch covers the episode-file lookup - and either way a failure to
+   * resolve is never fatal to the listing. The releases the indexer *did*
+   * return are still the answer.
+   */
+  private async resolveCurrentRelease(
+    mediaId: string,
+    target: ReleaseTarget,
+    upstreamId: number,
+    scope: ReleaseScope,
+  ): Promise<MediaFileReleaseRow | undefined> {
+    try {
+      if (target.type === DownloadType.Movie) {
+        return await this.currentReleaseService.forMovie(mediaId, upstreamId)
+      }
+
+      if (scope.episodeId == null) {
+        return undefined
+      }
+
+      // The same episode -> file resolution the replace path does, sharing
+      // its handling of `episodeFileId: 0` ("no file", so an empty result).
+      const [fileId] = await resolveEpisodeFileIds(
+        this.sonarrService,
+        upstreamId,
+        scope,
+      )
+
+      if (fileId === undefined) {
+        return undefined
+      }
+
+      const rows = await this.currentReleaseService.forEpisodeFiles(
+        mediaId,
+        upstreamId,
+        [fileId],
+      )
+
+      return rows.get(fileId)
+    } catch (err) {
+      this.logger.warn(
+        {
+          action: 'listReleases',
+          error: getErrorMessage(err),
+          mediaId,
+          scope,
+        },
+        'Current release lookup failed - listing only what the indexers returned',
+      )
+
+      return undefined
+    }
   }
 
   /**
