@@ -1,12 +1,25 @@
 import { render, screen } from '@testing-library/react'
 
-import { APP_NAME, AppBar, LILNAS_HREF } from 'src/components/shell/app-bar'
+import {
+  ADMIN_HREF,
+  ADMIN_LINK_LABEL,
+  APP_NAME,
+  AppBar,
+  LILNAS_HREF,
+} from 'src/components/shell/app-bar'
 import type { Viewer } from 'src/lib/viewer'
 
 const VIEWER: Viewer = {
   email: 'jeremy@lilnas.io',
   isAdmin: true,
   userId: 'u_1',
+}
+
+/** The same person without the privilege — the bar's other identity branch. */
+const REGULAR_VIEWER: Viewer = {
+  email: 'sam@lilnas.io',
+  isAdmin: false,
+  userId: 'u_2',
 }
 
 function bar(): HTMLElement {
@@ -75,13 +88,47 @@ describe('AppBar', () => {
     expect(classes).toContain('sm:pl-[14px]')
   })
 
-  it('orders the row doorplate, nav search, account link', () => {
+  it('offers the admin dashboard to an admin', () => {
+    render(<AppBar viewer={VIEWER} />)
+    const link = screen.getByRole('link', { name: ADMIN_LINK_LABEL })
+
+    expect(link).toHaveAttribute('href', ADMIN_HREF)
+  })
+
+  it('offers a regular user no admin entry at all, not a disabled one', () => {
+    render(<AppBar viewer={REGULAR_VIEWER} />)
+
+    // Neither by name nor by destination: a greyed-out or `aria-disabled`
+    // entry would still tell a regular user that a dashboard exists and that
+    // they are being kept out of it, which is a question the bar should not
+    // raise. The route answers it with `NotAuthorized` if they type the URL.
+    expect(
+      screen.queryByRole('link', { name: ADMIN_LINK_LABEL }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getAllByRole('link').map(link => link.getAttribute('href')),
+    ).not.toContain(ADMIN_HREF)
+    // The rest of the bar is untouched.
+    expect(
+      screen.getByRole('link', { name: 'Your account' }),
+    ).toBeInTheDocument()
+  })
+
+  it('offers no admin entry when there is no viewer to be an admin', () => {
+    render(<AppBar viewer={null} />)
+
+    expect(
+      screen.queryByRole('link', { name: ADMIN_LINK_LABEL }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('orders the row doorplate, nav search, admin, account link', () => {
     render(<AppBar navSearch={<input aria-label="Search" />} viewer={VIEWER} />)
     const links = screen.getAllByRole('link')
 
     expect(
       links.map(link => link.getAttribute('aria-label') ?? link.textContent),
-    ).toEqual([APP_NAME, 'Your account'])
+    ).toEqual([APP_NAME, ADMIN_LINK_LABEL, 'Your account'])
     expect(
       bar()
         .querySelector('input')

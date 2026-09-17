@@ -68,6 +68,36 @@ const BACK_SLOT_CLASSES = cns(
   'sm:mr-[14px]',
 )
 
+/** Where the admin dashboard lives. */
+export const ADMIN_HREF = '/admin'
+
+/**
+ * The admin entry's accessible name, and its visible text at both widths —
+ * `admin-dashboard.pug` puts an `admin` chip here on desktop *and* on mobile,
+ * so the label does not change with the viewport.
+ */
+export const ADMIN_LINK_LABEL = 'admin'
+
+/**
+ * The admin entry. A `uv`-tinted chip on a real `<a>`, matching the
+ * `+chip({ label: 'admin', tone: 'uv' })` both of `admin-dashboard.pug`'s
+ * frames draw in this exact slot — the accent is the mockup's, and it reads as
+ * "you have a privilege" rather than as a status the machine is reporting.
+ *
+ * Written out here rather than composed from `Chip`: `Chip` is `'use client'`,
+ * and its `interactive` variant is a `<button>` — a chip that navigates is
+ * neither of those. The recipe is `Chip`'s `CHIP_BASE` plus its `uv` tone plus
+ * a hover, which is the same shape `ButtonLink` has to `Button`.
+ */
+const ADMIN_LINK_CLASSES = cns(
+  'inline-flex h-[23px] shrink-0 items-center gap-1.5 rounded-full border px-2.5',
+  'font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap',
+  'border-uv/30 bg-uv-ghost text-uv-hi',
+  'transition-[border-color,background-color,color] duration-200 ease-uv',
+  'hover:border-uv/55 hover:text-ink',
+  'mr-2.5 sm:mr-[14px]',
+)
+
 export type AppBarProps = Omit<
   ComponentPropsWithoutRef<'header'>,
   'children'
@@ -129,6 +159,20 @@ export function AppBar({
         name={APP_NAME}
       />
       <div className={NAV_SEARCH_SLOT_CLASSES}>{navSearch}</div>
+      {/*
+        ⚠️ Gated on `isAdmin`, and rendered as *nothing at all* for everybody
+        else — not as a disabled or greyed entry. A control a user can see and
+        cannot use is an invitation to ask why, and `/admin` answers that
+        question with its own `NotAuthorized` panel anyway; a bar that offers
+        the link is a bar that says the answer will be yes. `AppBarProps` is
+        unchanged: `Viewer` already carries `isAdmin`, so the shell needed no
+        new contract to know this.
+      */}
+      {viewer?.isAdmin ? (
+        <a className={ADMIN_LINK_CLASSES} href={ADMIN_HREF}>
+          {ADMIN_LINK_LABEL}
+        </a>
+      ) : null}
       {viewer ? <AccountLink email={viewer.email} /> : null}
     </header>
   )
