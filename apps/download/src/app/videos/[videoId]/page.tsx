@@ -6,6 +6,7 @@ import type { JSX } from 'react'
 
 import {
   cancelVideoJob,
+  deleteVideoJob,
   pauseVideoJob,
   resumeVideoJob,
   retryVideoJob,
@@ -150,6 +151,7 @@ export default async function VideoDetailPage({
           media={media}
           now={getRequestInstant()}
           onCancel={cancelVideoJob}
+          onDelete={deleteVideoJob}
           onPause={pauseVideoJob}
           onResume={resumeVideoJob}
           onRetry={retryVideoJob}

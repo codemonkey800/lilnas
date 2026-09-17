@@ -3,7 +3,10 @@ import '@testing-library/jest-dom'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import type { DeleteScope } from 'src/components/detail/delete-confirm'
+import type {
+  DeleteScope,
+  MediaFilesScope,
+} from 'src/components/detail/delete-confirm'
 import {
   DeleteConfirm,
   deleteConfirmCopy,
@@ -12,44 +15,94 @@ import {
 
 const MOVIE_ID = 'tmdb:438631'
 const SHOW_ID = 'tvdb:121361'
+const VIDEO_ID = 'video:V1StGXR8_Z5'
+const VIDEO_JOB_ID = 'job_7'
 const MOVIE_TITLE = 'Salt & Ceremony'
 const SHOW_TITLE = 'Harbor Watch'
+const VIDEO_TITLE = 'Sourdough starter, day one to seven'
 
-const MOVIE: DeleteScope = { kind: 'movie' }
-const SERIES: DeleteScope = { kind: 'series' }
-const SEASON: DeleteScope = { kind: 'season', seasonNumber: 2 }
-const EPISODE: DeleteScope = {
+// ⚠️ Typed `MediaFilesScope`, not `DeleteScope`. These four are the ones
+// `deleteScopeQuery` accepts, and saying so here is what lets the tests below
+// call it directly — a `DeleteScope`-typed constant no longer would.
+const MOVIE: MediaFilesScope = { kind: 'movie' }
+const SERIES: MediaFilesScope = { kind: 'series' }
+const SEASON: MediaFilesScope = { kind: 'season', seasonNumber: 2 }
+const EPISODE: MediaFilesScope = {
   episodeId: 4823,
   episodeNumber: 5,
   kind: 'episode',
   seasonNumber: 2,
 }
 
+/** The fifth scope, which deletes a job rather than a file. */
+const VIDEO: DeleteScope = { jobId: VIDEO_JOB_ID, kind: 'video' }
+
+const EVERY_SCOPE: readonly DeleteScope[] = [
+  MOVIE,
+  SERIES,
+  SEASON,
+  EPISODE,
+  VIDEO,
+]
+
+/** The page each scope belongs to, so no test has to restate the pairing. */
+function mediaIdFor(scope: DeleteScope): string {
+  switch (scope.kind) {
+    case 'movie':
+      return MOVIE_ID
+    case 'video':
+      return VIDEO_ID
+    default:
+      return SHOW_ID
+  }
+}
+
+function titleFor(scope: DeleteScope): string {
+  switch (scope.kind) {
+    case 'movie':
+      return MOVIE_TITLE
+    case 'video':
+      return VIDEO_TITLE
+    default:
+      return SHOW_TITLE
+  }
+}
+
 function confirmButton(): HTMLElement {
   return screen.getByRole('button', { name: 'Delete', hidden: false })
 }
 
-/** Opens the dialog for a scope and hands back the spy the confirm will call. */
+/**
+ * Opens the dialog for a scope and hands back both spies.
+ *
+ * Both are always wired, so which one a scope reaches for is the component's
+ * decision rather than this render's — the same reason `renderPanel` in
+ * `job-lifecycle.spec.tsx` wires every lifecycle control at once.
+ */
 async function open(
   scope: DeleteScope,
   extra: Partial<React.ComponentProps<typeof DeleteConfirm>> = {},
 ) {
   const user = userEvent.setup()
   const onDelete = jest.fn().mockResolvedValue({ deletedCount: 1 })
+  const onDeleteVideo = jest
+    .fn()
+    .mockResolvedValue({ job: { id: VIDEO_JOB_ID } })
 
   render(
     <DeleteConfirm
-      mediaId={scope.kind === 'movie' ? MOVIE_ID : SHOW_ID}
+      mediaId={mediaIdFor(scope)}
       scope={scope}
-      title={scope.kind === 'movie' ? MOVIE_TITLE : SHOW_TITLE}
+      title={titleFor(scope)}
       onDelete={onDelete}
+      onDeleteVideo={onDeleteVideo}
       {...extra}
     />,
   )
 
   await user.click(screen.getAllByRole('button')[0] as HTMLElement)
 
-  return { onDelete, user }
+  return { onDelete, onDeleteVideo, user }
 }
 
 describe('deleteScopeQuery', () => {
@@ -77,6 +130,20 @@ describe('deleteScopeQuery', () => {
   it('never carries a key it was not given', () => {
     expect(Object.keys(deleteScopeQuery(SEASON))).toEqual(['seasonNumber'])
     expect(Object.keys(deleteScopeQuery(EPISODE))).toEqual(['episodeId'])
+  })
+
+  /**
+   * ⚠️ Asserted at the type level because there is no honest runtime answer.
+   * `DELETE /download/media/:id/files` refuses a `video:` key outright, and the
+   * value this would otherwise return — the empty query — is the *widest*
+   * request there is. Widening the parameter back to `DeleteScope` turns the
+   * `@ts-expect-error` into an unused directive, which is itself a build error.
+   */
+  it('rejects a video scope at the type level', () => {
+    // @ts-expect-error - a video is deleted by job id, never by a files query.
+    const invalid = () => deleteScopeQuery(VIDEO)
+
+    expect(invalid).toBeTruthy()
   })
 })
 
@@ -122,8 +189,29 @@ describe('deleteConfirmCopy — the dialog names its scope', () => {
     ).toBe('Delete this episode of "Harbor Watch"?')
   })
 
+  it('a video says it is the download, and that the link survives', () => {
+    const copy = deleteConfirmCopy(VIDEO, { title: VIDEO_TITLE })
+
+    expect(copy.title).toBe(`Delete "${VIDEO_TITLE}"?`)
+    expect(copy.description).toContain("this video's downloaded file")
+    expect(copy.description).toContain('The source link stays on this page')
+  })
+
+  /**
+   * ⚠️ The one thing the `video` scope must not inherit. `deleteVideoJob`
+   * removes objects a yt-dlp download produced; nothing of a video was ever in
+   * `/storage/media-library` and no arr ever knew about it, so the movie and
+   * series sentences would both be claims about a file that does not exist.
+   */
+  it('never tells a video it is leaving a library it was never in', () => {
+    const { description } = deleteConfirmCopy(VIDEO, { title: VIDEO_TITLE })
+
+    expect(description).not.toMatch(/library/i)
+    expect(description).not.toMatch(/radarr|sonarr|emby/i)
+  })
+
   it('every scope says it cannot be undone', () => {
-    for (const scope of [MOVIE, SERIES, SEASON, EPISODE]) {
+    for (const scope of EVERY_SCOPE) {
       expect(deleteConfirmCopy(scope, { title: 'X' }).description).toContain(
         "This can't be undone",
       )
@@ -131,11 +219,11 @@ describe('deleteConfirmCopy — the dialog names its scope', () => {
   })
 
   it('no two scopes read the same', () => {
-    const sentences = [MOVIE, SERIES, SEASON, EPISODE].map(scope =>
+    const sentences = EVERY_SCOPE.map(scope =>
       JSON.stringify(deleteConfirmCopy(scope, { title: 'X' })),
     )
 
-    expect(new Set(sentences).size).toBe(4)
+    expect(new Set(sentences).size).toBe(EVERY_SCOPE.length)
   })
 
   it('names the space it frees when the page knows it', () => {
@@ -154,6 +242,8 @@ describe('DeleteConfirm — the trigger', () => {
     ['series', 'Delete series', SERIES],
     ['season', 'Delete season', SEASON],
     ['episode', 'Delete episode', EPISODE],
+    // `video-detail.pug:159` — the bare word, beside `Save to device`.
+    ['video', 'Delete', VIDEO],
   ])('labels a %s trigger %p', (_name, label, scope) => {
     render(
       <DeleteConfirm
@@ -239,11 +329,98 @@ describe('DeleteConfirm — confirming', () => {
   )
 
   it('deletes a movie against the movie key', async () => {
-    const { onDelete, user } = await open(MOVIE)
+    const { onDelete, onDeleteVideo, user } = await open(MOVIE)
 
     await user.click(confirmButton())
 
     expect(onDelete).toHaveBeenCalledWith(MOVIE_ID, {})
+    expect(onDeleteVideo).not.toHaveBeenCalled()
+  })
+
+  /**
+   * ⚠️ The job id, alone, and through the *other* action. A video's delete is
+   * `DELETE /download/videos/:jobId`; the files route this dialog's other four
+   * scopes use refuses a `video:` key, so sending `mediaId` there would be a
+   * request the backend is right to reject.
+   */
+  it('deletes a video by job id, never by the media key', async () => {
+    const { onDelete, onDeleteVideo, user } = await open(VIDEO)
+
+    await user.click(confirmButton())
+
+    expect(onDeleteVideo).toHaveBeenCalledTimes(1)
+    expect(onDeleteVideo).toHaveBeenCalledWith(VIDEO_JOB_ID)
+    expect(onDelete).not.toHaveBeenCalled()
+  })
+
+  it('reports no count for a video, which deletes a job rather than files', async () => {
+    const user = userEvent.setup()
+    const onDeleted = jest.fn()
+
+    render(
+      <DeleteConfirm
+        mediaId={VIDEO_ID}
+        scope={VIDEO}
+        title={VIDEO_TITLE}
+        onDeleted={onDeleted}
+        onDeleteVideo={jest
+          .fn()
+          .mockResolvedValue({ job: { id: VIDEO_JOB_ID } })}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await user.click(confirmButton())
+
+    // `DeleteVideoJobResult` carries a job, not a file count — and `null` says
+    // "nothing to report" rather than inventing a zero.
+    expect(onDeleted).toHaveBeenCalledWith(null)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('keeps a failed video delete on screen, the same as a failed file one', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <DeleteConfirm
+        mediaId={VIDEO_ID}
+        scope={VIDEO}
+        title={VIDEO_TITLE}
+        onDeleteVideo={jest.fn().mockResolvedValue({
+          error: 'Could not delete that video — try again',
+        })}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await user.click(confirmButton())
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not delete that video — try again',
+    )
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('does nothing for a video scope the page wired no video action for', async () => {
+    const user = userEvent.setup()
+    const onDelete = jest.fn()
+
+    render(
+      <DeleteConfirm
+        mediaId={VIDEO_ID}
+        scope={VIDEO}
+        title={VIDEO_TITLE}
+        onDelete={onDelete}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await user.click(confirmButton())
+
+    // The file action is never the fallback: it is a different endpoint that
+    // would delete something else entirely, or nothing at all.
+    expect(onDelete).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
   it('closes and reports the count it was given', async () => {

@@ -421,6 +421,124 @@ describe('VideoDetail', () => {
         screen.queryByRole('link', { name: 'Watch' }),
       ).not.toBeInTheDocument()
     })
+
+    describe('Delete', () => {
+      it('sits in the action row beside Save to device', () => {
+        renderDetail({
+          jobs: completed,
+          media: withFile,
+          onDelete: jest.fn(),
+        })
+
+        // `video-detail.pug:158-159` — the two controls, in that order, in one
+        // row. The row is `JobLifecycle`'s own `ActionRow` and Delete reaches
+        // it through `extraActions`, which is why `Save to device`'s parent is
+        // the right element to look inside rather than the whole page.
+        const row = screen.getByRole('link', {
+          name: 'Save to device',
+        }).parentElement
+
+        expect(row).not.toBeNull()
+        expect(
+          Array.from(row?.querySelectorAll('button, a') ?? []).map(
+            element => element.textContent,
+          ),
+        ).toEqual(['Save to device', 'Delete'])
+      })
+
+      it('raises no dialog until it is pressed', () => {
+        renderDetail({ jobs: completed, media: withFile, onDelete: jest.fn() })
+
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      })
+
+      it('names the video and says the link survives', async () => {
+        renderDetail({ jobs: completed, media: withFile, onDelete: jest.fn() })
+
+        await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+        const dialog = screen.getByRole('dialog')
+
+        expect(dialog).toHaveAccessibleName(`Delete "${withFile.title}"?`)
+        // ⚠️ The copy is the `video` scope's own. A video's file was never in
+        // the media library and no arr ever knew about it, so the movie
+        // sentence would be a claim about something that never happened.
+        expect(dialog).toHaveAccessibleDescription(
+          expect.stringContaining("this video's downloaded file"),
+        )
+        expect(dialog).toHaveAccessibleDescription(
+          expect.not.stringMatching(/library|radarr/i),
+        )
+      })
+
+      // ⚠️ The job id, not `video:V1StGXR8_Z5` — `deleteVideoJob` is
+      // `DELETE /download/videos/:jobId`, exactly like the four lifecycle
+      // actions beside it.
+      it('deletes the job it is rendering, never the video key', async () => {
+        const onDelete = jest.fn().mockResolvedValue({ job: { id: 'job_42' } })
+        renderDetail({
+          jobs: [
+            job({
+              id: 'job_42',
+              status: DownloadJobStatus.Completed,
+            }),
+          ],
+          media: withFile,
+          onDelete,
+        })
+
+        await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+        await userEvent.click(
+          screen.getByRole('button', { name: 'Delete', hidden: false }),
+        )
+
+        expect(onDelete).toHaveBeenCalledWith('job_42')
+      })
+
+      // The same guard `Save to device` gets, and for the same reason: a
+      // completed job whose objects are already gone has nothing to delete,
+      // and offering to remove nothing is the same lie as a link that 404s.
+      it('is withheld once there is no file left to delete', () => {
+        renderDetail({
+          jobs: completed,
+          media: video({ downloadUrls: [] }),
+          onDelete: jest.fn(),
+        })
+
+        expect(
+          screen.queryByRole('button', { name: 'Delete' }),
+        ).not.toBeInTheDocument()
+      })
+
+      // Cancel is the control that means "stop this", and it is in the same
+      // row saying so. Two buttons for one verb is how the wrong one gets
+      // pressed.
+      it('is not offered while the download is still running', () => {
+        renderDetail({
+          media: withFile,
+          onCancel: jest.fn(),
+          onDelete: jest.fn(),
+        })
+
+        expect(
+          screen.getByRole('button', { name: 'Cancel' }),
+        ).toBeInTheDocument()
+        expect(
+          screen.queryByRole('button', { name: 'Delete' }),
+        ).not.toBeInTheDocument()
+      })
+
+      it('is not offered when the page wired no delete action', () => {
+        renderDetail({ jobs: completed, media: withFile })
+
+        expect(
+          screen.getByRole('link', { name: 'Save to device' }),
+        ).toBeInTheDocument()
+        expect(
+          screen.queryByRole('button', { name: 'Delete' }),
+        ).not.toBeInTheDocument()
+      })
+    })
   })
 
   it('shows no player while the video is still downloading', () => {

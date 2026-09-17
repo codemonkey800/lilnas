@@ -3,6 +3,11 @@ import type { DownloadJob, Video } from '@lilnas/utils/download/types'
 import { DownloadJobStatus } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
 
+import type {
+  DeleteScope,
+  DeleteVideoJobAction,
+} from 'src/components/detail/delete-confirm'
+import { DeleteConfirm } from 'src/components/detail/delete-confirm'
 import {
   DetailAttribution,
   DetailHeader,
@@ -10,7 +15,6 @@ import {
 import type {
   JobAction,
   JobLifecycleLink,
-  JobLifecycleProps,
 } from 'src/components/detail/job-lifecycle'
 import { JobHistory, JobLifecycle } from 'src/components/detail/job-lifecycle'
 import { latestJob } from 'src/components/detail/job-state'
@@ -89,6 +93,17 @@ export const VIDEO_STALE_LABEL = 'reconnecting…'
 
 /** The loud `Note`, assembled at the call site the way `ui.pug` does it. */
 const UNRECOGNIZED_NOTE = 'border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
+
+/**
+ * Full-width on a phone, intrinsic from `sm` — the same shape `JobLifecycle`
+ * gives every control in the row this sits in, because it *is* in that row.
+ *
+ * ⚠️ On `DeleteConfirm` this pairs with its `full`, exactly as
+ * `MovieDetail` does it: the component renders a `<div>` root, so `full` is
+ * the only way to stretch the trigger inside it, and `full`'s unconditional
+ * `w-full` then has to be narrowed back on the root from `sm`.
+ */
+const DELETE_BUTTON = 'w-full sm:w-auto'
 
 /**
  * yt-dlp's own phrasing for "no extractor claims this URL", matched
@@ -257,6 +272,15 @@ export type VideoDetailProps = Omit<
   /** The instant every relative stamp is measured against, pinned by the page. */
   now: number
   onCancel?: JobAction
+  /**
+   * `deleteVideoJob` — the completed frame's destructive control.
+   *
+   * ⚠️ Not a `JobAction`, even though it too takes a job id: it answers with a
+   * `DeleteVideoJobResult` so the dialog can keep itself open and say what went
+   * wrong, where the four lifecycle actions can only log and return. See
+   * `video-job.ts`.
+   */
+  onDelete?: DeleteVideoJobAction
   onPause?: JobAction
   onResume?: JobAction
   onRetry?: JobAction
@@ -315,6 +339,7 @@ export function VideoDetail({
   media,
   now,
   onCancel,
+  onDelete,
   onPause,
   onResume,
   onRetry,
@@ -349,17 +374,6 @@ export function VideoDetail({
     ? { href: mediaFileHref(media.id, {}) }
     : undefined
 
-  // ⚠️ `JobLifecycleProps` intersects `ComponentPropsWithoutRef<'div'>`
-  // without removing the two DOM event names it reuses, so its `onCancel` and
-  // `onPause` are typed `ReactEventHandler<HTMLDivElement> & JobAction` and no
-  // plain `(jobId: string) => Promise<void>` is assignable to either. Asserted
-  // here, at the one call site, rather than reopening `job-lifecycle.tsx`:
-  // that component is shipped and two sibling detail pages are rendering it
-  // concurrently. The fix that belongs there is the same `Omit` this file
-  // makes on `VideoDetailProps`; reported rather than made.
-  //
-  // Sound at runtime regardless — `JobLifecycle` only ever calls these with a
-  // job id, which is what these functions take.
   const handlers = {
     onCancel,
     onPause,
@@ -367,7 +381,31 @@ export function VideoDetail({
     // Withheld for a link yt-dlp refused: the same URL fails the same way, so
     // `JobLifecycle` renders no Retry at all rather than one that cannot work.
     onRetry: unrecognized ? undefined : onRetry,
-  } as Pick<JobLifecycleProps, 'onCancel' | 'onPause' | 'onResume' | 'onRetry'>
+  }
+
+  // ⚠️ Offered on exactly the frame `video-detail.pug:159` draws it on: a
+  // completed job with a file still behind it. Three conditions, none of which
+  // implies another.
+  //
+  // - **Completed**, because a delete on a running job would cancel it, and
+  //   the control that means "stop this" is Cancel, sitting in the same row
+  //   saying so. Two buttons for one verb is how a user presses the wrong one.
+  // - **With a file**, the same `save !== undefined` test that decides whether
+  //   `Save to device` is drawn — `canSaveLocal` reading `downloadUrls`. A
+  //   completed job whose objects were already deleted has nothing left to
+  //   delete, and an offer to remove nothing is a lie the same size as a link
+  //   that 404s.
+  // - **Wired**, matching `JobLifecycle` in the row this sits in: it renders
+  //   nothing for an action the page did not supply, rather than a control
+  //   whose dialog would confirm a request nobody is listening for.
+  //
+  // The scope carries the **job** id: `deleteVideoJob` is
+  // `DELETE /download/videos/:jobId`, and `media.id` is a `video:` key the
+  // media-files route refuses outright.
+  const deleteScope: DeleteScope | null =
+    job !== null && complete && save !== undefined && onDelete !== undefined
+      ? { jobId: job.id, kind: 'video' }
+      : null
 
   return (
     <div {...props} className={className}>
@@ -388,6 +426,22 @@ export function VideoDetail({
               {...handlers}
               emptyNote={VIDEO_EMPTY_NOTE}
               explain={unrecognized ? VIDEO_UNRECOGNIZED_EXPLAIN : undefined}
+              // `extraActions` rather than a sibling of the panel: the mockup
+              // puts Delete in the same row as `Save to device`, and that row
+              // is `JobLifecycle`'s own `ActionRow`, which is the only thing
+              // that knows how it stacks at each width.
+              extraActions={
+                deleteScope ? (
+                  <DeleteConfirm
+                    className={cns(DELETE_BUTTON)}
+                    full
+                    mediaId={media.id}
+                    onDeleteVideo={onDelete}
+                    scope={deleteScope}
+                    title={media.title}
+                  />
+                ) : null
+              }
               jobs={jobs}
               save={save}
             />

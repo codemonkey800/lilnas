@@ -26,6 +26,7 @@ jest.mock('src/lib/download-client', () => ({
 // scope. What they *do* is covered in `actions/__tests__/video-job.spec.ts`.
 jest.mock('src/app/actions/video-job', () => ({
   cancelVideoJob: jest.fn(),
+  deleteVideoJob: jest.fn(),
   pauseVideoJob: jest.fn(),
   resumeVideoJob: jest.fn(),
   retryVideoJob: jest.fn(),
@@ -195,6 +196,34 @@ describe('VideoDetailPage', () => {
     await renderPage()
 
     expect(screen.getByText('downloading')).toBeInTheDocument()
+  })
+
+  /**
+   * ⚠️ The page's *wiring*, not the dialog's behaviour — `delete-confirm.spec`
+   * owns that. `VideoDetail` withholds this control entirely when no delete
+   * action was handed over, so the trigger being on screen is exactly the
+   * assertion that `deleteVideoJob` reached it.
+   */
+  it('offers Delete once the download has a file behind it', async () => {
+    getMedia.mockResolvedValue({
+      jobs: [
+        {
+          ...JOB,
+          completedAt: '2026-09-15T11:59:00.000Z',
+          status: DownloadJobStatus.Completed,
+        },
+      ],
+      media: {
+        ...VIDEO,
+        downloadUrls: [
+          'https://storage.lilnas.io/videos/V1StGXR8_Z5/part-0.mp4',
+        ],
+      },
+    })
+
+    await renderPage()
+
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
   })
 
   it('passes every job through, newest first, so history renders too', async () => {

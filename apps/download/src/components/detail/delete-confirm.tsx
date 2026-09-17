@@ -6,6 +6,7 @@ import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
 import { useRef, useState, useTransition } from 'react'
 
 import type { DeleteMediaFilesResult } from 'src/app/actions/media-files'
+import type { DeleteVideoJobResult } from 'src/app/actions/video-job'
 import { formatBytes } from 'src/components/detail/release-picker'
 import { Button } from 'src/components/ui/button'
 import type { ButtonSize, ButtonVariant } from 'src/components/ui/button-recipe'
@@ -22,10 +23,20 @@ import { DeleteButton, Modal } from 'src/components/ui/modal'
  * arrangement of these props that can make the sentence and the request
  * disagree, which is not true of `{ episodeId?, seasonNumber? }`.
  *
- * The four members are the four the backend can express — `DELETE
- * /download/media/:id/files` resolves narrowest-first (`episodeId`, then
- * `seasonNumber`, then everything) and a movie has no narrower scope than
- * itself.
+ * Four of the five members are the four `DELETE /download/media/:id/files` can
+ * express — it resolves narrowest-first (`episodeId`, then `seasonNumber`,
+ * then everything) and a movie has no narrower scope than itself.
+ *
+ * ⚠️ **`video` is the odd one, and deliberately so.** That route refuses a
+ * `video:` key outright; a video's delete is `DELETE /download/videos/:jobId`,
+ * which removes a *job's* download rather than a library file. It is a member
+ * here anyway because the thing a user meets is the same on all three detail
+ * pages — one `bad` trigger, one dialog that names what goes before it goes —
+ * and a second bespoke confirm flow for one page would be that promise broken.
+ * What differs is carried honestly instead: the member holds a **job id**
+ * rather than a file selector, {@link deleteScopeQuery} refuses to build a
+ * files query from it, and {@link deleteConfirmCopy} says "download", never
+ * "library".
  */
 export type DeleteScope =
   | {
@@ -40,6 +51,18 @@ export type DeleteScope =
   | { kind: 'movie' }
   | { kind: 'season'; seasonNumber: number }
   | { kind: 'series' }
+  | {
+      /**
+       * The **job** whose download goes — `DownloadJob.id`, never the
+       * `video:<nanoid>` media key. The `videos` row survives a delete and
+       * keeps its history, so the media key is not what is being removed.
+       */
+      jobId: string
+      kind: 'video'
+    }
+
+/** Every scope `DELETE /download/media/:id/files` can express — all but `video`. */
+export type MediaFilesScope = Exclude<DeleteScope, { kind: 'video' }>
 
 /**
  * The scope, as the backend's query.
@@ -49,8 +72,16 @@ export type DeleteScope =
  * request and it is spelled by an *absence*, so this function exists precisely
  * so no call site ever assembles it by hand and no `undefined` ever widens a
  * narrower scope by accident.
+ *
+ * ⚠️ It takes {@link MediaFilesScope} rather than `DeleteScope`, so handing it
+ * a `video` scope is a compile error rather than a fifth empty query — which
+ * would be the *widest* request against a route that does not serve videos at
+ * all. The one caller that could reach it with a video scope is `confirm()`
+ * below, and this signature is what forces it to branch.
  */
-export function deleteScopeQuery(scope: DeleteScope): DeleteMediaFilesQuery {
+export function deleteScopeQuery(
+  scope: MediaFilesScope,
+): DeleteMediaFilesQuery {
   switch (scope.kind) {
     case 'episode':
       return { episodeId: scope.episodeId }
@@ -74,12 +105,21 @@ function episodeLabel(seasonNumber?: number, episodeNumber?: number): string {
   return `S${season}E${episode}`
 }
 
-/** The default trigger label per scope — `movie-detail.pug:63`, `show-detail.pug:67,148`. */
+/**
+ * The default trigger label per scope — `movie-detail.pug:63`,
+ * `show-detail.pug:67,148`, `video-detail.pug:159,235`.
+ *
+ * A video's is the bare `Delete` the video mockup draws beside `Save to
+ * device`, and the same word the movie page uses: on a page about exactly one
+ * thing, naming the scope in the trigger would be noise. The scope is named in
+ * the dialog, which is where it matters.
+ */
 const TRIGGER_LABELS: Record<DeleteScope['kind'], string> = {
   episode: 'Delete episode',
   movie: 'Delete',
   season: 'Delete season',
   series: 'Delete series',
+  video: 'Delete',
 }
 
 export type DeleteConfirmCopy = {
@@ -109,6 +149,15 @@ export type DeleteConfirmCopy = {
  * `DeleteMediaFilesResponse`'s documented behaviour. This route removes
  * **files**, never the library entry, and a user who reads "delete" as
  * "un-request it" would otherwise be surprised twice.
+ *
+ * ⚠️ The `video` sentence deliberately says neither "library" nor "Radarr".
+ * A video was never in `/storage/media-library` and no arr ever knew about it:
+ * `deleteVideoJob` removes the objects the download produced and clears the
+ * URLs that pointed at them. Inheriting the movie phrasing would have the
+ * dialog claim a file is leaving a library it was never in. What survives is
+ * the `videos` row and therefore this page — keyed on `(sourceUrl,
+ * timeRange)`, which is why the same link can simply be fetched again — so the
+ * clause in the same position as "stays in Radarr" says exactly that.
  */
 export function deleteConfirmCopy(
   scope: DeleteScope,
@@ -139,6 +188,11 @@ export function deleteConfirmCopy(
         description: `Removes this movie's file from the library${frees}. The movie stays in Radarr, so it can be downloaded again. This can't be undone.`,
         title: `Delete "${title}"?`,
       }
+    case 'video':
+      return {
+        description: `Removes this video's downloaded file${frees}. The source link stays on this page, so it can be downloaded again. This can't be undone.`,
+        title: `Delete "${title}"?`,
+      }
   }
 }
 
@@ -154,6 +208,59 @@ export type DeleteMediaFilesAction = (
   mediaId: string,
   query: DeleteMediaFilesQuery,
 ) => Promise<DeleteMediaFilesResult | void> | void
+
+/**
+ * What the video page hands over instead.
+ *
+ * `(jobId)` matches `deleteVideoJob` in `src/app/actions/video-job.ts` exactly,
+ * so `/videos/<videoId>` passes the unbound server-action reference straight
+ * through — the same shape `JobAction` has, and for the same reason: every
+ * video mutation is addressed by job.
+ *
+ * A second prop rather than a widened `onDelete`, because the two actions do
+ * not share a signature and a page that wired the wrong one would otherwise
+ * only find out at runtime. With the scope deciding which prop is read, a
+ * `video` scope with no `onDeleteVideo` is inert in exactly the way a movie
+ * scope with no `onDelete` already is.
+ */
+export type DeleteVideoJobAction = (
+  jobId: string,
+) => Promise<DeleteVideoJobResult | void> | void
+
+/** Whatever the scope's own action answered with. */
+type DeleteResult = DeleteMediaFilesResult | DeleteVideoJobResult
+
+/** The scope's delete, with its arguments already bound. */
+type DeleteRun = () => Promise<DeleteResult | void> | void
+
+/**
+ * The one request this scope means, or `null` when the page wired no handler
+ * for it.
+ *
+ * ⚠️ Two endpoints behind one dialog. A `video` scope is
+ * `deleteVideoJob(jobId)` and every other scope is `deleteMediaFiles(mediaId,
+ * query)` — different routes, different arguments, different meanings of the
+ * word "delete". Resolved here, once, so `confirm()` has exactly one thing to
+ * await and `mediaId` is never quietly passed where a job id belongs.
+ *
+ * A free function rather than a closure inside the component because `scope`
+ * has to be a `const` binding for its discriminant to still be narrowed inside
+ * the returned thunk; a destructured prop is not one.
+ */
+function deleteRun(options: {
+  mediaId: string
+  onDelete?: DeleteMediaFilesAction
+  onDeleteVideo?: DeleteVideoJobAction
+  scope: DeleteScope
+}): DeleteRun | null {
+  const { mediaId, onDelete, onDeleteVideo, scope } = options
+
+  if (scope.kind === 'video') {
+    return onDeleteVideo ? () => onDeleteVideo(scope.jobId) : null
+  }
+
+  return onDelete ? () => onDelete(mediaId, deleteScopeQuery(scope)) : null
+}
 
 const CANCEL_LABEL = 'Cancel'
 const CONFIRM_LABEL = 'Delete'
@@ -178,11 +285,22 @@ export type DeleteConfirmProps = Omit<
   full?: boolean
   /** Overrides the scope's default trigger label. */
   label?: string
-  /** The `mediaId()` key — `tmdb:438631`, `tvdb:121361`. */
+  /**
+   * The `mediaId()` key — `tmdb:438631`, `tvdb:121361`, `video:V1StGXR8_Z5`.
+   *
+   * ⚠️ Unused by a `video` scope, which deletes by **job** id and carries that
+   * id itself. Still required, and still the real key: it is what identifies
+   * the page this trigger sits on, and a prop that is sometimes a media key and
+   * sometimes a job id would be the exact confusion `DeleteScope` exists to
+   * prevent.
+   */
   mediaId: string
   /** Stack the dialog's buttons — the mockups' mobile frame. */
   mobile?: boolean
+  /** The delete for every scope but `video`. */
   onDelete?: DeleteMediaFilesAction
+  /** The delete for a `video` scope, which is a different endpoint entirely. */
+  onDeleteVideo?: DeleteVideoJobAction
   /**
    * Fired after a delete the backend accepted, with the count it reported
    * (`null` when the action returned nothing). Where a page navigates away,
@@ -206,10 +324,10 @@ export type DeleteConfirmProps = Omit<
  * `Delete — confirm flow` storyboard beside each. Three things are deliberate
  * rather than decorative:
  *
- * - **The dialog names the scope, every time.** Four scopes, four sentences —
+ * - **The dialog names the scope, every time.** Five scopes, five sentences —
  *   see {@link deleteConfirmCopy}. A user cannot reach the confirm button
  *   without having been told whether this takes one episode, one season, a
- *   whole series, or a movie.
+ *   whole series, a movie, or a video's download.
  * - **Cancel holds the initial focus**, which is APG's rule for a destructive
  *   confirm: the dialog opens on the way *out*, not on the trigger. It is a
  *   bare `<button>` wearing `buttonRecipeClassName()` because `Button` does not
@@ -218,10 +336,10 @@ export type DeleteConfirmProps = Omit<
  * - **`dismissible` stays true.** Escape and a scrim click cancel, which is the
  *   safe direction; the irreversible half needs a deliberate press either way.
  *
- * The delete itself is a callback, never an import: the server action lives in
- * `src/app/actions/media-files.ts` and the *page* wires it, exactly as
- * `JobLifecycle` takes `onCancel`. That is also what makes this component
- * testable without a backend anywhere near it.
+ * The delete itself is a callback, never an import: the server actions live in
+ * `src/app/actions/media-files.ts` and `src/app/actions/video-job.ts` and the
+ * *page* wires one, exactly as `JobLifecycle` takes `onCancel`. That is also
+ * what makes this component testable without a backend anywhere near it.
  */
 export function DeleteConfirm({
   className,
@@ -233,6 +351,7 @@ export function DeleteConfirm({
   mobile = false,
   onDelete,
   onDeleted,
+  onDeleteVideo,
   scope,
   size,
   title,
@@ -252,14 +371,16 @@ export function DeleteConfirm({
   }
 
   function confirm(): void {
-    if (!onDelete) {
+    const run = deleteRun({ mediaId, onDelete, onDeleteVideo, scope })
+
+    if (!run) {
       return
     }
 
     setError(null)
 
     startTransition(async () => {
-      const result = await onDelete(mediaId, deleteScopeQuery(scope))
+      const result = await run()
 
       if (result && 'error' in result) {
         setError(result.error)
