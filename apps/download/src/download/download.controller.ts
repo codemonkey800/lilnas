@@ -312,34 +312,55 @@ export class DownloadController {
     const action = 'getHistory'
     const startTime = Date.now()
 
+    // `?scope=all` is the *only* route to the unfiltered branch. Omitting
+    // `requester` still means "me", which is what a bare
+    // GET /download/history has always meant - see HistoryQuerySchema.
+    const allRequesters = query.scope === 'all'
     const isSelfScope =
-      !query.requester ||
-      query.requester.toLowerCase() === user.email.toLowerCase()
+      !allRequesters &&
+      (!query.requester ||
+        query.requester.toLowerCase() === user.email.toLowerCase())
 
     // Resolved unconditionally (not only for the other-user branch) -
     // masking applies the same way regardless of scope, so isAdmin is
     // needed either way.
     const isAdmin = await this.resolveIsAdmin(user)
 
+    // One gate for both widenings: naming somebody else and asking for
+    // everybody are the same privilege, so they get the same refusal rather
+    // than two checks that could drift apart.
     if (!isSelfScope && !isAdmin) {
       this.logger.warn(
         {
           action,
           requestedRequester: query.requester,
+          requestedScope: query.scope,
           statusCode: HttpStatus.FORBIDDEN,
           viewer: user.email,
         },
-        "GET /history - non-admin attempted to view another user's history",
+        allRequesters
+          ? "GET /history - non-admin attempted to view every requester's history"
+          : "GET /history - non-admin attempted to view another user's history",
       )
 
       throw new ForbiddenException(
-        "Only admins may view another user's download history",
+        allRequesters
+          ? "Only admins may view every requester's download history"
+          : "Only admins may view another user's download history",
       )
     }
 
-    const requesterEmail = isSelfScope
-      ? user.email
-      : (query.requester as string)
+    // `undefined`, not a sentinel: `JobListFilter.requesterEmail` is optional
+    // and `buildJobWhere` omits the predicate entirely when it is absent
+    // (db/jobs.repo.ts). That absence is also what makes a service-created
+    // job visible here - its `requester_email` is NULL, and no
+    // `lower(requester_email) = ?` comparison can ever match NULL, so any
+    // requester-keyed query necessarily excludes it.
+    const requesterEmail = allRequesters
+      ? undefined
+      : isSelfScope
+        ? user.email
+        : (query.requester as string)
 
     const page = await this.jobQueryService.listHistory({
       cursor: query.cursor,
@@ -356,7 +377,7 @@ export class DownloadController {
         action,
         duration,
         resultCount: page.items.length,
-        scopedTo: requesterEmail,
+        scopedTo: requesterEmail ?? 'all requesters',
         statusCode: HttpStatus.OK,
         total: page.total,
       },

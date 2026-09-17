@@ -6,6 +6,7 @@ jest.mock('nanoid', () => ({
   nanoid: jest.fn(() => 'mock-id'),
 }))
 
+import { HistoryQuerySchema } from '@lilnas/utils/download/schema'
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 import { ForbiddenException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
@@ -13,12 +14,17 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
+import { createTestDbService } from 'src/db/__tests__/test-utils'
+import { DbService } from 'src/db/db.service'
+import { jobs } from 'src/db/schema'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
 import { DownloadMetricsService } from 'src/download/download-metrics.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { JobQueryService } from 'src/download/job-query.service'
 import { ProfileService } from 'src/download/profile.service'
+import { DownloadGateway } from 'src/download-gateway/download.gateway'
+import { createFakeMediaResolver } from 'src/media/__tests__/helpers/fake-media-resolver'
 import { CurrentReleaseService } from 'src/media/current-release.service'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
@@ -86,6 +92,22 @@ describe('DownloadController - getHistory', () => {
     })
   })
 
+  // ⚠️ The one thing `?scope=all` must not change: a bare request keeps
+  // meaning "my history" for an admin too, or every existing caller's request
+  // would silently start returning the whole system's downloads.
+  it('scopes an admin to themselves too when no requester and no scope is given', async () => {
+    adminCheckService.checkIsAdmin.mockResolvedValue(true)
+
+    await controller.getHistory({ limit: 24 }, alice)
+
+    expect(jobQueryService.listHistory).toHaveBeenCalledWith({
+      cursor: undefined,
+      isAdmin: true,
+      limit: 24,
+      requesterEmail: 'alice@example.com',
+    })
+  })
+
   it('scopes to the caller when requester matches their own email, case-insensitively', async () => {
     await controller.getHistory(
       { limit: 24, requester: 'ALICE@EXAMPLE.COM' },
@@ -120,6 +142,71 @@ describe('DownloadController - getHistory', () => {
       isAdmin: true,
       limit: 24,
       requesterEmail: 'bob@example.com',
+    })
+  })
+
+  // `scope=all` drops the requester predicate entirely rather than naming
+  // anybody - the distinction the whole feature rests on.
+  it('leaves requesterEmail unset for an admin asking for scope=all', async () => {
+    adminCheckService.checkIsAdmin.mockResolvedValue(true)
+
+    await controller.getHistory({ limit: 24, scope: 'all' }, alice)
+
+    expect(jobQueryService.listHistory).toHaveBeenCalledWith({
+      cursor: undefined,
+      isAdmin: true,
+      limit: 24,
+      requesterEmail: undefined,
+    })
+  })
+
+  it('throws ForbiddenException when a non-admin asks for scope=all', async () => {
+    adminCheckService.checkIsAdmin.mockResolvedValue(false)
+
+    await expect(
+      controller.getHistory({ limit: 24, scope: 'all' }, alice),
+    ).rejects.toThrow(ForbiddenException)
+
+    expect(jobQueryService.listHistory).not.toHaveBeenCalled()
+  })
+
+  // A non-admin must not reach the unfiltered branch by any route, including
+  // one that also names themselves - the scope is checked before the
+  // self-match, so "me plus everyone" is still everyone.
+  it('refuses scope=all from a non-admin even alongside their own email', async () => {
+    adminCheckService.checkIsAdmin.mockResolvedValue(false)
+
+    await expect(
+      controller.getHistory(
+        { limit: 24, requester: 'alice@example.com', scope: 'all' },
+        alice,
+      ),
+    ).rejects.toThrow(ForbiddenException)
+
+    expect(jobQueryService.listHistory).not.toHaveBeenCalled()
+  })
+
+  it('carries cursor, status and type filters into the scope=all branch', async () => {
+    adminCheckService.checkIsAdmin.mockResolvedValue(true)
+
+    await controller.getHistory(
+      {
+        cursor: 'opaque',
+        limit: 24,
+        scope: 'all',
+        status: [DownloadJobStatus.Failed],
+        type: [DownloadType.Video],
+      },
+      alice,
+    )
+
+    expect(jobQueryService.listHistory).toHaveBeenCalledWith({
+      cursor: 'opaque',
+      isAdmin: true,
+      limit: 24,
+      requesterEmail: undefined,
+      statuses: [DownloadJobStatus.Failed],
+      types: [DownloadType.Video],
     })
   })
 
@@ -201,5 +288,214 @@ describe('DownloadController - getHistory', () => {
       nextCursor: null,
       total: 1,
     })
+  })
+})
+
+// The `scope`/`requester` contradiction is settled by the schema, before the
+// controller ever runs - a 400 from `ZodValidationPipe` rather than one of the
+// two silently winning.
+describe('HistoryQuerySchema - scope', () => {
+  it('rejects scope=all together with a requester', () => {
+    const result = HistoryQuerySchema.safeParse({
+      requester: 'bob@example.com',
+      scope: 'all',
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.path).toEqual(['scope'])
+  })
+
+  it('accepts each of the three scopes on its own', () => {
+    expect(HistoryQuerySchema.safeParse({}).success).toBe(true)
+    expect(
+      HistoryQuerySchema.safeParse({ requester: 'bob@example.com' }).success,
+    ).toBe(true)
+    expect(HistoryQuerySchema.safeParse({ scope: 'all' }).success).toBe(true)
+  })
+
+  it('rejects any other scope value', () => {
+    expect(HistoryQuerySchema.safeParse({ scope: 'everyone' }).success).toBe(
+      false,
+    )
+  })
+})
+
+/**
+ * The same route against a real migrated sqlite database rather than a mocked
+ * `JobQueryService`, because the gap this feature closes is a *SQL* one: a
+ * service-created job stores `requester_email` as NULL, and no
+ * `lower(requester_email) = ?` predicate can match NULL. Mocking the query
+ * service would assert that the controller passes `undefined` - which the
+ * block above already does - without proving that `undefined` is what makes
+ * the row appear.
+ */
+describe('DownloadController - getHistory against the database', () => {
+  let controller: DownloadController
+  let dbService: DbService
+  let adminCheckService: jest.Mocked<AdminCheckService>
+
+  const admin: ForwardedUser = { email: 'admin@example.com', userId: 'u-admin' }
+
+  // `jobs_origin_matches_requester` is a real CHECK constraint: origin
+  // 'service' *requires* both requester columns to be NULL, and 'web'
+  // requires both to be set. So this helper cannot accidentally seed a
+  // service job that still carries an email.
+  function seedWebJob(id: string, email: string): void {
+    dbService.db
+      .insert(jobs)
+      .values({
+        id,
+        mediaId: `video:${id}`,
+        origin: 'web',
+        requesterEmail: email,
+        requesterUserId: `u_${email}`,
+        status: 'completed',
+        type: 'video',
+      })
+      .run()
+  }
+
+  function seedServiceJob(id: string): void {
+    dbService.db
+      .insert(jobs)
+      .values({
+        id,
+        mediaId: `video:${id}`,
+        origin: 'service',
+        status: 'completed',
+        type: 'video',
+      })
+      .run()
+  }
+
+  beforeEach(async () => {
+    dbService = createTestDbService()
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [DownloadController],
+      providers: [
+        DownloadStateService,
+        JobQueryService,
+        { provide: AdminCheckService, useValue: { checkIsAdmin: jest.fn() } },
+        { provide: AuditLogService, useValue: { record: jest.fn() } },
+        { provide: CurrentReleaseService, useValue: {} },
+        { provide: DbService, useValue: dbService },
+        { provide: DiscoveryService, useValue: {} },
+        {
+          provide: DownloadGateway,
+          useValue: { broadcastPerViewer: jest.fn() },
+        },
+        { provide: DownloadMetricsService, useValue: {} },
+        { provide: DownloadService, useValue: {} },
+        { provide: MediaDownloadService, useValue: {} },
+        { provide: MediaFileService, useValue: {} },
+        { provide: MediaResolverService, useValue: createFakeMediaResolver() },
+        { provide: ProfileService, useValue: {} },
+        { provide: ReleaseService, useValue: {} },
+        { provide: ShowService, useValue: {} },
+      ],
+    }).compile()
+
+    controller = module.get(DownloadController)
+    adminCheckService = module.get(AdminCheckService)
+    adminCheckService.checkIsAdmin.mockResolvedValue(true)
+  })
+
+  afterEach(() => {
+    dbService.onModuleDestroy()
+  })
+
+  // ⚠️ The regression this whole feature exists to prevent. Before `scope=all`
+  // there was no query at all that returned this row: the dashboard's stat
+  // tiles and audit log counted it, and the history table - the one place you
+  // would go looking for it - could not show it.
+  it('includes a service-created job with no requester', async () => {
+    seedServiceJob('service-1')
+    seedWebJob('web-1', 'sam@example.com')
+
+    const page = await controller.getHistory({ limit: 24, scope: 'all' }, admin)
+
+    expect(page.items.map(item => item.id).sort()).toEqual([
+      'service-1',
+      'web-1',
+    ])
+    expect(page.total).toBe(2)
+    expect(
+      page.items.find(item => item.id === 'service-1')?.requester,
+    ).toBeNull()
+  })
+
+  // The other half of the proof: the row is unreachable by any requester-keyed
+  // query, so `scope=all` is not merely more convenient than the old per-user
+  // fan-out - it is the only thing that can return it.
+  it('excludes that same job from every requester-keyed scope', async () => {
+    seedServiceJob('service-1')
+    seedWebJob('web-1', 'sam@example.com')
+
+    const named = await controller.getHistory(
+      { limit: 24, requester: 'sam@example.com' },
+      admin,
+    )
+    const own = await controller.getHistory({ limit: 24 }, admin)
+
+    expect(named.items.map(item => item.id)).toEqual(['web-1'])
+    expect(own.items).toEqual([])
+  })
+
+  it('reaches requesters no leaderboard would have named', async () => {
+    for (let index = 0; index < 25; index += 1) {
+      seedWebJob(`web-${index}`, `user${index}@example.com`)
+    }
+
+    const page = await controller.getHistory(
+      { limit: 100, scope: 'all' },
+      admin,
+    )
+
+    expect(page.items).toHaveLength(25)
+    expect(page.total).toBe(25)
+  })
+
+  // Real backend cursor pagination, not an offset token this app minted - and
+  // it walks past the 100-row ceiling the client-side merge stopped at.
+  it('pages the whole log with the backend cursor', async () => {
+    for (let index = 0; index < 120; index += 1) {
+      seedWebJob(`web-${String(index).padStart(3, '0')}`, 'sam@example.com')
+    }
+
+    const seen: string[] = []
+    let cursor: string | undefined = undefined
+
+    do {
+      const page: Awaited<ReturnType<typeof controller.getHistory>> =
+        await controller.getHistory({ cursor, limit: 24, scope: 'all' }, admin)
+
+      seen.push(...page.items.map(item => item.id))
+      cursor = page.nextCursor ?? undefined
+    } while (cursor)
+
+    expect(seen).toHaveLength(120)
+    expect(new Set(seen).size).toBe(120)
+  })
+
+  it('still narrows by status and type in the unfiltered scope', async () => {
+    seedServiceJob('service-1')
+    dbService.db
+      .insert(jobs)
+      .values({
+        id: 'failed-1',
+        mediaId: 'video:failed-1',
+        origin: 'service',
+        status: 'failed',
+        type: 'video',
+      })
+      .run()
+
+    const page = await controller.getHistory(
+      { limit: 24, scope: 'all', status: [DownloadJobStatus.Failed] },
+      admin,
+    )
+
+    expect(page.items.map(item => item.id)).toEqual(['failed-1'])
   })
 })

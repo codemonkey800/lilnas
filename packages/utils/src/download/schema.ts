@@ -339,13 +339,50 @@ export const GalleryFacetsQuerySchema = z
   })
   .refine(isOrderedDateRange, DATE_RANGE_REFINEMENT)
 
-export const HistoryQuerySchema = z.object({
-  cursor: z.string().optional(),
-  limit: LimitSchema,
-  requester: z.string().min(1).optional(),
-  status: csvEnum(DownloadJobStatus),
-  type: csvEnum(DownloadType),
-})
+/**
+ * `GET /download/history`.
+ *
+ * ⚠️ **Omitting both `requester` and `scope` means "me", never "everyone".**
+ * That is what a bare `GET /download/history` has always meant, and it is
+ * deliberately left alone: widening the default would silently change what
+ * every existing caller's request returns.
+ *
+ * So there are three scopes, and the third has to be asked for by name:
+ *
+ *   - neither param — the caller's own history.
+ *   - `?requester=sam@lilnas.io` — one named user's. Self is always allowed;
+ *     anybody else is admin-only (403 otherwise), enforced in
+ *     `DownloadController.getHistory`.
+ *   - `?scope=all` — **every** requester, including service-created jobs with
+ *     no requester at all. Admin-only, same 403.
+ *
+ * `scope` is a separate parameter rather than a sentinel inside `requester`
+ * (`?requester=*`) because `requester` holds an email, and no reserved value
+ * in that space can be proven not to collide with a real address.
+ *
+ * The two are mutually exclusive and a request carrying both is a 400 rather
+ * than a silent winner - the same call {@link isOrderedDateRange} makes for an
+ * inverted date range, and for the same reason: a contradictory query answered
+ * with plausible-looking rows is worse than one answered with an error.
+ */
+export const HistoryQuerySchema = z
+  .object({
+    cursor: z.string().optional(),
+    limit: LimitSchema,
+    requester: z.string().min(1).optional(),
+    /**
+     * `z.literal('all')` rather than an enum with a `'self'` member: "self" is
+     * already spelled by omitting this parameter, and offering two ways to say
+     * it would invite the two to drift.
+     */
+    scope: z.literal('all').optional(),
+    status: csvEnum(DownloadJobStatus),
+    type: csvEnum(DownloadType),
+  })
+  .refine(query => query.scope !== 'all' || query.requester === undefined, {
+    message: '`scope=all` and `requester` are mutually exclusive',
+    path: ['scope'],
+  })
 
 export const DiscoverQuerySchema = z
   .object({

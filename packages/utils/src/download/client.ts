@@ -428,6 +428,16 @@ export class DownloadClient {
     return response.json()
   }
 
+  /**
+   * One page of download history. Scope is chosen by the query, never
+   * inferred: no `requester` and no `scope` means the caller's own history,
+   * `requester` means that one user's, `scope: 'all'` means every requester's
+   * (including service-created jobs, which have no requester at all).
+   *
+   * The last two are admin-only and the last two are mutually exclusive -
+   * both enforced server-side, so a non-admin or a contradictory query gets a
+   * 403/400 back as a `DownloadApiError` like any other failure.
+   */
   async getHistory(
     query: Partial<HistoryQuery> = {},
   ): Promise<DownloadPage<DownloadJob>> {

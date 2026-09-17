@@ -51,7 +51,16 @@ export interface ListGalleryParams extends PageParams {
 }
 
 export interface ListHistoryParams extends PageParams {
-  requesterEmail: string
+  /**
+   * Omitted = every requester - `?scope=all`, which
+   * `DownloadController.getHistory` gates to admins. Optional for the same
+   * mechanical reason {@link ListGalleryParams.requesterEmail} is:
+   * `JobListFilter.requesterEmail` is optional and `buildJobWhere` drops the
+   * predicate when it is absent. Absence is also the *only* way a
+   * service-created job (NULL `requester_email`) can appear, since no email
+   * comparison matches NULL.
+   */
+  requesterEmail?: string
   statuses?: readonly DownloadJobStatus[]
   types?: readonly DownloadType[]
 }
@@ -91,6 +100,20 @@ export class JobQueryService {
     )
   }
 
+  /**
+   * ⚠️ **No `excludeHiddenVideos` here, unlike `listGallery` below - and that
+   * is deliberate, not an omission.** That flag is the attribution-oracle
+   * guard against a *non-admin* using a requester-keyed lookup to confirm a
+   * hidden video exists for somebody else. It cannot apply on this route,
+   * because a non-admin can only ever reach two of the three scopes:
+   * `requesterEmail` equal to their own email (their own hidden videos, which
+   * they may see), or nothing at all - and `?scope=all`, the only way to get
+   * `undefined` here, is 403'd for them at the controller. Setting it would
+   * instead hide a user's own hidden videos from their own history.
+   *
+   * Attribution on the returned rows is masked either way, by
+   * `projectPage(page, isAdmin)` at the controller.
+   */
   listHistory(params: ListHistoryParams): Promise<DownloadPage<DownloadJob>> {
     return this.runJobPage(
       {
