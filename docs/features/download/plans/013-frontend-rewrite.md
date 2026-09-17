@@ -1003,6 +1003,143 @@ config` resolves byte-for-byte to the running container. Corrections to the four
   - ⚠️ **Do not run `pnpm build` in `apps/download` while the container is up** —
     same `.next`-clobbering hazard as before, now inside the container.
 
+##### ⚠️⚠️ Findings: `nest start -w` SILENTLY STOPS WATCHING — the dev container serves a STALE BACKEND with a CURRENT FRONTEND
+
+**Discovered 2026-09-16 by the human-checkpoint-2 run, which correctly refused to
+proceed. This is the nastiest environment trap recorded in this plan — read it before
+trusting any live verification.**
+
+`pnpm dev` runs `nest start -w -b swc` for the backend and `next dev` for the frontend.
+**The Nest watcher stopped firing and never restarted.** `next dev` kept hot-reloading
+normally. The result is a **split state**: the UI you are looking at is current, the API
+behind it is however old the last Nest boot was — **with no warning anywhere.**
+
+**How it presented:** plan 014 shipped the `currentReleaseGuid` annotation at 16:33–17:12;
+the backend had booted at **14:33** and never restarted (exactly one
+`Nest application successfully started` in the whole container log). So **0/15 movies and
+0/14 episodes resolved a guid**, which looked exactly like "plan 014 does not work."
+It worked fine — it wasn't loaded.
+
+⚠️ **Compounding factor: `/data` is a tmpfs, so migrations run ONLY at boot.** Migration
+`0001_absent_outlaw_kid` was created at 16:36, two hours after the 14:33 boot, so
+`media_file_releases` **did not exist in the running DB** and `__drizzle_migrations` held
+a single row for `0000`. A stale backend therefore also means a stale *schema*.
+
+**Three cheap ways to detect it — use these before concluding a feature is broken:**
+
+1. `docker logs lilnas-download-dev 2>&1 | grep -c "Nest application successfully started"`
+   — compare boots against when your code landed.
+2. Check `__drizzle_migrations` against the migration files on disk.
+3. Look for a field your change added returning `null`/absent **with no warning logged**
+   on a path that logs on every failure — silence means the code is not running at all,
+   not that it ran and failed.
+
+**The fix is `docker restart lilnas-download-dev`** — dev only, separate container from
+production's `lilnas-download-1`, and the tmpfs DB is ephemeral so nothing is lost and
+migrations re-apply at boot. **Confirmed working:** after the restart, **6/6 sampled
+movies resolved a real `currentReleaseGuid`** against live indexers.
+
+⚠️ **Any live verification done against this container between 14:33 and the restart
+exercised a stale backend.** Frontend-only verification (D1–D4, E2/E4/E5, the live-updates
+task) is unaffected, since `next dev` was hot-reloading correctly throughout — but
+**anything that asserted on backend behaviour in that window should be re-checked.**
+
+##### ✅ Findings: `yt-dlp` and `ffmpeg` were MISSING from the dev image — FIXED `b264f355`
+
+**Found by E2 running a real job, fixed 2026-09-16.** Same class of defect as D4's
+`/download` tmpfs find, and the same way of finding it: **only running a real job
+surfaces it.**
+
+**The symptom:** every video job died with `spawn /usr/bin/yt-dlp ENOENT`. Worse, the
+failure **did not surface as `failed`** — the job sat at `downloading`, and any
+subsequent pause/cancel **wedged at `pausing`/`cancelling` forever**, because there was
+no process to signal or reap. C2's and C3's earlier jobs show the same signature, and
+none ever had its title overwritten by the metadata probe.
+
+**The fix** (`infra/base-images/lilnas-dev.Dockerfile`, +29, purely additive) mirrors
+`apps/download/Dockerfile`'s production stage exactly:
+- `curl`, `ffmpeg` added to the existing `apt-get install` list (`python3` and
+  `ca-certificates` were already there).
+- yt-dlp downloaded to **`/opt/yt-dlp/yt-dlp`**, `chmod a+rx`, `chown -R node:node`,
+  then **symlinked to `/usr/bin/yt-dlp`**.
+
+⚠️ **The `/opt` + symlink indirection is load-bearing, not cosmetic.**
+`ytdlp-update.service.ts` hardcodes `YTDLP_BINARY_PATH = '/opt/yt-dlp/yt-dlp'` and
+replaces it with `move(…, { overwrite: true })` — a rename, which needs write
+permission on the **directory**, not the file. `/usr/bin` is `root:root drwxr-xr-x`,
+so **installing straight to `/usr/bin` would silently break every auto-update.**
+Meanwhile `download.service.ts:70` and `download-video.service.ts:69,287` hardcode
+`spawn('/usr/bin/yt-dlp')`, so the symlink must stay. **Anyone touching either path
+must keep both.**
+
+⚠️ **`ffmpeg` was equally necessary** — `download-video.service.ts:392` spawns
+`/usr/bin/ffmpeg` for the conversion phase, and yt-dlp shells out to it to merge
+separate video/audio streams. Without it the fix would have moved the identical ENOENT
+one stage later and left the `completed` state unreachable anyway.
+
+**Verified end to end:** `yt-dlp --version` → `2026.08.19`; zero `ENOENT` across the
+container's whole lifetime; a real job ran `pending → downloading → converting →
+completed` with `downloadUrls` populated, and the title was **overwritten from the raw
+URL to the real one** — the exact signature the three earlier wedged jobs never showed.
+Job then cleaned up to `cancelled`, nothing left running, production
+(`lilnas-download-1`) never touched.
+
+✅ **Consequence for G1: the `completed` / in-app-player state is now reachable and
+screenshot-able.** E3 and E2 could only unit-test it. **Budget ~10 minutes** to
+reproduce one, and **use a short, low-resolution clip** — Big Buck Bunny at 4K60 spent
+~9 minutes in ffmpeg alone.
+
+⚠️ **Risk to the other seven dev apps assessed as none:** no existing line changed, no
+path collision (`/opt` was empty, `/usr/bin/yt-dlp` absent), no `ENV`/`USER`/
+`WORKDIR`/`ENTRYPOINT` change, and `/usr/bin/yt-dlp` + `/usr/bin/ffmpeg` are referenced
+only by `apps/download/src/download/`. Cost is image size and build time only.
+
+##### ✅ Findings: the spawn-error wedge — CLOSED, fixed in `c7eebc62`
+
+⚠️ **This section previously read "Not fixed. Do not assume installing the binary
+closed it." That is no longer true, and the mechanism recorded here was WRONG.**
+Corrected 2026-09-16 from the fixing session's trace.
+
+**What was actually wrong — not a missing status transition.** `runProcess()`'s
+`proc.on('error')` handler wrote the raw `Error` object into a **non-objectMode** log
+stream:
+
+```js
+logFileStream.write(err) // err is an Error, not a string/Buffer
+reject(err) // ← never runs
+```
+
+A non-objectMode stream **throws `ERR_INVALID_ARG_TYPE`** on a non-string/Buffer rather
+than emitting an error. That throw escaped the listener as an uncaught exception, so:
+
+- `reject(err)` on the next line was **dead code**;
+- Node fires **no `'close'`** after an error handler throws, so that path was dead too;
+- **the promise never settled at all.**
+
+So `await download()` hung forever. That in turn explains the two downstream symptoms
+nobody had traced: the scheduler's `Failed` write was **unreachable because its `catch`
+was still suspended inside that `await`** — not broken, never reached — and `clearProc`
+sits further down the same dead path.
+
+⚠️ **The earlier write-up here — "the handler logs but never transitions state" — was a
+plausible misreading of a real symptom.** The transition code was correct; it was simply
+never reached. **Serialising the error to a string was the entire fix**, because
+`updateJob()` already releases the process handle on every terminal transition.
+
+**Verified two ways:** a standalone repro, and by reinstating the bug — the 5 new spawn
+tests **hang and time out** against the old handler.
+
+The production-reachability assessment **stands and was the right call**: ENOENT was
+only one trigger; EACCES, EPERM, ENOMEM and a `YtdlpUpdateService` daily-cron update
+leaving a truncated or non-executable binary mid-`move` all reach the same handler.
+
+⚠️ **Plan `015` is H1-ONLY.** This wedge is **not** deferred into it — it is closed.
+Do not re-open it there.
+
+⚠️ **Line drift from `c7eebc62`:** in `download-video.service.ts`, `:557` → **`:571`**
+and the error handler `:560` → **`:574`**. **Unaffected** (all precede the insertions):
+`:69`, `:88`, `:287`, `:392`, and `download.service.ts:70`.
+
 ##### Findings: the NestJS dependency split (FIXED)
 
 `pnpm dev:backend` used to die at startup with:
@@ -4272,7 +4409,7 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
   counter, percentage, bar, throughput" as part of its surface. **Only the bar and
   percentage are real, and only for movies and shows.**
 
-- [ ] **E2. Video detail page.** `/videos/<videoId>`.
+- [x] **E2. Video detail page.** — `cf8a420a` — `/videos/<videoId>`.
 
   **Files:** create `apps/download/src/app/videos/[videoId]/{page,loading,error}.tsx`,
   `apps/download/src/components/detail/video-detail.tsx`, and
@@ -4305,6 +4442,295 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
   **Tests:** unknown key renders not-found; a failed job with a recognition error
   renders the "not recognized" state; actions call the identified client with the job
   id; the source link renders.
+
+  **Findings (E2, 2026-09-15):** 9 files, +1810 — `src/app/actions/video-job.ts`,
+  `src/app/videos/[videoId]/{page,loading,error,not-found}.tsx`,
+  `src/components/detail/video-detail.tsx`, plus three specs. **3 new suites / 60 new
+  tests**, all passing. Lint (eslint _and_ prettier) and type-check clean. **No
+  shared/E1/E3/E6/E7 file opened for edit; no backend file touched; no sibling path
+  included.** The **segment-scoped `not-found.tsx`** is the one file beyond the
+  prescribed list — sanctioned in the brief, inside E2's own route directory, and it
+  keeps `notFound()` off the framework default page while **G1's root
+  `src/app/not-found.tsx` is unwritten.**
+
+  ```ts
+  // src/app/actions/video-job.ts — 'use server'
+  export type DeleteVideoJobResult = { error: string } | { job: DownloadJob }
+  export async function cancelVideoJob(jobId: string): Promise<void>
+  export async function pauseVideoJob(jobId: string): Promise<void>
+  export async function resumeVideoJob(jobId: string): Promise<void>
+  export async function retryVideoJob(jobId: string): Promise<void>
+  export async function deleteVideoJob(jobId: string): Promise<DeleteVideoJobResult>
+  ```
+
+  - The four lifecycle actions are `Promise<void>` **because E1's `JobAction` forces
+    it** — `Promise<{error}>` is not assignable to `Promise<void>`, so they log and
+    return rather than reporting. `deleteVideoJob` is **not** passed to
+    `JobLifecycle`, so it keeps `media-files.ts`'s discriminated-result shape.
+  - All five go through `getIdentifiedDownloadClient()`; all revalidate via
+    `revalidatePath(mediaHref(job.media))` derived from the **returned** job (a
+    job-id-only signature has no media key to work from); all **re-throw anything
+    carrying a string `digest`**. This aligns with `media-files.ts` as instructed.
+  - ⚠️ **`retryVideoJob` is an addition beyond the task's "(cancel / pause / resume /
+    delete)" list.** There is no retry endpoint — it is `getJob(jobId)` →
+    `createJob({ url: media.sourceUrl, timeRange: media.timeRange,
+hiddenAttribution })`, which `upsertVideoByNaturalKey()` collapses back onto the
+    same `videos` row and therefore the same page. **`timeRange` and
+    `hiddenAttribution` are carried across deliberately: dropping the range mints a
+    _different_ natural key and strands the retry on a second page.**
+
+  ```tsx
+  // src/components/detail/video-detail.tsx — NO directive (server-composable)
+  export type VideoDetailShellProps = ComponentPropsWithoutRef<'main'>
+  export function VideoDetailShell(props: VideoDetailShellProps): JSX.Element
+  export const VIDEO_SOURCE_LABEL = 'View original post'
+  export const VIDEO_EMPTY_NOTE = 'Ready to grab whenever.'
+  export const VIDEO_UNRECOGNIZED_EXPLAIN = 'That link isn’t one yt-dlp recognises.'
+  export const VIDEO_UNRECOGNIZED_GUIDANCE =
+    'Paste a different link in the search field at the top of the page. Nothing was downloaded, and asking for this one again would fail the same way.'
+  /** Whether a job failed because yt-dlp would not accept the link at all. */
+  export function isUnrecognizedLink(job: DownloadJob): boolean
+  /** `sourceUrl` as something safe to put in an `href`, or `null`. http(s) ONLY. */
+  export function sourcePostHref(sourceUrl: string): string | null
+  /** The metadata line under the title — `youtube.com · 14:02`. */
+  export function videoMetaLabel(media: Video): string
+  /** `downloadUrls[0] ?? mediaFileHref(media.id, {})`. */
+  export function videoPlayerSrc(media: Video): string
+  export type VideoDetailProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'children' | 'onCancel' | 'onPause'   // ⚠️ see the JobLifecycleProps defect below
+  > & {
+    jobs: readonly DownloadJob[]   // MediaDetailResponse.jobs verbatim, newest first
+    media: Video
+    now: number                    // pinned instant for every relative stamp
+    onCancel?: JobAction
+    onPause?: JobAction
+    onResume?: JobAction
+    onRetry?: JobAction
+  }
+  export function VideoDetail(props: VideoDetailProps): JSX.Element
+
+  // src/app/videos/[videoId]/page.tsx
+  export const metadata = { title: 'Video · Download' }
+  export type VideoDetailPageProps = { params: Promise<{ videoId: string }> }
+  export default async function VideoDetailPage(props): Promise<JSX.Element>
+  // error.tsx — 'use client'
+  export type VideoDetailErrorProps = { error: Error & { digest?: string }; reset: () => void }
+  // loading.tsx   — default export VideoDetailLoading(): JSX.Element
+  // not-found.tsx — default export VideoNotFound(): JSX.Element
+  ```
+
+  ##### ✅ Findings (E2): the progress omission, as instructed — nothing invented
+
+  **The mockup draws:** an annotation `fragment 4 of 9`, a `64%` bar, and the line
+  `412 MB / 640 MB · 3.1 MB/s · ~2m left`, inside a card that also holds Pause and
+  Cancel.
+
+  **E2 rendered:** the status chip and the action row, and **nothing else** — no bar,
+  no percentage, no counter, no throughput, no ETA. `jobProgress()` returns `null`
+  for a video, `JobLifecycle` draws no block, and `VideoDetail` passes neither
+  `progressPct`, `progressDetail` nor `progressNote`. **Verified live:**
+  `document.querySelectorAll('[role="progressbar"]').length === 0` on the running
+  page, and asserted in the suite as _"draws no progress bar for a downloading
+  video"_.
+
+  **The gap was re-confirmed at the backend before deciding**, independently of E1:
+  `download-video.service.ts` spawns yt-dlp with stdout piped into
+  `${jobId}/download.log` and never parses it, and `DownloadJob` carries no progress
+  field for a video — `isManagedMedia()` excludes a video from the only progress on
+  the wire. **A 0% bar would have been a claim.** See [H1](#h1-video-download-progress--a-backend-change-so-a-separate-plan).
+
+  **Two smaller cases of the same thing, both new:**
+  - ⚠️ **There is no author on the wire.** `MediaBase` has title/overview/poster/
+    runtime/year/ratings; the `videos` table adds `sourceUrl` and `timeRange`;
+    **nothing parses yt-dlp's uploader.** The mockup's `@slowferment` has nothing
+    behind it, so `videoMetaLabel` renders the **source host** (`youtube.com`)
+    instead — the true thing that is known about where a video came from.
+    ⚠️ **This contradicts E2's own task text, which lists "author" in its surface.**
+  - ⚠️ **`videos.runtime` is a column nothing currently writes.**
+    `download-video.service.ts` only ever writes `title` and `overview` back from
+    metadata. So the mockup's `14:02` is normally absent, and following
+    `GalleryItemCard.metaLabel` the part is **dropped rather than dashed** —
+    `youtube.com`, not `youtube.com · —`.
+
+  ##### ⚠️ Findings (E2): a REAL DEFECT in a shipped E1 contract — reported, not fixed
+
+  `JobLifecycleProps` is `Omit<ComponentPropsWithoutRef<'div'>, 'children'> & {
+onCancel?: JobAction; onPause?: JobAction; … }`. React's `DOMAttributes` puts the
+  media events on **every** element, so `onCancel` and `onPause` intersect to:
+
+  ```ts
+  ReactEventHandler<HTMLDivElement> & JobAction
+  ```
+
+  and **no plain `(jobId: string) => Promise<void>` server action is assignable to
+  either.** This never fired because `job-lifecycle.spec.tsx` passes `jest.fn()`,
+  which is `any`-shaped. **E7 solved the identical collision correctly** by `Omit`-ing
+  `media` and `part` from `SaveLocalProps`; the fix here is
+  `Omit<…, 'children' | 'onCancel' | 'onPause'>` on `JobLifecycleProps`.
+
+  E2 did **not** reopen `job-lifecycle.tsx` (shipped, and E4/E5 were rendering it
+  concurrently). It fixed it at its call site with one documented assertion
+  (`as Pick<JobLifecycleProps, 'onCancel' | 'onPause' | 'onResume' | 'onRetry'>`),
+  sound at runtime since the panel only ever calls these with a job id, and applied
+  the correct `Omit` to its own `VideoDetailProps` so it does not propagate.
+
+  **Why E4 and E5 did not hit it:** neither passes `onCancel`/`onPause` at all — the
+  pause/cancel/resume routes are **video-only**, so both their panels are read-only
+  by construction. **The defect is latent for any future caller that passes a typed
+  handler. G1 should apply the `Omit` to `JobLifecycleProps` and drop E2's
+  assertion.**
+
+  ##### ⚠️ Findings (E2): a REAL ENVIRONMENT BUG — `yt-dlp` is missing from `lilnas-download-dev`
+
+  Found the same way D4 found the `/download` tmpfs bug: by actually running a job.
+
+  ```
+  ERROR: yt-dlp process error   error: "spawn /usr/bin/yt-dlp ENOENT"
+  ```
+
+  **No video download can run in the dev-remote container at all.** Worse, **the
+  failure does not surface as `Failed`** — the job sits at `downloading`, and any
+  subsequent pause/cancel **wedges at `pausing`/`cancelling` forever**, because there
+  is no process to signal or reap. (C2's and C3's earlier jobs on this same row show
+  the same signature, and none of the three ever had its title overwritten by
+  yt-dlp — same root cause.) **This is a backend/environment defect; E2 did not touch
+  it.** ⚠️ **It also means the `completed` / in-app-player state cannot be
+  screenshotted in this environment by anyone** — E2 verified it by unit test only.
+  **G1 or a follow-up should own installing `yt-dlp` in the dev image.**
+
+  **Mockup deviations (E2): measured with `playwright-core` driving system Chrome**
+  at 1280×900 and 390×844 against the built `video-detail.html`. **Exact matches:**
+  poster 340×191; desktop `downloading` chip 109×23; `Pause` 91×38; `Cancel` 89×38.
+  Mobile: poster full-bleed 342×192, buttons stacked full-width 342×38.
+
+  | Deviation                                                                    | Reason                                                                                                                                                                                                                       |
+  | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | **No progress card**                                                         | The H1 gap — see above.                                                                                                                                                                                                      |
+  | ✅ **`downloading` chip is intrinsic at both widths**                        | As this task required. ⚠️ **Measured correction to the task text: the mockup's _desktop_ chip is already `w-fit` (109px).** Only the mobile frame stretches it, via `flex w-fit` in a stretch container — the README's quirk. |
+  | **"View original post" is a `ghost` `ButtonLink`, not a bare anchor**        | The standing `ButtonLink` rule. Mockup 13.5px text / 12px icon / 21px tall / full-column block; port 13px / 15px / 30px / `w-fit` with `-ml-[11px]` so the label still optically aligns with the title (measured: border box x=453, text x=464 = the title's x). Side benefit: 30px clears the touch-target floor 21px does not. |
+  | **No play mark on the poster while there is no file**                        | The mockup draws one on the downloading frame; pressing it would play nothing.                                                                                                                                               |
+  | **Meta line reads the source host, not an author**                           | **API wins** — there is no author on the wire (above).                                                                                                                                                                       |
+  | **Attribution reads the email local part**, not the mockup's "Jeremy"        | E1's decision, inherited unchanged. The avatar is **not** linked to `/profile`, matching D2, because F1 has not shipped.                                                                                                     |
+  | **`Earlier attempts` is drawn; the mockup does not draw it**                 | **Real data** — the verification video already carried two prior cancelled jobs from C2/C3's runs, which is the re-paste natural-key collapse working exactly as documented.                                                 |
+  | **The chip is purple, not green**                                            | `statusTone(Downloading)` is `uv`; the mockup's sample says `ok`. Shared-lib decision, left alone. ⚠️ **E5 reported the identical deviation independently.**                                                                 |
+
+  ##### ⚠️ Findings (E2): no Delete control shipped — a deliberate scope call
+
+  `deleteVideoJob` **ships and is tested**, but **no Delete button is rendered.**
+  E2's reasoning: this task's **Surface** list omits delete, its **required-tests**
+  list omits delete, and **E6's `DeleteScope` has no `video` member** — three signals
+  the UI was not this wave's. Building it would have meant a bespoke confirm dialog
+  inside `video-detail.tsx` and **turning the whole body into a client component** to
+  own the modal state.
+
+  ⚠️ **The mockup's completed frame DOES draw a `Delete` button beside `Save to
+  device`, so this is a visible gap against the mockup.** Accepted as shipped;
+  **G1 should decide whether to add it** — E2 assessed it as a small follow-up.
+
+  **Other items E2 flagged, not acted on:**
+  - ⚠️ **The page has no live updates.** It is a plain server render; a status change
+    needs a reload or a server-action revalidation. `use-job-events.ts` /
+    `job-events.tsx` are shipped and on the do-not-reopen list, and wiring them was
+    not in E2's surface. **Consequence: "paste a link, land on the page, watch it
+    progress" currently requires a manual refresh.** D4's provider-placement finding
+    (provider **outside** the keyed subtree) is the pattern if a later task adds it.
+  - E3's three open questions (arrow-keys-seek vs volume, the extra `tabIndex={0}`
+    stop on the frame, iPhone Safari's `webkitEnterFullscreen`) — untouched.
+  - The player composes through `DetailHeader`'s `posterOverlay` slot pinned
+    `absolute inset-0` over the poster — `VideoPlayer` is built to `Poster`'s `wide`
+    shape precisely so the page does not reflow.
+
+  ##### ✅ Findings: video detail live updates — `8605e597`
+
+  **Done as a dedicated task after Wave 9**, closing E2's "the page has no live
+  updates" item. 5 files (one new), **+24 tests, +0 suites** — 141 suites / **2834**
+  tests. Lint and type-check clean. `use-job-events.ts`, `job-events.tsx` and
+  `job-lifecycle.tsx` were **not** reopened, and the `jobIds` inline-array contract
+  held exactly as C3 documented (one socket across all frames, pinned by a test).
+
+  ```ts
+  // src/components/detail/video-detail-live.tsx — 'use client', NEW
+  export type VideoDetailLiveProps = Omit<VideoDetailProps, 'stale'>
+  export function VideoDetailLive(props: VideoDetailLiveProps): JSX.Element
+
+  // src/components/detail/video-detail.tsx — still NO directive
+  export const VIDEO_STALE_LABEL: string   // 'reconnecting…'
+  export function mergeVideoJobs(
+    jobs: readonly DownloadJob[],
+    live: ReadonlyMap<string, DownloadJob>,
+  ): DownloadJob[]
+  // VideoDetailProps gains ONE optional member; everything else is byte-identical:
+  stale?: boolean
+  ```
+
+  - **Provider placement:** in `page.tsx`, wrapping only `<VideoDetailLive>`, inside
+    `VideoDetailShell` and below the `<h1>`/`<LibraryLink>`. Not in `layout.tsx`.
+    ⚠️ **Nothing between the provider and `VideoDetailLive` carries a `key`, and
+    nothing on this page has one at all** — a `key` **above** the provider rebuilds
+    the store on every change, and each teardown restarts the reconnect ladder
+    (1s → 15s) from the top, so **the page would go progressively quieter exactly
+    when it re-rendered.** D4 keeps `ActivityFeed`'s `key` strictly inside its
+    provider for the same reason. **Any future remount belongs on
+    `VideoDetailLive`, never above it** — recorded in source.
+  - ✅ **`connected: false` is surfaced, but CONDITIONALLY** — a `warn` chip reading
+    `reconnecting…` (the same word `/activity` uses; one state should not have two
+    names on two screens), shown **only when the newest job is in flight**.
+    Rationale: `connected` means strictly "a socket is OPEN right now", so it is
+    false through the first connect and every backoff window. On a
+    completed/failed/cancelled page **no frame is coming and the panel is final**, so
+    "reconnecting…" there raises doubt about something that cannot change. **A frozen
+    `downloading` chip is the actual failure mode, and it is indistinguishable from a
+    live one without this.** `isInProgress` keeps `paused`/`pausing` on the marked
+    side. Deliberately **not** a live region (matching D4), so a flapping socket does
+    not announce itself once per backoff window.
+  - **Boundary:** only `VideoDetailLive` crosses. Still on the server — `params`
+    resolution, `mediaIdFromRoute`, `getMedia()`, the 404-vs-error peel, the
+    `DownloadType.Video` narrowing, `getRequestInstant()`, `VideoDetailShell`, the
+    `sr-only` `<h1>`, `LibraryLink`, and the four server actions (passed by
+    reference). `VideoDetail` is now in the client graph — unavoidable, since player,
+    save link, note and history are all functions of job status — but stays a plain
+    presentational function needing no provider.
+  - **E2's `as Pick<JobLifecycleProps, …>` assertion and comment were left exactly as
+    they were, and no Delete control was added** — both still G1's.
+
+  **Proof of live updating — a real job, and a genuine no-reload proof.** "Me at the
+  zoo" (19s, 240p — deliberately not Big Buck Bunny 4K60), pasted into the nav bar,
+  driven with `playwright-core` against system Chrome:
+
+  ```
+  [+  607ms] downloading  sentinel=INTACT  <video>=false
+  [+ 3318ms] converting   sentinel=INTACT  <video>=false
+  [+ 3619ms] completed    sentinel=INTACT  <video>=true
+  gateway socket: ws://localhost:8090/ws
+  document loads: total=1, since landing=0
+  ```
+
+  ⚠️ **The no-reload proof is a `window.__noReloadSentinel` set AFTER landing** — it
+  cannot survive any document load — corroborated by zero `load` events since
+  landing. **The poster→player swap at `completed` shows the merge driving more than
+  the chip.** Worth copying: a screenshot proves nothing about whether a page
+  reloaded.
+
+  ⚠️ **The stale marker was verified by closing ONLY the gateway socket** via
+  `routeWebSocket`. `setOffline` **also kills Next dev's HMR socket, which forces a
+  full reload and destroys the test** — a real trap for any later live-UI
+  verification. Status held at its last-known `downloading`, `reconnecting…`
+  appeared, sentinel intact, zero reloads. Chip renders intrinsic (`w-fit`) at both
+  1280×900 and 390×844; the connected layout is unchanged.
+
+  **Cleanup:** three jobs created (one per run, all collapsing onto the same `video:`
+  key exactly as the natural-key design predicts), **all three `cancelled`**,
+  `downloadUrls: []` confirming objects reaped, `/activity` empty. No library
+  mutation, no `GET /media/:id/releases`, nothing written under
+  `/storage/media-library`, containers untouched.
+
+  ⚠️ **Unrelated flake to watch, not this task's:**
+  `src/components/shell/__tests__/nav-search.spec.tsx` → _"hands the bar back on
+  close, and returns focus to the trigger"_ **failed once under full-suite load** and
+  passed in isolation and on both subsequent full runs. A focus-restoration flake.
+  **G1 should keep an eye on it** — jsdom focus timing under parallel load is a
+  plausible cause, and an intermittently red suite erodes trust in the whole run.
 
 - [x] **E3. Video player control bar.** — `4aa6aaeb` — The in-app player matches the system.
 
@@ -4511,7 +4937,7 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
     which is honest — so the recorded relative-poster-path defect needs no workaround
     here.
 
-- [ ] **E4. Movie detail page.** `/movies/<tmdbId>`.
+- [x] **E4. Movie detail page.** — `8393a36` — `/movies/<tmdbId>`.
 
   **Files:** create `apps/download/src/app/movies/[tmdbId]/{page,loading,error}.tsx`
   and `apps/download/src/components/detail/movie-detail.tsx`.
@@ -4530,7 +4956,9 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
     action. `embyStatus` absent entirely → the title has no file on disk, so neither.
   - `watchUrl` is built from `EMBY_EXTERNAL_URL` server-side and is browser-reachable;
     `EMBY_URL` is not. Use what the payload gives you.
-  - Runtime is **seconds** — `formatRuntime(runtime, 'long')` → `2h 04m`.
+  - Runtime is **seconds** — ⚠️ `formatRuntime(runtime, 'long')` → `2h 04m`. **`'long'` is a
+    typo in this task text; A3's modes are `'clock'` and `'hours'`. The correct call is
+    `formatRuntime(runtime, 'hours')`, which is what E4 shipped.**
   - A tmdb key always resolves upstream, so an unknown movie is a metadata lookup,
     not a 404 — unlike a video key.
   - Movies are **always** attributed; there is no hide toggle. Don't render one.
@@ -4538,7 +4966,120 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
   **Tests:** each `embyStatus` shape maps to the right action; runtime formatting;
   attribution renders without a toggle.
 
-- [ ] **E5. Show detail page.** `/shows/<tvdbId>`.
+  **Findings (E4, 2026-09-15):** 8 files, all new — `src/app/movies/[tmdbId]/{page,
+loading,error}.tsx`, `src/components/detail/movie-detail.tsx`, and four specs.
+  **4 new suites / 77 new tests**, all passing. Lint (eslint _and_ prettier) and
+  type-check clean. **No shared/E1/E6/E7 file was reopened and no sibling path
+  touched.** ✅ **ZERO live library mutations** — `searchReleases` was never called
+  from a browser, `curl`, a script or a test; every action is mocked in every spec,
+  and `page.spec.tsx` asserts none fires as a side effect of rendering. **Human
+  checkpoint 2 remains outstanding and untouched.**
+
+  ```ts
+  // src/components/detail/movie-detail.tsx
+  export const MOVIE_WATCH_LABEL = 'Watch'
+  export const MOVIE_INDEXING_LABEL = 'indexing…'
+  export const MOVIE_EMBY_UNAVAILABLE_LABEL = 'emby unavailable'
+  export const MOVIE_STATUS_LABEL = 'Status'
+  export const MOVIE_EMPTY_NOTE =
+    'Nothing grabbed yet. Find a release below to download it.'
+  export const MOVIE_LIBRARY_NOTE =
+    "Already in the library — this app didn't fetch it, so there is no download to show."
+  export const MOVIE_METADATA_NOTE =
+    "Radarr didn't answer, so this movie's title and details are missing — only its id is known. Trying again in a moment usually fixes it."
+
+  /** 'indexed' -> Watch link; 'indexing'/'unknown' -> chip; 'none' -> nothing. */
+  export type MovieWatchState = 'indexed' | 'indexing' | 'none' | 'unknown'
+  /** `embyStatus` absent -> 'none'; 'indexed' without a `watchUrl` -> 'unknown'. */
+  export function movieWatchState(movie: Movie): MovieWatchState
+  /** `2024 · 2h 04m · PG-13 · 7.4/10 · Drama, Thriller`. `null` when it has none. */
+  export function movieMetaLine(movie: Movie): string | null
+  /** True for `MediaResolverService`'s degraded placeholder (`title === id`). */
+  export function isMetadataUnavailable(movie: Movie): boolean
+
+  export type MovieDetailProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'children'
+  > & {
+    badFiles?: readonly BadFile[] // client.listBadFiles(movie.id)
+    jobs: readonly DownloadJob[] // MediaDetailResponse.jobs verbatim, newest first
+    movie: Movie
+    now: number // the instant every relative stamp is measured against
+    onDelete?: DeleteMediaFilesAction
+    onFlag?: FlagBadFileAction
+    onGrab?: ReleaseAction
+    onReplace?: ReleaseAction
+    onSearch?: ReleaseSearchAction
+    onUnflag?: UnflagBadFileAction
+  }
+  export function MovieDetail(props: MovieDetailProps): JSX.Element
+
+  // src/app/movies/[tmdbId]/page.tsx
+  export type MoviePageProps = { params: Promise<{ tmdbId: string }> }
+  export async function generateMetadata(props: MoviePageProps): Promise<Metadata>
+  export default async function MoviePage(props: MoviePageProps): Promise<JSX.Element>
+  // src/app/movies/[tmdbId]/error.tsx — 'use client'
+  export type MovieErrorProps = { error: Error & { digest?: string }; reset: () => void }
+  // src/app/movies/[tmdbId]/loading.tsx — default export MovieLoading(): JSX.Element
+  ```
+
+  **Mockup deviations (E4): measured with `playwright-core` driving system Chrome**
+  against `localhost:8090` (real Radarr data — `tmdb:634649`, file on disk, Emby
+  `indexed`) versus `movie-detail.html`'s `#primary-d` frame, plus headless captures
+  at 1280×900 and 390×844. **Exact matches:** column `x=100 w=1080`; poster 200×300
+  at `x=100`; title column at `x=324`; title 23px/28.75px/`mb-6px`; meta 13.5px in
+  `oklch(0.63 0.026 300)`; synopsis 537px (62ch); Watch 95×38 on
+  `oklch(0.68 0.21 300)` at 14px; Delete 87×38 in `oklch(0.66 0.2 22)`; Release
+  heading 18px/`mb-12px`.
+
+  | Deviation                                                                       | Reason                                                                                                                                                             |
+  | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | **A third header action, `Save to device`**, between Watch and Delete           | E7's control has no other home on this page. Shifts Delete from `x=429` to `x=585`.                                                                                |
+  | **No trailer block** (the mockup reserves an `aspect-video` slot)               | **API wins** — `MediaBase` has no trailer field. The slot is spent on the Status panel.                                                                            |
+  | **No cast row**                                                                 | Nothing on the wire carries a cast; `CastRow people={[]}` renders `null`. Wired for the day one lands.                                                             |
+  | **The release block loads as the search PROMPT, not a populated list**          | Populating it requires the indexer sweep that **writes upstream**. The loading skeleton promises the prompt, not the list. Directly downstream of E6's `onSearch` guarantee. |
+  | **Meta line adds certification and rating**                                     | The task's own surface list. Wraps to two lines at 390px where the mockup's shorter sample fits one.                                                               |
+  | **Loading skeleton does not centre title/meta bars on mobile**                  | The mockup's `loadingState` mixin uses `mx-auto`, but its own mobile _header_ does not, and `DetailHeader` left-aligns at every width. Centring would promise a layout that never arrives. Pinned by a test. |
+  | **Two `ReleasePicker` copies**, `hidden sm:block` / `sm:hidden`                 | `mobile` is a layout switch, not a breakpoint — the same arrangement `ActivityFeed` makes. `DeleteConfirm` is **not** duplicated (`mobile` only stacks its dialog buttons). |
+  | **`sr-only <h1>`** duplicating `DetailHeader`'s `text-h1` `<p>`                 | `DetailHeader` is shipped and may not be reopened. Same call `gallery/page.tsx` made.                                                                              |
+  | Posters are gradient stand-ins                                                  | The recorded relative-path defect. ⚠️ **Note `getMedia` returns no `posterUrl` at all for a movie, where `/discover` does.**                                       |
+
+  ⚠️ **A real bug the live page caught, fixed at the call site:** a library movie
+  with a file on disk read `not downloaded` + _"Nothing grabbed yet."_ beside a
+  working Watch button. Fixed with `MOVIE_LIBRARY_NOTE`; **E1's
+  `JOB_LIFECYCLE_EMPTY_LABEL` is untouched.** Same call-site precedent D3 set.
+
+  **Open questions E4 raised — deliberately not acted on:**
+  - ⚠️ **The bad-file report control is unreachable on a movie page.**
+    `ReleasePicker` hangs `BadFileFlag` off the `current` row, and `currentGuid` is
+    **genuinely unknowable**: nothing persists the grabbed release's guid
+    (`bad_files.release_guid` is the only guid column in the schema, and `Release`
+    has no "you have this" flag). E4 passes `onFlag`/`onUnflag` anyway so the control
+    appears the day a guid lands. **This is a backend gap, not a call-site one.**
+    Current behaviour is pinned by a test. **G1 or a follow-up plan should own it.**
+  - **No movie job can be paused, resumed or cancelled.** `PATCH
+/download/videos/:id/{pause,resume,cancel}` are **video-only**; there is no movie
+    route and no server action in E4's file set. The panel is read-only **by
+    construction**.
+  - **No one-press "Download" for a movie with no job.** `requestMovie` exists on the
+    client but has no server action, and creating one was outside E4's owned files.
+    The release picker's explicit grab is the path — and
+    `ReleaseService.listReleases`/`grabRelease` call `ensureMovie`, so it works for a
+    title not yet in Radarr.
+  - ⚠️ **`/movies/abc` renders Next's built-in 404 body but returns HTTP 200** in the
+    dev container. `notFound()` is definitely reached (correct body). Likely a
+    dev-server detail that **G1's `src/app/not-found.tsx` will settle** — flagged,
+    not chased.
+  - **Gallery-avatar precedent held:** `DetailAttribution` does not link to
+    `/profile` (F1 hasn't shipped). Same call D2 made.
+  - `movieWatchState` / `movieMetaLine` / `isMetadataUnavailable` are **pure but live
+    in the `.tsx`** (jsdom project) rather than a sibling `.ts`, because E4's file
+    ownership was exactly enumerated. They lift out cleanly if a later task wants
+    them in the node project.
+  - **No `useOptimistic` post-grab state** (E6 left the choice open) — moot here,
+    since no row is ever `current` (see the guid gap above).
+
+- [x] **E5. Show detail page.** — `9c7117c3` — `/shows/<tvdbId>`.
 
   **Files:** create `apps/download/src/app/shows/[tvdbId]/{page,loading,error}.tsx`
   and `apps/download/src/components/detail/show-detail.tsx`.
@@ -4570,6 +5111,240 @@ recent-card,recently-added,ghost-link}.tsx`, `src/lib/request-instant.ts`, plus 
   **Tests:** season 0 renders; scope is passed as `episodeId`/`seasonNumber` not
   baked into the media id; a repeat delete with `deletedCount: 0` reads as success;
   season-level progress aggregates across episodes.
+
+  **Findings (E5, 2026-09-15):** 18 files, +3852 — six sources under
+  `src/components/detail/` (`show-detail.tsx`, `show-seasons.tsx`,
+  `show-episode-row.tsx`, `show-request-button.tsx`, `show-page-shell.tsx`,
+  `show-state.ts`), the three route files, and nine specs. **8 new suites / 142 new
+  tests**, all passing. Lint (eslint _and_ prettier) and type-check clean. **No
+  sibling path and no shared/E1/E6/E7 file was opened, edited or staged.** ✅ **ZERO
+  live library mutations, and `GET /media/:id/releases` was NEVER called** — directly
+  or indirectly. The only live traffic was `getMedia` + `listSeasons` +
+  `listBadFiles` + `whoami` from page loads; the page spec asserts exactly that set.
+  **Human checkpoint 2 remains outstanding and untouched.**
+
+  ```ts
+  // src/components/detail/show-state.ts — no directive, pure (node project)
+  export const SPECIALS_SEASON_NUMBER = 0
+  export function seasonLabel(seasonNumber: number): string        // 'Specials' | 'Season 3'
+  export function seasonTabValue(seasonNumber: number): string     // String(n); '0' is a real value
+  export function episodeCode(seasonNumber: number, episodeNumber: number): string // 'S02E05'
+  export function episodeKey(episode: Episode): number             // ⚠️ Episode.id, never episodeNumber
+  export type ShowProgress = { files: number; pct: number; total: number }
+  export function seasonEpisodeTotal(season: Season): number       // max(episodeCount, episodes.length)
+  export function seasonProgress(season: Season): ShowProgress
+  export function seriesProgress(seasons: readonly Season[]): ShowProgress // ⚠️ EXCLUDES specials
+  export function episodeProgressLabel(p: ShowProgress): string    // '6 of 10 episodes'
+  export function seasonHeading(season: Season): string            // 'Season 2 · 10 episodes'
+  export function seriesScopedJobs(jobs: readonly DownloadJob[]): readonly DownloadJob[]
+  export function seasonScopedJobs(jobs: readonly DownloadJob[], season: Season): readonly DownloadJob[]
+  export function episodeScopedJobs(jobs: readonly DownloadJob[], episode: Episode): readonly DownloadJob[]
+  export function isScopeDownloading(jobs: readonly DownloadJob[]): boolean
+  export type EpisodeState = { live: boolean; label: string; tone: StatusTone }
+  export function episodeState(episode: Episode, jobs: readonly DownloadJob[]): EpisodeState
+  export function defaultSeasonNumber(seasons: readonly Season[]): number | null
+  export function seasonByTabValue(seasons: readonly Season[], value: string): Season | null
+  export function showMetaLine(media: Show, seasons: readonly Season[]): string
+  export function isMetadataMissing(media: Media): boolean
+
+  // src/components/detail/show-request-button.tsx — 'use client'
+  export type ShowRequestTarget =
+    | { episodeId: number; kind: 'episode' }   // ⚠️ Sonarr's Episode.id
+    | { kind: 'season'; seasonNumber: number }
+    | { kind: 'series' }
+  export type ShowRequestScope = { episodeId?: number; seasonNumber?: number }
+  export function showRequestScope(target: ShowRequestTarget): ShowRequestScope
+  // episode -> { episodeId }; season -> { seasonNumber }; series -> {} (EMPTY scope = everything)
+  export type ShowRequestResult = { error: string } | { job: DownloadJob }
+  export type ShowRequestAction = (
+    mediaId: string,
+    scope: ShowRequestScope,
+  ) => Promise<ShowRequestResult | void> | void
+  export const REQUEST_SERIES_LABEL = 'Download series'
+  export const REQUEST_SEASON_LABEL = 'Download season'
+  export const REQUEST_EPISODE_LABEL = 'Download'
+  export type ShowRequestButtonProps = Omit<
+    ComponentPropsWithoutRef<'div'>,
+    'children' | 'onSubmit'
+  > & {
+    full?: boolean          // ⚠️ stretches root AND trigger unconditionally — see the layout bug below
+    label?: string
+    mediaId: string
+    onRequest?: ShowRequestAction
+    size?: ButtonSize
+    target: ShowRequestTarget
+    variant?: ButtonVariant // default 'outline'
+  }
+  export function ShowRequestButton(props: ShowRequestButtonProps): JSX.Element
+
+  // src/components/detail/show-episode-row.tsx — 'use client'
+  export const EPISODE_ACTIONS_LABEL = 'Manage'
+  export const EPISODE_ACTIONS_HIDE_LABEL = 'Close'
+  export type ShowEpisodeRowProps = {
+    badFiles?: readonly BadFile[]
+    episode: Episode
+    jobs: readonly DownloadJob[]   // every job for the title; filtered to this episode inside
+    media: Show
+    open: boolean                  // drawer state, owned by ShowSeasons
+    onDelete?: DeleteMediaFilesAction
+    onFlag?: FlagBadFileAction
+    onGrab?: ReleaseAction
+    onReplace?: ReleaseAction
+    onRequest?: ShowRequestAction
+    onSearch?: ReleaseSearchAction // ⚠️ reaches ReleasePicker's trigger only
+    onToggle: (episodeId: number) => void
+    onUnflag?: UnflagBadFileAction
+  }
+  export function ShowEpisodeRow(props: ShowEpisodeRowProps): JSX.Element
+
+  // src/components/detail/show-seasons.tsx — 'use client'
+  export const SEASONS_EMPTY_NOTE: string
+  export const SEASONS_TABLIST_LABEL = 'Season'
+  export type ShowSeasonsProps = {
+    badFiles?: readonly BadFile[]
+    jobs: readonly DownloadJob[]
+    media: Show
+    seasons: readonly Season[]     // listSeasons verbatim, INCLUDING season 0
+    onDelete?: DeleteMediaFilesAction
+    onFlag?: FlagBadFileAction
+    onGrab?: ReleaseAction
+    onReplace?: ReleaseAction
+    onRequest?: ShowRequestAction
+    onSearch?: ReleaseSearchAction
+    onUnflag?: UnflagBadFileAction
+  }
+  export function ShowSeasons(props: ShowSeasonsProps): JSX.Element
+
+  // src/components/detail/show-detail.tsx — NO directive (server-renderable)
+  export const WATCH_LABEL = 'Watch'
+  export const EMBY_INDEXING_LABEL = 'indexing…'
+  export const SERIES_IN_LIBRARY_NOTE =
+    'Already in the library. Nothing here was downloaded through this app.'
+  export const SERIES_EMPTY_NOTE = 'Nothing grabbed yet.'
+  export const METADATA_MISSING_NOTE: string
+  export type ShowDetailProps = {
+    badFiles?: readonly BadFile[]
+    jobs: readonly DownloadJob[]   // MediaDetailResponse.jobs verbatim, newest first
+    media: Show
+    now: number                    // pinned instant, from getRequestInstant()
+    seasons: readonly Season[]
+    onDelete?: DeleteMediaFilesAction
+    onFlag?: FlagBadFileAction
+    onGrab?: ReleaseAction
+    onReplace?: ReleaseAction
+    onRequest?: ShowRequestAction
+    onSearch?: ReleaseSearchAction
+    onUnflag?: UnflagBadFileAction
+  }
+  export function ShowDetail(props: ShowDetailProps): JSX.Element
+
+  // src/components/detail/show-page-shell.tsx — no directive
+  export type ShowPageShellProps = ComponentPropsWithoutRef<'main'>
+  export function ShowPageShell(props: ShowPageShellProps): JSX.Element
+
+  // src/app/shows/[tvdbId]/page.tsx
+  export type ShowPageProps = { params: Promise<{ tvdbId: string }> }
+  export const metadata = { title: 'Show · Download' }
+  export default async function ShowPage(props: ShowPageProps): Promise<JSX.Element>
+  // module-private inline 'use server' action: requestShowScope(mediaId, scope) -> ShowRequestResult
+  // src/app/shows/[tvdbId]/loading.tsx — default export ShowLoading(): JSX.Element
+  // src/app/shows/[tvdbId]/error.tsx — 'use client'
+  export type ShowErrorProps = { error: Error & { digest?: string }; reset: () => void }
+  ```
+
+  ##### ✅ Findings (E5): the `activationMode` decision — **`'automatic'`, explicit**
+
+  `GET /media/:id/seasons` returns **every season with every episode in one
+  payload**, which the component already holds. Switching seasons swaps loaded
+  content in place — **no fetch, no `router.push`, no navigation** — so
+  selection-follows-focus costs nothing and is APG's default for exactly this case.
+  `gallery-controls.tsx` and `activity-tabs.tsx` correctly chose `'manual'` because
+  their strips **write the URL**; this one does not, so the trade runs the other way.
+  **Verified live rather than asserted:** arrowing the strip with a `framenavigated`
+  and request listener attached produced **0 navigations and 0 route requests** while
+  correctly moving Season 1 → 2 → 3 and Home → Specials.
+
+  Corollary: the selection is **local `useState`, not a search param.** URL state
+  would make a season deep-linkable at the cost of re-running the page's server
+  render — and with it `getMedia` _and_ `listSeasons` against Sonarr — **on every
+  arrow key.** Nothing is synced, so no `set-state-in-effect`/`in-render` rule is
+  anywhere near it.
+
+  ##### ⚠️ Findings (E5): a real layout bug, found ONLY because it measured
+
+  On a season with no files, every episode row's `Download` button stretched and
+  pushed the `Manage` disclosure **outside the card's right edge** (button right edge
+  1180+ vs card 1180). Cause: `ShowRequestButton`'s `full` puts `w-full` on its
+  `<div>` root **as well as** the trigger, and inside an `sm:w-auto` action group that
+  `w-full` resolves against a shrink-to-fit container. **Fixed at the call site**
+  (`ROW_ACTION = 'flex-1 [&>button]:w-full sm:flex-none sm:[&>button]:w-auto'`) with a
+  source comment, per the D3 precedent — **not** by reopening a shipped component.
+  Re-measured: Download 105px, Manage 92px, both inside the card (right edge 1159).
+  Regression test added. **This is the second wave running in which measuring, not
+  eyeballing, was the only thing that caught a real defect.**
+
+  **Mockup deviations (E5): measured with `playwright-core` driving system Chrome**
+  at 1280×900 and 390×844 against `show-detail.html`, using real Sonarr data
+  (`/shows/277165`, 6 seasons + specials, 53 files). **Exact matches:** poster
+  200×300 desktop / 220×330 mobile · `h1` 23px/28.75/w650/`mb-6` · meta
+  13.5px/20.925 `ink-3` · Watch 95×38 · Download series 157×38 · Delete series 127×38
+  · tab 14px/22.4/w550 pad `9px 1px` · `h2` 18px/23.4/w620 · **episode row 1046×54,
+  padding `12px 4px`** · episode number 26×18 at 11.5px/18.4/w450 `ink-4` · status
+  chip 89×23 at 11px/17.6/w500. Card paddings `4px 16px` / `4px 14px`, `libraryLink`
+  `mb-[22px]`, header `mb-8`/`mb-7`, tabs `mb-5`/`mb-4`, season header `mb-[14px]` —
+  all as the pug writes them.
+
+  | Deviation                                                                          | Reason                                                                                                                                                                                                                              |
+  | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | **Season tabs keep the long label at BOTH widths** (`Specials`, `Season 3`)        | The mockup abbreviates to `S3` on its phone frame. One responsive document cannot carry two different accessible names for one control without breaking WCAG **label-in-name**. `Tabs`' own `scroll` — which the mockup's mobile strip already opts into — is the affordance that makes a seven-season strip work at 390px. Verified scrolling at 390px. |
+  | **`downloading` renders `uv` tone, not the mockup's `ok`**                         | `statusTone(Downloading)` is `uv`. **The shipped system contract wins over the mockup's sample data.**                                                                                                                              |
+  | **No per-episode Watch**                                                           | **API wins** — Emby's handoff is series-level (`Path` is the folder); there is no per-episode `watchUrl` on the wire.                                                                                                               |
+  | **No per-episode Cancel/Retry, no series Pause/Resume/Cancel**                      | **API wins** — `cancelJob`/`pauseJob`/`resumeJob` are all `/download/videos/:id`, **video-only**. Verified in `download.controller.ts`: a show has only `POST /shows` and `DELETE /shows/:jobId`. ⚠️ **Matches E4's identical finding for movies.** |
+  | **Heavy controls behind a per-episode `Manage` disclosure**                        | The mockup's row has one action. A 25-episode season with 25 mounted `ReleasePicker`s is a wall — and **25 indexer-sweep triggers one stray click deep.** One drawer open at a time.                                                |
+  | **Season heading counts `max(episodeCount, episodes.length)`**                      | **API reality wins** — specials come back `episodeCount: 0` with 5 episodes listed, and "Specials · 0 episodes" over 5 rows would be wrong.                                                                                          |
+  | **Specials EXCLUDED from the _series_ aggregate**                                   | Sonarr excludes them from its own statistics; otherwise a fully-downloaded series reads "53 of 58" forever. Still listed and individually actionable.                                                                               |
+  | **Series progress overrides `queueSnapshot` with the file aggregate**              | `14 of 24 episodes` — the figure the mockup's own legend row prints, and the only one true of a whole series.                                                                                                                       |
+  | Posters are gradient stand-ins; cast row renders nothing                           | Known defect #1 (relative poster paths); no cast field exists on any media type.                                                                                                                                                    |
+
+  **Open questions E5 raised — deliberately not acted on:**
+  - ⚠️ **See the joint E4+E5 bad-file finding below** — E5 reached the same
+    conclusion independently, from the show side.
+  - **No profile links.** `/profile` ships in F1; `DetailAttribution` deliberately
+    does not anchor. Same call D2 made for gallery avatars.
+  - Collapsing an episode drawer **unmounts its `ReleasePicker`, discarding search
+    results** — a re-search is another ~30s upstream sweep. Mitigated by the search
+    sitting behind an explicit, self-describing trigger; keeping collapsed drawers
+    mounted would have meant a second piece of state for a rare accident.
+
+##### ⚠️ Findings: bad-file flagging is STRUCTURALLY UNREACHABLE on both detail pages — E4 and E5 converged on this independently
+
+**Two agents, two different media types, same conclusion, neither aware of the
+other.** That makes this a real gap rather than a call-site oversight.
+
+`ReleasePicker` renders `BadFileFlag` **only** on the row matching `currentGuid` —
+and **nothing on the wire carries the release guid of the file on disk:**
+- **Movie (E4):** nothing persists the grabbed release's guid.
+  `bad_files.release_guid` is the only guid column in the schema, and `Release` has
+  no "you already have this" flag.
+- **Show (E5):** `Episode` has `episodeFileId`; Sonarr's episode file carries
+  `sceneName`/`releaseGroup` but no guid; and **`BadFile` has no `episodeId`**, so an
+  existing flag cannot even be joined back to a row.
+
+**What both shipped, identically and deliberately:** pass `onFlag`/`onUnflag` (so the
+control appears the instant a `current` row can be identified) and pass `badFiles`
+(so already-flagged releases still render as blocked with a reason) — but **do NOT
+fabricate a `currentGuid`.** Both pinned current behaviour with a test.
+
+⚠️ **Consequence for [human checkpoint 2](#human-checkpoints): the flag flow cannot
+be exercised from either detail page as shipped.** The other three destructive flows
+(grab, replace, delete) are reachable.
+
+⚠️ **E6's note that "`BadFileFlag` is exported separately for episode rows that are
+not inside a picker" cannot be honoured without a guid to report.**
+
+**This is a backend gap, not a call-site one, and it wants a shared decision — G1 or
+a follow-up plan should own it.** Roughly: persist the grabbed release's guid on the
+media file record, or add an `episodeId` to `BadFile` so flags can be joined to rows.
 
 - [x] **E6. Release selection, replacement, and bad-file reporting.** — `ede3990d`,
       `6928a24f` — The shared surfaces movie and show detail both use.
@@ -5021,7 +5796,67 @@ rendered output are unchanged. **Both duplicates are deleted** —
 
 ### Phase 5 — Account and admin
 
-- [ ] **F1. User profile.** `/profile` and `/profile?user=<email>`.
+##### ✅ F0. Shared `NotAuthorized` — shipped before Wave 10 — `a562cd23`
+
+**An orchestrator-run task inserted between Wave 9 and Wave 10**, the same shape as
+the `cns` fix (`b617d4a0`) between Waves 2 and 3. **F1 and F2 both specify a
+"not authorized" state in their own edge cases**, and the plan originally routed that
+component to G1 — which would have had the two Wave 10 agents each invent one
+concurrently and G1 reconcile them afterwards. That is exactly the `GhostLink` /
+`WATCH_LINK` duplication D1 and D2 already produced once. Built once, up front,
+instead.
+
+```tsx
+// src/components/shell/not-authorized.tsx — server-safe, NO 'use client'
+export const NOT_AUTHORIZED_TITLE = 'No access to this page'
+export const NOT_AUTHORIZED_DESCRIPTION =
+  'Your account isn’t on the list for this page. Nothing has gone wrong — ask an admin if you think you should be able to see it.'
+export const NOT_AUTHORIZED_BACK_LABEL = 'Library'
+export const NOT_AUTHORIZED_ICON: IconName = 'shield'
+export type NotAuthorizedProps = Omit<
+  ComponentPropsWithoutRef<'div'>,
+  'children'
+> & {
+  title?: string
+  description?: string
+  backHref?: string
+  backLabel?: string
+}
+export function NotAuthorized(props: NotAuthorizedProps): JSX.Element
+```
+
+12 tests, all passing; package suite green at **146 suites / 2954 tests**; lint and
+type-check clean.
+
+- **`backHref` defaults to `LIBRARY_HREF` (`'/gallery'`)** from
+  `src/components/detail/library-link` — deliberately **no** second
+  `NOT_AUTHORIZED_BACK_HREF` constant.
+- **It renders an `<h2>`, not an `<h1>`**, so it composes inside a page that already
+  has a header. Pair it with the route's own `sr-only` `<h1>`, as
+  `app/gallery/page.tsx` and `app/videos/[videoId]/not-found.tsx` do.
+- **Icon is `shield`, not `alert`.** `alert` is this system's error register — it is
+  `Note`'s default and what the loud `border-bad/35!` override pairs with. `shield`
+  says "rule", not "fault". Likewise **no `role="alert"`** and no landmark role: this
+  is not an interruption, and a landmark for one panel is over-semantics.
+- Matched against `GalleryEmpty` / `ActivityEmpty`'s centred sunk panel and
+  `videos/[videoId]/not-found.tsx`'s copy register. ⚠️ **Neither `profile.html` nor
+  `admin-dashboard.html` contains a not-authorized panel and `ui.pug` has no mixin
+  for one** — grepped, zero hits. There was no mockup to port; in-repo precedent was
+  the reference instead.
+
+##### ✅ Resolved en route: `ButtonLink` exists
+
+D2 called a shared link-shaped button "the strongest outstanding shared-contract item
+in the plan" after D1 and D2 each restated the ghost recipe locally. **It has since
+landed as `src/components/ui/button-link.tsx`** (with `button-recipe.ts` as the
+non-client class helper), and `app/videos/[videoId]/not-found.tsx` — a server
+component — already consumes it. F0 used it rather than adding a third copy.
+⚠️ **`ButtonLink` carries `'use client'`**, so the anchor is a client component even
+when its parent is not; `buttonRecipeClassName()` is the zero-client-JS escape hatch.
+**G1 should still delete D1's `ghost-link.tsx` and D2's `WATCH_LINK` constant**, which
+are the two original copies and are still in the tree.
+
+- [x] **F1. User profile.** — `05053238` — `/profile` and `/profile?user=<email>`.
 
   **Files:** create `apps/download/src/app/profile/{page,loading,error}.tsx` and
   `apps/download/src/components/profile/`.
@@ -5031,9 +5866,11 @@ rendered output are unchanged. **Both duplicates are deleted** —
   **Data:** `getProfile({ requester?, days })` for the aggregates,
   `getHistory({ requester, type, status, cursor })` for the embedded history.
 
-  **Surface:** identity header (avatar, email, first/last download); lifetime totals
-  by type and by status as **filter chips**; a downloads-per-day trend; the embedded
-  history table.
+  **Surface:** identity header (avatar, email, first/last download); **a lifetime
+  downloads stat tile** (⚠️ **added 2026-09-16 — this list omitted it, `profile.pug`
+  draws it between the header and the chips, and it is the only consumer of "sum
+  `totalsByType`"**); lifetime totals by type and by status as **filter chips**; a
+  downloads-per-day trend; the embedded history table.
 
   **Edge cases:**
   - **A computed view, not an entity.** A profile for an email with no jobs is
@@ -5061,7 +5898,147 @@ rendered output are unchanged. **Both duplicates are deleted** —
   when filters change; type AND status compose; the no-match state is distinct from
   the empty profile; a 403 renders not-authorized.
 
-- [ ] **F2. Admin dashboard.** `/admin`, admin-only.
+  ##### ⚠️ Wave 10 assignments added to F1 — decided 2026-09-16
+
+  1. **F1 owns the trend chart and the gap-filling helper.** `mixin trend(days)` is
+     **local to `profile.pug` (line 94), not in `ui.pug`**, and the admin dashboard
+     draws none — so there is no second consumer and no shared primitive to extract.
+     ⚠️ **The mockup's `days` is pre-filled by `profile.mjs`; the API is not.** A zero
+     day still gets a tick at a fixed minimum height so it reads as "nothing happened"
+     rather than a hole in the chart. Gap-filling is a pure helper
+     (`src/lib/jobs-per-day.ts`), keyed off the **echoed `windowDays`**, tested
+     directly — getting it wrong silently misrepresents the shape of someone's
+     activity.
+  2. **F1 re-enables the profile links that were suppressed because `/profile` 404'd.**
+     D2 assigned `gallery-item-card.tsx` explicitly; D1 made the same call from the
+     other direction on the home page. The rule is already implemented in
+     `activity-requester.tsx` (`canViewRequesterProfile` / `requesterProfileHref`) —
+     **reuse it, don't write a second copy.**
+
+  **Findings (F1, 2026-09-16):** 19 files created, 9 modified. 6 new suites / **100
+  new tests**; package total **158 suites / 3133 tests** passing. Lint (eslint _and_
+  prettier) and type-check clean. **Actual exported signatures — paste these:**
+
+  ```ts
+  // src/lib/profile-filters.ts — no directive, importable both sides
+  export const PROFILE_HREF = '/profile'
+  export type ProfileFilters = { statuses: DownloadJobStatus[]; types: DownloadType[]
+    user: string | null }
+  export const EMPTY_PROFILE_FILTERS / PROFILE_TYPE_ORDER / PROFILE_STATUS_ORDER
+  export type ProfileSearchParams = Record<string, string | string[] | undefined>
+  export type ProfileFilterChip = { key; label; next: ProfileFilters; removeLabel }
+  export type LoadProfileHistoryResult =
+    | { items: DownloadJob[]; nextCursor: string | null; total: number }
+    | { error: string }
+  export function parseProfileFilters / profileFiltersToSearch / profileHref
+  export function profileHrefForEmail / profileHistoryQuery / hasProfileFilters
+  export function clearProfileFilters / toggleProfileType / toggleProfileStatus
+  export function profileFilterChips
+
+  // src/lib/jobs-per-day.ts — the gap-filler
+  export type ProfileTrendDay = { count: number; day: string; label: string }
+  export type FillJobsPerDayOptions = { jobsPerDay; now: number; windowDays: number }
+  export function fillJobsPerDay(opts: FillJobsPerDayOptions): ProfileTrendDay[]
+
+  // src/lib/profile-totals.ts
+  export type ProfileTotalChip = { active: boolean; count: number; key: string
+    label: string; next: ProfileFilters; tone: StatusTone }
+  export function sumProfileTotals / profileTypeChips / profileStatusChips
+
+  // src/lib/profile-data.ts — SERVER-ONLY
+  export const FOREIGN_PROFILE_DESCRIPTION / FOREIGN_PROFILE_ERROR
+  export function isForbiddenProfileError(error: unknown): boolean
+  export type ProfileView = { now; requester; viewer: Viewer | null } & (
+    | { forbidden: false; history: DownloadPage<DownloadJob>; profile: ProfileResponse }
+    | { forbidden: true; history: null; profile: null })
+  export async function loadProfileView(filters: ProfileFilters): Promise<ProfileView>
+
+  // src/app/actions/load-profile-history.ts — 'use server'
+  export async function loadProfileHistory(search, cursor): Promise<LoadProfileHistoryResult>
+
+  // src/components/profile/ — page-shell, header, trend, filter-controls ('use client'),
+  //   history ('use client'), history-table, history-empty. Notable:
+  export const PROFILE_TITLE / PROFILE_GROUP_LABEL / NO_DOWNLOADS_YET
+  export function LifetimeTile(props: { total: number }): JSX.Element
+  export function ProfileFilterProvider / ProfileTotals / ProfileAppliedFilters
+  ```
+
+  ##### ⚠️ Findings: `requesterProfileHref` is now THE access rule, app-wide
+
+  F1 widened `requesterProfileHref` in `activity-requester.tsx` and **the activity
+  feed, the gallery card and the home card all now share it.** `ActivityRequester`'s
+  doc comment claiming "a route for somebody else's profile does not exist yet" is
+  gone. **Any new surface showing a requester must import it rather than re-deriving
+  the rule.**
+
+  ⚠️ **This collides with F2, which shipped concurrently and deliberately did NOT use
+  it** — on `/admin`, `requester: null` means _service_, not _masked_, and
+  `requesterProfileHref` linked only the viewer's own identity at the time F2 read it,
+  which would have dropped every other row's link on a page where every requester is
+  legitimately inspectable. F2 built `AdminActor` and links rows to `?requester=`
+  instead. **G1 must now adjudicate:** with the helper widened, do admin rows want the
+  profile link, the filter link, or both? Neither agent could see the other's answer.
+
+  **Props changed on already-shipped components** — `GalleryItemCardProps` and
+  `GalleryResultsProps` gained a **required** `viewer: Viewer | null`;
+  `RecentCardProps` / `RecentlyAddedProps` swapped `viewerEmail?: string | null` for an
+  **optional** `viewer?: Viewer | null`. ⚠️ **Required on one pair, optional on the
+  other** — F1 kept `RecentCard`'s optionality because it was optional before.
+  **Worth unifying in G1.**
+
+  ##### Findings: two cleanups and one addition for G1
+
+  - **`PROFILE_HREF` and `ACCOUNT_HREF` are two names for `/profile`.** They are
+    asserted equal in `app/profile/__tests__/page.spec.tsx`, so the duplication cannot
+    drift silently — but collapsing them to one constant is a G1 cleanup.
+  - **`/profile` has no pagination in the mockup.** F1 added `LoadMore` plus a
+    `loadProfileHistory` action anyway, because 24 rows with no way forward is a dead
+    end. ⚠️ **The trend and the totals are deliberately NOT re-fetched on "Load
+    more"** — correct, since both are all-time and only `jobsPerDay` is windowed.
+  - ⚠️ **Confirms F2's trap independently:** mid-task, `pnpm type-check` failed on the
+    generated `.next/types/app/admin/page.ts` because a page module exported a
+    non-Next value. **Page files may export only Next's own names plus types.**
+
+  **Mockup deviations (F1): measured, not eyeballed.** `getBoundingClientRect` /
+  `getComputedStyle` diffs between the built `profile.html` frames and
+  `localhost:8090`, at 1280×900 and 390×844. **Exact matches:** the 52px ring avatar
+  (52/52/18px, identical two-layer shadow), header row (`gap 16px`, `mb 24px`),
+  lifetime tile (radius, `px-5 pt-[18px] pb-5`, `gap 7px`, label + 32px numeral),
+  idle aggregate chips (23px / 11px / 10px padding, identical bg/fg/border), the
+  applied-filter pill, the applied row's gap and margin, the `Note` used for both
+  empty states, trend plot geometry (`h-16`, `gap-[3px]`), and the table's column split.
+
+  | Deviation                                                                  | Reason                                                                                                                                                                                             |
+  | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | **Title is `text-h1` (23px), not the mockup's raw `text-[22px]`**          | The same call `ACTIVITY_TITLE` already documents — the token is what every other heading in the app is written in.                                                                                 |
+  | **Mobile history table scrolls instead of being clipped**                  | ⚠️ **Frame artifact, not a mobile design:** measured inside the mockup's own 390px frame, its table is **564px wide in a 338px card**, so `progress`/`started` are cut off by the frame's `overflow-hidden`. F1 used `search.pug`'s sanctioned idiom (`overflow-x-auto` card + `min-w-[480px]` table) and verified the document itself does **not** scroll horizontally. |
+  | **"Clear all" is 27px/12px/`px-2.5` vs the built mockup's 30px/14px/11px** | The mockup's **source** asks for exactly what F1 renders; the built value is the documented output-order artifact, which `cns()` resolves. Matches `/gallery`'s shipped `CLEAR_ALL_INLINE` verbatim. |
+  | **`break-all` on the email**                                               | The mockup's `jeremy@lilnas.io` fits; the real `jeremyasuncion808@gmail.com` at 23px overflows a 390px viewport as a bare flex text node. Caught on the first mobile screenshot.                    |
+  | **History titles are links** (mockup draws plain text)                     | The same call `ActivityTable` already makes.                                                                                                                                                       |
+  | **Trend plot is one `role="img"` with a summary label**, not 30 announced elements | The mixin has no a11y treatment at all.                                                                                                                                                     |
+  | **Empty-history copy varies on `you`**                                     | "Your downloads will show up here…" vs the mockup's "This person's downloads…", which reads oddly on the one profile everybody sees first.                                                          |
+  | **`tracking-[0.11em]` dropped** from the group labels                      | `--text-label--letter-spacing` already carries it.                                                                                                                                                 |
+
+  **Where the API beat the mockup on content:**
+  - Avatars read **JE**, not **JA** — one real user.
+  - ⚠️ **Status vocabulary: `profile.mjs` invents `queued`, which is not a
+    `DownloadJobStatus`.** The real enum has `requested`/`pending`.
+    `parseProfileFilters` drops `queued` (tested).
+  - **Status tones come from `statusTone`, not the mockup's palette.** The mockup
+    hand-picks `ok` (green) for `downloading` and `mute` for `paused`; the app's
+    vocabulary makes those `uv` and `warn`.
+  - **Status chip order is lifecycle order**, built from an exhaustive
+    `Record<DownloadJobStatus, number>` rather than `Object.values()` — ⚠️ **that enum
+    is declared alphabetically, which would have led with `cancelled`.**
+  - Posters are gradient stand-ins (the known relative-poster-path 404).
+
+  ⚠️ **Not reachable live: the 403 panel.** The only account on this deployment is an
+  admin, so `?user=` always succeeds — it renders the _empty_ profile for an unknown
+  email, which F1 did screenshot. The not-authorized state is covered from fixture data
+  in `app/profile/__tests__/page.spec.tsx`, including that it leaks neither the email
+  nor the table. No destructive action was taken to reach any state.
+
+- [x] **F2. Admin dashboard.** — `d1f4ee99` — `/admin`, admin-only.
 
   **Files:** create `apps/download/src/app/admin/{page,loading,error}.tsx` and
   `apps/download/src/components/admin/`.
@@ -5091,17 +6068,201 @@ rendered output are unchanged. **Both duplicates are deleted** —
     the nav never offers the link.
   - `windowDays` echoes the applied window, which may be clamped from what was asked.
 
-  **Tests:** sparse `jobsPerDay` renders a continuous trend; a `null` actor renders
-  as the service; non-admin gets not-authorized; the requester filter scopes the
-  history.
+  **Tests:** ~~sparse `jobsPerDay` renders a continuous trend~~ (dropped — see below);
+  a `null` actor renders as the service; non-admin gets not-authorized; the requester
+  filter scopes the history; `windowDays` clamping is reflected in what's rendered.
+
+  ##### ⚠️ Wave 10 scope decisions for F2 — decided 2026-09-16
+
+  1. ⏭️ **DROPPED: the admin trend chart.** The `jobsPerDay` edge case and its test
+     were **inherited boilerplate from F1's task text**. Three independent signals
+     agree: `mixin trend(days)` is local to `profile.pug` and absent from `ui.pug`;
+     `admin-dashboard.pug` draws **no** trend, only `mixin statTile` (line 39) with an
+     optional `+bar` (line 54); and **F2's own Surface list above names no trend.**
+     F2 builds the stat tiles the mockup actually draws, and handles sparseness at
+     the bar if a tile is fed from `jobsPerDay`. **F2 must report explicitly whether
+     `getStats().jobsPerDay` ends up rendered at all**, so an omission is a recorded
+     decision rather than a gap.
+  2. **F2 may add the admin entry to the app bar.** Until now **nothing anywhere
+     linked to `/admin`** — the page would have been reachable only by typing the URL,
+     and G1's "a regular user sees no `/admin` entry" check would have passed
+     vacuously. `AppBar` already takes `viewer: Viewer | null` and `Viewer` carries
+     `isAdmin`, so the link is gateable **with no change to `AppBarProps`**; that is
+     the condition. ⚠️ **If it turns out to need a props change, F2 stops and
+     reports** — `AppBarProps` is a shared contract every page depends on.
+     `app-bar.spec.tsx` must cover both renders: a regular user gets **no** entry, not
+     a disabled one.
+
+  **Findings (F2, 2026-09-16):** 24 files created, 2 modified
+  (`components/shell/app-bar.tsx` + its spec). 6 new suites / 68 new tests; package
+  total **158 suites / 3133 tests** passing. Lint and type-check clean.
+  **Actual exported signatures — paste these:**
+
+  ```ts
+  // src/lib/admin-filters.ts — no directive, importable both sides
+  export type AdminFilters = { days: number | null; requester: string | null
+    statuses: DownloadJobStatus[]; types: DownloadType[] }
+  export const EMPTY_ADMIN_FILTERS: AdminFilters
+  export const ADMIN_STATS_MIN_DAYS = 1
+  export const ADMIN_STATS_MAX_DAYS = 365
+  export const ADMIN_TYPE_ORDER / ADMIN_TYPE_LABELS / ADMIN_STATUS_ORDER
+  export const ADMIN_HISTORY_FORBIDDEN = 'You do not have access to the download history'
+  export type AdminSearchParams = Record<string, string | string[] | undefined>
+  export type AdminFilterChip = { key; label; removeLabel; next: AdminFilters }
+  export type LoadAdminHistoryResult =
+    | { items: DownloadJob[]; nextCursor: string | null; total: number }
+    | { error: string }
+  export function parseAdminFilters / adminFiltersToSearchParams / adminFiltersToSearch
+  export function adminHref / adminFiltersToHistoryQuery / adminFiltersToStatsQuery
+  export function hasAdminFilters / adminFilterChips
+
+  // src/lib/admin-data.ts — SERVER-ONLY
+  export const ADMIN_HISTORY_PAGE_SIZE = 24
+  export const ADMIN_AUDIT_LOG_LIMIT = 20
+  export const ADMIN_MERGED_SCAN_LIMIT = 100
+  export type AdminHistoryPage = { items: DownloadJob[]; nextCursor: string | null; total: number }
+  export async function loadAdminHistory(client, filters, cursor, requesterEmails): Promise<AdminHistoryPage>
+
+  // src/lib/admin-audit.ts
+  export type AuditLevel = { label: string; tone: StatusTone }
+  export const AUDIT_ACTION_LEVELS: Record<AuditAction, AuditLevel>
+  export const AUDIT_ACTION_PHRASES: Record<AuditAction, string>
+  export const AUDIT_SERVICE_LABEL = 'service'
+  export function auditLevel / auditActorLabel / describeAuditTarget / formatAuditMetadata
+
+  // src/app/actions/load-admin-history.ts — 'use server'
+  export async function loadAdminHistoryPage(search: string, cursor: string): Promise<LoadAdminHistoryResult>
+
+  // src/components/admin/ — page-shell, stats, actor, history-cells, history-table,
+  //   history-list, history-empty, history ('use client'), filter-chips ('use client'),
+  //   leaderboard, audit-log. Notable constants:
+  export const ADMIN_TITLE_TEXT = 'Admin dashboard'
+  export const ADMIN_NOT_AUTHORIZED_DESCRIPTION: string
+  export const HIDDEN_ATTRIBUTION_LABEL = 'Hidden from other users'
+  export function formatCount / windowJobTotal / runningJobTotal
+
+  // src/components/shell/app-bar.tsx — ADDITIVE ONLY, AppBarProps unchanged
+  export const ADMIN_HREF = '/admin'
+  export const ADMIN_LINK_LABEL = 'admin'
+  ```
+
+  ##### 🚨 Findings: `GET /download/history` has NO "every user" mode — F2's headline
+
+  **The task's core requirement — "the _full_ download history (every user, every
+  status)" — is not directly obtainable from the API.**
+  `DownloadController.getHistory` computes
+  `isSelfScope = !query.requester || …` and then
+  `requesterEmail = isSelfScope ? user.email : query.requester`, so **an unfiltered
+  call returns the caller's OWN history**, not everybody's. An admin asking for
+  everything gets themselves.
+
+  F2 **did not change the backend** (correctly — the plan forbids it). The workaround
+  in `loadAdminHistory` fans out **one `getHistory` per `topRequesters` entry** and
+  interleaves by `(createdAt, id)` desc, scanning `offset + pageSize` per requester so
+  each page is provably complete, capped at `LimitSchema`'s max of 100.
+
+  ⚠️ **Two gaps the workaround inherits, both documented in `admin-data.ts`:**
+  - `TOP_REQUESTERS_LIMIT = 20` server-side, so **a 21st requester never appears** in
+    the unfiltered table.
+  - `countJobsByRequester` drops null-requester rows, so **a service-created job shows
+    in the stat tiles and the audit log but never in the merged table.**
+
+  **A backend change is the real fix** and is strictly better: `listHistory` already
+  takes `requesterEmail` as optional, so an admin-gated "all requesters" branch on the
+  controller collapses this to one call with real cursor pagination and closes both
+  gaps. **Recorded as a follow-up (H2); not part of this plan.**
+
+  ##### ⚠️ Findings: three environment traps the prompts got wrong
+
+  1. ⚠️ **A `'use server'` module may not export a `const`** — only async functions.
+     `export const ADMIN_HISTORY_FORBIDDEN` in the action broke the dev server with
+     `Only async functions are allowed to be exported in a "use server" file`, and
+     **the jest specs did not catch it because they mock that module.** Moved to
+     `admin-filters.ts`. Every prior task's note only mentioned `export type`.
+  2. ⚠️ **A route `page.tsx` may not export an arbitrary `const` either** — Next
+     generates `.next/types/app/admin/page.ts` constraining exports beyond
+     `default`/`metadata`/route config to `never`. It **type-checked fine until the dev
+     server had generated types for the new route**, then failed. **Type-check a new
+     route only after the dev server has compiled it once.**
+  3. ⚠️ **Correction to a note repeated in several prompts:** `apps/download`'s jest
+     maps `@lilnas/utils/*` to `packages/utils/**src**`, not `dist`
+     (`moduleNameMapper` in `jest.config.js`). **The "build `packages/utils` first"
+     warning does not apply to this package.** Also: `pnpm test` is `jest --`, so
+     `pnpm test -- --silent` passes `--silent` as a *test path pattern* and exits 1
+     with "No tests found". Use `npx jest` for flags.
+
+  ##### Findings: the two Wave 10 scope decisions, resolved
+
+  - **App-bar admin link: added, `AppBarProps` unchanged.** A `uv`-tinted chip on a
+    real `<a href="/admin">`, gated on `viewer?.isAdmin`, matching
+    `+chip({ label: 'admin', tone: 'uv' })` in both mockup frames. **Written out
+    rather than composed from `Chip`**, because `Chip` is `'use client'` and its
+    interactive variant is a `<button>`; a navigating chip is neither — the same
+    relationship `ButtonLink` has to `Button`. A regular user gets **no entry at
+    all**, asserted both by accessible name and by scanning every link's `href`.
+  - **`getStats().jobsPerDay` IS rendered** — it feeds the "recent downloads" tile via
+    `windowJobTotal()`, which sums the sparse series. **Sparseness needs no
+    gap-filling there**: an absent day contributes nothing, which is exactly right.
+    `src/lib/jobs-per-day.ts` was left to F1.
+
+  ##### ⚠️ Findings: `ActivityRequester` is NOT reusable here, and its `null` branch is wrong on this page
+
+  `requester: null` on `/admin` means **service**, not **masked** — the hidden branch
+  would render "hidden" plus a dashed avatar for an action no person took. Hence
+  `AdminActor`. F2 read `canViewRequesterProfile`/`requesterProfileHref` and
+  deliberately did **not** use them: `requesterProfileHref` returns a link only for the
+  viewer's own identity, so on an admin-only page where every requester is legitimately
+  inspectable it would drop every other row's link. Admin rows link to `?requester=`
+  (the per-user view) instead. ⚠️ **If F1 widens `requesterProfileHref` to other users,
+  G1 must decide whether admin rows want the profile link, the filter link, or both.**
+
+  ##### ⚠️ Findings: `windowDays` describes ONLY `jobsPerDay`
+
+  `totalJobs`, `totalsByStatus`, `totalsByType` and `topRequesters` are **all-time** —
+  `AdminStatsService` uses an explicit `allTimeFilter`. The task text's "`windowDays`
+  echoes the applied window" is right, but **anything quoting it beside a
+  non-`jobsPerDay` figure would be wrong.** Every other tile says "all time".
+
+  Also: **`AdminStatsQuerySchema` rejects, it does not clamp.** `.min(1).max(365)` is a
+  zod bound, so `?days=9999` is a **400**, not a clamp — correcting this task's own
+  edge-case text. `parseAdminFilters` drops an out-of-range value so the backend
+  applies its default; the render then quotes `windowDays` from the response. Verified
+  live: `/admin?days=99999` → 200 → "last 30 days".
+
+  **Mockup deviations (F2): measured, not eyeballed.** `getComputedStyle` /
+  `getBoundingClientRect` against the built `admin-dashboard.html` (system Chrome via
+  `playwright-core`, throwaway profile, 1280×900 and 390×844). **Exact to the
+  sub-pixel:** table `th` (10/12px padding, 10.5px, 1.155px tracking, `ink-4`, 16.8px
+  leading), `td` (12px padding, 13.5px, `line-soft` border, 76px row, 405px column),
+  leaderboard row (10/4px padding, 12px gap, 44px, 294px), audit row (7/10px padding,
+  11.5px mono @450, 12px gap, `rounded-xs`, `70px 72px 1fr`), stat tile
+  (18/20/20/20 padding, 7px gap, `rounded-lg`, `surface` on `line`).
+
+  | Deviation                                                                | Reason                                                                                                                                                                             |
+  | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+  | **No trend chart**                                                       | The orchestrator's scope decision above; the mockup draws none.                                                                                                                    |
+  | **Two stat tiles replaced** — _active users_ → **recent downloads**, _storage used_ → **completed** | **The API has no storage figure at all**, and `topRequesters` is capped at 20 server-side so its length is a floor, not a user count. _completed_ carries the mockup's optional `+bar` as the completed share. API beats mockup. |
+  | **Audit timestamps relative (`4m ago`), not the mockup's `15:42:08`**    | A wall clock must pick a timezone: UTC mislabels every reader outside it, local differs between SSR and hydration. Exact ISO on `title`. Same `formatRelative` + pinned server instant as every other list. |
+  | **Audit levels/phrases derived from `AuditAction`**                      | The API has no `level` field, and the mockup's `DOWNLOAD`/`ADMIN`/`API`/`AUTH` vocabulary is invented — there are no auth or API actions in `AUDIT_ACTIONS`. `Record<AuditAction, …>` so a new action is a compile error. |
+  | **A `METADATA` `<details>` line per audit row** (32px → 52px desktop)    | Required by the "render metadata as formatted JSON" edge case. Suppressed entirely for `null`/`{}`.                                                                               |
+  | **Requester shows the email, not a first name**                          | `JobRequester` has no display name — the same call `ActivityRequester` already made.                                                                                               |
+  | **`enriched` chip → `every user` / `one requester`**                     | The mockup's chip says nothing; this one says which mode the table is in.                                                                                                          |
+  | **No `2 running` chip in the app bar**                                   | Shell scope, not this task. The mockup's `admin` chip **is** present.                                                                                                              |
+  | **No row art**                                                           | The known relative-poster-path 404 (see D2). Gradient fallback behaving as designed.                                                                                               |
+  | **Leaderboard shows one user**                                           | The live DB has essentially one. API beats mockup.                                                                                                                                 |
+
+  Minor: `AdminActor` renders the service as `MChip icon="layers"` — **there is no
+  server/robot glyph in the sprite** (`ICON_NAMES` has no such entry). If a later wave
+  adds one, that is the swap.
 
 ### Phase 6 — Integration and verification
 
 - [ ] **G1. Cross-page sweep.** The nine screens behave as one app.
 
-  **Files:** create `apps/download/src/app/not-found.tsx` and
-  `apps/download/src/components/shell/not-authorized.tsx`; fix whatever this sweep
+  **Files:** create `apps/download/src/app/not-found.tsx`; fix whatever this sweep
   finds, across any file this plan created.
+  ⚠️ **`components/shell/not-authorized.tsx` is no longer G1's** — it shipped ahead of
+  Wave 10 as F0 (`a562cd23`). See [F0](#f0-shared-notauthorized--shipped-before-wave-10).
 
   **Covers:**
   - Every internal link resolves — no dead hrefs, no leftover `*.html` from the
@@ -5117,6 +6278,136 @@ rendered output are unchanged. **Both duplicates are deleted** —
 
   **Tests:** the access-rule assertions are worth real tests — a regular viewer's
   render of a row with another user's identity contains no link.
+
+  ##### ⚠️ Carried forward into G1 from Wave 10 — decided 2026-09-16
+
+  Five more assignments, same rule as the Wave 9 block below: **these are not
+  discoveries for G1 to make.**
+
+  1. 🚨 **Adjudicate the requester-link rule, which F1 and F2 answered differently.**
+     F1 **widened `requesterProfileHref`** so the activity feed, gallery card and home
+     card share one access rule. F2, shipping concurrently and unable to see that,
+     **deliberately did not use it** — on `/admin`, `requester: null` means _service_,
+     not _masked_, and at the time F2 read the helper it linked only the viewer's own
+     identity, which would have dropped every other row's link on a page where every
+     requester is legitimately inspectable. F2 built `AdminActor` and links rows to
+     `?requester=`. **Decide: do admin rows want the profile link, the filter link, or
+     both?** Neither agent could see the other's answer; this is the one genuine
+     cross-task conflict Wave 10 produced.
+  2. **Unify the `viewer` prop.** F1 made it **required** on `GalleryItemCardProps` /
+     `GalleryResultsProps` but left it **optional** on `RecentCardProps` /
+     `RecentlyAddedProps` (because it already was). One or the other.
+  3. **Collapse `PROFILE_HREF` and `ACCOUNT_HREF`** — two names for `/profile`. They
+     are asserted equal in `app/profile/__tests__/page.spec.tsx`, so this cannot drift
+     silently, but it is still two constants for one fact.
+  4. **Delete the two original ghost-link copies** now that `ButtonLink` exists — D1's
+     `src/components/home/ghost-link.tsx` and D2's `WATCH_LINK` constant in
+     `gallery-item-card.tsx`. Both are still in the tree.
+  5. **Two export traps to sweep for, both confirmed independently by F1 and F2 and
+     invisible to the test suite:** a `'use server'` module may export **only async
+     functions** (not `const`), and a route `page.tsx` may export **only Next's own
+     names plus types**. The `'use server'` case is the dangerous one — **the jest
+     specs did not catch it because they mock the action module**; it only failed at
+     the dev server. ⚠️ **Neither surfaces until the dev server has compiled the
+     route**, so a clean `pnpm type-check` on a brand-new route proves nothing.
+
+  ##### ⚠️ Carried forward into G1 from Wave 9 — decided 2026-09-15, do these
+
+  1. **Fix `JobLifecycleProps`' type collision.** React's `DOMAttributes` puts the
+     media events on every element, so E1's `onCancel`/`onPause` intersect to
+     `ReactEventHandler<HTMLDivElement> & JobAction` and **no plain
+     `(jobId: string) => Promise<void>` server action is assignable.** The fix is
+     `Omit<…, 'children' | 'onCancel' | 'onPause'>` on `JobLifecycleProps` — the same
+     thing E7 already does correctly with `SaveLocalProps`' `media`/`part`.
+     **Then delete E2's call-site assertion** in `video-detail.tsx`
+     (`as Pick<JobLifecycleProps, 'onCancel' | 'onPause' | 'onResume' | 'onRetry'>`),
+     which exists only to work around it. ⚠️ **Also fix the test that hid it:**
+     `job-lifecycle.spec.tsx` passes `jest.fn()`, which is `any`-shaped and therefore
+     type-checks against anything — pass a correctly-typed handler so this cannot
+     regress silently.
+  2. **Decide and implement video Delete.** `deleteVideoJob` ships and is tested but
+     **no Delete control is rendered**, while the mockup's completed frame draws one
+     beside `Save to device`. ⚠️ **There is a semantic fork to settle first:**
+     `deleteVideoJob` wraps `DELETE /download/videos/:jobId` and deletes a **job**,
+     whereas `DeleteConfirm`/`DeleteScope` is built around `deleteMediaFiles` and
+     deletes a **file**. **Recommended: add a `video` member to `DeleteScope` and
+     reuse `DeleteConfirm`**, for parity with the movie and show pages — consistency
+     across the three detail pages is worth more than reusing the action that happens
+     to already exist.
+  3. ✅ **DONE ahead of G1 — `8605e597`. Verify, do not rebuild.** The video detail
+     page now has live updates; see
+     [the findings under E2](#-findings-video-detail-live-updates--8605e597).
+  4. **Settle the two `not-found` items.** E2 shipped a **segment-scoped**
+     `src/app/videos/[videoId]/not-found.tsx` because the root one is G1's. Reconcile
+     the two when the root `not-found.tsx` lands. ⚠️ **Also chase E4's report that
+     `/movies/abc` renders Next's 404 body but returns HTTP 200** in the dev
+     container — `notFound()` is definitely reached, so this is likely a dev-server
+     detail, but confirm it returns 404 in a production build.
+
+  **Also verify, not assigned:** C1 flagged that `headers()` in the root layout makes
+  **every route dynamic (`ƒ`)**. Correct for a per-user authenticated app, but G2
+  should confirm the build is green and that all-routes-dynamic is accepted.
+
+  ##### ⚠️ Defects found by the live checkpoint-2 run, 2026-09-16 — G1 owns these
+
+  Found by driving the real UI against the live library. **These are observations
+  from the first genuine human-facing run of these flows; none was chased.**
+
+  🔴 **1. A media job can stick at `searching` FOREVER — this is a production bug.**
+  `deriveStatusFromQueueItem` (`queue-status.util.ts:184`) only promotes to
+  `Completed` from `Downloading`/`Importing`, and with no queue item it returns
+  `currentStatus` unchanged. The poller is a **10s cron**, but the verification grab
+  went **grabbed → imported in 6 seconds**, so the queue entry never existed on any
+  tick. Job `I8jtP1NY2banWwS_hjiW0` was still `searching` **10+ minutes later**, and
+  stayed `searching` even after its file was deleted. Because the status is
+  non-terminal it is **polled forever and never leaves the activity feed**, and the
+  episode row reads `searching` instead of `downloaded`.
+  ⚠️ **"Usenet grabs of small files will hit this routinely."** ⚠️ **The fix is in
+  `apps/download/src/media/`, which G1 may not touch — this likely needs its own
+  backend plan alongside `015`.**
+
+  🟠 **2. The `current` row renders as BROKEN when the live search returns it.**
+  `toCurrentRelease` forces `downloadAllowed: true` / `rejected: false` specifically
+  so the row does not "look broken" (comment at `release.service.ts:150-155`) — **but
+  that only protects the _synthesized_ row.** When the indexer search _does_ return
+  the current release, it arrives carrying the upstream rejection, so the row gets
+  `ROW_BLOCKED` (`opacity-55`) **and line-through while still wearing the green
+  `current` chip.** Observed on 7 titles. **Exactly the outcome that code comment set
+  out to prevent.**
+
+  🟠 **3. A whole release list can be dead UI with no explanation.** Post-grab on
+  17313, all 26 rows were disabled with only per-row upstream text. **Nothing at the
+  page level says "this series' profile forbids upgrades, so nothing here is
+  actionable."**
+
+  🟠 **4. The report control renders ONLY on the `current` row**
+  (`release-picker.tsx:537`). **There is no way to flag any other release from the
+  UI** — the checkpoint had to use the API to produce a blocked row. Worth deciding
+  deliberately: reporting a bad file you have _not_ downloaded is arguably valid.
+
+  **The three previously-reported issues all still reproduce, with new nuance:**
+
+  🟠 **5. Release rows show no release title** — and the full scene name **is**
+  present, as the row's native `title` attribute (a deliberate choice documented at
+  `release-picker.tsx:487-496`). So it is **hover-only: invisible on touch and
+  unreliable for screen readers.** On one title that left **72 rows reading
+  `WEBDL-1080p · 2.5 GB / NzbGeek`, many byte-identical.** ⚠️ E6 already flagged that
+  `Release.title` is the only truly identifying field; this confirms the cost.
+
+  🟡 **6. Rejection reasons leak raw upstream formatting** — `Existing file meets
+  cutoff: WORKPRINT []`, where `[]` is an empty custom-format list. Conditional:
+  episodes rendered `… cutoff: SDTV` with no brackets.
+
+  🟡 **7. `not downloaded` beside a working Watch button** reproduces on all 6 movies
+  tested, despite E4's `MOVIE_LIBRARY_NOTE`. The payload carries `filePath` and
+  `embyStatus.state: "indexed"` but **no `hasFile`**, which is the seam to fix.
+
+  🟡 **8. Season tab label runs together: `Season 24100%`** — no separator between the
+  name and the progress figure.
+
+  🟡 **9. One-off `SyntaxError: Unexpected end of JSON input` → `GET /shows/451873
+500`** during an episode drawer interaction. Did not reproduce; **low confidence,
+  possibly dev-only RSC/HMR noise.** Do not chase unless it recurs.
 
 - [ ] **G2. Full-repo verification.** From the repo root: `pnpm run build`,
       `pnpm run lint`, `pnpm run type-check`, `pnpm test`. Confirms nothing outside
@@ -5136,6 +6427,39 @@ rendered output are unchanged. **Both duplicates are deleted** —
 > Nothing here blocks G1–G3 or the deploy. They are recorded so the reasoning is not
 > lost, and each one names what it would actually take.
 
+- [ ] **H2. An admin "all requesters" history mode — a backend change, so a separate
+      plan.** Discovered by F2 on 2026-09-16; full detail
+      [under F2](#-findings-get-downloadhistory-has-no-every-user-mode--f2s-headline).
+
+  **Why:** `/admin`'s whole subject is the complete record, and
+  `GET /download/history` **cannot return it**. `DownloadController.getHistory` forces
+  `requesterEmail` to the caller's own address whenever `query.requester` is absent, so
+  an admin asking for everything gets themselves. F2 shipped a client-side fan-out over
+  `topRequesters` — correct within this plan's no-backend-changes rule, but it inherits
+  two real gaps: **a 21st requester is invisible** (`TOP_REQUESTERS_LIMIT = 20`), and
+  **a service-created job never appears in the merged table** (`countJobsByRequester`
+  drops null-requester rows) even though it shows in the stat tiles and the audit log.
+
+  **What it would take — verified against the code 2026-09-16:**
+  ⚠️ **Correction to F2's report, which said `listHistory` already accepts
+  `requesterEmail` as optional. It does not** — `ListHistoryParams.requesterEmail` is
+  `string`, required (`job-query.service.ts:53-57`). That is `ListGalleryParams`
+  (`:46-51`). **The thing that _is_ already optional is the layer underneath:**
+  `JobListFilter.requesterEmail?` (`jobs.repo.ts:45`), and `buildJobWhere` simply omits
+  the predicate when it is falsy (`:84-85`). `listHistory` is a thin pass-through to
+  `runJobPage` (`:94-103`), so **the repo already supports an unfiltered history
+  today**; nothing below the service needs to change.
+
+  So the work is: widen `ListHistoryParams.requesterEmail` to optional, add an
+  admin-gated "all requesters" branch on the controller (the `requesterEmail =
+  isSelfScope ? user.email : query.requester` assignment at
+  `download.controller.ts:340-342` is the whole blocker), and test it — including that
+  a **non-admin** still cannot reach the unfiltered branch, and that the
+  `excludeHiddenVideos` masking guard stays correct when there is no requester filter.
+  That collapses the fan-out to one call, restores real cursor pagination, and closes
+  both gaps. `loadAdminHistory`, `ADMIN_MERGED_SCAN_LIMIT` and `parseMergedOffset` are
+  then deletable.
+
 - [ ] **H1. Video download progress — a backend change, so a separate plan.**
 
   **Why:** the mockups draw progress the API does not carry, and the gap is real
@@ -5151,10 +6475,10 @@ rendered output are unchanged. **Both duplicates are deleted** —
     counter, transfer rate or fragment counter exists for any type.**
   - ⚠️ **The backend does not merely fail to expose video progress — it never
     captures it.** yt-dlp emits progress on stdout, but
-    `download-video.service.ts:557` does `proc.stdout.pipe(logFileStream)` during the
+    `download-video.service.ts:571` does `proc.stdout.pipe(logFileStream)` during the
     actual download. It goes **straight to a log file and is never parsed.** (The
     stdout handler at `:88` is a different code path — the `--dump-json` metadata
-    probe.)
+    probe.) ⚠️ **Line was `:557` before `c7eebc62` shifted it; `:88` is unaffected.**
   - So `video-detail.pug`'s `fragment 4 of 9` and `412 MB / 640 MB · 3.1 MB/s` are
     **mockup data with nothing behind them.** Per this plan's own rule — where a
     mockup and the API disagree about content, the API wins — they are not rendered.
@@ -5235,7 +6559,7 @@ graph TD
 | 7    | **D4 ∥ E1**                | `app/activity/` vs `components/detail/`. **Split out of wave 6 deliberately — see below.**                                                 |
 | 8    | **E3 ∥ E6**                | ⚠️ **E7 already shipped in wave 7** — the E1 session continued into it unprompted — so this wave is TWO tasks, not three. Both consume E1. |
 | 9    | **E2 ∥ E4 ∥ E5**           | Three route directories, three detail components. E2 needs E3; E4/E5 need E6 + E7.                                                         |
-| 10   | **F1 ∥ F2**                | Two route directories, disjoint.                                                                                                           |
+| 10   | **F0, then F1 ∥ F2**       | ⚠️ **F0 inserted 2026-09-16** — both specify the same not-authorized state. ⚠️ **"Disjoint" held for the route dirs only:** F2 also edited `shell/app-bar.tsx`, F1 also edited `gallery/`, `home/` and `activity-requester.tsx`. Assigned explicitly up front; no collision. |
 | 11   | **G1**                     | Must see every page. Sequential by nature — it edits whatever it finds.                                                                    |
 | 12   | **G2 ∥ G3**                | Verification reads; docs writes markdown. No overlap.                                                                                      |
 
@@ -5336,6 +6660,48 @@ checking for.
    No agent runs these; they write to the real library and delete real files off
    `/storage/media-library`. _Checking for:_ the four destructive flows behave
    against live upstreams, not just against mocked actions.
+
+   ✅ **CLEARED 2026-09-16 — three of four flows exercised live against the real
+   library. Replace is outstanding for a structural reason, not a defect.**
+   Run by an agent under explicit owner authorization, after plan `014` made the
+   flag flow reachable. **The blast radius was contained by design:** every
+   destructive step acted on a file the run itself created — Family Guy S24E11
+   (`tvdb:75978`, `episodeId 17313`), chosen because it was **monitored and
+   missing**, so nothing pre-existing was ever at risk.
+
+   | Flow | Result |
+   | ---- | ------ |
+   | **Grab** | ✅ Sonarr `grabbed` → `downloadFolderImported` in 6s; `episodeFileId 6246`, 367 MB; series file count 455 → 456. |
+   | **Replace** | ⚠️ **NOT EXECUTED — stopped and reported.** All 26 rows came back `aria-disabled`: Family Guy's quality profile is "Any" (id 1) with **`upgradeAllowed: false`** and cutoff `SDTV`, so Sonarr refuses every release once any file exists. **Structural to the series' profile, not a consequence of the release grabbed.** The run correctly refused to substitute another title or to bypass the UI's correct refusal via the API. |
+   | **Delete** | ✅ Dialog named the right scope (_Delete S24E11 of "Family Guy"?_); `episodefile/6246` → 404 afterwards; count 456 → 455; audit row `media.delete_files`, `deletedCount: 1`, `scope: {episodeId: 17313}`. |
+   | **Flag / unflag** | ✅ Both, on a **movie and an episode**, with the correct variant copy. Re-flag is idempotent (returns the original row, id 3, original reason and `createdAt`, HTTP 201). A flagged release renders dimmed + line-through + `bad file`, its grab control `aria-disabled` with `aria-describedby` → the reason, and an API grab of that guid answers **409** with no job created. |
+
+   ✅ **State fully restored.** `deleteMediaFiles` does unmonitor, so monitoring was
+   re-enabled via `PUT /api/v3/episode/monitor`. Final: **`monitored: true`,
+   `hasFile: false`, `episodeFileId: 0`** — identical to baseline. **Nothing else
+   changed:** Radarr 292 movies / 283 with files, Sonarr 77 series / 4055 episode
+   files, both matching baseline exactly; Sonarr queue empty; no `bad_files` rows
+   left behind.
+
+   ⚠️ **To finish the replace flow**, someone needs a title whose quality profile has
+   `upgradeAllowed: true` — which means **widening the authorized blast radius to a
+   second title**. Structurally the one-flow-not-delete-then-grab property is still
+   guaranteed (`ReleasePicker` is handed no delete action; `replaceRelease` is a
+   single `POST …/releases/replace`), so what is unverified is the **live upstream
+   behaviour**, not the client sequencing.
+
+   ⚠️ **The first attempt at this checkpoint was correctly ABORTED** before any
+   destructive call, because the dev backend was serving pre-`014` code — see
+   [the stale-backend finding](#️️-findings-nest-start--w-silently-stops-watching--the-dev-container-serves-a-stale-backend-with-a-current-frontend).
+   Had it pushed on, it would have made irreversible writes while exercising the
+   wrong code and then reported a bug that does not exist.
+
+   ✅ **Plan `014` is CONFIRMED against live data — its premise holds.** The
+   `current` chip rendered **13/13 in the UI** (6/6 movies, 7/7 episodes), and the
+   `episodeId` join resolved **535/535 episode files** across six series at the API.
+   **Neither failure mode occurred**: no null guids, and in the six cases where the
+   live indexer search did not return the grabbed release, **014's synthesized row
+   appeared exactly as designed.** Episodes did not diverge from movies.
 
 3. **After G1 — review the four unproducible states.** An empty library, "no matches"
    with healthy upstreams, the degraded-source banner, and Emby `indexing…` can't be
