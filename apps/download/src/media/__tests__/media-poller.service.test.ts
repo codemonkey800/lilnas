@@ -7,6 +7,8 @@ jest.mock('nanoid', () => ({
   nanoid: jest.fn(() => 'mock-id'),
 }))
 
+import type { MovieFileResource } from '@lilnas/media/radarr'
+import type { EpisodeFileResource, EpisodeResource } from '@lilnas/media/sonarr'
 import {
   DownloadJobRecord,
   DownloadJobStatus,
@@ -19,7 +21,10 @@ import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { DbService } from 'src/db/db.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
-import { MediaPollerService } from 'src/media/media-poller.service'
+import {
+  MediaPollerService,
+  type TrackedJob,
+} from 'src/media/media-poller.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { RadarrService } from 'src/media/radarr.service'
 import { SonarrService } from 'src/media/sonarr.service'
@@ -57,6 +62,13 @@ function buildShowJob(
   return buildRecord(DownloadType.Show, 'tvdb:1', overrides)
 }
 
+function buildTrackedShowJob(
+  upstreamId: number,
+  overrides: Partial<DownloadJobRecord> = {},
+): TrackedJob {
+  return { record: buildShowJob(overrides), upstreamId }
+}
+
 describe('MediaPollerService', () => {
   // Which upstream library id each media key resolves to. A key absent from
   // this map resolves to a media with no radarrId/sonarrId, i.e. a title
@@ -75,8 +87,15 @@ describe('MediaPollerService', () => {
       ['tvdb:1', 9],
     ])
     dbService = createTestDbService()
-    const mockRadarrService = { getQueue: jest.fn().mockResolvedValue([]) }
-    const mockSonarrService = { getQueue: jest.fn().mockResolvedValue([]) }
+    const mockRadarrService = {
+      getMovieFiles: jest.fn().mockResolvedValue([]),
+      getQueue: jest.fn().mockResolvedValue([]),
+    }
+    const mockSonarrService = {
+      getEpisodeFiles: jest.fn().mockResolvedValue([]),
+      getEpisodes: jest.fn().mockResolvedValue([]),
+      getQueue: jest.fn().mockResolvedValue([]),
+    }
     const mockDownloadGateway = { broadcastPerViewer: jest.fn() }
     // `radarrId`/`sonarrId` are no longer persisted on the job - the poller
     // reads them off the resolved media, so the resolver is what supplies
@@ -510,6 +529,116 @@ describe('MediaPollerService', () => {
       const updated = downloadStateService.jobs.get(job.id)
       expect(updated?.status).toBe(DownloadJobStatus.Failed)
       expect(updated?.error).toBe('disk full; unpack failed')
+    })
+  })
+
+  // Exercised directly rather than through `poll()`: nothing calls it yet -
+  // the queue-empty completion check that consumes it lands separately, and
+  // this fetch is deliberately inert until then.
+  describe('completionInputs', () => {
+    // The steady state: every job has a queue entry, so nothing ever reaches
+    // the completion check and it must cost exactly nothing.
+    it('makes no upstream call at all when handed no jobs', async () => {
+      const movies = await service.completionInputs(DownloadType.Movie, [])
+      const shows = await service.completionInputs(DownloadType.Show, [])
+
+      expect(movies.size).toBe(0)
+      expect(shows.size).toBe(0)
+      expect(radarrService.getMovieFiles).not.toHaveBeenCalled()
+      expect(sonarrService.getEpisodeFiles).not.toHaveBeenCalled()
+      expect(sonarrService.getEpisodes).not.toHaveBeenCalled()
+    })
+
+    it('returns a movie job its movie files, keyed by job id', async () => {
+      const record = buildMovieJob()
+      const files: MovieFileResource[] = [
+        { dateAdded: NOW_ISO, id: 501, movieId: 42 },
+      ]
+      radarrService.getMovieFiles.mockResolvedValue(files)
+
+      const result = await service.completionInputs(DownloadType.Movie, [
+        { record, upstreamId: 42 },
+      ])
+
+      expect(radarrService.getMovieFiles).toHaveBeenCalledWith(42)
+      expect(result.get(record.id)).toEqual({ files })
+      // A movie is one file with no episode indirection, so there is nothing
+      // to join and `episodes` stays absent rather than empty.
+      expect(result.get(record.id)?.episodes).toBeUndefined()
+      expect(sonarrService.getEpisodeFiles).not.toHaveBeenCalled()
+    })
+
+    it('returns a show job both its episode files and its episodes', async () => {
+      const record = buildShowJob({ scope: { episodeId: 77, seasonNumber: 3 } })
+      const files: EpisodeFileResource[] = [
+        { dateAdded: NOW_ISO, id: 900, seasonNumber: 3, seriesId: 9 },
+      ]
+      const episodes: EpisodeResource[] = [
+        { episodeFileId: 900, id: 77, seasonNumber: 3, seriesId: 9 },
+      ]
+      sonarrService.getEpisodeFiles.mockResolvedValue(files)
+      sonarrService.getEpisodes.mockResolvedValue(episodes)
+
+      const result = await service.completionInputs(DownloadType.Show, [
+        { record, upstreamId: 9 },
+      ])
+
+      expect(sonarrService.getEpisodeFiles).toHaveBeenCalledWith(9)
+      // Unfiltered by season: one list per series serves every scope, which
+      // is what lets differently-scoped jobs share the call below.
+      expect(sonarrService.getEpisodes).toHaveBeenCalledWith(9)
+      // `EpisodeFileResource` has no `episodeId`, so the episodes are the
+      // only way back from `scope.episodeId` to a file - hence both.
+      expect(result.get(record.id)).toEqual({ episodes, files })
+    })
+
+    // The whole point of the helper: four episode-scoped jobs on one series
+    // read one series-wide file list, so they must cost one fetch, not four.
+    it('fetches once per distinct upstreamId, not once per job', async () => {
+      const jobs: TrackedJob[] = [1, 2, 3, 4].map(episodeId =>
+        buildTrackedShowJob(9, {
+          id: `show-${episodeId}`,
+          scope: { episodeId, seasonNumber: 3 },
+        }),
+      )
+
+      const result = await service.completionInputs(DownloadType.Show, jobs)
+
+      expect(sonarrService.getEpisodeFiles).toHaveBeenCalledTimes(1)
+      expect(sonarrService.getEpisodes).toHaveBeenCalledTimes(1)
+      expect(result.size).toBe(4)
+      // Every job is keyed separately but shares the one fetched result.
+      const shared = result.get('show-1')
+      expect(shared).toBeDefined()
+      for (const job of jobs) {
+        expect(result.get(job.record.id)).toBe(shared)
+      }
+    })
+
+    it('still fetches once per series when the jobs span two series', async () => {
+      const result = await service.completionInputs(DownloadType.Show, [
+        buildTrackedShowJob(9, { id: 'a' }),
+        buildTrackedShowJob(9, { id: 'b' }),
+        buildTrackedShowJob(11, { id: 'c' }),
+      ])
+
+      expect(sonarrService.getEpisodeFiles).toHaveBeenCalledTimes(2)
+      expect(sonarrService.getEpisodeFiles).toHaveBeenCalledWith(9)
+      expect(sonarrService.getEpisodeFiles).toHaveBeenCalledWith(11)
+      expect(result.get('a')).toBe(result.get('b'))
+      expect(result.get('a')).not.toBe(result.get('c'))
+    })
+
+    // `poll()` already owns the exponential backoff; a second one here would
+    // only let the two disagree about when to retry.
+    it('lets an upstream rejection propagate rather than swallowing it', async () => {
+      radarrService.getMovieFiles.mockRejectedValue(new Error('radarr down'))
+
+      await expect(
+        service.completionInputs(DownloadType.Movie, [
+          { record: buildMovieJob(), upstreamId: 42 },
+        ]),
+      ).rejects.toThrow('radarr down')
     })
   })
 })

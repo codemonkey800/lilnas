@@ -1,3 +1,5 @@
+import type { MovieFileResource } from '@lilnas/media/radarr'
+import type { EpisodeFileResource, EpisodeResource } from '@lilnas/media/sonarr'
 import {
   DownloadJobRecord,
   DownloadJobStatus,
@@ -35,9 +37,31 @@ const TERMINAL_STATUSES = new Set<DownloadJobStatus>([
 ])
 
 /** A tracked job paired with the upstream library id to poll it by. */
-interface TrackedJob {
+export interface TrackedJob {
   record: DownloadJobRecord
   upstreamId: number
+}
+
+/**
+ * The upstream state one job's completion check reads: the files the target
+ * currently holds and - for a show - the episodes that point at them.
+ *
+ * Sonarr's `EpisodeFileResource` carries `id`, `seasonNumber` and `dateAdded`
+ * but **no** `episodeId`. The link runs the other way, from
+ * `Episode.episodeFileId` to a file's `id` - the join `resolveEpisodeFileIds`
+ * performs in episode-files.util.ts - so an episode-scoped job cannot be
+ * answered from the file list alone and the episodes have to come with it.
+ * Radarr has no such indirection: a movie is one file, so `episodes` is
+ * absent for movies rather than empty.
+ *
+ * Named at arm's length from `job-completion.util.ts`'s `CompletionInput`
+ * deliberately. That type is the *decision's* structural input; this one is
+ * the *poller's* raw fetch, and the two are kept uncoupled - a pair of names
+ * one letter apart would only invite importing the wrong one.
+ */
+export interface PollableCompletionData {
+  episodes?: EpisodeResource[]
+  files: MovieFileResource[] | EpisodeFileResource[]
 }
 
 /**
@@ -165,6 +189,75 @@ export class MediaPollerService {
       const upstreamId = upstreamLibraryId(media.get(record.mediaId))
       return upstreamId == null ? [] : [{ record, upstreamId }]
     })
+  }
+
+  /**
+   * The upstream files - and, for shows, episodes - needed to decide whether
+   * each of `jobs` has already finished, keyed by job id.
+   *
+   * Only ever asked about jobs with **no queue entry this tick**, because an
+   * empty queue is the one ambiguous reading: it means either "nothing
+   * grabbed yet" or "grabbed, downloaded and imported between two ticks". A
+   * usenet grab of a small file can run that whole way in ~6s, so at a 10s
+   * cadence the queue is empty every time the poller looks and the job wedges
+   * at `searching` with its file already on disk. Every other tick has a
+   * queue item saying exactly where the job is, which is why this costs
+   * nothing in the steady state: zero jobs in, zero upstream calls out.
+   *
+   * Fetches **once per distinct `upstreamId`, not once per job**. Four
+   * episode-scoped jobs on one series all read the same series-wide file
+   * list, so they share one `getEpisodeFiles` call; fanning out per job is
+   * what would turn a rare fallback into a per-tick load spike.
+   *
+   * Deliberately hands back the raw resources rather than routing through
+   * `resolveEpisodeFileIds`: that helper narrows per *scope*, which is a call
+   * per job again, and it reduces to file ids, dropping the `dateAdded` the
+   * "did a file appear since this job started?" question turns on. Scope
+   * narrowing belongs to the caller, applied to this shared list.
+   *
+   * Errors propagate untouched - `poll()` already owns the exponential
+   * backoff, and a second one here would only let the two disagree about
+   * when to retry.
+   *
+   * Public, not `private`, only because nothing calls it yet:
+   * `noUnusedLocals` rejects an uncalled private member, and this landed
+   * ahead of the queue-empty check that consumes it. Narrow it back to
+   * `private` the moment `pollMovies`/`pollShows` call it.
+   */
+  async completionInputs(
+    type: DownloadType,
+    jobs: readonly TrackedJob[],
+  ): Promise<Map<string, PollableCompletionData>> {
+    const byJobId = new Map<string, PollableCompletionData>()
+    if (jobs.length === 0) return byJobId
+
+    const upstreamIds = Array.from(new Set(jobs.map(job => job.upstreamId)))
+
+    const fetched = await Promise.all(
+      upstreamIds.map(
+        async (upstreamId): Promise<[number, PollableCompletionData]> => {
+          if (type === DownloadType.Movie) {
+            const files = await this.radarrService.getMovieFiles(upstreamId)
+            return [upstreamId, { files }]
+          }
+
+          const [files, episodes] = await Promise.all([
+            this.sonarrService.getEpisodeFiles(upstreamId),
+            this.sonarrService.getEpisodes(upstreamId),
+          ])
+          return [upstreamId, { episodes, files }]
+        },
+      ),
+    )
+
+    const byUpstreamId = new Map(fetched)
+
+    for (const job of jobs) {
+      const inputs = byUpstreamId.get(job.upstreamId)
+      if (inputs) byJobId.set(job.record.id, inputs)
+    }
+
+    return byJobId
   }
 
   private applyUpdate(
