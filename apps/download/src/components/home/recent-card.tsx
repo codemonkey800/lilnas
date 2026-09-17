@@ -85,11 +85,17 @@ export type RecentCardProps = Omit<
    */
   now: number
   /**
-   * Who is looking, when anyone is. Decides whether the attribution avatar is
-   * a link, per {@link requesterProfileHref}'s access rule — own identity
-   * always, anyone else's only for an admin, a masked uploader never.
+   * Who is looking. Decides whether the attribution avatar is a link, per
+   * {@link requesterProfileHref}'s access rule — own identity always, anyone
+   * else's only for an admin, a masked uploader never.
+   *
+   * Required, and nullable: `null` is a real answer (nobody is signed in) and
+   * the caller has to give it. Optional would let a page that renders a
+   * requester forget to say who is reading, and the failure is silent — every
+   * avatar quietly loses its link and looks exactly like a correctly-masked
+   * one. Matches `GalleryItemCard`, which has always spelled it this way.
    */
-  viewer?: Viewer | null
+  viewer: Viewer | null
 }
 
 /**
@@ -117,7 +123,7 @@ export function RecentCard({
   // still being indexed has nothing to point a player at yet, which is the
   // whole reason the chip stands in for the action.
   const watchUrl = emby?.state === 'indexed' ? emby.watchUrl : undefined
-  const profileHref = requesterProfileHref(lastRequester, viewer ?? null)
+  const profileHref = requesterProfileHref(lastRequester, viewer)
 
   return (
     <GalleryCard

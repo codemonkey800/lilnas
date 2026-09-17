@@ -22,8 +22,8 @@ export type RecentlyAddedProps = Omit<
   items: readonly GalleryItem[]
   /** One pinned instant for the whole grid — see {@link RecentCard}'s `now`. */
   now: number
-  /** Who is looking — see {@link RecentCard}'s `viewer`. */
-  viewer?: Viewer | null
+  /** Who is looking, `null` for nobody — see {@link RecentCard}'s `viewer`. */
+  viewer: Viewer | null
 }
 
 const HEADING_ID = 'recently-added-heading'

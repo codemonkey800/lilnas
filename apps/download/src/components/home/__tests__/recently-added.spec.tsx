@@ -31,7 +31,7 @@ const ITEMS = Array.from({ length: RECENTLY_ADDED_LIMIT }, (_, i) => video(i))
 
 describe('RecentlyAdded', () => {
   it('renders one card per item', () => {
-    render(<RecentlyAdded items={ITEMS} now={NOW} />)
+    render(<RecentlyAdded items={ITEMS} now={NOW} viewer={null} />)
 
     expect(screen.getAllByRole('link', { name: /Clip/ })).toHaveLength(
       RECENTLY_ADDED_LIMIT,
@@ -39,7 +39,7 @@ describe('RecentlyAdded', () => {
   })
 
   it('keeps the way through to the full library', () => {
-    render(<RecentlyAdded items={ITEMS} now={NOW} />)
+    render(<RecentlyAdded items={ITEMS} now={NOW} viewer={null} />)
 
     expect(
       screen.getByRole('link', { name: 'See full library' }),
@@ -47,7 +47,7 @@ describe('RecentlyAdded', () => {
   })
 
   it('says so when the library is empty, instead of drawing an empty grid', () => {
-    render(<RecentlyAdded items={[]} now={NOW} />)
+    render(<RecentlyAdded items={[]} now={NOW} viewer={null} />)
 
     expect(screen.queryByRole('link', { name: /Clip/ })).not.toBeInTheDocument()
     expect(screen.getByText(/Nothing in the library yet/)).toBeInTheDocument()
@@ -59,7 +59,7 @@ describe('RecentlyAdded', () => {
   })
 
   it('labels the section with its own heading', () => {
-    render(<RecentlyAdded items={ITEMS} now={NOW} />)
+    render(<RecentlyAdded items={ITEMS} now={NOW} viewer={null} />)
 
     expect(
       screen.getByRole('region', { name: 'Recently added' }),

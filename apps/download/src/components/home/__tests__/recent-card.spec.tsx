@@ -76,7 +76,7 @@ describe('recentCardMeta', () => {
 
 describe('RecentCard', () => {
   it('links the top half at the media detail page', () => {
-    render(<RecentCard item={item()} now={NOW} />)
+    render(<RecentCard item={item()} now={NOW} viewer={null} />)
 
     expect(screen.getByRole('link', { name: /Scary Movie/ })).toHaveAttribute(
       'href',
@@ -86,7 +86,7 @@ describe('RecentCard', () => {
 
   it('gives a video the tall poster crop the rest of the grid uses', () => {
     const { container } = render(
-      <RecentCard item={item({ media: VIDEO })} now={NOW} />,
+      <RecentCard item={item({ media: VIDEO })} now={NOW} viewer={null} />,
     )
     const poster = container.querySelector('a > div')
 
@@ -99,6 +99,7 @@ describe('RecentCard', () => {
       <RecentCard
         item={item({ lastDownloadedAt: '2026-09-15T18:00:00.000Z' })}
         now={NOW}
+        viewer={null}
       />,
     )
 
@@ -164,7 +165,9 @@ describe('RecentCard', () => {
     })
 
     it('leaves every avatar unlinked when there is no viewer', () => {
-      const { container } = render(<RecentCard item={item()} now={NOW} />)
+      const { container } = render(
+        <RecentCard item={item()} now={NOW} viewer={null} />,
+      )
 
       expect(container.querySelector('.rounded-full')?.tagName).toBe('SPAN')
     })
@@ -185,6 +188,7 @@ describe('RecentCard', () => {
             },
           })}
           now={NOW}
+          viewer={null}
         />,
       )
       const watch = screen.getByRole('link', { name: 'Watch' })
@@ -201,6 +205,7 @@ describe('RecentCard', () => {
         <RecentCard
           item={item({ media: { ...SHOW, embyStatus: { state: 'indexing' } } })}
           now={NOW}
+          viewer={null}
         />,
       )
 
@@ -213,7 +218,7 @@ describe('RecentCard', () => {
     })
 
     it('offers nothing to watch for a title with no Emby state at all', () => {
-      render(<RecentCard item={item()} now={NOW} />)
+      render(<RecentCard item={item()} now={NOW} viewer={null} />)
 
       expect(
         screen.queryByRole('link', { name: 'Watch' }),
@@ -223,7 +228,9 @@ describe('RecentCard', () => {
     })
 
     it('offers nothing to watch for a video, which Emby never indexes', () => {
-      render(<RecentCard item={item({ media: VIDEO })} now={NOW} />)
+      render(
+        <RecentCard item={item({ media: VIDEO })} now={NOW} viewer={null} />,
+      )
 
       expect(
         screen.queryByRole('link', { name: 'Watch' }),
