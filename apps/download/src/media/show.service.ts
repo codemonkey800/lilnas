@@ -13,6 +13,9 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 
+import type { MediaFileReleaseRow } from 'src/db/schema'
+
+import { CurrentReleaseService } from './current-release.service'
 import { resolveEpisodeFileIds } from './episode-files.util'
 import { MediaResolverService } from './media-resolver.service'
 import { RadarrService } from './radarr.service'
@@ -33,13 +36,15 @@ export class ShowService {
   private readonly logger = new Logger(ShowService.name)
 
   constructor(
+    private readonly currentReleaseService: CurrentReleaseService,
     private readonly mediaResolverService: MediaResolverService,
     private readonly radarrService: RadarrService,
     private readonly sonarrService: SonarrService,
   ) {}
 
   /**
-   * Every season of a show with its episodes.
+   * Every season of a show with its episodes, each episode stamped with the
+   * release that produced the file on disk where that is recoverable.
    *
    * Deliberately does **not** call `ensureSeries`, unlike the release listing
    * path: browsing the season list of a show nobody has added has nothing to
@@ -62,7 +67,11 @@ export class ShowService {
       )
     }
 
-    const seasons = await this.sonarrService.listSeasons(sonarrId)
+    const seasons = await this.annotateCurrentReleases(
+      mediaId,
+      sonarrId,
+      await this.sonarrService.listSeasons(sonarrId),
+    )
 
     this.logger.log(
       {
@@ -76,6 +85,83 @@ export class ShowService {
     )
 
     return seasons
+  }
+
+  /**
+   * Copies the seasons through, stamping `currentReleaseGuid` onto every
+   * episode whose file resolves to a release.
+   *
+   * The file ids come free off the episodes Sonarr already returned, and
+   * Sonarr's history is per-*series*, so the whole listing costs exactly one
+   * resolution call no matter how many seasons it spans - which is why this
+   * flattens first rather than running a pass per season.
+   *
+   * An episode the resolver has no answer for keeps the field absent and
+   * renders exactly as it did before this existed.
+   */
+  private async annotateCurrentReleases(
+    mediaId: string,
+    sonarrId: number,
+    seasons: Season[],
+  ): Promise<Season[]> {
+    // `episodeFileId: 0` is Sonarr's "no file" - the mapper omits the zero,
+    // so truthiness is the right check here rather than a null guard.
+    const fileIds = seasons.flatMap(season =>
+      season.episodes
+        .map(episode => episode.episodeFileId)
+        .filter((id): id is number => !!id),
+    )
+
+    if (fileIds.length === 0) {
+      return seasons
+    }
+
+    const releases = await this.resolveCurrentReleases(
+      mediaId,
+      sonarrId,
+      fileIds,
+    )
+
+    if (releases.size === 0) {
+      return seasons
+    }
+
+    return seasons.map(season => ({
+      ...season,
+      episodes: season.episodes.map(episode => {
+        const guid = episode.episodeFileId
+          ? releases.get(episode.episodeFileId)?.releaseGuid
+          : undefined
+
+        return guid ? { ...episode, currentReleaseGuid: guid } : episode
+      }),
+    }))
+  }
+
+  /**
+   * `CurrentReleaseService` already degrades to an empty map on an upstream
+   * failure, so this catch is belt-and-braces: the guid is an enrichment on a
+   * page that reads perfectly well without it, and nothing about it is worth
+   * failing the season list over.
+   */
+  private async resolveCurrentReleases(
+    mediaId: string,
+    sonarrId: number,
+    fileIds: readonly number[],
+  ): Promise<Map<number, MediaFileReleaseRow>> {
+    try {
+      return await this.currentReleaseService.forEpisodeFiles(
+        mediaId,
+        sonarrId,
+        fileIds,
+      )
+    } catch (err) {
+      this.logger.warn(
+        { action: 'listSeasons', error: getErrorMessage(err), mediaId },
+        'Current release lookup failed - listing seasons without release guids',
+      )
+      return new Map()
+    }
   }
 
   /**

@@ -7,12 +7,15 @@ jest.mock('nanoid', () => ({
 
 import {
   DownloadType,
+  type Episode,
   type Media,
   type Season,
 } from '@lilnas/utils/download/types'
 import { BadRequestException, Logger, NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import type { MediaFileReleaseRow } from 'src/db/schema'
+import { CurrentReleaseService } from 'src/media/current-release.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { RadarrService } from 'src/media/radarr.service'
 import { ShowService } from 'src/media/show.service'
@@ -39,8 +42,60 @@ const SEASON: Season = {
   sizeOnDisk: 100,
 }
 
+/** `episodeFileId` absent is Sonarr's "no file" once `toEpisode()` has
+ * dropped the zero it reports for that case. */
+function episode(
+  id: number,
+  seasonNumber: number,
+  episodeFileId?: number,
+): Episode {
+  return {
+    episodeFileId,
+    episodeNumber: id % 100,
+    hasFile: episodeFileId != null,
+    id,
+    monitored: true,
+    seasonNumber,
+  }
+}
+
+function season(seasonNumber: number, episodes: Episode[]): Season {
+  return {
+    episodeCount: episodes.length,
+    episodeFileCount: episodes.filter(e => e.episodeFileId != null).length,
+    episodes,
+    monitored: true,
+    seasonNumber,
+    sizeOnDisk: 100,
+  }
+}
+
+function releaseRow(
+  upstreamFileId: number,
+  releaseGuid: string,
+): MediaFileReleaseRow {
+  return {
+    downloadId: 'abc',
+    episodeId: null,
+    id: upstreamFileId,
+    indexer: 'Some Indexer',
+    indexerId: 3,
+    mediaId: SHOW_ID,
+    mediaType: DownloadType.Show,
+    protocol: 'torrent',
+    publishDate: null,
+    releaseGroup: 'NTb',
+    releaseGuid,
+    releaseTitle: 'A Release',
+    resolvedAt: new Date(0),
+    size: 1_000,
+    upstreamFileId,
+  }
+}
+
 describe('ShowService', () => {
   let service: ShowService
+  let currentReleaseService: jest.Mocked<CurrentReleaseService>
   let radarrService: jest.Mocked<RadarrService>
   let sonarrService: jest.Mocked<SonarrService>
   let mediaResolverService: jest.Mocked<MediaResolverService>
@@ -76,6 +131,10 @@ describe('ShowService', () => {
   const movieInLibrary = () => movie(5)
 
   beforeEach(async () => {
+    currentReleaseService = {
+      forEpisodeFiles: jest.fn().mockResolvedValue(new Map()),
+    } as unknown as jest.Mocked<CurrentReleaseService>
+
     radarrService = {
       deleteMovieFile: jest.fn(),
       getMovieFiles: jest.fn().mockResolvedValue([]),
@@ -98,6 +157,7 @@ describe('ShowService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ShowService,
+        { provide: CurrentReleaseService, useValue: currentReleaseService },
         { provide: MediaResolverService, useValue: mediaResolverService },
         { provide: RadarrService, useValue: radarrService },
         { provide: SonarrService, useValue: sonarrService },
@@ -144,6 +204,109 @@ describe('ShowService', () => {
         /not in the library/,
       )
       expect(sonarrService.listSeasons).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('listSeasons - current release', () => {
+    beforeEach(() => resolvesTo(showInLibrary()))
+
+    it('stamps the guid onto episodes with a file and leaves the rest alone', async () => {
+      sonarrService.listSeasons.mockResolvedValue([
+        season(1, [episode(101, 1, 991), episode(102, 1)]),
+      ])
+      currentReleaseService.forEpisodeFiles.mockResolvedValue(
+        new Map([[991, releaseRow(991, 'guid-991')]]),
+      )
+
+      const [first] = await service.listSeasons(SHOW_ID)
+
+      expect(first?.episodes).toEqual([
+        { ...episode(101, 1, 991), currentReleaseGuid: 'guid-991' },
+        episode(102, 1),
+      ])
+    })
+
+    // Sonarr's history is per-series, so the whole listing is one call no
+    // matter how many seasons it spans.
+    it('resolves every season of a series in a single call', async () => {
+      sonarrService.listSeasons.mockResolvedValue([
+        season(1, [episode(101, 1, 1)]),
+        season(2, [episode(201, 2, 2)]),
+        season(3, [episode(301, 3, 3)]),
+      ])
+      currentReleaseService.forEpisodeFiles.mockResolvedValue(
+        new Map([
+          [1, releaseRow(1, 'guid-1')],
+          [2, releaseRow(2, 'guid-2')],
+          [3, releaseRow(3, 'guid-3')],
+        ]),
+      )
+
+      const seasons = await service.listSeasons(SHOW_ID)
+
+      expect(currentReleaseService.forEpisodeFiles).toHaveBeenCalledTimes(1)
+      expect(currentReleaseService.forEpisodeFiles).toHaveBeenCalledWith(
+        SHOW_ID,
+        9,
+        [1, 2, 3],
+      )
+      expect(
+        seasons.flatMap(s => s.episodes.map(e => e.currentReleaseGuid)),
+      ).toEqual(['guid-1', 'guid-2', 'guid-3'])
+    })
+
+    // `episodeFileId: 0` is Sonarr's "no file"; `toEpisode()` drops the zero,
+    // so a file-less episode must never reach the resolver.
+    it('does not pass a file-less episode to the resolver', async () => {
+      sonarrService.listSeasons.mockResolvedValue([
+        season(0, [episode(1, 0)]),
+        season(1, [episode(101, 1), episode(102, 1, 42)]),
+      ])
+
+      await service.listSeasons(SHOW_ID)
+
+      expect(currentReleaseService.forEpisodeFiles).toHaveBeenCalledWith(
+        SHOW_ID,
+        9,
+        [42],
+      )
+    })
+
+    it('skips the resolver entirely when no episode has a file', async () => {
+      sonarrService.listSeasons.mockResolvedValue([
+        season(1, [episode(101, 1), episode(102, 1)]),
+      ])
+
+      await service.listSeasons(SHOW_ID)
+
+      expect(currentReleaseService.forEpisodeFiles).not.toHaveBeenCalled()
+    })
+
+    // The documented degradation: `CurrentReleaseService` answers an upstream
+    // failure with an empty map rather than throwing.
+    it('leaves every episode unannotated when nothing resolves', async () => {
+      sonarrService.listSeasons.mockResolvedValue([
+        season(1, [episode(101, 1, 991)]),
+      ])
+      currentReleaseService.forEpisodeFiles.mockResolvedValue(new Map())
+
+      const seasons = await service.listSeasons(SHOW_ID)
+
+      expect(seasons[0]?.episodes[0]?.currentReleaseGuid).toBeUndefined()
+    })
+
+    // The guid is an enrichment - it is never worth failing the page over.
+    it('still lists the seasons when the resolver throws', async () => {
+      sonarrService.listSeasons.mockResolvedValue([
+        season(1, [episode(101, 1, 991)]),
+      ])
+      currentReleaseService.forEpisodeFiles.mockRejectedValue(
+        new Error('sonarr down'),
+      )
+
+      const seasons = await service.listSeasons(SHOW_ID)
+
+      expect(seasons).toEqual([season(1, [episode(101, 1, 991)])])
     })
   })
 
