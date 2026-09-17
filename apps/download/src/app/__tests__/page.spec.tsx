@@ -12,8 +12,8 @@ import { render, screen } from '@testing-library/react'
 
 import HomePage from 'src/app/page'
 import { RECENTLY_ADDED_LIMIT } from 'src/components/home/recently-added'
-import { ACCOUNT_HREF } from 'src/components/shell/account-link'
 import { getIdentifiedDownloadClient } from 'src/lib/download-client'
+import { PROFILE_HREF } from 'src/lib/profile-filters'
 import type { Viewer } from 'src/lib/viewer'
 import { getViewer } from 'src/lib/viewer'
 
@@ -157,7 +157,7 @@ describe('HomePage', () => {
   it('hands the viewer down so their own attribution links to their profile', async () => {
     const { container } = render((stubClient(), await HomePage()))
 
-    expect(container.querySelector(`a[href="${ACCOUNT_HREF}"]`)).not.toBeNull()
+    expect(container.querySelector(`a[href="${PROFILE_HREF}"]`)).not.toBeNull()
   })
 
   it('still renders when there is no viewer, with nothing linked to a profile', async () => {
@@ -168,7 +168,7 @@ describe('HomePage', () => {
     expect(
       screen.getByRole('link', { name: /Scary Movie/ }),
     ).toBeInTheDocument()
-    expect(container.querySelector(`a[href="${ACCOUNT_HREF}"]`)).toBeNull()
+    expect(container.querySelector(`a[href="${PROFILE_HREF}"]`)).toBeNull()
   })
 
   it('mounts no search field of its own — the nav bar owns that', async () => {

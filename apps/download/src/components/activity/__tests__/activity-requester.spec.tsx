@@ -8,9 +8,8 @@ import {
   canViewRequesterProfile,
   MASKED_REQUESTER_LABEL,
 } from 'src/components/activity/activity-requester'
-import { ACCOUNT_HREF } from 'src/components/shell/account-link'
 import { MASKED_INITIALS } from 'src/components/ui/avatar'
-import { profileHrefForEmail } from 'src/lib/profile-filters'
+import { PROFILE_HREF, profileHrefForEmail } from 'src/lib/profile-filters'
 import type { Viewer } from 'src/lib/viewer'
 
 const JEREMY: JobRequester = { email: 'jeremy@lilnas.io', userId: 'u_jeremy' }
@@ -57,7 +56,7 @@ describe('ActivityRequester', () => {
     render(<ActivityRequester requester={JEREMY} viewer={VIEWER} />)
 
     for (const link of links()) {
-      expect(link).toHaveAttribute('href', ACCOUNT_HREF)
+      expect(link).toHaveAttribute('href', PROFILE_HREF)
     }
     expect(links()).not.toHaveLength(0)
     expect(screen.getByText(JEREMY.email)).toBeInTheDocument()
@@ -90,7 +89,7 @@ describe('ActivityRequester', () => {
     // backend resolves to whoever is asking — not a redundant `?user=` that
     // would make one person's profile two different URLs.
     for (const link of links()) {
-      expect(link).toHaveAttribute('href', ACCOUNT_HREF)
+      expect(link).toHaveAttribute('href', PROFILE_HREF)
     }
     expect(links()).not.toHaveLength(0)
   })

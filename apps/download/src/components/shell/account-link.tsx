@@ -3,9 +3,7 @@ import type { ComponentPropsWithoutRef, JSX } from 'react'
 
 import { Avatar } from 'src/components/ui/avatar'
 import { initials } from 'src/lib/format'
-
-/** Where "Your account" goes. The viewer's own profile, never anyone else's. */
-export const ACCOUNT_HREF = '/profile'
+import { PROFILE_HREF } from 'src/lib/profile-filters'
 
 /**
  * The hit target. 32px with a hover plate on mobile, because a 24px avatar is
@@ -61,7 +59,7 @@ export type AccountLinkProps = Omit<
 export function AccountLink({
   className,
   email,
-  href = ACCOUNT_HREF,
+  href = PROFILE_HREF,
   ...props
 }: AccountLinkProps): JSX.Element {
   return (

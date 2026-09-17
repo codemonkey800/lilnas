@@ -2,12 +2,16 @@ import type { DownloadJob, HistoryQuery } from '@lilnas/utils/download/types'
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 
 /**
- * `/profile`'s route.
+ * `/profile`'s route — bare, meaning "whoever is asking".
  *
- * `src/components/shell/account-link.tsx` spells the same path as
- * `ACCOUNT_HREF` — that constant is the shell's name for "the viewer's own
- * account", this one is the route itself, and they are asserted equal in
- * `profile-filters.spec.ts` so the two can never drift apart.
+ * The one name for this path in the app. The shell's account link, the
+ * activity feed's own-identity href and `profileHref`'s unfiltered case all
+ * read it from here; there is deliberately no second spelling of `'/profile'`
+ * to keep in step with this one.
+ *
+ * It lives in this module rather than beside `AccountLink` because the module
+ * carries no `'use client'` and imports nothing that does, so a server
+ * component and a client island can both reach it.
  */
 export const PROFILE_HREF = '/profile'
 

@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 
-import { ACCOUNT_HREF, AccountLink } from 'src/components/shell/account-link'
+import { AccountLink } from 'src/components/shell/account-link'
+import { PROFILE_HREF } from 'src/lib/profile-filters'
 
 describe('AccountLink', () => {
   it('is an <a>, not a <button> — it navigates', () => {
@@ -8,7 +9,7 @@ describe('AccountLink', () => {
     const link = screen.getByRole('link', { name: 'Your account' })
 
     expect(link.tagName).toBe('A')
-    expect(link).toHaveAttribute('href', ACCOUNT_HREF)
+    expect(link).toHaveAttribute('href', PROFILE_HREF)
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 

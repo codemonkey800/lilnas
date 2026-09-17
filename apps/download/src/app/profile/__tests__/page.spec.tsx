@@ -7,7 +7,6 @@ import userEvent from '@testing-library/user-event'
 import { useRouter } from 'next/navigation'
 
 import ProfilePage from 'src/app/profile/page'
-import { ACCOUNT_HREF } from 'src/components/shell/account-link'
 import { NOT_AUTHORIZED_TITLE } from 'src/components/shell/not-authorized'
 import type { ProfileView } from 'src/lib/profile-data'
 import {
@@ -123,9 +122,12 @@ beforeEach(() => {
 
 describe('ProfilePage route', () => {
   // The app bar's avatar has pointed here since the shell shipped, and 404'd
-  // for as long as this page did not exist.
+  // for as long as this page did not exist. `PROFILE_HREF` is now the app's
+  // only spelling of the path, so the drift this once guarded against is
+  // gone; what is left to pin is that the constant still names the directory
+  // `src/app/profile/page.tsx` actually routes at, which no type can check.
   it('serves the route the app bar’s account link points at', () => {
-    expect(PROFILE_HREF).toBe(ACCOUNT_HREF)
+    expect(PROFILE_HREF).toBe('/profile')
   })
 
   it('reads the filters out of the URL rather than from client state', async () => {

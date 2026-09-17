@@ -10,10 +10,9 @@ import { DownloadType } from '@lilnas/utils/download/types'
 import { render, screen } from '@testing-library/react'
 
 import { RecentCard, recentCardMeta } from 'src/components/home/recent-card'
-import { ACCOUNT_HREF } from 'src/components/shell/account-link'
 import { MASKED_INITIALS } from 'src/components/ui/avatar'
 import { UNKNOWN_VALUE } from 'src/lib/format'
-import { profileHrefForEmail } from 'src/lib/profile-filters'
+import { PROFILE_HREF, profileHrefForEmail } from 'src/lib/profile-filters'
 import type { Viewer } from 'src/lib/viewer'
 
 const NOW = Date.parse('2026-09-15T20:00:00.000Z')
@@ -124,7 +123,7 @@ describe('RecentCard', () => {
       expect(
         screen.queryByRole('link', { name: MASKED_INITIALS }),
       ).not.toBeInTheDocument()
-      expect(container.querySelector(`a[href="${ACCOUNT_HREF}"]`)).toBeNull()
+      expect(container.querySelector(`a[href="${PROFILE_HREF}"]`)).toBeNull()
     })
 
     it('links the avatar only when the requester is the viewer', () => {
@@ -134,7 +133,7 @@ describe('RecentCard', () => {
       const avatar = container.querySelector('.rounded-full')
 
       expect(avatar?.tagName).toBe('A')
-      expect(avatar).toHaveAttribute('href', ACCOUNT_HREF)
+      expect(avatar).toHaveAttribute('href', PROFILE_HREF)
       expect(avatar).toHaveTextContent('JA')
     })
 

@@ -2,10 +2,9 @@ import { cns } from '@lilnas/utils/cns'
 import type { JobRequester } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
-import { ACCOUNT_HREF } from 'src/components/shell/account-link'
 import { Avatar } from 'src/components/ui/avatar'
 import { initials } from 'src/lib/format'
-import { profileHrefForEmail } from 'src/lib/profile-filters'
+import { PROFILE_HREF, profileHrefForEmail } from 'src/lib/profile-filters'
 import type { Viewer } from 'src/lib/viewer'
 
 /** What a masked requester's name cell says, per `downloads-activity.pug`. */
@@ -43,7 +42,7 @@ export function canViewRequesterProfile(
  * Where a requester cell points, or `undefined` for no link at all.
  *
  * Exactly as wide as {@link canViewRequesterProfile} now that `/profile` is
- * built: your own identity goes to `ACCOUNT_HREF` (the bare route, which the
+ * built: your own identity goes to `PROFILE_HREF` (the bare route, which the
  * backend resolves to whoever is asking), and an admin viewing somebody else
  * goes to that person's `?user=`. A masked requester still gets nothing — there
  * is no identity behind the mask to send anyone to.
@@ -62,7 +61,7 @@ export function requesterProfileHref(
   }
 
   return viewer?.userId === requester.userId
-    ? ACCOUNT_HREF
+    ? PROFILE_HREF
     : profileHrefForEmail(requester.email)
 }
 

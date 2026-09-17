@@ -5,9 +5,8 @@ import { DownloadType } from '@lilnas/utils/download/types'
 import { render, screen } from '@testing-library/react'
 
 import { GalleryItemCard } from 'src/components/gallery/gallery-item-card'
-import { ACCOUNT_HREF } from 'src/components/shell/account-link'
 import { MASKED_INITIALS } from 'src/components/ui/avatar'
-import { profileHrefForEmail } from 'src/lib/profile-filters'
+import { PROFILE_HREF, profileHrefForEmail } from 'src/lib/profile-filters'
 import type { Viewer } from 'src/lib/viewer'
 
 /** The one instant the whole grid is measured against, pinned by the page. */
@@ -128,7 +127,7 @@ describe('GalleryItemCard', () => {
 
     expect(screen.getByRole('link', { name: 'JA' })).toHaveAttribute(
       'href',
-      ACCOUNT_HREF,
+      PROFILE_HREF,
     )
   })
 
