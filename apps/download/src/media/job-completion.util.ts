@@ -21,9 +21,19 @@ export interface CompletionFile {
  * Sonarr's episode-file resource carries a `seasonNumber` but no episode id,
  * so an episode-scoped question can only be answered episode-first (the same
  * asymmetry `resolveEpisodeFileIds` documents).
+ *
+ * `id` is optional, symmetrically with `CompletionFile.id`, purely so
+ * Sonarr's generated `EpisodeResource` (which declares every field optional)
+ * drops straight in at every call site with no `.filter()` or cast. That
+ * zero-conversion promise is the whole reason these types are structural,
+ * and it has to hold for both callers - the poller and the boot sweep.
+ * An episode that arrived without an id is treated as **unsatisfiable**: it
+ * can never be the target of an `episodeId` scope, and its presence in a
+ * season or series scope blocks that scope from completing. See
+ * `everyEpisodeHasNewFile`.
  */
 export interface CompletionEpisode {
-  id: number
+  id?: number
   seasonNumber?: number
   episodeFileId?: number
 }
@@ -87,8 +97,9 @@ function indexFilesById(
  *
  * An empty list is `false`, not a vacuous `true`: nothing to satisfy is not
  * success, it means the episode list never resolved and we have no evidence
- * either way. Same for an `episodeFileId` of `0` (Sonarr's "no file") or one
- * pointing at a file id that is not in `files` - unsatisfied, never a throw.
+ * either way. Same for an episode with no `id`, an `episodeFileId` of `0`
+ * (Sonarr's "no file") and one pointing at a file id that is not in `files` -
+ * unsatisfied, never a throw.
  */
 function everyEpisodeHasNewFile(
   episodes: readonly CompletionEpisode[],
@@ -98,6 +109,11 @@ function everyEpisodeHasNewFile(
   if (episodes.length === 0) return false
 
   return episodes.every(episode => {
+    // An episode Sonarr returned without an id is an episode we cannot
+    // reason about at all - it blocks its scope rather than being waved
+    // through, for the same reason a missing file does.
+    if (episode.id == null) return false
+
     const fileId = episode.episodeFileId
 
     // `0` is Sonarr's "no file", so truthiness is the right check here.
@@ -154,7 +170,13 @@ export function didJobComplete(input: CompletionInput): boolean {
   const scopeEpisodes = episodes ?? []
 
   if (scope.episodeId != null) {
-    const episode = scopeEpisodes.find(e => e.id === scope.episodeId)
+    // `e.id != null` first, so an id-less episode can never be matched by
+    // an `episodeId` scope - `undefined === undefined` is unreachable here
+    // (this branch is guarded on `scope.episodeId != null`), but stating it
+    // keeps the rule true of the code rather than of its caller.
+    const episode = scopeEpisodes.find(
+      e => e.id != null && e.id === scope.episodeId,
+    )
 
     // An episode id matching nothing means the episode list is stale or was
     // fetched for the wrong series - no evidence, so no completion.

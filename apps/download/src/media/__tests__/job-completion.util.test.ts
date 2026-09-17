@@ -1,3 +1,6 @@
+import type { MovieFileResource } from '@lilnas/media/radarr'
+import type { EpisodeFileResource, EpisodeResource } from '@lilnas/media/sonarr'
+
 import {
   type CompletionEpisode,
   type CompletionFile,
@@ -21,6 +24,34 @@ function episode(id: number, seasonNumber: number, episodeFileId?: number) {
 }
 
 describe('didJobComplete', () => {
+  // The input types are structural so both call sites - the poller and the
+  // boot sweep - can pass the generated upstream resources straight in. This
+  // asserts that at compile time (every field on all three is optional, which
+  // is why `CompletionEpisode.id` is optional too); the runtime expectations
+  // are incidental.
+  it('accepts the generated Radarr/Sonarr resources with no conversion', () => {
+    const movieFiles: MovieFileResource[] = [{ dateAdded: AFTER, id: 1 }]
+    const episodeFiles: EpisodeFileResource[] = [
+      { dateAdded: AFTER, id: 301, seasonNumber: 3 },
+    ]
+    const episodes: EpisodeResource[] = [
+      { episodeFileId: 301, id: 2, seasonNumber: 3 },
+    ]
+
+    expect(didJobComplete({ createdAt: CREATED_AT, files: movieFiles })).toBe(
+      true,
+    )
+
+    expect(
+      didJobComplete({
+        createdAt: CREATED_AT,
+        episodes,
+        files: episodeFiles,
+        scope: { seasonNumber: 3 },
+      }),
+    ).toBe(true)
+  })
+
   describe('a movie', () => {
     it('completes on a file added after the job was created', () => {
       expect(
@@ -187,6 +218,20 @@ describe('didJobComplete', () => {
         }),
       ).toBe(false)
     })
+
+    // `id` is optional so Sonarr's `EpisodeResource` needs no conversion at
+    // the call site - which means an id-less episode is a shape that can
+    // actually arrive, and it must never be matched by an episode scope.
+    it('never matches an episode that arrived without an id', () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes: [{ episodeFileId: 991, seasonNumber: 3 }],
+          files: [file(991, AFTER, 3)],
+          scope: { episodeId: 4412, seasonNumber: 3 },
+        }),
+      ).toBe(false)
+    })
   })
 
   describe('a season scope', () => {
@@ -221,6 +266,34 @@ describe('didJobComplete', () => {
           createdAt: CREATED_AT,
           episodes,
           files: [file(301, AFTER, 3), file(302, BEFORE, 3)],
+          scope,
+        }),
+      ).toBe(false)
+    })
+
+    // Unsatisfiable, not ignorable: an episode we cannot identify might be
+    // the one still downloading, so it blocks the scope.
+    it('does not complete when an episode of the season has no id', () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes: [{ episodeFileId: 301, seasonNumber: 3 }],
+          files: [file(301, AFTER, 3)],
+          scope,
+        }),
+      ).toBe(false)
+    })
+
+    it('lets one id-less episode block an otherwise satisfied season', () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes: [...episodes, { episodeFileId: 303, seasonNumber: 3 }],
+          files: [
+            file(301, AFTER, 3),
+            file(302, AFTER, 3),
+            file(303, AFTER, 3),
+          ],
           scope,
         }),
       ).toBe(false)
