@@ -34,11 +34,13 @@ export type AdminHistoryRequesterProps = {
  * The name links to this same page with `?requester=` set, because per-user
  * history is a filter on this view rather than a route of its own. It is
  * omitted when that filter is already applied (the link would go nowhere) and
- * when the actor is the service (which has no email to filter by). Deliberately
- * *not* `requesterProfileHref`: that function answers a different question —
- * "may this viewer open somebody's profile" — and today returns a link only for
- * the viewer's own identity, so on an admin-only page where every requester is
- * legitimately inspectable it would silently drop every other row's link.
+ * when the actor is the service (which has no email to filter by).
+ *
+ * That is deliberately *not* `requesterProfileHref`, which answers a different
+ * question — "may this viewer open somebody's profile" — and would send a click
+ * off the page the admin is reading. The profile is still reachable: `AdminActor`
+ * renders it as a secondary glyph beside the name, gated on that same helper so
+ * this page imports the access rule rather than restating it.
  */
 export function AdminHistoryRequester({
   avatarClassName,

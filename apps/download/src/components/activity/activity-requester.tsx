@@ -51,6 +51,13 @@ export function canViewRequesterProfile(
  * profile is reachable only by typing its URL: a non-admin is never handed an
  * href that the backend would answer 403 for. `/profile`'s own 403 handling
  * exists for the typed-URL case, not for anything this function emits.
+ *
+ * ⚠️ It is also the app's **only** spelling of that rule. `/admin` renders a
+ * different primary link (its own `?requester=` filter, because scoping the
+ * table is what a click means there) but gates its secondary profile
+ * affordance on this function rather than re-deriving who may be inspected —
+ * see `AdminActor`. A surface that shows a requester and decides for itself
+ * whether to link them is the drift this function exists to prevent.
  */
 export function requesterProfileHref(
   requester: JobRequester | null,
