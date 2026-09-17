@@ -243,17 +243,68 @@ describe('the series lifecycle panel', () => {
     expect(screen.getAllByText('completed').length).toBeGreaterThan(0)
   })
 
-  it('says what IS on disk when this app has never fetched the show', () => {
+  it('⚠️ never says "not downloaded" over a series that has files', () => {
+    const { container } = renderDetail()
+
+    // The bug this replaced: `JobLifecycle`'s empty state chips the fixed
+    // string `not downloaded`, which was rendering over 14 episodes on disk
+    // with `SERIES_IN_LIBRARY_NOTE` beside it saying the opposite.
+    expect(screen.queryByText('not downloaded')).not.toBeInTheDocument()
+    expect(container.querySelector('[data-empty="true"]')).toBeNull()
+    expect(screen.getByText(SERIES_IN_LIBRARY_NOTE)).toBeInTheDocument()
+  })
+
+  it('⚠️ counts the episodes rather than claiming the series is "in library"', () => {
     renderDetail()
 
-    expect(screen.getByText('not downloaded')).toBeInTheDocument()
-    expect(screen.getByText(SERIES_IN_LIBRARY_NOTE)).toBeInTheDocument()
+    // The same aggregate the progress bar prints, and the only completeness
+    // claim the payload supports: 14 of 24 across two seasons, specials
+    // excluded. `in library` - the movie page's chip - would be the same class
+    // of untruth as `not downloaded`, pointing the other way.
+    const chip = screen.getByText('14 of 24 episodes')
+
+    expect(chip).toBeInTheDocument()
+    expect(screen.queryByText('in library')).not.toBeInTheDocument()
+  })
+
+  it('withholds the count when the payload cannot support one', () => {
+    // Files only in season 0. `hasFiles` is true (a `some` over every season)
+    // but `seriesProgress` excludes specials, so the figure would read
+    // `0 of 0 episodes` - worse than printing nothing.
+    const { container } = renderDetail({
+      seasons: [specials({ episodeFileCount: 2 })],
+    })
+    const panel = container.querySelector('[data-library="true"]')
+
+    if (!(panel instanceof HTMLElement)) {
+      throw new Error('expected the series library panel')
+    }
+
+    // Scoped to the panel: an individual *episode* row saying `not downloaded`
+    // is a different claim about a different thing, and a true one.
+    expect(within(panel).getByText(SERIES_IN_LIBRARY_NOTE)).toBeInTheDocument()
+    expect(within(panel).queryByText(/episodes?$/)).not.toBeInTheDocument()
+    expect(within(panel).queryByText('not downloaded')).not.toBeInTheDocument()
+  })
+
+  it('hands the panel back as soon as there is a real series job', () => {
+    renderDetail({
+      jobs: [scopedJob(undefined, { status: DownloadJobStatus.Completed })],
+    })
+
+    // A job outranks the library aggregate: the chip is the job's status, and
+    // the library note has nothing left to explain.
+    expect(screen.getAllByText('completed').length).toBeGreaterThan(0)
+    expect(screen.queryByText(SERIES_IN_LIBRARY_NOTE)).not.toBeInTheDocument()
   })
 
   it('says the plainer thing when the library has nothing either', () => {
     renderDetail({ seasons: [] })
 
     expect(screen.getByText(SERIES_EMPTY_NOTE)).toBeInTheDocument()
+    // Nothing on disk, so `not downloaded` is simply true here.
+    expect(screen.getByText('not downloaded')).toBeInTheDocument()
+    expect(screen.queryByText(SERIES_IN_LIBRARY_NOTE)).not.toBeInTheDocument()
   })
 
   it('attributes the newest series request against the pinned instant', () => {

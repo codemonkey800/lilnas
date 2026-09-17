@@ -12,7 +12,6 @@ import userEvent from '@testing-library/user-event'
 import { notFound } from 'next/navigation'
 
 import VideoDetailError from 'src/app/videos/[videoId]/error'
-import VideoNotFound from 'src/app/videos/[videoId]/not-found'
 import VideoDetailPage from 'src/app/videos/[videoId]/page'
 import { VIDEO_SOURCE_LABEL } from 'src/components/detail/video-detail'
 import { getIdentifiedDownloadClient } from 'src/lib/download-client'
@@ -249,24 +248,12 @@ describe('VideoDetailPage', () => {
   })
 })
 
-/**
- * The segment-scoped not-found boundary `notFound()` above renders into. Its
- * own file rather than the app's root `not-found.tsx`, which belongs to a
- * later task — this one keeps the state inside the video route's own column.
+/*
+ * The segment-scoped not-found boundary `notFound()` above renders into has
+ * its own suite now that the app has a root `not-found.tsx` to reconcile it
+ * with — `src/app/videos/[videoId]/__tests__/not-found.spec.tsx`, which checks
+ * both the copy that earns it its keep and its sameness with the root panel.
  */
-describe('VideoNotFound', () => {
-  it('says nothing was downloaded here, and offers the way out', () => {
-    render(<VideoNotFound />)
-
-    expect(
-      screen.getByRole('heading', { name: 'Video not found' }),
-    ).toBeInTheDocument()
-    expect(screen.getByText('No such video')).toBeInTheDocument()
-    expect(
-      screen.getAllByRole('link', { name: /library/i }).at(-1),
-    ).toHaveAttribute('href', '/gallery')
-  })
-})
 
 describe('VideoDetailError', () => {
   it('re-runs the segment when asked to try again', async () => {

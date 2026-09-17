@@ -28,6 +28,7 @@ import type {
 import type { ShowRequestAction } from 'src/components/detail/show-request-button'
 import { ShowRequestButton } from 'src/components/detail/show-request-button'
 import { ShowSeasons } from 'src/components/detail/show-seasons'
+import type { ShowProgress } from 'src/components/detail/show-state'
 import {
   episodeProgressLabel,
   isMetadataMissing,
@@ -55,6 +56,49 @@ export const SERIES_IN_LIBRARY_NOTE =
 
 /** ...and when the library has nothing either. */
 export const SERIES_EMPTY_NOTE = 'Nothing grabbed yet.'
+
+/**
+ * Whether the series chip can state a figure at all.
+ *
+ * `seriesProgress` sums `episodeFileCount` against `seasonEpisodeTotal` and
+ * **excludes specials**, so `hasFiles` and `progress.files` genuinely disagree
+ * for a show whose only files are in season 0. `total` is likewise 0 for a
+ * series Sonarr has listed with no seasons yet. Neither supports a count, and
+ * `0 of 0 episodes` is a worse thing to print than nothing at all — in that
+ * case the note carries the whole answer on its own.
+ */
+export function canCountEpisodes({ files, total }: ShowProgress): boolean {
+  return files > 0 && total > 0
+}
+
+/**
+ * The status chip for a series with files on disk and no series-scoped job.
+ *
+ * ⚠️ **Why this is not the movie page's `in library` chip.** `JobLifecycle`'s
+ * empty state is chipped `JOB_LIFECYCLE_EMPTY_LABEL` — the fixed string
+ * `not downloaded` — which is true of the *job* and flatly false of a series
+ * with 455 files behind it. `MovieDetail` answers that by drawing its own
+ * `in library` chip, and a movie can: a movie is binary, it is either on disk
+ * or it is not.
+ *
+ * **A series is not.** "In library" said over 6 of 24 episodes is the same
+ * class of untruth as `not downloaded`, just pointing the other way, and
+ * nothing on the wire says whether a series is *finished* — `episodeCount` is
+ * Sonarr's count of what it currently knows about, which grows as a show airs.
+ *
+ * So the chip states the one thing the payload does support, which is the
+ * count: the identical `files of total` figure `episodeProgressLabel` already
+ * prints under the progress bar while a series is downloading, from the same
+ * `seriesProgress` aggregate. It claims no completeness in either direction,
+ * and it is the figure a reader actually wants here.
+ *
+ * Tone `mute` deliberately, and never `ok`/`uv`: this is a measurement, not a
+ * verdict on it, and `uv` in this system means the machine is working right
+ * now — which, with no job, it is not.
+ */
+export function seriesLibraryLabel(progress: ShowProgress): string | null {
+  return canCountEpisodes(progress) ? episodeProgressLabel(progress) : null
+}
 
 /** The metadata lookup placeholder's explanation. See `isMetadataMissing`. */
 export const METADATA_MISSING_NOTE =
@@ -154,6 +198,7 @@ export function ShowDetail({
   const downloading = isScopeDownloading(seriesJobs)
   const hasFiles =
     progress.files > 0 || seasons.some(s => s.episodeFileCount > 0)
+  const libraryLabel = seriesLibraryLabel(progress)
 
   return (
     <>
@@ -210,19 +255,46 @@ export function ShowDetail({
         synopsis={media.overview}
       />
 
-      <JobLifecycle
-        className={cns('mb-7 sm:mb-8')}
-        emptyNote={hasFiles ? SERIES_IN_LIBRARY_NOTE : SERIES_EMPTY_NOTE}
-        jobs={seriesJobs}
-        // ⚠️ The library aggregate, never the job's `queueSnapshot`. A series
-        // download does not reach `completed` until the last episode leaves
-        // Sonarr's queue, and the queue entry only ever describes the single
-        // file moving right now - `14 of 24 episodes` is what the mockup's own
-        // legend row prints, and it is the only figure that is true of the
-        // whole series.
-        progressDetail={episodeProgressLabel(progress)}
-        progressPct={downloading ? progress.pct : undefined}
-      />
+      {/*
+        ⚠️ Two panels, and the branch is not a style choice. `JobLifecycle`'s
+        empty state is chipped `not downloaded` — a fixed string it takes no
+        override for — which is a true statement about the job and a false one
+        about the disk. A series Sonarr already holds and this app never
+        fetched is the *common* case here (every show reached from `/search`
+        that somebody grabbed through Sonarr directly), and it was rendering
+        `not downloaded` over 455 files with `SERIES_IN_LIBRARY_NOTE` sitting
+        beside it saying the opposite. A note cannot argue a chip down.
+
+        Same shape as `MovieDetail`'s branch, different chip: see
+        `seriesLibraryLabel` for why a series does not get `in library`.
+      */}
+      {latest || !hasFiles ? (
+        <JobLifecycle
+          className={cns('mb-7 sm:mb-8')}
+          emptyNote={SERIES_EMPTY_NOTE}
+          jobs={seriesJobs}
+          // ⚠️ The library aggregate, never the job's `queueSnapshot`. A series
+          // download does not reach `completed` until the last episode leaves
+          // Sonarr's queue, and the queue entry only ever describes the single
+          // file moving right now - `14 of 24 episodes` is what the mockup's own
+          // legend row prints, and it is the only figure that is true of the
+          // whole series.
+          progressDetail={episodeProgressLabel(progress)}
+          progressPct={downloading ? progress.pct : undefined}
+        />
+      ) : (
+        <div
+          className={cns('mb-7 flex flex-wrap items-center gap-2.5 sm:mb-8')}
+          data-library="true"
+        >
+          {libraryLabel === null ? null : (
+            <Chip className={cns('w-fit')} label={libraryLabel} tone="mute" />
+          )}
+          <span className={cns('min-w-0 flex-1 text-sm text-ink-3')}>
+            {SERIES_IN_LIBRARY_NOTE}
+          </span>
+        </div>
+      )}
 
       {/* Renders `null` for a single attempt, so it costs no gap. */}
       <JobHistory className={cns('mb-7 sm:mb-8')} jobs={seriesJobs} now={now} />
