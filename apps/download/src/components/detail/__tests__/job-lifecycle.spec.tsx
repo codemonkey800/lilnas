@@ -5,6 +5,7 @@ import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import type { JobLifecycleProps } from 'src/components/detail/job-lifecycle'
 import { JobHistory, JobLifecycle } from 'src/components/detail/job-lifecycle'
 import { jobStatusLabel } from 'src/components/detail/job-state'
 import { Button } from 'src/components/ui/button'
@@ -36,6 +37,25 @@ function job(overrides: Partial<DownloadJob> = {}): DownloadJob {
 }
 
 /**
+ * A spy that is actually typed as the thing the page passes.
+ *
+ * ⚠️ **Never a bare `jest.fn()` for these four props.** An untyped mock is
+ * `(...args: any[]) => any`, which is assignable to literally any function
+ * type — including `ReactEventHandler<HTMLDivElement> & JobAction`, which is
+ * what `onCancel` and `onPause` silently became when `JobLifecycleProps` first
+ * spread `ComponentPropsWithoutRef<'div'>` without omitting them. React's
+ * `DOMAttributes` puts the media events on every element, so the intersection
+ * was real and no server action could satisfy it — and every spec here passed,
+ * because `any` type-checks against a type nothing can inhabit.
+ *
+ * `jest.fn<Promise<void>, [string]>()` is the shape a page genuinely has, so
+ * the collision is a compile error in this file if it ever comes back.
+ */
+function jobAction(): jest.Mock<Promise<void>, [string]> {
+  return jest.fn<Promise<void>, [string]>()
+}
+
+/**
  * Every lifecycle control wired at once, so a status's action set is whatever
  * it genuinely offers rather than whatever this render happened to supply.
  */
@@ -43,10 +63,10 @@ function renderPanel(status: DownloadJobStatus, jobs?: DownloadJob[]) {
   return render(
     <JobLifecycle
       jobs={jobs ?? [job({ status })]}
-      onCancel={jest.fn()}
-      onPause={jest.fn()}
-      onResume={jest.fn()}
-      onRetry={jest.fn()}
+      onCancel={jobAction()}
+      onPause={jobAction()}
+      onResume={jobAction()}
+      onRetry={jobAction()}
       save={{ href: 'https://minio.lilnas.io/following.mkv' }}
       watch={{ external: true, href: 'https://emby.lilnas.io/web/item' }}
     />,
@@ -181,7 +201,7 @@ describe('JobLifecycle', () => {
 
     it('swallows a second press on an acknowledged action', async () => {
       const user = userEvent.setup()
-      const onPause = jest.fn()
+      const onPause = jobAction()
 
       render(
         <JobLifecycle
@@ -198,7 +218,7 @@ describe('JobLifecycle', () => {
   describe('actions', () => {
     it('hands the callback the id of the job it is rendering', async () => {
       const user = userEvent.setup()
-      const onPause = jest.fn()
+      const onPause = jobAction()
 
       render(
         <JobLifecycle
@@ -211,11 +231,44 @@ describe('JobLifecycle', () => {
       expect(onPause).toHaveBeenCalledWith('job_99')
     })
 
+    // ⚠️ The regression this file exists to prevent, and it is a *compile*
+    // assertion wearing a test's clothes: `serverAction` is exactly the shape
+    // `src/app/actions/video-job.ts` exports, and `JobLifecycleProps` has to
+    // keep accepting it on all four props. Before the `Omit`, `onCancel` and
+    // `onPause` intersected React's own `<div>` media events and this file
+    // would not have compiled — which is the whole point, since it type-checked
+    // happily while every handler was a bare `jest.fn()`.
+    it('takes an unbound server action on every lifecycle prop', async () => {
+      const calls: string[] = []
+      const serverAction = async (jobId: string): Promise<void> => {
+        calls.push(jobId)
+      }
+      const wired: Pick<
+        JobLifecycleProps,
+        'onCancel' | 'onPause' | 'onResume' | 'onRetry'
+      > = {
+        onCancel: serverAction,
+        onPause: serverAction,
+        onResume: serverAction,
+        onRetry: serverAction,
+      }
+
+      render(
+        <JobLifecycle
+          {...wired}
+          jobs={[job({ id: 'job_7', status: DownloadJobStatus.Downloading })]}
+        />,
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Pause' }))
+
+      expect(calls).toEqual(['job_7'])
+    })
+
     it('renders nothing for an action the page did not wire', () => {
       const { container } = render(
         <JobLifecycle
           jobs={[job({ status: DownloadJobStatus.Downloading })]}
-          onCancel={jest.fn()}
+          onCancel={jobAction()}
         />,
       )
 
@@ -274,7 +327,7 @@ describe('JobLifecycle', () => {
 
     it('binds the action to the newest job, not the first one ever run', async () => {
       const user = userEvent.setup()
-      const onRetry = jest.fn()
+      const onRetry = jobAction()
 
       render(
         <JobLifecycle
@@ -303,8 +356,8 @@ describe('JobLifecycle', () => {
         <JobLifecycle
           emptyActions={<Button variant="outline">Download</Button>}
           jobs={[]}
-          onCancel={jest.fn()}
-          onRetry={jest.fn()}
+          onCancel={jobAction()}
+          onRetry={jobAction()}
         />,
       )
 

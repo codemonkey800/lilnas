@@ -83,9 +83,27 @@ const ACTION_SPECS: readonly ActionSpec[] = [
  */
 const ACTION_BUTTON = 'w-full sm:w-auto'
 
+/**
+ * ⚠️ `onCancel` and `onPause` are real `<div>` attributes — React's
+ * `DOMAttributes` puts the media events on **every** element, not just on
+ * `<video>` — so they have to be removed before ours can take those names,
+ * exactly as `SaveLocalProps` removes `media` and `part`. Left in, each
+ * intersects to `ReactEventHandler<HTMLDivElement> & JobAction` and no plain
+ * `(jobId: string) => Promise<void>` server action is assignable to either.
+ *
+ * Keeping our names is worth the `Omit`: these four are the lifecycle verbs
+ * the whole app spells that way, and neither native event has any meaning on
+ * this panel's root. `children` is removed because the component composes its
+ * own — `extraActions` and `emptyActions` are the slots.
+ *
+ * ⚠️ `onResume` and `onRetry` need no `Omit`; there is no DOM event by either
+ * name. Removing them anyway would be tidier-looking and strictly wrong: an
+ * `Omit` of a key the source type does not have is silent, so it would read as
+ * a fact about React's types that is not one.
+ */
 export type JobLifecycleProps = Omit<
   ComponentPropsWithoutRef<'div'>,
-  'children'
+  'children' | 'onCancel' | 'onPause'
 > & {
   /** Size for every control in the row. Omitted renders the 38px default. */
   actionSize?: ButtonSize
