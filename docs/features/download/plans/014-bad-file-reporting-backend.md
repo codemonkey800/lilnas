@@ -326,6 +326,21 @@ would roughly double this plan's surface for zero shared code. Track it as plan 
 
 **2. ⚠️ The spawn-error wedge — a production robustness bug with a daily trigger.**
 
+> ### ✅ CLOSED 2026-09-16 in `c7eebc62` — everything below is a historical record
+>
+> Fixed directly, outside this plan, before wave 1 started: *fix(download): settle the
+> download promise when a spawn fails*. **The triage below was right that it was
+> production-reachable and wrong about nothing except the mechanism** — which was not a
+> missing status transition but an unsettled promise. `runProcess()`'s `'error'` listener
+> wrote the raw `Error` into a non-objectMode log stream; `write()` **throws** for a
+> non-string chunk, the throw escaped the listener as an uncaught exception, `reject()`
+> never ran, and no `'close'` follows a thrown-from `'error'` — so the promise never
+> settled and `download()`'s `await` hung forever. That is why the scheduler's `Failed`
+> write and its `clearProc` never fired: the `catch` was suspended inside that await, not
+> broken. See the [G2 amendment](#group-g--verification--docs) for the full trace.
+>
+> **Consequence for this plan: 015 is H1-only.** Do not carry the wedge forward.
+
 > **This corrects an earlier triage, including one made inside this plan's own brief.**
 > It was first recorded as "latent, production is unaffected because its image has the
 > binary." **That premise is wrong, and the correction is load-bearing.** The
@@ -524,8 +539,16 @@ instance from a test.
 
 ### Group A — Wire contracts
 
-- [ ] **A1. Two new optional wire fields.** `Movie` and `Episode` each report the guid of
-      the release behind the file on disk.
+- [x] **A1. Two new optional wire fields.** `Movie` and `Episode` each report the guid of
+      the release behind the file on disk. — `baf0e854`
+
+  **Findings:** no edit to `types.ts` was needed — `Movie` and `Episode` are `z.infer`
+  re-exports and picked the field up automatically. Two tripwires were added beyond the
+  listed cases, mirroring the existing `embyStatus` pattern: `ShowSchema` strips an
+  unknown `currentReleaseGuid` at runtime, and a `@ts-expect-error` proves it is not
+  assignable to `Show` at compile time. Together they lock in the "`ShowSchema` gets
+  nothing" rule. `packages/utils`: 311 tests passing, lint and type-check clean,
+  `dist/` rebuilt.
 
   **Files:** edit `packages/utils/src/download/schema.ts`; edit
   `packages/utils/src/download/__tests__/schema.spec.ts` and
@@ -558,8 +581,24 @@ instance from a test.
 
 ### Group B — Persistence
 
-- [ ] **B1. The `media_file_releases` table and its migration.** A durable record of
-      which release produced which file on disk.
+- [x] **B1. The `media_file_releases` table and its migration.** A durable record of
+      which release produced which file on disk. — `0a8bff40`
+
+  **Findings:** the migration landed on `0001_absent_outlaw_kid.sql` as predicted — pure
+  additive `CREATE TABLE` + two `CREATE INDEX`, no `ALTER`, no data rewrite.
+
+  ⚠️ **A sixth file was unavoidable, and the fix generalises.**
+  `apps/download/src/db/__tests__/db.service.spec.ts:70` hard-coded
+  `expect(bookkeeping).toHaveLength(1)` — it asserts the migration-bookkeeping row count,
+  so **any** new migration fails it. Rather than bumping `1 → 2`, it now derives the count
+  from the migrations folder, so the next task to mint a migration does not land there.
+  This also confirmed the self-heal described in the gotchas: it records `0000` without
+  replaying it and hands `0001` to the real migrator.
+
+  Exported: `mediaFileReleases`, `MediaFileReleaseRow`. Constraint/index names:
+  `media_file_releases_type_file_idx`, `media_file_releases_media_id_idx`,
+  `media_file_releases_media_id_matches_type`, `media_file_releases_episode_only_for_shows`.
+  `apps/download`: 2871 passing / 0 failing, type-check clean.
 
   **Files:** edit `apps/download/src/db/schema.ts`; generate
   `apps/download/src/db/migrations/0001_*.sql` (+ `meta/`); edit
@@ -607,7 +646,29 @@ instance from a test.
   index rejects a duplicate `(mediaType, upstreamFileId)`; the CHECKs reject a `tvdb:` id
   on a `movie` row and an `episodeId` on a movie row.
 
-- [ ] **B2. The `media_file_releases` repo.** Reads and idempotent writes over the table.
+- [x] **B2. The `media_file_releases` repo.** Reads and idempotent writes over the table.
+      — `0d2ebb95`
+
+  **Findings:**
+
+  ⚠️ **Drizzle's `onConflictDoUpdate` silently drops `undefined` keys from the `set`
+  clause.** A naive `set: { indexer: input.indexer, … }` would make a re-resolve a
+  *merge*, not a *replace* — a field the new resolve no longer carries would keep its
+  stale value, fusing half the old answer onto half the new one. Since the spec says a
+  re-resolve **replaces**, the `set` clause coalesces every optional field with `?? null`,
+  pinned by a dedicated test. **Consequence for D1: omitting a field from
+  `UpsertMediaFileReleaseInput` CLEARS it — it does not preserve it.**
+
+  `.returning().get()` is typed `T | undefined` even for an upsert that always yields a
+  row, so the code uses `.get()!`, matching `videos.repo.ts`'s `upsertVideoByNaturalKey`
+  rather than `bad-files.repo.ts`'s read-back fallback (unreachable here, since the update
+  arm always returns).
+
+  **`UpsertMediaFileReleaseInput`** — required: `mediaId`, `mediaType`, `releaseGuid`,
+  `upstreamFileId`. Optional: `downloadId`, `episodeId`, `indexer`, `indexerId`,
+  `protocol`, `publishDate` (a `Date`, not a number — the column is `timestamp_ms`),
+  `releaseGroup`, `releaseTitle`, `size`. Keys are alphabetical to satisfy the package's
+  key-sort lint rule. 10 new tests; `src/db` 187 passing.
 
   **Files:** create `apps/download/src/db/media-file-releases.repo.ts` and
   `apps/download/src/db/__tests__/media-file-releases.repo.spec.ts`.
@@ -642,8 +703,35 @@ instance from a test.
 
 ### Group C — Upstream history access
 
-- [ ] **C1. The history→release join, as a pure function.** Turns a title's history
-      records into a `fileId → release` map. **No network, no DI, no Nest.**
+- [x] **C1. The history→release join, as a pure function.** Turns a title's history
+      records into a `fileId → release` map. **No network, no DI, no Nest.** — `e5d48ffb`
+
+  **Findings — behaviour a composing caller (D1) needs:**
+  - `protocol` is `undefined` **only** when `data` carries no `protocol` key at all. Any
+    *present* value that isn't `1`/`2` — including `0` — maps to `'unknown'`. The mapping
+    is taken from `ReleaseProtocolSchema.options` positionally so it cannot drift.
+  - `episodeId` is copied off the grabbed record's **top-level** field, `undefined` for
+    Radarr. `GrabbedRelease` objects always carry the key, so `toEqual` comparisons must
+    include it; `toMatchObject` does not care.
+  - **Skipped — no map entry, never an empty-guid entry:** import with no `data.fileId`,
+    import with no `downloadId`, import with no surviving `grabbed` partner, and a grab
+    whose `data.guid` is missing or `''`.
+  - **Newest-wins applies to both** imports (an upgrade reuses the file id) *and* grabs
+    sharing a `downloadId` (a retried grab). Undated records sort oldest; ties go to the
+    later record in the input list.
+  - Only `HistoryRecordLike`, `GrabbedRelease`, `historyValue`, `mapFilesToReleases` are
+    exported. Fixtures live at `__tests__/fixtures/release-history.fixtures.ts` and export
+    `RADARR_HISTORY` / `SONARR_HISTORY`.
+
+  ⚠️ **Two facts every later task needs:**
+  1. **`git commit -- <paths>` alone does not work for new files** — it fails with
+     `pathspec … did not match any file(s) known to git` on untracked paths. It needs a
+     pathspec-limited `git add -- <paths>` first. That pair still leaves other sessions'
+     staged work intact.
+  2. **`apps/download` has `noUncheckedIndexedAccess` on.** Destructuring a helper that
+     returns `T[]` yields `T | undefined`; return an explicit tuple type instead.
+
+  18 targeted tests; `apps/download` 2871 passing, lint and type-check clean.
 
   **Files:** create `apps/download/src/media/release-history.util.ts` and
   `apps/download/src/media/__tests__/release-history.util.test.ts`.
@@ -702,7 +790,21 @@ instance from a test.
   empty map. Fixtures go in `__tests__/fixtures/` — the node Jest project excludes that
   directory from collection (`jest.config.js`).
 
-- [ ] **C2. Radarr history wrapper.** One call returns every history record for a movie.
+- [x] **C2. Radarr history wrapper.** One call returns every history record for a movie.
+      — `32200829`
+
+  **Findings:** every assertion in the brief checked out against the SDK.
+  `GetApiV3HistoryMovieResponses[200]` is a bare `Array<HistoryResource>` — **unpaged**,
+  unlike the queue's `PagingResource`. `MovieHistoryEventType`'s index for
+  `downloadFolderImported` is **2 against a wire value of 3**, confirming the
+  no-numeric-`eventType` rule; that reasoning is now in the method's doc comment and a
+  test comment.
+
+  Radarr's `HistoryResource` is **structurally compatible with C1's `HistoryRecordLike`**,
+  so the array feeds `mapFilesToReleases()` directly with no adapter. Signature:
+  `async getMovieHistory(radarrId: number): Promise<HistoryResource[]>`, placed between
+  `deleteMovieFile` and `requestMovie`. 4 new tests (including one asserting `query` has
+  no `eventType` property); `apps/download` 2892 passing across both projects.
 
   **Files:** edit `apps/download/src/media/radarr.service.ts` and
   `apps/download/src/media/__tests__/radarr.service.test.ts`.
@@ -727,8 +829,28 @@ instance from a test.
   through `unwrapSdkResult` the way the file's existing wrappers do. Mock the client the
   way the existing suite does.
 
-- [ ] **C3. Sonarr history + indexer wrappers.** One call for a whole series' history, and
-      a name→id map for indexers.
+- [x] **C3. Sonarr history + indexer wrappers.** One call for a whole series' history, and
+      a name→id map for indexers. — `e231973e`
+
+  **Findings:** `GetApiV3HistorySeriesData.query` *does* expose both
+  `eventType?: EpisodeHistoryEventType` and `seasonNumber?: number` — so omitting them is
+  a real choice the type system permits, not something the SDK forbids. Hence the comment
+  on the wrapper.
+
+  ⚠️ **`IndexerResource.id` and `.name` are BOTH optional** (`number | undefined`,
+  `string | null | undefined`). **D1's name→id map must guard both.**
+
+  `getApiV3Indexer`'s options parameter is optional in the SDK, but the wrapper passes
+  `{ client: this.client }` explicitly like every other one — omitting it would fall back
+  to the SDK's module-level default client rather than the injected one.
+
+  Sonarr's `HistoryResource` is structurally compatible with C1's `HistoryRecordLike`.
+  Signatures: `async getSeriesHistory(sonarrId: number): Promise<HistoryResource[]>` and
+  `async getIndexers(): Promise<IndexerResource[]>`. `unwrapSdkResult` contexts are
+  `'getSeriesHistory'` / `'getIndexers'`. 7 new tests.
+
+  **Wave 2 integration check (orchestrator):** `apps/download` 2892 passing across both
+  the `node` and `jsdom` projects, `pnpm run lint` and `pnpm run type-check` clean.
 
   **Files:** edit `apps/download/src/media/sonarr.service.ts` and
   `apps/download/src/media/__tests__/sonarr.service.test.ts`.
@@ -756,8 +878,38 @@ instance from a test.
 
 ### Group D — Reconciliation and annotation
 
-- [ ] **D1. `CurrentReleaseService`.** Cache-first resolution of "which release produced
-      this file", for one movie or a whole series.
+- [x] **D1. `CurrentReleaseService`.** Cache-first resolution of "which release produced
+      this file", for one movie or a whole series. — `4192bd69`
+
+  **Findings:**
+
+  ⚠️ **Correction to this task's own test list.** "A cache hit makes **zero** upstream
+  calls" is literally true only for `forEpisodeFiles`, whose file ids arrive as arguments.
+  **`forMovie` must always call `getMovieFiles`** to learn the file id the cache is keyed
+  by — so a movie cache hit is zero **history** calls, not zero upstream calls. That is
+  what this task's own `forMovie` contract already required; only the test-list wording
+  was wrong. Tested as `answers a cached movie without calling history`.
+
+  - Radarr's `MovieFileResource.id` is optional, so `forMovie` takes the first file with a
+    non-null `id` and returns `undefined` (no history call) if none has one.
+  - The two SDKs' `HistoryResource` types are structurally compatible with
+    `HistoryRecordLike` as expected, but are **not mutually assignable to each other**
+    (`movieId` vs `seriesId`/`episodeId`, different `eventType` unions). Production code
+    needs no adapter; the *test fixtures* are built as `HistoryRecordLike` and widened
+    through one-line `asRadarrHistory`/`asSonarrHistory` helpers.
+  - The Sonarr indexer map is fetched **lazily** — only when a resolved release actually
+    carries an indexer name — and cached 60s (`INDEXER_TTL_MS = 60_000`). A
+    `getIndexers()` failure warns and yields an empty map rather than aborting the
+    resolve, and is not negative-cached.
+  - `forEpisodeFiles` persists **every** file the one history call resolved, but returns
+    only the requested ids.
+  - Movie rows write `episodeId: undefined` explicitly, so the
+    `media_file_releases_episode_only_for_shows` CHECK can never be hit from this path.
+
+  **Injection:** class `CurrentReleaseService`, constructor
+  `(dbService: DbService, radarrService: RadarrService, sonarrService: SonarrService)`,
+  standard Nest injection by class, no custom tokens. Registered in `media.module.ts`
+  `providers` **and** `exports`. 21 new tests; `apps/download` 2913 passing.
 
   **Files:** create `apps/download/src/media/current-release.service.ts` and
   `apps/download/src/media/__tests__/current-release.service.test.ts`; edit
@@ -801,7 +953,35 @@ instance from a test.
   service (see `apps/download/src/media/__tests__/helpers/fake-media-resolver.ts` for the
   house style) and the in-memory DB harness from `src/db/__tests__/test-utils.ts`.
 
-- [ ] **D2. Annotate `Movie.currentReleaseGuid` on the detail route.**
+- [x] **D2. Annotate `Movie.currentReleaseGuid` on the detail route.** — `8ed4d571`
+
+  **Findings:**
+
+  **Wiring.** `DownloadController` now injects `CurrentReleaseService` (constructor slot 3,
+  after `auditLogService`). The first `Promise.all` is untouched; the former bare
+  `await listJobsForMedia(id)` became a second `Promise.all` so the release lookup runs
+  *alongside* the job query rather than behind it. New private helper
+  `withCurrentRelease(resolved: Media): Promise<Media>`; no new exported names.
+
+  **`currentReleaseGuid` is present iff** all of: route is `GET /media/:id`;
+  `isMovie(resolved)`; `resolved.radarrId != null`; and `forMovie()` returned a row. The
+  response is then `{ ...resolved, currentReleaseGuid }` — a **copy**, so the ~60s
+  `MediaResolverService` cache entry is never written to. **The key is absent** (not
+  `undefined`-valued — the helper returns the resolver's object *by identity*, so the
+  payload is byte-identical to before) for `tvdb:`/`video:` keys, a movie with no
+  `radarrId`, a movie with no file or unresolvable history, and a throw.
+
+  ⚠️ **Scope note: 8 additional test files got DI-only edits** (import +
+  `{ provide: CurrentReleaseService, useValue: {} }`), unavoidable once the controller
+  gained a constructor dependency — the six other `download.controller.*.test.ts` suites
+  plus `media/__tests__/download.controller.file.test.ts` and `…media.test.ts`.
+
+  **Deliberately did not gate on `Movie.filePath`:** `forMovie` already short-circuits a
+  fileless movie before the expensive history call, so skipping that gate costs one cheap
+  `getMovieFiles` call — while gating on it would wrongly suppress the guid if Radarr ever
+  omitted `movieFile` while still reporting `hasFile: true`.
+
+  6 new tests; `apps/download` 2925 passing, lint and type-check clean.
 
   **Files:** edit `apps/download/src/download/download.controller.ts` (`getMediaDetail`,
   `:424`) and `apps/download/src/download/__tests__/download.controller.detail-fallback.test.ts`
@@ -824,7 +1004,33 @@ instance from a test.
   the second read has no field bleed); a `tvdb:` key is unaffected; a throw from the
   service still returns 200.
 
-- [ ] **D3. Annotate `Episode.currentReleaseGuid` in the season list.**
+- [x] **D3. Annotate `Episode.currentReleaseGuid` in the season list.** — `84731701`
+
+  **Findings:**
+
+  ⚠️ **There is no key-sort lint rule — this corrects the Shared Context Pack.**
+  `packages/eslint-config-lilnas/base.js` has no `sort-keys` / `typescript-sort-keys` /
+  `perfectionist`, and the prettier config has no sorting plugin. **Alphabetical keys are
+  a convention here, not an enforced check.** Follow the convention, but do not rely on
+  lint to catch key order.
+
+  **Wiring.** `ShowService` gained `CurrentReleaseService` (injected by class, first
+  param) plus two private methods, `annotateCurrentReleases` and `resolveCurrentReleases`.
+  `listSeasons` flattens **all** seasons into one `fileIds` array filtered with
+  `.filter((id): id is number => !!id)`, so `episodeFileId: 0`/absent never reaches the
+  resolver. Empty array → **zero** resolver calls; otherwise exactly **one**
+  `forEpisodeFiles` call for the whole series. Seasons and episodes are **rebuilt**, never
+  mutated. `seasonNumber` is not filtered on at all, so season 0 (specials) is annotated
+  like any other.
+
+  **Contract for F2:** `currentReleaseGuid` is present **only** when the episode has a
+  truthy `episodeFileId` **and** `forEpisodeFiles` returned a row for it. It is **absent**
+  — not `null`, not `''` — in every other case. So treat `undefined` as "no current chip,
+  no report control", and assume a present value is a non-empty guid string.
+
+  `media.module.test.ts`'s real-DI test still passes with the new dependency, confirming
+  `CurrentReleaseService` is genuinely exported from `MediaModule`. 28 tests in the suite;
+  `apps/download` 2925 passing, lint and type-check clean.
 
   **Files:** edit `apps/download/src/media/show.service.ts` (`listSeasons`) and
   `apps/download/src/media/__tests__/show.service.test.ts`.
@@ -846,7 +1052,37 @@ instance from a test.
 
 ### Group E — The release list
 
-- [ ] **E1. `listReleases` guarantees the current release is in the list.**
+- [x] **E1. `listReleases` guarantees the current release is in the list.** — `b3d23a3f`
+
+  **Findings:**
+
+  ⚠️ **`protocol` needed a narrowing this task did not anticipate.**
+  `mediaFileReleases.protocol` is a plain `text` column typed `string | null`, but
+  `ReleaseSchema.protocol` is the three-value `ReleaseProtocolSchema` enum — so a bare
+  `row.protocol ?? undefined` **does not type-check**. It now runs through
+  `ReleaseProtocolSchema.safeParse` and drops anything unrecognised.
+
+  ⚠️ **Pre-existing tests needed a new provider, not just new tests.** Adding the
+  constructor dependency breaks `Test.createTestingModule` for *every* existing
+  `ReleaseService` test until a `CurrentReleaseService` mock is registered. One was added
+  defaulting to `forMovie → undefined` / `forEpisodeFiles → new Map()`, preserving every
+  prior assertion unchanged.
+
+  **Synthesized (prepended at index 0) only when all of:** the target resolves to a row
+  (movie → `forMovie`; show + `scope.episodeId` → `resolveEpisodeFileIds` yielded a truthy
+  `episodeFileId` **and** `forEpisodeFiles` had a row), **and** no indexer release already
+  carries that guid. **Never** synthesized for a season- or series-scoped show
+  (`getEpisodes` is not even called), `episodeFileId: 0`/absent, a movie with no file, an
+  empty resolve, or a throw (warned and swallowed; the indexer's releases still return).
+
+  **The synthesized row** omits `quality` entirely, along with `age`,
+  `customFormatScore`, `languages`, `leechers`, `rejections`, `seeders`.
+  `publishDate` is `row.publishDate?.toISOString()`. **F1/F2 should expect
+  `indexerId: 0` and no `quality` to be common**, making `ReleaseRow`'s
+  `[quality, size] || title` fallback the render path. `downloadAllowed: true` /
+  `rejected: false` are documented in-file so the next reader does not "fix" them.
+
+  9 new tests; node project 1679 passing, lint and type-check clean.
 
   **Files:** edit `apps/download/src/media/release.service.ts` and
   `apps/download/src/media/__tests__/release.service.test.ts`.
@@ -907,7 +1143,41 @@ instance from a test.
 > `delete-confirm.tsx` must not be modified — their props and exports are a shipped
 > contract with 77 tests behind them.
 
-- [ ] **F1. Thread `currentGuid` into the movie detail page.**
+- [x] **F1. Thread `currentGuid` into the movie detail page.** — `e65732e9`, plus
+      `994ef837` (orchestrator-requested follow-up: pin the replace verb)
+
+  **Findings:**
+
+  ⚠️ **The old no-guid test was vacuous.** It passed `[ALTERNATIVE]` only, so "no report
+  control" was true for a reason unrelated to the guid. It now feeds
+  `[CURRENT, ALTERNATIVE]` so the absence is a real negative.
+
+  ⚠️ **F1 and F2 initially diverged on the no-guid invariant** — F1 asserted the chip and
+  the control, F2 asserted the verb. Since the plan pairs these two precisely so that
+  cannot happen, F1 was sent back to add the verb assertion. It is now **mutation-verified**:
+  temporarily setting `hasFile: undefined` in `movie-detail.tsx` fails both the new test
+  and `makes every pick a replace while a file is on disk`. `RELEASE_REPLACE_LABEL` /
+  `RELEASE_GRAB_LABEL` are shared constants and both components render the same
+  `ReleaseRow`, so the two suites express the invariant identically.
+
+  ⚠️ **The dual-picker duplication does NOT apply to row controls.** `MovieDetail` draws a
+  picker per layout (stacked + inline), and pre-search elements like
+  `RELEASE_SEARCH_LABEL` genuinely do appear **twice** — which is why `firstButton`
+  exists. But **each `ReleasePicker` holds its own `searched` state**, so clicking only
+  the desktop trigger leaves the mobile copy in its `SearchPrompt` state and row controls
+  appear **once**. An initial `releases.length * 2` assertion failed with
+  `Expected 4, Received 2`. See `movie-detail.tsx:399-407`.
+
+  `app/movies/[tmdbId]/page.tsx` needed **no change** — verified, not assumed:
+  `getMedia()` is a bare `response.json()` with no Zod parse or field stripping
+  (`client.ts:246-252`), so the field rides through untouched.
+
+  **The stale `:260` comment was rewritten, not deleted** — it had claimed "Nothing on the
+  wire records which release produced the file on disk", which this plan made false.
+
+  56 tests in the suite (was 51); the three untouched contract suites re-ran green —
+  `release-picker` + `bad-file-flag` + `delete-confirm` + `movie-detail` = **133 passing,
+  0 failed**. Lint and type-check clean.
 
   **Files:** edit `apps/download/src/components/detail/movie-detail.tsx` and its
   `__tests__/` suite. `apps/download/src/app/movies/[tmdbId]/page.tsx` likely needs no
@@ -929,7 +1199,28 @@ instance from a test.
   test that pins today's behaviour should be **updated to describe the no-guid case
   specifically**, not deleted.
 
-- [ ] **F2. Thread `currentGuid` into the show episode rows.**
+- [x] **F2. Thread `currentGuid` into the show episode rows.** — `6e7eda88`
+
+  **Findings:**
+
+  ⚠️ **The no-guid assertion with teeth is the VERB, not the chip.** With `hasFile` passed
+  explicitly and the guid absent, `ReleasePicker`'s
+  `replacing = hasFile ?? currentGuid !== undefined` still resolves `true`, so *every* row
+  renders `Replace with this` — including the synthesized current-release row, which stops
+  being special-cased and becomes just another pickable row. **A test asserting only the
+  chip's absence would still pass if `hasFile` regressed to being derived from the guid.**
+  The assertion set used here is: no `current` chip, no `Report a problem`, **and** all N
+  rows are replaces.
+
+  `show-seasons.tsx` needed **no change** — verified, not assumed: `:250-267` spreads the
+  whole `Episode` through as `episode={episode}` and destructures nothing, so
+  `currentReleaseGuid` already arrives untouched.
+
+  ⚠️ **Pre-existing flake for G1 to expect:**
+  `src/components/shell/__tests__/nav-search.spec.tsx:315` fails under full-suite load but
+  passes 23/23 in isolation. Untouched by this work.
+
+  4 new tests (20/20 in the suite); lint and type-check clean.
 
   **Files:** edit `apps/download/src/components/detail/show-episode-row.tsx` and its
   `__tests__/` suite. Check whether `show-seasons.tsx` needs to pass anything new — the
@@ -950,9 +1241,49 @@ instance from a test.
 
 ### Group G — Verification & docs
 
-- [ ] **G1. Full verification.** From the repo root: `pnpm run lint`,
+- [x] **G1. Full verification.** From the repo root: `pnpm run lint`,
       `pnpm run type-check`, `pnpm test`. Then from `apps/download`:
-      `pnpm run build:backend`.
+      `pnpm run build:backend`. — no commit; nothing was changed
+
+  **Results:**
+
+  | Command | Result |
+  | --- | --- |
+  | root `pnpm run lint` | ⚠️ **14/15 tasks pass.** Fails only on `//#mockups:lint` — **pre-existing, out of scope** (see below). |
+  | root `pnpm run type-check` | ✅ **12/12 tasks**, FULL TURBO. |
+  | root `pnpm test` | ⚠️ `@lilnas/equations` and `@lilnas/tdr-code` fail — **pre-existing, unrelated** (see below). Turbo aborted before `apps/download`, so it was run separately. |
+  | `apps/download` `pnpm test` | ✅ **2942 passed / 9 skipped, 0 failed**, 145 suites, **both projects** (`Ran all test suites in 2 projects`). |
+  | `packages/utils` | ✅ 311 passed. `@lilnas/tdr-bot` ✅ 1129 passed. |
+  | `apps/download` `pnpm run build:backend` | ✅ **TSC found 0 issues**, 185 files compiled with swc. |
+
+  ⚠️ **Two pre-existing failures, both proven out of scope — neither is caused by this
+  plan and neither was repaired (a checkpoint that needs a silent fix is not a clean
+  checkpoint).**
+
+  1. **`//#mockups:lint`** — prettier is unclean on
+     `docs/features/download/designs/src/data/show-detail.mjs`. Last committed in
+     `3dd56560`, an **ancestor of every commit in this plan**; clean in the worktree; and
+     `git log baf0e854~1..HEAD -- docs/features/download/designs/` is **empty**. (Likely
+     fallout from the recent fix to a broad `data/` gitignore rule that had been silently
+     untracking `designs/src/data/*.mjs` — the file was never prettier-formatted because
+     it was invisible to lint.)
+  2. **`@lilnas/equations` (7 tests) and `@lilnas/tdr-code` (1 suite)** — the equations
+     failures are all in `validateLatexSafety › Long Line Detection`. **Neither package
+     imports `@lilnas/utils/download`**, so this plan's only cross-package change (adding
+     an optional field to two download schemas) cannot reach them.
+
+  **This plan's 13 commits touch only `apps/download/**` and
+  `packages/utils/src/download/**`** — verified with `git log --name-only`.
+
+  The known `nav-search.spec.tsx:315` flake **did not fire** this run.
+  `pnpm --filter @lilnas/utils build` did **not** need re-running — `dist/` was current.
+  `pnpm run build` / `build:frontend` were **not** run in `apps/download`.
+
+  ⚠️ **Deviation:** G1 was delegated twice and both sub-agents were killed by process
+  exits before reporting (neither changed anything; the mutex was verified un-orphaned
+  both times). The orchestrator then ran the four commands directly. Verification runs no
+  code changes, so this does not breach the delegate-don't-implement rule, but it is
+  recorded as a departure from the execution protocol.
 
   **Edge cases:**
   - ⛔ **Do not run `pnpm run build` or `pnpm run build:frontend` in `apps/download`** —
@@ -964,31 +1295,86 @@ instance from a test.
     a misconfiguration, not a pass.
   - This task sees every prior commit. It is the integration checkpoint.
 
-- [ ] **G2. Docs and the follow-up stub.** Record what shipped and where the two adjacent
-      items went.
+- [x] **G2. Docs and the follow-up stub.** Record what shipped and where the remaining
+      adjacent item went. — `20b0fbe0` (the 015 stub) + the commit carrying this doc
+
+  **Findings:**
+
+  ⚠️ **`download-video.service.ts:557` is now `:571`.** The spawn-wedge fix (`c7eebc62`)
+  inserted lines above it, so **every reference to `:557` in plans 013 and 014 is now off
+  by 14** — including this plan's own
+  [Two adjacent items](#two-adjacent-items-and-why-they-are-not-here) section and 013's
+  H1. The code itself is unchanged. The 015 stub cites `:571` as current and footnotes the
+  drift. **013 could not be corrected — see the final report.**
+
+  Bare filenames also resolved while verifying: the services live under
+  `apps/download/src/download/` (not `src/services/`), `ytdlp-update.service.ts` is under
+  `apps/download/src/ytdlp-update/`, and the already-built frontend seams are at
+  `components/detail/job-state.ts:177`, `components/detail/job-lifecycle.tsx:86`, and
+  `components/activity/activity-rows.ts:161`.
+
+  ⚠️ **Deviation: G2 was split.** This plan tells G2 to edit *this* doc while also
+  forbidding sub-agents from reading it — contradictory for this one task. Resolved by
+  keeping this doc with the orchestrator (the one file it is permitted to edit, and which
+  it maintained every wave) and giving the sub-agent a fully self-contained brief for the
+  015 stub, including H1's four-step sketch verbatim so it never needed to open 013. Two
+  commits rather than one, each staging only what its author owns.
 
   **Files:** edit **this** doc (outcomes, commit refs, deviations); create
   `docs/features/download/plans/015-video-download-progress.md` as a short stub.
 
+  > ### ⚠️ AMENDED 2026-09-16 — the spawn-error wedge was fixed directly, so 015 is
+  > ### H1-only
+  >
+  > **This supersedes the original G2 text, which told you to carry the wedge into the
+  > 015 stub as its leading item.** The wedge was fixed outside this plan, before wave 1
+  > started, in commit **`c7eebc62`** — *fix(download): settle the download promise when a
+  > spawn fails*. It is **closed, not deferred.** The
+  > [Two adjacent items](#two-adjacent-items-and-why-they-are-not-here) section above is
+  > now a historical record of the triage, not a live handoff; leave it in place and do
+  > not rewrite it.
+  >
+  > **The traced mechanism** — which the original note correctly insisted must be found
+  > before a fix was written, and which turned out **not** to be a missing transition:
+  >
+  > `runProcess()`'s `proc.on('error')` listener wrote the **raw `Error` object** into the
+  > job's log stream. That stream is not in object mode, so `write()` **throws**
+  > `ERR_INVALID_ARG_TYPE` for a non-string chunk rather than emitting. The throw escaped
+  > the listener — out through `emit()`, out of the `process.nextTick()` node schedules
+  > for a failed spawn — as an **uncaught exception**. `reject()` on the next line never
+  > ran, and node emits no `'close'` after an `'error'` listener threw, so nothing settled
+  > the promise **at all**.
+  >
+  > That answers both open questions in the original note:
+  > - `download-scheduler.service.ts:364` never wrote `Failed` because the scheduler's
+  >   `catch` was still **suspended inside `await download()`** — the promise never
+  >   settled, so `download()` neither returned nor threw. The catch was unreachable, not
+  >   wrong.
+  > - `:431`'s `clearProc` never fired because it sits on the pause branch, reached only
+  >   via `JobInterruptedError` from `assertNotInterrupted()` — downstream of the same
+  >   dead await.
+  >
+  > Serialising the error was the whole fix: `updateJob()` already releases the proc
+  > handle and the interrupt note on every terminal transition, so settling the promise
+  > repaired the rest of the chain on its own.
+  >
+  > **What G2 must do instead:**
+  > 1. Write the 015 stub as **H1-only**. Drop the wedge from its contents entirely — it
+  >    is not an open item.
+  > 2. Add a short **"Already fixed"** note to the stub recording that the wedge was
+  >    closed directly in `c7eebc62`, with the traced mechanism summarised above, so a
+  >    future reader who finds the 013 or 014 triage does not re-open it.
+  > 3. Keep the `/opt/yt-dlp` + symlink constraint below — it is still load-bearing for
+  >    H1's work.
+
   The 015 stub carries, and nothing more:
 
-  - ⚠️ **The spawn-error wedge, stated FIRST and as the higher priority of the two.** It
-    is a **production robustness bug with a daily trigger**, not a latent dev-only one.
-    Copy the
-    [Two adjacent items](#two-adjacent-items-and-why-they-are-not-here)
-    section of this doc verbatim — the trigger list (EACCES / EPERM / ENOMEM /
-    `YtdlpUpdateService`'s daily cron leaving a truncated or non-executable binary
-    mid-`move`), the signature (job stuck at `downloading`; pause and cancel wedged at
-    `pausing`/`cancelling` forever), the suggested fix, **and the "do not assume the
-    transition is simply absent" note.** The authoritative source is
-    `013-frontend-rewrite.md:1056-1082`; **read it, do not paraphrase it from memory.**
   - `H1` from plan 013 — yt-dlp progress is piped to a log file at
     `download-video.service.ts:557` and never parsed, so no video job has progress. Copy
     013's four-step sketch verbatim rather than re-deriving it.
-  - **Why the two share a plan:** same file, same spawn-and-stdout path, disjoint from
-    anything Radarr/Sonarr. **Not** because they are comparable in severity — say so
-    explicitly, so a future reader does not re-triage the wedge as a nice-to-have riding
-    along behind a feature.
+  - The short **"Already fixed"** note for the spawn-error wedge described in the
+    amendment above: closed in `c7eebc62`, with the traced mechanism, and explicitly
+    **not** an open item for 015.
   - ⚠️ **The `/opt/yt-dlp` + symlink constraint is load-bearing** and 015 will be working
     directly on top of it: `ytdlp-update.service.ts` hardcodes
     `YTDLP_BINARY_PATH = '/opt/yt-dlp/yt-dlp'` while `download-video.service.ts` spawns
@@ -1101,6 +1487,37 @@ against a join that has not been specified.
 
 ---
 
+## Outcome — all 14 tasks complete, 2026-09-16
+
+| Wave | Task | Commit |
+| --- | --- | --- |
+| 1 | A1 wire fields | `baf0e854` |
+| 1 | B1 table + migration `0001_absent_outlaw_kid.sql` | `0a8bff40` |
+| 1 | C1 history→release join | `e5d48ffb` |
+| 2 | B2 repo | `0d2ebb95` |
+| 2 | C2 Radarr history wrapper | `32200829` |
+| 2 | C3 Sonarr history + indexer wrappers | `e231973e` |
+| 3 | D1 `CurrentReleaseService` | `4192bd69` |
+| 4 | D2 movie detail annotation | `8ed4d571` |
+| 4 | D3 episode season annotation | `84731701` |
+| 5 | E1 `listReleases` synthesis | `b3d23a3f` |
+| 6 | F1 movie call site | `e65732e9` + `994ef837` |
+| 6 | F2 show episode call site | `6e7eda88` |
+| 7 | G1 verification | *(no commit — nothing changed)* |
+| 8 | G2 the 015 stub | `20b0fbe0` |
+
+**Fixed outside this plan, before wave 1:** the yt-dlp spawn-error wedge — `c7eebc62`.
+
+**Final state:** `apps/download` **2942 tests passing / 0 failing** across both Jest
+projects; `packages/utils` **311 passing**; `build:backend` **TSC 0 issues**. Two
+pre-existing failures elsewhere in the repo (`//#mockups:lint` prettier, and
+`@lilnas/equations` + `@lilnas/tdr-code` tests) were proven out of scope and deliberately
+left unrepaired — see [G1](#group-g--verification--docs).
+
+⚠️ **Every human checkpoint below is still outstanding. None was performed — no agent may.**
+
+---
+
 ## Final report
 
 When every box is checked, report:
@@ -1110,10 +1527,11 @@ When every box is checked, report:
    `packages/utils`, plus the repo-wide sweep
 3. **Deviations** from this plan, and why
 4. **Deferred** — every [human checkpoint](#human-checkpoints) still outstanding, stated
-   explicitly, including whether the flag flow has actually been exercised. ⚠️ **Say
-   plainly that plan 015's spawn-error wedge is still open and is a production bug with a
-   daily cron trigger** — it is the one deferred item that should not sit in a backlog
-   just because this plan finished.
+   explicitly, including whether the flag flow has actually been exercised. ⚠️ **AMENDED
+   2026-09-16:** this bullet originally required reporting that the spawn-error wedge was
+   still open. **It is not — it was fixed directly in `c7eebc62` before wave 1 started.**
+   Report it as **closed**, with its commit and traced mechanism (see the
+   [G2 amendment](#group-g--verification--docs)), and report plan 015 as **H1-only**.
 5. **Open questions** discovered during implementation — in particular, any title found
    in the wild whose guid does not resolve, since the sampled measurement found none
 6. **Anything that wanted a cross-reference in `013-frontend-rewrite.md`** — that file
