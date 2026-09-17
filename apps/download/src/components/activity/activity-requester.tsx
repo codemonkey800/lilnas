@@ -5,6 +5,7 @@ import type { JSX } from 'react'
 import { ACCOUNT_HREF } from 'src/components/shell/account-link'
 import { Avatar } from 'src/components/ui/avatar'
 import { initials } from 'src/lib/format'
+import { profileHrefForEmail } from 'src/lib/profile-filters'
 import type { Viewer } from 'src/lib/viewer'
 
 /** What a masked requester's name cell says, per `downloads-activity.pug`. */
@@ -41,29 +42,28 @@ export function canViewRequesterProfile(
 /**
  * Where a requester cell points, or `undefined` for no link at all.
  *
- * ⚠️ Narrower than {@link canViewRequesterProfile} on purpose, and this is the
- * one place the two differ. `/profile` exists and is always the *viewer's own*
- * (`ACCOUNT_HREF`); a route for somebody else's profile does not exist yet, so
- * an admin — who the access rule does let through — still gets no link, because
- * the only href available to give them would 404. Two earlier tasks made the
- * same call for the same reason (`RecentCard`, `gallery.pug`'s single linked
- * avatar).
+ * Exactly as wide as {@link canViewRequesterProfile} now that `/profile` is
+ * built: your own identity goes to `ACCOUNT_HREF` (the bare route, which the
+ * backend resolves to whoever is asking), and an admin viewing somebody else
+ * goes to that person's `?user=`. A masked requester still gets nothing — there
+ * is no identity behind the mask to send anyone to.
  *
- * Kept as its own function rather than folded into the component so that
- * widening it later is a one-line change here, with the access rule above
- * already written and tested.
+ * ⚠️ This is the **access rule as a link**, and it is the reason a forbidden
+ * profile is reachable only by typing its URL: a non-admin is never handed an
+ * href that the backend would answer 403 for. `/profile`'s own 403 handling
+ * exists for the typed-URL case, not for anything this function emits.
  */
 export function requesterProfileHref(
   requester: JobRequester | null,
   viewer: Viewer | null,
 ): string | undefined {
-  if (!canViewRequesterProfile(requester, viewer)) {
+  if (requester === null || !canViewRequesterProfile(requester, viewer)) {
     return undefined
   }
 
-  return viewer !== null && viewer.userId === requester?.userId
+  return viewer?.userId === requester.userId
     ? ACCOUNT_HREF
-    : undefined
+    : profileHrefForEmail(requester.email)
 }
 
 const NAME = 'font-mono text-mono-sm'

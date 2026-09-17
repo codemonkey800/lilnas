@@ -7,7 +7,7 @@ import type {
 import { DownloadType, isManagedMedia } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
 
-import { ACCOUNT_HREF } from 'src/components/shell/account-link'
+import { requesterProfileHref } from 'src/components/activity/activity-requester'
 import { Avatar } from 'src/components/ui/avatar'
 import { ButtonLink } from 'src/components/ui/button-link'
 import { Chip } from 'src/components/ui/chip'
@@ -28,6 +28,7 @@ import {
   UNKNOWN_VALUE,
 } from 'src/lib/format'
 import { mediaHref } from 'src/lib/media-route'
+import type { Viewer } from 'src/lib/viewer'
 
 /** The glyph each library type wears, from `home.pug`'s `kindIcon`. */
 const KIND_ICONS: Record<DownloadType, IconName> = {
@@ -84,12 +85,11 @@ export type RecentCardProps = Omit<
    */
   now: number
   /**
-   * The signed-in viewer's email, when there is one. An avatar links to the
-   * profile only for the viewer's own identity — `gallery.pug` links exactly
-   * one avatar for the same reason. Somebody else's profile is an admin-only
-   * route that does not exist yet.
+   * Who is looking, when anyone is. Decides whether the attribution avatar is
+   * a link, per {@link requesterProfileHref}'s access rule — own identity
+   * always, anyone else's only for an admin, a masked uploader never.
    */
-  viewerEmail?: string | null
+  viewer?: Viewer | null
 }
 
 /**
@@ -107,7 +107,7 @@ export function RecentCard({
   className,
   item,
   now,
-  viewerEmail,
+  viewer,
   ...props
 }: RecentCardProps): JSX.Element {
   const { lastDownloadedAt, lastRequester, media } = item
@@ -117,11 +117,7 @@ export function RecentCard({
   // still being indexed has nothing to point a player at yet, which is the
   // whole reason the chip stands in for the action.
   const watchUrl = emby?.state === 'indexed' ? emby.watchUrl : undefined
-  const isViewer =
-    lastRequester !== null &&
-    viewerEmail !== null &&
-    viewerEmail !== undefined &&
-    lastRequester.email === viewerEmail
+  const profileHref = requesterProfileHref(lastRequester, viewer ?? null)
 
   return (
     <GalleryCard
@@ -166,7 +162,7 @@ export function RecentCard({
             <Avatar hidden size="xs" title="Attribution hidden" />
           ) : (
             <Avatar
-              href={isViewer ? ACCOUNT_HREF : undefined}
+              href={profileHref}
               initials={initials(lastRequester.email)}
               size="xs"
               title={lastRequester.email}

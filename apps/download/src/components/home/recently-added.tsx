@@ -5,6 +5,7 @@ import { GALLERY_HREF } from 'src/components/home/quick-access'
 import { RecentCard } from 'src/components/home/recent-card'
 import { ButtonLink } from 'src/components/ui/button-link'
 import { Note } from 'src/components/ui/card'
+import type { Viewer } from 'src/lib/viewer'
 
 /**
  * How many cards the homepage shows. Six is `home.pug`'s grid, and at the
@@ -21,8 +22,8 @@ export type RecentlyAddedProps = Omit<
   items: readonly GalleryItem[]
   /** One pinned instant for the whole grid — see {@link RecentCard}'s `now`. */
   now: number
-  /** The signed-in viewer's email — see {@link RecentCard}'s `viewerEmail`. */
-  viewerEmail?: string | null
+  /** Who is looking — see {@link RecentCard}'s `viewer`. */
+  viewer?: Viewer | null
 }
 
 const HEADING_ID = 'recently-added-heading'
@@ -39,7 +40,7 @@ export function RecentlyAdded({
   className,
   items,
   now,
-  viewerEmail,
+  viewer,
   ...props
 }: RecentlyAddedProps): JSX.Element {
   return (
@@ -69,7 +70,7 @@ export function RecentlyAdded({
               key={item.media.id}
               item={item}
               now={now}
-              viewerEmail={viewerEmail}
+              viewer={viewer}
             />
           ))}
         </div>

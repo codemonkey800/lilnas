@@ -10,6 +10,7 @@ import {
 } from 'src/components/activity/activity-requester'
 import { ACCOUNT_HREF } from 'src/components/shell/account-link'
 import { MASKED_INITIALS } from 'src/components/ui/avatar'
+import { profileHrefForEmail } from 'src/lib/profile-filters'
 import type { Viewer } from 'src/lib/viewer'
 
 const JEREMY: JobRequester = { email: 'jeremy@lilnas.io', userId: 'u_jeremy' }
@@ -69,13 +70,29 @@ describe('ActivityRequester', () => {
     expect(screen.getByText(SAM.email)).toBeInTheDocument()
   })
 
-  // An admin is allowed through by the access rule; there is simply no route
-  // to send them to yet, so no link is emitted rather than a link that 404s.
-  it('shows an admin the true requester inline, unlinked for now', () => {
+  // Now that `/profile` exists, the link is exactly as wide as the access
+  // rule: an admin is sent to that person's `?user=`, a regular viewer is not
+  // sent anywhere at all.
+  it('links another user’s cell to their ?user= for an admin', () => {
     render(<ActivityRequester requester={SAM} viewer={ADMIN} />)
 
     expect(screen.getByText(SAM.email)).toBeInTheDocument()
-    expect(links()).toHaveLength(0)
+    expect(links()).not.toHaveLength(0)
+    for (const link of links()) {
+      expect(link).toHaveAttribute('href', profileHrefForEmail(SAM.email))
+    }
+  })
+
+  it('never sends anyone to their own profile through ?user=', () => {
+    render(<ActivityRequester requester={JEREMY} viewer={ADMIN} />)
+
+    // An admin looking at their *own* row still gets the bare route, which the
+    // backend resolves to whoever is asking — not a redundant `?user=` that
+    // would make one person's profile two different URLs.
+    for (const link of links()) {
+      expect(link).toHaveAttribute('href', ACCOUNT_HREF)
+    }
+    expect(links()).not.toHaveLength(0)
   })
 
   it('never links a masked requester, and leaks no initials', () => {

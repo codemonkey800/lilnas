@@ -56,7 +56,7 @@ export default async function HomePage(): Promise<JSX.Element> {
           className="mt-[34px] sm:mt-10"
           items={recent.items}
           now={now}
-          viewerEmail={viewer?.email}
+          viewer={viewer}
         />
       </div>
     </main>

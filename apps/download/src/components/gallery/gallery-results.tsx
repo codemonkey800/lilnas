@@ -10,6 +10,7 @@ import { GalleryEmpty } from 'src/components/gallery/gallery-empty'
 import { GalleryItemCard } from 'src/components/gallery/gallery-item-card'
 import { Note } from 'src/components/ui/card'
 import { LoadMore } from 'src/components/ui/load-more'
+import type { Viewer } from 'src/lib/viewer'
 
 /**
  * `gallery.pug`'s grid, verbatim: a wrapping flex row rather than a CSS grid,
@@ -54,6 +55,8 @@ export type GalleryResultsProps = {
    * necessary when the identity of the data is already in the tree.
    */
   search: string
+  /** Who is looking. Decides which attribution avatars are profile links. */
+  viewer: Viewer | null
 }
 
 /**
@@ -71,6 +74,7 @@ export function GalleryResults({
   initialTotal,
   now,
   search,
+  viewer,
 }: GalleryResultsProps): JSX.Element {
   const [items, setItems] = useState(initialItems)
   const [cursor, setCursor] = useState(initialNextCursor)
@@ -109,7 +113,12 @@ export function GalleryResults({
     <>
       <div className={GALLERY_GRID}>
         {items.map(item => (
-          <GalleryItemCard item={item} key={item.media.id} now={now} />
+          <GalleryItemCard
+            item={item}
+            key={item.media.id}
+            now={now}
+            viewer={viewer}
+          />
         ))}
       </div>
       {error ? (

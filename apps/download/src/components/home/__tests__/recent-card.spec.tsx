@@ -13,9 +13,17 @@ import { RecentCard, recentCardMeta } from 'src/components/home/recent-card'
 import { ACCOUNT_HREF } from 'src/components/shell/account-link'
 import { MASKED_INITIALS } from 'src/components/ui/avatar'
 import { UNKNOWN_VALUE } from 'src/lib/format'
+import { profileHrefForEmail } from 'src/lib/profile-filters'
+import type { Viewer } from 'src/lib/viewer'
 
 const NOW = Date.parse('2026-09-15T20:00:00.000Z')
 const VIEWER_EMAIL = 'jeremy.asuncion@lilnas.io'
+const VIEWER: Viewer = {
+  email: VIEWER_EMAIL,
+  isAdmin: false,
+  userId: 'u_1',
+}
+const ADMIN: Viewer = { email: 'ops@lilnas.io', isAdmin: true, userId: 'u_9' }
 
 const MOVIE: Movie = {
   id: 'tmdb:438631',
@@ -104,7 +112,7 @@ describe('RecentCard', () => {
         <RecentCard
           item={item({ lastRequester: null })}
           now={NOW}
-          viewerEmail={VIEWER_EMAIL}
+          viewer={VIEWER}
         />,
       )
       const avatar = container.querySelector('.rounded-full')
@@ -121,7 +129,7 @@ describe('RecentCard', () => {
 
     it('links the avatar only when the requester is the viewer', () => {
       const { container } = render(
-        <RecentCard item={item()} now={NOW} viewerEmail={VIEWER_EMAIL} />,
+        <RecentCard item={item()} now={NOW} viewer={VIEWER} />,
       )
       const avatar = container.querySelector('.rounded-full')
 
@@ -130,14 +138,24 @@ describe('RecentCard', () => {
       expect(avatar).toHaveTextContent('JA')
     })
 
-    it('leaves somebody else’s avatar unlinked', () => {
+    it('links somebody else’s avatar for an admin, at their ?user=', () => {
+      const { container } = render(
+        <RecentCard item={item()} now={NOW} viewer={ADMIN} />,
+      )
+      const avatar = container.querySelector('.rounded-full')
+
+      expect(avatar?.tagName).toBe('A')
+      expect(avatar).toHaveAttribute('href', profileHrefForEmail(VIEWER_EMAIL))
+    })
+
+    it('leaves somebody else’s avatar unlinked for a regular viewer', () => {
       const { container } = render(
         <RecentCard
           item={item({
             lastRequester: { email: 'sam.rivera@lilnas.io', userId: 'u_2' },
           })}
           now={NOW}
-          viewerEmail={VIEWER_EMAIL}
+          viewer={VIEWER}
         />,
       )
       const avatar = container.querySelector('.rounded-full')

@@ -45,6 +45,7 @@ function renderResults(
       initialTotal={2}
       now={NOW}
       search=""
+      viewer={null}
       {...props}
     />,
   )

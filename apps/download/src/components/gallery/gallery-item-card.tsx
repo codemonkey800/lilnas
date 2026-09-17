@@ -3,6 +3,7 @@ import type { GalleryItem, Media } from '@lilnas/utils/download/types'
 import { DownloadType, isManagedMedia } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
+import { requesterProfileHref } from 'src/components/activity/activity-requester'
 import { Avatar } from 'src/components/ui/avatar'
 import { ButtonLink } from 'src/components/ui/button-link'
 import { Chip } from 'src/components/ui/chip'
@@ -23,6 +24,7 @@ import {
   UNKNOWN_VALUE,
 } from 'src/lib/format'
 import { mediaHref } from 'src/lib/media-route'
+import type { Viewer } from 'src/lib/viewer'
 
 /** `gallery.pug`'s `entry.icon`, one per type. */
 const TYPE_ICONS: Record<DownloadType, IconName> = {
@@ -83,6 +85,12 @@ export type GalleryItemCardProps = {
    * reading the clock for itself is a hydration mismatch on every stamp.
    */
   now: number
+  /**
+   * Who is looking. Decides whether the attribution avatar is a link, per
+   * {@link requesterProfileHref}'s access rule — own identity always, anyone
+   * else's only for an admin, a masked uploader never.
+   */
+  viewer: Viewer | null
 }
 
 /**
@@ -105,6 +113,7 @@ export type GalleryItemCardProps = {
 export function GalleryItemCard({
   item,
   now,
+  viewer,
 }: GalleryItemCardProps): JSX.Element {
   const { media } = item
   const managed = isManagedMedia(media) ? media : null
@@ -113,6 +122,7 @@ export function GalleryItemCard({
   const requester = item.lastRequester
   const when = formatRelative(item.lastDownloadedAt, now)
   const video = media.type === DownloadType.Video
+  const profileHref = requesterProfileHref(requester, viewer)
 
   return (
     <GalleryCard className={GALLERY_CARD_WIDTH}>
@@ -141,6 +151,7 @@ export function GalleryItemCard({
         <GalleryCardAttrib>
           {requester ? (
             <Avatar
+              href={profileHref}
               initials={initials(requester.email)}
               title={requester.email}
             />

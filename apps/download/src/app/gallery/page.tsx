@@ -12,6 +12,7 @@ import {
   hasGalleryFilters,
   parseGalleryFilters,
 } from 'src/lib/gallery-filters'
+import { getViewer } from 'src/lib/viewer'
 
 export const metadata = {
   title: 'Library · Download',
@@ -46,7 +47,14 @@ export default async function GalleryPage({
   searchParams,
 }: GalleryPageProps): Promise<JSX.Element> {
   const filters = parseGalleryFilters(await searchParams)
-  const view = await loadGalleryView(filters)
+  // The viewer decides which attribution avatars are profile links — own
+  // identity always, anyone else's only for an admin. `getViewer` is
+  // `React.cache()`-wrapped, so the layout's own call and this one are one
+  // round trip.
+  const [view, viewer] = await Promise.all([
+    loadGalleryView(filters),
+    getViewer(),
+  ])
   // Also this view's identity: `GalleryResults` is keyed by it, so a filter
   // change unmounts the pages accumulated under the previous filter rather
   // than needing an effect to reconcile them.
@@ -82,6 +90,7 @@ export default async function GalleryPage({
           key={search}
           now={view.now}
           search={search}
+          viewer={viewer}
         />
       )}
     </GalleryPageShell>
