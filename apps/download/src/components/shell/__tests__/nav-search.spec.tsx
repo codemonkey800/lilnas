@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { usePathname } from 'next/navigation'
 
@@ -49,6 +49,57 @@ function holdTheAction(): () => void {
   )
 
   return () => release()
+}
+
+/**
+ * Replaces `requestAnimationFrame` with a queue the test pumps by hand.
+ *
+ * Both of this field's focus moves are deferred by a frame, and the bug this
+ * exists to pin is what happens when a close is queued while an open's frame
+ * is *still pending*. jsdom fires a real frame roughly every 16ms, so whether
+ * that overlap happens at all is a footrace between the machine and the timer
+ * — which is exactly how this surfaced originally, as a test that failed six
+ * runs in ten for no reason anyone could name. Owning the queue turns the
+ * overlap from something the test has to win into something it constructs.
+ */
+function manualFrames() {
+  const queue = new Map<number, FrameRequestCallback>()
+  let nextHandle = 1
+
+  const request = jest
+    .spyOn(window, 'requestAnimationFrame')
+    .mockImplementation(callback => {
+      const handle = nextHandle++
+
+      queue.set(handle, callback)
+
+      return handle
+    })
+
+  const cancel = jest
+    .spyOn(window, 'cancelAnimationFrame')
+    .mockImplementation(handle => {
+      queue.delete(handle)
+    })
+
+  return {
+    /** Runs every frame still queued, oldest first, as one browser would. */
+    async flush(): Promise<void> {
+      const pending = Array.from(queue.values())
+
+      queue.clear()
+
+      await act(async () => {
+        for (const callback of pending) {
+          callback(0)
+        }
+      })
+    },
+    restore(): void {
+      request.mockRestore()
+      cancel.mockRestore()
+    },
+  }
 }
 
 async function type(text: string) {
@@ -312,14 +363,45 @@ describe('NavSearch', () => {
       await user.click(screen.getByRole('button', { name: 'Close search' }))
 
       expect(screen.getByRole('search')).toHaveClass('hidden')
-      expect(trigger).toHaveFocus()
+      // Awaited, because the restore is deliberately deferred a frame: the
+      // trigger is still `hidden` at the instant the handler runs.
+      await waitFor(() => expect(trigger).toHaveFocus())
     })
 
-    it('closes on Escape', async () => {
+    it('does not let the opening frame steal the focus a close just handed back', async () => {
+      const frames = manualFrames()
+
+      try {
+        const user = userEvent.setup()
+        render(<NavSearch />)
+
+        const trigger = screen.getByRole('button', { name: 'Open search' })
+
+        // Opened and closed without a single frame running in between, so the
+        // frame `openSearch` queued is still pending when `closeSearch` queues
+        // its own. Whichever of the two survives owns the caret.
+        await user.click(trigger)
+        await user.click(screen.getByRole('button', { name: 'Close search' }))
+
+        await frames.flush()
+
+        expect(trigger).toHaveFocus()
+        // The specific wrong answer: focus dragged onto an input that the
+        // collapse has just made `display: none`, which in a browser is focus
+        // nowhere at all.
+        expect(field()).not.toHaveFocus()
+      } finally {
+        frames.restore()
+      }
+    })
+
+    it('closes on Escape, and hands the trigger back too', async () => {
       const user = userEvent.setup()
       render(<NavSearch />)
 
-      await user.click(screen.getByRole('button', { name: 'Open search' }))
+      const trigger = screen.getByRole('button', { name: 'Open search' })
+
+      await user.click(trigger)
       // Escape is handled on the form, so it only closes once focus has landed
       // inside it — which is exactly the sequence a real tap produces, the
       // trigger being `display: none` the moment the overlay opens.
@@ -329,6 +411,10 @@ describe('NavSearch', () => {
 
       expect(screen.getByRole('search')).toHaveClass('hidden')
       expect(screen.queryByRole('button', { name: 'Close search' })).toBeNull()
+      // Escape and the close button are the same exit, so they owe the same
+      // debt — the keyboard route to it especially, since a user who pressed
+      // Escape has no pointer to recover with.
+      await waitFor(() => expect(trigger).toHaveFocus())
     })
 
     it('mounts exactly one input, expanded or not', async () => {

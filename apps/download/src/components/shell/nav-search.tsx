@@ -3,7 +3,14 @@
 import { cns } from '@lilnas/utils/cns'
 import { usePathname, useRouter } from 'next/navigation'
 import type { FormEvent, JSX } from 'react'
-import { useCallback, useId, useState, useTransition } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useTransition,
+} from 'react'
 
 import { startVideoDownload } from 'src/app/actions/start-video-download'
 import { Button } from 'src/components/ui/button'
@@ -188,6 +195,37 @@ export function NavSearch(): JSX.Element | null {
   const triggerId = `${baseId}-trigger`
   const errorId = `${baseId}-error`
 
+  /** The one in-flight focus frame, so a newer intent can cancel an older one. */
+  const focusFrameRef = useRef(0)
+
+  /**
+   * Focus an element by id on the next frame, cancelling whatever frame was
+   * already queued.
+   *
+   * ⚠️ The deferral and the cancellation are both load-bearing, for different
+   * reasons.
+   *
+   * **Deferred**, because each of this field's two focus targets is
+   * `display: none` at the instant its own handler runs. The input is hidden
+   * until the expanding render commits; the trigger is hidden until the
+   * *collapsing* one does, since it wears `hidden` for exactly as long as the
+   * overlay is up. A `display: none` element cannot take focus, so a
+   * synchronous `.focus()` on either is a silent no-op in a browser and leaves
+   * the user on `<body>`. jsdom models neither `display` nor that rule, which
+   * is why only the half of this that is a *race* was ever visible in a test.
+   *
+   * **Cancelled**, because otherwise opening and closing within one frame
+   * leaves both frames queued and the stale one wins: the trigger takes focus,
+   * and then the open frame drags it onto the hidden input.
+   */
+  const focusNextFrame = useCallback((id: string) => {
+    window.cancelAnimationFrame(focusFrameRef.current)
+    focusFrameRef.current = window.requestAnimationFrame(() => focusById(id))
+  }, [])
+
+  // A frame that outlives the component would focus a detached node.
+  useEffect(() => () => window.cancelAnimationFrame(focusFrameRef.current), [])
+
   // A route change is the other way out of the expanded state, alongside the
   // close button — "closing it, or a redirect firing, hands the bar back".
   // Both branches end in a navigation, and this component lives in the layout,
@@ -215,19 +253,17 @@ export function NavSearch(): JSX.Element | null {
   const openSearch = useCallback(() => {
     setExpanded(true)
     // The bar the user just tapped is gone; without this the caret is nowhere
-    // and the expansion reads as decoration rather than an invitation. Deferred
-    // by a frame because the input is `display: none` until this render commits,
-    // and a hidden element cannot take focus.
-    window.requestAnimationFrame(() => focusById(inputId))
-  }, [inputId])
+    // and the expansion reads as decoration rather than an invitation.
+    focusNextFrame(inputId)
+  }, [focusNextFrame, inputId])
 
   const closeSearch = useCallback(() => {
     setExpanded(false)
     setError(null)
     // Closing deliberately is the one case that owes the user their focus back:
     // the trigger is where they were standing before they opened it.
-    focusById(triggerId)
-  }, [triggerId])
+    focusNextFrame(triggerId)
+  }, [focusNextFrame, triggerId])
 
   const onSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
