@@ -228,6 +228,12 @@ export function ShowEpisodeRow({
         <div className={cns('flex flex-col gap-3 px-1 pt-1 pb-[13px]')}>
           <ReleasePicker
             badFiles={badFiles}
+            // ⚠️ Absent whenever the file on disk cannot be traced back to a
+            // release - a manual import, a pruned history, a degraded
+            // resolver. `undefined` is the honest answer there, and it renders
+            // exactly as this row did before the guid existed: no `current`
+            // chip, and so no report control.
+            currentGuid={episode.currentReleaseGuid}
             episodeId={episode.id}
             hasFile={episode.hasFile}
             label={null}
