@@ -694,16 +694,14 @@ describe('MovieDetail — the release picker', () => {
     expect(await screen.findByText('bad file')).toBeInTheDocument()
   })
 
-  it('marks no row current and offers no report control without a guid', async () => {
+  it('⚠️ renders exactly as before when the file traces back to no release', async () => {
     const user = userEvent.setup()
-    const onSearch = jest
-      .fn()
-      .mockResolvedValue({ releases: [CURRENT, ALTERNATIVE] })
+    const releases = [CURRENT, ALTERNATIVE]
+    const onSearch = jest.fn().mockResolvedValue({ releases })
 
-    // `MOVIE` carries no `currentReleaseGuid`: the file was imported by hand,
-    // or the history that named its release has since been pruned. Passing
-    // `undefined` has to be indistinguishable from never passing the prop at
-    // all — no chip, no report control, every row still grabbable.
+    // `MOVIE` carries no `currentReleaseGuid`: a manual import, a pruned
+    // history, a degraded resolver. Absent must be indistinguishable from the
+    // old behaviour — no chip, no report control, and no row special-cased.
     renderDetail({ onFlag: jest.fn(), onReplace: jest.fn(), onSearch })
     await user.click(firstButton(RELEASE_SEARCH_LABEL))
 
@@ -711,6 +709,22 @@ describe('MovieDetail — the release picker', () => {
     expect(screen.queryByText(RELEASE_CURRENT_LABEL)).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: REPORT_LABEL }),
+    ).not.toBeInTheDocument()
+
+    // ⚠️ `hasFile` still decides the verb, so every row stays a replace —
+    // including the synthesized current-release row, which is just another
+    // pickable row once no guid singles it out. This is the assertion that
+    // catches `hasFile` regressing to `currentGuid !== undefined`: the two
+    // negatives above would still pass, and every one of these would silently
+    // flip to a grab. `show-episode-row.spec.tsx` pins the same invariant.
+    //
+    // One button per release, not two: each picker keeps its own search
+    // state, so only the copy whose trigger was pressed has a list at all.
+    expect(
+      screen.getAllByRole('button', { name: RELEASE_REPLACE_LABEL }),
+    ).toHaveLength(releases.length)
+    expect(
+      screen.queryByRole('button', { name: RELEASE_GRAB_LABEL }),
     ).not.toBeInTheDocument()
   })
 
