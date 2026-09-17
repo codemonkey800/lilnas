@@ -31,6 +31,7 @@ import { DownloadMetricsService } from 'src/download/download-metrics.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { JobQueryService } from 'src/download/job-query.service'
 import { ProfileService } from 'src/download/profile.service'
+import { CurrentReleaseService } from 'src/media/current-release.service'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import {
@@ -157,6 +158,7 @@ describe('DownloadController - GET /media/:id/file', () => {
       providers: [
         { provide: AdminCheckService, useValue: { checkIsAdmin: jest.fn() } },
         { provide: AuditLogService, useValue: auditLogService },
+        { provide: CurrentReleaseService, useValue: {} },
         { provide: DiscoveryService, useValue: {} },
         {
           provide: DownloadMetricsService,

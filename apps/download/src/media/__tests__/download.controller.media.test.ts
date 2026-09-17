@@ -34,6 +34,7 @@ import { DownloadMetricsService } from 'src/download/download-metrics.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { JobQueryService } from 'src/download/job-query.service'
 import { ProfileService } from 'src/download/profile.service'
+import { CurrentReleaseService } from 'src/media/current-release.service'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
@@ -93,6 +94,7 @@ describe('DownloadController - media endpoints', () => {
       providers: [
         { provide: AdminCheckService, useValue: mockAdminCheckService },
         { provide: AuditLogService, useValue: auditLogService },
+        { provide: CurrentReleaseService, useValue: {} },
         { provide: DiscoveryService, useValue: {} },
         { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },

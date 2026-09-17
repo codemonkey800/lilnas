@@ -28,6 +28,7 @@ import { JobQueryService } from 'src/download/job-query.service'
 import { ProfileService } from 'src/download/profile.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { createFakeMediaResolver } from 'src/media/__tests__/helpers/fake-media-resolver'
+import { CurrentReleaseService } from 'src/media/current-release.service'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
@@ -60,6 +61,7 @@ describe('DownloadController - detail-route restart fallback', () => {
       providers: [
         { provide: AdminCheckService, useValue: mockAdminCheckService },
         { provide: AuditLogService, useValue: { record: jest.fn() } },
+        { provide: CurrentReleaseService, useValue: {} },
         { provide: DiscoveryService, useValue: {} },
         { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },

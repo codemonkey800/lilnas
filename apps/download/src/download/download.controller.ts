@@ -29,12 +29,17 @@ import type {
   ListBadFilesResponse,
   ListReleasesResponse,
   ListSeasonsResponse,
+  Media,
   MediaDetailResponse,
   ProfileResponse,
   SearchMediaResponse,
   UnflagBadFileResponse,
 } from '@lilnas/utils/download/types'
-import { DownloadType as DownloadTypeEnum } from '@lilnas/utils/download/types'
+import {
+  DownloadType as DownloadTypeEnum,
+  isMovie,
+} from '@lilnas/utils/download/types'
+import { getErrorMessage } from '@lilnas/utils/error'
 import {
   Body,
   Controller,
@@ -64,6 +69,7 @@ import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { ForwardedUserGuard } from 'src/auth/forwarded-user.guard'
 import { OptionalCurrentUser } from 'src/auth/optional-current-user.decorator'
 import { mediaTypeFromKey } from 'src/db/media-id'
+import { CurrentReleaseService } from 'src/media/current-release.service'
 import { DiscoveryService } from 'src/media/discovery.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import {
@@ -130,6 +136,7 @@ export class DownloadController {
   constructor(
     private adminCheckService: AdminCheckService,
     private auditLogService: AuditLogService,
+    private currentReleaseService: CurrentReleaseService,
     private discoveryService: DiscoveryService,
     private downloadMetricsService: DownloadMetricsService,
     private downloadService: DownloadService,
@@ -459,7 +466,10 @@ export class DownloadController {
       throw new NotFoundException('Media not found')
     }
 
-    const jobs = await this.jobQueryService.listJobsForMedia(id)
+    const [jobs, annotated] = await Promise.all([
+      this.jobQueryService.listJobsForMedia(id),
+      this.withCurrentRelease(resolved),
+    ])
 
     this.logger.log(
       {
@@ -474,7 +484,54 @@ export class DownloadController {
 
     return {
       jobs: jobs.map(job => projectJobForViewer(job, isAdmin)),
-      media: resolved,
+      media: annotated,
+    }
+  }
+
+  /**
+   * A movie annotated with the release behind the file on disk right now, so
+   * the detail page can mark one release `current` and offer to report it.
+   *
+   * Detail route only. The answer costs a Radarr history call on a cache
+   * miss, which is fine once per page and ruinous once per row - no list
+   * route asks for it.
+   *
+   * The annotation lands on a **copy**: `MediaResolverService` caches the
+   * object it hands back, so writing to it would publish this movie's guid
+   * to every other reader of that cache entry. A movie with no `radarrId`
+   * (a discover-only lookup), no file, or no recoverable history is returned
+   * exactly as the resolver produced it, with the key absent rather than
+   * present-and-undefined.
+   */
+  private async withCurrentRelease(resolved: Media): Promise<Media> {
+    if (!isMovie(resolved) || resolved.radarrId == null) {
+      return resolved
+    }
+
+    try {
+      const release = await this.currentReleaseService.forMovie(
+        resolved.id,
+        resolved.radarrId,
+      )
+
+      return release
+        ? { ...resolved, currentReleaseGuid: release.releaseGuid }
+        : resolved
+    } catch (err) {
+      // forMovie() is documented never to throw, so this guards against a
+      // future regression in it rather than a live path - the same reason
+      // MediaResolverService wraps its Emby annotation. A release label is
+      // never worth the detail page.
+      this.logger.warn(
+        {
+          action: 'getMediaDetail',
+          error: getErrorMessage(err),
+          mediaId: resolved.id,
+        },
+        'GET /media/:id - current release lookup failed',
+      )
+
+      return resolved
     }
   }
 
