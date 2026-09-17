@@ -53,8 +53,9 @@ export type NotAuthorizedProps = Omit<
  * Shared on purpose. Two routes need this state — `/profile?user=…` for a
  * profile that is neither yours nor visible to you as an admin, and `/admin`
  * for the admin-only dashboard — and if each grew its own the two would drift,
- * the way the ghost-styled watch link did when it was restated in
- * `gallery-item-card.tsx` after already existing in `home/ghost-link.tsx`.
+ * the way the ghost-styled watch link did when the home grid and
+ * `gallery-item-card.tsx` each kept their own copy of it, before both were
+ * folded into `ui/button-link.tsx`.
  *
  * Quiet, not loud, and specifically *not* the error boundary's register: no
  * `bad` ink, no `role="alert"`. Nothing has failed — the app is answering the
