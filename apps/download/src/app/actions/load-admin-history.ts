@@ -4,7 +4,6 @@ import { loadAdminHistory } from 'src/lib/admin-data'
 import type { LoadAdminHistoryResult } from 'src/lib/admin-filters'
 import {
   ADMIN_HISTORY_FORBIDDEN,
-  adminFiltersToStatsQuery,
   parseAdminFilters,
 } from 'src/lib/admin-filters'
 import { getIdentifiedDownloadClient } from 'src/lib/download-client'
@@ -22,11 +21,10 @@ import { getViewer } from 'src/lib/viewer'
  * ⚠️ **The admin gate is re-checked here, not inherited from the page.** A
  * server action is a real public endpoint — the page component's
  * `getViewer()?.isAdmin` branch says nothing about who may call this. The
- * backend gates it too (`getHistory` 403s a non-admin asking for somebody
- * else, and silently narrows an unfiltered call to the caller's own rows), so
- * this check is not the only thing standing between a non-admin and other
- * people's data; it is what stops this action from being a quieter way to ask
- * the same question.
+ * backend gates it too (`getHistory` 403s a non-admin asking for somebody else
+ * *or* for `scope=all`), so this check is not the only thing standing between a
+ * non-admin and other people's data; it is what stops this action from being a
+ * quieter way to ask the same question.
  *
  * The filter arrives as the raw query string the page is currently at and is
  * re-parsed here rather than accepted as a structured object, so a crafted call
@@ -52,16 +50,7 @@ export async function loadAdminHistoryPage(
   }
 
   try {
-    // Re-fetched rather than trusted from the client: the cross-user merge's
-    // requester vocabulary decides which rows this call can return at all, so
-    // it has to come from the server on every request.
-    const stats = await client.getStats(adminFiltersToStatsQuery(filters))
-    const page = await loadAdminHistory(
-      client,
-      filters,
-      cursor,
-      stats.topRequesters.map(entry => entry.requesterEmail),
-    )
+    const page = await loadAdminHistory(client, filters, cursor)
 
     return {
       items: page.items,

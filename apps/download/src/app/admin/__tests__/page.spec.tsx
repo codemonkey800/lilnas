@@ -202,15 +202,17 @@ describe('AdminPage — the requester filter', () => {
     ).not.toBeInTheDocument()
   })
 
-  // `GET /download/history` is always scoped to exactly one requester
-  // server-side, so the unfiltered view is an interleave of one call per known
-  // requester rather than a single "everyone" call.
-  it('asks every known requester when the URL names none', async () => {
+  // One call, not one per known requester: `?scope=all` is the backend's own
+  // every-requester scope. ⚠️ Omitting `requester` would *not* do this — it
+  // means the caller's own history, so the admin would be shown their own rows
+  // under a heading claiming to be the whole system's.
+  it('asks for the every-requester scope by name when the URL names none', async () => {
     await renderPage()
 
-    expect(
-      getHistory.mock.calls.map(([query]) => query?.requester).sort(),
-    ).toEqual([JEREMY, SAM])
+    expect(getHistory).toHaveBeenCalledTimes(1)
+    expect(getHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ requester: undefined, scope: 'all' }),
+    )
   })
 
   it('scopes the audit log to the same person', async () => {

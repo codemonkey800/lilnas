@@ -89,18 +89,13 @@ export default async function AdminPage({
   }
 
   const client = await getIdentifiedDownloadClient()
-  // Sequential on purpose: `topRequesters` is the requester vocabulary the
-  // cross-user history merge below is built out of, so the history cannot be
-  // started until the stats have answered.
-  const stats = await client.getStats(adminFiltersToStatsQuery(filters))
 
-  const [history, auditLog] = await Promise.all([
-    loadAdminHistory(
-      client,
-      filters,
-      null,
-      stats.topRequesters.map(entry => entry.requesterEmail),
-    ),
+  // All three together: the history's every-requester scope is a query
+  // parameter the backend resolves (`?scope=all`), so nothing here depends on
+  // the stats having answered first.
+  const [stats, history, auditLog] = await Promise.all([
+    client.getStats(adminFiltersToStatsQuery(filters)),
+    loadAdminHistory(client, filters, null),
     client.getAuditLog({
       // The requester filter scopes the whole page, not just the table: asking
       // "what has Sam been doing" and getting everybody's audit trail beside

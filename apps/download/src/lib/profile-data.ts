@@ -71,11 +71,15 @@ export type ProfileView = {
  *
  * ## The two calls, and why both need the target spelled out
  *
- * `getProfile()` with no `requester` means "me", which is exactly right.
- * `getHistory()` with no `requester` means **everyone**, which would put the
- * whole system's downloads under one person's name. So the target is resolved
- * once, here — the URL's `?user=`, or the viewer's own email — and passed to
- * both. That also makes the two calls independent, so they run together.
+ * Both endpoints read a missing `requester` the same way — "me", meaning the
+ * *viewer*. (`getHistory()` does have an every-requester mode, but it is
+ * `scope: 'all'`, an admin-only opt-in this page never sets; omitting
+ * `requester` has never meant that.) The trouble is that "me" is the wrong
+ * default here: this page is just as often somebody else's profile, via
+ * `?user=`. So the target is resolved once, here — the URL's `?user=`, or the
+ * viewer's own email — and spelled out to both rather than left to either
+ * endpoint's default. That also makes the two calls independent, so they run
+ * together.
  *
  * ## What a missing identity means
  *
