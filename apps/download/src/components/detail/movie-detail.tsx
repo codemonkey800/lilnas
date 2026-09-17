@@ -257,11 +257,15 @@ export type MovieDetailProps = Omit<
  *   arrives already masked by `projectJobForViewer`, so `null` means "not
  *   yours to see" and `DetailAttribution` draws the dashed avatar for it. The
  *   rule is never re-derived here.
- * - **No `currentGuid`.** Nothing on the wire records which release produced
- *   the file on disk — `bad_files` is the only table that stores a guid at
- *   all — so the `current` chip cannot be drawn honestly, and `ReleasePicker`
- *   hangs its report control off exactly that row. `onFlag`/`onUnflag` are
- *   still passed so the control appears the day a guid does.
+ * - **`currentGuid` is the payload's, and is often absent.** `GET /media/:id`
+ *   annotates a movie with `currentReleaseGuid` — the release whose grab
+ *   produced the file on disk, recovered from Radarr's history — and
+ *   `ReleasePicker` hangs both the `current` chip and the report control off
+ *   exactly that row. The backend guarantees the row is in the list it
+ *   returns, synthesizing it from its own record when the indexers no longer
+ *   have a months-old release. Absent means the guid could not be recovered (a
+ *   manually imported file, or history since pruned), and the picker degrades
+ *   to no chip and no report control rather than guessing at one.
  */
 export function MovieDetail({
   badFiles,
@@ -336,10 +340,13 @@ export function MovieDetail({
 
   const releaseProps = {
     badFiles,
+    currentGuid: movie.currentReleaseGuid,
     // Every pick is a replace once there is a file — one call that deletes and
     // grabs together, never a delete followed by a grab. Passed explicitly
-    // because the prop otherwise defaults off `currentGuid`, which this page
-    // has no way to know.
+    // because the prop otherwise defaults off `currentGuid`, and the two are
+    // not the same question: a file whose originating release could not be
+    // recovered has no guid and still has to replace rather than grab.
+    // `filePath` is the fact that decides it.
     hasFile,
     mediaId: movie.id,
     onFlag,

@@ -10,7 +10,11 @@ import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { REPORT_LABEL } from 'src/components/detail/bad-file-flag'
+import {
+  REPORT_LABEL,
+  REPORTED_LABEL,
+  UNDO_REPORT_LABEL,
+} from 'src/components/detail/bad-file-flag'
 import { deleteConfirmCopy } from 'src/components/detail/delete-confirm'
 import { JOB_LIFECYCLE_EMPTY_LABEL } from 'src/components/detail/job-state'
 import type { MovieDetailProps } from 'src/components/detail/movie-detail'
@@ -28,6 +32,7 @@ import {
   movieWatchState,
 } from 'src/components/detail/movie-detail'
 import {
+  RELEASE_CURRENT_LABEL,
   RELEASE_GRAB_LABEL,
   RELEASE_REPLACE_LABEL,
   RELEASE_SEARCH_LABEL,
@@ -66,6 +71,17 @@ const UNFETCHED: Movie = {
   filePath: undefined,
 }
 
+/** What `GET /media/:id` recovers from Radarr's history, when it can. */
+const CURRENT_GUID = 'indexer://f00ba7'
+
+/**
+ * The same movie, with the release behind its file on disk identified.
+ *
+ * ⚠️ `undefined`, never `null` and never `''` — {@link MOVIE} is the absent
+ * case, which is a manual import or history Radarr has since pruned.
+ */
+const ON_DISK: Movie = { ...MOVIE, currentReleaseGuid: CURRENT_GUID }
+
 const JOB: DownloadJob = {
   completedAt: '2026-09-15T11:48:00.000Z',
   createdAt: '2026-09-15T11:20:00.000Z',
@@ -91,6 +107,26 @@ const ALTERNATIVE: Release = {
   title: 'Salt.and.Ceremony.2024.2160p.WEB-DL',
 }
 
+/**
+ * The row the backend prepends when today's indexer sweep no longer returns
+ * the release that produced the file — a grab from months ago usually will
+ * not come back, so `listReleases` synthesizes the row from its own cached
+ * record instead.
+ *
+ * ⚠️ No `quality` and `indexerId: 0`, because the history that record is built
+ * from carries no `QualityModel` and no indexer id. `ReleaseRow`'s
+ * `[quality, size] || title` fallback therefore renders the raw release title
+ * for it, which is the intended path rather than a gap.
+ */
+const CURRENT: Release = {
+  downloadAllowed: true,
+  flaggedBad: false,
+  guid: CURRENT_GUID,
+  indexerId: 0,
+  rejected: false,
+  title: 'Salt.and.Ceremony.2024.1080p.WEB-DL',
+}
+
 const FLAG: BadFile = {
   createdAt: '2026-09-15T11:00:00.000Z',
   flaggedBy: { email: 'jeremy.asuncion@lilnas.io', userId: 'u_jeremy' },
@@ -100,6 +136,15 @@ const FLAG: BadFile = {
   reason: "Video won't play",
   releaseGuid: 'guid-2160',
   releaseTitle: ALTERNATIVE.title,
+}
+
+/** The same report, against the release actually on disk. */
+const CURRENT_FLAG: BadFile = {
+  ...FLAG,
+  id: 10,
+  indexerId: CURRENT.indexerId,
+  releaseGuid: CURRENT_GUID,
+  releaseTitle: CURRENT.title,
 }
 
 function renderDetail(overrides: Partial<MovieDetailProps> = {}) {
@@ -122,6 +167,21 @@ function firstButton(name: RegExp | string): HTMLElement {
   }
 
   return first
+}
+
+/**
+ * One release row, found by the full release name it carries as its `title`.
+ * The first match is the desktop copy, for the same reason {@link firstButton}
+ * takes the first button.
+ */
+function releaseRow(release: Release): HTMLElement {
+  const element = document.querySelector(`[title="${release.title}"]`)
+
+  if (!(element instanceof HTMLElement)) {
+    throw new Error(`no row for ${release.title}`)
+  }
+
+  return element
 }
 
 describe('movieWatchState', () => {
@@ -634,20 +694,114 @@ describe('MovieDetail — the release picker', () => {
     expect(await screen.findByText('bad file')).toBeInTheDocument()
   })
 
-  it('offers no report control, because no guid identifies the file on disk', async () => {
+  it('marks no row current and offers no report control without a guid', async () => {
     const user = userEvent.setup()
-    const onSearch = jest.fn().mockResolvedValue({ releases: [ALTERNATIVE] })
+    const onSearch = jest
+      .fn()
+      .mockResolvedValue({ releases: [CURRENT, ALTERNATIVE] })
 
+    // `MOVIE` carries no `currentReleaseGuid`: the file was imported by hand,
+    // or the history that named its release has since been pruned. Passing
+    // `undefined` has to be indistinguishable from never passing the prop at
+    // all — no chip, no report control, every row still grabbable.
     renderDetail({ onFlag: jest.fn(), onReplace: jest.fn(), onSearch })
     await user.click(firstButton(RELEASE_SEARCH_LABEL))
 
-    await screen.findByRole('button', { name: RELEASE_REPLACE_LABEL })
-    // Nothing on the wire records which release produced the file, so the
-    // `current` row — the only row that carries the flag control — is never
-    // drawn. Recorded as an open gap rather than guessed at.
+    await screen.findAllByRole('button', { name: RELEASE_REPLACE_LABEL })
+    expect(screen.queryByText(RELEASE_CURRENT_LABEL)).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: REPORT_LABEL }),
     ).not.toBeInTheDocument()
+  })
+
+  it('chips the release behind the file on disk and offers to report it', async () => {
+    const user = userEvent.setup()
+    const onSearch = jest
+      .fn()
+      .mockResolvedValue({ releases: [CURRENT, ALTERNATIVE] })
+
+    renderDetail({
+      movie: ON_DISK,
+      onFlag: jest.fn(),
+      onReplace: jest.fn(),
+      onSearch,
+    })
+    await user.click(firstButton(RELEASE_SEARCH_LABEL))
+    await screen.findAllByRole('button', { name: RELEASE_REPLACE_LABEL })
+
+    const current = releaseRow(CURRENT)
+
+    expect(within(current).getByText(RELEASE_CURRENT_LABEL)).toBeInTheDocument()
+    expect(
+      within(current).getByRole('button', { name: REPORT_LABEL }),
+    ).toBeInTheDocument()
+
+    // The current row is the one you report; every other row is one you take.
+    const alternative = releaseRow(ALTERNATIVE)
+
+    expect(
+      within(alternative).queryByText(RELEASE_CURRENT_LABEL),
+    ).not.toBeInTheDocument()
+    expect(
+      within(alternative).getByRole('button', { name: RELEASE_REPLACE_LABEL }),
+    ).toBeInTheDocument()
+  })
+
+  it('renders the synthesized current row by its title when it has no quality', async () => {
+    const user = userEvent.setup()
+    const onSearch = jest.fn().mockResolvedValue({ releases: [CURRENT] })
+
+    renderDetail({ movie: ON_DISK, onFlag: jest.fn(), onSearch })
+    await user.click(firstButton(RELEASE_SEARCH_LABEL))
+    await screen.findAllByText(RELEASE_CURRENT_LABEL)
+
+    // A row rebuilt from history carries no `QualityModel` and no size, so
+    // the primary column falls back to the raw release name. Intended.
+    expect(
+      within(releaseRow(CURRENT)).getAllByText(CURRENT.title).length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('shows the reported state when the file on disk is already flagged', async () => {
+    const user = userEvent.setup()
+    const onSearch = jest
+      .fn()
+      .mockResolvedValue({ releases: [CURRENT, ALTERNATIVE] })
+
+    renderDetail({
+      badFiles: [CURRENT_FLAG],
+      movie: ON_DISK,
+      onFlag: jest.fn(),
+      onReplace: jest.fn(),
+      onSearch,
+      onUnflag: jest.fn(),
+    })
+    await user.click(firstButton(RELEASE_SEARCH_LABEL))
+    await screen.findAllByRole('button', { name: RELEASE_REPLACE_LABEL })
+
+    const current = releaseRow(CURRENT)
+
+    // A second report is structurally unreachable, not merely refused.
+    expect(within(current).getByText(REPORTED_LABEL)).toBeInTheDocument()
+    expect(
+      within(current).queryByRole('button', { name: REPORT_LABEL }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(current).getByRole('button', { name: UNDO_REPORT_LABEL }),
+    ).toBeInTheDocument()
+  })
+
+  it('never searches on mount, guid or no guid', async () => {
+    const onSearch = jest.fn()
+
+    renderDetail({ movie: ON_DISK, onFlag: jest.fn(), onSearch })
+
+    // Knowing which release is current must not become a reason to go looking
+    // for the rest of them — `GET /media/:id/releases` still writes upstream.
+    await waitFor(() => {
+      expect(firstButton(RELEASE_SEARCH_LABEL)).toBeInTheDocument()
+    })
+    expect(onSearch).not.toHaveBeenCalled()
   })
 
   it('renders one picker per layout, both fed the same media key', () => {
