@@ -308,3 +308,100 @@ describe('BadFileFlag — undo', () => {
     expect(onUnflag).toHaveBeenCalledWith(MEDIA_ID, ORIGINAL_ROW.id)
   })
 })
+
+/**
+ * As in `delete-confirm.spec.tsx`, the trap itself belongs to `Modal` and is
+ * proved there. This covers the wiring, plus the one thing this dialog has
+ * that the delete one does not: a roving `ReasonGroup` inside the trap. A
+ * roving group is deliberately a *single* tab stop, so Tab has to step over
+ * the unchecked reasons rather than through them — the two focus models have
+ * to compose, and nothing else in the app puts them together.
+ */
+describe('BadFileFlag — focus containment', () => {
+  async function raise() {
+    const user = userEvent.setup()
+
+    render(
+      <BadFileFlag mediaId={MEDIA_ID} release={RELEASE} onFlag={jest.fn()} />,
+    )
+
+    const opener = trigger()
+
+    await user.click(opener)
+
+    return { opener, user }
+  }
+
+  function cancel(): HTMLElement {
+    return screen.getByRole('button', { name: 'Cancel' })
+  }
+
+  it('moves focus into the panel, onto the reason already chosen', async () => {
+    await raise()
+
+    expect(screen.getAllByRole('radio')[0]).toHaveFocus()
+  })
+
+  it('shuts the page behind out of the accessibility tree', async () => {
+    const { opener } = await raise()
+
+    const shut = opener.closest('[inert]')
+
+    expect(shut).not.toBeNull()
+    expect(shut).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('steps Tab over the roving group, not through it', async () => {
+    const { user } = await raise()
+
+    const reasons = screen.getAllByRole('radio')
+
+    expect(reasons.length).toBeGreaterThan(1)
+    expect(reasons[0]).toHaveFocus()
+
+    // One Tab leaves the whole group behind. If the unchecked reasons were
+    // ordinary tab stops this would land on the second radio instead.
+    await user.tab()
+    expect(cancel()).toHaveFocus()
+
+    await user.tab()
+    expect(submit()).toHaveFocus()
+
+    // ...and off the last control, back to the first, never onto the page.
+    await user.tab()
+    expect(reasons[0]).toHaveFocus()
+  })
+
+  it('cycles Shift+Tab backwards through the same three stops', async () => {
+    const { user } = await raise()
+
+    const reasons = screen.getAllByRole('radio')
+
+    await user.tab({ shift: true })
+    expect(submit()).toHaveFocus()
+
+    await user.tab({ shift: true })
+    expect(cancel()).toHaveFocus()
+
+    await user.tab({ shift: true })
+    expect(reasons[0]).toHaveFocus()
+  })
+
+  it('closes on Escape and hands focus back to the trigger', async () => {
+    const { opener, user } = await raise()
+
+    await user.keyboard('{Escape}')
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(opener).toHaveFocus()
+  })
+
+  it('hands focus back on Cancel too', async () => {
+    const { opener, user } = await raise()
+
+    await user.click(cancel())
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(opener).toHaveFocus()
+  })
+})

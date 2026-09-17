@@ -511,3 +511,72 @@ describe('GalleryControls applied chips', () => {
     expect(push).toHaveBeenLastCalledWith('/gallery', { scroll: false })
   })
 })
+
+/**
+ * ⚠️ The filter panel is a **non-modal** popover, and that is a design
+ * decision rather than an omission — `FilterPanel`'s own docblock says so, and
+ * APG agrees: the grid underneath stays readable and reachable while you
+ * filter it. So there is deliberately **no focus trap here**, and no test
+ * below asserts one. Trapping focus in this panel would be the regression.
+ *
+ * What it owes instead is the other half of the contract — focus goes in on
+ * open, comes back to the trigger on Escape, and leaving by keyboard dismisses
+ * rather than stranding an invisible panel behind the user.
+ */
+describe('GalleryControls — the filter popover and focus', () => {
+  function trigger(): HTMLElement {
+    return screen.getByRole('button', { name: /^Filters/ })
+  }
+
+  it('moves focus onto the panel itself, not into its first field', async () => {
+    const user = userEvent.setup()
+
+    renderControls()
+
+    const panel = await openPanel(user)
+
+    // The panel, not the first input: a screen reader gets to announce the
+    // dialog, and a mobile keyboard does not spring open on a date field.
+    expect(panel).toHaveFocus()
+    expect(panel).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('reports its expanded state on the trigger', async () => {
+    const user = userEvent.setup()
+
+    renderControls()
+
+    expect(trigger()).toHaveAttribute('aria-expanded', 'false')
+    expect(trigger()).toHaveAttribute('aria-haspopup', 'dialog')
+
+    await openPanel(user)
+
+    expect(trigger()).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('closes on Escape and hands focus back to the trigger', async () => {
+    const user = userEvent.setup()
+
+    renderControls()
+    await openPanel(user)
+
+    await user.keyboard('{Escape}')
+
+    expect(screen.queryByRole('dialog', { name: 'Filters' })).toBeNull()
+    expect(trigger()).toHaveFocus()
+  })
+
+  it('dismisses when the keyboard walks out of it, rather than lingering', async () => {
+    const user = userEvent.setup()
+
+    renderControls()
+    await openPanel(user)
+
+    // Shift+Tab off the panel lands on the trigger, which counts as inside —
+    // the panel has to survive that, or the trigger could never be reached.
+    await user.tab({ shift: true })
+
+    expect(trigger()).toHaveFocus()
+    expect(screen.getByRole('dialog', { name: 'Filters' })).toBeInTheDocument()
+  })
+})

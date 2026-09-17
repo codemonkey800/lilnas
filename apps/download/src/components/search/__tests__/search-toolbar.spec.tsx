@@ -273,3 +273,115 @@ describe('SearchToolbar', () => {
     })
   })
 })
+
+/**
+ * The toolbar is the one place in the app that composes both popover kinds —
+ * a `Menu` listbox and a `FilterPanel` dialog — side by side, each with its
+ * own trigger. Each primitive's keyboard model is proved in `menu.spec.tsx`
+ * and `filters.spec.tsx`; what is asserted here is that this call site wires
+ * both up, and that the two do not interfere.
+ *
+ * Neither is focus-trapped, deliberately: a listbox releases on Tab and the
+ * filter panel is non-modal. The obligation both carry is the handback.
+ */
+describe('SearchToolbar — popover focus', () => {
+  function sortTrigger(): HTMLElement {
+    return screen.getByRole('button', { name: /^Sort by/ })
+  }
+
+  function filtersTrigger(): HTMLElement {
+    return screen.getByRole('button', { name: /^Filters/ })
+  }
+
+  describe('the sort menu', () => {
+    it('opens onto the option it is currently sitting on', async () => {
+      const user = userEvent.setup()
+
+      renderToolbar('q=star&sort=title')
+
+      await user.click(sortTrigger())
+
+      const selected = screen.getByRole('option', { selected: true })
+
+      // Real DOM focus, not `aria-activedescendant` — so the first arrow press
+      // moves from somewhere meaningful.
+      expect(selected).toHaveFocus()
+    })
+
+    it('closes on Escape and hands focus back to its own trigger', async () => {
+      const user = userEvent.setup()
+
+      renderToolbar()
+
+      const trigger = sortTrigger()
+
+      await user.click(trigger)
+      expect(screen.getByRole('listbox')).toBeInTheDocument()
+
+      await user.keyboard('{Escape}')
+
+      expect(screen.queryByRole('listbox')).toBeNull()
+      expect(trigger).toHaveFocus()
+    })
+
+    it('opens from the keyboard alone, with no pointer anywhere', async () => {
+      const user = userEvent.setup()
+
+      renderToolbar()
+
+      sortTrigger().focus()
+      await user.keyboard('{ArrowDown}')
+
+      expect(screen.getByRole('listbox')).toBeInTheDocument()
+      expect(screen.getByRole('option', { selected: true })).toHaveFocus()
+    })
+  })
+
+  describe('the filter panel', () => {
+    it('takes focus onto the panel and reports itself expanded', async () => {
+      const user = userEvent.setup()
+
+      renderToolbar()
+
+      expect(filtersTrigger()).toHaveAttribute('aria-expanded', 'false')
+
+      await user.click(filtersTrigger())
+
+      expect(screen.getByRole('dialog', { name: 'Filters' })).toHaveFocus()
+      expect(filtersTrigger()).toHaveAttribute('aria-expanded', 'true')
+    })
+
+    it('closes on Escape and hands focus back to its own trigger', async () => {
+      const user = userEvent.setup()
+
+      renderToolbar()
+
+      const trigger = filtersTrigger()
+
+      await user.click(trigger)
+      await user.keyboard('{Escape}')
+
+      expect(screen.queryByRole('dialog', { name: 'Filters' })).toBeNull()
+      expect(trigger).toHaveFocus()
+    })
+
+    it('does not leave the sort menu open behind it', async () => {
+      const user = userEvent.setup()
+
+      renderToolbar()
+
+      await user.click(sortTrigger())
+      expect(screen.getByRole('listbox')).toBeInTheDocument()
+
+      // A pointer press outside the menu dismisses it, and the filters button
+      // is outside. Two popovers stacked over each other would be two Escapes
+      // to get out of, and the second one invisible.
+      await user.click(filtersTrigger())
+
+      expect(screen.queryByRole('listbox')).toBeNull()
+      expect(
+        screen.getByRole('dialog', { name: 'Filters' }),
+      ).toBeInTheDocument()
+    })
+  })
+})

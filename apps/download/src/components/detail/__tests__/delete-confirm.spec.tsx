@@ -491,3 +491,104 @@ describe('DeleteConfirm — confirming', () => {
     expect(onDeleted).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * `Modal` owns the trap and `modal.spec.tsx` proves it in isolation. What is
+ * asserted here is the *wiring* — that this call site actually reaches the
+ * behaviour, since every part of it is opt-in from `DeleteConfirm`'s side and
+ * a dropped `initialFocusRef` or a stray `dismissible={false}` would silently
+ * strand the highest-stakes dialog in the app.
+ */
+describe('DeleteConfirm — focus containment', () => {
+  /**
+   * Renders closed, captures the trigger, then opens.
+   *
+   * The capture has to happen first: opening marks everything outside the
+   * scrim `aria-hidden`, and Testing Library's role queries skip hidden
+   * subtrees, so the trigger becomes unaddressable by role the moment the
+   * dialog is up. That is the trap working, and it is asserted below.
+   */
+  async function raise(scope: DeleteScope = MOVIE) {
+    const user = userEvent.setup()
+
+    render(
+      <DeleteConfirm
+        mediaId={mediaIdFor(scope)}
+        scope={scope}
+        title={titleFor(scope)}
+        onDelete={jest.fn().mockResolvedValue({ deletedCount: 1 })}
+        onDeleteVideo={jest
+          .fn()
+          .mockResolvedValue({ job: { id: VIDEO_JOB_ID } })}
+      />,
+    )
+
+    const trigger = screen.getAllByRole('button')[0] as HTMLElement
+
+    await user.click(trigger)
+
+    return { trigger, user }
+  }
+
+  function cancel(): HTMLElement {
+    return screen.getByRole('button', { name: 'Cancel' })
+  }
+
+  it('takes the page behind out of the tab order and out of the a11y tree', async () => {
+    const { trigger } = await raise()
+
+    // Asserted on an ancestor rather than on the button: `inert` is applied to
+    // each level's *siblings* on the walk up to the root, so what gets marked
+    // is the subtree containing the trigger, not the trigger itself. Both
+    // attributes travel down to it either way.
+    const shut = trigger.closest('[inert]')
+
+    expect(shut).not.toBeNull()
+    expect(shut).toHaveAttribute('aria-hidden', 'true')
+    // Only the dialog's own two buttons are reachable at all.
+    expect(
+      screen.getAllByRole('button').map(entry => entry.textContent),
+    ).toEqual(['Cancel', 'Delete'])
+  })
+
+  it('cycles Tab between Cancel and Delete without ever leaving', async () => {
+    const { user } = await raise()
+
+    expect(cancel()).toHaveFocus()
+
+    await user.tab()
+    expect(confirmButton()).toHaveFocus()
+
+    // The wrap is the trap: off the end of the last control, back to the
+    // first, rather than out onto the page underneath.
+    await user.tab()
+    expect(cancel()).toHaveFocus()
+  })
+
+  it('cycles Shift+Tab the other way, wrapping off the start', async () => {
+    const { user } = await raise()
+
+    await user.tab({ shift: true })
+    expect(confirmButton()).toHaveFocus()
+
+    await user.tab({ shift: true })
+    expect(cancel()).toHaveFocus()
+  })
+
+  it('hands focus back to the trigger on Escape', async () => {
+    const { trigger, user } = await raise()
+
+    await user.keyboard('{Escape}')
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('hands focus back to the trigger on Cancel too', async () => {
+    const { trigger, user } = await raise()
+
+    await user.click(cancel())
+
+    expect(trigger).toHaveFocus()
+  })
+})
