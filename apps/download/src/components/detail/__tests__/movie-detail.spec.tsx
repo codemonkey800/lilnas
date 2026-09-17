@@ -23,11 +23,13 @@ import {
   MOVIE_EMBY_UNAVAILABLE_LABEL,
   MOVIE_EMPTY_NOTE,
   MOVIE_INDEXING_LABEL,
+  MOVIE_LIBRARY_LABEL,
   MOVIE_LIBRARY_NOTE,
   MOVIE_METADATA_NOTE,
   MOVIE_STATUS_LABEL,
   MOVIE_WATCH_LABEL,
   MovieDetail,
+  movieHasFile,
   movieMetaLine,
   movieWatchState,
 } from 'src/components/detail/movie-detail'
@@ -68,6 +70,17 @@ const MOVIE: Movie = {
 const UNFETCHED: Movie = {
   ...MOVIE,
   embyStatus: undefined,
+  filePath: undefined,
+}
+
+/**
+ * ⚠️ The payload shape the live page was actually handed, and the one this
+ * whole fix is about: Emby has indexed the file and offers a working `Watch`
+ * link, and `filePath` never arrived — Radarr's library cache does not expand
+ * `movieFile`, and `MovieSchema` has no `hasFile` to fall back on.
+ */
+const INDEXED_NO_PATH: Movie = {
+  ...MOVIE,
   filePath: undefined,
 }
 
@@ -114,9 +127,9 @@ const ALTERNATIVE: Release = {
  * record instead.
  *
  * ⚠️ No `quality` and `indexerId: 0`, because the history that record is built
- * from carries no `QualityModel` and no indexer id. `ReleaseRow`'s
- * `[quality, size] || title` fallback therefore renders the raw release title
- * for it, which is the intended path rather than a gap.
+ * from carries no `QualityModel` and no indexer id. Its quality column is
+ * therefore an em dash — the release title has its own column now and is no
+ * longer the fallback for an unqualified row.
  */
 const CURRENT: Release = {
   downloadAllowed: true,
@@ -211,6 +224,32 @@ describe('movieWatchState', () => {
     expect(
       movieWatchState({ ...MOVIE, embyStatus: { state: 'indexed' } }),
     ).toBe('unknown')
+  })
+})
+
+describe('movieHasFile', () => {
+  it('reads filePath — Radarr populates it only once the file exists', () => {
+    expect(movieHasFile({ ...MOVIE, embyStatus: undefined })).toBe(true)
+  })
+
+  it('⚠️ reads embyStatus too, which is the live payload shape', () => {
+    // The resolver consults Emby only for a title that has a file, so the mere
+    // presence of a status is a second, independent witness — and it is the
+    // only one the live page was given.
+    expect(movieHasFile(INDEXED_NO_PATH)).toBe(true)
+  })
+
+  it.each([['indexing'] as const, ['unknown'] as const])(
+    'does not read %p as "no file" — neither state means the file is gone',
+    state => {
+      expect(
+        movieHasFile({ ...MOVIE, embyStatus: { state }, filePath: undefined }),
+      ).toBe(true)
+    },
+  )
+
+  it('answers false only when neither witness is there', () => {
+    expect(movieHasFile(UNFETCHED)).toBe(false)
   })
 })
 
@@ -470,6 +509,50 @@ describe('MovieDetail — the lifecycle panel', () => {
     ).toBeInTheDocument()
   })
 
+  it('⚠️ never says "not downloaded" beside a working Watch button', () => {
+    // Reproduced on all six movies tested live. The note said one thing and
+    // the chip right next to it said the opposite; a note cannot argue a chip
+    // down.
+    renderDetail({ jobs: [] })
+
+    expect(
+      screen.queryByText(JOB_LIFECYCLE_EMPTY_LABEL),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText(MOVIE_LIBRARY_LABEL)).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: MOVIE_WATCH_LABEL }),
+    ).toBeInTheDocument()
+  })
+
+  it('⚠️ reads the live payload shape: filePath absent, embyStatus indexed', () => {
+    // The shape `GET /media/:id` actually handed the page — and the one that
+    // defeats a check keyed on a `hasFile` field `MovieSchema` does not have.
+    renderDetail({ jobs: [], movie: INDEXED_NO_PATH })
+
+    expect(screen.getByText(MOVIE_LIBRARY_LABEL)).toBeInTheDocument()
+    expect(screen.getByText(MOVIE_LIBRARY_NOTE)).toBeInTheDocument()
+    expect(
+      screen.queryByText(JOB_LIFECYCLE_EMPTY_LABEL),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(MOVIE_EMPTY_NOTE)).not.toBeInTheDocument()
+  })
+
+  it('keeps the real empty state for a movie Emby was never asked about', () => {
+    // `embyStatus` absent entirely is the one case that genuinely means "no
+    // file" — the resolver only consults Emby for a title that has one.
+    renderDetail({ jobs: [], movie: UNFETCHED })
+
+    expect(screen.getByText(JOB_LIFECYCLE_EMPTY_LABEL)).toBeInTheDocument()
+    expect(screen.queryByText(MOVIE_LIBRARY_LABEL)).not.toBeInTheDocument()
+  })
+
+  it('leaves every state with a real job to the lifecycle panel', () => {
+    renderDetail()
+
+    expect(screen.getByText('completed')).toBeInTheDocument()
+    expect(screen.queryByText(MOVIE_LIBRARY_LABEL)).not.toBeInTheDocument()
+  })
+
   it('offers no pause, resume, cancel or retry — those routes are video-only', () => {
     renderDetail({
       jobs: [
@@ -707,9 +790,13 @@ describe('MovieDetail — the release picker', () => {
 
     await screen.findAllByRole('button', { name: RELEASE_REPLACE_LABEL })
     expect(screen.queryByText(RELEASE_CURRENT_LABEL)).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: REPORT_LABEL }),
-    ).not.toBeInTheDocument()
+    // ⚠️ The report control is on *every* row now, so its presence no longer
+    // marks a row as the current one — only the chip does. What "no guid"
+    // buys is that no row is singled out: same chip-less list, same count of
+    // every control on it.
+    expect(screen.getAllByRole('button', { name: REPORT_LABEL })).toHaveLength(
+      releases.length,
+    )
 
     // ⚠️ `hasFile` still decides the verb, so every row stays a replace —
     // including the synthesized current-release row, which is just another

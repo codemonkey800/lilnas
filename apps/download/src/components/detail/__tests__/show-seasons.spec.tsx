@@ -248,6 +248,20 @@ describe('season-level progress aggregates across episodes', () => {
     )
   })
 
+  it('⚠️ separates the season name from the percentage, rather than running them together', () => {
+    // Observed live as `Season 24100%`. The `gap-1.5` and the `Dot` between
+    // them are both purely visual — the dot is `aria-hidden` — so the tab's
+    // accessible name concatenated. `·` is the separator this app already
+    // uses for exactly this (`Season 2 · 10 episodes`, `1080p WEB-DL · 2.1
+    // GB`, `paused · 62%`).
+    renderSeasons({ jobs: [seasonJob] })
+
+    const tab = screen.getByRole('tab', { name: /Season 2/ })
+
+    expect(tab).toHaveAccessibleName('Season 2 · 60%')
+    expect(tab.textContent).not.toMatch(/Season 260%/u)
+  })
+
   it('⚠️ does not light every tab for a whole-series download', () => {
     renderSeasons({
       jobs: [scopedJob(undefined, { status: DownloadJobStatus.Downloading })],

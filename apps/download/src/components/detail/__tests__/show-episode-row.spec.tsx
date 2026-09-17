@@ -287,10 +287,12 @@ describe('the release currently on disk', () => {
 
     expect(await screen.findByText(RELEASE_CURRENT_LABEL)).toBeInTheDocument()
 
-    // The current row reports; every other row is one you take instead.
-    expect(
-      screen.getByRole('button', { name: REPORT_LABEL }),
-    ).toBeInTheDocument()
+    // Every row can be reported — flagging a release you have *not* taken is
+    // a valid thing to want to do. What the current row does not offer is a
+    // replace: it is already the file on disk.
+    expect(screen.getAllByRole('button', { name: REPORT_LABEL })).toHaveLength(
+      2,
+    )
     expect(
       screen.getAllByRole('button', { name: RELEASE_REPLACE_LABEL }),
     ).toHaveLength(1)
@@ -324,9 +326,11 @@ describe('the release currently on disk', () => {
       await screen.findByText(CURRENT_RELEASE.title, { selector: 'span' }),
     ).toBeInTheDocument()
     expect(screen.queryByText(RELEASE_CURRENT_LABEL)).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: REPORT_LABEL }),
-    ).not.toBeInTheDocument()
+    // Present on both rows, as it is on every row — its presence no longer
+    // says anything about which release is the current one.
+    expect(screen.getAllByRole('button', { name: REPORT_LABEL })).toHaveLength(
+      2,
+    )
     // `hasFile` still decides the verb, so both rows stay replaces.
     expect(
       screen.getAllByRole('button', { name: RELEASE_REPLACE_LABEL }),

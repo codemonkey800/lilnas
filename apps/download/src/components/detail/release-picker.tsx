@@ -20,7 +20,7 @@ import type {
 } from 'src/components/detail/bad-file-flag'
 import { BadFileFlag } from 'src/components/detail/bad-file-flag'
 import { Button } from 'src/components/ui/button'
-import { Card } from 'src/components/ui/card'
+import { Card, Note } from 'src/components/ui/card'
 import { Chip } from 'src/components/ui/chip'
 import { Spinner } from 'src/components/ui/feedback'
 import { StateLineActions } from 'src/components/ui/state-line'
@@ -139,6 +139,118 @@ export const RELEASE_REJECTED_REASON =
   "Rejected — it doesn't meet this title's quality profile."
 
 /**
+ * The page-level explanation for a list in which no row can be taken.
+ *
+ * ⚠️ Says what is **observable**, and nothing else. The real cause of the
+ * observed case was a quality profile with `upgradeAllowed: false`, and nothing
+ * on the wire says so — `Release` carries the refusal, never the policy behind
+ * it. So this states the fact, points at the rows, and
+ * {@link blockedReleaseReasons} surfaces upstream's own words underneath it.
+ * Guessing at a cause here would be inventing one.
+ */
+export const RELEASE_ALL_BLOCKED_NOTE =
+  'Nothing in this list can be downloaded right now. Each row says why.'
+
+/**
+ * How many distinct reasons the page-level note repeats before it stops.
+ *
+ * A 72-row list can carry 72 near-identical refusals; the note is a summary,
+ * and every row still carries its own — which is what
+ * {@link RELEASE_ALL_BLOCKED_NOTE} points at.
+ */
+const BLOCKED_REASON_LIMIT = 3
+
+/**
+ * An upstream rejection string, cleaned of the one artifact it is known to
+ * leak.
+ *
+ * Observed live: `Existing file meets cutoff: WORKPRINT []`, where `[]` is an
+ * empty custom-format list serialized literally. The episode list rendered the
+ * same sentence as `… cutoff: SDTV`, with no brackets at all — so the same
+ * refusal reaches this app two different ways and only one of them is
+ * readable.
+ *
+ * ⚠️ Deliberately narrow. Upstream's own words say far more than any sentence
+ * written here ("Quality WEBDL-2160p is wanted"), so this removes an empty
+ * bracket group and closes up the double space it leaves behind, and
+ * re-authors nothing else. Returns `''` for a rejection that was *only* an
+ * artifact, which {@link releaseBlockReason} reads as "upstream gave no
+ * reason".
+ */
+export function formatRejection(rejection: string): string {
+  return rejection
+    .replace(/\[\s*\]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+/**
+ * Why this row cannot be taken, or `null` when it can.
+ *
+ * The blocking rule in one place, because three callers need the same answer:
+ * the row (to dim, strike and disable itself), the picker (to decide whether
+ * the *whole list* is dead and needs a page-level explanation), and the tests.
+ *
+ * ⚠️ **A row wearing the `current` chip is never blocked.** The backend already
+ * forces `downloadAllowed: true` / `rejected: false` on the current release it
+ * *synthesizes*, precisely so that row does not look broken — but that only
+ * covers the synthesized row. When an indexer search genuinely returns the
+ * release already on disk, it arrives carrying upstream's rejection (`Existing
+ * file meets cutoff: …`, which is upstream describing *itself*), and the row
+ * rendered dimmed and struck through while still chipped green `current`.
+ * Observed on seven titles. The rejection is true and useless: it says the file
+ * you have is the file you have.
+ *
+ * A **flagged** release is still blocked even when it is the current one — that
+ * is this app's own refusal, the user asked for it, and the chip reads
+ * `bad file` rather than `current` in that case.
+ */
+export function releaseBlockReason(
+  release: Release,
+  current = false,
+): string | null {
+  // Flagged first: it is this app's own refusal and the one the user can do
+  // something about.
+  if (release.flaggedBad) {
+    return RELEASE_FLAGGED_REASON
+  }
+
+  if (current) {
+    return null
+  }
+
+  if (!release.rejected && release.downloadAllowed) {
+    return null
+  }
+
+  // An upstream rejection is reported in upstream's words when it gave any,
+  // because "Quality WEBDL-2160p is wanted" says far more than any sentence
+  // written here could.
+  return (
+    release.rejections?.map(formatRejection).find(Boolean) ??
+    RELEASE_REJECTED_REASON
+  )
+}
+
+/**
+ * The distinct reasons a dead list gives, in the order the rows give them and
+ * capped at {@link BLOCKED_REASON_LIMIT}.
+ *
+ * Exported for the picker's page-level note and for its test — the note repeats
+ * what upstream said rather than summarising it, which is the difference
+ * between explaining and guessing.
+ */
+export function blockedReleaseReasons(
+  reasons: readonly (string | null)[],
+): readonly string[] {
+  const distinct = new Set(
+    reasons.filter((reason): reason is string => reason !== null),
+  )
+
+  return [...distinct].slice(0, BLOCKED_REASON_LIMIT)
+}
+
+/**
  * `flex px-1 py-[13px]` and the self-drawn divider are `movie-detail.pug`'s
  * `release` mixin verbatim. `flex-wrap` is the one addition: a blocked row
  * carries a reason line, and wrapping is what lets that line sit under the
@@ -156,6 +268,14 @@ const ROW_MOBILE = 'flex-col items-start gap-[9px]'
 const ROW_BLOCKED = 'opacity-55'
 
 const ROW_PRIMARY = 'font-mono text-mono-sm text-ink-3'
+
+/**
+ * The scene name. `ink-3`, not `ink-4`, and that is the point of the column:
+ * this is the only field that genuinely identifies a release, so it is not
+ * allowed to sit below AA. Truncated rather than wrapped, with the full value
+ * still on the row's `title` attribute.
+ */
+const ROW_TITLE = 'font-mono text-mono-sm text-ink-3'
 
 /** A machine annotation — the indexer's own name — which is what `ink-4` is for. */
 const ROW_SECONDARY = 'font-mono text-mono-sm text-ink-4'
@@ -367,6 +487,27 @@ export function ReleasePicker({
     })
   }
 
+  // One pass over the list, so the row and the page-level note can never
+  // disagree about which rows are dead. See `releaseBlockReason`.
+  const rows = (list ?? []).map(release => {
+    const current = currentGuid !== undefined && release.guid === currentGuid
+
+    return { current, reason: releaseBlockReason(release, current), release }
+  })
+
+  // ⚠️ The whole-list explanation, and the condition is deliberately "nothing
+  // here is actionable" rather than "everything is rejected": the current row
+  // is not blocked and still offers nothing to download, and a list of one
+  // current release plus twenty-five refusals is exactly as dead as a list of
+  // twenty-six refusals. Only claimed when there is a pick action at all —
+  // a read-only picker refuses nothing.
+  const pickable = onGrab !== undefined || onReplace !== undefined
+  const stuck =
+    pickable && rows.length > 0 && rows.every(row => row.current || row.reason)
+  const stuckReasons = stuck
+    ? blockedReleaseReasons(rows.map(row => row.reason))
+    : []
+
   return (
     <div {...props} className={cns('flex flex-col', className)}>
       {label === null ? null : <h2 className={cns('mb-3 text-h2')}>{label}</h2>}
@@ -378,22 +519,33 @@ export function ReleasePicker({
         />
       ) : (
         <>
+          {stuck ? (
+            <Note className={cns('mb-2.5')}>
+              <p>{RELEASE_ALL_BLOCKED_NOTE}</p>
+              {stuckReasons.length > 0 ? (
+                <ul className={cns('mt-1.5 flex flex-col gap-1 text-cap')}>
+                  {stuckReasons.map(reason => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </Note>
+          ) : null}
           <Card className={cns(mobile ? 'px-[14px] py-1' : 'px-4 py-1')} sunk>
-            {list.length === 0 ? (
+            {rows.length === 0 ? (
               <p className={cns('py-[13px] text-sm text-ink-3')}>
                 {RELEASE_EMPTY_NOTE}
               </p>
             ) : (
-              list.map((release, index) => (
+              rows.map(({ current, reason, release }, index) => (
                 <ReleaseRow
                   badFiles={badFiles}
-                  current={
-                    currentGuid !== undefined && release.guid === currentGuid
-                  }
+                  current={current}
                   key={release.guid}
                   mediaId={mediaId}
                   mobile={mobile}
                   pending={picking}
+                  reason={reason}
                   reasonId={`${reasonIdBase}-${index}`}
                   release={release}
                   replacing={replacing}
@@ -477,6 +629,8 @@ type ReleaseRowProps = {
   onPick?: (release: Release) => void
   onUnflag?: UnflagBadFileAction
   pending: boolean
+  /** {@link releaseBlockReason}'s answer, computed once by the picker. */
+  reason: string | null
   reasonId: string
   release: Release
   replacing: boolean
@@ -488,12 +642,17 @@ type ReleaseRowProps = {
  * One row: what the release is, where it came from, and what you can do about
  * it.
  *
- * The two mono columns are the mockup's. Everything more specific a `Release`
- * carries — seeders, age, custom-format score, the raw scene title — is
- * deliberately not given a column: the mockup's two-column row is the design,
- * and the full release name (which no mockup shows and which is the only thing
- * that truly identifies a release) rides along as the row's `title` attribute
- * instead of turning the list into a table.
+ * Three mono columns rather than the mockup's two, and the added one is the
+ * **release title**. It used to ride along on the row's `title` attribute
+ * alone, which is invisible on touch and unreliable to a screen reader — and
+ * the cost of that has now been measured on the real page: one title returned
+ * 72 rows all reading `WEBDL-1080p · 2.5 GB / NzbGeek`, many of them
+ * byte-identical. `Release.title` is the only field that truly identifies a
+ * release, so it gets a column, truncated to hold the row to one line, with the
+ * full value still on the `title` attribute for a hover.
+ *
+ * Everything else a `Release` carries — seeders, age, custom-format score — is
+ * still deliberately column-less: the row is a row, not a table.
  */
 function ReleaseRow({
   badFiles,
@@ -504,6 +663,7 @@ function ReleaseRow({
   onPick,
   onUnflag,
   pending,
+  reason,
   reasonId,
   release,
   replacing,
@@ -512,18 +672,10 @@ function ReleaseRow({
 }: ReleaseRowProps): JSX.Element {
   const quality = release.quality?.name
   const size = release.size === undefined ? null : formatBytes(release.size)
-  const primary = [quality, size].filter(Boolean).join(' · ') || release.title
+  // The title is its own column now, so an unqualified release falls back to
+  // the em dash rather than repeating the name two columns over.
+  const primary = [quality, size].filter(Boolean).join(' · ') || UNKNOWN_VALUE
   const secondary = release.indexer ?? release.releaseGroup ?? UNKNOWN_VALUE
-
-  // Flagged first: it is this app's own refusal and the one the user can do
-  // something about. An upstream rejection is reported in upstream's words
-  // when it gave any, because "Quality WEBDL-2160p is wanted" says far more
-  // than any sentence written here could.
-  const reason = release.flaggedBad
-    ? RELEASE_FLAGGED_REASON
-    : release.rejected || !release.downloadAllowed
-      ? (release.rejections?.[0] ?? RELEASE_REJECTED_REASON)
-      : null
 
   const blocked = reason !== null
   const flag = badFiles?.find(entry => entry.releaseGuid === release.guid)
@@ -534,45 +686,54 @@ function ReleaseRow({
     <Chip label={RELEASE_CURRENT_LABEL} tone="ok" />
   ) : null
 
-  // The current release is the one you report; every other row is one you
-  // take. `movie-detail.pug` draws exactly this split.
-  const action = current ? (
-    onFlag ? (
-      <BadFileFlag
-        flag={flag ?? null}
+  // The current release is the one already on disk, so there is nothing to
+  // take — `movie-detail.pug` draws exactly that split and it still holds.
+  const pick =
+    current || !onPick ? null : (
+      <Button
+        // ⚠️ `aria-disabled`, not `disabled`. A real `disabled` attribute drops
+        // the control out of the focus order, and with it the
+        // `aria-describedby` that carries the *reason* — which is the entire
+        // point of disabling it here rather than letting the click come back
+        // 409. `Button` swallows `onClick` while this is truthy, and it is
+        // `type="button"`, so nothing native routes around it.
+        aria-describedby={blocked ? reasonId : undefined}
+        aria-disabled={blocked || pending || undefined}
         full={mobile}
-        mediaId={mediaId}
-        mobile={mobile}
-        prompt={reportPrompt}
-        reasons={reportReasons}
-        release={{
-          guid: release.guid,
-          indexerId: release.indexerId,
-          title: release.title,
-        }}
-        onFlag={onFlag}
-        onUnflag={onUnflag}
-      />
-    ) : null
-  ) : onPick ? (
-    <Button
-      // ⚠️ `aria-disabled`, not `disabled`. A real `disabled` attribute drops
-      // the control out of the focus order, and with it the `aria-describedby`
-      // that carries the *reason* — which is the entire point of disabling it
-      // here rather than letting the click come back 409. `Button` swallows
-      // `onClick` while this is truthy, and it is `type="button"`, so nothing
-      // native routes around it.
-      aria-describedby={blocked ? reasonId : undefined}
-      aria-disabled={blocked || pending || undefined}
+        iconEnd="download"
+        size="sm"
+        variant="outline"
+        onClick={() => onPick(release)}
+      >
+        {replacing ? RELEASE_REPLACE_LABEL : RELEASE_GRAB_LABEL}
+      </Button>
+    )
+
+  // ⚠️ **Every** row, not just the current one. Reporting a bad file you have
+  // not downloaded is a valid thing to want to do — a release that is mislabeled
+  // or a fake is worth excluding *before* it lands — and the control reaching
+  // only the current row was an accident of how this list was first built, not
+  // a considered restriction. Before this, the only way to flag anything else
+  // was the API.
+  const report = onFlag ? (
+    <BadFileFlag
+      flag={flag ?? null}
       full={mobile}
-      iconEnd="download"
-      size="sm"
-      variant="outline"
-      onClick={() => onPick(release)}
-    >
-      {replacing ? RELEASE_REPLACE_LABEL : RELEASE_GRAB_LABEL}
-    </Button>
+      mediaId={mediaId}
+      mobile={mobile}
+      prompt={reportPrompt}
+      reasons={reportReasons}
+      release={{
+        guid: release.guid,
+        indexerId: release.indexerId,
+        title: release.title,
+      }}
+      onFlag={onFlag}
+      onUnflag={onUnflag}
+    />
   ) : null
+
+  const actions = pick || report
 
   if (mobile) {
     return (
@@ -580,11 +741,20 @@ function ReleaseRow({
         className={cns(ROW_BASE, ROW_MOBILE, blocked && ROW_BLOCKED)}
         title={release.title}
       >
-        <span className={cns('flex items-center gap-2')}>
+        <span className={cns('flex w-full items-center gap-2')}>
           <span className={cns(ROW_PRIMARY, blocked && 'line-through')}>
             {primary}
           </span>
           {chip}
+        </span>
+        <span
+          className={cns(
+            'w-full truncate',
+            ROW_TITLE,
+            blocked && 'line-through',
+          )}
+        >
+          {release.title}
         </span>
         <span className={cns(ROW_SECONDARY)}>{secondary}</span>
         {reason ? (
@@ -592,7 +762,18 @@ function ReleaseRow({
             {reason}
           </p>
         ) : null}
-        {action ? <StateLineActions>{action}</StateLineActions> : null}
+        {actions ? (
+          // ⚠️ Stacked, not `StateLineActions`' usual side-by-side split.
+          // Measured at 390px: `Replace with this` (177px) beside `Report a
+          // problem` (170px) needs 355px of a 304px line, and `Button` is
+          // `whitespace-nowrap`, so the second label simply ran out past the
+          // card. Stacking full-width controls on a phone is what every other
+          // action row in this app does anyway.
+          <StateLineActions className={cns('flex-col')}>
+            {pick}
+            {report}
+          </StateLineActions>
+        ) : null}
       </div>
     )
   }
@@ -603,13 +784,38 @@ function ReleaseRow({
       title={release.title}
     >
       <span
-        className={cns('w-[200px]', ROW_PRIMARY, blocked && 'line-through')}
+        className={cns(
+          'w-[200px] shrink-0',
+          ROW_PRIMARY,
+          blocked && 'line-through',
+        )}
       >
         {primary}
       </span>
-      <span className={cns('flex-1', ROW_SECONDARY)}>{secondary}</span>
+      {/*
+        ⚠️ A fixed width that may shrink, **not** `flex-1`. The indexer keeps
+        the mockup's `flex-1` — it is still the column that absorbs the row's
+        slack — because a title on `flex-1` would take a different width on
+        every row (a row with a grab control has ~177px less to give than one
+        without) and drag the indexer to a different x behind it. A column that
+        does not line up is not a column. `shrink` keeps it honest below `sm`,
+        and `min-w-0` is what lets `truncate` work inside a flex item at all.
+      */}
+      <span
+        className={cns(
+          'w-[340px] min-w-0 shrink truncate',
+          ROW_TITLE,
+          blocked && 'line-through',
+        )}
+      >
+        {release.title}
+      </span>
+      <span className={cns('min-w-0 flex-1 truncate', ROW_SECONDARY)}>
+        {secondary}
+      </span>
       {chip}
-      {action}
+      {pick}
+      {report}
       {reason ? (
         <p className={cns(ROW_REASON)} id={reasonId}>
           {reason}

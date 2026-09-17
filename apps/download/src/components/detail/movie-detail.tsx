@@ -76,6 +76,23 @@ export const MOVIE_EMPTY_NOTE =
 export const MOVIE_LIBRARY_NOTE =
   "Already in the library — this app didn't fetch it, so there is no download to show."
 
+/**
+ * The status chip for a movie that has a file and no job.
+ *
+ * ⚠️ Why this exists at all. `JobLifecycle`'s empty state is chipped
+ * `JOB_LIFECYCLE_EMPTY_LABEL` — the fixed string `not downloaded` — which is
+ * true of the *job* and flatly false of the *file*. On the real page that read
+ * `not downloaded` directly beside a working **Watch** button, on all six
+ * movies tested, with {@link MOVIE_LIBRARY_NOTE} sitting right next to it
+ * saying the opposite. A note cannot argue a chip down; the chip has to be
+ * right.
+ *
+ * `JobLifecycle` takes no label override and is not this task's to reopen, so
+ * the page renders the one state it can describe better than the panel can —
+ * see {@link MovieDetail}.
+ */
+export const MOVIE_LIBRARY_LABEL = 'in library'
+
 /** Said when the resolver handed back a placeholder instead of a movie. */
 export const MOVIE_METADATA_NOTE =
   "Radarr didn't answer, so this movie's title and details are missing — only its id is known. Trying again in a moment usually fixes it."
@@ -205,6 +222,34 @@ export function isMetadataUnavailable(movie: Movie): boolean {
   return movie.title === movie.id
 }
 
+/**
+ * Whether this movie has a file on disk, derived from what the payload
+ * actually carries.
+ *
+ * ⚠️ **`Movie` has no `hasFile`.** `EpisodeSchema` has one; `MovieSchema` does
+ * not, and never has — so anything keyed on a movie's `hasFile` reads
+ * `undefined` for a movie that plainly is downloaded. Two fields stand in for
+ * it, and both are `hasFile` in disguise:
+ *
+ * - **`filePath`** — `RadarrService.toMovie` populates it *only* when Radarr
+ *   reports `hasFile`, so its presence is Radarr's own answer. It is still the
+ *   primary test, and the one `canSaveLocal` makes.
+ * - **`embyStatus`** — `MediaResolverService` consults Emby *only* for a title
+ *   with a file, so its mere presence is a second, independent witness. It
+ *   covers the case `filePath` alone misses: a movie resolved from Radarr's
+ *   library cache, where `movieFile` was not expanded and `filePath` is
+ *   therefore absent even though the file exists. That is exactly the payload
+ *   shape the live page was handed — `embyStatus.state: 'indexed'`, a working
+ *   Watch button, and no `filePath`.
+ *
+ * `state` is deliberately not inspected: `indexing` means Emby has the file and
+ * has not catalogued it, `unknown` means Emby could not be asked. Neither is
+ * "there is no file" — that case is `embyStatus` being absent entirely.
+ */
+export function movieHasFile(movie: Movie): boolean {
+  return movie.filePath !== undefined || movie.embyStatus !== undefined
+}
+
 export type MovieDetailProps = Omit<
   ComponentPropsWithoutRef<'div'>,
   'children'
@@ -284,9 +329,10 @@ export function MovieDetail({
   const job = latestJob(jobs)
   const watch = movieWatchState(movie)
   const watchUrl = movie.embyStatus?.watchUrl
-  // The same test `canSaveLocal` makes for a movie, and the one Radarr itself
-  // makes: `filePath` is the movie *file*, populated only once `hasFile`.
-  const hasFile = movie.filePath !== undefined
+  // ⚠️ Not `movie.filePath !== undefined`, which is what this used to be and
+  // what read false for every downloaded movie on the live page. See
+  // `movieHasFile`.
+  const hasFile = movieHasFile(movie)
   const degraded = isMetadataUnavailable(movie)
 
   const actions: ReactNode[] = []
@@ -397,10 +443,33 @@ export function MovieDetail({
       />
       <div className={cns(SECTION)}>
         <h2 className={cns(EYEBROW)}>{MOVIE_STATUS_LABEL}</h2>
-        <JobLifecycle
-          emptyNote={hasFile ? MOVIE_LIBRARY_NOTE : MOVIE_EMPTY_NOTE}
-          jobs={jobs}
-        />
+        {/*
+          ⚠️ Two panels, and the branch is not a style choice. `JobLifecycle`'s
+          own empty state is chipped `not downloaded` — a fixed string it takes
+          no override for — which is a true statement about the job and a false
+          one about the file. A movie with a file and no job is the *common*
+          case on this page (Radarr's library is full of titles this app never
+          fetched) and it was rendering `not downloaded` beside a working Watch
+          button. So that one state is drawn here, where the file is known
+          about; every state with a real job is still the panel's.
+        */}
+        {job || !hasFile ? (
+          <JobLifecycle emptyNote={MOVIE_EMPTY_NOTE} jobs={jobs} />
+        ) : (
+          <div
+            className={cns('flex flex-wrap items-center gap-2.5')}
+            data-library="true"
+          >
+            <Chip
+              className={cns('w-fit')}
+              label={MOVIE_LIBRARY_LABEL}
+              tone="ok"
+            />
+            <span className={cns('min-w-0 flex-1 text-sm text-ink-3')}>
+              {MOVIE_LIBRARY_NOTE}
+            </span>
+          </div>
+        )}
       </div>
       <JobHistory className={cns(SECTION)} jobs={jobs} now={now} />
       {/*

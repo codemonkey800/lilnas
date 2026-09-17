@@ -5,7 +5,10 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import {
+  blockedReleaseReasons,
   formatBytes,
+  formatRejection,
+  RELEASE_ALL_BLOCKED_NOTE,
   RELEASE_CURRENT_LABEL,
   RELEASE_EMPTY_NOTE,
   RELEASE_FLAGGED_LABEL,
@@ -16,6 +19,7 @@ import {
   RELEASE_SEARCH_LABEL,
   RELEASE_SEARCH_NOTE,
   RELEASE_SECTION_LABEL,
+  releaseBlockReason,
   ReleasePicker,
 } from 'src/components/detail/release-picker'
 
@@ -74,6 +78,21 @@ const REJECTED: Release = {
   title: 'Dune.2021.480p.DVDRip',
 }
 
+/**
+ * The shape the live search actually returns for the release already on disk:
+ * the `current` row, carrying upstream's own rejection of it.
+ *
+ * ⚠️ `toCurrentRelease` forces `downloadAllowed: true` / `rejected: false` on
+ * the row it *synthesizes*, and this is the case that protection does not
+ * cover — the indexer genuinely had the release, so it arrives rejected.
+ */
+const CURRENT_REJECTED: Release = {
+  ...CURRENT,
+  downloadAllowed: false,
+  rejected: true,
+  rejections: ['Existing file meets cutoff: WEBDL-1080p []'],
+}
+
 const FLAG: BadFile = {
   createdAt: '2026-09-15T12:00:00.000Z',
   flaggedBy: { email: 'jeremy@lilnas.io', userId: 'u_1' },
@@ -118,6 +137,82 @@ describe('formatBytes', () => {
     // Same contract `formatRuntime` keeps: absent is an em dash, never a
     // plausible-looking zero.
     expect(formatBytes(value)).toBe('—')
+  })
+})
+
+describe('formatRejection', () => {
+  it('drops the empty custom-format list Radarr serializes literally', () => {
+    // Observed live. Sonarr renders the same refusal as `… cutoff: SDTV`.
+    expect(formatRejection('Existing file meets cutoff: WORKPRINT []')).toBe(
+      'Existing file meets cutoff: WORKPRINT',
+    )
+  })
+
+  it('closes up the gap an inline empty list leaves behind', () => {
+    expect(
+      formatRejection('Existing file meets cutoff: SDTV [] is wanted'),
+    ).toBe('Existing file meets cutoff: SDTV is wanted')
+  })
+
+  it('leaves a non-empty bracket group alone — that is real information', () => {
+    expect(formatRejection('Existing file meets cutoff: SDTV [x264]')).toBe(
+      'Existing file meets cutoff: SDTV [x264]',
+    )
+  })
+
+  it.each([
+    ['Quality WEBDL-2160p is wanted'],
+    ['Not a preferred word upgrade for existing release'],
+  ])('re-authors nothing: %p survives verbatim', text => {
+    expect(formatRejection(text)).toBe(text)
+  })
+
+  it('answers empty for a rejection that was only an artifact', () => {
+    expect(formatRejection('  []  ')).toBe('')
+  })
+})
+
+describe('releaseBlockReason', () => {
+  it('⚠️ never blocks the current row, even when upstream rejected it', () => {
+    // The whole point of fix 1: `Existing file meets cutoff` is upstream
+    // describing the file you already have. True, and useless.
+    expect(releaseBlockReason(CURRENT_REJECTED, true)).toBeNull()
+  })
+
+  it('blocks that same release when it is NOT the current one', () => {
+    expect(releaseBlockReason(CURRENT_REJECTED, false)).toBe(
+      'Existing file meets cutoff: WEBDL-1080p',
+    )
+  })
+
+  it('still blocks a flagged release that is also the current one', () => {
+    // This app's own refusal, asked for by the user — and the chip reads
+    // `bad file` rather than `current` for it.
+    expect(releaseBlockReason(FLAGGED, true)).toBe(RELEASE_FLAGGED_REASON)
+  })
+
+  it('falls back to its own sentence when every rejection was an artifact', () => {
+    expect(releaseBlockReason({ ...REJECTED, rejections: ['[]'] })).toBe(
+      RELEASE_REJECTED_REASON,
+    )
+  })
+
+  it('answers null for a release that can simply be taken', () => {
+    expect(releaseBlockReason(ALTERNATIVE)).toBeNull()
+  })
+})
+
+describe('blockedReleaseReasons', () => {
+  it('de-duplicates, because 72 rows give three reasons', () => {
+    expect(blockedReleaseReasons(['a', 'a', null, 'b'])).toEqual(['a', 'b'])
+  })
+
+  it('caps the summary rather than repeating a whole list into a note', () => {
+    expect(blockedReleaseReasons(['a', 'b', 'c', 'd', 'e'])).toEqual([
+      'a',
+      'b',
+      'c',
+    ])
   })
 })
 
@@ -233,14 +328,48 @@ describe('ReleasePicker — the search is never speculative', () => {
 })
 
 describe('ReleasePicker — the list', () => {
-  it('renders the section heading and the two mono columns', () => {
+  it('renders the section heading and the three mono columns', () => {
     render(<ReleasePicker mediaId={MOVIE_ID} releases={[CURRENT]} />)
 
     expect(
       screen.getByRole('heading', { name: RELEASE_SECTION_LABEL }),
     ).toBeInTheDocument()
     expect(screen.getByText('1080p WEB-DL · 2.1 GB')).toBeInTheDocument()
+    expect(screen.getByText(CURRENT.title)).toBeInTheDocument()
     expect(screen.getByText('yts-verified')).toBeInTheDocument()
+  })
+
+  it('⚠️ renders the release title as VISIBLE text, not only as a tooltip', () => {
+    // Measured cost of the hover-only arrangement: one title returned 72 rows
+    // all reading `WEBDL-1080p · 2.5 GB / NzbGeek`, many byte-identical.
+    // `Release.title` is the only field that truly identifies a release, and a
+    // `title` attribute is invisible on touch and unreliable to a screen
+    // reader.
+    render(
+      <ReleasePicker mediaId={MOVIE_ID} releases={[CURRENT, ALTERNATIVE]} />,
+    )
+
+    expect(within(row(CURRENT)).getByText(CURRENT.title)).toBeInTheDocument()
+    expect(
+      within(row(ALTERNATIVE)).getByText(ALTERNATIVE.title),
+    ).toBeInTheDocument()
+  })
+
+  it('does not repeat the title in the quality column when there is no quality', () => {
+    const bare: Release = {
+      downloadAllowed: true,
+      flaggedBad: false,
+      guid: 'guid-bare',
+      indexer: 'some-indexer',
+      indexerId: 9,
+      rejected: false,
+      title: 'Some.Unqualified.Release',
+    }
+
+    render(<ReleasePicker mediaId={MOVIE_ID} releases={[bare]} />)
+
+    expect(within(row(bare)).getByText(bare.title)).toBeInTheDocument()
+    expect(within(row(bare)).getByText('—')).toBeInTheDocument()
   })
 
   it('chips the release that is currently on disk', () => {
@@ -383,6 +512,149 @@ describe('ReleasePicker — a flagged release is disabled WITH A REASON', () => 
   })
 })
 
+describe('ReleasePicker — a `current` row is never rendered as blocked', () => {
+  function renderCurrentRejected() {
+    return render(
+      <ReleasePicker
+        currentGuid={CURRENT.guid}
+        mediaId={MOVIE_ID}
+        releases={[CURRENT_REJECTED, ALTERNATIVE]}
+        onFlag={jest.fn()}
+        onReplace={jest.fn()}
+      />,
+    )
+  }
+
+  it('chips it `current`, not struck through and not dimmed', () => {
+    // Observed on 7 titles: the green `current` chip on a dimmed,
+    // struck-through row. Whatever else is true, a release that is the file on
+    // disk is not "unavailable".
+    renderCurrentRejected()
+
+    const current = row(CURRENT_REJECTED)
+
+    expect(within(current).getByText(RELEASE_CURRENT_LABEL)).toBeInTheDocument()
+    expect(current.getAttribute('class')).not.toContain('opacity-55')
+    expect(
+      within(current).getByText('1080p WEB-DL · 2.1 GB').getAttribute('class'),
+    ).not.toContain('line-through')
+  })
+
+  it('does not repeat upstream describing the file you already have', () => {
+    renderCurrentRejected()
+
+    expect(
+      within(row(CURRENT_REJECTED)).queryByText(/Existing file meets cutoff/u),
+    ).not.toBeInTheDocument()
+  })
+
+  it('still blocks the same release when it is not the current one', () => {
+    render(
+      <ReleasePicker
+        mediaId={MOVIE_ID}
+        releases={[CURRENT_REJECTED, ALTERNATIVE]}
+        onGrab={jest.fn()}
+      />,
+    )
+
+    const blocked = row(CURRENT_REJECTED)
+
+    expect(blocked.getAttribute('class')).toContain('opacity-55')
+    expect(
+      within(blocked).getByText('Existing file meets cutoff: WEBDL-1080p'),
+    ).toBeInTheDocument()
+  })
+})
+
+describe('ReleasePicker — a list in which nothing is actionable says so', () => {
+  it('explains at the page level when every row is refused', () => {
+    // Observed post-grab: 26 disabled rows, per-row upstream text, and nothing
+    // anywhere saying the list as a whole was dead.
+    render(
+      <ReleasePicker
+        mediaId={MOVIE_ID}
+        releases={[REJECTED, { ...REJECTED, guid: 'guid-rejected-2' }]}
+        onGrab={jest.fn()}
+      />,
+    )
+
+    expect(screen.getByText(RELEASE_ALL_BLOCKED_NOTE)).toBeInTheDocument()
+  })
+
+  it('surfaces upstream’s own reasons rather than guessing at a cause', () => {
+    render(
+      <ReleasePicker
+        mediaId={MOVIE_ID}
+        releases={[
+          REJECTED,
+          {
+            ...REJECTED,
+            guid: 'guid-rejected-2',
+            rejections: ['Not an upgrade for existing episode file(s)'],
+            title: 'Dune.2021.480p.DVDRip.Other',
+          },
+        ]}
+        onGrab={jest.fn()}
+      />,
+    )
+
+    const note = screen.getByText(RELEASE_ALL_BLOCKED_NOTE).closest('div')
+
+    expect(note).not.toBeNull()
+    expect(
+      within(note as HTMLElement).getByText(
+        'Quality DVD is not wanted in profile',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(note as HTMLElement).getByText(
+        'Not an upgrade for existing episode file(s)',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('counts the current row as non-actionable — there is nothing to take', () => {
+    render(
+      <ReleasePicker
+        currentGuid={CURRENT.guid}
+        mediaId={MOVIE_ID}
+        releases={[CURRENT_REJECTED, REJECTED]}
+        onReplace={jest.fn()}
+      />,
+    )
+
+    expect(screen.getByText(RELEASE_ALL_BLOCKED_NOTE)).toBeInTheDocument()
+  })
+
+  it('stays quiet while even one row can still be taken', () => {
+    render(
+      <ReleasePicker
+        mediaId={MOVIE_ID}
+        releases={[REJECTED, ALTERNATIVE]}
+        onGrab={jest.fn()}
+      />,
+    )
+
+    expect(screen.queryByText(RELEASE_ALL_BLOCKED_NOTE)).not.toBeInTheDocument()
+  })
+
+  it('claims nothing when the picker has no pick action at all', () => {
+    // A read-only picker refuses nothing; it simply does not offer.
+    render(<ReleasePicker mediaId={MOVIE_ID} releases={[REJECTED]} />)
+
+    expect(screen.queryByText(RELEASE_ALL_BLOCKED_NOTE)).not.toBeInTheDocument()
+  })
+
+  it('says nothing about an empty list — that is "nothing found", not "nothing allowed"', () => {
+    render(
+      <ReleasePicker mediaId={MOVIE_ID} releases={[]} onGrab={jest.fn()} />,
+    )
+
+    expect(screen.getByText(RELEASE_EMPTY_NOTE)).toBeInTheDocument()
+    expect(screen.queryByText(RELEASE_ALL_BLOCKED_NOTE)).not.toBeInTheDocument()
+  })
+})
+
 describe('ReleasePicker — replace is ONE flow', () => {
   it('issues a single replace, never a delete followed by a grab', async () => {
     // ⚠️ The task's central edge case. `ReleasePicker` is given no delete
@@ -496,7 +768,28 @@ describe('ReleasePicker — replace is ONE flow', () => {
 })
 
 describe('ReleasePicker — reporting from the list', () => {
-  it('offers the report control on the current release only', () => {
+  it('⚠️ offers the report control on EVERY row, not just the current one', () => {
+    // Reporting a bad file you have not downloaded is a valid thing to want to
+    // do. Before this, the only way to flag anything but the current release
+    // was the API.
+    render(
+      <ReleasePicker
+        currentGuid={CURRENT.guid}
+        mediaId={MOVIE_ID}
+        releases={[CURRENT, ALTERNATIVE, REJECTED]}
+        onFlag={jest.fn()}
+        onReplace={jest.fn()}
+      />,
+    )
+
+    for (const release of [CURRENT, ALTERNATIVE, REJECTED]) {
+      expect(
+        within(row(release)).getByRole('button', { name: 'Report a problem' }),
+      ).toBeInTheDocument()
+    }
+  })
+
+  it('still offers no grab on the current row — it is already on disk', () => {
     render(
       <ReleasePicker
         currentGuid={CURRENT.guid}
@@ -508,13 +801,47 @@ describe('ReleasePicker — reporting from the list', () => {
     )
 
     expect(
-      within(row(CURRENT)).getByRole('button', { name: 'Report a problem' }),
-    ).toBeInTheDocument()
-    expect(
-      within(row(ALTERNATIVE)).queryByRole('button', {
-        name: 'Report a problem',
+      within(row(CURRENT)).queryByRole('button', {
+        name: RELEASE_REPLACE_LABEL,
       }),
     ).not.toBeInTheDocument()
+    expect(
+      within(row(ALTERNATIVE)).getByRole('button', {
+        name: RELEASE_REPLACE_LABEL,
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it('reports a release that is not the current one, with its own guid', async () => {
+    const user = userEvent.setup()
+    const onFlag = jest.fn().mockResolvedValue({ badFile: FLAG })
+
+    render(
+      <ReleasePicker
+        currentGuid={CURRENT.guid}
+        mediaId={MOVIE_ID}
+        releases={[CURRENT, ALTERNATIVE]}
+        onFlag={onFlag}
+        onReplace={jest.fn()}
+      />,
+    )
+
+    await user.click(
+      within(row(ALTERNATIVE)).getByRole('button', {
+        name: 'Report a problem',
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Submit report' }))
+
+    await waitFor(() => {
+      expect(onFlag).toHaveBeenCalledTimes(1)
+    })
+    expect(onFlag).toHaveBeenCalledWith(MOVIE_ID, {
+      guid: ALTERNATIVE.guid,
+      indexerId: ALTERNATIVE.indexerId,
+      reason: 'Wrong audio or subtitles',
+      title: ALTERNATIVE.title,
+    })
   })
 
   it('shows an existing flag as already reported, with no trigger to press again', () => {

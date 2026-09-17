@@ -48,6 +48,20 @@ export const SEASONS_EMPTY_NOTE =
 export const SEASONS_TABLIST_LABEL = 'Season'
 
 /**
+ * What sits between a season's name and its live percentage — `Season 24 ·
+ * 100%`.
+ *
+ * ⚠️ It is a real character rather than the `gap-1.5` that used to be the only
+ * thing between them, and that distinction is the defect: the gap is a *visual*
+ * separator, and the `Dot` beside it is `aria-hidden`, so the tab's accessible
+ * name concatenated to `Season 24100%`. `·` is the separator the rest of this
+ * app already uses for exactly this — `seasonHeading`'s `Season 2 · 10
+ * episodes`, the release rows' `1080p WEB-DL · 2.1 GB`, `activity-rows`'
+ * `paused · 62%`.
+ */
+const TAB_SEPARATOR = '·'
+
+/**
  * Stacked and full-width on a phone, inline from `sm` - the same
  * reconciliation `JobLifecycle`'s own action row makes, and the same one
  * `show-detail.pug` writes as two separate frames.
@@ -299,6 +313,14 @@ function SeasonTab({ jobs, season }: SeasonTabProps): JSX.Element {
         {seasonLabel(season.seasonNumber)}
         {live ? (
           <>
+            {/*
+              Real text, before the dot rather than after it: the dot marks the
+              percentage as live, and the separator is what divides that unit
+              from the season's name. Putting it here also means the tab's
+              accessible name reads `Season 24 · 100%` instead of
+              `Season 24100%`, which is the form the defect was found in.
+            */}
+            <span className={cns('text-ink-4')}>{TAB_SEPARATOR}</span>
             <Dot tone="live" />
             <span
               className={cns('font-mono text-mono-sm tabular-nums text-ok')}
