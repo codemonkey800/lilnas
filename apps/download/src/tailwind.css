@@ -366,4 +366,19 @@
     animation: none !important;
     opacity: 0 !important;
   }
+  /* The live pulse. The blanket clamp above already stops it moving, but
+     stopping is not enough here: `breathe` has no `forwards` fill, so a run
+     clamped to 0.01ms reverts the ring to its *un-animated* state — a static,
+     fully opaque ring sitting permanently around the dot, which is not a state
+     the design has anywhere and reads as a rendering fault.
+
+     `opacity: 0` is the endpoint `breathe` itself lands on (70% and 100% are
+     both `opacity: 0`), so this honours the animation's own resting state
+     rather than inventing one — the same thing `.skeleton` above does. The dot
+     keeps its `--color-ok` fill, which is what actually carries "live"; the
+     ring was only ever the decoration on top of it. */
+  .dot-live::after {
+    animation: none !important;
+    opacity: 0 !important;
+  }
 }
