@@ -9,6 +9,20 @@ services:
       - DATABASE_PATH=/source/apps/download/download.db
     volumes:
       - ../..:/source
+    # Caps the blast radius of a runaway `next dev` process (see the
+    # 2026-09-17 host-wide OOM incident) to this container's own cgroup
+    # instead of the whole host picking an arbitrary victim.
+    mem_limit: 6g
+    # Probes the frontend port directly (not a `/health` route -- the
+    # backend doesn't have one) since that's the process that silently
+    # died: `run-p`'s SIGKILL-detection bug meant `docker ps` kept
+    # reporting "Up" for hours after it was gone.
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "require(''http'').get(''http://localhost:8080/'',r=>process.exit(0)).on(''error'',()=>process.exit(1))"']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     labels:
       - traefik.enable=true
       - traefik.http.routers.download.rule=Host(`download.localhost`)
