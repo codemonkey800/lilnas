@@ -1,9 +1,7 @@
 import type { DownloadJob } from '@lilnas/utils/download/types'
 import {
-  DOWNLOAD_JOB_EVENT_TYPE,
   DownloadJobEventType,
   DownloadJobStatus,
-  DownloadType,
 } from '@lilnas/utils/download/types'
 import { act, renderHook } from '@testing-library/react'
 import type { JSX, ReactNode } from 'react'
@@ -22,7 +20,6 @@ import {
   DEFAULT_RECONNECT_DELAYS_MS,
   getJobEventsSocketUrl,
   JobEventsContext,
-  parseJobEventFrame,
   useJobEvents,
 } from 'src/lib/use-job-events'
 
@@ -44,92 +41,6 @@ describe('getJobEventsSocketUrl', () => {
     expect(
       getJobEventsSocketUrl({ host: 'localhost:8090', protocol: 'http:' }),
     ).toBe('ws://localhost:8090/ws')
-  })
-})
-
-describe('parseJobEventFrame', () => {
-  it('returns the job and event type for a well-formed created frame', () => {
-    const job = buildVideoJob({ status: DownloadJobStatus.Downloading })
-
-    expect(
-      parseJobEventFrame(buildJobFrame(job, DownloadJobEventType.Created)),
-    ).toEqual({ job, type: DownloadJobEventType.Created })
-  })
-
-  it('returns the job and event type for a well-formed updated frame', () => {
-    const job = buildVideoJob({ status: DownloadJobStatus.Completed })
-
-    expect(
-      parseJobEventFrame(buildJobFrame(job, DownloadJobEventType.Updated)),
-    ).toEqual({ job, type: DownloadJobEventType.Updated })
-  })
-
-  // The gateway broadcasts a full snapshot on every event, so an event type
-  // nobody has taught this file about yet should still move the UI forward.
-  it('normalizes an unrecognized event type to updated', () => {
-    const job = buildVideoJob()
-
-    expect(
-      parseJobEventFrame(buildFrame({ job, type: 'resurrected' })),
-    ).toEqual({ job, type: DownloadJobEventType.Updated })
-  })
-
-  it('parses a movie job frame, not just a video one', () => {
-    const job = buildVideoJob({
-      media: {
-        id: 'tmdb:1',
-        title: 'A Movie',
-        tmdbId: 1,
-        type: DownloadType.Movie,
-      },
-    })
-
-    expect(parseJobEventFrame(buildJobFrame(job))?.job).toEqual(job)
-  })
-
-  it('returns undefined when the envelope type is not the job-event type', () => {
-    expect(
-      parseJobEventFrame(
-        buildFrame(
-          { job: buildVideoJob(), type: DownloadJobEventType.Updated },
-          'some-other-type',
-        ),
-      ),
-    ).toBeUndefined()
-  })
-
-  // The duck-type this replaced accepted anything with a `job` key; the
-  // schema is the one the backend's wire type is inferred from, so the two
-  // cannot drift.
-  it('returns undefined when the payload does not parse as a DownloadJob', () => {
-    expect(
-      parseJobEventFrame(
-        buildFrame({
-          job: { id: 'video-1', status: 'not-a-real-status' },
-          type: DownloadJobEventType.Updated,
-        }),
-      ),
-    ).toBeUndefined()
-  })
-
-  it('returns undefined for malformed JSON', () => {
-    expect(parseJobEventFrame('{not json')).toBeUndefined()
-  })
-
-  it('returns undefined when the envelope carries no data', () => {
-    expect(
-      parseJobEventFrame(JSON.stringify({ type: DOWNLOAD_JOB_EVENT_TYPE })),
-    ).toBeUndefined()
-  })
-
-  it('returns undefined when the data has no job', () => {
-    expect(
-      parseJobEventFrame(buildFrame({ type: DownloadJobEventType.Updated })),
-    ).toBeUndefined()
-  })
-
-  it('returns undefined for non-string message data', () => {
-    expect(parseJobEventFrame({ not: 'a string' })).toBeUndefined()
   })
 })
 

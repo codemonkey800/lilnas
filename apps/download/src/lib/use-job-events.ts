@@ -1,15 +1,14 @@
 'use client'
 
-import { DownloadJobSchema } from '@lilnas/utils/download/schema'
-import type {
-  DownloadGatewayMessage,
-  DownloadJob,
-  DownloadJobEvent,
-} from '@lilnas/utils/download/types'
 import {
-  DOWNLOAD_JOB_EVENT_TYPE,
-  DownloadJobEventType,
-} from '@lilnas/utils/download/types'
+  DEFAULT_RECONNECT_DELAYS_MS,
+  isDownloadGatewayMessage,
+  jobEventsSocketUrl,
+  parseJobEventFrame,
+  RECONNECT_JITTER_RATIO,
+  reconnectDelayMs,
+} from '@lilnas/utils/download/job-events'
+import type { DownloadJob } from '@lilnas/utils/download/types'
 import {
   createContext,
   useCallback,
@@ -18,31 +17,18 @@ import {
   useSyncExternalStore,
 } from 'react'
 
-/**
- * Reconnect backoff schedule, in milliseconds. Attempt `n` waits
- * `DEFAULT_RECONNECT_DELAYS_MS[n]`, clamped to the last entry — so a backend
- * that stays down settles at one attempt every 15s per tab rather than
- * hammering it forever at the 1s cadence the polling loop this replaces used
- * to run at.
- *
- * The counter resets when a socket actually **opens**, not when one is
- * merely created: a connect that fails instantly (backend down, proxy
- * refusing the upgrade) must keep climbing the ladder, and only a genuinely
- * healthy connection earns a fast retry on the next blip.
- */
-export const DEFAULT_RECONNECT_DELAYS_MS = [
-  1_000, 2_000, 4_000, 8_000, 15_000,
-] as const
-
-/**
- * Each delay is scaled by ±20%. Every open tab is woken by the same backend
- * restart, so an unjittered schedule would land all of them on the same
- * millisecond and re-create the stampede the backoff exists to prevent.
- */
-const RECONNECT_JITTER_RATIO = 0.2
-
-/** Used only if the delay table is somehow empty — see `reconnectDelayMs`. */
-const FALLBACK_RECONNECT_DELAY_MS = 1_000
+// Re-exported so every existing import site (this file used to define these
+// itself) keeps working unchanged. The implementations now live in
+// `@lilnas/utils/download/job-events`, shared with the websocket-job-waiting
+// work — see that module for the reconnect-ladder, jitter and silent-frame-
+// rejection rationale.
+export {
+  DEFAULT_RECONNECT_DELAYS_MS,
+  isDownloadGatewayMessage,
+  parseJobEventFrame,
+  RECONNECT_JITTER_RATIO,
+  reconnectDelayMs,
+}
 
 /**
  * What every consumer of the gateway sees: the jobs it asked about, keyed by
@@ -128,78 +114,7 @@ export interface JobEventsStore {
 export function getJobEventsSocketUrl(
   location: Pick<Location, 'host' | 'protocol'>,
 ): string {
-  const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${scheme}//${location.host}/ws`
-}
-
-function isDownloadGatewayMessage(
-  value: unknown,
-): value is DownloadGatewayMessage {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'type' in value &&
-    typeof value.type === 'string'
-  )
-}
-
-/**
- * Parses one raw frame from the download gateway into the job event it
- * describes, or `undefined` if it does not describe one — a non-string
- * payload, malformed JSON, some other envelope `type`, or a `job` that does
- * not satisfy `DownloadJobSchema`.
- *
- * Every rejection is **silent**. A video whose `sourceUrl` the schema
- * refuses still has a row on the page rendered from the server payload; a
- * throw here would take the whole subtree down over a field nobody was
- * looking at. The frame is dropped, the last good snapshot stands, and
- * `connected` keeps telling the truth.
- *
- * The payload goes through `DownloadJobSchema.safeParse()` rather than a
- * hand-rolled duck-type: it is the same schema the backend's wire type is
- * inferred from, so the two cannot drift.
- *
- * An unrecognized inner `DownloadJobEvent.type` is normalized to `Updated`
- * rather than dropped. `DownloadJobEvent.job` is documented as always being
- * a full current snapshot that a subscriber may upsert blind, so a future
- * third event kind should still move the UI forward instead of freezing it.
- */
-export function parseJobEventFrame(
-  rawData: unknown,
-): DownloadJobEvent | undefined {
-  if (typeof rawData !== 'string') return undefined
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(rawData)
-  } catch {
-    return undefined
-  }
-
-  if (!isDownloadGatewayMessage(parsed)) return undefined
-  if (parsed.type !== DOWNLOAD_JOB_EVENT_TYPE) return undefined
-  if (typeof parsed.data !== 'object' || parsed.data === null) return undefined
-  if (!('job' in parsed.data)) return undefined
-
-  const job = DownloadJobSchema.safeParse(parsed.data.job)
-  if (!job.success) return undefined
-
-  const eventType =
-    'type' in parsed.data && parsed.data.type === DownloadJobEventType.Created
-      ? DownloadJobEventType.Created
-      : DownloadJobEventType.Updated
-
-  return { job: job.data, type: eventType }
-}
-
-function reconnectDelayMs(
-  attempt: number,
-  delays: readonly number[],
-  random: () => number,
-): number {
-  const base =
-    delays[Math.min(attempt, delays.length - 1)] ?? FALLBACK_RECONNECT_DELAY_MS
-  return Math.round(base * (1 + (random() * 2 - 1) * RECONNECT_JITTER_RATIO))
+  return jobEventsSocketUrl('/api', location)
 }
 
 /**
