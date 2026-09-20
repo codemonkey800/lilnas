@@ -1810,6 +1810,27 @@ no longer exist at `HEAD` and the command must name a pre-teardown commit.
 The gateway the hook parses (`src/download-gateway/download.gateway.ts`) is
 **unchanged** by the teardown, so the wire format is still current.
 
+### A second gateway subscriber: `DownloadClient.waitForJob`
+
+The gateway now has **two** subscribers, not one. The browser store
+(`apps/download/src/lib/use-job-events.ts`) is the original; `@lilnas/utils`
+now also exports `DownloadClient.waitForJob`, used by tdr-bot's `/download`
+command to await a job's terminal status instead of polling. Both parse
+frames through the same shared module,
+`@lilnas/utils/download/job-events` — moved there from the browser store —
+so the two subscribers can't drift on wire-format parsing even though they
+consume it from different runtimes.
+
+`download.gateway.ts` itself is **unchanged**: it still broadcasts every job
+event to every open socket, unfiltered, and each subscriber filters
+client-side for the job(s) it cares about. A Node subscriber like
+`waitForJob` connects with the native `WebSocket` global rather than the
+`ws` package, which means it requires Node ≥ 22 (the production runtime is
+`node:25.0.0-slim`, so this is a non-issue there). When the client was built
+via `withForwardedIdentity()`, `waitForJob` passes the same
+forwarded-identity headers on the WebSocket upgrade that authenticated HTTP
+requests already send.
+
 ### Two pieces of intentional dead code were kept
 
 Neither has an importer after the teardown. Both stay on purpose; they are
