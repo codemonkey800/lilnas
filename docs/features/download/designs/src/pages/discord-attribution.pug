@@ -15,17 +15,6 @@ block title
   (unlinked — raw username, "via Discord"), `hidden` (masked, unchanged).
 
 //-
-  The "sent via Discord, never linked" mark — icon-only plus a `title`
-  tooltip, the same weight as admin-dashboard.pug's eye-slash mark for
-  "hidden from other users" rather than a labelled chip. A labelled chip
-  ("via Discord" in a pill) measures ~70px wide and does not fit next to a
-  username in a table cell, a 3-column audit grid, or a 158px gallery card
-  without colliding with whatever sits to its right — this is icon-only
-  everywhere for that reason, not as a downgrade from a fuller mark.
-mixin viaDiscordMark
-  +icon('discord')(class='h-3 w-3 shrink-0 text-ink-4' title='Sent via Discord — no lilnas account linked to this Discord user yet')
-
-//-
   The identity cell every list/table row uses. `size` sizes the avatar only
   (via `&attributes`, exactly like `requesterCell`'s own convention) — the
   text stays a fixed `text-mono-sm` regardless of row density, so a call
@@ -33,6 +22,14 @@ mixin viaDiscordMark
   what broke this page's first pass: sizing classes landed on the whole row
   instead of the avatar, collapsing it into a fixed box and overflowing
   into neighbouring cells).
+
+  The "sent via Discord, never linked" mark is a plain muted text suffix —
+  `· via Discord`, `text-ink-4` against the name's `text-ink-3` — not an
+  icon. A first pass used a hand-drawn Discord-ish glyph, which read as an
+  unrecognisable blob at 12–16px, and even a legible icon would only be a
+  hover-only affordance via its `title` attribute: invisible at a glance,
+  and completely absent on a touch device. Text is always visible and reads
+  standalone.
 mixin discordIdentity(requester, opts)
   - opts = opts || {}
   case requester.kind
@@ -45,8 +42,9 @@ mixin discordIdentity(requester, opts)
       span(class='flex min-w-0 items-center gap-1.5')
         +avatar(requester.initials, { size: opts.size })&attributes(attributes)
         if !opts.nameless
-          span(class='truncate font-mono text-mono-sm text-ink-3')= requester.username
-          +viaDiscordMark
+          span(class='truncate font-mono text-mono-sm')
+            span(class='text-ink-3')= requester.username
+            span(class='text-ink-4') ' · via Discord'
     default
       //- 'web' and 'linked' share one branch on purpose — a linked Discord
       //- job is resolved to the same JobRequester shape a web job carries,
@@ -181,9 +179,7 @@ block content
                 span(class='truncate font-mono text-mono-sm text-ink-4')= `hidden · ${row.when}`
               when 'discord'
                 +avatar(row.requester.initials)(class='h-5 w-5 shrink-0 text-[9px]')
-                span(class='flex min-w-0 items-center gap-1.5')
-                  span(class='truncate font-mono text-mono-sm text-ink-4')= `${row.requester.username} · ${row.when}`
-                  +viaDiscordMark
+                span(class='truncate font-mono text-mono-sm text-ink-4')= `${row.requester.username} · via Discord · ${row.when}`
               default
                 +avatar(row.requester.initials, { href: 'profile.html' })(class='h-5 w-5 shrink-0 text-[9px]')
                 span(class='truncate font-mono text-mono-sm text-ink-4')= `downloaded by ${row.requester.email} · ${row.when}`
@@ -227,5 +223,4 @@ block content
       +gcardRow()(class='mt-auto')
         +gcardAttrib
           +discordIdentity(entry.requester, { nameless: true })
-          span(class='font-mono text-mono-sm text-ink-4')= entry.when
-          +viaDiscordMark
+          span(class='font-mono text-mono-sm text-ink-4')= `${entry.when} · via Discord`
