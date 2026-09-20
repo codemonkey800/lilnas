@@ -6,6 +6,13 @@
 // eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
 import { WhoamiResponse } from '../auth/types'
 import {
+  DEFAULT_RECONNECT_DELAYS_MS,
+  isDownloadGatewayMessage,
+  jobEventsSocketUrl,
+  parseJobEventFrame,
+  reconnectDelayMs,
+} from './job-events'
+import {
   ActivityQuery,
   AdminStatsQuery,
   AdminStatsResponse,
@@ -16,6 +23,7 @@ import {
   DeleteMediaFilesResponse,
   DiscoverQuery,
   DiscoveryPage,
+  DOWNLOAD_JOB_EVENT_TYPE,
   DownloadGalleryFacets,
   DownloadJob,
   DownloadPage,
@@ -27,6 +35,7 @@ import {
   GetMediaFileQuery,
   GrabReleaseInput,
   HistoryQuery,
+  isTerminalDownloadJobStatus,
   ListBadFilesResponse,
   ListReleasesQuery,
   ListReleasesResponse,
@@ -99,6 +108,29 @@ function toQueryString(query: Record<string, unknown>): string {
 
   const encoded = params.toString()
   return encoded ? `?${encoded}` : ''
+}
+
+/**
+ * Node's undici `WebSocket` accepts a non-standard init object carrying
+ * handshake headers; the DOM typing that wins in this package does not know
+ * it. Browsers receive no init at all (see below), so the cast never lies
+ * about what is actually passed.
+ */
+interface NodeWebSocketInit {
+  headers?: Record<string, string>
+}
+type WebSocketWithInit = new (
+  url: string,
+  init?: NodeWebSocketInit,
+) => WebSocket
+
+export interface WaitForJobOptions {
+  /**
+   * The deadline, and the only way to stop waiting. Rejects with
+   * `signal.reason` — for `AbortSignal.timeout()` that is a `TimeoutError`
+   * DOMException. Omit it and this waits forever, reconnecting as needed.
+   */
+  signal?: AbortSignal
 }
 
 export class DownloadClient {
@@ -204,6 +236,170 @@ export class DownloadClient {
     })
 
     return response.json()
+  }
+
+  /**
+   * Resolves with the job's first terminal snapshot — `completed`, `failed`
+   * or `cancelled` — as seen over the download gateway's WebSocket, with one
+   * `getJob()` on every socket open to cover whatever happened before the
+   * socket was listening. Rejects on abort, and with a `DownloadApiError`
+   * when the job does not exist (404). Everything else — a dropped socket,
+   * a 5xx, the backend being down — is retried on the reconnect ladder until
+   * the signal says stop. Carries no timeout and does no cancelling of its
+   * own: both are the caller's policy (see tdr-bot's `/download` for one).
+   */
+  async waitForJob(
+    id: string,
+    options: WaitForJobOptions = {},
+  ): Promise<DownloadJob> {
+    const { signal } = options
+
+    return new Promise<DownloadJob>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(signal.reason)
+        return
+      }
+
+      // `{}` (no forwarded identity) is treated the same as "no headers": a
+      // browser throws `SyntaxError` if a second `WebSocket` argument is
+      // passed at all, so the no-identity case must call the constructor
+      // with a single argument, not with `{ headers: {} }`.
+      const headers =
+        Object.keys(this.forwardedHeaders).length > 0
+          ? this.forwardedHeaders
+          : undefined
+
+      let settled = false
+      let attempt = 0
+      let socket: WebSocket | undefined
+      let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+
+      const cleanup = (): void => {
+        if (reconnectTimer !== undefined) clearTimeout(reconnectTimer)
+        signal?.removeEventListener('abort', onAbort)
+      }
+
+      const settleResolve = (job: DownloadJob): void => {
+        if (settled) return
+        settled = true
+        cleanup()
+        socket?.close()
+        resolve(job)
+      }
+
+      const settleReject = (error: unknown): void => {
+        if (settled) return
+        settled = true
+        cleanup()
+        socket?.close()
+        reject(error)
+      }
+
+      const onAbort = (): void => {
+        settleReject(signal?.reason)
+      }
+
+      signal?.addEventListener('abort', onAbort)
+
+      const scheduleReconnect = (): void => {
+        if (settled) return
+        const delay = reconnectDelayMs(
+          attempt,
+          DEFAULT_RECONNECT_DELAYS_MS,
+          Math.random,
+        )
+        attempt += 1
+        reconnectTimer = setTimeout(open, delay)
+      }
+
+      const open = (): void => {
+        if (settled) return
+
+        const url = jobEventsSocketUrl(this.baseUrl, globalThis.location)
+        // Resolved fresh on every open, not hoisted to module scope: a test
+        // installs its fake via `jest.spyOn(globalThis, 'WebSocket')` after
+        // this module has already been imported, so a `SocketCtor` captured
+        // once at import time would keep pointing at the real constructor.
+        const SocketCtor = WebSocket as unknown as WebSocketWithInit
+        const next = headers
+          ? new SocketCtor(url, { headers })
+          : new SocketCtor(url)
+        socket = next
+
+        // Registered synchronously, right after construction: a frame the
+        // server sends immediately after the handshake must reach a handler
+        // that already exists.
+        next.onmessage = event => {
+          if (settled) return
+
+          let envelope: unknown
+          try {
+            envelope = JSON.parse(event.data)
+          } catch {
+            return
+          }
+
+          // The cheap shape check first - every job's frame arrives on this
+          // one socket, and running the zod parse below (parseJobEventFrame)
+          // on every one of them just to discard almost all as "not my job"
+          // would be wasted work.
+          if (!isDownloadGatewayMessage(envelope)) return
+          if (envelope.type !== DOWNLOAD_JOB_EVENT_TYPE) return
+
+          const data = envelope.data
+          if (typeof data !== 'object' || data === null) return
+          if (!('job' in data)) return
+
+          const job = data.job
+          if (typeof job !== 'object' || job === null) return
+          if (!('id' in job) || job.id !== id) return
+
+          const parsedEvent = parseJobEventFrame(event.data)
+          if (!parsedEvent) return
+          if (!isTerminalDownloadJobStatus(parsedEvent.job.status)) return
+
+          settleResolve(parsedEvent.job)
+        }
+
+        // Per the WebSocket spec an `error` is always followed by a `close`,
+        // so scheduling the reconnect only here (and never also in
+        // `onerror`) is what stops one failure from double-scheduling.
+        next.onclose = () => {
+          if (settled) return
+          scheduleReconnect()
+        }
+
+        next.onopen = () => {
+          if (settled) return
+          attempt = 0
+
+          this.getJob(id).then(
+            job => {
+              if (settled) return
+              if (isTerminalDownloadJobStatus(job.status)) {
+                settleResolve(job)
+              }
+            },
+            (error: unknown) => {
+              if (settled) return
+
+              if (error instanceof DownloadApiError && error.status === 404) {
+                settleReject(error)
+                return
+              }
+
+              // Any other failure (a dropped connection, a 5xx, the backend
+              // being down): close the socket and let `onclose` schedule the
+              // reconnect, which re-runs this same `GET` once the next
+              // socket opens.
+              next.close()
+            },
+          )
+        }
+      }
+
+      open()
+    })
   }
 
   /**

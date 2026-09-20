@@ -897,4 +897,455 @@ describe('DownloadClient', () => {
       )
     })
   })
+
+  describe('waitForJob', () => {
+    // A minimal in-memory stand-in for the DOM/undici `WebSocket` - jsdom
+    // isn't in play here (this package's tests run in the `node` jest
+    // environment), and Node's real `WebSocket` can't be told to emit
+    // events on command from a test.
+    class FakeSocket {
+      static instances: FakeSocket[] = []
+
+      static readonly CONNECTING = 0
+      static readonly OPEN = 1
+      static readonly CLOSED = 3
+
+      readonly close = jest.fn(() => {
+        this.readyState = FakeSocket.CLOSED
+      })
+
+      onclose: (() => void) | null = null
+      onmessage: ((event: { data: string }) => void) | null = null
+      onopen: (() => void) | null = null
+      readyState = FakeSocket.CONNECTING
+
+      constructor(
+        readonly url: string,
+        readonly init?: { headers?: Record<string, string> },
+      ) {
+        FakeSocket.instances.push(this)
+      }
+
+      emitOpen(): void {
+        this.readyState = FakeSocket.OPEN
+        this.onopen?.()
+      }
+
+      emitMessage(data: string): void {
+        this.onmessage?.({ data })
+      }
+
+      emitClose(): void {
+        this.readyState = FakeSocket.CLOSED
+        this.onclose?.()
+      }
+    }
+
+    function mockWebSocket(): jest.SpyInstance {
+      FakeSocket.instances = []
+
+      return jest
+        .spyOn(globalThis, 'WebSocket')
+        .mockImplementation(
+          (...args: unknown[]) =>
+            new FakeSocket(
+              String(args[0]),
+              args[1] as { headers?: Record<string, string> } | undefined,
+            ) as unknown as WebSocket,
+        )
+    }
+
+    // A real (unfaked) macrotask tick - long enough for any number of
+    // pending microtasks (an awaited `fetch`, then an awaited `.json()`,
+    // then the `getJob()` promise chain in `waitForJob` itself) to drain
+    // before the next assertion runs.
+    function flushAsync(): Promise<void> {
+      return new Promise(resolve => setTimeout(resolve, 0))
+    }
+
+    function terminalFrame(job: DownloadJob): string {
+      return JSON.stringify({
+        data: { job, type: 'updated' },
+        type: 'download-job',
+      })
+    }
+
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
+    it('rejects immediately with signal.reason when already aborted, without opening a socket', async () => {
+      const wsSpy = mockWebSocket()
+      const controller = new AbortController()
+      const reason = new Error('gave up before starting')
+      controller.abort(reason)
+
+      await expect(
+        DownloadClient.localInstance.waitForJob('job-1', {
+          signal: controller.signal,
+        }),
+      ).rejects.toBe(reason)
+
+      expect(wsSpy).not.toHaveBeenCalled()
+    })
+
+    it('opens the socket at ws://download:8081/ws for dockerInstance', () => {
+      mockWebSocket()
+
+      void DownloadClient.dockerInstance.waitForJob('job-1').catch(() => {})
+
+      expect(FakeSocket.instances[0]?.url).toBe('ws://download:8081/ws')
+    })
+
+    describe('browserInstance socket URL', () => {
+      afterEach(() => {
+        Reflect.deleteProperty(globalThis, 'location')
+      })
+
+      it('derives wss://<host>/ws from a stubbed globalThis.location', () => {
+        mockWebSocket()
+        Object.defineProperty(globalThis, 'location', {
+          configurable: true,
+          value: { host: 'download.lilnas.io', protocol: 'https:' },
+        })
+
+        void DownloadClient.browserInstance.waitForJob('job-1').catch(() => {})
+
+        expect(FakeSocket.instances[0]?.url).toBe('wss://download.lilnas.io/ws')
+      })
+    })
+
+    it('resolves with the terminal job the open-time getJob call returns, and closes the socket', async () => {
+      mockWebSocket()
+      const job = buildJob(VIDEO_MEDIA, { status: DownloadJobStatus.Completed })
+      mockFetchJson(job)
+
+      const promise = DownloadClient.localInstance.waitForJob('job-1')
+      FakeSocket.instances[0]?.emitOpen()
+
+      await expect(promise).resolves.toEqual(job)
+      expect(FakeSocket.instances[0]?.close).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves a non-terminal open-time getJob result unsettled, with the socket left open', async () => {
+      mockWebSocket()
+      mockFetchJson(
+        buildJob(VIDEO_MEDIA, { status: DownloadJobStatus.Downloading }),
+      )
+
+      const promise = DownloadClient.localInstance.waitForJob('job-1')
+      let settled = false
+      promise.then(
+        () => (settled = true),
+        () => (settled = true),
+      )
+
+      FakeSocket.instances[0]?.emitOpen()
+      await flushAsync()
+
+      expect(settled).toBe(false)
+      expect(FakeSocket.instances[0]?.close).not.toHaveBeenCalled()
+    })
+
+    it('rejects with the DownloadApiError when the open-time getJob 404s, and closes the socket', async () => {
+      mockWebSocket()
+      mockFetchError({
+        json: () => Promise.resolve({ message: 'not found' }),
+        status: 404,
+        statusText: 'Not Found',
+      })
+
+      const promise = DownloadClient.localInstance.waitForJob('missing')
+      FakeSocket.instances[0]?.emitOpen()
+
+      await expect(promise).rejects.toBeInstanceOf(DownloadApiError)
+      await expect(promise).rejects.toMatchObject({ status: 404 })
+      expect(FakeSocket.instances[0]?.close).toHaveBeenCalledTimes(1)
+    })
+
+    it('closes the socket (letting onclose schedule the reconnect) after a non-404 getJob failure, without settling', async () => {
+      mockWebSocket()
+      mockFetchError({
+        json: () => Promise.resolve({}),
+        status: 500,
+        statusText: 'Internal Server Error',
+      })
+
+      const promise = DownloadClient.localInstance.waitForJob('job-1')
+      let settled = false
+      promise.then(
+        () => (settled = true),
+        () => (settled = true),
+      )
+
+      FakeSocket.instances[0]?.emitOpen()
+      await flushAsync()
+
+      expect(FakeSocket.instances[0]?.close).toHaveBeenCalledTimes(1)
+      expect(settled).toBe(false)
+    })
+
+    it('drops a frame whose envelope type is not download-job, without resolving', async () => {
+      mockWebSocket()
+      const promise = DownloadClient.localInstance.waitForJob('job-1')
+      let settled = false
+      promise.then(
+        () => (settled = true),
+        () => (settled = true),
+      )
+
+      FakeSocket.instances[0]?.emitMessage(
+        JSON.stringify({
+          data: {
+            job: buildJob(VIDEO_MEDIA, { status: DownloadJobStatus.Completed }),
+            type: 'updated',
+          },
+          type: 'not-a-job-event',
+        }),
+      )
+      await flushAsync()
+
+      expect(settled).toBe(false)
+    })
+
+    it('drops a frame for a different job id, without resolving', async () => {
+      mockWebSocket()
+      const promise = DownloadClient.localInstance.waitForJob('job-1')
+      let settled = false
+      promise.then(
+        () => (settled = true),
+        () => (settled = true),
+      )
+
+      FakeSocket.instances[0]?.emitMessage(
+        terminalFrame(
+          buildJob(VIDEO_MEDIA, {
+            id: 'job-2',
+            status: DownloadJobStatus.Completed,
+          }),
+        ),
+      )
+      await flushAsync()
+
+      expect(settled).toBe(false)
+    })
+
+    it('drops a malformed frame that fails the zod parse, without resolving', async () => {
+      mockWebSocket()
+      const promise = DownloadClient.localInstance.waitForJob('job-1')
+      let settled = false
+      promise.then(
+        () => (settled = true),
+        () => (settled = true),
+      )
+
+      FakeSocket.instances[0]?.emitMessage(
+        JSON.stringify({
+          data: { job: { id: 'job-1' }, type: 'updated' },
+          type: 'download-job',
+        }),
+      )
+      await flushAsync()
+
+      expect(settled).toBe(false)
+    })
+
+    it('resolves and closes on a terminal job frame for the watched id', async () => {
+      mockWebSocket()
+      const job = buildJob(VIDEO_MEDIA, {
+        id: 'job-1',
+        status: DownloadJobStatus.Failed,
+      })
+
+      const promise = DownloadClient.localInstance.waitForJob('job-1')
+      FakeSocket.instances[0]?.emitMessage(terminalFrame(job))
+
+      await expect(promise).resolves.toEqual(job)
+      expect(FakeSocket.instances[0]?.close).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves a non-terminal job frame for the watched id unsettled', async () => {
+      mockWebSocket()
+      const promise = DownloadClient.localInstance.waitForJob('job-1')
+      let settled = false
+      promise.then(
+        () => (settled = true),
+        () => (settled = true),
+      )
+
+      FakeSocket.instances[0]?.emitMessage(
+        terminalFrame(
+          buildJob(VIDEO_MEDIA, {
+            id: 'job-1',
+            status: DownloadJobStatus.Downloading,
+          }),
+        ),
+      )
+      await flushAsync()
+
+      expect(settled).toBe(false)
+      expect(FakeSocket.instances[0]?.close).not.toHaveBeenCalled()
+    })
+
+    it('climbs the reconnect ladder 1s -> 2s -> 4s and resets the attempt counter after an open', async () => {
+      jest.useFakeTimers()
+      jest.spyOn(Math, 'random').mockReturnValue(0.5) // neutral: no jitter
+      mockWebSocket()
+      mockFetchJson(
+        buildJob(VIDEO_MEDIA, { status: DownloadJobStatus.Downloading }),
+      )
+
+      const promise = DownloadClient.localInstance.waitForJob('job-1')
+      promise.catch(() => {})
+
+      FakeSocket.instances[0]?.emitClose()
+      await jest.advanceTimersByTimeAsync(999)
+      expect(FakeSocket.instances).toHaveLength(1)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(FakeSocket.instances).toHaveLength(2)
+
+      FakeSocket.instances[1]?.emitClose()
+      await jest.advanceTimersByTimeAsync(1_999)
+      expect(FakeSocket.instances).toHaveLength(2)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(FakeSocket.instances).toHaveLength(3)
+
+      // A real open resets the ladder back to its first rung.
+      FakeSocket.instances[2]?.emitOpen()
+      await jest.advanceTimersByTimeAsync(0)
+
+      FakeSocket.instances[2]?.emitClose()
+      await jest.advanceTimersByTimeAsync(999)
+      expect(FakeSocket.instances).toHaveLength(3)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(FakeSocket.instances).toHaveLength(4)
+    })
+
+    it('on abort, closes the socket even while still CONNECTING and rejects with signal.reason', async () => {
+      mockWebSocket()
+      const controller = new AbortController()
+      const reason = new Error('gave up waiting')
+
+      const promise = DownloadClient.localInstance.waitForJob('job-1', {
+        signal: controller.signal,
+      })
+
+      expect(FakeSocket.instances[0]?.readyState).toBe(FakeSocket.CONNECTING)
+      controller.abort(reason)
+
+      await expect(promise).rejects.toBe(reason)
+      expect(FakeSocket.instances[0]?.close).toHaveBeenCalledTimes(1)
+    })
+
+    it('on abort mid-backoff, clears the pending reconnect timer so no further socket opens', async () => {
+      jest.useFakeTimers()
+      mockWebSocket()
+      const controller = new AbortController()
+
+      const promise = DownloadClient.localInstance.waitForJob('job-1', {
+        signal: controller.signal,
+      })
+      promise.catch(() => {})
+
+      FakeSocket.instances[0]?.emitClose()
+      controller.abort(new Error('stop'))
+
+      await jest.advanceTimersByTimeAsync(60_000)
+
+      expect(FakeSocket.instances).toHaveLength(1)
+    })
+
+    it('removes the abort listener once the wait settles, so the signal does not retain the closure', async () => {
+      mockWebSocket()
+      const job = buildJob(VIDEO_MEDIA, { status: DownloadJobStatus.Completed })
+      mockFetchJson(job)
+      const controller = new AbortController()
+      const removeSpy = jest.spyOn(controller.signal, 'removeEventListener')
+
+      const promise = DownloadClient.localInstance.waitForJob('job-1', {
+        signal: controller.signal,
+      })
+      FakeSocket.instances[0]?.emitOpen()
+
+      await promise
+
+      expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function))
+    })
+
+    it('ignores a stale getJob result that resolves after the wait already settled via a message', async () => {
+      mockWebSocket()
+      let resolveFetch: (value: DownloadJob) => void = () => {}
+      const fetchPromise = new Promise<DownloadJob>(resolve => {
+        resolveFetch = resolve
+      })
+      jest.spyOn(global, 'fetch').mockReturnValue(
+        fetchPromise.then(
+          body =>
+            ({
+              json: () => Promise.resolve(body),
+              ok: true,
+              status: 200,
+            }) as unknown as Response,
+        ),
+      )
+
+      const job = buildJob(VIDEO_MEDIA, { status: DownloadJobStatus.Completed })
+      const promise = DownloadClient.localInstance.waitForJob('job-1')
+      FakeSocket.instances[0]?.emitOpen() // kicks off the still-pending getJob()
+
+      FakeSocket.instances[0]?.emitMessage(terminalFrame(job))
+      await expect(promise).resolves.toEqual(job)
+      expect(FakeSocket.instances[0]?.close).toHaveBeenCalledTimes(1)
+
+      // The stale getJob() finally resolves - must be ignored, not close again.
+      resolveFetch(buildJob(VIDEO_MEDIA, { status: DownloadJobStatus.Failed }))
+      await flushAsync()
+
+      expect(FakeSocket.instances[0]?.close).toHaveBeenCalledTimes(1)
+    })
+
+    it('ignores a message frame that arrives after the wait already settled', async () => {
+      mockWebSocket()
+      const job = buildJob(VIDEO_MEDIA, { status: DownloadJobStatus.Completed })
+
+      const promise = DownloadClient.localInstance.waitForJob('job-1')
+      FakeSocket.instances[0]?.emitMessage(terminalFrame(job))
+      await promise
+
+      expect(FakeSocket.instances[0]?.close).toHaveBeenCalledTimes(1)
+
+      FakeSocket.instances[0]?.emitMessage(
+        terminalFrame(
+          buildJob(VIDEO_MEDIA, { status: DownloadJobStatus.Failed }),
+        ),
+      )
+
+      expect(FakeSocket.instances[0]?.close).toHaveBeenCalledTimes(1)
+    })
+
+    it('passes forwarded headers as the WebSocket init object for a client from withForwardedIdentity()', () => {
+      mockWebSocket()
+      const client = DownloadClient.localInstance.withForwardedIdentity({
+        email: 'alice@example.com',
+        userId: 'user_1',
+      })
+
+      void client.waitForJob('job-1').catch(() => {})
+
+      expect(FakeSocket.instances[0]?.init).toEqual({
+        headers: {
+          'x-forwarded-user': 'alice@example.com',
+          'x-forwarded-user-id': 'user_1',
+        },
+      })
+    })
+
+    it('passes no second WebSocket argument when the client carries no forwarded identity', () => {
+      const wsSpy = mockWebSocket()
+
+      void DownloadClient.localInstance.waitForJob('job-1').catch(() => {})
+
+      expect(wsSpy.mock.calls[0]).toHaveLength(1)
+    })
+  })
 })
