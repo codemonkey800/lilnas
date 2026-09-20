@@ -471,7 +471,7 @@ restart, stop or recreate any container. ❌ do not `git checkout`/`switch`/reba
 
 ### Group A — `packages/utils`: the shared wire helpers and the waiter
 
-- [ ] **A1. Move the pure gateway helpers into `@lilnas/utils`.** Create
+- [x] **A1. Move the pure gateway helpers into `@lilnas/utils`.** `95641df5` Create
       `packages/utils/src/download/job-events.ts` and move these out of
       `apps/download/src/lib/use-job-events.ts`, **unchanged in behaviour**:
 
