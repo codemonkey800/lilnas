@@ -1,0 +1,995 @@
+<!doctype html>
+<!--
+  Standalone mockup — apps/auth's admin dashboard gaining Discord account
+  linking. Not part of the download app's Pug/Tailwind mockup pipeline
+  (docs/features/download/designs/src/): apps/auth is a separate app with its
+  own semantic-class design system (design-tokens.css), so this file inlines
+  that system verbatim rather than force-fitting it into the Ultraviolet
+  build. See docs/features/download/plans/017-discord-attribution-and-
+  account-linking.md, tasks B3 (Admin UI: Discord link management).
+
+  Self-contained: open directly in a browser, no build step. The CSS below is
+  copied near-verbatim from apps/auth/src/app/styles/design-tokens.css (only
+  the login/pending-page sections that this screen doesn't use are trimmed);
+  the markup mirrors apps/auth/src/app/admin/{admin-dashboard-client,
+  edit-access-modal}.tsx's real class names and structure. Two things here
+  don't exist in the app: the modal is drawn twice, pinned open, to show the
+  valid and validation-error states side by side (only one is ever open at
+  once for real) and the mobile person-card list has its display switched to
+  `flex` unconditionally, in place of a viewport check (the real CSS shows it
+  only under 768px — see the max-width media query below, kept for
+  reference).
+
+  Don't edit the real design-tokens.css from here — this is a one-way copy
+  for mockup purposes only.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin dashboard — Discord linking · auth mockup · lilnas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;590;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+    />
+    <style>
+      /* ── copied from apps/auth/src/app/styles/design-tokens.css ── */
+      :root {
+        --bg: oklch(17% 0.007 262);
+        --surface: oklch(22% 0.009 262);
+        --fg: oklch(96% 0.003 262);
+        --muted: oklch(68% 0.02 262);
+        --border: oklch(32% 0.014 262);
+        --accent: oklch(62% 0.19 255);
+        --accent-fg: #ffffff;
+
+        --radius: 8px;
+        --radius-lg: 12px;
+        --grid: 8px;
+
+        --font:
+          'Inter', system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue',
+          Arial, sans-serif;
+        --mono:
+          'SF Mono', 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+        --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+        --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+
+        --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--font);
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      button {
+        font-family: inherit;
+        cursor: pointer;
+      }
+      input,
+      select,
+      textarea {
+        font-family: inherit;
+      }
+      ul {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      /* ---------- typography ---------- */
+      .h1 {
+        font-size: clamp(24px, 3vw, 30px);
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        line-height: 1.2;
+      }
+      .h2 {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        line-height: 1.25;
+      }
+      .h3 {
+        font-size: 15px;
+        font-weight: 550;
+        line-height: 1.4;
+      }
+      .body-text {
+        font-size: 15px;
+        line-height: 1.6;
+        color: var(--fg);
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .small {
+        font-size: 13px;
+        line-height: 1.5;
+        letter-spacing: 0.01em;
+      }
+      .caption {
+        font-size: 12px;
+        line-height: 1.5;
+        letter-spacing: 0.01em;
+        color: var(--muted);
+      }
+      .eyebrow {
+        font-size: 11px;
+        font-weight: 590;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .mono {
+        font-family: var(--mono);
+        font-size: 13px;
+      }
+
+      /* ---------- buttons ---------- */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: 40px;
+        padding: 0 16px;
+        border-radius: var(--radius);
+        border: 1px solid transparent;
+        font-size: 14px;
+        font-weight: 550;
+        letter-spacing: 0.01em;
+        transition:
+          background-color 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease,
+          transform 0.05s ease;
+        white-space: nowrap;
+      }
+      .btn:active {
+        transform: translateY(1px);
+      }
+      .btn:focus-visible {
+        outline: none;
+        box-shadow: var(--ring);
+      }
+      .btn svg {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+      }
+      .btn-primary {
+        background: var(--accent);
+        color: var(--accent-fg);
+        border-color: var(--accent);
+      }
+      .btn-primary:hover {
+        background: color-mix(in srgb, var(--accent) 88%, black);
+        border-color: color-mix(in srgb, var(--accent) 88%, black);
+      }
+      .btn-outline {
+        background: var(--bg);
+        color: var(--fg);
+        border-color: var(--border);
+      }
+      .btn-outline:hover {
+        border-color: color-mix(in srgb, var(--fg) 40%, var(--border));
+        background: var(--surface);
+      }
+      .btn-ghost {
+        background: transparent;
+        color: var(--muted);
+        border-color: transparent;
+        padding: 0 10px;
+        height: 36px;
+      }
+      .btn-ghost:hover {
+        color: var(--fg);
+        background: var(--surface);
+      }
+      .btn-sm {
+        height: 32px;
+        padding: 0 12px;
+        font-size: 13px;
+      }
+      .btn[disabled] {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      /* ---------- surfaces / chips ---------- */
+      .card {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 24px;
+        padding: 0 9px;
+        border-radius: 100px;
+        font-size: 12px;
+        font-weight: 550;
+        letter-spacing: 0.02em;
+      }
+      .chip svg {
+        width: 12px;
+        height: 12px;
+      }
+      .chip-granted {
+        background: var(--fg);
+        color: var(--bg);
+      }
+      .chip-neutral {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--fg);
+      }
+      .chip-admin {
+        background: var(--accent);
+        color: var(--accent-fg);
+      }
+
+      /* ---------- inputs ---------- */
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .field label {
+        font-size: 13px;
+        font-weight: 550;
+        color: var(--fg);
+      }
+      .input {
+        height: 40px;
+        padding: 0 12px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--fg);
+        font-size: 14px;
+        width: 100%;
+      }
+      .input:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: var(--ring);
+      }
+      .input::placeholder {
+        color: var(--muted);
+      }
+      .field-hint {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .field-error {
+        font-size: 12px;
+        color: var(--fg);
+        font-weight: 550;
+        display: none;
+      }
+      .field.has-error .input {
+        border-color: var(--fg);
+      }
+      .field.has-error .field-error {
+        display: block;
+      }
+
+      /* ---------- avatar ---------- */
+      .avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--fg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 590;
+        flex-shrink: 0;
+      }
+
+      /* ---------- table ---------- */
+      .table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .table th {
+        text-align: left;
+        font-size: 11px;
+        font-weight: 590;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        padding: 14px 12px 10px;
+        border-bottom: 1px solid var(--border);
+      }
+      .table td {
+        padding: 12px;
+        border-bottom: 1px solid var(--border);
+        font-size: 14px;
+        vertical-align: middle;
+      }
+      .table tr:last-child td {
+        border-bottom: none;
+      }
+      .table-row-actions {
+        display: flex;
+        gap: 6px;
+        justify-content: flex-end;
+      }
+
+      /* ---------- modal ---------- */
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.55);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        z-index: 50;
+      }
+      .modal-overlay.is-open {
+        display: flex;
+      }
+      .modal {
+        width: 100%;
+        max-width: 420px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg);
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      /* ---------- utility ---------- */
+      .stack {
+        display: flex;
+        flex-direction: column;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+      }
+      .between {
+        justify-content: space-between;
+      }
+      .grow {
+        flex: 1;
+      }
+      .hr {
+        border-top: 1px solid var(--border);
+      }
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+      }
+
+      .row-user {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .row-user__text {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+      .row-user__name {
+        font-size: 13px;
+        font-weight: 590;
+      }
+      .row-user__email {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .people-card-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .person-card {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg);
+      }
+      .person-card__top {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+      }
+      .person-card__text {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 0;
+        flex: 1;
+      }
+      .person-card__name {
+        font-size: 14px;
+        font-weight: 590;
+      }
+      .person-card__row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px 8px;
+      }
+      .person-card__row-label {
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        flex-shrink: 0;
+      }
+      .person-card__actions {
+        display: flex;
+        gap: 8px;
+        padding-top: 10px;
+        border-top: 1px solid var(--border);
+      }
+      .person-card__actions .btn {
+        flex: 1;
+      }
+
+      /* apps/auth's real breakpoint — kept for reference. This page pins
+         `.people-card-list` visible unconditionally above so both the
+         desktop table and the mobile card list are reviewable at once
+         without resizing the window. */
+      @media (max-width: 768px) {
+        .people-table-wrap-reference {
+          display: none;
+        }
+      }
+
+      /* ── mockup-only scaffolding (not in design-tokens.css) ── */
+      .mock-shell {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 40px 24px 96px;
+        display: flex;
+        flex-direction: column;
+        gap: 40px;
+      }
+      .mock-head {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-width: 74ch;
+      }
+      .mock-head a {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .mock-head a:hover {
+        color: var(--fg);
+      }
+      .mock-section {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .mock-section-title {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+      }
+      .mock-frame-label {
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        text-align: center;
+      }
+      .mock-two-up {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+        gap: 20px;
+        align-items: start;
+      }
+      .mock-mobile-frame {
+        width: 390px;
+        max-width: 100%;
+        margin: 0 auto;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 18px;
+        background: var(--bg);
+      }
+      .mock-modal-stage {
+        position: relative;
+        min-height: 420px;
+        border: 1px dashed var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+      }
+      code {
+        font-family: var(--mono);
+        font-size: 0.92em;
+        background: var(--surface);
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="mock-shell">
+      <header class="mock-head">
+        <a href="index.html">← download UI mockups</a>
+        <p class="eyebrow">lilnas · auth · admin dashboard</p>
+        <h1 class="h1">Discord account linking</h1>
+        <p class="body-text muted">
+          Plan
+          <code>017-discord-attribution-and-account-linking.md</code>, task B3.
+          An admin links a lilnas person to a Discord snowflake so their tdr-bot
+          downloads unify with their web history. This is
+          <code>apps/auth</code>'s admin surface — a separate app from
+          <code>apps/download</code>, with its own design system
+          (<code>design-tokens.css</code>), which this file reproduces rather
+          than force-fitting into the download app's Tailwind mockup pipeline.
+          Two screens: the People list gaining a linked-Discord chip, and the
+          Edit Access modal gaining the field that sets it.
+        </p>
+      </header>
+
+      <!-- ── People table (desktop) + person-card (mobile) ────────────── -->
+      <section class="mock-section">
+        <div class="mock-section-title">
+          <h2 class="h2">People</h2>
+          <span class="caption"
+            >admin-dashboard-client.tsx — desktop table + mobile
+            person-card</span
+          >
+        </div>
+
+        <p class="mock-frame-label">Desktop — people-table-wrap</p>
+        <div class="card" style="overflow-x: auto">
+          <table class="table" style="min-width: 640px">
+            <thead>
+              <tr>
+                <th>Person</th>
+                <th>Status</th>
+                <th>Discord</th>
+                <th><span class="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <div class="row-user">
+                    <span class="avatar">JA</span>
+                    <div class="row-user__text">
+                      <span class="row-user__name"
+                        >jeremy.asuncion@gmail.com</span
+                      >
+                    </div>
+                  </div>
+                </td>
+                <td><span class="chip chip-admin">admin</span></td>
+                <td>
+                  <!-- linked, username known -->
+                  <span
+                    class="chip chip-neutral"
+                    title="Discord: 214837201948573696"
+                    >jeremy.a</span
+                  >
+                </td>
+                <td>
+                  <div class="table-row-actions">
+                    <button type="button" class="btn btn-outline btn-sm">
+                      Edit access
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="row-user">
+                    <span class="avatar">SP</span>
+                    <div class="row-user__text">
+                      <span class="row-user__name">sam.pham@lilnas.io</span>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="chip chip-granted">granted</span></td>
+                <td>
+                  <!-- linked, but the admin never entered a username label —
+                       falls back to the raw snowflake, as B1's dto makes
+                       discordUsername optional. -->
+                  <span class="chip chip-neutral">583920174659201024</span>
+                </td>
+                <td>
+                  <div class="table-row-actions">
+                    <button type="button" class="btn btn-outline btn-sm">
+                      Edit access
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="row-user">
+                    <span class="avatar">AC</span>
+                    <div class="row-user__text">
+                      <span class="row-user__name">alex.chen@lilnas.io</span>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="chip chip-granted">granted</span></td>
+                <td>
+                  <!-- no link at all — no chip, matching how ServiceChips
+                       renders nothing for an empty set. -->
+                  <span class="caption">—</span>
+                </td>
+                <td>
+                  <div class="table-row-actions">
+                    <button type="button" class="btn btn-outline btn-sm">
+                      Edit access
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="mock-frame-label" style="margin-top: 8px">
+          Mobile — person-card
+        </p>
+        <div class="mock-mobile-frame">
+          <div class="people-card-list">
+            <div class="person-card">
+              <div class="person-card__top">
+                <span class="avatar">JA</span>
+                <div class="person-card__text">
+                  <span class="person-card__name"
+                    >jeremy.asuncion@gmail.com</span
+                  >
+                </div>
+                <span class="chip chip-admin">admin</span>
+              </div>
+              <div class="person-card__row">
+                <span class="person-card__row-label">Discord</span>
+                <span class="chip chip-neutral">jeremy.a</span>
+              </div>
+              <div class="person-card__actions">
+                <button type="button" class="btn btn-outline btn-sm">
+                  Edit access
+                </button>
+              </div>
+            </div>
+            <div class="person-card">
+              <div class="person-card__top">
+                <span class="avatar">AC</span>
+                <div class="person-card__text">
+                  <span class="person-card__name">alex.chen@lilnas.io</span>
+                </div>
+                <span class="chip chip-granted">granted</span>
+              </div>
+              <div class="person-card__row">
+                <span class="person-card__row-label">Discord</span>
+                <span class="caption">not linked</span>
+              </div>
+              <div class="person-card__actions">
+                <button type="button" class="btn btn-outline btn-sm">
+                  Edit access
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Edit Access modal ─────────────────────────────────────────── -->
+      <section class="mock-section">
+        <div class="mock-section-title">
+          <h2 class="h2">Edit access modal</h2>
+          <span class="caption">edit-access-modal.tsx</span>
+        </div>
+        <p class="body-text muted" style="max-width: 62ch">
+          The new "Discord account" field sits below Services. On Save, the
+          value is diffed against the snapshot the modal opened with — the same
+          pattern the Services grid already uses
+          (<code>accessSnapshotRef</code>): unchanged → no call at all; changed
+          to a new value → <code>linkDiscordAccount</code> (this is also how a
+          first-time link happens, and how an existing one is
+          <em>replaced</em>); cleared to empty →
+          <code>unlinkDiscordAccount</code>. A snowflake already linked to
+          someone else comes back from the server as a normal modal error line,
+          same as any other save failure.
+        </p>
+
+        <div class="mock-two-up">
+          <div>
+            <p class="mock-frame-label" style="margin-bottom: 10px">
+              Valid — existing link shown, ready to replace
+            </p>
+            <div class="mock-modal-stage">
+              <div
+                class="modal-overlay is-open"
+                style="position: absolute; inset: 0"
+              >
+                <div class="modal">
+                  <div class="row between">
+                    <h2 class="h2">Edit access</h2>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm"
+                      aria-label="Close"
+                    >
+                      <svg
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.6"
+                      >
+                        <path d="M5 5l10 10M15 5 5 15" stroke-linecap="round" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="row-user">
+                    <span class="avatar">JA</span>
+                    <div class="row-user__text">
+                      <span class="row-user__name"
+                        >jeremy.asuncion@gmail.com</span
+                      >
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label>Services</label>
+                    <div class="caption">— service checkboxes, unchanged —</div>
+                  </div>
+                  <div class="field">
+                    <label for="discord-id-1">Discord account</label>
+                    <input
+                      id="discord-id-1"
+                      class="input mono"
+                      value="214837201948573696"
+                    />
+                    <span class="field-hint"
+                      >17–20 digit Discord user ID. Find it with Discord's
+                      Developer Mode → Copy User ID.</span
+                    >
+                  </div>
+                  <div class="field">
+                    <label for="discord-name-1"
+                      >Discord username (optional)</label
+                    >
+                    <input
+                      id="discord-name-1"
+                      class="input"
+                      value="jeremy.a"
+                      placeholder="For display only — not verified"
+                    />
+                  </div>
+                  <div class="row between">
+                    <div class="row" style="gap: 8px">
+                      <button type="button" class="btn btn-outline btn-sm">
+                        Sign out everywhere
+                      </button>
+                    </div>
+                    <div class="row" style="gap: 10px">
+                      <button type="button" class="btn btn-outline">
+                        Cancel
+                      </button>
+                      <button type="button" class="btn btn-primary">
+                        Save access
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <p class="mock-frame-label" style="margin-bottom: 10px">
+              Invalid snowflake — inline validation error
+            </p>
+            <div class="mock-modal-stage">
+              <div
+                class="modal-overlay is-open"
+                style="position: absolute; inset: 0"
+              >
+                <div class="modal">
+                  <div class="row between">
+                    <h2 class="h2">Edit access</h2>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm"
+                      aria-label="Close"
+                    >
+                      <svg
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.6"
+                      >
+                        <path d="M5 5l10 10M15 5 5 15" stroke-linecap="round" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="row-user">
+                    <span class="avatar">SP</span>
+                    <div class="row-user__text">
+                      <span class="row-user__name">sam.pham@lilnas.io</span>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label>Services</label>
+                    <div class="caption">— service checkboxes, unchanged —</div>
+                  </div>
+                  <div class="field has-error">
+                    <label for="discord-id-2">Discord account</label>
+                    <input
+                      id="discord-id-2"
+                      class="input mono"
+                      value="not-a-snowflake"
+                      aria-invalid="true"
+                    />
+                    <span class="field-error"
+                      >Must be a 17–20 digit Discord user ID, e.g.
+                      214837201948573696.</span
+                    >
+                  </div>
+                  <div class="field">
+                    <label for="discord-name-2"
+                      >Discord username (optional)</label
+                    >
+                    <input
+                      id="discord-name-2"
+                      class="input"
+                      value=""
+                      placeholder="For display only — not verified"
+                    />
+                  </div>
+                  <p
+                    role="alert"
+                    class="small"
+                    style="color: var(--fg); font-weight: 550"
+                  >
+                    Fix the Discord account field before saving.
+                  </p>
+                  <div class="row between">
+                    <div class="row" style="gap: 8px">
+                      <button type="button" class="btn btn-outline btn-sm">
+                        Sign out everywhere
+                      </button>
+                    </div>
+                    <div class="row" style="gap: 10px">
+                      <button type="button" class="btn btn-outline">
+                        Cancel
+                      </button>
+                      <button type="button" class="btn btn-primary" disabled>
+                        Save access
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p class="mock-frame-label" style="margin-top: 8px">
+          Unlinking — clear the field, then Save
+        </p>
+        <div class="mock-modal-stage" style="min-height: 380px">
+          <div
+            class="modal-overlay is-open"
+            style="position: absolute; inset: 0"
+          >
+            <div class="modal">
+              <div class="row between">
+                <h2 class="h2">Edit access</h2>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  aria-label="Close"
+                >
+                  <svg
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                  >
+                    <path d="M5 5l10 10M15 5 5 15" stroke-linecap="round" />
+                  </svg>
+                </button>
+              </div>
+              <div class="row-user">
+                <span class="avatar">JA</span>
+                <div class="row-user__text">
+                  <span class="row-user__name">jeremy.asuncion@gmail.com</span>
+                </div>
+              </div>
+              <div class="field">
+                <label>Services</label>
+                <div class="caption">— service checkboxes, unchanged —</div>
+              </div>
+              <div class="field">
+                <label for="discord-id-3">Discord account</label>
+                <input
+                  id="discord-id-3"
+                  class="input mono"
+                  value=""
+                  placeholder="Discord user ID (17–20 digits)"
+                />
+                <span class="field-hint"
+                  >Cleared — Save will unlink this Discord account from
+                  jeremy.asuncion@gmail.com.</span
+                >
+              </div>
+              <div class="field">
+                <label for="discord-name-3">Discord username (optional)</label>
+                <input
+                  id="discord-name-3"
+                  class="input"
+                  value=""
+                  placeholder="For display only — not verified"
+                />
+              </div>
+              <div class="row between">
+                <div class="row" style="gap: 8px">
+                  <button type="button" class="btn btn-outline btn-sm">
+                    Sign out everywhere
+                  </button>
+                </div>
+                <div class="row" style="gap: 10px">
+                  <button type="button" class="btn btn-outline">Cancel</button>
+                  <button type="button" class="btn btn-primary">
+                    Save access
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>
