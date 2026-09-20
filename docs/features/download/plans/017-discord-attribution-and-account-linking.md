@@ -16,9 +16,11 @@ This plan makes attribution **dual**:
   sibling to the existing `withForwardedIdentity()`.
 - **`apps/download` stores it raw** on the job (`discord_user_id`,
   `discord_username`, `origin: 'discord'`) — never resolved at write time.
-- **`apps/auth` owns a new `discord_link` table** (lilnas user ↔ Discord snowflake,
-  one-to-one) with an admin-managed UI in the existing dashboard and an internal,
-  Docker-network-only lookup endpoint mirroring `/admin/check`.
+- **`apps/auth` owns the link** — a `discord_link` join table (lilnas user ↔ Discord
+  snowflake, one-to-one, storing **no name at all**) plus a `discord_identity` roster
+  it fills by observation, an admin UI that links by **picking one row from each of
+  two lists**, and an internal, Docker-network-only lookup endpoint mirroring
+  `/admin/check`.
 - **`apps/download` resolves the link at read time** (TTL-cached, mirroring
   `AdminCheckService`). A linked Discord job displays as the same person as their web
   jobs — **including every past job**, because resolution happens on display, not on
@@ -34,8 +36,10 @@ flowchart LR
     U[Discord user] --> TB[apps/tdr-bot] -->|x-discord-user-id / x-discord-username| DL
   end
   DL -->|store raw identity per origin| DB[(jobs table)]
-  DL -.->|read-time, TTL-cached| AU[apps/auth :8081<br/>GET /internal/discord-link]
-  AD[Admin dashboard] -->|link email ↔ snowflake| AU
+  DL -.->|"observe: snowflake + handle"| AU
+  DL -.->|read-time lookup, TTL-cached| AU[apps/auth :8081<br/>discord_identity + discord_link]
+  AU --> AD[Admin dashboard<br/>pick a person + an account → Link]
+  AD -->|writes the pairing| AU
 ```
 
 **Shape:** one doc, **19 tasks in groups A–F**, seven waves. Work lands on
@@ -49,8 +53,12 @@ rollout section (see [How to work this plan](#how-to-work-this-plan)).
 - **Storage stays mutually exclusive** — a row is `web` XOR `discord` XOR `service`;
   "one person, both surfaces" is a read-time projection, not a wider row.
   [Why](#storage-stays-mutually-exclusive)
-- **The link is admin-entered data, not OAuth.** `apps/auth` keeps Google as its only
-  provider. [Why](#the-link-is-admin-entered-not-oauth)
+- **The link is admin-made, not OAuth.** `apps/auth` keeps Google as its only
+  provider. [Why](#the-link-is-admin-made-not-oauth)
+- **Nobody ever types a Discord handle or snowflake.** Both sides of the picker are
+  observed — people on first web sign-in, Discord accounts on first `/download` — so
+  the link keys on the immutable snowflake and a rename is a non-event.
+  [Why](#both-sides-of-the-link-are-observed-never-typed)
 - **The internal endpoint mirrors `/admin/check`** — query-param lookup, no guard,
   Docker-network topology as the trust boundary; the caller caches with the
   `AdminCheckService` pattern, failing open to "unlinked".
@@ -70,6 +78,14 @@ rollout section (see [How to work this plan](#how-to-work-this-plan)).
 ⚠️ **Human checkpoint HC1 — confirm these before Wave 1 starts.** The plan proceeds on
 the recommendations below unless overridden; both were explicitly flagged as open by
 the feature request.
+
+> **Already settled (2026-09-19), no longer open:** how an admin picks the pair. The
+> first draft of this plan had the admin **type** a snowflake and a username into the
+> Edit Access modal. That was rejected — a typed handle rots when someone renames
+> themselves, and a typo produces a link that matches nothing. Replaced with two
+> observed lists and a pick-one-from-each picker; the link row now stores no name at
+> all. See [Both sides of the link are observed, never typed](#both-sides-of-the-link-are-observed-never-typed),
+> which also records why the full Discord server roster was declined as the source.
 
 ### Q1 — Where does Discord→lilnas resolution happen?
 
@@ -210,7 +226,7 @@ satisfied at read time: a linked Discord job is _served_ with both `discordReque
 nothing writes both today (a request carrying both header sets is a caller bug; the
 forwarded pair wins, warn-logged), and a wider CHECK would let the pairs drift.
 
-### The link is admin-entered, not OAuth
+### The link is admin-made, not OAuth
 
 `apps/auth`'s Better Auth config is Google-only and its own comments call out "no
 second linkable provider" (`apps/auth/src/auth/auth.ts:36-41`). The feature explicitly
@@ -218,6 +234,46 @@ asks for admin-managed linking. So `discord_link` is a plain table written throu
 admin API — no Better Auth `account` rows, no Discord OAuth app, no self-serve flow.
 `apps/tdr-code`'s `git_identity` table is the borrowed shape precedent (snowflake as
 `text`), but nothing is shared with it.
+
+### Both sides of the link are observed, never typed
+
+**Chosen:** an admin links by **picking one row from each of two lists**, and the link
+row stores nothing but the pairing — `user.id` ↔ snowflake. Each side of the roster
+fills itself in:
+
+| Side            | Becomes linkable when                                                                              | Already exists?     |
+| --------------- | -------------------------------------------------------------------------------------------------- | ------------------- |
+| lilnas person   | they sign into the web app for the first time (Better Auth writes the `user` row)                  | ✅ yes, free        |
+| Discord account | they run `/download` for the first time, which observes the snowflake into `discord_identity` (D4) | ➕ new in this plan |
+
+**Ruled out: a text input for the snowflake or the handle.** A typed handle is a
+snapshot that silently rots — Discord usernames are changeable, so a name captured at
+link time stops matching the person it names, and a typo produces a link that silently
+matches nothing. Keying purely on the immutable snowflake means a rename is a
+non-event: the same `discord_identity` row updates its `username` the next time that
+person runs a command (A2's `upsertIdentity`), and every existing link keeps working
+untouched. It also removes the "which snowflake is this?" copy-paste chore entirely.
+
+**Consequences, accepted:** a Discord account cannot be linked before its owner's
+first `/download`, and the accounts list is empty on day one. That is survivable
+precisely because [resolution is retroactive](#resolution-happens-in-download-at-read-time)
+— the person downloads, appears in the list, gets linked, and the job they _already_
+made displays as them. The list therefore reads as a work queue of exactly the people
+who need attention, rather than a directory to search.
+
+**Ruled out: syncing the full Discord server roster from tdr-bot.** It is genuinely
+cheap — tdr-bot already runs an internal-only NestJS server on `8081` with no Traefik
+router (`apps/tdr-bot/deploy.yml:40-46`), already enables the privileged `GuildMembers`
+intent (`apps/tdr-bot/src/app.module.ts:92`), and `ApiController`'s existing
+`@Get('channels')` (`apps/tdr-bot/src/api/api.controller.ts:125-145`) is the exact
+shape a `@Get('members')` would copy. It was still declined for v1: it fills the
+picker with every server member who will never use the service, turning a short work
+queue into a directory, and tdr-bot's port 8081 has **no** authentication of any kind
+today (no guard anywhere in `apps/tdr-bot/src`; the declared `API_TOKEN` env key at
+`apps/tdr-bot/src/env.ts:2` is never read) while its Next.js config blanket-rewrites
+`/api/*` to 8081, so a member-roster route would also be reachable through
+`tdr.lilnas.io`. If pre-linking is wanted later, this is the insertion point and the
+two caveats to settle first.
 
 ### Internal lookup mirrors /admin/check
 
@@ -228,11 +284,25 @@ same reachability model as `AdminCheckController`
 (`apps/auth/src/admin/admin-check.controller.ts:18-32`): no Traefik router points at
 8081, no host port is published, the Docker network is the trust boundary. Query
 params rather than the sketched path param because the endpoint needs three lookup
-directions and `/admin/check?email=` is the house style; a `{ link: … | null }`
-envelope keeps "unknown" a 200, so an old auth deploy (404) is distinguishable from
-"unlinked" and the caller can fail open. Consumer side: `AuthClient` gains one method,
-and download wraps it in a `DiscordLinkService` cloning `AdminCheckService`'s cache
-(60s TTL, 10s failure TTL, 500-entry cap, fail-open to `null` = unlinked).
+directions and `/admin/check?email=` is the house style.
+
+The response is a **two-part envelope** — `{ identity, user }`, each independently
+nullable — rather than a single `link` field, because download needs both halves and
+should not pay for two round trips: `user` carries the resolved lilnas identity when
+linked, while `identity` carries the current Discord handle, which is what an
+_unlinked_ Discord job renders. Keeping "unknown" a 200 also means an old auth deploy
+(a 404) stays distinguishable from a genuine "not linked", so the caller can fail
+open.
+
+The same controller carries one **write** route, `POST /internal/discord-identity`,
+which is how the roster fills ([above](#both-sides-of-the-link-are-observed-never-typed)).
+It sits on the same trust boundary; its blast radius is a wrong display name on an
+unlinked account, since it cannot create, move, or delete a link.
+
+Consumer side: `AuthClient` gains the two methods, and download wraps them in a
+`DiscordLinkService` cloning `AdminCheckService`'s cache (60s TTL, 10s failure TTL,
+500-entry cap, fail-open — a lookup failure degrades to "unlinked", a registration
+failure is swallowed entirely).
 
 ### Precedence and the dev fallback
 
@@ -259,6 +329,12 @@ same `showTrueAttribution` rule. No new rule, one more field through the same ga
   unlinked Discord requesters as today's null treatment — and the whole task is
   droppable without breaking anything else.
 - **Reverse display** — see [Q2](#q2--is-reverse-display-discord-handle-on-web-attributed-jobs-in-scope).
+- **Pre-linking someone who has never run `/download`** is not possible in v1, because
+  the accounts list is built purely by observation. The tdr-bot roster sync that would
+  enable it is specced-but-declined in
+  [the observation decision](#both-sides-of-the-link-are-observed-never-typed) —
+  including the two caveats (no auth on tdr-bot's `8081`, and its blanket `/api/*`
+  rewrite) that must be settled before adding it.
 
 ---
 
@@ -306,6 +382,9 @@ same `showTrueAttribution` rule. No new rule, one more field through the same ga
 | `apps/auth/src/app/admin/actions.ts:29-53`                                                                          | **Server Actions are public endpoints** — every path-interpolated value must be narrowed (`requireUserId` rejects non-string / empty / `/`)                                                                                                                                                                                                                                                                      |
 | `apps/auth/src/app/admin/{add-person,edit-access}-modal.tsx`                                                        | modal template: `modal-overlay is-open` pattern, `key`-based remount reset (load-bearing, documented at `add-person-modal.tsx:24-35`), `startTransition`/`isPending`/`showToast` passed down from the dashboard                                                                                                                                                                                                  |
 | `apps/auth/src/app/styles/design-tokens.css`                                                                        | semantic classes: `.modal`, `.field`, `.field-error`, `.btn btn-primary/outline/ghost`, `.chip chip-neutral`, `.row`, `.stack`                                                                                                                                                                                                                                                                                   |
+| `apps/auth/src/app/components/service-check-grid.tsx`                                                               | the existing selectable-list component (`.service-check-grid` of `.checkbox-row` labels) — closest precedent for B3 two pick-one lists, which differ only in being single-select                                                                                                                                                                                                                                 |
+| `apps/auth/src/app/lib/time-ago.ts`                                                                                 | `timeAgo()` for B3 last-seen line. ⚠️ render it with `suppressHydrationWarning`, as the dashboard already does                                                                                                                                                                                                                                                                                                   |
+| `apps/tdr-bot/src/api/api.controller.ts`                                                                            | tdr-bot internal API on 8081 (no guards anywhere in the app). `@Get('channels')` `:125-145` is the roster-endpoint precedent referenced by the declined roster-sync option — reference only, this plan adds nothing here                                                                                                                                                                                         |
 | `packages/utils/src/auth/client.ts`                                                                                 | `AuthClient`, `dockerInstance` → `http://auth:8081`, 2s `AbortSignal.timeout`, runtime-validates response bodies; `checkIsAdmin` is the method pattern                                                                                                                                                                                                                                                           |
 | `packages/utils/src/auth/types.ts`                                                                                  | `ForwardedUser`, `AdminCheckResponse`, `WhoamiResponse` — new shared auth types go here                                                                                                                                                                                                                                                                                                                          |
 | `packages/utils/src/download/client.ts`                                                                             | `DownloadClient`; `dockerInstance` getter `:114-116`; `withForwardedIdentity` `:146-151` (returns a **new** client, merges headers in `request()` `:162-185`); `createJob` → `POST /download/videos`                                                                                                                                                                                                             |
@@ -375,117 +454,227 @@ SELECT`, drop, rename). Inspect the generated SQL: every existing column must be
 
 ## Task List
 
-### Group A — apps/auth: link storage + internal lookup
+### Group A — apps/auth: identity roster, link storage, internal endpoints
 
-- [ ] **A1. `discord_link` table + migration.** Edit `apps/auth/src/db/schema.ts`: new
-      table `discordLink` (`'discord_link'`) — `id: integer().primaryKey()` (surrogate,
-      house style for self-minted rows), `userId: text('user_id').notNull().references(()
-=> user.id, { onDelete: 'cascade' })`, `discordUserId:
-text('discord_user_id').notNull()`, `discordUsername: text('discord_username')`
-      (nullable, admin-entered label), `createdAt`/`updatedAt`
-      timestamp*ms not-null. Unique indexes on `userId` and on `discordUserId`
-      (one-to-one both ways), named per convention. Export `DiscordLinkRow`. Write the
-      rationale comment block (why admin-entered not OAuth, why one-to-one, why snowflake
-      is `text`). Run `pnpm db:generate` → `0002*\*.sql`. Update
-`apps/auth/src/db/**tests**/schema.spec.ts`'s table list. Tests: schema.spec passes
-against real migrations; unique constraints enforced (duplicate `discordUserId`
-      insert throws).
+- [ ] **A1. `discord_identity` + `discord_link` tables + migration.** Edit
+      `apps/auth/src/db/schema.ts`, adding **two** tables.
 
-- [ ] **A2. Link repo functions.** Create `apps/auth/src/db/discord-link.repo.ts`
-      (plain exported functions taking `Executor`, style of `grants.repo.ts`):
+  `discordIdentity` (`'discord_identity'`) — the roster of Discord accounts auth has
+  ever seen, populated by observation (D4) and never typed by hand:
 
   ```ts
-  findLinkByDiscordUserId(ex, discordUserId): (DiscordLinkRow & { email; name }) | undefined  // joins user
-  findLinkByUserId(ex, userId): DiscordLinkRow | undefined
-  findLinkByEmail(ex, email): (DiscordLinkRow & { email; name }) | undefined  // normalizeEmail'd
-  upsertLink(ex, { userId, discordUserId, discordUsername }): void   // replaces the user's existing link
-  deleteLinkForUser(ex, userId): number                              // returns changes
+  discordUserId: text('discord_user_id').primaryKey() // snowflake; TEXT, exceeds MAX_SAFE_INTEGER
+  username: text('username').notNull() // current handle, refreshed on every observation
+  displayName: text('display_name') // nullable; global/server display name
+  firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull()
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull()
   ```
 
-  Email matching uses `normalizeEmail` (`apps/auth/src/admin/normalize-email.ts`).
-  Tests in `apps/auth/src/db/__tests__/discord-link.repo.spec.ts` against `:memory:` +
-  real migrations: upsert replaces, delete returns 0/1, joins return `email`/`name`,
-  cascade on user delete.
-
-- [ ] **A3. Shared contract: types + `AuthClient` method.** Edit
-      `packages/utils/src/auth/types.ts`: add
+  `discordLink` (`'discord_link'`) — a **pure join**, carrying no name of any kind:
 
   ```ts
-  export interface DiscordLinkResolution {
+  id: integer().primaryKey()
+  userId: text('user_id')
+    .notNull()
+    .references(() => user.id, { onDelete: 'cascade' })
+  discordUserId: text('discord_user_id')
+    .notNull()
+    .references(() => discordIdentity.discordUserId, { onDelete: 'cascade' })
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()
+  ```
+
+  Unique indexes on `discordLink.userId` and on `discordLink.discordUserId`
+  (one-to-one in both directions), named per convention. Export `DiscordIdentityRow`
+  and `DiscordLinkRow`. Write the rationale comments: why the link stores **no
+  username** (handles change; the snowflake is the only stable identity), why the FK
+  to `discord_identity` exists (you may only link an account that has actually been
+  seen — the DB-level expression of the pick-from-a-list UI), why the snowflake is
+  `text`. Run `pnpm db:generate` → `0002_*.sql`. Update the hardcoded table list in
+  `apps/auth/src/db/__tests__/schema.spec.ts`. Tests: migrations apply; both unique
+  indexes reject duplicates; the link FK rejects an unseen snowflake; cascade fires
+  from both sides.
+
+  ⚠️ **No table is needed for the lilnas half.** Better Auth already creates a `user`
+  row on first Google sign-in, so "people without a Discord link" is a `LEFT JOIN`
+  over the existing `user` table — that side of the roster is already observed today.
+
+- [ ] **A2. Repo functions.** Create `apps/auth/src/db/discord-link.repo.ts` — plain
+      exported functions taking `Executor`, in the style of `grants.repo.ts`:
+
+  ```ts
+  upsertIdentity(ex, { discordUserId, username, displayName }, now): 'inserted' | 'updated' | 'unchanged'
+  findIdentity(ex, discordUserId): DiscordIdentityRow | undefined
+  findLinkByDiscordUserId(ex, discordUserId): { userId; email; name } | undefined  // joins user
+  findLinkByUserId(ex, userId): DiscordLinkRow | undefined
+  findLinkByEmail(ex, email): { userId; discordUserId } | undefined                // normalizeEmail'd
+  listUnlinkedUsers(ex): Array<{ userId; email; name }>                            // user LEFT JOIN link
+  listUnlinkedIdentities(ex): DiscordIdentityRow[]                                 // identity LEFT JOIN link
+  listLinks(ex): Array<{ userId; email; name; discordUserId; username; displayName; createdAt }>
+  insertLink(ex, { userId, discordUserId }, now): void
+  deleteLinkForUser(ex, userId): number   // rows changed
+  ```
+
+  `upsertIdentity` reports which of the three outcomes happened so the caller can skip
+  a needless notify; it rewrites `username`/`displayName` whenever they differ (this
+  is the rename-detection mechanism) and always bumps `lastSeenAt`. Email matching
+  uses `normalizeEmail` (`apps/auth/src/admin/normalize-email.ts`).
+  `listUnlinkedUsers` excludes blocked users (`blockedAt IS NULL`). Tests in
+  `apps/auth/src/db/__tests__/discord-link.repo.spec.ts` against `:memory:` + real
+  migrations: all three upsert outcomes including the rename case, both unlinked lists
+  shrinking when a link lands, cascade behavior, case-insensitive email lookup.
+
+- [ ] **A3. Shared contract: types + `AuthClient` methods.** Edit
+      `packages/utils/src/auth/types.ts`:
+
+  ```ts
+  export interface DiscordIdentity {
+    discordUserId: string
+    username: string
+    displayName: string | null
+  }
+  export interface DiscordLinkedUser {
     userId: string
     email: string
     name: string
-    discordUserId: string
-    discordUsername: string | null
   }
+  /**
+   * Both halves are independently nullable: an observed-but-unlinked account has an
+   * `identity` and no `user`; a snowflake auth has never seen has neither.
+   */
   export interface DiscordLinkLookupResponse {
-    link: DiscordLinkResolution | null
+    identity: DiscordIdentity | null
+    user: DiscordLinkedUser | null
   }
   ```
 
-  Edit `packages/utils/src/auth/client.ts`: add
-  `getDiscordLink(params: { discordUserId: string } | { userId: string } | { email: string }): Promise<DiscordLinkResolution | null>`
-  → `GET /internal/discord-link?<key>=<encoded>`; runtime-validate the body has a
-  `link` property (object-or-null) like `checkIsAdmin` validates `isAdmin`; throw on
-  non-ok. Tests mirror the existing `AuthClient` test style (URL + query encoding,
-  non-ok throws, malformed body throws, null link passes through).
+  Edit `packages/utils/src/auth/client.ts`, adding two methods:
 
-- [ ] **A4. Internal lookup endpoint.** Create
-      `apps/auth/src/internal/discord-link-lookup.controller.ts`: `@Controller('internal')`,
-      `@Get('discord-link')`, **no guards, no throttler** — clone
-      `AdminCheckController`'s class comment explaining the topology trust boundary.
-      Accepts exactly one of `discordUserId` | `userId` | `email` query params (zero or
-      more than one → `BadRequestException`); returns `DiscordLinkLookupResponse`
-      (unknown key → `{ link: null }`, HTTP 200). Uses A2's repo functions via
-      `@Inject(DB)`. Register flat in `apps/auth/src/app.module.ts`'s `controllers` array.
-      Tests (`apps/auth/src/internal/__tests__/…spec.ts`, direct instantiation +
-      `:memory:` DB): each lookup direction, null for unknown, 400 on zero/two params,
-      email lookup is case-insensitive.
+  ```ts
+  getDiscordLink(params: { discordUserId } | { userId } | { email }): Promise<DiscordLinkLookupResponse>
+  registerDiscordIdentity(identity: { discordUserId; username; displayName?: string | null }): Promise<void>
+  ```
 
-### Group B — apps/auth: admin manage surface
+  `getDiscordLink` → `GET /internal/discord-link?<key>=<encoded>`, runtime-validating
+  that the body carries both keys (object-or-null) the way `checkIsAdmin` validates
+  `isAdmin`. `registerDiscordIdentity` → `POST /internal/discord-identity`. Both throw
+  on non-ok and keep the existing 2s `AbortSignal.timeout`. Tests mirror the existing
+  `AuthClient` suite: query encoding per lookup key, the both-null body passing
+  through, a malformed body throwing, and the POST sending the right JSON.
 
-- [ ] **B1. Admin API: link/unlink.** Edit `apps/auth/src/admin/admin.dto.ts`: add
-      `LinkDiscordBodySchema = z.object({ discordUserId: z.string().regex(/^\d{17,20}$/),
-discordUsername: z.string().min(2).max(32).optional() })` + inferred type. Edit
-      `apps/auth/src/admin/users.service.ts`: `linkDiscord(userId, discordUserId,
-discordUsername?)` and `unlinkDiscord(userId)` following every house rule (BEGIN
-      IMMEDIATE, reads inside tx, repo functions only, `NotFoundException` on missing
-      user, `notifyBus.publishAdminChange()` after commit only on genuine change). Edge
-      cases: snowflake already linked to a **different** user →
-      `BadRequestException('Discord account already linked to <that email>')`; re-linking
-      the same pair is a no-op success (no notify); linking a user who already has a
-      different link replaces it. Edit `apps/auth/src/admin/admin.controller.ts`: `POST
-/admin/users/:userId/discord-link` and `POST /admin/users/:userId/discord-link/remove`
-      (POST-verb house style), `parseBody` validation; extend `AdminUserEntry` with
-      `discordUserId: string | null` and `discordUsername: string | null` and make
-      `GET /admin/users` populate them (join via A2's repo). Tests: controller spec
-      (`:memory:` DB) covering link, replace, conflict, unlink, no-op, users-list
-      exposure; dto spec for the snowflake regex.
+- [ ] **A4. Internal endpoints.** Create
+      `apps/auth/src/internal/discord-internal.controller.ts`: `@Controller('internal')`,
+      **no guards, no throttler** — clone `AdminCheckController`'s class comment
+      explaining the topology trust boundary (8081 has no Traefik router and publishes
+      no host port; the Docker network is the boundary).
+  - `@Get('discord-link')` — accepts exactly one of `discordUserId` | `userId` |
+    `email` (zero or two+ → `BadRequestException`); returns
+    `DiscordLinkLookupResponse`. An unseen snowflake is
+    `{ identity: null, user: null }` at HTTP 200; an observed-but-unlinked one is
+    `{ identity: {...}, user: null }`.
+  - `@Post('discord-identity')` — body `{ discordUserId, username, displayName? }`
+    validated by a zod schema (snowflake `/^\d{17,20}$/`, username 2–32 chars);
+    upserts via A2, returns `{ ok: true }`. Idempotent — re-posting an unchanged
+    identity is a cheap no-op. Because this is the one **write** endpoint on the
+    internal surface, its comment must state plainly that any container on the network
+    can call it and that the blast radius is a wrong display name on an unlinked
+    account (it cannot create, delete, or move a link).
 
-- [ ] **B2. Server actions.** Edit `apps/auth/src/app/admin/actions.ts`: add
-      `linkDiscordAccount(userId, discordUserId, discordUsername?)` and
-      `unlinkDiscordAccount(userId)` via `callBackend`. **Narrow every argument** —
-      `requireUserId(userId)`, plus a new `requireDiscordUserId` (string, `/^\d{17,20}$/`)
-      and optional-username narrowing, per the `actions.ts:29-53` rationale (server
-      actions are public POST endpoints). Update `apps/auth/src/app/admin/require-admin.ts`
-      only if the `AdminUserEntry` re-export needs nothing (it re-exports the Nest type,
-      so B1's change flows through — verify). Tests: extend the existing pattern for
-      action-input narrowing if one exists; otherwise a small spec for the new narrowing
-      helpers.
+  Register both flat in `apps/auth/src/app.module.ts`'s `controllers` array. Tests
+  (`apps/auth/src/internal/__tests__/`, direct instantiation + `:memory:` DB): each
+  lookup direction, all three null-shapes, 400 on zero/two params, case-insensitive
+  email, insert-then-rename through the POST, body validation rejecting a bad
+  snowflake.
 
-- [ ] **B3. Admin UI: Discord link management.** Edit
-      `apps/auth/src/app/admin/edit-access-modal.tsx`: add a "Discord account" `.field` —
-      text input for the snowflake (inline `.field-error` on regex failure), optional
-      username input, and Save wiring: on confirm, diff against the opening snapshot
-      (`accessSnapshotRef` style) — changed value → `linkDiscordAccount`, cleared →
-      `unlinkDiscordAccount`, untouched → no call. Backend errors surface via the modal
-      error line; success via `showToast`. Edit
-      `apps/auth/src/app/admin/admin-dashboard-client.tsx`: show a `chip chip-neutral`
-      with the linked username (fallback: snowflake) on people rows — **both** the desktop
-      table and the mobile `person-card` variant. Use `cns()` only for conditional
-      classes. Keep the `key`-remount reset (already keyed on `user.id`). jsdom tests
-      (`apps/auth/src/app/admin/__tests__/`): renders existing link, validates snowflake,
-      calls link action on change, calls unlink on clear, no call when untouched.
+### Group B — apps/auth: admin linking surface
+
+- [ ] **B1. Admin API: unlinked lists + link/unlink.** Edit
+      `apps/auth/src/admin/admin.dto.ts`: add
+
+  ```ts
+  LinkDiscordBodySchema = z.object({
+    userId: z.string().min(1),
+    discordUserId: z.string().regex(/^\d{17,20}$/),
+  })
+  UnlinkDiscordBodySchema = z.object({ userId: z.string().min(1) })
+  ```
+
+  each with its inferred type. **No username field anywhere** — a handle is never
+  admin-entered.
+
+  Edit `apps/auth/src/admin/users.service.ts`: `linkDiscord(userId, discordUserId)`
+  and `unlinkDiscord(userId)`, following every house rule (BEGIN IMMEDIATE, reads
+  inside the `tx`, repo functions only, cache invalidation after commit,
+  `notifyBus.publishAdminChange()` last and only on a genuine change). Edge cases:
+  unknown `userId` or unseen `discordUserId` → `NotFoundException`; the snowflake
+  already linked to a **different** person → `BadRequestException('Discord account
+  already linked to <that email>')`; the person already linked to a **different**
+  snowflake → `BadRequestException` telling the admin to unlink first (a silent
+  replace is worse than an error when both sides came from a picker); re-linking the
+  identical pair is a no-op success with no notify.
+
+  Edit `apps/auth/src/admin/admin.controller.ts`:
+
+  ```
+  GET  /admin/discord/unlinked -> { people: DiscordUnlinkedPerson[]; accounts: DiscordUnlinkedAccount[] }
+  GET  /admin/discord/links    -> DiscordLinkEntry[]
+  POST /admin/discord/link     body { userId, discordUserId } -> { ok: true }
+  POST /admin/discord/unlink   body { userId }                -> { ok: true }
+  ```
+
+  Export those three entry types next to `AdminUserEntry`, serializing dates with
+  `.toISOString()` at the boundary as the rest of the controller does. Also extend
+  `AdminUserEntry` with `discordUserId: string | null` and `discordUsername: string |
+null`, populated by `GET /admin/users`, so the People table can render a chip. Tests
+  (`:memory:` DB): both lists, link, unlink, each conflict branch, the no-op, and that
+  a freshly linked pair disappears from both unlinked lists.
+
+- [ ] **B2. Server actions + RSC fetches.** Edit
+      `apps/auth/src/app/admin/require-admin.ts`: add `fetchDiscordUnlinked()` and
+      `fetchDiscordLinks()` beside `fetchAdminUsers()`, re-exporting B1's entry types
+      through the same `import type` aliasing the file already uses. Edit
+      `apps/auth/src/app/admin/actions.ts`: add `linkDiscordAccount(userId,
+discordUserId)` and `unlinkDiscordAccount(userId)` via `callBackend`. **Narrow every
+      argument** per the `actions.ts:29-53` rationale (server actions compile to public
+      POST endpoints and TS types are erased at runtime): reuse `requireUserId`, add
+      `requireDiscordUserId` rejecting anything that is not a 17–20 digit string. Edit
+      `apps/auth/src/app/admin/page.tsx` to fetch the two new payloads inside its
+      existing `Promise.all` and pass them down. Tests: a spec for the new narrowing
+      helper; extend `require-admin.spec.ts` for the new fetches.
+
+- [ ] **B3. Admin UI: the Discord links panel.** Create
+      `apps/auth/src/app/admin/discord-links-panel.tsx` and mount it in
+      `apps/auth/src/app/admin/admin-dashboard-client.tsx` as a new `card` panel with a
+      `panel-head`, styled with the semantic classes already in
+      `apps/auth/src/app/styles/design-tokens.css`. **No text input for a snowflake or
+      a username appears anywhere in this UI.** The panel holds:
+  - **Two single-select lists, side by side** (stacking vertically on narrow screens):
+    _People without a Discord link_ (name + email) and _Discord accounts without a
+    lilnas link_ (`@username`, the display name when present, and a
+    `timeAgo(lastSeenAt)` "last seen" line). Selecting a row highlights it; selecting
+    another row in the same list replaces the selection.
+  - A filter `input` above each list, rendered only when that list is long enough to
+    warrant one.
+  - A **Link** primary button, disabled until exactly one row on each side is
+    selected, labelled with the pairing it will create — e.g.
+    `Link alice@example.com ↔ @alice_h`. On success: `showToast` and clear both
+    selections. On failure: the backend's message in a `role="alert"` line.
+  - Empty states: for accounts, _"Discord accounts show up here the first time
+    someone runs /download"_ — this is the expected day-one state, not an error; for
+    people, _"Everyone who has signed in is already linked."_
+  - An **existing links** table below: person (name + email), `@handle`, linked date,
+    and an `Unlink` action (`btn btn-ghost` with the red hover treatment, behind a
+    `window.confirm` like the dashboard's other destructive actions).
+
+  Every mutation goes through `runAction`/`startTransition`, and the lists refresh via
+  the existing SSE `admin-changed` → `router.refresh()` loop. Also edit
+  `admin-dashboard-client.tsx` to show a `chip chip-neutral` carrying the linked
+  `@username` on People rows — **both** the desktop table and the mobile
+  `person-card`. Edit `apps/auth/src/app/admin/edit-access-modal.tsx` to show the
+  current link **read-only** with an `Unlink` action; linking itself happens only in
+  the panel. `cns()` for conditional classes only. jsdom tests
+  (`apps/auth/src/app/admin/__tests__/discord-links-panel.spec.tsx`): Link stays
+  disabled until both sides are chosen, fires the action with the selected pair,
+  renders both empty states, unlink confirms then calls, the filter narrows a list.
 
 ### Group C — shared download wire contract + client
 
@@ -509,11 +698,19 @@ discordUsername?)` and `unlinkDiscord(userId)` following every house rule (BEGIN
   `packages/utils/src/download/client.ts`: add
 
   ```ts
-  withDiscordIdentity(identity: { discordUserId: string; discordUsername: string }): DownloadClient
+  withDiscordIdentity(identity: {
+    discordUserId: string
+    discordUsername: string
+    displayName?: string | null
+  }): DownloadClient
   ```
 
-  — new client, same `baseUrl`, headers `x-discord-user-id` / `x-discord-username`
-  (composable with `withForwardedIdentity`'s spread pattern). Tests: extend
+  — new client, same `baseUrl`, headers `x-discord-user-id` / `x-discord-username`,
+  plus `x-discord-display-name` **only when one was supplied** (composable with
+  `withForwardedIdentity`'s spread pattern). The display name is deliberately **not**
+  part of `DiscordRequesterSchema` and never reaches a job row: it exists solely to
+  make auth's roster legible to the admin doing the linking (B3), so it rides the
+  header and stops at D4's registration call. Tests: extend
   `client.spec.ts`'s `withForwardedIdentity` describe block (headers merge into every
   request, base URL preserved); schema specs for the new fields' nullability.
   ⚠️ Every added `DownloadJobSchema`/`GalleryItemSchema` field is nullable, so
@@ -556,7 +753,10 @@ text('discord_username')`; rewrite CHECK `jobs_origin_matches_requester`:
       `apps/download/src/auth/discord-user.ts`: `getDiscordRequester(req: { headers:
 IncomingHttpHeaders }): DiscordRequester | undefined` — reads `x-discord-user-id` /
       `x-discord-username`, both required, `firstHeaderValue` handling, trust-model
-      comment mirroring `forwarded-user.ts:8-19`. Create
+      comment mirroring `forwarded-user.ts:8-19`. Export a separate
+      `getDiscordDisplayName(req): string | undefined` for the optional
+      `x-discord-display-name` header — kept out of `DiscordRequester` because it is
+      roster enrichment for auth (D4), never part of the job row. Create
       `apps/download/src/auth/optional-discord-user.decorator.ts`:
       `@OptionalDiscordUser()` cloning `optional-current-user.decorator.ts`. Edit
       `apps/download/src/auth/forwarded-user.ts`: `resolveForwardedUser` must **not**
@@ -572,14 +772,25 @@ IncomingHttpHeaders }): DiscordRequester | undefined` — reads `x-discord-user-
       "unlinked", warn-logged):
 
   ```ts
-  resolveDiscordUser(discordUserId): Promise<DiscordLinkResolution | null>
+  resolveDiscordUser(discordUserId): Promise<DiscordLinkLookupResponse>  // { identity, user }
   getLinkedDiscordUserId(lilnasUserId): Promise<string | null>
+  registerObservedIdentity(identity): void   // fire-and-forget; see below
   ```
 
-  Two cache keyspaces (prefix keys, e.g. `d:<snowflake>` / `u:<userId>`). Register in
+  `registerObservedIdentity` **returns synchronously and never throws**: it kicks off
+  `AuthClient.registerDiscordIdentity` and swallows any rejection with a debug log,
+  because a roster write must never slow down or fail a download. It also keeps a
+  short "already reported this snowflake at this handle" memo (a third keyspace in the
+  same map) so a burst of commands from one person doesn't produce one POST per job —
+  and because a **changed handle produces a different memo key**, a rename is reported
+  immediately. That is the entire rename-detection path.
+
+  Three cache keyspaces (prefix keys, e.g. `d:<snowflake>` / `u:<userId>` /
+  `seen:<snowflake>:<handle>`). Register in
   `apps/download/src/auth/auth.module.ts` providers + exports. Tests clone
   `admin-check.service.spec.ts` (mock `@lilnas/utils/auth/client`, fake timers for
-  TTL, failure caching, eviction).
+  TTL, failure caching, eviction), plus: a registration rejection is swallowed, a
+  repeat identity inside the memo window sends nothing, a changed handle sends again.
 
 - [ ] **D4. Thread Discord identity through the write path.** Edit
       `apps/download/src/download/download.controller.ts`: the three create routes
@@ -593,9 +804,21 @@ IncomingHttpHeaders }): DiscordRequester | undefined` — reads `x-discord-user-
       `AuditLogService.record`'s `AuditEvent` with `discordActor?: DiscordRequester` and
       pass it at the three create-route `record()` calls (other mutating routes may
       follow the same pattern where trivially identical — but do not expand scope beyond
-      routes tdr-bot actually calls: create + cancel + delete videos). Tests: controller
-      specs (nanoid mock first!) for each create route × (web headers / discord headers /
-      both / neither), asserting persisted origin + identity columns and audit rows.
+      routes tdr-bot actually calls: create + cancel + delete videos).
+
+  **Also register the observation.** On any request that carried a Discord identity,
+  call `DiscordLinkService.registerObservedIdentity({ discordUserId, username,
+displayName })` — the username from the Discord requester pair, the display name from
+  `getDiscordDisplayName(req)` (D2). This is the call that puts the account into
+  auth's picker list and keeps its handle current; it is fire-and-forget, so it must
+  sit **outside** anything the response awaits and must never affect the job's
+  outcome. Fire it even when a forwarded user took precedence — the account is still
+  worth knowing about.
+
+  Tests: controller specs (nanoid mock first!) for each create route × (web headers /
+  discord headers / both / neither), asserting persisted origin + identity columns and
+  audit rows, that `registerObservedIdentity` is called with the right payload, and
+  that a **throwing** registration still returns a successful job response.
 
 ### Group E — apps/download: read path + display
 
@@ -605,21 +828,31 @@ IncomingHttpHeaders }): DiscordRequester | undefined` — reads `x-discord-user-
       Add resolution: give `DiscordLinkService` (or a thin
       `AttributionResolutionService` in `src/download/` if module cycles bite — executor's
       call, report it) a batch helper `resolveJobs<T>(jobs: T[]): Promise<T[]>` that, for
-      each job with a `discordRequester` and no `requester`, resolves the link (distinct
-      snowflakes deduped per batch, cache does the rest) and sets `requester = { email,
-userId }` from the resolution — **the job on the wire then carries both**
-      identities; unlinked jobs pass through unchanged. Wire it in at every
-      job-serving boundary **before** `projectJobForViewer`: the list/page endpoints
-      (activity, history, gallery items' `lastDiscordRequester`, single-job GETs, the
-      create/mutate routes' returned jobs) and the WS broadcast
-      (`DownloadStateService.broadcastJobEvent` → resolve once before
-      `broadcastPerViewer`). Audit-log reads get the same resolution for `discordActor` →
-      `actor`. **Enumerate the actual call sites from the code** — the controller has
-      ~20 job-returning handlers; a shared private helper in the controller keeps this
-      one-line per route. Tests: attribution.spec (masking covers both fields),
-      resolution service spec (linked job gains requester, unlinked untouched, auth
-      failure → untouched), one controller-level spec proving a linked historical
-      `discord` job serializes with the resolved `requester`.
+      each job with a `discordRequester` and no `requester`, looks the snowflake up
+      (distinct snowflakes deduped per batch, the cache does the rest) and applies
+      **both halves** of the `{ identity, user }` envelope:
+  - `user` present → set `requester = { email, userId }`, so the job on the wire
+    carries **both** identities and every downstream surface renders it as that
+    person.
+  - `identity` present → overwrite `discordRequester.discordUsername` with the
+    roster's current handle, so a renamed-but-unlinked account displays under the name
+    it goes by now rather than the one frozen on the job row. The stored column stays
+    untouched — it remains the historical record of what they were called at the
+    time, and it is what renders when auth is unreachable.
+  - neither → pass through unchanged.
+
+  Wire it in at every
+  job-serving boundary **before** `projectJobForViewer`: the list/page endpoints
+  (activity, history, gallery items' `lastDiscordRequester`, single-job GETs, the
+  create/mutate routes' returned jobs) and the WS broadcast
+  (`DownloadStateService.broadcastJobEvent` → resolve once before
+  `broadcastPerViewer`). Audit-log reads get the same resolution for `discordActor` →
+  `actor`. **Enumerate the actual call sites from the code** — the controller has
+  ~20 job-returning handlers; a shared private helper in the controller keeps this
+  one-line per route. Tests: attribution.spec (masking covers both fields),
+  resolution service spec (linked job gains requester, unlinked untouched, auth
+  failure → untouched), one controller-level spec proving a linked historical
+  `discord` job serializes with the resolved `requester`.
 
 - [ ] **E2. Unified history + profile.** Edit `apps/download/src/db/jobs.repo.ts`:
       `JobListFilter` gains `requesterDiscordUserId?: string`; `buildJobWhere` combines it
@@ -645,8 +878,10 @@ userId }` from the resolution — **the job on the wire then carries both**
       masked → `hidden` (unchanged); `requester` present → today's email rendering
       (linked Discord jobs land here automatically via E1); else `discordRequester`
       present → render `discordUsername` with a "via Discord" affordance (muted suffix or
-      small chip — match the existing visual language; initials-avatar from the username);
-      else → today's null treatment. `canViewRequesterProfile`/`requesterProfileHref`
+      small chip — match the existing visual language; initials-avatar from the username).
+      Render that handle **as given** — E1 has already refreshed it to the roster's
+      current value, so this component never needs to know a rename happened. Else →
+      today's null treatment. `canViewRequesterProfile`/`requesterProfileHref`
       stay email-based — an unlinked Discord requester has no profile link. Update the
       callers that pass requester props where the new field must flow:
       `activity-table.tsx`, `activity-list.tsx`, `detail-header.tsx` (+
@@ -672,22 +907,39 @@ userId }` from the resolution — **the job on the wire then carries both**
 
 - [ ] **F1. tdr-bot sends Discord identity.** Edit
       `apps/tdr-bot/src/commands/download-command.service.ts`: in `download()`, build a
-      per-interaction client — `this.client.withDiscordIdentity({ discordUserId:
-interaction.user.id, discordUsername: interaction.user.username })` — and use it for
-      `createJob`; the poller's `getJob`/`cancelJob` can stay on the plain client
-      (reads/cancels don't attribute). Update
-      `apps/tdr-bot/src/commands/__tests__/download-command.service.test.ts`: the
-      `dockerInstance` mock is a static object — add `withDiscordIdentity:
-jest.fn().mockReturnThis()` (or return a nested mock) and assert it's called with
-      the interaction's id/username and that `createJob` goes through the derived client.
+      per-interaction client:
+
+  ```ts
+  this.client.withDiscordIdentity({
+    discordUserId: interaction.user.id,
+    discordUsername: interaction.user.username,
+    displayName: interaction.user.globalName ?? undefined,
+  })
+  ```
+
+  and use it for `createJob`; the poller's `getJob`/`cancelJob` can stay on the plain
+  client (reads and cancels don't attribute). `globalName` is the display name Discord
+  shows in most surfaces and is the field that makes an otherwise opaque handle
+  recognisable to the admin in B3's picker — it is nullable on the API, hence the
+  `?? undefined`. Update
+  `apps/tdr-bot/src/commands/__tests__/download-command.service.test.ts`: the
+  `dockerInstance` mock is a static object — add
+  `withDiscordIdentity: jest.fn().mockReturnThis()` (or return a nested mock) and
+  assert it is called with the interaction's id/username/globalName and that
+  `createJob` goes through the derived client. `createMockInteraction()` currently
+  builds `user: { id, username }` only, so add `globalName` there and cover the null
+  case.
 
 - [ ] **F2. Docs.** Update `docs/features/download/spec.md`'s attribution sections
       (dual attribution model, origin `discord`, read-time link resolution, masking rule
       unchanged in shape), `apps/download/README.md` if it documents headers/identity,
       and `docs/features/download/local-verification.md` with a curl recipe for creating
-      a discord-attributed job (`-H 'x-discord-user-id: …' -H 'x-discord-username: …'`
-      against `localhost:8081`) and verifying link resolution. Note in each doc that
-      `apps/auth` owns the link table and the admin UI. No code.
+      a discord-attributed job (`-H 'x-discord-user-id: …' -H 'x-discord-username: …'`,
+      optionally `-H 'x-discord-display-name: …'`, against `localhost:8081`) and
+      verifying both that the account lands in auth's roster and that linking resolves
+      it. Note in each doc that `apps/auth` owns the two tables and the admin UI, that
+      **a handle is never typed by an admin**, and that a rename is picked up on the
+      renamed user's next command. No code.
 
 - [ ] **F3. Integration checkpoint.** From the repo root: `pnpm run build`,
       `pnpm test`, `pnpm run lint`, `pnpm run type-check` — all green at the final
@@ -707,19 +959,21 @@ jest.fn().mockReturnThis()` (or return a nested mock) and assert it's called wit
 
 ```mermaid
 graph TD
-  A1[A1 discord_link table] --> A2[A2 link repo]
-  A2 --> A4[A4 internal endpoint]
+  A1[A1 identity + link tables] --> A2[A2 repo functions]
+  A2 --> A4[A4 internal endpoints]
   A3[A3 AuthClient + types] --> A4
   A2 --> B1[B1 admin API]
   B1 --> B2[B2 server actions]
-  B2 --> B3[B3 admin UI]
+  B2 --> B3[B3 admin links panel]
   C1[C1 wire schema + client] --> D1[D1 download migration]
   C1 --> F1[F1 tdr-bot identity]
   A3 --> D3[D3 DiscordLinkService]
-  D2[D2 header extraction] --> D4[D4 write path]
+  D2[D2 header extraction] --> D4[D4 write path + observe]
   D1 --> D4
+  D3 --> D4
   D1 --> E1[E1 read-time resolution]
   D3 --> E1
+  D4 --> E1
   D3 --> E2[E2 unified history]
   D1 --> E2
   C1 --> E3[E3 frontend display]
@@ -728,7 +982,6 @@ graph TD
   E2 --> E4
   E2 --> F2[F2 docs]
   E3 --> F2
-  D4 --> E1
   B3 --> F3[F3 integration]
   E4 --> F3
   F1 --> F3
@@ -737,37 +990,37 @@ graph TD
 
 ### Waves
 
-| Wave | Run               | Why it works                                                                                                                                                                                                                         |
-| ---- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1    | A1 ∥ C1 ∥ D2      | Three packages, zero shared files: auth schema, utils download dir, download `src/auth` extraction files                                                                                                                             |
-| 2    | A2 ∥ A3 ∥ D1 ∥ F1 | A2 needs A1's table; A3 touches only `packages/utils/src/auth`; D1 needs C1's wire type for row mapping; F1 needs C1's client method. No file overlap                                                                                |
-| 3    | A4 ∥ B1 ∥ D3 ∥ D4 | A4 (new controller + app.module line) and B1 (admin controller/service) touch different auth files except neither edits the other's; D3 (new service + auth.module) and D4 (controller/services write path) are disjoint in download |
-| 4    | B2 ∥ E1           | B2 is auth frontend actions; E1 owns the download read path alone this wave                                                                                                                                                          |
-| 5    | B3 ∥ E2 ∥ E3      | B3 is auth UI; E2 edits `jobs.repo`/profile/controller history, E3 edits only frontend components — disjoint                                                                                                                         |
-| 6    | E4 ∥ F2           | E4 re-enters `jobs.repo.ts` after E2 is done; F2 is docs only                                                                                                                                                                        |
-| 7    | F3                | Integration checkpoint — must see every prior commit                                                                                                                                                                                 |
+| Wave | Run               | Why it works                                                                                                                                                              |
+| ---- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | A1 ∥ A3 ∥ C1 ∥ D2 | Four independent contract/foundation tasks: auth schema, `packages/utils/src/auth`, `packages/utils/src/download`, download's `src/auth` extraction files. No shared file |
+| 2    | A2 ∥ D1 ∥ D3 ∥ F1 | A2 needs A1's tables; D1 needs C1's wire type for row mapping; D3 needs A3's client methods; F1 needs C1's `withDiscordIdentity`. Two apps plus utils, no overlap         |
+| 3    | A4 ∥ B1 ∥ D4      | In auth, A4 adds a new controller + one `app.module.ts` line while B1 edits the admin dto/service/controller — disjoint files. D4 is in download entirely                 |
+| 4    | B2 ∥ E1           | B2 is auth's server-action/RSC layer; E1 owns download's read path alone this wave                                                                                        |
+| 5    | B3 ∥ E2 ∥ E3      | B3 is auth UI; E2 edits `jobs.repo`/profile/history, E3 edits only download frontend components — all disjoint                                                            |
+| 6    | E4 ∥ F2           | E4 re-enters `jobs.repo.ts` only after E2 has left it; F2 is docs only                                                                                                    |
+| 7    | F3                | Integration checkpoint — must see every prior commit                                                                                                                      |
 
 ### Dependency table
 
 | Task | Depends on     | Parallel with |
 | ---- | -------------- | ------------- |
-| A1   | —              | C1, D2        |
-| A2   | A1             | A3, D1, F1    |
-| A3   | —              | A2, D1, F1    |
-| A4   | A2, A3         | B1, D3, D4    |
-| B1   | A1, A2         | A4, D3, D4    |
+| A1   | —              | A3, C1, D2    |
+| A2   | A1             | D1, D3, F1    |
+| A3   | —              | A1, C1, D2    |
+| A4   | A2, A3         | B1, D4        |
+| B1   | A1, A2         | A4, D4        |
 | B2   | B1             | E1            |
 | B3   | B2             | E2, E3        |
-| C1   | —              | A1, D2        |
-| D1   | C1             | A2, A3, F1    |
-| D2   | —              | A1, C1        |
-| D3   | A3             | A4, B1, D4    |
-| D4   | D1, D2         | A4, B1, D3    |
+| C1   | —              | A1, A3, D2    |
+| D1   | C1             | A2, D3, F1    |
+| D2   | —              | A1, A3, C1    |
+| D3   | A3             | A2, D1, F1    |
+| D4   | D1, D2, D3     | A4, B1        |
 | E1   | C1, D1, D3, D4 | B2            |
 | E2   | D1, D3, E1\*   | B3, E3        |
 | E3   | C1, E1         | B3, E2        |
 | E4   | E1, E2         | F2            |
-| F1   | C1             | A2, A3, D1    |
+| F1   | C1             | A2, D1, D3    |
 | F2   | E2, E3         | E4            |
 | F3   | everything     | —             |
 
@@ -776,9 +1029,13 @@ the wave split serializes them.
 
 ### Critical path
 
-**C1 → D1 → D4 → E1 → E2 → E4 → F3** (7 waves; A3 → D3 → E1 joins at wave 4). **C1
-leads** — it defines the wire contract every download-side and tdr-bot task compiles
-against; start it first in Wave 1.
+**A3 → D3 → D4 → E1 → E2 → E4 → F3** — seven tasks over seven waves, so nothing can
+compress it further. `C1 → D1 → D4` converges into the same chain at wave 3.
+
+**Start A3 and C1 first in Wave 1**: between them they define every contract the rest
+of the plan compiles against — A3 the auth lookup/registration shapes that D3 and D4
+consume, C1 the download wire shapes that D1, E3 and F1 consume. A1 and D2 are the
+slack in that wave.
 
 ### Human checkpoints
 
