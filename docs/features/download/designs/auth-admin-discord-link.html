@@ -712,6 +712,13 @@
         padding: 18px;
         background: var(--bg);
       }
+      /* The frame is narrow, but it's sitting inside a wide desktop
+         viewport, so `.link-lists`'s own max-width:720px media query never
+         fires here — force the single-column stack this frame exists to
+         preview. */
+      .mock-mobile-frame .link-lists {
+        grid-template-columns: 1fr;
+      }
       .mock-modal-stage {
         position: relative;
         min-height: 380px;
