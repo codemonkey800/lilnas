@@ -530,7 +530,7 @@ restart, stop or recreate any container. ❌ do not `git checkout`/`switch`/reba
   `src/` — so `pnpm build` in **`packages/utils`** (never in `apps/download`) must
   run before `apps/download`'s type-check can see the new subpath.
 
-- [ ] **A2. `DownloadClient.waitForJob`.** Edit `packages/utils/src/download/client.ts`.
+- [x] **A2. `DownloadClient.waitForJob`.** `376981a6` Edit `packages/utils/src/download/client.ts`.
 
   ```ts
   export interface WaitForJobOptions {
