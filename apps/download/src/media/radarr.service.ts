@@ -207,6 +207,34 @@ export class RadarrService {
   }
 
   /**
+   * The subset of the library that actually has a file on disk, each paired
+   * with the date Radarr added it - the source `syncDownloadedLibrary()`
+   * (`library-sync.ts`) backfills a `completed` job from at boot, for every
+   * title Radarr already holds that this app never requested itself.
+   *
+   * `hasFile` (not "is in the library") is the filter: an unfinished
+   * monitored request has no file yet and would otherwise show up as a
+   * gallery entry nobody actually downloaded.
+   */
+  async getDownloadedMovies(): Promise<Array<{ addedAt: Date; movie: Movie }>> {
+    const movies = unwrapSdkResult(
+      await getApiV3Movie({ client: this.client }),
+      'getMovies',
+    )
+
+    const downloaded = movies.filter(m => m.hasFile === true)
+
+    return mapCatalogueEntries(
+      downloaded,
+      m => ({
+        addedAt: m.added ? new Date(m.added) : new Date(),
+        movie: toMovie(m),
+      }),
+      { action: 'getDownloadedMovies', logger: this.logger },
+    )
+  }
+
+  /**
    * Per-id fallback for `MediaResolverService` when a tmdbId isn't in the
    * library cache - metadata-only, no `radarrId`/`filePath` (this is the
    * *discover* lookup, not a library query, so a title requested but since

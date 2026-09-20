@@ -305,6 +305,36 @@ export class SonarrService {
   }
 
   /**
+   * The subset of the library with at least one episode file on disk, each
+   * paired with the date Sonarr added the series - `syncDownloadedLibrary()`
+   * (`library-sync.ts`) backfills a `completed` job from this at boot, for
+   * every series Sonarr already holds that this app never requested itself.
+   *
+   * `episodeFileCount > 0` (not "is in the library") is the filter: a
+   * monitored series with nothing downloaded yet would otherwise show up as
+   * a gallery entry nobody actually has.
+   */
+  async getDownloadedSeries(): Promise<Array<{ addedAt: Date; show: Show }>> {
+    const series = unwrapSdkResult(
+      await getApiV3Series({ client: this.client }),
+      'getSeries',
+    )
+
+    const downloaded = series.filter(
+      s => (s.statistics?.episodeFileCount ?? 0) > 0,
+    )
+
+    return mapCatalogueEntries(
+      downloaded,
+      s => ({
+        addedAt: s.added ? new Date(s.added) : new Date(),
+        show: toShow(s),
+      }),
+      { action: 'getDownloadedSeries', logger: this.logger },
+    )
+  }
+
+  /**
    * Per-id fallback for `MediaResolverService` when a tvdbId isn't in the
    * library cache - metadata-only, no `sonarrId`/`filePath` (this is the
    * *discover* lookup, not a library query, so a title requested but since
