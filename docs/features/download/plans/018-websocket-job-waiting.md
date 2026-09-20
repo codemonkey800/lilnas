@@ -596,7 +596,7 @@ reconnectDelayMs(attempt++, DEFAULT_RECONNECT_DELAYS_MS, Math.random))`. Fake ti
   ladder; `AbortController` for aborts. Frames are `JSON.stringify({ type:
 'download-job', data: { type: 'updated', job: buildJob(VIDEO_MEDIA, { status }) } })`.
 
-- [ ] **A3. Real-server interop test.** ⚠️ Same package as A2 — runs after it. Add
+- [x] **A3. Real-server interop test.** `f948d4ea` ⚠️ Same package as A2 — runs after it. Add
       `ws` `8.21.2` and `@types/ws` `8.18.1` to `packages/utils/package.json`
       **devDependencies** (versions pinned to what `apps/download` already resolves, so
       the lockfile gains no new package). Create
