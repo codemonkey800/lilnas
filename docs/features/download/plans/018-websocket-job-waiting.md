@@ -628,7 +628,7 @@ reconnectDelayMs(attempt++, DEFAULT_RECONNECT_DELAYS_MS, Math.random))`. Fake ti
 
 ### Group B — `apps/tdr-bot`: consume it, and docs
 
-- [ ] **B1. Replace `checkJob()` with a `waitForJob` wait.** Edit
+- [x] **B1. Replace `checkJob()` with a `waitForJob` wait.** `6cc7cfe4` Edit
       `apps/tdr-bot/src/commands/download-command.service.ts`,
       `apps/tdr-bot/src/env.ts`, `apps/tdr-bot/.env.example`, and
       `apps/tdr-bot/src/commands/__tests__/download-command.service.test.ts`.
@@ -751,6 +751,13 @@ reject(signal.reason)))`; asserts `cancelJob('job-1')` was awaited, one follow-u
   - follow-up failure swallowed (existing)
   - `download()` passes `waitForJob` a signal and the created job's id — assert on
     `waitForJob.mock.calls[0]` (new; `createJob` mocked to return a video job)
+
+  **Findings:** `apps/download/src/env.ts` declares its own, unrelated
+  `DOWNLOAD_POLL_DURATION_MS`/`DOWNLOAD_POLL_RETRIES` keys with no usages found under
+  `apps/download/src`. Out of scope (never touch `apps/download` beyond A1's
+  re-export) — left alone. `docs/features/download/plans/002-live-functional-tests.md:797`
+  also matches `DOWNLOAD_POLL`; B2 confirmed it documents `apps/download`'s own
+  (vestigial) `EnvKeys`, not tdr-bot's, so no update was needed there.
 
 - [x] **B2. Docs.** `d034df9a` No code. Edit `docs/features/download/backend.md` next to its
       "Recovering the WebSocket hook" section (`:1794-1812`): a short paragraph that the
