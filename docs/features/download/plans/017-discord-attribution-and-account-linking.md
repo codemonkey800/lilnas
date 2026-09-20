@@ -494,6 +494,17 @@ SELECT`, drop, rename). Inspect the generated SQL: every existing column must be
 - New internal auth route needs **no compose/Traefik change** (8081 already unrouted),
   but `apps/auth/src/services/__tests__/compose-mount-coverage.spec.ts` fails if any
   new compose file is added without a root mount — this plan adds none.
+- ⚠️ **`@lilnas/utils` resolves to `./dist/*.js`** (found in D2) — a consumer app cannot
+  see a newly added utils export until `pnpm build` runs in `packages/utils`. A stale
+  `dist/` silently hides both new exports and the type errors they cause. Build utils
+  first in every `apps/*` task that consumes a new utils export.
+- ⚠️ **`pnpm type-check` does not type-check `__tests__`** (found in A3) — `tsc --noEmit`
+  went green while `ts-jest` failed on a real type error in a spec. Only `pnpm test`
+  proves the specs compile.
+- ⚠️ **Don't run the package-wide `pnpm lint:fix` while other tasks are in flight**
+  (found in A3) — it is `prettier -w src` + `eslint --fix src` over the whole package
+  and will rewrite a concurrent task's files. Use `prettier -w <files>` /
+  `eslint --fix <files>`.
 - Deploy-order safety: if download ships before auth, `AuthClient` gets a 404 from the
   missing endpoint → `DiscordLinkService` fails open to "unlinked". Nothing breaks;
   linking just doesn't display until auth deploys.
@@ -511,7 +522,7 @@ SELECT`, drop, rename). Inspect the generated SQL: every existing column must be
 
 ### Group A — apps/auth: identity roster, link storage, internal endpoints
 
-- [ ] **A1. `discord_identity` + `discord_link` tables + migration.** Edit
+- [x] **A1. `discord_identity` + `discord_link` tables + migration.** `34b5766` Edit
       `apps/auth/src/db/schema.ts`, adding **two** tables.
 
   `discordIdentity` (`'discord_identity'`) — the roster of Discord accounts auth has
@@ -553,6 +564,37 @@ SELECT`, drop, rename). Inspect the generated SQL: every existing column must be
   row on first Google sign-in, so "people without a Discord link" is a `LEFT JOIN`
   over the existing `user` table — that side of the roster is already observed today.
 
+  > **Findings (A1, 2026-09-20 — shipped as specced):**
+  >
+  > - **Auth migrations do not live in `apps/auth/drizzle`.** `drizzle.config.ts` sets
+  >   `out: './src/db/migrations'`, so the generated file is
+  >   `apps/auth/src/db/migrations/0002_exotic_mandroid.sql` with meta under
+  >   `src/db/migrations/meta/` (`_journal.json` gained `idx: 2`). Any later auth
+  >   migration task must stage that path, not `drizzle/`.
+  > - **The migration is additive-only** — two `CREATE TABLE`s plus the two unique
+  >   indexes, no table recreate. Safe against the live prod auth DB. (Contrast D1,
+  >   which _does_ recreate `jobs`.)
+  > - `pnpm db:generate` never opens a DB (drizzle-kit `generate` is snapshot-based),
+  >   so the missing `./lilnas-auth.db` in `dbCredentials.url` is a non-issue and no
+  >   stray file is created.
+  > - Exact index names for A2/B1 to use:
+  >   `discord_link_user_id_unique_idx`, `discord_link_discord_user_id_unique_idx`.
+  >   Row types: `DiscordIdentityRow = { discordUserId: string; username: string;
+  >   displayName: string | null; firstSeenAt: Date; lastSeenAt: Date }`;
+  >   `DiscordLinkRow = { id: number; userId: string; discordUserId: string; createdAt:
+  >   Date }` (timestamps are `Date`, not epoch ms).
+  > - Cascade semantics settled and tested in **both** directions: deleting a `user`
+  >   drops the link but **leaves the `discord_identity` row** — the roster is an
+  >   observation log, not a consequence of the link. Deleting an identity drops the
+  >   link and leaves the user. Nothing in normal operation should delete identity rows;
+  >   that cascade is a safety net, not a routine path.
+  > - Every other pointer verified: `user` at `:36`, `grant`'s bare
+  >   `integer().primaryKey()` at `:165`, the hardcoded table list at
+  >   `schema.spec.ts:36-45` (did need updating), `runMigrations` re-asserting
+  >   `foreign_keys = ON` at `database.module.ts:49-55`. The file-top "Schema map"
+  >   comment block also gained a `discord_identity · discord_link` entry to match house
+  >   style.
+
 - [ ] **A2. Repo functions.** Create `apps/auth/src/db/discord-link.repo.ts` — plain
       exported functions taking `Executor`, in the style of `grants.repo.ts`:
 
@@ -578,7 +620,7 @@ SELECT`, drop, rename). Inspect the generated SQL: every existing column must be
   migrations: all three upsert outcomes including the rename case, both unlinked lists
   shrinking when a link lands, cascade behavior, case-insensitive email lookup.
 
-- [ ] **A3. Shared contract: types + `AuthClient` methods.** Edit
+- [x] **A3. Shared contract: types + `AuthClient` methods.** `52dd685` Edit
       `packages/utils/src/auth/types.ts`:
 
   ```ts
@@ -615,6 +657,30 @@ SELECT`, drop, rename). Inspect the generated SQL: every existing column must be
   on non-ok and keep the existing 2s `AbortSignal.timeout`. Tests mirror the existing
   `AuthClient` suite: query encoding per lookup key, the both-null body passing
   through, a malformed body throwing, and the POST sending the right JSON.
+
+  > **Findings (A3, 2026-09-20 — shipped as specced, three notes):**
+  >
+  > 1. One **extra export** beyond the task text:
+  >    `DiscordLinkLookupParams = { discordUserId: string } | { userId: string } | { email: string }`,
+  >    so consumers and specs can name the union. Structurally identical to the inline
+  >    union in the task text — callers may still pass object literals without importing
+  >    it. A4 and D3 should import it rather than re-spelling the union.
+  > 2. ⚠️ **`pnpm type-check` does not cover `__tests__`.** `tsc --noEmit` passed green
+  >    while `ts-jest` failed on a genuine type error in the spec. **A clean
+  >    `type-check` is not proof the specs compile — only `pnpm test` catches that.**
+  >    Applies to every remaining task in both apps and utils.
+  > 3. ⚠️ **Never run the package-wide `pnpm lint:fix` while other sessions are live.**
+  >    In `packages/utils` it is `prettier -w src` + `eslint --fix src` over the _whole_
+  >    package, so it rewrites files belonging to a concurrent task (it touched C1's
+  >    `src/download/*` mid-flight; formatting-only, and nothing outside `src/auth/` was
+  >    staged). Use `prettier -w <specific files>` / `eslint --fix <specific files>`
+  >    instead. Fold this into every remaining delegation prompt.
+  >
+  > The envelope validation deliberately mirrors `checkIsAdmin`'s shallow
+  > validate-then-cast (`isObjectOrNull` rejects arrays and primitives but does **not**
+  > check the inner `DiscordIdentity` / `DiscordLinkedUser` fields). If A4 ever returns a
+  > partial identity the cast will lie; a zod parse would be strictly better if that
+  > becomes a concern.
 
 - [ ] **A4. Internal endpoints.** Create
       `apps/auth/src/internal/discord-internal.controller.ts`: `@Controller('internal')`,
@@ -733,7 +799,7 @@ discordUserId)` and `unlinkDiscordAccount(userId)` via `callBackend`. **Narrow e
 
 ### Group C — shared download wire contract + client
 
-- [ ] **C1. Wire schema + `withDiscordIdentity`.** Edit
+- [x] **C1. Wire schema + `withDiscordIdentity`.** `60af91a` Edit
       `packages/utils/src/download/schema.ts`: add
 
   ```ts
@@ -779,6 +845,52 @@ discordUserId)` and `unlinkDiscordAccount(userId)` via `callBackend`. **Narrow e
   (utils `buildJob()`, download's `job-fixtures.ts`) need the new fields; update the
   utils one here, download's in D1.
 
+  > **Findings (C1, 2026-09-20 — shipped as specced; item 1 changes D1, D4, E1, E3, E4
+  > and F1):**
+  >
+  > 1. 🔴 **"Every added field is nullable, so existing producers keep compiling" is
+  >    WRONG.** `.nullable()` makes a key **required** with a `| null` value (zod's
+  >    `.optional()` is what makes a key omissible). This matches `requester`'s existing
+  >    "a missing key means the serializer forgot one" convention and was implemented as
+  >    specced — but the consequence is that **every producer** of a
+  >    `DownloadJob`/`GalleryItem`/`AuditLogEntry` object literal in `apps/download` and
+  >    `apps/tdr-bot` must now supply the new keys, not merely the fixtures. Two effects:
+  >    - `apps/download` (and possibly `apps/tdr-bot`) **may not type-check on this
+  >      branch until D1 lands**. D1's scope therefore includes fixing the real
+  >      producers (`hydrateJobRow`, the audit row↔wire collapse, gallery mapping), not
+  >      just `job-fixtures.ts`.
+  >    - Anything calling `DownloadJobSchema.parse()` on a **pre-existing** payload now
+  >      fails at runtime unless that payload carries `discordRequester` and
+  >      `linkedDiscord`. Relevant to E1's WS path and to F1's `waitForJob`.
+  > 2. **One extra export beyond the task text:** `DiscordIdentity` in
+  >    `packages/utils/src/download/types.ts` (`= { discordUserId: string;
+  >    discordUsername: string }`), so `linkedDiscord` has a nameable type instead of
+  >    forcing consumers to write `DownloadJob['linkedDiscord']`. ⚠️ **Name-collision
+  >    hazard:** A3 exports a _different_ `DiscordIdentity` from
+  >    `@lilnas/utils/auth/types` (`{ discordUserId, username, displayName }`). They are
+  >    not interchangeable — D3 and E1 consume both and must alias one on import.
+  > 3. **`withForwardedIdentity` had no "spread pattern" to mirror** — it builds a fresh
+  >    header object and drops whatever the client already carried.
+  >    `withDiscordIdentity` spreads `...this.forwardedHeaders`, so
+  >    `withForwardedIdentity(…).withDiscordIdentity(…)` carries both (tested). ⚠️ **The
+  >    reverse chain order still drops the Discord headers** — pre-existing behaviour,
+  >    deliberately left unchanged as out of scope. A one-line spread in
+  >    `withForwardedIdentity` would make it order-independent if wanted later.
+  > 4. **Four `buildJob` fixtures in utils, not one** — `types.spec.ts`,
+  >    `client.spec.ts`, `wait-for-job.interop.spec.ts`, and `job-events.spec.ts`
+  >    (`buildVideoJob`, which needed it for a _runtime_ reason: it round-trips through
+  >    `DownloadJobSchema.safeParse` in `parseJobEventFrame`), plus three inline literals
+  >    in `schema.spec.ts`. All updated. Expect similar multiplicity in `apps/download`.
+  > 5. ⚠️ **eslint `no-loss-of-precision` rejects a real snowflake written as a numeric
+  >    literal** in a test. Keep snowflake fixtures as string literals everywhere.
+  > 6. Line-pointer drift (harmless): `DownloadJobSchema` starts at `:237`;
+  >    `AuditLogEntrySchema` at `:694-703` (not `:689-698`); `client.ts`'s
+  >    `dockerInstance` at `:146-148` and `withForwardedIdentity` at `:178-183` (not
+  >    `:114-116`/`:146-151`). `JobRequesterSchema` at `:65-68` was correct.
+  >
+  > Also: because `withDiscordIdentity` spreads the stored headers, the WS handshake in
+  > `waitForJob` picks the Discord headers up for free.
+
 ### Group D — apps/download: storage + write path
 
 - [ ] **D1. Jobs/audit schema migration + row mapping.** Edit
@@ -810,7 +922,18 @@ text('discord_username')`; rewrite CHECK `jobs_origin_matches_requester`:
   combos), job-row round-trip, migration applies on a DB seeded with pre-existing
   `web`/`service` rows (recreate preserves data).
 
-- [ ] **D2. Discord header extraction + decorator.** Create
+  > ⚠️ **Scope widened by [C1's Finding 1](#c1-findings) (2026-09-20).** The new wire
+  > fields are `.nullable()`, which in zod makes a key **required-but-nullable**, not
+  > optional. So this task must fix **every real producer** of a
+  > `DownloadJob`/`GalleryItem`/`AuditLogEntry` object literal in `apps/download` —
+  > `hydrateJobRow`, the audit row↔wire collapse, the gallery mapping, and any inline
+  > literal — not just `job-fixtures.ts`. Expect `apps/download` to be **red on
+  > type-check before this task starts**, and expect more than one fixture builder
+  > (utils had four). Also watch the `DiscordIdentity` name collision: C1 exports one
+  > from `@lilnas/utils/download/types` and A3 a different one from
+  > `@lilnas/utils/auth/types`.
+
+- [x] **D2. Discord header extraction + decorator.** `014457e` Create
       `apps/download/src/auth/discord-user.ts`: `getDiscordRequester(req: { headers:
 IncomingHttpHeaders }): DiscordRequester | undefined` — reads `x-discord-user-id` /
       `x-discord-username`, both required, `firstHeaderValue` handling, trust-model
@@ -825,6 +948,34 @@ IncomingHttpHeaders }): DiscordRequester | undefined` — reads `x-discord-user-
       [Design decisions](#precedence-and-the-dev-fallback)) — update its comment. Tests:
       extraction (missing-either → undefined, array headers), decorator spec cloning the
       existing one, dev-fallback suppression case added to `forwarded-user.spec.ts`.
+
+  > **Findings (D2, 2026-09-20 — shipped as specced):**
+  >
+  > - 🔴 **`apps/download` type-check is red on 44 files, none of them D2's** — direct
+  >   confirmation of [C1's Finding 1](#c1-findings). Every error is `discordRequester`
+  >   / `linkedDiscord` missing or `| undefined` on `DownloadJobRecord`-shaped objects.
+  >   Affected: `src/db/job-row.ts`, `src/download/download.service.ts`,
+  >   `src/download/job-query.service.ts`, `src/media/media-download.service.ts`,
+  >   `src/audit/audit-log.service.ts`, plus their specs and fixtures — exactly the
+  >   files D1 and D4 own. **No Wave-1 task could have made the package green in
+  >   isolation; D1 is the task that closes it.** Until then, judge download tasks on
+  >   "no new errors in my own files" plus a green scoped `pnpm test`.
+  > - ⚠️ **`@lilnas/utils` resolves to `./dist/*.js`, so a consumer app cannot see a new
+  >   utils export until `pnpm build` is run in `packages/utils`.** A **stale `dist/`
+  >   was masking the 44 errors above**. Every remaining `apps/*` task that consumes a
+  >   new utils export must build utils first (writes only the gitignored `dist/`).
+  > - **`auth.module.ts:88-93` pointer is stale** — that file is 13 lines total;
+  >   providers/exports are at `:9-11`. Conclusion unchanged (param decorators are not
+  >   providers, so no edit was needed), but D3 must not trust the old line numbers when
+  >   it registers `DiscordLinkService`.
+  > - `discord-user.ts` re-exports `DiscordRequester` (mirroring how `forwarded-user.ts`
+  >   re-exports `ForwardedUser`), so D4 can import extractor and type from one path.
+  >   It also exports `extractOptionalDiscordUser(ctx)` alongside the
+  >   `OptionalDiscordUser` decorator, so the extraction is unit-testable.
+  > - The dev-fallback suppression tests `firstHeaderValue(headers['x-discord-user-id'])`
+  >   rather than raw truthiness, so an array-valued or empty-string header behaves
+  >   consistently with the extractor.
+  > - `x-discord-display-name` is read but not yet consumed — its consumer is D4.
 
 - [ ] **D3. `DiscordLinkService` (TTL cache).** Create
       `apps/download/src/auth/discord-link.service.ts` cloning `AdminCheckService`'s
@@ -1016,7 +1167,7 @@ displayName })` — the username from the Discord requester pair, the display na
       card if it is. Tests: repo spec for the grouped selection, component specs for
       the new states including the masked-renders-no-mark case.
 
-- [ ] **E5. `DiscordIdentityMark` — the click-to-reveal disclosure.** Create
+- [x] **E5. `DiscordIdentityMark` — the click-to-reveal disclosure.** `3b8fa32` Create
       `apps/download/src/components/activity/discord-identity-mark.tsx` and its spec. A
       self-contained presentational pair — a trigger carrying the Discord glyph, and a
       compact popover disclosing the two facts the glyph alone cannot:
@@ -1060,6 +1211,54 @@ displayName })` — the username from the Discord requester pair, the display na
 
   **Runs early.** It depends on nothing — it takes two strings — so it sits in Wave 1
   and E3/E4 consume it later. See [Sequencing](#sequencing).
+
+  > **Findings (E5, 2026-09-20 — shipped as specced; items 1 and 2 are for E3/E4):**
+  >
+  > 1. 🔴 **There is no `discord` icon in the app.** `ui/icon.tsx`'s `ICON_NAMES` has no
+  >    `'discord'` and `ui/sprite.tsx` has no `i-discord` symbol — the sprite was ported
+  >    before the design sprite gained one
+  >    (`designs/src/layout/sprite.html:483`). ⚠️ A `<use href="#i-discord">` against a
+  >    sprite missing the symbol **paints nothing, silently**. E5 inlined the Simple
+  >    Icons path as a private `DiscordGlyph`, byte-identical to the design sprite's
+  >    copy, because `sprite.tsx`/`icon.tsx` were outside its fence. **E3/E4 must not
+  >    write `<Icon name="discord" />`.** Promoting the glyph to `sprite.tsx` +
+  >    `ICON_NAMES` and swapping `DiscordGlyph` for `<Icon>` is a pure substitution if
+  >    we want one canonical glyph — but it may touch `icon.spec.tsx` expectations.
+  > 2. **Narrow-surface constraints, verified — E3/E4 should not re-derive these:**
+  >    root is a `<span class="relative inline-flex shrink-0 items-center">` (`shrink-0`
+  >    keeps the 12px glyph from being squeezed out beside a `truncate`d username); tap
+  >    target is `admin-actor.tsx`'s `PROFILE_LINK` technique verbatim
+  >    (`before:absolute before:-inset-1.5` → 24×24 per WCAG 2.5.8) so **do not add
+  >    padding**, it would shift the username; the panel is **centred** on the trigger
+  >    (`left-1/2 -translate-x-1/2`) to halve worst-case overhang, width `w-max` capped
+  >    at `min(15rem, calc(100vw-2rem))` with the snowflake `break-all`; `z-30`, one
+  >    step above the `z-20` `FilterPanel` popovers use, so a mark inside a filtered
+  >    list doesn't render underneath. ✅ **The ~158px gallery card is fine** — absolute
+  >    positioning overflows the card box visually. The real constraint is an ancestor
+  >    `overflow: hidden`; `GalleryCard` and `Card` set none, so all five current
+  >    consumers are safe. If a future container clips, re-anchor via `panelClassName`
+  >    (`left-auto right-0 translate-x-0`, which has a test) or move to a portal.
+  > 3. **Popover route: `FilterPanel` reused, no hook extraction, `filters.tsx`
+  >    untouched** — so its ten tests are unaffected. tailwind-merge resolved the
+  >    compact overrides cleanly, and `FilterPanel`'s hardcoded `aria-label="Filters"`
+  >    sits _before_ its prop spread, so passing `aria-label` re-labels the dialog with
+  >    no change to that file.
+  > 4. **Hover was deliberately not layered on** — click/tap is the only way in, with a
+  >    test asserting `user.hover()` opens nothing and the trigger carries no `title`,
+  >    so a future hover nicety cannot silently become the only path.
+  > 5. Two extra exports beyond the task text: `DiscordIdentityMarkProps` and
+  >    `DISCORD_UNLINKED_NOTE = 'No lilnas account linked yet'`. Props gained optional
+  >    `className` and `panelClassName` for per-surface overrides; the required pair is
+  >    still just `discordUserId` + `discordUsername`.
+  > 6. Pointer corrections: **`apps/download/src/app/globals.css` does not exist** — the
+  >    Tailwind v4 theme is at `apps/download/src/tailwind.css` (all mockup tokens
+  >    present). `--text-label` already carries `letter-spacing: 0.11em`, so
+  >    `tracking-[0.11em]` need not be repeated the way `filters.tsx` does.
+  >    `react-icons` is a dependency of `apps/download` but imported nowhere in `src/`.
+  > 7. Minor: `FilterPanel` renders a `<div>` and E5's root is a `<span>`, so the mark
+  >    stays phrasing-level beside a username. `<div>` in `<span>` is invalid per spec
+  >    but parses identically everywhere and causes no hydration mismatch — worth
+  >    knowing if a consumer ever puts the mark inside a `<p>`.
 
 ### Group F — tdr-bot, docs, integration
 
@@ -1162,7 +1361,7 @@ graph TD
 
 | Wave | Run                    | Why it works                                                                                                                                                                                                                                                          |
 | ---- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | A1 ∥ A3 ∥ C1 ∥ D2 ∥ E5 | Five independent foundation tasks: auth schema, `packages/utils/src/auth`, `packages/utils/src/download`, download's `src/auth` extraction files, and E5's brand-new component file. No shared file. E5 needs nothing but two strings, so it costs no wall-clock here |
+| 1 ✅ | A1 ∥ A3 ∥ C1 ∥ D2 ∥ E5 | Five independent foundation tasks: auth schema, `packages/utils/src/auth`, `packages/utils/src/download`, download's `src/auth` extraction files, and E5's brand-new component file. No shared file. E5 needs nothing but two strings, so it costs no wall-clock here |
 | 2    | A2 ∥ D1 ∥ D3 ∥ F1      | A2 needs A1's tables; D1 needs C1's wire type for row mapping; D3 needs A3's client methods; F1 needs C1's `withDiscordIdentity`. Two apps plus utils, no overlap                                                                                                     |
 | 3    | A4 ∥ B1 ∥ D4           | In auth, A4 adds a new controller + one `app.module.ts` line while B1 edits the admin dto/service/controller — disjoint files. D4 is in download entirely                                                                                                             |
 | 4    | B2 ∥ E1                | B2 is auth's server-action/RSC layer; E1 owns download's read path alone this wave                                                                                                                                                                                    |
