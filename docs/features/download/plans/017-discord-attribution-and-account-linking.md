@@ -42,7 +42,7 @@ flowchart LR
   AD -->|writes the pairing| AU
 ```
 
-**Shape:** one doc, **19 tasks in groups A–F**, seven waves. Work lands on
+**Shape:** one doc, **20 tasks in groups A–F**, seven waves. Work lands on
 `jeremy/download` in this worktree, matching plans 001–016 — no separate branch, no
 rollout section (see [How to work this plan](#how-to-work-this-plan)).
 
@@ -66,6 +66,10 @@ rollout section (see [How to work this plan](#how-to-work-this-plan)).
 - **Masking still works:** `hiddenAttribution` hides the Discord identity exactly as
   it hides the lilnas one, through the same `projectJobForViewer` choke point.
   [Why](#masking-covers-both-identities)
+- **The Discord mark is a click/tap disclosure, not a hover tooltip** — it opens a
+  small popover carrying the raw snowflake _and_ the current handle, reusing
+  `FilterPanel`'s non-modal popover so it behaves the same on a phone as on a desktop.
+  [Why](#the-discord-mark-is-a-disclosure-not-a-tooltip)
 
 **Read next:** [Open decisions to confirm](#open-decisions-to-confirm) ·
 [Design decisions](#design-decisions) · [Shared Context Pack](#shared-context-pack) ·
@@ -320,6 +324,45 @@ mis-attributed to the dev web user. The fallback check gains a "no
 read-path transform for REST and WS. It now nulls `discordRequester` too under the
 same `showTrueAttribution` rule. No new rule, one more field through the same gate.
 
+### The Discord mark is a disclosure, not a tooltip
+
+An unlinked Discord requester renders as a handle plus a small Discord glyph. The
+glyph says _which service_ this came from, but the two facts an admin actually needs
+in order to do anything about it — the **raw snowflake** and the **current handle** —
+have to be reachable from that mark, because the snowflake is what gets pasted into
+`apps/auth`'s picker to link the account.
+
+**Chosen:** the mark is a real `<button>` that toggles a small **non-modal popover**,
+reusing `FilterPanel`'s popover mode (`apps/download/src/components/ui/filters.tsx`).
+**Ruled out: `title=""` and every other hover-only affordance.** A native tooltip is
+invisible until hovered, announces inconsistently across screen readers, and is simply
+**unreachable on a touch device** — which is most of this app's real usage. An
+affordance that silently doesn't exist on a phone is not an affordance.
+
+Click/tap is therefore the **baseline**, not the fallback: one mechanism that behaves
+identically at both breakpoints, rather than a hover path plus a bolted-on mobile
+special case. Hover-to-open may be layered on top as a pointer-only nicety.
+
+`FilterPanel` is the right precedent and not merely a convenient one: it is already
+`role="dialog"`, non-modal, opened by an `aria-haspopup`/`aria-expanded` trigger,
+dismissed on Escape (returning focus to the trigger), on an outside press (leaving
+focus where the pointer put it), and on a tab-out — with focus moved to the panel
+rather than its first control, and **deliberately not trapped**. All of that is
+already covered by ten tests in `filters.spec.tsx`. `menu.tsx` is the wrong
+precedent despite being the other popover in the repo: it is a `role="listbox"` for
+_choosing_ an option, not for disclosing a fact.
+
+> ⚠️ **Masking outranks disclosure.** When `showTrueAttribution` says to mask, the
+> mark is not rendered at all — no trigger, no popover, no snowflake in the DOM. The
+> disclosure is a view onto an identity the viewer is already allowed to see, never a
+> way around [the masking gate](#masking-covers-both-identities).
+
+Prototyped in `docs/features/download/designs/discord-attribution.html` (and its Pug
+source `designs/src/pages/discord-attribution.pug`) across commits `7f0f170`,
+`034044e`, `dfbde0b` — which is where the hover-only dead end was found and
+discarded. Read the mockup before implementing E3/E5; the visual weight of the mark
+is settled there.
+
 ### Scope cuts in v1
 
 - **Leaderboard / gallery facets / `topRequesters`** keep grouping by
@@ -403,6 +446,10 @@ same `showTrueAttribution` rule. No new rule, one more field through the same ga
 | `apps/download/src/download/profile.service.ts:64-68`                                                               | profile filters by `requesterEmail: email`                                                                                                                                                                                                                                                                                                                                                                       |
 | `apps/download/src/audit/audit-log.service.ts`                                                                      | `record(event)` `:119` (`actor: ForwardedUser \| undefined` `:72`), row→wire collapse `:88-90`                                                                                                                                                                                                                                                                                                                   |
 | `apps/download/src/components/activity/activity-requester.tsx`                                                      | **the one spelling of the attribution display rule** — `canViewRequesterProfile`, `requesterProfileHref`, `MASKED_REQUESTER_LABEL = 'hidden'`; every surface imports it                                                                                                                                                                                                                                          |
+| `apps/download/src/components/ui/filters.tsx`                                                                       | **the popover pattern E5 reuses** — `FiltersButton` (`aria-haspopup`/`aria-expanded` trigger) and `FilterPanel`'s popover mode: `role="dialog"`, non-modal, Escape returns focus to the trigger, outside-press and tab-out dismiss, focus moved to the panel not its first control, **not** trapped. Its doc comments state the model explicitly — read them, don't re-derive it                                 |
+| `apps/download/src/components/ui/__tests__/filters.spec.tsx`                                                        | the ten `FilterPanel` popover cases (open/close from trigger, Escape + focus return, outside press, tab-out, stays open while working inside) — the shape E5's spec should imitate                                                                                                                                                                                                                               |
+| `apps/download/src/components/ui/menu.tsx`                                                                          | the repo's _other_ popover. ⚠️ Wrong precedent for E5: `role="listbox"`/`role="option"` with roving focus, built for _choosing_ an option rather than disclosing a fact                                                                                                                                                                                                                                          |
+| `docs/features/download/designs/discord-attribution.html` + `designs/src/pages/discord-attribution.pug`             | the built prototype of every state E3/E4/E5 render, including the settled visual weight of the mark. Commits `7f0f170` → `034044e` → `dfbde0b` are the hover-only dead end and its correction                                                                                                                                                                                                                    |
 | `apps/download/src/components/admin/admin-actor.tsx`                                                                | ⚠️ `null` here means **service** (renders `AUDIT_SERVICE_LABEL` chip), the opposite of `ActivityRequester`'s `null` (= masked)                                                                                                                                                                                                                                                                                   |
 | `apps/download/src/components/detail/detail-header.tsx:148,183-196`                                                 | detail-page requester display (email local-part)                                                                                                                                                                                                                                                                                                                                                                 |
 | `apps/download/src/components/gallery/gallery-item-card.tsx:122-162`, `src/components/home/recent-card.tsx:119-174` | `lastRequester` displays                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -877,21 +924,38 @@ displayName })` — the username from the Discord requester pair, the display na
       rule: accept the job's `discordRequester` alongside `requester`; rendering order:
       masked → `hidden` (unchanged); `requester` present → today's email rendering
       (linked Discord jobs land here automatically via E1); else `discordRequester`
-      present → render `discordUsername` with a "via Discord" affordance (muted suffix or
-      small chip — match the existing visual language; initials-avatar from the username).
-      Render that handle **as given** — E1 has already refreshed it to the roster's
-      current value, so this component never needs to know a rename happened. Else →
-      today's null treatment. `canViewRequesterProfile`/`requesterProfileHref`
-      stay email-based — an unlinked Discord requester has no profile link. Update the
-      callers that pass requester props where the new field must flow:
-      `activity-table.tsx`, `activity-list.tsx`, `detail-header.tsx` (+
-      `video-detail.tsx` prop threading), and
-      `apps/download/src/components/admin/admin-actor.tsx` (⚠️ its `null` means
-      _service_: an unlinked `discordActor` must render as the Discord identity, **not**
-      the service chip; keep the service chip only for true `origin: 'service'`). Use
-      `cns()` for conditional classes. jsdom tests: extend `activity-requester.spec.tsx`
-      and `admin-actor.spec.tsx` with the four states (web / linked-discord /
-      unlinked-discord / masked).
+      present → render `discordUsername` followed by **E5's `<DiscordIdentityMark>`**,
+      initials-avatar from the username. Render that handle **as given** — E1 has
+      already refreshed it to the roster's current value, so this component never needs
+      to know a rename happened. Else → today's null treatment.
+
+  ⚠️ **The mark is gated by masking, not merely placed beside it.** It renders only on
+  the `discordRequester`-present branch, which the masked branch never reaches — so a
+  masked job puts **no trigger and no snowflake in the DOM at all**. Assert that
+  directly rather than inferring it from the `hidden` label, since this is the one
+  place a disclosure affordance could leak an identity the viewer was not meant to
+  see. See [the disclosure decision](#the-discord-mark-is-a-disclosure-not-a-tooltip).
+
+  `canViewRequesterProfile`/`requesterProfileHref` stay email-based — an unlinked
+  Discord requester has no profile link. Update the callers that pass requester props
+  where the new field must flow: `activity-table.tsx`, `activity-list.tsx`,
+  `detail-header.tsx` (+ `video-detail.tsx` prop threading), and
+  `apps/download/src/components/admin/admin-actor.tsx` (⚠️ its `null` means _service_:
+  an unlinked `discordActor` must render as the Discord identity **with the same
+  mark**, **not** the service chip; keep the service chip only for true
+  `origin: 'service'`). Use `cns()` for conditional classes.
+
+  ⚠️ **Check the mark fits each surface before wiring it.** The mockup's first pass
+  put a ~70px labelled pill here and it collided with the status chip in the activity
+  table, the audit row's "what" column, and the gallery card — which is why it is now
+  an icon-sized mark. A table cell, a 3-column audit row and a 158px card each have
+  very little room; if a surface can't take it, report that rather than widening the
+  column.
+
+  jsdom tests: extend `activity-requester.spec.tsx` and `admin-actor.spec.tsx` with
+  the four states (web / linked-discord / unlinked-discord / masked), asserting the
+  mark is present only for unlinked-discord, **absent for masked**, and that
+  `admin-actor`'s service chip is untouched.
 
 - [ ] **E4. Gallery + recent-card attribution.** (Droppable — see
       [Scope cuts](#scope-cuts-in-v1).) Extend the gallery grouped query
@@ -899,9 +963,58 @@ displayName })` — the username from the Discord requester pair, the display na
       pair so `GalleryItemSchema.lastDiscordRequester` is populated; run E1's resolution
       over gallery pages; render in
       `apps/download/src/components/gallery/gallery-item-card.tsx` and
-      `src/components/home/recent-card.tsx` with the same rule as E3 (linked → resolved
-      identity; unlinked → username + "via Discord"; masked unchanged). Tests: repo spec
-      for the grouped selection, component specs for the new states.
+      `src/components/home/recent-card.tsx` with the same rule as E3, reusing **E5's
+      `<DiscordIdentityMark>`** rather than a card-local variant (linked → resolved
+      identity; unlinked → username + the mark; masked → no mark at all). ⚠️ These
+      cards are ~158px wide and the popover is wider than its trigger — verify it is
+      not clipped by the card's own overflow, and report it instead of restyling the
+      card if it is. Tests: repo spec for the grouped selection, component specs for
+      the new states including the masked-renders-no-mark case.
+
+- [ ] **E5. `DiscordIdentityMark` — the click-to-reveal disclosure.** Create
+      `apps/download/src/components/activity/discord-identity-mark.tsx` and its spec. A
+      self-contained presentational pair — a trigger carrying the Discord glyph, and a
+      compact popover disclosing the two facts the glyph alone cannot:
+
+  ```tsx
+  <DiscordIdentityMark
+    discordUserId="273145016936267776"
+    discordUsername="sam.pham"
+  />
+  ```
+
+  - **The trigger is a real `<button type="button">`**, never a bare `<span>`/`<svg>`
+    — a decorative icon is unreachable by keyboard and invisible to a screen reader.
+    It carries `aria-haspopup="dialog"`, `aria-expanded`, and an `aria-label` naming
+    what it reveals (e.g. `Discord account details for sam.pham`).
+  - **Dismissal and focus reuse `FilterPanel`'s popover mode**
+    (`apps/download/src/components/ui/filters.tsx`) — pass `open`, `onOpenChange` and
+    a `triggerRef`. Escape-closes-and-returns-focus, outside-press-closes,
+    tab-out-closes, focus-to-the-panel-not-its-first-control and no-focus-trap are all
+    already implemented there and covered by ten tests. Override only padding/width
+    for a compact panel via `className`. The repo already has **two** copies of this
+    model (`filters.tsx`, `menu.tsx`); a third hand-rolled copy is **not acceptable**
+    — if the style override turns ugly, extract the dismissal effects into a shared
+    hook consumed by both instead, and say in your report which route you took.
+  - **Panel content — both fields are required.** The current handle and the raw
+    snowflake, each labelled, the snowflake in the mono face and freely selectable: it
+    is the value an admin copies into `apps/auth`'s picker. The ID without the handle
+    is unreadable; the handle without the ID is unactionable. Include one short line
+    of context ("No lilnas account linked yet"), which is what the mockup's tooltip
+    text currently carries.
+  - **Click/tap is the baseline**, identical at both breakpoints — never a hover path
+    with a mobile special case. Hover-to-open may be layered on as a pointer-only
+    nicety; if you add it, it must not become the only way in.
+
+  jsdom tests (`apps/download/src/components/activity/__tests__/`): renders a
+  `button` and not a bare span; no panel and no snowflake in the DOM while closed;
+  a click opens and a second click closes; Escape closes and returns focus to the
+  trigger; an outside press closes; the open panel contains **both** the exact
+  snowflake string (asserted in full, unabbreviated) and the handle; the trigger's
+  accessible name includes the handle.
+
+  **Runs early.** It depends on nothing — it takes two strings — so it sits in Wave 1
+  and E3/E4 consume it later. See [Sequencing](#sequencing).
 
 ### Group F — tdr-bot, docs, integration
 
@@ -978,6 +1091,8 @@ graph TD
   D1 --> E2
   C1 --> E3[E3 frontend display]
   E1 --> E3
+  E5[E5 identity mark popover] --> E3
+  E5 --> E4
   E1 --> E4[E4 gallery]
   E2 --> E4
   E2 --> F2[F2 docs]
@@ -990,39 +1105,40 @@ graph TD
 
 ### Waves
 
-| Wave | Run               | Why it works                                                                                                                                                              |
-| ---- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | A1 ∥ A3 ∥ C1 ∥ D2 | Four independent contract/foundation tasks: auth schema, `packages/utils/src/auth`, `packages/utils/src/download`, download's `src/auth` extraction files. No shared file |
-| 2    | A2 ∥ D1 ∥ D3 ∥ F1 | A2 needs A1's tables; D1 needs C1's wire type for row mapping; D3 needs A3's client methods; F1 needs C1's `withDiscordIdentity`. Two apps plus utils, no overlap         |
-| 3    | A4 ∥ B1 ∥ D4      | In auth, A4 adds a new controller + one `app.module.ts` line while B1 edits the admin dto/service/controller — disjoint files. D4 is in download entirely                 |
-| 4    | B2 ∥ E1           | B2 is auth's server-action/RSC layer; E1 owns download's read path alone this wave                                                                                        |
-| 5    | B3 ∥ E2 ∥ E3      | B3 is auth UI; E2 edits `jobs.repo`/profile/history, E3 edits only download frontend components — all disjoint                                                            |
-| 6    | E4 ∥ F2           | E4 re-enters `jobs.repo.ts` only after E2 has left it; F2 is docs only                                                                                                    |
-| 7    | F3                | Integration checkpoint — must see every prior commit                                                                                                                      |
+| Wave | Run                    | Why it works                                                                                                                                                                                                                                                          |
+| ---- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | A1 ∥ A3 ∥ C1 ∥ D2 ∥ E5 | Five independent foundation tasks: auth schema, `packages/utils/src/auth`, `packages/utils/src/download`, download's `src/auth` extraction files, and E5's brand-new component file. No shared file. E5 needs nothing but two strings, so it costs no wall-clock here |
+| 2    | A2 ∥ D1 ∥ D3 ∥ F1      | A2 needs A1's tables; D1 needs C1's wire type for row mapping; D3 needs A3's client methods; F1 needs C1's `withDiscordIdentity`. Two apps plus utils, no overlap                                                                                                     |
+| 3    | A4 ∥ B1 ∥ D4           | In auth, A4 adds a new controller + one `app.module.ts` line while B1 edits the admin dto/service/controller — disjoint files. D4 is in download entirely                                                                                                             |
+| 4    | B2 ∥ E1                | B2 is auth's server-action/RSC layer; E1 owns download's read path alone this wave                                                                                                                                                                                    |
+| 5    | B3 ∥ E2 ∥ E3           | B3 is auth UI; E2 edits `jobs.repo`/profile/history, E3 edits only download frontend components — all disjoint                                                                                                                                                        |
+| 6    | E4 ∥ F2                | E4 re-enters `jobs.repo.ts` only after E2 has left it; F2 is docs only                                                                                                                                                                                                |
+| 7    | F3                     | Integration checkpoint — must see every prior commit                                                                                                                                                                                                                  |
 
 ### Dependency table
 
-| Task | Depends on     | Parallel with |
-| ---- | -------------- | ------------- |
-| A1   | —              | A3, C1, D2    |
-| A2   | A1             | D1, D3, F1    |
-| A3   | —              | A1, C1, D2    |
-| A4   | A2, A3         | B1, D4        |
-| B1   | A1, A2         | A4, D4        |
-| B2   | B1             | E1            |
-| B3   | B2             | E2, E3        |
-| C1   | —              | A1, A3, D2    |
-| D1   | C1             | A2, D3, F1    |
-| D2   | —              | A1, A3, C1    |
-| D3   | A3             | A2, D1, F1    |
-| D4   | D1, D2, D3     | A4, B1        |
-| E1   | C1, D1, D3, D4 | B2            |
-| E2   | D1, D3, E1\*   | B3, E3        |
-| E3   | C1, E1         | B3, E2        |
-| E4   | E1, E2         | F2            |
-| F1   | C1             | A2, D1, D3    |
-| F2   | E2, E3         | E4            |
-| F3   | everything     | —             |
+| Task | Depends on     | Parallel with  |
+| ---- | -------------- | -------------- |
+| A1   | —              | A3, C1, D2     |
+| A2   | A1             | D1, D3, F1     |
+| A3   | —              | A1, C1, D2     |
+| A4   | A2, A3         | B1, D4         |
+| B1   | A1, A2         | A4, D4         |
+| B2   | B1             | E1             |
+| B3   | B2             | E2, E3         |
+| C1   | —              | A1, A3, D2     |
+| D1   | C1             | A2, D3, F1     |
+| D2   | —              | A1, A3, C1     |
+| D3   | A3             | A2, D1, F1     |
+| D4   | D1, D2, D3     | A4, B1         |
+| E1   | C1, D1, D3, D4 | B2             |
+| E2   | D1, D3, E1\*   | B3, E3         |
+| E3   | C1, E1, E5     | B3, E2         |
+| E4   | E1, E2, E5     | F2             |
+| E5   | —              | A1, A3, C1, D2 |
+| F1   | C1             | A2, D1, D3     |
+| F2   | E2, E3         | E4             |
+| F3   | everything     | —              |
 
 \* E2 has no hard export dependency on E1, but both edit `download.controller.ts` —
 the wave split serializes them.
@@ -1034,7 +1150,7 @@ compress it further. `C1 → D1 → D4` converges into the same chain at wave 3.
 
 **Start A3 and C1 first in Wave 1**: between them they define every contract the rest
 of the plan compiles against — A3 the auth lookup/registration shapes that D3 and D4
-consume, C1 the download wire shapes that D1, E3 and F1 consume. A1 and D2 are the
+consume, C1 the download wire shapes that D1, E3 and F1 consume. A1, D2 and E5 are the
 slack in that wave.
 
 ### Human checkpoints
