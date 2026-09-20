@@ -25,7 +25,8 @@ This plan makes attribution **dual**:
   `AdminCheckService`). A linked Discord job displays as the same person as their web
   jobs — **including every past job**, because resolution happens on display, not on
   write. History and profile views unify: one person's downloads show up together
-  regardless of surface.
+  regardless of surface — and the link reads **both ways**, so a linked person's web
+  jobs show their Discord handle too.
 
 ```mermaid
 flowchart LR
@@ -71,58 +72,32 @@ rollout section (see [How to work this plan](#how-to-work-this-plan)).
   `FilterPanel`'s non-modal popover so it behaves the same on a phone as on a desktop.
   [Why](#the-discord-mark-is-a-disclosure-not-a-tooltip)
 
-**Read next:** [Open decisions to confirm](#open-decisions-to-confirm) ·
+**Read next:** [Decisions confirmed](#decisions-confirmed) ·
 [Design decisions](#design-decisions) · [Shared Context Pack](#shared-context-pack) ·
 [Task List](#task-list) · [Sequencing](#sequencing) · [Final report](#final-report)
 
 ---
 
-## Open decisions to confirm
+## Decisions confirmed
 
-⚠️ **Human checkpoint HC1 — confirm these before Wave 1 starts.** The plan proceeds on
-the recommendations below unless overridden; both were explicitly flagged as open by
-the feature request.
+✅ **HC1 is cleared (2026-09-19).** Both questions this plan deliberately left open have
+been answered by the human. Wave 1 may start.
 
-> **Already settled (2026-09-19), no longer open:** how an admin picks the pair. The
-> first draft of this plan had the admin **type** a snowflake and a username into the
-> Edit Access modal. That was rejected — a typed handle rots when someone renames
-> themselves, and a typo produces a link that matches nothing. Replaced with two
-> observed lists and a pick-one-from-each picker; the link row now stores no name at
-> all. See [Both sides of the link are observed, never typed](#both-sides-of-the-link-are-observed-never-typed),
+| Question                                                                              | Answer                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Where does Discord→lilnas resolution happen?                                          | **In `apps/download`, at read time** — as recommended. [Why](#resolution-happens-in-download-at-read-time)                                                              |
+| Is reverse display (a linked person's Discord handle on their **web** jobs) in scope? | **Yes — in scope for v1.** ⚠️ This **overrides** the plan's original "defer it" recommendation. [What it costs](#reverse-display-a-linked-person-shows-both-identities) |
+
+> **Also settled earlier (2026-09-19):** how an admin picks the pair. The first draft
+> had the admin **type** a snowflake and a username into the Edit Access modal. That
+> was rejected — a typed handle rots when someone renames themselves, and a typo
+> produces a link that matches nothing. Replaced with two observed lists and a
+> pick-one-from-each picker; the link row now stores no name at all. See
+> [Both sides of the link are observed, never typed](#both-sides-of-the-link-are-observed-never-typed),
 > which also records why the full Discord server roster was declined as the source.
 
-### Q1 — Where does Discord→lilnas resolution happen?
-
-**Recommendation: in `apps/download`, at read time (this plan's shape).**
-
-- Resolving in tdr-bot at request time can never be retroactive — a job written before
-  the admin links the accounts would stay anonymous forever, which contradicts the
-  stated requirement that linking "retroactively appl[ies] to display of past jobs".
-- Doing it in download means any future Discord-triggering surface (another bot,
-  a webhook) gets identical behavior by setting two headers.
-- Cost: download takes a runtime dependency on auth's internal endpoint for display —
-  mitigated by the same TTL-cache + fail-open pattern `AdminCheckService` already uses
-  (auth being down degrades to "unlinked", never an error).
-
-If overridden to write-time resolution, Groups D/E change materially — stop and
-re-plan before Wave 2.
-
-### Q2 — Is reverse display (Discord handle on web-attributed jobs) in scope?
-
-**Recommendation: out of scope for v1.**
-
-- The **reverse lookup itself is in scope** — unified history requires it internally
-  (viewer's lilnas userId → linked snowflake, to OR into the jobs filter). That lands
-  in D3/E2 regardless.
-- What's deferred is purely presentational: showing "also known as @snowflake" on jobs
-  a person requested via the browser. No task builds it; adding it later is a
-  frontend-only change on top of data E1 already returns.
-
-Two smaller scope cuts made by this plan (not open questions, but flag if unwanted —
-see [Scope cuts](#scope-cuts-in-v1)): the admin leaderboard / gallery uploader facets
-keep grouping by `requesterEmail` only (Discord-only jobs stay out of those
-aggregates in v1), and gallery/recent-card resolution is a separately droppable task
-(E4).
+Two scope cuts remain in force and were **not** overridden — the leaderboard/facets
+aggregates and pre-linking an unseen account. See [Scope cuts](#scope-cuts-in-v1).
 
 ---
 
@@ -182,8 +157,9 @@ task, then update the downstream tasks that finding invalidates.
 - Respect the wave order. ⚠️ **E1 and E2 both edit `download.controller.ts` and the
   read path** — they must not run concurrently. ⚠️ **E4 edits `jobs.repo.ts` after E2
   does** — same rule.
-- Confirm [HC1](#open-decisions-to-confirm) is answered (or its recommendations
-  accepted) before delegating Wave 1.
+- ✅ [HC1 is already cleared](#decisions-confirmed) — do not re-ask it. Resolution
+  stays in `apps/download` at read time and reverse display is **in scope**. Wave 1 is
+  unblocked.
 
 **Don't**
 
@@ -363,6 +339,39 @@ source `designs/src/pages/discord-attribution.pug`) across commits `7f0f170`,
 discarded. Read the mockup before implementing E3/E5; the visual weight of the mark
 is settled there.
 
+### Reverse display: a linked person shows both identities
+
+**Confirmed in scope for v1** ([HC1](#decisions-confirmed)), overriding this plan's
+original recommendation to defer it. Once an admin links an account, that person's
+**web** jobs show their Discord handle too — not just their Discord jobs showing their
+email. Linking becomes visibly symmetric.
+
+**Chosen: a separate `linkedDiscord` wire field**, not a reuse of `discordRequester`.
+The two mean genuinely different things and conflating them destroys information:
+
+| Field              | Means                                                       | Populated for                      |
+| ------------------ | ----------------------------------------------------------- | ---------------------------------- |
+| `discordRequester` | this job was **submitted from** this Discord account        | `origin: 'discord'` rows           |
+| `linkedDiscord`    | the account **linked to** `requester`, whoever submitted it | any job whose requester has a link |
+
+Overloading `discordRequester` would make a web job indistinguishable from a
+Discord-submitted one at the type level, and E3's "unlinked, sent via Discord" branch
+keys off exactly that distinction. `origin` would still carry the truth, but every
+consumer would have to remember to consult it — a latent bug rather than a type.
+
+`JobRequesterSchema` is deliberately **not** widened to nest the handle inside
+`requester`, tempting as `job.requester.discord` reads: that schema is shared by
+`GalleryItem.lastRequester`, `AuditLogEntry.actor` and `topRequesters`, so widening it
+ripples into three surfaces this plan is not otherwise touching.
+
+**The cost, stated plainly:** E1 now resolves in **both** directions, so a page of
+web-origin jobs — the common case — triggers a lookup per distinct requester where
+before it triggered none. Mitigations, all already in the design: distinct userIds are
+deduped per batch, `DiscordLinkService` caches for 60s, and **a negative result ("this
+person has no link") is cached for the full TTL just like a positive one** — which is
+what keeps the common case cheap, since most users will never have a link. Auth being
+slow or down degrades to "no handle shown", never an error.
+
 ### Scope cuts in v1
 
 - **Leaderboard / gallery facets / `topRequesters`** keep grouping by
@@ -371,7 +380,6 @@ is settled there.
 - **Gallery & recent-card attribution** (E4) resolves linked identities but renders
   unlinked Discord requesters as today's null treatment — and the whole task is
   droppable without breaking anything else.
-- **Reverse display** — see [Q2](#q2--is-reverse-display-discord-handle-on-web-attributed-jobs-in-scope).
 - **Pre-linking someone who has never run `/download`** is not possible in v1, because
   the accounts list is built purely by observation. The tdr-bot roster sync that would
   enable it is specced-but-declined in
@@ -737,7 +745,13 @@ discordUserId)` and `unlinkDiscordAccount(userId)` via `callBackend`. **Narrow e
 
   with a doc comment mirroring `JobRequesterSchema`'s (headers
   `x-discord-user-id` / `x-discord-username`, set by tdr-bot). Add
-  `discordRequester: DiscordRequesterSchema.nullable()` to `DownloadJobSchema`,
+  `discordRequester: DiscordRequesterSchema.nullable()` **and**
+  `linkedDiscord: DiscordIdentitySchema.nullable()` to `DownloadJobSchema`, where
+  `DiscordIdentitySchema = z.object({ discordUserId, discordUsername })` — a separate
+  field from `discordRequester`, carrying the account **linked to** the requester
+  rather than the account that **submitted** the job. The two must not be merged; see
+  [the reverse-display decision](#reverse-display-a-linked-person-shows-both-identities).
+  Add
   `lastDiscordRequester: DiscordRequesterSchema.nullable()` to `GalleryItemSchema`,
   and to `AuditLogEntrySchema`: `discordActor: DiscordRequesterSchema.nullable()` and
   widen `origin` to `z.enum(['service', 'web', 'discord'])` — all alphabetized. Edit
@@ -832,6 +846,12 @@ IncomingHttpHeaders }): DiscordRequester | undefined` — reads `x-discord-user-
   and because a **changed handle produces a different memo key**, a rename is reported
   immediately. That is the entire rename-detection path.
 
+  ⚠️ **Cache a negative answer for the full 60s TTL**, not the 10s failure TTL. "This
+  person has no linked Discord account" is a _successful_ lookup, and after E1's
+  reverse direction lands it is the answer for most users on most page loads — treating
+  it as a failure would re-hit auth for every unlinked requester on every request. Only
+  a thrown error gets the short failure TTL.
+
   Three cache keyspaces (prefix keys, e.g. `d:<snowflake>` / `u:<userId>` /
   `seen:<snowflake>:<handle>`). Register in
   `apps/download/src/auth/auth.module.ts` providers + exports. Tests clone
@@ -888,6 +908,15 @@ displayName })` — the username from the Discord requester pair, the display na
     time, and it is what renders when auth is unreachable.
   - neither → pass through unchanged.
 
+  **Then the reverse direction** (in scope per [HC1](#decisions-confirmed)): for each
+  job that has a `requester` — whether stored that way or just resolved above — look up
+  `requester.userId` and populate `linkedDiscord` from the envelope's `identity` when a
+  link exists. Dedupe distinct userIds per batch exactly as the forward direction
+  dedupes snowflakes, and resolve **both directions in one pass** over the batch so a
+  page costs at most two rounds of cache lookups rather than two passes over the list.
+  A job whose requester has no link keeps `linkedDiscord: null` and renders exactly as
+  it does today.
+
   Wire it in at every
   job-serving boundary **before** `projectJobForViewer`: the list/page endpoints
   (activity, history, gallery items' `lastDiscordRequester`, single-job GETs, the
@@ -897,7 +926,9 @@ displayName })` — the username from the Discord requester pair, the display na
   `actor`. **Enumerate the actual call sites from the code** — the controller has
   ~20 job-returning handlers; a shared private helper in the controller keeps this
   one-line per route. Tests: attribution.spec (masking covers both fields),
-  resolution service spec (linked job gains requester, unlinked untouched, auth
+  resolution service spec (linked job gains requester, a **web** job by a linked person
+  gains `linkedDiscord`, a web job by an unlinked person keeps it null, both directions
+  resolve in one pass, unlinked untouched, auth
   failure → untouched), one controller-level spec proving a linked historical
   `discord` job serializes with the resolved `requester`.
 
@@ -936,8 +967,16 @@ displayName })` — the username from the Discord requester pair, the display na
   place a disclosure affordance could leak an identity the viewer was not meant to
   see. See [the disclosure decision](#the-discord-mark-is-a-disclosure-not-a-tooltip).
 
+  **Reverse display** (in scope per [HC1](#decisions-confirmed)): on the `requester`
+  branch — which covers both a web job and a resolved Discord one — also render
+  `linkedDiscord` when it is non-null, as the handle beside the email in the muted
+  treatment. This is an _identity_ affordance, not a provenance one: it does **not**
+  get E5's disclosure popover, because the viewer is already looking at the person and
+  the snowflake is not the actionable fact here. Keep it visually quieter than the
+  unlinked-Discord mark so the two never read as the same state.
+
   `canViewRequesterProfile`/`requesterProfileHref` stay email-based — an unlinked
-  Discord requester has no profile link. Update the callers that pass requester props
+  Discord requester has no profile link, and a linked handle never becomes one. Update the callers that pass requester props
   where the new field must flow: `activity-table.tsx`, `activity-list.tsx`,
   `detail-header.tsx` (+ `video-detail.tsx` prop threading), and
   `apps/download/src/components/admin/admin-actor.tsx` (⚠️ its `null` means _service_:
@@ -953,9 +992,12 @@ displayName })` — the username from the Discord requester pair, the display na
   column.
 
   jsdom tests: extend `activity-requester.spec.tsx` and `admin-actor.spec.tsx` with
-  the four states (web / linked-discord / unlinked-discord / masked), asserting the
-  mark is present only for unlinked-discord, **absent for masked**, and that
-  `admin-actor`'s service chip is untouched.
+  the states — web (no link), **web + linkedDiscord**, linked-discord,
+  unlinked-discord, masked — asserting E5's mark is present only for
+  unlinked-discord, **absent for masked**, that `linkedDiscord` renders its handle
+  without a popover trigger, and that `admin-actor`'s service chip is untouched.
+  ⚠️ A masked job renders **neither** identity — assert `linkedDiscord` is suppressed
+  by masking too, not just `discordRequester`.
 
 - [ ] **E4. Gallery + recent-card attribution.** (Droppable — see
       [Scope cuts](#scope-cuts-in-v1).) Extend the gallery grouped query
@@ -965,7 +1007,10 @@ displayName })` — the username from the Discord requester pair, the display na
       `apps/download/src/components/gallery/gallery-item-card.tsx` and
       `src/components/home/recent-card.tsx` with the same rule as E3, reusing **E5's
       `<DiscordIdentityMark>`** rather than a card-local variant (linked → resolved
-      identity; unlinked → username + the mark; masked → no mark at all). ⚠️ These
+      identity **plus its `linkedDiscord` handle if the card has room**; unlinked →
+      username + the mark; masked → neither identity, no mark at all). ⚠️ At ~158px a card
+      may not fit an email _and_ a handle — if it doesn't, drop the handle on this surface
+      and say so in your report rather than shrinking the type or truncating the email. ⚠️ These
       cards are ~158px wide and the popover is wider than its trigger — verify it is
       not clipped by the card's own overflow, and report it instead of restyling the
       card if it is. Tests: repo spec for the grouped selection, component specs for
@@ -1030,18 +1075,28 @@ displayName })` — the username from the Discord requester pair, the display na
   })
   ```
 
-  and use it for `createJob`; the poller's `getJob`/`cancelJob` can stay on the plain
-  client (reads and cancels don't attribute). `globalName` is the display name Discord
-  shows in most surfaces and is the field that makes an otherwise opaque handle
-  recognisable to the admin in B3's picker — it is nullable on the API, hence the
-  `?? undefined`. Update
-  `apps/tdr-bot/src/commands/__tests__/download-command.service.test.ts`: the
-  `dockerInstance` mock is a static object — add
-  `withDiscordIdentity: jest.fn().mockReturnThis()` (or return a nested mock) and
-  assert it is called with the interaction's id/username/globalName and that
-  `createJob` goes through the derived client. `createMockInteraction()` currently
-  builds `user: { id, username }` only, so add `globalName` there and cover the null
-  case.
+  and use it for `createJob` only.
+
+  > **Findings (2026-09-19, before execution):** this task was written against a
+  > version of `download-command.service.ts` that no longer exists. Plan 018 landed
+  > `6cc7cfe4`, which replaced the `checkJob` polling loop with a single
+  > `waitForJob(jobId, { signal })` await (now around `:225`). **Read the file as it
+  > is now.** What survives unchanged: `private client = DownloadClient.dockerInstance`
+  > is still a plain field at `:71` and is still what needs wrapping, and the test's
+  > `dockerInstance` mock is still a static object. What changed: there is no poller to
+  > leave on the plain client — `waitForJob` and `cancelJob` are the calls that stay
+  > unwrapped, because a wait and a cancel don't attribute anything. The test file was
+  > rewritten too and now mocks `waitForJob`. `globalName` is the display name Discord
+  > shows in most surfaces and is the field that makes an otherwise opaque handle
+  > recognisable to the admin in B3's picker — it is nullable on the API, hence the
+  > `?? undefined`. Update
+  > `apps/tdr-bot/src/commands/__tests__/download-command.service.test.ts`: the
+  > `dockerInstance` mock is a static object — add
+  > `withDiscordIdentity: jest.fn().mockReturnThis()` (or return a nested mock) and
+  > assert it is called with the interaction's id/username/globalName and that
+  > `createJob` goes through the derived client. `createMockInteraction()` currently
+  > builds `user: { id, username }` only, so add `globalName` there and cover the null
+  > case.
 
 - [ ] **F2. Docs.** Update `docs/features/download/spec.md`'s attribution sections
       (dual attribution model, origin `discord`, read-time link resolution, masking rule
@@ -1157,8 +1212,10 @@ slack in that wave.
 
 In order — the executor/orchestrator performs **none** of these:
 
-1. **HC1 (before Wave 1):** confirm [the two open decisions](#open-decisions-to-confirm)
-   — resolution location and reverse-display scope — or accept the recommendations.
+1. ✅ **HC1 (before Wave 1) — CLEARED 2026-09-19.** Resolution stays in
+   `apps/download` at read time; reverse display is **in scope**, overriding the
+   plan's original recommendation. See [Decisions confirmed](#decisions-confirmed).
+   Nothing further is needed here — Wave 1 may start.
 2. **HC2 (before prod deploy):** back up both SQLite files on the prod host —
    `/storage/app-data/download/download.db` (D1's migration **recreates the `jobs`
    table**) and auth's database file. Copies, not moves; verify sizes.
