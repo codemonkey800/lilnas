@@ -774,7 +774,7 @@ reject(signal.reason)))`; asserts `cancelJob('job-1')` was awaited, one follow-u
 
 ### Group C — verification
 
-- [ ] **C1. Integration checkpoint.** ⚠️ **Report, do not repair.** No files change.
+- [x] **C1. Integration checkpoint.** ✅ (report-only, no commit — verified 2026-09-20) ⚠️ **Report, do not repair.** No files change.
       From each of `packages/utils`, `apps/download`, `apps/tdr-bot`: `pnpm test`,
       `pnpm lint` (both checks), `pnpm type-check`. Then from the repo root: `pnpm run
 type-check` and `pnpm test`. Must see every prior commit in this plan.
@@ -788,6 +788,20 @@ exit gracefully"` warning; `Unknown option "testTimeout"` jest warnings. ❌ **D
 
   **Report:** each command's result, and an explicit statement that any failure is
   pre-existing, with the evidence.
+
+  **Result:** `packages/utils`, `apps/download`, `apps/tdr-bot` — test/lint/type-check
+  all green, including A1's `job-events.spec.ts`, A2's `waitForJob` describe block,
+  A3's `wait-for-job.interop.spec.ts`, and B1's 10 `awaitJob` tests. Repo-root
+  `pnpm test` fails only on the pre-declared `@lilnas/equations` and `@lilnas/tdr-code`
+  known-red suites. Repo-root `pnpm run type-check` fails only on `@lilnas/dashcam`
+  (and `@lilnas/swole` standalone) — not on the known-red list, but **not caused by
+  this effort either**: root cause is a stale pnpm virtual-store copy of
+  `@lilnas/utils` (missing `dist/`, only has `src/`) that those two packages resolve
+  against; `apps/download`/`apps/tdr-bot`/`apps/auth` resolve the real
+  `packages/utils` directory (current `dist/`) and pass clean. Other repo-root
+  "ELIFECYCLE" lines (`auth`, `download`, `utils`, `swole`) are turbo's fail-fast
+  task cancellation once a sibling task fails, not genuine failures — confirmed by
+  clean standalone reruns of each.
 
 - [ ] 🚧 **C2. Live verification — HUMAN CHECKPOINT.** Not an agent task. See
       [Human checkpoints](#human-checkpoints).
