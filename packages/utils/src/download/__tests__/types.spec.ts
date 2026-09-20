@@ -52,8 +52,10 @@ function buildJob(overrides: Partial<DownloadJob> = {}): DownloadJob {
   return {
     completedAt: overrides.completedAt ?? null,
     createdAt: overrides.createdAt ?? '2026-08-20T12:00:00.000Z',
+    discordRequester: overrides.discordRequester ?? null,
     hiddenAttribution: overrides.hiddenAttribution ?? false,
     id: overrides.id ?? 'job-1',
+    linkedDiscord: overrides.linkedDiscord ?? null,
     media: overrides.media ?? buildVideo(),
     requester: overrides.requester ?? null,
     status: overrides.status ?? DownloadJobStatus.Requested,

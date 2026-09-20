@@ -10,6 +10,8 @@ import {
   BadFileSchema,
   CreateDownloadJobInputSchema,
   DeleteMediaFilesQuerySchema,
+  DiscordIdentitySchema,
+  DiscordRequesterSchema,
   DiscoverQuerySchema,
   DownloadJobSchema,
   DownloadJobStatus,
@@ -95,6 +97,24 @@ export type TimeRange = z.infer<typeof TimeRangeSchema>
  * `apps/tdr-bot`'s `DownloadClient.dockerInstance` calls).
  */
 export type JobRequester = z.infer<typeof JobRequesterSchema>
+
+/**
+ * The Discord identity of whoever submitted a job over `apps/tdr-bot`'s
+ * `/download` command, threaded down from the
+ * `x-discord-user-id`/`x-discord-username` headers
+ * `DownloadClient.withDiscordIdentity()` sets. `null` on every job that did
+ * not arrive over Discord. Never carries the Discord display name - see
+ * {@link DiscordRequesterSchema}.
+ */
+export type DiscordRequester = z.infer<typeof DiscordRequesterSchema>
+
+/**
+ * A Discord account *linked to* a lilnas user (the link lives in
+ * `apps/auth`), resolved at read time onto `DownloadJob.linkedDiscord`.
+ * Deliberately a distinct type from {@link DiscordRequester} even though the
+ * two share a shape - see {@link DiscordIdentitySchema}.
+ */
+export type DiscordIdentity = z.infer<typeof DiscordIdentitySchema>
 
 /**
  * A snapshot of a movie/show job's last-known Radarr/Sonarr queue entry.

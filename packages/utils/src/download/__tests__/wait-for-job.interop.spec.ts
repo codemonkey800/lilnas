@@ -40,8 +40,10 @@ function buildJob(overrides: Partial<DownloadJob> = {}): DownloadJob {
   return {
     completedAt: null,
     createdAt: '2026-08-20T12:00:00.000Z',
+    discordRequester: null,
     hiddenAttribution: false,
     id: 'job-1',
+    linkedDiscord: null,
     media: VIDEO_MEDIA,
     requester: null,
     status: DownloadJobStatus.Completed,

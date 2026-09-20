@@ -32,8 +32,10 @@ function buildJob(media: Media, overrides: Partial<DownloadJob> = {}) {
   return {
     completedAt: null,
     createdAt: '2026-08-20T12:00:00.000Z',
+    discordRequester: null,
     hiddenAttribution: false,
     id: 'job-1',
+    linkedDiscord: null,
     media,
     requester: null,
     status: DownloadJobStatus.Completed,
@@ -178,6 +180,138 @@ describe('DownloadClient', () => {
           'x-forwarded-user-id': 'user_1',
         },
       })
+    })
+  })
+
+  describe('withDiscordIdentity', () => {
+    const DISCORD_IDENTITY = {
+      discordUserId: '123456789012345678',
+      discordUsername: 'alice.codes',
+    }
+
+    it('merges x-discord-user-id/x-discord-username into every request', async () => {
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
+      const client =
+        DownloadClient.localInstance.withDiscordIdentity(DISCORD_IDENTITY)
+
+      await client.getJob('1')
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/videos/1',
+        {
+          headers: {
+            ...JSON_HEADERS,
+            'x-discord-user-id': '123456789012345678',
+            'x-discord-username': 'alice.codes',
+          },
+        },
+      )
+    })
+
+    it('threads the Discord identity onto a POST request alongside its body', async () => {
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
+      const client =
+        DownloadClient.dockerInstance.withDiscordIdentity(DISCORD_IDENTITY)
+
+      await client.createJob({ url: 'https://example.com/video' })
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://download:8081/download/videos',
+        {
+          body: JSON.stringify({ url: 'https://example.com/video' }),
+          method: 'POST',
+          headers: {
+            ...JSON_HEADERS,
+            'x-discord-user-id': '123456789012345678',
+            'x-discord-username': 'alice.codes',
+          },
+        },
+      )
+    })
+
+    it('keeps the base URL of whichever factory it was derived from', async () => {
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
+
+      await DownloadClient.browserInstance
+        .withDiscordIdentity(DISCORD_IDENTITY)
+        .getJob('1')
+
+      expect(fetchSpy).toHaveBeenCalledWith('/api/download/videos/1', {
+        headers: {
+          ...JSON_HEADERS,
+          'x-discord-user-id': '123456789012345678',
+          'x-discord-username': 'alice.codes',
+        },
+      })
+    })
+
+    it('sends x-discord-display-name when a display name is supplied', async () => {
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
+
+      await DownloadClient.localInstance
+        .withDiscordIdentity({ ...DISCORD_IDENTITY, displayName: 'Alice' })
+        .getJob('1')
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/videos/1',
+        {
+          headers: {
+            ...JSON_HEADERS,
+            'x-discord-display-name': 'Alice',
+            'x-discord-user-id': '123456789012345678',
+            'x-discord-username': 'alice.codes',
+          },
+        },
+      )
+    })
+
+    // Omitted rather than sent blank: the header exists only to make auth's
+    // linking roster legible, so an absent/empty globalName has nothing to
+    // say.
+    it.each([
+      ['omitted', undefined],
+      ['null', null],
+      ['empty', ''],
+    ])(
+      'omits x-discord-display-name entirely when the display name is %s',
+      async (_label, displayName) => {
+        const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
+
+        await DownloadClient.localInstance
+          .withDiscordIdentity({ ...DISCORD_IDENTITY, displayName })
+          .getJob('1')
+
+        const headers = (fetchSpy.mock.calls[0][1] as RequestInit)
+          .headers as Record<string, string>
+
+        expect(headers).not.toHaveProperty('x-discord-display-name')
+        expect(headers['x-discord-user-id']).toBe('123456789012345678')
+      },
+    )
+
+    // Composability: the Discord headers are layered on top of whatever the
+    // client already carried, so a web caller that also knows the Discord
+    // handle can send both identities on one request.
+    it('carries forwarded identity headers through when composed after withForwardedIdentity', async () => {
+      const fetchSpy = mockFetchJson(buildJob(VIDEO_MEDIA))
+
+      await DownloadClient.localInstance
+        .withForwardedIdentity({ email: 'alice@example.com', userId: 'user_1' })
+        .withDiscordIdentity(DISCORD_IDENTITY)
+        .getJob('1')
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/videos/1',
+        {
+          headers: {
+            ...JSON_HEADERS,
+            'x-discord-user-id': '123456789012345678',
+            'x-discord-username': 'alice.codes',
+            'x-forwarded-user': 'alice@example.com',
+            'x-forwarded-user-id': 'user_1',
+          },
+        },
+      )
     })
   })
 

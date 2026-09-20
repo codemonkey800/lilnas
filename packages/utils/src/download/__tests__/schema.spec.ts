@@ -6,6 +6,8 @@ import {
   AuditLogQuerySchema,
   BadFileSchema,
   DeleteMediaFilesQuerySchema,
+  DiscordIdentitySchema,
+  DiscordRequesterSchema,
   DiscoverQuerySchema,
   DownloadJobSchema,
   DownloadJobStatus,
@@ -373,8 +375,10 @@ describe('DownloadJobSchema', () => {
   const baseJob = {
     completedAt: null,
     createdAt: '2026-08-20T12:00:00.000Z',
+    discordRequester: null,
     hiddenAttribution: false,
     id: 'job-1',
+    linkedDiscord: null,
     requester: null,
     status: DownloadJobStatus.Requested,
     updatedAt: '2026-08-20T12:00:00.000Z',
@@ -411,12 +415,146 @@ describe('DownloadJobSchema', () => {
       userId: 'u1',
     })
   })
+
+  it('accepts a non-null discordRequester', () => {
+    const result = DownloadJobSchema.parse({
+      ...baseJob,
+      discordRequester: {
+        discordUserId: '123456789012345678',
+        discordUsername: 'alice.codes',
+      },
+      media: validVideo,
+    })
+
+    expect(result.discordRequester).toEqual({
+      discordUserId: '123456789012345678',
+      discordUsername: 'alice.codes',
+    })
+  })
+
+  it('accepts a non-null linkedDiscord', () => {
+    const result = DownloadJobSchema.parse({
+      ...baseJob,
+      linkedDiscord: {
+        discordUserId: '123456789012345678',
+        discordUsername: 'alice.codes',
+      },
+      media: validVideo,
+    })
+
+    expect(result.linkedDiscord).toEqual({
+      discordUserId: '123456789012345678',
+      discordUsername: 'alice.codes',
+    })
+  })
+
+  // The two fields mean different things - "submitted from this Discord
+  // account" versus "this requester is linked to that account" - so a web
+  // job with a linked account must keep `discordRequester` null rather than
+  // borrow the linked handle.
+  it('keeps discordRequester and linkedDiscord independent of each other', () => {
+    const result = DownloadJobSchema.parse({
+      ...baseJob,
+      linkedDiscord: {
+        discordUserId: '987654321098765432',
+        discordUsername: 'bob.builds',
+      },
+      media: validVideo,
+      requester: { email: 'bob@example.com', userId: 'u2' },
+    })
+
+    expect(result.discordRequester).toBeNull()
+    expect(result.linkedDiscord).toEqual({
+      discordUserId: '987654321098765432',
+      discordUsername: 'bob.builds',
+    })
+  })
+
+  // Nullable, not optional: a serializer that forgot the field is a bug, not
+  // a job without a Discord identity.
+  it.each(['discordRequester', 'linkedDiscord'])(
+    'rejects an omitted (rather than null) %s',
+    field => {
+      expect(
+        DownloadJobSchema.safeParse(
+          without({ ...baseJob, media: validVideo }, field),
+        ).success,
+      ).toBe(false)
+    },
+  )
+
+  // A snowflake exceeds Number.MAX_SAFE_INTEGER, so both fields hold it as a
+  // string and refuse a number rather than coerce one.
+  it.each(['discordRequester', 'linkedDiscord'])(
+    'rejects a numeric discordUserId on %s',
+    field => {
+      expect(
+        DownloadJobSchema.safeParse({
+          ...baseJob,
+          [field]: {
+            discordUserId: 12345,
+            discordUsername: 'alice.codes',
+          },
+          media: validVideo,
+        }).success,
+      ).toBe(false)
+    },
+  )
+})
+
+describe('DiscordRequesterSchema / DiscordIdentitySchema', () => {
+  const identity = {
+    discordUserId: '123456789012345678',
+    discordUsername: 'alice.codes',
+  }
+
+  it('DiscordRequesterSchema round-trips a Discord identity', () => {
+    expect(DiscordRequesterSchema.parse(identity)).toEqual(identity)
+  })
+
+  // Structurally identical to DiscordRequesterSchema on purpose - the two
+  // are separate because they mean different things, not different shapes.
+  it('DiscordIdentitySchema round-trips the same shape', () => {
+    expect(DiscordIdentitySchema.parse(identity)).toEqual(identity)
+  })
+
+  // A snowflake exceeds Number.MAX_SAFE_INTEGER, so a number would silently
+  // round it - the schema refuses one rather than coerce.
+  it('rejects a numeric discordUserId', () => {
+    expect(
+      DiscordRequesterSchema.safeParse({ ...identity, discordUserId: 12345 })
+        .success,
+    ).toBe(false)
+    expect(
+      DiscordIdentitySchema.safeParse({ ...identity, discordUserId: 12345 })
+        .success,
+    ).toBe(false)
+  })
+
+  it.each(['discordUserId', 'discordUsername'])(
+    'rejects an identity missing %s',
+    field => {
+      expect(
+        DiscordRequesterSchema.safeParse(without(identity, field)).success,
+      ).toBe(false)
+    },
+  )
+
+  // The display name rides the `x-discord-display-name` header only - it is
+  // deliberately not part of the persisted identity, so an unknown key is
+  // stripped rather than carried onto a job row.
+  it('strips a displayName rather than carrying it onto the identity', () => {
+    expect(
+      DiscordRequesterSchema.parse({ ...identity, displayName: 'Alice' }),
+    ).toEqual(identity)
+  })
 })
 
 describe('GalleryItemSchema', () => {
   it('parses a valid gallery item', () => {
     const result = GalleryItemSchema.safeParse({
       downloadCount: 2,
+      lastDiscordRequester: null,
       lastDownloadedAt: '2026-08-20T12:00:00.000Z',
       lastRequester: null,
       media: validMovie,
@@ -428,6 +566,36 @@ describe('GalleryItemSchema', () => {
     expect(
       GalleryItemSchema.safeParse({
         downloadCount: 1.5,
+        lastDiscordRequester: null,
+        lastDownloadedAt: '2026-08-20T12:00:00.000Z',
+        lastRequester: null,
+        media: validMovie,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('accepts a non-null lastDiscordRequester', () => {
+    const result = GalleryItemSchema.parse({
+      downloadCount: 2,
+      lastDiscordRequester: {
+        discordUserId: '123456789012345678',
+        discordUsername: 'alice.codes',
+      },
+      lastDownloadedAt: '2026-08-20T12:00:00.000Z',
+      lastRequester: null,
+      media: validMovie,
+    })
+
+    expect(result.lastDiscordRequester).toEqual({
+      discordUserId: '123456789012345678',
+      discordUsername: 'alice.codes',
+    })
+  })
+
+  it('rejects an omitted (rather than null) lastDiscordRequester', () => {
+    expect(
+      GalleryItemSchema.safeParse({
+        downloadCount: 2,
         lastDownloadedAt: '2026-08-20T12:00:00.000Z',
         lastRequester: null,
         media: validMovie,
@@ -719,8 +887,10 @@ describe('DownloadJobSchema with a scope', () => {
   const baseJob = {
     completedAt: null,
     createdAt: '2026-08-20T12:00:00.000Z',
+    discordRequester: null,
     hiddenAttribution: false,
     id: 'job-1',
+    linkedDiscord: null,
     media: validShow,
     requester: null,
     status: DownloadJobStatus.Requested,
@@ -1087,6 +1257,7 @@ describe('AuditLogEntrySchema', () => {
     action: 'video.create',
     actor: { email: 'alice@example.com', userId: 'u1' },
     createdAt: '2026-08-20T12:00:00.000Z',
+    discordActor: null,
     id: 1,
     metadata: { url: 'https://example.com/watch?v=abc' },
     origin: 'web',
@@ -1132,7 +1303,7 @@ describe('AuditLogEntrySchema', () => {
 
   // Nullable, not optional: these are DB columns, and a missing key would
   // mean the serializer forgot one rather than that the column was empty.
-  it.each(['actor', 'metadata', 'targetId', 'targetType'])(
+  it.each(['actor', 'discordActor', 'metadata', 'targetId', 'targetType'])(
     'rejects an omitted (rather than null) %s',
     field => {
       expect(
@@ -1178,6 +1349,28 @@ describe('AuditLogEntrySchema', () => {
       ).toBe(false)
     },
   )
+
+  it.each(['service', 'web', 'discord'])('accepts the origin %s', origin => {
+    expect(
+      AuditLogEntrySchema.safeParse({ ...validEntry, origin }).success,
+    ).toBe(true)
+  })
+
+  // A Discord-submitted action has no forwarded identity at all, so `actor`
+  // stays null while `discordActor` carries who ran the command.
+  it('parses a discord row with a discordActor and no actor', () => {
+    const discordEntry = {
+      ...validEntry,
+      actor: null,
+      discordActor: {
+        discordUserId: '123456789012345678',
+        discordUsername: 'alice.codes',
+      },
+      origin: 'discord',
+    }
+
+    expect(AuditLogEntrySchema.parse(discordEntry)).toEqual(discordEntry)
+  })
 
   it('rejects an unknown origin', () => {
     expect(

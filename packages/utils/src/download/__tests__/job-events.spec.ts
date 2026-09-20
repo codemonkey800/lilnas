@@ -20,8 +20,10 @@ function buildVideoJob(overrides: Partial<DownloadJob> = {}): DownloadJob {
   return {
     completedAt: null,
     createdAt: NOW_ISO,
+    discordRequester: null,
     hiddenAttribution: false,
     id: 'video-1',
+    linkedDiscord: null,
     media: {
       id: 'video:v1',
       sourceUrl: 'https://example.com/video',

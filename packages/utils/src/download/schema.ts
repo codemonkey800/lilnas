@@ -67,6 +67,42 @@ export const JobRequesterSchema = z.object({
   userId: z.string(),
 })
 
+/**
+ * The Discord identity of whoever asked for a job, threaded down from the
+ * `x-discord-user-id`/`x-discord-username` headers set by `apps/tdr-bot` on
+ * its `/download` command (see `DownloadClient.withDiscordIdentity`).
+ * `null`/absent means the job did not arrive over Discord at all - a browser
+ * request, or a service caller with no Discord identity to declare.
+ *
+ * `discordUserId` is a snowflake and therefore always a `string`: it exceeds
+ * `Number.MAX_SAFE_INTEGER`, so a `number` would silently round it.
+ * `discordUsername` is the post-2023 handle (2-32 chars of `a-z0-9._`),
+ * never the display name - that rides the separate, optional
+ * `x-discord-display-name` header, which exists only to make `apps/auth`'s
+ * linking roster legible and deliberately never reaches a job row.
+ */
+export const DiscordRequesterSchema = z.object({
+  discordUserId: z.string(),
+  discordUsername: z.string(),
+})
+
+/**
+ * A Discord account *linked to* a lilnas user - the link is owned by
+ * `apps/auth` and resolved at read time by `apps/download`, so linking
+ * retroactively unifies a person's whole history.
+ *
+ * Structurally identical to {@link DiscordRequesterSchema} and deliberately
+ * kept separate rather than merged: this one answers "which Discord account
+ * belongs to this job's `requester`", while `DiscordRequesterSchema` answers
+ * "which Discord account submitted this job". Collapsing the two would make
+ * a web job indistinguishable from a Discord-submitted one at the type
+ * level, leaving every consumer to remember to consult `origin` instead.
+ */
+export const DiscordIdentitySchema = z.object({
+  discordUserId: z.string(),
+  discordUsername: z.string(),
+})
+
 export const CreateDownloadJobInputSchema = z.object({
   // Deliberately `.optional()` with NO `.default(false)`: this schema is
   // consumed via `z.infer<>` (the *output* type) for
@@ -232,9 +268,21 @@ export const ShowScopeSchema = z.object({
 export const DownloadJobSchema = z.object({
   completedAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
+  /**
+   * Who submitted this job over Discord - populated for `origin: 'discord'`
+   * rows only, and `null` for every other job.
+   */
+  discordRequester: DiscordRequesterSchema.nullable(),
   error: z.string().optional(),
   hiddenAttribution: z.boolean(),
   id: z.string(),
+  /**
+   * The Discord account linked to `requester`, whoever submitted the job -
+   * resolved at read time, not persisted. A separate field from
+   * `discordRequester`; see {@link DiscordIdentitySchema} for why the two
+   * are never merged.
+   */
+  linkedDiscord: DiscordIdentitySchema.nullable(),
   media: MediaSchema,
   requester: JobRequesterSchema.nullable(),
   /** Phase 4. Absent = the whole series (and always absent for a movie). */
@@ -245,6 +293,11 @@ export const DownloadJobSchema = z.object({
 
 export const GalleryItemSchema = z.object({
   downloadCount: z.number().int(),
+  /**
+   * The Discord identity that submitted the last download, when it came in
+   * over Discord; `null` otherwise. Masked alongside `lastRequester`.
+   */
+  lastDiscordRequester: DiscordRequesterSchema.nullable(),
   lastDownloadedAt: z.iso.datetime(),
   /** Masked per the attribution-oracle rules — see `attribution.ts`. */
   lastRequester: JobRequesterSchema.nullable(),
@@ -678,7 +731,9 @@ export const AUDIT_TARGET_TYPES = ['job', 'media'] as const
  * same meaning `DownloadJobSchema.requester` gives it, and the reason
  * `origin` exists alongside it: `'service'` says the null is expected
  * (tdr-bot, the yt-dlp updater), `'web'` says a browser request somehow
- * arrived without `X-Forwarded-User`.
+ * arrived without `X-Forwarded-User`, and `'discord'` says the action came
+ * in over `apps/tdr-bot`'s `/download` command - in which case `actor` may
+ * still be `null` while `discordActor` carries the identity.
  *
  * `metadata` is deliberately untyped (`Record<string, unknown>`) - it is
  * per-action detail rendered as key/value pairs, never branched on. Typing
@@ -689,9 +744,11 @@ export const AuditLogEntrySchema = z.object({
   action: z.enum(AUDIT_ACTIONS),
   actor: JobRequesterSchema.nullable(),
   createdAt: z.iso.datetime(),
+  /** The Discord identity behind an `origin: 'discord'` row; `null` otherwise. */
+  discordActor: DiscordRequesterSchema.nullable(),
   id: z.number().int(),
   metadata: z.record(z.string(), z.unknown()).nullable(),
-  origin: z.enum(['service', 'web']),
+  origin: z.enum(['service', 'web', 'discord']),
   targetId: z.string().nullable(),
   targetType: z.enum(AUDIT_TARGET_TYPES).nullable(),
 })

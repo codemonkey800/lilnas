@@ -183,6 +183,40 @@ export class DownloadClient {
   }
 
   /**
+   * The Discord counterpart of {@link withForwardedIdentity}: a new client
+   * that stamps `x-discord-user-id`/`x-discord-username` onto every request,
+   * for `apps/tdr-bot`, which knows exactly who ran its `/download` command
+   * but has no Traefik ForwardAuth hop to turn that into an
+   * `X-Forwarded-User`. The backend persists them as the job's
+   * `discordRequester`, with `origin: 'discord'`.
+   *
+   * `displayName` (Discord's `globalName`) is sent as
+   * `x-discord-display-name` **only when one was supplied** - an absent,
+   * `null`, or empty value omits the header rather than sending a blank. It
+   * is deliberately not part of `DiscordRequesterSchema` and never reaches a
+   * job row: it exists solely to make `apps/auth`'s linking roster legible
+   * to the admin doing the linking, so it stops at the registration call.
+   *
+   * Composable: existing headers are carried over, so
+   * `withForwardedIdentity(...).withDiscordIdentity(...)` sends both
+   * identities.
+   */
+  withDiscordIdentity(identity: {
+    discordUserId: string
+    discordUsername: string
+    displayName?: string | null
+  }): DownloadClient {
+    return new DownloadClient(this.baseUrl, {
+      ...this.forwardedHeaders,
+      'x-discord-user-id': identity.discordUserId,
+      'x-discord-username': identity.discordUsername,
+      ...(identity.displayName
+        ? { 'x-discord-display-name': identity.displayName }
+        : {}),
+    })
+  }
+
+  /**
    * The one place every method's `fetch` goes through, so the `response.ok`
    * check below covers all of them at once - no caller ever reaches `.json()`
    * on an error body.
